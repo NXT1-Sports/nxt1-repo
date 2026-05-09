@@ -1477,16 +1477,24 @@ export class AgentXOperationsLogComponent {
     this.operationEventService.operationStatusUpdated$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((evt) => {
+        const enqueueWaitingActive = !!this.operationEventService.getEnqueueWaitingEntry(
+          evt.threadId
+        );
+        const effectiveStatus: OperationLogStatus =
+          enqueueWaitingActive && evt.status === 'complete' ? 'in-progress' : evt.status;
+
         this.logger.info('Real-time operation status update', {
           threadId: evt.threadId,
-          status: evt.status,
+          status: effectiveStatus,
+          rawStatus: evt.status,
+          enqueueWaitingActive,
         });
-        if (evt.source === 'enqueue') {
+        if (evt.source === 'enqueue' || enqueueWaitingActive) {
           this.scheduleEnqueueHydrationRefresh(evt.threadId);
         }
         this.breadcrumb.trackStateChange('operations-log:status-updated', {
           threadId: evt.threadId,
-          status: evt.status,
+          status: effectiveStatus,
         });
         this._operations.update((ops) => {
           const idx = ops.findIndex((op) => op.threadId === evt.threadId);
@@ -1494,7 +1502,7 @@ export class AgentXOperationsLogComponent {
             const prior = ops[idx];
             if (!prior) return ops;
 
-            if (prior.status === evt.status) {
+            if (prior.status === effectiveStatus) {
               return ops;
             }
             // Update existing entry's status in place
@@ -1502,7 +1510,7 @@ export class AgentXOperationsLogComponent {
               op.threadId === evt.threadId
                 ? {
                     ...op,
-                    status: evt.status,
+                    status: effectiveStatus,
                   }
                 : op
             );
@@ -1520,7 +1528,7 @@ export class AgentXOperationsLogComponent {
               title:
                 evt.title?.trim() || this._sseGeneratedTitles.get(evt.threadId) || 'Processing…',
               summary: '',
-              status: evt.status,
+              status: effectiveStatus,
               category: 'system',
               timestamp: evt.timestamp,
               threadId: evt.threadId,
@@ -1535,7 +1543,7 @@ export class AgentXOperationsLogComponent {
             id: evt.threadId,
             title: 'Processing…',
             summary: '',
-            status: evt.status,
+            status: effectiveStatus,
             category: 'system',
             timestamp: evt.timestamp,
             threadId: evt.threadId,
@@ -1546,7 +1554,7 @@ export class AgentXOperationsLogComponent {
 
         // Mark as unread when an operation completes during this session
         // so the green "needs review" border only appears for fresh completions.
-        if (evt.status === 'complete') {
+        if (effectiveStatus === 'complete') {
           this._unreadThreadIds.update((set) => {
             const next = new Set(set);
             next.add(evt.threadId);
@@ -1557,8 +1565,10 @@ export class AgentXOperationsLogComponent {
         // Cache confirmed terminal statuses so silentRefresh() can re-apply
         // them when a stale HTTP response races with a just-fired `done` event.
         const terminalLogStatuses = new Set<OperationLogStatus>(['complete', 'error', 'cancelled']);
-        if (terminalLogStatuses.has(evt.status)) {
-          this._confirmedTerminalStatuses.set(evt.threadId, evt.status);
+        if (terminalLogStatuses.has(effectiveStatus)) {
+          this._confirmedTerminalStatuses.set(evt.threadId, effectiveStatus);
+        } else {
+          this._confirmedTerminalStatuses.delete(evt.threadId);
         }
       });
   }

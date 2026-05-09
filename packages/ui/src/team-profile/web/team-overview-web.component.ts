@@ -24,6 +24,38 @@ import { TeamProfileService } from '../team-profile.service';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
+function normalizeConnectedPlatform(platform: string): string {
+  const normalized = platform.trim().toLowerCase();
+  return normalized === 'x' ? 'twitter' : normalized;
+}
+
+function normalizeConnectedUrl(profileUrl: string): string {
+  const raw = profileUrl.trim();
+  if (!raw) return '';
+
+  try {
+    const parsed = new URL(raw);
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+    const canonicalHost = host === 'twitter.com' ? 'x.com' : host;
+    const pathname = parsed.pathname.replace(/\/+$/, '').toLowerCase();
+    return `${canonicalHost}${pathname}`;
+  } catch {
+    return raw.replace(/\/+$/, '').toLowerCase();
+  }
+}
+
+function connectedAccountDedupKey(options: {
+  readonly platform: string;
+  readonly profileUrl: string;
+  readonly scopeType?: string;
+  readonly scopeId?: string;
+}): string {
+  return (
+    `${normalizeConnectedPlatform(options.platform)}|${options.scopeType ?? 'global'}|` +
+    `${options.scopeId ?? ''}|${normalizeConnectedUrl(options.profileUrl)}`
+  );
+}
+
 @Component({
   selector: 'nxt1-team-overview-web',
   standalone: true,
@@ -767,19 +799,41 @@ export class TeamOverviewWebComponent {
       const connectedSources = this.teamProfile.team()?.connectedSources;
       if (!connectedSources?.length) return [];
       const def = { label: '', icon: 'link', color: 'currentColor', handlePrefix: '' };
+      const seen = new Set<string>();
       return connectedSources
         .slice()
+        .filter(
+          (source) => source.platform.toLowerCase() !== 'manual' && !!source.profileUrl?.trim()
+        )
         .sort((a, b) => (a.displayOrder ?? 99) - (b.displayOrder ?? 99))
+        .filter((source) => {
+          const key = connectedAccountDedupKey({
+            platform: source.platform,
+            profileUrl: source.profileUrl,
+            scopeType: source.scopeType,
+            scopeId: source.scopeId,
+          });
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
         .slice(0, 8)
         .map((source, index) => {
-          const meta = TeamOverviewWebComponent.PLATFORM_META[source.platform.toLowerCase()] ?? def;
+          const platform = normalizeConnectedPlatform(source.platform);
+          const meta = TeamOverviewWebComponent.PLATFORM_META[platform] ?? def;
           return {
-            key: `${source.platform}-${source.scopeType ?? 'global'}-${source.scopeId ?? index}`,
+            key:
+              connectedAccountDedupKey({
+                platform,
+                profileUrl: source.profileUrl,
+                scopeType: source.scopeType,
+                scopeId: source.scopeId,
+              }) || `${platform}-${source.scopeType ?? 'global'}-${source.scopeId ?? index}`,
             label: meta.label || source.platform,
             icon: meta.icon,
             color: meta.color,
             url: source.profileUrl,
-            faviconUrl: getPlatformFaviconUrl(source.platform.toLowerCase()),
+            faviconUrl: getPlatformFaviconUrl(platform),
           };
         });
     }

@@ -18,14 +18,14 @@ import { assertCanMutateOwnSports } from '../../services/profile/profile-sport-g
 import { createRosterEntryService } from '../../services/team/roster-entry.service.js';
 import { enqueueLinkedAccountScrape } from '../../modules/agent/services/agent-scrape.service.js';
 import * as teamCodeService from '../../services/team/team-code.service.js';
-import { mergeConnectedSources } from '@nxt1/core/profile';
+import { mergeConnectedSources, normalizeConnectedPlatform } from '@nxt1/core/profile';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { validationError, notFoundError, forbiddenError } from '@nxt1/core/errors';
 import type { ConnectedSource, SportProfile, UserRole } from '@nxt1/core';
 import type { UpdateSportProfileRequest } from '@nxt1/core';
 import type { TeamSelectionFormData } from '@nxt1/core/api';
 import { RosterEntryStatus } from '@nxt1/core/models';
-import { isTeamRole, PROFILE_UI_CONFIG } from '@nxt1/core';
+import { isTeamRole, PROFILE_UI_CONFIG, normalizeSportKey } from '@nxt1/core';
 import { CLOUDFLARE_API_BASE_URL } from '../core/upload/shared.js';
 import {
   USERS_COLLECTION,
@@ -58,7 +58,7 @@ function normalizeIncomingConnectedSources(value: unknown): ConnectedSource[] {
         typeof entry.profileUrl === 'string'
     )
     .map((entry) => ({
-      platform: entry.platform.trim().toLowerCase(),
+      platform: normalizeConnectedPlatform(entry.platform),
       profileUrl: entry.profileUrl.trim(),
       scopeType: entry.scopeType,
       scopeId:
@@ -76,7 +76,11 @@ async function enqueueAddSportScrape(options: {
   readonly teamId?: string;
   readonly organizationId?: string;
   readonly environment: 'staging' | 'production';
-}): Promise<{ readonly scrapeJobId?: string; readonly scrapeThreadId?: string }> {
+}): Promise<{
+  readonly scrapeJobId?: string;
+  readonly scrapeJobIds?: readonly string[];
+  readonly scrapeThreadId?: string;
+}> {
   if (options.linkedAccounts.length === 0) {
     return {};
   }
@@ -98,8 +102,9 @@ async function enqueueAddSportScrape(options: {
       options.environment
     );
 
+    const operationIds = scrapeResult?.operationIds ?? [];
     return {
-      ...(scrapeResult?.operationId ? { scrapeJobId: scrapeResult.operationId } : {}),
+      ...(operationIds[0] ? { scrapeJobId: operationIds[0], scrapeJobIds: operationIds } : {}),
       ...(scrapeResult?.threadId ? { scrapeThreadId: scrapeResult.threadId } : {}),
     };
   } catch (err) {
@@ -477,6 +482,14 @@ router.post(
 
     const userRole = currentData['role'] as string | undefined;
     const isTeamRoleUser = userRole === 'coach' || userRole === 'director';
+    const defaultSportScopeId = normalizeSportKey(newSport.sport as string) || undefined;
+    const scopedIncomingConnectedSources = isTeamRoleUser
+      ? incomingConnectedSources.map((source) => ({
+          ...source,
+          scopeType: source.scopeType ?? ('sport' as const),
+          scopeId: source.scopeId ?? defaultSportScopeId,
+        }))
+      : incomingConnectedSources;
     const managedRole: ManagedUserRole =
       userRole === 'coach' || userRole === 'director' ? userRole : 'athlete';
     const teamSelection =
@@ -570,7 +583,7 @@ router.post(
 
     if (isTeamRoleUser) {
       if (teamSelection) {
-        if (incomingConnectedSources.length > 0 && provisionedTeamIds.length > 0) {
+        if (scopedIncomingConnectedSources.length > 0 && provisionedTeamIds.length > 0) {
           await Promise.all(
             provisionedTeamIds.map(async (teamId) => {
               const teamRef = db.collection('Teams').doc(teamId);
@@ -579,7 +592,10 @@ router.post(
                 teamDoc.data()?.['connectedSources']
               );
               await teamRef.update({
-                connectedSources: mergeConnectedSources(existingSources, incomingConnectedSources),
+                connectedSources: mergeConnectedSources(
+                  existingSources,
+                  scopedIncomingConnectedSources
+                ),
                 updatedAt: FieldValue.serverTimestamp(),
               });
             })
@@ -609,7 +625,7 @@ router.post(
           userId,
           role: ((currentData['role'] as string | undefined) ?? 'athlete') as UserRole,
           sport: newSport.sport as string,
-          linkedAccounts: incomingConnectedSources,
+          linkedAccounts: scopedIncomingConnectedSources,
           teamId: provisionedTeamIds[0] ?? provisionedTeam?.teamId,
           organizationId: provisionedTeam?.organizationId,
           environment: agentEnv,
@@ -823,14 +839,17 @@ router.post(
           sport: newSport.sport,
         });
 
-        if (incomingConnectedSources.length > 0 && team.id) {
+        if (scopedIncomingConnectedSources.length > 0 && team.id) {
           const teamRef = db.collection('Teams').doc(team.id);
           const teamDoc = await teamRef.get();
           const existingSources = normalizeIncomingConnectedSources(
             teamDoc.data()?.['connectedSources']
           );
           await teamRef.update({
-            connectedSources: mergeConnectedSources(existingSources, incomingConnectedSources),
+            connectedSources: mergeConnectedSources(
+              existingSources,
+              scopedIncomingConnectedSources
+            ),
             updatedAt: FieldValue.serverTimestamp(),
           });
         }
@@ -849,7 +868,7 @@ router.post(
           userId,
           role: ((currentData['role'] as string | undefined) ?? 'athlete') as UserRole,
           sport: newSport.sport as string,
-          linkedAccounts: incomingConnectedSources,
+          linkedAccounts: scopedIncomingConnectedSources,
           teamId: team.id,
           organizationId: inheritedOrgId || undefined,
           environment: agentEnv,

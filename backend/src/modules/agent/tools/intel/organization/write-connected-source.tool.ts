@@ -27,6 +27,7 @@
 
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { isTeamRole } from '@nxt1/core';
+import { normalizeConnectedPlatform, normalizeConnectedProfileUrl } from '@nxt1/core/profile';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import { FAVICON_REGISTRY } from '../../favicon-registry.js';
 import { logger } from '../../../../../utils/logger.js';
@@ -110,13 +111,17 @@ export class WriteConnectedSourceTool extends BaseTool {
       return { success: false, error: `"${url}" is not a valid URL.` };
     }
 
-    const platform = parsed.data.platform.toLowerCase();
+    const platform = normalizeConnectedPlatform(parsed.data.platform);
     const scopeId = parsed.data.scopeId ?? null;
     const explicitFaviconUrl = parsed.data.faviconUrl ?? null;
     const explicitTeamId = parsed.data.teamId ?? null;
 
     // ── Resolve favicon URL ─────────────────────────────────────────────
-    const faviconUrl = explicitFaviconUrl ?? FAVICON_REGISTRY[platform]?.faviconUrl ?? undefined;
+    const faviconUrl =
+      explicitFaviconUrl ??
+      FAVICON_REGISTRY[platform]?.faviconUrl ??
+      FAVICON_REGISTRY['x']?.faviconUrl ??
+      FAVICON_REGISTRY['twitter']?.faviconUrl;
 
     // ── Load user document ──────────────────────────────────────────────
     let userData: Record<string, unknown>;
@@ -359,17 +364,32 @@ export class WriteConnectedSourceTool extends BaseTool {
     faviconUrl?: string
   ): Record<string, unknown>[] {
     const updated = [...existing];
-    const matchIndex = updated.findIndex(
-      (cs) => cs['platform'] === platform && cs['scopeId'] === scopeId
-    );
+    const normalizedPlatform = normalizeConnectedPlatform(platform);
+    const normalizedProfileUrl = normalizeConnectedProfileUrl(profileUrl);
+    const matchIndex = updated.findIndex((cs) => {
+      const existingPlatform =
+        typeof cs['platform'] === 'string' ? normalizeConnectedPlatform(cs['platform']) : '';
+      const existingScopeId = typeof cs['scopeId'] === 'string' ? cs['scopeId'] : '';
+      const existingProfileUrl =
+        typeof cs['profileUrl'] === 'string' ? normalizeConnectedProfileUrl(cs['profileUrl']) : '';
+
+      const samePlatform = existingPlatform === normalizedPlatform;
+      const sameScope = existingScopeId === scopeId;
+      // Legacy compatibility: if an older record was saved as global scope,
+      // treat exact same URL as the same logical source and upgrade in place.
+      const sameUrl = existingProfileUrl !== '' && existingProfileUrl === normalizedProfileUrl;
+
+      return samePlatform && (sameScope || sameUrl);
+    });
     const record: Record<string, unknown> = {
-      platform,
+      platform: normalizedPlatform,
       profileUrl,
-      lastSyncedAt,
-      syncStatus: 'pending',
+      syncStatus: 'idle',
       scopeType: 'sport',
       scopeId,
       ...(faviconUrl && { faviconUrl }),
+      // Preserve lastSyncedAt only if we are overwriting an existing synced entry.
+      ...(matchIndex >= 0 && updated[matchIndex]['lastSyncedAt'] ? { lastSyncedAt } : {}),
     };
     if (matchIndex >= 0) {
       updated[matchIndex] = { ...updated[matchIndex], ...record };

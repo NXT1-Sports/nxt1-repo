@@ -29,6 +29,9 @@ export interface MutationPolicy {
    * Special value `"__schedule_owner"` reads `ownerType` (`'user'`|`'team'`) and
    * `ownerId` from the document: for `'user'` it matches `ownerId === scope.userId`
    * directly; for `'team'` it fetches `Teams/{ownerId}.ownerId` and matches that.
+   * Special value `"__team_admin_or_owner"` means the parent team document
+   * (resolved from `teamId`) may be mutated by owner/admin/coach-style manager
+   * roles using the shared team-intel permission model.
    */
   readonly ownershipPath: string;
   /**
@@ -213,6 +216,27 @@ const POLICIES: readonly MutationPolicy[] = [
       'location',
       'type',
       'isPublic',
+    ],
+  },
+  {
+    collection: 'TeamPlaybooks',
+    allowedOperations: ['set', 'update', 'delete'],
+    ownershipPath: '__team_admin_or_owner',
+    softDelete: false,
+    allowedPatchFields: [
+      'title',
+      'season',
+      'format',
+      'coach',
+      'playsheetUrl',
+      'offensivePlays',
+      'defensiveSchemes',
+      'coachingPoints',
+      'playSelectionGuide',
+      'tournamentAdjustments',
+      'updatedAt',
+      'tags',
+      'notes',
     ],
   },
 ] as const;

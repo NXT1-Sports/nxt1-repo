@@ -436,22 +436,31 @@ export class AddSportService {
       // Refresh the auth user signal so sidebar/header reflect new sport immediately
       await this.authFlow.refreshUserProfile();
 
-      if (sportResponse.data?.scrapeJobId) {
+      const allScrapeJobIds =
+        sportResponse.data?.scrapeJobIds ??
+        (sportResponse.data?.scrapeJobId ? [sportResponse.data.scrapeJobId] : []);
+      if (allScrapeJobIds.length > 0) {
         const platformNames =
           this._linkSourcesFormData()
             ?.links?.filter((link) => link.connected)
             .map((link) => link.platform)
             .join(', ') ?? '';
 
+        // Primary job: starts the banner + opens the SSE resume stream
         this.profileGenerationState.attachToOperation(
-          sportResponse.data.scrapeJobId,
-          sportResponse.data.scrapeThreadId,
+          allScrapeJobIds[0],
+          sportResponse.data?.scrapeThreadId,
           platformNames
         );
-        this.logger.info('Backend scrape job started for add-sport', {
-          scrapeJobId: sportResponse.data.scrapeJobId,
-          scrapeThreadId: sportResponse.data.scrapeThreadId,
+        // Additional jobs: register observers so their tool-step events advance the same banner
+        for (const jobId of allScrapeJobIds.slice(1)) {
+          this.profileGenerationState.watchForProfileWrites(jobId, platformNames);
+        }
+        this.logger.info('Backend scrape jobs started for add-sport', {
+          scrapeJobIds: allScrapeJobIds,
+          scrapeThreadId: sportResponse.data?.scrapeThreadId,
           sport: primarySport.sport,
+          jobCount: allScrapeJobIds.length,
         });
       }
 

@@ -18,6 +18,7 @@
 export const PLATFORM_FAVICON_DOMAINS: Readonly<Record<string, string>> = {
   // Social
   instagram: 'instagram.com',
+  x: 'x.com',
   twitter: 'x.com',
   tiktok: 'tiktok.com',
   youtube: 'youtube.com',
@@ -84,6 +85,7 @@ export const PLATFORM_FAVICON_DOMAINS: Readonly<Record<string, string>> = {
   microsoft: 'microsoft.com',
   // Sign-in counterparts (same domain as link variants)
   instagram_signin: 'instagram.com',
+  x_signin: 'x.com',
   twitter_signin: 'x.com',
   tiktok_signin: 'tiktok.com',
   youtube_signin: 'youtube.com',

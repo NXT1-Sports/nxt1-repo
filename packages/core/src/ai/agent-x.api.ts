@@ -127,6 +127,28 @@ export interface AgentXStreamMessageOptions {
   readonly appBaseUrl?: string;
 }
 
+export type AgentXThreadActionType = 'ask_user_reply' | 'approval_decision';
+
+export interface AgentXThreadActionRequest {
+  readonly actionType: AgentXThreadActionType;
+  readonly messageId?: string;
+  readonly operationIdHint?: string;
+  readonly response?: string;
+  readonly decision?: 'approved' | 'rejected';
+  readonly toolInput?: Record<string, unknown>;
+  readonly trustForSession?: boolean;
+}
+
+export interface AgentXThreadActionResponse {
+  readonly actionType: AgentXThreadActionType;
+  readonly resumed: boolean;
+  readonly decision?: 'approved' | 'rejected';
+  readonly operationId?: string;
+  readonly jobId?: string;
+  readonly threadId?: string | null;
+  readonly resolvedOperationId?: string;
+}
+
 // ============================================
 // API FACTORY
 // ============================================
@@ -723,6 +745,28 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
         });
 
         return result.success && result.data ? result.data : null;
+      } catch {
+        return null;
+      }
+    },
+
+    /**
+     * Submit an ask_user reply or approval decision using thread context.
+     *
+     * This is the canonical thread-truth endpoint — backend resolves the
+     * active yielded operation from thread history and applies the action.
+     */
+    async submitThreadAction(
+      threadId: string,
+      request: AgentXThreadActionRequest
+    ): Promise<AgentXThreadActionResponse | null> {
+      try {
+        const response = await http.post<ApiResponse<AgentXThreadActionResponse>>(
+          `${endpoint(AGENT_X_ENDPOINTS.THREAD_ACTIONS)}/${encodeURIComponent(threadId)}/actions`,
+          request
+        );
+
+        return response.success && response.data ? response.data : null;
       } catch {
         return null;
       }

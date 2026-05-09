@@ -505,7 +505,7 @@ export class LiveViewSessionService {
     domainLabel: string;
   } {
     // Validate the URL for SSRF safety first
-    const validatedUrl = validateUrl(request.url);
+    const validatedUrl = validateUrl(request.url, { allowSocialMedia: true });
     const parsed = new URL(validatedUrl);
     const hostname = parsed.hostname.toLowerCase();
 
@@ -639,6 +639,12 @@ export class LiveViewSessionService {
             saveChanges: false,
           },
         });
+      } else if (/do not support this site|we do not support this site/i.test(errMsg)) {
+        throw new AgentEngineError(
+          'LIVE_VIEW_REQUEST_FAILED',
+          `Live view is not available for ${destination.domainLabel} with the current browser provider.`,
+          { cause: err }
+        );
       } else {
         throw err;
       }
@@ -838,7 +844,7 @@ export class LiveViewSessionService {
    */
   async navigate(sessionId: string, userId: string, url: string): Promise<{ resolvedUrl: string }> {
     this.assertOwnership(sessionId, userId);
-    const validatedUrl = validateUrl(url);
+    const validatedUrl = validateUrl(url, { allowSocialMedia: true });
 
     logger.info('[LiveViewSession] Navigating', { sessionId, url: validatedUrl });
 

@@ -37,7 +37,7 @@ describe('mapToConnectedSources', () => {
       },
       {
         faviconUrl: 'https://icons.duckduckgo.com/ip3/x.com.ico',
-        platform: 'twitter',
+        platform: 'x',
         profileUrl: 'https://twitter.com/user',
         scopeType: undefined,
         scopeId: undefined,
@@ -53,7 +53,7 @@ describe('mapToConnectedSources', () => {
 
     const result = mapToConnectedSources(entries);
     expect(result).toHaveLength(1);
-    expect(result[0].platform).toBe('twitter');
+    expect(result[0].platform).toBe('x');
   });
 
   it('should filter out entries with empty URLs', () => {
@@ -87,6 +87,19 @@ describe('mapToConnectedSources', () => {
     expect(result[0].scopeType).toBe('sport');
     expect(result[0].scopeId).toBe('football');
   });
+
+  it('should dedupe twitter/x aliases that point to the same account URL', () => {
+    const entries = [
+      { platform: 'twitter', connected: true, url: 'https://twitter.com/TheHillTTHLFB' },
+      { platform: 'x', connected: true, url: 'https://x.com/TheHillTTHLFB/' },
+    ];
+
+    const result = mapToConnectedSources(entries);
+
+    expect(result).toHaveLength(1);
+    expect(result[0].platform).toBe('x');
+    expect(result[0].profileUrl).toBe('https://x.com/TheHillTTHLFB/');
+  });
 });
 
 describe('connectedSourceKey', () => {
@@ -107,7 +120,7 @@ describe('connectedSourceKey', () => {
       profileUrl: 'https://twitter.com/user',
     };
 
-    expect(connectedSourceKey(source)).toBe('twitter|global|');
+    expect(connectedSourceKey(source)).toBe('x|global|');
   });
 });
 
@@ -139,8 +152,8 @@ describe('mergeConnectedSources', () => {
     // hudl should be overwritten by incoming
     const hudl = result.find((s: ConnectedSource) => s.platform === 'hudl');
     expect(hudl?.profileUrl).toBe('https://hudl.com/new');
-    // twitter preserved
-    expect(result.find((s: ConnectedSource) => s.platform === 'twitter')).toBeDefined();
+    // x preserved (twitter aliases canonicalized)
+    expect(result.find((s: ConnectedSource) => s.platform === 'x')).toBeDefined();
     // instagram added
     expect(result.find((s: ConnectedSource) => s.platform === 'instagram')).toBeDefined();
   });
@@ -234,6 +247,81 @@ describe('mapConnectedSourcesToLinkSources', () => {
         url: 'https://maxpreps.com/team',
         scopeType: 'team',
         scopeId: 'team-1',
+      },
+    ]);
+  });
+
+  it('should map canonical x platform to twitter for linked UI rows and round-trip back to x', () => {
+    const linkRows = mapConnectedSourcesToLinkSources([
+      {
+        platform: 'x',
+        profileUrl: 'https://x.com/GreenwoodFball',
+        scopeType: 'sport',
+        scopeId: 'football',
+      },
+    ]);
+
+    expect(linkRows).toEqual([
+      {
+        platform: 'twitter',
+        connected: true,
+        connectionType: 'link',
+        url: 'https://x.com/GreenwoodFball',
+        scopeType: 'global',
+        scopeId: undefined,
+      },
+    ]);
+
+    const roundTripped = mapToConnectedSources(linkRows);
+    expect(roundTripped).toHaveLength(1);
+    expect(roundTripped[0].platform).toBe('x');
+  });
+
+  it('should coerce x stored with sport scope to global twitter row for UI key matching', () => {
+    const linkRows = mapConnectedSourcesToLinkSources([
+      {
+        platform: 'x',
+        profileUrl: 'https://x.com/GreenwoodFball',
+        scopeType: 'sport',
+        scopeId: 'football',
+      },
+    ]);
+
+    expect(linkRows).toEqual([
+      {
+        platform: 'twitter',
+        connected: true,
+        connectionType: 'link',
+        url: 'https://x.com/GreenwoodFball',
+        scopeType: 'global',
+        scopeId: undefined,
+      },
+    ]);
+  });
+
+  it('should preserve addedBy attribution and connected flag for connected-accounts display', () => {
+    const linkRows = mapConnectedSourcesToLinkSources([
+      {
+        platform: 'hudl',
+        profileUrl: 'https://hudl.com/team/123',
+        connected: true,
+        addedBy: 'John Keller',
+        addedById: 'roD9tny1CKeQCkbESUH17ovQMYk1',
+        scopeType: 'sport',
+        scopeId: 'football',
+      },
+    ]);
+
+    expect(linkRows).toEqual([
+      {
+        platform: 'hudl',
+        connected: true,
+        connectionType: 'link',
+        url: 'https://hudl.com/team/123',
+        addedBy: 'John Keller',
+        addedById: 'roD9tny1CKeQCkbESUH17ovQMYk1',
+        scopeType: 'sport',
+        scopeId: 'football',
       },
     ]);
   });

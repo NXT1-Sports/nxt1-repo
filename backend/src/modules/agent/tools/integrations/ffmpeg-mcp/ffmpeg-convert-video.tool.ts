@@ -1,6 +1,7 @@
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 import { logger } from '../../../../../utils/logger.js';
 import { type FfmpegMcpBridgeService } from './ffmpeg-mcp-bridge.service.js';
+import { normalizeFfmpegToolInput } from './ffmpeg-input-normalizer.js';
 import { ConvertVideoInputSchema } from './schemas.js';
 
 export class FfmpegConvertVideoTool extends BaseTool {
@@ -20,7 +21,11 @@ export class FfmpegConvertVideoTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const parsed = ConvertVideoInputSchema.safeParse(input);
+    const normalizedInput = normalizeFfmpegToolInput(input, {
+      mapOutputFormatToOutputPath: true,
+      defaultOutputBase: 'converted',
+    });
+    const parsed = ConvertVideoInputSchema.safeParse(normalizedInput);
     if (!parsed.success) return this.zodError(parsed.error);
 
     context?.emitStage?.('processing_media', {

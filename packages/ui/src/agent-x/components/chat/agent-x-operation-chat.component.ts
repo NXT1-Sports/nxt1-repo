@@ -59,7 +59,10 @@ import {
 } from '@nxt1/core/ai';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtSheetHeaderComponent } from '../../../components/bottom-sheet/sheet-header.component';
-import { NxtChatBubbleComponent } from '../../../components/chat-bubble';
+import {
+  NxtChatBubbleComponent,
+  type ChatBubbleMediaRequestedEvent,
+} from '../../../components/chat-bubble';
 import { NxtIconComponent } from '../../../components/icon';
 import { AGENT_X_OPERATION_CHAT_TEST_IDS } from '@nxt1/core/testing';
 import { AgentXInputBarComponent } from '../inputs/agent-x-input-bar.component';
@@ -88,7 +91,7 @@ import {
 import { AgentXAskUserCardComponent } from '../cards/agent-x-ask-user-card.component';
 import { AgentXEnqueueWaitingCardComponent } from '../cards/agent-x-enqueue-waiting-card.component';
 import type { BillingActionResolvedEvent } from '../cards/agent-x-billing-action-card.component';
-import type { DraftSubmittedEvent } from '../cards/agent-x-draft-card.component';
+import type { ConnectAccountCardActionEvent } from '../cards/agent-x-connect-account-card.component';
 import type { AgentYieldState } from '@nxt1/core';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import type { AgentXPendingFile } from '../../types/agent-x-pending-file';
@@ -207,7 +210,7 @@ type YieldStateSource =
               [class.msg-assistant]="msg.role === 'assistant'"
               [class.msg-system]="msg.role === 'system'"
               [class.msg-error]="msg.error"
-              [class.msg-row--wide]="msgHasDataTable(msg) || !!msg.yieldState"
+              [class.msg-row--wide]="!!msg.yieldState"
             >
               @if (hasBubbleProse(msg) || (!approvalYieldForMessage(msg) && !isAskUserYield(msg))) {
                 @if (msg.id === 'enqueue-waiting') {
@@ -224,10 +227,12 @@ type YieldStateSource =
                     [steps]="messageStepsForBubble(msg)"
                     [cards]="messageCardsForBubble(msg)"
                     [parts]="messagePartsForBubble(msg)"
+                    [externalCardState]="resolveExternalCardStateForMessage(msg, idx)"
+                    [externalResolvedText]="msg.yieldResolvedText ?? ''"
+                    (mediaRequested)="onBubbleMediaRequested($event)"
                     (billingActionResolved)="onBillingActionResolved($event)"
-                    (confirmationAction)="yieldFacade.onConfirmationAction($event)"
-                    (draftSubmitted)="yieldFacade.onDraftSubmitted($event)"
                     (askUserReply)="yieldFacade.onAskUserReply($event)"
+                    (connectAccountAction)="onConnectAccountAction($event)"
                     (retryRequested)="runControlFacade.onRetryErrorMessage(msg)"
                   />
                   @if (msg.id === 'typing' && showThinking()) {
@@ -243,7 +248,8 @@ type YieldStateSource =
                   [yield]="approvalYield"
                   [card]="findApprovalCard(msg)"
                   [operationId]="msg.operationId || yieldFacade.yieldOperationId()"
-                  [externalCardState]="approvalCardStateForMessage(msg)"
+                  [messageId]="msg.id"
+                  [externalCardState]="approvalCardStateForMessage(msg, idx)"
                   [externalResolvedText]="approvalResolvedTextForMessage(msg)"
                   (approve)="yieldFacade.onApproveAction($event)"
                   (reply)="yieldFacade.onReplyAction($event)"
@@ -252,6 +258,10 @@ type YieldStateSource =
               } @else if (isAskUserYield(msg)) {
                 <nxt1-agent-x-ask-user-card
                   [card]="buildAskUserCardFromYield(msg)"
+                  [messageId]="msg.id"
+                  [operationId]="msg.operationId ?? null"
+                  [externalCardState]="resolveExternalCardStateForMessage(msg, idx)"
+                  [externalResolvedText]="msg.yieldResolvedText ?? ''"
                   (replySubmitted)="yieldFacade.onAskUserReply($event)"
                 />
               }
@@ -1135,6 +1145,7 @@ type YieldStateSource =
       .msg-assistant {
         margin-right: auto;
         align-items: flex-start;
+        max-width: 94%;
       }
 
       .msg-inline-thinking {
@@ -1148,8 +1159,10 @@ type YieldStateSource =
         background: var(--op-surface);
         border: 1px solid var(--op-border);
         border-radius: 14px;
-        padding: 14px 16px;
+        padding: 16px 18px;
         color: var(--op-text);
+        font-size: 1.02rem;
+        line-height: 1.62;
       }
 
       .msg-user ::ng-deep nxt1-chat-bubble,
@@ -1707,6 +1720,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       | 'paused'
       | 'awaiting_input'
       | 'awaiting_approval'
+      | 'cancelled'
       | null
   ) {
     this._operationStatus.set(value);
@@ -1719,6 +1733,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     | 'paused'
     | 'awaiting_input'
     | 'awaiting_approval'
+    | 'cancelled'
     | null {
     return this._operationStatus();
   }
@@ -1800,7 +1815,14 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Signal-backed operation lifecycle status used by selectors and status badges. */
   private readonly _operationStatus = signal<
-    'processing' | 'complete' | 'error' | 'paused' | 'awaiting_input' | 'awaiting_approval' | null
+    | 'processing'
+    | 'complete'
+    | 'error'
+    | 'paused'
+    | 'awaiting_input'
+    | 'awaiting_approval'
+    | 'cancelled'
+    | null
   >(null);
 
   /** Runtime-only activity phase for deterministic loader/shimmer state. */
@@ -1877,6 +1899,27 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Most recent planner card so execution plan can dock above the composer. */
   protected readonly executionPlanCard = computed<AgentXRichCard | null>(() => {
     const messages = this.messages();
+
+    const resolvePlannerCard = (card: AgentXRichCard): AgentXRichCard | null => {
+      if (card.type !== 'planner') return null;
+
+      const payload = card.payload;
+      if (!('items' in payload) || !Array.isArray(payload.items) || payload.items.length < 2) {
+        return null;
+      }
+
+      // Only show planner card once execution has visibly started (not during planning phase).
+      // Check if at least one item is active, done, or has a non-pending status.
+      const hasExecutionStarted = payload.items.some(
+        (item: any) =>
+          item.active === true ||
+          item.done === true ||
+          (typeof item.status === 'string' && item.status !== 'pending')
+      );
+
+      return hasExecutionStarted ? card : null;
+    };
+
     for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
       const message = messages[messageIndex];
       if (!message) continue;
@@ -1884,42 +1927,22 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       const parts = message.parts ?? [];
       for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
         const part = parts[partIndex];
-        if (part?.type === 'card' && part.card.type === 'planner') {
-          const p = part.card.payload;
-          // Only show card when plan has ≥3 tasks — single/dual-task plans run silently
-          if ('items' in p && Array.isArray(p.items) && p.items.length >= 3) {
-            // Suppress pre-execution review cards; show only once execution has started.
-            const hasExecutionStarted = p.items.some(
-              (item) =>
-                item.active === true ||
-                item.done === true ||
-                (typeof item.status === 'string' && item.status !== 'pending')
-            );
-            if (hasExecutionStarted) {
-              return part.card;
-            }
+        if (part?.type === 'card') {
+          const plannerCard = resolvePlannerCard(part.card);
+          if (plannerCard) {
+            return plannerCard;
           }
-          return null;
         }
       }
 
       const cards = message.cards ?? [];
       for (let cardIndex = cards.length - 1; cardIndex >= 0; cardIndex -= 1) {
         const card = cards[cardIndex];
-        if (card?.type === 'planner') {
-          const p = card.payload;
-          if ('items' in p && Array.isArray(p.items) && p.items.length >= 3) {
-            const hasExecutionStarted = p.items.some(
-              (item) =>
-                item.active === true ||
-                item.done === true ||
-                (typeof item.status === 'string' && item.status !== 'pending')
-            );
-            if (hasExecutionStarted) {
-              return card;
-            }
+        if (card) {
+          const plannerCard = resolvePlannerCard(card);
+          if (plannerCard) {
+            return plannerCard;
           }
-          return null;
         }
       }
     }
@@ -2073,9 +2096,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Emitted after a chat response completes (stream done or HTTP returned). */
   readonly responseComplete = output<void>();
 
-  /** Emitted when the user approves a draft email card (HITL send). */
-  readonly draftSubmitted = output<DraftSubmittedEvent>();
-
   /** Emitted when a coordinator chip should open a dedicated coordinator context. */
   readonly coordinatorQuickActionSelected = output<OperationQuickAction>();
 
@@ -2222,9 +2242,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         this._shadowFirestoreSub?.unsubscribe();
         this._shadowFirestoreSub = null;
         this._streamTurnWatermark = null;
-        // Mark the enqueue-waiting card as stopped so it shows the stopped
-        // visual state instead of the spinning spinner.
-        this.sessionFacade.markEnqueueStopped();
       },
       getActiveStream: () => this.activeStream,
       setActiveStream: (controller) => {
@@ -2260,6 +2277,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           startAfterSeq,
           initialWatermark
         ),
+      onEnqueueHeavyDone: () => {
+        this.sessionFacade.handleEnqueueHeavyDone();
+      },
       uid: () => this.uid(),
     });
     this.attachmentsFacade.configure({
@@ -2295,6 +2315,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         this._shadowFirestoreSub?.unsubscribe();
         this._shadowFirestoreSub = null;
         this._streamTurnWatermark = null;
+      },
+      markEnqueueStopped: () => {
         this.sessionFacade.markEnqueueStopped();
       },
       setOperationStatus: (status) => {
@@ -2676,13 +2698,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     });
   }
 
-  /** Returns true when a message contains a data-table rich card (cards or parts). */
-  protected msgHasDataTable(msg: OperationMessage): boolean {
-    if (msg.cards?.some((c) => c.type === 'data-table')) return true;
-    if (msg.parts?.some((p) => p.type === 'card' && p.card.type === 'data-table')) return true;
-    return false;
-  }
-
   /**
    * True when a message has visible content that should render in a chat
    * bubble alongside any yield card (approval / ask-user). When `false`,
@@ -2690,18 +2705,27 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * skip the bubble and render only the action/ask-user card.
    */
   /**
-   * Attachments to render in the strip — all attachments for both user and assistant.
+   * Attachments to render in the strip.
+   *
+   * - User messages: show all attachments (uploaded files, images, videos).
+   * - Assistant messages: only show `app` type (connected-source link chips).
+   *   Images, videos, and docs generated by the agent are rendered inline via
+   *   markdown in real time — putting them in the strip as well would duplicate
+   *   them and the strip thumbnails don't stream correctly anyway.
    */
   protected messageAttachmentsForStrip(
     msg: OperationMessage
   ): readonly NonNullable<OperationMessage['attachments']>[number][] {
-    return msg.attachments ?? [];
+    const attachments = msg.attachments ?? [];
+    if (msg.role !== 'assistant') return attachments;
+    // For assistant messages, only keep app-type chips (connected sources).
+    return attachments.filter((att) => att.type === 'app');
   }
 
   protected hasBubbleProse(msg: OperationMessage): boolean {
     if (msg.id === 'typing') return true;
     if ((msg.content ?? '').trim().length > 0) return true;
-    if ((msg.attachments?.length ?? 0) > 0) return true;
+    if (this.messageAttachmentsForStrip(msg).length > 0) return true;
     if (this.messageStepsForBubble(msg).length > 0) return true;
     if (this.messageCardsForBubble(msg).length > 0) return true;
     if (this.messagePartsForBubble(msg).length > 0) return true;
@@ -2737,7 +2761,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           !(part.type === 'card' && this.isApprovalConfirmationCard(part.card))
       );
 
-    return this.ensureTextBeforeThinking(filtered);
+    return filtered;
   }
 
   /**
@@ -2768,22 +2792,45 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       msg.yieldState &&
       (msg.yieldState.reason === 'needs_approval' || msg.yieldState.reason === 'needs_input')
     ) {
-      // Collect the UUID ids of every active step on this message. The backend
-      // suspends on the last active step (the yield-triggering call); prior
-      // steps have already settled to 'success' before the yield fires, so
-      // any remaining active step IS the suspended step and must be hidden.
-      // We cannot match by pendingToolCall.toolCallId because that is the LLM
-      // tool-call namespace (e.g. "call_abc123") which is distinct from the
-      // step UUID assigned in the AgentXStreamStepEvent.
-      for (const part of msg.parts ?? []) {
-        if (part.type === 'tool-steps') {
-          for (const step of part.steps) {
-            if (step.status === 'active') ids.add(step.id);
+      // For approval gates: suppress ALL tool steps, not just active ones.
+      //
+      // When a coordinator is dispatched, the primary agent pre-emits a
+      // `tool_result(success)` for `delegate_to_coordinator` before the
+      // coordinator runs (so the step appears complete in the timeline).
+      // When the coordinator then hits the approval gate, that delegation step
+      // is already status='success' — not 'active' — so the old "active only"
+      // suppression left it visible above the approval card.
+      //
+      // The intended UX for needs_approval is: intent text → approval card →
+      // (tool runs after approval). Zero tool steps should appear before the
+      // card. Suppressing everything on an approval yield delivers this.
+      //
+      // For needs_input (ask_user), keep the existing active-only suppression:
+      // completed preparatory steps are legitimate conversation context.
+      if (msg.yieldState.reason === 'needs_approval') {
+        for (const part of msg.parts ?? []) {
+          if (part.type === 'tool-steps') {
+            for (const step of part.steps) {
+              ids.add(step.id);
+            }
           }
         }
-      }
-      for (const step of msg.steps ?? []) {
-        if (step.status === 'active') ids.add(step.id);
+        for (const step of msg.steps ?? []) {
+          ids.add(step.id);
+        }
+      } else {
+        // needs_input: hide only the suspended (active) step — prior completed
+        // steps remain visible as context for the user's answer.
+        for (const part of msg.parts ?? []) {
+          if (part.type === 'tool-steps') {
+            for (const step of part.steps) {
+              if (step.status === 'active') ids.add(step.id);
+            }
+          }
+        }
+        for (const step of msg.steps ?? []) {
+          if (step.status === 'active') ids.add(step.id);
+        }
       }
       // Belt-and-suspenders: also add the raw toolCallId for any legacy message
       // whose step was assigned the LLM call ID directly as its id.
@@ -2791,36 +2838,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       if (toolCallId) ids.add(toolCallId);
     }
     return ids;
-  }
-
-  /**
-   * Primary-agent UX rule: response text must appear before reasoning.
-   * If thinking arrives first, move it to immediately after the first text part.
-   */
-  private ensureTextBeforeThinking(
-    parts: readonly AgentXMessagePart[]
-  ): readonly AgentXMessagePart[] {
-    if (parts.length === 0) return parts;
-
-    const firstTextIndex = parts.findIndex(
-      (part) => part.type === 'text' && part.content.trim().length > 0
-    );
-    if (firstTextIndex <= 0) return parts;
-
-    const leadingThinking: AgentXMessagePart[] = [];
-    for (let i = 0; i < firstTextIndex; i += 1) {
-      const part = parts[i];
-      if (part.type !== 'thinking') return parts;
-      leadingThinking.push(part);
-    }
-
-    if (leadingThinking.length === 0) return parts;
-
-    return [
-      ...parts.slice(firstTextIndex, firstTextIndex + 1),
-      ...leadingThinking,
-      ...parts.slice(firstTextIndex + 1),
-    ];
   }
 
   /**
@@ -2865,20 +2882,49 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return candidate;
   }
 
-  /** Resolve yield card visual state from live message state or persisted card payload. */
-  protected approvalCardStateForMessage(
-    msg: OperationMessage
+  /**
+   * Single source of truth for external card state — used by chat-bubble (confirmation/draft),
+   * ask-user card, and approval card alike.
+   *
+   * Priority:
+   *   1. In-memory yieldCardState for transient submitting/idle (lasts only for the duration
+   *      of the server round-trip — does not need to survive history reloads).
+   *   2. Message-array scan: if any user message exists after this index the yield was
+   *      answered. This is the same way normal chat works — state lives in the array,
+   *      not in a separate signal — so it survives history reloads automatically.
+   */
+  protected resolveExternalCardStateForMessage(
+    msg: OperationMessage,
+    idx: number
   ): 'idle' | 'submitting' | 'resolved' | null {
-    if (msg.yieldCardState) return msg.yieldCardState;
+    if (msg.yieldCardState === 'submitting') return 'submitting';
+    if (msg.yieldCardState === 'idle') return 'idle';
+    if (msg.yieldCardState === 'resolved') return 'resolved'; // fast-path if still in memory
+    // Derive resolved from the array itself — works after any reload
+    const msgs = this.messages();
+    const hasUserReplyAfter = msgs.slice(idx + 1).some((m) => m.role === 'user');
+    return hasUserReplyAfter ? 'resolved' : null;
+  }
 
-    const approvalCard = this.findApprovalCard(msg);
-    if (!approvalCard || approvalCard.type !== 'confirmation') return null;
-
-    const payload = approvalCard.payload as Record<string, unknown> | undefined;
-    if (!payload || typeof payload !== 'object') return null;
-
-    const state = payload['yieldCardState'];
-    return state === 'idle' || state === 'submitting' || state === 'resolved' ? state : null;
+  /** Resolve yield card visual state from live message state or persisted card payload.
+   *
+   * Uses the same checkpoint-state-machine approach as resolveExternalCardStateForMessage:
+   *   1. Transient in-memory yieldCardState for the submitting/idle round-trip window.
+   *   2. Array-derived scan: any user message after idx = checkpoint was answered. This
+   *      survives every page reload — state is a fact of the timeline, not local memory.
+   */
+  protected approvalCardStateForMessage(
+    msg: OperationMessage,
+    idx: number
+  ): 'idle' | 'submitting' | 'resolved' | null {
+    // Fast-path: honour transient submitting/idle during the active round-trip.
+    if (msg.yieldCardState === 'submitting') return 'submitting';
+    if (msg.yieldCardState === 'idle') return 'idle';
+    if (msg.yieldCardState === 'resolved') return 'resolved';
+    // Persistent: derive resolved state from the message array — survives reloads.
+    const msgs = this.messages();
+    const hasUserReplyAfter = msgs.slice(idx + 1).some((m) => m.role === 'user');
+    return hasUserReplyAfter ? 'resolved' : null;
   }
 
   /** Resolve yield card resolved text from live message state or persisted card payload. */
@@ -2907,8 +2953,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       pendingInput && typeof pendingInput['context'] === 'string'
         ? pendingInput['context']
         : undefined;
-    const threadId = this._resolvedThreadId() ?? (this.threadId.trim() || undefined);
-
     return {
       type: 'ask_user',
       agentId: yieldState?.agentId ?? 'router',
@@ -2916,8 +2960,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       payload: {
         question,
         ...(context ? { context } : {}),
-        ...(threadId ? { threadId } : {}),
-        ...(msg.operationId ? { operationId: msg.operationId } : {}),
       },
     };
   }
@@ -2944,6 +2986,16 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     this.attachmentsFacade.openAttachmentViewer(attachments, event.index);
   }
 
+  /** Open markdown/inline media in the shared overlay viewer used by attachment chips. */
+  protected onBubbleMediaRequested(event: ChatBubbleMediaRequestedEvent): void {
+    const attachment: MessageAttachment = {
+      url: event.url,
+      type: event.type,
+      name: this.deriveMediaName(event.url, event.type),
+    };
+    this.attachmentsFacade.openAttachmentViewer([attachment], 0);
+  }
+
   /** Handle billing card outcomes from inline chat bubbles. */
   protected async onBillingActionResolved(event: BillingActionResolvedEvent): Promise<void> {
     this.yieldFacade.onBillingActionResolved(event);
@@ -2952,6 +3004,16 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (event.completed && !this.embedded) {
       await this.dismiss();
     }
+  }
+
+  /** Handle connect-account card actions (connect flow is handled inside card component). */
+  protected async onConnectAccountAction(event: ConnectAccountCardActionEvent): Promise<void> {
+    if (event.action !== 'send-via-nxt1') return;
+
+    await this.runControlFacade.send({
+      text: 'Send via NXT1 email instead',
+      preserveDraft: true,
+    });
   }
 
   /** Remove dismissed pause-yield rows and duplicate ask-user prompts from the timeline. */
@@ -2967,11 +3029,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   }
 
   private hasPendingAskUserYieldMessage(): boolean {
+    // Use the same array-derived resolver used for rendering — survives page reloads.
+    // A checkpoint is considered "pending" only when resolveExternalCardStateForMessage
+    // returns null (no user reply found after its index in the timeline).
     return this.messages().some(
-      (message) =>
-        this.isAskUserYield(message) &&
-        message.yieldCardState !== 'resolved' &&
-        message.yieldCardState !== 'submitting'
+      (msg, idx) =>
+        this.isAskUserYield(msg) && this.resolveExternalCardStateForMessage(msg, idx) === null
     );
   }
 
@@ -2999,6 +3062,18 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       const title = (card as { title?: string }).title?.trim();
       return title === 'Approval Confirmed' || title === 'Approval Rejected';
     });
+  }
+
+  private deriveMediaName(url: string, type: 'image' | 'video'): string {
+    try {
+      const normalized = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+      const parsed = new URL(normalized);
+      const rawName = decodeURIComponent(parsed.pathname.split('/').filter(Boolean).pop() ?? '');
+      if (rawName.trim().length > 0) return rawName;
+    } catch {
+      // Fall through to generic label.
+    }
+    return type === 'video' ? 'Generated Video' : 'Generated Image';
   }
 
   private hasRenderableMessagePayload(msg: OperationMessage): boolean {
@@ -3060,10 +3135,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
     if (!askUserMsg) return false;
 
-    // Once the question has been answered, keep the assistant message visible
-    // as a conversation history record.  Only suppress it while the yield is
-    // still active (pending the user's answer).
-    if (askUserMsg.yieldCardState === 'resolved' || askUserMsg.yieldCardState === 'submitting') {
+    // While submitting: un-suppress so the question context is visible while the card is locked.
+    // While resolved: fall through to the text-match check below — the duplicate question text
+    // stays suppressed because the ask-user card already shows the question + "Answered" badge.
+    // Showing the same text in a separate bubble directly above the card is jarring and redundant.
+    if (askUserMsg.yieldCardState === 'submitting') {
       return false;
     }
 

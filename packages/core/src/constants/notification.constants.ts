@@ -326,8 +326,8 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
   post_share: '/post/{entityId}',
   profile_view: '/analytics',
   video_view: '/analytics',
-  email_opened: '/analytics',
-  link_clicked: '/analytics',
+  email_opened: '/activity',
+  link_clicked: '/activity',
 
   // Team
   team_invite: '/activity?tab=inbox',

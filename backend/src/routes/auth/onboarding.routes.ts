@@ -13,6 +13,7 @@ import { FieldValue, type FieldValue as FirestoreFieldValue } from 'firebase-adm
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { notFoundError } from '@nxt1/core/errors';
 import { USER_SCHEMA_VERSION, normalizeName, isTeamRole } from '@nxt1/core';
+import { normalizeConnectedPlatform } from '@nxt1/core/profile';
 import type {
   UserRole,
   SportProfile,
@@ -60,8 +61,6 @@ const DEFAULT_ONBOARDING_PREFERENCES: UserPreferences = {
   activityTracking: true,
   analyticsTracking: true,
   biometricLogin: false,
-  dismissedPrompts: [],
-  defaultSportIndex: 0,
   theme: 'system',
 };
 
@@ -97,8 +96,6 @@ function hasCompleteOnboardingPreferences(
     preferences.activityTracking !== undefined &&
     preferences.analyticsTracking !== undefined &&
     preferences.biometricLogin !== undefined &&
-    preferences.dismissedPrompts !== undefined &&
-    preferences.defaultSportIndex !== undefined &&
     preferences.theme !== undefined
   );
 }
@@ -453,6 +450,11 @@ router.post(
       | undefined;
 
     if (linkSources?.links && Array.isArray(linkSources.links)) {
+      const defaultTeamScopeId = getPrimarySport(
+        Array.isArray(updateData.sports)
+          ? (updateData.sports as SportProfile[])
+          : currentUser?.sports
+      );
       const existingConnected: ConnectedSourceRecord[] = Array.isArray(
         currentUser?.connectedSources
       )
@@ -460,16 +462,22 @@ router.post(
         : [];
       const connectedMap = new Map<string, ConnectedSourceRecord>();
       for (const cs of existingConnected) {
-        const key = cs.scopeId ? `${cs.platform}::${cs.scopeId}` : cs.platform;
+        const normalizedPlatform = normalizeConnectedPlatform(cs.platform);
+        const key = cs.scopeId ? `${normalizedPlatform}::${cs.scopeId}` : normalizedPlatform;
         connectedMap.set(key, cs);
       }
 
       let displayOrder = 0;
       for (const link of linkSources.links) {
         if (link.connected && link.platform) {
-          const platform = link.platform.toLowerCase();
-          const scope = link.scopeType ?? 'global';
-          const scopeId = link.scopeId;
+          const platform = normalizeConnectedPlatform(link.platform);
+          const isPrivilegedRole = role === 'coach' || role === 'director';
+          const rawScope = link.scopeType ?? 'global';
+          const rawScopeId = link.scopeId;
+          const scope =
+            isPrivilegedRole && rawScope === 'global' && defaultTeamScopeId ? 'sport' : rawScope;
+          const scopeId =
+            isPrivilegedRole && !rawScopeId && scope === 'sport' ? defaultTeamScopeId : rawScopeId;
           const key = scopeId ? `${platform}::${scopeId}` : platform;
           const value = link.url ?? link.username ?? '';
           const url = value.startsWith('http')
@@ -487,7 +495,6 @@ router.post(
             ...(scopeId && { scopeId }),
           };
 
-          const isPrivilegedRole = role === 'coach' || role === 'director';
           if (teamIds.length > 0 && isPrivilegedRole) {
             const addedByName = [firstName, lastName].filter(Boolean).join(' ') || 'Staff';
             teamConnectedSources.push({
@@ -519,11 +526,17 @@ router.post(
                 (teamDoc.data()?.['connectedSources'] as ConnectedSourceRecord[] | undefined) ?? [];
               const merged = new Map<string, ConnectedSourceRecord>();
               for (const cs of existing) {
-                const key = cs.scopeId ? `${cs.platform}::${cs.scopeId}` : cs.platform;
+                const normalizedPlatform = normalizeConnectedPlatform(cs.platform);
+                const key = cs.scopeId
+                  ? `${normalizedPlatform}::${cs.scopeId}`
+                  : normalizedPlatform;
                 merged.set(key, cs);
               }
               for (const cs of teamConnectedSources) {
-                const key = cs.scopeId ? `${cs.platform}::${cs.scopeId}` : cs.platform;
+                const normalizedPlatform = normalizeConnectedPlatform(cs.platform);
+                const key = cs.scopeId
+                  ? `${normalizedPlatform}::${cs.scopeId}`
+                  : normalizedPlatform;
                 if (!merged.has(key)) merged.set(key, cs);
               }
               return db
@@ -566,18 +579,19 @@ router.post(
       logger.warn('[POST /profile/onboarding] Cache invalidation failed', { userId, err })
     );
 
-    // Initialize billing target for org admins (coaches/directors) right away.
-    // resolveBillingTarget auto-detects the org via RosterEntries / ownerId and
-    // writes Users.activeBillingTarget so the billing UI immediately shows
-    // organization billing instead of the personal-credits fallback.
+    // Initialize billing target for org admins (coaches/directors) before
+    // any onboarding-triggered jobs are enqueued. This avoids a race where
+    // first-run usage charges can hit personal billing before org routing lands.
     if (role === 'coach' || role === 'director') {
-      void resolveBillingTarget(db, userId).catch((err) =>
+      try {
+        await resolveBillingTarget(db, userId);
+      } catch (err) {
         logger.warn('[POST /profile/onboarding] Billing target initialization failed', {
           userId,
           role,
           err,
-        })
-      );
+        });
+      }
     }
 
     // Fetch updated user for response
@@ -616,6 +630,7 @@ router.post(
 
     // Linked account scrape
     let scrapeJobId: string | undefined;
+    let scrapeJobIds: readonly string[] | undefined;
     let scrapeThreadId: string | undefined;
     const firstTeamEntry = sportTeamMap.size > 0 ? sportTeamMap.values().next().value : undefined;
     const resolvedTeamId = firstTeamEntry?.teamId as string | undefined;
@@ -641,7 +656,9 @@ router.post(
           },
           agentEnv
         );
-        scrapeJobId = scrapeResult?.operationId;
+        const scrapeOperationIds = scrapeResult?.operationIds ?? [];
+        scrapeJobId = scrapeOperationIds[0];
+        scrapeJobIds = scrapeOperationIds.length > 0 ? scrapeOperationIds : undefined;
         scrapeThreadId = scrapeResult?.threadId;
       } catch (err) {
         logger.error('[Auth] Failed to enqueue linked account scrape', { userId, error: err });
@@ -659,6 +676,7 @@ router.post(
         completeSignUp: true,
       },
       redirectPath: '/home',
+      ...(scrapeJobIds && scrapeJobIds.length > 0 && { scrapeJobIds }),
       ...(scrapeJobId && { scrapeJobId }),
       ...(scrapeThreadId && { scrapeThreadId }),
     });
@@ -941,15 +959,20 @@ router.post(
         ];
 
         const connectedMap = new Map<string, ConnectedSourceRecord>();
-        for (const cs of existingConnected) connectedMap.set(cs.platform, cs);
+        for (const cs of existingConnected) {
+          connectedMap.set(normalizeConnectedPlatform(cs.platform), cs);
+        }
 
         let displayOrder = 0;
         for (const { platform, value } of onboardingLinks) {
           if (value) {
-            const url = value.startsWith('http') ? value : `https://${platform}.com/${value}`;
-            const existing = connectedMap.get(platform);
-            connectedMap.set(platform, {
-              platform,
+            const normalizedPlatform = normalizeConnectedPlatform(platform);
+            const url = value.startsWith('http')
+              ? value
+              : `https://${normalizedPlatform}.com/${value}`;
+            const existing = connectedMap.get(normalizedPlatform);
+            connectedMap.set(normalizedPlatform, {
+              platform: normalizedPlatform,
               profileUrl: url,
               syncStatus: 'idle',
               displayOrder: existing?.displayOrder ?? displayOrder++,
@@ -1009,16 +1032,25 @@ router.post(
 
         const connectedMap = new Map<string, ConnectedSourceRecord>();
         for (const cs of existingConnected) {
-          const k = cs.scopeId ? `${cs.platform}::${cs.scopeId}` : cs.platform;
+          const normalizedPlatform = normalizeConnectedPlatform(cs.platform);
+          const k = cs.scopeId ? `${normalizedPlatform}::${cs.scopeId}` : normalizedPlatform;
           connectedMap.set(k, cs);
         }
 
         const teamConnectedSourcesStep: ConnectedSourceRecord[] = [];
+        const defaultTeamScopeId = getPrimarySport(currentUser?.sports);
         let displayOrder = 0;
         for (const link of links) {
           if (link.connected && link.platform) {
-            const platform = link.platform.toLowerCase();
-            const key = link.scopeId ? `${platform}::${link.scopeId}` : platform;
+            const platform = normalizeConnectedPlatform(link.platform);
+            const rawScope = link.scopeType ?? 'global';
+            const scopeType =
+              isTeamRoleUser && rawScope === 'global' && defaultTeamScopeId ? 'sport' : rawScope;
+            const scopeId =
+              isTeamRoleUser && !link.scopeId && scopeType === 'sport'
+                ? defaultTeamScopeId
+                : link.scopeId;
+            const key = scopeId ? `${platform}::${scopeId}` : platform;
             const value = link.url ?? link.username ?? '';
             const url = value.startsWith('http')
               ? value
@@ -1032,9 +1064,7 @@ router.post(
               profileUrl: url,
               syncStatus: 'idle',
               displayOrder: existing?.displayOrder ?? displayOrder++,
-              ...(link.scopeType && link.scopeType !== 'global'
-                ? { scopeType: link.scopeType, scopeId: link.scopeId }
-                : {}),
+              ...(scopeType && scopeType !== 'global' ? { scopeType, scopeId } : {}),
             };
 
             if (isTeamRoleUser && userTeamIds.length > 0) {
@@ -1063,11 +1093,17 @@ router.post(
                   [];
                 const merged = new Map<string, ConnectedSourceRecord>();
                 for (const cs of existingTeamSources) {
-                  const k = cs.scopeId ? `${cs.platform}::${cs.scopeId}` : cs.platform;
+                  const normalizedPlatform = normalizeConnectedPlatform(cs.platform);
+                  const k = cs.scopeId
+                    ? `${normalizedPlatform}::${cs.scopeId}`
+                    : normalizedPlatform;
                   merged.set(k, cs);
                 }
                 for (const cs of teamConnectedSourcesStep) {
-                  const k = cs.scopeId ? `${cs.platform}::${cs.scopeId}` : cs.platform;
+                  const normalizedPlatform = normalizeConnectedPlatform(cs.platform);
+                  const k = cs.scopeId
+                    ? `${normalizedPlatform}::${cs.scopeId}`
+                    : normalizedPlatform;
                   merged.set(k, cs);
                 }
                 return db

@@ -17,7 +17,9 @@ import {
   computed,
   inject,
   input,
+  output,
   signal,
+  effect,
   ElementRef,
   afterNextRender,
 } from '@angular/core';
@@ -40,19 +42,95 @@ function escapeAttr(str: string): string {
 
 // ─── Renderer ──────────────────────────────────────────────────────────────
 
+type MarkdownMediaType = 'image' | 'video';
+
+export interface MarkdownMediaRequestedEvent {
+  readonly url: string;
+  readonly type: MarkdownMediaType;
+  readonly alt?: string;
+}
+
+function inferMediaTypeFromUrl(rawUrl: string): MarkdownMediaType | null {
+  try {
+    const value = rawUrl.trim();
+    if (!value) return null;
+    const normalized = /^https?:\/\//i.test(value) ? value : `https://${value}`;
+    const url = new URL(normalized);
+    const pathname = url.pathname.toLowerCase();
+
+    if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(pathname)) {
+      return 'image';
+    }
+    if (/\.(mp4|mov|webm|m4v|m3u8)$/i.test(pathname)) {
+      return 'video';
+    }
+    if (/\/images?\//i.test(pathname)) {
+      return 'image';
+    }
+    if (/\/videos?\//i.test(pathname)) {
+      return 'video';
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Returns true for embeddable video extensions (Firebase Storage URLs include ext before '?'). */
+function isVideoUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  return /\.(mp4|mov|webm|m4v)([?#]|$)/i.test(url);
+}
+
+/**
+ * Builds a static video thumbnail with a play-icon overlay.
+ * No controls, no autoload — tapping opens the full media viewer.
+ */
+function buildVideoThumb(safeHref: string, label: string): string {
+  // Play triangle SVG (circle + triangle)
+  const playIcon =
+    `<svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">` +
+    `<circle cx="22" cy="22" r="22" fill="rgba(0,0,0,0.55)"/>` +
+    `<polygon points="17,13 35,22 17,31" fill="#fff"/>` +
+    `</svg>`;
+
+  return (
+    `<div class="md-video-wrap" data-md-video-src="${safeHref}" role="button" tabindex="0" aria-label="${escapeAttr(label || 'Play video')}">` +
+    `<video class="md-video" src="${safeHref}" preload="metadata" muted playsinline></video>` +
+    `<div class="md-video-play" aria-hidden="true">${playIcon}</div>` +
+    `</div>`
+  );
+}
+
 function createNxtRenderer(): Renderer {
   const renderer = new Renderer();
 
-  // Links → open in new tab, prevent reverse-tabnabbing
+  // Links → if href is a video URL, render inline <video>; otherwise open in new tab
   renderer.link = ({ href, title, text }) => {
     // Block javascript: protocol to prevent XSS
     const safeHref = /^javascript:/i.test(href ?? '') ? '#' : escapeAttr(href ?? '');
+
+    if (isVideoUrl(href)) {
+      return buildVideoThumb(safeHref, text);
+    }
+
     const titleAttr = title ? ` title="${escapeAttr(title)}"` : '';
     const faviconUrl = href ? getPlatformFaviconUrlFromUrl(href) : null;
     const faviconHtml = faviconUrl
       ? `<img class="md-link-favicon" src="${escapeAttr(faviconUrl)}" alt="" aria-hidden="true" loading="lazy" />`
       : '';
     return `<a href="${safeHref}"${titleAttr} target="_blank" rel="noopener noreferrer">${faviconHtml}${text}</a>`;
+  };
+
+  // Images → if src is actually a video URL (model used ![]() with .mp4), render thumb
+  renderer.image = ({ href, title, text }) => {
+    const safeHref = escapeAttr(href ?? '');
+    if (isVideoUrl(href)) {
+      return buildVideoThumb(safeHref, text);
+    }
+    const titleAttr = title ? ` title="${escapeAttr(title)}"` : '';
+    const altAttr = escapeAttr(text ?? '');
+    return `<img src="${safeHref}" alt="${altAttr}"${titleAttr} loading="lazy" />`;
   };
 
   // Code blocks → wrapper for copy-button + optional language label
@@ -387,6 +465,49 @@ const markedInstance = new Marked({
       }
 
       /* =========================================================
+         INLINE VIDEO THUMBNAIL (tap → opens full media viewer)
+         ========================================================= */
+
+      nxt1-markdown .md .md-video-wrap {
+        position: relative;
+        display: block;
+        width: min(240px, 100%);
+        border-radius: var(--nxt1-ui-radius-default, 8px);
+        overflow: hidden;
+        background: #111;
+        margin: var(--nxt1-spacing-2, 0.5rem) 0;
+        cursor: pointer;
+      }
+
+      nxt1-markdown .md .md-video-wrap:focus-visible {
+        outline: 2px solid var(--nxt1-color-primary, #ccff00);
+        outline-offset: 2px;
+      }
+
+      nxt1-markdown .md .md-video {
+        display: block;
+        width: 100%;
+        height: auto;
+        object-fit: contain;
+        pointer-events: none;
+      }
+
+      nxt1-markdown .md .md-video-play {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+        background: rgba(0, 0, 0, 0.25);
+        transition: background 0.15s ease;
+      }
+
+      nxt1-markdown .md .md-video-wrap:hover .md-video-play {
+        background: rgba(0, 0, 0, 0.4);
+      }
+
+      /* =========================================================
          REDUCED MOTION
          ========================================================= */
 
@@ -404,6 +525,7 @@ export class NxtMarkdownComponent {
   readonly content = input('');
   readonly trackingSource = input('markdown');
   readonly trackingSurface = input<TrackingSurface>('message');
+  readonly mediaRequested = output<MarkdownMediaRequestedEvent>();
 
   private readonly sanitizer = inject(DomSanitizer);
   private readonly elRef = inject(ElementRef<HTMLElement>);
@@ -414,6 +536,13 @@ export class NxtMarkdownComponent {
    * dependency so `safeHtml` re-evaluates once sanitization is available.
    */
   private readonly _dompurifyReady = signal(false);
+
+  /** Keep inline video cards synced to each video's intrinsic ratio. */
+  private readonly _syncInlineVideoRatios = effect(() => {
+    this.content();
+    if (typeof window === 'undefined') return;
+    window.requestAnimationFrame(() => this.hydrateInlineVideoRatios());
+  });
 
   constructor() {
     afterNextRender(() => {
@@ -441,9 +570,41 @@ export class NxtMarkdownComponent {
           return;
         }
 
+        const image = target.closest('img[src]') as HTMLImageElement | null;
+        const imageSrc = image?.getAttribute('src') ?? '';
+        if (
+          image &&
+          !image.classList.contains('md-link-favicon') &&
+          /^(https?:\/\/|www\.)/i.test(imageSrc)
+        ) {
+          e.preventDefault();
+          this.mediaRequested.emit({
+            url: imageSrc,
+            type: 'image',
+            alt: image.getAttribute('alt') ?? undefined,
+          });
+          return;
+        }
+
+        // Video thumbnail wrapper (data-md-video-src) — tap opens media viewer
+        const videoWrap = target.closest('[data-md-video-src]') as HTMLElement | null;
+        const videoWrapSrc = videoWrap?.getAttribute('data-md-video-src') ?? '';
+        if (videoWrap && /^(https?:\/\/|www\.)/i.test(videoWrapSrc)) {
+          e.preventDefault();
+          this.mediaRequested.emit({ url: videoWrapSrc, type: 'video' });
+          return;
+        }
+
         const anchor = target.closest('a[href]') as HTMLAnchorElement | null;
         const href = anchor?.getAttribute('href') ?? '';
         if (!anchor || !/^(https?:\/\/|www\.)/i.test(href)) {
+          return;
+        }
+
+        const mediaType = inferMediaTypeFromUrl(href);
+        if (mediaType) {
+          e.preventDefault();
+          this.mediaRequested.emit({ url: href, type: mediaType });
           return;
         }
 
@@ -454,6 +615,33 @@ export class NxtMarkdownComponent {
           surface: this.trackingSurface(),
         });
       });
+
+      // Initial ratio hydration for first render.
+      this.hydrateInlineVideoRatios();
+    });
+  }
+
+  /** Applies actual video width/height ratio to wrapper to avoid fixed 16:9 cards. */
+  private hydrateInlineVideoRatios(): void {
+    const videos = this.elRef.nativeElement.querySelectorAll(
+      '.md-video-wrap > video.md-video'
+    ) as NodeListOf<HTMLVideoElement>;
+
+    videos.forEach((video: HTMLVideoElement) => {
+      const wrapper = video.closest('.md-video-wrap') as HTMLElement | null;
+      if (!wrapper) return;
+
+      const applyRatio = (): void => {
+        if (video.videoWidth > 0 && video.videoHeight > 0) {
+          wrapper.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+        }
+      };
+
+      if (video.readyState >= 1) {
+        applyRatio();
+      } else {
+        video.addEventListener('loadedmetadata', applyRatio, { once: true });
+      }
     });
   }
 
@@ -483,8 +671,25 @@ export class NxtMarkdownComponent {
         'DOMPurify'
       ] as (typeof import('dompurify'))['default'];
       const clean = DOMPurify.sanitize(html, {
-        ADD_ATTR: ['target', 'rel', 'aria-label', 'src', 'alt', 'aria-hidden', 'loading', 'class'],
-        ADD_TAGS: ['button'],
+        ADD_ATTR: [
+          'target',
+          'rel',
+          'aria-label',
+          'src',
+          'alt',
+          'aria-hidden',
+          'loading',
+          'class',
+          'controls',
+          'playsinline',
+          'muted',
+          'preload',
+          'poster',
+          'data-md-video-src',
+          'role',
+          'tabindex',
+        ],
+        ADD_TAGS: ['button', 'video', 'source'],
       });
       return this.sanitizer.bypassSecurityTrustHtml(clean);
     }

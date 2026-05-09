@@ -115,7 +115,8 @@ const PRIMARY_REASONING_CONTRACT = [
   '10) NEVER call `analyze_video` directly from router; always use `delegate_to_coordinator` to hand video work to the right specialist:',
   '    - `performance_coordinator` for film analysis, technique breakdowns, scouting, and player evaluation.',
   '    - `strategy_coordinator` for strategic interpretation, planning recommendations, and executive summaries from video.',
-  '    - `brand_coordinator` for creative/video-content outputs (social edits, thumbnails, branded storytelling assets).',
+  '    - `brand_coordinator` for ALL creative/brand video work: analyzing highlight or promo video for best moments, visual style, energy, and brand consistency; social edits, thumbnails, branded reels, and storytelling assets. When a user says "analyze my highlight video", "which clips should I use", "review my promo", "check the style of this video", or provides video with intent to create social/brand content → always route to brand_coordinator.',
+  '10i) NEVER call `generate_graphic` directly from router. ALL creative image/poster/thumbnail/social visual requests must be delegated to `brand_coordinator` via `delegate_to_coordinator`.',
   '10a) URL ingestion routing rule (CRITICAL):',
   '    - When the user provides any external link and asks to extract, import, analyze, or post media, enforce DIRECT-FIRST acquisition.',
   '    - Delegate link/media ingestion to `data_coordinator` first so it can run `classify_media_url` and follow `nextStep` exactly.',
@@ -136,11 +137,26 @@ const PRIMARY_REASONING_CONTRACT = [
   '    - Use `delegate_to_coordinator` with `strategy_coordinator` for strategic or conceptual visuals such as recruiting pipelines, stage funnels, operating models, and planning dashboards.',
   '    - Use `delegate_to_coordinator` with `data_coordinator` when the chart should be built from imported, scraped, or normalized datasets.',
   '    - Only use `brand_coordinator` when the user explicitly wants a creative poster, social graphic, thumbnail, or image-first branded asset rather than a data/process chart.',
+  '10d-ii) Play Diagram Routing Rule (CRITICAL — NO EXCEPTIONS):',
+  '    - NEVER call `create_play_diagram` or `write_playbooks` directly from the router — these tools are NOT in the router tool policy and will be rejected.',
+  '    - Play diagrams and playbook persistence are ALWAYS a strategy_coordinator responsibility — they are X-and-O route trees and formation diagrams for playbook design, not creative/marketing assets.',
+  '    - When a user asks to "draw a play", "create play diagrams", "diagram routes", "design a playbook", "add plays to my playbook", or requests multi-play playbook generation with diagrams → delegate to `strategy_coordinator` via `delegate_to_coordinator`, NOT brand_coordinator.',
+  '    - Brand_coordinator handles marketing graphics, social thumbnails, and branded visuals. Strategy_coordinator handles play diagrams, strategic visuals, and sports-specific tactical content.',
+  '    - If your step summary or handoff mentions "diagrams for the playbook", "route diagrams", "play formations", or "coaching diagrams" → immediately correct to strategy_coordinator.',
+  '    - This rule applies even when a play diagram URL already exists in context — `write_playbooks` still runs inside strategy_coordinator, not from the router.',
   '10e) Analytics event routing rule:',
   '    - Requests for raw analytics events, Agent X activity so far, outreach event history, engagement summaries, exported activity data, or spreadsheet/table views of activity should go to `data_coordinator`.',
   '    - Requests for interpretation, recommendations, strategic takeaways, or executive-style dashboard narratives from analytics should go to `strategy_coordinator`.',
   '10f) Memory persistence rule:',
   '    - If the user states a durable preference, goal, recruiting constraint, performance baseline, or recurring workflow choice, call `save_memory` immediately with a concise third-person fact. Do not wait for explicit "remember this" phrasing.',
+  '10f-ii) Memory recall rule:',
+  '    - Call `search_memories` before responding in ANY of these situations (mandatory, not discretionary):',
+  '      a) Explicit continuity signals — user says "like we discussed", "remember when", "last time", "you told me", "we agreed", "as I mentioned", or anything implying a prior session.',
+  '      b) Past-state questions — "what was my...", "did I ever...", "what goals did I set", "what have I done so far", "show me my history", "what was the plan we made".',
+  '      c) Personalization or preference requests — "make it like I like it", "you know my style", "based on what you know about me", "what do you think is best for me", "what should I focus on".',
+  '      d) Strategic or goal-oriented planning — when the user asks for a strategy, roadmap, next steps, or plan and you need to know their existing goals, constraints, sport, position, or recurring priorities to give a high-quality answer.',
+  "      e) Anything where a generic answer would be clearly inferior to a personalized one — if knowing the user's history would meaningfully improve your response, call `search_memories` first.",
+  '    - Do NOT skip this step and respond generically when personalized context would make the answer significantly better.',
   '10g) Router analytics rule:',
   '    - Ensure one analytics event exists for each successful, user-visible outcome. If the owning coordinator or mutation tool already recorded the domain event, do not duplicate it; otherwise call `track_analytics_event` once before the final response.',
   '    - Domain mapping: outreach and coach communication -> `recruiting` or `communication`; film, stats, scouting, and performance outputs -> `performance`; NIL and sponsorship work -> `nil`; plans, posts, profile/team activity, and general Agent X workflow completion -> `engagement`.',
@@ -150,6 +166,11 @@ const PRIMARY_REASONING_CONTRACT = [
   '12) After `delegate_to_coordinator`, `create_plan`, or `execute_saved_plan`, inspect the tool result JSON fields `user_already_received_response` and `follow_up_required`.',
   '13) If `user_already_received_response` is true and `follow_up_required` is false, do NOT add any extra narration, recap, or postamble. End your turn immediately.',
   '14) Only add follow-up text when `follow_up_required` is true (for example failures or missing output). Keep it to one concise recovery sentence.',
+  '15) `enqueue_heavy_task` — background queue escalation rules (STRICT):',
+  "   15a) ONLY call `enqueue_heavy_task` when the user's request clearly requires an operation that would take longer than 5 minutes to complete. If the operation can finish in under 5 minutes, handle it through normal coordinator delegation or plan mode — never queue it.",
+  '   15b) DO NOT call `enqueue_heavy_task` for requests that can be handled conversationally, through coordinator delegation, or via a saved plan — those are always the preferred paths.',
+  '   15c) NEVER call `enqueue_heavy_task` when the current mode is `planner`. In planner mode the user wants a reviewable plan, not background execution. Use `create_plan` instead.',
+  '   15d) When you enqueue a heavy task, immediately tell the user what was queued, that it is running in the background, and that they will receive a notification when it is done. Do not add further tool calls after enqueuing.',
 ].join('\n');
 
 interface PrimaryToolSelectionTrace {
@@ -246,14 +267,8 @@ export class PrimaryAgent extends BaseAgent {
 
     const userSummary = this.buildUserSummary(context);
     const modeAddendum =
-      (context.mode as
-        | 'chat'
-        | 'creator'
-        | 'analyzer'
-        | 'recruiter'
-        | 'planner'
-        | 'commander'
-        | undefined) ?? undefined;
+      (context.mode as 'chat' | 'creator' | 'analyzer' | 'planner' | 'commander' | undefined) ??
+      undefined;
 
     const prompt = buildSystemPrompt({
       identity: AGENT_X_IDENTITY,
@@ -338,6 +353,19 @@ export class PrimaryAgent extends BaseAgent {
     // even when router-only tools are exposed. Force coordinator dispatch.
     if (toolCall.function.name === 'analyze_video') {
       return this.handleDirectVideoAnalysisFallback(
+        toolCall,
+        userId,
+        sessionContext?.operationId,
+        approvalGate,
+        onStreamEvent,
+        signal
+      );
+    }
+
+    // Safety fallback: some model generations may still attempt generate_graphic
+    // even when router-only tools are exposed. Force brand delegation.
+    if (toolCall.function.name === 'generate_graphic') {
+      return this.handleDirectGraphicGenerationFallback(
         toolCall,
         userId,
         sessionContext?.operationId,
@@ -507,7 +535,7 @@ export class PrimaryAgent extends BaseAgent {
   > {
     const normalized = text.toLowerCase();
     const brandSignals =
-      /brand|branding|creative|thumbnail|social|marketing|poster|promo|highlight reel|storytelling/.test(
+      /brand|branding|creative|thumbnail|social|marketing|poster|promo|highlight reel|highlight video|highlights|storytelling|style|visual style|visual brand|production quality|best (clips?|moments?|parts?|cuts?)|which clips|reel|intro video|hype video|recap video|cinematic/.test(
         normalized
       );
     if (brandSignals) {
@@ -523,6 +551,93 @@ export class PrimaryAgent extends BaseAgent {
     }
 
     return 'performance_coordinator';
+  }
+
+  private async handleDirectGraphicGenerationFallback(
+    toolCall: LLMToolCall,
+    userId: string,
+    operationId: string | undefined,
+    approvalGate: ApprovalGateService | undefined,
+    onStreamEvent: OnStreamEvent | undefined,
+    signal: AbortSignal | undefined
+  ): Promise<string> {
+    const ctx = this.resolveDispatchContext(
+      operationId,
+      userId,
+      approvalGate,
+      onStreamEvent,
+      signal
+    );
+
+    if (!ctx) {
+      return JSON.stringify({
+        success: false,
+        error: 'Graphic delegation unavailable: missing per-run state.',
+      });
+    }
+
+    let args: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(toolCall.function.arguments) as unknown;
+      if (parsed && typeof parsed === 'object') {
+        args = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // Keep fallback resilient even if model emits malformed JSON.
+      args = {};
+    }
+
+    const coordinatorId: Extract<AgentIdentifier, 'brand_coordinator'> = 'brand_coordinator';
+    const goal =
+      'Create the requested branded visual asset and deliver final user-ready output with media URL(s).';
+
+    const structuredPayload = {
+      ...args,
+      source: 'router_generate_graphic_fallback',
+    };
+
+    onStreamEvent?.({
+      type: 'tool_result',
+      agentId: this.id,
+      stepId: toolCall.id,
+      toolName: toolCall.function.name,
+      stageType: 'tool',
+      toolSuccess: true,
+      toolResult: {
+        delegated: true,
+        coordinatorId,
+      },
+      icon: this.resolveToolStepIcon(toolCall.function.name),
+      message: this.resolveToolInvocationLabel(toolCall.function.name, toolCall.function.arguments),
+    });
+
+    const result = await this.dispatcher.runCoordinator(
+      coordinatorId,
+      goal,
+      ctx,
+      structuredPayload
+    );
+
+    const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
+    const followUpRequired = !result.success && !userAlreadyReceivedResponse;
+    return JSON.stringify({
+      success: result.success,
+      data: {
+        dispatch_kind: result.dispatchKind ?? 'coordinator',
+        coordinator_id: coordinatorId,
+        user_already_received_response: userAlreadyReceivedResponse,
+        follow_up_required: followUpRequired,
+        follow_up_hint: followUpRequired
+          ? 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
+          : 'No follow-up needed because the coordinator already responded directly to the user.',
+        coordinator_observation: result.observation,
+        ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
+          ? { coordinator_artifacts: result.coordinatorArtifacts }
+          : {}),
+        streamed_delta_count: result.streamedDeltaCount ?? 0,
+        streamed_char_count: result.streamedCharCount ?? 0,
+      },
+    });
   }
 
   // ─── Dispatcher Integration ─────────────────────────────────────────────
@@ -593,7 +708,7 @@ export class PrimaryAgent extends BaseAgent {
       if (Object.keys(priorArtifacts).length > 0) {
         enrichedIntent +=
           '\n\n[Prior Tool Results from Primary — use these directly, do NOT re-extract or repeat the same work]:\n' +
-          JSON.stringify(priorArtifacts).slice(0, 1_000);
+          JSON.stringify(priorArtifacts).slice(0, 12_000);
       }
     }
     const dispatchCtx = enrichedIntent !== ctx.enrichedIntent ? { ...ctx, enrichedIntent } : ctx;

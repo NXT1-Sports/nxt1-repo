@@ -1,6 +1,7 @@
 export * from './delete-team-post.tool.js';
 export * from './update-team-post.tool.js';
 export * from './write-calendar-events.tool.js';
+export * from './write-playbooks.tool.js';
 export * from './write-roster-entries.tool.js';
 export * from './write-schedule.tool.js';
 export * from './write-team-news.tool.js';

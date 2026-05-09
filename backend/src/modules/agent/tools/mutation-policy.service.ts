@@ -69,25 +69,74 @@ const TYPED_DELTA_ADAPTERS: Readonly<Record<string, TypedDeltaAdapter>> = {
     },
   },
   write_season_stats: {
-    adapterVersion: '1.0',
+    adapterVersion: '2.0',
     resolve: async (input, _context, scope) => {
       const stats = Array.isArray(input['stats']) ? input['stats'] : [];
       if (stats.length === 0) {
         return { error: true, reason: 'No season stats found in input.stats' };
       }
+
+      // Group flat stat entries by season+category so each DistilledSeasonStats
+      // carries real totals/averages — not empty arrays.
+      interface StatGroup {
+        season: string;
+        category: string;
+        columns: { key: string; label: string; abbreviation?: string }[];
+        totals: Record<string, string | number>;
+        averages: Record<string, string | number>;
+      }
+      const groupMap = new Map<string, StatGroup>();
+
+      for (const entry of stats) {
+        const row = (entry ?? {}) as Record<string, unknown>;
+        const season = String(row['season'] ?? 'unknown');
+        const category = String(row['category'] ?? 'overall');
+        const groupKey = `${season}||${category}`;
+
+        if (!groupMap.has(groupKey)) {
+          groupMap.set(groupKey, { season, category, columns: [], totals: {}, averages: {} });
+        }
+        const group = groupMap.get(groupKey)!;
+
+        // Each stat entry has: field, label, value, unit?, trend?
+        const field = String(row['field'] ?? row['label'] ?? '').trim();
+        const label = String(row['label'] ?? row['field'] ?? '').trim();
+        const rawValue = row['value'];
+        if (!field || rawValue === undefined || rawValue === null) continue;
+
+        const value = typeof rawValue === 'number' ? rawValue : String(rawValue);
+
+        // Register column (dedup by key)
+        if (!group.columns.some((c) => c.key === field)) {
+          const col: { key: string; label: string; abbreviation?: string } = { key: field, label };
+          const unit = String(row['unit'] ?? '').trim();
+          if (unit) col['abbreviation'] = unit;
+          group.columns.push(col);
+        }
+
+        // Totals hold the authoritative value; averages hold per-game values when unit = 'avg'
+        const unit = String(row['unit'] ?? '')
+          .trim()
+          .toLowerCase();
+        if (unit === 'avg' || unit === 'per game') {
+          group.averages[field] = value;
+        } else {
+          group.totals[field] = value;
+        }
+      }
+
       return {
         previous: emptyPreviousState(),
         extracted: {
           ...baseDistilledProfile(scope),
-          seasonStats: stats.map((entry) => {
-            const row = (entry ?? {}) as Record<string, unknown>;
-            return {
-              season: String(row['season'] ?? 'unknown'),
-              category: String(row['category'] ?? 'overall'),
-              columns: [],
-              games: [],
-            };
-          }),
+          seasonStats: Array.from(groupMap.values()).map((g) => ({
+            season: g.season,
+            category: g.category,
+            columns: g.columns,
+            games: [],
+            totals: Object.keys(g.totals).length > 0 ? g.totals : undefined,
+            averages: Object.keys(g.averages).length > 0 ? g.averages : undefined,
+          })),
         },
       };
     },
@@ -280,32 +329,59 @@ const TYPED_DELTA_ADAPTERS: Readonly<Record<string, TypedDeltaAdapter>> = {
     },
   },
   write_playbooks: {
-    adapterVersion: '1.0',
+    adapterVersion: '2.0',
     resolve: async (input, _context, scope) => {
-      const playbooks = Array.isArray(input['playbooks']) ? input['playbooks'] : [];
-      if (playbooks.length === 0) {
-        return { error: true, reason: 'No playbooks found in input.playbooks' };
+      // 'plays' is the canonical key from WritePlaybooksTool.
+      // Fall back to 'playbooks' for legacy compat.
+      const plays = Array.isArray(input['plays'])
+        ? input['plays']
+        : Array.isArray(input['playbooks'])
+          ? input['playbooks']
+          : [];
+
+      if (plays.length === 0) {
+        return { error: true, reason: 'No plays found in input.plays' };
       }
+
+      const sport = String(input['sport'] ?? scope.sport ?? '');
+      const playbookName = String(input['name'] ?? 'Main Playbook');
+
+      // Collect aggregate indexes across all plays for the sync delta
+      const allFormations = new Set<string>();
+      const allConceptTags = new Set<string>();
+      const allPersonnel = new Set<string>();
+
+      for (const entry of plays) {
+        const row = (entry ?? {}) as Record<string, unknown>;
+        if (typeof row['formation'] === 'string' && row['formation']) {
+          allFormations.add(row['formation'] as string);
+        }
+        if (typeof row['personnel'] === 'string' && row['personnel']) {
+          allPersonnel.add(row['personnel'] as string);
+        }
+        if (Array.isArray(row['conceptTags'])) {
+          for (const t of row['conceptTags']) allConceptTags.add(String(t));
+        }
+        // Legacy field names from v1 adapter
+        if (Array.isArray(row['formationTypes'])) {
+          for (const f of row['formationTypes']) allFormations.add(String(f));
+        }
+      }
+
       return {
         previous: emptyPreviousState(),
         extracted: {
           ...baseDistilledProfile(scope),
-          playbooks: playbooks.map((entry) => {
-            const row = (entry ?? {}) as Record<string, unknown>;
-            const formationTypes = Array.isArray(row['formationTypes'])
-              ? row['formationTypes'].map((f) => String(f))
-              : undefined;
-            const videoRefs = Array.isArray(row['videoRefs'])
-              ? row['videoRefs'].map((v) => String(v))
-              : undefined;
-            return {
-              name: String(row['name'] ?? 'Unknown Playbook'),
-              sport: String(row['sport'] ?? scope.sport),
-              playCount: Number(row['playCount'] ?? 0),
-              formationTypes,
-              videoRefs,
-            };
-          }),
+          playbooks: [
+            {
+              name: playbookName,
+              sport,
+              playCount: plays.length,
+              formationTypes: allFormations.size > 0 ? Array.from(allFormations).sort() : undefined,
+              conceptTags: allConceptTags.size > 0 ? Array.from(allConceptTags).sort() : undefined,
+              personnelGroups: allPersonnel.size > 0 ? Array.from(allPersonnel).sort() : undefined,
+            },
+          ],
         },
       };
     },
@@ -469,7 +545,85 @@ const MUTATION_ANALYTICS_PROFILES: Readonly<Record<string, MutationAnalyticsProf
     templateBaseDomain: 'performance',
     tags: ['playbooks', 'coaching'],
   },
+  write_team_stats: {
+    templateKey: 'mutation_write_team_stats',
+    templateBaseDomain: 'performance',
+    tags: ['team-stats', 'performance', 'team'],
+  },
+  write_schedule: {
+    templateKey: 'mutation_write_schedule',
+    templateBaseDomain: 'performance',
+    tags: ['schedule', 'team'],
+  },
+  write_calendar_events: {
+    templateKey: 'mutation_write_calendar_events',
+    templateBaseDomain: 'performance',
+    tags: ['calendar', 'schedule', 'team'],
+  },
+  write_athlete_videos: {
+    templateKey: 'mutation_write_athlete_videos',
+    templateBaseDomain: 'engagement',
+    tags: ['video', 'highlight', 'media'],
+  },
+  write_core_identity: {
+    templateKey: 'mutation_write_core_identity',
+    templateBaseDomain: 'performance',
+    tags: ['identity', 'profile'],
+  },
 };
+
+const RECRUITING_EMAIL_TOOL_NAMES = new Set(['send_email', 'gmail_send_email', 'batch_send_email']);
+const RECRUITING_RECIPIENT_KINDS = new Set(['coach', 'college']);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function readRecipientKindFromInput(input: Record<string, unknown>): string | null {
+  const raw = input['recipientKind'];
+  return typeof raw === 'string' ? raw.trim().toLowerCase() : null;
+}
+
+function hasRecruitingRecipientInBatch(input: Record<string, unknown>): boolean {
+  const recipients = input['recipients'];
+  if (!Array.isArray(recipients)) return false;
+
+  return recipients.some((recipient) => {
+    if (!isRecord(recipient)) return false;
+    const recipientKind = recipient['recipientKind'];
+    if (typeof recipientKind !== 'string') return false;
+    return RECRUITING_RECIPIENT_KINDS.has(recipientKind.trim().toLowerCase());
+  });
+}
+
+function isRecruitingEmailExecution(input: AgentMutationPolicyInput): boolean {
+  if (!RECRUITING_EMAIL_TOOL_NAMES.has(input.toolName)) {
+    return false;
+  }
+
+  if (input.toolName === 'batch_send_email') {
+    return hasRecruitingRecipientInBatch(input.input);
+  }
+
+  const recipientKind = readRecipientKindFromInput(input.input);
+  return recipientKind !== null && RECRUITING_RECIPIENT_KINDS.has(recipientKind);
+}
+
+function resolveMutationAnalyticsProfile(
+  input: AgentMutationPolicyInput
+): MutationAnalyticsProfile {
+  const defaultProfile = MUTATION_ANALYTICS_PROFILES[input.toolName] ?? DEFAULT_ANALYTICS_PROFILE;
+
+  if (!isRecruitingEmailExecution(input)) {
+    return defaultProfile;
+  }
+
+  return {
+    ...defaultProfile,
+    templateBaseDomain: 'recruiting',
+    tags: [...defaultProfile.tags, 'recruiting-email'],
+  };
+}
 
 export interface AgentMutationPolicyInput {
   readonly toolName: string;
@@ -519,8 +673,7 @@ export class AgentMutationPolicyService {
       return;
     }
 
-    const analyticsProfile =
-      MUTATION_ANALYTICS_PROFILES[input.toolName] ?? DEFAULT_ANALYTICS_PROFILE;
+    const analyticsProfile = resolveMutationAnalyticsProfile(input);
     const analyticsTags = [
       'agent-mutation-policy',
       input.toolName,

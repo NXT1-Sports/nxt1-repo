@@ -1608,21 +1608,29 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         });
       }
 
-      // Start profile generation overlay if backend enqueued a scrape job
-      if (result.scrapeJobId) {
+      // Start profile generation overlay if backend enqueued scrape jobs
+      const allScrapeJobIds =
+        result.scrapeJobIds ?? (result.scrapeJobId ? [result.scrapeJobId] : []);
+      if (allScrapeJobIds.length > 0) {
         const platformNames =
           formData.linkSources?.links
             ?.filter((l) => l.connected)
             .map((l) => l.platform)
             .join(', ') ?? '';
+        // Primary job: starts the banner + opens the SSE resume stream
         this.profileGenerationState.attachToOperation(
-          result.scrapeJobId,
+          allScrapeJobIds[0],
           result.scrapeThreadId,
           platformNames
         );
-        this.logger.info('Backend scrape job started', {
-          scrapeJobId: result.scrapeJobId,
+        // Additional jobs: register observers so their tool-step events advance the same banner
+        for (const jobId of allScrapeJobIds.slice(1)) {
+          this.profileGenerationState.watchForProfileWrites(jobId, platformNames);
+        }
+        this.logger.info('Backend scrape jobs started', {
+          scrapeJobIds: allScrapeJobIds,
           scrapeThreadId: result.scrapeThreadId,
+          jobCount: allScrapeJobIds.length,
         });
       }
     } catch (saveError) {

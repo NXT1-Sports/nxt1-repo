@@ -17,7 +17,7 @@ export const AGENT_X_RUNTIME_CONFIG = {
   },
   operationQueue: {
     jobTimeoutMs: 7_200_000,
-    lockDurationMs: 300_000,
+    lockDurationMs: 1_800_000,
     maxTimeoutAutoContinuations: 6,
     parentOperationPollMs: 1_000,
     parentOperationTimeoutBufferMs: 5 * 60_000,

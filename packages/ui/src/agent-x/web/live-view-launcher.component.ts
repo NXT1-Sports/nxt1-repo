@@ -179,89 +179,89 @@ const LiveViewRoleSchema = z
 
 const LIVE_VIEW_ROLE_STORIES = LiveViewStoriesSchema.parse({
   athlete: {
-    eyebrow: 'Sports Intelligence for Athletes',
-    title: 'Open live pages and let Agent X turn them into athlete intelligence.',
+    eyebrow: 'Your Personal Scout, Always On',
+    title: 'Point Agent X at any page and it tells you what actually matters.',
     description:
-      'Use Live View when you want Agent X to inspect film hubs, stat pages, articles, team sites, rankings, or social profiles and help you understand what stands out.',
-    urlSectionTitle: 'Open a Specific URL',
+      'Think of Live View like having a scout ride shotgun while you browse. You pull up your Hudl film, a rankings page, or a college program site — and Agent X watches it with you, breaks it down, and tells you what to do with it. No more staring at numbers trying to figure out what they mean.',
+    urlSectionTitle: 'Drop in Any Link',
     urlSectionDescription:
-      'Paste any page you want analyzed in real time. Great for film, stats, rankings, articles, team pages, camp pages, or public social links.',
+      'Found a highlight reel, a college roster, a camp page, or an article about a program you are targeting? Paste the link and Agent X will pull out the stuff that actually matters to your recruitment and tell you how to use it.',
     helperText:
-      'Agent X can summarize what is on the page, identify the most important details, and help turn that context into a clear next step.',
+      'Agent X reads the page the same way a scout or coach would — looking for things that help or hurt your case and explaining what to pay attention to next.',
     quickLaunchDescription:
-      'Jump into common sports and media platforms without pasting a link when you want the fastest route into a live session.',
+      'Jump straight into the platforms where your film lives, your rankings show up, and your recruiting activity happens. No link needed — just pick and go.',
     tipText:
-      'Ask Agent X to open Live View whenever you want a live page reviewed for performance context, public presence, or decision support.',
+      'You can drop a link into any conversation with Agent X and say "open this" — it will pull up the page and start working through it with you right there.',
     benefits: [
       {
-        title: 'Get clearer self-scouting context',
-        copy: 'See how Agent X interprets the same public pages coaches, scouts, and evaluators may be using to form impressions.',
+        title: 'Watch your film with a second set of eyes',
+        copy: 'Open your Hudl page and ask Agent X what a college coach would notice first. It watches the same clips you do and gives you an honest read.',
       },
       {
-        title: 'Turn pages into usable insight',
-        copy: 'Use live context to pull key takeaways, compare information, and translate scattered details into a focused action plan.',
+        title: 'Know where you actually stand',
+        copy: 'Pull up rankings, scouting profiles, or recruiting boards and let Agent X explain what the numbers mean and what is worth chasing.',
       },
       {
-        title: 'Work from real performance surfaces',
-        copy: 'Bring film, stats, rankings, news, and social pages into one workflow so Agent X can help you think from live evidence.',
+        title: 'Research programs the smart way',
+        copy: 'Instead of guessing about a school, open their roster, schedule, or social page and let Agent X gather the details that help you make a real decision.',
       },
     ],
   },
   coach: {
-    eyebrow: 'Sports Intelligence for Coaches',
-    title: 'Open live pages and let Agent X turn them into coaching intelligence.',
+    eyebrow: 'Game Prep, Live and in Real Time',
+    title: 'Open any page mid-planning and let Agent X do the research for you.',
     description:
-      'Use Live View to inspect roster pages, opponent pages, film hubs, results, rankings, articles, and social accounts so Agent X can surface patterns and next actions.',
-    urlSectionTitle: 'Open a Specific URL',
+      'You are breaking down an opponent, researching a recruit, or trying to understand where your program stands — and you need real information fast. Live View lets Agent X look at the same pages you are looking at and actually help you think through them instead of just pointing you toward more reading.',
+    urlSectionTitle: 'Open Any Page You Are Already Looking At',
     urlSectionDescription:
-      'Paste any roster, opponent, film, stats, schedule, article, or team page you want Agent X to assess in real time.',
+      'Paste a roster page, an opponent film library, a schedule, a recruiting profile, or an article. Agent X will go through it and pull out the information that actually changes how you prepare or who you pursue.',
     helperText:
-      'Agent X can summarize what matters, compare signals across pages, and help you move from live context to planning or communication.',
+      'Agent X works through the page the way your staff would in a film session — picking out patterns, flagging things worth noting, and helping you figure out what to do next.',
     quickLaunchDescription:
-      'Start from a common platform when you want to move quickly into film, team, player, or public-facing sports intelligence work.',
+      'Jump directly into the platforms your staff is already using for film, player research, and program visibility. No setup, no link hunting.',
     tipText:
-      'You can also ask Agent X to open Live View mid-conversation when you need an opponent page, roster source, or public platform reviewed live.',
+      'You can ask Agent X to open a page any time during a conversation — mid-game-plan, mid-email draft, mid-recruiting discussion. It fits into how you already work.',
     benefits: [
       {
-        title: 'Review rosters and opponents faster',
-        copy: 'Use live pages to spot trends, compare context, and pull the details that actually matter for prep and decision-making.',
+        title: 'Break down opponents without the extra hours',
+        copy: 'Open a team page, film hub, or schedule and ask Agent X to help you prep. It spots tendencies and surfaces the stuff your staff needs to know before tip-off or kickoff.',
       },
       {
-        title: 'Turn public sources into team intel',
-        copy: 'Agent X can work from stats, news, schedules, and platform pages to create a tighter read on people, teams, and momentum.',
+        title: 'Research recruits from the source',
+        copy: "Instead of reading through pages on your own, open a prospect's profile or highlight page and let Agent X gather what matters and explain what it sees.",
       },
       {
-        title: 'Keep analysis connected to the source',
-        copy: 'Instead of talking abstractly, Live View lets Agent X reason from the same page your staff is evaluating right now.',
+        title: 'Stay connected to live information',
+        copy: 'Rankings shift, rosters change, news breaks. Live View means Agent X is always working from what is actually on the page right now, not a cached summary.',
       },
     ],
   },
   director: {
-    eyebrow: 'Sports Intelligence for Athletic Directors',
-    title: 'Open live pages and let Agent X turn them into program intelligence.',
+    eyebrow: 'Program Intelligence Without the Legwork',
+    title: 'Open any live page and let Agent X turn it into something you can actually act on.',
     description:
-      'Use Live View to inspect program sites, schedules, rosters, results, announcements, rankings, and social channels so Agent X can help interpret the bigger picture.',
-    urlSectionTitle: 'Open a Specific URL',
+      'You are tracking multiple programs, watching how your department looks publicly, keeping tabs on competing schools, and trying to stay ahead of what is happening across your conference. Live View lets Agent X do the information gathering so you can spend your time making decisions instead of hunting for context.',
+    urlSectionTitle: 'Open Any Page You Want Reviewed',
     urlSectionDescription:
-      'Paste any program, team, conference, results, news, staffing, or public-facing page you want reviewed in a live session.',
+      'Paste a program site, conference page, staffing announcement, news story, social channel, or public results page. Agent X will read it, summarize what is operationally important, and help you connect it to what your program needs to do.',
     helperText:
-      'Agent X can pull key signals from live pages, summarize what matters operationally, and help connect public information to strategic decisions.',
+      'Agent X reads like a sharp analyst would — looking for what signals risk, what shows momentum, and what your program should respond to before it becomes a bigger issue.',
     quickLaunchDescription:
-      'Open commonly used platforms fast when you need a live view into performance, visibility, benchmarking, or program operations.',
+      'Get into the platforms that show you where programs stand on performance, visibility, and competitive positioning — without having to hunt down links every time.',
     tipText:
-      'Ask Agent X to open Live View whenever you need a live page analyzed for program performance, public positioning, or operational context.',
+      'Ask Agent X to open Live View any time you are mid-conversation and need to ground a decision in something real — a page, a result, an announcement, a ranking.',
     benefits: [
       {
-        title: 'Monitor the full program picture',
-        copy: 'Review live team, department, and public-facing pages with Agent X to understand what is happening across your ecosystem.',
+        title: 'Keep a pulse on the full picture',
+        copy: 'Open live team pages, department sites, and public channels and let Agent X tell you what is actually worth your attention instead of wading through everything yourself.',
       },
       {
-        title: 'Turn live signals into executive context',
-        copy: 'Use Live View to move from scattered pages and updates to a tighter summary of risk, momentum, and opportunity.',
+        title: 'Turn scattered information into clear direction',
+        copy: 'Agent X takes what is on the page and translates it into executive-level context — what the signal means, what the risk is, and what you should be thinking about next.',
       },
       {
-        title: 'Work from real-world visibility',
-        copy: 'Agent X can interpret schedules, results, public announcements, rankings, and social activity from the source instead of from partial summaries.',
+        title: 'Work from what is real, not what is remembered',
+        copy: 'Schedules, results, announcements, and social activity change constantly. Live View means Agent X is always starting from the actual source instead of an outdated summary.',
       },
     ],
   },

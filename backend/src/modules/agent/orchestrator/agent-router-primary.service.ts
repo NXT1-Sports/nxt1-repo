@@ -501,7 +501,7 @@ function formatDispatchResult(payload: {
     const result = taskResults.get(task.id) as { summary?: string; result?: unknown } | undefined;
     const summary =
       typeof result === 'object' && result !== null && 'summary' in result
-        ? String((result as { summary: unknown }).summary ?? '').slice(0, 1_500)
+        ? String((result as { summary: unknown }).summary ?? '').slice(0, 4_000)
         : '';
     if (task.status === 'completed') {
       lines.push(`- ✅ \`${task.id}\`: ${task.description}`);

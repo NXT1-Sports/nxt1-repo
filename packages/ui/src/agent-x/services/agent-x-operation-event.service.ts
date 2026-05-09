@@ -189,6 +189,158 @@ export class AgentXOperationEventService {
   private readonly ngZone = inject(NgZone);
 
   /**
+   * localStorage key for persisting cancelled enqueue thread IDs.
+   * Survives full page refreshes — SSR-safe (reads/writes guarded by
+   * `typeof window !== 'undefined'`).
+   */
+  /**
+   * localStorage key.
+   * Value shape: `Record<threadId, { cancelledAt: number; operationId: string | null }>`.
+   *
+   * `operationId` is the Firestore job ID recorded AT cancellation time (while the
+   * host still holds the correct context). On re-entry we use it to identify and
+   * strip the partial assistant rows that belong to the cancelled job.
+   * `cancelledAt` is kept as a fallback when operationId is unavailable.
+   */
+  private static readonly CANCELLED_THREADS_KEY = 'nxt1.cancelledEnqueueThreads';
+  private static readonly WAITING_THREADS_KEY = 'nxt1.enqueueWaitingThreads';
+
+  private readCancelledMap(): Record<string, { cancelledAt: number; operationId: string | null }> {
+    if (typeof window === 'undefined') return {};
+    try {
+      const raw = localStorage.getItem(AgentXOperationEventService.CANCELLED_THREADS_KEY);
+      if (!raw) return {};
+      const parsed: unknown = JSON.parse(raw);
+      // Migrate old format (string[] or Record<string, number>)
+      if (Array.isArray(parsed)) {
+        const migrated: Record<string, { cancelledAt: number; operationId: string | null }> = {};
+        for (const id of parsed as string[]) migrated[id] = { cancelledAt: 0, operationId: null };
+        return migrated;
+      }
+      if (parsed && typeof parsed === 'object') {
+        const rec = parsed as Record<string, unknown>;
+        const upgraded: Record<string, { cancelledAt: number; operationId: string | null }> = {};
+        for (const [k, v] of Object.entries(rec)) {
+          if (typeof v === 'number') {
+            // Migrate old Record<string, number> format
+            upgraded[k] = { cancelledAt: v, operationId: null };
+          } else if (v && typeof v === 'object' && 'cancelledAt' in v) {
+            upgraded[k] = v as { cancelledAt: number; operationId: string | null };
+          }
+        }
+        return upgraded;
+      }
+      return {};
+    } catch {
+      return {};
+    }
+  }
+
+  private writeCancelledMap(
+    map: Record<string, { cancelledAt: number; operationId: string | null }>
+  ): void {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(AgentXOperationEventService.CANCELLED_THREADS_KEY, JSON.stringify(map));
+    } catch {
+      // localStorage full / private mode — silent fallback
+    }
+  }
+
+  private readWaitingMap(): Record<string, { queuedAt: number }> {
+    if (typeof window === 'undefined') return {};
+    try {
+      const raw = localStorage.getItem(AgentXOperationEventService.WAITING_THREADS_KEY);
+      if (!raw) return {};
+      const parsed: unknown = JSON.parse(raw);
+      if (!parsed || typeof parsed !== 'object') return {};
+      const rec = parsed as Record<string, unknown>;
+      const upgraded: Record<string, { queuedAt: number }> = {};
+      for (const [k, v] of Object.entries(rec)) {
+        if (typeof v === 'number') {
+          upgraded[k] = { queuedAt: v };
+        } else if (v && typeof v === 'object' && 'queuedAt' in v) {
+          upgraded[k] = v as { queuedAt: number };
+        }
+      }
+      return upgraded;
+    } catch {
+      return {};
+    }
+  }
+
+  private writeWaitingMap(map: Record<string, { queuedAt: number }>): void {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(AgentXOperationEventService.WAITING_THREADS_KEY, JSON.stringify(map));
+    } catch {
+      // localStorage full / private mode — silent fallback
+    }
+  }
+
+  /**
+   * Mark a thread's enqueue job as client-side cancelled.
+   * @param threadId  The thread ID.
+   * @param operationId  The Firestore job operationId, recorded NOW while the
+   *   host still holds the correct context. Used on re-entry to strip only
+   *   the partial assistant rows from this specific job.
+   */
+  markEnqueueCancelled(threadId: string, operationId: string | null = null): void {
+    if (!threadId) return;
+    const map = this.readCancelledMap();
+    map[threadId] = { cancelledAt: Date.now(), operationId };
+    this.writeCancelledMap(map);
+    this.logger.info('Enqueue job marked as cancelled', { threadId, operationId });
+  }
+
+  /** Returns true if the thread was client-side cancelled by the user (survives page refresh). */
+  isEnqueueCancelled(threadId: string): boolean {
+    return threadId in this.readCancelledMap();
+  }
+
+  /** Returns the stored entry for a cancelled enqueue thread, or null. */
+  getEnqueueCancelledEntry(
+    threadId: string
+  ): { cancelledAt: number; operationId: string | null } | null {
+    return this.readCancelledMap()[threadId] ?? null;
+  }
+
+  /**
+   * Remove a thread from the cancelled map.
+   * Called after re-entry confirms the thread has continued post-cancellation,
+   * so future re-entries take the normal init path.
+   */
+  clearEnqueueCancelled(threadId: string): void {
+    if (!threadId) return;
+    const map = this.readCancelledMap();
+    if (!(threadId in map)) return;
+    delete map[threadId];
+    this.writeCancelledMap(map);
+    this.logger.info('Enqueue cancelled state cleared — thread continued', { threadId });
+  }
+
+  markEnqueueWaiting(threadId: string, queuedAt: number = Date.now()): void {
+    if (!threadId) return;
+    const map = this.readWaitingMap();
+    map[threadId] = { queuedAt };
+    this.writeWaitingMap(map);
+    this.logger.info('Enqueue waiting state marked', { threadId, queuedAt });
+  }
+
+  getEnqueueWaitingEntry(threadId: string): { queuedAt: number } | null {
+    return this.readWaitingMap()[threadId] ?? null;
+  }
+
+  clearEnqueueWaiting(threadId: string): void {
+    if (!threadId) return;
+    const map = this.readWaitingMap();
+    if (!(threadId in map)) return;
+    delete map[threadId];
+    this.writeWaitingMap(map);
+    this.logger.info('Enqueue waiting state cleared', { threadId });
+  }
+
+  /**
    * Fanout map: one Firestore listener per operationId, N callback sets.
    * Multiple subscribers (e.g. Agent X chat shell + profile generation banner)
    * can attach to the same operation without opening duplicate Firestore connections.

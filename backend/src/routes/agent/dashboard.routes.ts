@@ -264,9 +264,32 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       }
     }
 
-    // ── Deduplicate by threadId: keep the most recent job per thread ────
+    // ── Deduplicate by threadId for historical rows only ────────────────
     // jobs[] is already ordered by createdAt DESC from Firestore, so the
     // first job seen for a threadId is the most recent one.
+    //
+    // Active rows are intentionally not deduplicated. During fan-out flows,
+    // multiple in-flight operations can share one thread and should each be
+    // visible in the sessions log.
+
+    // Pre-count active sibling ops per thread so we can show per-job titles
+    // when a thread has more than one concurrent operation (fan-out scrape jobs).
+    const activeCountPerThread = new Map<string, number>();
+    const activeStatuses = new Set([
+      'in-progress',
+      'paused',
+      'awaiting_input',
+      'awaiting_approval',
+    ]);
+    for (const job of jobs) {
+      const tid = (job['threadId'] as string) ?? '';
+      if (!tid) continue;
+      const st = mapJobStatus((job['status'] as string) ?? '', () => undefined, job['yieldState']);
+      if (activeStatuses.has(st)) {
+        activeCountPerThread.set(tid, (activeCountPerThread.get(tid) ?? 0) + 1);
+      }
+    }
+
     const seenThreadIds = new Set<string>();
     const entries: OperationLogEntry[] = [];
     const representedThreadIds = new Set<string>();
@@ -290,27 +313,36 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       const intent = (job['intent'] as string) ?? '';
       if (!intent) continue;
 
+      const status = mapJobStatus(
+        (job['status'] as string) ?? '',
+        (raw: string) => logger.warn('Unknown job status mapped to in-progress', { status: raw }),
+        job['yieldState']
+      );
       const threadId = (job['threadId'] as string) ?? undefined;
       const resolvedTitle = threadId ? (threadTitleById.get(threadId)?.trim() ?? '') : '';
 
-      // If this job belongs to a thread we've already represented, skip it.
-      // This collapses multiple messages in the same conversation into one row.
+      // If this job belongs to a thread we've already represented, skip it for
+      // historical statuses. Keep separate rows for active statuses so users can
+      // see concurrent operations in the same thread.
       if (threadId) {
         // Guardrail: ignore stale jobs referencing deleted/archived threads.
         // Only apply when threadQuerySucceeded — distinguishes "query returned 0
         // active threads" (user archived everything) from "query failed" (be lenient).
         if (threadQuerySucceeded && !activeThreadIds.has(threadId)) continue;
 
-        if (seenThreadIds.has(threadId)) continue;
-        seenThreadIds.add(threadId);
+        const isActiveStatus =
+          status === 'in-progress' ||
+          status === 'paused' ||
+          status === 'awaiting_input' ||
+          status === 'awaiting_approval';
+
+        if (!isActiveStatus && seenThreadIds.has(threadId)) continue;
+        if (!isActiveStatus) {
+          seenThreadIds.add(threadId);
+        }
         representedThreadIds.add(threadId);
       }
 
-      const status = mapJobStatus(
-        (job['status'] as string) ?? '',
-        (raw: string) => logger.warn('Unknown job status mapped to in-progress', { status: raw }),
-        job['yieldState']
-      );
       const category = inferCategory(intent);
       const createdAt = job['createdAt'] as TimestampLike | undefined;
       const completedAt = job['completedAt'] as TimestampLike | undefined | null;
@@ -318,10 +350,17 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       const jobOrigin = validateJobOrigin(job['origin']);
       const isScheduled = isScheduledOrigin(jobOrigin);
 
+      // For fan-out jobs: when a thread has multiple active sibling operations,
+      // use the per-job intent (first line only, no URL list) as the title so
+      // each session card is distinct in the sidebar.
+      const isSiblingActive = threadId != null && (activeCountPerThread.get(threadId) ?? 0) > 1;
+      const intentFirstLine = intent.split('\n')[0] ?? intent;
+      const displayTitle = isSiblingActive ? intentFirstLine : resolvedTitle || intentFirstLine;
+
       entries.push({
-        id: threadId ?? (job['operationId'] as string) ?? '',
+        id: (job['operationId'] as string) ?? threadId ?? '',
         operationId: (job['operationId'] as string) ?? undefined,
-        title: (resolvedTitle || intent).slice(0, 120),
+        title: displayTitle.slice(0, 120),
         summary:
           result?.summary ??
           (status === 'error' ? ((job['error'] as string) ?? 'Operation failed') : 'Processing...'),

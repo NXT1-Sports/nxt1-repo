@@ -20,7 +20,6 @@ import {
   type AgentXRichCard,
   type AgentXSelectedAction,
   type AgentXStreamCardEvent,
-  type AgentXStreamMediaEvent,
   type AgentXStreamStepEvent,
   type AgentXToolStep,
   type AgentXStreamWaitingForAttachmentsEvent,
@@ -45,7 +44,7 @@ import { IntelService } from '../../../intel/intel.service';
 import { ProfileGenerationStateService } from '../../../profile/profile-generation-state.service';
 import { ProfileService } from '../../../profile/profile.service';
 import { TeamProfileService } from '../../../team-profile/team-profile.service';
-import type { MessageAttachment, OperationMessage } from './agent-x-operation-chat.models';
+import type { OperationMessage } from './agent-x-operation-chat.models';
 import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-message.facade';
 
 type OperationStatus =
@@ -129,6 +128,8 @@ export interface AgentXOperationChatTransportFacadeHost {
     startAfterSeq?: number,
     initialWatermark?: StreamTurnWatermark | null
   ): void;
+  /** Called when the enqueue_heavy_task tool completes — shows the waiting card and marks thread. */
+  onEnqueueHeavyDone(): void;
   uid(): string;
 }
 
@@ -164,86 +165,17 @@ export class AgentXOperationChatTransportFacade {
     this.baseUrl
   );
 
+  private static readonly ENQUEUE_HEAVY_TOOL_NAME = 'enqueue_heavy_task';
+
   private host: AgentXOperationChatTransportFacadeHost | null = null;
   private responseTurnId = 0;
   private responseCompleteEmitted = false;
   private deltaLatencySamples: number[] = [];
   private destroyed = false;
-
-  private inferStreamMediaType(url: string, mimeType?: string): 'image' | 'video' | null {
-    const lowerMime = (mimeType ?? '').toLowerCase();
-    if (lowerMime.startsWith('image/')) return 'image';
-    if (lowerMime.startsWith('video/')) return 'video';
-
-    const lowerUrl = url.toLowerCase();
-    if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:\?|#|$)/i.test(lowerUrl)) return 'image';
-    if (/\.(mp4|mov|m4v|webm|avi|mkv|m3u8)(?:\?|#|$)/i.test(lowerUrl)) return 'video';
-    if (/videodelivery\.net\//i.test(lowerUrl)) return 'video';
-    return null;
-  }
-
-  private extractStreamMediaFromToolResult(
-    toolResult?: Record<string, unknown>
-  ): readonly AgentXStreamMediaEvent[] {
-    if (!toolResult) return [];
-
-    const seen = new Set<string>();
-    const media: AgentXStreamMediaEvent[] = [];
-
-    const pushCandidate = (
-      urlValue: unknown,
-      mimeTypeValue?: unknown,
-      forcedType?: 'image' | 'video'
-    ): void => {
-      if (typeof urlValue !== 'string') return;
-      const url = urlValue.trim();
-      if (!url || !/^https?:\/\//i.test(url)) return;
-      const mimeType = typeof mimeTypeValue === 'string' ? mimeTypeValue : undefined;
-      const type = forcedType ?? this.inferStreamMediaType(url, mimeType);
-      if (!type) return;
-      const key = `${type}|${url}`;
-      if (seen.has(key)) return;
-      seen.add(key);
-      media.push({ type, url, ...(mimeType ? { mimeType } : {}) });
-    };
-
-    pushCandidate(toolResult['imageUrl'], toolResult['mimeType'], 'image');
-    pushCandidate(toolResult['videoUrl'], toolResult['mimeType'], 'video');
-    pushCandidate(toolResult['url'], toolResult['mimeType']);
-    pushCandidate(toolResult['publicUrl'], toolResult['mimeType']);
-    pushCandidate(toolResult['downloadUrl'], toolResult['mimeType']);
-    pushCandidate(toolResult['outputUrl'], toolResult['mimeType'], 'video');
-
-    return media;
-  }
-
-  private mergeLiveMediaIntoTypingMessage(media: AgentXStreamMediaEvent): void {
-    const attachmentType: MessageAttachment['type'] = media.type === 'video' ? 'video' : 'image';
-
-    this.messageFacade.messages.update((messages) =>
-      messages.map((message) => {
-        if (message.id !== 'typing') return message;
-
-        const existingAttachments = [...(message.attachments ?? [])];
-        const alreadyPresent = existingAttachments.some(
-          (attachment) => attachment.url === media.url && attachment.type === attachmentType
-        );
-        if (alreadyPresent) return message;
-
-        return {
-          ...message,
-          attachments: [
-            ...existingAttachments,
-            {
-              url: media.url,
-              type: attachmentType,
-              name: attachmentType === 'video' ? 'stream-video.mp4' : 'stream-image.jpg',
-            },
-          ],
-        };
-      })
-    );
-  }
+  /** Set to true when enqueue_heavy_task tool step is detected during the current SSE turn. */
+  private enqueueHeavySeen = false;
+  /** Set once the enqueue waiting card has been rendered for the current turn. */
+  private enqueueHeavyCardShown = false;
 
   constructor() {
     // Per-component facade: when the host component is destroyed, mark this
@@ -593,10 +525,41 @@ export class AgentXOperationChatTransportFacade {
               this.profileGenerationState?.receiveStep(currentOperationId, step);
             }
 
-            if (event.toolResult) {
-              const liveMedia = this.extractStreamMediaFromToolResult(event.toolResult);
-              for (const media of liveMedia) {
-                this.mergeLiveMediaIntoTypingMessage(media);
+            // Detect enqueue_heavy_task tool — flag it so onDone can show the waiting card.
+            // Some backend paths don't include stageType/tool metadata consistently, so
+            // also use normalized label fallbacks.
+            const stepMetadata = event.metadata as Record<string, unknown> | undefined;
+            const rawToolName =
+              (stepMetadata?.['toolName'] as string | undefined) ??
+              (stepMetadata?.['tool_name'] as string | undefined) ??
+              (stepMetadata?.['tool'] as string | undefined) ??
+              (stepMetadata?.['name'] as string | undefined) ??
+              null;
+            const normalizedToolName = typeof rawToolName === 'string' ? rawToolName.trim() : '';
+            const rawHeavyTaskOperationId =
+              (stepMetadata?.['heavyTaskOperationId'] as string | undefined) ?? null;
+            const heavyTaskOperationId =
+              typeof rawHeavyTaskOperationId === 'string' &&
+              rawHeavyTaskOperationId.trim().length > 0
+                ? rawHeavyTaskOperationId.trim()
+                : null;
+            const normalizedLabel = event.label.trim().toLowerCase();
+            const isEnqueueHeavy =
+              normalizedToolName === AgentXOperationChatTransportFacade.ENQUEUE_HEAVY_TOOL_NAME ||
+              normalizedLabel.includes('queueing background operation') ||
+              normalizedLabel.includes('queuing background operation') ||
+              normalizedLabel.includes('task queued successfully');
+
+            if (isEnqueueHeavy && heavyTaskOperationId) {
+              host.setCurrentOperationId(heavyTaskOperationId);
+            }
+
+            if (isEnqueueHeavy && (event.status === 'active' || event.status === 'success')) {
+              this.enqueueHeavySeen = true;
+              if (event.status === 'success' && !this.enqueueHeavyCardShown) {
+                host.onEnqueueHeavyDone();
+                this.enqueueHeavyCardShown = true;
+                host.setActivityPhase('waiting_delta');
               }
             }
 
@@ -681,6 +644,23 @@ export class AgentXOperationChatTransportFacade {
                 source: 'sse-operation',
                 ...(event.operationId ? { operationId: event.operationId } : {}),
               });
+            }
+
+            const enqueuePending = this.enqueueHeavySeen || this.enqueueHeavyCardShown;
+
+            if (event.status === 'complete' && enqueuePending) {
+              // Enqueue-heavy turns finish the SSE stream before the background
+              // job completes; keep this thread in-progress until Firestore done.
+              host.setOperationStatus('processing');
+              host.setActivityPhase('waiting_delta', opMessage || null);
+              this.operationEventService.emitOperationStatusUpdated(
+                event.threadId,
+                'running',
+                event.timestamp,
+                'enqueue',
+                event.operationId
+              );
+              return;
             }
 
             if (event.status === 'complete') {
@@ -817,6 +797,43 @@ export class AgentXOperationChatTransportFacade {
           ...(onWaitingForAttachments ? { onWaitingForAttachments } : {}),
 
           onDone: (event) => {
+            // If the enqueue_heavy_task tool fired during this turn, show the waiting card
+            // instead of committing the streamed text as a permanent assistant message.
+            if (this.enqueueHeavySeen) {
+              this.enqueueHeavySeen = false;
+              host.latestProgressLabel.set(null);
+              host.batchEmailProgress.set(null);
+              host.setOperationStatus('processing');
+              host.setActivityPhase('waiting_delta');
+              const threadIdEnqueue = host.resolvedThreadId();
+              if (threadIdEnqueue) {
+                this.streamRegistry.markDone(threadIdEnqueue, {
+                  model: event.model,
+                  threadId: event.threadId,
+                  messageId: event.messageId,
+                  usage: event.usage,
+                });
+              }
+              // Fallback: if no step event rendered the card yet, render it now.
+              if (!this.enqueueHeavyCardShown) {
+                host.onEnqueueHeavyDone();
+                this.enqueueHeavyCardShown = true;
+              }
+              host.setActiveStream(null);
+              this.breadcrumb.trackStateChange('agent-x-operation-chat:enqueue-heavy-done', {
+                contextId: host.contextId(),
+              });
+              host.getShadowFirestoreSub()?.unsubscribe();
+              host.setShadowFirestoreSub(null);
+              host.setStreamTurnWatermark(null);
+              this.logger.info('Stream complete (enqueue heavy — waiting card shown)', {
+                threadId: event.threadId,
+              });
+              this.agentXService.clearDropRecoveryOp();
+              resolve();
+              return;
+            }
+
             this.messageFacade.flushPendingTypingDelta();
             host.latestProgressLabel.set(null);
             host.batchEmailProgress.set(null);
@@ -975,6 +992,8 @@ export class AgentXOperationChatTransportFacade {
     const host = this.requireHost();
     this.responseTurnId += 1;
     this.responseCompleteEmitted = false;
+    this.enqueueHeavySeen = false;
+    this.enqueueHeavyCardShown = false;
     host.latestProgressLabel.set(null);
     this.logger.debug('Response turn started', {
       turnId: this.responseTurnId,

@@ -50,6 +50,7 @@
     "seed:knowledge": "tsx ../scripts/seed-knowledge/index.ts",
     "deploy:mcp:stateful": "bash ./scripts/deploy-stateful-mcp.sh",
     "deploy:mcp:chart": "bash ./scripts/deploy-chart-mcp.sh",
+    "deploy:mcp:drawio": "bash ./scripts/deploy-drawio-mcp.sh",
     "deploy:mcp:google-workspace": "bash ./scripts/deploy-google-workspace-mcp.sh",
     "deploy:mcp:microsoft-365": "bash ./scripts/deploy-microsoft-365-mcp.sh",
     "backfill:agent-message-interactions": "tsx scripts/backfill-agent-message-interactions.ts",

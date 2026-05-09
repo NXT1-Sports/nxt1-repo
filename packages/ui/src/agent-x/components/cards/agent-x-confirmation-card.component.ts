@@ -23,17 +23,13 @@ export interface ConfirmationActionEvent {
   readonly cardTitle: string;
   /** The selected action ID. */
   readonly actionId: string;
-  /** Pending approval request id when the confirmation is approval-backed. */
-  readonly approvalId?: string;
-  /** Operation id associated with the confirmation. */
-  readonly operationId?: string;
 }
 
 @Component({
   selector: 'nxt1-agent-x-confirmation-card',
   standalone: true,
   template: `
-    <div class="confirm-card" [class.confirm-card--answered]="answered()">
+    <div class="confirm-card" [class.confirm-card--answered]="displayAnswered()">
       <div class="confirm-card__header">
         <svg class="confirm-card__icon" viewBox="0 0 20 20" fill="none">
           <circle cx="10" cy="10" r="8" stroke="currentColor" stroke-width="1.5" />
@@ -43,23 +39,40 @@ export interface ConfirmationActionEvent {
         <span class="confirm-card__title">{{ card().title }}</span>
       </div>
 
-      <p class="confirm-card__message">{{ message() }}</p>
+      @if (!displayAnswered()) {
+        <p class="confirm-card__message">{{ message() }}</p>
 
-      <div class="confirm-card__actions">
-        @for (action of actions(); track action.id) {
-          <button
-            class="confirm-btn"
-            [class.confirm-btn--primary]="action.variant === 'primary'"
-            [class.confirm-btn--secondary]="action.variant === 'secondary'"
-            [class.confirm-btn--destructive]="action.variant === 'destructive'"
-            [class.confirm-btn--selected]="selectedId() === action.id"
-            [disabled]="answered()"
-            (click)="onAction(action)"
-          >
-            {{ action.label }}
-          </button>
-        }
-      </div>
+        <div class="confirm-card__actions">
+          @for (action of actions(); track action.id) {
+            <button
+              class="confirm-btn"
+              [class.confirm-btn--primary]="action.variant === 'primary'"
+              [class.confirm-btn--secondary]="action.variant === 'secondary'"
+              [class.confirm-btn--destructive]="action.variant === 'destructive'"
+              [class.confirm-btn--selected]="selectedId() === action.id"
+              [disabled]="displayAnswered()"
+              (click)="onAction(action)"
+            >
+              {{ action.label }}
+            </button>
+          }
+        </div>
+      } @else {
+        <div class="confirm-card__resolved">
+          <svg class="confirm-card__resolved-check" viewBox="0 0 16 16" fill="none">
+            <path
+              d="M3 8L6.5 11.5L13 5"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+          <span class="confirm-card__resolved-text">{{
+            externalResolvedText() || resolvedLabel()
+          }}</span>
+        </div>
+      }
     </div>
   `,
   styles: [
@@ -173,6 +186,32 @@ export interface ConfirmationActionEvent {
         outline: 2px solid var(--nxt1-color-primary, #ccff00);
         outline-offset: 1px;
       }
+
+      /* Resolved state */
+      .confirm-card--answered {
+        opacity: 0.75;
+      }
+
+      .confirm-card__resolved {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px;
+        font-size: 0.8125rem;
+        font-weight: 600;
+        color: var(--nxt1-color-success, #22c55e);
+      }
+
+      .confirm-card__resolved-check {
+        width: 16px;
+        height: 16px;
+        flex-shrink: 0;
+      }
+
+      .confirm-card__resolved-text {
+        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.65));
+        font-weight: 500;
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -181,14 +220,38 @@ export class AgentXConfirmationCardComponent {
   /** The rich card data (type, title, payload). */
   readonly card = input.required<AgentXRichCard>();
 
+  /** External lifecycle state driven by the yield facade (mirrors action-card pattern). */
+  readonly externalCardState = input<'idle' | 'submitting' | 'resolved' | null>(null);
+
+  /** Text shown in the resolved badge when externally resolved. */
+  readonly externalResolvedText = input<string>('');
+
   /** Emitted when the user clicks an action button. */
   readonly actionSelected = output<ConfirmationActionEvent>();
 
   /** Track the selected action (one-time — disables buttons after choice). */
   protected readonly selectedId = signal<string | null>(null);
 
-  /** Whether the user has already made a choice. */
+  /** Whether the user has already made a local choice. */
   protected readonly answered = computed(() => this.selectedId() !== null);
+
+  /** Unified answered state — local OR externally resolved.
+   * If externalCardState returns to 'idle' (server failure), the card unlocks.
+   */
+  protected readonly displayAnswered = computed(() => {
+    const ext = this.externalCardState();
+    if (ext === 'idle') return false; // revert on server failure
+    if (ext === 'resolved' || ext === 'submitting') return true;
+    return this.answered();
+  });
+
+  /** Label to show in resolved badge (last selected action label). */
+  protected readonly resolvedLabel = computed(() => {
+    const id = this.selectedId();
+    if (!id) return 'Done';
+    const match = this.actions().find((a) => a.id === id);
+    return match?.label ?? 'Done';
+  });
 
   /** Extract the message from the confirmation payload. */
   protected readonly message = computed<string>(() => {
@@ -203,17 +266,11 @@ export class AgentXConfirmationCardComponent {
   });
 
   protected onAction(action: AgentXConfirmationAction): void {
-    if (this.answered()) return;
+    if (this.displayAnswered()) return;
     this.selectedId.set(action.id);
-    const payload = this.card().payload as AgentXConfirmationPayload & {
-      approvalId?: string;
-      operationId?: string;
-    };
     this.actionSelected.emit({
       cardTitle: this.card().title,
       actionId: action.id,
-      approvalId: typeof payload.approvalId === 'string' ? payload.approvalId : undefined,
-      operationId: typeof payload.operationId === 'string' ? payload.operationId : undefined,
     });
   }
 }

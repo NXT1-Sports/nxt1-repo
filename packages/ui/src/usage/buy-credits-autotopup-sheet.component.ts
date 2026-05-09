@@ -722,8 +722,13 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
 
   ngOnInit(): void {
     this.enabledLocal.set(this.initialAutoTopupEnabled);
-    this.thresholdCentsLocal.set(this.initialThresholdCents);
-    this.topupAmountCentsLocal.set(this.initialAutoTopupAmountCents);
+    // Guard against zero-value props: when auto top-up has never been
+    // configured the service signals default to 0. Fall back to sensible
+    // presets so the form is valid and the backend min-500 constraint is met.
+    this.thresholdCentsLocal.set(this.initialThresholdCents > 0 ? this.initialThresholdCents : 500);
+    this.topupAmountCentsLocal.set(
+      this.initialAutoTopupAmountCents > 0 ? this.initialAutoTopupAmountCents : 1_000
+    );
   }
 
   protected selectPackage(usd: CreditPackageUsd): void {

@@ -14,6 +14,7 @@
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import * as logger from 'firebase-functions/logger';
 import { generateUnicodeForUser } from './generateUnicode';
+import { linkPendingRosterEntriesForUser } from './linkPendingRosterEntries';
 
 /**
  * Cloud Function: Auto-assign unicode when user is created
@@ -44,12 +45,15 @@ export const onUserCreatedV3 = onDocumentCreated(
 
     const userData = snapshot.data();
 
-    // Skip if unicode already exists (idempotency)
+    // Skip unicode generation if already present (idempotency), but still
+    // attempt pending roster auto-linking.
     if (userData?.['unicode']) {
       logger.info('User already has unicode, skipping generation', {
         userId,
         unicode: userData['unicode'],
       });
+
+      await linkPendingRosterEntriesForUser({ userId, userData });
       return;
     }
 
@@ -63,6 +67,12 @@ export const onUserCreatedV3 = onDocumentCreated(
         unicode,
         email: userData?.['email'],
       });
+
+      const refreshed = await snapshot.ref.get();
+      const refreshedData = refreshed.data();
+      if (refreshedData) {
+        await linkPendingRosterEntriesForUser({ userId, userData: refreshedData });
+      }
     } catch (error) {
       logger.error('Failed to generate unicode for user', {
         userId,

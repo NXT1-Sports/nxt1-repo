@@ -62,7 +62,6 @@ export type UserFirestoreDoc = DocumentData & {
   athlete?: Record<string, unknown>;
   coach?: Record<string, unknown>;
   director?: Record<string, unknown>;
-  recruiter?: Record<string, unknown>;
   parent?: Record<string, unknown>;
   verificationStatus?: string;
   connectedSources?: Array<{

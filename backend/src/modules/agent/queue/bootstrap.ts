@@ -59,6 +59,7 @@ import {
   WriteConnectedSourceTool,
   WriteScheduleTool,
   WriteTeamStatsTool,
+  WritePlaybooksTool,
   WriteTeamNewsTool,
   WriteTeamPostTool,
   WriteRosterEntriesTool,
@@ -124,6 +125,8 @@ import { AgentPlanRepository } from './agent-plan.repository.js';
 import { WebSearchTool } from '../tools/integrations/web/web-search.tool.js';
 import { SendEmailTool } from '../tools/integrations/email/send-email.tool.js';
 import { BatchSendEmailTool } from '../tools/integrations/email/batch-send-email.tool.js';
+import { SendEmailViaNxt1Tool } from '../tools/integrations/email/send-email-via-nxt1.tool.js';
+import { BatchSendEmailViaNxt1Tool } from '../tools/integrations/email/batch-send-email-via-nxt1.tool.js';
 import { ScrapeTwitterTool } from '../tools/integrations/social/scrape-twitter.tool.js';
 import { ScrapeInstagramTool } from '../tools/integrations/social/scrape-instagram.tool.js';
 import { ApifyService } from '../tools/integrations/apify/apify.service.js';
@@ -165,6 +168,12 @@ import {
   FfmpegCompressVideoTool,
   ChartMcpBridgeService,
   GenerateChartVisualizationTool,
+  PlayDiagramService,
+  CreatePlayDiagramTool,
+  BoardDiagramService,
+  CreateBoardDiagramTool,
+  UpdateBoardDiagramTool,
+  DeleteBoardDiagramTool,
   CloudflareMcpBridgeService,
   CreateSupportTicketTool,
   ImportVideoTool,
@@ -186,6 +195,7 @@ import {
   UpdateRecurringTaskTool,
   ListRecurringTasksTool,
   CancelRecurringTaskTool,
+  EnqueueHeavyTaskTool,
 } from '../tools/automation/index.js';
 import { ContextBuilder } from '../memory/context-builder.js';
 import { VectorMemoryService } from '../memory/vector.service.js';
@@ -400,6 +410,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteCalendarEventsTool(stagingDb));
   toolRegistry.register(new WriteScheduleTool(stagingDb));
   toolRegistry.register(new WriteTeamStatsTool(stagingDb));
+  toolRegistry.register(new WritePlaybooksTool(stagingDb));
   toolRegistry.register(new WriteTeamNewsTool(stagingDb));
   toolRegistry.register(new WriteTeamPostTool(stagingDb));
   toolRegistry.register(new WriteRosterEntriesTool(stagingDb));
@@ -463,6 +474,8 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new ScanTimelinePostsTool(stagingDb, llm, vectorMemory));
   toolRegistry.register(new SendEmailTool(stagingDb));
   toolRegistry.register(new BatchSendEmailTool(stagingDb));
+  toolRegistry.register(new SendEmailViaNxt1Tool(stagingDb));
+  toolRegistry.register(new BatchSendEmailViaNxt1Tool(stagingDb));
   toolRegistry.register(new CreateSupportTicketTool());
 
   // ── 1b. Twitter/X & Instagram scraping (Apify-hosted actors) ─────────
@@ -621,6 +634,20 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     logger.warn('CHART_MCP_URL not configured — Chart MCP tools disabled');
   }
 
+  // ── 1e.3. Play diagram tools (LLM → diagrams.net export → Firebase) ─
+  const playDiagramService = new PlayDiagramService(llm);
+  toolRegistry.register(new CreatePlayDiagramTool(playDiagramService));
+  logger.info('Play diagram tools registered (create_play_diagram)');
+
+  // ── 1e.4. Board diagram tools (platform: plays + drills, with Firestore persistence) ─
+  const boardDiagramService = new BoardDiagramService(llm);
+  toolRegistry.register(new CreateBoardDiagramTool(boardDiagramService));
+  toolRegistry.register(new UpdateBoardDiagramTool(boardDiagramService));
+  toolRegistry.register(new DeleteBoardDiagramTool(boardDiagramService));
+  logger.info(
+    'Board diagram tools registered (create_board_diagram, update_board_diagram, delete_board_diagram)'
+  );
+
   toolRegistry.register(
     new AnalyzeVideoTool(scraperService, llm, apifyMcpBridge, ffmpegBridge, geminiFiles)
   );
@@ -731,6 +758,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new UpdateRecurringTaskTool(queueService, stagingDb));
   toolRegistry.register(new ListRecurringTasksTool(queueService, stagingDb));
   toolRegistry.register(new CancelRecurringTaskTool(queueService, stagingDb));
+  toolRegistry.register(new EnqueueHeavyTaskTool(queueService, stagingDb));
 
   // ── 4. Create the Redis PubSub service (real-time SSE pipe) ───────────
   // Enables BullMQ workers to stream tokens/steps back to the Express SSE
@@ -765,7 +793,12 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     agentRouter: router,
   });
   setWelcomeDependencies({ queueService, jobRepository, chatService: agentChatService });
-  setScrapeDependencies({ queueService, jobRepository, chatService: agentChatService });
+  setScrapeDependencies({
+    queueService,
+    jobRepository,
+    chatService: agentChatService,
+    llmService: llm,
+  });
 
   logger.info('Agent X queue engine initialized');
 

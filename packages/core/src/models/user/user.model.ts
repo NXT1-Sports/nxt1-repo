@@ -22,7 +22,6 @@ import {
   type AccountStatus,
   type Gender,
   type Theme,
-  type DismissablePrompt,
 } from '../../constants/user.constants';
 
 // Import all sub-types
@@ -73,10 +72,6 @@ export interface UserPreferences {
   /** Biometric login enabled (Face ID / Touch ID) */
   biometricLogin?: boolean;
 
-  /** Dismissed dialogs/tooltips */
-  dismissedPrompts: DismissablePrompt[];
-  /** Default sport to display (index in sports array) */
-  defaultSportIndex: number;
   theme?: Theme;
   language?: string;
 }

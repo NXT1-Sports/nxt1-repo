@@ -74,7 +74,7 @@ export const MAX_SCRAPE_CONTENT_LENGTH = 30_000;
 export const SCRAPE_TIMEOUT_MS = 15_000;
 
 /** Domains and IPs that are explicitly blocked from scraping (SSRF prevention + auth-required platforms). */
-export const BLOCKED_DOMAINS = [
+export const BLOCKED_INTERNAL_DOMAINS = [
   'localhost',
   '127.0.0.1',
   '0.0.0.0',
@@ -85,7 +85,10 @@ export const BLOCKED_DOMAINS = [
   '0:0:0:0:0:0:0:1', // IPv6 loopback (expanded)
   '[::ffff:169.254.169.254]', // IPv4-mapped IPv6 metadata
   '[::ffff:127.0.0.1]', // IPv4-mapped IPv6 loopback
-  // Social media platforms (require authentication)
+] as const;
+
+/** Social media domains blocked for unauthenticated scrape flows by default. */
+export const BLOCKED_SOCIAL_MEDIA_DOMAINS = [
   'instagram.com',
   'twitter.com',
   'x.com',
@@ -93,6 +96,12 @@ export const BLOCKED_DOMAINS = [
   'facebook.com',
   'threads.net',
   'snapchat.com',
+] as const;
+
+/** Complete blocked list used by scrape tools (internal + social media). */
+export const BLOCKED_DOMAINS = [
+  ...BLOCKED_INTERNAL_DOMAINS,
+  ...BLOCKED_SOCIAL_MEDIA_DOMAINS,
 ] as const;
 
 /** Domains we know how to scrape well (for logging/analytics). */

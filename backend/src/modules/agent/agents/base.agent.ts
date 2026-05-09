@@ -71,7 +71,6 @@ import { getPromptBudgetService } from '../services/prompt-budget.service.js';
 import { getOperationMemoryService } from '../services/operation-memory.service.js';
 import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
 import { logger } from '../../../utils/logger.js';
-import { resolveUrlText } from '../tools/favicon-registry.js';
 
 /** Maximum tool-calling iterations before we force the agent to respond. */
 const MAX_ITERATIONS = 20;
@@ -86,6 +85,8 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- Include useful payload fields when known: `coordinatorId`, `workflow`, `outcome`, `entityId`, `teamId`, `organizationId`, `toolName`, `artifactType`.',
   '- Do not emit duplicate analytics for pure reads, internal reasoning, abandoned drafts, or failed retries the user never received.',
   '- When the user asks for analytics or activity history, retrieve it with `get_analytics_summary` instead of guessing.',
+  '- Final response delivery is mandatory: when tools return deliverable URLs (image/video/pdf/export/download links), include those exact URLs in the same user-facing reply. Never claim a file/diagram/report is ready without surfacing its link(s).',
+  '- Never claim a deliverable exists before calling the tool: do NOT write "I have created your diagrams", "your report is ready", "diagrams are complete", or any equivalent completion statement unless you have already executed the relevant tool (e.g. create_play_diagram, generate_graphic, write_intel) in this response and received its output. If a tool call is pending, skipped, or failed, explicitly state what is incomplete rather than falsely claiming success.',
   '- Recurring task delivery (CRITICAL — never contradict this): when a recurring task is scheduled with a sourceId/threadId, each run executes inside that originating thread and posts its full response there, exactly like a normal chat reply. The user sees results in-thread. A push notification is ALSO sent as a supplementary alert. Do NOT tell users recurring tasks only notify via push or that results will not appear in the chat — both happen automatically.',
 ].join('\n');
 
@@ -93,10 +94,10 @@ const SHARED_PERSISTENCE_CONTRACT = [
  * Maximum characters for a single tool observation fed back to the LLM.
  * Prevents context overflow when scrape results are very large.
  */
-const MAX_OBSERVATION_LENGTH = 8_000;
+const MAX_OBSERVATION_LENGTH = 12_000;
 const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_INLINE_DOCUMENT_BYTES = 8 * 1024 * 1024;
-const MAX_ATTACHMENT_TEXT_CHARS = 18_000;
+const MAX_ATTACHMENT_TEXT_CHARS = 30_000;
 const MAX_ATTACHMENT_PREVIEW_ROWS = 60;
 const MAX_ATTACHMENT_PREVIEW_COLUMNS = 20;
 const DUPLICATE_GUARDED_TOOLS = new Set(['extract_live_view_media', 'extract_live_view_playlist']);
@@ -123,10 +124,13 @@ const PROGRESS_COMMENTARY_STALE_SILENCE_TOOLS = 4;
 const PROGRESS_COMMENTARY_COOLDOWN_MS = 5_000;
 const PROGRESS_COMMENTARY_COUNT_PATTERN =
   /\b(?:processed|completed|handled|ran|executed)\s+\d+\s+tool\s+calls?\b/i;
+const BRAND_MEDIA_DELEGATION_PATTERN =
+  /\b(ffmpeg|merge(?:d|s|ing)?|video|highlight|reel|clip|trim|subtitle|hudl|twitter|instagram|stage[_\s-]?media|analyze[_\s-]?video)\b/i;
 
 /** Artifact field names promoted from tool results for cross-coordinator handoff. */
 const ARTIFACT_KEYS = [
   'imageUrl',
+  'logoUrl',
   'storagePath',
   'cloudflareVideoId',
   'videoUrl',
@@ -1149,66 +1153,6 @@ export abstract class BaseAgent {
             }
           );
         }
-      }
-    }
-
-    // ── Short-circuit: no remaining plan steps after approved tool ──────────
-    // When the approved tool was the final step in the plan, skip the LLM
-    // round-trip entirely. The tool result IS the completion. We synthesise a
-    // minimal assistant text turn so the thread history stays well-formed and
-    // emit a `text_delta` so the frontend closes the operation cleanly.
-    if (
-      yieldState.reason === 'needs_approval' &&
-      yieldState.pendingToolCall &&
-      yieldState.planContext
-    ) {
-      const { currentTaskId, completedTaskResults } = yieldState.planContext;
-      // Consider the plan "exhausted" when the current task was the last key
-      // ever registered (its result is now being written), OR when there is
-      // exactly one pending task key (the one just approved).
-      const allTaskIds = Object.keys(completedTaskResults);
-      const pendingTaskIds = allTaskIds.filter((id) => completedTaskResults[id] === undefined);
-      const onlyCurrentRemaining =
-        pendingTaskIds.length === 0 ||
-        (pendingTaskIds.length === 1 && pendingTaskIds[0] === currentTaskId);
-
-      if (onlyCurrentRemaining) {
-        const toolName = yieldState.pendingToolCall.toolName;
-        const { resolveApprovalSuccessText } = await import('@nxt1/core');
-        const copy = resolveApprovalSuccessText(toolName);
-        const summaryText = copy.message;
-
-        // Emit stream events so the frontend UI completes gracefully.
-        onStreamEvent?.({ type: 'delta', agentId: this.id, text: summaryText, noBatch: true });
-
-        // Persist the synthetic assistant turn to thread history.
-        const writer = getThreadMessageWriter();
-        if (writer && context.threadId) {
-          await writer.append(
-            { role: 'assistant', content: summaryText },
-            {
-              threadId: context.threadId,
-              userId: context.userId,
-              agentId: this.id,
-              ...(context.operationId ? { operationId: context.operationId } : {}),
-            }
-          );
-        }
-
-        logger.info(`[${this.id}] Short-circuit resume: no remaining steps after approved tool`, {
-          toolName,
-          planTaskId: currentTaskId,
-        });
-
-        return {
-          summary: summaryText,
-          data: {
-            type: 'text',
-            agentId: this.id,
-            content: summaryText,
-            threadId: context.threadId,
-          },
-        };
       }
     }
 
@@ -2736,16 +2680,26 @@ export abstract class BaseAgent {
       if (isPlanAndExecute(err)) throw err;
       if (isExecuteSavedPlan(err)) throw err;
       if (isAgentDelegation(err)) {
+        const delegationErr = err as AgentDelegationException;
+
+        if (this.shouldBlockBrandMediaDelegation(delegationErr, currentMessages)) {
+          return JSON.stringify({
+            success: false,
+            error:
+              'Brand Coordinator must complete FFmpeg/media tasks directly. Delegation is blocked for this media request. Retry with ffmpeg_* tools, use stage_media if a source URL is inaccessible, or ask_user for one missing clip URL.',
+          });
+        }
+
         // ── Tier 2: Enrich delegation with source agent ID and prior work context ──
         // Append artifacts + tool summaries from current-turn messages so the
         // Planner can route without duplicating completed work.
         const priorWork = this.buildPriorWorkContext(currentMessages);
         throw new AgentDelegationException({
-          ...err.payload,
+          ...delegationErr.payload,
           sourceAgent: this.id,
           forwardingIntent: priorWork
-            ? `${err.payload.forwardingIntent}\n\n${priorWork}`
-            : err.payload.forwardingIntent,
+            ? `${delegationErr.payload.forwardingIntent}\n\n${priorWork}`
+            : delegationErr.payload.forwardingIntent,
         });
       }
       if (operationMemory && sessionContext?.operationId) {
@@ -3105,8 +3059,24 @@ export abstract class BaseAgent {
     context?: AgentSessionContext,
     artifactLedger?: ReadonlyArray<ArtifactLedgerEntry>
   ): LLMToolCall {
-    // Only augment analyze_video
-    if (toolCall.function.name !== 'analyze_video') {
+    const mediaAugmentableTools = new Set([
+      'generate_graphic',
+      'runway_generate_video',
+      'runway_edit_video',
+      'ffmpeg_trim_video',
+      'ffmpeg_merge_videos',
+      'ffmpeg_resize_video',
+      'ffmpeg_add_text_overlay',
+      'ffmpeg_burn_subtitles',
+      'ffmpeg_generate_thumbnail',
+      'ffmpeg_convert_video',
+      'ffmpeg_compress_video',
+    ]);
+
+    if (
+      toolCall.function.name !== 'analyze_video' &&
+      !mediaAugmentableTools.has(toolCall.function.name)
+    ) {
       return toolCall;
     }
 
@@ -3117,9 +3087,503 @@ export abstract class BaseAgent {
       return toolCall;
     }
 
-    // If artifact is already provided, don't augment
-    if (input['artifact'] !== undefined) {
+    // analyze_video keeps the strict artifact-only augmentation path.
+    if (toolCall.function.name === 'analyze_video' && input['artifact'] !== undefined) {
       return toolCall;
+    }
+
+    if (toolCall.function.name === 'generate_graphic') {
+      const readStringArray = (value: unknown): string[] =>
+        Array.isArray(value)
+          ? value
+              .filter(
+                (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+              )
+              .map((entry) => entry.trim())
+          : [];
+
+      const asObject = (value: unknown): Record<string, unknown> | null =>
+        value && typeof value === 'object' && !Array.isArray(value)
+          ? (value as Record<string, unknown>)
+          : null;
+
+      const isLikelyUrl = (value: string): boolean => /^https?:\/\//i.test(value);
+      const dedupeUrls = (urls: readonly string[]): string[] => {
+        const seen = new Set<string>();
+        const out: string[] = [];
+        for (const url of urls) {
+          if (!isLikelyUrl(url)) continue;
+          if (seen.has(url)) continue;
+          seen.add(url);
+          out.push(url);
+        }
+        return out;
+      };
+
+      const hasSubjectPhotos = readStringArray(input['subjectPhotoUrls']).length > 0;
+      const hasLogoUrls = readStringArray(input['logoUrls']).length > 0;
+      const hasVideoSourceUrls = readStringArray(input['videoSourceUrls']).length > 0;
+
+      const aggregate = {
+        subjectPhotoUrls: [] as string[],
+        logoUrls: [] as string[],
+        videoSourceUrls: [] as string[],
+        sources: [] as string[],
+      };
+
+      const collectFromData = (data: Record<string, unknown>, source: string): void => {
+        const containers: Record<string, unknown>[] = [data];
+        const items = Array.isArray(data['items'])
+          ? data['items'].filter(
+              (item): item is Record<string, unknown> =>
+                !!item && typeof item === 'object' && !Array.isArray(item)
+            )
+          : [];
+        containers.push(...items.slice(0, 5));
+
+        const colleges = Array.isArray(data['colleges'])
+          ? data['colleges'].filter(
+              (item): item is Record<string, unknown> =>
+                !!item && typeof item === 'object' && !Array.isArray(item)
+            )
+          : [];
+        containers.push(...colleges.slice(0, 5));
+
+        const conferences = Array.isArray(data['conferences'])
+          ? data['conferences'].filter(
+              (item): item is Record<string, unknown> =>
+                !!item && typeof item === 'object' && !Array.isArray(item)
+            )
+          : [];
+        containers.push(...conferences.slice(0, 5));
+
+        for (const entry of containers) {
+          const logoUrl = typeof entry['logoUrl'] === 'string' ? entry['logoUrl'].trim() : '';
+          if (logoUrl) {
+            aggregate.logoUrls.push(logoUrl);
+            aggregate.sources.push(`${source}:logoUrl`);
+          }
+
+          const imageUrl = typeof entry['imageUrl'] === 'string' ? entry['imageUrl'].trim() : '';
+          if (imageUrl) {
+            aggregate.subjectPhotoUrls.push(imageUrl);
+            aggregate.sources.push(`${source}:imageUrl`);
+          }
+
+          const profileImgs = readStringArray(entry['profileImgs']);
+          if (profileImgs.length > 0) {
+            aggregate.subjectPhotoUrls.push(...profileImgs);
+            aggregate.sources.push(`${source}:profileImgs`);
+          }
+
+          const galleryImages = readStringArray(entry['galleryImages']);
+          if (galleryImages.length > 0) {
+            aggregate.subjectPhotoUrls.push(...galleryImages);
+            aggregate.sources.push(`${source}:galleryImages`);
+          }
+
+          const images = readStringArray(entry['images']);
+          if (images.length > 0) {
+            aggregate.subjectPhotoUrls.push(...images);
+            aggregate.sources.push(`${source}:images`);
+          }
+
+          const videoUrl = typeof entry['videoUrl'] === 'string' ? entry['videoUrl'].trim() : '';
+          if (videoUrl) {
+            aggregate.videoSourceUrls.push(videoUrl);
+            aggregate.sources.push(`${source}:videoUrl`);
+          }
+
+          const mediaUrls = readStringArray(entry['mediaUrls']);
+          if (mediaUrls.length > 0) {
+            aggregate.videoSourceUrls.push(...mediaUrls);
+            aggregate.sources.push(`${source}:mediaUrls`);
+          }
+
+          const persistedMediaUrls = readStringArray(entry['persistedMediaUrls']);
+          if (persistedMediaUrls.length > 0) {
+            aggregate.videoSourceUrls.push(...persistedMediaUrls);
+            aggregate.sources.push(`${source}:persistedMediaUrls`);
+          }
+        }
+      };
+
+      const collectFromText = (text: string, source: string): void => {
+        if (!text.trim()) return;
+        const urlRegex = /https?:\/\/[^\s)\]"]+ /gi;
+        const lines = text.split(/\r?\n/);
+        let match: RegExpExecArray | null;
+        while ((match = urlRegex.exec(text)) !== null) {
+          const url = match[0]?.trim();
+          if (!url) continue;
+
+          const index = match.index ?? 0;
+          const line =
+            lines.find((candidate) => {
+              const lineStart = text.indexOf(candidate);
+              const lineEnd = lineStart + candidate.length;
+              return index >= lineStart && index <= lineEnd;
+            }) ?? '';
+          const nearby = line.toLowerCase();
+
+          if (/\b(logo|badge|crest|emblem)\b/.test(nearby)) {
+            aggregate.logoUrls.push(url);
+            aggregate.sources.push(`${source}:text_logo`);
+            continue;
+          }
+
+          if (/\b(video|film|clip|reel|highlight|hudl|youtube|vimeo|mp4|mov|m3u8)\b/.test(nearby)) {
+            aggregate.videoSourceUrls.push(url);
+            aggregate.sources.push(`${source}:text_video`);
+            continue;
+          }
+
+          if (/\b(photo|image|pic|picture|portrait|athlete|subject)\b/.test(nearby)) {
+            aggregate.subjectPhotoUrls.push(url);
+            aggregate.sources.push(`${source}:text_photo`);
+            continue;
+          }
+
+          if (/\.(mp4|mov|m3u8|webm)(\?|$)/i.test(url)) {
+            aggregate.videoSourceUrls.push(url);
+            aggregate.sources.push(`${source}:ext_video`);
+            continue;
+          }
+
+          if (/\.(png|jpg|jpeg|webp|gif)(\?|$)/i.test(url)) {
+            aggregate.subjectPhotoUrls.push(url);
+            aggregate.sources.push(`${source}:ext_image`);
+          }
+        }
+      };
+
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (msg.role !== 'tool' || typeof msg.content !== 'string') continue;
+        try {
+          const result = JSON.parse(msg.content) as Record<string, unknown>;
+          if (result['success'] !== true) continue;
+          const data = asObject(result['data']);
+          if (!data) continue;
+          collectFromData(data, 'current_messages');
+        } catch {
+          continue;
+        }
+      }
+
+      if (context?.conversationHistory?.length) {
+        for (let i = context.conversationHistory.length - 1; i >= 0; i--) {
+          const msg = context.conversationHistory[i];
+          if (msg.role !== 'tool' || typeof msg.content !== 'string') continue;
+          try {
+            const result = JSON.parse(msg.content) as Record<string, unknown>;
+            if (result['success'] !== true) continue;
+            const data = asObject(result['data']);
+            if (!data) continue;
+            collectFromData(data, 'conversation_history');
+          } catch {
+            continue;
+          }
+        }
+      }
+
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (typeof msg.content !== 'string') continue;
+        collectFromText(msg.content, 'messages_text');
+      }
+
+      if (context?.conversationHistory?.length) {
+        for (let i = context.conversationHistory.length - 1; i >= 0; i--) {
+          const msg = context.conversationHistory[i];
+          if (typeof msg.content !== 'string') continue;
+          collectFromText(msg.content, 'conversation_text');
+        }
+      }
+
+      const contextRecord = context as unknown as Record<string, unknown>;
+      const contextLogoCandidates = [
+        contextRecord['teamLogoUrl'],
+        contextRecord['logoUrl'],
+        contextRecord['organizationLogoUrl'],
+      ]
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .map((value) => value.trim());
+      if (contextLogoCandidates.length > 0) {
+        aggregate.logoUrls.push(...contextLogoCandidates);
+        aggregate.sources.push('session_context:logo');
+      }
+
+      const contextPhotoCandidates = [
+        contextRecord['subjectImageUrl'],
+        contextRecord['profileImageUrl'],
+        contextRecord['imageUrl'],
+      ]
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .map((value) => value.trim());
+      if (contextPhotoCandidates.length > 0) {
+        aggregate.subjectPhotoUrls.push(...contextPhotoCandidates);
+        aggregate.sources.push('session_context:photo');
+      }
+
+      const contextProfileImgs = readStringArray(contextRecord['profileImgs']);
+      if (contextProfileImgs.length > 0) {
+        aggregate.subjectPhotoUrls.push(...contextProfileImgs);
+        aggregate.sources.push('session_context:profileImgs');
+      }
+
+      const contextVideoCandidates = [contextRecord['videoUrl'], contextRecord['sourceVideoUrl']]
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .map((value) => value.trim());
+      if (contextVideoCandidates.length > 0) {
+        aggregate.videoSourceUrls.push(...contextVideoCandidates);
+        aggregate.sources.push('session_context:video');
+      }
+
+      if (artifactLedger?.length) {
+        for (let i = artifactLedger.length - 1; i >= 0; i--) {
+          const entry = artifactLedger[i];
+          collectFromData(entry.artifacts, `artifact_ledger:${entry.toolName}`);
+        }
+      }
+
+      const dedupedSubjectPhotos = dedupeUrls(aggregate.subjectPhotoUrls).slice(0, 5);
+      const dedupedLogos = dedupeUrls(aggregate.logoUrls).slice(0, 3);
+      const dedupedVideos = dedupeUrls(aggregate.videoSourceUrls).slice(0, 3);
+      const dedupedSources = [...new Set(aggregate.sources)].slice(0, 12);
+
+      const augmentedInput: Record<string, unknown> = { ...input };
+      let injectedAny = false;
+
+      if (!hasSubjectPhotos && dedupedSubjectPhotos.length > 0) {
+        augmentedInput['subjectPhotoUrls'] = dedupedSubjectPhotos;
+        injectedAny = true;
+      }
+
+      if (!hasLogoUrls && dedupedLogos.length > 0) {
+        augmentedInput['logoUrls'] = dedupedLogos;
+        injectedAny = true;
+      }
+
+      if (!hasVideoSourceUrls && dedupedVideos.length > 0) {
+        augmentedInput['videoSourceUrls'] = dedupedVideos;
+        injectedAny = true;
+      }
+
+      if (injectedAny) {
+        if (!Array.isArray(augmentedInput['autoRetrievedSources']) && dedupedSources.length > 0) {
+          augmentedInput['autoRetrievedSources'] = dedupedSources;
+        }
+        if (augmentedInput['assetSelectionApproved'] === undefined) {
+          augmentedInput['assetSelectionApproved'] = false;
+        }
+        if (augmentedInput['applyMode'] === undefined) {
+          const modeHasSubject =
+            Array.isArray(augmentedInput['subjectPhotoUrls']) &&
+            (augmentedInput['subjectPhotoUrls'] as unknown[]).length > 0;
+          const modeHasLogo =
+            Array.isArray(augmentedInput['logoUrls']) &&
+            (augmentedInput['logoUrls'] as unknown[]).length > 0;
+          augmentedInput['applyMode'] =
+            modeHasSubject && modeHasLogo
+              ? 'mixed'
+              : modeHasSubject
+                ? 'photo_lock'
+                : modeHasLogo
+                  ? 'logo_overlay'
+                  : 'style_only';
+        }
+      } else {
+        return toolCall;
+      }
+
+      logger.info('[BaseAgent] Augmented generate_graphic with retrieved artifacts', {
+        agentId: this.id,
+        injectedSubjectPhotos: !hasSubjectPhotos && dedupedSubjectPhotos.length > 0,
+        injectedLogos: !hasLogoUrls && dedupedLogos.length > 0,
+        injectedVideos: !hasVideoSourceUrls && dedupedVideos.length > 0,
+        sourceCount: dedupedSources.length,
+      });
+
+      return {
+        ...toolCall,
+        function: {
+          ...toolCall.function,
+          arguments: JSON.stringify(augmentedInput),
+        },
+      };
+    }
+
+    if (mediaAugmentableTools.has(toolCall.function.name)) {
+      const readStringArray = (value: unknown): string[] =>
+        Array.isArray(value)
+          ? value
+              .filter(
+                (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+              )
+              .map((entry) => entry.trim())
+          : [];
+
+      const isLikelyUrl = (value: string): boolean => /^https?:\/\//i.test(value);
+      const asObject = (value: unknown): Record<string, unknown> | null =>
+        value && typeof value === 'object' && !Array.isArray(value)
+          ? (value as Record<string, unknown>)
+          : null;
+
+      const videoCandidates: string[] = [];
+      const imageCandidates: string[] = [];
+
+      const collectFromData = (data: Record<string, unknown>): void => {
+        const items = Array.isArray(data['items'])
+          ? data['items'].filter(
+              (item): item is Record<string, unknown> =>
+                !!item && typeof item === 'object' && !Array.isArray(item)
+            )
+          : [];
+
+        const containers = [data, ...items.slice(0, 8)];
+        for (const entry of containers) {
+          const videoUrl = typeof entry['videoUrl'] === 'string' ? entry['videoUrl'].trim() : '';
+          const outputUrl = typeof entry['outputUrl'] === 'string' ? entry['outputUrl'].trim() : '';
+          const imageUrl = typeof entry['imageUrl'] === 'string' ? entry['imageUrl'].trim() : '';
+          const profileImgs = readStringArray(entry['profileImgs']);
+          const galleryImages = readStringArray(entry['galleryImages']);
+          const images = readStringArray(entry['images']);
+
+          if (videoUrl) videoCandidates.push(videoUrl);
+          if (outputUrl && /\.(mp4|mov|m3u8|webm)(\?|$)/i.test(outputUrl))
+            videoCandidates.push(outputUrl);
+          if (imageUrl) imageCandidates.push(imageUrl);
+          imageCandidates.push(...profileImgs, ...galleryImages, ...images);
+
+          const mediaUrls = readStringArray(entry['mediaUrls']);
+          const persistedMediaUrls = readStringArray(entry['persistedMediaUrls']);
+          videoCandidates.push(...mediaUrls, ...persistedMediaUrls);
+        }
+      };
+
+      const collectFromText = (text: string): void => {
+        const urlRegex = /https?:\/\/[^\s)\]"]+ /gi;
+        let match: RegExpExecArray | null;
+        while ((match = urlRegex.exec(text)) !== null) {
+          const url = (match[0] ?? '').trim();
+          if (!url || !isLikelyUrl(url)) continue;
+          if (
+            /\.(mp4|mov|m3u8|webm)(\?|$)/i.test(url) ||
+            /\b(video|clip|film|reel|hudl)\b/i.test(text)
+          ) {
+            videoCandidates.push(url);
+          } else if (/\.(png|jpg|jpeg|webp|gif)(\?|$)/i.test(url)) {
+            imageCandidates.push(url);
+          }
+        }
+      };
+
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const msg = messages[i];
+        if (typeof msg.content === 'string') collectFromText(msg.content);
+        if (msg.role === 'tool' && typeof msg.content === 'string') {
+          try {
+            const result = JSON.parse(msg.content) as Record<string, unknown>;
+            if (result['success'] !== true) continue;
+            const data = asObject(result['data']);
+            if (data) collectFromData(data);
+          } catch {
+            continue;
+          }
+        }
+      }
+
+      if (context?.conversationHistory?.length) {
+        for (let i = context.conversationHistory.length - 1; i >= 0; i--) {
+          const msg = context.conversationHistory[i];
+          if (typeof msg.content === 'string') collectFromText(msg.content);
+          if (msg.role === 'tool' && typeof msg.content === 'string') {
+            try {
+              const result = JSON.parse(msg.content) as Record<string, unknown>;
+              if (result['success'] !== true) continue;
+              const data = asObject(result['data']);
+              if (data) collectFromData(data);
+            } catch {
+              continue;
+            }
+          }
+        }
+      }
+
+      if (artifactLedger?.length) {
+        for (let i = artifactLedger.length - 1; i >= 0; i--) {
+          collectFromData(artifactLedger[i].artifacts);
+        }
+      }
+
+      const dedupe = (urls: readonly string[]): string[] => {
+        const seen = new Set<string>();
+        const out: string[] = [];
+        for (const url of urls) {
+          if (!isLikelyUrl(url)) continue;
+          if (seen.has(url)) continue;
+          seen.add(url);
+          out.push(url);
+        }
+        return out;
+      };
+
+      const videos = dedupe(videoCandidates);
+      const images = dedupe(imageCandidates);
+      const augmentedInput: Record<string, unknown> = { ...input };
+      let injected = false;
+
+      if (toolCall.function.name === 'runway_generate_video') {
+        if (typeof augmentedInput['promptImage'] !== 'string' && images.length > 0) {
+          augmentedInput['promptImage'] = images[0];
+          injected = true;
+        }
+      } else if (toolCall.function.name === 'runway_edit_video') {
+        if (typeof augmentedInput['video'] !== 'string' && videos.length > 0) {
+          augmentedInput['video'] = videos[0];
+          injected = true;
+        }
+        if (typeof augmentedInput['promptImage'] !== 'string' && images.length > 0) {
+          augmentedInput['promptImage'] = images[0];
+          injected = true;
+        }
+      } else if (toolCall.function.name === 'ffmpeg_merge_videos') {
+        const existing = Array.isArray(augmentedInput['inputPaths'])
+          ? (augmentedInput['inputPaths'] as unknown[]).filter(
+              (v): v is string => typeof v === 'string' && v.trim().length > 0
+            )
+          : [];
+        if (existing.length === 0 && videos.length >= 2) {
+          augmentedInput['inputPaths'] = videos.slice(0, 4);
+          injected = true;
+        }
+      } else {
+        if (typeof augmentedInput['inputPath'] !== 'string' && videos.length > 0) {
+          augmentedInput['inputPath'] = videos[0];
+          injected = true;
+        }
+      }
+
+      if (!injected) {
+        return toolCall;
+      }
+
+      logger.info('[BaseAgent] Augmented media tool with retrieved URLs', {
+        agentId: this.id,
+        toolName: toolCall.function.name,
+        injected,
+        videoCandidates: videos.length,
+        imageCandidates: images.length,
+      });
+
+      return {
+        ...toolCall,
+        function: {
+          ...toolCall.function,
+          arguments: JSON.stringify(augmentedInput),
+        },
+      };
     }
 
     // ── Pass 1: Scan current-turn messages ──
@@ -3260,6 +3724,36 @@ export abstract class BaseAgent {
     return parts.length > 0 ? parts.join('\n') : null;
   }
 
+  private shouldBlockBrandMediaDelegation(
+    delegation: AgentDelegationException,
+    messages?: readonly LLMMessage[]
+  ): boolean {
+    if (this.id !== 'brand_coordinator') return false;
+
+    const candidates: string[] = [delegation.payload.forwardingIntent];
+
+    if (delegation.payload.structuredPayload) {
+      candidates.push(JSON.stringify(delegation.payload.structuredPayload));
+    }
+
+    if (messages?.length) {
+      for (const message of messages) {
+        if (typeof message.content === 'string') {
+          candidates.push(message.content);
+        }
+
+        if (message.role === 'assistant' && message.tool_calls?.length) {
+          for (const toolCall of message.tool_calls) {
+            candidates.push(toolCall.function.name);
+            candidates.push(toolCall.function.arguments);
+          }
+        }
+      }
+    }
+
+    return BRAND_MEDIA_DELEGATION_PATTERN.test(candidates.join('\n'));
+  }
+
   protected resolveToolInvocationLabel(
     toolName: string,
     inputOrArgs?: Record<string, unknown> | string
@@ -3369,8 +3863,18 @@ export abstract class BaseAgent {
       if (candidate) return candidate;
     }
 
+    // Suppress technical IDs (like videoId, operationId, etc.) from user-facing progress labels
     for (const [key, value] of Object.entries(input)) {
+      // Hide any field that looks like a technical ID or code
       if (!this.isMeaningfulInvocationKey(key)) continue;
+      if (/id$/i.test(key) && typeof value === 'string' && /^[a-f0-9]{8,}$/.test(value)) {
+        // Looks like a raw ID, skip
+        continue;
+      }
+      if (/code$/i.test(key) && typeof value === 'string' && /^[A-Z0-9]{6,}$/.test(value)) {
+        // Looks like a code, skip
+        continue;
+      }
       const candidate = this.formatToolInvocationValue(value);
       if (candidate) return candidate;
     }
@@ -3479,8 +3983,9 @@ export abstract class BaseAgent {
     if (typeof value === 'string') {
       const normalized = value.trim();
       if (!normalized) return null;
+      // Suppress URLs from user-facing labels — they're technical details
       if (/^https?:\/\//i.test(normalized)) {
-        return resolveUrlText(normalized, { style: 'link' });
+        return null;
       }
       return normalized.length > 80 ? `${normalized.slice(0, 77)}...` : normalized;
     }
@@ -3491,9 +3996,13 @@ export abstract class BaseAgent {
 
     if (Array.isArray(value)) {
       if (value.length === 0) return null;
-      const first = this.formatToolInvocationValue(value[0]);
-      if (!first) return `${value.length} item${value.length === 1 ? '' : 's'}`;
-      return value.length === 1 ? first : `${first} +${value.length - 1}`;
+      // Try to find a meaningful descriptor, skipping URLs
+      for (const item of value) {
+        const candidate = this.formatToolInvocationValue(item);
+        if (candidate) return value.length === 1 ? candidate : `${candidate} +${value.length - 1}`;
+      }
+      // All items were URLs or empty — suppress descriptor
+      return null;
     }
 
     if (value && typeof value === 'object') {

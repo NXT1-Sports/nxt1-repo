@@ -132,6 +132,13 @@ function toStepPayload(
   const label = typeof event.message === 'string' ? event.message.trim() : '';
   if (!stepId || !label) return null;
 
+  const toolName =
+    'toolName' in event && typeof event.toolName === 'string' ? event.toolName.trim() : '';
+  const metadata = {
+    ...((event.metadata as Record<string, unknown> | undefined) ?? {}),
+    ...(toolName ? { toolName } : {}),
+  };
+
   return {
     ...(typeof event.seq === 'number' ? { seq: event.seq } : {}),
     emittedAt: new Date().toISOString(),
@@ -142,7 +149,7 @@ function toStepPayload(
     ...(event.stageType ? { stageType: event.stageType } : {}),
     ...(event.stage ? { stage: event.stage } : {}),
     ...(event.outcomeCode ? { outcomeCode: event.outcomeCode } : {}),
-    ...(event.metadata ? { metadata: event.metadata } : {}),
+    ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
     ...(event.icon ? { icon: event.icon } : {}),
     status,
   };
@@ -222,7 +229,21 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
           stepTracker.get(event.toolName) ??
           stepTracker.getOrCreate(event.toolName);
         const succeeded = event.toolSuccess !== false;
-        const payload = toStepPayload({ ...event, stepId }, succeeded ? 'success' : 'error');
+        const heavyTaskOperationId =
+          event.toolName === 'enqueue_heavy_task' &&
+          event.toolResult &&
+          typeof event.toolResult['heavyTaskOperationId'] === 'string' &&
+          event.toolResult['heavyTaskOperationId'].trim().length > 0
+            ? String(event.toolResult['heavyTaskOperationId']).trim()
+            : null;
+        const enrichedMetadata = {
+          ...((event.metadata as Record<string, unknown> | undefined) ?? {}),
+          ...(heavyTaskOperationId ? { heavyTaskOperationId } : {}),
+        };
+        const payload = toStepPayload(
+          { ...event, stepId, metadata: enrichedMetadata },
+          succeeded ? 'success' : 'error'
+        );
         if (!payload) return;
 
         if (succeeded && event.toolName) {

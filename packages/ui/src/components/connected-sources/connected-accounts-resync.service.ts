@@ -27,7 +27,10 @@ export class ConnectedAccountsResyncService {
     inject(ANALYTICS_ADAPTER, { optional: true }) ?? null;
   private readonly agentXJobService = inject(AgentXJobService);
 
-  async request(accounts: readonly ConnectedAccountsResyncSource[] = []): Promise<boolean> {
+  async request(
+    accounts: readonly ConnectedAccountsResyncSource[] = [],
+    teamIdOverride?: string
+  ): Promise<boolean> {
     const requestedAccounts = accounts
       .filter((account) => account.connected || !!account.username || !!account.url)
       // Exclude OAuth sign-in accounts — only URL/username-linked accounts are mentioned in the prompt
@@ -48,6 +51,7 @@ export class ConnectedAccountsResyncService {
     this.logger.info('Requesting connected accounts re-sync', {
       requestedAccountCount: requestedAccounts.length,
       platforms: requestedAccounts.map((account) => account.platform),
+      teamIdOverride,
     });
     this.breadcrumb.trackUserAction('connected-accounts:resync-requested');
     this.analytics?.trackEvent(APP_EVENTS.PROFILE_EDITED, {
@@ -62,6 +66,7 @@ export class ConnectedAccountsResyncService {
         trigger: 'manual_resync',
         requestedAt: new Date().toISOString(),
         requestedAccounts,
+        ...(teamIdOverride ? { teamIdOverride } : {}),
       });
 
       if (isEnqueueFailure(job)) {

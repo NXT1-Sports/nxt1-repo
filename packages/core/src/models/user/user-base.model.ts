@@ -89,6 +89,8 @@ export interface ConnectedSource {
   platform: string;
   /** URL of the external profile */
   profileUrl: string;
+  /** Explicit connected state for connected-accounts UI and sync flows */
+  connected?: boolean;
   /** Favicon URL of the external platform (scraped from the page <link rel="icon"> tag) */
   faviconUrl?: string;
   /** When Agent X last synced data from this source */
@@ -97,6 +99,10 @@ export interface ConnectedSource {
   syncStatus?: 'idle' | 'syncing' | 'error' | 'success';
   /** Error message if sync failed */
   lastError?: string;
+  /** Display name of the user who added this source */
+  addedBy?: string;
+  /** User ID of the user who added this source */
+  addedById?: string;
   /** Scope: 'global' | 'sport' | 'team' (default: 'global') */
   scopeType?: 'global' | 'sport' | 'team';
   /** Sport key or team ID when scoped */

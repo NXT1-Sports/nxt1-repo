@@ -47,10 +47,10 @@ import { NxtIconComponent } from '../../components/icon/icon.component';
 import { NxtChatBubbleComponent } from '../../components/chat-bubble';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { AgentXService } from '../services/agent-x.service';
-import type { ConfirmationActionEvent } from '../components/cards/agent-x-confirmation-card.component';
-import type { DraftSubmittedEvent } from '../components/cards/agent-x-draft-card.component';
+
 import type { AskUserReplyEvent } from '../components/cards/agent-x-ask-user-card.component';
 import { AgentXFabService } from './agent-x-fab.service';
+import { NxtLoggingService } from '../../services/logging/logging.service';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 @Component({
@@ -211,8 +211,6 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
                   [steps]="message.steps ?? []"
                   [cards]="message.cards ?? []"
                   [parts]="message.parts ?? []"
-                  (confirmationAction)="onConfirmationAction($event)"
-                  (draftSubmitted)="onDraftSubmitted($event)"
                   (askUserReply)="onAskUserReply($event)"
                   (retryRequested)="onRetryErrorMessage(message)"
                 />
@@ -886,6 +884,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
 })
 export class AgentXFabChatPanelComponent {
   private readonly toast = inject(NxtToastService);
+  private readonly logger = inject(NxtLoggingService).child('AgentXFabChatPanelComponent');
 
   protected readonly agentX = inject(AgentXService);
   private readonly fabService = inject(AgentXFabService);
@@ -1026,46 +1025,11 @@ export class AgentXFabChatPanelComponent {
     await this.agentX.clearMessages();
   }
 
-  /**
-   * Handle draft email approval from chat bubble card.
-   */
-  protected async onDraftSubmitted(event: DraftSubmittedEvent): Promise<void> {
-    if (event.approvalId) {
-      await this.agentX.resolveInlineApproval({
-        approvalId: event.approvalId,
-        decision: 'approved',
-        toolInput: {
-          ...(event.toEmail ? { toEmail: event.toEmail } : {}),
-          subject: event.subject,
-          bodyHtml: event.content,
-        },
-        successMessage: 'Draft approved — Agent X is resuming',
-      });
-      return;
-    }
-
-    this.toast.error('This draft can no longer be sent directly. Refresh and try again.');
-  }
-
   /** Route an ask_user card reply into the chat as a user message. */
   protected async onAskUserReply(event: AskUserReplyEvent): Promise<void> {
     this.agentX.setUserMessage(event.answer);
     // TODO(@fab-migration): FAB streaming not yet migrated to AgentXOperationChatComponent
     this.toast.info('Open Agent X to continue your conversation.');
-  }
-
-  protected async onConfirmationAction(event: ConfirmationActionEvent): Promise<void> {
-    const decision =
-      event.actionId === 'approve' ? 'approved' : event.actionId === 'reject' ? 'rejected' : null;
-
-    if (!decision) return;
-
-    await this.agentX.resolveInlineApproval({
-      approvalId: event.approvalId ?? '',
-      decision,
-      successMessage:
-        decision === 'approved' ? 'Approved — Agent X is resuming' : 'Request rejected',
-    });
   }
 
   /** Remove the error bubble and pre-populate the input with the failed message. */

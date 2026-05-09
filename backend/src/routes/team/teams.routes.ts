@@ -50,6 +50,7 @@ import {
 } from '../../services/core/cache.service.js';
 import { markCacheHit } from '../../middleware/cache/cache-status.middleware.js';
 import type { TeamProfilePageData } from '@nxt1/core/team-profile';
+import { normalizeConnectedPlatform } from '@nxt1/core/profile';
 import type { Organization } from '@nxt1/core/models';
 import { SyncDiffService } from '../../modules/agent/sync/index.js';
 import {
@@ -626,7 +627,7 @@ router.patch(
             }
           )
           .map((source) => ({
-            platform: source.platform.trim(),
+            platform: normalizeConnectedPlatform(source.platform),
             profileUrl: source.profileUrl.trim(),
             ...(typeof source.faviconUrl === 'string' && source.faviconUrl.trim().length > 0
               ? { faviconUrl: source.faviconUrl.trim() }

@@ -53,6 +53,8 @@ export interface AddSportResponse {
   readonly sport: string;
   readonly teamId?: string;
   readonly scrapeJobId?: string;
+  /** All job IDs enqueued (one per 2-account chunk). scrapeJobId === scrapeJobIds[0]. */
+  readonly scrapeJobIds?: readonly string[];
   readonly scrapeThreadId?: string;
 }
 

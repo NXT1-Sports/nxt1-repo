@@ -47,14 +47,18 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
                 <nxt1-image
                   [src]="media.url"
                   [alt]="media.altText || data().title || 'Post image'"
-                  fit="cover"
+                  fit="contain"
+                  [width]="800"
+                  [height]="600"
                 />
               } @else if (media.type === 'video') {
                 @if (media.processingStatus && media.processingStatus !== 'ready') {
                   <!-- Video is processing or failed in Cloudflare -->
                   <div
                     class="post-content__video-processing"
-                    [class.post-content__video-processing--error]="media.processingStatus === 'error'"
+                    [class.post-content__video-processing--error]="
+                      media.processingStatus === 'error'
+                    "
                   >
                     <div class="post-content__video-processing-inner">
                       <nxt1-icon name="videocam" [size]="32" />
@@ -76,7 +80,9 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
                     <nxt1-image
                       [src]="media.thumbnailUrl"
                       [alt]="media.altText || 'Video thumbnail'"
-                      fit="cover"
+                      fit="contain"
+                      [width]="800"
+                      [height]="600"
                     />
                   } @else {
                     <div class="post-content__video-placeholder">
@@ -224,6 +230,7 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
     `
       :host {
         display: block;
+        --post-content-media-height: 320px;
       }
 
       /* Media */
@@ -238,6 +245,7 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
         scroll-snap-type: x mandatory;
         scrollbar-width: none;
         -ms-overflow-style: none;
+        background: #000;
         &::-webkit-scrollbar {
           display: none;
         }
@@ -247,7 +255,26 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
         flex: 0 0 100%;
         scroll-snap-align: start;
         position: relative;
-        aspect-ratio: 16 / 10;
+        height: var(--post-content-media-height);
+        background: #000;
+      }
+
+      .post-content__media-slide nxt1-image {
+        display: block;
+        width: 100%;
+        height: 100%;
+        background: #000;
+      }
+
+      :host ::ng-deep .post-content__media-slide nxt1-image img {
+        width: 100%;
+        height: 100%;
+      }
+
+      @media (max-width: 768px) {
+        :host {
+          --post-content-media-height: 260px;
+        }
       }
 
       .post-content__video-placeholder {
@@ -574,8 +601,9 @@ export class FeedPostContentComponent {
   }
 
   protected formatDuration(seconds: number): string {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
+    const totalSeconds = Math.max(0, Math.floor(seconds));
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   }
 

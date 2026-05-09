@@ -2438,8 +2438,8 @@ describe('Agent X Routes', () => {
           toolInput: { operationId },
           toolCallId: 'pause_resume_op',
         },
-        yieldedAt: '2026-04-25T00:00:00.000Z',
-        expiresAt: '2026-05-01T00:00:00.000Z',
+        yieldedAt: '2099-04-25T00:00:00.000Z',
+        expiresAt: '2099-05-01T00:00:00.000Z',
       },
     });
 
@@ -2532,8 +2532,8 @@ describe('Agent X Routes', () => {
             tool_call_id: 'call_ask_user_42',
           },
         ],
-        yieldedAt: '2026-04-25T00:00:00.000Z',
-        expiresAt: '2026-05-01T00:00:00.000Z',
+        yieldedAt: '2099-04-25T00:00:00.000Z',
+        expiresAt: '2099-05-01T00:00:00.000Z',
       },
     });
 
@@ -2633,8 +2633,8 @@ describe('Agent X Routes', () => {
           toolInput: { operationId },
           toolCallId: 'pause_resume_op',
         },
-        yieldedAt: '2026-04-25T00:00:00.000Z',
-        expiresAt: '2026-05-01T00:00:00.000Z',
+        yieldedAt: '2099-04-25T00:00:00.000Z',
+        expiresAt: '2099-05-01T00:00:00.000Z',
       },
     });
 

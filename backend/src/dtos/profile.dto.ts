@@ -344,10 +344,6 @@ export class UpdateProfileDto {
 
   @IsObject()
   @IsOptional()
-  recruiter?: Record<string, unknown>;
-
-  @IsObject()
-  @IsOptional()
   parent?: Record<string, unknown>;
 
   // Preferences

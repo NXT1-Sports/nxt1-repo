@@ -68,6 +68,7 @@ const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
     'write_roster_entries',
     'write_athlete_videos',
     'write_connected_source',
+    'mutate_nxt1_data',
   ],
   dispatch_extraction: [
     'write_core_identity',
@@ -85,7 +86,29 @@ const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
     'write_roster_entries',
     'write_athlete_videos',
     'write_connected_source',
+    'mutate_nxt1_data',
   ],
+  // mutate_nxt1_data always pulls in query/list so the agent can verify the
+  // collection and document before writing — prevents hallucinated document IDs.
+  // Bidirectional entries ensure mutate_nxt1_data is never stranded when it
+  // IS semantically matched but its read companions are not, and vice versa.
+  mutate_nxt1_data: ['query_nxt1_data', 'list_nxt1_data_views'],
+  query_nxt1_data: ['mutate_nxt1_data', 'list_nxt1_data_views'],
+  list_nxt1_data_views: ['query_nxt1_data', 'mutate_nxt1_data'],
+  // Write tools pull in mutate_nxt1_data so data_coordinator always has it
+  // when any data write task is semantically matched.
+  write_core_identity: ['mutate_nxt1_data'],
+  update_core_identity: ['mutate_nxt1_data'],
+  write_team_stats: ['mutate_nxt1_data'],
+  write_roster_entries: ['mutate_nxt1_data'],
+  write_schedule: ['mutate_nxt1_data'],
+  write_calendar_events: ['mutate_nxt1_data'],
+  write_team_news: ['mutate_nxt1_data'],
+  write_awards: ['mutate_nxt1_data'],
+  write_rankings: ['mutate_nxt1_data'],
+  write_season_stats: ['mutate_nxt1_data'],
+  write_recruiting_activity: ['mutate_nxt1_data'],
+  write_combine_metrics: ['mutate_nxt1_data'],
   runway_generate_video: ['runway_check_task'],
   runway_edit_video: ['runway_check_task'],
   runway_upscale_video: ['runway_check_task'],
@@ -637,13 +660,13 @@ export class AgentRouterExecutionService {
   /**
    * Emits the planner card after a task completes. All items show their final
    * done/pending state; none are marked active.
-   * Only emitted when the plan has ≥3 tasks — single/dual-task plans run silently.
+   * Only emitted when the plan has ≥2 tasks — single-task plans run silently.
    */
   private emitPlannerCard(
     onStreamEvent: OnStreamEvent | undefined,
     mutableTasks: readonly AgentExecutionMutableTask[]
   ): void {
-    if (!onStreamEvent || mutableTasks.length < 3) return;
+    if (!onStreamEvent || mutableTasks.length < 2) return;
 
     onStreamEvent({
       type: 'card',
@@ -661,13 +684,13 @@ export class AgentRouterExecutionService {
   /**
    * Emits the planner card when a task starts executing, marking exactly one
    * item as active so the UI can show an in-progress spinner.
-   * Only emitted when the plan has ≥3 tasks.
+   * Only emitted when the plan has ≥2 tasks.
    */
   private emitActivePlannerCard(
     onStreamEvent: OnStreamEvent | undefined,
     mutableTasks: readonly AgentExecutionMutableTask[]
   ): void {
-    if (!onStreamEvent || mutableTasks.length < 3) return;
+    if (!onStreamEvent || mutableTasks.length < 2) return;
 
     onStreamEvent({
       type: 'card',

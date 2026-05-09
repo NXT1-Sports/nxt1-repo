@@ -609,8 +609,12 @@ export class UsageService implements OnDestroy {
           ? this.api.getDashboardFresh(chartTimeframe)
           : this.api.getDashboard({ timeframe: chartTimeframe }),
         forceFresh ? this.api.getBillingStateFresh() : this.api.getBillingState(),
-        this.api.getChartData(chartTimeframe),
-        this.api.getBreakdown(breakdownTimeframe),
+        forceFresh
+          ? this.api.getChartDataFresh(chartTimeframe)
+          : this.api.getChartData(chartTimeframe),
+        forceFresh
+          ? this.api.getBreakdownFresh(breakdownTimeframe)
+          : this.api.getBreakdown(breakdownTimeframe),
       ]);
 
       if (requestId !== this._dashboardLoadRequestId) {

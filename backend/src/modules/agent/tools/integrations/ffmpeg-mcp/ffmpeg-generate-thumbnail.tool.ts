@@ -1,6 +1,7 @@
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 import { logger } from '../../../../../utils/logger.js';
 import { type FfmpegMcpBridgeService } from './ffmpeg-mcp-bridge.service.js';
+import { normalizeFfmpegToolInput } from './ffmpeg-input-normalizer.js';
 import { GenerateThumbnailInputSchema } from './schemas.js';
 
 export class FfmpegGenerateThumbnailTool extends BaseTool {
@@ -20,7 +21,10 @@ export class FfmpegGenerateThumbnailTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const parsed = GenerateThumbnailInputSchema.safeParse(input);
+    const normalizedInput = normalizeFfmpegToolInput(input, {
+      coerceStringFields: ['time'],
+    });
+    const parsed = GenerateThumbnailInputSchema.safeParse(normalizedInput);
     if (!parsed.success) return this.zodError(parsed.error);
 
     context?.emitStage?.('processing_media', {

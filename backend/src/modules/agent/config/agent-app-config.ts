@@ -90,11 +90,6 @@ const FALLBACK_ROLE_PERSONAS = {
     `Think like a program administrator managing budgets, compliance, staff, and the big picture.`,
     `Prioritize efficiency and institutional goals.`,
   ].join(' '),
-  recruiter: [
-    `Adopt a sharp, evaluative, and professional tone.`,
-    `Think like a talent evaluator on the road - focused on prospect identification,`,
-    `relationship building, and competitive intel.`,
-  ].join(' '),
   parent: [
     `Adopt a supportive, informative, and guiding tone.`,
     `Speak like a knowledgeable family advisor helping a parent navigate the sports landscape,`,
@@ -123,7 +118,7 @@ const coordinatorIds = COORDINATOR_AGENT_IDS;
 type CoordinatorIdentifier = (typeof coordinatorIds)[number];
 type DashboardRole = 'athlete' | 'coach' | 'director';
 type ConfiguredCoordinatorActionChip = ShellActionChip & {
-  readonly executionPrompt?: string;
+  readonly executionPrompt?: string | null;
 };
 type CoordinatorRoleUiOverride = {
   readonly description?: string;
@@ -447,7 +442,7 @@ function buildRoleOverrideFromBase(
   addition: CoordinatorRoleUiOverride | undefined
 ): CoordinatorRoleUiOverride {
   return {
-    description: addition?.description ?? existing?.description ?? base.description,
+    description: existing?.description ?? addition?.description ?? base.description,
     commands: mergeConfiguredActionChips(existing?.commands ?? base.commands, addition?.commands),
     scheduledActions: mergeConfiguredActionChips(
       existing?.scheduledActions ?? base.scheduledActions,
@@ -912,7 +907,7 @@ const ELITE_COORDINATOR_ROLE_ENHANCEMENTS: Readonly<
           ),
           command(
             'recruiting-relationship-map',
-            'Recruiter Relationship Map',
+            'Relationship Map',
             'mail',
             'Track decision-makers and key relationships'
           ),
@@ -924,7 +919,7 @@ const ELITE_COORDINATOR_ROLE_ENHANCEMENTS: Readonly<
           ),
         ],
         scheduledActions: [
-          command('recruiting-relationship-checkin', 'Weekly Recruiter Check-In', 'mail'),
+          command('recruiting-relationship-checkin', 'Weekly Recruiting Check-In', 'mail'),
           command('recruiting-followup-reminders', 'Follow-Up Reminder Queue', 'send'),
           command('recruiting-board-refresh', 'Monthly Board Refresh', 'calendar'),
         ],

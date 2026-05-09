@@ -29,9 +29,35 @@ const INTER_SEND_DELAY_MS = 750;
 
 const TemplateVariableValueSchema = z.union([z.string(), z.number(), z.boolean()]);
 
+const RECIPIENT_KIND_ENUM = ['coach', 'college', 'person', 'organization', 'unknown'] as const;
+
 const BatchRecipientObjectSchema = z.object({
   toEmail: z.string().trim().email(),
   variables: z.record(z.string(), TemplateVariableValueSchema).default({}),
+  recipientName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe(
+      "Display name of this recipient (e.g. 'Alex Morgan'). " +
+        'Used in email engagement notifications.'
+    ),
+  recipientKind: z
+    .enum(RECIPIENT_KIND_ENUM)
+    .optional()
+    .describe('Category of recipient: coach, college, person, organization, or unknown.'),
+  recipientOrgName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe(
+      "Organization or institution this recipient belongs to (e.g. 'Ohio State'). " +
+        'Used in email engagement notifications.'
+    ),
 });
 
 const BatchRecipientSchema = z.union([z.string().trim().email(), BatchRecipientObjectSchema]);
@@ -80,6 +106,9 @@ function normalizeBatchRecipient(
   return {
     toEmail: recipient.toEmail,
     variables: recipient.variables,
+    recipientName: recipient.recipientName,
+    recipientKind: recipient.recipientKind,
+    recipientOrgName: recipient.recipientOrgName,
   };
 }
 
@@ -218,6 +247,7 @@ export class BatchSendEmailTool extends BaseTool {
           lookupErr instanceof Error
             ? lookupErr.message
             : 'Failed to look up connected email account.',
+        data: { requiresEmailConnection: true },
       };
     }
 
@@ -284,7 +314,12 @@ export class BatchSendEmailTool extends BaseTool {
           recipient.toEmail,
           rendered.subject,
           rendered.bodyHtml,
-          this.db
+          this.db,
+          {
+            recipientName: recipient.recipientName,
+            recipientKind: recipient.recipientKind,
+            recipientOrgName: recipient.recipientOrgName,
+          }
         );
 
         sent.push({

@@ -45,23 +45,32 @@ const PUBLIC_ENDPOINTS = [
   '/programs/search', // Onboarding program search — no auth on backend
   '/help-center', // Help Center is publicly accessible (backend uses optionalAuth)
   '/agent-x/health', // Intentionally unauthenticated — used by health checks / load balancers
-  // Team public profile pages — accessible without auth (backend uses optionalAuth)
-
-  // Need public link to team profile pages to allow sharing team profiles with unauthenticated users, and to allow unauthenticated access to team profiles for SEO purposes. The backend uses optionalAuth for these routes, so they will return public team data even without a valid token.
-  // '/teams/by-teamcode/', // /team/:slug/:teamCode canonical URL
-  // '/teams/by-slug/', // /team/:slug SEO-friendly URL
-  // '/teams/by-id/', // Direct team ID lookup
 ];
+
+function isPublicTeamEndpoint(apiPath: string): boolean {
+  return /^\/teams\/[^/]+\/(timeline|view|page-view)(?:$|\?)/.test(apiPath);
+}
+
+function isOptionalAuthTeamProfileEndpoint(apiPath: string): boolean {
+  return /^\/teams\/by-(teamcode|slug|id)\//.test(apiPath);
+}
+
+function getApiPath(url: string): string {
+  const baseIndex = url.indexOf(environment.apiURL);
+  return baseIndex !== -1 ? url.slice(baseIndex + environment.apiURL.length) : url;
+}
 
 /**
  * Check if a URL is a public endpoint.
  * Strips the API base URL first for accurate path matching.
  */
 function isPublicEndpoint(url: string): boolean {
-  const baseIndex = url.indexOf(environment.apiURL);
-  const apiPath = baseIndex !== -1 ? url.slice(baseIndex + environment.apiURL.length) : url;
+  const apiPath = getApiPath(url);
 
-  return PUBLIC_ENDPOINTS.some((endpoint) => apiPath.startsWith(endpoint));
+  return (
+    PUBLIC_ENDPOINTS.some((endpoint) => apiPath.startsWith(endpoint)) ||
+    isPublicTeamEndpoint(apiPath)
+  );
 }
 
 /**
@@ -103,8 +112,11 @@ export const authInterceptor: HttpInterceptorFn = (
     return next(req);
   }
 
+  const apiPath = getApiPath(req.url);
+  const isOptionalAuthEndpoint = isOptionalAuthTeamProfileEndpoint(apiPath);
+
   // Skip public endpoints
-  if (isPublicEndpoint(req.url)) {
+  if (isPublicEndpoint(req.url) && !isOptionalAuthEndpoint) {
     return next(req);
   }
 
@@ -121,6 +133,13 @@ export const authInterceptor: HttpInterceptorFn = (
   return from(authFlow.getIdToken()).pipe(
     switchMap((token) => {
       if (!token) {
+        if (isOptionalAuthEndpoint) {
+          logger.debug('No token for optional-auth endpoint — proceeding anonymously', {
+            url: req.url,
+          });
+          return next(req);
+        }
+
         // No authenticated user — throw a synthetic 401 instead of sending
         // an unauthenticated request (which the backend would reject anyway).
         logger.debug('No user signed in — blocking request', { url: req.url });

@@ -86,7 +86,7 @@ export function isAthleteRole(role: string | null | undefined): boolean {
 
 /**
  * Normalize any legacy role string to a core 3-role UserRole.
- * Handles old Firestore documents that still have 'college-coach', 'scout', 'recruiter', 'parent', etc.
+ * Handles old Firestore documents that still have 'college-coach', 'scout', 'parent', etc.
  */
 export function normalizeRole(role: string): UserRole {
   const legacyMap: Record<string, UserRole> = {
@@ -94,7 +94,6 @@ export function normalizeRole(role: string): UserRole {
     coach: 'coach',
     director: 'director',
     // Legacy mappings → 3 core roles
-    recruiter: 'coach',
     parent: 'athlete',
     'college-coach': 'coach',
     scout: 'coach',

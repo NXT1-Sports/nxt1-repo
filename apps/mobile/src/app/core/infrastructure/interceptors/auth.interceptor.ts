@@ -36,8 +36,19 @@ const PUBLIC_ENDPOINTS = [
   '/college/list',
 ];
 
+function isPublicTeamEndpoint(apiPath: string): boolean {
+  return (
+    /^\/teams\/by-(teamcode|slug|id)\//.test(apiPath) ||
+    /^\/teams\/[^/]+\/(timeline|view|page-view)(?:$|\?)/.test(apiPath)
+  );
+}
+
 function isPublicEndpoint(url: string): boolean {
-  return PUBLIC_ENDPOINTS.some((endpoint) => url.includes(endpoint));
+  const baseIndex = url.indexOf(environment.apiUrl);
+  const apiPath = baseIndex !== -1 ? url.slice(baseIndex + environment.apiUrl.length) : url;
+  return (
+    PUBLIC_ENDPOINTS.some((endpoint) => apiPath.includes(endpoint)) || isPublicTeamEndpoint(apiPath)
+  );
 }
 
 function isApiRequest(url: string): boolean {

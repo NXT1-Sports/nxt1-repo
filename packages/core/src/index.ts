@@ -1095,10 +1095,12 @@ export {
   teamToFeedAuthor,
   teamPostToFeedPost,
   teamPostsToFeedPosts,
+  buildMediaFromTeamPost,
   profilePostsToFeedPosts,
   profileOfferToFeedPost,
   profileEventToFeedPost,
   buildUnifiedActivityFeed,
+  type FeedVideoProcessingStatus,
   // Polymorphic mappers (2026 standard)
   feedPostToFeedItem,
   eventDocToFeedItemEvent,

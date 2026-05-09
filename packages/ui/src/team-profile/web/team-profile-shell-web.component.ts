@@ -79,10 +79,13 @@ import { TeamMobileHeroComponent } from './team-mobile-hero.component';
 import { TeamIntelComponent } from '../../intel/team-intel.component';
 import { IntelService } from '../../intel/intel.service';
 import { TeamRosterWebComponent } from './team-roster-web.component';
+import { TeamStatsWebComponent } from './team-stats-web.component';
 import { type ScheduleRow } from '@nxt1/core';
 import { mapTeamStatsToGameLogs, buildSeasonRecordMap } from '@nxt1/core';
 import { TeamContactWebComponent } from './team-contact-web.component';
 import { ProfileVerificationBannerComponent } from '../../profile/components/profile-verification-banner.component';
+import { ProfileGenerationBannerComponent } from '../../profile/profile-generation-banner.component';
+import { ProfileGenerationStateService } from '../../profile/profile-generation-state.service';
 import { TeamProfileSkeletonComponent } from './team-profile-skeleton.component';
 import { ProfileScheduleComponent } from '../../profile/components/profile-schedule.component';
 import { ProfileTimelineComponent } from '../../profile/profile-timeline.component';
@@ -156,8 +159,10 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
     TeamMobileHeroComponent,
     TeamIntelComponent,
     TeamRosterWebComponent,
+    TeamStatsWebComponent,
     TeamContactWebComponent,
     ProfileVerificationBannerComponent,
+    ProfileGenerationBannerComponent,
     TeamProfileSkeletonComponent,
     ProfileScheduleComponent,
     ProfileTimelineComponent,
@@ -374,6 +379,11 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
                     [activeSideTab]="activeSideTab()"
                   />
 
+                  <!-- Inline generation banner — mirror /profile behavior on /team -->
+                  @if (generation.isGenerating()) {
+                    <nxt1-profile-generation-banner />
+                  }
+
                   @switch (teamProfile.activeTab()) {
                     @case ('intel') {
                       @if (activeSideTab() === 'contact') {
@@ -391,40 +401,45 @@ const TEAM_TIMELINE_EMPTY_STATE_BY_SECTION: Readonly<
                     }
 
                     @case ('timeline') {
-                      @if (
-                        isTeamAdmin() && !platform.isMobile() && !platform.isBelowBreakpoint('md')
-                      ) {
-                        <div class="desktop-intel-action-bar">
-                          <button
-                            type="button"
-                            class="desktop-intel-action-bar__btn"
-                            (click)="onAddUpdate()"
-                          >
-                            <nxt1-icon name="plus" [size]="16" />
-                            Add Update
-                          </button>
-                        </div>
-                      }
+                      @if (activeSideTab() === 'stats') {
+                        <!-- Stats sidebar: use the dedicated stats grid component -->
+                        <nxt1-team-stats-web [activeSideTab]="activeSideTab()" />
+                      } @else {
+                        @if (
+                          isTeamAdmin() && !platform.isMobile() && !platform.isBelowBreakpoint('md')
+                        ) {
+                          <div class="desktop-intel-action-bar">
+                            <button
+                              type="button"
+                              class="desktop-intel-action-bar__btn"
+                              (click)="onAddUpdate()"
+                            >
+                              <nxt1-icon name="plus" [size]="16" />
+                              Add Update
+                            </button>
+                          </div>
+                        }
 
-                      <nxt1-profile-timeline
-                        [polymorphicFeed]="teamProfile.timeline()"
-                        [isLoading]="teamProfile.timelineLoading()"
-                        [isLoadingMore]="teamProfile.isLoadingMore()"
-                        [isEmpty]="teamProfile.timeline().length === 0"
-                        [hasMore]="teamProfile.timelineHasMore()"
-                        [isOwnProfile]="isTeamAdmin()"
-                        [showMenu]="isTeamAdmin()"
-                        [showFilters]="false"
-                        [filter]="timelineSidebarFilter()"
-                        [emptyIcon]="teamTimelineEmptyState().icon"
-                        [emptyTitle]="teamTimelineEmptyState().title"
-                        [emptyMessage]="teamTimelineEmptyState().message"
-                        [emptyCta]="null"
-                        (postClick)="onTimelinePostClick($event)"
-                        (pinClick)="onPostPin($event)"
-                        (deleteClick)="onPostDelete($event)"
-                        (loadMore)="onLoadMore()"
-                      />
+                        <nxt1-profile-timeline
+                          [polymorphicFeed]="teamProfile.timeline()"
+                          [isLoading]="teamProfile.timelineLoading()"
+                          [isLoadingMore]="teamProfile.isLoadingMore()"
+                          [isEmpty]="teamProfile.timeline().length === 0"
+                          [hasMore]="teamProfile.timelineHasMore()"
+                          [isOwnProfile]="isTeamAdmin()"
+                          [showMenu]="isTeamAdmin()"
+                          [showFilters]="false"
+                          [filter]="timelineSidebarFilter()"
+                          [emptyIcon]="teamTimelineEmptyState().icon"
+                          [emptyTitle]="teamTimelineEmptyState().title"
+                          [emptyMessage]="teamTimelineEmptyState().message"
+                          [emptyCta]="null"
+                          (postClick)="onTimelinePostClick($event)"
+                          (pinClick)="onPostPin($event)"
+                          (deleteClick)="onPostDelete($event)"
+                          (loadMore)="onLoadMore()"
+                        />
+                      }
                     }
 
                     @case ('roster') {
@@ -1276,6 +1291,7 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
   protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
   protected readonly teamProfile = inject(TeamProfileService);
+  protected readonly generation = inject(ProfileGenerationStateService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('TeamProfileShellWeb');
   private readonly modal = inject(NxtModalService);
@@ -1689,7 +1705,6 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
               ).length || undefined,
         },
         { id: 'stats', label: 'Stats' },
-        { id: 'schedule', label: 'Schedule' },
         { id: 'recruiting', label: 'Recruiting' },
         { id: 'news', label: 'News' },
       ],
@@ -1829,7 +1844,9 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   }
 
   ngOnDestroy(): void {
-    this.teamProfile.reset();
+    if (!this.skipInternalLoad()) {
+      this.teamProfile.reset();
+    }
     if (!this.showPageHeader()) {
       this.headerPortal.clearAll();
     }
@@ -1852,6 +1869,17 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   }
 
   protected onSectionNavChange(event: SectionNavChangeEvent): void {
+    // Redirect the 'schedule' timeline sidebar pill to the dedicated Schedule top tab.
+    // The top-level Schedule tab renders the proper Madden board layout via
+    // nxt1-profile-schedule, whereas rendering it inside the timeline would
+    // wrap game cards in FeedCardShell (social post UI) which looks wrong.
+    if (this.teamProfile.activeTab() === 'timeline' && event.id === 'schedule') {
+      this.teamProfile.setActiveTab('schedule');
+      this._activeSideTab.set('');
+      this.tabChange.emit('schedule');
+      return;
+    }
+
     this._activeSideTab.set(event.id);
 
     if (this.teamProfile.activeTab() === 'timeline') {
@@ -1932,6 +1960,13 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   }
 
   protected onRosterMemberClick(member: TeamProfileRosterMember): void {
+    if (member.isProfileNavigable === false || (!member.unicode && !member.profileCode)) {
+      this.logger.debug('Ignoring roster click for non-navigable member', {
+        memberId: member.id,
+      });
+      return;
+    }
+
     this.rosterMemberClick.emit(member);
     this.logger.debug('Roster member click', { memberId: member.id, name: member.displayName });
   }
