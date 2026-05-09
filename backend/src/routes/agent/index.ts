@@ -11,6 +11,7 @@
  *   threads       — /threads, /threads/:threadId, /threads/:threadId/messages
  *   firecrawl     — /firecrawl/session/*, /firecrawl/accounts
  *   live-view     — /live-view/start, /live-view/navigate, /live-view/refresh, /live-view/close, /health
+ *   tasks         — /tasks
  */
 
 import { Router } from 'express';
@@ -25,6 +26,7 @@ import liveViewRoutes from './live-view.routes.js';
 import knowledgeAdminRoutes from './knowledge-admin.routes.js';
 import messagesRoutes from './messages.routes.js';
 import mediaProxyRoutes from './media-proxy.routes.js';
+import tasksRoutes from './tasks.routes.js';
 
 const router = Router();
 
@@ -39,5 +41,6 @@ router.use(liveViewRoutes);
 router.use(knowledgeAdminRoutes);
 router.use(messagesRoutes);
 router.use(mediaProxyRoutes);
+router.use(tasksRoutes);
 
 export default router;
