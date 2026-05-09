@@ -1,6 +1,6 @@
 {
   "name": "nxt1-workspace",
-  "version": "1.33.20",
+  "version": "1.33.21",
   "private": true,
   "description": "NXT1 Sports Intelligence Platform - Monorepo",
   "repository": {
@@ -21,7 +21,7 @@
   "scripts": {
     "start": "node apps/web/dist/nxt1-web/server/server.mjs",
     "apphosting:build": "turbo run build --filter=@nxt1/web",
-    "gcp-build": "npm run build --workspace=@nxt1/web",
+    "gcp-build": "if [ \"$APP_ENV\" = 'staging' ]; then npm run build:staging --workspace=@nxt1/web; else npm run build --workspace=@nxt1/web; fi",
     "build": "turbo run build",
     "build:staging": "turbo run build:staging",
     "build:web": "turbo run build --filter=@nxt1/web",

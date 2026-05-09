@@ -158,6 +158,10 @@ platform :ios do
       # Binary is already on App Store Connect — do NOT upload again.
       # upload_testflight already pushed the IPA and waited for processing.
       skip_binary_upload: true,
+      # Skip metadata/screenshot update — manage these manually in App Store Connect.
+      # Avoids "could not find an editable version" when no draft version exists.
+      skip_metadata: true,
+      skip_screenshots: true,
       force: true,
       precheck_include_in_app_purchases: false
     )

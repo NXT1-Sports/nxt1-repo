@@ -1,0 +1,62 @@
+# Firebase App Hosting Configuration — STAGING
+# @see https://firebase.google.com/docs/app-hosting
+#
+# Configure the staging App Hosting backend in Firebase Console to use this file:
+#   Firebase Console → App Hosting → staging backend → Settings → Root directory → apphosting.staging.yaml
+#
+# Project: nxt-1-staging-v2
+# URL: https://nxt1-repo--nxt-1-staging-v2.us-east4.hosted.app
+
+# Point to the Angular app directory
+rootDirectory: apps/web
+
+# Server entry point
+scripts:
+  runCommand: node apps/web/dist/nxt1-web/server/server.mjs
+
+# Runtime configuration
+runConfig:
+  cpu: 1
+  memoryMiB: 512
+  concurrency: 80
+  minInstances: 1
+  maxInstances: 5
+
+# Environment variables — APP_ENV=staging triggers `ng build --configuration staging`
+# in the gcp-build script, which bundles environment.staging.ts
+env:
+  - variable: NODE_VERSION
+    value: '22'
+  - variable: NODE_ENV
+    value: 'staging'
+  - variable: APP_ENV
+    value: 'staging'
+
+  # Allow SSR for ALL hosts
+  - variable: NG_ALLOWED_HOSTS
+    value: '*'
+
+  # Include dev dependencies for TypeScript build
+  - variable: NPM_CONFIG_PRODUCTION
+    value: 'false'
+  - variable: NPM_CONFIG_INCLUDE
+    value: 'dev'
+
+# Custom headers for all responses
+headers:
+  - source: '**'
+    headers:
+      - header: X-Content-Type-Options
+        value: nosniff
+      - header: X-Frame-Options
+        value: SAMEORIGIN
+      - header: X-XSS-Protection
+        value: '1; mode=block'
+      - header: Referrer-Policy
+        value: strict-origin-when-cross-origin
+
+  # Cache static assets
+  - source: '**/*.{js,css,woff2,woff,ttf,png,jpg,jpeg,gif,svg,ico,webp}'
+    headers:
+      - header: Cache-Control
+        value: 'public, max-age=31536000, immutable'

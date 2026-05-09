@@ -5,14 +5,14 @@
  */
 export const environment = {
   production: true,
-  appVersion: '1.33.20',
-  version: '1.33.20',
+  appVersion: '1.33.21',
+  version: '1.33.21',
   webUrl: 'https://nxt1sports.com',
 
   // Backend API URLs (Production)
   apiURL: 'https://api.nxt1sports.com/api/v1',
   sentryDsn: '',
-  loggingEndpoint: 'https://api.nxt1sports.com/api/v1',
+  loggingEndpoint: 'https://api.nxt1sports.com/api/v1/logs',
 
   // Firebase Configuration (Production)
   firebase: {

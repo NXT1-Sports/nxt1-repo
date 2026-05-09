@@ -69,6 +69,7 @@ import usageRoutes from './routes/billing/usage.routes.js';
 import iapRoutes from './routes/billing/iap.routes.js';
 import teamsRoutes from './routes/team/teams.routes.js';
 import engagementRoutes from './routes/feed/engagement.routes.js';
+import logsRoutes from './routes/platform/logs.routes.js';
 // Staging-only dev utilities
 
 const app: ReturnType<typeof express> = express();
@@ -338,6 +339,8 @@ async function setupApplication() {
     { path: '/teams', rateLimitType: 'api', handler: teamsRoutes },
     // Universal feed item engagement (share + view impression tracking — all types)
     { path: '/engagement', rateLimitType: 'api', handler: engagementRoutes },
+    // Client-side log ingestion (no auth required — rate-limited at API tier)
+    { path: '/logs', rateLimitType: 'api', handler: logsRoutes },
     // SSR routes with lighter limits (for SEO crawlers)
   ];
 
