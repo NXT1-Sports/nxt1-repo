@@ -1,6 +1,7 @@
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 import { logger } from '../../../../../utils/logger.js';
 import { type FfmpegMcpBridgeService } from './ffmpeg-mcp-bridge.service.js';
+import { normalizeFfmpegToolInput } from './ffmpeg-input-normalizer.js';
 import { BurnSubtitlesInputSchema } from './schemas.js';
 
 export class FfmpegBurnSubtitlesTool extends BaseTool {
@@ -21,7 +22,8 @@ export class FfmpegBurnSubtitlesTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const parsed = BurnSubtitlesInputSchema.safeParse(input);
+    const normalizedInput = normalizeFfmpegToolInput(input);
+    const parsed = BurnSubtitlesInputSchema.safeParse(normalizedInput);
     if (!parsed.success) return this.zodError(parsed.error);
 
     context?.emitStage?.('processing_media', {

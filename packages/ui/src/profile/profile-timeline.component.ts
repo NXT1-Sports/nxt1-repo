@@ -711,6 +711,7 @@ export class ProfileTimelineComponent {
     return {
       id: post.id,
       type: post.postType as unknown as ProfilePostType,
+      title: post.title,
       body: post.content,
       thumbnailUrl,
       mediaUrl: primaryMedia?.url,
@@ -723,8 +724,16 @@ export class ProfileTimelineComponent {
       dashUrl: mediaRecord?.['dashUrl'] as string | undefined,
       cloudflareVideoId: mediaRecord?.['cloudflareVideoId'] as string | undefined,
       cloudflareStatus: mediaRecord?.['processingStatus'] as string | undefined,
+      // Preserve rich post payload so detail overlays can render exactly what
+      // the feed card rendered (multi-media carousel, tags, embeds, location).
+      content: post.content,
+      media: post.media,
+      externalSource: post.externalSource,
+      location: post.location,
+      postTags: post.postTags,
+      embeds: post.embeds,
       createdAt: post.createdAt,
-    };
+    } as ProfilePost;
   }
 
   private summarizeFeedItem(item: FeedItem): {

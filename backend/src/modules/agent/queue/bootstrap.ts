@@ -167,8 +167,12 @@ import {
   FfmpegCompressVideoTool,
   ChartMcpBridgeService,
   GenerateChartVisualizationTool,
-  DrawioDiagramService,
+  PlayDiagramService,
   CreatePlayDiagramTool,
+  BoardDiagramService,
+  CreateBoardDiagramTool,
+  UpdateBoardDiagramTool,
+  DeleteBoardDiagramTool,
   CloudflareMcpBridgeService,
   CreateSupportTicketTool,
   ImportVideoTool,
@@ -613,10 +617,19 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     logger.warn('CHART_MCP_URL not configured — Chart MCP tools disabled');
   }
 
-  // ── 1e.3. draw.io play diagram tools (LLM → diagrams.net export → Firebase) ─
-  const drawioService = new DrawioDiagramService(llm);
-  toolRegistry.register(new CreatePlayDiagramTool(drawioService));
-  logger.info('draw.io play diagram tools registered (create_play_diagram)');
+  // ── 1e.3. Play diagram tools (LLM → diagrams.net export → Firebase) ─
+  const playDiagramService = new PlayDiagramService(llm);
+  toolRegistry.register(new CreatePlayDiagramTool(playDiagramService));
+  logger.info('Play diagram tools registered (create_play_diagram)');
+
+  // ── 1e.4. Board diagram tools (platform: plays + drills, with Firestore persistence) ─
+  const boardDiagramService = new BoardDiagramService(llm);
+  toolRegistry.register(new CreateBoardDiagramTool(boardDiagramService));
+  toolRegistry.register(new UpdateBoardDiagramTool(boardDiagramService));
+  toolRegistry.register(new DeleteBoardDiagramTool(boardDiagramService));
+  logger.info(
+    'Board diagram tools registered (create_board_diagram, update_board_diagram, delete_board_diagram)'
+  );
 
   toolRegistry.register(new AnalyzeVideoTool(scraperService, llm, apifyMcpBridge, ffmpegBridge));
   toolRegistry.register(new AnalyzeImageTool(llm));
@@ -761,7 +774,12 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     agentRouter: router,
   });
   setWelcomeDependencies({ queueService, jobRepository, chatService: agentChatService });
-  setScrapeDependencies({ queueService, jobRepository, chatService: agentChatService });
+  setScrapeDependencies({
+    queueService,
+    jobRepository,
+    chatService: agentChatService,
+    llmService: llm,
+  });
 
   logger.info('Agent X queue engine initialized');
 

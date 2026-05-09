@@ -23,17 +23,17 @@ export const CreatePlayDiagramInputSchema = z.object({
 });
 
 /**
- * The resolved result returned by DrawioDiagramService.createDiagram().
+ * The resolved result returned by PlayDiagramService.createDiagram().
  *
  * - imageUrl:    Public Firebase Storage URL for the exported PNG (rendered diagram).
  * - xmlContent:  Raw <mxGraphModel> XML — persist in Firestore so coaches can load
- *                it back into the draw.io editor for manual fine-tuning.
- * - editUrl:     draw.io editor URL pre-loaded with the diagram XML. Open in an
+ *                it back into a diagram editor for manual fine-tuning.
+ * - editUrl:     diagrams.net editor URL pre-loaded with the diagram XML. Open in an
  *                iframe with the embed+proto=json protocol for save-back support.
  * - title:       Human-readable diagram title.
  * - storagePath: Firebase Storage path for the PNG (optional, for admin reference).
  */
-export const DrawioDiagramResultSchema = z.object({
+export const PlayDiagramResultSchema = z.object({
   imageUrl: z.string().url(),
   xmlContent: z.string().min(1),
   editUrl: z.string().url(),
@@ -42,4 +42,4 @@ export const DrawioDiagramResultSchema = z.object({
 });
 
 export type CreatePlayDiagramInput = z.infer<typeof CreatePlayDiagramInputSchema>;
-export type DrawioDiagramResult = z.infer<typeof DrawioDiagramResultSchema>;
+export type PlayDiagramResult = z.infer<typeof PlayDiagramResultSchema>;

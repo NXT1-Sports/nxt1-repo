@@ -3696,7 +3696,19 @@ export async function createWalletHold(
 
   let holdId = '';
   let availableBalance = 0;
-  const billingTarget = await getStoredBillingTarget(db, userId);
+  const resolvedTarget = await resolveBillingTarget(db, userId);
+  const billingTarget =
+    resolvedTarget.type === 'organization' && resolvedTarget.organizationId
+      ? buildOrganizationBillingTarget(
+          resolvedTarget.organizationId,
+          resolvedTarget.context.teamId,
+          'organization'
+        )
+      : buildPersonalBillingTarget(
+          userId,
+          resolvedTarget.context.organizationId,
+          resolvedTarget.context.teamId
+        );
   const config = await getPlatformConfig(db);
   const holdExpiryMs = config.holdExpiryMs || DEFAULT_HOLD_EXPIRY_MS;
   const expiresAt = Timestamp.fromMillis(Date.now() + holdExpiryMs);

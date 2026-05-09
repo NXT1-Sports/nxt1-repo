@@ -230,12 +230,42 @@ describe('LiveViewSessionService', () => {
       expect(result.session.platformKey).toBe('maxpreps');
     });
 
+    it('should allow instagram URLs for live-view sessions', async () => {
+      const result = await service.startSession(TEST_USER_ID, {
+        url: 'https://www.instagram.com/nxt1sports/',
+      });
+
+      expect(result.session).toBeDefined();
+      expect(result.session.requestedUrl).toBe('https://www.instagram.com/nxt1sports/');
+      expect(result.session.sessionId).toBe(TEST_SESSION_ID);
+    });
+
+    it('should allow twitter URLs for live-view sessions', async () => {
+      const result = await service.startSession(TEST_USER_ID, {
+        url: 'https://twitter.com/NXT1Sports',
+      });
+
+      expect(result.session).toBeDefined();
+      expect(result.session.requestedUrl).toBe('https://twitter.com/NXT1Sports');
+      expect(result.session.sessionId).toBe(TEST_SESSION_ID);
+    });
+
     it('should throw when Firecrawl scrape() fails', async () => {
       mockScrape.mockRejectedValue(new Error('Rate limited'));
 
       await expect(
         service.startSession(TEST_USER_ID, { url: 'https://www.example.com' })
       ).rejects.toThrow('Rate limited');
+    });
+
+    it('should map provider unsupported-site errors to a clear live-view message', async () => {
+      mockScrape.mockRejectedValue(
+        new Error('We apologize for the inconvenience but we do not support this site.')
+      );
+
+      await expect(
+        service.startSession(TEST_USER_ID, { url: 'https://x.com/i/flow/login' })
+      ).rejects.toThrow('Live view is not available for X with the current browser provider.');
     });
 
     it('should retry with saveChanges: false when profile is locked by a stale session', async () => {

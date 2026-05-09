@@ -270,6 +270,8 @@ export interface TeamProfileRosterMember {
   readonly isVerified?: boolean;
   readonly joinedAt?: string;
   readonly views?: number;
+  readonly isClaimed?: boolean;
+  readonly isProfileNavigable?: boolean;
 }
 
 /**

@@ -264,8 +264,14 @@ describe('Agent tool exposure regressions', () => {
   });
 
   it('enforces ask-user decision matrix language across coordinator prompts', () => {
+    const dataCoordinatorPrompt = new DataCoordinatorAgent().getSystemPrompt(context);
+    expect(dataCoordinatorPrompt).toContain('query_nxt1_platform_data');
+    expect(dataCoordinatorPrompt).toContain('search_nxt1_platform');
+    expect(dataCoordinatorPrompt).not.toContain('query_platform_data');
+    expect(dataCoordinatorPrompt).not.toContain('search_platform_registry');
+
     const prompts = [
-      new DataCoordinatorAgent().getSystemPrompt(context),
+      dataCoordinatorPrompt,
       new BrandCoordinatorAgent().getSystemPrompt(context),
       new PerformanceCoordinatorAgent().getSystemPrompt(context),
       new RecruitingCoordinatorAgent().getSystemPrompt(context),

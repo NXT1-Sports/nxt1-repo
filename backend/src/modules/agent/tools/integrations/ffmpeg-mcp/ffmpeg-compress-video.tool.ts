@@ -1,6 +1,7 @@
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 import { logger } from '../../../../../utils/logger.js';
 import { type FfmpegMcpBridgeService } from './ffmpeg-mcp-bridge.service.js';
+import { normalizeFfmpegToolInput } from './ffmpeg-input-normalizer.js';
 import { CompressVideoInputSchema } from './schemas.js';
 
 export class FfmpegCompressVideoTool extends BaseTool {
@@ -20,7 +21,8 @@ export class FfmpegCompressVideoTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const parsed = CompressVideoInputSchema.safeParse(input);
+    const normalizedInput = normalizeFfmpegToolInput(input);
+    const parsed = CompressVideoInputSchema.safeParse(normalizedInput);
     if (!parsed.success) return this.zodError(parsed.error);
 
     context?.emitStage?.('processing_media', {

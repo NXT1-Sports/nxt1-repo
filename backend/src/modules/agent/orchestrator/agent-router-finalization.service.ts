@@ -4,6 +4,7 @@ import type { SemanticCacheService } from '../memory/semantic-cache.service.js';
 import type { AgentExecutionMutableTask } from './agent-router-execution.service.js';
 import type { AgentRouterContextService } from './agent-router-context.service.js';
 import type { AgentRouterTelemetryService } from './agent-router-telemetry.service.js';
+import { getConnectedSourceSyncTracker } from '../services/connected-source-sync-tracker.service.js';
 import { logger } from '../../../utils/logger.js';
 
 type ContextDeps = Pick<AgentRouterContextService, 'appendAssistantMessage'>;
@@ -119,6 +120,24 @@ export class AgentRouterFinalizationService {
         },
       });
 
+      // Stamp any connected sources that were registered during this failed
+      // job with syncStatus: 'error' so the UI reflects the true outcome.
+      logger.info('[AgentRouter] Flushing connected sources (error outcome)', {
+        operationId,
+        outcome: 'error',
+        taskCount: taskResults.size,
+      });
+      getConnectedSourceSyncTracker()
+        .flush(operationId, 'error')
+        .catch((err) =>
+          logger.error('[AgentRouter] Connected source sync status stamp failed', {
+            operationId,
+            outcome: 'error',
+            error: err instanceof Error ? err.message : String(err),
+            errorStack: err instanceof Error ? err.stack : undefined,
+          })
+        );
+
       return {
         summary:
           partialSummary.length > 0
@@ -162,6 +181,30 @@ export class AgentRouterFinalizationService {
         /* noop */
       });
     }
+
+    // Stamp every connected source written during this job with syncStatus: 'success'
+    // now that the full pipeline has completed successfully.
+    logger.info('[AgentRouter] Flushing connected sources (success outcome)', {
+      operationId,
+      outcome: 'success',
+      taskCount: taskResults.size,
+    });
+    getConnectedSourceSyncTracker()
+      .flush(operationId, 'success')
+      .then(() => {
+        logger.info('[AgentRouter] Connected sources flushed successfully', {
+          operationId,
+          outcome: 'success',
+        });
+      })
+      .catch((err) =>
+        logger.error('[AgentRouter] Connected source sync status stamp failed', {
+          operationId,
+          outcome: 'success',
+          error: err instanceof Error ? err.message : String(err),
+          errorStack: err instanceof Error ? err.stack : undefined,
+        })
+      );
 
     const aggregationDurationMs = Date.now() - aggregationPhaseStartMs;
     this.telemetry.recordPhaseLatency('aggregation', aggregationDurationMs, {

@@ -44,8 +44,6 @@ const DEFAULT_PREFERENCES: UserPreferences = {
   activityTracking: true,
   analyticsTracking: true,
   biometricLogin: false,
-  dismissedPrompts: [],
-  defaultSportIndex: 0,
 };
 
 /**
@@ -114,8 +112,6 @@ router.patch(
       'activityTracking',
       'analyticsTracking',
       'biometricLogin',
-      'dismissedPrompts',
-      'defaultSportIndex',
       'theme',
       'language',
     ];
@@ -207,8 +203,6 @@ router.patch(
       'activityTracking',
       'analyticsTracking',
       'biometricLogin',
-      'dismissedPrompts',
-      'defaultSportIndex',
       'theme',
       'language',
     ];

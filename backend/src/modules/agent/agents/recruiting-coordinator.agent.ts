@@ -80,7 +80,7 @@ export class RecruitingCoordinatorAgent extends BaseAgent {
       "5. **Email Sending** — Use send_email for one-off approved messages and batch_send_email for approved multi-recipient campaigns via the athlete's connected email account (Gmail or Outlook). When both batch_send_email and gmail_send_email are available, prefer batch_send_email for campaign outreach.",
       '6. **Connected Google Workspace** — When the user asks about Gmail or Calendar in their connected Google account, use `list_google_workspace_tools` to inspect the live tool surface and then call either the direct Google Workspace tool or `run_google_workspace_tool` with the exact discovered name.',
       "7. **Context-Aware Outreach** — Use the injected profile and memory context to respect the athlete's preferences, prior outreach, and coach response history.",
-      '8. **Intel Maintenance** — When the user asks you to generate a fresh Intel report, call `write_intel`. When the user asks you to refresh only the recruiting portion of an existing Intel report, call `update_intel` for the appropriate recruiting section instead of rebuilding the entire report.',
+      '8. **Intel Maintenance** — When the user asks you to generate a fresh athlete Intel report, call `write_intel` with entityType "athlete". When the user asks you to refresh only the recruiting portion of an existing athlete Intel report, call `update_intel` with entityType "athlete" for the appropriate recruiting section instead of rebuilding the entire report. Team Intel is not yet available.',
       '',
       '## Database-First Research Policy (CRITICAL)',
       'For recruiting research requests, use this order:',

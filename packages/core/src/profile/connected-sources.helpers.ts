@@ -22,6 +22,8 @@ interface LinkSourceLike {
   readonly connectionType?: 'link' | 'signin';
   readonly url?: string;
   readonly username?: string;
+  readonly addedBy?: string;
+  readonly addedById?: string;
   readonly scopeType?: 'global' | 'sport' | 'team';
   readonly scopeId?: string;
 }
@@ -39,6 +41,29 @@ interface LinkSourcesFormDataLike {
   readonly links: readonly LinkSourceLike[];
 }
 
+export function normalizeConnectedPlatform(platform: string): string {
+  const normalized = platform.trim().toLowerCase();
+  if (normalized === 'twitter' || normalized === 'twitter.com' || normalized === 'x.com') {
+    return 'x';
+  }
+  return normalized;
+}
+
+export function normalizeConnectedProfileUrl(url: string): string {
+  const raw = url.trim();
+  if (!raw) return '';
+
+  try {
+    const parsed = new URL(raw);
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+    const canonicalHost = host === 'twitter.com' ? 'x.com' : host;
+    const pathname = parsed.pathname.replace(/\/+$/, '').toLowerCase();
+    return `${canonicalHost}${pathname}`;
+  } catch {
+    return raw.replace(/\/+$/, '').toLowerCase();
+  }
+}
+
 const FIREBASE_PROVIDER_PLATFORM_MAP = {
   'google.com': 'google',
   'apple.com': 'apple',
@@ -49,6 +74,9 @@ const CONNECTED_EMAIL_PROVIDER_PLATFORM_MAP = {
   gmail: 'google',
   microsoft: 'microsoft',
 } as const;
+
+// Linked-platform rows rendered as global scope in the connected-accounts UI.
+const GLOBAL_LINK_PLATFORMS = new Set(['twitter', 'instagram', 'tiktok', 'youtube', 'facebook']);
 
 type FirebaseProviderPlatform =
   (typeof FIREBASE_PROVIDER_PLATFORM_MAP)[keyof typeof FIREBASE_PROVIDER_PLATFORM_MAP];
@@ -62,15 +90,26 @@ type ConnectedEmailProviderPlatform =
  * Only entries that are flagged as connected AND have a non-empty URL are kept.
  */
 export function mapToConnectedSources(entries: readonly LinkSourceLike[]): ConnectedSource[] {
-  return entries
+  const mapped = entries
     .filter((e) => e.connected && e.url?.trim())
     .map((e) => ({
-      platform: e.platform,
+      platform: normalizeConnectedPlatform(e.platform),
       profileUrl: e.url ?? '',
-      faviconUrl: getPlatformFaviconUrl(e.platform) ?? undefined,
+      faviconUrl: getPlatformFaviconUrl(normalizeConnectedPlatform(e.platform)) ?? undefined,
       scopeType: e.scopeType,
       scopeId: e.scopeId,
     }));
+
+  const deduped = new Map<string, ConnectedSource>();
+  for (const source of mapped) {
+    const dedupeKey =
+      `${normalizeConnectedPlatform(source.platform)}|` +
+      `${source.scopeType ?? 'global'}|${source.scopeId ?? ''}|` +
+      normalizeConnectedProfileUrl(source.profileUrl);
+    deduped.set(dedupeKey, source);
+  }
+
+  return Array.from(deduped.values());
 }
 
 /**
@@ -78,7 +117,7 @@ export function mapToConnectedSources(entries: readonly LinkSourceLike[]): Conne
  * Two sources with the same key represent the same logical connection.
  */
 export function connectedSourceKey(s: ConnectedSource): string {
-  return `${s.platform}|${s.scopeType ?? 'global'}|${s.scopeId ?? ''}`;
+  return `${normalizeConnectedPlatform(s.platform)}|${s.scopeType ?? 'global'}|${s.scopeId ?? ''}`;
 }
 
 /**
@@ -90,8 +129,20 @@ export function mergeConnectedSources(
   incoming: readonly ConnectedSource[]
 ): ConnectedSource[] {
   const map = new Map<string, ConnectedSource>();
-  for (const s of existing) map.set(connectedSourceKey(s), s);
-  for (const s of incoming) map.set(connectedSourceKey(s), s);
+  for (const s of existing) {
+    map.set(connectedSourceKey(s), {
+      ...s,
+      platform: normalizeConnectedPlatform(s.platform),
+      profileUrl: s.profileUrl.trim(),
+    });
+  }
+  for (const s of incoming) {
+    map.set(connectedSourceKey(s), {
+      ...s,
+      platform: normalizeConnectedPlatform(s.platform),
+      profileUrl: s.profileUrl.trim(),
+    });
+  }
   return Array.from(map.values());
 }
 
@@ -105,14 +156,24 @@ function linkSourceKey(source: LinkSourceLike): string {
 export function mapConnectedSourcesToLinkSources(
   sources: readonly ConnectedSource[]
 ): LinkSourceLike[] {
-  return sources.map((source) => ({
-    platform: source.platform,
-    connected: true,
-    connectionType: 'link',
-    url: source.profileUrl,
-    scopeType: source.scopeType ?? 'global',
-    scopeId: source.scopeId,
-  }));
+  return sources.map((source) => {
+    const normalizedPlatform = normalizeConnectedPlatform(source.platform);
+    // UI registry uses "twitter" as the linked platform key (label shown as X).
+    // Persisted canonical platform remains "x" for storage consistency.
+    const uiPlatform = normalizedPlatform === 'x' ? 'twitter' : normalizedPlatform;
+    const forceGlobalScope = GLOBAL_LINK_PLATFORMS.has(uiPlatform);
+
+    return {
+      platform: uiPlatform,
+      connected: source.connected ?? true,
+      connectionType: 'link',
+      url: source.profileUrl,
+      addedBy: source.addedBy,
+      addedById: source.addedById,
+      scopeType: forceGlobalScope ? 'global' : (source.scopeType ?? 'global'),
+      scopeId: forceGlobalScope ? undefined : source.scopeId,
+    };
+  });
 }
 
 /**

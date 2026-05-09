@@ -355,6 +355,8 @@ function mapUserToRoster(
     weight: user.weight,
     isVerified: user.isVerify ?? memberMeta?.isVerify ?? false,
     joinedAt: toSafeISOString(memberMeta?.joinTime),
+    isClaimed: true,
+    isProfileNavigable: !!unicode,
   };
 }
 
@@ -399,12 +401,7 @@ function toStaffRole(role: string): TeamProfileStaffMember['role'] {
 }
 
 function resolveRosterEntryUserId(entry: RosterEntry): string {
-  if (typeof entry.userId === 'string' && entry.userId.trim()) {
-    return entry.userId.trim();
-  }
-
-  const legacyPlayerId = (entry as unknown as Record<string, unknown>)['playerId'];
-  return typeof legacyPlayerId === 'string' ? legacyPlayerId.trim() : '';
+  return typeof entry.userId === 'string' && entry.userId.trim() ? entry.userId.trim() : '';
 }
 
 function resolveUserSportPositions(
@@ -440,12 +437,17 @@ function resolveRosterMemberPosition(
     if (firstPosition) return firstPosition;
   }
 
+  const sport = typeof entryAny['sport'] === 'string' ? entryAny['sport'] : undefined;
+  const userSportPosition = resolveUserSportPositions(user, sport)?.[0];
+  if (userSportPosition) {
+    return userSportPosition;
+  }
+
   if (typeof entryAny['position'] === 'string' && entryAny['position'].trim()) {
     return entryAny['position'].trim();
   }
 
-  const sport = typeof entryAny['sport'] === 'string' ? entryAny['sport'] : undefined;
-  return resolveUserSportPositions(user, sport)?.[0];
+  return undefined;
 }
 
 function resolveRosterMemberClassYear(
@@ -479,27 +481,47 @@ function mapRosterEntryToRosterMember(
   const entryAny = entry as unknown as Record<string, unknown>;
   const rosterUserId = resolveRosterEntryUserId(entry);
   const user = userDataMap.get(rosterUserId);
+  const status = String(entryAny['status'] ?? '').toLowerCase();
+  const pendingByStatus = status === 'pending';
+  const pendingByLegacyClaimStatus =
+    String(entryAny['claimStatus'] ?? '').toLowerCase() === 'pending';
+  const pendingClaim = pendingByStatus || pendingByLegacyClaimStatus;
+  const cachedFirstName =
+    typeof entryAny['firstName'] === 'string' ? entryAny['firstName'].trim() : undefined;
+  const cachedLastName =
+    typeof entryAny['lastName'] === 'string' ? entryAny['lastName'].trim() : undefined;
+  const cachedDisplayName =
+    typeof entryAny['displayName'] === 'string' ? entryAny['displayName'].trim() : undefined;
+  const fallbackDisplayName = [cachedFirstName, cachedLastName].filter(Boolean).join(' ');
   const unicode =
     (typeof entryAny['unicode'] === 'string' ? entryAny['unicode'] : undefined)?.trim() ||
     user?.unicode?.trim() ||
     user?.username?.trim() ||
     undefined;
+  const profileCode =
+    (typeof entryAny['profileCode'] === 'string' ? entryAny['profileCode'] : undefined)?.trim() ||
+    unicode;
+  const isClaimed = !pendingClaim && !!rosterUserId;
+  const isProfileNavigable = isClaimed && !!(unicode || profileCode) && status !== 'pending';
+
+  const resolvedId = rosterUserId || String(entry.id ?? '').trim();
+
   return {
-    id: rosterUserId,
+    id: resolvedId,
     firstName:
       user?.firstName ??
-      entry.firstName ??
+      cachedFirstName ??
       (user?.displayName ?? user?.name ?? '').split(' ')[0] ??
       '',
     lastName:
       user?.lastName ??
-      (entryAny['lastName'] as string | undefined) ??
+      cachedLastName ??
       (user?.displayName ?? user?.name ?? '').split(' ').slice(1).join(' ') ??
       '',
-    displayName: user?.displayName ?? user?.name,
+    displayName: user?.displayName ?? user?.name ?? cachedDisplayName ?? fallbackDisplayName,
     profileImg: user?.profileImgs?.[0],
     unicode,
-    profileCode: unicode,
+    profileCode,
     role: 'athlete',
     jerseyNumber: (entryAny['jerseyNumber'] as string | undefined) ?? user?.jerseyNumber,
     position: resolveRosterMemberPosition(entryAny, user),
@@ -508,6 +530,8 @@ function mapRosterEntryToRosterMember(
     weight: user?.weight,
     isVerified: user?.isVerify ?? false,
     joinedAt: toSafeISOString(entryAny['joinedAt'] ?? entryAny['createdAt']),
+    isClaimed,
+    isProfileNavigable,
   };
 }
 

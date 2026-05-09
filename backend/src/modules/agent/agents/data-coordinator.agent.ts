@@ -301,6 +301,12 @@ export class DataCoordinatorAgent extends BaseAgent {
       '## Rules',
       '═══════════════════════════════════════════════════════════════════',
       '',
+      '### Truthfulness and Source Fidelity (CRITICAL)',
+      '- Never fabricate names, roster entries, stats, events, rankings, news, or achievements.',
+      '- Never create placeholder/synthetic players to "complete" a roster.',
+      '- If a roster page returns empty or cannot be parsed, do NOT call `write_roster_entries` with guessed data.',
+      '- In that case, report clearly: "No roster data was available from the source, so roster entries were not written."',
+      '',
       '### Role Locking (CRITICAL)',
       '- If the user is a **coach or director** updating their own account, DO NOT write athletic data (sports[], measurables[], metrics, season stats) to their User doc.',
       '- If a coach/director is explicitly targeting one of their rostered athletes, pass that athlete `userId` to the athlete write tools. Backend authorization will only allow writes for shared active roster scope.',
@@ -463,7 +469,7 @@ export class DataCoordinatorAgent extends BaseAgent {
       '## PLATFORM SEARCH DEAD-END PROTOCOL (CRITICAL)',
       '═══════════════════════════════════════════════════════════════════',
       '',
-      'When using `query_platform_data` or `search_platform_registry` to look up a team,',
+      'When using `query_nxt1_platform_data` or `search_nxt1_platform` to look up a team,',
       'user, or roster by name — follow this strict escalation and STOP when you hit the limit:',
       '',
       '**Attempt 1**: Search with the full name as provided (e.g. "Crown Point Basketball Mens").',
@@ -483,13 +489,13 @@ export class DataCoordinatorAgent extends BaseAgent {
       'NEVER cycle through more than 3 variations of the same lookup. Each empty result wastes an iteration.',
       'The platform uses exact-match collection queries — name spelling variations will not help after 3 tries.',
       '',
-      '## Post-Write Intel Sync (MANDATORY)',
-      'After all profile or team write tools finish, reconcile Intel before you end the task.',
-      '- If no Intel report exists yet for the athlete or team you updated, call `write_intel` immediately.',
+      '## Post-Write Intel Sync (MANDATORY — Athletes Only)',
+      'After athlete profile write tools finish, reconcile Intel before you end the task.',
+      '- If no Intel report exists yet for the athlete you updated, call `write_intel` immediately with entityType "athlete".',
       '- If an Intel report already exists, call `update_intel` only for the sections affected by this run.',
       '- Athlete section map: `write_core_identity` → `agent_x_brief`, `athletic_measurements`, `academic_profile`, `awards_honors`; `write_combine_metrics` → `athletic_measurements`; `write_season_stats` → `season_stats`; `write_recruiting_activity` → `recruiting_activity`; `write_rankings` or `write_awards` → `awards_honors`.',
-      '- Team section map: `write_roster_entries` → `team`; `write_team_stats` → `stats`; `write_schedule` → `schedule`; recruiting writes → `recruiting`; team identity updates → `agent_overview` and `team`.',
-      '- Do this once per updated entity at the end of the write workflow. Do NOT skip Intel reconciliation just because the user did not ask for it explicitly.',
+      '- Do NOT attempt team intel — it is not yet available.',
+      '- Do this once per updated athlete at the end of the write workflow. Do NOT skip Intel reconciliation just because the user did not ask for it explicitly.',
     ].join('\n');
 
     return this.withConfiguredSystemPrompt(prompt);
@@ -510,6 +516,10 @@ export class DataCoordinatorAgent extends BaseAgent {
 
   override getSkillBudget(): number {
     return 3;
+  }
+
+  override getToolConcurrency(): number {
+    return 4;
   }
 
   getModelRouting(): ModelRoutingConfig {

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ToolExecutionContext } from '../../../base.tool.js';
-import type { DrawioDiagramService } from '../drawio-diagram.service.js';
+import type { PlayDiagramService } from '../play-diagram.service.js';
 import { CreatePlayDiagramTool } from '../create-play-diagram.tool.js';
 
 const TEST_CONTEXT = {
@@ -23,16 +23,16 @@ const MOCK_RESULT = {
 describe('CreatePlayDiagramTool', () => {
   const diagramService = {
     createDiagram: vi.fn(),
-  } satisfies Pick<DrawioDiagramService, 'createDiagram'>;
+  } satisfies Pick<PlayDiagramService, 'createDiagram'>;
 
   let tool: CreatePlayDiagramTool;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    tool = new CreatePlayDiagramTool(diagramService as unknown as DrawioDiagramService);
+    tool = new CreatePlayDiagramTool(diagramService as unknown as PlayDiagramService);
   });
 
-  it('returns image + xml + editUrl when service succeeds', async () => {
+  it('returns image + xml when service succeeds', async () => {
     diagramService.createDiagram.mockResolvedValue(MOCK_RESULT);
 
     const result = await tool.execute(
@@ -47,12 +47,11 @@ describe('CreatePlayDiagramTool', () => {
     expect(data['imageUrl']).toBe(MOCK_RESULT.imageUrl);
     expect(data['diagramUrl']).toBe(MOCK_RESULT.imageUrl);
     expect(data['xmlContent']).toBe(MOCK_RESULT.xmlContent);
-    expect(data['editUrl']).toBe(MOCK_RESULT.editUrl);
     expect(data['mimeType']).toBe('image/png');
     expect(data['title']).toBe('Red Zone Mesh');
     expect(data['storagePath']).toBe(MOCK_RESULT.storagePath);
     expect(data['mediaArtifact']).toEqual(
-      expect.objectContaining({ source: 'drawio_export', mimeType: 'image/png' })
+      expect.objectContaining({ source: 'play_diagram_export', mimeType: 'image/png' })
     );
   });
 

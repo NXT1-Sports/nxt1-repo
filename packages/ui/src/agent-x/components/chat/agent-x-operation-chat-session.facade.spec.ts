@@ -230,13 +230,42 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     ]);
   });
 
+  it('keeps tool_call context when an ask_user card is pending', () => {
+    const items: readonly AgentMessage[] = [
+      assistantMessage('tool-ask-1', 'assistant_tool_call', {
+        operationId: 'op-ask-1',
+        content: 'I need a few quick answers before I continue.',
+      }),
+      assistantMessage('partial-ask-1', 'assistant_partial', {
+        operationId: 'op-ask-1',
+        content: 'Quick Question',
+        parts: [
+          {
+            type: 'card',
+            card: {
+              type: 'ask_user',
+              agentId: 'router' as never,
+              title: 'Quick Question',
+              payload: {
+                prompt: 'What division level are you targeting?',
+                yieldState: { reason: 'needs_input', operationId: 'op-ask-1' },
+              },
+            },
+          },
+        ],
+      }),
+    ];
+
+    const canonical = facade.resolveCanonicalAssistantRows(items);
+    const ids = canonical.map((m) => m.id);
+
+    expect(ids).toContain('tool-ask-1');
+    expect(ids).toContain('partial-ask-1');
+  });
+
   // ── Regression: Bug A ─────────────────────────────────────────────────────
-  // When an approval card opens, it must NOT suppress the assistant_tool_call
-  // rows that precede it. Only needs_input (ask_user) ops hide prior trajectory.
-  // ── Regression: Bug A ─────────────────────────────────────────────────────
-  // When an approval card opens, it must NOT suppress the assistant_tool_call
-  // rows that precede it. Only needs_input (ask_user) ops hide prior trajectory.
-  it('keeps prior tool_call rows visible when a needs_approval yield is pending (Bug A)', () => {
+  // Approval flow should preserve prior tool_call context alongside card.
+  it('keeps prior tool_call rows visible when a needs_approval yield is pending', () => {
     const items: readonly AgentMessage[] = [
       assistantMessage('tool-1', 'assistant_tool_call', {
         operationId: 'op-approval-2',
@@ -263,17 +292,14 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
 
     const canonical = facade.resolveCanonicalAssistantRows(items);
 
-    // Both the tool_call row and the approval partial must survive — the tool
-    // steps above the card must not disappear when the card renders.
     const ids = canonical.map((m) => m.id);
     expect(ids).toContain('tool-1');
     expect(ids).toContain('partial-1');
   });
 
   // ── Regression: Bug B ─────────────────────────────────────────────────────
-  // After an approval flow completes (assistant_final exists), reloading the
-  // session must show both the pre-approval tool_call context AND the final
-  // completion message — not just the final.
+  // Completed approval flow should preserve pre-approval tool_call context
+  // alongside assistant_final on reload.
   it('shows pre-approval tool_call context alongside assistant_final on reload (Bug B)', () => {
     const items: readonly AgentMessage[] = [
       assistantMessage('tool-1', 'assistant_tool_call', {
@@ -294,18 +320,15 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     const canonical = facade.resolveCanonicalAssistantRows(items);
     const ids = canonical.map((m) => m.id);
 
-    // assistant_yield is always suppressed (not user-facing)
+    // yield row suppressed (not user-facing); tool_call + final both visible
     expect(ids).not.toContain('yield-1');
-    // Pre-approval tool context must survive reload
     expect(ids).toContain('tool-1');
-    // Completion message must survive reload
     expect(ids).toContain('final-1');
   });
 
   // ── Regression: Bug B (old sessions — no stored reason) ───────────────────
-  // assistant_yield rows written before resultData.yieldState.reason was stored
-  // must still keep pre-approval tool_call rows visible after completion. The
-  // yieldedOperationIds set (populated by semanticPhase) is the fallback signal.
+  // Old sessions have assistant_yield rows without stored reason metadata.
+  // Yield detection via semanticPhase must still preserve tool_call context.
   it('shows pre-approval tool_call context for old sessions without stored yield reason', () => {
     const items: readonly AgentMessage[] = [
       assistantMessage('tool-old-1', 'assistant_tool_call', {
@@ -326,8 +349,8 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     const canonical = facade.resolveCanonicalAssistantRows(items);
     const ids = canonical.map((m) => m.id);
 
-    expect(ids).not.toContain('yield-old-1'); // always suppressed
-    expect(ids).toContain('tool-old-1'); // must survive (fallback via semanticPhase)
+    expect(ids).not.toContain('yield-old-1');
+    expect(ids).toContain('tool-old-1');
     expect(ids).toContain('final-old-1');
   });
 });

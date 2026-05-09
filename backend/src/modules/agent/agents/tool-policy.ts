@@ -171,6 +171,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'write_timeline_post',
     'update_timeline_post',
     'delete_timeline_post',
+    'analyze_image',
     'analyze_video',
     'import_video',
     'clip_video',
@@ -181,6 +182,13 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'enable_download',
     'manage_watermark',
     'delete_video',
+    // Social media video acquisition (tweets, posts with embedded video)
+    'scrape_twitter',
+    // Apify — for platforms where scrape_twitter is insufficient or for IG video
+    'search_apify_actors',
+    'get_apify_actor_details',
+    'call_apify_actor',
+    'get_apify_actor_output',
     'runway_generate_video',
     'runway_edit_video',
     'runway_upscale_video',

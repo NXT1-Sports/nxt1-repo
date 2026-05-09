@@ -131,6 +131,8 @@ export {
   buildLinkSourcesFormData,
   connectedSourceKey,
   mergeConnectedSources,
+  normalizeConnectedPlatform,
+  normalizeConnectedProfileUrl,
 } from './connected-sources.helpers';
 
 // ============================================

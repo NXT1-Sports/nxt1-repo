@@ -1,8 +1,8 @@
-export { DrawioDiagramService } from './drawio-diagram.service.js';
+export { PlayDiagramService } from './play-diagram.service.js';
 export {
-  DrawioDiagramResultSchema,
+  PlayDiagramResultSchema,
   CreatePlayDiagramInputSchema,
-  type DrawioDiagramResult,
+  type PlayDiagramResult,
   type CreatePlayDiagramInput,
 } from './schemas.js';
 export { CreatePlayDiagramTool } from './create-play-diagram.tool.js';

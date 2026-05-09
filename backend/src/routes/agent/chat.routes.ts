@@ -28,6 +28,7 @@ import type {
   AgentXOperationLifecycleStatus,
   AgentXSelectedAction,
 } from '@nxt1/core';
+import { normalizeConnectedPlatform } from '@nxt1/core/profile';
 import { AGENT_X_REQUEST_HEADERS, AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
 import {
   STREAM_TERMINAL_EVENTS,
@@ -550,6 +551,133 @@ function isVideoAttachmentDto(a: {
   return false;
 }
 
+function normalizeScopeId(value: string | undefined): string {
+  return (value ?? '').trim().toLowerCase();
+}
+
+async function resolveConnectedSourceTargetsFromUserContext(params: {
+  readonly db: Firestore;
+  readonly userId: string;
+  readonly userContext: unknown;
+}): Promise<
+  ReadonlyArray<{
+    readonly docType: 'user' | 'team';
+    readonly docId: string;
+    readonly platform: string;
+    readonly profileUrl: string;
+    readonly scopeId: string;
+  }>
+> {
+  if (!params.userContext || typeof params.userContext !== 'object') return [];
+  const userContext = params.userContext as Record<string, unknown>;
+
+  const trigger =
+    typeof userContext['trigger'] === 'string' ? userContext['trigger'].trim().toLowerCase() : '';
+  const source =
+    typeof userContext['source'] === 'string' ? userContext['source'].trim().toLowerCase() : '';
+
+  if (trigger !== 'manual_resync' && source !== 'connected_accounts') {
+    return [];
+  }
+
+  const requestedAccounts = Array.isArray(userContext['requestedAccounts'])
+    ? (userContext['requestedAccounts'] as ReadonlyArray<Record<string, unknown>>)
+    : [];
+  if (requestedAccounts.length === 0) return [];
+
+  const userSnap = await params.db.collection('Users').doc(params.userId).get();
+  const userData = userSnap.data() as Record<string, unknown> | undefined;
+  if (!userData) return [];
+
+  const role = typeof userData['role'] === 'string' ? userData['role'].toLowerCase() : 'athlete';
+  const isTeamRole = role === 'coach' || role === 'director';
+
+  // Check for explicit teamIdOverride (e.g., coach managing a specific team's connected sources)
+  const teamIdOverride =
+    isTeamRole && typeof userContext['teamIdOverride'] === 'string'
+      ? (userContext['teamIdOverride'] as string).trim()
+      : '';
+
+  let docType: 'user' | 'team';
+  let docId: string;
+  let scopeId: string;
+
+  if (teamIdOverride) {
+    // Use the explicit team ID (coach managing a specific team)
+    docType = 'team';
+    docId = teamIdOverride;
+    // For team-scoped resync, we don't have sport context from the override,
+    // so we leave scopeId empty. The write tool will use the team's primary sport.
+    scopeId = '';
+  } else {
+    // Fallback to activeSportIndex lookup (original behavior)
+    const sports = Array.isArray(userData['sports'])
+      ? (userData['sports'] as ReadonlyArray<Record<string, unknown>>)
+      : [];
+    const activeSportIndexRaw = userData['activeSportIndex'];
+    const activeSportIndex =
+      typeof activeSportIndexRaw === 'number' && Number.isFinite(activeSportIndexRaw)
+        ? Math.max(0, Math.floor(activeSportIndexRaw))
+        : 0;
+    const activeSport = sports[activeSportIndex] ?? sports[0];
+    scopeId = normalizeScopeId(
+      activeSport && typeof activeSport['sport'] === 'string'
+        ? (activeSport['sport'] as string)
+        : undefined
+    );
+
+    const teamCode =
+      userData['teamCode'] && typeof userData['teamCode'] === 'object'
+        ? (userData['teamCode'] as Record<string, unknown>)
+        : null;
+    const activeSportTeam =
+      activeSport && typeof activeSport['team'] === 'object' && activeSport['team'] !== null
+        ? (activeSport['team'] as Record<string, unknown>)
+        : null;
+    const teamIdCandidate =
+      (teamCode && typeof teamCode['teamId'] === 'string' ? (teamCode['teamId'] as string) : '') ||
+      (activeSportTeam && typeof activeSportTeam['teamId'] === 'string'
+        ? (activeSportTeam['teamId'] as string)
+        : '');
+
+    docType = isTeamRole && teamIdCandidate ? 'team' : 'user';
+    docId = docType === 'team' ? teamIdCandidate : params.userId;
+  }
+
+  if (!docId) return [];
+
+  const targets: Array<{
+    docType: 'user' | 'team';
+    docId: string;
+    platform: string;
+    profileUrl: string;
+    scopeId: string;
+  }> = [];
+
+  for (const account of requestedAccounts) {
+    const rawPlatform =
+      typeof account['platform'] === 'string' ? (account['platform'] as string) : '';
+    const platform = normalizeConnectedPlatform(rawPlatform);
+    if (!platform) continue;
+
+    const rawUrl = typeof account['url'] === 'string' ? (account['url'] as string).trim() : '';
+    const rawUsername =
+      typeof account['username'] === 'string' ? (account['username'] as string).trim() : '';
+    const profileUrl = rawUrl || (rawUsername ? `https://${platform}.com/${rawUsername}` : '');
+    if (!profileUrl) continue;
+
+    targets.push({
+      docType,
+      docId,
+      platform,
+      profileUrl,
+      scopeId,
+    });
+  }
+
+  return targets;
+}
+
 /**
  * Build typed attachment arrays and an enriched text string from raw DTO
  * inputs. Mirrors the processing in the /chat handler so /enqueue produces
@@ -807,6 +935,9 @@ async function enqueueWithOutboxLocal(
  *   • If a prior op is *actively running* (queued / thinking / acting /
  *     streaming_result) → do not cancel it. Queue the new op behind the
  *     latest active op by returning its operationId as `parentOperationId`.
+ *   • Yielded ops (paused / awaiting_input / awaiting_approval) are never
+ *     hard blockers. They are either superseded (when enabled) or left
+ *     untouched while the new op proceeds independently.
  *
  * This matches the Primary Agent rollout plan: new user input supersedes stale
  * yielded work, but preserves in-flight execution order for running work.
@@ -904,8 +1035,8 @@ async function enforceThreadConcurrencyPolicy(
       (op) =>
         op.operationId &&
         op.operationId !== newOperationId &&
-        ((runningStatuses.has(op.status) && !cancelled.includes(op.operationId)) ||
-          (!supersedeOnYield && yieldedStatuses.has(op.status)))
+        runningStatuses.has(op.status) &&
+        !cancelled.includes(op.operationId)
     )
     .at(-1);
 
@@ -3457,6 +3588,11 @@ router.post(
 
       const operationId = crypto.randomUUID();
       const sessionId = crypto.randomUUID();
+      const connectedSourceTargets = await resolveConnectedSourceTargetsFromUserContext({
+        db,
+        userId: user.uid,
+        userContext,
+      });
       const concurrencyDecision = resolvedThreadId
         ? await enforceThreadConcurrencyPolicy(db, resolvedThreadId, operationId)
         : { cancelledOperationIds: [] as string[], parentOperationId: undefined };
@@ -3479,6 +3615,13 @@ router.post(
           ...(normalizedSelectedAction ? { selectedAction: normalizedSelectedAction } : {}),
           ...(fileAttachments.length > 0 ? { attachments: fileAttachments } : {}),
           ...(videoAttachments.length > 0 ? { videoAttachments } : {}),
+          ...(connectedSourceTargets.length > 0
+            ? {
+                connectedSourceTargets,
+                connectedSourceTargetCount: connectedSourceTargets.length,
+                connectedSourceTargetVersion: 1,
+              }
+            : {}),
         },
       };
 

@@ -12,6 +12,10 @@ import { Router, type Request, type Response } from 'express';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
 import { getLiveViewSessionService, queueService, llmService } from './shared.js';
+import {
+  getAgentEngineErrorCode,
+  isAgentEngineError,
+} from '../../modules/agent/exceptions/agent-engine.error.js';
 
 const router = Router();
 
@@ -86,6 +90,22 @@ router.post('/live-view/start', appGuard, async (req: Request, res: Response) =>
         error: 'Too many active browser sessions. Please try again in a moment.',
       });
       return;
+    }
+
+    if (isAgentEngineError(error)) {
+      const code = getAgentEngineErrorCode(error);
+      if (code === 'AGENT_VALIDATION_FAILED') {
+        res.status(400).json({ success: false, error: error.message });
+        return;
+      }
+
+      if (
+        code === 'LIVE_VIEW_REQUEST_FAILED' &&
+        /not available|do not support this site|unsupported/i.test(error.message)
+      ) {
+        res.status(422).json({ success: false, error: error.message });
+        return;
+      }
     }
 
     res.status(500).json({ success: false, error: 'Failed to start browser session' });

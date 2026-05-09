@@ -1317,9 +1317,9 @@ export class AgentGenerationService {
           { role: 'user', content: promptLines },
         ],
         {
-          // Daily briefings are a scheduled/background planning surface, not a
-          // raw parsing task, so they should use the automation tier.
-          tier: 'task_automation',
+          // Daily onboarding briefings are latency-sensitive; use the chat tier
+          // to reduce time-to-first-dashboard while keeping quality high.
+          tier: 'chat',
           maxTokens: 1024,
           temperature: 0.7,
           outputSchema: {

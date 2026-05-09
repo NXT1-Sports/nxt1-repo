@@ -115,7 +115,7 @@ const PRIMARY_REASONING_CONTRACT = [
   '10) NEVER call `analyze_video` directly from router; always use `delegate_to_coordinator` to hand video work to the right specialist:',
   '    - `performance_coordinator` for film analysis, technique breakdowns, scouting, and player evaluation.',
   '    - `strategy_coordinator` for strategic interpretation, planning recommendations, and executive summaries from video.',
-  '    - `brand_coordinator` for creative/video-content outputs (social edits, thumbnails, branded storytelling assets).',
+  '    - `brand_coordinator` for ALL creative/brand video work: analyzing highlight or promo video for best moments, visual style, energy, and brand consistency; social edits, thumbnails, branded reels, and storytelling assets. When a user says "analyze my highlight video", "which clips should I use", "review my promo", "check the style of this video", or provides video with intent to create social/brand content → always route to brand_coordinator.',
   '10i) NEVER call `generate_graphic` directly from router. ALL creative image/poster/thumbnail/social visual requests must be delegated to `brand_coordinator` via `delegate_to_coordinator`.',
   '10a) URL ingestion routing rule (CRITICAL):',
   '    - When the user provides any external link and asks to extract, import, analyze, or post media, enforce DIRECT-FIRST acquisition.',
@@ -528,7 +528,7 @@ export class PrimaryAgent extends BaseAgent {
   > {
     const normalized = text.toLowerCase();
     const brandSignals =
-      /brand|branding|creative|thumbnail|social|marketing|poster|promo|highlight reel|storytelling/.test(
+      /brand|branding|creative|thumbnail|social|marketing|poster|promo|highlight reel|highlight video|highlights|storytelling|style|visual style|visual brand|production quality|best (clips?|moments?|parts?|cuts?)|which clips|reel|intro video|hype video|recap video|cinematic/.test(
         normalized
       );
     if (brandSignals) {

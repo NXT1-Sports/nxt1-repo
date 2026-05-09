@@ -114,6 +114,7 @@ export interface AgentOperation {
  */
 export interface AgentArtifactHandoff {
   readonly imageUrl?: string;
+  readonly logoUrl?: string;
   readonly storagePath?: string;
   readonly cloudflareVideoId?: string;
   readonly videoUrl?: string;

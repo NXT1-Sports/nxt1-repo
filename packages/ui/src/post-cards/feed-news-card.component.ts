@@ -29,7 +29,7 @@ import { NxtImageComponent } from '../components/image';
       >
         @if (data().imageUrl) {
           <div class="news-card__image" [attr.data-testid]="testIds.NEWS_IMAGE">
-            <nxt1-image [src]="data().imageUrl!" [alt]="data().headline" fit="cover" />
+            <nxt1-image [src]="data().imageUrl!" [alt]="data().headline" fit="contain" />
             @if (data().category) {
               <span class="news-card__category" [attr.data-testid]="testIds.NEWS_CATEGORY">{{
                 data().category
@@ -60,7 +60,7 @@ import { NxtImageComponent } from '../components/image';
       <div class="news-card" [attr.data-testid]="testIds.NEWS_CARD">
         @if (data().imageUrl) {
           <div class="news-card__image" [attr.data-testid]="testIds.NEWS_IMAGE">
-            <nxt1-image [src]="data().imageUrl!" [alt]="data().headline" fit="cover" />
+            <nxt1-image [src]="data().imageUrl!" [alt]="data().headline" fit="contain" />
             @if (data().category) {
               <span class="news-card__category" [attr.data-testid]="testIds.NEWS_CATEGORY">{{
                 data().category
@@ -93,6 +93,7 @@ import { NxtImageComponent } from '../components/image';
     `
       :host {
         display: block;
+        --news-card-media-height: 240px;
       }
 
       .news-card {
@@ -115,8 +116,27 @@ import { NxtImageComponent } from '../components/image';
       .news-card__image {
         position: relative;
         width: 100%;
-        aspect-ratio: 16 / 9;
+        height: var(--news-card-media-height);
+        background: #000;
         overflow: hidden;
+      }
+
+      .news-card__image nxt1-image {
+        display: block;
+        width: 100%;
+        height: 100%;
+        background: #000;
+      }
+
+      :host ::ng-deep .news-card__image nxt1-image img {
+        width: 100%;
+        height: 100%;
+      }
+
+      @media (max-width: 768px) {
+        :host {
+          --news-card-media-height: 220px;
+        }
       }
 
       .news-card__category {

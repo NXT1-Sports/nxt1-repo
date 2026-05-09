@@ -31,6 +31,7 @@ import {
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { Router, ActivatedRoute } from '@angular/router';
+import { HttpClient } from '@angular/common/http';
 import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
 import { TeamProfileShellWebComponent } from '@nxt1/ui/team-profile';
 import { NxtCtaBannerComponent, type CtaAvatarImage } from '@nxt1/ui/components/cta-banner';
@@ -65,6 +66,7 @@ import {
   type TeamProfileRosterMember,
   type TeamProfilePost,
   type LinkSourcesFormData,
+  buildMediaFromTeamPost,
 } from '@nxt1/core';
 import { resolveCanonicalTeamRoute } from '@nxt1/core/helpers';
 import { APP_EVENTS } from '@nxt1/core/analytics';
@@ -158,6 +160,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class TeamComponent implements OnInit {
+  private readonly http = inject(HttpClient);
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly authFlow = inject(AuthFlowService);
   private readonly authModal = inject(AuthModalService);
@@ -597,15 +600,34 @@ export class TeamComponent implements OnInit {
     }
   }
 
+  private async updateTeamConnectedSources(
+    teamId: string,
+    connectedSources: unknown[]
+  ): Promise<void> {
+    const url = `${environment.apiURL}/teams/${teamId}`;
+    const response = await this.http
+      .patch<{ success: boolean }>(url, {
+        connectedSources,
+      })
+      .toPromise();
+
+    if (!response?.success) {
+      throw new Error('Failed to update team connected sources');
+    }
+  }
+
   protected async onConnectedAccounts(): Promise<void> {
     const user = this.authService.user();
-    if (!user?.uid) {
-      this.toast.error('Not signed in. Please refresh and try again.');
+    const team = this.teamProfile.team();
+    if (!user?.uid || !team?.id) {
+      this.toast.error('Not signed in or team not loaded. Please refresh and try again.');
       return;
     }
 
+    // For coaches/directors: read connectedSources from the TEAM doc, not user doc
+    const teamConnectedSources = team.connectedSources ?? [];
     const linkSourcesData = buildLinkSourcesFormData({
-      connectedSources: user.connectedSources ?? [],
+      connectedSources: teamConnectedSources,
       connectedEmails: user.connectedEmails ?? [],
       firebaseProviders: this.authService.firebaseUser()?.providerData ?? [],
     }) as LinkSourcesFormData | null;
@@ -618,31 +640,43 @@ export class TeamComponent implements OnInit {
     });
 
     if (!result.saved || !result.linkSources) {
-      if (result.resync) {
-        await this.connectedAccountsResync.request(result.sources ?? []);
+      if (result.resync && result.linkSources) {
+        // Save the new links to Firestore FIRST (TEAM doc) before triggering resync
+        // This ensures the entry exists before the job starts, so markPending
+        // can stamp it as pending (true single source of truth lifecycle).
+        const connectedSources = mapToConnectedSources(result.linkSources.links);
+
+        // Call backend PATCH endpoint to update team connectedSources
+        try {
+          await this.updateTeamConnectedSources(team.id, connectedSources);
+          await this.reloadTeamProfile('connected-accounts');
+
+          // Pass teamId to resync so it writes to the team doc
+          await this.connectedAccountsResync.request(result.sources ?? connectedSources, team.id);
+          this.toast.success('Connected accounts updated and syncing');
+        } catch (err) {
+          this.logger.error('Failed to save team connected accounts', err);
+          this.toast.error('Failed to save connected accounts');
+        }
       }
       return;
     }
 
     const connectedSources = mapToConnectedSources(result.linkSources.links);
-    const saveResult = await this.editProfileApi.updateSection(user.uid, 'connected-sources', {
-      connectedSources,
-    });
 
-    if (!saveResult.success) {
-      this.logger.error('Failed to save team connected accounts', undefined, {
-        error: saveResult.error,
-      });
-      this.toast.error(saveResult.error ?? 'Failed to save connected accounts');
-      return;
-    }
+    // Call backend PATCH endpoint to update team connectedSources
+    try {
+      await this.updateTeamConnectedSources(team.id, connectedSources);
+      await this.reloadTeamProfile('connected-accounts');
+      this.toast.success('Connected accounts updated');
 
-    await this.authService.refreshUserProfile();
-    await this.reloadTeamProfile('connected-accounts');
-    this.toast.success('Connected accounts updated');
-
-    if (result.resync) {
-      await this.connectedAccountsResync.request(result.sources ?? connectedSources);
+      if (result.resync) {
+        // Pass teamId to resync so it writes to the team doc
+        await this.connectedAccountsResync.request(result.sources ?? connectedSources, team.id);
+      }
+    } catch (err) {
+      this.logger.error('Failed to save team connected accounts', err);
+      this.toast.error('Failed to save connected accounts');
     }
   }
 
@@ -667,6 +701,11 @@ export class TeamComponent implements OnInit {
    * Handle roster member click — open desktop web roster clicks in a new tab.
    */
   protected onRosterMemberClick(member: TeamProfileRosterMember): void {
+    if (member.isProfileNavigable === false) {
+      this.logger.debug('Ignoring non-navigable roster member click', { memberId: member.id });
+      return;
+    }
+
     const canonicalUnicode = member.unicode || member.profileCode;
     if (canonicalUnicode) {
       const teamSport = this.teamProfile.team()?.sport;
@@ -697,7 +736,12 @@ export class TeamComponent implements OnInit {
     const unicode = this.routeTeamCode() || this.teamSlug() || '_';
     const team = this.teamProfile.team();
     void this.postDetailOverlay.open({
-      post,
+      post: {
+        ...post,
+        // Pre-build the media array using the same mapper the feed timeline uses,
+        // ensuring the overlay renders identically to feed cards.
+        media: buildMediaFromTeamPost(post),
+      },
       userUnicode: unicode,
       author: {
         name: team?.teamName ?? 'Team',

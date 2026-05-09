@@ -837,9 +837,16 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
     // Sync local auto top-up state from inputs once on creation.
     // Using ngOnInit rather than effect() ensures the form is only
     // initialized once and user edits are not reset on re-renders.
+    //
+    // Guard against zero-value props: when auto top-up has never been
+    // configured, the service signals default to 0. Fall back to the
+    // first sensible preset so the form is valid out-of-the-box and
+    // the backend's `amountCents >= 500` constraint is satisfied.
     this.enabledLocal.set(this.initialAutoTopupEnabled());
-    this.thresholdCentsLocal.set(this.initialThresholdCents());
-    this.topupAmountCentsLocal.set(this.initialAutoTopupAmountCents());
+    const threshold = this.initialThresholdCents();
+    this.thresholdCentsLocal.set(threshold > 0 ? threshold : this.thresholdPresets[1]); // 500
+    const amount = this.initialAutoTopupAmountCents();
+    this.topupAmountCentsLocal.set(amount > 0 ? amount : this.amountPresets[1]); // 1_000
   }
 
   // ----------------------------------------

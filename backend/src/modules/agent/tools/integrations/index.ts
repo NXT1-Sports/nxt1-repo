@@ -175,8 +175,14 @@ export {
 export { ChartMcpBridgeService } from './chart-mcp/chart-mcp-bridge.service.js';
 export { GenerateChartVisualizationTool } from './chart-mcp/index.js';
 
-// ── draw.io MCP — Play diagram generation ───────────────────────────────
-export { DrawioDiagramService, CreatePlayDiagramTool } from './drawio-mcp/index.js';
+// ── Play diagram generation ───────────────────────────────────────────────
+export { PlayDiagramService, CreatePlayDiagramTool } from './play-diagram/index.js';
+export {
+  BoardDiagramService,
+  CreateBoardDiagramTool,
+  UpdateBoardDiagramTool,
+  DeleteBoardDiagramTool,
+} from './board-diagram/index.js';
 
 // ── Cloudflare Stream — Video processing ─────────────────────────────────
 export { CloudflareMcpBridgeService } from './cloudflare-stream/cloudflare-mcp-bridge.service.js';

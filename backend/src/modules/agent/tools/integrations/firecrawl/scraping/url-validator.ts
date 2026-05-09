@@ -10,8 +10,13 @@
  * without depending on the full ScraperService.
  */
 
-import { BLOCKED_DOMAINS } from './scraper.types.js';
+import { BLOCKED_INTERNAL_DOMAINS, BLOCKED_SOCIAL_MEDIA_DOMAINS } from './scraper.types.js';
 import { AgentEngineError } from '../../../../exceptions/agent-engine.error.js';
+
+export interface ValidateUrlOptions {
+  /** Allow social domains (instagram/twitter/x/etc) for authenticated live-view sessions. */
+  readonly allowSocialMedia?: boolean;
+}
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
@@ -23,7 +28,7 @@ import { AgentEngineError } from '../../../../exceptions/agent-engine.error.js';
  * @throws {Error} If URL is invalid, uses a blocked protocol, or targets
  *                 a blocked host (private IPs, cloud metadata endpoints).
  */
-export function validateUrl(raw: string): string {
+export function validateUrl(raw: string, options: ValidateUrlOptions = {}): string {
   const trimmed = raw.trim();
 
   // Must be a valid URL
@@ -44,19 +49,24 @@ export function validateUrl(raw: string): string {
 
   // Block private/internal hosts (SSRF prevention)
   const hostname = parsed.hostname.toLowerCase();
-  for (const blocked of BLOCKED_DOMAINS) {
+  for (const blocked of BLOCKED_INTERNAL_DOMAINS) {
     if (hostname === blocked || hostname.endsWith(`.${blocked}`)) {
       throw new AgentEngineError(
         'AGENT_VALIDATION_FAILED',
-        hostname.includes('instagram') ||
-          hostname.includes('twitter') ||
-          hostname.includes('tiktok') ||
-          hostname.includes('facebook') ||
-          hostname.includes('threads') ||
-          hostname.includes('snapchat')
-          ? `Cannot scrape "${hostname}" — social media platforms require authentication. Use only the user context already provided.`
-          : `Blocked host: "${hostname}". Internal/private addresses are not allowed.`
+        `Blocked host: "${hostname}". Internal/private addresses are not allowed.`
       );
+    }
+  }
+
+  // Social media domains are blocked by default for scraping; live-view can opt in.
+  if (!options.allowSocialMedia) {
+    for (const blocked of BLOCKED_SOCIAL_MEDIA_DOMAINS) {
+      if (hostname === blocked || hostname.endsWith(`.${blocked}`)) {
+        throw new AgentEngineError(
+          'AGENT_VALIDATION_FAILED',
+          `Cannot scrape "${hostname}" — social media platforms require authentication. Use only the user context already provided.`
+        );
+      }
     }
   }
 

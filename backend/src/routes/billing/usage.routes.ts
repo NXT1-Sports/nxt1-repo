@@ -193,6 +193,13 @@ function formatDateLabel(date: Date): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function toLocalDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 /** Format period label */
 function formatPeriodLabel(start: Date, end: Date): string {
   const startStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -221,6 +228,70 @@ function getFeatureDisplayName(feature: string): string {
   if (config) return config.name;
   // Humanize raw tool names from agent metadata (e.g. "generate_scout_report" → "Generate Scout Report")
   return feature.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+const PASSIVE_USAGE_TOOL_PREFIXES = [
+  'get-',
+  'list-',
+  'read-',
+  'search-',
+  'query-',
+  'check-',
+  'track-',
+  'register-',
+] as const;
+
+function normalizeUsageToolSlug(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-');
+}
+
+function dedupeNormalizedUsageTools(values: readonly unknown[] | undefined): string[] {
+  if (!values || values.length === 0) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const slug = normalizeUsageToolSlug(value);
+    if (!slug || seen.has(slug)) continue;
+    seen.add(slug);
+    normalized.push(slug);
+  }
+
+  return normalized;
+}
+
+function selectUsageRepresentativeTool(tools: readonly string[]): string | null {
+  for (let index = tools.length - 1; index >= 0; index -= 1) {
+    const tool = tools[index];
+    if (!PASSIVE_USAGE_TOOL_PREFIXES.some((prefix) => tool.startsWith(prefix))) {
+      return tool;
+    }
+  }
+
+  return null;
+}
+
+function getActivityUsageFeatureFromMetadata(
+  meta: Record<string, unknown> | undefined
+): string | null {
+  const successful = selectUsageRepresentativeTool(
+    dedupeNormalizedUsageTools(meta?.['successfulTools'] as unknown[] | undefined)
+  );
+  if (successful) return successful;
+
+  const attempted = selectUsageRepresentativeTool(
+    dedupeNormalizedUsageTools(meta?.['agentTools'] as unknown[] | undefined)
+  );
+  return attempted;
 }
 
 function buildUsageBillingInfoFromStripeCustomer(
@@ -301,17 +372,17 @@ async function buildBreakdownRows(
   const indDaily = new Map<string, Map<string, FeatureAgg>>();
 
   for (const doc of eventsDocs) {
-    const dateKey = doc.createdAt.toISOString().slice(0, 10);
+    const dateKey = toLocalDateKey(doc.createdAt);
     let feature = doc.feature;
     const cost = doc.unitCostSnapshot * doc.quantity;
     const qty = doc.quantity;
 
-    // ── Autonomous agent billing: unpack tool name from metadata ──
+    // ── Autonomous agent billing: derive display tool from metadata ──
     if (feature === 'activity-usage') {
       const meta = doc.metadata as Record<string, unknown> | undefined;
-      const agentTools = meta?.['agentTools'] as string[] | undefined;
-      if (agentTools && agentTools.length > 0) {
-        feature = agentTools[agentTools.length - 1]!;
+      const derivedFeature = getActivityUsageFeatureFromMetadata(meta);
+      if (derivedFeature) {
+        feature = derivedFeature;
       }
     }
 
@@ -684,7 +755,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
 
         featureUsage.set(doc.feature, (featureUsage.get(doc.feature) ?? 0) + cost);
 
-        const dateKey = doc.createdAt.toISOString().slice(0, 10);
+        const dateKey = toLocalDateKey(doc.createdAt);
         dailyUsage.set(dateKey, (dailyUsage.get(dateKey) ?? 0) + cost);
       }
 
@@ -726,7 +797,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     today.setHours(23, 59, 59, 999);
     const chartEnd = end < today ? end : today;
     while (current <= chartEnd) {
-      const dateKey = current.toISOString().slice(0, 10);
+      const dateKey = toLocalDateKey(current);
       cumulative += dailyUsage.get(dateKey) ?? 0;
       chartData.push({
         date: dateKey,
@@ -1027,7 +1098,7 @@ router.get('/chart', appGuard, async (req: Request, res: Response) => {
 
     const dailyUsage = new Map<string, number>();
     for (const doc of eventsDocs) {
-      const dateKey = doc.createdAt.toISOString().slice(0, 10);
+      const dateKey = toLocalDateKey(doc.createdAt);
       const cost = doc.unitCostSnapshot * doc.quantity;
       dailyUsage.set(dateKey, (dailyUsage.get(dateKey) ?? 0) + cost);
     }
@@ -1039,7 +1110,7 @@ router.get('/chart', appGuard, async (req: Request, res: Response) => {
     today.setHours(23, 59, 59, 999);
     const chartEnd = end < today ? end : today;
     while (current <= chartEnd) {
-      const dateKey = current.toISOString().slice(0, 10);
+      const dateKey = toLocalDateKey(current);
       cumulative += dailyUsage.get(dateKey) ?? 0;
       chartData.push({
         date: dateKey,

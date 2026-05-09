@@ -125,6 +125,7 @@ export {
   teamToFeedAuthor,
   teamPostToFeedPost,
   teamPostsToFeedPosts,
+  buildMediaFromTeamPost,
   // Polymorphic mappers (2026 standard)
   feedPostToFeedItem,
   eventDocToFeedItemEvent,

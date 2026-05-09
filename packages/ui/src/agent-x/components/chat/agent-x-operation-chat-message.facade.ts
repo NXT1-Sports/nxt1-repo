@@ -816,9 +816,6 @@ export class AgentXOperationChatMessageFacade {
           ? {
               ...existing,
               id: messageId,
-              content: '',
-              attachments: [],
-              steps: [],
               ...(preservedYieldCards.length > 0 ? { cards: preservedYieldCards } : { cards: [] }),
               ...(preservedYieldParts.length > 0 ? { parts: preservedYieldParts } : { parts: [] }),
               yieldState,
@@ -869,10 +866,8 @@ export class AgentXOperationChatMessageFacade {
       const yieldMessage: OperationMessage = {
         id: messageId,
         role: 'assistant',
-        ...(cardOnlyYield
-          ? {}
-          : (carriedTypingPayload as Omit<OperationMessage, 'id' | 'role' | 'timestamp'>)),
-        content: cardOnlyYield ? '' : ((carriedTypingPayload.content as string | undefined) ?? ''),
+        ...(carriedTypingPayload as Omit<OperationMessage, 'id' | 'role' | 'timestamp'>),
+        content: (carriedTypingPayload.content as string | undefined) ?? '',
         timestamp: typingMessage?.timestamp ?? new Date(),
         operationId,
         yieldState,

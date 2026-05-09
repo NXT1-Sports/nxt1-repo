@@ -38,6 +38,7 @@ const COLLECTIONS = {
   ORGANIZATIONS: 'Organizations',
   POSTS: 'Posts',
   RECRUITING: 'Recruiting',
+  TEAM_STATS: 'TeamStats',
   PLAYER_STATS: 'PlayerStats',
   PLAYER_METRICS: 'PlayerMetrics',
   ROSTER_ENTRIES: 'RosterEntries',
@@ -50,11 +51,15 @@ type PlatformEntityType =
   | 'organizations'
   | 'posts'
   | 'recruiting'
+  | 'team_stats'
   | 'season_stats'
   | 'physical_metrics'
   | 'roster_entries'
   | 'events'
   | 'user_bundle';
+
+const PLATFORM_ENTITY_TYPE_ERROR =
+  'Parameter "entityType" must be one of: users, teams, organizations, posts, recruiting, team_stats, season_stats, physical_metrics, roster_entries, events, user_bundle.';
 
 interface PlatformFirestoreMap {
   readonly production?: Firestore;
@@ -98,7 +103,7 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
 
   readonly description =
     'Query read-only NXT1 platform data across all major Firestore collections. ' +
-    'Use this for platform-wide counts and samples of users, teams, organizations, posts, recruiting records, season stats, physical metrics, roster entries, and events. ' +
+    'Use this for platform-wide counts and samples of users, teams, organizations, posts, recruiting records, team stats, season stats, physical metrics, roster entries, and events. ' +
     'Use entityType "user_bundle" to pull one athlete or user across their related collections (profile, posts, recruiting, stats, metrics, roster memberships, and events). ' +
     'For count questions, answer from totalCount or bundle totals, not from the visible items array length.';
 
@@ -125,8 +130,7 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
     if (!entityType) {
       return {
         success: false,
-        error:
-          'Parameter "entityType" must be one of: users, teams, organizations, posts, recruiting, season_stats, physical_metrics, roster_entries, events, user_bundle.',
+        error: PLATFORM_ENTITY_TYPE_ERROR,
       };
     }
 
@@ -184,18 +188,27 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
   }
 
   private parseEntityType(value: unknown): PlatformEntityType | null {
-    switch (value) {
+    if (typeof value !== 'string') {
+      return null;
+    }
+
+    const normalized = value.trim().toLowerCase();
+    switch (normalized) {
       case 'users':
       case 'teams':
       case 'organizations':
       case 'posts':
       case 'recruiting':
+      case 'team_stats':
       case 'season_stats':
       case 'physical_metrics':
       case 'roster_entries':
       case 'events':
       case 'user_bundle':
-        return value;
+        return normalized;
+      case 'teamstats':
+      case 'team-stats':
+        return 'team_stats';
       default:
         return null;
     }
@@ -590,6 +603,8 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
         return COLLECTIONS.POSTS;
       case 'recruiting':
         return COLLECTIONS.RECRUITING;
+      case 'team_stats':
+        return COLLECTIONS.TEAM_STATS;
       case 'season_stats':
         return COLLECTIONS.PLAYER_STATS;
       case 'physical_metrics':
@@ -617,6 +632,8 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
         return this.matchesPostFilters(record, filters);
       case 'recruiting':
         return this.matchesRecruitingFilters(record, filters);
+      case 'team_stats':
+        return this.matchesTeamStatsFilters(record, filters);
       case 'season_stats':
         return this.matchesSeasonStatsFilters(record, filters);
       case 'physical_metrics':
@@ -890,6 +907,46 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
     return true;
   }
 
+  private matchesTeamStatsFilters(
+    record: Record<string, unknown>,
+    filters: PlatformDataFilters
+  ): boolean {
+    if (filters.teamId && String(record['teamId'] ?? '') !== filters.teamId) {
+      return false;
+    }
+
+    if (filters.category && String(record['category'] ?? '').toLowerCase() !== filters.category) {
+      return false;
+    }
+
+    if (filters.sport) {
+      const sportId = String(record['sportId'] ?? record['sport'] ?? '').toLowerCase();
+      if (sportId !== filters.sport.toLowerCase()) {
+        return false;
+      }
+    }
+
+    if (filters.season && String(record['season'] ?? '') !== filters.season) {
+      return false;
+    }
+
+    if (
+      filters.query &&
+      !this.matchesQuery(record, filters.query, [
+        'teamName',
+        'teamCode',
+        'season',
+        'category',
+        'source',
+        'columns',
+      ])
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
   private matchesPhysicalMetricsFilters(
     record: Record<string, unknown>,
     filters: PlatformDataFilters
@@ -1139,6 +1196,27 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
           'date',
           'source',
           'createdAt',
+          'updatedAt',
+        ]);
+      case 'team_stats':
+        return this.pickFields(record, [
+          'id',
+          'teamId',
+          'teamName',
+          'teamCode',
+          'sportId',
+          'season',
+          'category',
+          'columns',
+          'stats',
+          'totals',
+          'averages',
+          'record',
+          'wins',
+          'losses',
+          'ties',
+          'games',
+          'source',
           'updatedAt',
         ]);
       case 'season_stats':

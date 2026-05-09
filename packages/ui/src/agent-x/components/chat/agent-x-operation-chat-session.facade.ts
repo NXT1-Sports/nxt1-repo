@@ -713,10 +713,10 @@ export class AgentXOperationChatSessionFacade {
       }
     }
 
-    // ── Pass 2c: collapse tool_call rows for completed approval ops ─────────
-    // Approval flows accumulate tool_call rows before the yield point. When the
-    // operation later completes (assistant_final exists), keep only the LAST
-    // tool_call so pre-approval context renders as a single clean bubble above
+    // ── Pass 2c: collapse tool_call rows for completed yielded ops ───────────
+    // Both ask_user and approval flows accumulate tool_call rows before the yield
+    // point. When the operation later completes (assistant_final exists), keep only
+    // the LAST tool_call so pre-yield context renders as a single clean bubble above
     // the final message on session reload.
     const completedApprovalToolCallSuppressedIds = new Set<string>();
     {
@@ -726,7 +726,7 @@ export class AgentXOperationChatSessionFacade {
           item.role === 'assistant' &&
           item.semanticPhase === 'assistant_tool_call' &&
           item.operationId &&
-          approvalYieldedOpIds.has(item.operationId) &&
+          yieldedOperationIds.has(item.operationId) &&
           finalOperationIds.has(item.operationId)
         ) {
           const prev = lastSeenToolCall.get(item.operationId);
@@ -807,11 +807,12 @@ export class AgentXOperationChatSessionFacade {
       // and untagged trajectory rows written by ThreadMessageWriter — to
       // prevent duplicate bubbles with repeated media/cards.
       //
-      // Exception: completed approval flows also keep the last tool_call row
-      // so pre-approval context (search results, step summaries) remains visible
-      // alongside the final completion message after session reload.
+      // Exception: completed yielded operations (both ask_user and approval) also
+      // keep the last tool_call row so pre-yield context (search results, step
+      // summaries) remains visible alongside the final completion message after
+      // session reload.
       if (item.operationId && finalOperationIds.has(item.operationId)) {
-        if (approvalYieldedOpIds.has(item.operationId)) {
+        if (yieldedOperationIds.has(item.operationId)) {
           return (
             item.semanticPhase === 'assistant_final' || item.semanticPhase === 'assistant_tool_call'
           );
@@ -846,14 +847,15 @@ export class AgentXOperationChatSessionFacade {
       // assistant bubble renders during rehydrate.
       // Do not remove without updating the regression test referenced above.
       //
-      // Exception: approval flows carry an inline card on the partial row AND
-      // a separate tool_call showing pre-approval context. Both must render,
-      // so skip the partial-supersedes-tool_call rule for approval ops.
+      // Exception: yielded operations (both ask_user and approval) carry an
+      // inline card on the partial row AND a separate tool_call showing
+      // pre-yield context. Both must render, so skip the partial-supersedes-
+      // tool_call rule for all yielded ops.
       if (
         item.semanticPhase === 'assistant_tool_call' &&
         item.operationId &&
         operationIdsWithPartialNoFinal.has(item.operationId) &&
-        !approvalYieldedOpIds.has(item.operationId)
+        !yieldedOperationIds.has(item.operationId)
       ) {
         return false;
       }

@@ -572,6 +572,59 @@ const MUTATION_ANALYTICS_PROFILES: Readonly<Record<string, MutationAnalyticsProf
   },
 };
 
+const RECRUITING_EMAIL_TOOL_NAMES = new Set(['send_email', 'gmail_send_email', 'batch_send_email']);
+const RECRUITING_RECIPIENT_KINDS = new Set(['coach', 'college']);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function readRecipientKindFromInput(input: Record<string, unknown>): string | null {
+  const raw = input['recipientKind'];
+  return typeof raw === 'string' ? raw.trim().toLowerCase() : null;
+}
+
+function hasRecruitingRecipientInBatch(input: Record<string, unknown>): boolean {
+  const recipients = input['recipients'];
+  if (!Array.isArray(recipients)) return false;
+
+  return recipients.some((recipient) => {
+    if (!isRecord(recipient)) return false;
+    const recipientKind = recipient['recipientKind'];
+    if (typeof recipientKind !== 'string') return false;
+    return RECRUITING_RECIPIENT_KINDS.has(recipientKind.trim().toLowerCase());
+  });
+}
+
+function isRecruitingEmailExecution(input: AgentMutationPolicyInput): boolean {
+  if (!RECRUITING_EMAIL_TOOL_NAMES.has(input.toolName)) {
+    return false;
+  }
+
+  if (input.toolName === 'batch_send_email') {
+    return hasRecruitingRecipientInBatch(input.input);
+  }
+
+  const recipientKind = readRecipientKindFromInput(input.input);
+  return recipientKind !== null && RECRUITING_RECIPIENT_KINDS.has(recipientKind);
+}
+
+function resolveMutationAnalyticsProfile(
+  input: AgentMutationPolicyInput
+): MutationAnalyticsProfile {
+  const defaultProfile = MUTATION_ANALYTICS_PROFILES[input.toolName] ?? DEFAULT_ANALYTICS_PROFILE;
+
+  if (!isRecruitingEmailExecution(input)) {
+    return defaultProfile;
+  }
+
+  return {
+    ...defaultProfile,
+    templateBaseDomain: 'recruiting',
+    tags: [...defaultProfile.tags, 'recruiting-email'],
+  };
+}
+
 export interface AgentMutationPolicyInput {
   readonly toolName: string;
   readonly input: Record<string, unknown>;
@@ -620,8 +673,7 @@ export class AgentMutationPolicyService {
       return;
     }
 
-    const analyticsProfile =
-      MUTATION_ANALYTICS_PROFILES[input.toolName] ?? DEFAULT_ANALYTICS_PROFILE;
+    const analyticsProfile = resolveMutationAnalyticsProfile(input);
     const analyticsTags = [
       'agent-mutation-policy',
       input.toolName,

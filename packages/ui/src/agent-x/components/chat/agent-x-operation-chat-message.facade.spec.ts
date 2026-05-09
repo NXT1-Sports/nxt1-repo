@@ -129,7 +129,7 @@ describe('AgentXOperationChatMessageFacade', () => {
     expect(loadThreadMessages).toHaveBeenCalledWith('thread-1');
   });
 
-  it('replaces the live typing row with a card-only inline ask-user yield row', () => {
+  it('preserves streamed context when converting to an ask-user yield row', () => {
     const yieldState: AgentYieldState = {
       reason: 'needs_input',
       promptToUser: 'What should I focus on first for recruiting outreach?',
@@ -169,8 +169,15 @@ describe('AgentXOperationChatMessageFacade', () => {
       .find((message) => message.yieldState?.reason === 'needs_input');
 
     expect(typing).toBeUndefined();
-    expect(yieldMessage?.content).toBe('');
-    expect(yieldMessage?.steps ?? []).toEqual([]);
+    expect(yieldMessage?.content).toBe('I need your direction before I continue.');
+    expect(yieldMessage?.steps ?? []).toEqual([
+      {
+        id: 'tool-1',
+        label: 'Ask user',
+        status: 'active',
+        stageType: 'tool',
+      },
+    ]);
     expect(yieldMessage?.yieldState).toEqual(yieldState);
   });
 

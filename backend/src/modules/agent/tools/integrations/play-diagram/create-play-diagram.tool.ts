@@ -1,5 +1,5 @@
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
-import type { DrawioDiagramService } from './drawio-diagram.service.js';
+import type { PlayDiagramService } from './play-diagram.service.js';
 import { CreatePlayDiagramInputSchema } from './schemas.js';
 
 export class CreatePlayDiagramTool extends BaseTool {
@@ -8,9 +8,9 @@ export class CreatePlayDiagramTool extends BaseTool {
     'Create a professional sports play diagram as a PNG image. ' +
     'Use this when a coach or athlete asks to "draw a play", "diagram a route tree", ' +
     '"create a formation diagram", "show me a blitz scheme", or "build a playbook diagram". ' +
-    'The tool generates valid draw.io mxGraphModel XML via AI, exports it to a PNG, ' +
+    'The tool generates valid mxGraphModel XML via AI, exports it to a PNG, ' +
     'and returns the image URL plus the raw XML so coaches can fine-tune the diagram later. ' +
-    'Supports all sports: football, basketball, soccer, lacrosse, hockey, etc. ' +
+    'Supports football, basketball, soccer, baseball, and softball. ' +
     'After generating, pass imageUrl as diagramUrl into write_playbooks to attach to a play entry.';
 
   readonly parameters = CreatePlayDiagramInputSchema;
@@ -18,7 +18,7 @@ export class CreatePlayDiagramTool extends BaseTool {
   readonly category = 'media' as const;
   readonly entityGroup = 'user_tools' as const;
 
-  constructor(private readonly diagramService: DrawioDiagramService) {
+  constructor(private readonly diagramService: PlayDiagramService) {
     super();
   }
 
@@ -39,7 +39,6 @@ export class CreatePlayDiagramTool extends BaseTool {
     try {
       const result = await this.diagramService.createDiagram(parsed.data, context);
       const imageName = `${result.title.replace(/\s+/g, '-').toLowerCase()}-diagram.png`;
-      const markdown = `![${result.title}](${result.imageUrl})`;
 
       return {
         success: true,
@@ -50,13 +49,12 @@ export class CreatePlayDiagramTool extends BaseTool {
           mimeType: 'image/png',
           imageUrls: [result.imageUrl],
           mediaUrls: [result.imageUrl],
-          markdown,
 
-          // XML — MUST be persisted in Firestore so coaches can reload into editor
-          xmlContent: result.xmlContent,
-
-          // Editor URL — open in iframe for coach fine-tuning
+          // Edit URL — opens diagram directly in diagrams.net for fine-tuning
           editUrl: result.editUrl,
+
+          // XML — persisted for potential future editor use
+          xmlContent: result.xmlContent,
 
           title: result.title,
 
@@ -84,7 +82,7 @@ export class CreatePlayDiagramTool extends BaseTool {
             type: 'image',
             mimeType: 'image/png',
             name: imageName,
-            source: 'drawio_export',
+            source: 'play_diagram_export',
           },
         },
       };
