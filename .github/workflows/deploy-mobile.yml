@@ -351,31 +351,13 @@ jobs:
           retention-days: 30
 
       # Upload to Play Internal Track — staging only
-      # NOTE: Requires GOOGLE_PLAY_JSON_KEY secret (service account with Release Manager role).
-      # If the secret is missing/invalid, this step is skipped gracefully — download the AAB
-      # artifact above and upload manually via Play Console instead.
       - name: Upload to Play Store Internal Track
         if: env.BUILD_PROFILE == 'staging'
         working-directory: apps/mobile/android
-        continue-on-error: true
-        run: |
-          if [ ! -s "google-play-key.json" ]; then
-            echo "::warning::GOOGLE_PLAY_JSON_KEY secret is empty — skipping Play Store upload."
-            echo "Download the AAB artifact from this workflow run and upload manually."
-            exit 0
-          fi
-          fastlane upload_internal
+        run: fastlane upload_internal
 
       # Upload to Play Store Production — production only
-      # NOTE: Requires GOOGLE_PLAY_JSON_KEY secret (service account with Release Manager role).
       - name: Upload to Play Store Production
         if: env.BUILD_PROFILE == 'production'
         working-directory: apps/mobile/android
-        continue-on-error: true
-        run: |
-          if [ ! -s "google-play-key.json" ]; then
-            echo "::warning::GOOGLE_PLAY_JSON_KEY secret is empty — skipping Play Store upload."
-            echo "Download the AAB artifact from this workflow run and upload manually."
-            exit 0
-          fi
-          fastlane upload_production
+        run: fastlane upload_production
