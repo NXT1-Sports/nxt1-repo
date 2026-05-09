@@ -86,14 +86,26 @@ platform :android do
   # ============================================================================
   desc "Build production AAB for Play Store"
   lane :release do
-    # Get the latest version code from Play Store and increment
-    version_codes = google_play_track_version_codes(
-      track: "internal",
-      json_key: "google-play-key.json",
-      package_name: PACKAGE_NAME
-    )
-
-    new_version_code = (version_codes.max || 0) + 1
+    # Try to get the latest version code from Play Store; fall back to GITHUB_RUN_NUMBER
+    # when google-play-key.json is missing or the caller lacks Play API permission.
+    key_file = "google-play-key.json"
+    if File.exist?(key_file) && File.size(key_file) > 10
+      begin
+        version_codes = google_play_track_version_codes(
+          track: "internal",
+          json_key: key_file,
+          package_name: PACKAGE_NAME
+        )
+        new_version_code = (version_codes.max || 0) + 1
+      rescue => e
+        UI.important("⚠️  Could not fetch Play Store version codes: #{e.message}")
+        UI.important("⚠️  Falling back to GITHUB_RUN_NUMBER for version code.")
+        new_version_code = ENV["GITHUB_RUN_NUMBER"]&.to_i || Time.now.strftime("%Y%m%d%H").to_i
+      end
+    else
+      UI.important("⚠️  google-play-key.json not found or empty — using GITHUB_RUN_NUMBER for version code.")
+      new_version_code = ENV["GITHUB_RUN_NUMBER"]&.to_i || Time.now.strftime("%Y%m%d%H").to_i
+    end
 
     increment_version_code(
       gradle_file_path: "app/build.gradle",
