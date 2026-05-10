@@ -33,6 +33,7 @@ import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
 import { logger } from '../../utils/logger.js';
 import { addWalletTopUp, processWalletRefund } from '../../modules/billing/budget.service.js';
+import { trackBillingPurchaseEvent } from '../../modules/billing/ga4-revenue.service.js';
 import { IAPVerifyReceiptDto } from '../../dtos/billing.dto.js';
 import { FieldValue } from 'firebase-admin/firestore';
 import { PaymentLogModel } from '../../models/billing/payment-log.model.js';
@@ -180,6 +181,17 @@ router.post(
         type: 'apple_iap',
         rawEvent: { productId, transactionId },
         createdAt: new Date(),
+      });
+
+      await trackBillingPurchaseEvent({
+        userId,
+        transactionId,
+        valueCents: amountCents,
+        itemId: productId,
+        itemName: 'NXT1 Wallet Credits (Apple IAP)',
+        itemCategory: 'iap',
+        billingEntity: 'individual',
+        source: 'apple_iap',
       });
 
       // Persist the idempotency record after crediting

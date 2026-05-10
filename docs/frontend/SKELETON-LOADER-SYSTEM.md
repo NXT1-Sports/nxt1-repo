@@ -553,10 +553,10 @@ animation: shimmer var(--nxt1-skeleton-animation-duration)
 
 ## References
 
-- [Design Tokens Documentation](../design-tokens/DESIGN-TOKENS.md)
-- [Component Tokens JSON](../design-tokens/tokens.json/component.tokens.json)
-- [Skeleton CSS Utilities](../design-tokens/foundation/skeleton.css)
-- [Scout Report Skeleton Component](../packages/ui/src/scout-reports/scout-report-skeleton.component.ts)
+- [Design System Documentation](./DESIGN-SYSTEM.md)
+- [Component Tokens JSON](../../packages/design-tokens/tokens.json/component.tokens.json)
+- [Skeleton CSS Utilities](../../packages/design-tokens/foundation/skeleton.css)
+- [Scout Report Skeleton Component](../../packages/ui/src/scout-reports/scout-report-skeleton.component.ts)
 
 ---
 

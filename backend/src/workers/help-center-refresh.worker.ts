@@ -24,7 +24,12 @@
  *      - Bust all help center cache keys
  */
 
-import { HELP_CATEGORIES, HELP_CACHE_KEYS } from '@nxt1/core';
+import {
+  HELP_CATEGORIES,
+  HELP_CACHE_KEYS,
+  HELP_PAGINATION_DEFAULTS,
+  HELP_USER_TYPES,
+} from '@nxt1/core';
 import type { HelpCategory, HelpCategoryId } from '@nxt1/core';
 import { getHelpArticleModel } from '../models/help-center/help-article.model.js';
 import { getHelpFaqModel } from '../models/help-center/help-faq.model.js';
@@ -34,7 +39,7 @@ import type { OpenRouterService } from '../modules/agent/llm/openrouter.service.
 import { KnowledgeIngestionService } from '../modules/agent/memory/knowledge-ingestion.service.js';
 import { KnowledgeRetrievalService } from '../modules/agent/memory/knowledge-retrieval.service.js';
 import { WebSearchTool } from '../modules/agent/tools/integrations/web/web-search.tool.js';
-import { getCacheService } from '../services/core/cache.service.js';
+import { generateCacheKey, getCacheService } from '../services/core/cache.service.js';
 import { logger } from '../utils/logger.js';
 import { z } from 'zod';
 
@@ -378,11 +383,23 @@ export class HelpCenterRefreshWorker {
     // ── Step 6: Persist FAQs ──────────────────────────────────────────────
     let faqsCreated = 0;
     let faqsUpdated = 0;
+    const maxOrderDoc = await HelpFaqModel.findOne().sort({ order: -1 }).select('order').lean();
+    let nextFaqOrder = Math.max(
+      typeof maxOrderDoc?.order === 'number' && Number.isFinite(maxOrderDoc.order)
+        ? maxOrderDoc.order + 1
+        : 1,
+      1
+    );
 
     for (const faq of filteredFaqs) {
       try {
         const existing = await HelpFaqModel.findOne({ question: faq.question }).lean();
         const existingFaqDoc = existing as Record<string, unknown> | null;
+        const existingOrder = existingFaqDoc?.['order'];
+        const order =
+          typeof existingOrder === 'number' && Number.isFinite(existingOrder) && existingOrder > 0
+            ? existingOrder
+            : nextFaqOrder++;
         await HelpFaqModel.findOneAndUpdate(
           { question: faq.question },
           {
@@ -394,7 +411,7 @@ export class HelpCenterRefreshWorker {
               targetUsers: ['all'],
               isPublished: true,
               lastAgentRefresh: now2,
-              order: 0,
+              order,
               helpfulCount: existingFaqDoc ? ((existingFaqDoc['helpfulCount'] as number) ?? 0) : 0,
             },
           },
@@ -826,12 +843,28 @@ Respond with ONLY valid JSON matching this structure exactly:
 
   private async bustCache(categories: string[]): Promise<void> {
     const cache = getCacheService();
-
-    const keysToDelete = [
-      HELP_CACHE_KEYS.HOME,
+    const faqKeys = [
       HELP_CACHE_KEYS.FAQS,
-      ...categories.map((id) => `${HELP_CACHE_KEYS.CATEGORY}${id}`),
+      generateCacheKey(HELP_CACHE_KEYS.FAQS, {}),
+      ...categories.map((categoryId) => generateCacheKey(HELP_CACHE_KEYS.FAQS, { categoryId })),
+      ...Object.keys(HELP_USER_TYPES).map((userType) =>
+        generateCacheKey(HELP_CACHE_KEYS.FAQS, { userType })
+      ),
+      ...categories.flatMap((categoryId) =>
+        Object.keys(HELP_USER_TYPES).map((userType) =>
+          generateCacheKey(HELP_CACHE_KEYS.FAQS, { categoryId, userType })
+        )
+      ),
     ];
+    const categoryKeys = categories.flatMap((id) => [
+      `${HELP_CACHE_KEYS.CATEGORY}${id}`,
+      generateCacheKey(`${HELP_CACHE_KEYS.CATEGORY}${id}`, {
+        page: HELP_PAGINATION_DEFAULTS.INITIAL_PAGE,
+        limit: HELP_PAGINATION_DEFAULTS.LIMIT,
+      }),
+    ]);
+
+    const keysToDelete = Array.from(new Set([HELP_CACHE_KEYS.HOME, ...faqKeys, ...categoryKeys]));
 
     await Promise.allSettled(keysToDelete.map((key) => cache.del(key)));
     logger.info('[HelpCenterRefresh] Cache busted', { keys: keysToDelete });

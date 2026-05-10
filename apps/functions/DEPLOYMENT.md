@@ -33,9 +33,9 @@ firebase --version
 firebase login
 
 # Select project
-firebase use nxt-1-de054  # Production
+firebase use nxt-1-v2  # Production
 # OR
-firebase use nxt-1-staging  # Staging
+firebase use nxt-1-staging-v2  # Staging
 ```
 
 ### Verify Current Project
@@ -275,7 +275,7 @@ firebase functions:list
 
 ```powershell
 # Test a callable function
-$url = "https://us-central1-nxt-1-de054.cloudfunctions.net/healthCheck"
+$url = "https://us-central1-nxt-1-v2.cloudfunctions.net/healthCheck"
 $response = Invoke-WebRequest -Uri $url -Method POST -ContentType "application/json" -Body '{"data":{}}'
 $response.Content | ConvertFrom-Json
 ```
@@ -296,7 +296,7 @@ firebase functions:log --only functionName --limit 100
 ### 4. **Check Firebase Console**
 
 1. Go to [Firebase Console](https://console.firebase.google.com/)
-2. Select project: `nxt-1-de054`
+2. Select project: `nxt-1-v2`
 3. Navigate to **Functions** tab
 4. Verify:
    - ✅ Function shows "Active"
@@ -461,7 +461,7 @@ firebase logout
 firebase login
 
 # Check project
-firebase use nxt-1-de054
+firebase use nxt-1-v2
 
 # Check IAM roles in Firebase Console
 # You need "Firebase Admin" or "Cloud Functions Admin" role
@@ -502,10 +502,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Setup Node.js
-        uses: actions/setup-node@v3
+        uses: actions/setup-node@v6
         with:
           node-version: 22
 

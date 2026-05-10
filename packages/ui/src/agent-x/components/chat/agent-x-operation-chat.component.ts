@@ -1910,12 +1910,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
       // Only show planner card once execution has visibly started (not during planning phase).
       // Check if at least one item is active, done, or has a non-pending status.
-      const hasExecutionStarted = payload.items.some(
-        (item: any) =>
-          item.active === true ||
-          item.done === true ||
-          (typeof item.status === 'string' && item.status !== 'pending')
-      );
+      const hasExecutionStarted = payload.items.some((item: unknown) => {
+        if (!item || typeof item !== 'object') return false;
+        const maybeItem = item as Record<string, unknown>;
+        return (
+          maybeItem['active'] === true ||
+          maybeItem['done'] === true ||
+          (typeof maybeItem['status'] === 'string' && maybeItem['status'] !== 'pending')
+        );
+      });
 
       return hasExecutionStarted ? card : null;
     };

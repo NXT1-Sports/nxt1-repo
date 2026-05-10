@@ -1125,14 +1125,13 @@ npm run build --workspace=@nxt1/backend
 
 ## 📚 Additional Resources
 
-- [colleges.routes.ts](../backend/src/routes/colleges.routes.ts) - Complete
+- [teams.routes.ts](../../backend/src/routes/team/teams.routes.ts) - Complete
   working example
-- [explore.routes.ts](../backend/src/routes/explore.routes.ts) - Advanced
+- [posts.routes.ts](../../backend/src/routes/feed/posts.routes.ts) - Advanced
   implementation
-- [CACHE-STATUS-REPORT.md](./CACHE-STATUS-REPORT.md) - Current implementation
-  status
-- [packages/cache/README.md](../packages/cache/README.md) - Cache package
-  documentation
+- [CACHING-STRATEGY.md](./CACHING-STRATEGY.md) - Current implementation status
+- [packages/cache/package.json](../../packages/cache/package.json) - Cache
+  package metadata and scripts
 
 ---
 

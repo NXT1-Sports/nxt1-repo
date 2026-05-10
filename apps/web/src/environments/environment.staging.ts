@@ -21,7 +21,7 @@ export const environment = {
     storageBucket: 'nxt-1-staging-v2.firebasestorage.app',
     messagingSenderId: '1099429444442',
     appId: '1:1099429444442:web:15c8b8a5d7f26883b09163',
-    measurementId: 'G-7C1JQW72JX',
+    measurementId: 'G-TH51Q9XZNB',
   },
 
   // Firebase Cloud Messaging VAPID key (staging)

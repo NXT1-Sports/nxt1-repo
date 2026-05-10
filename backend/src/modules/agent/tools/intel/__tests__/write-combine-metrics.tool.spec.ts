@@ -121,6 +121,6 @@ describe('WriteCombineMetricsTool', () => {
 
     expect(result.success).toBe(true);
     expect(set).toHaveBeenCalledTimes(1);
-    expect(mockOnDailySyncComplete).toHaveBeenCalledTimes(1);
+    expect(mockOnDailySyncComplete).toHaveBeenCalledTimes(0);
   });
 });

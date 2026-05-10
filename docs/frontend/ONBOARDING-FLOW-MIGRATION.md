@@ -336,7 +336,7 @@ git checkout HEAD~1 -- .github/copilot-instructions.md
 
 - [Architecture Documentation](../architecture/ARCHITECTURE.md)
 - [Onboarding Refactor Roadmap](./ONBOARDING-REFACTOR-ROADMAP.md)
-- [Copilot Instructions](./.github/copilot-instructions.md) - Section 12
+- [Copilot Instructions](../../.github/copilot-instructions.md) - Section 12
 
 ### GitHub Issues
 

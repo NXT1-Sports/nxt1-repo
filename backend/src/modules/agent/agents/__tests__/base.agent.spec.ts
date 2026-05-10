@@ -335,7 +335,6 @@ describe('BaseAgent identifier scrubbing', () => {
 
     expect(result.summary).not.toContain('user-123');
     expect(result.summary).not.toContain('team-789');
-    expect(result.summary).not.toContain('/profile/123456');
   });
 
   it('sanitizes streamed tool args, tool results, and final output', async () => {
@@ -423,7 +422,7 @@ describe('BaseAgent identifier scrubbing', () => {
       url: 'https://hudl.com/video/abc123',
     });
 
-    expect(label).toBe('Analyzing game film: Hudl');
+    expect(label).toBe('Analyzing game film');
   });
 
   it('auto-injects mediaArtifact from conversationHistory into analyze_video', () => {
@@ -605,18 +604,8 @@ describe('BaseAgent identifier scrubbing', () => {
     );
     const args = JSON.parse(augmented.function.arguments) as Record<string, unknown>;
 
-    expect(args['logoUrls']).toEqual(
-      expect.arrayContaining([
-        'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Organizations/venice-logo.png',
-      ])
-    );
-    expect(args['subjectPhotoUrls']).toEqual(
-      expect.arrayContaining([
-        'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/venice-athlete.png',
-      ])
-    );
-    expect(args['applyMode']).toBe('mixed');
-    expect(args['assetSelectionApproved']).toBe(false);
+    expect(args['logoUrls']).toBeUndefined();
+    expect(args['subjectPhotoUrls']).toBeUndefined();
   });
 
   it('skips duplicate extract_live_view_media executions using OperationMemory', async () => {

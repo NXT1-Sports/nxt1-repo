@@ -386,7 +386,7 @@ Proprietary - NXT1 Platform
 - **[@nxt1/core](../../packages/core/README.md)** - Shared TypeScript library
 - **[@nxt1/ui](../../packages/ui/README.md)** - Shared UI components
 - **[Mobile App](../mobile/README.md)** - Native mobile application
-- **[Backend API](../../../nxt1-backend/README.md)** - REST API server
+- **[Backend API](../../backend/README.md)** - REST API server
 
 ---
 

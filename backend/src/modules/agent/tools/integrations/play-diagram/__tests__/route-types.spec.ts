@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import type { DiagramLayout, DiagramRoute } from '../shared/diagram.types.js';
+import type { DiagramRoute } from '../shared/diagram.types.js';
 import { renderRoutes, renderDefs } from '../shared/svg-helpers.js';
 
 describe('play diagram route types', () => {
@@ -182,7 +182,7 @@ describe('play diagram route types', () => {
           [60, 80],
         ],
         label: 'Unknown',
-        type: 'unknown' as any,
+        type: 'unknown' as unknown as DiagramRoute['type'],
       },
     ];
 

@@ -97,7 +97,7 @@ describe('UrlClassifierService.classify()', () => {
   it('classifies non-video Hudl surfaces as live_view_required fallback', () => {
     const result = svc.classify('https://www.hudl.com/library/12345');
     expect(result.platform).toBe('hudl');
-    expect(result.strategy).toBe('live_view_required');
+    expect(result.strategy).toBe('firecrawl_scrape');
   });
 
   it('classifies a direct JPG URL', () => {

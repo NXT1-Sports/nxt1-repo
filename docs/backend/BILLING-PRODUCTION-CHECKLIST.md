@@ -62,6 +62,10 @@ monorepo for both the backend and functions to push the new Sweeper cron job and
 webhook logic live:
 
 ```bash
-npm run deploy:backend
-npm run deploy:functions
+# Deploy production targets
+npm run deploy:prod
+
+# Or deploy targets individually
+npm run deploy:prod --workspace=@nxt1/backend
+npm run deploy:prod --workspace=@nxt1/functions
 ```

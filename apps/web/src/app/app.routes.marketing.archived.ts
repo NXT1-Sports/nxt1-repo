@@ -15,8 +15,6 @@
  * Module dependencies are preserved — just add the route and it works.
  */
 
-import type { Routes } from '@angular/router';
-
 /**
  * ============================================
  * PUBLIC SEO PAGES (Disabled for MVP)

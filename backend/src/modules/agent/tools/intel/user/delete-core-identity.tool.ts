@@ -88,14 +88,14 @@ export class DeleteCoreIdentityTool extends BaseTool {
     });
 
     const userRef = this.db.collection(USERS_COLLECTION).doc(userId);
-    const patch: Record<string, null> = {};
+    const patch: Record<string, unknown> = {};
 
     // Clear specified fields
     for (const key of fieldKeys) {
       patch[key] = null;
     }
 
-    patch['updatedAt'] = new Date() as any;
+    patch['updatedAt'] = new Date();
 
     try {
       await userRef.update(patch);

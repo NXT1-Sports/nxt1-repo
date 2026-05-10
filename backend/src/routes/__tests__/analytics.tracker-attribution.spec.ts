@@ -110,7 +110,7 @@ describe('Analytics tracker attribution', () => {
       expect.objectContaining({
         userId: 'user_1',
         type: 'email_opened',
-        deepLink: '/analytics',
+        deepLink: '/activity',
         data: expect.objectContaining({
           sourceRecordId: 'track_123',
           recipientEmailHash,

@@ -24,6 +24,7 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { logger } from '../../utils/logger.js';
 import { COLLECTIONS } from './config.js';
 import { getPlatformConfig } from './platform-config.service.js';
+import { trackBillingPurchaseEvent } from './ga4-revenue.service.js';
 import { getRuntimeEnvironment } from '../../config/runtime-environment.js';
 import {
   createBillingOwnerKey,
@@ -2052,12 +2053,18 @@ async function triggerAutoTopUpIfEnabled(
 
     if (result.success && result.paymentIntentId) {
       // ── Credit the wallet ──
+      let alreadyFinalized = false;
       if (orgOptions?.organizationId) {
-        await addFundsToOrgWallet(db, orgOptions.organizationId, amountCents, 'auto_topup');
+        ({ alreadyFinalized } = await addFundsToOrgWallet(
+          db,
+          orgOptions.organizationId,
+          amountCents,
+          'auto_topup'
+        ));
       } else {
-        await addWalletTopUp(db, userId, amountCents, 'stripe', {
+        ({ alreadyFinalized } = await addWalletTopUp(db, userId, amountCents, 'stripe', {
           notificationVariant: 'auto_topup',
-        });
+        }));
       }
 
       // ── Write a PaymentLog entry so it appears in payment history ──
@@ -2100,6 +2107,23 @@ async function triggerAutoTopUpIfEnabled(
         amountCents,
         paymentIntentId: result.paymentIntentId,
       });
+
+      if (!alreadyFinalized) {
+        await trackBillingPurchaseEvent({
+          userId,
+          transactionId: result.paymentIntentId,
+          valueCents: amountCents,
+          itemId: orgOptions?.organizationId
+            ? `org-auto-topup-${amountCents}`
+            : `auto-topup-${amountCents}`,
+          itemName: orgOptions?.organizationId
+            ? 'NXT1 Organization Wallet Auto Top-Up'
+            : 'NXT1 Wallet Auto Top-Up',
+          itemCategory: 'auto_topup',
+          billingEntity: orgOptions?.organizationId ? 'organization' : 'individual',
+          source: 'auto_topup',
+        });
+      }
       return { status: 'succeeded' };
     } else {
       logger.error('[triggerAutoTopUpIfEnabled] Stripe charge failed', {

@@ -65,12 +65,16 @@ vi.mock('../../llm/openrouter.service.js', () => ({
 }));
 vi.mock('../../memory/vector.service.js', () => ({
   VectorMemoryService: class VectorMemoryService {
-    constructor(_llm: unknown) {}
+    constructor(_llm: unknown) {
+      void _llm;
+    }
   },
 }));
 vi.mock('../../memory/context-builder.js', () => ({
   ContextBuilder: class ContextBuilder {
-    constructor(_vector: unknown) {}
+    constructor(_vector: unknown) {
+      void _vector;
+    }
   },
 }));
 vi.mock('../../memory/sync-memory-extractor.service.js', () => ({

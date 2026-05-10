@@ -407,7 +407,7 @@ firebase functions:secrets:set SMTP_PASS
 ### Current State
 
 - **Legacy** (`nxt1/functions/index.js`): 45 functions deployed (Gen 1,
-  Node.js 18)
+  Node.js 22)
 - **Monorepo** (`apps/functions`): 17 functions (Gen 2, Node.js 22)
 
 ### Migration Strategy
@@ -483,7 +483,7 @@ No client changes needed for Firestore/Auth triggers (automatic).
 - [Firebase Functions Docs](https://firebase.google.com/docs/functions)
 - [Gen 2 Migration Guide](https://firebase.google.com/docs/functions/2nd-gen-upgrade)
 - [Testing Guide](../../apps/functions/TESTING.md)
-- [Quick Commands](../../apps/functions/TEST-COMMANDS.md)
+- [Functions Scripts](../../apps/functions/package.json)
 - [Architecture Overview](../architecture/ARCHITECTURE.md)
 
 **Support**: Questions? Check logs or contact the platform team.

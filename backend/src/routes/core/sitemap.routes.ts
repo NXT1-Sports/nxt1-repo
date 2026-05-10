@@ -3,23 +3,20 @@
  * @module @nxt1/backend/routes/sitemap
  *
  * Dynamic sitemap generation for SEO.
- * Generates XML sitemap from Firestore data (user profiles, teams)
- * and MongoDB data (colleges).
+ * Generates XML sitemap index + segmented sitemaps from active route/content data.
  *
  * Entries:
- * 1. Static marketing / landing pages
- * 2. User profiles (athletes, coaches — from Firestore)
- * 3. Team profiles (from Firestore)
- * 4. Colleges (from MongoDB/Mongoose)
+ * 1. Sitemap index (/sitemap.xml)
+ * 2. Core pages sitemap (/sitemaps/core.xml)
+ * 3. Paginated profile sitemaps (/sitemaps/profiles-:page.xml)
  */
 
 import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 import { logger } from '../../utils/logger.js';
-import { CollegeModel } from '../../models/core/college.model.js';
 import { getHelpArticleModel } from '../../models/help-center/help-article.model.js';
 import { HELP_CATEGORIES } from '@nxt1/core';
 import mongoose from 'mongoose';
-import { isTeamProfilesEnabled } from '../../config/feature-flags.js';
+import { FieldPath } from 'firebase-admin/firestore';
 
 const router: ExpressRouter = Router();
 
@@ -33,201 +30,224 @@ interface SitemapEntry {
   priority?: number;
 }
 
+interface SitemapIndexEntry {
+  loc: string;
+  lastmod?: string;
+}
+
 /**
  * Cache configuration
  */
 const CACHE_DURATION = 1 * 60 * 60 * 1000; // 1 hour
-let sitemapCache: { xml: string; timestamp: number } | null = null;
+const PROFILE_SITEMAP_PAGE_SIZE = 2000;
+
+interface TimestampedXmlCache {
+  xml: string;
+  timestamp: number;
+}
+
+let sitemapIndexCache: TimestampedXmlCache | null = null;
+let coreSitemapCache: TimestampedXmlCache | null = null;
+let profileCountCache: { count: number; timestamp: number } | null = null;
+const profileSitemapCache = new Map<number, TimestampedXmlCache>();
+
+function isCacheFresh(cache: { timestamp: number } | null, now: number): boolean {
+  return !!cache && now - cache.timestamp < CACHE_DURATION;
+}
+
+function sendXml(res: Response, xml: string): void {
+  res.set('Content-Type', 'application/xml');
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.send(xml);
+}
+
+function getTodayIsoDate(): string {
+  return new Date().toISOString().split('T')[0];
+}
+
+async function getOnboardedProfileCount(db: FirebaseFirestore.Firestore): Promise<number> {
+  const now = Date.now();
+  if (isCacheFresh(profileCountCache, now)) {
+    return profileCountCache!.count;
+  }
+
+  const usersQuery = db.collection('Users').where('onboardingCompleted', '==', true);
+  const countQuery = usersQuery as {
+    count?: () => { get: () => Promise<{ data: () => { count: number } }> };
+  };
+
+  if (typeof countQuery.count === 'function') {
+    try {
+      const aggregate = await countQuery.count().get();
+      const count = Number(aggregate.data().count ?? 0);
+      profileCountCache = { count, timestamp: now };
+      return count;
+    } catch (error) {
+      logger.warn('[sitemap] Firestore count() failed, using paginated count fallback', { error });
+    }
+  } else {
+    logger.debug('[sitemap] Firestore count() unsupported, using paginated count fallback');
+  }
+
+  // Fallback for environments where aggregate count is unavailable.
+  let total = 0;
+  let lastDoc: FirebaseFirestore.QueryDocumentSnapshot | null = null;
+
+  while (true) {
+    let query = db
+      .collection('Users')
+      .where('onboardingCompleted', '==', true)
+      .orderBy(FieldPath.documentId())
+      .limit(5000);
+
+    if (lastDoc) {
+      query = query.startAfter(lastDoc);
+    }
+
+    const snapshot = await query.get();
+    total += snapshot.size;
+
+    if (snapshot.empty || snapshot.size < 5000) {
+      break;
+    }
+
+    lastDoc = snapshot.docs[snapshot.docs.length - 1] ?? null;
+    if (!lastDoc) break;
+  }
+
+  profileCountCache = { count: total, timestamp: now };
+  return total;
+}
+
+function buildProfileUrl(
+  baseUrl: string,
+  docId: string,
+  data: FirebaseFirestore.DocumentData
+): string {
+  const sport = (data['sport'] as string | undefined)?.toLowerCase() ?? 'athlete';
+  const firstName = (data['firstName'] as string | undefined)?.trim() ?? '';
+  const lastName = (data['lastName'] as string | undefined)?.trim() ?? '';
+  const unicode = (data['unicode'] as string | undefined) || docId;
+  const username = (data['username'] as string | undefined)?.trim() ?? '';
+
+  const rawSlug =
+    firstName || lastName ? `${firstName}-${lastName}` : username || `athlete-${unicode}`;
+  const name = rawSlug
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-_]/g, '')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+
+  const safeName = name || `athlete-${unicode.toLowerCase()}`;
+  return `${baseUrl}/profile/${sport}/${safeName}/${unicode}`;
+}
+
+function coerceLastMod(value: unknown): string | undefined {
+  if (!value) return undefined;
+
+  if (typeof value === 'string') {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) {
+      return date.toISOString().split('T')[0];
+    }
+    return undefined;
+  }
+
+  if (typeof (value as { toDate?: () => Date }).toDate === 'function') {
+    const date = (value as { toDate: () => Date }).toDate();
+    return date.toISOString().split('T')[0];
+  }
+
+  return undefined;
+}
 
 /**
  * GET /sitemap.xml
- * Generate and serve dynamic sitemap
+ * Serve sitemap index (core sitemap + paginated profile sitemaps)
  */
 router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> => {
-  const requestId = (req as { traceId?: string }).traceId || 'sitemap';
+  const requestId = (req as { traceId?: string }).traceId || 'sitemap-index';
 
   try {
-    // Check cache
     const now = Date.now();
-    if (sitemapCache && now - sitemapCache.timestamp < CACHE_DURATION) {
-      logger.debug(`[${requestId}] Serving cached sitemap`);
-      res.set('Content-Type', 'application/xml');
-      res.set('Cache-Control', 'public, max-age=3600'); // 1 hour
-      res.send(sitemapCache.xml);
+    if (isCacheFresh(sitemapIndexCache, now)) {
+      logger.debug(`[${requestId}] Serving cached sitemap index`);
+      sendXml(res, sitemapIndexCache!.xml);
       return;
     }
 
-    logger.info(`[${requestId}] Generating fresh sitemap`);
+    logger.info(`[${requestId}] Generating fresh sitemap index`);
+
+    const { db } = req.firebase!;
+    const baseUrl = process.env['PUBLIC_URL'] || 'https://nxt1sports.com';
+    const profileCount = await getOnboardedProfileCount(db);
+    const profilePageCount = Math.ceil(profileCount / PROFILE_SITEMAP_PAGE_SIZE);
+    const today = getTodayIsoDate();
+
+    const sitemapEntries: SitemapIndexEntry[] = [
+      { loc: `${baseUrl}/sitemaps/core.xml`, lastmod: today },
+    ];
+
+    for (let page = 1; page <= profilePageCount; page += 1) {
+      sitemapEntries.push({
+        loc: `${baseUrl}/sitemaps/profiles-${page}.xml`,
+        lastmod: today,
+      });
+    }
+
+    const xml = generateSitemapIndexXml(sitemapEntries);
+    sitemapIndexCache = { xml, timestamp: now };
+
+    logger.info(
+      `[${requestId}] Sitemap index generated with ${sitemapEntries.length} sitemap files (profiles: ${profileCount})`
+    );
+
+    sendXml(res, xml);
+  } catch (error) {
+    logger.error(`[${requestId}] Sitemap index generation failed`, { error });
+    res
+      .status(500)
+      .send(
+        '<?xml version="1.0" encoding="UTF-8"?><error>Failed to generate sitemap index</error>'
+      );
+  }
+});
+
+/**
+ * GET /sitemaps/core.xml
+ * Generate and serve dynamic sitemap for non-profile content
+ */
+router.get('/sitemaps/core.xml', async (req: Request, res: Response): Promise<void> => {
+  const requestId = (req as { traceId?: string }).traceId || 'sitemap-core';
+
+  try {
+    const now = Date.now();
+    if (isCacheFresh(coreSitemapCache, now)) {
+      logger.debug(`[${requestId}] Serving cached core sitemap`);
+      sendXml(res, coreSitemapCache!.xml);
+      return;
+    }
+
+    logger.info(`[${requestId}] Generating fresh core sitemap`);
 
     const { db } = req.firebase!;
     const baseUrl = process.env['PUBLIC_URL'] || 'https://nxt1sports.com';
 
-    // Collect all sitemap entries
     const entries: SitemapEntry[] = [];
 
-    // ──────────────────────────────────────────
-    // 1. Static & marketing pages
-    // ──────────────────────────────────────────
+    // 1) Static public pages.
     entries.push(
-      // Core pages
       { loc: `${baseUrl}/`, changefreq: 'daily', priority: 1.0 },
-      { loc: `${baseUrl}/explore`, changefreq: 'hourly', priority: 0.9 },
-      { loc: `${baseUrl}/explore/discover`, changefreq: 'hourly', priority: 0.9 },
-      { loc: `${baseUrl}/explore/pulse`, changefreq: 'hourly', priority: 0.9 },
-      { loc: `${baseUrl}/colleges`, changefreq: 'daily', priority: 0.85 },
-      { loc: `${baseUrl}/rankings`, changefreq: 'daily', priority: 0.85 },
-      { loc: `${baseUrl}/news`, changefreq: 'hourly', priority: 0.85 },
-      { loc: `${baseUrl}/scout-reports`, changefreq: 'daily', priority: 0.8 },
+      { loc: `${baseUrl}/programs`, changefreq: 'weekly', priority: 0.85 },
+      { loc: `${baseUrl}/agent-x`, changefreq: 'daily', priority: 0.8 },
       { loc: `${baseUrl}/help-center`, changefreq: 'weekly', priority: 0.75 },
-      { loc: `${baseUrl}/about`, changefreq: 'monthly', priority: 0.5 },
-      { loc: `${baseUrl}/pricing`, changefreq: 'weekly', priority: 0.7 },
-
-      // Persona landing pages
-      { loc: `${baseUrl}/athletes`, changefreq: 'weekly', priority: 0.8 },
-      { loc: `${baseUrl}/coaches`, changefreq: 'weekly', priority: 0.8 },
-      { loc: `${baseUrl}/college-coaches`, changefreq: 'weekly', priority: 0.8 },
-      { loc: `${baseUrl}/parents`, changefreq: 'weekly', priority: 0.8 },
-      { loc: `${baseUrl}/scouts`, changefreq: 'weekly', priority: 0.8 },
-
-      // Feature marketing pages
-      { loc: `${baseUrl}/recruiting-athletes`, changefreq: 'weekly', priority: 0.75 },
-      { loc: `${baseUrl}/content-creation-athletes`, changefreq: 'weekly', priority: 0.75 },
-      { loc: `${baseUrl}/media-coverage`, changefreq: 'weekly', priority: 0.75 },
-      { loc: `${baseUrl}/ai-athletes`, changefreq: 'weekly', priority: 0.75 },
-      { loc: `${baseUrl}/recruiting-scouts-colleges`, changefreq: 'weekly', priority: 0.75 },
-      { loc: `${baseUrl}/super-profiles`, changefreq: 'weekly', priority: 0.75 },
-      { loc: `${baseUrl}/team-platform`, changefreq: 'weekly', priority: 0.75 },
-
-      // Sport-vertical landing pages
-      { loc: `${baseUrl}/football`, changefreq: 'weekly', priority: 0.8 },
-      { loc: `${baseUrl}/basketball`, changefreq: 'weekly', priority: 0.8 }
+      { loc: `${baseUrl}/terms`, changefreq: 'monthly', priority: 0.4 },
+      { loc: `${baseUrl}/privacy`, changefreq: 'monthly', priority: 0.4 }
     );
 
-    // userId → unicode map — reused by section 6 (posts)
-    const userUnicodeMap = new Map<string, string>();
-
-    // ──────────────────────────────────────────
-    // 2. User profiles (athletes, coaches, etc.)
-    // ──────────────────────────────────────────
+    // 2) Help Center categories + published articles.
     try {
-      const usersSnapshot = await db
-        .collection('Users')
-        .where('onboardingCompleted', '==', true)
-        .select('username', 'unicode', 'firstName', 'lastName', 'sport', 'updatedAt')
-        .limit(5000) // Limit for performance
-        .get();
-
-      logger.info(`[${requestId}] Found ${usersSnapshot.size} user profiles`);
-
-      usersSnapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
-        const data = doc.data();
-        const rawUnicode = data['unicode'] as string | undefined;
-        if (rawUnicode) userUnicodeMap.set(doc.id, rawUnicode);
-        const sport = (data['sport'] as string | undefined)?.toLowerCase() ?? 'athlete';
-        const firstName = (data['firstName'] as string | undefined)?.trim() ?? '';
-        const lastName = (data['lastName'] as string | undefined)?.trim() ?? '';
-        const name = `${firstName}-${lastName}`.toLowerCase().replace(/\s+/g, '-');
-        const unicode = (data['unicode'] as string | undefined) || doc.id;
-        const updatedAt = data['updatedAt'];
-
-        // Skip profiles without a usable name segment
-        if (!firstName && !lastName) return;
-
-        // Convert Firestore timestamp to ISO string
-        let lastmod: string | undefined;
-        if (updatedAt) {
-          if (updatedAt.toDate) {
-            lastmod = updatedAt.toDate().toISOString().split('T')[0];
-          } else if (typeof updatedAt === 'string') {
-            lastmod = new Date(updatedAt).toISOString().split('T')[0];
-          }
-        }
-
-        // Use canonical /profile/{sport}/{firstname-lastname}/{unicode} path
-        entries.push({
-          loc: `${baseUrl}/profile/${sport}/${name}/${unicode}`,
-          lastmod,
-          changefreq: 'weekly',
-          priority: 0.8,
-        });
-      });
-    } catch (error) {
-      logger.error(`[${requestId}] Error fetching user profiles`, { error });
-      // Continue with other entries even if users fail
-    }
-
-    // ──────────────────────────────────────────
-    // 3. Team profiles (from Firestore)
-    // ──────────────────────────────────────────
-    if (isTeamProfilesEnabled()) {
-      try {
-        const teamsSnapshot = await db
-          .collection('Teams')
-          .where('isActive', '==', true)
-          .select('slug', 'teamCode', 'updatedAt')
-          .limit(5000)
-          .get();
-
-        logger.info(`[${requestId}] Found ${teamsSnapshot.size} teams`);
-
-        teamsSnapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
-          const data = doc.data();
-          const slug = data['slug'] as string | undefined;
-          const teamCode = data['teamCode'] as string | undefined;
-          if (!slug || !teamCode) return; // Skip teams without a slug or teamCode
-
-          const updatedAt = data['updatedAt'];
-          let lastmod: string | undefined;
-          if (updatedAt) {
-            if (updatedAt.toDate) {
-              lastmod = updatedAt.toDate().toISOString().split('T')[0];
-            } else if (typeof updatedAt === 'string') {
-              lastmod = new Date(updatedAt).toISOString().split('T')[0];
-            }
-          }
-
-          // Use canonical /team/{slug}/{teamCode} path
-          entries.push({
-            loc: `${baseUrl}/team/${slug}/${teamCode}`,
-            lastmod,
-            changefreq: 'weekly',
-            priority: 0.7,
-          });
-        });
-      } catch (error) {
-        logger.error(`[${requestId}] Error fetching teams`, { error });
-      }
-    }
-
-    // ──────────────────────────────────────────
-    // 4. Colleges (from MongoDB)
-    // ──────────────────────────────────────────
-    try {
-      // Only query MongoDB if the connection is established (readyState === 1)
-      if (mongoose.connection.readyState === 1) {
-        const colleges = await CollegeModel.find({}, '_id').lean().limit(5000).exec();
-
-        logger.info(`[${requestId}] Found ${colleges.length} colleges`);
-
-        for (const college of colleges) {
-          entries.push({
-            loc: `${baseUrl}/colleges/${college._id.toString()}`,
-            changefreq: 'monthly',
-            priority: 0.7,
-          });
-        }
-      } else {
-        logger.debug(`[${requestId}] MongoDB not connected — skipping colleges`);
-      }
-    } catch (error) {
-      logger.error(`[${requestId}] Error fetching colleges`, { error });
-    }
-
-    // ──────────────────────────────────────────
-    // 5. Help Center (categories + published articles from MongoDB)
-    // ──────────────────────────────────────────
-    try {
-      // Static category pages — always present
       for (const category of HELP_CATEGORIES) {
         entries.push({
           loc: `${baseUrl}/help-center/category/${category.id}`,
@@ -236,7 +256,6 @@ router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> =>
         });
       }
 
-      // Dynamic article pages from MongoDB
       if (mongoose.connection.readyState === 1) {
         const HelpArticleModel = getHelpArticleModel();
         const articles = await HelpArticleModel.find({ isPublished: true }, 'slug updatedAt')
@@ -249,16 +268,9 @@ router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> =>
           const slug = article.slug as string | undefined;
           if (!slug) continue;
 
-          const updatedAt = article.updatedAt as Date | string | undefined;
-          const lastmod = updatedAt
-            ? (updatedAt instanceof Date ? updatedAt : new Date(updatedAt))
-                .toISOString()
-                .split('T')[0]
-            : undefined;
-
           entries.push({
             loc: `${baseUrl}/help-center/article/${slug}`,
-            lastmod,
+            lastmod: coerceLastMod(article.updatedAt),
             changefreq: 'monthly',
             priority: 0.7,
           });
@@ -270,9 +282,7 @@ router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> =>
       logger.error(`[${requestId}] Error fetching help center entries`, { error });
     }
 
-    // ──────────────────────────────────────────
-    // 6. Public posts (/post/:unicode/:id)
-    // ──────────────────────────────────────────
+    // 3) Public posts (/post/:unicode/:id).
     try {
       const postsSnapshot = await db
         .collection('Posts')
@@ -283,6 +293,33 @@ router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> =>
 
       logger.info(`[${requestId}] Found ${postsSnapshot.size} public posts`);
 
+      const userIds = new Set<string>();
+      postsSnapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
+        const data = doc.data();
+        const userId = data['userId'] as string | undefined;
+        if (userId) userIds.add(userId);
+      });
+
+      const userUnicodeMap = new Map<string, string>();
+      const userIdChunks = chunkArray([...userIds], 30);
+
+      for (const chunk of userIdChunks) {
+        if (chunk.length === 0) continue;
+
+        const usersSnapshot = await db
+          .collection('Users')
+          .where(FieldPath.documentId(), 'in', chunk)
+          .select('unicode')
+          .get();
+
+        usersSnapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
+          const unicode = doc.get('unicode') as string | undefined;
+          if (unicode) {
+            userUnicodeMap.set(doc.id, unicode);
+          }
+        });
+      }
+
       postsSnapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
         const data = doc.data();
         const userId = data['userId'] as string | undefined;
@@ -291,20 +328,9 @@ router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> =>
         const unicode = userUnicodeMap.get(userId);
         if (!unicode) return;
 
-        const ts = (data['updatedAt'] ?? data['createdAt']) as
-          | FirebaseFirestore.Timestamp
-          | string
-          | undefined;
-        let lastmod: string | undefined;
-        if (ts && typeof (ts as FirebaseFirestore.Timestamp).toDate === 'function') {
-          lastmod = (ts as FirebaseFirestore.Timestamp).toDate().toISOString().split('T')[0];
-        } else if (typeof ts === 'string') {
-          lastmod = new Date(ts).toISOString().split('T')[0];
-        }
-
         entries.push({
           loc: `${baseUrl}/post/${encodeURIComponent(unicode)}/${encodeURIComponent(doc.id)}`,
-          lastmod,
+          lastmod: coerceLastMod(data['updatedAt'] ?? data['createdAt']),
           changefreq: 'daily',
           priority: 0.65,
         });
@@ -313,30 +339,127 @@ router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> =>
       logger.error(`[${requestId}] Error fetching public posts`, { error });
     }
 
-    // ──────────────────────────────────────────
-    // 7. Generate XML
-    // ──────────────────────────────────────────
     const xml = generateSitemapXml(entries);
+    coreSitemapCache = { xml, timestamp: now };
 
-    // Update cache
-    sitemapCache = {
-      xml,
-      timestamp: now,
-    };
-
-    logger.info(`[${requestId}] Sitemap generated successfully with ${entries.length} URLs`);
-
-    // Send response
-    res.set('Content-Type', 'application/xml');
-    res.set('Cache-Control', 'public, max-age=3600'); // 1 hour
-    res.send(xml);
+    logger.info(`[${requestId}] Core sitemap generated successfully with ${entries.length} URLs`);
+    sendXml(res, xml);
   } catch (error) {
-    logger.error(`[${requestId}] Sitemap generation failed`, { error });
+    logger.error(`[${requestId}] Core sitemap generation failed`, { error });
     res
       .status(500)
-      .send('<?xml version="1.0" encoding="UTF-8"?><error>Failed to generate sitemap</error>');
+      .send('<?xml version="1.0" encoding="UTF-8"?><error>Failed to generate core sitemap</error>');
   }
 });
+
+/**
+ * GET /sitemaps/profiles-:page.xml
+ * Generate and serve one page of canonical profile URLs.
+ */
+router.get('/sitemaps/profiles-:page.xml', async (req: Request, res: Response): Promise<void> => {
+  const requestId = (req as { traceId?: string }).traceId || 'sitemap-profiles';
+  const pageParam = req.params['page'];
+  const pageRaw = Array.isArray(pageParam) ? (pageParam[0] ?? '') : (pageParam ?? '');
+  const page = Number.parseInt(pageRaw, 10);
+
+  if (!Number.isFinite(page) || page < 1) {
+    res.status(400).send('Invalid sitemap page');
+    return;
+  }
+
+  try {
+    const now = Date.now();
+    const cachedPage = profileSitemapCache.get(page) ?? null;
+    if (isCacheFresh(cachedPage, now)) {
+      logger.debug(`[${requestId}] Serving cached profile sitemap page ${page}`);
+      sendXml(res, cachedPage!.xml);
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const baseUrl = process.env['PUBLIC_URL'] || 'https://nxt1sports.com';
+    const totalProfiles = await getOnboardedProfileCount(db);
+    const totalPages = Math.ceil(totalProfiles / PROFILE_SITEMAP_PAGE_SIZE);
+
+    if (totalPages > 0 && page > totalPages) {
+      res.status(404).send('Sitemap page not found');
+      return;
+    }
+
+    const offset = (page - 1) * PROFILE_SITEMAP_PAGE_SIZE;
+    const snapshot = await db
+      .collection('Users')
+      .where('onboardingCompleted', '==', true)
+      .orderBy(FieldPath.documentId())
+      .select('unicode', 'username', 'firstName', 'lastName', 'sport', 'updatedAt')
+      .offset(offset)
+      .limit(PROFILE_SITEMAP_PAGE_SIZE)
+      .get();
+
+    const entries: SitemapEntry[] = [];
+
+    snapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
+      const data = doc.data();
+      const loc = buildProfileUrl(baseUrl, doc.id, data);
+
+      entries.push({
+        loc,
+        lastmod: coerceLastMod(data['updatedAt']),
+        changefreq: 'weekly',
+        priority: 0.8,
+      });
+    });
+
+    const xml = generateSitemapXml(entries);
+    profileSitemapCache.set(page, { xml, timestamp: now });
+
+    logger.info(
+      `[${requestId}] Profile sitemap page ${page} generated successfully with ${entries.length} URLs`
+    );
+
+    sendXml(res, xml);
+  } catch (error) {
+    logger.error(`[${requestId}] Profile sitemap generation failed`, {
+      error,
+      page,
+    });
+    res
+      .status(500)
+      .send(
+        '<?xml version="1.0" encoding="UTF-8"?><error>Failed to generate profile sitemap</error>'
+      );
+  }
+});
+
+function chunkArray<T>(items: readonly T[], chunkSize: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    chunks.push(items.slice(i, i + chunkSize));
+  }
+  return chunks;
+}
+
+/**
+ * Generate XML sitemap index from sitemap entries
+ */
+function generateSitemapIndexXml(entries: readonly SitemapIndexEntry[]): string {
+  const sitemapEntries = entries
+    .map((entry) => {
+      const parts = [`    <loc>${escapeXml(entry.loc)}</loc>`];
+
+      if (entry.lastmod) {
+        parts.push(`    <lastmod>${entry.lastmod}</lastmod>`);
+      }
+
+      return `  <sitemap>\n${parts.join('\n')}\n  </sitemap>`;
+    })
+    .join('\n');
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${sitemapEntries}
+</sitemapindex>`;
+}
 
 /**
  * Generate XML string from sitemap entries

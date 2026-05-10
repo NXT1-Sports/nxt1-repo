@@ -1,7 +1,7 @@
 # NXT1 CI/CD Pipeline Setup Guide
 
-This guide covers the complete setup for automated testing, web deployment,
-mobile builds, n8n/Slack notifications, and AI-powered code review.
+This guide covers the complete setup for automated testing,
+web/backend/functions deployment, mobile builds, and n8n/Slack notifications.
 
 ## Table of Contents
 
@@ -9,13 +9,12 @@ mobile builds, n8n/Slack notifications, and AI-powered code review.
 2. [GitHub Secrets & Variables Setup](#github-secrets--variables-setup)
 3. [n8n Integration (Recommended)](#n8n-integration-recommended)
 4. [Slack Integration (Fallback)](#slack-integration-fallback)
-5. [Claude AI Integration](#claude-ai-integration)
-6. [Web Deployment (Firebase App Hosting)](#web-deployment-firebase-app-hosting)
-7. [Mobile Builds (iOS)](#mobile-builds-ios)
-8. [Mobile Builds (Android)](#mobile-builds-android)
-9. [Turborepo Remote Caching](#turborepo-remote-caching)
-10. [Workflow Triggers](#workflow-triggers)
-11. [Troubleshooting](#troubleshooting)
+5. [Web Deployment (Firebase App Hosting)](#web-deployment-firebase-app-hosting)
+6. [Mobile Builds (iOS)](#mobile-builds-ios)
+7. [Mobile Builds (Android)](#mobile-builds-android)
+8. [Turborepo Remote Caching](#turborepo-remote-caching)
+9. [Workflow Triggers](#workflow-triggers)
+10. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -23,13 +22,15 @@ mobile builds, n8n/Slack notifications, and AI-powered code review.
 
 The NXT1 monorepo uses GitHub Actions for CI/CD with the following pipelines:
 
-| Workflow            | Trigger                  | Purpose                            |
-| ------------------- | ------------------------ | ---------------------------------- |
-| `ci.yml`            | PR, Push to main/develop | Lint, typecheck, build, test       |
-| `deploy-web.yml`    | Push to main, Manual     | Deploy web to Firebase App Hosting |
-| `deploy-mobile.yml` | Tag, Manual              | Build iOS/Android, distribute      |
-| `ai-review.yml`     | PR, Comment commands     | Claude code review & auto-fixes    |
-| `release.yml`       | Manual                   | Version bump, changelog, release   |
+| Workflow                    | Trigger                            | Purpose                                     |
+| --------------------------- | ---------------------------------- | ------------------------------------------- |
+| `ci.yml`                    | PR, Push to main/develop           | Lint, typecheck, build, test                |
+| `deploy-web-staging.yml`    | Push to main, Manual               | Deploy web to Firebase Hosting (staging)    |
+| `deploy-web-production.yml` | Push to production, Manual         | Deploy web to Firebase Hosting (production) |
+| `deploy-backend.yml`        | Push to main/production, Manual    | Build + deploy backend runtime              |
+| `deploy-functions.yml`      | Push to main/production, Manual    | Build + deploy Firebase Functions           |
+| `deploy-mobile.yml`         | Push/manual (branch/profile-based) | Build iOS/Android and distribute            |
+| `release.yml`               | Push to main, Manual               | Version bump, changelog, release            |
 
 ### Architecture
 
@@ -227,7 +228,7 @@ All workflows send events with this unified schema:
 ```json
 {
   "source": "github-actions",
-  "event_type": "ci | deploy-web | deploy-mobile | ai-review | release",
+  "event_type": "ci | deploy-web-staging | deploy-web-production | deploy-backend | deploy-functions | deploy-mobile | release",
   "status": "success | failure | warning | info",
   "title": "Human-readable title",
   "message": "Details message",
@@ -254,7 +255,6 @@ The workflow routes events based on:
 | -------------------------------------------- | ---------------------------- |
 | All events                                   | Slack #builds                |
 | `status=failure` && `environment=production` | Slack #urgent + PagerDuty    |
-| `event_type=ai-review`                       | Linear (auto-create issue)   |
 | `event_type=deploy-*` && `status=success`    | Discord #releases (optional) |
 
 ### Customizing Routes
@@ -324,79 +324,6 @@ Edit the Slack payload in any workflow:
   env:
     SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
 ```
-
----
-
-## Claude AI Integration
-
-Claude automatically reviews PRs and can fix common issues.
-
-### Setup
-
-1. **Get Anthropic API Key**
-   - Go to [console.anthropic.com](https://console.anthropic.com)
-   - Create an API key
-   - Add as `ANTHROPIC_API_KEY` secret in GitHub
-
-### Features
-
-#### Automatic PR Review
-
-Every PR gets an AI review comment with:
-
-- Summary of changes
-- Potential issues/bugs
-- Performance suggestions
-- Code quality score (1-10)
-
-#### Commands in PR Comments
-
-| Command                   | What it does                              |
-| ------------------------- | ----------------------------------------- |
-| `@claude fix`             | Auto-fixes lint/format issues and commits |
-| `@claude suggest <error>` | Analyzes error and suggests fix           |
-
-### Example Usage
-
-**Auto-fix lint issues:**
-
-```
-@claude fix
-```
-
-**Get help with a specific error:**
-
-```
-@claude suggest TypeError: Cannot read property 'map' of undefined at ProfileService.ts:45
-```
-
-**Ask for suggestions on CI failure:**
-
-```
-@claude suggest The build is failing with "Module not found: @nxt1/core"
-```
-
-### How It Works
-
-```
-PR Opened/Updated
-       ↓
-Claude reviews diff automatically
-       ↓
-Posts review comment with issues/suggestions
-       ↓
-Developer comments "@claude fix"
-       ↓
-Workflow runs lint:fix and format
-       ↓
-Commits changes to PR branch
-```
-
-### Cost Considerations
-
-- Uses Claude 3.5 Sonnet (~$3/1M input tokens, ~$15/1M output tokens)
-- Average PR review: ~5K tokens = ~$0.02
-- Estimate: 100 PRs/month ≈ $2-5/month
 
 ---
 
@@ -554,7 +481,7 @@ on:
   pull_request:
     branches: [main, develop]
 
-# Web deploy on push to main (specific paths)
+# Web staging deploy on push to main (specific paths)
 on:
   push:
     branches: [main]
@@ -562,11 +489,16 @@ on:
       - 'apps/web/**'
       - 'packages/core/**'
 
-# Mobile deploy on tags
+# Web production deploy on push to production
 on:
   push:
-    tags:
-      - 'mobile-v*'
+    branches: [production]
+
+# Mobile deploy on push to main/production (plus manual dispatch)
+on:
+  push:
+    branches: [main, production]
+  workflow_dispatch:
 ```
 
 ### Manual Triggers
@@ -652,7 +584,7 @@ npm run test
 2. CI validates changes
 3. Merge triggers staging deploy
 4. QA tests staging
-5. Manual trigger production deploy
+5. Merge/promote to `production` (or manually dispatch production workflow)
 
 ### Mobile Release
 

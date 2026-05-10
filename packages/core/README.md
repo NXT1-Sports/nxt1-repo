@@ -40,9 +40,9 @@ everywhere.
 
 ```typescript
 import {
-  validateEmail,
-  validatePhone,
-  formatRelativeTime,
+  isValidEmail,
+  isValidPhone,
+  getRelativeTime,
   slugify,
   isValidTeamCode,
 } from '@nxt1/core';
@@ -55,8 +55,8 @@ Pure utility functions for common operations.
 ```typescript
 import {
   USER_ROLES,
-  SPORT_TYPES,
-  POSITIONS,
+  SPORTS,
+  SPORT_POSITIONS,
   NOTIFICATION_TYPES,
   PLAN_TIERS,
 } from '@nxt1/core';
@@ -178,15 +178,15 @@ const authApi = createAuthApi(
 ### 3. Using Validation
 
 ```typescript
-import { validateEmail, validatePhone } from '@nxt1/core';
+import { isValidEmail, isValidPhone } from '@nxt1/core';
 
 // Email validation
-if (!validateEmail(email)) {
+if (!isValidEmail(email)) {
   throw new Error('Invalid email format');
 }
 
 // Phone validation
-if (!validatePhone(phone)) {
+if (!isValidPhone(phone)) {
   throw new Error('Invalid phone number');
 }
 ```
@@ -194,10 +194,10 @@ if (!validatePhone(phone)) {
 ### 4. Using Helper Functions
 
 ```typescript
-import { formatRelativeTime, slugify, truncate } from '@nxt1/core';
+import { getRelativeTime, slugify, truncate } from '@nxt1/core';
 
 // Relative time formatting
-const posted = formatRelativeTime('2026-01-14T10:00:00Z');
+const posted = getRelativeTime('2026-01-14T10:00:00Z');
 // → "3h ago" or "2d ago"
 
 // URL-friendly slugs
@@ -212,21 +212,21 @@ const preview = truncate(longText, 100);
 ### 5. Using Constants
 
 ```typescript
-import { USER_ROLES, SPORT_TYPES, POSITIONS } from '@nxt1/core';
+import { USER_ROLES, SPORTS, SPORT_POSITIONS } from '@nxt1/core';
 
 // Type-safe role checks
 const availableRoles: UserRole[] = [
   USER_ROLES.ATHLETE,
   USER_ROLES.COACH,
-  USER_ROLES.PARENT,
+  USER_ROLES.DIRECTOR,
 ];
 
 // Sport configuration
-const footballPositions = POSITIONS.football;
+const footballPositions = SPORT_POSITIONS.football;
 // → ['QB', 'RB', 'WR', 'TE', ...]
 
 // All supported sports
-const allSports = Object.keys(SPORT_TYPES);
+const allSports = SPORTS;
 // → ['football', 'basketball', 'baseball', ...]
 ```
 
@@ -262,19 +262,21 @@ await userCache.invalidate(`${CACHE_KEYS.USER_PROFILE}*`);
 
 ## 🏗️ Architecture Principles
 
-### Zero Dependencies
+### Portable Runtime Surface
 
 ```json
 {
-  "dependencies": {},
-  "peerDependencies": {},
-  "devDependencies": {
-    "typescript": "^5.7.3"
-  }
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "sideEffects": false
 }
 ```
 
-No Angular, React, Vue, or any framework code. Just pure TypeScript.
+No Angular, React, Vue, or Node-only runtime APIs in the public library surface.
+The package remains framework-agnostic and portable across web, mobile, and
+backend.
 
 ### Pure Functions
 

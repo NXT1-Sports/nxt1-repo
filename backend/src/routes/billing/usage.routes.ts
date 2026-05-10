@@ -44,6 +44,7 @@ import {
   finalizeWalletCheckoutSession,
   type ResolvedBillingTarget,
 } from '../../modules/billing/index.js';
+import { trackBillingPurchaseEvent } from '../../modules/billing/ga4-revenue.service.js';
 import { USAGE_PRODUCT_CONFIGS, USAGE_CATEGORY_CONFIGS, USAGE_HISTORY_PAGE_SIZE } from '@nxt1/core';
 import {
   UsageEventModel,
@@ -1609,6 +1610,28 @@ router.post(
             paymentIntentId: charge.paymentIntentId,
           });
 
+          if (charge.paymentIntentId) {
+            await trackBillingPurchaseEvent({
+              userId,
+              transactionId: charge.paymentIntentId,
+              valueCents: amountCents,
+              itemId: `org-wallet-topup-${amountCents}`,
+              itemName: 'NXT1 Team Credits',
+              itemCategory: 'wallet_topup',
+              billingEntity: 'organization',
+              source: 'stripe_direct_charge',
+            });
+          } else {
+            logger.warn(
+              '[POST /buy-credits] Missing paymentIntentId for org purchase analytics event',
+              {
+                userId,
+                organizationId,
+                amountCents,
+              }
+            );
+          }
+
           return res.json({ success: true, credited: true, newBalance });
         } else {
           // Credit the wallet and write a PaymentLog immediately — no webhook needed.
@@ -1643,6 +1666,27 @@ router.post(
             newBalance,
             paymentIntentId: charge.paymentIntentId,
           });
+
+          if (charge.paymentIntentId) {
+            await trackBillingPurchaseEvent({
+              userId,
+              transactionId: charge.paymentIntentId,
+              valueCents: amountCents,
+              itemId: `wallet-topup-${amountCents}`,
+              itemName: 'NXT1 Wallet Credits',
+              itemCategory: 'wallet_topup',
+              billingEntity: 'individual',
+              source: 'stripe_direct_charge',
+            });
+          } else {
+            logger.warn(
+              '[POST /buy-credits] Missing paymentIntentId for individual purchase analytics event',
+              {
+                userId,
+                amountCents,
+              }
+            );
+          }
 
           return res.json({ success: true, credited: true, newBalance });
         }
@@ -1769,6 +1813,24 @@ router.post(
       }
 
       const result = await finalizeWalletCheckoutSession(db, session, environment, 'client_return');
+      const amountCents = readCheckoutAmountCents(session);
+
+      if (amountCents > 0 && !result.alreadyFinalized) {
+        await trackBillingPurchaseEvent({
+          userId,
+          transactionId: session.id,
+          valueCents: amountCents,
+          itemId:
+            result.kind === 'org_wallet_topup'
+              ? `org-wallet-topup-${amountCents}`
+              : `wallet-topup-${amountCents}`,
+          itemName:
+            result.kind === 'org_wallet_topup' ? 'NXT1 Team Credits' : 'NXT1 Wallet Credits',
+          itemCategory: 'wallet_topup',
+          billingEntity: result.kind === 'org_wallet_topup' ? 'organization' : 'individual',
+          source: 'stripe_checkout',
+        });
+      }
 
       return res.json({
         success: true,
@@ -1787,6 +1849,11 @@ router.post(
     }
   }
 );
+
+function readCheckoutAmountCents(session: Stripe.Checkout.Session): number {
+  const amountCents = Number.parseInt(session.metadata?.['amountCents'] ?? '0', 10);
+  return Number.isFinite(amountCents) && amountCents > 0 ? amountCents : 0;
+}
 
 /**
  * POST /api/v1/usage/auto-topup

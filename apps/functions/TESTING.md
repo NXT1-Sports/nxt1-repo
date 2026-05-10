@@ -186,21 +186,15 @@ In GitHub Actions:
     npm run build
     npm run typecheck
     npm run lint
-    npm run test  # if you add jest/vitest
+    npm run test
 ```
 
 ---
 
 ## Next Steps
 
-1. **Add vitest to package.json** for faster testing:
+1. **Create test files** for each module (auth, user, util, etc.)
 
-   ```bash
-   npm install --save-dev vitest @vitest/ui
-   ```
+2. **Run emulator** locally to test triggers and HTTP endpoints
 
-2. **Create test files** for each module (auth, user, util, etc.)
-
-3. **Run emulator** locally to test triggers and HTTP endpoints
-
-4. **Deploy to staging** first before production
+3. **Deploy to staging** first before production

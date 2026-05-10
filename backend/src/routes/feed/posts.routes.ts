@@ -41,6 +41,12 @@ router.get(
   '/:postId',
   optionalAuth,
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    type FeedRequest = Request & {
+      firebase: { db: FirebaseFirestore.Firestore };
+      user?: { uid?: string };
+    };
+
+    const feedReq = req as FeedRequest;
     const postId = typeof req.params['postId'] === 'string' ? req.params['postId'].trim() : '';
     if (!postId || postId.length > 128) {
       res.status(400).json({ success: false, error: 'Invalid postId' });
@@ -56,7 +62,7 @@ router.get(
       return;
     }
 
-    const db = (req as any).firebase.db;
+    const db = feedReq.firebase.db;
 
     const postDoc = await db.collection(POSTS_COLLECTION).doc(postId).get();
     if (!postDoc.exists) {
@@ -73,7 +79,7 @@ router.get(
 
     const postData = rawPostData;
     const visibility = postData['visibility'] as string | undefined;
-    const requestingUid: string | null = (req as any).user?.uid ?? null;
+    const requestingUid: string | null = feedReq.user?.uid ?? null;
     const ownerId = postData['userId'] as string | undefined;
 
     if (visibility && visibility !== 'public') {

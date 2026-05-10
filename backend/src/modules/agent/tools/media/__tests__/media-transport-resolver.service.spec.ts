@@ -28,6 +28,7 @@ describe('MediaTransportResolverService', () => {
       getDownloadLinks: vi.fn().mockResolvedValue({
         default: {
           url: 'https://customer.example.cloudflarestream.com/video-123/downloads/default.mp4',
+          status: 'ready',
         },
       }),
       enableDownload: vi.fn(),

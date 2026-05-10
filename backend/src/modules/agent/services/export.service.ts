@@ -426,6 +426,12 @@ export class ExportService {
         }))
       );
 
+      type PdfTableNode = { table?: { body?: unknown[] } };
+      const getBodyLength = (node: unknown): number => {
+        const typedNode = node as PdfTableNode;
+        return typedNode.table?.body?.length ?? 0;
+      };
+
       content.push({ text: '', margin: [0, 0, 0, 4] });
       content.push({
         table: {
@@ -435,10 +441,10 @@ export class ExportService {
         },
         layout: {
           hLineWidth: (i: number, node: unknown) =>
-            i === 0 || i === (node as any).table?.body?.length ? 1 : 0.5,
+            i === 0 || i === getBodyLength(node) ? 1 : 0.5,
           vLineWidth: () => 0.5,
           hLineColor: (i: number, node: unknown) =>
-            i === 0 || i === (node as any).table?.body?.length ? palette.primary : palette.border,
+            i === 0 || i === getBodyLength(node) ? palette.primary : palette.border,
           vLineColor: () => palette.border,
           fillColor: (rowIndex: number) =>
             rowIndex === 0

@@ -2,7 +2,7 @@
 
 Shared Angular/Ionic UI components, services, and infrastructure for NXT1
 platform.  
-**~90% code sharing** between web and mobile applications.
+**~95% code sharing** between web and mobile applications.
 
 ## 📦 What's Inside
 
@@ -40,7 +40,7 @@ import {
   AuthErrorHandler,
   type AuthError,
   type AuthRecoveryAction,
-} from '@nxt1/ui/auth-services';
+} from '@nxt1/ui/services/auth-error';
 ```
 
 Firebase auth error transformation with user-friendly messages.
@@ -48,7 +48,7 @@ Firebase auth error transformation with user-friendly messages.
 ### Shared Components
 
 ```typescript
-import { NxtLogoComponent, RefreshContainerComponent } from '@nxt1/ui/shared';
+import { NxtLogoComponent, NxtRefreshContainerComponent } from '@nxt1/ui';
 ```
 
 Reusable UI components that work across platforms.
@@ -425,26 +425,16 @@ readonly isAvailable: Signal<boolean>
 ```
 packages/ui/
 ├── src/
-│   ├── index.ts                    # Root export (components)
+│   ├── index.ts                    # Root export barrel
 │   ├── auth/                       # Authentication UI
-│   │   ├── auth-shell/
-│   │   ├── auth-email-form/
-│   │   ├── auth-social-buttons/
-│   │   └── auth-divider/
-│   ├── shared/                     # General components
-│   │   ├── logo/
-│   │   └── refresh-container/
+│   ├── components/                 # Reusable components (logo, icon, avatar, etc.)
 │   ├── services/                   # UI Services
 │   │   ├── platform/               # NxtPlatformService
 │   │   ├── toast/                  # NxtToastService
 │   │   └── haptics/                # HapticsService + directives
-│   └── styles/                     # Shared styles (future)
-├── auth/                           # Secondary entry point
-│   └── ng-package.json
-├── shared/                         # Secondary entry point
-│   └── ng-package.json
-├── services/                       # Secondary entry point
-│   └── ng-package.json
+│   ├── infrastructure/             # Error handling + interceptors
+│   └── styles/                     # Shared CSS surface
+├── ng-package.json                 # APF build config
 └── dist/                           # Compiled output
 ```
 
@@ -511,19 +501,19 @@ npm install @nxt1/ui @nxt1/core @nxt1/design-tokens
 
 ## Usage
 
-### Import from Secondary Entry Points (Recommended)
+### Import Pattern
 
-For optimal tree-shaking, import from specific entry points:
+In this monorepo, web apps commonly use granular imports (for example
+`@nxt1/ui/auth`, `@nxt1/ui/services/platform`) through TS path mapping to source
+folders. Published package consumers can import from the root barrel:
 
 ```typescript
-// Auth components
-import { AuthShellComponent, AuthEmailFormComponent } from '@nxt1/ui/auth';
-
-// Shared components
-import { NxtLogoComponent } from '@nxt1/ui/shared';
-
-// Services
-import { NxtPlatformService } from '@nxt1/ui/services';
+import {
+  AuthShellComponent,
+  AuthEmailFormComponent,
+  NxtLogoComponent,
+  NxtPlatformService,
+} from '@nxt1/ui';
 ```
 
 ### Auth Components

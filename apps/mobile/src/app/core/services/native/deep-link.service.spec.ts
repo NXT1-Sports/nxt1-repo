@@ -27,6 +27,7 @@ describe('mobile share and deep-link hardening', () => {
   });
 
   it('routes the team copy-link action through the real copy handler', () => {
-    expect(teamPageSource).toContain("case 'Copy Link':\n        await this.onCopyLink();");
+    expect(teamPageSource).toContain('(copyLinkClick)="onCopyLink()"');
+    expect(teamPageSource).toContain('protected async onCopyLink(): Promise<void>');
   });
 });

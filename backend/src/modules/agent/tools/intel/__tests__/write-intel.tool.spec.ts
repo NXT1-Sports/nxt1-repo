@@ -22,6 +22,10 @@ vi.mock('../../../services/intel.service.js', () => ({
   },
 }));
 
+vi.mock('../../../../../config/feature-flags.js', () => ({
+  isTeamIntelEnabled: () => true,
+}));
+
 vi.mock('../../../../../utils/logger.js', () => ({
   logger: {
     info: vi.fn(),

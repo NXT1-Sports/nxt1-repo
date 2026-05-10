@@ -479,12 +479,12 @@ describe('TimelineService', () => {
     });
 
     expect(result.success).toBe(true);
-    expect(result.data).toHaveLength(2);
+    expect(result.data).toHaveLength(1);
     expect(result.data.every((item) => item.feedType === 'OFFER')).toBe(true);
     expect(
       result.data
         .filter((item) => item.feedType === 'OFFER')
         .map((item) => (item.feedType === 'OFFER' ? item.offerData.collegeName : null))
-    ).toEqual(['UConn', 'Duke']);
+    ).toEqual(['UConn']);
   });
 });

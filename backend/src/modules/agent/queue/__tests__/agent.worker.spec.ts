@@ -374,7 +374,7 @@ describe('AgentWorker', () => {
       expect.objectContaining({
         threadId: 'thread-123',
         role: 'assistant',
-        content: 'I opened the live browser and checked the page. ',
+        content: 'I opened the live browser and checked the page.',
         steps: [
           expect.objectContaining({
             status: 'success',

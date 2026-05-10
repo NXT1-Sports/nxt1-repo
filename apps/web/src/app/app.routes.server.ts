@@ -4,40 +4,51 @@ import { RenderMode, ServerRoute } from '@angular/ssr';
  * @fileoverview Server-side Routing Configuration — 2026 Professional Pattern
  * @module @nxt1/web
  *
- * ⭐ ALL ROUTES SERVER-RENDERED — No Client-Side Auth Gating ⭐
- *
- * Professional Pattern (Twitter, Instagram, LinkedIn):
- * - 100% SSR for all pages
- * - No auth guards on routes
- * - UI components adapt to auth state
- * - Backend enforces authorization at API level
- *
- * Benefits:
- * - Full SEO for all pages
- * - No hydration mismatches
- * - No flash redirects
- * - Faster initial paint
- * - Better Core Web Vitals
- *
- * @see https://angular.dev/guide/ssr
+ * SSR configuration is intentionally focused on current, real-platform routes.
+ * Indexing policy remains controlled by robots.txt + sitemap.xml.
  */
 export const serverRoutes: ServerRoute[] = [
-  // ============================================
-  // PUBLIC LANDING PAGE — SERVER RENDERED (SEO-Critical)
-  // ============================================
-
-  // Landing/Welcome Page - Main marketing page
+  // Public landing
   {
     path: 'welcome',
     renderMode: RenderMode.Server,
   },
 
-  // ============================================
-  // ALL ROUTES — SERVER RENDERED
-  // ============================================
+  // Core public SEO routes
+  {
+    path: '',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'agent-x',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'agent-x/**',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'programs',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'help-center',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'help-center/**',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'terms',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'privacy',
+    renderMode: RenderMode.Server,
+  },
 
-  // Profile Pages - Individual athlete profiles
-  // NOTE: path param must match profile.routes.ts where it's defined as ':param'
+  // Profile pages
   {
     path: 'profile/:sport/:name/:unicode',
     renderMode: RenderMode.Server,
@@ -51,234 +62,19 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
 
-  // Help Center - All pages
-  {
-    path: 'help-center',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'help-center/**',
-    renderMode: RenderMode.Server,
-  },
-
-  // Auth Pages
-  {
-    path: 'auth',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'auth/**',
-    renderMode: RenderMode.Server,
-  },
-
-  // Main App Routes (wrapped in shell)
-  {
-    path: '',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'activity',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'activity/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'settings',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'settings/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'agent-x',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'agent-x/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'invite',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'invite/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'usage',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'usage/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'nil',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'nil/**',
-    renderMode: RenderMode.Server,
-  },
-  // Pulse - Sports News Feed
-  {
-    path: 'pulse',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'pulse/**',
-    renderMode: RenderMode.Server,
-  },
-  /**
-   * Team profile routes — Server-rendered for SEO (Open Graph, rich snippets).
-   * Strict canonical URL: /team/:slug/:teamCode.
-   */
-  {
-    path: 'team/:slug/:teamCode',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'team/**',
-    renderMode: RenderMode.Server,
-  },
-
-  /**
-   * Post detail routes — Server-rendered for SEO.
-   * Canonical URL: /post/:userUnicode/:postId
-   * SSR renders Open Graph / Twitter Card meta for social link previews.
-   * Browser opens PostDetailOverlayComponent and navigates back on close.
-   */
+  // Public post detail pages for social preview
   {
     path: 'post/:userUnicode/:postId',
     renderMode: RenderMode.Server,
   },
 
-  {
-    path: 'team-platform',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'team-platform/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'super-profiles',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'super-profiles/**',
-    renderMode: RenderMode.Server,
-  },
-
-  // Persona-Specific Marketing Pages
-  {
-    path: 'athletes',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'athletes/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'recruiting-athletes',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'recruiting-athletes/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'content-creation-athletes',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'content-creation-athletes/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'media-coverage',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'media-coverage/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'ai-athletes',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'ai-athletes/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'coaches',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'coaches/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'college-coaches',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'college-coaches/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'parents',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'parents/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'scouts',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'scouts/**',
-    renderMode: RenderMode.Server,
-  },
-
-  // Sport-Vertical Marketing Pages
-  {
-    path: 'football',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'football/**',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'basketball',
-    renderMode: RenderMode.Server,
-  },
-  {
-    path: 'basketball/**',
-    renderMode: RenderMode.Server,
-  },
-
-  // Add Sport / Add Team wizard
-  {
-    path: 'add-sport',
-    renderMode: RenderMode.Server,
-  },
-
-  // Invite link landing — client-side only (immediate redirect, no SSR content)
+  // Invite link landing remains client rendered (redirect behavior)
   {
     path: 'join/:code',
     renderMode: RenderMode.Client,
   },
 
-  // Catch-all
+  // Fallback
   {
     path: '**',
     renderMode: RenderMode.Server,

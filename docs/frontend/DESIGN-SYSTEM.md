@@ -137,14 +137,14 @@ while leveraging **native platform feel** through Ionic Framework.
 While both platforms share the **same design tokens**, they require different
 component implementations:
 
-| Aspect               | Web (SSR)                         | Mobile (Native)                |
-| -------------------- | --------------------------------- | ------------------------------ |
-| **Rendering**        | Server + Client (hydration)       | Client only                    |
-| **Component System** | Pure Tailwind CSS (**NO IONIC**)  | Ionic Shadow DOM               |
-| **Theme Variables**  | `--nxt1-*` via Tailwind preset    | `--nxt1-*` → `--ion-*` mapping |
-| **Navigation**       | Angular Router                    | Ionic NavController            |
-| **Native APIs**      | N/A                               | Haptics, push notifications    |
-| **Imports Allowed**  | Angular, Tailwind — NO `@ionic/*` | Angular + Ionic                |
+| Aspect               | Web (SSR)                                    | Mobile (Native)                |
+| -------------------- | -------------------------------------------- | ------------------------------ |
+| **Rendering**        | Server + Client (hydration)                  | Client only                    |
+| **Component System** | Angular + tokens + utility classes           | Ionic + native UI primitives   |
+| **Theme Variables**  | `--nxt1-*` via Tailwind preset               | `--nxt1-*` → `--ion-*` mapping |
+| **Navigation**       | Angular Router                               | Ionic NavController            |
+| **Native APIs**      | N/A                                          | Haptics, push notifications    |
+| **Imports Allowed**  | SSR-safe Angular providers + feature imports | Angular + Ionic                |
 
 ### Why Separate Components?
 
@@ -157,9 +157,11 @@ share the same service layer and design tokens.
 
 **⚠️ CRITICAL RULE:**
 
-- **Web components** → Use **ZERO Ionic imports** (`@ionic/angular`)
-- **Mobile components** → Use Ionic freely for native feel
-- **Both** → Share the same service layer (`_shared/`) and design tokens
+- **Web components** → prioritize SSR-safe patterns and granular `@nxt1/ui/*`
+  imports
+- **Mobile components** → use Ionic primitives and root `@nxt1/ui` imports when
+  appropriate
+- **Both** → share service/state logic and design tokens
 
 **Example: Help Center**
 
@@ -167,7 +169,7 @@ share the same service layer and design tokens.
 // ✅ Web: packages/ui/src/help-center/web/help-center-shell.component.ts
 import { CommonModule } from '@angular/common'; // ✅ Angular common
 import { FormsModule } from '@angular/forms'; // ✅ Angular forms
-// NO @ionic/angular imports! Pure Tailwind classes for styling.
+// Keep web shell SSR-safe and token-driven.
 
 // ✅ Mobile: packages/ui/src/help-center/mobile/help-center-shell.component.ts
 import { IonContent, IonList, IonItem } from '@ionic/angular/standalone'; // ✅ Ionic

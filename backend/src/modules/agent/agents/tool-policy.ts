@@ -56,6 +56,8 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'list_recurring_tasks',
   'list_microsoft_365_tools',
   'run_microsoft_365_tool',
+  'list_google_workspace_tools',
+  'run_google_workspace_tool',
   'search_nxt1_platform',
   'query_nxt1_platform_data',
   'list_nxt1_data_views',
@@ -73,6 +75,13 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'extract_hudl_video',
   // Background queue escalation — any agent can offload a genuinely heavy operation
   'enqueue_heavy_task',
+  // Diagram board CRUD tools used by strategy/coaching flows
+  'create_board_diagram',
+  'update_board_diagram',
+  'delete_board_diagram',
+  // Internal outbound mail transport wrappers still exposed as callable tools
+  'send_email_via_nxt1',
+  'batch_send_email_via_nxt1',
 ]);
 
 /**
@@ -260,8 +269,6 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'search_college_coaches',
     'stage_media',
     'write_recruiting_activity',
-    'update_recruiting_activity',
-    'delete_recruiting_activity',
     'send_email',
     'gmail_send_email',
   ]),

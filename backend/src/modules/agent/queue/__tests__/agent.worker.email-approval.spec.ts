@@ -3,7 +3,7 @@
  * @description Tests that all approval yields render as generic confirmation cards.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { buildInlineYieldCard } from '../agent.worker';
 import type { AgentYieldReason } from '@nxt1/core';
 
@@ -225,7 +225,7 @@ describe('AgentWorker :: Approval Cards', () => {
       });
 
       expect(card.type).toBe('confirmation');
-      expect(card.payload.variant).toBeUndefined();
+      expect(card.payload.variant).toBe('generic_approval');
       expect(card.payload.emailData).toBeUndefined();
       expect(card.title).toBe('Approval Required');
       expect(card.payload.actions[1].label).toBe('Approve');

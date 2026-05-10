@@ -5,7 +5,7 @@ import { type Routes, type CanMatchFn, type UrlSegment } from '@angular/router';
  * Browsers request .css.map / .js files relative to the current page URL,
  * which can match the `team/:slug` route and trigger spurious API calls.
  */
-const rejectFileExtensionSlugs: CanMatchFn = (_route, segments: UrlSegment[]) => {
+const _rejectFileExtensionSlugs: CanMatchFn = (_route, segments: UrlSegment[]) => {
   const slug = segments[1]?.path ?? '';
   const teamCode = segments[2]?.path ?? '';
   return !slug.includes('.') && !teamCode.includes('.');

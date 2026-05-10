@@ -195,7 +195,7 @@ function getSportIconName(sportName: string): string {
  * Sport child items — derived from DEFAULT_SPORTS constant in @nxt1/core.
  * All sports from the shared constants are automatically available here.
  */
-const SPORT_CHILD_ITEMS: readonly DesktopSidebarItem[] = DEFAULT_SPORTS.map((sport) => {
+const _SPORT_CHILD_ITEMS: readonly DesktopSidebarItem[] = DEFAULT_SPORTS.map((sport) => {
   const slug = normalizeSportKey(sport.name).replace(/_/g, '-');
   return {
     id: `sport-${slug}`,

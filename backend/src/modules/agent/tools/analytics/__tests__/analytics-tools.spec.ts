@@ -196,6 +196,7 @@ describe('analytics agent tools', () => {
     const result = await tool.execute({
       userId: 'user_123',
       domain: 'communication',
+      subjectType: 'user',
       timeframe: '30d',
     });
 
@@ -228,6 +229,7 @@ describe('analytics agent tools', () => {
     const result = await tool.execute({
       userId: 'user_123',
       domain: 'custom',
+      subjectType: 'user',
       templateKey: 'injury_report',
       templateBaseDomain: 'performance',
     });

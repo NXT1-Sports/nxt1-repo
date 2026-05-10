@@ -486,11 +486,11 @@ export const AGENT_APPROVAL_TOOL_GROUPS = {
     'create_gmail_draft',
     'gmail_reply_to_email',
   ],
-  profileWrites: [],
+  profileWrites: ['write_core_identity'],
   profileDeletes: [],
-  teamWrites: [],
-  teamDeletes: [],
-  intelAndSourcesWrites: [],
+  teamWrites: ['write_team_post'],
+  teamDeletes: ['delete_team_post'],
+  intelAndSourcesWrites: ['write_intel'],
   intelAndSourcesDeletes: [],
   dataMutation: ['mutate_nxt1_data'],
   workspaceActions: [
@@ -524,8 +524,8 @@ export const AGENT_APPROVAL_TOOL_GROUPS = {
     'sheets_add_sheet',
     'sheets_delete_sheet',
   ],
-  automationAndExternalActions: [],
-  destructiveStorage: [],
+  automationAndExternalActions: ['create_support_ticket'],
+  destructiveStorage: ['delete_timeline_post', 'delete_video'],
 } as const;
 
 export const AGENT_APPROVAL_POLICIES: readonly AgentApprovalPolicy[] = [
@@ -546,7 +546,12 @@ export const AGENT_APPROVAL_POLICIES: readonly AgentApprovalPolicy[] = [
     'intel_write'
   ),
   ...createApprovalPolicies(AGENT_APPROVAL_TOOL_GROUPS.intelAndSourcesDeletes, 'critical'),
-  // workspaceActions (Google/Microsoft) are excluded — users authorize these at OAuth sign-in
+  ...createApprovalPolicies(
+    AGENT_APPROVAL_TOOL_GROUPS.workspaceActions,
+    'high',
+    false,
+    'workspace'
+  ),
   ...createApprovalPolicies(
     AGENT_APPROVAL_TOOL_GROUPS.automationAndExternalActions,
     'high',

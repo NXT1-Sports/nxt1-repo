@@ -11,7 +11,7 @@
 │   Components - Log user actions, errors, events              │
 ├─────────────────────────────────────────────────────────────┤
 │                      SERVICE LAYER                           │
-│   LoggingService (Angular) - Orchestrates logging logic      │
+│   NxtLoggingService (Angular) - Orchestrates logging logic   │
 ├─────────────────────────────────────────────────────────────┤
 │                 ⭐ @nxt1/core/logging ⭐                      │
 │   Pure TypeScript - Logger, Transports, Types                │
@@ -97,7 +97,7 @@ logger.error('Failed to connect', error, { endpoint: '/api/users' });
 
 ```typescript
 import { Component, inject } from '@angular/core';
-import { LoggingService } from '../core/services/logging.service';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 
 @Component({
   selector: 'app-profile',
@@ -105,7 +105,7 @@ import { LoggingService } from '../core/services/logging.service';
   template: `...`,
 })
 export class ProfileComponent {
-  private readonly logger = inject(LoggingService).child('ProfileComponent');
+  private readonly logger = inject(NxtLoggingService).child('ProfileComponent');
 
   ngOnInit(): void {
     this.logger.info('Profile loaded', { userId: this.userId });
@@ -302,7 +302,7 @@ export const environment = {
 ### Namespaced Loggers
 
 ```typescript
-const parentLogger = inject(LoggingService);
+const parentLogger = inject(NxtLoggingService);
 
 // Create child logger with namespace
 const childLogger = parentLogger.child('FeatureName');
@@ -320,7 +320,7 @@ nestedLogger.info('Message');
 ### Context Management
 
 ```typescript
-const logger = inject(LoggingService);
+const logger = inject(NxtLoggingService);
 
 // Set global context (persists across all logs)
 logger.setContext({
@@ -387,15 +387,15 @@ logger.info('Large payload', {
 ```typescript
 // apps/web/src/app/core/infrastructure/error-handling/global-error-handler.ts
 import { ErrorHandler, Injectable, inject, Injector } from '@angular/core';
-import { LoggingService } from '../../services/logging.service';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 
 @Injectable()
 export class GlobalErrorHandler implements ErrorHandler {
   private readonly injector = inject(Injector);
 
   handleError(error: Error): void {
-    // Lazy-load LoggingService to avoid circular dependencies
-    const logger = this.injector.get(LoggingService);
+    // Lazy-load NxtLoggingService to avoid circular dependencies
+    const logger = this.injector.get(NxtLoggingService);
 
     logger.fatal('Unhandled application error', error, {
       url: window.location.href,
@@ -416,11 +416,11 @@ export class GlobalErrorHandler implements ErrorHandler {
 // apps/web/src/app/core/infrastructure/http/logging.interceptor.ts
 import { HttpInterceptorFn } from '@angular/common/http';
 import { inject } from '@angular/core';
-import { LoggingService } from '../../services/logging.service';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { tap, catchError } from 'rxjs/operators';
 
 export const loggingInterceptor: HttpInterceptorFn = (req, next) => {
-  const logger = inject(LoggingService).child('HTTP');
+  const logger = inject(NxtLoggingService).child('HTTP');
   const startTime = Date.now();
 
   return next(req).pipe(
@@ -453,10 +453,10 @@ export const loggingInterceptor: HttpInterceptorFn = (req, next) => {
 // apps/web/src/app/core/auth/guards/auth.guard.ts
 import { inject } from '@angular/core';
 import { Router, CanActivateFn } from '@angular/router';
-import { LoggingService } from '../../services/logging.service';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 
 export const authGuard: CanActivateFn = (route, state) => {
-  const logger = inject(LoggingService).child('AuthGuard');
+  const logger = inject(NxtLoggingService).child('AuthGuard');
   const authService = inject(AuthService);
   const router = inject(Router);
 
@@ -559,7 +559,7 @@ describe('FeatureService', () => {
 // component.spec.ts
 import { describe, beforeEach, it, expect, vi } from 'vitest';
 import { TestBed } from '@angular/core/testing';
-import { LoggingService } from './core/services/logging.service';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 
 describe('ProfileComponent', () => {
   let logger: { info: any; error: any; child: any };
@@ -569,7 +569,7 @@ describe('ProfileComponent', () => {
     logger.child.mockReturnValue(logger);
 
     TestBed.configureTestingModule({
-      providers: [{ provide: LoggingService, useValue: logger }],
+      providers: [{ provide: NxtLoggingService, useValue: logger }],
     });
   });
 
@@ -618,11 +618,11 @@ export class OldLoggerService {
 }
 
 // ✅ AFTER: Centralized logger with configuration
-import { LoggingService } from '@nxt1/core/services/logging.service';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 
 @Component({...})
 export class MyComponent {
-  private readonly logger = inject(LoggingService).child('MyComponent');
+  private readonly logger = inject(NxtLoggingService).child('MyComponent');
 
   doSomething(): void {
     this.logger.info('Action performed', { actionId: '123' });
@@ -639,7 +639,7 @@ export class MyComponent {
 1. **Use namespaced loggers** for component-level logging
 
    ```typescript
-   const logger = inject(LoggingService).child('ProfileComponent');
+   const logger = inject(NxtLoggingService).child('ProfileComponent');
    ```
 
 2. **Include context data** for debugging
@@ -728,10 +728,10 @@ export class MyComponent {
 // Check environment configuration
 console.log(environment.logging); // Should be { enabled: true, minLevel: 'debug' }
 
-// Verify LoggingService is provided
+// Verify NxtLoggingService is provided
 // apps/web/src/app/app.config.ts
 providers: [
-  LoggingService, // Must be here
+  NxtLoggingService, // Must be here
 ];
 ```
 
@@ -780,7 +780,7 @@ minLevel: 'info',
 
 **Problem:** `window is not defined` errors during SSR.
 
-**Solution:** The LoggingService is already SSR-safe with platform checks:
+**Solution:** The NxtLoggingService is already SSR-safe with platform checks:
 
 ```typescript
 private get isBrowser(): boolean {
@@ -788,11 +788,12 @@ private get isBrowser(): boolean {
 }
 ```
 
-If you see SSR errors, ensure you're using LoggingService (not direct logger):
+If you see SSR errors, ensure you're using NxtLoggingService (not direct
+logger):
 
 ```typescript
 // ✅ GOOD - SSR-safe
-private readonly logger = inject(LoggingService);
+private readonly logger = inject(NxtLoggingService);
 
 // ❌ BAD - Not SSR-safe
 import { createLogger } from '@nxt1/core/logging';

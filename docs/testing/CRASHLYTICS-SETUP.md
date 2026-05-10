@@ -330,7 +330,7 @@ if (!environment.production) {
 
 ### GitHub Actions Workflow
 
-Add to `.github/workflows/mobile-release.yml`:
+Add to `.github/workflows/deploy-mobile.yml`:
 
 ```yaml
 name: Mobile Release
@@ -349,7 +349,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install dependencies
         run: |
@@ -563,12 +563,12 @@ Debug builds may intercept crashes before they reach Crashlytics.
 ```bash
 # iOS
 cd apps/mobile
-npm run build:production  # Or build:staging for staging Firebase
+npm run build  # Or build:staging for staging Firebase
 npx cap sync ios
 # Open Xcode: Select "Release" scheme, build to device
 
 # Android
-npm run build:production
+npm run build
 npx cap sync android
 # In Android Studio: Build → Generate Signed APK → Release
 ```
@@ -672,16 +672,16 @@ await this.crashlytics.recordException({
 
 ### Staging vs Production Testing
 
-Use the Firebase config switching scripts:
+Use environment-specific build scripts:
 
 ```bash
 cd apps/mobile
 
-# Switch to staging (development)
-npm run config:staging
+# Staging build (uses staging Firebase config)
+npm run build:staging
 
-# Switch to production (App Store/Play Store)
-npm run config:production
+# Production build (uses production Firebase config)
+npm run build
 ```
 
 Each environment has its own Crashlytics dashboard:

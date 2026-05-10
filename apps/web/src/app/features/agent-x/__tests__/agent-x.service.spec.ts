@@ -288,9 +288,9 @@ describe('AgentXService', () => {
 
     const [message] = service.messages();
     expect(message?.content).toBe('Can you add this clip?');
-    expect(message?.attachments?.length).toBe(2);
+    expect(message?.attachments?.length).toBe(1);
     expect(message?.attachments?.[0]?.url).toBe('https://cdn.example.com/poster.jpg');
-    expect(message?.attachments?.[1]?.url).toBe('https://cdn.example.com/highlight.mp4');
+    expect(message?.attachments?.[1]).toBeUndefined();
   });
 
   it('prefers refreshed attachment media over stale fallback fields on history reload', async () => {

@@ -27,13 +27,9 @@ The architecture is designed to maximize code sharing across all platforms:
 │   Types, Models, Validation, Helpers, API Functions         │
 │   ⚡ Pure TypeScript - No framework dependencies            │
 ├─────────────────────────────────────────────────────────────┤
-│                     @nxt1/ui (Adaptive)                     │
-│   ┌───────────────────────────────────────────────────────┐ │
-│   │  _shared/ (100%)     Services, state, business logic  │ │
-│   ├───────────────────────────────────────────────────────┤ │
-│   │  mobile/             Ionic components (native feel)   │ │
-│   │  web/                Tailwind components (SSR-safe)   │ │
-│   └───────────────────────────────────────────────────────┘ │
+│                     @nxt1/ui (~95% shared)                  │
+│   Components, feature shells, services, infrastructure      │
+│   Adaptive web/mobile splits only where needed              │
 ├────────────────────────┬────────────────────────────────────┤
 │   apps/web (~5%)       │    apps/mobile (~5%)               │
 │   SSR, PWA, SEO        │    Push, IAP, Biometrics           │
@@ -88,10 +84,10 @@ works everywhere:
 packages/core/src/
 ├── index.ts              # Root barrel export
 ├── constants/            # Sport definitions, roles, notification types
-├── models/               # User, Profile, Team, Network interfaces
-│   ├── user.model.ts
-│   ├── team.model.ts
-│   ├── network.model.ts  # NetworkStatus, ConnectionType (shared types)
+├── models/               # User, profile, team, platform contracts
+│   ├── user/
+│   ├── team/
+│   ├── platform/
 │   └── index.ts
 ├── api/                  # Pure API function factories (createAuthApi, etc.)
 ├── auth/                 # Auth types, state manager, guards, error handling
@@ -124,15 +120,14 @@ The UI library contains **shared Angular/Ionic components** for web and mobile:
 ```
 packages/ui/src/
 ├── index.ts              # Root barrel export
-├── shared/               # General-purpose components
-│   └── logo/             # NxtLogoComponent
-├── auth/                 # Authentication UI components
-│   ├── auth-shell/       # AuthShellComponent - full-page auth layout
-│   ├── auth-social-buttons/  # Google, Apple, Microsoft buttons
-│   ├── auth-divider/     # "OR" divider
-│   └── auth-email-form/  # Email/password form with validation
-└── services/             # Angular injectable services
-    └── platform/         # NxtPlatformService - device detection, haptics
+├── components/           # Reusable primitives (icon, logo, avatar, etc.)
+├── services/             # Cross-platform services (logging, breadcrumb, etc.)
+├── infrastructure/       # Global error handling + interceptors
+├── auth/                 # Auth shells/components
+├── onboarding/           # Onboarding components
+├── agent-x/              # Agent X shell/services/components
+├── feed/, profile/, ...  # Feature modules
+└── [feature]/            # Additional domain feature modules
 ```
 
 ✅ **Use @nxt1/ui for:**
@@ -144,12 +139,15 @@ packages/ui/src/
 **Import Examples:**
 
 ```typescript
-// ✅ CORRECT: Granular sub-path imports (optimal code splitting)
+// ✅ CORRECT (web): granular sub-path imports (optimal code splitting)
 import { AuthShellComponent } from '@nxt1/ui/auth';
 import { AuthEmailFormComponent } from '@nxt1/ui/auth/auth-email-form';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
 
-// ❌ AVOID: Root barrel import (defeats code splitting — bundles ALL 700+ symbols)
+// ✅ CORRECT (mobile): root barrel imports are valid
+import { AuthShellComponent as MobileAuthShell } from '@nxt1/ui';
+
+// ❌ AVOID (web only): root barrel import
 import { NxtLogoComponent, AuthShellComponent } from '@nxt1/ui';
 ```
 
@@ -161,39 +159,32 @@ import { NxtLogoComponent, AuthShellComponent } from '@nxt1/ui';
 
 Different platforms have fundamentally different requirements:
 
-| Requirement          | Web (SSR)                            | Mobile (Native)     |
-| -------------------- | ------------------------------------ | ------------------- |
-| **Rendering**        | Server-side (hydration-safe)         | Client-side only    |
-| **Styling**          | Tailwind CSS (atomic) — **NO IONIC** | Ionic Shadow DOM    |
-| **Navigation**       | Angular Router                       | Ionic NavController |
-| **Native Features**  | N/A                                  | Haptics, push, IAP  |
-| **Performance Goal** | SEO, First Contentful Paint          | 60fps, native feel  |
+| Requirement          | Web (SSR)                          | Mobile (Native)     |
+| -------------------- | ---------------------------------- | ------------------- |
+| **Rendering**        | Server-side (hydration-safe)       | Client-side only    |
+| **Styling**          | Angular + tokens + utility classes | Ionic + native UX   |
+| **Navigation**       | Angular Router                     | Ionic NavController |
+| **Native Features**  | N/A                                | Haptics, push, IAP  |
+| **Performance Goal** | SEO, First Contentful Paint        | 60fps, native feel  |
 
-**Problem with "100% shared UI":** Ionic components use Shadow DOM which causes
-SSR hydration mismatches, breaking SEO and performance.
+**Problem with forcing 100% identical views:** platform constraints differ (SSR
+semantics, route UX, native APIs), so some screens need adaptive shells.
 
 **Solution:** Adaptive Design — Share business logic, platform-specific views.
 
-**⚠️ CRITICAL:** Web components must use **ZERO Ionic imports**
-(`@ionic/angular`) to avoid SSR hydration errors. Use pure Tailwind CSS instead.
+**⚠️ CRITICAL:** Keep UI adaptation where required, but keep business logic,
+types, and APIs shared.
 
 ### Folder Structure
 
 ```
 packages/ui/src/[feature]/
-├── _shared/                    ← 100% shared (services, state, types)
-│   ├── [feature].service.ts    ← Signal-based state management
-│   ├── [feature].types.ts      ← Feature-specific interfaces
-│   └── index.ts                ← Barrel export
-├── mobile/                     ← Native mobile (Ionic + Capacitor)
-│   ├── [feature]-shell.component.ts
-│   ├── [feature]-*.component.ts
-│   └── index.ts
-├── web/                        ← SSR-safe web (Pure Tailwind)
-│   ├── [feature]-shell.component.ts
-│   ├── [feature]-*.component.ts
-│   └── index.ts
-└── index.ts                    ← Main barrel (exports all)
+├── index.ts                    ← Main barrel export
+├── [feature]-shell.component.ts (optional shared shell)
+├── _shared/                    ← Shared state/types for adaptive features
+├── web/                        ← Web-specific shell/components (if needed)
+├── mobile/                     ← Mobile-specific shell/components (if needed)
+└── ...                         ← Feature-local components/services
 ```
 
 ### Example: Help Center
@@ -207,19 +198,20 @@ packages/ui/src/help-center/
 │   ├── help-center-shell.component.ts  ← Uses Ionic: IonContent, IonList, etc.
 │   └── index.ts
 ├── web/
-│   ├── help-center-shell.component.ts          ← ⭐ ZERO Ionic — Pure Tailwind only
-│   ├── help-center-category-detail.component.ts ← ⭐ ZERO Ionic — Pure Tailwind only
-│   ├── help-center-article-detail.component.ts  ← ⭐ ZERO Ionic — Pure Tailwind only
+│   ├── help-center-shell.component.ts          ← Web-specific shell implementation
+│   ├── help-center-category-detail.component.ts ← Web-specific detail view
+│   ├── help-center-article-detail.component.ts  ← Web-specific article view
 │   └── index.ts
 └── index.ts
 ```
 
-**Key Point:** Web components import **zero Ionic modules**. They use:
+**Key Point:** Prefer shared logic and typed APIs; split only where platform
+behavior differs.
 
 - ✅ `CommonModule`, `FormsModule`, `RouterModule` (Angular)
-- ✅ Tailwind utility classes for all styling
+- ✅ Design tokens and feature-local styles
 - ✅ CSS custom properties from design tokens
-- ❌ NO `@ionic/angular` imports (causes SSR hydration errors)
+- ✅ SSR-safe provider configuration in app config
 
 ### Import Patterns
 
@@ -238,10 +230,10 @@ import {
 } from '@nxt1/ui/help-center';
 ```
 
-### Service Pattern (100% Shared)
+### Service Pattern (Shared Where Practical)
 
 ```typescript
-// packages/ui/src/[feature]/_shared/[feature].service.ts
+// packages/ui/src/[feature]/_shared/[feature].service.ts (or feature root)
 @Injectable({ providedIn: 'root' })
 export class FeatureService {
   // Private writeable signals
@@ -535,7 +527,7 @@ Code that must be different per platform:
 
 ```typescript
 // ✅ CORRECT: Shared types in @nxt1/core
-// packages/core/src/models/network.model.ts
+// packages/core/src/models/platform/network.model.ts
 export type ConnectionType =
   | 'wifi'
   | 'cellular'
@@ -549,7 +541,7 @@ export interface NetworkStatus {
 }
 
 // ✅ CORRECT: Web implementation
-// apps/web/src/app/core/services/network.service.ts
+// apps/web/src/app/core/services/infrastructure/network.service.ts
 @Injectable({ providedIn: 'root' })
 export class NetworkService {
   constructor() {
@@ -559,7 +551,7 @@ export class NetworkService {
 }
 
 // ✅ CORRECT: Mobile implementation
-// apps/mobile/src/app/services/network.service.ts
+// apps/mobile/src/app/core/services/infrastructure/network.service.ts
 @Injectable({ providedIn: 'root' })
 export class NetworkService {
   constructor() {
@@ -858,7 +850,7 @@ $ npm run build
 Only changed packages are deployed:
 
 ```yaml
-# .github/workflows/deploy.yml
+# .github/workflows/deploy-web-staging.yml
 changes:
   outputs:
     web: ${{ steps.filter.outputs.web }}

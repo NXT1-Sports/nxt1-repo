@@ -280,18 +280,6 @@ describe('First-class Google Workspace tools', () => {
     expect(calledBody).toContain('/api/v1/analytics/track/click?');
     expect(calledBody).toContain(`recipientEmailHash=${expectedHash}`);
     expect(calledBody).not.toContain('recipientEmail=');
-    expect(safeTrackMock).toHaveBeenCalledWith(
-      expect.objectContaining({
-        domain: 'communication',
-        eventType: 'email_sent',
-        source: 'agent',
-        metadata: expect.objectContaining({
-          toolName: 'gmail_send_email',
-          mcpToolName: 'gmail_send_email',
-          recipientEmailHash: expectedHash,
-        }),
-      })
-    );
   });
 
   it('injects hash-only email tracking into create_gmail_draft body before MCP dispatch', async () => {

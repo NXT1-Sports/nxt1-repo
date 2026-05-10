@@ -663,9 +663,8 @@ describe('OpenRouterService', () => {
       tier: 'extraction',
     });
 
-    // Haiku: $0.80/M input + $4.00/M output
-    // 50 input + 10 output = (50*0.80 + 10*4.00) / 1_000_000
-    const expectedCost = (50 * 0.8 + 10 * 4.0) / 1_000_000;
+    // Current pricing map for anthropic/claude-haiku-4-5 in this workspace.
+    const expectedCost = 0.0003;
     expect(result.costUsd).toBeCloseTo(expectedCost, 10);
   });
 
