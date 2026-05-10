@@ -157,11 +157,6 @@ jobs:
           git commit -m "chore(release): ${{ steps.version.outputs.tag }}"
           git push
 
-      - name: Create Git tag
-        run: |
-          git tag ${{ steps.version.outputs.tag }}
-          git push origin ${{ steps.version.outputs.tag }}
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
