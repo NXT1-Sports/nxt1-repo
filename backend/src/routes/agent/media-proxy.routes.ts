@@ -27,7 +27,9 @@ router.put('/media-proxy/upload/:uploadId', async (req: Request, res: Response) 
     }
 
     if (!contentType.startsWith(record.mimeType)) {
-      res.status(400).json({ success: false, error: 'content-type does not match provisioned upload' });
+      res
+        .status(400)
+        .json({ success: false, error: 'content-type does not match provisioned upload' });
       return;
     }
 

@@ -102,9 +102,7 @@ export class ManageTeamApiClient {
 
     try {
       const url = `${this.baseUrl}/teams/by-id/${encodeURIComponent(teamId)}`;
-      const rawResponse = await firstValueFrom(
-        this.http.get(url, { responseType: 'text' })
-      );
+      const rawResponse = await firstValueFrom(this.http.get(url, { responseType: 'text' }));
       const response = parseApiTextResponse<TeamProfilePageData>(rawResponse);
 
       if (!response.success || !response.data) {

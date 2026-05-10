@@ -116,9 +116,7 @@ export class DeleteTimelinePostTool extends BaseTool {
       const batch = this.db.batch();
       batch.delete(postRef);
 
-      const userPostRef = this.db
-        .collection(`Users/${userId}/Posts`)
-        .doc(postId);
+      const userPostRef = this.db.collection(`Users/${userId}/Posts`).doc(postId);
       batch.delete(userPostRef);
 
       // If this is a repost, decrement the repost counter on the original
@@ -136,10 +134,7 @@ export class DeleteTimelinePostTool extends BaseTool {
       await batch.commit();
 
       // Update Users/{userId}.lastUpdated so profile reloads fresh data
-      await this.db
-        .collection('Users')
-        .doc(userId)
-        .update({ lastUpdated: new Date() });
+      await this.db.collection('Users').doc(userId).update({ lastUpdated: new Date() });
 
       // ── Cache invalidation ─────────────────────────────────────────────
       const cache = getCacheService();

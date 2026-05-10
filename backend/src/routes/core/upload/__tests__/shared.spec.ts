@@ -17,10 +17,7 @@ describe('Cloudflare upload shared helpers', () => {
 
   it('builds playback URLs from a fully qualified Cloudflare Stream host', () => {
     expect(
-      buildCloudflarePlaybackUrls(
-        'video-123',
-        'customer-3so5upzyragnxh5k.cloudflarestream.com'
-      )
+      buildCloudflarePlaybackUrls('video-123', 'customer-3so5upzyragnxh5k.cloudflarestream.com')
     ).toEqual({
       hlsUrl:
         'https://customer-3so5upzyragnxh5k.cloudflarestream.com/video-123/manifest/video.m3u8',
