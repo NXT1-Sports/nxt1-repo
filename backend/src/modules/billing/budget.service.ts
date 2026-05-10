@@ -269,29 +269,28 @@ async function ensureNormalizedBillingOwner(
   }
 
   if (!preferenceSnap.exists) {
-    writes.push(
-      refs.billingPreferenceRef.set(
-        {
-          id: refs.billingPreferenceRef.id,
-          ownerId: target.ownerId,
-          ownerType: target.ownerType,
-          paymentProvider: 'stripe',
-          billingOwnerUid: options?.billingOwnerUid,
-          budgetName: undefined,
-          budgetAlertsEnabled: false,
-          budgetInterval: DEFAULT_BUDGET_INTERVAL,
-          hardStop: true,
-          autoTopUpEnabled: false,
-          autoTopUpThresholdCents: 0,
-          autoTopUpAmountCents: 0,
-          autoTopUpInProgress: false,
-          schemaVersion: 1,
-          createdAt: now,
-          updatedAt: now,
-        },
-        { merge: true }
-      )
-    );
+    const preferenceSeed: Record<string, unknown> = {
+      id: refs.billingPreferenceRef.id,
+      ownerId: target.ownerId,
+      ownerType: target.ownerType,
+      paymentProvider: 'stripe',
+      budgetAlertsEnabled: false,
+      budgetInterval: DEFAULT_BUDGET_INTERVAL,
+      hardStop: true,
+      autoTopUpEnabled: false,
+      autoTopUpThresholdCents: 0,
+      autoTopUpAmountCents: 0,
+      autoTopUpInProgress: false,
+      schemaVersion: 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    if (typeof options?.billingOwnerUid === 'string' && options.billingOwnerUid.length > 0) {
+      preferenceSeed['billingOwnerUid'] = options.billingOwnerUid;
+    }
+
+    writes.push(refs.billingPreferenceRef.set(preferenceSeed, { merge: true }));
   } else if (options?.billingOwnerUid && !preferenceSnap.data()?.['billingOwnerUid']) {
     writes.push(
       refs.billingPreferenceRef.set(

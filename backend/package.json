@@ -27,6 +27,8 @@
     "deploy:staging": "gcloud app deploy --project nxt1-staging",
     "deploy:prod": "gcloud app deploy --project nxt1-production",
     "migrate:mongo:environment": "npx tsx scripts/migrate-mongo-environment.ts",
+    "migrate:legacy-subs-to-usage": "tsx scripts/migration/migrate-legacy-subs-to-usage.ts --target=production",
+    "migrate:legacy-subs-to-usage:dry-run": "tsx scripts/migration/migrate-legacy-subs-to-usage.ts --target=production --dry-run --verbose",
     "migrate:search-indexes": "tsx scripts/migrate-search-indexes.ts",
     "migrate:search-indexes:dry-run": "tsx scripts/migrate-search-indexes.ts --dry-run",
     "worker:stripe": "tsx src/workers/stripe-worker.ts",

@@ -124,6 +124,13 @@ export function createServer(): express.Express {
     })
   );
 
+  // Legacy team profile URLs are intentionally retired from the public web surface.
+  // Use an HTTP redirect so crawlers and social bots update canonical indexing quickly.
+  server.get(/^\/team\/[^/]+\/[^/]+\/?$/, (req: Request, res: Response) => {
+    const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+    res.redirect(308, `/agent-x${query}`);
+  });
+
   // ============================================
   // ANGULAR UNIVERSAL SSR
   // ============================================

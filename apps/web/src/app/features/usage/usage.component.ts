@@ -1,20 +1,15 @@
 /**
- * @fileoverview Usage & Billing Page — Auth-Aware Dual State
+ * @fileoverview Usage & Billing Page — Auth-Gated Dashboard
  * @module @nxt1/web/features/usage
  * @version 3.0.0
  *
  * Root component for the `/usage` route.
- * Implements the professional dual-state pattern (LinkedIn/Strava/GitHub):
- *
- * - **Logged out** → Marketing landing page with feature showcase & dashboard preview
- * - **Logged in** → Actual billing & usage dashboard (web shell)
- *
- * Same URL, different experience. SEO-optimized for both states.
- * SSR-safe with proper meta tags regardless of auth state.
+ * Renders the usage dashboard for authenticated users.
+ * Logged-out users stay on a lightweight loading state while auth resolves.
  *
  * Architecture:
  * - Reads auth state via AUTH_SERVICE injection token (Signal-based)
- * - Landing page content is indexable; dashboard is noindex
+ * - Dashboard content is noindex
  */
 
 import {
@@ -31,7 +26,6 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import {
   UsageShellWebComponent,
   UsageSkeletonComponent,
-  NxtUsageLandingComponent,
   UsageService,
   type UsageSection,
 } from '@nxt1/ui/usage';
@@ -41,7 +35,7 @@ import { SeoService } from '../../core/services';
 @Component({
   selector: 'app-usage',
   standalone: true,
-  imports: [UsageShellWebComponent, UsageSkeletonComponent, NxtUsageLandingComponent],
+  imports: [UsageShellWebComponent, UsageSkeletonComponent],
   template: `
     <!-- Loading: Auth state initializing -->
     @if (isAuthLoading()) {
@@ -53,9 +47,9 @@ import { SeoService } from '../../core/services';
       <nxt1-usage-shell-web />
     }
 
-    <!-- Unauthenticated: Show marketing landing page -->
+    <!-- Unauthenticated: keep a lightweight state (landing removed) -->
     @else {
-      <nxt1-usage-landing />
+      <nxt1-usage-skeleton />
     }
   `,
   styles: [
@@ -109,27 +103,11 @@ export class UsageComponent implements OnInit {
         }
       });
 
-    if (this.isAuthenticated()) {
-      this.seo.updatePage({
-        title: 'Billing & Usage',
-        description: 'Manage your billing, usage, and payment details for your NXT1 account.',
-        keywords: ['billing', 'usage', 'payments', 'subscriptions', 'invoices'],
-        noIndex: true,
-      });
-    } else {
-      this.seo.updatePage({
-        title: 'Billing & Usage — Transparent Pricing, Zero Surprises | NXT1',
-        description:
-          'Track usage, manage subscriptions, set spending budgets, and download receipts. Clear, honest billing for athletes, coaches, and programs on NXT1.',
-        keywords: [
-          'sports billing',
-          'usage tracking',
-          'subscription management',
-          'payment history',
-          'spending budgets',
-          'NXT1 pricing',
-        ],
-      });
-    }
+    this.seo.updatePage({
+      title: 'Billing & Usage',
+      description: 'Manage your billing, usage, and payment details for your NXT1 account.',
+      keywords: ['billing', 'usage', 'payments', 'subscriptions', 'invoices'],
+      noIndex: true,
+    });
   }
 }

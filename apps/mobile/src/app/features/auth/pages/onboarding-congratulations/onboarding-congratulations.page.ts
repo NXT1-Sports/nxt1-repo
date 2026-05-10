@@ -62,7 +62,7 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
 
 // Core Constants
 import { AUTH_REDIRECTS } from '@nxt1/core/constants';
-import { getWelcomeSlidesForRole, type OnboardingUserType } from '@nxt1/core/api';
+import { getWelcomeSlidesForRole, type OnboardingUserType } from '@nxt1/core';
 import type { AgentGoal, AgentDashboardGoal } from '@nxt1/core';
 
 // App Services
@@ -98,6 +98,8 @@ import { FcmRegistrationService } from '../../../../core/services/native/fcm-reg
             #welcomeSlides
             [userRole]="userRole()"
             [firstName]="firstName()"
+            [isLegacy]="isLegacy()"
+            [isMigratedPaidLegacy]="isMigratedPaidLegacy()"
             [showNavigationButtons]="false"
             [showDotNavigation]="false"
             (complete)="onComplete()"
@@ -194,10 +196,33 @@ export class OnboardingCongratulationsPage implements OnInit {
     return user?.displayName?.split(' ')[0] || null;
   });
 
-  /** Total slides for current role */
+  /** Whether this is a legacy user (triggers 5-slide rebrand flow) */
+  readonly isLegacy = computed(() => {
+    const user = this.authFlow.user();
+    return !!user?._legacyId && !user?.legacyOnboardingCompleted;
+  });
+
+  /** Legacy user that was migrated from paid subscription to wallet usage. */
+  readonly isMigratedPaidLegacy = computed(() => {
+    const user = this.authFlow.user() as {
+      readonly migrationStatus?: string;
+      readonly legacyBillingSource?: string;
+      readonly migrationGrantAmountCents?: number;
+    } | null;
+
+    const migrated = user?.migrationStatus === 'completed';
+    const fromSubscription = user?.legacyBillingSource === 'subscription';
+    const hasGrant =
+      typeof user?.migrationGrantAmountCents === 'number' && user.migrationGrantAmountCents > 0;
+
+    return this.isLegacy() && migrated && fromSubscription && hasGrant;
+  });
+
+  /** Total slides for current role (3 for new users, 5 for legacy) */
   readonly totalSlides = computed(() => {
     const role = this.userRole() ?? 'athlete';
-    return getWelcomeSlidesForRole(role).slides.length;
+    return getWelcomeSlidesForRole(role, this.isLegacy(), this.isMigratedPaidLegacy()).slides
+      .length;
   });
 
   /** Last slide state for footer button label/behavior */
@@ -214,7 +239,11 @@ export class OnboardingCongratulationsPage implements OnInit {
   /** Check if current slide is a goals slide */
   readonly isGoalsSlide = computed(() => {
     const role = this.userRole() ?? 'athlete';
-    const slides = getWelcomeSlidesForRole(role).slides;
+    const slides = getWelcomeSlidesForRole(
+      role,
+      this.isLegacy(),
+      this.isMigratedPaidLegacy()
+    ).slides;
     const currentSlide = slides[this.currentSlideIndex()];
     return currentSlide?.type === 'goals';
   });
@@ -278,7 +307,9 @@ export class OnboardingCongratulationsPage implements OnInit {
       slideId: event.slideId,
     });
 
-    if (event.index === this.totalSlides() - 1) {
+    // Prepare agent state on the second-to-last slide (works for both 3 and 5 slide flows)
+    const prepSlideIndex = Math.max(0, this.totalSlides() - 2);
+    if (event.index === prepSlideIndex) {
       void this.prepareInitialAgentStateIfNeeded();
     }
   }

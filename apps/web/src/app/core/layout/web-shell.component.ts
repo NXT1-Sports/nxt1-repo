@@ -117,6 +117,7 @@ import type { TopNavSearchSubmitEvent } from '@nxt1/ui/components/top-nav';
 // ── Usage (for mobile billing actions) ──
 import { UsageService, UsageHelpContentComponent } from '@nxt1/ui/usage';
 import { AgentXControlPanelComponent } from '@nxt1/ui/agent-x';
+import { ManageTeamModalService } from '@nxt1/ui/manage-team';
 
 // ── Invite ──
 import { InviteShellComponent } from '@nxt1/ui/invite';
@@ -254,71 +255,24 @@ const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
 
 /**
  * Desktop header navigation items — logged-out only.
- * Shows Athletes, Programs, and Sports dropdowns in the top bar.
+ * Simple navigation: Agent X and Programs (no dropdowns, no icons).
  * When logged in, the header only shows: Search, Notifications, User Menu.
  */
 const LOGGED_OUT_HEADER_NAV_ITEMS: TopNavItem[] = [
   {
+    id: 'nav-agent-x',
+    label: 'Agent X',
+    route: '/agent-x',
+  },
+  {
     id: 'nav-programs',
     label: 'Programs',
-    icon: 'users',
-    children: [
-      { id: 'team-platform', label: 'Team Platform', icon: 'users', route: '/team-platform' },
-      { id: 'team-ai', label: 'AI For Coaches', icon: 'agent-x', route: '/ai-coaches' },
-      { id: 'team-admin', label: 'Administration', icon: 'clipboard', route: '/team-admin' },
-      { id: 'team-content', label: 'Content Creation', icon: 'videocam', route: '/team-content' },
-      { id: 'team-website', label: 'Team Website', icon: 'link', route: '/team-website' },
-      { id: 'team-management', label: 'Management', icon: 'settings', route: '/team-management' },
-      {
-        id: 'team-recruiting',
-        label: 'Discovery',
-        icon: 'graduationCap',
-        route: '/team-recruiting',
-      },
-    ],
-  },
-  {
-    id: 'nav-athletes',
-    label: 'Athletes',
-    icon: 'athlete',
-    children: [
-      { id: 'athlete-platform', label: 'Athlete Platform', icon: 'athlete', route: '/athletes' },
-      { id: 'athlete-profiles', label: 'Super Profile', icon: 'link', route: '/super-profiles' },
-      { id: 'athlete-ai', label: 'AI for Athletes', icon: 'agent-x', route: '/ai-athletes' },
-      {
-        id: 'athlete-recruiting',
-        label: 'Discovery',
-        icon: 'graduationCap',
-        route: '/recruiting-athletes',
-      },
-      {
-        id: 'athlete-content',
-        label: 'Content Creation',
-        icon: 'videocam',
-        route: '/content-creation-athletes',
-      },
-      {
-        id: 'athlete-media',
-        label: 'Media & Coverage',
-        icon: 'newspaper',
-        route: '/media-coverage',
-      },
-      { id: 'athlete-nil', label: 'NIL', icon: 'creditCard', route: '/nil' },
-    ],
-  },
-  {
-    id: 'nav-sports',
-    label: 'Sports',
-    icon: 'trophy',
-    children: SPORT_CHILD_ITEMS.map((sport) => ({
-      id: sport.id,
-      label: sport.label,
-      icon: sport.icon,
-      route: sport.route,
-    })),
+    route: '/programs',
   },
 ];
 
+// Mobile sidebar items derive from LOGGED_OUT_HEADER_NAV_ITEMS
+// Since header nav is now simple (no dropdowns, no icons), mobile sidebar uses same items
 const LOGGED_OUT_MOBILE_SIDEBAR_ITEMS: readonly DesktopSidebarItem[] =
   LOGGED_OUT_HEADER_NAV_ITEMS.map((item) => ({
     id: item.id,
@@ -327,15 +281,6 @@ const LOGGED_OUT_MOBILE_SIDEBAR_ITEMS: readonly DesktopSidebarItem[] =
     route: item.route,
     href: item.href,
     ariaLabel: item.ariaLabel,
-    children: item.children?.map((child) => ({
-      id: child.id,
-      label: child.label,
-      icon: child.icon ?? 'link',
-      route: child.route,
-      href: child.href,
-      ariaLabel: child.ariaLabel,
-      disabled: child.disabled,
-    })),
     disabled: item.disabled,
   }));
 
@@ -392,16 +337,18 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
         so no risk of hydration mismatch
     -->
     <div class="shell">
-      <!-- DESKTOP: Fixed Sidebar — CSS-hidden below 768px -->
-      <nxt1-desktop-sidebar
-        [sections]="sidebarSections()"
-        [user]="sidebarUserData()"
-        [config]="sidebarConfig()"
-        (itemSelect)="onSidebarItemSelect($event)"
-        (userClick)="onSidebarUserClick($event)"
-        (logoClick)="onLogoClick()"
-        (collapseChange)="onSidebarCollapseChange($event)"
-      />
+      <!-- DESKTOP: Fixed Sidebar — authenticated users only; CSS-hidden below 768px -->
+      @if (showDesktopSidebar()) {
+        <nxt1-desktop-sidebar
+          [sections]="sidebarSections()"
+          [user]="sidebarUserData()"
+          [config]="sidebarConfig()"
+          (itemSelect)="onSidebarItemSelect($event)"
+          (userClick)="onSidebarUserClick($event)"
+          (logoClick)="onLogoClick()"
+          (collapseChange)="onSidebarCollapseChange($event)"
+        />
+      }
 
       <!-- MOBILE: Top Header Bar — CSS-hidden at 768px+ -->
       <nxt1-mobile-header
@@ -714,6 +661,7 @@ export class WebShellComponent {
   private readonly scrollService = inject(NxtScrollService);
   private readonly badgeCount = inject(BadgeCountService);
   private readonly profileActions = inject(ProfilePageActionsService);
+  private readonly manageTeamModal = inject(ManageTeamModalService);
   private readonly profileService = inject(ProfileService);
   private readonly inviteOverlay = inject(NxtOverlayService);
   private readonly notificationState = inject(NxtNotificationStateService);
@@ -817,7 +765,7 @@ export class WebShellComponent {
   readonly headerConfig = computed<TopNavConfig>(() => {
     return createTopNavConfig({
       variant: 'default',
-      showLogo: false, // Sidebar has logo
+      showLogo: !this.showDesktopSidebar(),
       showSearch: false,
       showNotifications: true,
       notificationCount: this.badgeCount.totalUnread(),
@@ -893,20 +841,9 @@ export class WebShellComponent {
       return;
     }
 
-    if (route && route !== '/profile') {
-      await this.router.navigateByUrl(route);
-      return;
-    }
-
-    await this.authFlow.refreshUserProfile();
-    const refreshedRoute = this._userDisplayContext()?.profileRoute;
-
-    if (refreshedRoute && refreshedRoute !== '/profile') {
-      await this.router.navigateByUrl(refreshedRoute);
-      return;
-    }
-
-    this.logger.warn('Team route unavailable for coach/director avatar navigation');
+    const activeSportIndex = this.authFlow.user()?.activeSportIndex ?? 0;
+    const teamId = this.resolveTeamIdForSportIndex(activeSportIndex);
+    await this.manageTeamModal.open({ teamId: teamId ?? undefined });
   }
 
   private async switchOwnSportProfile(profile: SidenavSportProfile): Promise<void> {
@@ -942,6 +879,11 @@ export class WebShellComponent {
     if (this._currentRoute() === '/profile') {
       await this.profileService.setActiveSportIndex(sportIndex);
       await this.authFlow.refreshUserProfile();
+
+      if (this._userDisplayContext()?.isTeamRole) {
+        const teamId = this.resolveTeamIdForSportIndex(sportIndex);
+        await this.manageTeamModal.open({ teamId: teamId ?? undefined });
+      }
       return;
     }
 
@@ -966,6 +908,12 @@ export class WebShellComponent {
     // sport label, and avatar immediately reflect the newly selected sport —
     // no wait for refreshUserProfile() to round-trip from the backend.
     this.authFlow.patchUser({ activeSportIndex: sportIndex });
+
+    if (this._userDisplayContext()?.isTeamRole) {
+      const teamId = this.resolveTeamIdForSportIndex(sportIndex);
+      await this.manageTeamModal.open({ teamId: teamId ?? undefined });
+      return;
+    }
 
     if (targetRoute) {
       await this.router.navigateByUrl(targetRoute);
@@ -1017,6 +965,23 @@ export class WebShellComponent {
     return resolved?.path ?? null;
   }
 
+  private resolveTeamIdForSportIndex(sportIndex: number): string | null {
+    const user = this.authFlow.user() as unknown as {
+      readonly sports?: ReadonlyArray<{
+        readonly team?: {
+          readonly teamId?: string;
+          readonly id?: string;
+          readonly organizationId?: string;
+        };
+      }> | null;
+    } | null;
+
+    const team = user?.sports?.[sportIndex]?.team;
+    if (!team) return null;
+
+    return team.teamId?.trim() || team.organizationId?.trim() || team.id?.trim() || null;
+  }
+
   /** Mobile footer configuration */
   readonly footerConfig = computed<FooterConfig>(() =>
     createFooterConfig({
@@ -1028,8 +993,15 @@ export class WebShellComponent {
   // MOBILE HEADER CONFIGURATION (YouTube-style top bar)
   // ============================================
 
-  /** Only /agent-x gets a hamburger on mobile — all other top-level pages have no left icon */
-  private readonly _showMobileMenu = computed(() => this._currentRoute().startsWith('/agent-x'));
+  /**
+   * Mobile hamburger visibility.
+   * - Logged out: always show hamburger so users can access drawer nav from any page.
+   * - Logged in: keep current behavior (hamburger on /agent-x, back arrow elsewhere).
+   */
+  private readonly _showMobileMenu = computed(() => {
+    if (!this.isAuthenticated()) return true;
+    return this._currentRoute().startsWith('/agent-x');
+  });
 
   /** Whether the current route should show a back arrow.
    * All authenticated non-agent routes get a back arrow — /agent-x uses the hamburger. */
@@ -1154,9 +1126,8 @@ export class WebShellComponent {
   // ============================================
 
   /**
-   * Mobile sidebar sections — auth-aware. The 4 utility items (Invite Team,
-   * Usage, Help Center, Settings) are placed in a dedicated single-row grid
-   * section so they render as compact icon+label tiles instead of full-width rows.
+   * Mobile sidebar sections — auth-aware. Utility items are shown in a
+   * dedicated single-row grid for authenticated users only.
    */
   readonly mobileSidebarSections = computed(() => {
     const isAuthenticated = this.authFlow.isAuthenticated();
@@ -1168,7 +1139,7 @@ export class WebShellComponent {
           ...s,
           items: [
             // Agent X and Explore are in the mobile footer.
-            // Invite Team, Usage, Help Center, Settings go into the grid section below.
+            // Invite Team / Usage / Help / Settings are handled in quick actions below.
             ...s.items.filter(
               (item) => item.id !== 'agent' && item.id !== 'explore' && item.id !== 'invite-team'
             ),
@@ -1177,31 +1148,33 @@ export class WebShellComponent {
         };
       });
 
-    // Quick-action grid — Invite Team (auth only), Usage, Help Center, Settings
-    const quickActionItems: DesktopSidebarItem[] = [
-      ...(isAuthenticated
-        ? [
-            {
-              id: 'invite-team',
-              label: 'Invite',
-              icon: 'plusCircle',
-              action: 'invite-team' as const,
-            },
-          ]
-        : []),
-      { id: 'usage', label: 'Usage', icon: 'creditCard', route: '/usage' },
-      { id: 'help-center', label: 'Help', icon: 'help', route: '/help-center' },
-      { id: 'settings', label: 'Settings', icon: 'settings', route: '/settings' },
-    ];
+    // Quick-action grid — authenticated users only
+    const quickActionItems: DesktopSidebarItem[] = isAuthenticated
+      ? [
+          {
+            id: 'invite-team',
+            label: 'Invite',
+            icon: 'plusCircle',
+            action: 'invite-team' as const,
+          },
+          { id: 'usage', label: 'Usage', icon: 'creditCard', route: '/usage' },
+          { id: 'help-center', label: 'Help', icon: 'help', route: '/help-center' },
+          { id: 'settings', label: 'Settings', icon: 'settings', route: '/settings' },
+        ]
+      : [];
 
     // Follow Us — always shown for all users, matching native mobile app sidenav
     return [
       ...baseSections,
-      {
-        id: 'quick-actions',
-        layout: 'grid' as const,
-        items: quickActionItems,
-      },
+      ...(quickActionItems.length > 0
+        ? [
+            {
+              id: 'quick-actions',
+              layout: 'grid' as const,
+              items: quickActionItems,
+            },
+          ]
+        : []),
       {
         id: 'follow-us',
         label: 'Follow Us',
@@ -1254,6 +1227,9 @@ export class WebShellComponent {
 
   /** Auth state for shell-level UI controls (header, footer, guards). */
   readonly isAuthenticated = computed(() => this.authFlow.isAuthenticated());
+
+  /** Desktop/tablet sidebar is only visible for authenticated users. */
+  readonly showDesktopSidebar = computed(() => this.isAuthenticated());
 
   /**
    * Show mobile footer when authenticated.

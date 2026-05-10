@@ -19,6 +19,7 @@ import { CollegeModel } from '../../models/core/college.model.js';
 import { getHelpArticleModel } from '../../models/help-center/help-article.model.js';
 import { HELP_CATEGORIES } from '@nxt1/core';
 import mongoose from 'mongoose';
+import { isTeamProfilesEnabled } from '../../config/feature-flags.js';
 
 const router: ExpressRouter = Router();
 
@@ -158,42 +159,44 @@ router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> =>
     // ──────────────────────────────────────────
     // 3. Team profiles (from Firestore)
     // ──────────────────────────────────────────
-    try {
-      const teamsSnapshot = await db
-        .collection('Teams')
-        .where('isActive', '==', true)
-        .select('slug', 'teamCode', 'updatedAt')
-        .limit(5000)
-        .get();
+    if (isTeamProfilesEnabled()) {
+      try {
+        const teamsSnapshot = await db
+          .collection('Teams')
+          .where('isActive', '==', true)
+          .select('slug', 'teamCode', 'updatedAt')
+          .limit(5000)
+          .get();
 
-      logger.info(`[${requestId}] Found ${teamsSnapshot.size} teams`);
+        logger.info(`[${requestId}] Found ${teamsSnapshot.size} teams`);
 
-      teamsSnapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
-        const data = doc.data();
-        const slug = data['slug'] as string | undefined;
-        const teamCode = data['teamCode'] as string | undefined;
-        if (!slug || !teamCode) return; // Skip teams without a slug or teamCode
+        teamsSnapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
+          const data = doc.data();
+          const slug = data['slug'] as string | undefined;
+          const teamCode = data['teamCode'] as string | undefined;
+          if (!slug || !teamCode) return; // Skip teams without a slug or teamCode
 
-        const updatedAt = data['updatedAt'];
-        let lastmod: string | undefined;
-        if (updatedAt) {
-          if (updatedAt.toDate) {
-            lastmod = updatedAt.toDate().toISOString().split('T')[0];
-          } else if (typeof updatedAt === 'string') {
-            lastmod = new Date(updatedAt).toISOString().split('T')[0];
+          const updatedAt = data['updatedAt'];
+          let lastmod: string | undefined;
+          if (updatedAt) {
+            if (updatedAt.toDate) {
+              lastmod = updatedAt.toDate().toISOString().split('T')[0];
+            } else if (typeof updatedAt === 'string') {
+              lastmod = new Date(updatedAt).toISOString().split('T')[0];
+            }
           }
-        }
 
-        // Use canonical /team/{slug}/{teamCode} path
-        entries.push({
-          loc: `${baseUrl}/team/${slug}/${teamCode}`,
-          lastmod,
-          changefreq: 'weekly',
-          priority: 0.7,
+          // Use canonical /team/{slug}/{teamCode} path
+          entries.push({
+            loc: `${baseUrl}/team/${slug}/${teamCode}`,
+            lastmod,
+            changefreq: 'weekly',
+            priority: 0.7,
+          });
         });
-      });
-    } catch (error) {
-      logger.error(`[${requestId}] Error fetching teams`, { error });
+      } catch (error) {
+        logger.error(`[${requestId}] Error fetching teams`, { error });
+      }
     }
 
     // ──────────────────────────────────────────

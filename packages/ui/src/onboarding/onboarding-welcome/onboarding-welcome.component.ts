@@ -959,6 +959,12 @@ export class OnboardingWelcomeComponent implements OnInit, OnDestroy {
   /** User's first name for personalized greeting */
   @Input() firstName: string | null = null;
 
+  /** True if this is a legacy user (triggers 5-slide rebrand flow) */
+  @Input() isLegacy = false;
+
+  /** True when a legacy user was migrated from paid subscription to wallet usage. */
+  @Input() isMigratedPaidLegacy = false;
+
   /** Show internal Skip/Next/CTA buttons (set false when external footer controls are used) */
   @Input() showNavigationButtons = true;
 
@@ -1010,9 +1016,9 @@ export class OnboardingWelcomeComponent implements OnInit, OnDestroy {
   // COMPUTED
   // ============================================
 
-  /** Slides config for current role */
+  /** Slides config for current role (3 slides for new users, 5 for legacy) */
   readonly slidesConfig = computed<WelcomeSlidesConfig>(() => {
-    return getWelcomeSlidesForRole(this.userRole);
+    return getWelcomeSlidesForRole(this.userRole, this.isLegacy, this.isMigratedPaidLegacy);
   });
 
   /** Slides for current role */

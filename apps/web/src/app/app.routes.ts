@@ -75,11 +75,10 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./core/layout/web-shell.component').then((m) => m.WebShellComponent),
     children: [
-      // Default route → Agent X (AI-first landing)
+      // Default route → Marketing landing page
       {
         path: '',
-        pathMatch: 'full',
-        redirectTo: 'agent-x',
+        loadChildren: () => import('./marketing/landing/landing.routes'),
       },
 
       // Agent X - AI Assistant (canonical route)
@@ -137,102 +136,23 @@ export const routes: Routes = [
         loadChildren: () => import('./features/pulse/pulse.routes').then((m) => m.PULSE_ROUTES),
       },
 
-      // NIL - NIL & Monetization campaign page
-      {
-        path: 'nil',
-        loadChildren: () => import('./marketing/nil/nil.routes'),
-      },
+      // ============================================
+      // MARKETING PAGES (MVP Only)
+      // ============================================
+      // For archived/disabled routes, see app.routes.marketing.archived.ts
+      // To re-enable any marketing routes, copy from the archived file.
 
-      // Team Profile - Public Team Pages (strict canonical route)
-      // Canonical URL: /team/:slug/:teamCode (e.g. /team/akron-buchtel/57L791)
+      // Programs - Organizations & Team Platform
       {
-        path: 'team/:slug/:teamCode',
-        canMatch: [rejectFileExtensionSlugs],
-        loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
-      },
-
-      // Team Platform - Programs/Organizations Page
-      {
-        path: 'team-platform',
+        path: 'programs',
         loadChildren: () => import('./marketing/team-platform/team-platform.routes'),
       },
 
-      // Super Profiles - Interactive Profile Breakdown + Athlete Landing
+      // Legacy route for backwards compatibility
       {
-        path: 'super-profiles',
-        loadChildren: () => import('./marketing/super-profiles/super-profiles.routes'),
-      },
-
-      // ---- Persona-Specific Marketing Pages ----
-
-      // Athletes - Student-Athlete Intelligence & Discovery
-      {
-        path: 'athletes',
-        loadChildren: () => import('./marketing/athletes/athletes.routes'),
-      },
-
-      // Recruiting Athletes - Recruiting Radar & Signals
-      {
-        path: 'recruiting-athletes',
-        loadChildren: () => import('./marketing/recruiting-athletes/recruiting-athletes.routes'),
-      },
-
-      // Content Creation for Athletes
-      {
-        path: 'content-creation-athletes',
-        loadChildren: () =>
-          import('./marketing/content-creation-athletes/content-creation-athletes.routes'),
-      },
-
-      // Media & Coverage for Athletes
-      {
-        path: 'media-coverage',
-        loadChildren: () => import('./marketing/media-coverage/media-coverage.routes'),
-      },
-
-      // AI for Athletes - Intelligent Outreach & Profile Distribution
-      {
-        path: 'ai-athletes',
-        loadChildren: () => import('./marketing/ai-athletes/ai-athletes.routes'),
-      },
-
-      // College Coaches - Prospect Discovery & Management Tools (canonical)
-      {
-        path: 'college-coaches',
-        loadChildren: () => import('./marketing/coaches/coaches.routes'),
-      },
-
-      // Legacy alias
-      {
-        path: 'coaches',
+        path: 'team-platform',
         pathMatch: 'full',
-        redirectTo: 'college-coaches',
-      },
-
-      // Parents - Family Recruiting Dashboard
-      {
-        path: 'parents',
-        loadChildren: () => import('./marketing/parents/parents.routes'),
-      },
-
-      // Scouts - Scouting & Evaluation Tools
-      {
-        path: 'scouts',
-        loadChildren: () => import('./marketing/scouts/scouts.routes'),
-      },
-
-      // ---- Sport-Vertical Marketing Pages ----
-      // Single component, config-driven: /football, /basketball, etc.
-
-      {
-        path: 'football',
-        data: { sport: 'football' },
-        loadChildren: () => import('./marketing/sport-landing/sport-landing.routes'),
-      },
-      {
-        path: 'basketball',
-        data: { sport: 'basketball' },
-        loadChildren: () => import('./marketing/sport-landing/sport-landing.routes'),
+        redirectTo: 'programs',
       },
 
       // ---- Legal Pages (inside shell for consistent layout) ----

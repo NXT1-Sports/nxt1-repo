@@ -7,19 +7,20 @@
 
 ## Overview
 
-This pipeline consists of 6 phases plus shared utilities. Every script is
+This pipeline consists of 7 phases plus shared utilities. Every script is
 idempotent (`set({ merge: true })`), supports `--dry-run`, and writes detailed
 JSON reports to `backend/reports/migration/`.
 
-| Phase | Script                          | Purpose                                              |
-| ----- | ------------------------------- | ---------------------------------------------------- |
-| Utils | `migration-utils.ts`            | Shared helpers, CLI parsing, batch writer, logging   |
-| 1     | `analyze-legacy-users.ts`       | Read-only recon of legacy `Users` collection         |
-| 2     | `migrate-users-to-v2.ts`        | Core user document migration (14 mapping categories) |
-| 3     | `migrate-user-content-to-v2.ts` | Recruiting, roster, posts, stats                     |
-| 4     | `validate-user-migration.ts`    | Dual-read comparison validation                      |
-| 5     | `migrate-teamcodes-to-v2.ts`    | TeamCodes → Organizations + Teams + Roster + Billing |
-| 6     | `migrate-storage-to-v2.ts`      | Firebase Storage bucket copy + URL rewriting         |
+| Phase | Script                            | Purpose                                                                |
+| ----- | --------------------------------- | ---------------------------------------------------------------------- |
+| Utils | `migration-utils.ts`              | Shared helpers, CLI parsing, batch writer, logging                     |
+| 1     | `analyze-legacy-users.ts`         | Read-only recon of legacy `Users` collection                           |
+| 2     | `migrate-users-to-v2.ts`          | Core user document migration (14 mapping categories)                   |
+| 3     | `migrate-user-content-to-v2.ts`   | Recruiting, roster, posts, stats                                       |
+| 4     | `validate-user-migration.ts`      | Dual-read comparison validation                                        |
+| 5     | `migrate-teamcodes-to-v2.ts`      | TeamCodes → Organizations + Teams + Roster + Billing                   |
+| 6     | `migrate-storage-to-v2.ts`        | Firebase Storage bucket copy + URL rewriting                           |
+| 7     | `migrate-legacy-subs-to-usage.ts` | Convert active legacy subscriptions into one-time usage wallet credits |
 
 ---
 
@@ -56,8 +57,8 @@ No special indexes required — all queries use `orderBy('createdAt', 'asc')` or
 ## Execution Order
 
 ```
-Phase 1  →  Phase 5  →  Phase 2  →  Phase 3  →  Phase 4  →  Phase 6
-(analyze)   (teams)     (users)     (content)   (validate)  (storage)
+Phase 1  →  Phase 5  →  Phase 2  →  Phase 3  →  Phase 4  →  Phase 6  →  Phase 7
+(analyze)   (teams)     (users)     (content)   (validate)  (storage)   (billing cutover)
 ```
 
 **Why this order?**
@@ -71,6 +72,9 @@ Phase 1  →  Phase 5  →  Phase 2  →  Phase 3  →  Phase 4  →  Phase 6
 5. **Phase 4** validates everything by comparing legacy ↔ V3 field-by-field.
 6. **Phase 6** copies storage files and rewrites URLs in the now-populated V3
    docs.
+7. **Phase 7** converts active legacy subscribers to one-time wallet credits,
+   records migration metadata, and optionally marks legacy subscriptions as
+   `cancel_at_period_end`.
 
 ---
 
@@ -233,6 +237,45 @@ npx tsx scripts/migration/migrate-storage-to-v2.ts --mode=rewrite --target=stagi
 
 **Reports:**
 `backend/reports/migration/storage-{analysis|copy|rewrite}-YYYY-MM-DD.json`
+
+### Phase 7 — Migrate Legacy Subscribers To Usage Wallet Credits
+
+```bash
+# Always start with dry run
+npx tsx scripts/migration/migrate-legacy-subs-to-usage.ts --target=production --dry-run --verbose
+
+# Execute migration (one-time grant only)
+npx tsx scripts/migration/migrate-legacy-subs-to-usage.ts --target=production
+
+# Execute migration + mark legacy subscriptions to auto-end at period end
+npx tsx scripts/migration/migrate-legacy-subs-to-usage.ts --target=production --cancel-at-period-end
+```
+
+**What it does:**
+
+- Reads active legacy Stripe subscriptions.
+- Maps subscriptions to V2 users by email.
+- Grants one-time wallet credits via `addWalletTopUp()`.
+- Enforces opt-in auto top-up policy (`autoTopUpEnabled=false`).
+- Writes idempotent audit records to `BillingMigrations`.
+- Optionally sets legacy Stripe subscriptions to `cancel_at_period_end`.
+
+**Important flags:**
+
+- `--dry-run`: report only, no writes.
+- `--cancel-at-period-end`: sets legacy subscriptions to auto-end.
+- `--create-missing-auth-users`: creates missing Firebase Auth users by email.
+- `--grant-aggregation=max|sum`: how to aggregate grants when a user has
+  multiple active subscriptions (default: `max`).
+- `--plan-map-json='{"price_x":1200}'`: explicit legacy price→grant map in
+  cents.
+- `--strict-plan-map=true|false`: when true (default), fails fast if any active
+  legacy `priceId` is not mapped.
+- `--grant-multiplier=1.0`: fallback multiplier when price map is absent.
+- `--grant-cap-cents=10000`: max grant cap per user.
+
+**Report:**
+`backend/reports/migration/legacy-subscriptions-to-usage-YYYY-MM-DD.json`
 
 ---
 

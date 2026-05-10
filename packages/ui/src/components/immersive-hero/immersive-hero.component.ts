@@ -24,34 +24,104 @@ export interface ImmersiveHeroShot {
   standalone: true,
   imports: [CommonModule, NxtCtaButtonComponent, NxtHeaderCardComponent],
   template: `
-    <nxt1-header-card [title]="headline()" titleId="immersive-hook-title">
-      <div nxtHeaderBackground class="hook__background" [class.hook--loaded]="loaded()">
-        <!-- Animated gradient mesh blobs -->
-        <div class="hook__mesh">
-          <div class="hook__blob hook__blob--1"></div>
-          <div class="hook__blob hook__blob--2"></div>
-          <div class="hook__blob hook__blob--3"></div>
-          <div class="hook__blob hook__blob--4"></div>
+    @if (variant() === 'sleek') {
+      <!-- SLEEK FULL-WIDTH VARIANT: Sports Intelligence Style -->
+      <div class="hero-sleek" [class.hero-sleek--loaded]="loaded()">
+        <div class="hero-sleek__background">
+          <!-- Animated grid network for sports data vibe -->
+          <svg class="hero-sleek__grid" viewBox="0 0 1200 800" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="grid-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop
+                  offset="0%"
+                  style="stop-color: var(--nxt1-color-primary); stop-opacity: 0.1"
+                />
+                <stop
+                  offset="50%"
+                  style="stop-color: var(--nxt1-color-secondary); stop-opacity: 0.05"
+                />
+                <stop
+                  offset="100%"
+                  style="stop-color: var(--nxt1-color-primary); stop-opacity: 0"
+                />
+              </linearGradient>
+            </defs>
+            <!-- Horizontal grid lines -->
+            <line x1="0" y1="200" x2="1200" y2="200" class="grid-line" />
+            <line x1="0" y1="400" x2="1200" y2="400" class="grid-line" />
+            <line x1="0" y1="600" x2="1200" y2="600" class="grid-line" />
+            <!-- Vertical grid lines -->
+            <line x1="300" y1="0" x2="300" y2="800" class="grid-line" />
+            <line x1="600" y1="0" x2="600" y2="800" class="grid-line" />
+            <line x1="900" y1="0" x2="900" y2="800" class="grid-line" />
+            <!-- Accent diagonal lines for data flow -->
+            <line x1="0" y1="0" x2="1200" y2="800" class="grid-line grid-line--accent" />
+            <line x1="1200" y1="0" x2="0" y2="800" class="grid-line grid-line--accent" />
+          </svg>
+
+          <!-- Gradient blobs (subtle backdrop) -->
+          <div class="hero-sleek__blob hero-sleek__blob--1"></div>
+          <div class="hero-sleek__blob hero-sleek__blob--2"></div>
+
+          <!-- Animated data particles -->
+          <div class="hero-sleek__particles">
+            <div class="particle" style="--particle-delay: 0s"></div>
+            <div class="particle" style="--particle-delay: 0.2s"></div>
+            <div class="particle" style="--particle-delay: 0.4s"></div>
+            <div class="particle" style="--particle-delay: 0.6s"></div>
+            <div class="particle" style="--particle-delay: 0.8s"></div>
+            <div class="particle" style="--particle-delay: 1s"></div>
+          </div>
+
+          <!-- Scrim for readability -->
+          <div class="hero-sleek__scrim"></div>
         </div>
 
-        <!-- Fine grain texture for depth -->
-        <div class="hook__grain"></div>
+        <div class="hero-sleek__content">
+          <h1 id="sleek-hero-title" class="hero-sleek__title">{{ headline() }}</h1>
+          <p class="hero-sleek__subtitle">{{ subhead() }}</p>
 
-        <!-- Soft readability scrim -->
-        <div class="hook__scrim"></div>
+          <div class="hero-sleek__actions">
+            <nxt1-cta-button label="Get Started" route="/auth" variant="primary" />
+            <nxt1-cta-button label="Explore Platform" variant="ghost" (clicked)="openReel()" />
+          </div>
+
+          <p class="hero-sleek__proof" role="status" aria-live="polite">
+            🔥 412 athletes signed offers today.
+          </p>
+        </div>
       </div>
+    } @else {
+      <!-- DEFAULT VARIANT (existing) -->
+      <nxt1-header-card [title]="headline()" titleId="immersive-hook-title">
+        <div nxtHeaderBackground class="hook__background" [class.hook--loaded]="loaded()">
+          <!-- Animated gradient mesh blobs -->
+          <div class="hook__mesh">
+            <div class="hook__blob hook__blob--1"></div>
+            <div class="hook__blob hook__blob--2"></div>
+            <div class="hook__blob hook__blob--3"></div>
+            <div class="hook__blob hook__blob--4"></div>
+          </div>
 
-      <p nxtHeaderSubtitle class="hook__subtitle">{{ subhead() }}</p>
+          <!-- Fine grain texture for depth -->
+          <div class="hook__grain"></div>
 
-      <div nxtHeaderActions class="hook__actions">
-        <nxt1-cta-button label="Get Started" route="/auth" variant="primary" />
-        <nxt1-cta-button label="Explore Platform" variant="ghost" (clicked)="openReel()" />
-      </div>
+          <!-- Soft readability scrim -->
+          <div class="hook__scrim"></div>
+        </div>
 
-      <p nxtHeaderFooter class="hook__proof" role="status" aria-live="polite">
-        🔥 412 athletes signed offers today.
-      </p>
-    </nxt1-header-card>
+        <p nxtHeaderSubtitle class="hook__subtitle">{{ subhead() }}</p>
+
+        <div nxtHeaderActions class="hook__actions">
+          <nxt1-cta-button label="Get Started" route="/auth" variant="primary" />
+          <nxt1-cta-button label="Explore Platform" variant="ghost" (clicked)="openReel()" />
+        </div>
+
+        <p nxtHeaderFooter class="hook__proof" role="status" aria-live="polite">
+          🔥 412 athletes signed offers today.
+        </p>
+      </nxt1-header-card>
+    }
 
     @if (isReelOpen()) {
       <div class="hook-reel" role="presentation" (click)="closeReel()">
@@ -94,6 +164,330 @@ export interface ImmersiveHeroShot {
   `,
   styles: [
     `
+      /* ═══════════════════════════════════════════════════
+         SLEEK VARIANT: Full-width Sports Intelligence
+         ═══════════════════════════════════════════════════ */
+
+      @keyframes grid-pulse {
+        0% {
+          opacity: 0.3;
+          stroke-width: 1px;
+        }
+        50% {
+          opacity: 0.6;
+          stroke-width: 1.2px;
+        }
+        100% {
+          opacity: 0.3;
+          stroke-width: 1px;
+        }
+      }
+
+      @keyframes particle-float {
+        0% {
+          transform: translateY(0) translateX(0) scale(1);
+          opacity: 0;
+        }
+        10% {
+          opacity: 1;
+        }
+        90% {
+          opacity: 1;
+        }
+        100% {
+          transform: translateY(-800px) translateX(var(--particle-x, 200px)) scale(0);
+          opacity: 0;
+        }
+      }
+
+      @keyframes data-flow-1 {
+        0% {
+          stroke-dashoffset: 1000;
+        }
+        100% {
+          stroke-dashoffset: 0;
+        }
+      }
+
+      @keyframes data-flow-2 {
+        0% {
+          stroke-dashoffset: 0;
+        }
+        100% {
+          stroke-dashoffset: 1000;
+        }
+      }
+
+      .hero-sleek {
+        position: relative;
+        width: 100%;
+        min-height: 90vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        background: var(--nxt1-color-bg-primary);
+      }
+
+      .hero-sleek__background {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+
+      /* SVG Grid Network */
+      .hero-sleek__grid {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        opacity: 0.15;
+      }
+
+      .grid-line {
+        stroke: var(--nxt1-color-primary);
+        stroke-width: 1px;
+        opacity: 0.4;
+      }
+
+      .hero-sleek--loaded .grid-line {
+        animation: grid-pulse 4s ease-in-out infinite;
+      }
+
+      .grid-line--accent {
+        stroke: var(--nxt1-color-secondary);
+        opacity: 0.2;
+        animation-delay: 1s;
+      }
+
+      /* Subtle gradient blobs (backdrop) */
+      .hero-sleek__blob {
+        position: absolute;
+        border-radius: 50%;
+        pointer-events: none;
+        will-change: transform;
+        filter: blur(80px);
+      }
+
+      .hero-sleek__blob--1 {
+        top: -10%;
+        left: -5%;
+        width: 500px;
+        height: 500px;
+        background: radial-gradient(
+          ellipse at 30% 30%,
+          color-mix(in srgb, var(--nxt1-color-primary) 25%, transparent) 0%,
+          transparent 70%
+        );
+      }
+
+      .hero-sleek--loaded .hero-sleek__blob--1 {
+        animation: blob-drift-1 20s ease-in-out infinite;
+      }
+
+      .hero-sleek__blob--2 {
+        bottom: -8%;
+        right: -3%;
+        width: 450px;
+        height: 450px;
+        background: radial-gradient(
+          ellipse at 60% 60%,
+          color-mix(in srgb, var(--nxt1-color-secondary) 20%, transparent) 0%,
+          transparent 70%
+        );
+      }
+
+      .hero-sleek--loaded .hero-sleek__blob--2 {
+        animation: blob-drift-2 22s ease-in-out infinite;
+        animation-delay: -3s;
+      }
+
+      /* Animated data particles */
+      .hero-sleek__particles {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      .particle {
+        position: absolute;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: radial-gradient(
+          circle at 30% 30%,
+          var(--nxt1-color-primary),
+          var(--nxt1-color-secondary)
+        );
+        box-shadow: 0 0 12px var(--nxt1-color-primary);
+        left: var(--particle-x, 50%);
+        bottom: -10%;
+        --particle-x: calc(10% + var(--random, 0) * 80%);
+      }
+
+      .hero-sleek--loaded .particle {
+        animation: particle-float 6s ease-out var(--particle-delay, 0s) infinite;
+      }
+
+      .particle:nth-child(1) {
+        --particle-x: 15%;
+      }
+      .particle:nth-child(2) {
+        --particle-x: 28%;
+      }
+      .particle:nth-child(3) {
+        --particle-x: 42%;
+      }
+      .particle:nth-child(4) {
+        --particle-x: 58%;
+      }
+      .particle:nth-child(5) {
+        --particle-x: 72%;
+      }
+      .particle:nth-child(6) {
+        --particle-x: 85%;
+      }
+
+      /* Readability scrim */
+      .hero-sleek__scrim {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          180deg,
+          color-mix(in srgb, var(--nxt1-color-bg-primary) 30%, transparent) 0%,
+          color-mix(in srgb, var(--nxt1-color-bg-primary) 70%, transparent) 50%,
+          var(--nxt1-color-bg-primary) 100%
+        );
+        pointer-events: none;
+      }
+
+      /* Content positioning */
+      .hero-sleek__content {
+        position: relative;
+        z-index: 10;
+        text-align: center;
+        padding: var(--nxt1-spacing-10) var(--nxt1-spacing-4);
+        max-width: 900px;
+        width: 100%;
+      }
+
+      .hero-sleek__title {
+        margin: 0 0 var(--nxt1-spacing-4) 0;
+        font-size: clamp(2.5rem, 8vw, 4.5rem);
+        font-family: var(--nxt1-fontFamily-display);
+        font-weight: var(--nxt1-fontWeight-bold);
+        line-height: 1.1;
+        color: var(--nxt1-color-text-primary);
+        letter-spacing: -0.02em;
+      }
+
+      .hero-sleek__subtitle {
+        margin: 0 0 var(--nxt1-spacing-8) 0;
+        max-width: 60ch;
+        margin-left: auto;
+        margin-right: auto;
+        font-size: clamp(1rem, 2vw, 1.25rem);
+        font-family: var(--nxt1-fontFamily-brand);
+        line-height: 1.6;
+        color: var(--nxt1-color-text-secondary);
+        text-wrap: pretty;
+      }
+
+      .hero-sleek__actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: center;
+        gap: var(--nxt1-spacing-3);
+        margin-bottom: var(--nxt1-spacing-6);
+      }
+
+      .hero-sleek__proof {
+        margin: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4);
+        border-radius: var(--nxt1-borderRadius-full);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 50%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-surface-100) 60%, transparent);
+        backdrop-filter: blur(10px);
+        color: var(--nxt1-color-text-secondary);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
+      }
+
+      /* Responsive: sleek variant */
+      @media (max-width: 768px) {
+        .hero-sleek {
+          min-height: 84vh;
+        }
+
+        .hero-sleek__title {
+          font-size: clamp(var(--nxt1-fontSize-3xl), 8vw, var(--nxt1-fontSize-5xl));
+          line-height: 1.08;
+        }
+
+        .hero-sleek__subtitle {
+          font-size: clamp(var(--nxt1-fontSize-base), 3.2vw, var(--nxt1-fontSize-xl));
+        }
+
+        .hero-sleek__content {
+          padding: var(--nxt1-spacing-7) var(--nxt1-spacing-4);
+        }
+
+        .hero-sleek__grid {
+          opacity: 0.08;
+        }
+
+        .grid-line {
+          stroke-width: 0.8px;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .hero-sleek {
+          min-height: 78vh;
+        }
+
+        .hero-sleek__title {
+          font-size: clamp(var(--nxt1-fontSize-3xl), 9.4vw, var(--nxt1-fontSize-4xl));
+          margin-bottom: var(--nxt1-spacing-4);
+        }
+
+        .hero-sleek__subtitle {
+          font-size: var(--nxt1-fontSize-base);
+          line-height: var(--nxt1-lineHeight-relaxed);
+          margin-bottom: var(--nxt1-spacing-6);
+        }
+
+        .hero-sleek__actions {
+          gap: var(--nxt1-spacing-2);
+          margin-bottom: var(--nxt1-spacing-5);
+        }
+
+        .hero-sleek__proof {
+          font-size: var(--nxt1-fontSize-xs);
+          padding: var(--nxt1-spacing-1) var(--nxt1-spacing-3);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .hero-sleek--loaded .grid-line,
+        .hero-sleek--loaded .particle,
+        .hero-sleek--loaded .hero-sleek__blob--1,
+        .hero-sleek--loaded .hero-sleek__blob--2 {
+          animation: none !important;
+        }
+      }
+
+      /* ═══════════════════════════════════════════════════
+         DEFAULT VARIANT: Existing styles (preserved)
+         ═══════════════════════════════════════════════════ */
+
       /* ─── keyframes ─── */
 
       @keyframes blob-drift-1 {
@@ -591,6 +985,7 @@ export interface ImmersiveHeroShot {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtImmersiveHeroComponent {
+  readonly variant = input<'default' | 'sleek'>('default');
   readonly headline = input('The Sports Intelligence Platform');
   readonly subhead = input(
     'Elite design. AI coordinators. Autonomous workflows. All in one platform.'

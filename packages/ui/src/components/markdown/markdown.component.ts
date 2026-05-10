@@ -24,7 +24,7 @@ import {
   afterNextRender,
 } from '@angular/core';
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
-import { type TrackingSurface } from '@nxt1/core';
+import { type TrackingSurface, extractTrackedDestinationUrl } from '@nxt1/core';
 import { getPlatformFaviconUrlFromUrl } from '@nxt1/core/platforms';
 import { Marked, Renderer } from 'marked';
 import { NxtBrowserService } from '../../services/browser';
@@ -82,6 +82,11 @@ function isVideoUrl(url: string | null | undefined): boolean {
   return /\.(mp4|mov|webm|m4v)([?#]|$)/i.test(url);
 }
 
+function normalizeTrackedLink(url: string | null | undefined): string | null {
+  if (!url) return null;
+  return extractTrackedDestinationUrl(url) ?? url;
+}
+
 /**
  * Builds a static video thumbnail with a play-icon overlay.
  * No controls, no autoload — tapping opens the full media viewer.
@@ -107,19 +112,25 @@ function createNxtRenderer(): Renderer {
 
   // Links → if href is a video URL, render inline <video>; otherwise open in new tab
   renderer.link = ({ href, title, text }) => {
-    // Block javascript: protocol to prevent XSS
-    const safeHref = /^javascript:/i.test(href ?? '') ? '#' : escapeAttr(href ?? '');
+    const normalizedHref = normalizeTrackedLink(href);
 
-    if (isVideoUrl(href)) {
-      return buildVideoThumb(safeHref, text);
+    // Block javascript: protocol to prevent XSS
+    const safeHref = /^javascript:/i.test(normalizedHref ?? '')
+      ? '#'
+      : escapeAttr(normalizedHref ?? '');
+
+    const displayText = href && normalizedHref && text === href ? normalizedHref : text;
+
+    if (isVideoUrl(normalizedHref)) {
+      return buildVideoThumb(safeHref, displayText);
     }
 
     const titleAttr = title ? ` title="${escapeAttr(title)}"` : '';
-    const faviconUrl = href ? getPlatformFaviconUrlFromUrl(href) : null;
+    const faviconUrl = normalizedHref ? getPlatformFaviconUrlFromUrl(normalizedHref) : null;
     const faviconHtml = faviconUrl
       ? `<img class="md-link-favicon" src="${escapeAttr(faviconUrl)}" alt="" aria-hidden="true" loading="lazy" />`
       : '';
-    return `<a href="${safeHref}"${titleAttr} target="_blank" rel="noopener noreferrer">${faviconHtml}${text}</a>`;
+    return `<a href="${safeHref}"${titleAttr} target="_blank" rel="noopener noreferrer">${faviconHtml}${displayText}</a>`;
   };
 
   // Images → if src is actually a video URL (model used ![]() with .mp4), render thumb

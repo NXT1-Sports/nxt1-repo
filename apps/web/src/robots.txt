@@ -9,7 +9,6 @@ Allow: /
 
 # SEO-critical public pages (explicitly allowed)
 Allow: /profile/
-Allow: /team/
 Allow: /explore/
 Allow: /colleges/
 Allow: /news/
@@ -34,6 +33,7 @@ Disallow: /invite/
 Disallow: /create/
 Disallow: /create-post/
 Disallow: /manage-team/
+Disallow: /team/
 
 # Block query string duplicates (prevents thin content indexing)
 Disallow: /*?*

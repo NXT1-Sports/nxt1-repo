@@ -87,13 +87,6 @@ const LAUNCHER_PLATFORM_CONFIG: readonly LauncherPlatformConfig[] = [
     faviconUrl: 'https://www.google.com/s2/favicons?domain=maxpreps.com&sz=64',
   },
   {
-    key: 'twitter',
-    label: 'X / Twitter',
-    fallbackUrl: 'https://x.com',
-    icon: 'twitter',
-    faviconUrl: 'https://www.google.com/s2/favicons?domain=x.com&sz=64',
-  },
-  {
     key: '247sports',
     label: '247Sports',
     fallbackUrl: 'https://247sports.com',
@@ -113,13 +106,6 @@ const LAUNCHER_PLATFORM_CONFIG: readonly LauncherPlatformConfig[] = [
     fallbackUrl: 'https://www.on3.com',
     icon: 'link',
     faviconUrl: 'https://www.google.com/s2/favicons?domain=on3.com&sz=64',
-  },
-  {
-    key: 'instagram',
-    label: 'Instagram',
-    fallbackUrl: 'https://www.instagram.com',
-    icon: 'instagram',
-    faviconUrl: 'https://www.google.com/s2/favicons?domain=instagram.com&sz=64',
   },
   {
     key: 'ncsa',

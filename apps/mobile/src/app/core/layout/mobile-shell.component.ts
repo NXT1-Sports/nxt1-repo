@@ -79,6 +79,7 @@ import {
   NxtLoggingService,
   NxtScrollService,
   InviteBottomSheetService,
+  ManageTeamModalService,
   ActivityService,
   type FooterTabItem,
   type FooterTabSelectEvent,
@@ -141,8 +142,10 @@ import { EditProfileApiService } from '../services/api/edit-profile-api.service'
       [sections]="sidenavSections()"
       [socialLinks]="socialLinks"
       [config]="sidenavConfig()"
+      [disableInternalProfileNavigation]="true"
       (toggle)="onSidenavToggle($event)"
       (itemSelect)="onSidenavItemSelect($event)"
+      (profileClick)="onSidenavProfileClick()"
       (socialClick)="onSocialLinkClick($event)"
       (addSportClick)="onAddSportClick()"
       (sportProfileSelect)="onSportProfileSelect($event)"
@@ -227,6 +230,7 @@ export class MobileShellComponent implements OnInit, OnDestroy {
   private readonly activityService = inject(ActivityService);
   private readonly scrollService = inject(NxtScrollService);
   private readonly inviteSheet = inject(InviteBottomSheetService);
+  private readonly manageTeamModal = inject(ManageTeamModalService);
   private readonly logger = inject(NxtLoggingService).child('MobileShell');
 
   /**
@@ -821,6 +825,20 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     void this.navController.navigateForward('/add-sport');
   }
 
+  async onSidenavProfileClick(): Promise<void> {
+    this.haptics.impact('light');
+    this.sidenavService.close();
+
+    if (this.sidenavUser()?.isTeamRole) {
+      const activeSportIndex = this.profileService.user()?.activeSportIndex ?? 0;
+      const teamId = this.resolveTeamIdForSportIndex(activeSportIndex);
+      await this.manageTeamModal.open({ teamId: teamId ?? undefined });
+      return;
+    }
+
+    await this.navController.navigateForward(this.ownIdentityRoute());
+  }
+
   /**
    * Handle sport profile selection from sidenav switcher.
    * Switches the active sport index and navigates to the user's profile.
@@ -876,7 +894,31 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     }
 
     this.sidenavService.close();
+
+    if (this.sidenavUser()?.isTeamRole) {
+      const teamId = this.resolveTeamIdForSportIndex(sportIndex);
+      await this.manageTeamModal.open({ teamId: teamId ?? undefined });
+      return;
+    }
+
     void this.navController.navigateForward(this.ownIdentityRoute());
+  }
+
+  private resolveTeamIdForSportIndex(sportIndex: number): string | null {
+    const user = this.profileService.user() as {
+      readonly sports?: ReadonlyArray<{
+        readonly team?: {
+          readonly teamId?: string;
+          readonly id?: string;
+          readonly organizationId?: string;
+        };
+      }>;
+    } | null;
+
+    const team = user?.sports?.[sportIndex]?.team;
+    if (!team) return null;
+
+    return team.teamId?.trim() || team.organizationId?.trim() || team.id?.trim() || null;
   }
 
   /**

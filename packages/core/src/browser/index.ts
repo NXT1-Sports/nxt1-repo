@@ -41,6 +41,7 @@ export {
   ensureProtocol,
   sanitizeUrl,
   buildTrackedLinkUrl,
+  extractTrackedDestinationUrl,
   detectLinkType,
   extractDomain,
   shouldOpenInExternalApp,

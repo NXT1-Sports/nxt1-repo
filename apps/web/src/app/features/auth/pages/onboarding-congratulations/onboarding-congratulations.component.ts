@@ -55,7 +55,7 @@ import { AgentXService } from '@nxt1/ui/agent-x';
 
 // Core Constants
 import { AUTH_REDIRECTS } from '@nxt1/core/constants';
-import { getWelcomeSlidesForRole, type OnboardingUserType } from '@nxt1/core/api';
+import { getWelcomeSlidesForRole, type OnboardingUserType } from '@nxt1/core';
 import type { AgentGoal, AgentDashboardGoal } from '@nxt1/core';
 
 // App Services
@@ -89,6 +89,8 @@ import { SeoService } from '../../../../core/services';
             #welcomeSlides
             [userRole]="userRole()"
             [firstName]="firstName()"
+            [isLegacy]="isLegacy()"
+            [isMigratedPaidLegacy]="isMigratedPaidLegacy()"
             [showDotNavigation]="false"
             (complete)="onComplete()"
             (skip)="onSkip()"
@@ -173,10 +175,33 @@ export class OnboardingCongratulationsComponent implements OnInit {
     return user?.displayName?.split(' ')[0] || null;
   });
 
-  /** Total slides for current role */
+  /** Whether this is a legacy user (triggers 5-slide rebrand flow) */
+  readonly isLegacy = computed(() => {
+    const user = this.authFlow.user();
+    return !!user?._legacyId && !user?.legacyOnboardingCompleted;
+  });
+
+  /** Legacy user that was migrated from paid subscription to wallet usage. */
+  readonly isMigratedPaidLegacy = computed(() => {
+    const user = this.authFlow.user() as {
+      readonly migrationStatus?: string;
+      readonly legacyBillingSource?: string;
+      readonly migrationGrantAmountCents?: number;
+    } | null;
+
+    const migrated = user?.migrationStatus === 'completed';
+    const fromSubscription = user?.legacyBillingSource === 'subscription';
+    const hasGrant =
+      typeof user?.migrationGrantAmountCents === 'number' && user.migrationGrantAmountCents > 0;
+
+    return this.isLegacy() && migrated && fromSubscription && hasGrant;
+  });
+
+  /** Total slides for current role (3 for new users, 5 for legacy) */
   readonly totalSlides = computed(() => {
     const role = this.userRole() ?? 'athlete';
-    return getWelcomeSlidesForRole(role).slides.length;
+    return getWelcomeSlidesForRole(role, this.isLegacy(), this.isMigratedPaidLegacy()).slides
+      .length;
   });
 
   /** Whether current slide is the last */
@@ -239,7 +264,9 @@ export class OnboardingCongratulationsComponent implements OnInit {
     this.currentSlideIndex.set(event.index);
     this.logger.debug('Slide viewed', event);
 
-    if (event.index === this.totalSlides() - 1) {
+    // Prepare agent state on the second-to-last slide (so Agent X loads while user views final slide)
+    const prepSlideIndex = Math.max(0, this.totalSlides() - 2);
+    if (event.index === prepSlideIndex) {
       void this.prepareInitialAgentStateIfNeeded();
     }
   }

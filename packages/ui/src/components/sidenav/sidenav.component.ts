@@ -1478,6 +1478,12 @@ export class NxtSidenavComponent {
   /** Sidenav configuration */
   readonly config = input<SidenavConfig>(createSidenavConfig());
 
+  /**
+   * When true, profile row taps emit `profileClick` only and skip internal routing.
+   * Host shells can then provide role-aware navigation/modals.
+   */
+  readonly disableInternalProfileNavigation = input<boolean>(false);
+
   // ============================================
   // OUTPUTS (Signal-based - 2026 Best Practice)
   // ============================================
@@ -1821,6 +1827,11 @@ export class NxtSidenavComponent {
   async onProfileClick(): Promise<void> {
     await this.triggerHaptic('light');
     this.profileClick.emit();
+
+    if (this.disableInternalProfileNavigation()) {
+      await this.close();
+      return;
+    }
 
     // Navigate to the canonical identity route when provided.
     const currentUser = this.user();
