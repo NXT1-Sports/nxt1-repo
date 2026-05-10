@@ -50,7 +50,6 @@ import { AgentXService } from '../services/agent-x.service';
 
 import type { AskUserReplyEvent } from '../components/cards/agent-x-ask-user-card.component';
 import { AgentXFabService } from './agent-x-fab.service';
-import { NxtLoggingService } from '../../services/logging/logging.service';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
 @Component({
@@ -884,7 +883,6 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
 })
 export class AgentXFabChatPanelComponent {
   private readonly toast = inject(NxtToastService);
-  private readonly logger = inject(NxtLoggingService).child('AgentXFabChatPanelComponent');
 
   protected readonly agentX = inject(AgentXService);
   private readonly fabService = inject(AgentXFabService);
