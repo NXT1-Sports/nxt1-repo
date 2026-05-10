@@ -76,19 +76,19 @@
     "@google-cloud/pubsub": "^5.2.3",
     "@google/generative-ai": "^0.24.1",
     "@imbsq/runway-mcp": "^1.0.0",
-    "@mendable/firecrawl-js": "^4.16.0",
+    "@mendable/firecrawl-js": "^4.22.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@nxt1/cache": "file:../packages/cache",
     "@nxt1/core": "file:../packages/core",
     "apify-client": "^2.22.3",
-    "axios": "^1.15.0",
+    "axios": "^1.15.2",
     "bullmq": "^5.76.2",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.3",
     "cors": "^2.8.5",
     "csv-parse": "^5.6.0",
     "csv-stringify": "^6.7.0",
-    "dotenv": "^17.2.3",
+    "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "express-rate-limit": "^7.5.1",
     "firebase-admin": "^13.6.0",
@@ -124,6 +124,6 @@
     "shx": "^0.3.4",
     "supertest": "^7.2.2",
     "typescript": "~5.9.3",
-    "vitest": "^4.1.4"
+    "vitest": "^4.1.5"
   }
 }
