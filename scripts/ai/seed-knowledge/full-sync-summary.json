@@ -1,0 +1,23 @@
+{
+  "generatedAt": "2026-05-10T22:43:15.393Z",
+  "helpCenter": {
+    "seedArticleCount": 16,
+    "seedFaqCount": 10,
+    "articleUpserts": 16,
+    "faqUpserts": 10,
+    "publishedArticleCount": 16,
+    "publishedFaqCount": 10,
+    "missingSeedArticles": [],
+    "extraPublishedArticles": [],
+    "missingSeedFaqs": [],
+    "extraPublishedFaqs": []
+  },
+  "globalKnowledge": {
+    "seedDocumentCount": 6,
+    "totalChunks": 40,
+    "distinctSourceRefCount": 6,
+    "missingExpectedSourceRefs": [],
+    "unexpectedSourceRefs": [],
+    "gradeAPlus": true
+  }
+}

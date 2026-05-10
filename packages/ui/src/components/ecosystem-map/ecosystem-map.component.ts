@@ -72,8 +72,8 @@ const DEFAULT_STEPS: readonly EcosystemMapStep[] = [
   {
     id: 'ingest',
     index: 1,
-    title: 'Ingest',
-    detail: 'Raw Video & Stats',
+    title: 'Capture',
+    detail: 'Film, Metrics, and Context',
     // upload-cloud icon
     svgPath:
       'M12 16V8m0 0l-3 3m3-3l3 3M4 14.5A3.5 3.5 0 0 1 6.09 8.16a5 5 0 0 1 9.82 0A3.5 3.5 0 0 1 20 14.5',
@@ -81,8 +81,8 @@ const DEFAULT_STEPS: readonly EcosystemMapStep[] = [
   {
     id: 'refine',
     index: 2,
-    title: 'Refine',
-    detail: 'Agent X AI Analysis',
+    title: 'Interpret',
+    detail: 'Agent X Fit and Risk Intelligence',
     // sparkles / AI icon
     svgPath:
       'M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.456-2.456L14.25 6l1.035-.259a3.375 3.375 0 0 0 2.456-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z',
@@ -90,8 +90,8 @@ const DEFAULT_STEPS: readonly EcosystemMapStep[] = [
   {
     id: 'create',
     index: 3,
-    title: 'Create',
-    detail: 'Videos · Graphics · Posts · Profile',
+    title: 'Package',
+    detail: 'Verified Profile, Media, and Scout Story',
     // palette / creative icon
     svgPath:
       'M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42',
@@ -99,8 +99,8 @@ const DEFAULT_STEPS: readonly EcosystemMapStep[] = [
   {
     id: 'distribute',
     index: 4,
-    title: 'Distribute',
-    detail: 'Social & Recruiters',
+    title: 'Execute',
+    detail: 'Targeted Outreach and Workflow Follow-Through',
     // share / send icon
     svgPath:
       'M6 12L3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5',
@@ -124,12 +124,12 @@ const DEFAULT_STEPS: readonly EcosystemMapStep[] = [
       <div class="ecosystem__header">
         <nxt1-section-header
           [titleId]="headingId()"
-          eyebrow="Ecosystem Map"
+          eyebrow="The Platform"
           align="center"
           [headingLevel]="2"
-          title="The Full-Stack Recruiting"
-          accentText="Pipeline."
-          subtitle="From the first upload to coach-facing distribution, NXT1 runs the complete workflow athletes need to get discovered."
+          title="Raw Signal to Coordinated"
+          accentText="Execution."
+          subtitle="From first signal to finished execution, Agent X gives athletes, coaches, scouts, and program leaders one operating lane."
         />
       </div>
 
@@ -214,8 +214,8 @@ const DEFAULT_STEPS: readonly EcosystemMapStep[] = [
       </ol>
 
       <p class="ecosystem__copy">
-        From raw footage to scholarship offer.
-        <em class="ecosystem__copy-accent">We handle the middle.</em>
+        From scattered tasks to coordinated execution.
+        <em class="ecosystem__copy-accent">One command center. Real outcomes.</em>
       </p>
     </section>
   `,

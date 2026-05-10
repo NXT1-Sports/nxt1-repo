@@ -159,6 +159,12 @@ export class OnboardingCongratulationsComponent implements OnInit {
   /** Reused across final-slide prewarm and CTA completion to avoid duplicate work. */
   private initialPreparationPromise: Promise<void> | null = null;
 
+  /** Signature of goal selection used for the currently active preparation run. */
+  private initialPreparationGoalsKey: string | null = null;
+
+  /** Monotonic run id so stale async completions cannot flip readiness early. */
+  private initialPreparationRunId = 0;
+
   // ============================================
   // COMPUTED (from AuthFlowService)
   // ============================================
@@ -241,6 +247,11 @@ export class OnboardingCongratulationsComponent implements OnInit {
   onGoalsChanged(goals: AgentGoal[]): void {
     this.selectedGoals.set(goals);
     this.logger.debug('Goals updated', { count: goals.length });
+
+    // If transition is already visible, immediately prepare using latest goals.
+    if (this.isTransitioningToAgent()) {
+      void this.prepareInitialAgentStateIfNeeded();
+    }
   }
 
   /** Handle complete (CTA button click) */
@@ -309,25 +320,40 @@ export class OnboardingCongratulationsComponent implements OnInit {
     }
 
     this.isTransitioningToAgent.set(true);
-    this.initialGenerationReady.set(false);
     void this.prepareInitialAgentStateIfNeeded();
   }
 
   private prepareInitialAgentStateIfNeeded(): Promise<void> {
-    if (this.initialPreparationPromise) {
+    const goalsSnapshot = this.selectedGoals();
+    const goalsKey = this.buildGoalsPreparationKey(goalsSnapshot);
+
+    if (this.initialPreparationPromise && this.initialPreparationGoalsKey === goalsKey) {
       return this.initialPreparationPromise;
     }
 
-    this.initialPreparationPromise = this.prepareInitialAgentState().finally(() => {
-      this.initialGenerationReady.set(true);
+    // Either first run or goals changed since prewarm started.
+    this.initialGenerationReady.set(false);
+    this.initialPreparationGoalsKey = goalsKey;
+    this.initialPreparationRunId += 1;
+    const runId = this.initialPreparationRunId;
+
+    this.initialPreparationPromise = this.prepareInitialAgentState(goalsSnapshot).finally(() => {
+      if (runId === this.initialPreparationRunId) {
+        this.initialGenerationReady.set(true);
+      }
     });
 
     return this.initialPreparationPromise;
   }
 
-  private async prepareInitialAgentState(): Promise<void> {
-    const goals = this.selectedGoals();
+  private buildGoalsPreparationKey(goals: readonly AgentGoal[]): string {
+    return goals
+      .map((goal) => `${goal.id}|${goal.text}|${goal.category ?? 'custom'}`)
+      .sort()
+      .join('||');
+  }
 
+  private async prepareInitialAgentState(goals: readonly AgentGoal[]): Promise<void> {
     // Use the transition animation as the visible window, but keep it open
     // until the first briefing has actually finished so the user lands on
     // a hydrated Agent X shell.

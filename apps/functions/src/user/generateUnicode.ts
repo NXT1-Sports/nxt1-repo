@@ -102,11 +102,15 @@ export async function generateUnicodeForUser(userId: string): Promise<string> {
             assignedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
 
-          // Assign to user
-          transaction.update(userRef, {
-            unicode,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
+          // Assign to user (use set with merge to create if missing)
+          transaction.set(
+            userRef,
+            {
+              unicode,
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
         });
 
         logger.info(`Generated unicode ${unicode} for user ${userId} (attempt ${attempt})`);
@@ -169,10 +173,14 @@ async function fallbackSequentialGeneration(userId: string): Promise<string> {
             assignedAt: admin.firestore.FieldValue.serverTimestamp(),
           });
 
-          transaction.update(userRef, {
-            unicode,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
+          transaction.set(
+            userRef,
+            {
+              unicode,
+              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
         });
 
         logger.info(`Sequential fallback: assigned unicode ${unicode} to user ${userId}`);

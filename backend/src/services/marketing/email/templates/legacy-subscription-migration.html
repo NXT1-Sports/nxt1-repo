@@ -1,0 +1,252 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      body {
+        margin: 0;
+        background: #0a0a0a;
+        color: #ffffff;
+        font-family: "Rajdhani", "Trebuchet MS", "Segoe UI", Arial, sans-serif;
+        line-height: 1.55;
+      }
+      a {
+        color: #d4ff4d;
+      }
+      .container {
+        max-width: 640px;
+        margin: 0 auto;
+        padding: 24px 16px;
+      }
+      .card {
+        background: #121212;
+        border: 1px solid #2a2a2a;
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+      }
+      .header {
+        background:
+          radial-gradient(circle at 80% 0%, rgba(204, 255, 0, 0.16), transparent 45%),
+          linear-gradient(160deg, #0a0a0a 0%, #121212 60%, #161616 100%);
+        color: #ffffff;
+        padding: 30px 22px 24px;
+        text-align: center;
+        border-bottom: 1px solid rgba(204, 255, 0, 0.35);
+      }
+      .eyebrow {
+        margin: 0 0 10px 0;
+        font-size: 12px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #ccff00;
+        font-weight: 700;
+      }
+      .brand-logo {
+        display: block;
+        width: 164px;
+        max-width: 75%;
+        height: auto;
+        margin: 0 auto 14px;
+      }
+      .header h1 {
+        margin: 0;
+        font-size: 34px;
+        line-height: 1.05;
+        letter-spacing: 0.01em;
+        color: #ffffff;
+      }
+      .header-sub {
+        margin: 10px 0 0;
+        color: rgba(255, 255, 255, 0.82);
+        font-size: 18px;
+      }
+      .content {
+        background: #121212;
+        padding: 24px 22px 20px;
+      }
+      .section {
+        margin-bottom: 24px;
+      }
+      .section h2 {
+        margin: 0 0 8px 0;
+        color: #ccff00;
+        font-size: 22px;
+        line-height: 1.2;
+        font-weight: 700;
+      }
+      .muted {
+        color: rgba(255, 255, 255, 0.68);
+      }
+      .credit-box {
+        background: #161616;
+        border: 1px solid rgba(204, 255, 0, 0.28);
+        border-left: 4px solid #ccff00;
+        padding: 16px;
+        border-radius: 8px;
+        margin: 15px 0;
+      }
+      .credit-amount {
+        font-size: 34px;
+        line-height: 1;
+        font-weight: 700;
+        color: #ccff00;
+        letter-spacing: 0.01em;
+      }
+      .highlight {
+        background: rgba(204, 255, 0, 0.16);
+        color: #e8ffb3;
+        padding: 2px 6px;
+        border-radius: 4px;
+      }
+      .button {
+        display: inline-block;
+        background: #ccff00;
+        color: #000000;
+        padding: 12px 26px;
+        border-radius: 999px;
+        text-decoration: none;
+        margin: 10px 0;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+      .faq {
+        background: #161616;
+        padding: 14px;
+        border-radius: 8px;
+        margin: 10px 0;
+        border: 1px solid #2a2a2a;
+      }
+      .faq strong {
+        color: #e6d600;
+      }
+      .tip-box {
+        background: rgba(204, 255, 0, 0.08);
+        border: 1px solid rgba(204, 255, 0, 0.22);
+        border-left: 4px solid #ccff00;
+        padding: 15px;
+        border-radius: 8px;
+      }
+      .footer {
+        text-align: center;
+        padding: 18px 22px 22px;
+        color: rgba(255, 255, 255, 0.54);
+        font-size: 12px;
+        border-top: 1px solid #2a2a2a;
+        background: #0f0f0f;
+      }
+      ul {
+        margin: 10px 0;
+        padding-left: 20px;
+      }
+      li {
+        margin: 8px 0;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="card">
+        <div class="header">
+          <img
+            src="https://raw.githubusercontent.com/NXT1-Sports/nxt1-repo/main/packages/design-tokens/assets/logo/nxt1-whitelogo.png"
+            alt="NXT1"
+            class="brand-logo"
+          />
+          <h1>Welcome to the New Sports Intelligence Platform</h1>
+          <p class="header-sub">Your subscription has been upgraded</p>
+        </div>
+
+        <div class="content">
+          <div class="section">
+            <p>Hi {{firstName}},</p>
+            <p>
+              We've successfully transitioned your NXT1 account to our new
+              <span class="highlight">usage-based billing model</span>. This is great news-you now have more flexibility
+              and only pay for what you actually use.
+            </p>
+          </div>
+
+          <div class="section">
+            <h2>Your Wallet Credit</h2>
+            <p>
+              As a valued subscriber, we've credited your account as part of your migration to our new billing model.
+              Your credit is ready to use immediately—no action needed.
+            </p>
+            <p>
+              <strong>Your credit will be automatically deducted from usage</strong> as you use AI features, generate
+              content, and run analysis tools. You can view your exact balance and usage in your
+              <a href="{{walletUrl}}">wallet</a> anytime. When your wallet balance runs low, you can top up.
+            </p>
+          </div>
+
+          <div class="section">
+            <h2>What This Means for You</h2>
+            <ul>
+              <li><strong>No more auto-renewing subscriptions</strong> - You have full control</li>
+              <li><strong>Pay as you go</strong> - Only charged when you use a feature</li>
+              <li><strong>Flexible usage</strong> - Use a lot one week, nothing the next</li>
+              <li><strong>Better value</strong> - No wasted subscription time</li>
+            </ul>
+          </div>
+
+          <div class="section">
+            <h2>How Your Wallet Works</h2>
+            <div class="faq">
+              <strong>When will credits be deducted?</strong>
+              <p style="margin: 8px 0 0 0">
+                Every time you use an AI feature (highlight generation, content creation, analysis, etc.), a small
+                amount is deducted. You can see usage in real-time in your Wallet settings.
+              </p>
+            </div>
+            <div class="faq">
+              <strong>What happens when my balance is low?</strong>
+              <p style="margin: 8px 0 0 0">
+                We'll notify you when you're running low. You can top up your wallet with a one-click purchase. We also
+                offer <strong>auto-topup</strong> so you never run out.
+              </p>
+            </div>
+            <div class="faq">
+              <strong>Can I still use features with a $0 balance?</strong>
+              <p style="margin: 8px 0 0 0">
+                No, you'll need to top up first. But we notify you well in advance, so there's no surprise interruption.
+              </p>
+            </div>
+          </div>
+
+          <div class="section">
+            <h2>Get Started</h2>
+            <p>To manage your wallet and set up auto-topup:</p>
+            <p style="text-align: center">
+              <a href="{{walletUrl}}" class="button">View Your Wallet</a>
+            </p>
+          </div>
+
+          <div class="section">
+            <h2>Have Questions?</h2>
+            <p>Check out our help center or reach out-we're here to help:</p>
+            <ul>
+              <li><a href="{{helpCenterUrl}}">Wallet & Billing FAQ</a></li>
+              <li><a href="mailto:support@nxt1sports.com">Contact Support</a></li>
+            </ul>
+          </div>
+
+          <div class="section tip-box">
+            <p style="margin: 0">
+              <strong>Pro Tip:</strong> Enable auto-topup in your wallet settings to ensure you never run out of
+              credits. Set it to your preferred amount (e.g., $25), and we'll automatically top up when you reach $5.
+            </p>
+          </div>
+        </div>
+
+        <div class="footer">
+          <p>© 2026 NXT1 Sports. All rights reserved.</p>
+          <p style="margin-top: 10px">
+            You're receiving this email because your account was recently migrated to our new billing system.
+          </p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

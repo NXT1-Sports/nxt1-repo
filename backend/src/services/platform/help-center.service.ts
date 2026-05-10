@@ -167,7 +167,7 @@ export async function getHome(): Promise<HelpCenterHome> {
       .sort({ publishedAt: -1 })
       .limit(3)
       .lean(),
-    HelpFaqModel.find({ isPublished: true }).sort({ order: 1 }).limit(10).lean(),
+    HelpFaqModel.find({ isPublished: true }).sort({ order: 1 }).lean(),
     HelpArticleModel.aggregate([
       { $match: baseFilter },
       { $group: { _id: '$category', count: { $sum: 1 } } },

@@ -547,26 +547,57 @@ export class ApprovalGateService {
    */
   async notifyExpiringSoon(thresholdMs = 300_000): Promise<{ notified: number }> {
     const now = Date.now();
-    const snapshot = await this.db
-      .collection(APPROVALS_COLLECTION)
-      .where('status', '==', 'pending')
-      .where('expiryPushSent', '==', false)
-      .get();
+
+    let snapshot;
+    try {
+      snapshot = await this.db
+        .collection(APPROVALS_COLLECTION)
+        .where('status', '==', 'pending')
+        .where('expiryPushSent', '==', false)
+        .get();
+    } catch (err) {
+      logger.error('Failed to query pending approvals', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return { notified: 0 };
+    }
+
+    if (snapshot.empty) {
+      logger.debug('No pending approvals to notify');
+      return { notified: 0 };
+    }
 
     let notified = 0;
+    let failed = 0;
+    let skipped = 0;
+
+    // Collect approvals to notify
+    const toNotify: Array<{
+      doc: FirebaseFirestore.QueryDocumentSnapshot;
+      request: AgentApprovalRequest & { expiryPushSent?: boolean };
+      remaining: number;
+      mins: number;
+      copy: ReturnType<typeof resolveAgentApprovalCopy>;
+    }> = [];
 
     for (const doc of snapshot.docs) {
       const request = doc.data() as AgentApprovalRequest & { expiryPushSent?: boolean };
 
       // Skip if already marked (handles race between concurrent cron invocations)
-      if (request.expiryPushSent) continue;
+      if (request.expiryPushSent) {
+        skipped++;
+        continue;
+      }
 
       const createdAtMs = new Date(request.createdAt).getTime();
       const expiresAtMs = createdAtMs + request.expiresInMs;
       const remaining = expiresAtMs - now;
 
       // Only notify when within threshold and not already expired
-      if (remaining <= 0 || remaining > thresholdMs) continue;
+      if (remaining <= 0 || remaining > thresholdMs) {
+        skipped++;
+        continue;
+      }
 
       const mins = Math.max(1, Math.round(remaining / 60_000));
       const copy = resolveAgentApprovalCopy({
@@ -574,39 +605,74 @@ export class ApprovalGateService {
         toolInput: request.toolInput as Record<string, unknown>,
       });
 
-      try {
-        await dispatchAgentPush(this.db, {
+      toNotify.push({ doc, request, remaining, mins, copy });
+    }
+
+    // Send all push notifications in parallel
+    const pushResults = await Promise.allSettled(
+      toNotify.map((item) =>
+        dispatchAgentPush(this.db, {
           kind: 'agent_approval_expiring_soon',
-          userId: request.userId,
-          operationId: request.operationId,
-          threadId: request.threadId,
-          approvalId: request.id,
-          toolName: request.toolName,
+          userId: item.request.userId,
+          operationId: item.request.operationId,
+          threadId: item.request.threadId,
+          approvalId: item.request.id,
+          toolName: item.request.toolName,
           title: 'Approval Expiring Soon',
-          body: `Your approval for "${copy.actionSummary}" expires in ${mins} minute${mins === 1 ? '' : 's'}.`,
-          remainingMs: remaining,
-        });
+          body: `Your approval for "${item.copy.actionSummary}" expires in ${item.mins} minute${item.mins === 1 ? '' : 's'}.`,
+          remainingMs: item.remaining,
+        })
+      )
+    );
 
-        // Mark so this approval is not notified again
-        await doc.ref.update({ expiryPushSent: true });
-        notified++;
-
-        logger.info('Approval expiry push sent', {
-          approvalId: request.id,
-          toolName: request.toolName,
-          remainingMs: remaining,
-        });
-      } catch (notifyErr) {
+    // Batch update marks in a single transaction (max 500 writes)
+    const successfulNotifications: typeof toNotify = [];
+    for (let i = 0; i < pushResults.length; i++) {
+      if (pushResults[i]?.status === 'fulfilled') {
+        successfulNotifications.push(toNotify[i]!);
+      } else {
+        const pushErr = (pushResults[i] as PromiseRejectedResult).reason;
         logger.warn('Failed to send approval expiry push', {
-          approvalId: request.id,
-          error: notifyErr instanceof Error ? notifyErr.message : String(notifyErr),
+          approvalId: toNotify[i]?.request.id,
+          error: pushErr instanceof Error ? pushErr.message : String(pushErr),
         });
+        failed++;
       }
     }
 
+    // Batch mark all successful notifications in transaction chunks
+    if (successfulNotifications.length > 0) {
+      for (let i = 0; i < successfulNotifications.length; i += 50) {
+        const batch = successfulNotifications.slice(i, i + 50);
+        try {
+          await this.db.runTransaction(async (txn) => {
+            for (const item of batch) {
+              txn.update(item.doc.ref, {
+                expiryPushSent: true,
+                expiryPushSentAt: FieldValue.serverTimestamp(),
+              });
+            }
+          });
+          notified += batch.length;
+        } catch (txnErr) {
+          logger.error('Failed to batch-mark approval notifications', {
+            batchSize: batch.length,
+            error: txnErr instanceof Error ? txnErr.message : String(txnErr),
+          });
+          failed += batch.length;
+        }
+      }
+    }
+
+    logger.info('Approval expiry notifications completed', {
+      notified,
+      failed,
+      skipped,
+      total: snapshot.size,
+    });
+
     return { notified };
   }
-
   // ── Session-Level Trust Grants ────────────────────────────────────────────
 
   private static readonly TRUST_GRANTS_COLLECTION = 'AgentSessionTrustGrants' as const;

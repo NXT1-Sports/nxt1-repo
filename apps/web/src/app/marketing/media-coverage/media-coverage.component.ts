@@ -80,7 +80,7 @@ export class MediaCoverageComponent implements OnInit {
           'espn covers 0.01',
           'coverage gap athletes',
         ],
-        image: 'https://nxt1sports.com/assets/images/og-image.jpg',
+        image: 'https://nxt1sports.com/assets/shared/images/og-image.jpg',
       },
       openGraph: {
         type: 'website',
@@ -88,14 +88,14 @@ export class MediaCoverageComponent implements OnInit {
         description:
           'ESPN covers 0.01%. NXT1 covers everyone with professional media coverage designed for recruiting visibility.',
         url: 'https://nxt1sports.com/media-coverage',
-        image: 'https://nxt1sports.com/assets/images/og-image.jpg',
+        image: 'https://nxt1sports.com/assets/shared/images/og-image.jpg',
       },
       twitter: {
         card: 'summary_large_image',
         title: 'ESPN Covers 0.01%. We Cover You. | NXT1',
         description:
           'Media coverage should not be reserved for the elite. NXT1 gives every athlete a platform.',
-        image: 'https://nxt1sports.com/assets/images/og-image.jpg',
+        image: 'https://nxt1sports.com/assets/shared/images/og-image.jpg',
       },
       structuredData: {
         '@context': 'https://schema.org',

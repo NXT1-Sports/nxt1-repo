@@ -62,10 +62,10 @@ const SITE_NAME = 'NXT1 Sports';
 
 /** Default site description */
 const DEFAULT_DESCRIPTION =
-  'The sports intelligence platform powered by AI coordinators. Autonomous workflows, AI scout reports, and a unified command center for athletes, coaches, scouts, and teams.';
+  'NXT1 is the first AI command center for sports organizations to run their entire program from one system.';
 
 /** Default OG image */
-const DEFAULT_OG_IMAGE = 'https://nxt1sports.com/assets/images/og-image.jpg';
+const DEFAULT_OG_IMAGE = 'https://nxt1sports.com/assets/shared/images/og-image.jpg';
 
 /** Base URL for canonical links */
 const BASE_URL = 'https://nxt1sports.com';

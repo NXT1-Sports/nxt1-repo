@@ -225,6 +225,7 @@ router.post('/cron/cleanup-stale-jobs', cronGuard, async (req: Request, res: Res
       req as typeof req & { firebase?: { db: import('firebase-admin').firestore.Firestore } }
     ).firebase?.db;
     if (!db) {
+      logger.warn('Firestore context not attached to request');
       res.status(503).json({ success: false, error: 'Firestore not available' });
       return;
     }
@@ -232,39 +233,81 @@ router.post('/cron/cleanup-stale-jobs', cronGuard, async (req: Request, res: Res
     const STALE_THRESHOLD_MS = 100 * 60 * 1000; // 100 minutes
     const cutoff = new Date(Date.now() - STALE_THRESHOLD_MS);
 
-    const snapshot = await db
-      .collection('AgentJobs')
-      .where('status', '==', 'queued')
-      .where('createdAt', '<', cutoff)
-      .limit(100)
-      .get();
+    logger.info('CRON cleanup-stale-jobs starting', { cutoff: cutoff.toISOString() });
 
-    let updated = 0;
-    const batch = db.batch();
-
-    for (const doc of snapshot.docs) {
-      batch.update(doc.ref, {
-        status: 'failed',
-        error: 'Job timed out — no activity for over 100 minutes',
-        updatedAt: new Date(),
+    let snapshot;
+    try {
+      snapshot = await db
+        .collection('AgentJobs')
+        .where('status', '==', 'queued')
+        .where('createdAt', '<', cutoff)
+        .limit(100)
+        .get();
+    } catch (queryErr) {
+      logger.error('Failed to query stale jobs', {
+        error: queryErr instanceof Error ? queryErr.message : String(queryErr),
+        cutoff: cutoff.toISOString(),
       });
-      updated++;
+      res.status(500).json({ success: false, error: 'Failed to query stale jobs' });
+      return;
     }
 
-    if (updated > 0) {
-      await batch.commit();
+    if (snapshot.size === 0) {
+      logger.info('CRON cleanup-stale-jobs completed', {
+        scanned: 0,
+        markedFailed: 0,
+        cutoff: cutoff.toISOString(),
+      });
+      res.json({ success: true, data: { scanned: 0, markedFailed: 0 } });
+      return;
+    }
+
+    // Process updates in transaction chunks (max 500 writes per transaction)
+    let updated = 0;
+    let failed = 0;
+    const docs = snapshot.docs;
+
+    for (let i = 0; i < docs.length; i += 50) {
+      const chunk = docs.slice(i, i + 50);
+
+      try {
+        await db.runTransaction(async (txn) => {
+          for (const doc of chunk) {
+            txn.update(doc.ref, {
+              status: 'failed',
+              error: 'Job timed out — no activity for over 100 minutes',
+              updatedAt: new Date().toISOString(),
+            });
+          }
+        });
+        updated += chunk.length;
+      } catch (txnErr) {
+        logger.error('Failed to mark stale jobs as failed (transaction chunk)', {
+          chunkSize: chunk.length,
+          chunkIndex: i,
+          error: txnErr instanceof Error ? txnErr.message : String(txnErr),
+        });
+        failed += chunk.length;
+      }
     }
 
     logger.info('CRON cleanup-stale-jobs completed', {
       scanned: snapshot.size,
       markedFailed: updated,
+      failedToUpdate: failed,
       cutoff: cutoff.toISOString(),
     });
 
-    res.json({ success: true, data: { scanned: snapshot.size, markedFailed: updated } });
+    res.json({
+      success: true,
+      data: { scanned: snapshot.size, markedFailed: updated, failedToUpdate: failed },
+    });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('CRON cleanup-stale-jobs failed', { error: error.message, stack: error.stack });
+    logger.error('CRON cleanup-stale-jobs failed', {
+      error: error.message,
+      stack: error.stack,
+    });
     res.status(500).json({ success: false, error: 'Stale job cleanup failed' });
   }
 });

@@ -35,6 +35,7 @@ import { enqueueLinkedAccountScrape } from '../../modules/agent/services/agent-s
 import { enqueueWelcomeGraphicIfReady } from '../../modules/agent/services/agent-welcome.service.js';
 import { invalidateProfileCaches } from '../profile/shared.js';
 import { logger } from '../../utils/logger.js';
+import { sendLegacyOnboardingCompletionEmail } from '../../services/marketing/email/campaigns/legacy/legacy-onboarding-completion-email.service.js';
 import {
   mapUserTypeToRole,
   clearLegacyLocationFields,
@@ -171,6 +172,35 @@ router.post(
         userId,
         legacyOnboardingCompleted: true,
       });
+
+      const legacyRecipientEmail =
+        updatedData?.contact?.email?.trim().toLowerCase() ||
+        updatedData?.email?.trim().toLowerCase() ||
+        currentUser?.contact?.email?.trim().toLowerCase() ||
+        currentUser?.email?.trim().toLowerCase() ||
+        undefined;
+
+      const legacyRecipientFirstName =
+        updatedData?.firstName?.trim() || currentUser?.firstName?.trim() || undefined;
+
+      void sendLegacyOnboardingCompletionEmail({
+        userId,
+        email: legacyRecipientEmail,
+        firstName: legacyRecipientFirstName,
+        environment: req.isStaging ? 'staging' : 'production',
+      })
+        .then((result) => {
+          logger.info('[POST /profile/onboarding] Legacy migration email processed', {
+            userId,
+            result,
+          });
+        })
+        .catch((err) => {
+          logger.error('[POST /profile/onboarding] Legacy migration email dispatch failed', {
+            userId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
 
       res.json({ success: true, user: updatedData ?? {} });
       return;

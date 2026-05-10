@@ -337,7 +337,7 @@ export * from './utm';
 const BASE_URL = 'https://nxt1sports.com';
 
 /** Default Open Graph image */
-const DEFAULT_OG_IMAGE = `${BASE_URL}/assets/images/og-image.jpg`;
+const DEFAULT_OG_IMAGE = `${BASE_URL}/assets/shared/images/og-image.jpg`;
 
 /** Default Twitter handle */
 const TWITTER_HANDLE = '@nxt1sports';

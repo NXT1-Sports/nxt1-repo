@@ -48,7 +48,7 @@ export class RecruitingAthletesComponent implements OnInit {
         'open doors athletics',
       ],
       canonicalUrl: 'https://nxt1sports.com/recruiting-athletes',
-      image: 'https://nxt1sports.com/assets/images/og-image.jpg',
+      image: 'https://nxt1sports.com/assets/shared/images/og-image.jpg',
     });
   }
 }

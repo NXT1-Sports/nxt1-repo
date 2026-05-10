@@ -380,8 +380,8 @@ import type {
 
           <!-- Sign In (unauthenticated state) -->
           @if (showSignInButton()) {
-            <a class="nav-auth-btn nav-auth-btn--primary" routerLink="/auth" aria-label="Sign in">
-              Sign In
+            <a class="nav-auth-btn nav-auth-btn--primary" routerLink="/auth" aria-label="Try NXT1">
+              Try NXT1
             </a>
           }
 
@@ -1044,8 +1044,12 @@ export class NxtHeaderComponent implements OnDestroy {
   /** Whether to show search bar */
   readonly showSearch = computed(() => this.config().showSearch !== false);
 
-  /** Whether to show notifications */
-  readonly showNotifications = computed(() => this.config().showNotifications !== false);
+  /** Whether to show notifications (authenticated users only) */
+  readonly showNotifications = computed(
+    () =>
+      this.config().showNotifications !== false &&
+      (this.isAuthenticated() === true || this.user() !== null)
+  );
 
   /**
    * Whether to show the user menu (avatar + dropdown).
