@@ -113,7 +113,6 @@ export class AgentXOperationChatSessionFacade {
   private static readonly ENQUEUE_WAITING_MESSAGE_ID = 'enqueue-waiting';
   private static readonly ENQUEUE_WAITING_MESSAGE_TEXT = 'Will let you know when complete.';
   private static readonly ENQUEUE_HEAVY_TOOL_NAME = 'enqueue_heavy_task';
-  private static readonly ENQUEUE_HEAVY_STEP_LABEL = 'queueing background operation';
 
   private readonly logger = inject(NxtLoggingService).child('AgentXOperationChatSession');
   private readonly breadcrumb = inject(NxtBreadcrumbService);
@@ -178,56 +177,6 @@ export class AgentXOperationChatSessionFacade {
 
   private normalizeDetectedMediaUrl(value: string): string {
     return value.trim().replace(/[),.;!?]+$/g, '');
-  }
-
-  private extractMediaUrlsFromText(content: string | undefined): string[] {
-    if (!content) return [];
-
-    const urls = new Set<string>();
-    const matches = content.match(/https?:\/\/[^\s)\]"'<>]+/gi) ?? [];
-    for (const match of matches) {
-      const normalized = this.normalizeDetectedMediaUrl(match);
-      if (!/^https?:\/\//i.test(normalized)) continue;
-      if (!this.inferMediaTypeFromUrl(normalized)) continue;
-      urls.add(normalized);
-    }
-
-    return [...urls];
-  }
-
-  private extractMediaUrlsFromResultData(resultData: AgentMessage['resultData']): string[] {
-    if (!resultData) return [];
-
-    const mediaUrls = new Set<string>();
-    const pushUrl = (value: unknown): void => {
-      if (typeof value !== 'string') return;
-      const trimmed = this.normalizeDetectedMediaUrl(value);
-      if (!/^https?:\/\//i.test(trimmed)) return;
-      if (!this.inferMediaTypeFromUrl(trimmed)) return;
-      mediaUrls.add(trimmed);
-    };
-
-    pushUrl(resultData['imageUrl']);
-    pushUrl(resultData['videoUrl']);
-    pushUrl(resultData['outputUrl']);
-
-    for (const key of ['persistedMediaUrls', 'mediaUrls', 'imageUrls', 'videoUrls'] as const) {
-      const value = resultData[key];
-      if (!Array.isArray(value)) continue;
-      for (const url of value) pushUrl(url);
-    }
-
-    const files = resultData['files'];
-    if (Array.isArray(files)) {
-      for (const file of files) {
-        if (!file || typeof file !== 'object') continue;
-        const record = file as Record<string, unknown>;
-        pushUrl(record['url']);
-        pushUrl(record['downloadUrl']);
-      }
-    }
-
-    return [...mediaUrls];
   }
 
   /**

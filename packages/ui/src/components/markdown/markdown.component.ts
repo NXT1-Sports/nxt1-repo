@@ -548,14 +548,14 @@ export class NxtMarkdownComponent {
    */
   private readonly _dompurifyReady = signal(false);
 
-  /** Keep inline video cards synced to each video's intrinsic ratio. */
-  private readonly _syncInlineVideoRatios = effect(() => {
-    this.content();
-    if (typeof window === 'undefined') return;
-    window.requestAnimationFrame(() => this.hydrateInlineVideoRatios());
-  });
-
   constructor() {
+    // Keep inline video cards synced to each video's intrinsic ratio.
+    effect(() => {
+      this.content();
+      if (typeof window === 'undefined') return;
+      window.requestAnimationFrame(() => this.hydrateInlineVideoRatios());
+    });
+
     afterNextRender(() => {
       // Eagerly load DOMPurify on first browser render.
       // Once ready, flip the signal so `safeHtml` re-computes with full
