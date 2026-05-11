@@ -244,9 +244,7 @@ export class FirecrawlSignInService {
       outstandPlatform: platform,
       label: request.label,
     });
-    this.breadcrumb.trackStateChange('outstand-signin:starting', {
-      platform,
-    });
+    this.breadcrumb.trackStateChange('outstand-signin:starting', { platform });
 
     try {
       const params: Record<string, string> = {
@@ -275,22 +273,42 @@ export class FirecrawlSignInService {
         status: 'redirected',
       });
 
+      this.breadcrumb.trackStateChange('outstand-signin:redirected', { platform });
+
       if (this.platform.isNative()) {
         await this.browser.openLink({
           url: response.url,
           linkType: 'social',
           source: 'connected-sources-outstand-signin',
         });
-      } else {
-        globalThis.location.assign(response.url);
+        return false;
       }
 
-      this.breadcrumb.trackStateChange('outstand-signin:redirected', {
-        platform,
-      });
+      const popup =
+        typeof globalThis.open === 'function' ? globalThis.open(response.url, '_blank') : null;
 
-      // Redirect-based OAuth completion occurs on callback, not in this call.
-      return false;
+      if (!popup) {
+        this.logger.warn('Outstand OAuth popup was blocked, falling back to same-tab navigation');
+        globalThis.location.assign(response.url);
+        return false;
+      }
+
+      const { success, message } = await this._waitForOutstandOAuth(popup, request.label);
+
+      if (success) {
+        this.toast.success(`${request.label} connected successfully`);
+        this.analytics?.trackEvent(APP_EVENTS.LINK_SOURCE_CONNECTED, {
+          source_platform: request.platform,
+          mode: 'signin',
+          method: 'outstand',
+          status: 'success',
+        });
+        this.breadcrumb.trackStateChange('outstand-signin:completed', { platform });
+      } else if (message) {
+        this.toast.error(message);
+      }
+
+      return success;
     } catch (err) {
       this.logger.error('Failed to launch Outstand OAuth sign-in', err, {
         platform: request.platform,
@@ -302,6 +320,78 @@ export class FirecrawlSignInService {
       this._loading.set(false);
       this._activePlatform.set(null);
     }
+  }
+
+  /**
+   * Waits for the Outstand OAuth popup to complete and broadcast its result.
+   *
+   * The `/oauth/success` Angular page sends a BroadcastChannel message
+   * (`{ type: 'oauth-connected', provider: 'outstand', success: boolean, message?: string }`)
+   * and then calls `window.close()` to shut itself.
+   */
+  private _waitForOutstandOAuth(
+    popup: Window,
+    providerLabel: string
+  ): Promise<{ success: boolean; message?: string }> {
+    return new Promise((resolve) => {
+      let resolved = false;
+
+      const finish = (success: boolean, message?: string) => {
+        if (resolved) return;
+        resolved = true;
+        channel.close();
+        clearInterval(closedCheck);
+        clearTimeout(timeout);
+        resolve({ success, message });
+      };
+
+      const channel = new BroadcastChannel('oauth-connect');
+      channel.onmessage = (event: MessageEvent) => {
+        const data = event.data as {
+          type?: string;
+          provider?: string;
+          success?: boolean;
+          message?: string;
+        };
+        if (data?.type === 'oauth-connected' && data?.provider === 'outstand') {
+          finish(!!data.success, data.success ? undefined : (data.message ?? undefined));
+        }
+      };
+
+      let closedGraceStarted = false;
+      const closedCheck = setInterval(() => {
+        try {
+          if ((!popup || popup.closed) && !resolved && !closedGraceStarted) {
+            closedGraceStarted = true;
+            clearInterval(closedCheck);
+            setTimeout(() => {
+              if (!resolved) {
+                finish(
+                  false,
+                  `${providerLabel} authentication window was closed. Please try again.`
+                );
+              }
+            }, 4000);
+          }
+        } catch {
+          // TODO
+        }
+      }, 500);
+
+      const timeout = setTimeout(
+        () => {
+          if (!resolved) {
+            finish(false, `${providerLabel} authentication timed out. Please try again.`);
+            try {
+              popup.close();
+            } catch {
+              // TODO
+            }
+          }
+        },
+        5 * 60 * 1000
+      );
+    });
   }
 
   private toOutstandPlatform(platform: string): OutstandPlatform | null {
