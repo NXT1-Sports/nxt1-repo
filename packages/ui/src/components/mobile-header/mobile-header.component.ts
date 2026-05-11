@@ -231,8 +231,12 @@ import { DEFAULT_MOBILE_HEADER_CONFIG } from './mobile-header.types';
             }
           } @else if (config().showSignIn) {
             <!-- Sign In Button (unauthenticated) -->
-            <a class="mobile-header__signin-btn" routerLink="/auth" aria-label="Sign in">
-              Sign In
+            <a
+              class="mobile-header__signin-btn"
+              routerLink="/auth"
+              [attr.aria-label]="config().signInLabel ?? 'Sign In'"
+            >
+              {{ config().signInLabel ?? 'Sign In' }}
             </a>
           }
         </div>

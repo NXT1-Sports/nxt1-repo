@@ -65,11 +65,9 @@ import { NxtSectionHeaderComponent } from '../section-header';
           </header>
 
           <div class="comparison-panel__surface" aria-hidden="true">
-            <div class="surface-card">Automated multi-step workflows from a single command</div>
-            <div class="surface-card">Measurable outcomes with progress tracked end-to-end</div>
-            <div class="surface-card surface-card--strong">
-              Execution playbooks with accountable follow-through
-            </div>
+            <div class="surface-card">Automated workflows from one command</div>
+            <div class="surface-card">End-to-end outcome tracking</div>
+            <div class="surface-card surface-card--strong">Execution playbooks with ownership</div>
           </div>
 
           <ul class="comparison-panel__list" aria-label="NXT1 recruiting workflow benefits">
@@ -227,6 +225,15 @@ import { NxtSectionHeaderComponent } from '../section-header';
         background: var(--nxt1-color-alpha-primary10);
         color: var(--nxt1-color-text-primary);
         border-color: var(--nxt1-color-alpha-primary30);
+      }
+
+      @media (max-width: 575px) {
+        .comparison-panel--new .surface-card {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          font-size: var(--nxt1-fontSize-xs);
+        }
       }
 
       .surface-card--strong {

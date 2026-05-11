@@ -89,8 +89,12 @@ function extractAuthToken(req: Request): string | undefined {
  */
 export function createServer(): express.Express {
   const server = express();
-  const allowedHosts = process.env['ALLOWED_HOSTS']?.split(',') ?? [];
-  const commonEngine = new CommonEngine();
+  const allowedHosts =
+    process.env['ALLOWED_HOSTS']
+      ?.split(',')
+      .map((host) => host.trim())
+      .filter((host) => host.length > 0) ?? [];
+  const commonEngine = new CommonEngine({ allowedHosts });
 
   // Trust proxy for proper protocol detection behind load balancers
   server.set('trust proxy', true);

@@ -496,12 +496,14 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
             </div>
           }
 
-          <div class="mobile-sidebar__legal">
-            <a routerLink="/terms" class="mobile-sidebar__legal-link" (click)="close()">Terms</a>
-            <a routerLink="/privacy" class="mobile-sidebar__legal-link" (click)="close()"
-              >Privacy</a
-            >
-          </div>
+          @if (config().showLegalLinks !== false) {
+            <div class="mobile-sidebar__legal">
+              <a routerLink="/terms" class="mobile-sidebar__legal-link" (click)="close()">Terms</a>
+              <a routerLink="/privacy" class="mobile-sidebar__legal-link" (click)="close()"
+                >Privacy</a
+              >
+            </div>
+          }
         }
       </nav>
 

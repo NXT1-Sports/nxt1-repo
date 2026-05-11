@@ -12,48 +12,31 @@ interface ComparisonRow {
   readonly nxt1Result: string;
 }
 
-/** A third-party sports platform brand shown in the logo strip. */
-interface PlatformBrand {
-  readonly id: string;
-  readonly name: string;
-}
-
 const COMPARISON_ROWS: readonly ComparisonRow[] = [
   {
     id: 'film',
-    dataPoint: 'Game Film',
+    dataPoint: 'Film Review',
     oldResult: 'Stored in a library',
-    nxt1Result: 'Auto-edited into branded highlight reels',
+    nxt1Result: 'Turned into game plans, playbooks, review notes, and staff actions',
   },
   {
     id: 'stats',
-    dataPoint: 'Player Stats',
-    oldResult: 'Displayed in a table',
-    nxt1Result: 'Turned into shareable graphics & rankings',
+    dataPoint: 'Stat Sheets',
+    oldResult: 'Displayed after the game',
+    nxt1Result: 'Translated into tendencies, talking points, and practice priorities',
   },
   {
     id: 'profile',
-    dataPoint: 'Athlete Profile',
-    oldResult: 'Static page, waits to be found',
-    nxt1Result: 'Matched & pushed to college coaches',
+    dataPoint: 'Athlete Context',
+    oldResult: 'Scattered across tools',
+    nxt1Result: 'Unified into command centers for staff and athletes',
   },
   {
     id: 'roster',
     dataPoint: 'Team Roster',
     oldResult: 'A list of names',
-    nxt1Result: 'Content generated for every player, every game',
+    nxt1Result: 'A live operating layer for every player, every week',
   },
-] as const;
-
-const PLATFORM_BRANDS: readonly PlatformBrand[] = [
-  { id: 'hudl', name: 'Hudl' },
-  { id: 'maxpreps', name: 'MaxPreps' },
-  { id: '247sports', name: '247Sports' },
-  { id: 'ncsa', name: 'NCSA' },
-  { id: 'rivals', name: 'Rivals' },
-  { id: 'fieldlevel', name: 'FieldLevel' },
-  { id: 'gamechanger', name: 'GameChanger' },
-  { id: 'sportsrecruits', name: 'SportsRecruits' },
 ] as const;
 
 let oldVsNewContrastInstanceCounter = 0;
@@ -68,27 +51,13 @@ let oldVsNewContrastInstanceCounter = 0;
         <nxt1-section-header
           [titleId]="titleId()"
           eyebrow="Old vs. New"
-          title="Same Data. Completely Different Outcome."
+          title="Same program data."
+          accentText="Completely different output."
           [headingLevel]="headingLevel()"
           variant="hero"
           align="center"
-          subtitle="Platforms like Hudl and MaxPreps store your data. We sit on top and turn it into action."
+          subtitle="Traditional tools store information. NXT1 turns the same information into autonomous execution."
         />
-
-        <!-- Platform logos — data-driven via @for -->
-        <div class="ov__logos" role="list" aria-label="Platforms we integrate with">
-          @for (brand of brands(); track brand.id) {
-            <div class="ov__logo-chip" role="listitem" [attr.data-brand]="brand.id">
-              <img
-                class="ov__brand-mark"
-                src="data:image/gif;base64,R0lGODlhAQABAAAAACwAAAAAAQABAAA="
-                [alt]="brand.name + ' logo'"
-                loading="lazy"
-                decoding="async"
-              />
-            </div>
-          }
-        </div>
 
         <!-- Comparison table -->
         <div class="ov__table-wrap" role="table" [attr.aria-labelledby]="titleId()">
@@ -130,7 +99,7 @@ let oldVsNewContrastInstanceCounter = 0;
 
         <!-- Bottom tagline -->
         <p class="ov__tagline">
-          We don't replace your tools — we make them <strong>actually work</strong> for you.
+          We don't replace your staff or tools. We make both <strong>operate with leverage</strong>.
         </p>
       </div>
     </section>
@@ -140,19 +109,10 @@ let oldVsNewContrastInstanceCounter = 0;
       /* ─── Host & component-level sizing tokens ─── */
       :host {
         display: block;
-
-        --_ov-chip-height: var(--nxt1-spacing-9);
-        --_ov-chip-height-tablet: var(--nxt1-spacing-8);
-        --_ov-chip-height-mobile: var(--nxt1-spacing-7);
-        --_ov-brand-width: calc(var(--nxt1-spacing-9) * 2);
-        --_ov-brand-height: var(--nxt1-spacing-5);
-        --_ov-brand-height-tablet: var(--nxt1-spacing-4);
-        --_ov-brand-height-mobile: var(--nxt1-spacing-3_5);
         --_ov-cell-min-height: var(--nxt1-spacing-12);
         --_ov-head-min-height: var(--nxt1-spacing-10);
         --_ov-arrow-col-width: var(--nxt1-spacing-7);
         --_ov-icon-size: var(--nxt1-spacing-4);
-        --_ov-chip-opacity: 0.7;
         --_ov-stagger-delay: 80ms;
       }
 
@@ -166,55 +126,6 @@ let oldVsNewContrastInstanceCounter = 0;
       .ov__shell {
         display: grid;
         gap: var(--nxt1-spacing-5);
-      }
-
-      /* ─── Logo row ─── */
-      .ov__logos {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        gap: var(--nxt1-spacing-2);
-        flex-wrap: wrap;
-        padding: var(--nxt1-spacing-1) 0;
-      }
-
-      .ov__logo-chip {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        height: var(--_ov-chip-height);
-        padding: 0 var(--nxt1-spacing-3);
-        border-radius: var(--nxt1-borderRadius-lg);
-        border: var(--nxt1-spacing-px) solid var(--nxt1-color-border-subtle);
-        background: var(--nxt1-color-surface-200);
-        color: var(--nxt1-color-text-muted);
-        opacity: var(--_ov-chip-opacity);
-        transition:
-          opacity var(--nxt1-motion-duration-fast, 150ms) ease,
-          border-color var(--nxt1-motion-duration-fast, 150ms) ease,
-          background var(--nxt1-motion-duration-fast, 150ms) ease,
-          transform var(--nxt1-motion-duration-fast, 150ms) ease;
-      }
-
-      .ov__logo-chip:hover {
-        opacity: 1;
-        border-color: var(--nxt1-color-text-tertiary);
-        background: var(--nxt1-color-surface-100);
-        transform: translateY(calc(var(--nxt1-spacing-px) * -1));
-      }
-
-      .ov__brand-mark {
-        display: block;
-        width: var(--_ov-brand-width);
-        height: var(--_ov-brand-height);
-        border-radius: var(--nxt1-borderRadius-sm);
-        border: var(--nxt1-spacing-px) dashed var(--nxt1-color-border-subtle);
-        background: linear-gradient(
-          135deg,
-          var(--nxt1-color-surface-100),
-          var(--nxt1-color-surface-300)
-        );
-        object-fit: cover;
       }
 
       /* ─── Comparison table ─── */
@@ -357,20 +268,6 @@ let oldVsNewContrastInstanceCounter = 0;
           padding: var(--nxt1-spacing-6) var(--nxt1-spacing-4);
         }
 
-        .ov__logos {
-          gap: var(--nxt1-spacing-1_5);
-          justify-content: center;
-        }
-
-        .ov__logo-chip {
-          height: var(--_ov-chip-height-mobile);
-          padding: 0 var(--nxt1-spacing-2);
-        }
-
-        .ov__brand-mark {
-          height: var(--_ov-brand-height-mobile);
-        }
-
         .ov__table-wrap {
           border: none;
           background: transparent;
@@ -454,15 +351,6 @@ let oldVsNewContrastInstanceCounter = 0;
         .ov__new-text {
           font-size: var(--nxt1-fontSize-xs);
         }
-
-        .ov__brand-mark {
-          height: var(--_ov-brand-height-tablet);
-        }
-
-        .ov__logo-chip {
-          height: var(--_ov-chip-height-tablet);
-          padding: 0 var(--nxt1-spacing-2_5);
-        }
       }
     `,
   ],
@@ -476,9 +364,6 @@ export class NxtOldVsNewContrastSectionComponent {
 
   /** Comparison data rows. */
   readonly rows = input<readonly ComparisonRow[]>(COMPARISON_ROWS);
-
-  /** Platform brands shown in the logo strip. */
-  readonly brands = input<readonly PlatformBrand[]>(PLATFORM_BRANDS);
 
   /** Stagger delay (ms) between row entrance animations. */
   readonly staggerMs = input<number>(80);

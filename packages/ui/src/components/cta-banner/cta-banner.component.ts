@@ -168,7 +168,15 @@ export type CtaBannerVariant = 'default' | 'minimal' | 'accent' | 'conversion';
 
       .cta-section {
         position: relative;
+        margin: 0 auto;
         padding: var(--nxt1-section-padding-y) var(--nxt1-section-padding-x);
+        box-sizing: border-box;
+      }
+
+      .cta-section--conversion {
+        width: 100%;
+        max-width: var(--nxt1-root-shell-max-width, var(--nxt1-content-max-width));
+        padding: var(--nxt1-spacing-6) var(--nxt1-spacing-4) var(--nxt1-spacing-10);
       }
 
       .cta-content {
@@ -200,7 +208,7 @@ export type CtaBannerVariant = 'default' | 'minimal' | 'accent' | 'conversion';
       .cta-section--conversion .cta-content {
         overflow: hidden;
         width: 100%;
-        max-width: var(--nxt1-section-max-width, var(--nxt1-root-shell-max-width, 88rem));
+        max-width: none;
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto;
         align-items: center;

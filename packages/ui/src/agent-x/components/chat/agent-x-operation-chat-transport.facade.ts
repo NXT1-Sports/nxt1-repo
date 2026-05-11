@@ -202,7 +202,10 @@ export class AgentXOperationChatTransportFacade {
       onWaitingForAttachments: (operationId: string) => Promise<void>;
     }
   ): Promise<void> {
-    const host = this.requireHost();
+    const host = this.getHostOrSkip('call-agent-chat');
+    if (!host) {
+      return;
+    }
     const sanitizedConnectedSources =
       connectedSources?.flatMap((source) => {
         const platform = source.platform.trim();
@@ -364,7 +367,10 @@ export class AgentXOperationChatTransportFacade {
       event: AgentXStreamWaitingForAttachmentsEvent
     ) => void | Promise<void>
   ): Promise<void> {
-    const host = this.requireHost();
+    const host = this.getHostOrSkip('send-via-stream');
+    if (!host) {
+      return Promise.resolve();
+    }
     this.messageFacade.clearPendingTypingDelta();
     const previousThreadId = host.resolvedThreadId();
     if (previousThreadId) {
@@ -989,7 +995,10 @@ export class AgentXOperationChatTransportFacade {
   }
 
   beginResponseTurn(source: string): void {
-    const host = this.requireHost();
+    const host = this.getHostOrSkip('begin-response-turn');
+    if (!host) {
+      return;
+    }
     this.responseTurnId += 1;
     this.responseCompleteEmitted = false;
     this.enqueueHeavySeen = false;
@@ -1060,11 +1069,17 @@ export class AgentXOperationChatTransportFacade {
     return { count, avgMs, p95Ms };
   }
 
-  private requireHost(): AgentXOperationChatTransportFacadeHost {
-    if (!this.host) {
-      throw new Error('AgentXOperationChatTransportFacade used before configure()');
+  private getHostOrSkip(action: string): AgentXOperationChatTransportFacadeHost | null {
+    if (this.host) {
+      return this.host;
     }
 
-    return this.host;
+    if (this.destroyed) {
+      this.logger.debug('Skipped transport action after chat teardown', { action });
+      return null;
+    }
+
+    this.logger.warn('Skipped transport action before configure()', { action });
+    return null;
   }
 }

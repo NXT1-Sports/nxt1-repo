@@ -1,8 +1,8 @@
 /**
- * @fileoverview NXT1 Partner Marquee Component
- * @module @nxt1/ui/components/partner-marquee
+ * @fileoverview NXT1 Integration Marquee Component
+ * @module @nxt1/ui/components/integration-marquee
  *
- * Professional infinite-scrolling partner logo carousel.
+ * Professional infinite-scrolling integration logo carousel.
  * Follows 2026 best practices: pure CSS animation (GPU-accelerated),
  * SSR-safe, fully accessible, theme-aware, and mobile-responsive.
  *
@@ -22,10 +22,10 @@
  *
  * @example
  * ```html
- * <nxt1-partner-marquee />
+ * <nxt1-integration-marquee />
  *
- * <nxt1-partner-marquee
- *   title="Our Partners"
+ * <nxt1-integration-marquee
+ *   title="Our Integrations"
  *   subtitle="Trusted by leading organizations in sports"
  *   [speed]="40"
  *   direction="right"
@@ -33,23 +33,40 @@
  * ```
  */
 
-import { Component, ChangeDetectionStrategy, Input, signal, computed } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import {
+  afterNextRender,
+  ChangeDetectionStrategy,
+  Component,
+  DestroyRef,
+  ElementRef,
+  inject,
+  Input,
+  PLATFORM_ID,
+  signal,
+  computed,
+  viewChild,
+} from '@angular/core';
+import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { NxtSectionHeaderComponent } from '../section-header';
+import {
+  PLATFORM_FAVICON_DOMAINS,
+  PLATFORM_REGISTRY,
+  getPlatformFaviconUrl,
+} from '@nxt1/core/platforms';
 
 // ============================================
 // TYPES
 // ============================================
 
-/** Individual partner entry */
-export interface PartnerItem {
+/** Individual integration entry */
+export interface IntegrationItem {
   /** Unique identifier */
   readonly id: string;
-  /** Partner / organization name (used for alt-text & aria) */
+  /** Integration / organization name (used for alt-text & aria) */
   readonly name: string;
   /** Logo image URL — leave empty for placeholder */
   readonly logoUrl?: string;
-  /** Optional link to partner website */
+  /** Optional link to integration website */
   readonly href?: string;
 }
 
@@ -60,40 +77,88 @@ export type MarqueeDirection = 'left' | 'right';
 export type MarqueeVariant = 'default' | 'minimal' | 'dark';
 
 // ============================================
-// DEFAULT PARTNERS (Placeholders)
+// DEFAULT INTEGRATIONS (Canonical Connected Sources)
 // ============================================
 
-const DEFAULT_PARTNERS: readonly PartnerItem[] = [
-  { id: 'partner-1', name: 'Partner One' },
-  { id: 'partner-2', name: 'Partner Two' },
-  { id: 'partner-3', name: 'Partner Three' },
-  { id: 'partner-4', name: 'Partner Four' },
-  { id: 'partner-5', name: 'Partner Five' },
-  { id: 'partner-6', name: 'Partner Six' },
-  { id: 'partner-7', name: 'Partner Seven' },
-  { id: 'partner-8', name: 'Partner Eight' },
+const MARKETING_INTEGRATION_PLATFORMS = [
+  'hudl',
+  'maxpreps',
+  'google',
+  'microsoft',
+  'instagram',
+  'twitter',
+  'youtube',
+  'facebook',
+  'sportsengine',
+  'gamechanger',
+  'veo',
+  'sportsrecruits',
+  'fieldlevel',
+  'ncsa',
+  'krossover',
+  'ballertv',
+  'nfhsnetwork',
+  'sportsengineplay',
+  'vimeo',
+  'captainu',
+  'connectlax',
+  'rivals',
+  'on3',
+  '247sports',
+  'scorebooklive',
+  'milesplit',
+  'swimcloud',
+  'trackwrestling',
+  'golfstat',
+  'perfectgame',
+  'prephoops',
+  'prepfootball',
+  'topdrawersoccer',
+  'prepvolleyball',
+  'athletic',
 ] as const;
+
+const DEFAULT_INTEGRATIONS: readonly IntegrationItem[] = MARKETING_INTEGRATION_PLATFORMS.flatMap(
+  (platform, index) => {
+    const definition = PLATFORM_REGISTRY.find((item) => item.platform === platform);
+    const domain = (PLATFORM_FAVICON_DOMAINS as Record<string, string>)[platform];
+    const logoUrl = getPlatformFaviconUrl(platform);
+
+    if (!domain || !logoUrl) {
+      return [];
+    }
+
+    return [
+      {
+        id: `integration-${index + 1}`,
+        name: definition?.label ?? platform,
+        logoUrl,
+        href: `https://${domain}`,
+      },
+    ];
+  }
+);
 
 // ============================================
 // COMPONENT
 // ============================================
 
 @Component({
-  selector: 'nxt1-partner-marquee',
+  selector: 'nxt1-integration-marquee',
   standalone: true,
   imports: [CommonModule, NxtSectionHeaderComponent],
   template: `
     <section
-      class="partner-marquee"
+      class="integration-marquee"
       [class]="variantClass()"
       [attr.aria-label]="title"
       role="region"
     >
-      <div class="partner-marquee__container">
+      <div class="integration-marquee__container">
         <!-- Section Header -->
-        <div class="partner-marquee__header">
+        <div class="integration-marquee__header">
           <nxt1-section-header
-            titleId="partner-marquee-title"
+            titleId="integration-marquee-title"
             [eyebrow]="showLabel ? label : undefined"
             [headingLevel]="2"
             align="center"
@@ -105,54 +170,65 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
 
         <!-- Marquee Track -->
         <div
-          class="partner-marquee__viewport"
-          [attr.aria-label]="'Scrolling list of ' + partners().length + ' partner logos'"
+          #viewport
+          class="integration-marquee__viewport"
+          [attr.aria-label]="'Scrolling list of ' + integrations().length + ' integration logos'"
           role="marquee"
         >
           <!-- Edge fade masks (left + right) -->
-          <div class="partner-marquee__fade partner-marquee__fade--left" aria-hidden="true"></div>
-          <div class="partner-marquee__fade partner-marquee__fade--right" aria-hidden="true"></div>
+          <div
+            class="integration-marquee__fade integration-marquee__fade--left"
+            aria-hidden="true"
+          ></div>
+          <div
+            class="integration-marquee__fade integration-marquee__fade--right"
+            aria-hidden="true"
+          ></div>
 
           <!-- Infinite scroll track — the row is duplicated for seamless looping -->
           <div
-            class="partner-marquee__track"
-            [class.partner-marquee__track--reverse]="direction === 'right'"
+            class="integration-marquee__track"
+            [class.integration-marquee__track--reverse]="direction === 'right'"
+            [class.integration-marquee__track--active]="isAnimationActive()"
             [style.--marquee-duration]="animationDuration()"
             [style.--marquee-gap]="gap + 'px'"
           >
             <!-- First set -->
-            @for (partner of partners(); track partner.id) {
-              <div class="partner-marquee__item" [attr.aria-label]="partner.name">
-                @if (partner.logoUrl) {
-                  @if (partner.href) {
+            @for (integration of integrations(); track integration.id) {
+              <div class="integration-marquee__item" [attr.aria-label]="integration.name">
+                @if (integration.logoUrl) {
+                  @if (integration.href) {
                     <a
-                      [href]="partner.href"
+                      [href]="integration.href"
                       target="_blank"
                       rel="noopener noreferrer"
-                      class="partner-marquee__link"
-                      [attr.aria-label]="'Visit ' + partner.name"
+                      class="integration-marquee__link"
+                      [attr.aria-label]="'Visit ' + integration.name"
                     >
                       <img
-                        [src]="partner.logoUrl"
-                        [alt]="partner.name + ' logo'"
-                        class="partner-marquee__logo"
+                        [src]="integration.logoUrl"
+                        [alt]="integration.name + ' logo'"
+                        class="integration-marquee__logo"
                         loading="lazy"
                         decoding="async"
                       />
                     </a>
                   } @else {
                     <img
-                      [src]="partner.logoUrl"
-                      [alt]="partner.name + ' logo'"
-                      class="partner-marquee__logo"
+                      [src]="integration.logoUrl"
+                      [alt]="integration.name + ' logo'"
+                      class="integration-marquee__logo"
                       loading="lazy"
                       decoding="async"
                     />
                   }
                 } @else {
                   <!-- Placeholder logo -->
-                  <div class="partner-marquee__placeholder" [attr.aria-label]="partner.name">
-                    <div class="partner-marquee__placeholder-icon" aria-hidden="true">
+                  <div
+                    class="integration-marquee__placeholder"
+                    [attr.aria-label]="integration.name"
+                  >
+                    <div class="integration-marquee__placeholder-icon" aria-hidden="true">
                       <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <rect
                           x="3"
@@ -168,48 +244,50 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
                         <circle cx="9" cy="9" r="2" fill="currentColor" opacity="0.3" />
                       </svg>
                     </div>
-                    <span class="partner-marquee__placeholder-name">{{ partner.name }}</span>
+                    <span class="integration-marquee__placeholder-name">{{
+                      integration.name
+                    }}</span>
                   </div>
                 }
               </div>
             }
 
             <!-- Duplicate set (for seamless infinite loop) -->
-            @for (partner of partners(); track 'dup-' + partner.id) {
+            @for (integration of integrations(); track 'dup-' + integration.id) {
               <div
-                class="partner-marquee__item"
-                [attr.aria-label]="partner.name"
+                class="integration-marquee__item"
+                [attr.aria-label]="integration.name"
                 aria-hidden="true"
               >
-                @if (partner.logoUrl) {
-                  @if (partner.href) {
+                @if (integration.logoUrl) {
+                  @if (integration.href) {
                     <a
-                      [href]="partner.href"
+                      [href]="integration.href"
                       target="_blank"
                       rel="noopener noreferrer"
-                      class="partner-marquee__link"
+                      class="integration-marquee__link"
                       tabindex="-1"
                     >
                       <img
-                        [src]="partner.logoUrl"
+                        [src]="integration.logoUrl"
                         [alt]="''"
-                        class="partner-marquee__logo"
+                        class="integration-marquee__logo"
                         loading="lazy"
                         decoding="async"
                       />
                     </a>
                   } @else {
                     <img
-                      [src]="partner.logoUrl"
+                      [src]="integration.logoUrl"
                       alt=""
-                      class="partner-marquee__logo"
+                      class="integration-marquee__logo"
                       loading="lazy"
                       decoding="async"
                     />
                   }
                 } @else {
-                  <div class="partner-marquee__placeholder">
-                    <div class="partner-marquee__placeholder-icon" aria-hidden="true">
+                  <div class="integration-marquee__placeholder">
+                    <div class="integration-marquee__placeholder-icon" aria-hidden="true">
                       <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <rect
                           x="3"
@@ -225,7 +303,9 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
                         <circle cx="9" cy="9" r="2" fill="currentColor" opacity="0.3" />
                       </svg>
                     </div>
-                    <span class="partner-marquee__placeholder-name">{{ partner.name }}</span>
+                    <span class="integration-marquee__placeholder-name">{{
+                      integration.name
+                    }}</span>
                   </div>
                 }
               </div>
@@ -252,14 +332,14 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
          SECTION CONTAINER
          ============================================ */
 
-      .partner-marquee {
+      .integration-marquee {
         position: relative;
         padding: var(--nxt1-spacing-16, 4rem) 0;
         background: var(--nxt1-color-bg-primary);
         overflow: hidden;
       }
 
-      .partner-marquee__container {
+      .integration-marquee__container {
         width: 100%;
         max-width: var(--nxt1-root-shell-max-width, 88rem);
         margin: 0 auto;
@@ -267,11 +347,11 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
         box-sizing: border-box;
       }
 
-      .partner-marquee--minimal {
+      .integration-marquee--minimal {
         padding: var(--nxt1-spacing-12, 3rem) 0;
       }
 
-      .partner-marquee--dark {
+      .integration-marquee--dark {
         background: var(--nxt1-color-bg-secondary, #0a0a0a);
       }
 
@@ -279,7 +359,7 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
          HEADER
          ============================================ */
 
-      .partner-marquee__header {
+      .integration-marquee__header {
         --nxt1-section-subtitle-max-width: 30rem;
         margin-bottom: var(--nxt1-spacing-10, 2.5rem);
         padding: 0;
@@ -289,7 +369,7 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
          VIEWPORT (clipping container)
          ============================================ */
 
-      .partner-marquee__viewport {
+      .integration-marquee__viewport {
         position: relative;
         width: 100%;
         overflow: hidden;
@@ -314,22 +394,28 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
          TRACK (the moving element)
          ============================================ */
 
-      .partner-marquee__track {
+      .integration-marquee__track {
         display: flex;
         align-items: center;
+        justify-content: center;
         gap: var(--marquee-gap);
         width: max-content;
         animation: marquee-scroll var(--marquee-duration) linear infinite;
+        animation-play-state: paused;
         will-change: transform;
       }
 
-      .partner-marquee__track--reverse {
+      .integration-marquee__track--active {
+        animation-play-state: running;
+      }
+
+      .integration-marquee__track--reverse {
         animation-direction: reverse;
       }
 
       /* Pause on hover & focus-within for accessibility */
-      .partner-marquee__viewport:hover .partner-marquee__track,
-      .partner-marquee__viewport:focus-within .partner-marquee__track {
+      .integration-marquee__viewport:hover .integration-marquee__track,
+      .integration-marquee__viewport:focus-within .integration-marquee__track {
         animation-play-state: paused;
       }
 
@@ -346,7 +432,7 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
          INDIVIDUAL ITEMS
          ============================================ */
 
-      .partner-marquee__item {
+      .integration-marquee__item {
         flex-shrink: 0;
         display: flex;
         align-items: center;
@@ -354,11 +440,11 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
         transition: opacity 0.3s ease;
       }
 
-      .partner-marquee__viewport:hover .partner-marquee__item {
+      .integration-marquee__viewport:hover .integration-marquee__item {
         opacity: 0.5;
       }
 
-      .partner-marquee__viewport:hover .partner-marquee__item:hover {
+      .integration-marquee__viewport:hover .integration-marquee__item:hover {
         opacity: 1;
       }
 
@@ -366,23 +452,23 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
          LOGO IMAGE
          ============================================ */
 
-      .partner-marquee__logo {
+      .integration-marquee__logo {
         height: 36px;
         width: auto;
         max-width: 140px;
         object-fit: contain;
-        filter: grayscale(100%);
-        opacity: 0.6;
+        filter: grayscale(0%);
+        opacity: 1;
         transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
       }
 
-      .partner-marquee__item:hover .partner-marquee__logo {
+      .integration-marquee__item:hover .integration-marquee__logo {
         filter: grayscale(0%);
         opacity: 1;
-        transform: scale(1.08);
+        transform: scale(1.12);
       }
 
-      .partner-marquee__link {
+      .integration-marquee__link {
         display: flex;
         align-items: center;
         text-decoration: none;
@@ -390,7 +476,7 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
         border-radius: var(--nxt1-radius-md, 8px);
       }
 
-      .partner-marquee__link:focus-visible {
+      .integration-marquee__link:focus-visible {
         outline: 2px solid var(--nxt1-color-primary);
       }
 
@@ -398,7 +484,7 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
          PLACEHOLDER (when no logo image)
          ============================================ */
 
-      .partner-marquee__placeholder {
+      .integration-marquee__placeholder {
         display: flex;
         align-items: center;
         gap: var(--nxt1-spacing-3, 0.75rem);
@@ -412,14 +498,14 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
         height: 56px;
       }
 
-      .partner-marquee__item:hover .partner-marquee__placeholder {
+      .integration-marquee__item:hover .integration-marquee__placeholder {
         border-color: var(--nxt1-color-border-primary, var(--nxt1-color-primary));
         background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.06));
         transform: translateY(-2px);
         box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
       }
 
-      .partner-marquee__placeholder-icon {
+      .integration-marquee__placeholder-icon {
         width: 28px;
         height: 28px;
         flex-shrink: 0;
@@ -428,17 +514,17 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
         transition: opacity 0.3s ease;
       }
 
-      .partner-marquee__item:hover .partner-marquee__placeholder-icon {
+      .integration-marquee__item:hover .integration-marquee__placeholder-icon {
         opacity: 1;
         color: var(--nxt1-color-primary);
       }
 
-      .partner-marquee__placeholder-icon svg {
+      .integration-marquee__placeholder-icon svg {
         width: 100%;
         height: 100%;
       }
 
-      .partner-marquee__placeholder-name {
+      .integration-marquee__placeholder-name {
         font-size: 0.8125rem;
         font-weight: 500;
         color: var(--nxt1-color-text-tertiary);
@@ -447,7 +533,7 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
         letter-spacing: 0.01em;
       }
 
-      .partner-marquee__item:hover .partner-marquee__placeholder-name {
+      .integration-marquee__item:hover .integration-marquee__placeholder-name {
         color: var(--nxt1-color-text-secondary);
       }
 
@@ -456,41 +542,41 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
          ============================================ */
 
       @media (max-width: 768px) {
-        .partner-marquee {
+        .integration-marquee {
           padding: var(--nxt1-spacing-12, 3rem) 0;
         }
 
-        .partner-marquee__header {
+        .integration-marquee__header {
           margin-bottom: var(--nxt1-spacing-8, 2rem);
         }
 
-        .partner-marquee__logo {
+        .integration-marquee__logo {
           height: 28px;
           max-width: 110px;
         }
 
-        .partner-marquee__placeholder {
+        .integration-marquee__placeholder {
           min-width: 140px;
           height: 48px;
           padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-4, 1rem);
         }
 
-        .partner-marquee__placeholder-icon {
+        .integration-marquee__placeholder-icon {
           width: 22px;
           height: 22px;
         }
 
-        .partner-marquee__placeholder-name {
+        .integration-marquee__placeholder-name {
           font-size: 0.75rem;
         }
       }
 
       @media (max-width: 480px) {
-        .partner-marquee {
+        .integration-marquee {
           padding: var(--nxt1-spacing-10, 2.5rem) 0;
         }
 
-        .partner-marquee__placeholder {
+        .integration-marquee__placeholder {
           min-width: 120px;
           height: 44px;
           gap: var(--nxt1-spacing-2, 0.5rem);
@@ -502,7 +588,7 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
          ============================================ */
 
       @media (prefers-reduced-motion: reduce) {
-        .partner-marquee__track {
+        .integration-marquee__track {
           animation-play-state: paused;
         }
       }
@@ -511,12 +597,12 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
          DARK VARIANT OVERRIDES
          ============================================ */
 
-      .partner-marquee--dark .partner-marquee__logo {
-        filter: grayscale(100%) brightness(2);
-        opacity: 0.5;
+      .integration-marquee--dark .integration-marquee__logo {
+        filter: grayscale(0%) brightness(1);
+        opacity: 1;
       }
 
-      .partner-marquee--dark .partner-marquee__item:hover .partner-marquee__logo {
+      .integration-marquee--dark .integration-marquee__item:hover .integration-marquee__logo {
         filter: grayscale(0%) brightness(1);
         opacity: 1;
       }
@@ -524,7 +610,11 @@ const DEFAULT_PARTNERS: readonly PartnerItem[] = [
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class NxtPartnerMarqueeComponent {
+export class NxtIntegrationMarqueeComponent {
+  private readonly platformId = inject(PLATFORM_ID);
+  private readonly destroyRef = inject(DestroyRef);
+  private readonly viewport = viewChild<ElementRef<HTMLElement>>('viewport');
+
   // ============================================
   // INPUTS
   // ============================================
@@ -536,7 +626,7 @@ export class NxtPartnerMarqueeComponent {
   @Input() subtitle = '';
 
   /** Small label above the title (e.g. "OUR PARTNERS") */
-  @Input() label = 'Our Partners';
+  @Input() label = 'Our Integrations';
 
   /** Whether to show the label */
   @Input() showLabel = true;
@@ -545,7 +635,7 @@ export class NxtPartnerMarqueeComponent {
   @Input() direction: MarqueeDirection = 'left';
 
   /** Animation speed in seconds for one full cycle */
-  @Input() speed = 35;
+  @Input() speed = 50;
 
   /** Gap between items in pixels */
   @Input() gap = 48;
@@ -553,8 +643,8 @@ export class NxtPartnerMarqueeComponent {
   /** Visual variant */
   @Input() variant: MarqueeVariant = 'default';
 
-  /** Custom partner list (overrides defaults) */
-  @Input() set items(value: PartnerItem[]) {
+  /** Custom integration list (overrides defaults) */
+  @Input() set items(value: IntegrationItem[]) {
     this._items.set(value);
   }
 
@@ -562,10 +652,14 @@ export class NxtPartnerMarqueeComponent {
   // STATE
   // ============================================
 
-  private readonly _items = signal<PartnerItem[]>([...DEFAULT_PARTNERS]);
+  private readonly _items = signal<IntegrationItem[]>([...DEFAULT_INTEGRATIONS]);
+  private readonly _isAnimationActive = signal(false);
 
-  /** Current partners list */
-  readonly partners = computed(() => this._items());
+  /** Current integrations list */
+  readonly integrations = computed(() => this._items());
+
+  /** Starts scrolling only after the marquee enters the viewport */
+  readonly isAnimationActive = computed(() => this._isAnimationActive());
 
   /** CSS duration string */
   readonly animationDuration = computed(() => `${this.speed}s`);
@@ -574,11 +668,43 @@ export class NxtPartnerMarqueeComponent {
   readonly variantClass = computed(() => {
     switch (this.variant) {
       case 'minimal':
-        return 'partner-marquee--minimal';
+        return 'integration-marquee--minimal';
       case 'dark':
-        return 'partner-marquee--dark';
+        return 'integration-marquee--dark';
       default:
         return '';
     }
   });
+
+  constructor() {
+    afterNextRender(() => {
+      if (!isPlatformBrowser(this.platformId)) {
+        return;
+      }
+
+      const viewport = this.viewport()?.nativeElement;
+
+      if (!viewport || typeof IntersectionObserver === 'undefined') {
+        this._isAnimationActive.set(true);
+        return;
+      }
+
+      const observer = new IntersectionObserver(
+        (entries) => {
+          if (!entries.some((entry) => entry.isIntersecting)) {
+            return;
+          }
+
+          this._isAnimationActive.set(true);
+          observer.disconnect();
+        },
+        {
+          threshold: 0.2,
+        }
+      );
+
+      observer.observe(viewport);
+      this.destroyRef.onDestroy(() => observer.disconnect());
+    });
+  }
 }

@@ -31,51 +31,106 @@ export interface ImmersiveHeroShot {
       <!-- SLEEK FULL-WIDTH VARIANT: Sports Intelligence Style -->
       <div class="hero-sleek" [class.hero-sleek--loaded]="loaded()">
         <div class="hero-sleek__background">
-          <!-- Animated grid network for sports data vibe -->
-          <svg class="hero-sleek__grid" viewBox="0 0 1200 800" preserveAspectRatio="none">
-            <defs>
-              <linearGradient id="grid-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop
-                  offset="0%"
-                  style="stop-color: var(--nxt1-color-primary); stop-opacity: 0.1"
-                />
-                <stop
-                  offset="50%"
-                  style="stop-color: var(--nxt1-color-secondary); stop-opacity: 0.05"
-                />
-                <stop
-                  offset="100%"
-                  style="stop-color: var(--nxt1-color-primary); stop-opacity: 0"
-                />
-              </linearGradient>
-            </defs>
-            <!-- Horizontal grid lines -->
-            <line x1="0" y1="200" x2="1200" y2="200" class="grid-line" />
-            <line x1="0" y1="400" x2="1200" y2="400" class="grid-line" />
-            <line x1="0" y1="600" x2="1200" y2="600" class="grid-line" />
-            <!-- Vertical grid lines -->
-            <line x1="300" y1="0" x2="300" y2="800" class="grid-line" />
-            <line x1="600" y1="0" x2="600" y2="800" class="grid-line" />
-            <line x1="900" y1="0" x2="900" y2="800" class="grid-line" />
-            <!-- Accent diagonal lines for data flow -->
-            <line x1="0" y1="0" x2="1200" y2="800" class="grid-line grid-line--accent" />
-            <line x1="1200" y1="0" x2="0" y2="800" class="grid-line grid-line--accent" />
-          </svg>
+          @if (loaded()) {
+            <!-- Tech Wave Layer (deferred until first paint for LCP) -->
+            <svg class="hero-sleek__wave" viewBox="0 0 1440 320" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="wave-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop
+                    offset="0%"
+                    style="stop-color: var(--nxt1-color-primary); stop-opacity: 0.08"
+                  />
+                  <stop
+                    offset="50%"
+                    style="stop-color: var(--nxt1-color-secondary); stop-opacity: 0.04"
+                  />
+                  <stop offset="100%" style="stop-color: transparent" />
+                </linearGradient>
+                <linearGradient id="wave-line-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop
+                    offset="0%"
+                    style="stop-color: var(--nxt1-color-primary); stop-opacity: 0.25"
+                  />
+                  <stop
+                    offset="50%"
+                    style="stop-color: var(--nxt1-color-secondary); stop-opacity: 0.5"
+                  />
+                  <stop
+                    offset="100%"
+                    style="stop-color: var(--nxt1-color-primary); stop-opacity: 0.25"
+                  />
+                </linearGradient>
+              </defs>
+              <!-- Primary wave -->
+              <path
+                d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,122.7C672,117,768,139,864,144C960,149,1056,139,1152,128C1248,117,1344,107,1392,101.3L1440,96L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"
+                fill="url(#wave-gradient)"
+                class="wave-path wave-path--primary"
+              />
+              <!-- Secondary wave (offset & subtle) -->
+              <path
+                d="M0,160L48,170.7C96,181,192,203,288,197.3C384,192,480,160,576,154.7C672,149,768,171,864,176C960,181,1056,171,1152,160C1248,149,1344,139,1392,133.3L1440,128L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"
+                fill="url(#wave-gradient)"
+                class="wave-path wave-path--secondary"
+                opacity="0.6"
+              />
+              <!-- Signal line to read as premium technology layer -->
+              <path
+                d="M0,128C160,145,320,176,480,165C640,154,800,102,960,112C1120,122,1280,170,1440,152"
+                fill="none"
+                stroke="url(#wave-line-gradient)"
+                stroke-width="2"
+                stroke-linecap="round"
+                class="wave-line"
+              />
+            </svg>
 
-          <!-- Gradient blobs (subtle backdrop) -->
-          <div class="hero-sleek__blob hero-sleek__blob--1"></div>
-          <div class="hero-sleek__blob hero-sleek__blob--2"></div>
-          <div class="hero-sleek__blob hero-sleek__blob--3"></div>
+            <!-- Animated grid network for sports data vibe -->
+            <svg class="hero-sleek__grid" viewBox="0 0 1200 800" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="grid-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop
+                    offset="0%"
+                    style="stop-color: var(--nxt1-color-primary); stop-opacity: 0.1"
+                  />
+                  <stop
+                    offset="50%"
+                    style="stop-color: var(--nxt1-color-secondary); stop-opacity: 0.05"
+                  />
+                  <stop
+                    offset="100%"
+                    style="stop-color: var(--nxt1-color-primary); stop-opacity: 0"
+                  />
+                </linearGradient>
+              </defs>
+              <!-- Horizontal grid lines -->
+              <line x1="0" y1="200" x2="1200" y2="200" class="grid-line" />
+              <line x1="0" y1="400" x2="1200" y2="400" class="grid-line" />
+              <line x1="0" y1="600" x2="1200" y2="600" class="grid-line" />
+              <!-- Vertical grid lines -->
+              <line x1="300" y1="0" x2="300" y2="800" class="grid-line" />
+              <line x1="600" y1="0" x2="600" y2="800" class="grid-line" />
+              <line x1="900" y1="0" x2="900" y2="800" class="grid-line" />
+              <!-- Accent diagonal lines for data flow -->
+              <line x1="0" y1="0" x2="1200" y2="800" class="grid-line grid-line--accent" />
+              <line x1="1200" y1="0" x2="0" y2="800" class="grid-line grid-line--accent" />
+            </svg>
 
-          <!-- Animated data particles -->
-          <div class="hero-sleek__particles">
-            <div class="particle" style="--particle-delay: 0s"></div>
-            <div class="particle" style="--particle-delay: 0.2s"></div>
-            <div class="particle" style="--particle-delay: 0.4s"></div>
-            <div class="particle" style="--particle-delay: 0.6s"></div>
-            <div class="particle" style="--particle-delay: 0.8s"></div>
-            <div class="particle" style="--particle-delay: 1s"></div>
-          </div>
+            <!-- Gradient blobs (subtle backdrop) -->
+            <div class="hero-sleek__blob hero-sleek__blob--1"></div>
+            <div class="hero-sleek__blob hero-sleek__blob--2"></div>
+            <div class="hero-sleek__blob hero-sleek__blob--3"></div>
+
+            <!-- Animated data particles -->
+            <div class="hero-sleek__particles">
+              <div class="particle" style="--particle-delay: 0s"></div>
+              <div class="particle" style="--particle-delay: 0.2s"></div>
+              <div class="particle" style="--particle-delay: 0.4s"></div>
+              <div class="particle" style="--particle-delay: 0.6s"></div>
+              <div class="particle" style="--particle-delay: 0.8s"></div>
+              <div class="particle" style="--particle-delay: 1s"></div>
+            </div>
+          }
 
           <!-- Scrim for readability -->
           <div class="hero-sleek__scrim"></div>
@@ -374,6 +429,40 @@ export interface ImmersiveHeroShot {
         }
       }
 
+      /* Tech Wave Animations (GPU-accelerated, LCP/CLS safe) */
+      @keyframes wave-motion {
+        0% {
+          transform: translateX(0) translateZ(0);
+        }
+        50% {
+          transform: translateX(40px) translateZ(0);
+        }
+        100% {
+          transform: translateX(0) translateZ(0);
+        }
+      }
+
+      @keyframes wave-motion-offset {
+        0% {
+          transform: translateX(-20px) translateZ(0);
+        }
+        50% {
+          transform: translateX(60px) translateZ(0);
+        }
+        100% {
+          transform: translateX(-20px) translateZ(0);
+        }
+      }
+
+      @keyframes wave-signal-flow {
+        0% {
+          stroke-dashoffset: 180;
+        }
+        100% {
+          stroke-dashoffset: 0;
+        }
+      }
+
       .hero-sleek {
         position: relative;
         width: 100%;
@@ -400,6 +489,49 @@ export interface ImmersiveHeroShot {
         width: 100%;
         height: 100%;
         opacity: 0.15;
+      }
+
+      /* Tech Wave Layer */
+      .hero-sleek__wave {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 32%;
+        opacity: 0.92;
+        z-index: 2;
+        pointer-events: none;
+        will-change: transform;
+      }
+
+      .wave-path {
+        will-change: transform;
+      }
+
+      .wave-path--primary {
+        animation: wave-motion 6s ease-in-out infinite;
+      }
+
+      .wave-path--secondary {
+        animation: wave-motion-offset 8s ease-in-out infinite;
+      }
+
+      .wave-line {
+        stroke-dasharray: 14 8;
+        stroke-dashoffset: 180;
+        opacity: 0.7;
+      }
+
+      .hero-sleek--loaded .wave-line {
+        animation: wave-signal-flow 2.8s linear infinite;
+      }
+
+      .hero-sleek--loaded .wave-path--primary {
+        animation-play-state: running;
+      }
+
+      .hero-sleek--loaded .wave-path--secondary {
+        animation-play-state: running;
       }
 
       .grid-line {
@@ -530,9 +662,9 @@ export interface ImmersiveHeroShot {
         inset: 0;
         background: linear-gradient(
           180deg,
-          color-mix(in srgb, var(--nxt1-color-bg-primary) 30%, transparent) 0%,
-          color-mix(in srgb, var(--nxt1-color-bg-primary) 70%, transparent) 50%,
-          var(--nxt1-color-bg-primary) 100%
+          color-mix(in srgb, var(--nxt1-color-bg-primary) 18%, transparent) 0%,
+          color-mix(in srgb, var(--nxt1-color-bg-primary) 45%, transparent) 45%,
+          color-mix(in srgb, var(--nxt1-color-bg-primary) 78%, transparent) 100%
         );
         pointer-events: none;
       }
@@ -1414,7 +1546,7 @@ export class NxtImmersiveHeroComponent {
   readonly variant = input<'default' | 'sleek'>('default');
   readonly headline = input('The Sports Intelligence Platform');
   readonly subhead = input(
-    'The AI command center for sports organizations to run operations, media, and performance from one system.'
+    'The AI command center for sports organizations to run complex operations, automate workflows, and coordinate execution from one system.'
   );
   readonly shots = input<readonly ImmersiveHeroShot[]>([]);
 
@@ -1422,7 +1554,6 @@ export class NxtImmersiveHeroComponent {
   readonly commandSubmitted = output<string>();
   readonly quickActionSelected = output<string>();
 
-  private readonly _isDesktop = signal(typeof window !== 'undefined' && window.innerWidth >= 768);
   protected readonly commandInput = signal('');
 
   private readonly typewriterPhrases = [
@@ -1451,11 +1582,19 @@ export class NxtImmersiveHeroComponent {
 
   constructor() {
     afterNextRender(() => {
-      // Small raf delay ensures paint is complete before triggering animations
+      // Mark hero as loaded on first frame so non-critical visuals mount after LCP candidate.
       requestAnimationFrame(() => this._loaded.set(true));
 
-      // Start typewriter animation
-      this.startTypewriterAnimation();
+      // Start typewriter when the main thread is idle to avoid competing with initial paint.
+      const idleCallback = (globalThis as { requestIdleCallback?: (cb: () => void) => number })
+        .requestIdleCallback;
+
+      if (idleCallback) {
+        idleCallback(() => this.startTypewriterAnimation());
+        return;
+      }
+
+      setTimeout(() => this.startTypewriterAnimation(), 1200);
     });
   }
 

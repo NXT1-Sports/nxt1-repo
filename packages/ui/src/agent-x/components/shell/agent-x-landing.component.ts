@@ -24,14 +24,14 @@
 
 import { Component, ChangeDetectionStrategy } from '@angular/core';
 import { NxtAgentXIdentitySectionComponent } from '../../../components/agent-x-identity-section/agent-x-identity-section.component';
-import { NxtAgentXMoneyballSectionComponent } from '../../../components/agent-x-moneyball-section/agent-x-moneyball-section.component';
-import { NxtAgentXDemoComponent } from '../../../components/agent-x-demo/agent-x-demo.component';
+import {
+  NxtAgentXDemoComponent,
+  type AgentXDemoWorkflowStep,
+} from '../../../components/agent-x-demo/agent-x-demo.component';
 import {
   NxtAudienceSectionComponent,
   type AudienceSegment,
 } from '../../../components/audience-section/audience-section.component';
-
-import { NxtTeamBrandArchitectureSectionComponent } from '../../../components/team-brand-architecture-section/team-brand-architecture-section.component';
 import {
   NxtFaqSectionComponent,
   type FaqItem,
@@ -41,7 +41,7 @@ import {
   type CtaAvatarImage,
 } from '../../../components/cta-banner/cta-banner.component';
 import { NxtStatsBarComponent } from '../../../components/stats-bar/stats-bar.component';
-import { NxtSiteFooterComponent } from '../../../components/site-footer/site-footer.component';
+import { NxtSiteFooterCompactComponent } from '../../../components/site-footer-compact/site-footer-compact.component';
 import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 
 // ============================================
@@ -63,55 +63,98 @@ const AGENT_X_AUDIENCES: AudienceSegment[] = [
     id: 'athletes',
     title: 'Athletes',
     description:
-      'Create highlight films, generate recruiting graphics, draft emails to coaches, and get AI-powered evaluations of your athletic profile.',
+      'Turn film, stats, and goals into daily execution with highlight packages, performance briefs, branded creative, and the next actions that matter.',
     icon: 'flash-outline',
   },
   {
-    id: 'coaches-admin',
-    title: 'Coaches/Admin',
+    id: 'coaches-staff',
+    title: 'Coaches & Staff',
     description:
-      "Build scouting reports, generate team graphics, create recruiting content, and streamline your program's digital presence.",
+      'Automate opponent research, game-week creative, communications, and operating briefs from one command center instead of five disconnected tools.',
     icon: 'people-outline',
   },
   {
-    id: 'colleges-scouts',
-    title: 'Colleges/Scouts',
+    id: 'directors-programs',
+    title: 'Directors & Programs',
     description:
-      'Evaluate athlete fit faster with AI-powered comparisons, organized recruiting intel, and streamlined outreach workflows.',
+      'Run fit analysis, compare prospects, monitor movement, and generate decision-grade intelligence without chasing data across the market.',
     icon: 'heart-outline',
   },
 ];
 
 const AGENT_X_WINS_TICKER: readonly string[] = [
-  'Generated 14,000 Graphic Edits',
-  'Wrote 500 Recruiting Emails',
-  'Analyzed 2,000 Hours of Film',
+  'Generated 14,000 Creative Assets',
+  'Queued 500 Communications Workflows',
+  'Analyzed 2,000 Hours of Film & Intel',
 ];
+
+const AGENT_X_DEMO_WORKFLOW: readonly AgentXDemoWorkflowStep[] = [
+  {
+    id: 'highlight-reel',
+    title: 'Package the film',
+    prompt:
+      "Turn Friday's film and stat sheet into a 60-second recap package the staff and players can use tonight.",
+    result:
+      'Agent X cuts the clips, sequences the story, and packages the share-ready film assets automatically.',
+    outputType: 'highlight-reel',
+  },
+  {
+    id: 'contact-coaches',
+    title: 'Run the communications queue',
+    prompt:
+      "Draft the updates I need for staff, parents, recruits, and sponsors after tonight's result.",
+    result:
+      'Agent X builds the message set, personalizes each version, and queues the follow-ups automatically.',
+    outputType: 'contact-coaches',
+  },
+  {
+    id: 'recruiting-strategy',
+    title: 'Build the weekly operating plan',
+    prompt:
+      'Review what happened this week and generate the next seven days of priorities for film, creative, outreach, and staff actions.',
+    result: 'Agent X returns a structured weekly playbook with milestones, owners, and timing.',
+    outputType: 'recruiting-strategy',
+  },
+  {
+    id: 'college-match',
+    title: 'Rank the best-fit opportunities',
+    prompt:
+      'Compare the market and rank the programs, prospects, or opponents that deserve attention first.',
+    result: 'Agent X delivers a ranked board with fit signals, urgency, and next-step actions.',
+    outputType: 'college-match',
+  },
+] as const;
 
 const AGENT_X_FAQS: FaqItem[] = [
   {
     id: 'what-is-agent-x',
     question: 'What is Agent X?',
     answer:
-      "Agent X is NXT1's AI command center. It can create highlight films, design recruiting graphics, draft emails to college coaches, generate evaluations, and run high-value workflows through plain-language prompts.",
+      "Agent X is NXT1's AI command center. It executes film work, creative production, communications, director-level intelligence, and operating workflows from plain-language commands.",
+  },
+  {
+    id: 'who-is-it-for',
+    question: 'Who is Agent X built for?',
+    answer:
+      'Agent X is built for athletes, coaches, directors, and program leaders. Parents and content creators can use the same command center to support athlete and department outcomes.',
   },
   {
     id: 'how-it-works',
     question: 'How does Agent X work?',
     answer:
-      'Just type what you need in plain English. Agent X understands context from your profile and delivers results in seconds. Choose from four specialized modes — Highlights, Graphics, Recruiting, and Evaluation — or let Agent X figure out the best approach.',
+      'You give Agent X the objective in plain language. It pulls the right context, builds the workflow, and returns finished output or background operations you can monitor inside the command center.',
+  },
+  {
+    id: 'what-can-it-execute',
+    question: 'What can Agent X execute?',
+    answer:
+      'Agent X can package film, generate branded creative, draft communications, build director and fit briefs, organize weekly plans, and keep multi-step operations moving in the background.',
   },
   {
     id: 'is-it-free',
     question: 'Is Agent X included in my plan?',
     answer:
-      'Every NXT1 account gets access to Agent X with a generous free tier. Premium plans unlock unlimited requests, priority processing, and advanced features like batch operations and custom templates.',
-  },
-  {
-    id: 'what-modes',
-    question: 'What are the four Agent X modes?',
-    answer:
-      'Highlights mode creates and edits video highlight reels. Graphics mode designs recruiting graphics, commitment posts, and social content. Recruiting mode helps with college search, coach outreach, and strategy. Evaluation mode provides AI-driven athletic assessments and benchmarks.',
+      'Every NXT1 account gets access to Agent X with a generous free tier. Premium plans unlock more usage, priority processing, and deeper autonomous workflows.',
   },
   {
     id: 'data-privacy',
@@ -126,48 +169,47 @@ const AGENT_X_FAQS: FaqItem[] = [
   standalone: true,
   imports: [
     NxtAgentXIdentitySectionComponent,
-    NxtAgentXMoneyballSectionComponent,
-    NxtTeamBrandArchitectureSectionComponent,
     NxtAgentXDemoComponent,
     NxtAudienceSectionComponent,
     NxtStatsBarComponent,
     NxtFaqSectionComponent,
     NxtCtaBannerComponent,
-    NxtSiteFooterComponent,
+    NxtSiteFooterCompactComponent,
   ],
   template: `
     <!-- Audience Segments -->
     <nxt1-audience-section
-      title="Built for Every Role"
-      subtitle="Whether you&rsquo;re an athlete, coach, or recruiter &mdash; Agent X is your edge."
+      title="Built for the People Running the Work"
+      subtitle="Athletes, coaches, directors, and programs use Agent X as an execution layer. Parents and creators use it to keep outcomes moving."
       [segments]="audiences"
     />
 
     <!-- Identity Differentiation -->
     <nxt1-agent-x-identity-section />
 
-    <!-- Team Brand Architecture (Programs / ADs) -->
-    <nxt1-team-brand-architecture-section />
-
     <!-- Interactive Demo -->
-    <nxt1-agent-x-demo />
-
-    <!-- Scouts/Recruiters: Moneyball Intelligence -->
-    <nxt1-agent-x-moneyball-section />
+    <nxt1-agent-x-demo
+      headline="See the Command Center Work."
+      subtitle="From film and creative to communications and intelligence, Agent X turns one prompt into finished operations."
+      [workflowSteps]="demoWorkflowSteps"
+      primaryCtaLabel="Start with Agent X"
+      primaryCtaRoute="/auth"
+      [secondaryCtaLabel]="''"
+    />
 
     <!-- Live Wins Ticker (Social Proof) -->
     <nxt1-stats-bar
       ariaLabel="Agent X live wins ticker"
-      [headline]="'What Agent X Did Today.'"
+      [headline]="'What Agent X Executed Today.'"
       [tickerItems]="winsTicker"
-      [subtext]="'The most hardworking employee in sports.'"
+      [subtext]="'Creative, intelligence, communications, and operations handled from one command center.'"
       [fullWidth]="true"
     />
 
     <!-- FAQ -->
     <nxt1-faq-section
       title="Agent X FAQ"
-      subtitle="Common questions about Agent X."
+      subtitle="The essentials for athletes, staffs, directors, and programs using Agent X as their execution layer."
       [items]="faqs"
     />
 
@@ -175,20 +217,20 @@ const AGENT_X_FAQS: FaqItem[] = [
     <nxt1-cta-banner
       variant="conversion"
       badgeLabel="Agent X"
-      title="Activate Agent X."
-      subtitle="Use Agent X to create highlight films, generate recruiting graphics, draft coach outreach, and get AI-powered evaluations in one conversation."
+      title="Put Agent X On The Clock."
+      subtitle="Deploy Agent X across film, creative, communications, and intelligence so your athletes, staff, directors, and programs move faster from one command center."
       ctaLabel="Start with Agent X"
       ctaRoute="/auth"
       titleId="agent-x-final-cta-title"
       [avatarImages]="ctaAvatars"
     />
 
-    <!-- Site Footer (shared component is globally mobile-only) -->
-    <nxt1-site-footer />
+    <nxt1-site-footer-compact />
   `,
   styles: [
     `
       :host {
+        --nxt1-root-shell-max-width: 88rem;
         display: block;
       }
 
@@ -209,6 +251,7 @@ const AGENT_X_FAQS: FaqItem[] = [
 export class NxtAgentXLandingComponent {
   protected readonly audiences = AGENT_X_AUDIENCES;
   protected readonly winsTicker = AGENT_X_WINS_TICKER;
+  protected readonly demoWorkflowSteps = AGENT_X_DEMO_WORKFLOW;
   protected readonly faqs = AGENT_X_FAQS;
   protected readonly ctaAvatars = AGENT_X_CTA_AVATARS;
 }

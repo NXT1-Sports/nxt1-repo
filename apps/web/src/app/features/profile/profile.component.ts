@@ -991,20 +991,21 @@ export class ProfileComponent implements OnInit, OnDestroy {
    * Handle team card click — navigate to team profile page.
    */
   protected onTeamClick(team: ProfileTeamAffiliation): void {
-    if (team.teamCode) {
-      const teamPath = buildCanonicalTeamPath({
-        slug: team.name,
-        teamName: team.name,
-        teamCode: team.teamCode,
-      });
-      this.logger.info('Navigating to team profile', {
-        teamCode: team.teamCode,
-        teamName: team.name,
-      });
-      this.router.navigateByUrl(teamPath);
-    } else {
-      this.logger.warn('Team has no teamCode, cannot navigate', { teamName: team.name });
+    const teamCode = team.teamCode?.trim();
+    if (!teamCode) {
+      return;
     }
+
+    const teamPath = buildCanonicalTeamPath({
+      slug: team.name,
+      teamName: team.name,
+      teamCode,
+    });
+    this.logger.info('Navigating to team profile', {
+      teamCode,
+      teamName: team.name,
+    });
+    this.router.navigateByUrl(teamPath);
   }
 
   /**

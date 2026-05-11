@@ -55,7 +55,7 @@ export const FAVICON_REGISTRY: Record<string, { displayName: string; faviconUrl:
         .replace(/\b\w/g, (c) => c.toUpperCase());
       bySlug[normalized] = {
         displayName: fallbackLabel,
-        faviconUrl: `https://icons.duckduckgo.com/ip3/${domain}.ico`,
+        faviconUrl: getPlatformFaviconUrl(normalized) ?? getPlatformFaviconUrl(domain) ?? '',
       };
     }
 

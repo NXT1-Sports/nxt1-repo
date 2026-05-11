@@ -28,7 +28,6 @@ import {
   signal,
   effect,
   Injector,
-  OnInit,
   afterNextRender,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -48,6 +47,70 @@ import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
 import { EditProfileApiService, SeoService } from '../../core/services';
+import type { SeoConfig } from '@nxt1/core/seo';
+
+const AGENT_X_PAGE_TITLE = 'Agent X - Sports Intelligence Command Center';
+const AGENT_X_PAGE_DESCRIPTION =
+  'Agent X is the NXT1 sports intelligence command center that executes film, creative, communications, and operations for athletes, coaches, directors, and programs.';
+const AGENT_X_PAGE_URL = 'https://nxt1sports.com/agent-x';
+const AGENT_X_PAGE_IMAGE = 'https://nxt1sports.com/assets/shared/images/og-image.jpg';
+const AGENT_X_PAGE_KEYWORDS = [
+  'agent x',
+  'sports intelligence command center',
+  'ai sports platform',
+  'sports intelligence ai',
+  'ai workflow automation for sports',
+  'ai for coaches and athletic programs',
+  'sports operations software',
+  'film analysis ai',
+  'sports creative automation',
+  'nxt1',
+] as const;
+const AGENT_X_STRUCTURED_DATA = {
+  '@context': 'https://schema.org',
+  '@graph': [
+    {
+      '@type': 'WebPage',
+      '@id': 'https://nxt1sports.com/agent-x#webpage',
+      url: AGENT_X_PAGE_URL,
+      name: 'Agent X - Sports Intelligence Command Center | NXT1 Sports',
+      description: AGENT_X_PAGE_DESCRIPTION,
+      isPartOf: {
+        '@type': 'WebSite',
+        '@id': 'https://nxt1sports.com/#website',
+        name: 'NXT1 Sports',
+        url: 'https://nxt1sports.com',
+      },
+      about: { '@id': 'https://nxt1sports.com/agent-x#software' },
+      primaryImageOfPage: {
+        '@type': 'ImageObject',
+        url: AGENT_X_PAGE_IMAGE,
+      },
+    },
+    {
+      '@type': 'SoftwareApplication',
+      '@id': 'https://nxt1sports.com/agent-x#software',
+      name: 'Agent X',
+      applicationCategory: 'BusinessApplication',
+      operatingSystem: 'Web',
+      url: AGENT_X_PAGE_URL,
+      description: AGENT_X_PAGE_DESCRIPTION,
+      image: AGENT_X_PAGE_IMAGE,
+      publisher: {
+        '@type': 'Organization',
+        name: 'NXT1 Sports',
+        url: 'https://nxt1sports.com',
+      },
+      featureList: [
+        'Film analysis and recap packaging',
+        'Creative production and branded asset generation',
+        'Communications workflows and follow-up drafting',
+        'Weekly operating plans and background operations',
+        'Decision-grade sports intelligence for athletes, coaches, directors, and programs',
+      ],
+    },
+  ],
+} as const;
 
 @Component({
   selector: 'app-agent-x',
@@ -78,7 +141,10 @@ import { EditProfileApiService, SeoService } from '../../core/services';
       <!-- Logged-out users: full-screen landing state only -->
       <div class="agent-landing-shell">
         <div class="agent-welcome-wrapper">
-          <nxt1-agent-x-welcome-header />
+          <section class="agent-welcome-hero" aria-label="Agent X hero">
+            <nxt1-agent-x-welcome-header />
+          </section>
+
           <nxt1-agent-x-execution-layer-section />
         </div>
 
@@ -91,9 +157,12 @@ import { EditProfileApiService, SeoService } from '../../core/services';
       :host {
         display: flex;
         flex-direction: column;
+        width: calc(100% + (var(--shell-content-padding-x, 0px) * 2));
+        max-width: none;
         background: var(--nxt1-color-bg-primary);
         /* Pull up to negate shell__content padding-top — Agent X uses nav portal, no page header */
         margin-top: calc(-1 * (var(--nxt1-spacing-4, 1rem) + 7px));
+        margin-inline: calc(-1 * var(--shell-content-padding-x, 0px));
       }
 
       /* Only lock viewport height + prevent scroll for authenticated desktop (chat UI) */
@@ -140,11 +209,25 @@ import { EditProfileApiService, SeoService } from '../../core/services';
         z-index: 10;
         background: var(--nxt1-color-bg-primary);
       }
+
+      .agent-welcome-hero {
+        min-height: calc(100vh - var(--nxt1-nav-height, 56px));
+      }
+
+      .agent-welcome-hero > nxt1-agent-x-welcome-header {
+        display: block;
+      }
+
+      @media (max-width: 768px) {
+        .agent-welcome-hero {
+          min-height: auto;
+        }
+      }
     `,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AgentXComponent implements OnInit {
+export class AgentXComponent {
   private readonly authFlow = inject(AuthFlowService);
   private readonly logger = inject(NxtLoggingService).child('AgentXComponent');
   private readonly toast = inject(NxtToastService);
@@ -229,22 +312,43 @@ export class AgentXComponent implements OnInit {
       },
       { injector: this.injector }
     );
+
+    effect(
+      () => {
+        const isAuthenticated = this.authFlow.isAuthenticated();
+        const seoConfig: SeoConfig = {
+          page: {
+            title: AGENT_X_PAGE_TITLE,
+            description: AGENT_X_PAGE_DESCRIPTION,
+            canonicalUrl: AGENT_X_PAGE_URL,
+            image: AGENT_X_PAGE_IMAGE,
+            keywords: [...AGENT_X_PAGE_KEYWORDS],
+            noIndex: isAuthenticated,
+          },
+          openGraph: {
+            type: 'website',
+            title: AGENT_X_PAGE_TITLE,
+            description: AGENT_X_PAGE_DESCRIPTION,
+            url: AGENT_X_PAGE_URL,
+            image: AGENT_X_PAGE_IMAGE,
+          },
+          twitter: {
+            card: 'summary_large_image',
+            title: AGENT_X_PAGE_TITLE,
+            description: AGENT_X_PAGE_DESCRIPTION,
+            image: AGENT_X_PAGE_IMAGE,
+          },
+          structuredData: AGENT_X_STRUCTURED_DATA,
+        };
+
+        this.seo.applySeoConfig(seoConfig);
+      },
+      { injector: this.injector }
+    );
   }
 
   /** Auth state — hard-gates shell visibility */
   protected readonly isAuthenticated = computed(() => this.authFlow.isAuthenticated());
-
-  ngOnInit(): void {
-    const isAuthenticated = this.authFlow.isAuthenticated();
-
-    this.seo.updatePage({
-      title: 'Agent X - AI Command Center | NXT1',
-      description:
-        "Agent X is NXT1's AI command center for highlight films, recruiting graphics, coach outreach, and athlete evaluations.",
-      keywords: ['ai', 'agent x', 'command center', 'recruiting', 'highlights', 'graphics', 'nxt1'],
-      noIndex: isAuthenticated, // Index for logged-out (SEO landing), noindex for logged-in
-    });
-  }
 
   /**
    * Transform auth user to AgentXUser interface.

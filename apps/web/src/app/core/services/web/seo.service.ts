@@ -276,11 +276,10 @@ export class SeoService {
     const { page, openGraph, twitter, structuredData } = config;
 
     // Set page title
-    const fullTitle = page.title.includes(SITE_NAME) ? page.title : `${page.title} | ${SITE_NAME}`;
-    this.title.setTitle(fullTitle);
+    this.title.setTitle(page.title);
 
     // Core meta tags
-    this.updateMetaTag('description', truncateDescription(sanitizeMetaText(page.description)));
+    this.updateMetaTag('description', sanitizeMetaText(page.description));
 
     if (page.keywords?.length) {
       this.updateMetaTag('keywords', page.keywords.join(', '));
@@ -331,10 +330,7 @@ export class SeoService {
     this.updatePropertyTag('og:type', og?.type || 'website');
     this.updatePropertyTag('og:site_name', og?.siteName || SITE_NAME);
     this.updatePropertyTag('og:title', og?.title || page.title);
-    this.updatePropertyTag(
-      'og:description',
-      truncateDescription(sanitizeMetaText(og?.description || page.description))
-    );
+    this.updatePropertyTag('og:description', sanitizeMetaText(og?.description || page.description));
     this.updatePropertyTag('og:url', og?.url || page.canonicalUrl || this.getCurrentUrl());
     this.updatePropertyTag('og:image', og?.image || page.image || DEFAULT_OG_IMAGE);
     this.updatePropertyTag('og:locale', og?.locale || 'en_US');
@@ -372,9 +368,7 @@ export class SeoService {
     });
     this.meta.updateTag({
       name: 'twitter:description',
-      content: truncateDescription(
-        sanitizeMetaText(twitter?.description || og?.description || page.description)
-      ),
+      content: sanitizeMetaText(twitter?.description || og?.description || page.description),
     });
     this.meta.updateTag({
       name: 'twitter:image',

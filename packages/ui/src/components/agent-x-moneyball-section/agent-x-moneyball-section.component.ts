@@ -34,7 +34,7 @@ export interface MoneyballProgressPoint {
 
 const DEFAULT_LEFT_ATHLETE: MoneyballAthleteProfile = {
   id: 'left-athlete',
-  name: 'Athlete A',
+  name: 'Prospect A',
   classYear: '2027',
   position: 'WR',
   fitScore: 94,
@@ -45,7 +45,7 @@ const DEFAULT_LEFT_ATHLETE: MoneyballAthleteProfile = {
 
 const DEFAULT_RIGHT_ATHLETE: MoneyballAthleteProfile = {
   id: 'right-athlete',
-  name: 'Athlete B',
+  name: 'Prospect B',
   classYear: '2027',
   position: 'WR',
   fitScore: 87,
@@ -86,27 +86,25 @@ function toPolylinePoints(values: readonly number[]): string {
           [headingLevel]="2"
           variant="hero"
           align="center"
-          title="Unfair Information Advantage."
-          subtitle="Agent X scans thousands of profiles to find the hidden gems that fit your specific program needs."
+          title="Decision-Grade Intelligence."
+          subtitle="Agent X turns verified metrics, film, and progression data into a ranked evaluation board your staff can act on immediately."
         />
 
         <div
           class="moneyball__visual"
           role="group"
-          aria-label="Agent X athlete comparison visualization"
+          aria-label="Agent X prospect comparison visualization"
         >
           <article class="moneyball__compare-panel" [attr.aria-labelledby]="compareTitleId()">
             <header class="moneyball__panel-header">
-              <p class="moneyball__panel-eyebrow">Data Visualization</p>
-              <h3 class="moneyball__panel-title" [id]="compareTitleId()">
-                Instant profile comparison
-              </h3>
+              <p class="moneyball__panel-eyebrow">Evaluation Board</p>
+              <h3 class="moneyball__panel-title" [id]="compareTitleId()">Instant fit comparison</h3>
             </header>
 
             <div
               class="moneyball__athlete-grid"
               role="list"
-              aria-label="Athlete biometrics comparison"
+              aria-label="Prospect metrics comparison"
             >
               <article
                 class="moneyball__athlete-card"
@@ -138,7 +136,7 @@ function toPolylinePoints(values: readonly number[]): string {
                 </dl>
 
                 <p class="moneyball__fit-score">
-                  Program fit <span>{{ leftAthlete().fitScore }}%</span>
+                  Role fit <span>{{ leftAthlete().fitScore }}%</span>
                 </p>
               </article>
 
@@ -172,7 +170,7 @@ function toPolylinePoints(values: readonly number[]): string {
                 </dl>
 
                 <p class="moneyball__fit-score">
-                  Program fit <span>{{ rightAthlete().fitScore }}%</span>
+                  Role fit <span>{{ rightAthlete().fitScore }}%</span>
                 </p>
               </article>
             </div>
@@ -187,7 +185,7 @@ function toPolylinePoints(values: readonly number[]): string {
             <figure
               class="moneyball__chart"
               role="img"
-              aria-label="Progression curves for compared athletes"
+              aria-label="Progression curves for compared prospects"
             >
               <svg
                 viewBox="0 0 100 100"
@@ -225,8 +223,8 @@ function toPolylinePoints(values: readonly number[]): string {
             <aside class="moneyball__verdict" aria-label="Agent X recommendation">
               <p class="moneyball__verdict-label">Agent X Recommendation</p>
               <p class="moneyball__verdict-text">
-                Prioritize {{ leftAthlete().name }} for early outreach based on superior growth
-                curve and current fit.
+                Prioritize {{ leftAthlete().name }} for immediate evaluation based on stronger
+                progression and current role fit.
               </p>
             </aside>
           </article>

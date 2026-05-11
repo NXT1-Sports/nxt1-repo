@@ -350,6 +350,25 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
         />
       }
 
+      @if (showLoggedOutPlatformBanner()) {
+        <aside
+          class="platform-promo platform-promo--mobile"
+          [class.platform-promo--hidden]="platformBannerScrolledAway()"
+          aria-label="NXT1 platform announcement"
+        >
+          <div
+            class="platform-promo__inner platform-promo__inner--mobile"
+            [class.platform-promo__inner--hidden]="platformBannerScrolledAway()"
+          >
+            <div class="platform-promo__message platform-promo__message--mobile">
+              <span class="platform-promo__status" aria-hidden="true"></span>
+              <span class="platform-promo__label">New NXT1 is live.</span>
+              <span class="platform-promo__copy">Agent X is ready to work.</span>
+            </div>
+          </div>
+        </aside>
+      }
+
       <!-- MOBILE: Top Header Bar — CSS-hidden at 768px+ -->
       <nxt1-mobile-header
         [config]="mobileHeaderConfig()"
@@ -386,6 +405,32 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
 
       <!-- MAIN CONTENT — ALWAYS VISIBLE, ALWAYS INDEXABLE -->
       <div class="shell__main">
+        @if (showLoggedOutPlatformBanner()) {
+          <aside
+            class="platform-promo"
+            [class.platform-promo--hidden]="platformBannerScrolledAway()"
+            aria-label="NXT1 platform announcement"
+          >
+            <div
+              class="platform-promo__inner"
+              [class.platform-promo__inner--hidden]="platformBannerScrolledAway()"
+            >
+              <div class="platform-promo__message">
+                <span class="platform-promo__status" aria-hidden="true"></span>
+                <span class="platform-promo__label">New NXT1 Platform</span>
+                <span class="platform-promo__copy">
+                  Agent X now executes film, creative, recruiting, and staff workflows from one
+                  command center.
+                </span>
+              </div>
+
+              <button type="button" class="platform-promo__button" (click)="onPlatformPromoClick()">
+                Explore Agent X
+              </button>
+            </div>
+          </aside>
+        }
+
         <!-- DESKTOP: Header bar — CSS-hidden below 768px -->
         <nxt1-header
           [items]="headerItems()"
@@ -423,7 +468,12 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
         }
 
         <!-- PAGE CONTENT — Never gated by @if or display:none -->
-        <main class="shell__content" [class.shell__content--has-footer]="showMobileFooter()">
+        <main
+          class="shell__content"
+          [class.shell__content--has-footer]="showMobileFooter()"
+          [class.shell__content--full-bleed]="contentUsesFullBleed()"
+          (scroll)="onShellContentScroll($event)"
+        >
           <router-outlet />
         </main>
       </div>
@@ -538,6 +588,29 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
         flex-direction: column;
       }
 
+      .shell__content--full-bleed {
+        scrollbar-gutter: auto;
+      }
+
+      .platform-promo {
+        display: none;
+      }
+
+      @media (min-width: 768px) {
+        .platform-promo--mobile {
+          display: none !important;
+        }
+
+        .shell__content--full-bleed {
+          scrollbar-width: none;
+        }
+
+        .shell__content--full-bleed::-webkit-scrollbar {
+          width: 0;
+          height: 0;
+        }
+      }
+
       /* ============================================
          MOBILE HEADER (sticky)
          ============================================ */
@@ -593,6 +666,110 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
           display: none !important;
         }
 
+        .platform-promo--mobile {
+          display: block;
+          flex-shrink: 0;
+          max-height: 42px;
+          overflow: hidden;
+          border-bottom: 1px solid var(--nxt1-color-border-subtle);
+          background:
+            linear-gradient(
+              90deg,
+              color-mix(in srgb, var(--nxt1-color-primary) 14%, transparent),
+              transparent 54%,
+              color-mix(in srgb, var(--nxt1-color-secondary) 10%, transparent)
+            ),
+            var(--nxt1-color-bg-primary);
+          transition:
+            max-height var(--nxt1-duration-normal, 220ms) var(--nxt1-easing-standard, ease),
+            border-color var(--nxt1-duration-normal, 220ms) var(--nxt1-easing-standard, ease);
+        }
+
+        .platform-promo--mobile.platform-promo--hidden {
+          max-height: 0;
+          border-bottom-color: transparent;
+        }
+
+        .platform-promo__inner--mobile {
+          min-height: 42px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: var(--nxt1-spacing-2);
+          padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+          opacity: 1;
+          transform: translateY(0);
+          transition:
+            opacity var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-standard, ease),
+            transform var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-standard, ease);
+        }
+
+        .platform-promo__inner--hidden {
+          opacity: 0;
+          pointer-events: none;
+          transform: translateY(-8px);
+        }
+
+        .platform-promo__message--mobile {
+          min-width: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: var(--nxt1-spacing-1_5, 6px);
+          color: var(--nxt1-color-text-secondary);
+          font-family: var(--nxt1-fontFamily-brand);
+          font-size: var(--nxt1-fontSize-xs);
+          font-weight: var(--nxt1-fontWeight-medium);
+          line-height: var(--nxt1-lineHeight-normal);
+          text-align: center;
+        }
+
+        .platform-promo__message--mobile .platform-promo__status {
+          width: 7px;
+          height: 7px;
+          flex: 0 0 auto;
+          border-radius: var(--nxt1-borderRadius-full);
+          background: var(--nxt1-color-primary);
+          box-shadow: 0 0 0 3px color-mix(in srgb, var(--nxt1-color-primary) 14%, transparent);
+        }
+
+        .platform-promo__message--mobile .platform-promo__label {
+          flex: 0 0 auto;
+          color: var(--nxt1-color-text-primary);
+          font-weight: var(--nxt1-fontWeight-semibold);
+        }
+
+        .platform-promo__message--mobile .platform-promo__copy {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .platform-promo--mobile .platform-promo__button {
+          flex: 0 0 auto;
+          min-height: 26px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border: 1px solid color-mix(in srgb, var(--nxt1-color-primary) 44%, transparent);
+          border-radius: var(--nxt1-borderRadius-full);
+          padding: var(--nxt1-spacing-1) var(--nxt1-spacing-2_5, 10px);
+          background: color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent);
+          color: var(--nxt1-color-primary);
+          font-family: var(--nxt1-fontFamily-brand);
+          font-size: var(--nxt1-fontSize-xs);
+          font-weight: var(--nxt1-fontWeight-semibold);
+          line-height: var(--nxt1-lineHeight-normal);
+          cursor: pointer;
+        }
+
+        @media (max-width: 374px) {
+          .platform-promo__message--mobile .platform-promo__copy {
+            display: none;
+          }
+        }
+
         /* Main fills remaining height below mobile header */
         .shell__main {
           flex: 1;
@@ -626,6 +803,111 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
         /* Ensure no footer padding on desktop */
         .shell__content--has-footer {
           padding-bottom: 0;
+        }
+
+        .platform-promo {
+          display: block;
+          flex-shrink: 0;
+          max-height: 44px;
+          overflow: hidden;
+          border-bottom: 1px solid var(--nxt1-color-border-subtle);
+          background:
+            linear-gradient(
+              90deg,
+              color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent),
+              transparent 36%,
+              color-mix(in srgb, var(--nxt1-color-secondary) 10%, transparent)
+            ),
+            var(--nxt1-color-bg-primary);
+          transition:
+            max-height var(--nxt1-duration-normal, 220ms) var(--nxt1-easing-standard, ease),
+            border-color var(--nxt1-duration-normal, 220ms) var(--nxt1-easing-standard, ease);
+        }
+
+        .platform-promo--hidden {
+          max-height: 0;
+          border-bottom-color: transparent;
+        }
+
+        .platform-promo__inner {
+          min-height: 40px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: var(--nxt1-spacing-4);
+          padding: var(--nxt1-spacing-2) var(--nxt1-spacing-5);
+          opacity: 1;
+          transform: translateY(0);
+          transition:
+            opacity var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-standard, ease),
+            transform var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-standard, ease);
+        }
+
+        .platform-promo__inner--hidden {
+          opacity: 0;
+          pointer-events: none;
+          transform: translateY(-8px);
+        }
+
+        .platform-promo__message {
+          min-width: 0;
+          display: inline-flex;
+          align-items: center;
+          gap: var(--nxt1-spacing-2);
+          color: var(--nxt1-color-text-secondary);
+          font-family: var(--nxt1-fontFamily-brand);
+          font-size: var(--nxt1-fontSize-sm);
+          font-weight: var(--nxt1-fontWeight-medium);
+          line-height: var(--nxt1-lineHeight-normal);
+        }
+
+        .platform-promo__status {
+          width: 8px;
+          height: 8px;
+          flex: 0 0 auto;
+          border-radius: var(--nxt1-borderRadius-full);
+          background: var(--nxt1-color-primary);
+          box-shadow: 0 0 0 4px color-mix(in srgb, var(--nxt1-color-primary) 14%, transparent);
+        }
+
+        .platform-promo__label {
+          flex: 0 0 auto;
+          color: var(--nxt1-color-text-primary);
+          font-weight: var(--nxt1-fontWeight-semibold);
+        }
+
+        .platform-promo__copy {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .platform-promo__button {
+          flex: 0 0 auto;
+          min-height: 28px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border: 1px solid color-mix(in srgb, var(--nxt1-color-primary) 46%, transparent);
+          border-radius: var(--nxt1-borderRadius-full);
+          padding: var(--nxt1-spacing-1) var(--nxt1-spacing-3);
+          background: color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent);
+          color: var(--nxt1-color-primary);
+          font-family: var(--nxt1-fontFamily-brand);
+          font-size: var(--nxt1-fontSize-xs);
+          font-weight: var(--nxt1-fontWeight-semibold);
+          line-height: var(--nxt1-lineHeight-normal);
+          cursor: pointer;
+          transition:
+            background-color var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-standard, ease),
+            border-color var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-standard, ease),
+            transform var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-standard, ease);
+        }
+
+        .platform-promo__button:hover {
+          background: color-mix(in srgb, var(--nxt1-color-primary) 18%, transparent);
+          border-color: var(--nxt1-color-primary);
+          transform: translateY(-1px);
         }
       }
 
@@ -1091,6 +1373,7 @@ export class WebShellComponent {
       showNotifications: !onProfilePage && !onTeamPage && !onActivityPage && !onAgentXPage,
       notificationCount: this.badgeCount.totalUnread(),
       showSignIn, // Hidden until auth resolves, then show only if not logged in
+      signInLabel: 'Try NXT1',
       showMore: onProfilePage || onTeamPage,
       showEdit: isOwnProfilePage || this.profileActions.showEditButton(),
       showMarkAllRead: onActivityPage && this.activityService.totalUnread() > 0,
@@ -1192,6 +1475,7 @@ export class WebShellComponent {
       showUserSection: true,
       showThemeToggle: true,
       showSignIn, // Hidden until auth resolves, then show only if not logged in
+      showLegalLinks: false,
       showExplore: false,
       variant: 'default',
       width: '280px',
@@ -1204,6 +1488,16 @@ export class WebShellComponent {
 
   /** Current route for active state detection */
   private readonly _currentRoute = signal('/explore');
+  protected readonly platformBannerScrolledAway = signal(false);
+
+  protected readonly showLoggedOutPlatformBanner = computed(() => {
+    return this.authFlow.isAuthReady() && !this.isAuthenticated();
+  });
+
+  protected readonly contentUsesFullBleed = computed(() => {
+    const route = this._currentRoute().split('?')[0];
+    return route === '/' || route.startsWith('/agent-x');
+  });
 
   /** Active tab ID for mobile footer */
   private readonly _activeTabId = signal<string | null>('explore');
@@ -1681,6 +1975,19 @@ export class WebShellComponent {
     this.router.navigate(['/']);
   }
 
+  onPlatformPromoClick(): void {
+    void this.router.navigate(['/agent-x']);
+  }
+
+  onShellContentScroll(event: Event): void {
+    const scrollTop = event.target instanceof HTMLElement ? event.target.scrollTop : 0;
+    const isScrolled = scrollTop > 8;
+
+    if (this.platformBannerScrolledAway() !== isScrolled) {
+      this.platformBannerScrolledAway.set(isScrolled);
+    }
+  }
+
   // ============================================
   // PRIVATE METHODS
   // ============================================
@@ -1708,6 +2015,8 @@ export class WebShellComponent {
         if (scrollEl) {
           scrollEl.scrollTo({ top: 0, behavior: 'instant' });
         }
+
+        this.platformBannerScrolledAway.set(false);
       });
   }
 

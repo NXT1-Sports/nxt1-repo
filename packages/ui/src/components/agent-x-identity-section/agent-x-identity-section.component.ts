@@ -36,6 +36,7 @@
  */
 
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import { NxtSectionHeaderComponent } from '../section-header';
 import { NxtIconComponent } from '../icon';
 
@@ -63,26 +64,29 @@ const DEFAULT_TREE_INPUTS: readonly IdentityTreeInput[] = [
   {
     id: 'ncaa-rulebook',
     icon: 'school',
-    title: 'NCAA Rulebook',
-    description: 'Compliance-aware guidance grounded in recruiting regulation context.',
+    title: 'Compliance & Eligibility',
+    description: 'Execution grounded in real policy, eligibility, and sports-operations context.',
   },
   {
     id: 'sport-specific-strategy',
     icon: 'football',
     title: 'Sport-Specific Strategy',
-    description: 'Playbook-level direction tuned for the realities of each sport and position.',
+    description:
+      'Playbook-level direction tuned for the realities of each sport, roster, and role.',
   },
   {
     id: 'viral-design-trends',
     icon: 'sparkles',
-    title: 'Viral Design Trends',
-    description: 'Elite creative standards for graphics and content that actually earns attention.',
+    title: 'Creative Systems',
+    description:
+      'Design logic that turns prompts into polished assets your department can actually use.',
   },
   {
     id: 'verified-stats',
     icon: 'barChart',
-    title: 'Verified Stats',
-    description: 'Data-backed decision support built on trusted and performance-relevant metrics.',
+    title: 'Verified Performance Data',
+    description:
+      'Decision-grade intelligence built on trusted metrics, film signals, and progression data.',
   },
 ];
 
@@ -104,12 +108,12 @@ let identitySectionInstanceCounter = 0;
         <div class="identity-copy">
           <nxt1-section-header
             [titleId]="titleId()"
-            eyebrow="The Ultimate AI Sports Coordinators"
-            title="It doesn't just know code."
-            accentText="It knows Ball."
+            eyebrow="The Sports Intelligence Layer"
+            title="Built for sports."
+            accentText="Built to execute."
             [headingLevel]="2"
             variant="hero"
-            subtitle="Agent X is built for sports. It is trained on real recruiting context, sport-specific strategy, compliance-aware decision patterns, and elite design principles so output is accurate, relevant, and ready for game-speed execution."
+            subtitle="Agent X is grounded in sport-specific strategy, compliance-aware workflows, verified performance data, and creative systems so every output is relevant, fast, and operationally useful."
           />
         </div>
 
@@ -120,7 +124,18 @@ let identitySectionInstanceCounter = 0;
           <!-- Root node — same rounded edges as branch nodes -->
           <div class="tree-root" role="img" aria-label="Agent X Brain">
             <span class="tree-root__icon" aria-hidden="true">
-              <nxt1-icon name="sparklesFilled" [size]="18" />
+              <svg
+                class="tree-root__agent-icon"
+                viewBox="0 0 612 792"
+                fill="currentColor"
+                stroke="currentColor"
+                stroke-width="10"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path [attr.d]="agentXLogoPath" />
+                <polygon [attr.points]="agentXLogoPolygon" />
+              </svg>
             </span>
             <span class="tree-root__label">Agent X Brain</span>
           </div>
@@ -213,8 +228,16 @@ let identitySectionInstanceCounter = 0;
 
       .tree-root__icon {
         display: inline-flex;
+        align-items: center;
+        justify-content: center;
         color: var(--nxt1-color-primary);
         flex-shrink: 0;
+      }
+
+      .tree-root__agent-icon {
+        width: 1.125rem;
+        height: 1.45rem;
+        display: block;
       }
 
       .tree-root__label {
@@ -643,6 +666,8 @@ let identitySectionInstanceCounter = 0;
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtAgentXIdentitySectionComponent {
+  protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
+  protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
   private readonly instanceId = ++identitySectionInstanceCounter;
 
   /** Agent X knowledge-domain inputs displayed as tree branches. */

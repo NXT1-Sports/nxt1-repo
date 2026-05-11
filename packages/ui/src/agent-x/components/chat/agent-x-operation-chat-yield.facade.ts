@@ -1,4 +1,4 @@
-import { Injectable, PLATFORM_ID, inject, type WritableSignal } from '@angular/core';
+import { DestroyRef, Injectable, PLATFORM_ID, inject, type WritableSignal } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
@@ -71,6 +71,14 @@ export class AgentXOperationChatYieldFacade {
   );
 
   private host: AgentXOperationChatYieldFacadeHost | null = null;
+  private destroyed = false;
+
+  constructor() {
+    inject(DestroyRef).onDestroy(() => {
+      this.destroyed = true;
+      this.host = null;
+    });
+  }
 
   configure(host: AgentXOperationChatYieldFacadeHost): void {
     this.host = host;
@@ -144,9 +152,7 @@ export class AgentXOperationChatYieldFacade {
           operationId,
           source: 'operation-chat-ask-user',
         });
-        setTimeout(() => {
-          this.requireHost().yieldResolved.set(true);
-        }, 300);
+        this.markYieldResolvedSoon();
         return;
       }
 
@@ -201,9 +207,7 @@ export class AgentXOperationChatYieldFacade {
           });
         }
 
-        setTimeout(() => {
-          this.requireHost().yieldResolved.set(true);
-        }, 300);
+        this.markYieldResolvedSoon();
       } else {
         this.logger.warn('Thread action approval returned null', { operationId });
         await this.haptics.notification('error');
@@ -246,9 +250,7 @@ export class AgentXOperationChatYieldFacade {
           operationId,
           source: 'operation-chat',
         });
-        setTimeout(() => {
-          this.requireHost().yieldResolved.set(true);
-        }, 300);
+        this.markYieldResolvedSoon();
       } else {
         this.logger.warn('Thread action reply returned null', { operationId });
         await this.haptics.notification('error');
@@ -305,6 +307,14 @@ export class AgentXOperationChatYieldFacade {
     const result = await this.api.resumeYieldedJob(operationId, response);
     if (!result?.resumed || !result.operationId) {
       this.logger.warn('Yielded operation resume failed', { operationId });
+      return false;
+    }
+
+    if (!this.host || this.destroyed) {
+      this.logger.debug('Skipping resumed yielded operation attach after chat teardown', {
+        operationId,
+        resumedOperationId: result.operationId,
+      });
       return false;
     }
 
@@ -495,6 +505,13 @@ export class AgentXOperationChatYieldFacade {
       return;
     }
 
+    if (!this.host || this.destroyed) {
+      this.logger.debug('Skipping resumed operation stream attach after chat teardown', {
+        operationId: trimmedOperationId,
+      });
+      return;
+    }
+
     host.getActiveStream()?.abort();
     host.setActiveStream(null);
 
@@ -547,5 +564,16 @@ export class AgentXOperationChatYieldFacade {
     }
 
     return this.host;
+  }
+
+  private markYieldResolvedSoon(): void {
+    setTimeout(() => {
+      if (this.destroyed || !this.host) {
+        this.logger.debug('Skipping yieldResolved update after chat teardown');
+        return;
+      }
+
+      this.host.yieldResolved.set(true);
+    }, 300);
   }
 }

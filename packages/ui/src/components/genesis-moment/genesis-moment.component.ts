@@ -15,15 +15,22 @@
  * ```html
  * <nxt1-genesis-moment
  *   headline="One Link. A Dynasty of Careers."
- *   primaryCtaLabel="Deploy Agent X"
- *   primaryCtaRoute="/team-platform"
+ *   commandUrl="https://www.hudl.com/team/westlake-hs/roster"
  * />
  * ```
  */
 
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  OnDestroy,
+  afterNextRender,
+  computed,
+  input,
+  output,
+  signal,
+} from '@angular/core';
 import { UpperCasePipe } from '@angular/common';
-import { NxtCtaButtonComponent } from '../cta-button';
 
 /* ── Activity card types ── */
 
@@ -40,114 +47,123 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
   {
     id: 'p1',
     type: 'profile',
-    label: 'J. Williams',
-    meta: 'QB · Class of 2027',
+    label: 'Roster Intake',
+    meta: '50 athletes synced',
     accent: 'primary',
-    icon: '👤',
+    icon: 'ID',
   },
   {
     id: 'h1',
     type: 'highlight',
-    label: 'Season Highlights',
-    meta: 'J. Williams · 4:32',
+    label: 'Film Pull',
+    meta: 'Friday game indexed',
     accent: 'secondary',
-    icon: '▶',
+    icon: 'PLAY',
   },
   {
     id: 'g1',
     type: 'graphic',
-    label: 'Game Day Graphic',
-    meta: 'Auto-generated',
+    label: 'Graphic Set',
+    meta: 'Program branded',
     accent: 'primary',
-    icon: '🎨',
+    icon: 'ART',
   },
   {
     id: 'o1',
     type: 'offer',
-    label: 'Alabama',
-    meta: 'Offer Received',
+    label: 'Offer Watch',
+    meta: 'Signals updated',
     accent: 'success',
-    icon: '🎉',
+    icon: 'WIN',
   },
   {
     id: 'e1',
     type: 'email',
-    label: 'Texas · Recruiting',
-    meta: 'Email Delivered',
+    label: 'Coach Outreach',
+    meta: 'Emails drafted',
     accent: 'info',
-    icon: '✉',
+    icon: 'SEND',
   },
   {
     id: 'p2',
     type: 'profile',
-    label: 'M. Carter',
-    meta: 'RB · Class of 2027',
+    label: 'Athlete Briefs',
+    meta: 'Scout-ready packets',
     accent: 'primary',
-    icon: '👤',
+    icon: 'BIO',
   },
   {
     id: 's1',
     type: 'scout',
-    label: 'Scout Report',
-    meta: 'K. Robinson · Published',
+    label: 'Scout Reports',
+    meta: 'Benchmarks mapped',
     accent: 'secondary',
-    icon: '📋',
+    icon: 'RPT',
   },
   {
     id: 'o2',
     type: 'offer',
-    label: 'Michigan',
-    meta: 'Offer Received',
+    label: 'Fit Scores',
+    meta: 'Targets ranked',
     accent: 'success',
-    icon: '🎉',
+    icon: 'FIT',
   },
   {
     id: 'g2',
     type: 'graphic',
-    label: 'Commit Graphic',
-    meta: 'D. Thompson',
+    label: 'Spotlight Drop',
+    meta: 'Social ready',
     accent: 'primary',
-    icon: '🎨',
+    icon: 'POST',
   },
   {
     id: 'h2',
     type: 'highlight',
-    label: 'Top 10 Plays',
-    meta: 'M. Carter · 2:18',
+    label: 'Highlight Reels',
+    meta: 'Clips assembled',
     accent: 'secondary',
-    icon: '▶',
+    icon: 'CUT',
   },
   {
     id: 'e2',
     type: 'email',
-    label: 'Ohio State · Staff',
-    meta: 'Email Delivered',
+    label: 'Parent Update',
+    meta: 'Brief prepared',
     accent: 'info',
-    icon: '✉',
+    icon: 'NOTE',
   },
   {
     id: 'o3',
     type: 'offer',
-    label: 'Clemson',
-    meta: 'Offer Received',
+    label: 'Playbook',
+    meta: 'Next actions live',
     accent: 'success',
-    icon: '🎉',
+    icon: 'OPS',
   },
 ];
+
+const COMMAND_TYPEWRITER_INITIAL_DELAY_MS = 450;
+const COMMAND_TYPEWRITER_STEP_MS = 26;
+const COMMAND_AUTO_TAP_DELAY_MS = 500;
+const COMMAND_AUTO_TAP_PRESS_MS = 160;
 
 @Component({
   selector: 'nxt1-genesis-moment',
   standalone: true,
-  imports: [UpperCasePipe, NxtCtaButtonComponent],
+  imports: [UpperCasePipe],
   template: `
     <section class="genesis" [class.genesis--active]="deployed()" [attr.aria-labelledby]="ariaId()">
       <div class="genesis__content">
         <span class="genesis__badge" aria-hidden="true">
           <span class="genesis__badge-dot"></span>
-          Team Platform
+          Program Command Center
         </span>
 
-        <h2 [id]="ariaId()" class="genesis__headline">{{ headline() }}</h2>
+        @if (headingLevel() === 1) {
+          <h1 [id]="ariaId()" class="genesis__headline">{{ headline() }}</h1>
+        } @else {
+          <h2 [id]="ariaId()" class="genesis__headline">{{ headline() }}</h2>
+        }
 
         <p class="genesis__subhead">{{ subhead() }}</p>
 
@@ -166,7 +182,7 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
           <div class="genesis__terminal-body">
             <div class="genesis__terminal-row">
               <span class="genesis__terminal-prompt">▶</span>
-              <span class="genesis__terminal-url">{{ commandUrl() }}</span>
+              <span class="genesis__terminal-url">{{ displayedCommand() }}</span>
               <span
                 class="genesis__terminal-cursor"
                 [class.genesis__terminal-cursor--hidden]="deployed()"
@@ -177,6 +193,7 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
               type="button"
               class="genesis__deploy-btn"
               [class.genesis__deploy-btn--fired]="deployed()"
+              [class.genesis__deploy-btn--auto-tap]="autoTapActive()"
               [disabled]="deployed()"
               [attr.aria-label]="deployed() ? 'Agent X deployed' : 'Deploy Agent X'"
               (click)="deploy()"
@@ -228,52 +245,27 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
             <!-- Live counter row -->
             <div class="bento__stats">
               <div class="bento__stat">
-                <span class="bento__stat-val">50</span>
-                <span class="bento__stat-lbl">Profiles</span>
+                <span class="bento__stat-val">12</span>
+                <span class="bento__stat-lbl">Film Reviews</span>
               </div>
               <div class="bento__stat-divider"></div>
               <div class="bento__stat">
-                <span class="bento__stat-val">312</span>
-                <span class="bento__stat-lbl">Emails</span>
+                <span class="bento__stat-val">4</span>
+                <span class="bento__stat-lbl">Game Plans</span>
               </div>
               <div class="bento__stat-divider"></div>
               <div class="bento__stat">
-                <span class="bento__stat-val">87</span>
-                <span class="bento__stat-lbl">Graphics</span>
+                <span class="bento__stat-val">9</span>
+                <span class="bento__stat-lbl">Playbooks</span>
               </div>
               <div class="bento__stat-divider"></div>
               <div class="bento__stat">
-                <span class="bento__stat-val">24</span>
-                <span class="bento__stat-lbl">Offers</span>
+                <span class="bento__stat-val">28</span>
+                <span class="bento__stat-lbl">Staff Actions</span>
               </div>
             </div>
           </div>
         }
-
-        <!-- CTAs -->
-        <div class="genesis__actions">
-          @if (primaryCtaLabel()) {
-            <nxt1-cta-button
-              [label]="primaryCtaLabel()"
-              [route]="primaryCtaRoute()"
-              variant="primary"
-              size="lg"
-            />
-          }
-          @if (secondaryCtaLabel()) {
-            <nxt1-cta-button
-              [label]="secondaryCtaLabel()"
-              [route]="secondaryCtaRoute()"
-              variant="ghost"
-              size="lg"
-              (clicked)="secondaryCtaClicked.emit()"
-            />
-          }
-        </div>
-
-        <p class="genesis__proof" role="status" aria-live="polite">
-          ⚡ 412 athletic programmes deployed Agent X today.
-        </p>
       </div>
     </section>
   `,
@@ -563,6 +555,11 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
         transform: translateY(0);
       }
 
+      .genesis__deploy-btn--auto-tap:not(:disabled) {
+        transform: translateY(var(--nxt1-spacing-0-5, 2px)) scale(0.98);
+        box-shadow: var(--nxt1-glow-md);
+      }
+
       .genesis__deploy-btn--fired {
         background: color-mix(
           in srgb,
@@ -615,9 +612,13 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
       }
 
       .bento__visual-icon {
-        font-size: var(--nxt1-fontSize-xl);
-        line-height: 1;
-        opacity: 0.7;
+        color: var(--nxt1-color-text-primary);
+        font-family: var(--nxt1-fontFamily-mono);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-bold);
+        letter-spacing: var(--nxt1-letterSpacing-wide);
+        line-height: var(--nxt1-lineHeight-none);
+        opacity: 0.82;
         z-index: 1;
       }
 
@@ -651,7 +652,7 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
         border-radius: var(--nxt1-borderRadius-full);
         background: color-mix(in srgb, var(--nxt1-color-surface-100) 70%, transparent);
         backdrop-filter: blur(var(--nxt1-blur-sm, 8px));
-        font-size: var(--nxt1-fontSize-lg);
+        font-size: var(--nxt1-fontSize-xs);
         opacity: 1;
       }
 
@@ -766,36 +767,6 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
       }
 
       /* ════════════════════════════════════════════
-       * ACTIONS & PROOF
-       * ════════════════════════════════════════════ */
-
-      .genesis__actions {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        align-items: center;
-        gap: var(--nxt1-spacing-3);
-        padding-top: var(--nxt1-spacing-4);
-      }
-
-      .genesis__proof {
-        margin: 0;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4);
-        min-height: var(--nxt1-spacing-8);
-        border-radius: var(--nxt1-borderRadius-full);
-        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 60%, transparent);
-        background: color-mix(in srgb, var(--nxt1-color-surface-100) 80%, transparent);
-        color: var(--nxt1-color-text-secondary);
-        font-family: var(--nxt1-fontFamily-brand);
-        font-size: var(--nxt1-fontSize-sm);
-        font-weight: var(--nxt1-fontWeight-medium);
-        backdrop-filter: blur(var(--nxt1-blur-sm, 8px));
-      }
-
-      /* ════════════════════════════════════════════
        * RESPONSIVE — Tablet (≤ 768px)
        * ════════════════════════════════════════════ */
 
@@ -863,10 +834,6 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
         .bento__stat-divider {
           display: none;
         }
-
-        .genesis__proof {
-          font-size: var(--nxt1-fontSize-xs);
-        }
       }
 
       /* ════════════════════════════════════════════
@@ -902,7 +869,7 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class NxtGenesisMomentComponent {
+export class NxtGenesisMomentComponent implements OnDestroy {
   /* ── Public inputs ── */
 
   readonly headline = input('One Link. A Dynasty of Careers.');
@@ -911,31 +878,107 @@ export class NxtGenesisMomentComponent {
   );
   readonly commandUrl = input('https://www.hudl.com/team/westlake-hs/roster');
   readonly ariaId = input('genesis-moment-title');
-
-  readonly primaryCtaLabel = input('Get Started Free');
-  readonly primaryCtaRoute = input('/auth');
-  readonly secondaryCtaLabel = input('Watch Demo');
-  readonly secondaryCtaRoute = input('');
+  readonly headingLevel = input<1 | 2>(2);
 
   /* ── Outputs ── */
 
-  readonly secondaryCtaClicked = output<void>();
   readonly deployTriggered = output<void>();
 
   /* ── Internal state ── */
 
   private readonly _deployed = signal(false);
+  private readonly _displayedCommand = signal('');
+  private readonly _autoTapActive = signal(false);
+  private typewriterTimer: ReturnType<typeof setTimeout> | null = null;
+  private autoTapTimer: ReturnType<typeof setTimeout> | null = null;
+  private autoTapPressTimer: ReturnType<typeof setTimeout> | null = null;
 
   protected readonly deployed = computed(() => this._deployed());
+  protected readonly displayedCommand = computed(() => this._displayedCommand());
+  protected readonly autoTapActive = computed(() => this._autoTapActive());
 
   /* ── Static activity data ── */
 
   protected readonly activityCards = ACTIVITY_CARDS;
 
+  constructor() {
+    afterNextRender(() => {
+      this.startCommandTypewriter();
+    });
+  }
+
   /** Trigger the deploy explosion animation. */
   protected deploy(): void {
     if (this._deployed()) return;
+    this.clearAutoTapTimers();
+    this._autoTapActive.set(false);
     this._deployed.set(true);
     this.deployTriggered.emit();
+  }
+
+  ngOnDestroy(): void {
+    this.clearTypewriterTimer();
+    this.clearAutoTapTimers();
+  }
+
+  private startCommandTypewriter(): void {
+    this.clearTypewriterTimer();
+    this._displayedCommand.set('');
+
+    const targetCommand = this.commandUrl();
+    if (targetCommand.length === 0) {
+      this.scheduleAutoTapDeploy();
+      return;
+    }
+
+    const commandCharacters = Array.from(targetCommand);
+    let characterIndex = 0;
+
+    const typeNextCharacter = (): void => {
+      characterIndex += 1;
+      this._displayedCommand.set(commandCharacters.slice(0, characterIndex).join(''));
+
+      if (characterIndex < commandCharacters.length) {
+        this.typewriterTimer = setTimeout(typeNextCharacter, COMMAND_TYPEWRITER_STEP_MS);
+        return;
+      }
+
+      this.typewriterTimer = null;
+      this.scheduleAutoTapDeploy();
+    };
+
+    this.typewriterTimer = setTimeout(typeNextCharacter, COMMAND_TYPEWRITER_INITIAL_DELAY_MS);
+  }
+
+  private scheduleAutoTapDeploy(): void {
+    this.clearAutoTapTimers();
+    if (this._deployed()) return;
+
+    this.autoTapTimer = setTimeout(() => {
+      this._autoTapActive.set(true);
+
+      this.autoTapPressTimer = setTimeout(() => {
+        this._autoTapActive.set(false);
+        this.deploy();
+      }, COMMAND_AUTO_TAP_PRESS_MS);
+    }, COMMAND_AUTO_TAP_DELAY_MS);
+  }
+
+  private clearTypewriterTimer(): void {
+    if (this.typewriterTimer === null) return;
+    clearTimeout(this.typewriterTimer);
+    this.typewriterTimer = null;
+  }
+
+  private clearAutoTapTimers(): void {
+    if (this.autoTapTimer !== null) {
+      clearTimeout(this.autoTapTimer);
+      this.autoTapTimer = null;
+    }
+
+    if (this.autoTapPressTimer !== null) {
+      clearTimeout(this.autoTapPressTimer);
+      this.autoTapPressTimer = null;
+    }
   }
 }
