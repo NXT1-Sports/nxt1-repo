@@ -55,6 +55,18 @@ env:
     secret: CLOUDFLARE_WEBHOOK_SECRET
     availability:
       - RUNTIME
+  - variable: GEMINI_API_KEY
+    secret: GEMINI_API_KEY
+    availability:
+      - RUNTIME
+  - variable: STRIPE_TEST_SECRET_KEY
+    secret: STRIPE_TEST_SECRET_KEY
+    availability:
+      - RUNTIME
+  - variable: STRIPE_TEST_WEBHOOK_SECRET
+    secret: STRIPE_TEST_WEBHOOK_SECRET
+    availability:
+      - RUNTIME
   - variable: CHART_MCP_URL
     secret: CHART_MCP_URL
     availability:

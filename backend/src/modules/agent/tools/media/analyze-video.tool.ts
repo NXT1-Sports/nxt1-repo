@@ -27,6 +27,7 @@ import type { FfmpegMcpBridgeService } from '../integrations/ffmpeg-mcp/ffmpeg-m
 import type { GeminiFilesService } from '../../llm/gemini-files.service.js';
 import type { LLMContentPart, LLMMessage } from '../../llm/llm.types.js';
 import { VIDEO_ANALYSIS_TIMEOUT_MS } from '../../llm/llm.types.js';
+import { addJobCost } from '../../queue/job-cost-tracker.js';
 import { logger } from '../../../../utils/logger.js';
 import { z } from 'zod';
 import { buildPortableMediaArtifact, type MediaWorkflowArtifact } from './media-workflow.js';
@@ -435,6 +436,11 @@ export class AnalyzeVideoTool extends BaseTool {
         prompt,
         Math.min(4096 + (videoUrls.length - 1) * 2048, 8192)
       );
+      // Register the Gemini direct-call cost into the job tracker so
+      // executeBillingDeduction can apply the platform markup and charge the user.
+      if (result.costUsd > 0 && context?.operationId) {
+        addJobCost(context.operationId, result.costUsd);
+      }
       return { result, analyzedVideoUrls: videoUrls };
     }
 
@@ -503,6 +509,11 @@ export class AnalyzeVideoTool extends BaseTool {
             prompt,
             Math.min(4096 + (videoUrls.length - 1) * 2048, 8192)
           );
+          // Register the Gemini direct-call cost into the job tracker so
+          // executeBillingDeduction can apply the platform markup and charge the user.
+          if (result.costUsd > 0 && context?.operationId) {
+            addJobCost(context.operationId, result.costUsd);
+          }
           return { result, analyzedVideoUrls: videoUrls };
         }
       }
