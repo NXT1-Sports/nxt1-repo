@@ -279,7 +279,7 @@ export class MobileEmailConnectionService {
         'email',
         'profile',
         'https://www.googleapis.com/auth/gmail.send',
-        'https://www.googleapis.com/auth/gmail.readonly',
+        // 'https://www.googleapis.com/auth/gmail.readonly',
       ],
     });
     console.log('✅ [DEBUG] signInWithGoogle completed');

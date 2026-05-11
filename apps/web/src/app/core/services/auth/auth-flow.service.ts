@@ -1113,10 +1113,11 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         provider.addScope(scope);
       }
 
-      // CRITICAL: Request offline access to get refresh token
+      // Request offline access to get refresh token for new users.
+      // Use 'select_account' so returning users are not forced to re-approve on every sign-in.
       provider.setCustomParameters({
         access_type: 'offline',
-        prompt: 'consent', // Force consent screen to ensure refresh token
+        prompt: 'select_account',
       });
 
       // ⏱️ DEBUG: Time the popup (user picks account)
