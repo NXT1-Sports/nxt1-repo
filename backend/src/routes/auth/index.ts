@@ -24,6 +24,7 @@ import teamCodeRoutes from './team-code.routes.js';
 import userCreationRoutes from './user-creation.routes.js';
 import onboardingRoutes from './onboarding.routes.js';
 import oauthRoutes from './oauth.routes.js';
+import outstandOauthRoutes from './outstand-oauth.routes.js';
 import analyticsUnicodeRoutes from './analytics-unicode.routes.js';
 import profileRoutes from '../profile/index.js';
 
@@ -33,6 +34,7 @@ router.use(teamCodeRoutes);
 router.use(userCreationRoutes);
 router.use(onboardingRoutes);
 router.use(oauthRoutes);
+router.use(outstandOauthRoutes);
 router.use(analyticsUnicodeRoutes);
 
 // GET/PUT /auth/profile/* — handled by profileRoutes (Redis-cached, MEDIUM_TTL = 15 min)

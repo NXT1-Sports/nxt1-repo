@@ -19,6 +19,7 @@ import { Injectable, inject, signal, computed } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { AGENT_X_API_BASE_URL } from '../../agent-x/services/agent-x-job.service';
+import { NxtBrowserService } from '../../services/browser';
 import { NxtLoggingService } from '../../services/logging';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
@@ -59,15 +60,32 @@ interface CompleteSessionResponse {
   };
 }
 
+type OutstandPlatform = 'x' | 'instagram' | 'youtube' | 'tiktok';
+
+const OUTSTAND_PLATFORM_MAP: Readonly<Record<string, OutstandPlatform>> = {
+  x: 'x',
+  twitter: 'x',
+  twitter_signin: 'x',
+  instagram: 'instagram',
+  instagram_signin: 'instagram',
+  youtube: 'youtube',
+  youtube_signin: 'youtube',
+  tiktok: 'tiktok',
+  tiktok_signin: 'tiktok',
+};
+
 // ─── Service ────────────────────────────────────────────────────────────────
 
 @Injectable({ providedIn: 'root' })
 export class FirecrawlSignInService {
   private readonly http = inject(HttpClient);
-  private readonly baseUrl = `${inject(AGENT_X_API_BASE_URL)}/agent-x`;
+  private readonly apiBaseUrl = inject(AGENT_X_API_BASE_URL);
+  private readonly baseUrl = `${this.apiBaseUrl}/agent-x`;
+  private readonly outstandConnectUrl = `${this.apiBaseUrl}/auth/outstand/connect-url`;
   private readonly overlay = inject(NxtOverlayService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly toast = inject(NxtToastService);
+  private readonly browser = inject(NxtBrowserService);
   private readonly logger = inject(NxtLoggingService).child('FirecrawlSignInService');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
@@ -119,6 +137,11 @@ export class FirecrawlSignInService {
    * @returns true if the sign-in was completed successfully
    */
   async launchSignIn(request: FirecrawlSignInRequest): Promise<boolean> {
+    const outstandPlatform = this.toOutstandPlatform(request.platform);
+    if (outstandPlatform) {
+      return this.launchOutstandOAuth(request, outstandPlatform);
+    }
+
     if (!this.supportsInteractiveSigninOnCurrentDevice()) {
       this.logger.info('Blocked Firecrawl sign-in on unsupported device context', {
         platform: request.platform,
@@ -208,6 +231,81 @@ export class FirecrawlSignInService {
       this._loading.set(false);
       this._activePlatform.set(null);
     }
+  }
+
+  private async launchOutstandOAuth(
+    request: FirecrawlSignInRequest,
+    platform: OutstandPlatform
+  ): Promise<boolean> {
+    this._loading.set(true);
+    this._activePlatform.set(request.platform);
+    this.logger.info('Starting Outstand OAuth sign-in', {
+      platform: request.platform,
+      outstandPlatform: platform,
+      label: request.label,
+    });
+    this.breadcrumb.trackStateChange('outstand-signin:starting', {
+      platform,
+    });
+
+    try {
+      const params: Record<string, string> = {
+        platform,
+        nonce: `${Date.now()}`,
+      };
+      if (this.platform.isNative()) {
+        params['mobileScheme'] = 'nxt1';
+      } else if (typeof globalThis.location?.origin === 'string') {
+        params['origin'] = globalThis.location.origin;
+      }
+
+      const response = await firstValueFrom(
+        this.http.get<{ url: string }>(this.outstandConnectUrl, { params })
+      );
+
+      if (!response?.url) {
+        this.toast.error(`Failed to start ${request.label} sign-in. Please try again.`);
+        return false;
+      }
+
+      this.analytics?.trackEvent(APP_EVENTS.LINK_SOURCE_CONNECTED, {
+        source_platform: request.platform,
+        mode: 'signin',
+        method: 'outstand',
+        status: 'redirected',
+      });
+
+      if (this.platform.isNative()) {
+        await this.browser.openLink({
+          url: response.url,
+          linkType: 'social',
+          source: 'connected-sources-outstand-signin',
+        });
+      } else {
+        globalThis.location.assign(response.url);
+      }
+
+      this.breadcrumb.trackStateChange('outstand-signin:redirected', {
+        platform,
+      });
+
+      // Redirect-based OAuth completion occurs on callback, not in this call.
+      return false;
+    } catch (err) {
+      this.logger.error('Failed to launch Outstand OAuth sign-in', err, {
+        platform: request.platform,
+        outstandPlatform: platform,
+      });
+      this.toast.error(`Failed to start ${request.label} sign-in. Please try again.`);
+      return false;
+    } finally {
+      this._loading.set(false);
+      this._activePlatform.set(null);
+    }
+  }
+
+  private toOutstandPlatform(platform: string): OutstandPlatform | null {
+    return OUTSTAND_PLATFORM_MAP[platform.toLowerCase()] ?? null;
   }
 
   // ─── Backend API Calls ────────────────────────────────────────────────

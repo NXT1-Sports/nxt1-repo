@@ -27,6 +27,18 @@ import {
 export type { UserRole, SportProfile, Location, UserContact, ConnectedEmail };
 export { USER_SCHEMA_VERSION, normalizeName, isTeamRole };
 
+export interface ConnectedSocialAccount {
+  outstandAccountId: string;
+  network: 'x' | 'instagram' | 'youtube' | 'tiktok';
+  username: string;
+  displayName?: string | null;
+  profileUrl?: string | null;
+  followerCount?: number;
+  connectedAt: PortableTimestamp;
+  lastSyncedAt?: PortableTimestamp;
+  isActive: boolean;
+}
+
 // ============================================================================
 // V2 USER MODEL TYPES
 // ============================================================================
@@ -63,6 +75,11 @@ export interface UserV2Document {
 
   // Connected sources (all platforms - social, film, stats, recruiting)
   connectedSources?: ConnectedSourceRecord[];
+
+  // Connected social publishing accounts provisioned via Outstand MCP.
+  connectedSocialAccounts?: Partial<
+    Record<'x' | 'instagram' | 'youtube' | 'tiktok', ConnectedSocialAccount>
+  >;
 
   classOf?: number;
 
@@ -320,12 +337,26 @@ export const ALLOWED_MOBILE_SCHEMES = new Set(['nxt1sports', 'nxt1app', 'nxt1'])
  */
 export function getAllowedOrigins(isStaging: boolean): string[] {
   const key = isStaging ? 'STAGING_ALLOWED_FRONTEND_ORIGINS' : 'ALLOWED_FRONTEND_ORIGINS';
-  return (
+  const localDevOrigins = [
+    'http://localhost:4200',
+    'http://localhost:4201',
+    'http://localhost:4300',
+    'http://127.0.0.1:4200',
+    'http://127.0.0.1:4201',
+    'http://127.0.0.1:4300',
+  ];
+
+  const configuredOrigins =
     process.env[key]
       ?.split(',')
       .map((o) => o.trim())
-      .filter(Boolean) ?? ['http://localhost:4200', 'http://localhost:4201']
-  );
+      .filter(Boolean) ?? [];
+
+  if (isStaging) {
+    return Array.from(new Set([...configuredOrigins, ...localDevOrigins]));
+  }
+
+  return configuredOrigins.length > 0 ? configuredOrigins : localDevOrigins;
 }
 
 export function isAllowedOrigin(origin: string, isStaging: boolean): boolean {

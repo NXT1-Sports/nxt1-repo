@@ -168,6 +168,12 @@ import {
   FfmpegCompressVideoTool,
   ChartMcpBridgeService,
   GenerateChartVisualizationTool,
+  OutstandSocialBridgeService,
+  PublishPostToSocialsTool,
+  GetConnectedSocialAccountsTool,
+  GetPostAnalyticsTool,
+  GetProfileAnalyticsTool,
+  SchedulePostSeriesTool,
   PlayDiagramService,
   CreatePlayDiagramTool,
   BoardDiagramService,
@@ -448,6 +454,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   let cfBridge: CloudflareMcpBridgeService | undefined;
   let ffmpegBridge: FfmpegMcpBridgeService | undefined;
   let chartBridge: ChartMcpBridgeService | undefined;
+  let outstandBridge: OutstandSocialBridgeService | undefined;
   let geminiFiles: GeminiFilesService | undefined;
 
   // System tools (cross-cutting infrastructure — available to all agents)
@@ -632,6 +639,23 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     logger.info('MCP-bridged Chart tools registered (generate_chart_visualization)');
   } catch {
     logger.warn('CHART_MCP_URL not configured — Chart MCP tools disabled');
+  }
+
+  // ── 1e.2.1. Outstand MCP social publishing tools ─────────────────────
+  try {
+    outstandBridge = new OutstandSocialBridgeService();
+    toolRegistry.register(new PublishPostToSocialsTool(outstandBridge));
+    toolRegistry.register(new GetConnectedSocialAccountsTool(outstandBridge));
+    toolRegistry.register(new GetPostAnalyticsTool(outstandBridge));
+    toolRegistry.register(new GetProfileAnalyticsTool(outstandBridge));
+    toolRegistry.register(new SchedulePostSeriesTool(outstandBridge));
+    logger.info(
+      'Outstand MCP social tools registered (publish_post_to_socials, get_connected_social_accounts, get_post_analytics, get_profile_analytics, schedule_post_series)'
+    );
+  } catch (error) {
+    logger.warn('OUTSTAND_API_KEY not configured — Outstand MCP social tools disabled', {
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 
   // ── 1e.3. Play diagram tools (LLM → diagrams.net export → Firebase) ─

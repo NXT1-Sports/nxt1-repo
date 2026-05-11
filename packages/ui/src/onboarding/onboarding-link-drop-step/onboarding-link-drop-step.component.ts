@@ -99,6 +99,17 @@ interface ConnectedState {
 const CUSTOM_LINK_PREFIX = 'custom::';
 const HANDLE_BASED_PLATFORMS = new Set(['instagram', 'twitter', 'tiktok']);
 const HANDLE_BUILDABLE_URL_PLATFORMS = new Set(['instagram', 'twitter', 'tiktok', 'youtube']);
+const OUTSTAND_SIGNIN_PLATFORMS = new Set([
+  'x',
+  'twitter',
+  'instagram',
+  'youtube',
+  'tiktok',
+  'twitter_signin',
+  'instagram_signin',
+  'youtube_signin',
+  'tiktok_signin',
+]);
 const SIGNIN_PRIORITY_ORDER = ['google', 'microsoft'] as const;
 const RESERVED_HANDLE_SEGMENTS = new Set([
   'explore',
@@ -1253,6 +1264,10 @@ export class OnboardingLinkDropStepComponent {
   }
 
   private getDisconnectedActionLabel(platform: PlatformDefinition): string | undefined {
+    if (OUTSTAND_SIGNIN_PLATFORMS.has(platform.platform)) {
+      return undefined;
+    }
+
     if (
       platform.connectionType === 'signin' &&
       platform.platform !== 'google' &&

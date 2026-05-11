@@ -49,6 +49,16 @@ export { ListNxt1DataViewsTool } from './firebase-mcp/list-user-firebase-views.t
 export { QueryNxt1DataTool } from './firebase-mcp/query-user-firebase-data.tool.js';
 export { MutateNxt1DataTool } from './firebase-mcp/mutate-nxt1-data.tool.js';
 
+// ── Outstand MCP — Social publishing and analytics ─────────────────────
+export {
+  OutstandSocialBridgeService,
+  PublishPostToSocialsTool,
+  GetConnectedSocialAccountsTool,
+  GetPostAnalyticsTool,
+  GetProfileAnalyticsTool,
+  SchedulePostSeriesTool,
+} from './outstand-social/index.js';
+
 // ── Microsoft 365 MCP — User-scoped productivity actions ─────────────────
 export {
   Microsoft365McpBridgeService,
