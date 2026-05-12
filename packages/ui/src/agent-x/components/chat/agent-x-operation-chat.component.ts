@@ -832,6 +832,7 @@ type YieldStateSource =
       .batch-email-progress__recipient--sending .batch-email-progress__status-icon {
         color: var(--nxt1-color-primary, #ccff00);
         animation: ac-spin 1.2s linear infinite;
+        transform-origin: center center;
       }
 
       .batch-email-progress__recipient--sent .batch-email-progress__email {
@@ -1112,6 +1113,15 @@ type YieldStateSource =
       .msg-row--wide {
         max-width: 100%;
         width: 100%;
+      }
+
+      @keyframes ac-spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
       }
 
       @keyframes fadeSlideIn {

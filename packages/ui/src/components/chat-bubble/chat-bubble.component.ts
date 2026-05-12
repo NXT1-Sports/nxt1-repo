@@ -85,7 +85,7 @@ export interface ChatBubbleMediaRequestedEvent {
       <p class="bubble-text bubble-text--system">{{ content() }}</p>
     } @else if (parts().length) {
       <!-- ═══ INTERLEAVED PARTS (Copilot-style: text → tools → text → card) ═══ -->
-      @for (part of parts(); track $index) {
+      @for (part of parts(); track $index; let last = $last) {
         @switch (part.type) {
           @case ('text') {
             @if (isOwn()) {
@@ -93,6 +93,7 @@ export interface ChatBubbleMediaRequestedEvent {
             } @else {
               <nxt1-markdown
                 [content]="part.content"
+                [isStreaming]="isStreaming() && last"
                 (mediaRequested)="onMarkdownMediaRequested($event)"
               />
             }
@@ -166,6 +167,7 @@ export interface ChatBubbleMediaRequestedEvent {
         } @else {
           <nxt1-markdown
             [content]="content()"
+            [isStreaming]="isStreaming()"
             (mediaRequested)="onMarkdownMediaRequested($event)"
           />
         }

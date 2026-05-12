@@ -14,7 +14,7 @@ import {
   EnvironmentInjector,
   runInInjectionContext,
 } from '@angular/core';
-import { APP_BASE_HREF } from '@angular/common';
+import { APP_BASE_HREF, IMAGE_CONFIG } from '@angular/common';
 import { provideRouter, withComponentInputBinding, RouteReuseStrategy } from '@angular/router';
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import { provideAnimations } from '@angular/platform-browser/animations';
@@ -154,6 +154,15 @@ export const appConfig: ApplicationConfig = {
 
     // Explicit base href for Capacitor and Vite dev server compatibility
     { provide: APP_BASE_HREF, useValue: '/' },
+
+    // NgOptimizedImage configuration for Capacitor.
+    // Disables responsive srcset generation since Capacitor serves local assets
+    // from capacitor://localhost/ where width-variant URLs don't exist.
+    // The built-in noop loader (default) is kept — no custom loader override needed.
+    {
+      provide: IMAGE_CONFIG,
+      useValue: { disableImageSizeWarning: true, disableOptimizedSrcset: true },
+    },
 
     provideRouter(routes, withComponentInputBinding()),
 

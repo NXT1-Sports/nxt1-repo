@@ -2216,10 +2216,13 @@ export class AgentXActionCardComponent implements OnDestroy {
 
     // Direct open keeps behavior consistent with chat attachments even if parent
     // event wiring is bypassed in some embedded render paths.
+    // Force overlay so the Agent X bottom sheet stays open beneath the viewer.
+    // Default bottom-sheet path calls dismiss() first which would close Agent X.
     void this.mediaViewer.open({
       items: mediaItems,
       initialIndex: Math.max(0, Math.min(index, mediaItems.length - 1)),
       source: 'agent-x-chat',
+      presentation: 'overlay',
     });
 
     this.openMedia.emit({

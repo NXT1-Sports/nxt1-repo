@@ -7,6 +7,7 @@
  */
 
 import { Injectable, inject } from '@angular/core';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { createEditProfileApi, type EditProfileApi } from '@nxt1/core/edit-profile';
 import { createFileUploadApi } from '@nxt1/core';
 import type {
@@ -14,8 +15,20 @@ import type {
   EditProfileFormData,
   EditProfileUpdateResponse,
 } from '@nxt1/core/edit-profile';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { normalizeImageFileForUpload } from '@nxt1/ui';
 import { CapacitorHttpAdapter } from '../../infrastructure';
 import { environment } from '../../../../environments/environment';
+
+/** Convert a File or Blob to a base64 data URL (data:mime;base64,...). */
+function fileToDataUrl(file: File | Blob): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 /**
  * Edit Profile API Service
@@ -31,6 +44,7 @@ import { environment } from '../../../../environments/environment';
 @Injectable({ providedIn: 'root' })
 export class EditProfileApiService {
   private readonly http = inject(CapacitorHttpAdapter);
+  private readonly logger = inject(NxtLoggingService).child('EditProfileApiService');
   private readonly api: EditProfileApi;
   private readonly uploadApi = createFileUploadApi(this.http as never, environment.apiUrl);
 
@@ -163,30 +177,103 @@ export class EditProfileApiService {
   }
 
   /**
-   * Upload team logo via signed URL (direct-to-storage).
+   * Upload team logo / gallery image via signed URL (direct-to-storage).
+   *
+   * On iOS, photos from the library are often HEIC (image/heic) which the
+   * backend doesn't accept. We normalize to JPEG/PNG/WebP first to ensure
+   * the MIME type is always in the allowed list.
    */
   async uploadTeamLogo(userId: string, teamId: string, file: File): Promise<string | null> {
     try {
+      // Normalize converts HEIC → JPEG and resizes large images. This also
+      // ensures file.type is a supported MIME type before requesting the URL.
+      const normalizedFile = await normalizeImageFileForUpload(file);
+
+      // Fallback: if normalization somehow produced an empty type, use JPEG.
+      const mimeType = normalizedFile.type || 'image/jpeg';
+
+      this.logger.info('Requesting signed upload URL', {
+        teamId,
+        mimeType,
+        fileName: normalizedFile.name,
+      });
+
       const signed = await this.uploadApi.getSignedUploadUrl(
         userId,
         'team-logo',
-        file.name,
-        file.type,
+        normalizedFile.name,
+        mimeType,
         teamId
       );
 
-      const putResponse = await fetch(signed.uploadUrl, {
-        method: 'PUT',
-        body: file,
-        headers: { 'Content-Type': file.type },
+      this.logger.info('Uploading to GCS via signed URL', {
+        teamId,
+        storagePath: signed.storagePath,
       });
 
-      if (!putResponse.ok) return null;
+      // On iOS native, fetch() to cross-origin URLs (e.g. storage.googleapis.com)
+      // fails with "Load failed" because WKWebView blocks the request.
+      // Fix: use CapacitorHttp with dataType: 'file' + raw base64 (no prefix).
+      // Per Capacitor 8 docs, dataType:'file' expects a raw base64 string —
+      // Capacitor decodes it to binary bytes and sends via NSURLSession, which
+      // has no WKWebView cross-origin restrictions.
+      //
+      // ⚠️  Do NOT pass a data URL (data:image/png;base64,...) — the prefix chars
+      //     are valid base64 and get decoded into garbage binary data.
+      // ⚠️  Do NOT pass a file:// URI — Capacitor sends the URI text as the body.
+      if (Capacitor.isNativePlatform()) {
+        const dataUrl = await fileToDataUrl(normalizedFile);
+        // Strip 'data:image/xxx;base64,' prefix → raw base64 only
+        const rawBase64 = dataUrl.split(',')[1];
+        if (!rawBase64) {
+          this.logger.error('Failed to extract base64 from normalized file', null, { teamId });
+          return null;
+        }
+
+        const nativeResponse = await CapacitorHttp.request({
+          method: 'PUT',
+          url: signed.uploadUrl,
+          headers: { 'Content-Type': mimeType },
+          data: rawBase64, // raw base64 string (no data: prefix)
+          dataType: 'file', // Capacitor decodes base64 → binary before sending
+        });
+
+        if (nativeResponse.status < 200 || nativeResponse.status >= 300) {
+          this.logger.error('GCS signed URL PUT failed (native)', null, {
+            teamId,
+            status: nativeResponse.status,
+          });
+          return null;
+        }
+      } else {
+        const putResponse = await fetch(signed.uploadUrl, {
+          method: 'PUT',
+          body: normalizedFile,
+          headers: { 'Content-Type': mimeType },
+        });
+
+        if (!putResponse.ok) {
+          const body = await putResponse.text().catch(() => '');
+          this.logger.error('GCS signed URL PUT failed', null, {
+            teamId,
+            status: putResponse.status,
+            body: body.substring(0, 300),
+          });
+          return null;
+        }
+      }
 
       const bucket = environment.firebase.storageBucket;
       const encodedPath = encodeURIComponent(signed.storagePath);
-      return `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedPath}?alt=media`;
-    } catch {
+      const url = `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodedPath}?alt=media`;
+      this.logger.info('Team logo upload complete', { teamId, url });
+      return url;
+    } catch (err) {
+      this.logger.error('uploadTeamLogo failed', err, {
+        teamId,
+        fileName: file.name,
+        fileType: file.type,
+      });
       return null;
     }
   }

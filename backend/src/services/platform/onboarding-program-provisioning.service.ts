@@ -7,6 +7,7 @@ import { createRosterEntryService } from '../team/roster-entry.service.js';
 import { resolveRosterPositions } from '../team/roster-sport-profile.service.js';
 import { normalizeProgramName } from '../core/name-normalizer.service.js';
 import { logger } from '../../utils/logger.js';
+import { initOrganizationBillingTargetForUser } from '../../modules/billing/budget.service.js';
 
 type ProgramType = 'high-school' | 'middle-school' | 'club' | 'college' | 'juco' | 'organization';
 
@@ -226,6 +227,20 @@ async function resolvePrograms(
           city,
           state,
         });
+
+        // For coaches/directors, set the newly created org as their active
+        // billing target and evict the resolution cache so the very next
+        // billing call routes to org billing instead of defaulting to personal.
+        if (isPrivilegedRole) {
+          try {
+            await initOrganizationBillingTargetForUser(input.db, input.userId, org.id);
+          } catch (billingErr) {
+            logger.warn(
+              '[OnboardingProgramProvisioning] Failed to set org billing target after org creation',
+              { error: billingErr, userId: input.userId, organizationId: org.id }
+            );
+          }
+        }
 
         logger.info('[OnboardingProgramProvisioning] Created ghost program', {
           organizationId: org.id,

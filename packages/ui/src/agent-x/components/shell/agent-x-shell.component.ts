@@ -724,6 +724,15 @@ function sortCoordinatorCategories(
         }
       }
 
+      @keyframes op-spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
       .agent-x-content {
         --background: var(--agent-bg);
         flex: 1;
@@ -989,8 +998,11 @@ function sortCoordinatorCategories(
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        width: 16px;
+        height: 16px;
         color: var(--agent-primary);
         animation: op-spin 1.2s linear infinite;
+        transform-origin: center center;
       }
 
       .operation-status-icon {

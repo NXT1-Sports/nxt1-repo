@@ -257,9 +257,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
                             <nxt1-icon name="close" [size]="14" />
                           }
                           @case ('in-progress') {
-                            <span class="log-entry-spinner">
-                              <nxt1-icon name="refresh" [size]="14" />
-                            </span>
+                            <nxt1-icon name="refresh" [size]="14" class="log-entry-spinner" />
                           }
                           @case ('paused') {
                             <nxt1-icon name="time" [size]="14" />
@@ -351,9 +349,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
                           <nxt1-icon name="close" [size]="14" />
                         }
                         @case ('in-progress') {
-                          <span class="log-entry-spinner">
-                            <nxt1-icon name="refresh" [size]="14" />
-                          </span>
+                          <nxt1-icon name="refresh" [size]="14" class="log-entry-spinner" />
                         }
                         @case ('paused') {
                           <nxt1-icon name="time" [size]="14" />
@@ -978,8 +974,8 @@ export const OPERATIONS_LOG_TEST_IDS = {
       }
 
       .log-entry-spinner {
-        display: inline-flex;
         animation: log-spin 1.2s linear infinite;
+        transform-origin: center center;
       }
 
       .log-entry-meta {
@@ -1135,7 +1131,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
         }
 
         .log-entry-spinner {
-          animation: none;
+          animation: none !important;
         }
 
         .log-entry--active,

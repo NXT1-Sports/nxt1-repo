@@ -146,24 +146,43 @@ export type ImageState = 'loading' | 'loaded' | 'error';
 
     <!-- Actual image -->
     @if (hasValidSrc() && state() !== 'error') {
-      <img
-        [ngSrc]="effectiveSrc()!"
-        [alt]="alt"
-        [width]="width"
-        [height]="height"
-        [priority]="priority"
-        [class.nxt1-image--loaded]="state() === 'loaded'"
-        [class.nxt1-image--loading]="state() === 'loading'"
-        [class.nxt1-image--avatar]="variant === 'avatar'"
-        [class.nxt1-image--thumbnail]="variant === 'thumbnail'"
-        [class.nxt1-image--hero]="variant === 'hero'"
-        [class.nxt1-image--card]="variant === 'card'"
-        [style.object-fit]="fit"
-        [attr.loading]="priority ? 'eager' : 'lazy'"
-        [attr.fetchpriority]="priority ? 'high' : 'auto'"
-        (load)="onLoad()"
-        (error)="onError()"
-      />
+      @if (isOptimizableUrl()) {
+        <img
+          [ngSrc]="effectiveSrc()!"
+          [alt]="alt"
+          [width]="width"
+          [height]="height"
+          [priority]="priority"
+          [class.nxt1-image--loaded]="state() === 'loaded'"
+          [class.nxt1-image--loading]="state() === 'loading'"
+          [class.nxt1-image--avatar]="variant === 'avatar'"
+          [class.nxt1-image--thumbnail]="variant === 'thumbnail'"
+          [class.nxt1-image--hero]="variant === 'hero'"
+          [class.nxt1-image--card]="variant === 'card'"
+          [style.object-fit]="fit"
+          [attr.loading]="priority ? 'eager' : 'lazy'"
+          [attr.fetchpriority]="priority ? 'high' : 'auto'"
+          (load)="onLoad()"
+          (error)="onError()"
+        />
+      } @else {
+        <img
+          [src]="effectiveSrc()!"
+          [alt]="alt"
+          [style.width.px]="width"
+          [style.height.px]="height"
+          [class.nxt1-image--loaded]="state() === 'loaded'"
+          [class.nxt1-image--loading]="state() === 'loading'"
+          [class.nxt1-image--avatar]="variant === 'avatar'"
+          [class.nxt1-image--thumbnail]="variant === 'thumbnail'"
+          [class.nxt1-image--hero]="variant === 'hero'"
+          [class.nxt1-image--card]="variant === 'card'"
+          [style.object-fit]="fit"
+          [attr.loading]="priority ? 'eager' : 'lazy'"
+          (load)="onLoad()"
+          (error)="onError()"
+        />
+      }
     }
   `,
   styles: [
@@ -341,6 +360,16 @@ export class NxtImageComponent implements OnChanges {
       return null;
     }
     return this.src;
+  });
+
+  /**
+   * Whether the URL can be used with NgOptimizedImage.
+   * blob: and data: URLs are not supported by NgOptimizedImage (throws NG02952).
+   */
+  readonly isOptimizableUrl = computed(() => {
+    const src = this.effectiveSrc();
+    if (!src) return false;
+    return !src.startsWith('blob:') && !src.startsWith('data:');
   });
 
   /** Whether the image has a valid source */

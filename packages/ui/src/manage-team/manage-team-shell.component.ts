@@ -74,7 +74,7 @@ export interface ManageTeamCloseEvent {
     <input
       #mediaFileInput
       type="file"
-      accept="image/jpeg,image/png,image/webp,image/svg+xml"
+      accept="image/*"
       style="display:none"
       (change)="onMediaFileChange($event)"
     />

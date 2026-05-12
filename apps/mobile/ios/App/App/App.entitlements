@@ -18,6 +18,7 @@
 	<key>com.apple.security.application-groups</key>
 	<array>
 		<string>group.com.nxt1sports.nxt1</string>
+		<string>group.com.nxt1.sports</string>
 	</array>
 	<key>keychain-access-groups</key>
 	<array>

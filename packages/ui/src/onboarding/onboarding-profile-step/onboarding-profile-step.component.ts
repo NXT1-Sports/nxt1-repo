@@ -452,7 +452,7 @@ export type CoachTitleOption = (typeof COACH_TITLE_OPTIONS)[number]['value'];
       #fileInput
       type="file"
       class="hidden"
-      accept="image/jpeg,image/png,image/webp,image/gif"
+      accept="image/*"
       multiple
       (change)="onFileSelected($event)"
     />
