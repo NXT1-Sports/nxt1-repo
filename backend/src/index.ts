@@ -115,39 +115,42 @@ const _envCorsOrigins = [
   .map((o) => o.trim())
   .filter(Boolean);
 
-const STATIC_ALLOWED_ORIGINS =
-  _envCorsOrigins.length > 0
-    ? _envCorsOrigins
-    : [
-        'http://localhost:4200',
-        'http://127.0.0.1:4200',
-        'http://localhost:4300',
-        'http://127.0.0.1:4300',
-        'http://localhost:8100',
-        'http://127.0.0.1:8100',
-        // Capacitor native apps (iOS & Android)
-        'capacitor://localhost',
-        'ionic://localhost',
-        'https://nxt1.com',
-        'https://www.nxt1.com',
-        'https://nxt1sports.com',
-        'https://www.nxt1sports.com',
-        // Firebase App Hosting (staging)
-        'https://nxt1-repo--nxt-1-v2.us-east4.hosted.app',
-        'https://nxt1-repo--nxt-1-staging-v2.us-central1.hosted.app',
-        'https://nxt1-repo--nxt-1-staging-v2.us-east4.hosted.app',
+// These origins are ALWAYS allowed regardless of env var overrides.
+// Capacitor/Ionic native origins must never be dropped by env var changes.
+const STATIC_ALLOWED_ORIGINS = [
+  'http://localhost:4200',
+  'http://127.0.0.1:4200',
+  'http://localhost:4300',
+  'http://127.0.0.1:4300',
+  'http://localhost:8100',
+  'http://127.0.0.1:8100',
+  // Capacitor native apps — iOS uses capacitor://, Android uses https://localhost
+  'capacitor://localhost',
+  'ionic://localhost',
+  'https://localhost',
+  'https://nxt1.com',
+  'https://www.nxt1.com',
+  'https://nxt1sports.com',
+  'https://www.nxt1sports.com',
+  // Firebase App Hosting (staging)
+  'https://nxt1-repo--nxt-1-v2.us-east4.hosted.app',
+  'https://nxt1-repo--nxt-1-staging-v2.us-central1.hosted.app',
+  'https://nxt1-repo--nxt-1-staging-v2.us-east4.hosted.app',
+  'https://nxt1-repo-backend--nxt-1-v2.us-east4.hosted.app',
+  'https://nxt1-repo-backend--nxt-1-staging-v2.us-east4.hosted.app',
+  // Firebase Hosting (staging) — both .web.app and .firebaseapp.com domains
+  'https://nxt-1-staging-v2.web.app',
+  'https://nxt-1-staging-v2.firebaseapp.com',
+  'https://nxt-1-v2.web.app',
+  'https://nxt-1-v2.firebaseapp.com',
+  // Production server (direct IP access — staging/dev only)
+  'http://34.72.3.113:8080',
+  'https://api.nxt1sports.com',
+];
 
-        'https://nxt1-repo-backend--nxt-1-v2.us-east4.hosted.app',
-        'https://nxt1-repo-backend--nxt-1-staging-v2.us-east4.hosted.app',
-        // Firebase Hosting (staging) — both .web.app and .firebaseapp.com domains
-        'https://nxt-1-staging-v2.web.app',
-        'https://nxt-1-staging-v2.firebaseapp.com',
-        'https://nxt-1-v2.web.app',
-        'https://nxt-1-v2.firebaseapp.com',
-        // Production server (direct IP access — staging/dev only)
-        'http://34.72.3.113:8080',
-        'https://api.nxt1sports.com',
-      ];
+// Merge env-var origins with the static list (env vars ADD to the list, not replace it).
+// This prevents env overrides from accidentally dropping native Capacitor/Ionic origins.
+const ALLOWED_ORIGINS = [...new Set([...STATIC_ALLOWED_ORIGINS, ..._envCorsOrigins])];
 
 app.use(
   cors({
@@ -155,7 +158,7 @@ app.use(
       // Allow requests with no origin (e.g. native mobile, curl, server-to-server)
       if (!origin) return callback(null, true);
 
-      if (STATIC_ALLOWED_ORIGINS.includes(origin)) {
+      if (ALLOWED_ORIGINS.includes(origin)) {
         return callback(null, true);
       }
 
