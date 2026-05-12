@@ -83,6 +83,7 @@ export class NxtAppDownloadBarService {
   private lastScrollY = -1;
   private rafId: number | null = null;
   private mutationTimeout: ReturnType<typeof setTimeout> | null = null;
+  private readonly bottomHideThresholdPx = 140;
   private readonly _hasFooter = signal(false);
   private readonly _isAuthenticated = signal(false);
 
@@ -299,6 +300,15 @@ export class NxtAppDownloadBarService {
             return;
           }
 
+          // Never show while user is at/near the bottom where footer content lives.
+          if (this.isNearBottom(target, scrollY)) {
+            if (this._scrolledPastThreshold()) {
+              this.ngZone.run(() => this._scrolledPastThreshold.set(false));
+            }
+            this.lastScrollY = scrollY;
+            return;
+          }
+
           // Seed on first read
           if (this.lastScrollY < 0) {
             this.lastScrollY = scrollY;
@@ -348,6 +358,30 @@ export class NxtAppDownloadBarService {
         observer.disconnect();
       };
     });
+  }
+
+  /** True when the active scroll container is near its bottom edge. */
+  private isNearBottom(target: EventTarget | null, scrollY: number): boolean {
+    if (!this.isBrowser) return false;
+
+    if (target === document || target === document.documentElement) {
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+      const fullHeight = Math.max(
+        document.documentElement.scrollHeight,
+        document.body?.scrollHeight ?? 0
+      );
+      return scrollY + viewportHeight >= fullHeight - this.bottomHideThresholdPx;
+    }
+
+    if (target instanceof Element) {
+      const element = target as HTMLElement;
+      return (
+        element.scrollTop + element.clientHeight >=
+        element.scrollHeight - this.bottomHideThresholdPx
+      );
+    }
+
+    return false;
   }
 
   /**

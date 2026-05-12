@@ -85,14 +85,22 @@ packages/design-tokens/
 │   └── js/
 │       ├── tokens.mjs           # ES module export
 │       └── tokens.d.ts          # TypeScript definitions
+│   ├── json/
+│   │   └── resolved.json        # Fully resolved token map
+│   ├── scss/
+│   │   └── _tokens.scss         # Generated SCSS variables (build artifact)
+│   └── ionic/
+│       └── ionic-generated.css  # Generated Ionic token mappings
 │
 ├── ionic/                        # Ionic Framework integration
 │   ├── index.css                # Entry point
 │   └── ionic-theme.css          # Maps --nxt1-* → --ion-*
 │
 ├── foundation/                   # Base CSS utilities
-│   ├── reset.css                # CSS reset
+│   ├── foundation.css           # CSS reset + base primitives
 │   ├── app-shell.css            # App layout defaults
+│   ├── fonts.css                # Font-face declarations
+│   ├── skeleton.css             # Skeleton loader styles
 │   └── utilities.css            # Helper classes
 │
 └── platform/                     # Platform-specific adaptations
@@ -218,13 +226,14 @@ This enables NXT1 branding while maintaining Ionic's platform-adaptive behavior
 @import '@nxt1/design-tokens/css';
 
 /* 2. Foundation (reset, app-shell, utilities) */
-@import '@nxt1/design-tokens/foundation/reset';
+@import '@nxt1/design-tokens/foundation';
 @import '@nxt1/design-tokens/foundation/app-shell';
+@import '@nxt1/design-tokens/foundation/utilities';
 
 /* 3. Platform adaptation */
 @import '@nxt1/design-tokens/platform/mobile'; /* or /web */
 
-/* 4. Ionic theme (maps tokens → Ionic vars) */
+/* 4. Ionic theme (maps tokens → Ionic vars, when using Ionic components) */
 @import '@nxt1/design-tokens/ionic';
 
 /* 5. Tailwind */

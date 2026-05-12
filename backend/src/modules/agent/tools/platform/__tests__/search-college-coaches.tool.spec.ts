@@ -127,11 +127,11 @@ describe('SearchCollegeCoachesTool', () => {
       expect(tool.allowedAgents).toContain('*');
     });
 
-    it('should require collegeName parameter', () => {
+    it('should allow sport-only queries', () => {
       const parsed = (
         tool.parameters as { safeParse: (input: Record<string, unknown>) => { success: boolean } }
       ).safeParse({ sport: 'Baseball' });
-      expect(parsed.success).toBe(false);
+      expect(parsed.success).toBe(true);
     });
 
     it('should expose all expected parameters', () => {
@@ -139,10 +139,12 @@ describe('SearchCollegeCoachesTool', () => {
         safeParse: (input: Record<string, unknown>) => { success: boolean };
       };
       expect(schema.safeParse({ collegeName: 'Ohio State' }).success).toBe(true);
+      expect(schema.safeParse({ sport: 'Basketball', state: 'TX' }).success).toBe(true);
       expect(
         schema.safeParse({
           collegeName: 'Ohio State',
           sport: 'Baseball',
+          division: 'D1',
           state: 'OH',
           position: 'Head Coach',
           limit: 3,
@@ -159,10 +161,12 @@ describe('SearchCollegeCoachesTool', () => {
   // ── Input Validation ──────────────────────────────────────────────────
 
   describe('input validation', () => {
-    it('should return error when collegeName is missing', async () => {
+    it('should return error when all filters are missing', async () => {
       const result = await tool.execute({});
       expect(result.success).toBe(false);
-      expect(result.error).toContain('collegeName');
+      expect(result.error).toContain(
+        'At least one of collegeName, sport, division, or state is required'
+      );
     });
 
     it('should return error when collegeName is empty string', async () => {
@@ -209,6 +213,33 @@ describe('SearchCollegeCoachesTool', () => {
       await tool.execute({ collegeName: 'Ohio State', sport: 'Baseball' });
       const match = getMatch();
       expect(match['sport']).toEqual({ $regex: 'Baseball', $options: 'i' });
+    });
+
+    it('should extract D1 token from sport phrase and match Basketball', async () => {
+      await tool.execute({ sport: 'D1 Basketball', state: 'TX' });
+      const match = getMatch();
+      expect(match['sport']).toEqual({ $regex: 'Basketball', $options: 'i' });
+      expect(match['$expr']).toBeDefined();
+    });
+
+    it('should normalize noisy sport phrases that include extra words', async () => {
+      await tool.execute({ sport: 'D1 basketball coaches in texas', state: 'TX' });
+      const match = getMatch();
+      expect(match['sport']).toEqual({ $regex: 'Basketball', $options: 'i' });
+      expect(match['$expr']).toBeDefined();
+    });
+
+    it('should apply sportInfo division filtering when division is provided', async () => {
+      await tool.execute({ sport: 'Basketball', division: 'D1', state: 'TX' });
+      const match = getMatch();
+      expect(match['$expr']).toBeDefined();
+    });
+
+    it('should support state-only broad college lookups', async () => {
+      await tool.execute({ state: 'TX' });
+      const match = getMatch();
+      expect(match['name']).toBeUndefined();
+      expect(match['state']).toEqual({ $regex: '^(TX|Texas)$', $options: 'i' });
     });
 
     it('should escape special regex characters in college name', async () => {
@@ -460,6 +491,7 @@ describe('SearchCollegeCoachesTool', () => {
       const result = await tool.execute({
         collegeName: 'Ohio State',
         sport: 'Baseball',
+        division: 'D1',
         state: 'OH',
         position: 'Head Coach',
         limit: 3,
@@ -470,6 +502,7 @@ describe('SearchCollegeCoachesTool', () => {
       expect(filters).toMatchObject({
         collegeName: 'Ohio State',
         sport: 'Baseball',
+        division: 'D1',
         state: 'OH',
         position: 'Head Coach',
         limit: 3,
@@ -483,6 +516,16 @@ describe('SearchCollegeCoachesTool', () => {
       const data = result.data as Record<string, unknown>;
       const filters = data.filtersApplied as Record<string, unknown>;
       expect(Object.keys(filters)).toEqual(['collegeName']);
+    });
+
+    it('should include sport/state filters when collegeName is omitted', async () => {
+      mockAggregate.mockResolvedValue([]);
+
+      const result = await tool.execute({ sport: 'Basketball', state: 'TX' });
+      const data = result.data as Record<string, unknown>;
+      const filters = data.filtersApplied as Record<string, unknown>;
+      expect(filters).toMatchObject({ sport: 'Basketball', state: 'TX' });
+      expect(filters['collegeName']).toBeUndefined();
     });
   });
 
@@ -499,9 +542,9 @@ describe('SearchCollegeCoachesTool', () => {
     it('should escape special regex characters in sport filter', async () => {
       await tool.execute({ collegeName: 'Duke', sport: 'Track & Field (Outdoor)' });
       const match = getMatch();
-      // Sport regex on college doc should be escaped
+      // Sport phrase normalizes to canonical Track & Field before regex build.
       expect(match['sport']).toEqual({
-        $regex: 'Track & Field \\(Outdoor\\)',
+        $regex: 'Track & Field',
         $options: 'i',
       });
     });
@@ -526,6 +569,7 @@ describe('SearchCollegeCoachesTool', () => {
         icon: 'search',
         collegeName: 'Ohio State',
         sport: undefined,
+        division: undefined,
         position: undefined,
         limit: 5,
         phase: 'lookup_coaching_staff',

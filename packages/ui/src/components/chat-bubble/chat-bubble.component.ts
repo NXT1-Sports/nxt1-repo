@@ -16,54 +16,38 @@
 import { Component, ChangeDetectionStrategy, computed, input, output } from '@angular/core';
 import type { AgentXToolStep, AgentXRichCard, AgentXMessagePart } from '@nxt1/core/ai';
 import { AgentXToolStepsComponent } from '../../agent-x/components/shared/agent-x-tool-steps.component';
-import { AgentXPlannerCardComponent } from '../../agent-x/components/cards/agent-x-planner-card.component';
-import { AgentXDataTableCardComponent } from '../../agent-x/components/cards/agent-x-data-table-card.component';
-import {
-  AgentXConfirmationCardComponent,
-  type ConfirmationActionEvent,
-} from '../../agent-x/components/cards/agent-x-confirmation-card.component';
-import { AgentXCitationsCardComponent } from '../../agent-x/components/cards/agent-x-citations-card.component';
-import {
-  AgentXParameterFormCardComponent,
-  type ParameterFormSubmitEvent,
-} from '../../agent-x/components/cards/agent-x-parameter-form-card.component';
-import {
-  AgentXDraftCardComponent,
-  type DraftSubmittedEvent,
-} from '../../agent-x/components/cards/agent-x-draft-card.component';
-import { AgentXProfileCardComponent } from '../../agent-x/components/cards/agent-x-profile-card.component';
-import { AgentXFilmTimelineCardComponent } from '../../agent-x/components/cards/agent-x-film-timeline-card.component';
 import {
   AgentXBillingActionCardComponent,
   type BillingActionResolvedEvent,
 } from '../../agent-x/components/cards/agent-x-billing-action-card.component';
 import {
-  AgentXAskUserCardComponent,
-  type AskUserReplyEvent,
-} from '../../agent-x/components/cards/agent-x-ask-user-card.component';
+  AgentXConnectAccountCardComponent,
+  type ConnectAccountCardActionEvent,
+} from '../../agent-x/components/cards/agent-x-connect-account-card.component';
 import { NxtIconComponent } from '../icon/icon.component';
-import { NxtMarkdownComponent } from '../markdown/markdown.component';
+import {
+  NxtMarkdownComponent,
+  type MarkdownMediaRequestedEvent,
+} from '../markdown/markdown.component';
 import { NxtAgentXExtendedThinkingComponent } from '../../agent-x/components/chat/agent-x-extended-thinking.component';
 import { buildAgentCardThemeStyle } from '../../agent-x/types/agent-x-agent-presentation';
 
 /** Visual variant controlling sizing, colors, and border‑radius. */
 export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | 'agent-fab';
 
+export interface ChatBubbleMediaRequestedEvent {
+  readonly url: string;
+  readonly type: 'image' | 'video';
+  readonly alt?: string;
+}
+
 @Component({
   selector: 'nxt1-chat-bubble',
   standalone: true,
   imports: [
     AgentXToolStepsComponent,
-    AgentXPlannerCardComponent,
-    AgentXDataTableCardComponent,
-    AgentXConfirmationCardComponent,
-    AgentXCitationsCardComponent,
-    AgentXParameterFormCardComponent,
-    AgentXDraftCardComponent,
-    AgentXProfileCardComponent,
-    AgentXFilmTimelineCardComponent,
     AgentXBillingActionCardComponent,
-    AgentXAskUserCardComponent,
+    AgentXConnectAccountCardComponent,
     NxtIconComponent,
     NxtMarkdownComponent,
     NxtAgentXExtendedThinkingComponent,
@@ -107,7 +91,10 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
             @if (isOwn()) {
               <p class="bubble-text">{{ part.content }}</p>
             } @else {
-              <nxt1-markdown [content]="part.content" />
+              <nxt1-markdown
+                [content]="part.content"
+                (mediaRequested)="onMarkdownMediaRequested($event)"
+              />
             }
           }
           @case ('tool-steps') {
@@ -115,52 +102,17 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
           }
           @case ('card') {
             <div class="agent-card-shell" [style]="cardThemeStyle(part.card)">
-              @if (part.card.type === 'planner') {
-                <nxt1-agent-x-planner-card
-                  [card]="part.card"
-                  (itemToggled)="plannerItemToggled.emit($event)"
-                />
-              } @else if (part.card.type === 'data-table') {
-                <nxt1-agent-x-data-table-card [card]="part.card" />
-              } @else if (part.card.type === 'confirmation') {
-                <nxt1-agent-x-confirmation-card
-                  [card]="part.card"
-                  (actionSelected)="confirmationAction.emit($event)"
-                />
-              } @else if (part.card.type === 'citations') {
-                <nxt1-agent-x-citations-card
-                  [card]="part.card"
-                  (citationClicked)="citationClicked.emit($event)"
-                />
-              } @else if (part.card.type === 'parameter-form') {
-                <nxt1-agent-x-parameter-form-card
-                  [card]="part.card"
-                  (formSubmitted)="parameterFormSubmitted.emit($event)"
-                />
-              } @else if (part.card.type === 'draft') {
-                <nxt1-agent-x-draft-card
-                  [card]="part.card"
-                  (draftSubmitted)="draftSubmitted.emit($event)"
-                />
-              } @else if (part.card.type === 'profile') {
-                <nxt1-agent-x-profile-card
-                  [card]="part.card"
-                  (profileClicked)="profileClicked.emit($event)"
-                />
-              } @else if (part.card.type === 'film-timeline') {
-                <nxt1-agent-x-film-timeline-card
-                  [card]="part.card"
-                  (markerClicked)="filmMarkerClicked.emit($event)"
-                />
-              } @else if (part.card.type === 'billing-action') {
+              @if (part.card.type === 'billing-action') {
                 <nxt1-agent-x-billing-action-card
                   [card]="part.card"
                   (actionResolved)="billingActionResolved.emit($event)"
                 />
               } @else if (part.card.type === 'ask_user') {
-                <nxt1-agent-x-ask-user-card
+                <nxt1-markdown [content]="askUserCardText(part.card)" />
+              } @else if (part.card.type === 'connect-account') {
+                <nxt1-agent-x-connect-account-card
                   [card]="part.card"
-                  (replySubmitted)="askUserReply.emit($event)"
+                  (actionSelected)="connectAccountAction.emit($event)"
                 />
               } @else {
                 <div class="card-fallback">
@@ -179,6 +131,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
                 [alt]="part.alt || 'Generated image'"
                 class="bubble-img"
                 loading="lazy"
+                (click)="mediaRequested.emit({ url: part.url, type: 'image', alt: part.alt })"
               />
             </div>
           }
@@ -190,6 +143,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
                 controls
                 playsinline
                 preload="metadata"
+                (click)="mediaRequested.emit({ url: part.url, type: 'video' })"
               ></video>
             </div>
           }
@@ -210,54 +164,25 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         @if (isOwn()) {
           <p class="bubble-text">{{ content() }}</p>
         } @else {
-          <nxt1-markdown [content]="content()" />
+          <nxt1-markdown
+            [content]="content()"
+            (mediaRequested)="onMarkdownMediaRequested($event)"
+          />
         }
       }
       @for (card of cards(); track $index) {
         <div class="agent-card-shell" [style]="cardThemeStyle(card)">
-          @if (card.type === 'planner') {
-            <nxt1-agent-x-planner-card
-              [card]="card"
-              (itemToggled)="plannerItemToggled.emit($event)"
-            />
-          } @else if (card.type === 'data-table') {
-            <nxt1-agent-x-data-table-card [card]="card" />
-          } @else if (card.type === 'confirmation') {
-            <nxt1-agent-x-confirmation-card
-              [card]="card"
-              (actionSelected)="confirmationAction.emit($event)"
-            />
-          } @else if (card.type === 'citations') {
-            <nxt1-agent-x-citations-card
-              [card]="card"
-              (citationClicked)="citationClicked.emit($event)"
-            />
-          } @else if (card.type === 'parameter-form') {
-            <nxt1-agent-x-parameter-form-card
-              [card]="card"
-              (formSubmitted)="parameterFormSubmitted.emit($event)"
-            />
-          } @else if (card.type === 'draft') {
-            <nxt1-agent-x-draft-card [card]="card" (draftSubmitted)="draftSubmitted.emit($event)" />
-          } @else if (card.type === 'profile') {
-            <nxt1-agent-x-profile-card
-              [card]="card"
-              (profileClicked)="profileClicked.emit($event)"
-            />
-          } @else if (card.type === 'film-timeline') {
-            <nxt1-agent-x-film-timeline-card
-              [card]="card"
-              (markerClicked)="filmMarkerClicked.emit($event)"
-            />
-          } @else if (card.type === 'billing-action') {
+          @if (card.type === 'billing-action') {
             <nxt1-agent-x-billing-action-card
               [card]="card"
               (actionResolved)="billingActionResolved.emit($event)"
             />
           } @else if (card.type === 'ask_user') {
-            <nxt1-agent-x-ask-user-card
+            <nxt1-markdown [content]="askUserCardText(card)" />
+          } @else if (card.type === 'connect-account') {
+            <nxt1-agent-x-connect-account-card
               [card]="card"
-              (replySubmitted)="askUserReply.emit($event)"
+              (actionSelected)="connectAccountAction.emit($event)"
             />
           } @else {
             <div class="card-fallback">
@@ -292,6 +217,7 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         max-width: 100%;
         word-wrap: break-word;
         overflow-wrap: break-word;
+        --bubble-media-max-width: 240px;
         --bubble-error: var(--nxt1-color-error, #ef4444);
         --bubble-error-bg: var(--nxt1-color-errorBg, rgba(239, 68, 68, 0.1));
         --bubble-error-border: color-mix(in srgb, var(--bubble-error) 44%, transparent);
@@ -638,32 +564,53 @@ export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | '
         margin-top: 0.75rem;
         border-radius: 12px;
         overflow: hidden;
+        max-width: var(--bubble-media-max-width);
       }
 
       .bubble-img {
         display: block;
         width: 100%;
-        max-width: 320px;
+        max-width: 100%;
         height: auto;
         border-radius: 12px;
         object-fit: cover;
+        cursor: pointer;
       }
 
       .bubble-video {
         display: block;
         width: 100%;
-        max-width: 320px;
+        max-width: 100%;
         border-radius: 12px;
+        cursor: pointer;
+      }
+
+      :host ::ng-deep nxt1-markdown .md img,
+      :host ::ng-deep nxt1-markdown .md video {
+        width: min(100%, var(--bubble-media-max-width));
+        max-width: min(100%, var(--bubble-media-max-width));
+        height: auto;
+        border-radius: 12px;
+        display: block;
+        cursor: pointer;
       }
 
       :host(.own) .bubble-img,
       :host(.own) .bubble-video {
-        max-width: 240px;
+        max-width: 100%;
+      }
+
+      :host(.own) {
+        --bubble-media-max-width: 200px;
       }
 
       :host(.variant-agent-fab) .bubble-img,
       :host(.variant-agent-fab) .bubble-video {
-        max-width: 260px;
+        max-width: 100%;
+      }
+
+      :host(.variant-agent-fab) {
+        --bubble-media-max-width: 220px;
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -726,37 +673,49 @@ export class NxtChatBubbleComponent {
   /** Ordered message parts for Copilot-style interleaved rendering. */
   readonly parts = input<readonly AgentXMessagePart[]>([]);
 
-  /** Emitted when a planner card item is toggled. */
-  readonly plannerItemToggled = output<string>();
+  /**
+   * External yield lifecycle state for interactive cards (confirmation, draft, ask_user)
+   * rendered inside this bubble. Driven by the yield facade after server confirmation.
+   * Mirrors the externalCardState contract on each card component.
+   */
+  readonly externalCardState = input<'idle' | 'submitting' | 'resolved' | null>(null);
 
-  /** Emitted when a confirmation card action is selected. */
-  readonly confirmationAction = output<ConfirmationActionEvent>();
-
-  /** Emitted when a citation pill is clicked (sends citation ID). */
-  readonly citationClicked = output<string>();
-
-  /** Emitted when a parameter form card is submitted. */
-  readonly parameterFormSubmitted = output<ParameterFormSubmitEvent>();
-
-  /** Emitted when a draft card is approved and sent. */
-  readonly draftSubmitted = output<DraftSubmittedEvent>();
-
-  /** Emitted when a profile card "View Profile" is clicked (sends userId). */
-  readonly profileClicked = output<string>();
-
-  /** Emitted when a film timeline marker is clicked (sends timeMs). */
-  readonly filmMarkerClicked = output<number>();
+  /** Resolved text shown in the card's resolved badge when externally resolved. */
+  readonly externalResolvedText = input<string>('');
 
   /** Emitted when a billing action card CTA is resolved. */
   readonly billingActionResolved = output<BillingActionResolvedEvent>();
 
-  /** Emitted when the user submits a reply to an ask_user card. */
-  readonly askUserReply = output<AskUserReplyEvent>();
+  /** Emitted when media inside markdown/parts should open in a viewer overlay. */
+  readonly mediaRequested = output<ChatBubbleMediaRequestedEvent>();
+
+  /** Emitted when the user taps connect-account card actions. */
+  readonly connectAccountAction = output<ConnectAccountCardActionEvent>();
 
   /** Emitted when the user clicks "Try again" on an error bubble. */
   readonly retryRequested = output<void>();
 
+  protected onMarkdownMediaRequested(event: MarkdownMediaRequestedEvent): void {
+    this.mediaRequested.emit(event);
+  }
+
   protected cardThemeStyle(card: AgentXRichCard): string {
     return buildAgentCardThemeStyle(card);
+  }
+
+  protected askUserCardText(card: AgentXRichCard): string {
+    if (card.type !== 'ask_user') return '';
+    const payload = card.payload as Record<string, unknown> | undefined;
+    if (!payload || typeof payload !== 'object') {
+      return card.title || 'Agent X has a question.';
+    }
+
+    const question = typeof payload['question'] === 'string' ? payload['question'].trim() : '';
+    const context = typeof payload['context'] === 'string' ? payload['context'].trim() : '';
+    const combined = [question, context]
+      .filter((value) => value.length > 0)
+      .join('\n\n')
+      .trim();
+    return combined || card.title || 'Agent X has a question.';
   }
 }

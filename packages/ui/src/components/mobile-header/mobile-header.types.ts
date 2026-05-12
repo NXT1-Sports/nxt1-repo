@@ -36,6 +36,9 @@ export interface MobileHeaderConfig {
   /** Whether to show sign-in button for unauthenticated users */
   readonly showSignIn?: boolean;
 
+  /** Sign-in CTA label for unauthenticated users */
+  readonly signInLabel?: string;
+
   /** Whether to stick to the top */
   readonly sticky?: boolean;
 
@@ -132,6 +135,7 @@ export const DEFAULT_MOBILE_HEADER_CONFIG: MobileHeaderConfig = {
   showNotifications: true,
   notificationCount: 0,
   showSignIn: true,
+  signInLabel: 'Sign In',
   sticky: true,
   hideOnScroll: false,
   bordered: true,

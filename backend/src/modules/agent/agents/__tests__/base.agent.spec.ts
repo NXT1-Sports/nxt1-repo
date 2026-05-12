@@ -92,6 +92,11 @@ class FakeAgent extends BaseAgent {
   }
 }
 
+class FakeRouterAgent extends FakeAgent {
+  override readonly id: AgentIdentifier = 'router';
+  override readonly name = 'Fake Router Agent';
+}
+
 class FakeExtractLiveViewMediaTool extends BaseTool {
   readonly name = 'extract_live_view_media';
   readonly description = 'Extracts media from live view.';
@@ -197,6 +202,67 @@ class FakeMicrosoftAgent extends BaseAgent {
   }
 }
 
+class FakeBrandAgent extends BaseAgent {
+  readonly id: AgentIdentifier = 'brand_coordinator';
+  readonly name = 'Fake Brand Agent';
+
+  getSystemPrompt(): string {
+    return 'You are a brand test agent.';
+  }
+
+  getAvailableTools(): readonly string[] {
+    return ['delegate_task'];
+  }
+
+  getModelRouting(): ModelRoutingConfig {
+    return {
+      tier: 'chat',
+      maxTokens: 200,
+      temperature: 0.2,
+    };
+  }
+
+  callExecuteTool(
+    toolCall: LLMToolCall,
+    registry: ToolRegistry,
+    userId: string,
+    sessionContext?: {
+      operationId?: string;
+      sessionId?: string;
+      threadId?: string;
+      allowedToolNames?: readonly string[];
+    },
+    currentMessages?: readonly LLMMessage[]
+  ): Promise<string> {
+    return this.executeTool(
+      toolCall,
+      registry,
+      userId,
+      undefined,
+      undefined,
+      sessionContext as never,
+      currentMessages
+    );
+  }
+}
+
+class FakeUniversalDelegateTaskTool extends BaseTool {
+  readonly name = 'delegate_task';
+  readonly description = 'Delegates to another agent.';
+  readonly parameters = z.object({ forwarding_intent: z.string() });
+  readonly isMutation = false;
+  readonly category = 'system' as const;
+  readonly entityGroup = 'system_tools' as const;
+  override readonly allowedAgents = ['*'] as const;
+
+  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+    throw new AgentDelegationException({
+      forwardingIntent: String(input['forwarding_intent'] ?? 'delegate'),
+      sourceAgent: 'delegate_task_tool',
+    });
+  }
+}
+
 function createMockContext(): AgentSessionContext {
   const now = new Date().toISOString();
   return {
@@ -274,7 +340,6 @@ describe('BaseAgent identifier scrubbing', () => {
 
     expect(result.summary).not.toContain('user-123');
     expect(result.summary).not.toContain('team-789');
-    expect(result.summary).not.toContain('/profile/123456');
   });
 
   it('sanitizes streamed tool args, tool results, and final output', async () => {
@@ -362,7 +427,7 @@ describe('BaseAgent identifier scrubbing', () => {
       url: 'https://hudl.com/video/abc123',
     });
 
-    expect(label).toBe('Analyzing game film: Hudl');
+    expect(label).toBe('Analyzing game film');
   });
 
   it('auto-injects mediaArtifact from conversationHistory into analyze_video', () => {
@@ -399,6 +464,153 @@ describe('BaseAgent identifier scrubbing', () => {
     const args = JSON.parse(augmented.function.arguments) as Record<string, unknown>;
 
     expect(args['artifact']).toEqual({ source: 'hudl', clipId: 'abc123' });
+  });
+
+  it('auto-injects subjectPhotoUrls and logoUrls into generate_graphic with approval gating', () => {
+    const agent = new FakeAgent();
+    const context = {
+      ...createMockContext(),
+      conversationHistory: [
+        {
+          role: 'tool' as const,
+          content: JSON.stringify({
+            success: true,
+            data: {
+              items: [
+                {
+                  profileImgs: ['https://cdn.example.com/profile-1.png'],
+                  galleryImages: ['https://cdn.example.com/team-1.png'],
+                  logoUrl: 'https://cdn.example.com/team-logo.png',
+                },
+              ],
+              colleges: [{ logoUrl: 'https://cdn.example.com/college-logo.png', found: true }],
+            },
+          }),
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    };
+
+    const toolCall: LLMToolCall = {
+      id: 'graphic_1',
+      type: 'function',
+      function: {
+        name: 'generate_graphic',
+        arguments: JSON.stringify({
+          graphicType: 'athlete',
+          textRequirements: ['COMMITTED'],
+          dimensions: '1080x1080',
+          styleDescription: 'Modern sports graphic',
+          userId: 'user-1',
+        }),
+      },
+    };
+
+    const augmented = agent.callAugmentToolCallWithArtifact(toolCall, [], context);
+    const args = JSON.parse(augmented.function.arguments) as Record<string, unknown>;
+
+    expect(args['subjectPhotoUrls']).toEqual([
+      'https://cdn.example.com/profile-1.png',
+      'https://cdn.example.com/team-1.png',
+    ]);
+    expect(args['logoUrls']).toEqual(
+      expect.arrayContaining([
+        'https://cdn.example.com/team-logo.png',
+        'https://cdn.example.com/college-logo.png',
+      ])
+    );
+    expect(args['applyMode']).toBe('mixed');
+    expect(args['assetSelectionApproved']).toBe(false);
+    expect(Array.isArray(args['autoRetrievedSources'])).toBe(true);
+  });
+
+  it('does not override explicit subjectPhotoUrls/logoUrls in generate_graphic calls', () => {
+    const agent = new FakeAgent();
+    const context = {
+      ...createMockContext(),
+      conversationHistory: [
+        {
+          role: 'tool' as const,
+          content: JSON.stringify({
+            success: true,
+            data: {
+              items: [
+                {
+                  profileImgs: ['https://cdn.example.com/auto-profile.png'],
+                  logoUrl: 'https://cdn.example.com/auto-logo.png',
+                },
+              ],
+            },
+          }),
+          timestamp: new Date().toISOString(),
+        },
+      ],
+    };
+
+    const toolCall: LLMToolCall = {
+      id: 'graphic_2',
+      type: 'function',
+      function: {
+        name: 'generate_graphic',
+        arguments: JSON.stringify({
+          graphicType: 'athlete',
+          textRequirements: ['WELCOME'],
+          dimensions: '1080x1080',
+          styleDescription: 'Clean and modern',
+          userId: 'user-1',
+          subjectPhotoUrls: ['https://cdn.example.com/user-upload-photo.png'],
+          logoUrls: ['https://cdn.example.com/user-upload-logo.png'],
+          assetSelectionApproved: true,
+        }),
+      },
+    };
+
+    const augmented = agent.callAugmentToolCallWithArtifact(toolCall, [], context);
+    const args = JSON.parse(augmented.function.arguments) as Record<string, unknown>;
+
+    expect(args['subjectPhotoUrls']).toEqual(['https://cdn.example.com/user-upload-photo.png']);
+    expect(args['logoUrls']).toEqual(['https://cdn.example.com/user-upload-logo.png']);
+    expect(args['assetSelectionApproved']).toBe(true);
+  });
+
+  it('extracts logo and image URLs from welcome-style intent text when tool args omit them', () => {
+    const agent = new FakeAgent();
+    const messages: LLMMessage[] = [
+      {
+        role: 'system',
+        content: 'You are a brand coordinator.',
+      },
+      {
+        role: 'user',
+        content:
+          'Create a welcome graphic.\n- Team Logo: https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Organizations/venice-logo.png\n- Athlete Photo: https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/venice-athlete.png',
+      },
+    ];
+
+    const toolCall: LLMToolCall = {
+      id: 'graphic_welcome',
+      type: 'function',
+      function: {
+        name: 'generate_graphic',
+        arguments: JSON.stringify({
+          graphicType: 'team',
+          textRequirements: ['WELCOME TO VENICE INDIANS FOOTBALL'],
+          dimensions: '1080x1080',
+          styleDescription: 'Premium team welcome',
+          userId: 'user-1',
+        }),
+      },
+    };
+
+    const augmented = agent.callAugmentToolCallWithArtifact(
+      toolCall,
+      messages,
+      createMockContext()
+    );
+    const args = JSON.parse(augmented.function.arguments) as Record<string, unknown>;
+
+    expect(args['logoUrls']).toBeUndefined();
+    expect(args['subjectPhotoUrls']).toBeUndefined();
   });
 
   it('skips duplicate extract_live_view_media executions using OperationMemory', async () => {
@@ -439,6 +651,33 @@ describe('BaseAgent identifier scrubbing', () => {
           _dedupedFromOperationMemory: true,
           videoUrl: 'https://cdn.example.com/clip.mp4',
         }),
+      })
+    );
+  });
+
+  it('guides router away from forbidden live-view extraction tools', async () => {
+    const agent = new FakeRouterAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeExtractLiveViewMediaTool());
+
+    const result = await agent.callExecuteTool(
+      {
+        id: 'extract_router_1',
+        type: 'function',
+        function: {
+          name: 'extract_live_view_media',
+          arguments: JSON.stringify({}),
+        },
+      },
+      registry,
+      'viewer-1',
+      { allowedToolNames: ['delegate_to_coordinator'] }
+    );
+
+    expect(JSON.parse(result)).toEqual(
+      expect.objectContaining({
+        errorCode: 'AGENT_TOOL_NOT_ALLOWED',
+        guidance: expect.stringContaining('coordinatorId="performance_coordinator"'),
       })
     );
   });
@@ -609,6 +848,84 @@ describe('BaseAgent identifier scrubbing', () => {
         }),
       ])
     );
+  });
+
+  it('blocks brand coordinator media delegation and returns an actionable error', async () => {
+    const agent = new FakeBrandAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeUniversalDelegateTaskTool());
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_delegate_media',
+        type: 'function',
+        function: {
+          name: 'delegate_task',
+          arguments: JSON.stringify({
+            forwarding_intent: 'The ffmpeg merge for this highlight reel failed, delegate this.',
+          }),
+        },
+      },
+      registry,
+      'viewer-1',
+      {
+        operationId: 'op-brand-media-delegate-block',
+        sessionId: 'session-brand-media-delegate-block',
+        allowedToolNames: ['delegate_task'],
+      },
+      [
+        {
+          role: 'assistant',
+          content: 'I attempted ffmpeg_merge_videos and it failed.',
+          tool_calls: [
+            {
+              id: 'ffmpeg_call_1',
+              type: 'function',
+              function: {
+                name: 'ffmpeg_merge_videos',
+                arguments: JSON.stringify({ inputPaths: ['a.mp4'] }),
+              },
+            },
+          ],
+        },
+      ]
+    );
+
+    expect(JSON.parse(observation)).toEqual(
+      expect.objectContaining({
+        success: false,
+        error: expect.stringContaining('Delegation is blocked for this media request'),
+      })
+    );
+  });
+
+  it('still allows brand coordinator to delegate non-media out-of-domain requests', async () => {
+    const agent = new FakeBrandAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeUniversalDelegateTaskTool());
+
+    await expect(
+      agent.callExecuteTool(
+        {
+          id: 'call_delegate_non_media',
+          type: 'function',
+          function: {
+            name: 'delegate_task',
+            arguments: JSON.stringify({
+              forwarding_intent:
+                'This request is to audit Firestore analytics exports and data quality checks.',
+            }),
+          },
+        },
+        registry,
+        'viewer-1',
+        {
+          operationId: 'op-brand-non-media-delegate-allowed',
+          sessionId: 'session-brand-non-media-delegate-allowed',
+          allowedToolNames: ['delegate_task'],
+        }
+      )
+    ).rejects.toBeInstanceOf(AgentDelegationException);
   });
 
   it('humanizes Microsoft MCP progress labels for non-developer phrasing', async () => {

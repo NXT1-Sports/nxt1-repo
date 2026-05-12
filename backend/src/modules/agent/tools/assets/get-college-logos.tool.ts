@@ -57,7 +57,7 @@ export class GetCollegeLogosTool extends BaseTool {
   readonly description =
     'Resolves college/university names to their official logo URLs from Firebase Storage. ' +
     'Use this before generating commitment graphics, offer announcements, or any visual that ' +
-    'features a school — pass the returned logoUrl as subjectImageUrl to generate_graphic. ' +
+    'features a school — pass the returned logoUrl inside logoUrls to generate_graphic. ' +
     'Also use when writing recruiting activity (pass to collegeLogoUrl in write_recruiting_activity). ' +
     'If found: false is returned for a school, omit the logo or fall back to web_search. ' +
     'Max 20 names per call.';

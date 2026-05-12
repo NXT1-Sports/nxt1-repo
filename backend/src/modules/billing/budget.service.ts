@@ -269,29 +269,28 @@ async function ensureNormalizedBillingOwner(
   }
 
   if (!preferenceSnap.exists) {
-    writes.push(
-      refs.billingPreferenceRef.set(
-        {
-          id: refs.billingPreferenceRef.id,
-          ownerId: target.ownerId,
-          ownerType: target.ownerType,
-          paymentProvider: 'stripe',
-          billingOwnerUid: options?.billingOwnerUid,
-          budgetName: undefined,
-          budgetAlertsEnabled: false,
-          budgetInterval: DEFAULT_BUDGET_INTERVAL,
-          hardStop: true,
-          autoTopUpEnabled: false,
-          autoTopUpThresholdCents: 0,
-          autoTopUpAmountCents: 0,
-          autoTopUpInProgress: false,
-          schemaVersion: 1,
-          createdAt: now,
-          updatedAt: now,
-        },
-        { merge: true }
-      )
-    );
+    const preferenceSeed: Record<string, unknown> = {
+      id: refs.billingPreferenceRef.id,
+      ownerId: target.ownerId,
+      ownerType: target.ownerType,
+      paymentProvider: 'stripe',
+      budgetAlertsEnabled: false,
+      budgetInterval: DEFAULT_BUDGET_INTERVAL,
+      hardStop: true,
+      autoTopUpEnabled: false,
+      autoTopUpThresholdCents: 0,
+      autoTopUpAmountCents: 0,
+      autoTopUpInProgress: false,
+      schemaVersion: 1,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    if (typeof options?.billingOwnerUid === 'string' && options.billingOwnerUid.length > 0) {
+      preferenceSeed['billingOwnerUid'] = options.billingOwnerUid;
+    }
+
+    writes.push(refs.billingPreferenceRef.set(preferenceSeed, { merge: true }));
   } else if (options?.billingOwnerUid && !preferenceSnap.data()?.['billingOwnerUid']) {
     writes.push(
       refs.billingPreferenceRef.set(
@@ -3696,7 +3695,19 @@ export async function createWalletHold(
 
   let holdId = '';
   let availableBalance = 0;
-  const billingTarget = await getStoredBillingTarget(db, userId);
+  const resolvedTarget = await resolveBillingTarget(db, userId);
+  const billingTarget =
+    resolvedTarget.type === 'organization' && resolvedTarget.organizationId
+      ? buildOrganizationBillingTarget(
+          resolvedTarget.organizationId,
+          resolvedTarget.context.teamId,
+          'organization'
+        )
+      : buildPersonalBillingTarget(
+          userId,
+          resolvedTarget.context.organizationId,
+          resolvedTarget.context.teamId
+        );
   const config = await getPlatformConfig(db);
   const holdExpiryMs = config.holdExpiryMs || DEFAULT_HOLD_EXPIRY_MS;
   const expiresAt = Timestamp.fromMillis(Date.now() + holdExpiryMs);
@@ -3909,77 +3920,98 @@ export async function expireStaleHolds(db: Firestore): Promise<number> {
   const holdExpiryMs = config.holdExpiryMs || DEFAULT_HOLD_EXPIRY_MS;
   const cutoff = new Date(Date.now() - holdExpiryMs);
 
-  const [expiresAtSnapshot, legacySnapshot] = await Promise.all([
-    db
-      .collection(COLLECTIONS.WALLET_HOLDS)
-      .where('status', '==', 'active')
-      .where('expiresAt', '<=', Timestamp.now())
-      .limit(200)
-      .get(),
-    db
-      .collection(COLLECTIONS.WALLET_HOLDS)
-      .where('status', '==', 'active')
-      .where('createdAt', '<', cutoff)
-      .limit(200)
-      .get(),
-  ]);
-
-  const holdDocs = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
-  for (const doc of expiresAtSnapshot.docs) {
-    holdDocs.set(doc.id, doc);
-  }
-  for (const doc of legacySnapshot.docs) {
-    holdDocs.set(doc.id, doc);
-  }
-
-  if (holdDocs.size === 0) return 0;
-
   let expiredCount = 0;
   let totalReleasedCents = 0;
   let legacyFallbackCount = 0;
-  const batch = db.batch();
 
-  const holdsByOwner = new Map<
-    string,
-    { target: BillingTargetReference; totalHeldCents: number }
-  >();
+  try {
+    const [expiresAtSnapshot, legacySnapshot] = await Promise.all([
+      db
+        .collection(COLLECTIONS.WALLET_HOLDS)
+        .where('status', '==', 'active')
+        .where('expiresAt', '<=', Timestamp.now())
+        .limit(200)
+        .get(),
+      db
+        .collection(COLLECTIONS.WALLET_HOLDS)
+        .where('status', '==', 'active')
+        .where('createdAt', '<', cutoff)
+        .limit(200)
+        .get(),
+    ]);
 
-  for (const doc of holdDocs.values()) {
-    const hold = doc.data() as WalletHold;
-
-    if (!hold.expiresAt) {
-      legacyFallbackCount++;
+    const holdDocs = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
+    for (const doc of expiresAtSnapshot.docs) {
+      holdDocs.set(doc.id, doc);
+    }
+    for (const doc of legacySnapshot.docs) {
+      holdDocs.set(doc.id, doc);
     }
 
-    batch.update(doc.ref, {
-      status: 'expired',
-      resolvedAt: FieldValue.serverTimestamp(),
-    });
+    if (holdDocs.size === 0) return 0;
 
-    const target = resolveWalletHoldTarget(hold);
-    const targetKey = `${target.ownerType}:${target.ownerId}`;
-    const existing = holdsByOwner.get(targetKey);
-    holdsByOwner.set(targetKey, {
-      target,
-      totalHeldCents: (existing?.totalHeldCents ?? 0) + hold.amountCents,
-    });
+    const holdsByOwner = new Map<
+      string,
+      { target: BillingTargetReference; totalHeldCents: number; holdIds: string[] }
+    >();
 
-    expiredCount++;
-    totalReleasedCents += hold.amountCents;
-  }
+    for (const doc of holdDocs.values()) {
+      const hold = doc.data() as WalletHold;
 
-  await batch.commit();
+      if (!hold.expiresAt) {
+        legacyFallbackCount++;
+      }
 
-  for (const { target, totalHeldCents } of holdsByOwner.values()) {
-    const { periodKey } = getCurrentPeriodWindow();
-    const refs = getNormalizedBillingRefs(db, target.ownerType, target.ownerId, periodKey);
-    await refs.walletRef.set(
-      {
-        pendingHoldsCents: FieldValue.increment(-totalHeldCents),
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
+      const target = resolveWalletHoldTarget(hold);
+      const targetKey = `${target.ownerType}:${target.ownerId}`;
+      const existing = holdsByOwner.get(targetKey);
+      holdsByOwner.set(targetKey, {
+        target,
+        totalHeldCents: (existing?.totalHeldCents ?? 0) + hold.amountCents,
+        holdIds: [...(existing?.holdIds ?? []), doc.id],
+      });
+
+      expiredCount++;
+      totalReleasedCents += hold.amountCents;
+    }
+
+    // ── Process wallet updates in chunks to avoid transaction size limits ──
+    const updateGroups = Array.from(holdsByOwner.values());
+    for (let i = 0; i < updateGroups.length; i += 25) {
+      const chunk = updateGroups.slice(i, i + 25);
+
+      await db.runTransaction(async (txn) => {
+        for (const { target, totalHeldCents, holdIds } of chunk) {
+          const { periodKey } = getCurrentPeriodWindow();
+          const refs = getNormalizedBillingRefs(db, target.ownerType, target.ownerId, periodKey);
+          const walletSnap = await txn.get(refs.walletRef);
+
+          if (walletSnap.exists) {
+            txn.update(refs.walletRef, {
+              pendingHoldsCents: FieldValue.increment(-totalHeldCents),
+              updatedAt: FieldValue.serverTimestamp(),
+            });
+          } else {
+            logger.warn('[expireStaleHolds] Wallet doc not found, skipping hold release', {
+              target,
+              holdIds,
+            });
+          }
+
+          // Mark all holds as expired
+          for (const holdId of holdIds) {
+            const holdRef = db.collection(COLLECTIONS.WALLET_HOLDS).doc(holdId);
+            txn.update(holdRef, {
+              status: 'expired',
+              resolvedAt: FieldValue.serverTimestamp(),
+            });
+          }
+        }
+      });
+    }
+  } catch (err) {
+    logger.error('[expireStaleHolds] Error expiring holds', { error: err });
+    // Return what we've processed so far
   }
 
   logger.info('[expireStaleHolds] Expired stale holds', {

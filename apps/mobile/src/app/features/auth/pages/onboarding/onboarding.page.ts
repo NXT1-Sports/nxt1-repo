@@ -1617,21 +1617,43 @@ export class OnboardingPage implements OnInit, OnDestroy {
       const result = await this.authApi.saveOnboardingProfile(user.uid, profileData);
       this.logger.info('Profile data saved successfully');
 
-      // Start profile generation overlay if backend enqueued a scrape job
-      if (result.scrapeJobId) {
+      // Start profile generation overlay if backend enqueued scrape jobs
+      const allScrapeJobIds =
+        result.scrapeJobIds ?? (result.scrapeJobId ? [result.scrapeJobId] : []);
+      if (allScrapeJobIds.length > 0) {
         const platformNames =
           formData.linkSources?.links
             ?.filter((l) => l.connected)
             .map((l) => l.platform)
             .join(', ') ?? '';
-        this.profileGenerationState.attachToOperation(
-          result.scrapeJobId,
-          result.scrapeThreadId,
-          platformNames
-        );
-        this.logger.info('Backend scrape job started', {
-          scrapeJobId: result.scrapeJobId,
+        const scrapeOperations =
+          result.scrapeOperations && result.scrapeOperations.length > 0
+            ? result.scrapeOperations
+            : allScrapeJobIds.map((operationId, index) => ({
+                operationId,
+                ...(index === 0 && result.scrapeThreadId
+                  ? { threadId: result.scrapeThreadId }
+                  : {}),
+                platforms: platformNames ? platformNames.split(', ') : [],
+              }));
+        const primaryScrapeOperation = scrapeOperations[0];
+        if (primaryScrapeOperation) {
+          this.profileGenerationState.attachToOperation(
+            primaryScrapeOperation.operationId,
+            primaryScrapeOperation.threadId ?? result.scrapeThreadId,
+            primaryScrapeOperation.platforms.join(', ') || platformNames
+          );
+        }
+        for (const scrapeOperation of scrapeOperations.slice(1)) {
+          this.profileGenerationState.watchForProfileWrites(
+            scrapeOperation.operationId,
+            scrapeOperation.platforms.join(', ') || platformNames
+          );
+        }
+        this.logger.info('Backend scrape jobs started', {
+          scrapeJobIds: allScrapeJobIds,
           scrapeThreadId: result.scrapeThreadId,
+          scrapeOperations,
         });
       }
     } catch (saveError) {

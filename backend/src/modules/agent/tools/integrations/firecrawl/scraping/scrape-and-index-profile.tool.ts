@@ -25,6 +25,8 @@ import type { PageStructuredData } from './page-data.types.js';
 import { OpenRouterService } from '../../../../llm/openrouter.service.js';
 import { logger } from '../../../../../../utils/logger.js';
 import { getCacheService } from '../../../../../../services/core/cache.service.js';
+import { getConnectedSourceSyncTracker } from '../../../../services/connected-source-sync-tracker.service.js';
+import { normalizeConnectedPlatform } from '@nxt1/core/profile';
 import { createHash } from 'crypto';
 import { z } from 'zod';
 import {
@@ -439,6 +441,23 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
 
           const index = buildProfileIndex(enriched);
 
+          // Register with the sync tracker so the finalization service can stamp
+          // the final job outcome on this connected source — regardless of which
+          // write tools the agent calls downstream. This is the primary registration
+          // point; write_core_identity also registers as a fallback for non-scrape flows.
+          if (context?.operationId && context?.userId) {
+            const normalizedPlatform = normalizeConnectedPlatform(index.platform ?? '');
+            if (normalizedPlatform) {
+              getConnectedSourceSyncTracker().track(context.operationId, {
+                docType: 'user',
+                docId: context.userId,
+                platform: normalizedPlatform,
+                profileUrl: cleanUrl,
+                scopeId: '',
+              });
+            }
+          }
+
           return {
             success: true,
             data: {
@@ -478,6 +497,37 @@ export class ScrapeAndIndexProfileTool extends BaseTool {
 
       // Record cooldown even for raw fallback — the page was still fetched
       await setScrapeCooldown(cleanUrl);
+
+      // Register with sync tracker even in raw fallback — platform is derived
+      // from URL hostname since AI distillation was unavailable.
+      if (context?.operationId && context?.userId) {
+        try {
+          const hostname = new URL(cleanUrl).hostname.replace(/^www\./i, '');
+          const platformSlug = hostname.split('.')[0] ?? '';
+          const normalizedPlatform = normalizeConnectedPlatform(platformSlug);
+          if (normalizedPlatform && normalizedPlatform !== platformSlug.toLowerCase()) {
+            // normalizeConnectedPlatform returned a known canonical slug
+            getConnectedSourceSyncTracker().track(context.operationId, {
+              docType: 'user',
+              docId: context.userId,
+              platform: normalizedPlatform,
+              profileUrl: cleanUrl,
+              scopeId: '',
+            });
+          } else if (platformSlug) {
+            // Unknown platform — still track so finalization can stamp it
+            getConnectedSourceSyncTracker().track(context.operationId, {
+              docType: 'user',
+              docId: context.userId,
+              platform: platformSlug.toLowerCase(),
+              profileUrl: cleanUrl,
+              scopeId: '',
+            });
+          }
+        } catch {
+          // URL parse failed — skip tracker registration for raw fallback
+        }
+      }
 
       return {
         success: true,

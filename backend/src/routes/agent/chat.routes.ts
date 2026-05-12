@@ -22,11 +22,13 @@ import {
 import type {
   AgentJobPayload,
   AgentJobOrigin,
+  AgentOperationStatus,
   AgentYieldState,
   AgentXAttachment,
   AgentXOperationLifecycleStatus,
   AgentXSelectedAction,
 } from '@nxt1/core';
+import { normalizeConnectedPlatform } from '@nxt1/core/profile';
 import { AGENT_X_REQUEST_HEADERS, AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
 import {
   STREAM_TERMINAL_EVENTS,
@@ -41,7 +43,7 @@ import {
 } from '../../modules/billing/index.js';
 import { estimateChargeAmountSync } from '../../modules/billing/pricing.service.js';
 import crypto from 'node:crypto';
-import { FieldValue, Timestamp, type Firestore } from 'firebase-admin/firestore';
+import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 
 import {
   getAgentAppConfig,
@@ -61,16 +63,19 @@ import {
   forceProxyFlush,
 } from './shared.js';
 import { resolveAppBaseUrl } from '../../utils/app-url.js';
+import { AgentMessageModel } from '../../models/agent/agent-message.model.js';
 
 const router = Router();
 
 const IDEMPOTENCY_KEY_HEADER = 'x-idempotency-key';
 const IDEMPOTENCY_KEY_RE = /^[a-zA-Z0-9:_-]{8,128}$/;
-const OUTBOX_COLLECTION = 'AgentJobOutbox';
-// Outbox TTL durations — Firestore auto-deletes docs once expiresAt passes.
-const OUTBOX_TTL_PENDING_DAYS = 1; // stuck-pending safety floor; fast cleanup
-const OUTBOX_TTL_ENQUEUED_DAYS = 7; // successfully delivered; keep for debug audit
-const OUTBOX_TTL_ERROR_DAYS = 7; // failed delivery; keep for ops triage
+import {
+  enqueueWithOutbox,
+  OUTBOX_COLLECTION,
+  OUTBOX_TTL_ENQUEUED_DAYS,
+  OUTBOX_TTL_ERROR_DAYS,
+  outboxTtlFromNow,
+} from '../../modules/agent/queue/outbox.service.js';
 const MAX_CONCURRENT_STREAMS_PER_USER = 5;
 const POLL_BACKOFF_INITIAL_MS: number = AGENT_X_RUNTIME_CONFIG.operationStream.pollBackoffInitialMs;
 const POLL_BACKOFF_MAX_MS: number = AGENT_X_RUNTIME_CONFIG.operationStream.pollBackoffMaxMs;
@@ -528,11 +533,6 @@ async function isAgentInfraHealthy(): Promise<boolean> {
   return typeof pubsubService.isHealthy === 'function' ? pubsubService.isHealthy() : true;
 }
 
-/** Build a Firestore Timestamp N days from now for outbox TTL writes. */
-function outboxTtlFromNow(days: number): FirebaseFirestore.Timestamp {
-  return Timestamp.fromMillis(Date.now() + days * 24 * 60 * 60 * 1000);
-}
-
 // ─── Shared attachment utilities ──────────────────────────────────────────
 // Used by both /chat and /enqueue so attachment processing is identical.
 
@@ -549,6 +549,133 @@ function isVideoAttachmentDto(a: {
   if (a.type === 'video') return true;
   if (typeof a.url === 'string' && ATTACHMENT_VIDEO_URL_HINT_PATTERN.test(a.url)) return true;
   return false;
+}
+
+function normalizeScopeId(value: string | undefined): string {
+  return (value ?? '').trim().toLowerCase();
+}
+
+async function resolveConnectedSourceTargetsFromUserContext(params: {
+  readonly db: Firestore;
+  readonly userId: string;
+  readonly userContext: unknown;
+}): Promise<
+  ReadonlyArray<{
+    readonly docType: 'user' | 'team';
+    readonly docId: string;
+    readonly platform: string;
+    readonly profileUrl: string;
+    readonly scopeId: string;
+  }>
+> {
+  if (!params.userContext || typeof params.userContext !== 'object') return [];
+  const userContext = params.userContext as Record<string, unknown>;
+
+  const trigger =
+    typeof userContext['trigger'] === 'string' ? userContext['trigger'].trim().toLowerCase() : '';
+  const source =
+    typeof userContext['source'] === 'string' ? userContext['source'].trim().toLowerCase() : '';
+
+  if (trigger !== 'manual_resync' && source !== 'connected_accounts') {
+    return [];
+  }
+
+  const requestedAccounts = Array.isArray(userContext['requestedAccounts'])
+    ? (userContext['requestedAccounts'] as ReadonlyArray<Record<string, unknown>>)
+    : [];
+  if (requestedAccounts.length === 0) return [];
+
+  const userSnap = await params.db.collection('Users').doc(params.userId).get();
+  const userData = userSnap.data() as Record<string, unknown> | undefined;
+  if (!userData) return [];
+
+  const role = typeof userData['role'] === 'string' ? userData['role'].toLowerCase() : 'athlete';
+  const isTeamRole = role === 'coach' || role === 'director';
+
+  // Check for explicit teamIdOverride (e.g., coach managing a specific team's connected sources)
+  const teamIdOverride =
+    isTeamRole && typeof userContext['teamIdOverride'] === 'string'
+      ? (userContext['teamIdOverride'] as string).trim()
+      : '';
+
+  let docType: 'user' | 'team';
+  let docId: string;
+  let scopeId: string;
+
+  if (teamIdOverride) {
+    // Use the explicit team ID (coach managing a specific team)
+    docType = 'team';
+    docId = teamIdOverride;
+    // For team-scoped resync, we don't have sport context from the override,
+    // so we leave scopeId empty. The write tool will use the team's primary sport.
+    scopeId = '';
+  } else {
+    // Fallback to activeSportIndex lookup (original behavior)
+    const sports = Array.isArray(userData['sports'])
+      ? (userData['sports'] as ReadonlyArray<Record<string, unknown>>)
+      : [];
+    const activeSportIndexRaw = userData['activeSportIndex'];
+    const activeSportIndex =
+      typeof activeSportIndexRaw === 'number' && Number.isFinite(activeSportIndexRaw)
+        ? Math.max(0, Math.floor(activeSportIndexRaw))
+        : 0;
+    const activeSport = sports[activeSportIndex] ?? sports[0];
+    scopeId = normalizeScopeId(
+      activeSport && typeof activeSport['sport'] === 'string'
+        ? (activeSport['sport'] as string)
+        : undefined
+    );
+
+    const teamCode =
+      userData['teamCode'] && typeof userData['teamCode'] === 'object'
+        ? (userData['teamCode'] as Record<string, unknown>)
+        : null;
+    const activeSportTeam =
+      activeSport && typeof activeSport['team'] === 'object' && activeSport['team'] !== null
+        ? (activeSport['team'] as Record<string, unknown>)
+        : null;
+    const teamIdCandidate =
+      (teamCode && typeof teamCode['teamId'] === 'string' ? (teamCode['teamId'] as string) : '') ||
+      (activeSportTeam && typeof activeSportTeam['teamId'] === 'string'
+        ? (activeSportTeam['teamId'] as string)
+        : '');
+
+    docType = isTeamRole && teamIdCandidate ? 'team' : 'user';
+    docId = docType === 'team' ? teamIdCandidate : params.userId;
+  }
+
+  if (!docId) return [];
+
+  const targets: Array<{
+    docType: 'user' | 'team';
+    docId: string;
+    platform: string;
+    profileUrl: string;
+    scopeId: string;
+  }> = [];
+
+  for (const account of requestedAccounts) {
+    const rawPlatform =
+      typeof account['platform'] === 'string' ? (account['platform'] as string) : '';
+    const platform = normalizeConnectedPlatform(rawPlatform);
+    if (!platform) continue;
+
+    const rawUrl = typeof account['url'] === 'string' ? (account['url'] as string).trim() : '';
+    const rawUsername =
+      typeof account['username'] === 'string' ? (account['username'] as string).trim() : '';
+    const profileUrl = rawUrl || (rawUsername ? `https://${platform}.com/${rawUsername}` : '');
+    if (!profileUrl) continue;
+
+    targets.push({
+      docType,
+      docId,
+      platform,
+      profileUrl,
+      scopeId,
+    });
+  }
+
+  return targets;
 }
 
 /**
@@ -784,64 +911,13 @@ function streamBillingGateToSse(params: {
   res.end();
 }
 
-async function enqueueWithOutbox(
+async function enqueueWithOutboxLocal(
   db: Firestore,
   payload: AgentJobPayload,
   environment: 'staging' | 'production'
 ): Promise<{ jobId: string; deduplicated: boolean }> {
   if (!queueService) throw new Error('Agent queue is unavailable');
-
-  const outboxRef = db.collection(OUTBOX_COLLECTION).doc(payload.operationId);
-  const existing = await outboxRef.get();
-  if (existing.exists) {
-    const existingData = existing.data() as Partial<AgentOutboxDocument>;
-    if (existingData.status === 'enqueued' && typeof existingData.jobId === 'string') {
-      return { jobId: existingData.jobId, deduplicated: true };
-    }
-  }
-
-  await outboxRef.set(
-    {
-      operationId: payload.operationId,
-      userId: payload.userId,
-      environment,
-      status: 'pending' as AgentOutboxStatus,
-      attempts: FieldValue.increment(1),
-      payload,
-      expiresAt: outboxTtlFromNow(OUTBOX_TTL_PENDING_DAYS),
-      updatedAt: FieldValue.serverTimestamp(),
-      createdAt: FieldValue.serverTimestamp(),
-    },
-    { merge: true }
-  );
-
-  try {
-    const jobId = await queueService.enqueue(payload, environment);
-    await outboxRef.set(
-      {
-        status: 'enqueued' as AgentOutboxStatus,
-        jobId,
-        lastError: null,
-        expiresAt: outboxTtlFromNow(OUTBOX_TTL_ENQUEUED_DAYS),
-        enqueuedAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-    return { jobId, deduplicated: false };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    await outboxRef.set(
-      {
-        status: 'error' as AgentOutboxStatus,
-        lastError: message,
-        expiresAt: outboxTtlFromNow(OUTBOX_TTL_ERROR_DAYS),
-        updatedAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
-    throw err;
-  }
+  return enqueueWithOutbox(db, payload, environment, queueService);
 }
 
 /**
@@ -859,6 +935,9 @@ async function enqueueWithOutbox(
  *   • If a prior op is *actively running* (queued / thinking / acting /
  *     streaming_result) → do not cancel it. Queue the new op behind the
  *     latest active op by returning its operationId as `parentOperationId`.
+ *   • Yielded ops (paused / awaiting_input / awaiting_approval) are never
+ *     hard blockers. They are either superseded (when enabled) or left
+ *     untouched while the new op proceeds independently.
  *
  * This matches the Primary Agent rollout plan: new user input supersedes stale
  * yielded work, but preserves in-flight execution order for running work.
@@ -956,8 +1035,8 @@ async function enforceThreadConcurrencyPolicy(
       (op) =>
         op.operationId &&
         op.operationId !== newOperationId &&
-        ((runningStatuses.has(op.status) && !cancelled.includes(op.operationId)) ||
-          (!supersedeOnYield && yieldedStatuses.has(op.status)))
+        runningStatuses.has(op.status) &&
+        !cancelled.includes(op.operationId)
     )
     .at(-1);
 
@@ -2372,7 +2451,7 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
     }
 
     const environment = req.isStaging ? 'staging' : 'production';
-    const enqueueResult = await enqueueWithOutbox(db, resumedPayload, environment);
+    const enqueueResult = await enqueueWithOutboxLocal(db, resumedPayload, environment);
 
     logger.info('Agent job resumed', {
       originalOperationId: operationId,
@@ -2394,6 +2473,564 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('Failed to resume agent job', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to resume job' });
+  }
+});
+
+// ─── POST /threads/:threadId/actions — Thread-truth semantic actions ──────
+
+type ThreadActionType = 'ask_user_reply' | 'approval_decision';
+
+interface ThreadActionRequestBody {
+  readonly actionType?: ThreadActionType;
+  readonly messageId?: string;
+  readonly operationIdHint?: string;
+  readonly response?: string;
+  readonly decision?: 'approved' | 'rejected';
+  readonly toolInput?: Record<string, unknown>;
+  readonly trustForSession?: boolean;
+}
+
+const THREAD_ACTION_PENDING_STATUSES: readonly AgentOperationStatus[] = [
+  'awaiting_input',
+  'awaiting_approval',
+  'paused',
+] as const;
+
+function toMillis(value: unknown): number {
+  if (typeof value === 'string') {
+    const ms = Date.parse(value);
+    return Number.isFinite(ms) ? ms : 0;
+  }
+  if (
+    value &&
+    typeof value === 'object' &&
+    'toDate' in value &&
+    typeof (value as { toDate?: unknown }).toDate === 'function'
+  ) {
+    try {
+      const date = (value as { toDate: () => Date }).toDate();
+      return date.getTime();
+    } catch {
+      return 0;
+    }
+  }
+  return 0;
+}
+
+async function resolveOperationForThreadAction(params: {
+  db: Firestore;
+  userId: string;
+  threadId: string;
+  operationIdHint?: string;
+  messageId?: string;
+}): Promise<string | null> {
+  const { db, userId, threadId } = params;
+
+  const resolveFromHint = async (operationId: string): Promise<string | null> => {
+    const trimmed = operationId.trim();
+    if (!trimmed) return null;
+    const job = await jobRepository?.withDb(db).getById(trimmed);
+    if (!job) return null;
+    if (job.userId !== userId || job.threadId !== threadId) return null;
+    if (!THREAD_ACTION_PENDING_STATUSES.includes(job.status)) return null;
+    return trimmed;
+  };
+
+  // Priority 1: messageId — a direct MongoDB _id pointer to the exact paused row.
+  // This is the most precise identifier and survives stale frontend global state.
+  // Guard: only attempt the query when the value is a valid 24-char hex ObjectId.
+  // Synthetic dedup keys like "yield:operationId:needs_input" are in-memory only
+  // and must never be passed to Mongoose (causes CastError).
+  const isValidObjectId = (id: string) => /^[0-9a-f]{24}$/i.test(id.trim());
+  if (params.messageId && isValidObjectId(params.messageId)) {
+    const message = await AgentMessageModel.findOne({
+      _id: params.messageId.trim(),
+      threadId,
+      userId,
+    })
+      .select({ operationId: 1 })
+      .lean()
+      .exec();
+
+    const messageOperationId =
+      message && typeof message['operationId'] === 'string' ? message['operationId'] : null;
+    if (messageOperationId) {
+      const fromMessage = await resolveFromHint(messageOperationId);
+      if (fromMessage) return fromMessage;
+    }
+  }
+
+  // Priority 2: operationIdHint — frontend-supplied hint, used as fallback when
+  // messageId is absent or its row has no associated operationId yet.
+  if (params.operationIdHint) {
+    const fromHint = await resolveFromHint(params.operationIdHint);
+    if (fromHint) return fromHint;
+  }
+
+  const pendingSnap = await db
+    .collection('AgentJobs')
+    .where('userId', '==', userId)
+    .where('threadId', '==', threadId)
+    .where('status', 'in', [...THREAD_ACTION_PENDING_STATUSES])
+    .get();
+
+  if (pendingSnap.empty) return null;
+
+  const sorted = [...pendingSnap.docs].sort((a, b) => {
+    const aData = a.data() as Record<string, unknown>;
+    const bData = b.data() as Record<string, unknown>;
+    const aMs = Math.max(toMillis(aData['updatedAt']), toMillis(aData['createdAt']));
+    const bMs = Math.max(toMillis(bData['updatedAt']), toMillis(bData['createdAt']));
+    return bMs - aMs;
+  });
+
+  return sorted[0]?.id ?? null;
+}
+
+router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Response) => {
+  try {
+    if (!queueService || !jobRepository) {
+      res.status(503).json({ success: false, error: 'Agent queue not initialized' });
+      return;
+    }
+
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const threadIdParam = req.params['threadId'];
+    if (!threadIdParam || typeof threadIdParam !== 'string' || threadIdParam.trim().length === 0) {
+      res.status(400).json({ success: false, error: 'Thread ID is required' });
+      return;
+    }
+
+    const body = (req.body ?? {}) as ThreadActionRequestBody;
+    if (body.actionType !== 'ask_user_reply' && body.actionType !== 'approval_decision') {
+      res.status(400).json({ success: false, error: 'Invalid actionType' });
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const resolvedOperationId = await resolveOperationForThreadAction({
+      db,
+      userId: user.uid,
+      threadId: threadIdParam.trim(),
+      operationIdHint: body.operationIdHint,
+      messageId: body.messageId,
+    });
+
+    if (!resolvedOperationId) {
+      res.status(409).json({ success: false, error: 'No pending action found for this thread' });
+      return;
+    }
+
+    if (body.actionType === 'ask_user_reply') {
+      const userResponse = typeof body.response === 'string' ? body.response : '';
+      if (userResponse.trim().length === 0) {
+        res.status(400).json({ success: false, error: 'A non-empty response is required' });
+        return;
+      }
+      if (userResponse.length > 5000) {
+        res.status(400).json({ success: false, error: 'Response must be 5000 characters or less' });
+        return;
+      }
+
+      const jobDoc = await jobRepository.withDb(db).getById(resolvedOperationId);
+      if (!jobDoc || jobDoc.userId !== user.uid || jobDoc.threadId !== threadIdParam.trim()) {
+        res.status(404).json({ success: false, error: 'Job not found' });
+        return;
+      }
+
+      const status = jobDoc.status;
+      if (status !== 'awaiting_input' && status !== 'awaiting_approval' && status !== 'paused') {
+        res.status(409).json({ success: false, error: `Job is in "${status}" state` });
+        return;
+      }
+
+      const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
+      if (!yieldState) {
+        res.status(409).json({ success: false, error: 'No yield state found on this job' });
+        return;
+      }
+
+      const trimmedUserResponse = userResponse.trim();
+      const resumeFromPausedState = isPauseYieldState(yieldState);
+      if (!resumeFromPausedState && trimmedUserResponse.length === 0) {
+        res.status(400).json({ success: false, error: 'A non-empty response is required' });
+        return;
+      }
+
+      if (new Date(yieldState.expiresAt).getTime() < Date.now()) {
+        await jobRepository
+          .withDb(db)
+          .markFailed(resolvedOperationId, 'Yield expired before user responded');
+        res.status(410).json({ success: false, error: 'This request has expired' });
+        return;
+      }
+
+      if (jobDoc.threadId && chatService && trimmedUserResponse.length > 0) {
+        try {
+          await chatService.addMessage({
+            threadId: jobDoc.threadId,
+            userId: user.uid,
+            role: 'user',
+            content: trimmedUserResponse,
+            origin: 'user',
+            operationId: resolvedOperationId,
+          });
+        } catch (chatErr) {
+          logger.warn('Failed to persist thread action reply to MongoDB', {
+            error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+            userId: user.uid,
+          });
+        }
+      }
+
+      const resumeSourceMessages = normalizeYieldMessages(yieldState.messages);
+      const pendingToolCallId = resumeFromPausedState
+        ? (yieldState.pendingToolCall?.toolCallId ?? 'ask_user_response')
+        : resolveResumeToolCallId(resumeSourceMessages, yieldState.pendingToolCall?.toolCallId);
+      const normalizedMessages = stripToolResultForCallId(resumeSourceMessages, pendingToolCallId);
+      const sanitizedMessages = resumeFromPausedState
+        ? stripPauseResumeToolResults(normalizedMessages)
+        : normalizedMessages;
+      const effectiveSanitizedMessages: ResumeMessageShape[] =
+        sanitizedMessages.length === 0 && jobDoc.intent?.trim()
+          ? [{ role: 'user', content: jobDoc.intent.trim() }]
+          : sanitizedMessages;
+
+      const resumedMessages = resumeFromPausedState
+        ? trimmedUserResponse.length > 0
+          ? [
+              ...effectiveSanitizedMessages,
+              {
+                role: 'user',
+                content: trimmedUserResponse,
+              },
+            ]
+          : effectiveSanitizedMessages
+        : [
+            ...effectiveSanitizedMessages,
+            {
+              role: 'tool',
+              content: JSON.stringify({
+                success: true,
+                data: { userResponse: trimmedUserResponse },
+              }),
+              tool_call_id: pendingToolCallId,
+            },
+          ];
+
+      const resumedPayload: AgentJobPayload = {
+        operationId: crypto.randomUUID(),
+        userId: user.uid,
+        intent: jobDoc.intent,
+        sessionId: crypto.randomUUID(),
+        origin: 'user' as AgentJobOrigin,
+        context: {
+          appBaseUrl: resolveRequestAppBaseUrl(req),
+          threadId: jobDoc.threadId,
+          resumedFrom: resolvedOperationId,
+          yieldState: {
+            ...yieldState,
+            messages: resumedMessages,
+          } satisfies AgentYieldState,
+        },
+      };
+
+      await jobRepository.withDb(db).create(resumedPayload);
+      await jobRepository.withDb(db).markCompleted(resolvedOperationId, {
+        summary: resumeFromPausedState
+          ? `Resumed after pause — continuing as ${resumedPayload.operationId}`
+          : `Resumed by user — continuing as ${resumedPayload.operationId}`,
+        data: {
+          resumedAs: resumedPayload.operationId,
+          ...(resumeFromPausedState ? { resumedFromPause: true } : {}),
+        },
+      });
+
+      if (jobDoc.threadId && chatService) {
+        try {
+          await chatService.clearThreadPausedYieldState(jobDoc.threadId);
+        } catch (err) {
+          logger.warn('Failed to clear thread paused yield state on thread action resume', {
+            threadId: jobDoc.threadId,
+            operationId: resolvedOperationId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      const environment = req.isStaging ? 'staging' : 'production';
+      const enqueueResult = await enqueueWithOutboxLocal(db, resumedPayload, environment);
+
+      res.status(202).json({
+        success: true,
+        data: {
+          actionType: body.actionType,
+          resumed: true,
+          jobId: enqueueResult.jobId,
+          operationId: resumedPayload.operationId,
+          threadId: jobDoc.threadId,
+          resolvedOperationId,
+        },
+      });
+      return;
+    }
+
+    if (body.decision !== 'approved' && body.decision !== 'rejected') {
+      res.status(400).json({
+        success: false,
+        error: 'Decision must be "approved" or "rejected"',
+      });
+      return;
+    }
+    if (
+      body.toolInput !== undefined &&
+      (typeof body.toolInput !== 'object' ||
+        body.toolInput === null ||
+        Array.isArray(body.toolInput))
+    ) {
+      res.status(400).json({
+        success: false,
+        error: 'toolInput must be an object when provided',
+      });
+      return;
+    }
+
+    const approvalsSnap = await db
+      .collection('AgentApprovalRequests')
+      .where('userId', '==', user.uid)
+      .where('operationId', '==', resolvedOperationId)
+      .where('status', '==', 'pending')
+      .get();
+
+    if (approvalsSnap.empty) {
+      res.status(409).json({ success: false, error: 'No pending approval found for this thread' });
+      return;
+    }
+
+    let approvalDoc = approvalsSnap.docs[0];
+    if (approvalsSnap.docs.length > 1) {
+      approvalDoc = [...approvalsSnap.docs].sort((a, b) => {
+        const aData = a.data() as Record<string, unknown>;
+        const bData = b.data() as Record<string, unknown>;
+        return toMillis(bData['createdAt']) - toMillis(aData['createdAt']);
+      })[0];
+    }
+
+    const approvalRef = db.collection('AgentApprovalRequests').doc(approvalDoc.id);
+    const transactionResult = await db.runTransaction(async (txn) => {
+      const approvalSnap = await txn.get(approvalRef);
+      if (!approvalSnap.exists) return { code: 404, error: 'Approval request not found' } as const;
+
+      const approvalData = approvalSnap.data()!;
+      if (approvalData['userId'] !== user.uid) {
+        return { code: 404, error: 'Approval request not found' } as const;
+      }
+      if (approvalData['status'] !== 'pending') {
+        return { code: 409, error: `Approval is already "${approvalData['status']}"` } as const;
+      }
+
+      txn.update(approvalRef, {
+        status: body.decision,
+        resolvedAt: new Date().toISOString(),
+        resolvedBy: user.uid,
+        ...(body.toolInput ? { toolInput: body.toolInput } : {}),
+      });
+
+      return {
+        code: 200,
+        operationId: approvalData['operationId'] as string | undefined,
+        toolInput: (body.toolInput ?? approvalData['toolInput']) as
+          | Record<string, unknown>
+          | undefined,
+      } as const;
+    });
+
+    if ('error' in transactionResult) {
+      res.status(transactionResult.code).json({ success: false, error: transactionResult.error });
+      return;
+    }
+
+    const operationId = transactionResult.operationId;
+    const resolvedToolInput = transactionResult.toolInput;
+    if (!operationId) {
+      res.json({
+        success: true,
+        data: {
+          actionType: body.actionType,
+          decision: body.decision,
+          resumed: false,
+          resolvedOperationId,
+        },
+      });
+      return;
+    }
+
+    const jobDoc = await jobRepository.withDb(db).getById(operationId);
+    if (!jobDoc) {
+      res.json({
+        success: true,
+        data: {
+          actionType: body.actionType,
+          decision: body.decision,
+          resumed: false,
+          resolvedOperationId,
+        },
+      });
+      return;
+    }
+
+    if (
+      jobDoc.status === 'cancelled' ||
+      jobDoc.status === 'failed' ||
+      jobDoc.status === 'completed'
+    ) {
+      res.json({
+        success: true,
+        data: {
+          actionType: body.actionType,
+          decision: body.decision,
+          resumed: false,
+          reason: 'operation_already_terminal',
+          resolvedOperationId,
+        },
+      });
+      return;
+    }
+
+    const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
+    const threadId = jobDoc.threadId;
+
+    if (body.decision === 'rejected') {
+      await jobRepository.withDb(db).markCancelled(operationId);
+      if (threadId && chatService) {
+        try {
+          await chatService.clearThreadPausedYieldState(threadId);
+        } catch (err) {
+          logger.warn('Failed to clear thread paused yield state on thread action rejection', {
+            threadId,
+            operationId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      res.json({
+        success: true,
+        data: {
+          actionType: body.actionType,
+          decision: body.decision,
+          resumed: false,
+          resolvedOperationId,
+        },
+      });
+      return;
+    }
+
+    if (!yieldState?.pendingToolCall) {
+      await jobRepository.withDb(db).markCompleted(operationId, {
+        summary: 'Approval granted but no pending action to resume.',
+      });
+      res.json({
+        success: true,
+        data: {
+          actionType: body.actionType,
+          decision: body.decision,
+          resumed: false,
+          resolvedOperationId,
+        },
+      });
+      return;
+    }
+
+    const normalizedApprovalMessages = stripToolResultForCallId(
+      normalizeYieldMessages(yieldState.messages),
+      yieldState.pendingToolCall.toolCallId
+    );
+
+    const resumedPayload: AgentJobPayload = {
+      operationId: crypto.randomUUID(),
+      userId: user.uid,
+      intent: jobDoc.intent,
+      sessionId: crypto.randomUUID(),
+      origin: 'user' as AgentJobOrigin,
+      context: {
+        appBaseUrl: resolveRequestAppBaseUrl(req),
+        threadId,
+        resumedFrom: operationId,
+        approvalId: approvalDoc.id,
+        yieldState: {
+          ...yieldState,
+          messages: normalizedApprovalMessages,
+          approvalId: approvalDoc.id,
+          pendingToolCall: {
+            ...yieldState.pendingToolCall,
+            toolInput: resolvedToolInput ?? yieldState.pendingToolCall.toolInput,
+          },
+        },
+      },
+    };
+
+    await jobRepository.withDb(db).create(resumedPayload);
+    await jobRepository.withDb(db).markCompleted(operationId, {
+      summary: `Approved — continuing as ${resumedPayload.operationId}`,
+      data: { resumedAs: resumedPayload.operationId, approvalId: approvalDoc.id },
+    });
+
+    if (body.trustForSession === true && yieldState.pendingToolCall.toolName) {
+      const toolNameForTrust = yieldState.pendingToolCall.toolName;
+      try {
+        const { ApprovalGateService } =
+          await import('../../modules/agent/services/approval-gate.service.js');
+        const approvalGateSvc = new ApprovalGateService(db);
+        await approvalGateSvc.grantSessionTrust(
+          user.uid,
+          resumedPayload.sessionId,
+          toolNameForTrust
+        );
+      } catch (trustErr) {
+        logger.warn('Failed to write session trust grant (non-fatal)', {
+          error: trustErr instanceof Error ? trustErr.message : String(trustErr),
+          toolName: toolNameForTrust,
+        });
+      }
+    }
+
+    if (threadId && chatService) {
+      try {
+        await chatService.clearThreadPausedYieldState(threadId);
+      } catch (err) {
+        logger.warn('Failed to clear thread paused yield state on thread action approval', {
+          threadId,
+          operationId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    const environment = req.isStaging ? 'staging' : 'production';
+    const enqueueResult = await enqueueWithOutboxLocal(db, resumedPayload, environment);
+
+    res.json({
+      success: true,
+      data: {
+        actionType: body.actionType,
+        decision: body.decision,
+        resumed: true,
+        jobId: enqueueResult.jobId,
+        operationId: resumedPayload.operationId,
+        threadId,
+        resolvedOperationId,
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to execute thread action', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to execute thread action' });
   }
 });
 
@@ -2689,7 +3326,7 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
     }
 
     const environment = req.isStaging ? 'staging' : 'production';
-    const enqueueResult = await enqueueWithOutbox(db, resumedPayload, environment);
+    const enqueueResult = await enqueueWithOutboxLocal(db, resumedPayload, environment);
 
     logger.info('Approval resolved and job resumed', {
       approvalId,
@@ -2951,6 +3588,11 @@ router.post(
 
       const operationId = crypto.randomUUID();
       const sessionId = crypto.randomUUID();
+      const connectedSourceTargets = await resolveConnectedSourceTargetsFromUserContext({
+        db,
+        userId: user.uid,
+        userContext,
+      });
       const concurrencyDecision = resolvedThreadId
         ? await enforceThreadConcurrencyPolicy(db, resolvedThreadId, operationId)
         : { cancelledOperationIds: [] as string[], parentOperationId: undefined };
@@ -2973,30 +3615,52 @@ router.post(
           ...(normalizedSelectedAction ? { selectedAction: normalizedSelectedAction } : {}),
           ...(fileAttachments.length > 0 ? { attachments: fileAttachments } : {}),
           ...(videoAttachments.length > 0 ? { videoAttachments } : {}),
+          ...(connectedSourceTargets.length > 0
+            ? {
+                connectedSourceTargets,
+                connectedSourceTargetCount: connectedSourceTargets.length,
+                connectedSourceTargetVersion: 1,
+              }
+            : {}),
         },
       };
 
       await jobRepository.withDb(db).create(payload);
 
       // ── Prompt-only title generation (fire-and-forget) ───────────────────
-      // New threads only: generate an AI title from the user's message before
-      // the worker even starts. Replaces the old approach of blocking title
-      // generation at the end of the full agent run (which took seconds).
-      if (chatService && llmService && resolvedThreadId && !threadId) {
+      // Generate an AI title from the user's message. Runs on every enqueue
+      // call — the applyGeneratedThreadTitle guard prevents overwriting an
+      // already AI-titled thread, so retries are safe and free.
+      // generateTitleFromPromptOnly never returns null (deterministic fallback)
+      // so a clean title is guaranteed for every new conversation.
+      if (chatService && llmService && resolvedThreadId) {
         const _titleThreadId = resolvedThreadId;
         const _titleOpId = operationId;
         const _titleDb = db;
         void (async () => {
           try {
             const title = await chatService.generateTitleFromPromptOnly(intent.trim(), llmService);
-            if (!title) return;
+            if (!title) {
+              logger.warn('Prompt-only title generation returned empty (enqueue)', {
+                operationId: _titleOpId,
+                threadId: _titleThreadId,
+              });
+              return;
+            }
             const applied = await chatService.applyGeneratedThreadTitle(
               _titleThreadId,
               user.uid,
               intent.trim(),
               title
             );
-            if (!applied) return;
+            if (!applied) {
+              logger.debug('Prompt-only title gen skipped — thread already labeled (enqueue)', {
+                operationId: _titleOpId,
+                threadId: _titleThreadId,
+                generatedTitle: title,
+              });
+              return;
+            }
             logger.info('Prompt-only thread title generated (enqueue)', {
               operationId: _titleOpId,
               threadId: _titleThreadId,
@@ -3025,7 +3689,7 @@ router.post(
         })();
       }
 
-      const enqueueResult = await enqueueWithOutbox(db, payload, environment);
+      const enqueueResult = await enqueueWithOutboxLocal(db, payload, environment);
 
       logger.info('Agent X background job enqueued', {
         operationId,
@@ -3705,13 +4369,16 @@ router.post(
       };
 
       await jobRepository.withDb(db).create(payload);
-      await enqueueWithOutbox(db, payload, environment);
+      await enqueueWithOutboxLocal(db, payload, environment);
 
       // ── Prompt-only title generation (fire-and-forget) ───────────────────
-      // New threads only: generate an AI title from the raw user message.
+      // Generate an AI title from the raw user message on every chat turn.
       // Publishes title_updated via pubsub so the open SSE stream receives it
       // within ~300-600ms of stream open — before the first agent delta arrives.
-      if (chatService && llmService && effectiveThreadId && !threadId) {
+      // The applyGeneratedThreadTitle guard prevents overwriting an existing
+      // AI title on follow-up turns, so this runs cheaply (~$0.0005/call) and
+      // ensures failed first-turn title gens get retried automatically.
+      if (chatService && llmService && effectiveThreadId) {
         const _titleThreadId = effectiveThreadId;
         const _titleOpId = operationId;
         const _rawPrompt = message.trim();
@@ -3719,14 +4386,27 @@ router.post(
         void (async () => {
           try {
             const title = await chatService.generateTitleFromPromptOnly(_rawPrompt, llmService);
-            if (!title) return;
+            if (!title) {
+              logger.warn('Prompt-only title generation returned empty (chat)', {
+                operationId: _titleOpId,
+                threadId: _titleThreadId,
+              });
+              return;
+            }
             const applied = await chatService.applyGeneratedThreadTitle(
               _titleThreadId,
               user.uid,
               _rawPrompt,
               title
             );
-            if (!applied) return;
+            if (!applied) {
+              logger.debug('Prompt-only title gen skipped — thread already labeled (chat)', {
+                operationId: _titleOpId,
+                threadId: _titleThreadId,
+                generatedTitle: title,
+              });
+              return;
+            }
             logger.info('Prompt-only thread title generated (chat)', {
               operationId: _titleOpId,
               threadId: _titleThreadId,

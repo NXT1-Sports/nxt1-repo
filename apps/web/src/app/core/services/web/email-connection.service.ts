@@ -19,7 +19,8 @@
 
 import { Injectable, inject } from '@angular/core';
 import { Auth, GoogleAuthProvider, signInWithPopup } from '@angular/fire/auth';
-import { NxtLoggingService, NxtToastService } from '@nxt1/ui';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtToastService } from '@nxt1/ui/services/toast';
 import type { ILogger } from '@nxt1/core/logging';
 import {
   parseApiError,

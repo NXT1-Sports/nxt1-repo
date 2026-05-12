@@ -14,7 +14,16 @@ export interface BillableFeatureResolutionInput {
   readonly successfulTools?: readonly string[];
 }
 
-const PASSIVE_TOOL_PREFIXES = ['get_', 'list_', 'read_', 'search_', 'query_', 'check_'] as const;
+const PASSIVE_TOOL_PREFIXES = [
+  'get-',
+  'list-',
+  'read-',
+  'search-',
+  'query-',
+  'check-',
+  'track-',
+  'register-',
+] as const;
 
 function normalizeSlug(value: string): string {
   return value
@@ -56,7 +65,7 @@ function selectRepresentativeTool(tools: readonly string[]): string | null {
     }
   }
 
-  return tools[tools.length - 1] ?? null;
+  return null;
 }
 
 export function resolveBillableFeature(input: BillableFeatureResolutionInput): string {

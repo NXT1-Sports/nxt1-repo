@@ -4,6 +4,10 @@ import { AgentXOperationChatSessionFacade } from './agent-x-operation-chat-sessi
 
 type Canonicalizer = {
   resolveCanonicalAssistantRows(items: readonly AgentMessage[]): readonly AgentMessage[];
+  coercePersistedYieldStateFromMessage(
+    message: AgentMessage,
+    persistedCards: readonly AgentMessage['cards']
+  ): unknown;
   hasYieldedAssistantRowForOperation(
     messages: readonly Array<{
       role: string;
@@ -14,6 +18,7 @@ type Canonicalizer = {
     }>,
     operationId: string
   ): boolean;
+  hasMongoFinalForOperation(items: readonly AgentMessage[], operationId: string | null): boolean;
   collectMessageMedia(message: AgentMessage): {
     imageUrl?: string;
     videoUrl?: string;
@@ -84,6 +89,46 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     const canonical = facade.resolveCanonicalAssistantRows(items);
 
     expect(canonical.map((message) => message.id)).toEqual(['partial-2']);
+  });
+
+  it('keeps answered assistant_yield rows and suppresses the matching user reply bubble', () => {
+    // Answered ask_user cards render as resolved card bubbles showing the
+    // reply inline. The assistant_yield row is KEPT (rendered as resolved card).
+    // The user reply message is SUPPRESSED (its text surfaces inside the card).
+    const items: readonly AgentMessage[] = [
+      assistantMessage('yield-1', 'assistant_yield', {
+        content: 'What is your top recruiting priority right now?',
+        operationId: 'op-yield-1',
+        resultData: { yieldState: { reason: 'needs_input' } },
+      }),
+      {
+        id: 'user-reply-1',
+        threadId: 'thread-1',
+        userId: 'user-1',
+        role: 'user',
+        content: 'We need a point guard and more wing depth.',
+        origin: 'user',
+        operationId: 'op-yield-1',
+        createdAt: '2026-05-05T12:01:00.000Z',
+      },
+    ];
+
+    const canonical = facade.resolveCanonicalAssistantRows(items);
+
+    // yield row is KEPT (renders as resolved ask_user card); user reply is suppressed
+    expect(canonical.map((message) => message.id)).toEqual(['yield-1']);
+  });
+
+  it('does not coerce approval-style assistant_yield prose into ask-user fallback state', () => {
+    const approvalYieldRow = assistantMessage('yield-approval-1', 'assistant_yield', {
+      content:
+        'Review and approve this email draft before sending. Send an email to john@nxt1sports.com.',
+      operationId: 'op-approval-1',
+    });
+
+    const coerced = facade.coercePersistedYieldStateFromMessage(approvalYieldRow, []);
+
+    expect(coerced).toBeNull();
   });
 
   it('detects yielded assistant rows so live typing replay can be suppressed', () => {
@@ -184,5 +229,142 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
         name: 'highlight.mp4',
       },
     ]);
+  });
+
+  it('keeps tool_call context when an ask_user card is pending', () => {
+    const items: readonly AgentMessage[] = [
+      assistantMessage('tool-ask-1', 'assistant_tool_call', {
+        operationId: 'op-ask-1',
+        content: 'I need a few quick answers before I continue.',
+      }),
+      assistantMessage('partial-ask-1', 'assistant_partial', {
+        operationId: 'op-ask-1',
+        content: 'Quick Question',
+        parts: [
+          {
+            type: 'card',
+            card: {
+              type: 'ask_user',
+              agentId: 'router' as never,
+              title: 'Quick Question',
+              payload: {
+                prompt: 'What division level are you targeting?',
+                yieldState: { reason: 'needs_input', operationId: 'op-ask-1' },
+              },
+            },
+          },
+        ],
+      }),
+    ];
+
+    const canonical = facade.resolveCanonicalAssistantRows(items);
+    const ids = canonical.map((m) => m.id);
+
+    expect(ids).toContain('tool-ask-1');
+    expect(ids).toContain('partial-ask-1');
+  });
+
+  // ── Regression: Bug A ─────────────────────────────────────────────────────
+  // Approval flow should preserve prior tool_call context alongside card.
+  it('keeps prior tool_call rows visible when a needs_approval yield is pending', () => {
+    const items: readonly AgentMessage[] = [
+      assistantMessage('tool-1', 'assistant_tool_call', {
+        operationId: 'op-approval-2',
+        content: 'Step 1: Searched DB. Found 20 colleges.',
+      }),
+      assistantMessage('partial-1', 'assistant_partial', {
+        operationId: 'op-approval-2',
+        content: 'Step 2: Drafting email...',
+        parts: [
+          {
+            type: 'card',
+            card: {
+              type: 'confirmation',
+              agentId: 'router' as never,
+              title: 'Review and Approve Email',
+              payload: {
+                yieldState: { reason: 'needs_approval', operationId: 'op-approval-2' },
+              },
+            },
+          },
+        ],
+      }),
+    ];
+
+    const canonical = facade.resolveCanonicalAssistantRows(items);
+
+    const ids = canonical.map((m) => m.id);
+    expect(ids).toContain('tool-1');
+    expect(ids).toContain('partial-1');
+  });
+
+  // ── Regression: Bug B ─────────────────────────────────────────────────────
+  // Completed approval flow should preserve pre-approval tool_call context
+  // alongside assistant_final on reload.
+  it('shows pre-approval tool_call context alongside assistant_final on reload (Bug B)', () => {
+    const items: readonly AgentMessage[] = [
+      assistantMessage('tool-1', 'assistant_tool_call', {
+        operationId: 'op-approval-3',
+        content: 'Step 1: Found 20 colleges. Step 2: Sending email...',
+      }),
+      assistantMessage('yield-1', 'assistant_yield', {
+        operationId: 'op-approval-3',
+        content: 'Review and approve this email before sending.',
+        resultData: { yieldState: { reason: 'needs_approval', operationId: 'op-approval-3' } },
+      }),
+      assistantMessage('final-1', 'assistant_final', {
+        operationId: 'op-approval-3',
+        content: 'Both tasks completed: College search found 20. Email sent.',
+      }),
+    ];
+
+    const canonical = facade.resolveCanonicalAssistantRows(items);
+    const ids = canonical.map((m) => m.id);
+
+    // yield row suppressed (not user-facing); tool_call + final both visible
+    expect(ids).not.toContain('yield-1');
+    expect(ids).toContain('tool-1');
+    expect(ids).toContain('final-1');
+  });
+
+  // ── Regression: Bug B (old sessions — no stored reason) ───────────────────
+  // Old sessions have assistant_yield rows without stored reason metadata.
+  // Yield detection via semanticPhase must still preserve tool_call context.
+  it('shows pre-approval tool_call context for old sessions without stored yield reason', () => {
+    const items: readonly AgentMessage[] = [
+      assistantMessage('tool-old-1', 'assistant_tool_call', {
+        operationId: 'op-old-approval',
+        content: 'Step 1: Searched database.',
+      }),
+      assistantMessage('yield-old-1', 'assistant_yield', {
+        operationId: 'op-old-approval',
+        content: 'Please review the draft.',
+        // No resultData — old session, written before reason storage was added
+      }),
+      assistantMessage('final-old-1', 'assistant_final', {
+        operationId: 'op-old-approval',
+        content: 'Email sent successfully.',
+      }),
+    ];
+
+    const canonical = facade.resolveCanonicalAssistantRows(items);
+    const ids = canonical.map((m) => m.id);
+
+    expect(ids).not.toContain('yield-old-1');
+    expect(ids).toContain('tool-old-1');
+    expect(ids).toContain('final-old-1');
+  });
+
+  it('only treats assistant_final as completion evidence for the matching operation', () => {
+    const finalForPreviousOperation = assistantMessage('final-previous', 'assistant_final', {
+      operationId: 'op-previous',
+    });
+    const finalForCurrentOperation = assistantMessage('final-current', 'assistant_final', {
+      operationId: 'op-current',
+    });
+
+    expect(facade.hasMongoFinalForOperation([finalForPreviousOperation], 'op-current')).toBe(false);
+    expect(facade.hasMongoFinalForOperation([finalForCurrentOperation], 'op-current')).toBe(true);
+    expect(facade.hasMongoFinalForOperation([finalForPreviousOperation], null)).toBe(true);
   });
 });

@@ -34,6 +34,38 @@ function deriveConnectedHandle(profileUrl: string, fallback: string, prefix = ''
   }
 }
 
+function normalizeConnectedPlatform(platform: string): string {
+  const normalized = platform.trim().toLowerCase();
+  return normalized === 'x' ? 'twitter' : normalized;
+}
+
+function normalizeConnectedUrl(profileUrl: string): string {
+  const raw = profileUrl.trim();
+  if (!raw) return '';
+
+  try {
+    const parsed = new URL(raw);
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+    const canonicalHost = host === 'twitter.com' ? 'x.com' : host;
+    const pathname = parsed.pathname.replace(/\/+$/, '').toLowerCase();
+    return `${canonicalHost}${pathname}`;
+  } catch {
+    return raw.replace(/\/+$/, '').toLowerCase();
+  }
+}
+
+function connectedAccountDedupKey(options: {
+  readonly platform: string;
+  readonly profileUrl: string;
+  readonly scopeType?: string;
+  readonly scopeId?: string;
+}): string {
+  return (
+    `${normalizeConnectedPlatform(options.platform)}|${options.scopeType ?? 'global'}|` +
+    `${options.scopeId ?? ''}|${normalizeConnectedUrl(options.profileUrl)}`
+  );
+}
+
 @Component({
   selector: 'nxt1-team-contact-web',
   standalone: true,
@@ -678,13 +710,29 @@ export class TeamContactWebComponent {
         showHandle: false,
       };
 
+      const seen = new Set<string>();
+
       return connectedSources
         .slice()
+        .filter(
+          (source) => source.platform.toLowerCase() !== 'manual' && !!source.profileUrl?.trim()
+        )
         .sort((a, b) => (a.displayOrder ?? 99) - (b.displayOrder ?? 99))
+        .filter((source) => {
+          const key = connectedAccountDedupKey({
+            platform: source.platform,
+            profileUrl: source.profileUrl,
+            scopeType: source.scopeType,
+            scopeId: source.scopeId,
+          });
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
         .slice(0, 8)
         .map((source, index) => {
-          const meta =
-            TeamContactWebComponent.PLATFORM_META[source.platform.toLowerCase()] ?? defaultMeta;
+          const platform = normalizeConnectedPlatform(source.platform);
+          const meta = TeamContactWebComponent.PLATFORM_META[platform] ?? defaultMeta;
           const handle = meta.showHandle
             ? deriveConnectedHandle(
                 source.profileUrl,
@@ -693,14 +741,20 @@ export class TeamContactWebComponent {
               )
             : meta.label || source.platform;
           return {
-            key: `${source.platform}-${source.scopeType ?? 'global'}-${source.scopeId ?? index}`,
+            key:
+              connectedAccountDedupKey({
+                platform,
+                profileUrl: source.profileUrl,
+                scopeType: source.scopeType,
+                scopeId: source.scopeId,
+              }) || `${platform}-${source.scopeType ?? 'global'}-${source.scopeId ?? index}`,
             label: meta.label || source.platform,
             handle,
             icon: meta.icon,
             color: meta.color,
             url: source.profileUrl,
             verified: source.syncStatus !== 'error',
-            faviconUrl: getPlatformFaviconUrl(source.platform.toLowerCase()),
+            faviconUrl: getPlatformFaviconUrl(platform),
           };
         });
     }

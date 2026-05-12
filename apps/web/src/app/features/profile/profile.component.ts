@@ -85,7 +85,6 @@ import {
   UTM_MEDIUM,
   UTM_CAMPAIGN,
 } from '@nxt1/core';
-import { resolveCanonicalTeamRoute } from '@nxt1/core/helpers';
 import type { ProfileTabId, ProfileShareSource, ProfileTeamAffiliation, User } from '@nxt1/core';
 import type { ApiResponse } from '@nxt1/core/profile';
 import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
@@ -633,21 +632,6 @@ export class ProfileComponent implements OnInit, OnDestroy {
     const profilePageData = userToProfilePageData(profile, isOwn);
     this.profileService.loadFromExternalData(profilePageData, profile, isOwn);
 
-    // Role-aware: coach/director own profile → redirect to canonical /team/:slug route.
-    // This ensures the URL bar shows the shareable team link and analytics
-    // correctly attribute team page views. replaceUrl avoids back-button loops.
-    if (isOwn && isTeamRole(profile.role)) {
-      const teamPath = this.buildTeamPathFromUser(profile);
-      if (teamPath) {
-        this.logger.info('Redirecting coach/director to team route', {
-          teamPath,
-          role: profile.role,
-        });
-        void this.router.navigateByUrl(teamPath, { replaceUrl: true });
-        return; // Skip sub-collection fetches — /team/:slug loads its own data
-      }
-    }
-
     // profileMeta computed updates automatically via fetchedProfile signal
     const meta = this.profileMeta();
     if (!meta) {
@@ -1007,20 +991,21 @@ export class ProfileComponent implements OnInit, OnDestroy {
    * Handle team card click — navigate to team profile page.
    */
   protected onTeamClick(team: ProfileTeamAffiliation): void {
-    if (team.teamCode) {
-      const teamPath = buildCanonicalTeamPath({
-        slug: team.name,
-        teamName: team.name,
-        teamCode: team.teamCode,
-      });
-      this.logger.info('Navigating to team profile', {
-        teamCode: team.teamCode,
-        teamName: team.name,
-      });
-      this.router.navigateByUrl(teamPath);
-    } else {
-      this.logger.warn('Team has no teamCode, cannot navigate', { teamName: team.name });
+    const teamCode = team.teamCode?.trim();
+    if (!teamCode) {
+      return;
     }
+
+    const teamPath = buildCanonicalTeamPath({
+      slug: team.name,
+      teamName: team.name,
+      teamCode,
+    });
+    this.logger.info('Navigating to team profile', {
+      teamCode,
+      teamName: team.name,
+    });
+    this.router.navigateByUrl(teamPath);
   }
 
   /**
@@ -1270,19 +1255,5 @@ export class ProfileComponent implements OnInit, OnDestroy {
         teamCode,
       });
     }
-  }
-
-  private buildTeamPathFromUser(profile: User): string | null {
-    return (
-      resolveCanonicalTeamRoute({
-        slug: profile.teamCode?.slug?.trim() || this.teamSlug(),
-        teamName: profile.teamCode?.teamName?.trim(),
-        teamCode: profile.teamCode?.teamCode?.trim(),
-        code: profile.teamCode?.code?.trim(),
-        teamId: profile.teamCode?.teamId?.trim(),
-        id: typeof profile.teamCode?.id === 'string' ? profile.teamCode.id.trim() : undefined,
-        unicode: profile.teamCode?.unicode?.trim(),
-      })?.path ?? null
-    );
   }
 }

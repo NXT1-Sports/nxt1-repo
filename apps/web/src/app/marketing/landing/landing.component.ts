@@ -17,122 +17,72 @@
  *
  * @example
  * // In routes:
- * { path: 'welcome', loadComponent: () => import('./landing.component') }
+ * { path: '', loadChildren: () => import('./landing.routes') }
  */
 
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterModule } from '@angular/router';
-import { NxtHeroHeaderComponent, type HeroAudienceCard } from '@nxt1/ui/components/hero-header';
 import { NxtImmersiveHeroComponent } from '@nxt1/ui/components/immersive-hero';
-import { NxtPartnerMarqueeComponent } from '@nxt1/ui/components/partner-marquee';
+import { NxtIntegrationMarqueeComponent } from '@nxt1/ui/components/integration-marquee';
 import { NxtValuePropComparisonComponent } from '@nxt1/ui/components/value-prop-comparison';
 import { NxtEcosystemMapComponent } from '@nxt1/ui/components/ecosystem-map';
-import { NxtHeroSectionComponent } from '@nxt1/ui/components/hero-section';
-import {
-  NxtMovementSectionComponent,
-  type MovementActivityItem,
-} from '@nxt1/ui/components/movement-section';
-import {
-  NxtEducationalLibraryComponent,
-  EDUCATIONAL_LIBRARY_DEFAULT_ITEMS,
-  type EducationalLibraryItem,
-} from '@nxt1/ui/components/educational-library';
+import { NxtAgentXCapabilityNetworkSectionComponent } from '@nxt1/ui/components/agent-x-capability-network-section';
+import { NxtDigitalSportsStaffSectionComponent } from '@nxt1/ui/components/digital-sports-staff-section';
+import { NxtAgentXWorkflowShowcaseSectionComponent } from '@nxt1/ui/components/agent-x-workflow-showcase-section';
 
-import { NxtUniversalSportsDirectoryComponent } from '@nxt1/ui/components/universal-sports-directory';
 import { NxtFaqSectionComponent, type FaqItem } from '@nxt1/ui/components/faq-section';
 import { NxtCtaBannerComponent, type CtaAvatarImage } from '@nxt1/ui/components/cta-banner';
+import { NxtSiteFooterCompactComponent } from '@nxt1/ui/components/site-footer-compact';
 import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
-import { SeoService } from '../../core/services';
+import { SPORTS } from '@nxt1/core';
+import { SeoService } from '../../core/services/web/seo.service';
 import type { SeoConfig } from '@nxt1/core/seo';
 
-/** Default audience cards configuration */
-const DEFAULT_AUDIENCE_CARDS: readonly HeroAudienceCard[] = [
-  {
-    id: 'athletes',
-    title: 'For Athletes',
-    description:
-      'Let AI coordinators build your profile, generate highlights, and connect you with the right programs.',
-    icon: 'athlete',
-    route: '/auth?role=athlete',
-    cta: 'Start Your Journey',
-    gradientClass: 'hero-card--athletes',
-    ariaLabel: 'Learn about NXT1 for athletes and let AI coordinators power your journey',
-  },
-  {
-    id: 'teams',
-    title: 'For HS & Clubs',
-    description: 'Manage rosters, promote your program, and help athletes get discovered.',
-    icon: 'users',
-    route: '/auth?role=coach',
-    cta: 'Elevate Your Program',
-    gradientClass: 'hero-card--teams',
-    ariaLabel: 'Learn about NXT1 for high schools and club teams',
-  },
-  {
-    id: 'directors',
-    title: 'For Directors',
-    description:
-      'Oversee your entire program, manage coaches, and let AI coordinators handle evaluation and discovery.',
-    icon: 'scout',
-    route: '/auth?role=director',
-    cta: 'Manage Your Program',
-    gradientClass: 'hero-card--scouts',
-    ariaLabel: 'Learn about NXT1 for athletic directors and program administrators',
-  },
-] as const;
+const formatSportNameForFaq = (sport: string): string =>
+  sport.replace(' Mens', " Men's").replace(' Womens', " Women's");
 
-const MOVEMENT_ITEMS: readonly MovementActivityItem[] = [
-  {
-    id: 'movement-1',
-    userName: 'John Doe',
-    location: 'CA',
-    update: 'just received an offer from Oregon',
-    timeLabel: '9s ago',
-  },
-  {
-    id: 'movement-2',
-    userName: 'Ava Thompson',
-    location: 'TX',
-    update: 'was added to 7 college watch lists',
-    timeLabel: '18s ago',
-  },
-  {
-    id: 'movement-3',
-    userName: 'Noah Williams',
-    location: 'FL',
-    update: 'generated a new commitment graphic',
-    timeLabel: '31s ago',
-  },
-  {
-    id: 'movement-4',
-    userName: 'Mia Johnson',
-    location: 'GA',
-    update: 'booked an official campus visit call',
-    timeLabel: '46s ago',
-  },
-  {
-    id: 'movement-5',
-    userName: 'Liam Carter',
-    location: 'WA',
-    update: 'profile views surged 240 % in one hour',
-    timeLabel: '1m ago',
-  },
-  {
-    id: 'movement-6',
-    userName: 'Zoe Rivera',
-    location: 'OH',
-    update: 'started direct conversations with recruiters',
-    timeLabel: '2m ago',
-  },
-];
+const SUPPORTED_SPORTS_FAQ_ANSWER = `NXT1 supports ${SPORTS.length} sports across men's, women's, and coed programs: ${SPORTS.map(
+  formatSportNameForFaq
+).join(', ')}.`;
+
+const LANDING_PAGE_TITLE = 'NXT1 Sports | The Sports Intelligence Platform';
 
 const LANDING_FAQS: readonly FaqItem[] = [
   {
-    id: 'open-platform',
-    question: 'Who can use NXT1?',
+    id: 'icp',
+    question: 'Who is NXT1 built for?',
     answer:
-      'NXT1 is an open platform. Athletes, coaches, parents, scouts, teams, and clubs can all create an account and use the core experience.',
+      'NXT1 is built for athletes, coaches, directors, and program leaders who need a smarter way to operate. It helps teams and sports organizations execute faster across performance, content, communications, planning, and day-to-day operations.',
+  },
+  {
+    id: 'sports-supported',
+    question: 'What sports does NXT1 support?',
+    answer: SUPPORTED_SPORTS_FAQ_ANSWER,
+  },
+  {
+    id: 'agentx',
+    question: 'What does Agent X do?',
+    answer:
+      "Agent X is NXT1's primary AI coordinator. It turns plain-language requests into completed work across film analysis, highlight creation, graphics, communications, daily briefings, weekly playbooks, and background operations.",
+  },
+  {
+    id: 'athletes',
+    question: 'How do athletes use NXT1?',
+    answer:
+      'Athletes use NXT1 as a personal command center for performance insights, film breakdowns, highlight reels, graphics, communication support, and action plans that help them move faster without juggling multiple apps.',
+  },
+  {
+    id: 'programs',
+    question: 'How do coaches, directors, and programs use NXT1?',
+    answer:
+      'Coaches, directors, and program leaders use NXT1 to align player development, evaluations, content, communications, reporting, and operations in one command center powered by AI coordinators.',
+  },
+  {
+    id: 'category',
+    question: 'Is NXT1 a recruiting platform?',
+    answer:
+      'NXT1 is a Sports Intelligence Platform, not a passive recruiting database or social network. Recruiting workflows are supported, but the broader platform is built around autonomous execution, sports intelligence, creative production, communications, and operations.',
   },
   {
     id: 'pricing',
@@ -140,35 +90,17 @@ const LANDING_FAQS: readonly FaqItem[] = [
     answer:
       'Yes. You can join and use core features for free. Certain advanced tools follow usage-based pricing so you only pay when you use premium actions.',
   },
-  {
-    id: 'discoverability',
-    question: 'How do athletes get discovered?',
-    answer:
-      'Athletes improve visibility by completing profiles, uploading highlights, and using AI-powered workflows that surface them to evaluators automatically.',
-  },
-  {
-    id: 'coach-tools',
-    question: 'Can coaches and teams use NXT1 for talent operations?',
-    answer:
-      'Yes. Coaches and team staff can search talent, organize watch lists, and delegate workflows to AI coordinators directly in the platform.',
-  },
-  {
-    id: 'agentx',
-    question: 'What does Agent X do?',
-    answer:
-      'Agent X helps users move faster by assisting with discovery, guidance, and workflow actions across the NXT1 experience.',
-  },
 ];
 
 /** Floating avatar images for final CTA social proof. */
 const CTA_AVATARS: readonly CtaAvatarImage[] = [
-  { src: `/${IMAGE_PATHS.athlete1}`, alt: 'High school athlete' },
-  { src: `/${IMAGE_PATHS.athlete2}`, alt: 'Club athlete' },
-  { src: `/${IMAGE_PATHS.athlete3}`, alt: 'Student athlete' },
-  { src: `/${IMAGE_PATHS.athlete4}`, alt: 'Varsity athlete' },
-  { src: `/${IMAGE_PATHS.athlete5}`, alt: 'Travel ball athlete' },
-  { src: `/${IMAGE_PATHS.coach1}`, alt: 'College coach' },
-  { src: `/${IMAGE_PATHS.athlete3}`, alt: 'Elite recruit' },
+  { src: `/${IMAGE_PATHS.coach1}`, alt: '' },
+  { src: `/${IMAGE_PATHS.coach2}`, alt: '' },
+  { src: `/${IMAGE_PATHS.coach3}`, alt: '' },
+  { src: `/${IMAGE_PATHS.coach4}`, alt: '' },
+  { src: `/${IMAGE_PATHS.athlete1}`, alt: '' },
+  { src: `/${IMAGE_PATHS.athlete2}`, alt: '' },
+  { src: `/${IMAGE_PATHS.athlete3}`, alt: '' },
 ] as const;
 
 @Component({
@@ -179,17 +111,16 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
     RouterModule,
     // Above-fold (eagerly loaded for LCP)
     NxtImmersiveHeroComponent,
-    NxtHeroHeaderComponent,
-    NxtPartnerMarqueeComponent,
+    NxtIntegrationMarqueeComponent,
     // Below-fold (Angular auto-defers these since they're only in @defer blocks)
     NxtValuePropComparisonComponent,
     NxtEcosystemMapComponent,
-    NxtHeroSectionComponent,
-    NxtMovementSectionComponent,
-    NxtEducationalLibraryComponent,
-    NxtUniversalSportsDirectoryComponent,
+    NxtAgentXCapabilityNetworkSectionComponent,
+    NxtDigitalSportsStaffSectionComponent,
+    NxtAgentXWorkflowShowcaseSectionComponent,
     NxtFaqSectionComponent,
     NxtCtaBannerComponent,
+    NxtSiteFooterCompactComponent,
   ],
   template: `
     <!--
@@ -204,34 +135,40 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
              ABOVE THE FOLD — Eagerly loaded (LCP-critical)
              ═══════════════════════════════════════════════════ -->
         <section aria-label="Hero">
-          <nxt1-immersive-hero headline="Welcome to 5.0" />
-        </section>
-
-        <section aria-labelledby="audience-heading">
-          <h2 id="audience-heading" class="sr-only">Who NXT1 Is For</h2>
-          <nxt1-hero-header
-            variant="minimal"
-            [seoHeadingLevel]="3"
-            [cards]="audienceCards"
-            [showAnimatedBg]="false"
-            [showLogo]="false"
-            [showPrimaryCta]="false"
-            [showTrustBadges]="false"
-            [showAppBadges]="false"
+          <nxt1-immersive-hero
+            variant="sleek"
+            headline="The World's First Autonomous Sports Platform"
           />
         </section>
 
-        <section aria-labelledby="partners-heading">
-          <h2 id="partners-heading" class="sr-only">Our Partners</h2>
-          <nxt1-partner-marquee
-            title="Trusted By Leading Organizations"
-            subtitle="Partnering with the best to power the future of sports intelligence"
-            label="Our Partners"
-            variant="minimal"
-            [showLabel]="true"
-            [gap]="24"
-          />
-        </section>
+        @defer (on idle; on viewport) {
+          <section aria-labelledby="digital-staff-heading">
+            <h2 id="digital-staff-heading" class="sr-only">Digital Sports Staff</h2>
+            <nxt1-digital-sports-staff-section />
+          </section>
+
+          <section aria-labelledby="capability-graph-heading">
+            <h2 id="capability-graph-heading" class="sr-only">Agent X Capability Network</h2>
+            <nxt1-agent-x-capability-network-section />
+          </section>
+
+          <section aria-labelledby="integrations-heading">
+            <h2 id="integrations-heading" class="sr-only">Seamless Integrations</h2>
+            <nxt1-integration-marquee
+              title="Connect The Apps You Already Use"
+              subtitle="Agent X syncs seamlessly with Hudl, MaxPreps, and your existing tools so you never enter data twice."
+              label="Seamless Integrations"
+              variant="minimal"
+              [showLabel]="true"
+              [gap]="24"
+            />
+          </section>
+        } @placeholder {
+          <div
+            class="landing-section-placeholder landing-section-placeholder--hero-stack"
+            aria-hidden="true"
+          ></div>
+        }
 
         <!-- ═══════════════════════════════════════════════════
              BELOW THE FOLD — Deferred until viewport (performance)
@@ -239,67 +176,34 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
              ═══════════════════════════════════════════════════ -->
 
         <!-- Value Props + Ecosystem -->
-        @defer (on viewport) {
-          <section aria-labelledby="value-prop-heading">
-            <h2 id="value-prop-heading" class="sr-only">Why Choose NXT1</h2>
-            <nxt1-value-prop-comparison />
-          </section>
-
+        @defer (on idle; on viewport) {
           <section aria-labelledby="ecosystem-heading">
             <h2 id="ecosystem-heading" class="sr-only">The NXT1 Ecosystem</h2>
             <nxt1-ecosystem-map />
           </section>
-        } @placeholder {
-          <div class="landing-section-placeholder" aria-hidden="true"></div>
-        }
 
-        <!-- Live Movement Activity -->
-        @defer (on viewport) {
-          <section aria-labelledby="movement-section-title">
-            <nxt1-hero-section
-              [headingLevel]="2"
-              badgeLabel="Live Activity"
-              title="The Movement Is"
-              accentText="Happening Now"
-              subtitle="Real-time intelligence signals from athletes and coaches across the country — offers, graphics, and visibility moving every minute."
-              ariaId="movement-section-title"
-            >
-              <nxt1-movement-section [items]="movementItems" />
-            </nxt1-hero-section>
+          <section aria-labelledby="workflow-showcase-heading">
+            <h2 id="workflow-showcase-heading" class="sr-only">How You Can Use NXT1</h2>
+            <nxt1-agent-x-workflow-showcase-section />
           </section>
-        } @placeholder {
-          <div class="landing-section-placeholder" aria-hidden="true"></div>
-        }
 
-        <!-- Educational Library -->
-        @defer (on viewport) {
-          <section aria-labelledby="educational-library-heading">
-            <h2 id="educational-library-heading" class="sr-only">Educational Library</h2>
-            <nxt1-educational-library [items]="educationalLibraryItems" />
-          </section>
-        } @placeholder {
-          <div class="landing-section-placeholder" aria-hidden="true"></div>
-        }
-
-        <!-- Sports Directory -->
-        @defer (on viewport) {
-          <section aria-labelledby="sports-directory-heading">
-            <h2 id="sports-directory-heading" class="sr-only">Sports Directory</h2>
-            <nxt1-universal-sports-directory />
+          <section aria-labelledby="value-prop-heading">
+            <h2 id="value-prop-heading" class="sr-only">Why Choose NXT1</h2>
+            <nxt1-value-prop-comparison />
           </section>
         } @placeholder {
           <div class="landing-section-placeholder" aria-hidden="true"></div>
         }
 
         <!-- FAQ Section -->
-        @defer (on viewport) {
+        @defer (on idle; on viewport) {
           <section aria-labelledby="faq-heading">
             <h2 id="faq-heading" class="sr-only">Frequently Asked Questions</h2>
             <nxt1-faq-section
               title="Frequently Asked Questions"
-              subtitle="Everything you need to know before getting started on NXT1."
+              subtitle="How NXT1 works for athletes, coaches, directors, and program leaders."
               [items]="faqs"
-              defaultOpenId="open-platform"
+              defaultOpenId="icp"
             />
           </section>
         } @placeholder {
@@ -307,13 +211,13 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
         }
 
         <!-- Final CTA -->
-        @defer (on viewport) {
+        @defer (on idle; on viewport) {
           <section aria-labelledby="landing-final-cta-title">
             <nxt1-cta-banner
               variant="conversion"
               badgeLabel="Join The Revolution"
               title="Stop Competing. Start Dominating."
-              subtitle="Join the NXT1 sports intelligence platform — powered by AI coordinators that build your profile, generate elite highlights, and surface you to college coaches automatically."
+              subtitle="Join the NXT1 sports intelligence platform built for coaches, directors, and program leaders who need one command center for planning, recruiting, player development, content, communications, and day-to-day operations."
               ctaLabel="Create Your NXT1 Account"
               ctaRoute="/auth"
               titleId="landing-final-cta-title"
@@ -326,6 +230,8 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
             aria-hidden="true"
           ></div>
         }
+
+        <nxt1-site-footer-compact />
       </article>
     </main>
   `,
@@ -334,22 +240,36 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
       :host {
         --nxt1-root-shell-max-width: 88rem;
         display: block;
+        width: calc(100% + (var(--shell-content-padding-x, 0px) * 2));
+        max-width: none;
         min-height: 100vh;
         background: var(--nxt1-color-bg-primary);
+        margin-top: calc(-1 * var(--shell-content-padding-top, 0px));
+        margin-inline: calc(-1 * var(--shell-content-padding-x, 0px));
       }
 
-      /* Tighten gap between audience cards and partner marquee */
-      nxt1-partner-marquee {
+      /* Tighten gap between audience cards and integration marquee */
+      nxt1-integration-marquee {
         margin-top: -3rem;
       }
 
       /* Placeholder blocks for @defer — reserves vertical space to prevent CLS */
       .landing-section-placeholder {
-        min-height: 400px;
+        min-height: 96px;
+      }
+
+      .landing-section-placeholder--hero-stack {
+        min-height: 160px;
       }
 
       .landing-section-placeholder--short {
-        min-height: 200px;
+        min-height: 64px;
+      }
+
+      @media (max-width: 767px) {
+        .landing-section-placeholder--hero-stack {
+          min-height: 96px;
+        }
       }
 
       /* Screen reader only utility (in case Tailwind sr-only is not available in this scope) */
@@ -370,31 +290,10 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
 })
 export class LandingComponent implements OnInit {
   private readonly seoService = inject(SeoService);
-  protected readonly audienceCards: HeroAudienceCard[] = [...DEFAULT_AUDIENCE_CARDS];
-  protected readonly educationalLibraryItems: readonly EducationalLibraryItem[] =
-    EDUCATIONAL_LIBRARY_DEFAULT_ITEMS;
   protected readonly faqs = LANDING_FAQS;
-  protected readonly movementItems = MOVEMENT_ITEMS;
   protected readonly ctaAvatars = CTA_AVATARS;
 
   ngOnInit(): void {
-    const educationalLibraryItemList = this.educationalLibraryItems.map((item, index) => ({
-      '@type': 'ListItem',
-      position: index + 1,
-      item: {
-        '@type': 'BlogPosting',
-        headline: item.title,
-        description: item.excerpt,
-        datePublished: item.publishedIsoDate,
-        url: `https://nxt1sports.com${item.href}`,
-        publisher: {
-          '@type': 'Organization',
-          name: 'NXT1 Sports',
-          url: 'https://nxt1sports.com',
-        },
-      },
-    }));
-
     // Build FAQ structured data from component items
     const faqQaEntities = this.faqs.map((faq) => ({
       '@type': 'Question',
@@ -407,9 +306,9 @@ export class LandingComponent implements OnInit {
 
     const seoConfig: SeoConfig = {
       page: {
-        title: 'NXT1 Sports - The Sports Intelligence Platform',
+        title: LANDING_PAGE_TITLE,
         description:
-          'The sports intelligence platform powered by AI coordinators. Autonomous workflows, AI scout reports, and a unified command center for athletes, coaches, scouts, and teams.',
+          'NXT1 is the first AI command center for sports organizations to run their entire program from one system.',
         keywords: [
           'sports intelligence',
           'AI sports platform',
@@ -429,7 +328,27 @@ export class LandingComponent implements OnInit {
           'D1 athletics',
         ],
         canonicalUrl: 'https://nxt1sports.com/',
-        image: 'https://nxt1sports.com/assets/images/og-image.jpg',
+        image: 'https://nxt1sports.com/assets/shared/images/og-image.jpg',
+        imageAlt: 'NXT1 Sports intelligence platform preview',
+      },
+      openGraph: {
+        type: 'website',
+        title: LANDING_PAGE_TITLE,
+        description:
+          'NXT1 is the first AI command center for sports organizations to run their entire program from one system.',
+        url: 'https://nxt1sports.com/',
+        image: 'https://nxt1sports.com/assets/shared/images/og-image.jpg',
+        imageAlt: 'NXT1 Sports intelligence platform preview',
+        imageWidth: 1200,
+        imageHeight: 630,
+      },
+      twitter: {
+        card: 'summary_large_image',
+        title: LANDING_PAGE_TITLE,
+        description:
+          'NXT1 is the first AI command center for sports organizations to run their entire program from one system.',
+        image: 'https://nxt1sports.com/assets/shared/images/og-image.jpg',
+        imageAlt: 'NXT1 Sports intelligence platform preview',
       },
       structuredData: {
         '@context': 'https://schema.org',
@@ -442,7 +361,7 @@ export class LandingComponent implements OnInit {
             url: 'https://nxt1sports.com',
             logo: {
               '@type': 'ImageObject',
-              url: 'https://nxt1sports.com/assets/shared/logo/nxt1-logo-512.png',
+              url: 'https://nxt1sports.com/assets/icons/icon-512x512.png',
               width: 512,
               height: 512,
             },
@@ -453,7 +372,7 @@ export class LandingComponent implements OnInit {
               'https://www.youtube.com/@nxt1sports',
             ],
             description:
-              'The sports intelligence platform powered by AI coordinators — connecting athletes, coaches, scouts, and teams.',
+              'NXT1 is the first AI command center for sports organizations to run their entire program from one system.',
             foundingDate: '2023',
             contactPoint: {
               '@type': 'ContactPoint',
@@ -462,7 +381,7 @@ export class LandingComponent implements OnInit {
             },
           },
 
-          // WebSite — enables sitelinks search box in SERP
+          // WebSite — identifies the canonical NXT1 web property
           {
             '@type': 'WebSite',
             '@id': 'https://nxt1sports.com/#website',
@@ -473,7 +392,7 @@ export class LandingComponent implements OnInit {
               '@type': 'SearchAction',
               target: {
                 '@type': 'EntryPoint',
-                urlTemplate: 'https://nxt1sports.com/explore?q={search_term_string}',
+                urlTemplate: 'https://nxt1sports.com/help-center?q={search_term_string}',
               },
               'query-input': 'required name=search_term_string',
             },
@@ -484,14 +403,16 @@ export class LandingComponent implements OnInit {
             '@type': 'WebPage',
             '@id': 'https://nxt1sports.com/#webpage',
             url: 'https://nxt1sports.com/',
-            name: 'NXT1 Sports - The Sports Intelligence Platform',
+            name: LANDING_PAGE_TITLE,
             isPartOf: { '@id': 'https://nxt1sports.com/#website' },
             about: { '@id': 'https://nxt1sports.com/#organization' },
             description:
-              'The sports intelligence platform powered by AI coordinators. Autonomous workflows, AI scout reports, and a unified command center for athletes, coaches, scouts, and teams.',
+              'NXT1 is the first AI command center for sports organizations to run their entire program from one system.',
             primaryImageOfPage: {
               '@type': 'ImageObject',
-              url: 'https://nxt1sports.com/assets/images/og-image.jpg',
+              url: 'https://nxt1sports.com/assets/shared/images/og-image.jpg',
+              width: 1200,
+              height: 630,
             },
           },
 
@@ -499,51 +420,6 @@ export class LandingComponent implements OnInit {
           {
             '@type': 'FAQPage',
             mainEntity: faqQaEntities,
-          },
-
-          // Success Stories
-          {
-            '@type': 'ItemList',
-            name: 'NXT1 Success Stories',
-            description:
-              'Real Zero to Hero recruiting journeys from athletes and programs using NXT1.',
-            numberOfItems: 2,
-            itemListElement: [
-              {
-                '@type': 'ListItem',
-                position: 1,
-                item: {
-                  '@type': 'Article',
-                  headline: 'The Underrated 2-Star Who Earned a D1 Offer',
-                  description:
-                    'From overlooked prospect to nationally visible recruit by publishing a complete NXT1 profile, consistent vertical highlights, and verified progress updates.',
-                  url: 'https://nxt1sports.com/stories/underrated-2-star-d1-offer',
-                  publisher: { '@id': 'https://nxt1sports.com/#organization' },
-                },
-              },
-              {
-                '@type': 'ListItem',
-                position: 2,
-                item: {
-                  '@type': 'Article',
-                  headline: 'The Small School That Built a National Brand',
-                  description:
-                    'A local program transformed visibility by standardizing athlete storytelling, posting short interview reels, and showcasing recruiting momentum in one destination.',
-                  url: 'https://nxt1sports.com/stories/small-school-national-brand',
-                  publisher: { '@id': 'https://nxt1sports.com/#organization' },
-                },
-              },
-            ],
-          },
-
-          // Educational Library
-          {
-            '@type': 'ItemList',
-            name: 'Educational Library - SEO Content Hub',
-            description:
-              'Long-form recruiting education covering calendars, coach communication templates, and NIL fundamentals.',
-            numberOfItems: educationalLibraryItemList.length,
-            itemListElement: educationalLibraryItemList,
           },
         ],
       },

@@ -55,7 +55,7 @@ import { AgentXService } from '@nxt1/ui/agent-x';
 
 // Core Constants
 import { AUTH_REDIRECTS } from '@nxt1/core/constants';
-import { getWelcomeSlidesForRole, type OnboardingUserType } from '@nxt1/core/api';
+import { getWelcomeSlidesForRole, type OnboardingUserType } from '@nxt1/core';
 import type { AgentGoal, AgentDashboardGoal } from '@nxt1/core';
 
 // App Services
@@ -89,6 +89,8 @@ import { SeoService } from '../../../../core/services';
             #welcomeSlides
             [userRole]="userRole()"
             [firstName]="firstName()"
+            [isLegacy]="isLegacy()"
+            [isMigratedPaidLegacy]="isMigratedPaidLegacy()"
             [showDotNavigation]="false"
             (complete)="onComplete()"
             (skip)="onSkip()"
@@ -157,6 +159,12 @@ export class OnboardingCongratulationsComponent implements OnInit {
   /** Reused across final-slide prewarm and CTA completion to avoid duplicate work. */
   private initialPreparationPromise: Promise<void> | null = null;
 
+  /** Signature of goal selection used for the currently active preparation run. */
+  private initialPreparationGoalsKey: string | null = null;
+
+  /** Monotonic run id so stale async completions cannot flip readiness early. */
+  private initialPreparationRunId = 0;
+
   // ============================================
   // COMPUTED (from AuthFlowService)
   // ============================================
@@ -173,10 +181,33 @@ export class OnboardingCongratulationsComponent implements OnInit {
     return user?.displayName?.split(' ')[0] || null;
   });
 
-  /** Total slides for current role */
+  /** Whether this is a legacy user (triggers 5-slide rebrand flow) */
+  readonly isLegacy = computed(() => {
+    const user = this.authFlow.user();
+    return !!user?._legacyId && !user?.legacyOnboardingCompleted;
+  });
+
+  /** Legacy user that was migrated from paid subscription to wallet usage. */
+  readonly isMigratedPaidLegacy = computed(() => {
+    const user = this.authFlow.user() as {
+      readonly migrationStatus?: string;
+      readonly legacyBillingSource?: string;
+      readonly migrationGrantAmountCents?: number;
+    } | null;
+
+    const migrated = user?.migrationStatus === 'completed';
+    const fromSubscription = user?.legacyBillingSource === 'subscription';
+    const hasGrant =
+      typeof user?.migrationGrantAmountCents === 'number' && user.migrationGrantAmountCents > 0;
+
+    return this.isLegacy() && migrated && fromSubscription && hasGrant;
+  });
+
+  /** Total slides for current role (3 for new users, 5 for legacy) */
   readonly totalSlides = computed(() => {
     const role = this.userRole() ?? 'athlete';
-    return getWelcomeSlidesForRole(role).slides.length;
+    return getWelcomeSlidesForRole(role, this.isLegacy(), this.isMigratedPaidLegacy()).slides
+      .length;
   });
 
   /** Whether current slide is the last */
@@ -216,6 +247,11 @@ export class OnboardingCongratulationsComponent implements OnInit {
   onGoalsChanged(goals: AgentGoal[]): void {
     this.selectedGoals.set(goals);
     this.logger.debug('Goals updated', { count: goals.length });
+
+    // If transition is already visible, immediately prepare using latest goals.
+    if (this.isTransitioningToAgent()) {
+      void this.prepareInitialAgentStateIfNeeded();
+    }
   }
 
   /** Handle complete (CTA button click) */
@@ -239,7 +275,9 @@ export class OnboardingCongratulationsComponent implements OnInit {
     this.currentSlideIndex.set(event.index);
     this.logger.debug('Slide viewed', event);
 
-    if (event.index === this.totalSlides() - 1) {
+    // Prepare agent state on the second-to-last slide (so Agent X loads while user views final slide)
+    const prepSlideIndex = Math.max(0, this.totalSlides() - 2);
+    if (event.index === prepSlideIndex) {
       void this.prepareInitialAgentStateIfNeeded();
     }
   }
@@ -282,25 +320,40 @@ export class OnboardingCongratulationsComponent implements OnInit {
     }
 
     this.isTransitioningToAgent.set(true);
-    this.initialGenerationReady.set(false);
     void this.prepareInitialAgentStateIfNeeded();
   }
 
   private prepareInitialAgentStateIfNeeded(): Promise<void> {
-    if (this.initialPreparationPromise) {
+    const goalsSnapshot = this.selectedGoals();
+    const goalsKey = this.buildGoalsPreparationKey(goalsSnapshot);
+
+    if (this.initialPreparationPromise && this.initialPreparationGoalsKey === goalsKey) {
       return this.initialPreparationPromise;
     }
 
-    this.initialPreparationPromise = this.prepareInitialAgentState().finally(() => {
-      this.initialGenerationReady.set(true);
+    // Either first run or goals changed since prewarm started.
+    this.initialGenerationReady.set(false);
+    this.initialPreparationGoalsKey = goalsKey;
+    this.initialPreparationRunId += 1;
+    const runId = this.initialPreparationRunId;
+
+    this.initialPreparationPromise = this.prepareInitialAgentState(goalsSnapshot).finally(() => {
+      if (runId === this.initialPreparationRunId) {
+        this.initialGenerationReady.set(true);
+      }
     });
 
     return this.initialPreparationPromise;
   }
 
-  private async prepareInitialAgentState(): Promise<void> {
-    const goals = this.selectedGoals();
+  private buildGoalsPreparationKey(goals: readonly AgentGoal[]): string {
+    return goals
+      .map((goal) => `${goal.id}|${goal.text}|${goal.category ?? 'custom'}`)
+      .sort()
+      .join('||');
+  }
 
+  private async prepareInitialAgentState(goals: readonly AgentGoal[]): Promise<void> {
     // Use the transition animation as the visible window, but keep it open
     // until the first briefing has actually finished so the user lands on
     // a hydrated Agent X shell.

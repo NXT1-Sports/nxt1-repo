@@ -1,0 +1,327 @@
+# Agent X: Artifact Delivery Protocol (2026)
+
+**Effective: May 9, 2026**
+
+## The Problem
+
+Agent X coordinators were generating massive structured content (training plans,
+scout reports, recruiting lists, etc.) and outputting it directly into chat
+messages. This resulted in:
+
+- ❌ Thousands of tokens per response
+- ❌ Poor user experience (wall of text)
+- ❌ No portable artifact (user must copy-paste)
+- ❌ Inefficient information delivery
+
+**Example of the WRONG pattern:**
+
+```
+User: "Create a 12-week QB training plan"
+Agent X: [outputs 500+ lines of Markdown tables directly in chat]
+Result: User reads wall of text, tokens wasted, no downloadable file
+```
+
+## The Solution: Artifact Delivery Protocol
+
+**RULE: Best-Fit Artifact First → Chat Summary**
+
+All Agent X coordinators now follow a consistent pattern:
+
+1. **Identify** the output shape the user actually needs
+2. **Generate** the best-fit artifact with the correct tool
+3. **Reference** it in chat with a brief 2-3 sentence summary
+
+**Example of the CORRECT pattern:**
+
+```
+User: "Create a 12-week QB training plan"
+Agent X:
+  [Builds weeks 1-12, phases, targets internally]
+  → Calls dynamic_export to create "QB-OffSeason-Training-Plan.pdf"
+  → Returns chat: "I've created a 12-week QB off-season plan [PDF link].
+                   It includes arm velocity targets, footwork progressions,
+                   and 7-on-7 tournament prep."
+Result: User clicks PDF, downloads, integrates into coaching system. Chat is focused.
+```
+
+```
+User: "Show our recruiting funnel by stage"
+Agent X:
+  [Normalizes the stage/count dataset internally]
+  → Calls generate_chart_visualization to create a hosted chart image
+  → Returns chat: "I've mapped your recruiting funnel [chart link]. It highlights where prospects are dropping between interest and visit stages."
+Result: User gets a visual artifact instead of a verbal chart description.
+```
+
+```
+User: "Diagram our red-zone bunch mesh"
+Agent X:
+  [Builds the concept internally]
+  → Calls create_play_diagram or create_board_diagram
+  → Returns chat: "I've diagrammed the red-zone bunch mesh concept [diagram link]. It includes route spacing, timing, and the primary read progression."
+Result: User gets the actual diagram instead of text describing one.
+```
+
+## Tool Selection
+
+Choose the artifact tool based on output shape:
+
+| Output Shape                      | Primary Tool                                    | Examples                                                                    |
+| --------------------------------- | ----------------------------------------------- | --------------------------------------------------------------------------- |
+| Connected native document/table   | Microsoft 365 tools                             | Word files, Excel-style tables, PowerPoint decks, OneNote-style docs        |
+| Readable document or table export | `dynamic_export`                                | Training plans, reports, rosters, checklists, calendars, comparison tables  |
+| Data visualization / chart        | `generate_chart_visualization`                  | Trendlines, leaderboards, recruiting funnels, pipeline charts, process maps |
+| Play / drill / tactical diagram   | `create_play_diagram`, `create_board_diagram`   | Route trees, formations, coverage diagrams, drill boards                    |
+| Creative media asset              | `generate_graphic`, Runway, FFmpeg, media tools | Commitment graphics, promos, edited clips, thumbnails, captions             |
+
+**Connected workspace first rule:** If the user has Microsoft 365 connected and
+the requested output is best expressed as a native document, spreadsheet, or
+presentation, use the Microsoft workspace tool surface first so the artifact
+lives in Word, Excel, or PowerPoint instead of only as a generic PDF.
+
+## When to Export
+
+**Export these types of content:**
+
+| Content Type                        | Coordinator | Examples                                                            |
+| ----------------------------------- | ----------- | ------------------------------------------------------------------- |
+| Training plans, workout programs    | Strategy    | Off-season progressions, periodization, conditioning phases         |
+| Scout reports, comparisons          | Performance | Physical/Technical/Mental/Potential assessments, prospect tables    |
+| Rosters, stats, imports             | Data        | Scraped profiles, normalized data, stat tables                      |
+| Target college lists, timelines     | Recruiting  | Program comparisons, visit schedules, outreach tracking             |
+| Compliance documents, calendars     | Admin       | Recruiting calendars, dead period schedules, eligibility checklists |
+| Brand guidelines, content calendars | Brand       | Social media calendars, hashtag strategies (NOT graphics/videos)    |
+
+**Direct artifact delivery still applies:**
+
+- Graphics, videos, and media files should be generated by their native tool and
+  referenced in chat
+- Play diagrams should be generated as diagram assets and referenced in chat
+- Charts/graphs should be generated visually and referenced in chat
+- One-off conversational answers can stay in chat when no artifact adds value
+
+## Implementation Across Coordinators
+
+### Strategy Coordinator
+
+**Exports:** Training plans, game plans, playbooks, timelines, goal frameworks
+
+```
+User: "Create a 12-week off-season plan for our football team"
+→ dynamic_export format="pdf"
+→ Chat: "I've created your 12-week plan [PDF]. Each position has specific targets and progression phases."
+```
+
+### Performance Coordinator
+
+**Exports:** Scout reports, prospect comparisons, evaluation matrices
+
+```
+User: "Compare these 5 QB prospects side-by-side"
+→ dynamic_export format="pdf"
+→ Chat: "Scout comparison ready [PDF]. Rankings by arm talent, processing, and athleticism."
+```
+
+### Data Coordinator
+
+**Exports:** Imported rosters, normalized stat tables, data quality reports
+
+```
+User: "Import this roster CSV and normalize the names"
+→ dynamic_export format="csv"
+→ Chat: "Imported 42 athletes [CSV]. Names normalized, duplicates flagged."
+```
+
+### Recruiting Coordinator
+
+**Exports:** Target college lists, outreach schedules, campaign tracking
+
+```
+User: "Build a target list of D1/D2 schools in the Southeast"
+→ dynamic_export format="pdf"
+→ Chat: "Built target list of 30 schools [PDF]. Sorted by football program strength."
+```
+
+### Admin Coordinator
+
+**Exports:** Recruiting calendars, compliance checklists, eligibility reports
+
+```
+User: "Show me the NCAA recruiting calendar for 2026"
+→ dynamic_export format="pdf"
+→ Chat: "2026 recruiting calendar [PDF]. Includes contact windows, dead periods, and portal dates."
+```
+
+### Brand Coordinator
+
+**Exports:** Social media calendars, content strategies (structured only; not
+graphics)
+
+```
+User: "Create a social media content calendar for Q1"
+→ dynamic_export format="pdf"
+→ Chat: "Content calendar ready [PDF]. 12 posts with captions and posting times."
+```
+
+## Technical Requirements
+
+### Visual / Diagram Tools
+
+- `generate_chart_visualization` returns a hosted chart image URL for charts,
+  funnels, leaderboards, and process visuals.
+- `create_play_diagram` and `create_board_diagram` return hosted diagram image
+  URLs for tactical diagrams and drill boards.
+- Native media tools (`generate_graphic`, Runway, FFmpeg, thumbnail/caption
+  tools) return media artifacts that should be referenced directly in chat.
+
+### Tool: `dynamic_export`
+
+```typescript
+dynamic_export({
+  format: "pdf" | "csv",
+  fileName: "descriptive-name.pdf",      // e.g., "QB-Training-Plan.pdf"
+  title: "User-Friendly Title",          // e.g., "12-Week QB Off-Season Training Plan"
+  description: "Optional context",       // e.g., "May 2026 – July/August camp season"
+  columns?: [                            // For CSV format
+    { key: "week", label: "Week" },
+    { key: "focus", label: "Focus Area" },
+    // ...
+  ],
+  rows?: [                               // For CSV format
+    ["1-3", "Foundation"],
+    ["4-7", "Intermediate"],
+    // ...
+  ],
+  bodyParagraphs?: [                    // For PDF format
+    "Introduction paragraph...",
+    "Section paragraph...",
+    // ...
+  ],
+  bulletPoints?: [                       // Optional
+    "Key point 1",
+    "Key point 2",
+    // ...
+  ]
+})
+```
+
+**Output:**
+
+- Returns
+  `{ success: true, data: { downloadUrl: "https://storage.firebase.com/..." } }`
+- URL is a signed Firebase Storage link (valid 7 days)
+- Include this URL in chat response for user download
+
+### Chat Summary Format
+
+After artifact generation, respond to user with this structure:
+
+```
+I've created [asset type] for you [artifact link].
+
+[1-2 sentence summary of what's in the artifact]
+[Optional action suggestion]
+```
+
+**Examples:**
+
+✅ "I've created your 12-week training plan [PDF]. The plan includes arm
+velocity targets, footwork progressions, and 7-on-7 tournament prep schedules
+for each week."
+
+✅ "Built a target list of 30 schools [PDF]. All schools ranked by fit score
+with contact information for coaching staff."
+
+✅ "Here's the recruiting calendar [PDF]. Includes contact windows, dead
+periods, transfer portal dates, and compliance reminders."
+
+## FAQ
+
+**Q: What if the content is very long (100+ pages)?** A: Export it anyway. Use
+dynamic_export with appropriate fileName and structure. The PDF will handle it.
+
+**Q: Can I include images in exports?** A: For now, bodyParagraphs and
+bulletPoints are text-only. Images should be embedded directly in chat, not in
+exports.
+
+**Q: What if the user wants both the export AND inline chat discussion?** A:
+Export first (artifact), then provide 2-3 sentence summary. If the user asks
+follow-up questions about specific content, quote relevant sections from chat
+(don't re-paste the whole export).
+
+**Q: When should I NOT use dynamic_export?** A: When a dedicated artifact tool
+is a better fit, such as charts, diagrams, graphics, videos, thumbnails, or
+other native media outputs.
+
+**Q: How do I know if content should be a PDF vs. CSV?** A: Use PDF for readable
+documents with sections, paragraphs, and formatting. Use CSV for pure data
+tables (stats, rosters, lists).
+
+## System Prompt Guidance (for LLMs)
+
+Every Agent X coordinator system prompt now includes:
+
+```
+## ARTIFACT DELIVERY PROTOCOL (CRITICAL — Must Follow)
+**RULE: Best-Fit Artifact First → Chat Summary**
+
+When a user requests an output that should exist as an artifact:
+- Choose the correct tool for the shape of the output
+- Use `dynamic_export` for docs/tables/exports
+- Use chart tools for visual analytics
+- Use diagram tools for tactical visuals
+- Use native media tools for graphics/video/audio
+
+EXECUTION FLOW:
+  1. Generate the artifact with the correct tool
+  2. In chat: provide a 2-3 sentence summary with artifact link(s)
+  3. Never paste large content blocks directly in chat
+  4. Never describe a chart/diagram/graphic as complete unless the tool actually returned it
+
+KEY: The artifact is the deliverable. The chat is the story.
+```
+
+This directive ensures coordinators prioritize artifact generation over chat
+bloat.
+
+## Planner Agent Direction
+
+The Planner Agent includes this guidance:
+
+```
+11. ARTIFACT DELIVERY PROTOCOL (MANDATORY): When a task will generate a user-facing
+  artifact, add a description directive that selects the correct output tool
+  (dynamic_export, chart visualization, play/board diagram, or native media tool)
+  and tells the coordinator to reference the artifact in the chat summary
+  instead of pasting raw content.
+```
+
+This ensures task planning at the orchestration level guides coordinators toward
+export-first behavior.
+
+## Rollout & Enforcement
+
+- ✅ All coordinator system prompts updated (May 9, 2026)
+- ✅ `dynamic_export` tool fully functional
+- ✅ Chart and diagram tools recognized as first-class artifact outputs
+- ✅ Planner Agent directing export-first tasks
+- ⏳ Monitor coordinator responses for compliance
+- ⏳ Update memory/training if patterns drift
+
+## Success Metrics
+
+After rollout, expect:
+
+- 📉 Average chat message length: ~200 tokens (down from 2000+)
+- 📈 User downloads: structured exports available as artifacts
+- 💾 Artifact reusability: users can integrate PDFs into workflows
+- 🎯 Chat clarity: focused, actionable summaries instead of walls of text
+
+---
+
+**Document Version:** 1.0  
+**Last Updated:** May 9, 2026  
+**Coordinator Coverage:** Strategy, Performance, Data, Recruiting, Admin,
+Brand  
+**Primary Tools:** `dynamic_export`, chart visualization, diagram generation,
+native media tools

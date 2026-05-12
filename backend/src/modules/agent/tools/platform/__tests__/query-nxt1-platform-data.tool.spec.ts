@@ -113,6 +113,7 @@ describe('QueryNxt1PlatformDataTool', () => {
         Organizations: [],
         Posts: [],
         Recruiting: [],
+        TeamStats: [],
         PlayerStats: [],
         PlayerMetrics: [],
         RosterEntries: [],
@@ -150,6 +151,7 @@ describe('QueryNxt1PlatformDataTool', () => {
         },
       ],
       Recruiting: [],
+      TeamStats: [],
       PlayerStats: [],
       PlayerMetrics: [],
       RosterEntries: [],
@@ -169,6 +171,28 @@ describe('QueryNxt1PlatformDataTool', () => {
       expect.objectContaining({ id: 'post-1', type: 'video' }),
       expect.objectContaining({ id: 'post-2', type: 'video' }),
     ]);
+  });
+
+  it('accepts singular entityType aliases like team and maps to teams', async () => {
+    const db = createMockDb({
+      Users: [],
+      Teams: [{ id: 'team-1', name: 'Crown Point Bulldogs', sport: 'Basketball' }],
+      Organizations: [],
+      Posts: [],
+      Recruiting: [],
+      TeamStats: [],
+      PlayerStats: [],
+      PlayerMetrics: [],
+      RosterEntries: [],
+      Events: [],
+    });
+
+    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
+    const result = await tool.execute({ entityType: 'team' });
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['entityType']).toBe('teams');
+    expect((result.data as Record<string, unknown>)['totalCount']).toBe(1);
   });
 
   it('returns a full cross-collection user bundle', async () => {
@@ -198,6 +222,7 @@ describe('QueryNxt1PlatformDataTool', () => {
           collegeName: 'Rice',
         },
       ],
+      TeamStats: [],
       PlayerStats: [
         {
           id: 'stat-1',
@@ -257,6 +282,7 @@ describe('QueryNxt1PlatformDataTool', () => {
       ],
       Posts: [],
       Recruiting: [],
+      TeamStats: [],
       PlayerStats: [],
       PlayerMetrics: [],
       RosterEntries: [],
@@ -270,6 +296,80 @@ describe('QueryNxt1PlatformDataTool', () => {
     );
 
     expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['totalCount']).toBe(1);
+  });
+
+  it('returns team_stats records filtered by teamId', async () => {
+    const db = createMockDb({
+      Users: [],
+      Teams: [],
+      Organizations: [],
+      Posts: [],
+      Recruiting: [],
+      TeamStats: [
+        {
+          id: 'team-stat-1',
+          teamId: 'team-1',
+          teamName: 'Crown Point',
+          sportId: 'Basketball',
+          season: '2025',
+          category: 'offense',
+          totals: { points: 2200 },
+        },
+        {
+          id: 'team-stat-2',
+          teamId: 'team-2',
+          teamName: 'Rival Team',
+          sportId: 'Basketball',
+          season: '2025',
+          category: 'offense',
+          totals: { points: 1800 },
+        },
+      ],
+      PlayerStats: [],
+      PlayerMetrics: [],
+      RosterEntries: [],
+      Events: [],
+    });
+
+    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
+    const result = await tool.execute({ entityType: 'team_stats', teamId: 'team-1' });
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['totalCount']).toBe(1);
+    expect((result.data as Record<string, unknown>)['items']).toEqual([
+      expect.objectContaining({ id: 'team-stat-1', teamId: 'team-1' }),
+    ]);
+  });
+
+  it('accepts teamStats alias and normalizes it to team_stats', async () => {
+    const db = createMockDb({
+      Users: [],
+      Teams: [],
+      Organizations: [],
+      Posts: [],
+      Recruiting: [],
+      TeamStats: [
+        {
+          id: 'team-stat-1',
+          teamId: 'team-1',
+          teamName: 'Crown Point',
+          sportId: 'Basketball',
+          season: '2025',
+          category: 'defense',
+        },
+      ],
+      PlayerStats: [],
+      PlayerMetrics: [],
+      RosterEntries: [],
+      Events: [],
+    });
+
+    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
+    const result = await tool.execute({ entityType: 'teamStats', teamId: 'team-1' });
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['entityType']).toBe('team_stats');
     expect((result.data as Record<string, unknown>)['totalCount']).toBe(1);
   });
 });

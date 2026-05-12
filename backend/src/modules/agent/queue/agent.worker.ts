@@ -40,6 +40,7 @@ import type {
 import { AGENT_X_RUNTIME_CONFIG, AGENT_APPROVAL_TOOL_GROUPS } from '@nxt1/core/ai';
 import {
   extractMediaAttachmentsFromResultData,
+  sanitizeStorageUrlsFromText,
   resolveAgentApprovalCopy,
   resolveAgentSuccessNotificationCopy,
   formatApprovalRichPreview,
@@ -64,6 +65,7 @@ import { AgentPubSubService } from './pubsub.service.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
 import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
+import { withAgentAppConfigForFirestore } from '../config/agent-app-config.js';
 import { isAgentYield } from '../exceptions/agent-yield.exception.js';
 import { AgentEngineError, getAgentEngineErrorCode } from '../exceptions/agent-engine.error.js';
 import { notifyYield } from '../services/yield-notifier.service.js';
@@ -81,6 +83,7 @@ import {
 } from '../services/agent-activity.service.js';
 import { processRecapForUser } from '../services/weekly-recap-email.service.js';
 import { dispatchAgentPush } from '../services/agent-push-adapter.service.js';
+import { getConnectedSourceSyncTracker } from '../services/connected-source-sync-tracker.service.js';
 import { logger } from '../../../utils/logger.js';
 import { AgentGenerationService } from '../services/generation.service.js';
 import { runWithMongoEnvironmentScope } from '../../../middleware/mongo/mongo-scope.context.js';
@@ -105,8 +108,59 @@ const MAX_TIMEOUT_AUTO_CONTINUATIONS =
 const PARENT_OPERATION_POLL_MS = AGENT_X_RUNTIME_CONFIG.operationQueue.parentOperationPollMs;
 const PARENT_OPERATION_MAX_WAIT_MS =
   JOB_TIMEOUT_MS + AGENT_X_RUNTIME_CONFIG.operationQueue.parentOperationTimeoutBufferMs;
-const PARENT_OPERATION_STALE_HEARTBEAT_MS =
-  JOB_TIMEOUT_MS + AGENT_X_RUNTIME_CONFIG.operationQueue.parentOperationTimeoutBufferMs;
+const PARENT_OPERATION_STALE_HEARTBEAT_MS = Math.max(
+  AGENT_X_RUNTIME_CONFIG.operationQueue.viewerHeartbeatFreshnessMs * 5,
+  5 * 60_000
+);
+
+const RESULT_DELIVERABLE_URL_KEYS = [
+  'url',
+  'imageUrl',
+  'videoUrl',
+  'outputUrl',
+  'downloadUrl',
+  'pdfUrl',
+  'exportUrl',
+  'audioUrl',
+  'thumbnailUrl',
+  'chartUrl',
+  'diagramUrl',
+  'fileUrl',
+] as const;
+
+const RESULT_DELIVERABLE_COLLECTION_KEYS = [
+  'files',
+  'attachments',
+  'mediaArtifact',
+  'mediaArtifacts',
+] as const;
+
+function resultContainsDeliverable(value: unknown): boolean {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((entry) => resultContainsDeliverable(entry));
+  }
+
+  const record = value as Record<string, unknown>;
+
+  for (const key of RESULT_DELIVERABLE_URL_KEYS) {
+    const candidate = record[key];
+    if (typeof candidate === 'string' && /^https?:\/\//i.test(candidate.trim())) {
+      return true;
+    }
+  }
+
+  for (const key of RESULT_DELIVERABLE_COLLECTION_KEYS) {
+    if (key in record && resultContainsDeliverable(record[key])) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 function toMillis(value: unknown): number | null {
   if (!value) return null;
@@ -134,26 +188,6 @@ function toMillis(value: unknown): number | null {
   }
 
   return null;
-}
-
-function summarizeToolResult(result: Record<string, unknown>): string {
-  if (Array.isArray(result['items'])) {
-    return `Found ${result['items'].length} result(s)`;
-  }
-  if (Array.isArray(result['views'])) {
-    return `Found ${result['views'].length} data view(s)`;
-  }
-  if (typeof result['count'] === 'number') {
-    return `${result['count']} result(s)`;
-  }
-  if (typeof result['url'] === 'string') {
-    return 'Generated successfully';
-  }
-  if (typeof result['imageUrl'] === 'string') {
-    return 'Image generated';
-  }
-  const keys = Object.keys(result);
-  return keys.length > 0 ? `Returned ${keys.length} field(s)` : 'Completed';
 }
 
 function isJobTimeoutError(err: unknown): err is Error {
@@ -387,7 +421,7 @@ export function buildInlineYieldCard(params: {
   operationId: string;
   threadId?: string;
 }): AgentXRichCard | null {
-  const { yieldPayload, operationId, threadId } = params;
+  const { yieldPayload, operationId } = params;
   const { reason, promptToUser, agentId, pendingToolCall, approvalId } = yieldPayload;
 
   // ── Approval cards ────────────────────────────────────────────────────
@@ -633,28 +667,19 @@ export function buildInlineYieldCard(params: {
     };
   }
 
-  // ── Ask-user / paused cards ────────────────────────────────────────────
-  if (reason === 'needs_input') {
-    // Saved-plan review is handled conversationally: keep the planner card
-    // already emitted by the router, persist the assistant prompt text, and
-    // let the user reply in normal chat. Do not replace that text with an
-    // ask_user input card.
-    if (pendingToolCall?.toolName === 'execute_saved_plan') {
-      return null;
-    }
-
-    return {
-      type: 'ask_user',
-      agentId,
-      title: 'Agent X has a question',
-      payload: {
-        question: promptToUser,
-        ...(threadId ? { threadId } : {}),
-        operationId,
-      },
-    };
-  }
-
+  // ── Ask-user / paused yields ────────────────────────────────────────────
+  // Option B (2026 architectural inversion):
+  // We no longer emit an `ask_user` rich card. The LLM writes the question
+  // as ordinary conversational prose BEFORE calling `ask_user` — that prose
+  // already lives in the streamed assistant message. The yield row itself is
+  // rendered downstream as a thin "waiting for your reply…" affordance whose
+  // label comes from `yieldState.promptToUser` (the short notification label).
+  //
+  // Returning `null` here keeps the executor's stream parts free of an
+  // ask_user card and eliminates the dual representation (card + prose +
+  // yield state) that previously required suppression rules on the client.
+  // Approval / confirmation cards above are unaffected. Saved-plan review
+  // and pure `needs_input` both fall through here.
   return null;
 }
 
@@ -723,6 +748,17 @@ export class AgentWorker {
     job: Job<AgentQueueJobData, AgentQueueJobResult>
   ): FirebaseFirestore.Firestore | undefined {
     return job.data.environment === 'staging' ? this.stagingFirestore : undefined;
+  }
+
+  private async getAgentConfigFirestore(
+    job: Job<AgentQueueJobData, AgentQueueJobResult>
+  ): Promise<FirebaseFirestore.Firestore | undefined> {
+    if (job.data.environment === 'staging') {
+      return this.stagingFirestore;
+    }
+
+    const { getFirestore } = await import('firebase-admin/firestore');
+    return getFirestore();
   }
 
   /** Return the correct Firestore for activity/notification writes. */
@@ -906,6 +942,44 @@ export class AgentWorker {
     }
   }
 
+  private async flushConnectedSourceTerminalStatus(
+    operationId: string,
+    outcome: 'success' | 'error',
+    reason: string
+  ): Promise<void> {
+    try {
+      await getConnectedSourceSyncTracker().flush(operationId, outcome);
+      logger.info('Connected source terminal status flush complete', {
+        operationId,
+        outcome,
+        reason,
+      });
+    } catch (err) {
+      logger.error('Connected source terminal status flush failed', {
+        operationId,
+        outcome,
+        reason,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  private discardConnectedSourceTracking(operationId: string, reason: string): void {
+    try {
+      getConnectedSourceSyncTracker().discard(operationId);
+      logger.info('Connected source tracker discarded', {
+        operationId,
+        reason,
+      });
+    } catch (err) {
+      logger.warn('Connected source tracker discard failed', {
+        operationId,
+        reason,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
   private async continueTimedOutJob(
     job: Job<AgentQueueJobData, AgentQueueJobResult>,
     repo: AgentJobRepository,
@@ -988,6 +1062,12 @@ export class AgentWorker {
         timeoutMessage,
       },
     });
+
+    await this.flushConnectedSourceTerminalStatus(
+      payload.operationId,
+      'error',
+      'timeout_continuation'
+    );
 
     if (iapHoldId) {
       releaseWalletHold(billingDb, iapHoldId).catch((e: unknown) => {
@@ -1291,6 +1371,23 @@ export class AgentWorker {
 
     await this.waitForParentOperationCompletion(repo, payload, jobAbortController.signal);
 
+    // Register connected source targets from enqueue context and stamp
+    // pending immediately once the operation begins execution.
+    const connectedSourceTracker = getConnectedSourceSyncTracker();
+    const trackedTargetCount = connectedSourceTracker.trackFromContext(
+      payload.operationId,
+      payload.context
+    );
+    if (trackedTargetCount > 0) {
+      await connectedSourceTracker.markPending(payload.operationId).catch((err) => {
+        logger.warn('Failed to mark connected source targets pending at operation start', {
+          operationId: payload.operationId,
+          trackedTargetCount,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
+
     if (payload.origin === 'system_cron' && payloadThreadId && this.chatService) {
       try {
         await this.chatService.addMessage({
@@ -1538,6 +1635,39 @@ export class AgentWorker {
         successfulTools.push(event.toolName);
       }
 
+      // ── Emit connect-account card when email tool reports no connected provider ─
+      if (
+        event.type === 'tool_result' &&
+        event.toolSuccess === false &&
+        event.toolName &&
+        (event.toolName === 'send_email' || event.toolName === 'batch_send_email') &&
+        typeof event.toolResult === 'object' &&
+        event.toolResult !== null &&
+        typeof (event.toolResult as Record<string, unknown>)['data'] === 'object' &&
+        (event.toolResult as Record<string, unknown>)['data'] !== null &&
+        ((event.toolResult as Record<string, unknown>)['data'] as Record<string, unknown>)[
+          'requiresEmailConnection'
+        ] === true
+      ) {
+        eventWriter.emit({
+          type: 'card',
+          agentId: event.agentId,
+          cardData: {
+            agentId: event.agentId as AgentIdentifier,
+            type: 'connect-account',
+            title: 'Email Account Required',
+            payload: {
+              reason:
+                'Connect your Gmail or Outlook to send from your own address, or send via NXT1 on your behalf.',
+              connectLabel: 'Connect Gmail or Outlook',
+              fallbackLabel: 'Send via NXT1',
+              pendingTool: event.toolName,
+              suggestedAction: 'connect-account',
+            },
+          },
+        });
+      }
+
       persistedAssistantStream.process(event);
 
       // 1. Firestore (existing — persistence for reconnection/replay)
@@ -1551,13 +1681,16 @@ export class AgentWorker {
 
     try {
       const userFirestore = this.getUserFirestore(job);
-      const routerPromise = this.router.run(
-        payload,
-        onUpdate,
-        userFirestore,
-        onStreamEvent,
-        job.data.environment,
-        jobAbortController.signal
+      const configFirestore = await this.getAgentConfigFirestore(job);
+      const routerPromise = withAgentAppConfigForFirestore(configFirestore, () =>
+        this.router.run(
+          payload,
+          onUpdate,
+          userFirestore,
+          onStreamEvent,
+          job.data.environment,
+          jobAbortController.signal
+        )
       );
       const timeoutMinutes = Math.round(JOB_TIMEOUT_MS / 60_000);
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -1589,6 +1722,16 @@ export class AgentWorker {
             controlledStatus === 'paused'
               ? 'Operation paused by user'
               : 'Operation cancelled by user';
+
+          if (controlledStatus === 'cancelled') {
+            await this.flushConnectedSourceTerminalStatus(
+              payload.operationId,
+              'error',
+              'controlled_cancel'
+            );
+          } else {
+            this.discardConnectedSourceTracking(payload.operationId, 'controlled_pause');
+          }
 
           await job.updateProgress({
             status: controlledStatus,
@@ -1778,6 +1921,39 @@ export class AgentWorker {
             ? ((contextObj as Record<string, unknown>)['threadId'] as string)
             : undefined;
 
+        // ── Option B safety net ────────────────────────────────────────────
+        // The 2-step `ask_user` pattern requires the LLM to stream the full
+        // question as ordinary assistant prose BEFORE invoking `ask_user`.
+        // When the model violates this (calls `ask_user` cold with no prose),
+        // the user would otherwise see only a blank "Waiting for your reply…"
+        // bubble with no question visible. Detect that case and synthesize a
+        // text delta from `promptToUser` so the question reaches the live SSE
+        // stream AND gets accumulated into the persisted partial snapshot.
+        if (yieldPayload.reason === 'needs_input') {
+          const streamedSoFar = persistedAssistantStream.snapshot();
+          const streamedTextLen = streamedSoFar.content.trim().length;
+          const question = (yieldPayload.promptToUser ?? '').trim();
+          // Heuristic: if streamed prose is shorter than 16 chars OR is
+          // clearly missing relative to the question label, fall back to the
+          // tool's `question` arg so the user always sees something readable.
+          if (question.length > 0 && streamedTextLen < 16) {
+            const syntheticDelta: StreamEvent = {
+              type: 'delta',
+              text: question,
+              agentId: yieldPayload.agentId,
+            };
+            // Route through the same callback the executor uses so the text
+            // is (a) appended to `persistedAssistantStream` for persistence
+            // and (b) emitted via the event writer for live SSE + Firestore.
+            onStreamEvent(syntheticDelta);
+            logger.info('Synthesized ask_user fallback prose', {
+              operationId: payload.operationId,
+              streamedTextLen,
+              questionLength: question.length,
+            });
+          }
+        }
+
         // Emit a rich inline card (`confirmation` / `draft` / `ask_user`) so
         // the chat UI renders interactive Approve/Reject buttons or a reply
         // input rather than just a plain assistant text bubble. The card
@@ -1822,6 +1998,16 @@ export class AgentWorker {
             // all streamed tool steps are lost from MongoDB on reload.
             // Uses the same idempotency key as the controlled-abort path —
             // safe because the two paths are mutually exclusive per operation.
+
+            // Finalize any active step the yielding tool created. `ask_user`
+            // never emits a `tool_result` (it throws AgentYieldException), so
+            // its step would otherwise stay in `active`/spinning state forever
+            // on session reload, long after the user has replied. Mark the
+            // pending step as success so the trajectory reads as resolved.
+            if (yieldPayload.reason === 'needs_input') {
+              persistedAssistantStream.finalizeActiveSteps();
+            }
+
             const yieldSnapshot = persistedAssistantStream.snapshot();
             const hasYieldSnapshot =
               yieldSnapshot.content.length > 0 ||
@@ -1874,10 +2060,27 @@ export class AgentWorker {
               threadId,
               userId: payload.userId,
               role: 'assistant',
-              content: yieldPayload.promptToUser,
+              // Option B: for `needs_input` (ask_user) the question text lives
+              // in the preceding assistant prose row (the LLM is instructed to
+              // write the question as ordinary chat copy before invoking
+              // `ask_user`). Persisting an empty `content` here prevents the
+              // yield row from rendering as a duplicate prose bubble on reload.
+              // For `needs_approval`, retain the prompt as content so legacy
+              // approval-resume context surfaces correctly.
+              content: yieldPayload.reason === 'needs_input' ? '' : yieldPayload.promptToUser,
               origin: 'agent_chain',
               agentId: yieldPayload.agentId,
               operationId: payload.operationId,
+              // Store yield reason + promptToUser so the frontend can render the
+              // thin "waiting for your reply…" affordance and distinguish
+              // needs_approval from needs_input on session reload (the in-memory
+              // SSE card is gone after leaving and returning to a session).
+              resultData: {
+                yieldState: {
+                  reason: yieldPayload.reason,
+                  promptToUser: yieldPayload.promptToUser,
+                },
+              },
               // Phase-scoped idempotency: prevents duplicate yield prompts on
               // BullMQ retry. Stable per operation — a given job yields at most
               // once, so the key space is safe.
@@ -1946,6 +2149,11 @@ export class AgentWorker {
           });
         }
 
+        this.discardConnectedSourceTracking(
+          payload.operationId,
+          'yielded_waiting_input_or_approval'
+        );
+
         // Return a clean result so BullMQ marks the job as "completed" (not failed).
         // The actual continuation happens when the user responds via the resume route.
         return {
@@ -2004,6 +2212,12 @@ export class AgentWorker {
           error: fsErr instanceof Error ? fsErr.message : String(fsErr),
         });
       });
+
+      await this.flushConnectedSourceTerminalStatus(
+        payload.operationId,
+        'error',
+        'unhandled_pipeline_failure'
+      );
 
       // Notify the user that their task failed (they shouldn't just see silence)
       try {
@@ -2103,6 +2317,8 @@ export class AgentWorker {
         persistedStatus: pauseCompletionGuard.persistedStatus,
       });
 
+      this.discardConnectedSourceTracking(payload.operationId, 'pause_completion_guard');
+
       return {
         result: {
           summary: 'Operation paused. Resume whenever you are ready.',
@@ -2118,7 +2334,19 @@ export class AgentWorker {
     }
 
     const maxIterationsReached = resultData?.['maxIterationsReached'] === true;
-    const planFailed = resultData?.['operationStatus'] === 'failed';
+    const hasDeliverableArtifact =
+      resultContainsDeliverable(result.artifacts) || resultContainsDeliverable(result.data);
+    const userAlreadyReceivedResponse = resultData?.['user_already_received_response'] === true;
+    const followUpRequired = resultData?.['follow_up_required'] === true;
+    const delegatedResponseAlreadyDelivered = userAlreadyReceivedResponse && !followUpRequired;
+    const planFailed = resultData?.['operationStatus'] === 'failed' && !hasDeliverableArtifact;
+    // Tool failure propagated from the agent runLoop (e.g. an underlying tool
+    // returned `{ success: false }` and the agent had no successful recovery).
+    // Treating this as a terminal failure flips the sidebar / operations log
+    // to a red error state instead of a green check.
+    const toolFailureReported =
+      result.success === false && !hasDeliverableArtifact && !delegatedResponseAlreadyDelivered;
+    const isTerminalFailure = maxIterationsReached || planFailed || toolFailureReported;
     const terminalMessage =
       typeof result.summary === 'string' && result.summary.length > 0
         ? result.summary
@@ -2126,22 +2354,22 @@ export class AgentWorker {
           ? 'The agent reached its maximum iteration limit without completing the task.'
           : planFailed
             ? 'Execution plan failed.'
-            : 'All tasks finished.';
+            : toolFailureReported
+              ? result.errorMessage?.trim() || 'A required tool failed.'
+              : 'All tasks finished.';
     const firstFailedAssignedAgent = (
       resultData?.['firstFailedTask'] as { assignedAgent?: unknown } | undefined
     )?.assignedAgent;
-    const finalAgentId =
-      maxIterationsReached || planFailed
-        ? isAgentIdentifier(firstFailedAssignedAgent)
-          ? firstFailedAssignedAgent
-          : isAgentIdentifier(payload.agent)
-            ? payload.agent
-            : 'router'
+    const finalAgentId = isTerminalFailure
+      ? isAgentIdentifier(firstFailedAssignedAgent)
+        ? firstFailedAssignedAgent
         : isAgentIdentifier(payload.agent)
           ? payload.agent
-          : 'router';
-    const terminalOutcomeCode =
-      maxIterationsReached || planFailed ? 'task_failed' : 'success_default';
+          : 'router'
+      : isAgentIdentifier(payload.agent)
+        ? payload.agent
+        : 'router';
+    const terminalOutcomeCode = isTerminalFailure ? 'task_failed' : 'success_default';
 
     // ── Flush remaining deltas and write terminal events ─────────────────
     //
@@ -2156,7 +2384,7 @@ export class AgentWorker {
     // `AgentJobs/{operationId}` document is updated, leaving the UI in an
     // inconsistent state (SSE says done, Firestore snapshot still shows running).
     await eventWriter.flush().catch(() => undefined);
-    const terminalStatus = maxIterationsReached || planFailed ? 'error' : 'complete';
+    const terminalStatus = isTerminalFailure ? 'error' : 'complete';
     const terminalOperationStatus: 'failed' | 'complete' =
       terminalStatus === 'error' ? 'failed' : 'complete';
 
@@ -2182,8 +2410,8 @@ export class AgentWorker {
     };
 
     const terminalProgress: AgentJobProgress = {
-      status: maxIterationsReached || planFailed ? 'failed' : 'completed',
-      message: maxIterationsReached || planFailed ? terminalMessage : 'All tasks finished.',
+      status: isTerminalFailure ? 'failed' : 'completed',
+      message: isTerminalFailure ? terminalMessage : 'All tasks finished.',
       agentId: finalAgentId,
       outcomeCode: terminalOutcomeCode,
       percent: 100,
@@ -2211,6 +2439,8 @@ export class AgentWorker {
           error: err instanceof Error ? err.message : String(err),
         });
       });
+
+      await this.flushConnectedSourceTerminalStatus(payload.operationId, 'error', 'max_iterations');
 
       // Emit terminal SSE event AFTER persistence so the frontend's SSE-derived
       // state cannot get ahead of the Firestore document.
@@ -2258,6 +2488,8 @@ export class AgentWorker {
         });
       });
 
+      await this.flushConnectedSourceTerminalStatus(payload.operationId, 'error', 'plan_failed');
+
       // Emit terminal SSE event AFTER persistence so the frontend's SSE-derived
       // state cannot get ahead of the Firestore document.
       await emitTerminalOperationEvent('failed');
@@ -2298,12 +2530,30 @@ export class AgentWorker {
     // Persist final result to Firestore.
     // Fail closed: if completion state cannot be persisted, do not continue with
     // success side-effects while the durable job record is inconsistent.
+    //
+    // Status routing: when the agent loop signals `success === false` (an
+    // underlying tool failed, the agent hit max iterations, or a guardrail
+    // aborted execution) route through `markFailed` so the operations log
+    // sidebar shows a red error state instead of a green check. Without this
+    // branch, a job whose only "result" was an apology message ("Sorry, I
+    // couldn't generate that graphic.") would still flip the sidebar to green
+    // on next refresh / session re-entry.
+    const operationFailed =
+      result.success === false && !hasDeliverableArtifact && !delegatedResponseAlreadyDelivered;
+    const failureMessage = operationFailed
+      ? result.errorMessage?.trim() || result.summary?.trim() || 'Operation failed.'
+      : '';
     try {
-      await repo.markCompleted(payload.operationId, result);
+      if (operationFailed) {
+        await repo.markFailed(payload.operationId, failureMessage);
+      } else {
+        await repo.markCompleted(payload.operationId, result);
+      }
     } catch (err: unknown) {
       const persistError = err instanceof Error ? err.message : String(err);
       logger.error('Failed to write completion to Firestore', {
         operationId: payload.operationId,
+        operationFailed,
         error: persistError,
       });
 
@@ -2316,6 +2566,12 @@ export class AgentWorker {
           });
         });
 
+      await this.flushConnectedSourceTerminalStatus(
+        payload.operationId,
+        'error',
+        'completion_persist_failed'
+      );
+
       // Notify clients that the operation failed even though it ran to completion
       // logically — the durable record is the source of truth.
       await emitTerminalOperationEvent('failed');
@@ -2327,9 +2583,18 @@ export class AgentWorker {
       );
     }
 
+    await this.flushConnectedSourceTerminalStatus(
+      payload.operationId,
+      operationFailed ? 'error' : 'success',
+      operationFailed ? 'tool_failure' : 'completed'
+    );
+
     // Firestore write succeeded — now safe to tell SSE subscribers we're done.
     // Frontend `onSnapshot` and SSE listeners will now agree on the terminal state.
-    await emitTerminalOperationEvent('complete');
+    // Emit `failed` (not `complete`) when an underlying tool reported failure so
+    // the sidebar / operations log renders a red error state, matching the
+    // Firestore document we just wrote via `markFailed`.
+    await emitTerminalOperationEvent(operationFailed ? 'failed' : 'complete');
 
     // Billing deduction: use centralized pipeline
     void executeBillingDeduction({
@@ -2463,6 +2728,29 @@ export class AgentWorker {
         const generatedAttachments = resultDataRecord
           ? extractMediaAttachmentsFromResultData(resultDataRecord)
           : [];
+
+        // [DIAG] Temporary diagnostic log — remove after confirming media attachment flow
+        logger.info('[MediaDiag] extractMediaAttachmentsFromResultData result', {
+          operationId: payload.operationId,
+          agentId: finalAgentId,
+          attachmentCount: generatedAttachments.length,
+          attachments: generatedAttachments.map((a) => ({
+            url: a.url?.slice(0, 120),
+            name: a.name,
+            type: a.type,
+          })),
+          resultDataKeys: resultDataRecord ? Object.keys(resultDataRecord) : [],
+          hasImageUrl: typeof resultDataRecord?.['imageUrl'] === 'string',
+          imageUrlPreview:
+            typeof resultDataRecord?.['imageUrl'] === 'string'
+              ? (resultDataRecord['imageUrl'] as string).slice(0, 120)
+              : null,
+          hasFiles: Array.isArray(resultDataRecord?.['files']),
+          filesCount: Array.isArray(resultDataRecord?.['files'])
+            ? (resultDataRecord['files'] as unknown[]).length
+            : 0,
+        });
+
         const attachmentsFromResultData: import('@nxt1/core').AgentXAttachment[] =
           generatedAttachments.map((attachment) => ({
             id: crypto.randomUUID(),
@@ -2480,11 +2768,52 @@ export class AgentWorker {
             sizeBytes: 0,
           }));
 
+        // Normalize persisted prose: remove model-emitted raw storage/diagrams.net URLs
+        // and then append canonical links from structured tool result data.
+        const baseAssistantContent = sanitizeStorageUrlsFromText(persistedAssistantContentForDone, {
+          normalizeWhitespace: false,
+        })
+          .replace(/https:\/\/app\.diagrams\.net\/#R[^\s)\]]+/gi, '')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
+
+        // Ensure generated export/document links are delivered in the same final
+        // assistant message even if the LLM forgets to include them in prose.
+        const missingDocLinks = attachmentsFromResultData
+          .filter((attachment) => attachment.type === 'doc')
+          .filter((attachment) => {
+            const url = attachment.url?.trim();
+            return !!url && !baseAssistantContent.includes(url);
+          })
+          .map(
+            (attachment) => `- [${attachment.name || 'Download file'}](${attachment.url.trim()})`
+          );
+
+        // Ensure generated media is always renderable even when the streamed
+        // prose contains wrapped/truncated storage URLs from model formatting.
+        const missingMediaLinks = attachmentsFromResultData
+          .filter((attachment) => attachment.type === 'image' || attachment.type === 'video')
+          .filter((attachment) => {
+            const url = attachment.url?.trim();
+            return !!url && !baseAssistantContent.includes(url);
+          })
+          .map((attachment) => {
+            const url = attachment.url.trim();
+            return attachment.type === 'image'
+              ? `![${attachment.name || 'Generated image'}](${url})`
+              : `[${attachment.name || 'View video'}](${url})`;
+          });
+
+        const persistedAssistantContentForStorage =
+          missingDocLinks.length > 0 || missingMediaLinks.length > 0
+            ? `${baseAssistantContent}${missingMediaLinks.length > 0 ? `\n\n${missingMediaLinks.join('\n')}` : ''}${missingDocLinks.length > 0 ? `\n\nDownload:\n${missingDocLinks.join('\n')}` : ''}`
+            : baseAssistantContent;
+
         const persistedAssistantMessage = await this.chatService.addMessage({
           threadId,
           userId: payload.userId,
           role: 'assistant',
-          content: persistedAssistantContentForDone,
+          content: persistedAssistantContentForStorage,
           origin: payload.origin,
           agentId,
           operationId: payload.operationId,
@@ -2523,7 +2852,7 @@ export class AgentWorker {
             threadId,
             messageId: persistedAssistantMessageId,
             persistedAt: new Date().toISOString(),
-            summaryPreview: persistedAssistantContentForDone.slice(0, 160),
+            summaryPreview: persistedAssistantContentForStorage.slice(0, 160),
           });
         }
 
@@ -2731,12 +3060,6 @@ export class AgentWorker {
             stage: event.stage,
             status: event.toolSuccess ? 'success' : 'error',
             icon: event.icon,
-            ...(event.toolResult
-              ? {
-                  detail: summarizeToolResult(event.toolResult),
-                  toolResult: event.toolResult,
-                }
-              : {}),
           },
         };
       case 'done': {

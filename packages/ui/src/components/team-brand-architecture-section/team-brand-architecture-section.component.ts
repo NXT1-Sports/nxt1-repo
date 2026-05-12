@@ -54,27 +54,27 @@ export type BrandPipelineStep = BrandPipelineOutputCard;
 const DEFAULT_OUTPUT_CARDS: readonly BrandPipelineOutputCard[] = [
   {
     id: 'output-gameday',
-    prompt: 'Create a football gameday post in team colors.',
+    prompt: "Build tonight's game-day graphic package in our brand system.",
     placeholderTitle: 'Gameday Graphic',
   },
   {
     id: 'output-schedule',
-    prompt: 'Build a clean season schedule layout for social.',
+    prompt: 'Generate the weekly schedule card for every varsity account.',
     placeholderTitle: 'Schedule Poster',
   },
   {
     id: 'output-commitment',
-    prompt: 'Design a commitment announcement with logo lockup.',
-    placeholderTitle: 'Commitment Edit',
+    prompt: 'Create a player spotlight asset using our approved lockups.',
+    placeholderTitle: 'Player Spotlight',
   },
   {
     id: 'output-fundraising',
-    prompt: 'Generate a branded fundraising campaign flyer.',
-    placeholderTitle: 'Fundraising Flyer',
+    prompt: 'Generate a sponsor-ready fundraising and community campaign set.',
+    placeholderTitle: 'Campaign Set',
   },
 ] as const;
 
-const DEFAULT_HOOK_QUOTE = 'Your school looks like a D1 program in 5 seconds.';
+const DEFAULT_HOOK_QUOTE = 'Your department looks coordinated before the first whistle.';
 
 /** Monotonic counter for deterministic SSR-safe IDs. */
 let teamBrandArchitectureInstanceCounter = 0;
@@ -92,19 +92,19 @@ let teamBrandArchitectureInstanceCounter = 0;
       <div class="team-brand-shell">
         <nxt1-section-header
           [titleId]="titleId()"
-          eyebrow="For Programs & Directors"
-          title="One Identity."
-          accentText="Infinite Assets."
+          eyebrow="For Programs & Staff"
+          title="One Command System."
+          accentText="Every Public Asset."
           [headingLevel]="2"
           variant="hero"
-          subtitle="Scale a unified look across your entire athletic program without hiring an agency."
-          support="Use quick prompts to generate polished, consistent creative for every sport in your program."
+          subtitle="Keep every team, campaign, and communication aligned without adding design or operations overhead."
+          support="Agent X turns simple prompts into polished, consistent deliverables for the entire department."
         />
 
         <article class="brand-kit-card" [attr.aria-labelledby]="cardTitleId()">
           <header class="brand-kit-card__header">
-            <p class="brand-kit-card__eyebrow">Brand Kit Integration</p>
-            <h3 class="brand-kit-card__title" [id]="cardTitleId()">Unified Creative Pipeline</h3>
+            <p class="brand-kit-card__eyebrow">Creative Operations</p>
+            <h3 class="brand-kit-card__title" [id]="cardTitleId()">Unified Asset Pipeline</h3>
           </header>
 
           <ul class="brand-output-grid" role="list" aria-label="Four generated creative outputs">

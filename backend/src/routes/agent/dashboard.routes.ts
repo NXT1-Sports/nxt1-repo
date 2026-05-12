@@ -264,9 +264,21 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       }
     }
 
-    // ── Deduplicate by threadId: keep the most recent job per thread ────
-    // jobs[] is already ordered by createdAt DESC from Firestore, so the
-    // first job seen for a threadId is the most recent one.
+    // ── Deduplicate by threadId (professional-app pattern) ────────────────
+    // jobs[] is ordered by createdAt DESC from Firestore, so the first job
+    // seen for a threadId is the most recent and represents the conversation's
+    // current state. All later jobs for the same thread (retries, fan-out
+    // chunks, follow-up turns, child operations from tools) collapse into
+    // that single sidebar row. This mirrors how ChatGPT, Claude, Linear, and
+    // Cursor present agent sessions: one row per conversation.
+    //
+    // Jobs without a threadId (rare — typically orphaned enqueue jobs) keep
+    // their own row keyed by operationId.
+    //
+    // Child operations (context.parentOperationId set) are never rendered as
+    // their own row regardless of thread state — they are sub-steps of the
+    // parent and surface only inside the parent's operations log panel.
+
     const seenThreadIds = new Set<string>();
     const entries: OperationLogEntry[] = [];
     const representedThreadIds = new Set<string>();
@@ -280,6 +292,12 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
             ? (jobContext as { mode: string }).mode
             : undefined
           : undefined;
+      const parentOperationId =
+        jobContext && typeof jobContext === 'object' && 'parentOperationId' in jobContext
+          ? typeof (jobContext as { parentOperationId?: unknown }).parentOperationId === 'string'
+            ? (jobContext as { parentOperationId: string }).parentOperationId
+            : undefined
+          : undefined;
 
       // Option 2 UX: hide background playbook-generation jobs from session history.
       // These jobs do not create a chat thread and open as empty chats when tapped.
@@ -287,14 +305,26 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
         continue;
       }
 
+      // Child operations never surface in the sidebar. They live inside the
+      // parent operation's expanded operations log.
+      if (parentOperationId) {
+        continue;
+      }
+
       const intent = (job['intent'] as string) ?? '';
       if (!intent) continue;
 
+      const status = mapJobStatus(
+        (job['status'] as string) ?? '',
+        (raw: string) => logger.warn('Unknown job status mapped to in-progress', { status: raw }),
+        job['yieldState']
+      );
       const threadId = (job['threadId'] as string) ?? undefined;
       const resolvedTitle = threadId ? (threadTitleById.get(threadId)?.trim() ?? '') : '';
 
-      // If this job belongs to a thread we've already represented, skip it.
-      // This collapses multiple messages in the same conversation into one row.
+      // Single-thread dedupe: one sidebar row per thread, regardless of status.
+      // The newest job (already first thanks to DESC ordering) wins — its
+      // status drives the row's "Processing…", "Awaiting input", etc. badge.
       if (threadId) {
         // Guardrail: ignore stale jobs referencing deleted/archived threads.
         // Only apply when threadQuerySucceeded — distinguishes "query returned 0
@@ -306,11 +336,6 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
         representedThreadIds.add(threadId);
       }
 
-      const status = mapJobStatus(
-        (job['status'] as string) ?? '',
-        (raw: string) => logger.warn('Unknown job status mapped to in-progress', { status: raw }),
-        job['yieldState']
-      );
       const category = inferCategory(intent);
       const createdAt = job['createdAt'] as TimestampLike | undefined;
       const completedAt = job['completedAt'] as TimestampLike | undefined | null;
@@ -318,10 +343,16 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       const jobOrigin = validateJobOrigin(job['origin']);
       const isScheduled = isScheduledOrigin(jobOrigin);
 
+      // Prefer the thread's title (user-meaningful conversation label) over
+      // the per-operation intent. Fall back to the first line of intent when
+      // a title hasn't been generated yet.
+      const intentFirstLine = intent.split('\n')[0] ?? intent;
+      const displayTitle = resolvedTitle || intentFirstLine;
+
       entries.push({
-        id: threadId ?? (job['operationId'] as string) ?? '',
+        id: (job['operationId'] as string) ?? threadId ?? '',
         operationId: (job['operationId'] as string) ?? undefined,
-        title: (resolvedTitle || intent).slice(0, 120),
+        title: displayTitle.slice(0, 120),
         summary:
           result?.summary ??
           (status === 'error' ? ((job['error'] as string) ?? 'Operation failed') : 'Processing...'),

@@ -1298,10 +1298,12 @@ export class AgentXOperationsLogComponent {
    * re-apply the correct title regardless of HTTP response timing.
    */
   private readonly _sseGeneratedTitles = new Map<string, string>();
+  private readonly _sseGeneratedTitlesByOperation = new Map<string, string>();
 
   /**
    * Terminal statuses confirmed via the `operationStatusUpdated$` stream
-   * during this session, keyed by threadId.
+   * during this session, keyed by operationId when available and threadId
+   * only for legacy/thread-only rows.
    *
    * Unlike the per-call `liveStatuses` snapshot inside `silentRefresh()`,
    * this map persists for the lifetime of the component. It prevents a
@@ -1310,6 +1312,10 @@ export class AgentXOperationsLogComponent {
    * that was correctly applied earlier in the same session.
    */
   private readonly _confirmedTerminalStatuses = new Map<string, OperationLogStatus>();
+
+  private getLiveEventKey(operationId: string | undefined, threadId: string | undefined): string {
+    return operationId?.trim() || threadId?.trim() || '';
+  }
 
   /**
    * Per-thread retry cursor used to refresh enqueue entries once backend
@@ -1456,17 +1462,30 @@ export class AgentXOperationsLogComponent {
       .subscribe((evt) => {
         this.logger.debug('Applying title update to operations list', {
           threadId: evt.threadId,
+          operationId: evt.operationId,
           title: evt.title,
         });
         this.breadcrumb.trackStateChange('operations-log:title-updated', {
           threadId: evt.threadId,
+          operationId: evt.operationId,
         });
         // Cache so silentRefresh() can win the race against MongoDB persistence
         this._sseGeneratedTitles.set(evt.threadId, evt.title);
+        if (evt.operationId) {
+          this._sseGeneratedTitlesByOperation.set(evt.operationId, evt.title);
+        }
         this._operations.update((ops) => {
-          const target = ops.find((op) => op.threadId === evt.threadId);
+          // Match by threadId first — once a title is generated for a
+          // conversation it applies to every operation on that thread.
+          // Fall back to operationId for orphan rows (no threadId).
+          const matchesTitleEvent = (op: OperationLogEntry): boolean => {
+            if (evt.threadId && op.threadId === evt.threadId) return true;
+            if (evt.operationId && op.operationId === evt.operationId) return true;
+            return false;
+          };
+          const target = ops.find(matchesTitleEvent);
           if (!target || target.title === evt.title) return ops;
-          return ops.map((op) => (op.threadId === evt.threadId ? { ...op, title: evt.title } : op));
+          return ops.map((op) => (matchesTitleEvent(op) ? { ...op, title: evt.title } : op));
         });
       });
 
@@ -1477,32 +1496,53 @@ export class AgentXOperationsLogComponent {
     this.operationEventService.operationStatusUpdated$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((evt) => {
+        const enqueueWaitingActive = !!this.operationEventService.getEnqueueWaitingEntry(
+          evt.threadId
+        );
+        const effectiveStatus: OperationLogStatus =
+          enqueueWaitingActive && evt.status === 'complete' ? 'in-progress' : evt.status;
+
         this.logger.info('Real-time operation status update', {
           threadId: evt.threadId,
-          status: evt.status,
+          operationId: evt.operationId,
+          status: effectiveStatus,
+          rawStatus: evt.status,
+          enqueueWaitingActive,
         });
-        if (evt.source === 'enqueue') {
+        if (evt.source === 'enqueue' || enqueueWaitingActive) {
           this.scheduleEnqueueHydrationRefresh(evt.threadId);
         }
         this.breadcrumb.trackStateChange('operations-log:status-updated', {
           threadId: evt.threadId,
-          status: evt.status,
+          operationId: evt.operationId,
+          status: effectiveStatus,
         });
         this._operations.update((ops) => {
-          const idx = ops.findIndex((op) => op.threadId === evt.threadId);
+          // Professional-app pattern: one sidebar row per thread (conversation).
+          // Match by threadId first — every status update for any operation on
+          // the same thread (fan-out chunks, retries, follow-up turns, child
+          // tool calls) collapses into that single row. Fall back to
+          // operationId only for orphan rows that have no thread association
+          // (rare — typically pre-thread enqueue jobs).
+          const matchesEvent = (op: OperationLogEntry): boolean => {
+            if (evt.threadId && op.threadId === evt.threadId) return true;
+            if (evt.operationId && op.operationId === evt.operationId) return true;
+            return false;
+          };
+          const idx = ops.findIndex(matchesEvent);
           if (idx >= 0) {
             const prior = ops[idx];
             if (!prior) return ops;
 
-            if (prior.status === evt.status) {
+            if (prior.status === effectiveStatus) {
               return ops;
             }
             // Update existing entry's status in place
             return ops.map((op) =>
-              op.threadId === evt.threadId
+              matchesEvent(op)
                 ? {
                     ...op,
-                    status: evt.status,
+                    status: effectiveStatus,
                   }
                 : op
             );
@@ -1516,11 +1556,14 @@ export class AgentXOperationsLogComponent {
               return ops;
             }
             const newEntry: OperationLogEntry = {
-              id: evt.threadId,
+              id: evt.operationId,
               title:
-                evt.title?.trim() || this._sseGeneratedTitles.get(evt.threadId) || 'Processing…',
+                evt.title?.trim() ||
+                this._sseGeneratedTitlesByOperation.get(evt.operationId) ||
+                this._sseGeneratedTitles.get(evt.threadId) ||
+                'Processing…',
               summary: '',
-              status: evt.status,
+              status: effectiveStatus,
               category: 'system',
               timestamp: evt.timestamp,
               threadId: evt.threadId,
@@ -1530,15 +1573,38 @@ export class AgentXOperationsLogComponent {
             return [newEntry, ...ops];
           }
 
-          // New operation — insert at the top of the list
+          // Child operations (fired by enqueue-heavy-task, scrape fan-out
+          // chunks 2..N, etc.) must never create a new sidebar row. They are
+          // sub-steps of their parent and only surface inside the parent's
+          // operations panel. If no row exists for the thread yet, wait for
+          // canonical HTTP hydration to insert the parent row.
+          if (evt.parentOperationId) {
+            return ops;
+          }
+
+          // New top-level operation — insert at the top of the list.
+          //
+          // Consult the SSE title cache: the backend's prompt-only title
+          // generation runs in parallel with the worker and frequently emits
+          // `title_updated` BEFORE the first operation lifecycle event lands.
+          // When that happens the title arrives, gets cached, but has no row
+          // to attach to. Without this lookup the new row would display
+          // "Processing…" forever (until canonical HTTP hydration races in).
+          const cachedTitle =
+            (evt.operationId
+              ? this._sseGeneratedTitlesByOperation.get(evt.operationId)
+              : undefined) ||
+            this._sseGeneratedTitles.get(evt.threadId) ||
+            evt.title?.trim();
           const newEntry: OperationLogEntry = {
-            id: evt.threadId,
-            title: 'Processing…',
+            id: evt.operationId ?? evt.threadId,
+            title: cachedTitle || 'Processing…',
             summary: '',
-            status: evt.status,
+            status: effectiveStatus,
             category: 'system',
             timestamp: evt.timestamp,
             threadId: evt.threadId,
+            ...(evt.operationId ? { operationId: evt.operationId } : {}),
             icon: 'sparkles',
           };
           return [newEntry, ...ops];
@@ -1546,7 +1612,7 @@ export class AgentXOperationsLogComponent {
 
         // Mark as unread when an operation completes during this session
         // so the green "needs review" border only appears for fresh completions.
-        if (evt.status === 'complete') {
+        if (effectiveStatus === 'complete') {
           this._unreadThreadIds.update((set) => {
             const next = new Set(set);
             next.add(evt.threadId);
@@ -1557,8 +1623,15 @@ export class AgentXOperationsLogComponent {
         // Cache confirmed terminal statuses so silentRefresh() can re-apply
         // them when a stale HTTP response races with a just-fired `done` event.
         const terminalLogStatuses = new Set<OperationLogStatus>(['complete', 'error', 'cancelled']);
-        if (terminalLogStatuses.has(evt.status)) {
-          this._confirmedTerminalStatuses.set(evt.threadId, evt.status);
+        const liveEventKey = this.getLiveEventKey(evt.operationId, evt.threadId);
+        if (terminalLogStatuses.has(effectiveStatus)) {
+          if (liveEventKey) {
+            this._confirmedTerminalStatuses.set(liveEventKey, effectiveStatus);
+          }
+        } else {
+          if (liveEventKey) {
+            this._confirmedTerminalStatuses.delete(liveEventKey);
+          }
         }
       });
   }
@@ -1664,9 +1737,11 @@ export class AgentXOperationsLogComponent {
           const httpThreadIds = new Set(entries.filter((e) => e.threadId).map((e) => e.threadId));
           entries = entries.map((entry) => {
             const live = entry.threadId ? liveStatuses.get(entry.threadId) : undefined;
-            const sseTitle = entry.threadId
-              ? this._sseGeneratedTitles.get(entry.threadId)
-              : undefined;
+            const sseTitle =
+              (entry.operationId
+                ? this._sseGeneratedTitlesByOperation.get(entry.operationId)
+                : undefined) ??
+              (entry.threadId ? this._sseGeneratedTitles.get(entry.threadId) : undefined);
 
             let merged = entry;
 
@@ -1686,9 +1761,9 @@ export class AgentXOperationsLogComponent {
 
             // Apply confirmed terminal status — prevents a stale HTTP `in-progress`
             // from overwriting a terminal status that SSE already delivered this session.
-            const confirmedTerminal = entry.threadId
-              ? this._confirmedTerminalStatuses.get(entry.threadId)
-              : undefined;
+            const confirmedTerminal = this._confirmedTerminalStatuses.get(
+              this.getLiveEventKey(entry.operationId, entry.threadId)
+            );
             if (confirmedTerminal && !terminalStates.has(merged.status)) {
               merged = { ...merged, status: confirmedTerminal };
             }

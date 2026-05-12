@@ -68,6 +68,9 @@ export interface MobileSidebarConfig {
   /** Whether to show sign-in prompt for unauthenticated users */
   readonly showSignIn?: boolean;
 
+  /** Whether to show legal links for unauthenticated users */
+  readonly showLegalLinks?: boolean;
+
   /** Visual variant */
   readonly variant?: 'default' | 'elevated';
 
@@ -113,6 +116,7 @@ export const DEFAULT_MOBILE_SIDEBAR_CONFIG: MobileSidebarConfig = {
   showThemeToggle: true,
   showExplore: false,
   showSignIn: true,
+  showLegalLinks: true,
   variant: 'default',
   width: '280px',
 };

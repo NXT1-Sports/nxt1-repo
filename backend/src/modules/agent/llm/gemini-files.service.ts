@@ -52,6 +52,16 @@ const EXTENSION_TO_MIME: Readonly<Record<string, string>> = {
 /** Gemini model used for video analysis (matches the video_analysis tier). */
 const GEMINI_VIDEO_MODEL = 'gemini-2.5-flash';
 
+/**
+ * Gemini 2.5 Flash wholesale pricing (USD per token).
+ * Source: https://ai.google.dev/pricing — Gemini 2.5 Flash standard tier.
+ * Prompts under 128k tokens: $0.15 / 1M input, $0.60 / 1M output.
+ * We use these rates for all video analyses; the 3× platform margin in
+ * calculateChargeAmount() absorbs any variation from longer-context pricing.
+ */
+const GEMINI_2_5_FLASH_INPUT_COST_PER_TOKEN = 0.15 / 1_000_000; // $0.00000015
+const GEMINI_2_5_FLASH_OUTPUT_COST_PER_TOKEN = 0.6 / 1_000_000; // $0.00000060
+
 /** System prompt for video analysis — same as OpenRouter path. */
 const VIDEO_ANALYSIS_SYSTEM_PROMPT =
   'You are an elite sports video analyst and coaching assistant. ' +
@@ -156,17 +166,31 @@ export class GeminiFilesService {
       outputTokens: usageMeta?.candidatesTokenCount ?? 0,
     });
 
+    const inputTokens = usageMeta?.promptTokenCount ?? 0;
+    const outputTokens = usageMeta?.candidatesTokenCount ?? 0;
+    const costUsd =
+      inputTokens * GEMINI_2_5_FLASH_INPUT_COST_PER_TOKEN +
+      outputTokens * GEMINI_2_5_FLASH_OUTPUT_COST_PER_TOKEN;
+
+    logger.info('[GeminiFilesService] Computed video analysis cost', {
+      sourceUrl,
+      model: GEMINI_VIDEO_MODEL,
+      inputTokens,
+      outputTokens,
+      costUsd,
+    });
+
     return {
       content: content || null,
       toolCalls: [],
       model: GEMINI_VIDEO_MODEL,
       usage: {
-        inputTokens: usageMeta?.promptTokenCount ?? 0,
-        outputTokens: usageMeta?.candidatesTokenCount ?? 0,
+        inputTokens,
+        outputTokens,
         totalTokens: usageMeta?.totalTokenCount ?? 0,
       },
       latencyMs,
-      costUsd: 0, // Gemini direct calls have separate billing; set to 0 for telemetry
+      costUsd,
       finishReason: response.candidates?.[0]?.finishReason ?? 'STOP',
     };
   }

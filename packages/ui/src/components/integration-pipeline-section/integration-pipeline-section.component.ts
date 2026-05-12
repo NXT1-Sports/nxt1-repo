@@ -24,21 +24,21 @@ const SOURCE_NODES: readonly PipelineNode[] = [
   {
     id: 'hudl',
     label: 'Hudl',
-    sublabel: 'Game Film',
+    sublabel: 'Film Library',
     category: 'source',
     iconPath: 'M8 5v14l11-7z',
   },
   {
     id: 'maxpreps',
     label: 'MaxPreps',
-    sublabel: 'Stats & Scores',
+    sublabel: 'Stats Layer',
     category: 'source',
     iconPath: 'M3 3v18h18v-2H5V3H3zm4 12h2V9H7v6zm4 0h2V5h-2v10zm4 0h2V7h-2v8z',
   },
   {
     id: 'roster-data',
     label: 'Roster Data',
-    sublabel: 'Teams & Players',
+    sublabel: 'Athlete Context',
     category: 'source',
     iconPath:
       'M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5s-3 1.34-3 3 1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z',
@@ -46,7 +46,7 @@ const SOURCE_NODES: readonly PipelineNode[] = [
   {
     id: 'schedule',
     label: 'Schedules',
-    sublabel: 'Games & Events',
+    sublabel: 'Program Calendar',
     category: 'source',
     iconPath:
       'M19 3h-1V1h-2v2H8V1H6v2H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zm0 16H5V8h14v11zM9 10H7v2h2v-2zm4 0h-2v2h2v-2zm4 0h-2v2h2v-2z',
@@ -60,32 +60,32 @@ const SOURCE_NODES: readonly PipelineNode[] = [
 const OUTPUT_NODES: readonly PipelineNode[] = [
   {
     id: 'instagram',
-    label: 'Instagram',
-    sublabel: 'Auto-Graphics',
+    label: 'Content',
+    sublabel: 'Brand Assets',
     category: 'output',
     iconPath:
       'M7.8 2h8.4C19.4 2 22 4.6 22 7.8v8.4a5.8 5.8 0 01-5.8 5.8H7.8C4.6 22 2 19.4 2 16.2V7.8A5.8 5.8 0 017.8 2zm-.2 2A3.6 3.6 0 004 7.6v8.8C4 18.39 5.61 20 7.6 20h8.8a3.6 3.6 0 003.6-3.6V7.6C20 5.61 18.39 4 16.4 4H7.6zm9.65 1.5a1.25 1.25 0 110 2.5 1.25 1.25 0 010-2.5zM12 7a5 5 0 110 10 5 5 0 010-10zm0 2a3 3 0 100 6 3 3 0 000-6z',
   },
   {
-    id: 'twitter',
-    label: '𝕏 / Twitter',
-    sublabel: 'Auto-Posts',
+    id: 'briefings',
+    label: 'Briefings',
+    sublabel: 'Staff Playbooks',
     category: 'output',
     iconPath:
-      'M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z',
+      'M19 3h-3.18C15.4 1.84 14.3 1 13 1h-2C9.7 1 8.6 1.84 8.18 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-7-0.75c.41 0 .75.34.75.75s-.34.75-.75.75-.75-.34-.75-.75.34-.75.75-.75zM8 17H6v-2h2v2zm0-4H6v-2h2v2zm0-4H6V7h2v2zm10 8h-8v-2h8v2zm0-4h-8v-2h8v2zm0-4h-8V7h8v2z',
   },
   {
     id: 'email',
-    label: 'Email',
-    sublabel: 'Coach Outreach',
+    label: 'Outreach',
+    sublabel: 'Coach Messaging',
     category: 'output',
     iconPath:
       'M20 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V6a2 2 0 00-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z',
   },
   {
     id: 'profile',
-    label: 'NXT1 Profile',
-    sublabel: 'SEO Landing Page',
+    label: 'Command Centers',
+    sublabel: 'Athlete OS',
     category: 'output',
     iconPath:
       'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1a2 2 0 002 2v1.93zm6.9-2.54A1.98 1.98 0 0016 16h-1v-3a1 1 0 00-1-1H8v-2h2a1 1 0 001-1V7h2a2 2 0 002-2v-.41a7.984 7.984 0 013.9 12.8z',
@@ -105,19 +105,19 @@ let integrationPipelineInstanceCounter = 0;
         <nxt1-section-header
           [titleId]="titleId()"
           eyebrow="Seamless Integration"
-          title="We Scrape. We Enhance."
-          accentText="We Launch."
+          title="Your existing stack becomes"
+          accentText="an operating system."
           [headingLevel]="headingLevel()"
           variant="hero"
           align="center"
-          subtitle="Don't change your workflow. We sync directly with the tools you already use."
+          subtitle="Keep Hudl, MaxPreps, rosters, and schedules. NXT1 turns that raw program data into coordinated work."
         />
 
         <!-- Animated pipeline visual -->
         <div
           class="ip__pipeline"
           role="img"
-          aria-label="Data flows from Hudl, MaxPreps, Roster Data, and Schedules through the Agent X AI Engine and out to Instagram, Twitter, Email, and NXT1 Profiles"
+          aria-label="Data flows from Hudl, MaxPreps, roster data, and schedules through the Agent X AI Engine and out to content, briefings, outreach, and command centers"
         >
           <!-- Source nodes — 2×2 grid -->
           <div class="ip__grid ip__grid--sources">
@@ -225,7 +225,7 @@ let integrationPipelineInstanceCounter = 0;
         <blockquote class="ip__quote">
           <p class="ip__quote-text">
             Your film lives in <strong>Hudl</strong>. Your stats live in <strong>MaxPreps</strong>.
-            Your career lives in <strong class="ip__quote-brand">NXT1</strong>.
+            Your program operations live in <strong class="ip__quote-brand">NXT1</strong>.
           </p>
         </blockquote>
       </div>

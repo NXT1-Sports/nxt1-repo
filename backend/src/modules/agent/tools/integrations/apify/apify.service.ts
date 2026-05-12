@@ -85,6 +85,14 @@ const MAX_INSTAGRAM_RESULTS_LIMIT = 200;
 /** Default Instagram results limit per URL. */
 const DEFAULT_INSTAGRAM_RESULTS_LIMIT = 30;
 
+/**
+ * Reduced result limit used during onboarding to minimise Apify cost and
+ * actor run time when enriching a user’s own profile for the first time.
+ * The Instagram actor enforces a minimum of 1 item (unlike Scweet’s hard
+ * floor of 100), so this is safely reducible.
+ */
+const ONBOARDING_INSTAGRAM_RESULTS_LIMIT = 15;
+
 /** Maximum search results for Instagram hashtag/user/place search. */
 const MAX_INSTAGRAM_SEARCH_LIMIT = 100;
 
@@ -517,6 +525,15 @@ export class ApifyService {
     options: {
       limit?: number;
       newerThan?: string;
+      /**
+       * When true, reduces the result limit to ONBOARDING_INSTAGRAM_RESULTS_LIMIT
+       * (15 posts) to minimise Apify cost and actor run time during onboarding
+       * profile enrichment. Ignored when `limit` is explicitly provided.
+       *
+       * NOTE: Twitter/Scweet enforces a hard minimum of 100 items at the actor
+       * level and cannot be reduced without replacing the actor entirely.
+       */
+      onboardingMode?: boolean;
     } = {}
   ): Promise<ApifyRunResult<InstagramPost>> {
     const sanitized = this.sanitizeInstagramUsernames(usernames);
@@ -525,13 +542,17 @@ export class ApifyService {
     }
 
     const resultsLimit = this.clampInstagramLimit(
-      options.limit ?? DEFAULT_INSTAGRAM_RESULTS_LIMIT,
+      options.limit ??
+        (options.onboardingMode
+          ? ONBOARDING_INSTAGRAM_RESULTS_LIMIT
+          : DEFAULT_INSTAGRAM_RESULTS_LIMIT),
       MAX_INSTAGRAM_RESULTS_LIMIT
     );
 
     logger.info('[ApifyService] Fetching Instagram posts', {
       usernames: sanitized,
       resultsLimit,
+      onboardingMode: options.onboardingMode ?? false,
     });
 
     const directUrls = sanitized.map((u) => `https://www.instagram.com/${u}/`);
@@ -643,28 +664,53 @@ export class ApifyService {
   // ─── Internal ──────────────────────────────────────────────────────────
 
   private async runActor(input: Record<string, unknown>): Promise<ApifyRunResult<ScweetRawItem>> {
+    // Delegate to the non-blocking async variant.
+    return this.runActorAsync(input);
+  }
+
+  /**
+   * Non-blocking Scweet actor execution.
+   *
+   * Unlike `.call()` which holds the HTTP connection open for the full actor
+   * duration (30–90 s), `start()` fires the actor and returns immediately.
+   * `waitForFinish()` then polls Apify until a terminal state is reached,
+   * freeing the Node.js event loop during the wait.
+   *
+   * NOTE: The Scweet actor enforces a hard minimum of 100 items per run
+   * (MIN_ITEMS_PER_RUN). This limit is actor-enforced and cannot be reduced
+   * without replacing the actor entirely.
+   */
+  private async runActorAsync(
+    input: Record<string, unknown>
+  ): Promise<ApifyRunResult<ScweetRawItem>> {
     const startMs = Date.now();
 
     try {
-      const run = await this.client.actor(SCWEET_ACTOR_ID).call(input, {
+      // start() fires the actor asynchronously and returns the run metadata.
+      const run = await this.client.actor(SCWEET_ACTOR_ID).start(input, {
         timeout: ACTOR_CALL_TIMEOUT_SECS,
       });
 
-      const { items } = await this.client.dataset(run.defaultDatasetId).listItems();
+      // Poll until the run reaches a terminal state (succeeded / failed / timed-out).
+      const finished = await this.client.run(run.id).waitForFinish({
+        waitSecs: ACTOR_CALL_TIMEOUT_SECS,
+      });
+
+      const { items } = await this.client.dataset(finished.defaultDatasetId).listItems();
 
       const durationMs = Date.now() - startMs;
 
       logger.info('[ApifyService] Actor run completed', {
-        runId: run.id,
-        datasetId: run.defaultDatasetId,
+        runId: finished.id,
+        datasetId: finished.defaultDatasetId,
         itemCount: items.length,
         durationMs,
       });
 
       return {
         success: true,
-        runId: run.id,
-        datasetId: run.defaultDatasetId,
+        runId: finished.id,
+        datasetId: finished.defaultDatasetId,
         items: items as unknown as readonly ScweetRawItem[],
         itemCount: items.length,
         durationMs,
@@ -853,20 +899,38 @@ export class ApifyService {
   private async runInstagramActor(
     input: Record<string, unknown>
   ): Promise<ApifyRunResult<InstagramRawPost | InstagramRawProfile>> {
+    // Delegate to the non-blocking async variant.
+    return this.runInstagramActorAsync(input);
+  }
+
+  /**
+   * Non-blocking Instagram actor execution.
+   *
+   * Same start() + waitForFinish() pattern as runActorAsync(). The Instagram
+   * scraper actor can run for 30–60 s; this avoids holding the HTTP connection
+   * open for that duration.
+   */
+  private async runInstagramActorAsync(
+    input: Record<string, unknown>
+  ): Promise<ApifyRunResult<InstagramRawPost | InstagramRawProfile>> {
     const startMs = Date.now();
 
     try {
-      const run = await this.client.actor(INSTAGRAM_ACTOR_ID).call(input, {
+      const run = await this.client.actor(INSTAGRAM_ACTOR_ID).start(input, {
         timeout: ACTOR_CALL_TIMEOUT_SECS,
       });
 
-      const { items } = await this.client.dataset(run.defaultDatasetId).listItems();
+      const finished = await this.client.run(run.id).waitForFinish({
+        waitSecs: ACTOR_CALL_TIMEOUT_SECS,
+      });
+
+      const { items } = await this.client.dataset(finished.defaultDatasetId).listItems();
 
       const durationMs = Date.now() - startMs;
 
       logger.info('[ApifyService] Instagram actor run completed', {
-        runId: run.id,
-        datasetId: run.defaultDatasetId,
+        runId: finished.id,
+        datasetId: finished.defaultDatasetId,
         itemCount: items.length,
         durationMs,
         resultsType: input['resultsType'],
@@ -874,8 +938,8 @@ export class ApifyService {
 
       return {
         success: true,
-        runId: run.id,
-        datasetId: run.defaultDatasetId,
+        runId: finished.id,
+        datasetId: finished.defaultDatasetId,
         items: items as unknown as readonly (InstagramRawPost | InstagramRawProfile)[],
         itemCount: items.length,
         durationMs,

@@ -53,6 +53,7 @@ export class DataCoordinatorAgent extends BaseAgent {
       '- Call `ask_user` when required fields are missing and cannot be resolved from context or one deterministic lookup.',
       '- Call `ask_user` before destructive or externally visible actions when intent is ambiguous (delete, publish, send, overwrite, compliance-sensitive action).',
       '- Do NOT call `ask_user` for data already present in task context, prior tool results, or deterministic lookups.',
+      '- 2-Step Pattern (MANDATORY when calling `ask_user`): STEP 1 — write the full question to the user as ordinary conversational prose in your assistant message (include context, options, examples). STEP 2 — THEN invoke `ask_user`; the `question` argument is a SHORT (≤80 chars) notification label, NOT the full question. The yield bubble is a thin "Waiting for your reply…" affordance — the user only sees the question if you wrote it as prose first.',
       '- For low-risk read/processing steps, proceed without asking and keep workflow moving.',
       '- Ask one concise question only, then continue immediately after the user answer.',
       '',
@@ -67,6 +68,26 @@ export class DataCoordinatorAgent extends BaseAgent {
       '8. When the user wants analytics/event data returned as a table, spreadsheet-style view, chart, funnel, pipeline view, or process map, retrieve the summary first with `get_analytics_summary` and then call `generate_chart_visualization` instead of only returning prose.',
       '9. When the user needs imported stats or extracted data shown visually, use `generate_chart_visualization` to turn the normalized dataset into a chart, funnel, pipeline view, process map, or spreadsheet view instead of only returning raw tables.',
       '10. Own data-first visualizations when the chart should reflect scraped, imported, normalized, or analytics-summary records rather than a purely strategic mockup.',
+      '',
+      '## ARTIFACT DELIVERY PROTOCOL (CRITICAL — Must Follow)',
+      '**RULE: Best-Fit Data Artifact First → Chat Summary**',
+      '',
+      "When a user requests ANY of the following, prefer Microsoft 365 document, spreadsheet, or presentation tools FIRST when Microsoft is connected and the output should live in the user's native workspace; otherwise generate the best-fit data artifact first and then reference it in chat:",
+      '- Imported stat tables, normalized rosters, CSV data imports',
+      '- Scraped athlete data summaries, profiles index, multi-athlete comparison tables',
+      '- Data quality reports, duplicate resolution results, identity resolution logs',
+      '- Analytics summaries returned as spreadsheet, table, or chart view',
+      '- Any structured data (rosters, stats, metrics, comparisons, imports)',
+      '',
+      'EXECUTION FLOW:',
+      '  1. Collect and normalize the data first.',
+      '  2. Prefer Microsoft 365 tools for native docs/tables/presentations when available; otherwise choose the correct artifact tool:',
+      '     - `dynamic_export` for CSV/PDF exports, imports, rosters, stat tables, and structured reports',
+      '     - `generate_chart_visualization` for charts, funnels, pipelines, trendlines, and process visuals built from the normalized dataset',
+      '  3. In chat: provide a 2-3 sentence summary with the artifact link(s)',
+      '  4. Never paste large data blocks or describe a chart you did not generate',
+      '',
+      'KEY: The artifact is the deliverable. The chat is the story.',
       '',
       '═══════════════════════════════════════════════════════════════════',
       '## PRIMARY WORKFLOW — Distill → Read → Write (Map-Reduce)',
@@ -89,6 +110,14 @@ export class DataCoordinatorAgent extends BaseAgent {
       'iteration** — do NOT wait for one to finish before starting the next.',
       'Emitting them as parallel tool calls in a single iteration maximises throughput and minimises',
       'total wall-clock time for the user.',
+      '',
+      '### Write Batching Across URLs (CRITICAL for speed)',
+      'When handling **multiple URLs in the same job**, group write calls by tool type — NOT profile-by-profile:',
+      '1. After ALL `read_distilled_section` calls finish for ALL URLs: emit ALL `write_core_identity` calls',
+      '   for every profile in a single parallel iteration.',
+      '2. Then in the next iteration: emit ALL `write_season_stats` calls for every profile.',
+      '3. Continue the same pattern for remaining write tools (`write_combine_metrics`, `write_rankings`, etc.).',
+      'Do NOT process one URL end-to-end before starting the next. Group by tool type, iterate across profiles.',
       '',
       '### Step 1: Scrape & Index',
       'Call `scrape_and_index_profile` with the URL.',
@@ -293,6 +322,12 @@ export class DataCoordinatorAgent extends BaseAgent {
       '## Rules',
       '═══════════════════════════════════════════════════════════════════',
       '',
+      '### Truthfulness and Source Fidelity (CRITICAL)',
+      '- Never fabricate names, roster entries, stats, events, rankings, news, or achievements.',
+      '- Never create placeholder/synthetic players to "complete" a roster.',
+      '- If a roster page returns empty or cannot be parsed, do NOT call `write_roster_entries` with guessed data.',
+      '- In that case, report clearly: "No roster data was available from the source, so roster entries were not written."',
+      '',
       '### Role Locking (CRITICAL)',
       '- If the user is a **coach or director** updating their own account, DO NOT write athletic data (sports[], measurables[], metrics, season stats) to their User doc.',
       '- If a coach/director is explicitly targeting one of their rostered athletes, pass that athlete `userId` to the athlete write tools. Backend authorization will only allow writes for shared active roster scope.',
@@ -455,7 +490,7 @@ export class DataCoordinatorAgent extends BaseAgent {
       '## PLATFORM SEARCH DEAD-END PROTOCOL (CRITICAL)',
       '═══════════════════════════════════════════════════════════════════',
       '',
-      'When using `query_platform_data` or `search_platform_registry` to look up a team,',
+      'When using `query_nxt1_platform_data` or `search_nxt1_platform` to look up a team,',
       'user, or roster by name — follow this strict escalation and STOP when you hit the limit:',
       '',
       '**Attempt 1**: Search with the full name as provided (e.g. "Crown Point Basketball Mens").',
@@ -475,13 +510,13 @@ export class DataCoordinatorAgent extends BaseAgent {
       'NEVER cycle through more than 3 variations of the same lookup. Each empty result wastes an iteration.',
       'The platform uses exact-match collection queries — name spelling variations will not help after 3 tries.',
       '',
-      '## Post-Write Intel Sync (MANDATORY)',
-      'After all profile or team write tools finish, reconcile Intel before you end the task.',
-      '- If no Intel report exists yet for the athlete or team you updated, call `write_intel` immediately.',
+      '## Post-Write Intel Sync (MANDATORY — Athletes Only)',
+      'After athlete profile write tools finish, reconcile Intel before you end the task.',
+      '- If no Intel report exists yet for the athlete you updated, call `write_intel` immediately with entityType "athlete".',
       '- If an Intel report already exists, call `update_intel` only for the sections affected by this run.',
       '- Athlete section map: `write_core_identity` → `agent_x_brief`, `athletic_measurements`, `academic_profile`, `awards_honors`; `write_combine_metrics` → `athletic_measurements`; `write_season_stats` → `season_stats`; `write_recruiting_activity` → `recruiting_activity`; `write_rankings` or `write_awards` → `awards_honors`.',
-      '- Team section map: `write_roster_entries` → `team`; `write_team_stats` → `stats`; `write_schedule` → `schedule`; recruiting writes → `recruiting`; team identity updates → `agent_overview` and `team`.',
-      '- Do this once per updated entity at the end of the write workflow. Do NOT skip Intel reconciliation just because the user did not ask for it explicitly.',
+      '- Do NOT attempt team intel — it is not yet available.',
+      '- Do this once per updated athlete at the end of the write workflow. Do NOT skip Intel reconciliation just because the user did not ask for it explicitly.',
     ].join('\n');
 
     return this.withConfiguredSystemPrompt(prompt);
@@ -502,6 +537,10 @@ export class DataCoordinatorAgent extends BaseAgent {
 
   override getSkillBudget(): number {
     return 3;
+  }
+
+  override getToolConcurrency(): number {
+    return 4;
   }
 
   getModelRouting(): ModelRoutingConfig {

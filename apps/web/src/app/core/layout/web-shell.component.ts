@@ -102,13 +102,11 @@ import {
 import { buildNavigationShellUserData } from '@nxt1/ui/components/user-display';
 import { ProfileService } from '@nxt1/ui/profile';
 // ── Services (separate from component barrel) ──
-import {
-  NxtPlatformService,
-  NxtLoggingService,
-  NxtScrollService,
-  NxtNotificationStateService,
-  NxtToastService,
-} from '@nxt1/ui/services';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtScrollService } from '@nxt1/ui/services/scroll';
+import { NxtNotificationStateService } from '@nxt1/ui/services/notification-state';
+import { NxtToastService } from '@nxt1/ui/services/toast';
 // ── Auth ──
 import { AuthModalService } from '@nxt1/ui/auth';
 // ── Activity (for mark-all-read on /activity route) ──
@@ -117,6 +115,7 @@ import type { TopNavSearchSubmitEvent } from '@nxt1/ui/components/top-nav';
 // ── Usage (for mobile billing actions) ──
 import { UsageService, UsageHelpContentComponent } from '@nxt1/ui/usage';
 import { AgentXControlPanelComponent } from '@nxt1/ui/agent-x';
+import { ManageTeamModalService } from '@nxt1/ui/manage-team';
 
 // ── Invite ──
 import { InviteShellComponent } from '@nxt1/ui/invite';
@@ -194,7 +193,7 @@ function getSportIconName(sportName: string): string {
  * Sport child items — derived from DEFAULT_SPORTS constant in @nxt1/core.
  * All sports from the shared constants are automatically available here.
  */
-const SPORT_CHILD_ITEMS: readonly DesktopSidebarItem[] = DEFAULT_SPORTS.map((sport) => {
+const _SPORT_CHILD_ITEMS: readonly DesktopSidebarItem[] = DEFAULT_SPORTS.map((sport) => {
   const slug = normalizeSportKey(sport.name).replace(/_/g, '-');
   return {
     id: `sport-${slug}`,
@@ -254,71 +253,24 @@ const WEB_LOGGED_OUT_SIDEBAR_SECTIONS: readonly DesktopSidebarSection[] = [
 
 /**
  * Desktop header navigation items — logged-out only.
- * Shows Athletes, Programs, and Sports dropdowns in the top bar.
+ * Simple navigation: Agent X and Programs (no dropdowns, no icons).
  * When logged in, the header only shows: Search, Notifications, User Menu.
  */
 const LOGGED_OUT_HEADER_NAV_ITEMS: TopNavItem[] = [
   {
+    id: 'nav-agent-x',
+    label: 'Agent X',
+    route: '/agent-x',
+  },
+  {
     id: 'nav-programs',
     label: 'Programs',
-    icon: 'users',
-    children: [
-      { id: 'team-platform', label: 'Team Platform', icon: 'users', route: '/team-platform' },
-      { id: 'team-ai', label: 'AI For Coaches', icon: 'agent-x', route: '/ai-coaches' },
-      { id: 'team-admin', label: 'Administration', icon: 'clipboard', route: '/team-admin' },
-      { id: 'team-content', label: 'Content Creation', icon: 'videocam', route: '/team-content' },
-      { id: 'team-website', label: 'Team Website', icon: 'link', route: '/team-website' },
-      { id: 'team-management', label: 'Management', icon: 'settings', route: '/team-management' },
-      {
-        id: 'team-recruiting',
-        label: 'Discovery',
-        icon: 'graduationCap',
-        route: '/team-recruiting',
-      },
-    ],
-  },
-  {
-    id: 'nav-athletes',
-    label: 'Athletes',
-    icon: 'athlete',
-    children: [
-      { id: 'athlete-platform', label: 'Athlete Platform', icon: 'athlete', route: '/athletes' },
-      { id: 'athlete-profiles', label: 'Super Profile', icon: 'link', route: '/super-profiles' },
-      { id: 'athlete-ai', label: 'AI for Athletes', icon: 'agent-x', route: '/ai-athletes' },
-      {
-        id: 'athlete-recruiting',
-        label: 'Discovery',
-        icon: 'graduationCap',
-        route: '/recruiting-athletes',
-      },
-      {
-        id: 'athlete-content',
-        label: 'Content Creation',
-        icon: 'videocam',
-        route: '/content-creation-athletes',
-      },
-      {
-        id: 'athlete-media',
-        label: 'Media & Coverage',
-        icon: 'newspaper',
-        route: '/media-coverage',
-      },
-      { id: 'athlete-nil', label: 'NIL', icon: 'creditCard', route: '/nil' },
-    ],
-  },
-  {
-    id: 'nav-sports',
-    label: 'Sports',
-    icon: 'trophy',
-    children: SPORT_CHILD_ITEMS.map((sport) => ({
-      id: sport.id,
-      label: sport.label,
-      icon: sport.icon,
-      route: sport.route,
-    })),
+    route: '/programs',
   },
 ];
 
+// Mobile sidebar items derive from LOGGED_OUT_HEADER_NAV_ITEMS
+// Since header nav is now simple (no dropdowns, no icons), mobile sidebar uses same items
 const LOGGED_OUT_MOBILE_SIDEBAR_ITEMS: readonly DesktopSidebarItem[] =
   LOGGED_OUT_HEADER_NAV_ITEMS.map((item) => ({
     id: item.id,
@@ -327,15 +279,6 @@ const LOGGED_OUT_MOBILE_SIDEBAR_ITEMS: readonly DesktopSidebarItem[] =
     route: item.route,
     href: item.href,
     ariaLabel: item.ariaLabel,
-    children: item.children?.map((child) => ({
-      id: child.id,
-      label: child.label,
-      icon: child.icon ?? 'link',
-      route: child.route,
-      href: child.href,
-      ariaLabel: child.ariaLabel,
-      disabled: child.disabled,
-    })),
     disabled: item.disabled,
   }));
 
@@ -391,20 +334,47 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
         between SSR and client (both render authenticated when cookie exists),
         so no risk of hydration mismatch
     -->
-    <div class="shell">
-      <!-- DESKTOP: Fixed Sidebar — CSS-hidden below 768px -->
-      <nxt1-desktop-sidebar
-        [sections]="sidebarSections()"
-        [user]="sidebarUserData()"
-        [config]="sidebarConfig()"
-        (itemSelect)="onSidebarItemSelect($event)"
-        (userClick)="onSidebarUserClick($event)"
-        (logoClick)="onLogoClick()"
-        (collapseChange)="onSidebarCollapseChange($event)"
-      />
+    <div
+      class="shell"
+      [class.shell--authenticated]="isAuthenticated()"
+      [class.shell--logged-out]="!isAuthenticated()"
+    >
+      <!-- DESKTOP: Fixed Sidebar — authenticated users only; CSS-hidden below 768px -->
+      @if (showDesktopSidebar()) {
+        <nxt1-desktop-sidebar
+          class="shell__desktop-sidebar"
+          [sections]="sidebarSections()"
+          [user]="sidebarUserData()"
+          [config]="sidebarConfig()"
+          (itemSelect)="onSidebarItemSelect($event)"
+          (userClick)="onSidebarUserClick($event)"
+          (logoClick)="onLogoClick()"
+          (collapseChange)="onSidebarCollapseChange($event)"
+        />
+      }
+
+      @if (showLoggedOutPlatformBanner()) {
+        <aside
+          class="platform-promo platform-promo--mobile"
+          [class.platform-promo--hidden]="platformBannerScrolledAway()"
+          aria-label="NXT1 platform announcement"
+        >
+          <div
+            class="platform-promo__inner platform-promo__inner--mobile"
+            [class.platform-promo__inner--hidden]="platformBannerScrolledAway()"
+          >
+            <div class="platform-promo__message platform-promo__message--mobile">
+              <span class="platform-promo__status" aria-hidden="true"></span>
+              <span class="platform-promo__label">New NXT1 is live.</span>
+              <span class="platform-promo__copy">Agent X is ready to work.</span>
+            </div>
+          </div>
+        </aside>
+      }
 
       <!-- MOBILE: Top Header Bar — CSS-hidden at 768px+ -->
       <nxt1-mobile-header
+        class="shell__mobile-header"
         [config]="mobileHeaderConfig()"
         [user]="mobileHeaderUserData()"
         (menuClick)="onMobileMenuToggle()"
@@ -425,6 +395,7 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
 
       <!-- MOBILE: Slide-Out Drawer — CSS-hidden at 768px+, self-manages open/close -->
       <nxt1-mobile-sidebar
+        class="shell__mobile-sidebar"
         [sections]="mobileSidebarSections()"
         [user]="mobileSidebarUserData()"
         [config]="mobileSidebarConfig()"
@@ -439,8 +410,35 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
 
       <!-- MAIN CONTENT — ALWAYS VISIBLE, ALWAYS INDEXABLE -->
       <div class="shell__main">
+        @if (showLoggedOutPlatformBanner()) {
+          <aside
+            class="platform-promo"
+            [class.platform-promo--hidden]="platformBannerScrolledAway()"
+            aria-label="NXT1 platform announcement"
+          >
+            <div
+              class="platform-promo__inner"
+              [class.platform-promo__inner--hidden]="platformBannerScrolledAway()"
+            >
+              <div class="platform-promo__message">
+                <span class="platform-promo__status" aria-hidden="true"></span>
+                <span class="platform-promo__label">New NXT1 Platform</span>
+                <span class="platform-promo__copy">
+                  Agent X now executes film, creative, recruiting, and staff workflows from one
+                  command center.
+                </span>
+              </div>
+
+              <button type="button" class="platform-promo__button" (click)="onPlatformPromoClick()">
+                Explore Agent X
+              </button>
+            </div>
+          </aside>
+        }
+
         <!-- DESKTOP: Header bar — CSS-hidden below 768px -->
         <nxt1-header
+          class="shell__desktop-header"
           [items]="headerItems()"
           [user]="headerUserData()"
           [isAuthenticated]="topNavIsAuthenticated()"
@@ -470,13 +468,19 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
              This removes ~610 lines of component code from the eager shell chunk. -->
         @defer (when notificationPopoverOpen()) {
           <app-notification-popover
+            class="shell__notification-popover"
             [isOpen]="notificationPopoverOpen()"
             (closePopover)="closeNotificationPopover()"
           />
         }
 
         <!-- PAGE CONTENT — Never gated by @if or display:none -->
-        <main class="shell__content" [class.shell__content--has-footer]="showMobileFooter()">
+        <main
+          class="shell__content"
+          [class.shell__content--has-footer]="showMobileFooter()"
+          [class.shell__content--full-bleed]="contentUsesFullBleed()"
+          (scroll)="onShellContentScroll($event)"
+        >
           <router-outlet />
         </main>
       </div>
@@ -484,6 +488,7 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
       <!-- MOBILE: Bottom Tab Bar — CSS-hidden at 768px+, auth-gated -->
       @if (showMobileFooter()) {
         <nxt1-mobile-footer
+          class="shell__mobile-footer"
           [tabs]="footerTabs()"
           [activeTabId]="activeTabId()"
           [config]="footerConfig()"
@@ -560,7 +565,7 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
       /* ============================================
          HEADER (Desktop)
          ============================================ */
-      nxt1-header {
+      .shell__desktop-header {
         flex-shrink: 0;
         z-index: 40;
       }
@@ -568,7 +573,7 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
       /* ============================================
          NOTIFICATION POPOVER (Desktop)
          ============================================ */
-      app-notification-popover {
+      .shell__notification-popover {
         z-index: 45;
       }
 
@@ -591,10 +596,33 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
         flex-direction: column;
       }
 
+      .shell__content--full-bleed {
+        scrollbar-gutter: auto;
+      }
+
+      .platform-promo {
+        display: none;
+      }
+
+      @media (min-width: 768px) {
+        .platform-promo--mobile {
+          display: none !important;
+        }
+
+        .shell__content--full-bleed {
+          scrollbar-width: none;
+        }
+
+        .shell__content--full-bleed::-webkit-scrollbar {
+          width: 0;
+          height: 0;
+        }
+      }
+
       /* ============================================
          MOBILE HEADER (sticky)
          ============================================ */
-      nxt1-mobile-header {
+      .shell__mobile-header {
         flex-shrink: 0;
         z-index: 40;
       }
@@ -603,14 +631,14 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
          MOBILE SIDEBAR (overlay drawer)
          Component manages its own transform/visibility.
          ============================================ */
-      nxt1-mobile-sidebar {
+      .shell__mobile-sidebar {
         /* positioned by component — no layout styles needed */
       }
 
       /* ============================================
          MOBILE FOOTER
          ============================================ */
-      nxt1-mobile-footer {
+      .shell__mobile-footer {
         --nxt1-footer-bottom: 28px;
         --nxt1-footer-left: 16px;
         --nxt1-footer-right: 16px;
@@ -639,11 +667,126 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
           flex-direction: column;
         }
 
-        /* Hide desktop navigation chrome */
-        nxt1-desktop-sidebar,
-        nxt1-header,
-        app-notification-popover {
+        /* Hide desktop navigation chrome for authenticated app pages.
+           Logged-out app/marketing pages keep the shared desktop header on mobile. */
+        .shell__desktop-sidebar,
+        .shell__notification-popover {
           display: none !important;
+        }
+
+        .shell--logged-out .shell__desktop-header,
+        .shell--authenticated .shell__mobile-header {
+          display: block !important;
+        }
+
+        .shell--authenticated .shell__desktop-header,
+        .shell--logged-out .shell__mobile-header,
+        .shell--logged-out .shell__mobile-sidebar {
+          display: none !important;
+        }
+
+        .platform-promo--mobile {
+          display: block;
+          flex-shrink: 0;
+          max-height: 42px;
+          overflow: hidden;
+          border-bottom: 1px solid var(--nxt1-color-border-subtle);
+          background:
+            linear-gradient(
+              90deg,
+              color-mix(in srgb, var(--nxt1-color-primary) 14%, transparent),
+              transparent 54%,
+              color-mix(in srgb, var(--nxt1-color-secondary) 10%, transparent)
+            ),
+            var(--nxt1-color-bg-primary);
+          transition:
+            max-height var(--nxt1-duration-normal, 220ms) var(--nxt1-easing-standard, ease),
+            border-color var(--nxt1-duration-normal, 220ms) var(--nxt1-easing-standard, ease);
+        }
+
+        .platform-promo--mobile.platform-promo--hidden {
+          max-height: 0;
+          border-bottom-color: transparent;
+        }
+
+        .platform-promo__inner--mobile {
+          min-height: 42px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: var(--nxt1-spacing-2);
+          padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+          opacity: 1;
+          transform: translateY(0);
+          transition:
+            opacity var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-standard, ease),
+            transform var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-standard, ease);
+        }
+
+        .platform-promo__inner--hidden {
+          opacity: 0;
+          pointer-events: none;
+          transform: translateY(-8px);
+        }
+
+        .platform-promo__message--mobile {
+          min-width: 0;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: var(--nxt1-spacing-1_5, 6px);
+          color: var(--nxt1-color-text-secondary);
+          font-family: var(--nxt1-fontFamily-brand);
+          font-size: var(--nxt1-fontSize-xs);
+          font-weight: var(--nxt1-fontWeight-medium);
+          line-height: var(--nxt1-lineHeight-normal);
+          text-align: center;
+        }
+
+        .platform-promo__message--mobile .platform-promo__status {
+          width: 7px;
+          height: 7px;
+          flex: 0 0 auto;
+          border-radius: var(--nxt1-borderRadius-full);
+          background: var(--nxt1-color-primary);
+          box-shadow: 0 0 0 3px color-mix(in srgb, var(--nxt1-color-primary) 14%, transparent);
+        }
+
+        .platform-promo__message--mobile .platform-promo__label {
+          flex: 0 0 auto;
+          color: var(--nxt1-color-text-primary);
+          font-weight: var(--nxt1-fontWeight-semibold);
+        }
+
+        .platform-promo__message--mobile .platform-promo__copy {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .platform-promo--mobile .platform-promo__button {
+          flex: 0 0 auto;
+          min-height: 26px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border: 1px solid color-mix(in srgb, var(--nxt1-color-primary) 44%, transparent);
+          border-radius: var(--nxt1-borderRadius-full);
+          padding: var(--nxt1-spacing-1) var(--nxt1-spacing-2_5, 10px);
+          background: color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent);
+          color: var(--nxt1-color-primary);
+          font-family: var(--nxt1-fontFamily-brand);
+          font-size: var(--nxt1-fontSize-xs);
+          font-weight: var(--nxt1-fontWeight-semibold);
+          line-height: var(--nxt1-lineHeight-normal);
+          cursor: pointer;
+        }
+
+        @media (max-width: 374px) {
+          .platform-promo__message--mobile .platform-promo__copy {
+            display: none;
+          }
         }
 
         /* Main fills remaining height below mobile header */
@@ -670,15 +813,120 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
       /* ─── DESKTOP / TABLET (≥768px) ─── */
       @media (min-width: 768px) {
         /* Hide mobile navigation chrome */
-        nxt1-mobile-header,
-        nxt1-mobile-sidebar,
-        nxt1-mobile-footer {
+        .shell__mobile-header,
+        .shell__mobile-sidebar,
+        .shell__mobile-footer {
           display: none !important;
         }
 
         /* Ensure no footer padding on desktop */
         .shell__content--has-footer {
           padding-bottom: 0;
+        }
+
+        .platform-promo {
+          display: block;
+          flex-shrink: 0;
+          max-height: 44px;
+          overflow: hidden;
+          border-bottom: 1px solid var(--nxt1-color-border-subtle);
+          background:
+            linear-gradient(
+              90deg,
+              color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent),
+              transparent 36%,
+              color-mix(in srgb, var(--nxt1-color-secondary) 10%, transparent)
+            ),
+            var(--nxt1-color-bg-primary);
+          transition:
+            max-height var(--nxt1-duration-normal, 220ms) var(--nxt1-easing-standard, ease),
+            border-color var(--nxt1-duration-normal, 220ms) var(--nxt1-easing-standard, ease);
+        }
+
+        .platform-promo--hidden {
+          max-height: 0;
+          border-bottom-color: transparent;
+        }
+
+        .platform-promo__inner {
+          min-height: 40px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: var(--nxt1-spacing-4);
+          padding: var(--nxt1-spacing-2) var(--nxt1-spacing-5);
+          opacity: 1;
+          transform: translateY(0);
+          transition:
+            opacity var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-standard, ease),
+            transform var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-standard, ease);
+        }
+
+        .platform-promo__inner--hidden {
+          opacity: 0;
+          pointer-events: none;
+          transform: translateY(-8px);
+        }
+
+        .platform-promo__message {
+          min-width: 0;
+          display: inline-flex;
+          align-items: center;
+          gap: var(--nxt1-spacing-2);
+          color: var(--nxt1-color-text-secondary);
+          font-family: var(--nxt1-fontFamily-brand);
+          font-size: var(--nxt1-fontSize-sm);
+          font-weight: var(--nxt1-fontWeight-medium);
+          line-height: var(--nxt1-lineHeight-normal);
+        }
+
+        .platform-promo__status {
+          width: 8px;
+          height: 8px;
+          flex: 0 0 auto;
+          border-radius: var(--nxt1-borderRadius-full);
+          background: var(--nxt1-color-primary);
+          box-shadow: 0 0 0 4px color-mix(in srgb, var(--nxt1-color-primary) 14%, transparent);
+        }
+
+        .platform-promo__label {
+          flex: 0 0 auto;
+          color: var(--nxt1-color-text-primary);
+          font-weight: var(--nxt1-fontWeight-semibold);
+        }
+
+        .platform-promo__copy {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .platform-promo__button {
+          flex: 0 0 auto;
+          min-height: 28px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          border: 1px solid color-mix(in srgb, var(--nxt1-color-primary) 46%, transparent);
+          border-radius: var(--nxt1-borderRadius-full);
+          padding: var(--nxt1-spacing-1) var(--nxt1-spacing-3);
+          background: color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent);
+          color: var(--nxt1-color-primary);
+          font-family: var(--nxt1-fontFamily-brand);
+          font-size: var(--nxt1-fontSize-xs);
+          font-weight: var(--nxt1-fontWeight-semibold);
+          line-height: var(--nxt1-lineHeight-normal);
+          cursor: pointer;
+          transition:
+            background-color var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-standard, ease),
+            border-color var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-standard, ease),
+            transform var(--nxt1-duration-fast, 150ms) var(--nxt1-easing-standard, ease);
+        }
+
+        .platform-promo__button:hover {
+          background: color-mix(in srgb, var(--nxt1-color-primary) 18%, transparent);
+          border-color: var(--nxt1-color-primary);
+          transform: translateY(-1px);
         }
       }
 
@@ -714,6 +962,7 @@ export class WebShellComponent {
   private readonly scrollService = inject(NxtScrollService);
   private readonly badgeCount = inject(BadgeCountService);
   private readonly profileActions = inject(ProfilePageActionsService);
+  private readonly manageTeamModal = inject(ManageTeamModalService);
   private readonly profileService = inject(ProfileService);
   private readonly inviteOverlay = inject(NxtOverlayService);
   private readonly notificationState = inject(NxtNotificationStateService);
@@ -817,7 +1066,7 @@ export class WebShellComponent {
   readonly headerConfig = computed<TopNavConfig>(() => {
     return createTopNavConfig({
       variant: 'default',
-      showLogo: false, // Sidebar has logo
+      showLogo: !this.showDesktopSidebar(),
       showSearch: false,
       showNotifications: true,
       notificationCount: this.badgeCount.totalUnread(),
@@ -893,20 +1142,9 @@ export class WebShellComponent {
       return;
     }
 
-    if (route && route !== '/profile') {
-      await this.router.navigateByUrl(route);
-      return;
-    }
-
-    await this.authFlow.refreshUserProfile();
-    const refreshedRoute = this._userDisplayContext()?.profileRoute;
-
-    if (refreshedRoute && refreshedRoute !== '/profile') {
-      await this.router.navigateByUrl(refreshedRoute);
-      return;
-    }
-
-    this.logger.warn('Team route unavailable for coach/director avatar navigation');
+    const activeSportIndex = this.authFlow.user()?.activeSportIndex ?? 0;
+    const teamId = this.resolveTeamIdForSportIndex(activeSportIndex);
+    await this.manageTeamModal.open({ teamId: teamId ?? undefined });
   }
 
   private async switchOwnSportProfile(profile: SidenavSportProfile): Promise<void> {
@@ -942,6 +1180,11 @@ export class WebShellComponent {
     if (this._currentRoute() === '/profile') {
       await this.profileService.setActiveSportIndex(sportIndex);
       await this.authFlow.refreshUserProfile();
+
+      if (this._userDisplayContext()?.isTeamRole) {
+        const teamId = this.resolveTeamIdForSportIndex(sportIndex);
+        await this.manageTeamModal.open({ teamId: teamId ?? undefined });
+      }
       return;
     }
 
@@ -966,6 +1209,12 @@ export class WebShellComponent {
     // sport label, and avatar immediately reflect the newly selected sport —
     // no wait for refreshUserProfile() to round-trip from the backend.
     this.authFlow.patchUser({ activeSportIndex: sportIndex });
+
+    if (this._userDisplayContext()?.isTeamRole) {
+      const teamId = this.resolveTeamIdForSportIndex(sportIndex);
+      await this.manageTeamModal.open({ teamId: teamId ?? undefined });
+      return;
+    }
 
     if (targetRoute) {
       await this.router.navigateByUrl(targetRoute);
@@ -1017,6 +1266,23 @@ export class WebShellComponent {
     return resolved?.path ?? null;
   }
 
+  private resolveTeamIdForSportIndex(sportIndex: number): string | null {
+    const user = this.authFlow.user() as unknown as {
+      readonly sports?: ReadonlyArray<{
+        readonly team?: {
+          readonly teamId?: string;
+          readonly id?: string;
+          readonly organizationId?: string;
+        };
+      }> | null;
+    } | null;
+
+    const team = user?.sports?.[sportIndex]?.team;
+    if (!team) return null;
+
+    return team.teamId?.trim() || team.organizationId?.trim() || team.id?.trim() || null;
+  }
+
   /** Mobile footer configuration */
   readonly footerConfig = computed<FooterConfig>(() =>
     createFooterConfig({
@@ -1028,8 +1294,15 @@ export class WebShellComponent {
   // MOBILE HEADER CONFIGURATION (YouTube-style top bar)
   // ============================================
 
-  /** Only /agent-x gets a hamburger on mobile — all other top-level pages have no left icon */
-  private readonly _showMobileMenu = computed(() => this._currentRoute().startsWith('/agent-x'));
+  /**
+   * Mobile hamburger visibility.
+   * - Logged out: always show hamburger so users can access drawer nav from any page.
+   * - Logged in: keep current behavior (hamburger on /agent-x, back arrow elsewhere).
+   */
+  private readonly _showMobileMenu = computed(() => {
+    if (!this.isAuthenticated()) return true;
+    return this._currentRoute().startsWith('/agent-x');
+  });
 
   /** Whether the current route should show a back arrow.
    * All authenticated non-agent routes get a back arrow — /agent-x uses the hamburger. */
@@ -1119,6 +1392,7 @@ export class WebShellComponent {
       showNotifications: !onProfilePage && !onTeamPage && !onActivityPage && !onAgentXPage,
       notificationCount: this.badgeCount.totalUnread(),
       showSignIn, // Hidden until auth resolves, then show only if not logged in
+      signInLabel: 'Try NXT1',
       showMore: onProfilePage || onTeamPage,
       showEdit: isOwnProfilePage || this.profileActions.showEditButton(),
       showMarkAllRead: onActivityPage && this.activityService.totalUnread() > 0,
@@ -1154,9 +1428,8 @@ export class WebShellComponent {
   // ============================================
 
   /**
-   * Mobile sidebar sections — auth-aware. The 4 utility items (Invite Team,
-   * Usage, Help Center, Settings) are placed in a dedicated single-row grid
-   * section so they render as compact icon+label tiles instead of full-width rows.
+   * Mobile sidebar sections — auth-aware. Utility items are shown in a
+   * dedicated single-row grid for authenticated users only.
    */
   readonly mobileSidebarSections = computed(() => {
     const isAuthenticated = this.authFlow.isAuthenticated();
@@ -1168,7 +1441,7 @@ export class WebShellComponent {
           ...s,
           items: [
             // Agent X and Explore are in the mobile footer.
-            // Invite Team, Usage, Help Center, Settings go into the grid section below.
+            // Invite Team / Usage / Help / Settings are handled in quick actions below.
             ...s.items.filter(
               (item) => item.id !== 'agent' && item.id !== 'explore' && item.id !== 'invite-team'
             ),
@@ -1177,31 +1450,33 @@ export class WebShellComponent {
         };
       });
 
-    // Quick-action grid — Invite Team (auth only), Usage, Help Center, Settings
-    const quickActionItems: DesktopSidebarItem[] = [
-      ...(isAuthenticated
-        ? [
-            {
-              id: 'invite-team',
-              label: 'Invite',
-              icon: 'plusCircle',
-              action: 'invite-team' as const,
-            },
-          ]
-        : []),
-      { id: 'usage', label: 'Usage', icon: 'creditCard', route: '/usage' },
-      { id: 'help-center', label: 'Help', icon: 'help', route: '/help-center' },
-      { id: 'settings', label: 'Settings', icon: 'settings', route: '/settings' },
-    ];
+    // Quick-action grid — authenticated users only
+    const quickActionItems: DesktopSidebarItem[] = isAuthenticated
+      ? [
+          {
+            id: 'invite-team',
+            label: 'Invite',
+            icon: 'plusCircle',
+            action: 'invite-team' as const,
+          },
+          { id: 'usage', label: 'Usage', icon: 'creditCard', route: '/usage' },
+          { id: 'help-center', label: 'Help', icon: 'help', route: '/help-center' },
+          { id: 'settings', label: 'Settings', icon: 'settings', route: '/settings' },
+        ]
+      : [];
 
     // Follow Us — always shown for all users, matching native mobile app sidenav
     return [
       ...baseSections,
-      {
-        id: 'quick-actions',
-        layout: 'grid' as const,
-        items: quickActionItems,
-      },
+      ...(quickActionItems.length > 0
+        ? [
+            {
+              id: 'quick-actions',
+              layout: 'grid' as const,
+              items: quickActionItems,
+            },
+          ]
+        : []),
       {
         id: 'follow-us',
         label: 'Follow Us',
@@ -1219,6 +1494,7 @@ export class WebShellComponent {
       showUserSection: true,
       showThemeToggle: true,
       showSignIn, // Hidden until auth resolves, then show only if not logged in
+      showLegalLinks: false,
       showExplore: false,
       variant: 'default',
       width: '280px',
@@ -1231,6 +1507,16 @@ export class WebShellComponent {
 
   /** Current route for active state detection */
   private readonly _currentRoute = signal('/explore');
+  protected readonly platformBannerScrolledAway = signal(false);
+
+  protected readonly showLoggedOutPlatformBanner = computed(() => {
+    return this.authFlow.isAuthReady() && !this.isAuthenticated();
+  });
+
+  protected readonly contentUsesFullBleed = computed(() => {
+    const route = this._currentRoute().split('?')[0];
+    return route === '/' || route.startsWith('/agent-x');
+  });
 
   /** Active tab ID for mobile footer */
   private readonly _activeTabId = signal<string | null>('explore');
@@ -1254,6 +1540,9 @@ export class WebShellComponent {
 
   /** Auth state for shell-level UI controls (header, footer, guards). */
   readonly isAuthenticated = computed(() => this.authFlow.isAuthenticated());
+
+  /** Desktop/tablet sidebar is only visible for authenticated users. */
+  readonly showDesktopSidebar = computed(() => this.isAuthenticated());
 
   /**
    * Show mobile footer when authenticated.
@@ -1705,6 +1994,19 @@ export class WebShellComponent {
     this.router.navigate(['/']);
   }
 
+  onPlatformPromoClick(): void {
+    void this.router.navigate(['/agent-x']);
+  }
+
+  onShellContentScroll(event: Event): void {
+    const scrollTop = event.target instanceof HTMLElement ? event.target.scrollTop : 0;
+    const isScrolled = scrollTop > 8;
+
+    if (this.platformBannerScrolledAway() !== isScrolled) {
+      this.platformBannerScrolledAway.set(isScrolled);
+    }
+  }
+
   // ============================================
   // PRIVATE METHODS
   // ============================================
@@ -1727,12 +2029,33 @@ export class WebShellComponent {
         this._currentRoute.set(event.urlAfterRedirects);
         this.syncActiveTabFromRoute(event.urlAfterRedirects);
 
-        // Scroll shell content to top on navigation (replaces window.scrollTo)
-        const scrollEl = this.getShellContentElement();
-        if (scrollEl) {
-          scrollEl.scrollTo({ top: 0, behavior: 'instant' });
+        this.scheduleShellScrollToTop();
+      });
+  }
+
+  private scheduleShellScrollToTop(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    const scrollToTop = () => {
+      const scrollEl = this.getShellContentElement();
+      scrollEl?.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+      scrollEl?.querySelectorAll<HTMLElement>('*').forEach((element) => {
+        if (element.scrollTop > 0 || element.scrollLeft > 0) {
+          element.scrollTop = 0;
+          element.scrollLeft = 0;
         }
       });
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      this.platformBannerScrolledAway.set(false);
+    };
+
+    scrollToTop();
+    window.requestAnimationFrame(() => {
+      scrollToTop();
+      window.requestAnimationFrame(scrollToTop);
+    });
   }
 
   /**

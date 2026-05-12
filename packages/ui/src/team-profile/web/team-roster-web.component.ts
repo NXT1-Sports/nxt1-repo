@@ -42,69 +42,123 @@ import { TeamProfileService } from '../team-profile.service';
       @if (filteredRoster().length > 0) {
         <div class="team-roster__grid">
           @for (member of filteredRoster(); track member.id) {
-            <button
-              type="button"
-              class="roster-card"
-              (click)="memberClick.emit(member)"
-              [attr.aria-label]="
-                'View profile for ' +
-                (member.displayName ?? member.firstName + ' ' + member.lastName)
-              "
-            >
-              <div class="roster-card__image-wrap">
-                @if (member.profileImg) {
-                  <nxt1-image
-                    class="roster-card__image"
-                    [src]="member.profileImg"
-                    [alt]="member.displayName ?? member.firstName + ' ' + member.lastName"
-                    [width]="400"
-                    [height]="400"
-                    fit="cover"
-                    [showPlaceholder]="false"
-                  />
-                } @else {
-                  <div class="roster-card__placeholder">
-                    <nxt1-icon name="shield" [size]="48" />
-                  </div>
-                }
-                @if (member.views) {
-                  <span class="roster-card__views">
-                    <nxt1-icon name="flame" [size]="14" />
-                    <strong>{{ member.views | number }}</strong>
-                    <span>VIEWS</span>
-                  </span>
-                }
-              </div>
-              <div class="roster-card__info">
-                <div class="roster-card__name-row">
-                  <h3 class="roster-card__name">
-                    {{ member.displayName ?? member.firstName + ' ' + member.lastName }}
-                  </h3>
-                  @if (member.jerseyNumber) {
-                    <span class="roster-card__jersey">#{{ member.jerseyNumber }}</span>
+            @if (isMemberNavigable(member)) {
+              <button
+                type="button"
+                class="roster-card"
+                (click)="memberClick.emit(member)"
+                [attr.aria-label]="
+                  'View profile for ' +
+                  (member.displayName ?? member.firstName + ' ' + member.lastName)
+                "
+              >
+                <div class="roster-card__image-wrap">
+                  @if (member.profileImg) {
+                    <nxt1-image
+                      class="roster-card__image"
+                      [src]="member.profileImg"
+                      [alt]="member.displayName ?? member.firstName + ' ' + member.lastName"
+                      [width]="400"
+                      [height]="400"
+                      fit="cover"
+                      [showPlaceholder]="false"
+                    />
+                  } @else {
+                    <div class="roster-card__placeholder">
+                      <nxt1-icon name="shield" [size]="48" />
+                    </div>
+                  }
+                  @if (member.views) {
+                    <span class="roster-card__views">
+                      <nxt1-icon name="flame" [size]="14" />
+                      <strong>{{ member.views | number }}</strong>
+                      <span>VIEWS</span>
+                    </span>
                   }
                 </div>
-                @if (member.position) {
-                  <p class="roster-card__position">{{ member.position }}</p>
-                }
-                @if (member.height || member.weight) {
-                  <p class="roster-card__measurables">
-                    @if (member.height) {
-                      <span>{{ member.height }}</span>
+                <div class="roster-card__info">
+                  <div class="roster-card__name-row">
+                    <h3 class="roster-card__name">
+                      {{ member.displayName ?? member.firstName + ' ' + member.lastName }}
+                    </h3>
+                    @if (member.jerseyNumber) {
+                      <span class="roster-card__jersey">#{{ member.jerseyNumber }}</span>
                     }
-                    @if (member.height && member.weight) {
-                      <span class="roster-card__sep">·</span>
+                  </div>
+                  @if (member.position) {
+                    <p class="roster-card__position">{{ member.position }}</p>
+                  }
+                  @if (member.height || member.weight) {
+                    <p class="roster-card__measurables">
+                      @if (member.height) {
+                        <span>{{ member.height }}</span>
+                      }
+                      @if (member.height && member.weight) {
+                        <span class="roster-card__sep">·</span>
+                      }
+                      @if (member.weight) {
+                        <span>{{ member.weight }}</span>
+                      }
+                    </p>
+                  }
+                  @if (member.classYear) {
+                    <p class="roster-card__class">Class of {{ member.classYear }}</p>
+                  }
+                </div>
+              </button>
+            } @else {
+              <div class="roster-card roster-card--pending" aria-disabled="true">
+                <div class="roster-card__image-wrap">
+                  @if (member.profileImg) {
+                    <nxt1-image
+                      class="roster-card__image"
+                      [src]="member.profileImg"
+                      [alt]="member.displayName ?? member.firstName + ' ' + member.lastName"
+                      [width]="400"
+                      [height]="400"
+                      fit="cover"
+                      [showPlaceholder]="false"
+                    />
+                  } @else {
+                    <div class="roster-card__placeholder">
+                      <nxt1-icon name="shield" [size]="48" />
+                    </div>
+                  }
+                </div>
+                <div class="roster-card__info">
+                  <div class="roster-card__name-row">
+                    <h3 class="roster-card__name">
+                      {{ member.displayName ?? member.firstName + ' ' + member.lastName }}
+                    </h3>
+                    @if (member.jerseyNumber) {
+                      <span class="roster-card__jersey">#{{ member.jerseyNumber }}</span>
                     }
-                    @if (member.weight) {
-                      <span>{{ member.weight }}</span>
-                    }
-                  </p>
-                }
-                @if (member.classYear) {
-                  <p class="roster-card__class">Class of {{ member.classYear }}</p>
-                }
+                  </div>
+                  @if (member.position) {
+                    <p class="roster-card__position">{{ member.position }}</p>
+                  }
+                  @if (member.height || member.weight) {
+                    <p class="roster-card__measurables">
+                      @if (member.height) {
+                        <span>{{ member.height }}</span>
+                      }
+                      @if (member.height && member.weight) {
+                        <span class="roster-card__sep">·</span>
+                      }
+                      @if (member.weight) {
+                        <span>{{ member.weight }}</span>
+                      }
+                    </p>
+                  }
+                  @if (member.classYear) {
+                    <p class="roster-card__class">Class of {{ member.classYear }}</p>
+                  }
+                  @if (teamProfile.isTeamAdmin()) {
+                    <p class="roster-card__pending-label">Unclaimed profile</p>
+                  }
+                </div>
               </div>
-            </button>
+            }
           }
         </div>
       } @else {
@@ -204,6 +258,17 @@ import { TeamProfileService } from '../team-profile.service';
         outline: none;
         border-color: var(--m-accent, #d4ff00);
         box-shadow: 0 0 0 2px color-mix(in srgb, var(--m-accent, #d4ff00) 40%, transparent);
+      }
+
+      .roster-card--pending {
+        cursor: default;
+        opacity: 0.86;
+      }
+
+      .roster-card--pending:hover {
+        border-color: var(--m-border, rgba(255, 255, 255, 0.08));
+        box-shadow: none;
+        transform: none;
       }
 
       /* ─── IMAGE AREA ─── */
@@ -327,6 +392,15 @@ import { TeamProfileService } from '../team-profile.service';
         line-height: 1.3;
       }
 
+      .roster-card__pending-label {
+        margin: 8px 0 0;
+        font-size: 11px;
+        font-weight: 700;
+        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
       /* ─── EMPTY STATE ─── */
       .madden-empty {
         display: flex;
@@ -446,5 +520,10 @@ export class TeamRosterWebComponent {
   protected onRosterSortChange(event: Event): void {
     const target = event.target as HTMLSelectElement;
     this.teamProfile.setRosterSort(target.value);
+  }
+
+  protected isMemberNavigable(member: TeamProfileRosterMember): boolean {
+    if (member.isProfileNavigable === false) return false;
+    return !!(member.unicode || member.profileCode);
   }
 }

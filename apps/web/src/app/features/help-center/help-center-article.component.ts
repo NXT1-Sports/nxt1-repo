@@ -110,7 +110,7 @@ export class HelpCenterArticleComponent {
                 url: 'https://nxt1sports.com',
                 logo: {
                   '@type': 'ImageObject',
-                  url: 'https://nxt1sports.com/assets/images/og-image.jpg',
+                  url: 'https://nxt1sports.com/assets/shared/images/og-image.jpg',
                 },
               },
               ...(article.heroImageUrl || article.thumbnailUrl

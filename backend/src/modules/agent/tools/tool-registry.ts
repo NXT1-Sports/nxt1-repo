@@ -98,6 +98,7 @@ const TOOL_ENTITY_GROUP_OVERRIDES: Readonly<Record<string, AgentToolEntityGroup>
   delete_team_post: 'team_tools',
   write_team_news: 'team_tools',
   write_roster_entries: 'team_tools',
+  write_playbooks: 'team_tools',
   write_schedule: 'team_tools',
   write_calendar_events: 'team_tools',
 

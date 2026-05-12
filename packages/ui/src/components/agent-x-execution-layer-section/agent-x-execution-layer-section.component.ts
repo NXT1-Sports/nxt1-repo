@@ -31,27 +31,27 @@ const DEFAULT_EXECUTION_LAYER_TASKS: readonly ExecutionLayerTask[] = [
   {
     id: 'box-score',
     label: "Scraped last night's box score.",
-    category: 'Data Entry',
+    category: 'Data',
   },
   {
-    id: 'highlight-graphics',
-    label: 'Generated 3 highlight graphics.',
-    category: 'Design',
+    id: 'film-package',
+    label: 'Cut key clips and packaged the film recap.',
+    category: 'Film',
   },
   {
-    id: 'email-outreach',
-    label: 'Drafted and sent email to XYZ University.',
-    category: 'Outreach',
+    id: 'morning-briefing',
+    label: 'Built the morning briefing for staff review.',
+    category: 'Operations',
   },
   {
-    id: 'profile-sync',
-    label: 'Updated NCSA/MaxPreps profile.',
-    category: 'Admin',
+    id: 'game-day-assets',
+    label: "Generated branded assets for tonight's content queue.",
+    category: 'Creative',
   },
   {
-    id: 'social-scheduling',
-    label: 'Scheduled Instagram Story for 6 PM.',
-    category: 'Marketing',
+    id: 'stakeholder-update',
+    label: 'Drafted stakeholder updates and queued follow-ups.',
+    category: 'Communications',
   },
 ] as const;
 
@@ -71,8 +71,8 @@ let executionLayerInstanceCounter = 0;
           variant="hero"
           align="center"
           title="Stop Chatting. Start Delegating."
-          subtitle="Agent X doesn't just give advice. It performs actual labor, saving you 20+ hours a week."
-          support="The Auto-Pilot Dashboard shows real work completing while you focus on practice, coaching, and recovery."
+          subtitle="Agent X does not stop at ideas. It runs the background operations that save athletes, staffs, and programs 20+ hours a week."
+          support="The Auto-Pilot Dashboard shows work finishing while your team trains, your staff coaches, and your department keeps moving."
         />
 
         <div class="execution-layer__dashboard" role="group" aria-label="Auto-Pilot Dashboard">
@@ -85,7 +85,7 @@ let executionLayerInstanceCounter = 0;
             </header>
 
             <p class="execution-layer__panel-copy">
-              Coach or athlete clicks once. Agent X handles the complex queue automatically.
+              One operator gives the command. Agent X handles the workflow queue automatically.
             </p>
 
             <div
@@ -117,10 +117,10 @@ let executionLayerInstanceCounter = 0;
 
             <div class="execution-layer__copy-stack">
               <p class="execution-layer__key-copy">
-                While you're at practice, Agent X is building your brand.
+                While your staff is coaching, Agent X is packaging film, creative, and briefs.
               </p>
               <p class="execution-layer__key-copy">
-                While you're sleeping, Agent X is finding recruits.
+                While your department is moving, Agent X is clearing the next queue.
               </p>
             </div>
           </article>
@@ -153,7 +153,7 @@ let executionLayerInstanceCounter = 0;
         <aside class="execution-layer__trust-panel" aria-label="Agent X trust signal">
           <p class="execution-layer__trust-eyebrow">Trust Signal</p>
           <p class="execution-layer__trust-signal">
-            The only AI authorized to push buttons for you.
+            The AI built to execute inside real sports operations.
           </p>
         </aside>
       </div>

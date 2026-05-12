@@ -86,8 +86,6 @@ describe('Auth Routes', () => {
             activityTracking: false,
             analyticsTracking: true,
             biometricLogin: false,
-            dismissedPrompts: [],
-            defaultSportIndex: 0,
             theme: 'dark',
           },
         });
@@ -102,8 +100,6 @@ describe('Auth Routes', () => {
           activityTracking: false,
           analyticsTracking: true,
           biometricLogin: false,
-          dismissedPrompts: [],
-          defaultSportIndex: 0,
           theme: 'dark',
         });
       });

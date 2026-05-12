@@ -7,7 +7,7 @@
  */
 
 import { Schema, type Model, type Connection } from 'mongoose';
-import type { FaqItem } from '@nxt1/core';
+import { HELP_CATEGORIES, type FaqItem } from '@nxt1/core';
 import { getMongoGlobalConnection } from '../../config/database.config.js';
 
 /**
@@ -19,12 +19,13 @@ export interface HelpFaqDocument extends Omit<FaqItem, 'id'> {
 }
 
 const HELP_FAQ_MODEL_NAME = 'HelpFaq';
+const HELP_FAQ_CATEGORY_IDS = HELP_CATEGORIES.map((category) => category.id);
 
 const HelpFaqSchema = new Schema<HelpFaqDocument>(
   {
     question: { type: String, required: true },
     answer: { type: String, required: true },
-    category: { type: String, required: true, index: true },
+    category: { type: String, enum: HELP_FAQ_CATEGORY_IDS, required: true, index: true },
     targetUsers: { type: [String], default: ['all'], index: true },
     order: { type: Number, required: true, default: 0 },
     helpfulCount: { type: Number, default: 0 },

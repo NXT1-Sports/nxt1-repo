@@ -1,0 +1,331 @@
+[
+  {
+    "id": "6a01013d2f114bdb62289dd9",
+    "question": "How do I add funds to my wallet?",
+    "category": "account",
+    "isPublished": true,
+    "order": 3
+  },
+  {
+    "id": "6a01013d2f114bdb62289ddb",
+    "question": "What are pending holds on my wallet balance?",
+    "category": "account",
+    "isPublished": true,
+    "order": 7
+  },
+  {
+    "id": "6a01013d2f114bdb62289ddd",
+    "question": "How do I connect MaxPreps or Hudl to my account?",
+    "category": "account",
+    "isPublished": true,
+    "order": 10
+  },
+  {
+    "id": "69e4125c104f73f42c3beb7f",
+    "question": "How do I change my display name or contact information?",
+    "category": "account",
+    "isPublished": false,
+    "order": 16
+  },
+  {
+    "id": "69e41259104f73f42c3beb79",
+    "question": "Where do I manage connected accounts?",
+    "category": "account",
+    "isPublished": false,
+    "order": 17
+  },
+  {
+    "id": "69ffe6f42f114bdb62228bce",
+    "question": "How do I link external profiles like Hudl or MaxPreps?",
+    "category": "account",
+    "isPublished": false,
+    "order": 18
+  },
+  {
+    "id": "69ffe6ef2f114bdb62228bbd",
+    "question": "Where do I manage billing and usage?",
+    "category": "account",
+    "isPublished": false,
+    "order": 19
+  },
+  {
+    "id": "69e4125b104f73f42c3beb7c",
+    "question": "What's the difference between my personal wallet and the org wallet?",
+    "category": "account",
+    "isPublished": false,
+    "order": 20
+  },
+  {
+    "id": "69e5480090fff34cfe1f76f6",
+    "question": "How do I add credits to my wallet?",
+    "category": "account",
+    "isPublished": false,
+    "order": 20
+  },
+  {
+    "id": "69ffe6f12f114bdb62228bc3",
+    "question": "How are usage charges authorized and settled in the NXT1 wallet?",
+    "category": "account",
+    "isPublished": false,
+    "order": 21
+  },
+  {
+    "id": "69e5480090fff34cfe1f76ef",
+    "question": "How do I set a monthly budget limit for a specific team?",
+    "category": "account",
+    "isPublished": false,
+    "order": 22
+  },
+  {
+    "id": "69e5480090fff34cfe1f76f3",
+    "question": "How do I turn on auto-top-up for my wallet?",
+    "category": "account",
+    "isPublished": false,
+    "order": 23
+  },
+  {
+    "id": "69ffe6f42f114bdb62228bd0",
+    "question": "How do I reset my password?",
+    "category": "account",
+    "isPublished": false,
+    "order": 25
+  },
+  {
+    "id": "69e5480090fff34cfe1f76f5",
+    "question": "What can Agent X do?",
+    "category": "agent-x",
+    "isPublished": true,
+    "order": 2
+  },
+  {
+    "id": "69e5480090fff34cfe1f76f0",
+    "question": "How do I talk to Agent X?",
+    "category": "agent-x",
+    "isPublished": true,
+    "order": 8
+  },
+  {
+    "id": "69ffe6f32f114bdb62228bc9",
+    "question": "What's the difference between a quick task and typing a command to Agent X?",
+    "category": "agent-x",
+    "isPublished": false,
+    "order": 10
+  },
+  {
+    "id": "69e4125c104f73f42c3beb80",
+    "question": "Does Agent X use my connected accounts, profile, and team data?",
+    "category": "agent-x",
+    "isPublished": false,
+    "order": 11
+  },
+  {
+    "id": "69ffe6f42f114bdb62228bcf",
+    "question": "Why didn't I get my daily briefing this morning?",
+    "category": "agent-x",
+    "isPublished": false,
+    "order": 31
+  },
+  {
+    "id": "69e4125b104f73f42c3beb7d",
+    "question": "How does NXT1 usage-based billing work (credits, charges, and limits)?",
+    "category": "getting-started",
+    "isPublished": false,
+    "order": 1
+  },
+  {
+    "id": "6a01013d2f114bdb62289dd8",
+    "question": "Is NXT1 free to use?",
+    "category": "getting-started",
+    "isPublished": true,
+    "order": 1
+  },
+  {
+    "id": "69ffe6f22f114bdb62228bc7",
+    "question": "How do I set up my account preferences and notifications?",
+    "category": "getting-started",
+    "isPublished": false,
+    "order": 2
+  },
+  {
+    "id": "69ffe6ee2f114bdb62228bba",
+    "question": "How do I complete my athlete profile for best platform performance?",
+    "category": "getting-started",
+    "isPublished": false,
+    "order": 3
+  },
+  {
+    "id": "69e5480090fff34cfe1f76f1",
+    "question": "How do I update athlete profile details and keep them up to date?",
+    "category": "getting-started",
+    "isPublished": false,
+    "order": 4
+  },
+  {
+    "id": "69e4125a104f73f42c3beb7a",
+    "question": "What information should I keep current on my athlete profile?",
+    "category": "getting-started",
+    "isPublished": false,
+    "order": 5
+  },
+  {
+    "id": "69e5480090fff34cfe1f76f8",
+    "question": "What should I do right after creating my NXT1 account?",
+    "category": "getting-started",
+    "isPublished": false,
+    "order": 5
+  },
+  {
+    "id": "6a00eaa9653b0b08b8cf55fa",
+    "question": "What should I do right after creating my NXT1 account as a coach or administrator?",
+    "category": "getting-started",
+    "isPublished": false,
+    "order": 5.5
+  },
+  {
+    "id": "69e41259104f73f42c3beb78",
+    "question": "Where do I find Agent X?",
+    "category": "getting-started",
+    "isPublished": false,
+    "order": 6
+  },
+  {
+    "id": "6a00eaa9653b0b08b8cf55fb",
+    "question": "How can Agent X help my organization streamline operations?",
+    "category": "getting-started",
+    "isPublished": false,
+    "order": 6.5
+  },
+  {
+    "id": "69e4125d104f73f42c3beb81",
+    "question": "How do I get help inside NXT1?",
+    "category": "getting-started",
+    "isPublished": false,
+    "order": 8
+  },
+  {
+    "id": "69ffe6f02f114bdb62228bc1",
+    "question": "Where do I find my 6-character team code?",
+    "category": "teams",
+    "isPublished": false,
+    "order": 0
+  },
+  {
+    "id": "69ffe6f32f114bdb62228bcc",
+    "question": "Where do I find my team's 6-character join code?",
+    "category": "teams",
+    "isPublished": false,
+    "order": 0
+  },
+  {
+    "id": "69e5480090fff34cfe1f76f4",
+    "question": "How do I join a team?",
+    "category": "teams",
+    "isPublished": true,
+    "order": 4
+  },
+  {
+    "id": "69ffe6f22f114bdb62228bc6",
+    "question": "How do I invite players to my team?",
+    "category": "teams",
+    "isPublished": true,
+    "order": 6
+  },
+  {
+    "id": "69e5480090fff34cfe1f76f2",
+    "question": "Can I join more than one team on NXT1?",
+    "category": "teams",
+    "isPublished": false,
+    "order": 7
+  },
+  {
+    "id": "69ffe6ef2f114bdb62228bc0",
+    "question": "Where do I find my team code?",
+    "category": "teams",
+    "isPublished": false,
+    "order": 11
+  },
+  {
+    "id": "69ffe6ef2f114bdb62228bbb",
+    "question": "How can Agent X help coaches and staff coordinate team calendars, updates, and availability?",
+    "category": "teams",
+    "isPublished": false,
+    "order": 14
+  },
+  {
+    "id": "69ffe6ee2f114bdb62228bb9",
+    "question": "Who can manage team schedules and invitations?",
+    "category": "teams",
+    "isPublished": false,
+    "order": 16
+  },
+  {
+    "id": "69ffe6f32f114bdb62228bc8",
+    "question": "How do I update team details like name, mascot, or location?",
+    "category": "teams",
+    "isPublished": false,
+    "order": 17
+  },
+  {
+    "id": "69e41261104f73f42c3beb82",
+    "question": "Why isn't my performance data saving or updating?",
+    "category": "troubleshooting",
+    "isPublished": false,
+    "order": 0
+  },
+  {
+    "id": "6a01013d2f114bdb62289dda",
+    "question": "I forgot my password. How do I reset it?",
+    "category": "troubleshooting",
+    "isPublished": true,
+    "order": 5
+  },
+  {
+    "id": "6a01013d2f114bdb62289ddc",
+    "question": "My card keeps getting declined when I try to add funds. Why?",
+    "category": "troubleshooting",
+    "isPublished": true,
+    "order": 9
+  },
+  {
+    "id": "69ffe6f12f114bdb62228bc4",
+    "question": "Why didn't I get my daily briefing this morning?",
+    "category": "troubleshooting",
+    "isPublished": false,
+    "order": 12
+  },
+  {
+    "id": "69ffe6ef2f114bdb62228bbf",
+    "question": "My Agent X operation has been running for a long time — is something wrong?",
+    "category": "troubleshooting",
+    "isPublished": false,
+    "order": 13
+  },
+  {
+    "id": "69e4125a104f73f42c3beb7b",
+    "question": "A connected account won't connect or sync. What should I do?",
+    "category": "troubleshooting",
+    "isPublished": false,
+    "order": 19
+  },
+  {
+    "id": "69ffe6f32f114bdb62228bcd",
+    "question": "My top-up or payment failed. What should I do?",
+    "category": "troubleshooting",
+    "isPublished": false,
+    "order": 23
+  },
+  {
+    "id": "69e5480090fff34cfe1f76f7",
+    "question": "I didn't get the password reset email. What should I do?",
+    "category": "troubleshooting",
+    "isPublished": false,
+    "order": 24
+  },
+  {
+    "id": "69ffe6f12f114bdb62228bc2",
+    "question": "How do I contact support from Help Center?",
+    "category": "troubleshooting",
+    "isPublished": false,
+    "order": 25
+  }
+]

@@ -90,6 +90,9 @@ export interface OpenGraphMetadata {
   /** Primary image URL (should be absolute) */
   image: string;
 
+  /** Image alt text for richer social previews */
+  imageAlt?: string;
+
   /** Image dimensions for proper rendering */
   imageWidth?: number;
   imageHeight?: number;
@@ -337,7 +340,7 @@ export * from './utm';
 const BASE_URL = 'https://nxt1sports.com';
 
 /** Default Open Graph image */
-const DEFAULT_OG_IMAGE = `${BASE_URL}/assets/images/og-image.jpg`;
+const DEFAULT_OG_IMAGE = `${BASE_URL}/assets/shared/images/og-image.jpg`;
 
 /** Default Twitter handle */
 const TWITTER_HANDLE = '@nxt1sports';

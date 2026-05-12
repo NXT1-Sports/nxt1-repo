@@ -1,0 +1,163 @@
+{
+  "timestamp": "2026-05-10T06:13:37.732Z",
+  "target": "production",
+  "dryRun": true,
+  "options": {
+    "cancelAtPeriodEnd": false,
+    "createMissingAuthUsers": false,
+    "grantAggregation": "max",
+    "grantMultiplier": 1,
+    "grantCapCents": 10000,
+    "cohort": "2026-subscription-to-usage",
+    "planMapKeys": [
+      "price_1SOMGAKBRB9aJio2BKSnjktc",
+      "price_1SOMH6KBRB9aJio2lR0W5PYp",
+      "price_1QeTFZKBRB9aJio2BNRwMqIK",
+      "price_1QIAX6KBRB9aJio2KYoWBtXy",
+      "price_1OqeaGKBRB9aJio2fBBHHZP5",
+      "price_1MwWYqKBRB9aJio2S7LInq4k"
+    ],
+    "strictPlanMap": true
+  },
+  "totals": {
+    "activeSubscriptionsScanned": 15,
+    "userCandidates": 14,
+    "completed": 0,
+    "dryRunEligible": 0,
+    "alreadyMigrated": 13,
+    "missingAuth": 1,
+    "missingUserDoc": 0,
+    "failed": 0,
+    "cancelAtPeriodEndApplied": 0,
+    "grantCentsTotal": 0
+  },
+  "rows": [
+    {
+      "email": "elitecc236@icloud.com",
+      "customerId": "cus_Ty80lKA1MrzyLv",
+      "subscriptionIds": ["sub_1T0s1TKBRB9aJio2hLSzym8C"],
+      "grantCents": 1200,
+      "status": "skipped-already-migrated",
+      "mappedUid": "40NXrENuT6QJXuGyIUjKu2XZwg02",
+      "mappedUserId": "40NXrENuT6QJXuGyIUjKu2XZwg02"
+    },
+    {
+      "email": "gailpaul30@gmail.com",
+      "customerId": "cus_TLOCuCygsJUTEY",
+      "subscriptionIds": ["sub_1SOhRNKBRB9aJio2GYriFnp2"],
+      "grantCents": 1200,
+      "status": "skipped-already-migrated",
+      "mappedUid": "uAaGw7zJZCffUi9z8ytqGKODHQ93",
+      "mappedUserId": "uAaGw7zJZCffUi9z8ytqGKODHQ93"
+    },
+    {
+      "email": "julianrmayers@gmail.com",
+      "customerId": "cus_QW5vpcbKWtTj6j",
+      "subscriptionIds": ["sub_1Pf3kCKBRB9aJio2DJkIzBEw"],
+      "grantCents": 4550,
+      "status": "skipped-already-migrated",
+      "mappedUid": "7zDRdOgehWN7L2EDpIutGO6s0eU2",
+      "mappedUserId": "7zDRdOgehWN7L2EDpIutGO6s0eU2"
+    },
+    {
+      "email": "kayleebritten2026recruit@gmail.com",
+      "customerId": "cus_R8SZ1InCVwNiji",
+      "subscriptionIds": ["sub_1QGBezKBRB9aJio26siFWMcr"],
+      "grantCents": 4550,
+      "status": "skipped-already-migrated",
+      "mappedUid": "9IHcAlp3v5cGqzlfeRF6RCoHvSZ2",
+      "mappedUserId": "9IHcAlp3v5cGqzlfeRF6RCoHvSZ2"
+    },
+    {
+      "email": "lukefrayer@gmail.com",
+      "customerId": "cus_U0Anl4HZzgxAm0",
+      "subscriptionIds": ["sub_1T2JILKBRB9aJio2w3d2cqNG"],
+      "grantCents": 1200,
+      "status": "skipped-already-migrated",
+      "mappedUid": "njI2wZFJLCdbmchg3r5uvlpiXjy2",
+      "mappedUserId": "njI2wZFJLCdbmchg3r5uvlpiXjy2"
+    },
+    {
+      "email": "michael.uland@hotmail.com",
+      "customerId": "cus_RED9YsuuGarwVS",
+      "subscriptionIds": ["sub_1QLkjXKBRB9aJio29volxsDz"],
+      "grantCents": 1200,
+      "status": "skipped-already-migrated",
+      "mappedUid": "PHoaojuiJPPc1Oyd8WF6gJEOS2C3",
+      "mappedUserId": "PHoaojuiJPPc1Oyd8WF6gJEOS2C3"
+    },
+    {
+      "email": "nick@blackjacket.media",
+      "customerId": "cus_OAt5Q9nToxtma4",
+      "subscriptionIds": ["sub_1NOXMCKBRB9aJio2tHj1nAAU"],
+      "grantCents": 6500,
+      "status": "skipped-already-migrated",
+      "mappedUid": "dZMJhhrsuWSUIKjeXOAtcBJoPId2",
+      "mappedUserId": "dZMJhhrsuWSUIKjeXOAtcBJoPId2"
+    },
+    {
+      "email": "nick+1@blackjacket.media",
+      "customerId": "cus_ODoS5N5K0x9SKx",
+      "subscriptionIds": ["sub_1NRMqcKBRB9aJio26SPDjhEl"],
+      "grantCents": 6500,
+      "status": "skipped-missing-auth"
+    },
+    {
+      "email": "nickjoeg@icloud.com",
+      "customerId": "cus_Q0d6ANDxIFOVlR",
+      "subscriptionIds": ["sub_1PIMh0KBRB9aJio2xjDDKtOY"],
+      "grantCents": 4550,
+      "status": "skipped-already-migrated",
+      "mappedUid": "ZFNAWNp37Pd3CXmDDFqBaYOgs8Q2",
+      "mappedUserId": "ZFNAWNp37Pd3CXmDDFqBaYOgs8Q2"
+    },
+    {
+      "email": "nturcotte11@yahoo.com",
+      "customerId": "cus_Q57X0gMl6safNl",
+      "subscriptionIds": ["sub_1PExIdKBRB9aJio23eLNZX1t"],
+      "grantCents": 4550,
+      "status": "skipped-already-migrated",
+      "mappedUid": "NmDby6CfZjgEfupM9luGicrDofI2",
+      "mappedUserId": "NmDby6CfZjgEfupM9luGicrDofI2"
+    },
+    {
+      "email": "paytonmc22@gmail.com",
+      "customerId": "cus_SzRxwQ56EDYCLF",
+      "subscriptionIds": ["sub_1SQws9KBRB9aJio2Dtyksdog"],
+      "grantCents": 1200,
+      "status": "skipped-already-migrated",
+      "mappedUid": "ux8pvotOExMrDOatK3gbwFlNds82",
+      "mappedUserId": "ux8pvotOExMrDOatK3gbwFlNds82"
+    },
+    {
+      "email": "skymarshall0820@gmail.com",
+      "customerId": "cus_TjR9hb8gKulHt6",
+      "subscriptionIds": ["sub_1Srr4lKBRB9aJio2gy5OYYXq"],
+      "grantCents": 1200,
+      "status": "skipped-already-migrated",
+      "mappedUid": "FrF4qyJJuJc85nXHzU3Io5Pcn4y1",
+      "mappedUserId": "FrF4qyJJuJc85nXHzU3Io5Pcn4y1"
+    },
+    {
+      "email": "torreypaul@gmail.com",
+      "customerId": "cus_P09zJdfrQnBrWU",
+      "subscriptionIds": [
+        "sub_1QOPpZKBRB9aJio2JWwRh4HP",
+        "sub_1OC9jZKBRB9aJio2Ijc4fNKk"
+      ],
+      "grantCents": 6500,
+      "status": "skipped-already-migrated",
+      "mappedUid": "HyOndT1JhQegktPeKabzRi7I3OO2",
+      "mappedUserId": "HyOndT1JhQegktPeKabzRi7I3OO2"
+    },
+    {
+      "email": "vrupinta@yahoo.com",
+      "customerId": "cus_TAdJTuWVUIBeBg",
+      "subscriptionIds": ["sub_1SEI37KBRB9aJio2kVD0KdWn"],
+      "grantCents": 3500,
+      "status": "skipped-already-migrated",
+      "mappedUid": "CGYcybG6WqRyKb9cYlhezp1227H2",
+      "mappedUserId": "CGYcybG6WqRyKb9cYlhezp1227H2"
+    }
+  ]
+}

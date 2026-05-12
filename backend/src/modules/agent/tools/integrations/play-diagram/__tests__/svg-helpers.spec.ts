@@ -1,0 +1,287 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  renderDiagramSvg,
+  renderLegend,
+  renderPlayers,
+  renderRoutes,
+} from '../shared/svg-helpers.js';
+import type { DiagramLayout } from '../shared/diagram.types.js';
+
+// ─── Route rendering ──────────────────────────────────────────────────────────
+
+describe('renderRoutes — labels', () => {
+  it('renders route labels with readability halo and offset text', () => {
+    const svg = renderRoutes([
+      {
+        from: 'QB',
+        points: [
+          [300, 300],
+          [300, 240],
+          [330, 200],
+        ],
+        label: 'Drive',
+      },
+    ]);
+
+    expect(svg).toContain('stroke="white"');
+    expect(svg).toContain('paint-order="stroke"');
+    expect(svg).toContain('Drive');
+    expect(svg).toContain('marker-end="url(#arr)"');
+  });
+});
+
+describe('renderRoutes — path vs polyline', () => {
+  it('uses <path> (not <polyline>) for all routes', () => {
+    const svg = renderRoutes([
+      {
+        from: 'A',
+        points: [
+          [10, 10],
+          [50, 50],
+        ],
+      },
+    ]);
+    expect(svg).toContain('<path d="');
+    expect(svg).not.toContain('<polyline');
+  });
+
+  it('emits straight L segments for 2-point routes', () => {
+    const svg = renderRoutes([
+      {
+        from: 'A',
+        points: [
+          [0, 0],
+          [100, 100],
+        ],
+      },
+    ]);
+    expect(svg).toMatch(/d="M 0,0 L 100,100"/);
+  });
+
+  it('emits Cubic Bézier C commands for 3-point go routes', () => {
+    const svg = renderRoutes([
+      {
+        from: 'WR',
+        type: 'go',
+        points: [
+          [100, 300],
+          [100, 200],
+          [80, 150],
+        ],
+      },
+    ]);
+    expect(svg).toContain(' C ');
+  });
+
+  it('emits straight L segments for block routes regardless of point count', () => {
+    const svg = renderRoutes([
+      {
+        from: 'LT',
+        type: 'block',
+        points: [
+          [50, 280],
+          [40, 250],
+          [30, 230],
+        ],
+      },
+    ]);
+    expect(svg).not.toContain(' C ');
+    expect(svg).toContain('L ');
+  });
+
+  it('respects curve:false override — forces straight segments', () => {
+    const svg = renderRoutes([
+      {
+        from: 'WR',
+        type: 'cut',
+        curve: false,
+        points: [
+          [200, 300],
+          [200, 200],
+          [180, 170],
+        ],
+      },
+    ]);
+    expect(svg).not.toContain(' C ');
+  });
+
+  it('respects curve:true override — forces smooth even for 3-point go', () => {
+    const svg = renderRoutes([
+      {
+        from: 'WR',
+        type: 'go',
+        curve: true,
+        points: [
+          [200, 300],
+          [200, 200],
+          [180, 170],
+        ],
+      },
+    ]);
+    expect(svg).toContain(' C ');
+  });
+});
+
+// ─── Player shape rendering ───────────────────────────────────────────────────
+
+describe('renderPlayers — shapes', () => {
+  it('renders circle for skill positions (default)', () => {
+    const svg = renderPlayers([{ id: 'qb', label: 'QB', x: 300, y: 280, team: 'offense' }]);
+    expect(svg).toContain('<circle');
+    expect(svg).not.toContain('<rect');
+    expect(svg).not.toContain('<polygon');
+  });
+
+  it('renders square (rect) for linemen by position label', () => {
+    for (const label of ['LT', 'LG', 'C', 'RG', 'RT', 'DT', 'DE']) {
+      const svg = renderPlayers([{ id: label, label, x: 200, y: 300, team: 'offense' }]);
+      expect(svg).toContain('<rect');
+    }
+  });
+
+  it('renders diamond (polygon) for safeties and specialists', () => {
+    for (const label of ['FS', 'SS', 'K', 'P']) {
+      const svg = renderPlayers([{ id: label, label, x: 300, y: 100, team: 'defense' }]);
+      expect(svg).toContain('<polygon');
+    }
+  });
+
+  it('respects explicit shape field over label inference', () => {
+    const svgSquare = renderPlayers([
+      { id: 'qb', label: 'QB', x: 300, y: 280, team: 'offense', shape: 'square' },
+    ]);
+    expect(svgSquare).toContain('<rect');
+    expect(svgSquare).not.toContain('<circle');
+
+    const svgDiamond = renderPlayers([
+      { id: 'lt', label: 'LT', x: 200, y: 300, team: 'offense', shape: 'diamond' },
+    ]);
+    expect(svgDiamond).toContain('<polygon');
+    expect(svgDiamond).not.toContain('<rect');
+  });
+});
+
+// ─── Legend ───────────────────────────────────────────────────────────────────
+
+describe('renderLegend', () => {
+  it('returns empty string when no routes have a type', () => {
+    const result = renderLegend(
+      [
+        {
+          from: 'A',
+          points: [
+            [0, 0],
+            [100, 100],
+          ],
+        },
+      ],
+      600,
+      440
+    );
+    expect(result).toBe('');
+  });
+
+  it('renders legend bar when typed routes are present', () => {
+    const routes = [
+      {
+        from: 'WR',
+        type: 'go' as const,
+        points: [
+          [100, 300],
+          [100, 100],
+        ],
+      },
+      {
+        from: 'TE',
+        type: 'cut' as const,
+        points: [
+          [200, 300],
+          [200, 200],
+          [180, 150],
+        ],
+      },
+    ];
+    const svg = renderLegend(routes, 600, 440);
+    expect(svg).toContain('Go');
+    expect(svg).toContain('Cut');
+    expect(svg).toContain('<rect'); // background bar
+  });
+
+  it('shows only types actually used in the diagram', () => {
+    const routes = [
+      {
+        from: 'WR',
+        type: 'fade' as const,
+        points: [
+          [100, 300],
+          [100, 100],
+        ],
+      },
+    ];
+    const svg = renderLegend(routes, 600, 440);
+    expect(svg).toContain('Fade');
+    expect(svg).not.toContain('Go');
+    expect(svg).not.toContain('Cut');
+    expect(svg).not.toContain('Block');
+  });
+
+  it('positions the bar at the bottom of the field', () => {
+    const routes = [
+      {
+        from: 'WR',
+        type: 'go' as const,
+        points: [
+          [100, 300],
+          [100, 100],
+        ],
+      },
+    ];
+    const svg = renderLegend(routes, 600, 440);
+    // Bar should be at y = 440 - 24 = 416
+    expect(svg).toContain('y="416"');
+  });
+});
+
+// ─── Layer order in renderDiagramSvg ─────────────────────────────────────────
+
+describe('renderDiagramSvg — layer order', () => {
+  const LAYOUT: DiagramLayout = {
+    sport: 'football',
+    title: 'Test Play',
+    fieldWidth: 600,
+    fieldHeight: 440,
+    losY: 300,
+    players: [{ id: 'qb', label: 'QB', x: 300, y: 280, team: 'offense' }],
+    routes: [
+      {
+        from: 'qb',
+        type: 'go',
+        points: [
+          [300, 280],
+          [300, 150],
+        ],
+      },
+    ],
+    zones: [{ id: 'z1', label: 'C2', x: 100, y: 80, width: 120, height: 60 }],
+  };
+
+  it('draws players before routes before zones', () => {
+    const svg = renderDiagramSvg(LAYOUT, '<g id="field"/>');
+    // Route <path> elements use `d="M x,y` (space after M). Defs marker paths
+    // use `d="M0,0` (no space) so this pattern uniquely identifies rendered routes.
+    const playerIdx = svg.indexOf('<circle');
+    const routeIdx = svg.indexOf('d="M ');
+    const zoneIdx = svg.indexOf('zone-overlays');
+    expect(playerIdx).toBeGreaterThan(-1);
+    expect(routeIdx).toBeGreaterThan(playerIdx);
+    expect(zoneIdx).toBeGreaterThan(routeIdx);
+  });
+
+  it('renders the legend after the title bar', () => {
+    const svg = renderDiagramSvg(LAYOUT, '<g id="field"/>');
+    const titleIdx = svg.indexOf(LAYOUT.title);
+    const legendIdx = svg.indexOf('Go'); // legend label
+    expect(legendIdx).toBeGreaterThan(titleIdx);
+  });
+});

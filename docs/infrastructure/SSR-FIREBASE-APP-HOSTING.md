@@ -3,7 +3,7 @@
 > **Complete Guide to Server-Side Rendering with Firebase App Hosting and
 > FirebaseServerApp**
 >
-> Last Updated: January 2026 | Angular 21.x | Firebase JS SDK 11.x
+> Last Updated: May 2026 | Angular 21.x | Firebase JS SDK 12.x
 
 ---
 
@@ -33,7 +33,7 @@ This monorepo uses **Angular 21 with Server-Side Rendering (SSR)** deployed to
 - ✅ Authenticated SSR using FirebaseServerApp
 - ✅ Automatic deployments via GitHub integration
 - ✅ Auto-scaling with Cloud Run
-- ✅ Hybrid rendering (Prerender/Server/Client per route)
+- ✅ Server rendering for all routes via `RenderMode.Server`
 
 ### Technology Stack
 
@@ -94,14 +94,14 @@ nxt1-monorepo/
 │       │   ├── main.server.ts   # Server entry point (SSR bootstrap)
 │       │   └── app/
 │       │       ├── app.config.ts         # Browser providers
-│       │       ├── app.config.server.ts  # Server providers (no Firebase)
+│       │       ├── app.config.server.ts  # Server providers (includes FirebaseServerApp auth)
 │       │       ├── app.routes.ts         # Route definitions
 │       │       ├── app.routes.server.ts  # SSR render modes per route
 │       │       └── core/
 │       │           └── auth/
 │       │               ├── auth.interface.ts       # IAuthService contract
 │       │               ├── browser-auth.service.ts # Firebase Auth (browser)
-│       │               ├── server-auth.service.ts  # Noop auth (server)
+│       │               ├── server-auth.service.ts  # FirebaseServerApp auth (server)
 │       │               ├── auth-cookie.service.ts  # Token cookie management
 │       │               ├── firebase-server-app.ts  # FirebaseServerApp utils
 │       │               └── ssr-auth-token.ts       # SSR injection token
@@ -358,17 +358,12 @@ export const config: ApplicationConfig = {
 import { RenderMode, ServerRoute } from '@angular/ssr';
 
 export const serverRoutes: ServerRoute[] = [
-  // PRERENDER: Generated at build time (fastest)
-  { path: '', renderMode: RenderMode.Prerender },
-
-  // SERVER: Rendered on each request (dynamic content, SEO)
+  // Current strategy: server render all major routes
+  { path: '', renderMode: RenderMode.Server },
   { path: 'explore', renderMode: RenderMode.Server },
   { path: 'profile/:unicode', renderMode: RenderMode.Server },
-
-  // CLIENT: Skip SSR entirely (auth-protected, no SEO needed)
-  { path: 'auth/**', renderMode: RenderMode.Client },
-  { path: 'home', renderMode: RenderMode.Client },
-  { path: 'settings/**', renderMode: RenderMode.Client },
+  { path: 'auth/**', renderMode: RenderMode.Server },
+  { path: 'settings/**', renderMode: RenderMode.Server },
 
   // Default fallback
   { path: '**', renderMode: RenderMode.Server },
@@ -377,11 +372,11 @@ export const serverRoutes: ServerRoute[] = [
 
 **Render Mode Decision Matrix:**
 
-| Mode        | When to Use                     | Examples               |
-| ----------- | ------------------------------- | ---------------------- |
-| `Prerender` | Static pages that rarely change | Landing, About, FAQ    |
-| `Server`    | Dynamic content needing SEO     | Explore, Profile, Team |
-| `Client`    | Auth-protected, no SEO value    | Dashboard, Settings    |
+| Mode        | When to Use                                   | Examples                     |
+| ----------- | --------------------------------------------- | ---------------------------- |
+| `Server`    | Default in this repo: SEO + hydration safety  | Explore, Profile, Auth, Team |
+| `Prerender` | Optional for truly static marketing pages     | Static legal/info pages      |
+| `Client`    | Optional for explicit client-only experiences | Transient redirect routes    |
 
 ---
 
@@ -589,7 +584,8 @@ const bootstrap = (context: BootstrapContext): Promise<ApplicationRef> => {
 
 **Fix:**
 
-1. Check `app.config.server.ts` has NO Firebase providers
+1. Ensure `app.config.server.ts` only uses server-safe Firebase auth wiring
+   (FirebaseServerApp via `ServerAuthService`), not browser auth providers
 2. Import auth files directly, not from barrel:
 
    ```typescript

@@ -6,7 +6,8 @@
 <!-- CI/CD Pipeline verified -->
 
 [![CI](https://github.com/nxt1/nxt1-workspace/actions/workflows/ci.yml/badge.svg)](https://github.com/nxt1/nxt1-workspace/actions/workflows/ci.yml)
-[![Deploy](https://github.com/nxt1/nxt1-workspace/actions/workflows/deploy.yml/badge.svg)](https://github.com/nxt1/nxt1-workspace/actions/workflows/deploy.yml)
+[![Deploy Web Staging](https://github.com/nxt1/nxt1-workspace/actions/workflows/deploy-web-staging.yml/badge.svg)](https://github.com/nxt1/nxt1-workspace/actions/workflows/deploy-web-staging.yml)
+[![Deploy Web Production](https://github.com/nxt1/nxt1-workspace/actions/workflows/deploy-web-production.yml/badge.svg)](https://github.com/nxt1/nxt1-workspace/actions/workflows/deploy-web-production.yml)
 
 ## Architecture
 
@@ -34,8 +35,8 @@
 
 ### Prerequisites
 
-- **Node.js** >= 20.0.0
-- **npm** >= 10.0.0
+- **Node.js** 22.x
+- **npm** >= 11
 - **Xcode** (for iOS development)
 - **Android Studio** (for Android development)
 - **Firebase CLI** (`npm install -g firebase-tools`)
@@ -97,6 +98,10 @@ monorepo/
 │   │   │   └── validation/   # Input validation
 │   │   └── package.json
 │   │
+│   ├── ui/                   # @nxt1/ui - Shared Angular/Ionic UI
+│   ├── cache/                # @nxt1/cache - Cache abstraction
+│   ├── shared-types/         # @nxt1/shared-types - Shared TS contracts
+│   ├── design-tokens/        # @nxt1/design-tokens - Cross-platform tokens
 │   └── config/               # @nxt1/config - Shared configs
 │       ├── eslint/           # ESLint configurations
 │       ├── typescript/       # TypeScript configurations
@@ -167,7 +172,7 @@ import { createAuthApi, createProfileApi } from '@nxt1/core';
 
 ### apps/mobile (Capacitor)
 
-- Ionic 8 + Capacitor 7
+- Ionic 8 + Capacitor 8
 - Shared components with web
 - Native iOS/Android builds
 - Push Notifications support

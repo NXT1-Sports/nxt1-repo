@@ -600,7 +600,7 @@ describe('ContextBuilder', () => {
       expect(prompt).not.toContain('Views:');
     });
 
-    it('should include exact absolute profile and team URLs when an app base URL is provided', async () => {
+    it('should include exact absolute profile URLs when an app base URL is provided', async () => {
       mockCacheGet.mockResolvedValueOnce(null);
       mockGetUserById.mockResolvedValueOnce(createFullUserDoc());
 
@@ -609,13 +609,12 @@ describe('ContextBuilder', () => {
         appBaseUrl: 'http://localhost:4200',
       });
 
-      expect(prompt).toContain('Use the exact NXT1 URLs below when referencing a profile or team.');
+      expect(prompt).toContain('Use the exact NXT1 profile URLs below when referencing a profile.');
       expect(prompt).toContain(
         'Profile URL: http://localhost:4200/profile/football/john-doe/469697'
       );
-      expect(prompt).toContain(
-        'Team URL: http://localhost:4200/team/crown-point-basketball-mens/2P49TB'
-      );
+      expect(prompt).not.toContain('Team URL:');
+      expect(prompt).not.toContain('Team URLs:');
     });
 
     it('should produce a minimal prompt for an unknown user', () => {

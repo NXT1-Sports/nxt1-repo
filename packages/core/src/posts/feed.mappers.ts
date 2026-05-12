@@ -434,7 +434,7 @@ function normalizeProcessingStatus(raw: string | undefined): FeedVideoProcessing
   }
 }
 
-function buildMediaFromTeamPost(post: TeamProfilePost): readonly FeedMedia[] {
+export function buildMediaFromTeamPost(post: TeamProfilePost): readonly FeedMedia[] {
   const hasMedia = post.thumbnailUrl || post.mediaUrl || post.iframeUrl || post.cloudflareVideoId;
   if (!hasMedia) return [];
 

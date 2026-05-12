@@ -44,6 +44,17 @@ const STORAGE_LOGO_CANDIDATE_PATHS = [
 ] as const;
 const LOGO_WIDTH_RATIO = 0.05;
 const LOGO_MARGIN_RATIO = 0.015;
+const MAX_SUBJECT_PHOTOS = 5;
+const MAX_LOGOS = 3;
+
+const RequiredAssetsSchema = z
+  .object({
+    subjectPhoto: z.boolean().default(false),
+    brandLogo: z.boolean().default(false),
+  })
+  .default({ subjectPhoto: false, brandLogo: false });
+
+const APPLY_MODES = ['photo_lock', 'logo_overlay', 'mixed', 'style_only'] as const;
 
 const DisplayTextIntentSchema = z.object({
   displayText: z.array(z.string().trim().min(1)).default([]),
@@ -64,37 +75,59 @@ const DIMENSION_PRESETS: Record<string, { width: number; height: number; label: 
   '1080x1350': { width: 1080, height: 1350, label: 'Portrait (Instagram Portrait)' },
 };
 
-const GenerateGraphicInputSchema = z.object({
-  graphicType: z.enum(['athlete', 'team']).default('athlete'),
-  textRequirements: z.array(z.string().trim().min(1)).default([]),
-  athleteInfo: z
-    .object({
-      name: z.string().trim().min(1).optional(),
-      sport: z.string().trim().min(1).optional(),
-      position: z.string().trim().min(1).optional(),
-      team: z.string().trim().min(1).optional(),
-    })
-    .optional(),
-  teamInfo: z
-    .object({
-      name: z.string().trim().min(1).optional(),
-      sport: z.string().trim().min(1).optional(),
-      subtitle: z.string().trim().min(1).optional(),
-    })
-    .optional(),
-  subjectImageUrl: z.string().trim().min(1).optional(),
-  dimensions: z.enum(['1080x1080', '1080x1920', '1920x1080', '1200x675', '1500x500', '1080x1350']),
-  styleDescription: z.string().trim().min(1),
-  userId: z.string().trim().min(1),
-});
+const GenerateGraphicInputSchema = z
+  .object({
+    graphicType: z.enum(['athlete', 'team']).default('athlete'),
+    textRequirements: z.array(z.string().trim().min(1)).default([]),
+    athleteInfo: z
+      .object({
+        name: z.string().trim().min(1).optional(),
+        sport: z.string().trim().min(1).optional(),
+        position: z.string().trim().min(1).optional(),
+        team: z.string().trim().min(1).optional(),
+      })
+      .optional(),
+    teamInfo: z
+      .object({
+        name: z.string().trim().min(1).optional(),
+        sport: z.string().trim().min(1).optional(),
+        subtitle: z.string().trim().min(1).optional(),
+      })
+      .optional(),
+    subjectPhotoUrls: z.array(z.string().trim().url()).max(MAX_SUBJECT_PHOTOS).optional(),
+    logoUrls: z.array(z.string().trim().url()).max(MAX_LOGOS).optional(),
+    videoSourceUrls: z.array(z.string().trim().url()).max(3).optional(),
+    requiredAssets: RequiredAssetsSchema.optional(),
+    applyMode: z.enum(APPLY_MODES).optional(),
+    assetSelectionApproved: z.boolean().optional(),
+    autoRetrievedSources: z.array(z.string().trim().min(1)).max(12).optional(),
+    /**
+     * Brand colors to enforce on the graphic.
+     * Priority: org/team colors (index 0 = primary, index 1 = secondary) > caller-supplied.
+     * When provided, the model uses these as the dominant palette instead of choosing freely.
+     * When absent and a subjectPhotoUrls entry is present, the model derives the palette from the image.
+     */
+    themeColors: z.array(z.string().trim().min(1)).max(3).optional(),
+    dimensions: z.enum([
+      '1080x1080',
+      '1080x1920',
+      '1920x1080',
+      '1200x675',
+      '1500x500',
+      '1080x1350',
+    ]),
+    styleDescription: z.string().trim().min(1),
+    userId: z.string().trim().min(1),
+  })
+  .strict();
 
 // ─── Tool Implementation ────────────────────────────────────────────────────
 
 export class GenerateGraphicTool extends BaseTool {
   readonly name = 'generate_graphic';
   readonly description =
-    'Generates a professional sports graphic using structured parameters (text, dimensions, style, subject photo). ' +
-    'When a subject photo is provided, the output must preserve that exact person and avoid synthetic replacement. ' +
+    'Generates a professional sports graphic using structured parameters (text, dimensions, style, subject photos, logos). ' +
+    'When subject photos are provided, output preserves that exact person; when logos are provided, logos are composited deterministically. ' +
     'Use for game day graphics, player spotlights, announcements, stat cards, and social assets.';
   readonly parameters = GenerateGraphicInputSchema;
 
@@ -165,6 +198,125 @@ export class GenerateGraphicTool extends BaseTool {
     return sharp(baseImage)
       .composite([{ input: logoResized, left, top }])
       .toBuffer();
+  }
+
+  /** Stamps one or more user/team logos in the bottom-left corner via Sharp compositing. */
+  private async stampLogosBottomLeft(baseImage: Buffer, logos: readonly Buffer[]): Promise<Buffer> {
+    if (logos.length === 0) return baseImage;
+
+    const meta = await sharp(baseImage).metadata();
+    const width = meta.width ?? 0;
+    const height = meta.height ?? 0;
+    if (width <= 0 || height <= 0) return baseImage;
+
+    const targetLogoWidth = Math.max(36, Math.round(width * LOGO_WIDTH_RATIO));
+    const margin = Math.max(10, Math.round(width * LOGO_MARGIN_RATIO));
+    const verticalGap = Math.max(8, Math.round(margin * 0.65));
+    const resizedLogos = await Promise.all(
+      logos.slice(0, MAX_LOGOS).map(async (logo) => {
+        try {
+          const png = await sharp(logo)
+            .resize({ width: targetLogoWidth, fit: 'contain' })
+            .png()
+            .toBuffer();
+          const logoMeta = await sharp(png).metadata();
+          return {
+            input: png,
+            width: logoMeta.width ?? targetLogoWidth,
+            height: logoMeta.height ?? targetLogoWidth,
+          };
+        } catch {
+          return null;
+        }
+      })
+    );
+
+    const prepared = resizedLogos.filter((entry): entry is NonNullable<typeof entry> => !!entry);
+    if (prepared.length === 0) return baseImage;
+
+    let cursorBottom = height - margin;
+    const composites: Array<{ input: Buffer; left: number; top: number }> = [];
+
+    for (const logo of prepared) {
+      const top = Math.max(0, cursorBottom - logo.height);
+      composites.push({ input: logo.input, left: margin, top });
+      cursorBottom = top - verticalGap;
+      if (cursorBottom <= 0) break;
+    }
+
+    if (composites.length === 0) return baseImage;
+
+    return sharp(baseImage).composite(composites).toBuffer();
+  }
+
+  private normalizeUrlList(urls: readonly string[] | undefined, max: number): string[] {
+    if (!urls || urls.length === 0) return [];
+    const seen = new Set<string>();
+    const normalized: string[] = [];
+    for (const url of urls) {
+      const trimmed = url.trim();
+      if (!trimmed || seen.has(trimmed)) continue;
+      seen.add(trimmed);
+      normalized.push(trimmed);
+      if (normalized.length >= max) break;
+    }
+    return normalized;
+  }
+
+  private resolveApplyMode(params: {
+    explicit: (typeof APPLY_MODES)[number] | undefined;
+    hasSubjectPhotos: boolean;
+    hasLogos: boolean;
+  }): (typeof APPLY_MODES)[number] {
+    if (params.explicit) {
+      if (params.explicit === 'mixed') {
+        if (params.hasSubjectPhotos && params.hasLogos) return 'mixed';
+        if (params.hasSubjectPhotos) return 'photo_lock';
+        if (params.hasLogos) return 'logo_overlay';
+        return 'style_only';
+      }
+
+      if (params.explicit === 'photo_lock' && !params.hasSubjectPhotos) {
+        return params.hasLogos ? 'logo_overlay' : 'style_only';
+      }
+
+      if (params.explicit === 'logo_overlay' && !params.hasLogos) {
+        return params.hasSubjectPhotos ? 'photo_lock' : 'style_only';
+      }
+
+      return params.explicit;
+    }
+
+    if (params.hasSubjectPhotos && params.hasLogos) return 'mixed';
+    if (params.hasSubjectPhotos) return 'photo_lock';
+    if (params.hasLogos) return 'logo_overlay';
+    return 'style_only';
+  }
+
+  private assertRequiredAssetsPresent(params: {
+    requiredAssets: z.infer<typeof RequiredAssetsSchema>;
+    subjectPhotoUrls: readonly string[];
+    logoUrls: readonly string[];
+  }): string | null {
+    if (params.requiredAssets.subjectPhoto && params.subjectPhotoUrls.length === 0) {
+      return 'Required subject photo not provided. Attach a subject photo or run retrieval first.';
+    }
+    if (params.requiredAssets.brandLogo && params.logoUrls.length === 0) {
+      return 'Required brand logo not provided. Attach a logo or run retrieval first.';
+    }
+    return null;
+  }
+
+  private async fetchRemoteImageBuffer(url: string, signal?: AbortSignal): Promise<Buffer | null> {
+    try {
+      const response = await fetch(url, { signal });
+      if (!response.ok) return null;
+      const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+      if (!contentType.startsWith('image/')) return null;
+      return Buffer.from(await response.arrayBuffer());
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -357,11 +509,40 @@ Return JSON only. No explanation outside the JSON.`;
       textRequirements,
       athleteInfo,
       teamInfo,
-      subjectImageUrl,
+      subjectPhotoUrls,
+      logoUrls,
+      requiredAssets,
+      applyMode,
+      assetSelectionApproved,
+      autoRetrievedSources,
+      themeColors,
       dimensions,
       styleDescription,
       userId,
     } = parsed.data;
+
+    const normalizedSubjectPhotoUrls = this.normalizeUrlList(subjectPhotoUrls, MAX_SUBJECT_PHOTOS);
+    const normalizedLogoUrls = this.normalizeUrlList(logoUrls, MAX_LOGOS);
+    const resolvedRequiredAssets = requiredAssets ?? { subjectPhoto: false, brandLogo: false };
+    const validationWarnings: string[] = [];
+    const missingAssetError = this.assertRequiredAssetsPresent({
+      requiredAssets: resolvedRequiredAssets,
+      subjectPhotoUrls: normalizedSubjectPhotoUrls,
+      logoUrls: normalizedLogoUrls,
+    });
+
+    if (missingAssetError) {
+      validationWarnings.push(missingAssetError);
+    }
+
+    const retrievedSources = (autoRetrievedSources ?? []).filter(
+      (source) => source.trim().length > 0
+    );
+    if (retrievedSources.length > 0 && assetSelectionApproved !== true) {
+      validationWarnings.push(
+        'Retrieved media was not explicitly approved in args; proceeding with auto-selected assets.'
+      );
+    }
 
     const llmDisplayTextRequirements = await this.parseDisplayTextIntent(
       textRequirements,
@@ -382,14 +563,29 @@ Return JSON only. No explanation outside the JSON.`;
 
     // ── Compile the creative brief ─────────────────────────────────────
     const preset = DIMENSION_PRESETS[dimensions];
-    const hasSubjectImage =
-      typeof subjectImageUrl === 'string' && subjectImageUrl.trim().length > 0;
+    const hasSubjectImage = normalizedSubjectPhotoUrls.length > 0;
+    const hasLogos = normalizedLogoUrls.length > 0;
+    const resolvedApplyMode = this.resolveApplyMode({
+      explicit: applyMode,
+      hasSubjectPhotos: hasSubjectImage,
+      hasLogos,
+    });
+
+    if (applyMode && applyMode !== resolvedApplyMode) {
+      validationWarnings.push(
+        `Requested applyMode "${applyMode}" could not be satisfied with the supplied assets. Using "${resolvedApplyMode}" instead.`
+      );
+    }
+
     const prompt = this.compileDesignBrief({
       textRequirements: effectiveTextRequirements,
       dimensions: preset,
       styleDescription,
       hasSubjectImage,
+      hasLogos,
+      applyMode: resolvedApplyMode,
       graphicType,
+      themeColors,
     });
 
     // ── Generate the graphic ───────────────────────────────────────────
@@ -408,18 +604,19 @@ Return JSON only. No explanation outside the JSON.`;
         phase: 'generate_image',
       });
 
-      const normalizedSubjectImageUrl =
-        typeof subjectImageUrl === 'string' && subjectImageUrl.trim().length > 0
-          ? subjectImageUrl.trim()
-          : undefined;
-      const hasStrictSubject = !!normalizedSubjectImageUrl;
+      const referenceImageUrl = hasSubjectImage
+        ? normalizedSubjectPhotoUrls[0]
+        : normalizedLogoUrls[0];
+      const hasStrictSubject = hasSubjectImage;
 
-      // Re-send the same source image in multimodal parts to increase identity anchoring.
-      const additionalImageUrls = hasStrictSubject ? [normalizedSubjectImageUrl] : [];
+      const additionalImageUrls = [
+        ...(hasStrictSubject ? normalizedSubjectPhotoUrls.slice(1) : []),
+        ...(hasLogos ? normalizedLogoUrls.slice(hasStrictSubject ? 0 : 1) : []),
+      ];
 
       const result = await this.llm.generateImage({
         prompt,
-        referenceImageUrl: normalizedSubjectImageUrl,
+        referenceImageUrl,
         additionalImageUrls,
         temperature: hasStrictSubject ? 0.15 : 0.55,
         signal: context?.signal,
@@ -452,13 +649,25 @@ Return JSON only. No explanation outside the JSON.`;
       const file = bucket.file(filePath);
       const imageBuffer = Buffer.from(result.imageBase64, 'base64');
 
+      const userLogoBuffers = await Promise.all(
+        normalizedLogoUrls.map((url) => this.fetchRemoteImageBuffer(url, context?.signal))
+      );
+      const filteredUserLogos = userLogoBuffers.filter(
+        (buffer): buffer is Buffer => !!buffer && buffer.length > 0
+      );
+
+      const withUserLogos =
+        filteredUserLogos.length > 0
+          ? await this.stampLogosBottomLeft(imageBuffer, filteredUserLogos)
+          : imageBuffer;
+
       // Stamp the NXT1 logo in the bottom-right corner.
       // Model receives NO logo images so it cannot hallucinate duplicates;
       // Sharp is the sole, deterministic logo placement mechanism.
       const logoBuffer = await this.fetchLogoBuffer();
       const finalBuffer = logoBuffer
-        ? await this.stampLogoBottomRight(imageBuffer, logoBuffer)
-        : imageBuffer;
+        ? await this.stampLogoBottomRight(withUserLogos, logoBuffer)
+        : withUserLogos;
 
       await file.save(finalBuffer, {
         contentType: result.mimeType,
@@ -479,6 +688,10 @@ Return JSON only. No explanation outside the JSON.`;
           latencyMs: result.latencyMs,
           costUsd: result.costUsd,
           textContent: result.textContent,
+          applyMode: resolvedApplyMode,
+          usedSubjectPhotoUrls: normalizedSubjectPhotoUrls,
+          usedLogoUrls: normalizedLogoUrls,
+          ...(validationWarnings.length > 0 ? { warnings: validationWarnings } : {}),
         },
       };
     } catch (err) {
@@ -505,9 +718,21 @@ Return JSON only. No explanation outside the JSON.`;
     dimensions: { width: number; height: number; label: string };
     styleDescription: string;
     hasSubjectImage: boolean;
+    hasLogos: boolean;
+    applyMode: (typeof APPLY_MODES)[number];
     graphicType: 'athlete' | 'team';
+    themeColors?: readonly string[];
   }): string {
-    const { textRequirements, dimensions, styleDescription, hasSubjectImage, graphicType } = params;
+    const {
+      textRequirements,
+      dimensions,
+      styleDescription,
+      hasSubjectImage,
+      hasLogos,
+      applyMode,
+      graphicType,
+      themeColors,
+    } = params;
 
     // Build the quoted text block — each item wrapped so model renders them literally
     const quotedTextLines =
@@ -519,8 +744,29 @@ Return JSON only. No explanation outside the JSON.`;
     // This prevents the model from treating style label words as on-canvas copy.
     const aestheticStyle = this.translateToAestheticLanguage(styleDescription);
 
-    const subjectBlock = hasSubjectImage
-      ? `
+    // Build the color palette instruction.
+    // Priority: explicit themeColors (org/team brand) > image-derived > free choice.
+    const colorPaletteInstruction = (() => {
+      if (themeColors && themeColors.length > 0) {
+        const primary = themeColors[0];
+        const secondary = themeColors[1] ?? null;
+        const accent = themeColors[2] ?? null;
+        const colorList = [primary, secondary, accent].filter(Boolean).join(', ');
+        return `Color palette: USE THESE EXACT BRAND COLORS as the dominant palette — ${colorList}.
+  - Primary color ${primary} must dominate backgrounds, major shapes, and key design elements.
+  ${secondary ? `- Secondary color ${secondary} must be used for contrast elements, borders, and accent shapes.` : ''}
+  ${accent ? `- Accent color ${accent} can be used sparingly for highlights or glow effects.` : ''}
+  Do NOT substitute or invent alternative colors. The palette is locked to the brand colors above.`;
+      }
+      if (hasSubjectImage) {
+        return `Color palette: derive your dominant color palette from the colors present in the attached subject image. Sample the most prominent hues from the image and build the background, shapes, and accent elements around them. Do NOT default to orange and blue.`;
+      }
+      return `Color palette: choose an original, high-contrast sports palette that fits the style above. Do NOT default to orange and blue unless the user's content explicitly calls for it.`;
+    })();
+
+    const subjectBlock =
+      (applyMode === 'photo_lock' || applyMode === 'mixed') && hasSubjectImage
+        ? `
 # SUBJECT LOCK (MANDATORY)
 <SUBJECT_START>
 A real athlete photo is attached. This task is strict image-guided compositing.
@@ -531,7 +777,19 @@ Forbidden edits: inventing a new person, swapping face, changing ethnicity, chan
 If identity cannot be preserved exactly, keep the original subject untouched and style only the background/layout.
 <SUBJECT_END>
 `
-      : '';
+        : '';
+
+    const logoBlock =
+      (applyMode === 'logo_overlay' || applyMode === 'mixed') && hasLogos
+        ? `
+# LOGO OVERLAY (MANDATORY)
+<LOGO_START>
+Brand logo assets are provided for deterministic compositing.
+Do NOT invent logos, text marks, mascots, or alternate branding.
+The generation model should focus on background/layout aesthetics; logos are overlaid after generation.
+<LOGO_END>
+`
+        : '';
 
     return `You are a professional sports graphic designer. Produce a single, high-quality image.
 
@@ -540,6 +798,7 @@ Width: ${dimensions.width}px | Height: ${dimensions.height}px | Format: ${dimens
 Quality: ultra high resolution
 Graphic category: ${graphicType === 'team' ? 'TEAM GRAPHIC' : 'ATHLETE GRAPHIC'}
 ${subjectBlock}
+${logoBlock}
 # REQUIRED TEXT — Render ONLY these exact words, spelled character-for-character
 <TEXT_START>
 ${quotedTextLines}
@@ -555,8 +814,7 @@ RULES FOR TEXT:
 # VISUAL STYLE — Design aesthetic ONLY. DO NOT render any of this as text.
 <STYLE_START>
 ${aestheticStyle}
-Color palette: choose an original, high-contrast sports palette that fits the style above.
-Do NOT default to orange and blue unless the user's content explicitly calls for it.
+${colorPaletteInstruction}
 <STYLE_END>
 
 CRITICAL: The <STYLE_START>…<STYLE_END> block contains visual design instructions only.
@@ -565,10 +823,14 @@ DO NOT write any word from that section onto the graphic. It describes HOW it sh
 CRITICAL: If a subject image is attached, do not synthesize a new athlete.
 Treat the attached photo as the locked identity source and preserve that exact person.
 
+CRITICAL: If logos are provided, they are brand-locked assets. Do not hallucinate or mutate logo identity.
+
 # OUTPUT CHECKLIST — verify before finalizing
 - [ ] Only the text from <TEXT_START>…<TEXT_END> appears on the graphic
 - [ ] Every word is spelled exactly as provided — no typos
 - [ ] No style labels, mood words, or theme names appear as visible text${hasSubjectImage ? '\n- [ ] The person in the output is the SAME person from the attached photo' : ''}
+- [ ] The person in the output is the SAME person from the attached photo${hasSubjectImage ? '' : ' (skip when no subject photo supplied)'}
+- [ ] Logo placeholders/clear zones exist where brand overlays should sit${hasLogos ? '' : ' (skip when no logos supplied)'}
 - [ ] The design looks like a professional broadcast sports graphic`;
   }
 

@@ -84,6 +84,51 @@ const PROMPT_ONLY_TITLE_GENERATION_PROMPT = `You are a concise title generator f
 - Include sport/context when relevant
 - Maximum 50 characters`;
 
+/**
+ * Deterministic last-resort title derivation when the LLM call fails or
+ * returns an empty string. Strips common quick-action boilerplate and
+ * extracts the topical clause from the prompt so the sidebar never shows
+ * a raw 80-character prompt fragment.
+ *
+ * Examples:
+ *   "Please handle Play Style Trends Analysis with the Strategy Coordinator.
+ *    Analyze team tendencies. Give me the clearest deliverable…"
+ *     → "Play Style Trends Analysis"
+ *
+ *   "Sync my connected accounts (instagram, x). Target profile: NXT1 profile."
+ *     → "Sync My Connected Accounts"
+ *
+ *   "hype graphic, with our team graphic, futuristic technology style"
+ *     → "Hype Graphic With Our Team Graphic"
+ */
+function deriveFallbackTitle(prompt: string): string {
+  const cleaned = prompt
+    .trim()
+    .replace(/^(please|hey|hi|hello)[\s,]+/i, '')
+    .replace(/^(can you|could you|would you|please)\s+/i, '')
+    .replace(/^handle\s+/i, '')
+    .replace(/\s+with the [^.]+coordinator[^.]*/i, '')
+    .replace(/\s*give me the clearest deliverable[^.]*/i, '')
+    .replace(/\s*and frame it as a recurring[^.]*/i, '');
+
+  // Take the first sentence/clause only.
+  const firstClause = cleaned.split(/[.!?\n]/, 1)[0]?.trim() ?? cleaned.trim();
+  if (!firstClause) return prompt.trim().slice(0, 50);
+
+  // Title-case the result (preserve acronyms like NXT1, NCAA, D2).
+  const words = firstClause.split(/\s+/).map((word) => {
+    if (word.length === 0) return word;
+    // Keep all-caps and mixed-case tokens (NXT1, D2, NCAA) as-is.
+    if (/^[A-Z0-9]+$/.test(word) || /[A-Z]/.test(word.slice(1))) return word;
+    return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+  });
+
+  let title = words.join(' ').slice(0, 50).trim();
+  // Strip any trailing partial word fragment from the slice cut-off.
+  title = title.replace(/\s+\S+$/, (match) => (title.length === 50 ? '' : match));
+  return title || prompt.trim().slice(0, 50);
+}
+
 function extractCardsFromParts(
   parts?: readonly AgentXMessagePart[]
 ): readonly AgentXRichCard[] | undefined {
@@ -173,7 +218,12 @@ export class AgentChatService {
     category?: AgentThreadCategory;
   }): Promise<AgentThread> {
     const now = new Date().toISOString();
-    const normalizedTitle = params.title?.trim().slice(0, 80);
+    // Trim AFTER the slice so a partial-word cut-point doesn't leave a
+    // trailing space that diverges from `thread.title.trim()` on read.
+    // Without this, applyGeneratedThreadTitle's prefix guard could reject
+    // legitimate overwrites because the stored title and the recomputed
+    // comparison string differ only by whitespace at the slice boundary.
+    const normalizedTitle = params.title?.trim().slice(0, 80).trim();
 
     const doc = await AgentThreadModel.create({
       userId: params.userId,
@@ -379,10 +429,41 @@ export class AgentChatService {
     generatedTitle: string
   ): Promise<string | null> {
     const thread = await this.getThread(threadId, userId);
-    if (!thread) return null;
+    if (!thread) {
+      logger.warn('[AgentChatService] applyGeneratedThreadTitle: thread not found', {
+        threadId,
+        userId,
+      });
+      return null;
+    }
 
-    const promptPrefix = userMessage.trim().slice(0, 80);
-    if (thread.title !== promptPrefix && thread.title.trim().length > 0) {
+    // Guard: only overwrite when the thread title is still in "raw prompt"
+    // form (created via startConversation/resolveThread, set to userMessage[:80]).
+    // Once the title has been replaced with an AI-generated label, never
+    // stomp on it — even if the user later renames it manually.
+    //
+    // Comparison uses trimmed forms on both sides. `createThread` stores
+    // `userMessage.trim().slice(0, 80)` which often ends with a partial word
+    // and a trailing space; Mongoose may or may not preserve the trailing
+    // whitespace round-trip. We also accept "title is a prefix of the user
+    // message" so any of these raw-form variants are recognized:
+    //   - exact 80-char slice
+    //   - trimmed 80-char slice (whitespace dropped from the cut point)
+    //   - earlier prefix written by a legacy code path
+    const normalize = (s: string): string => s.trim().replace(/\s+/g, ' ');
+    const currentTitle = normalize(thread.title);
+    const trimmedUserMessage = normalize(userMessage);
+    const promptPrefix80 = normalize(userMessage.trim().slice(0, 80));
+    const isRawPromptTitle =
+      currentTitle.length === 0 ||
+      currentTitle === promptPrefix80 ||
+      (currentTitle.length >= 20 && trimmedUserMessage.startsWith(currentTitle));
+
+    if (!isRawPromptTitle) {
+      logger.debug('[AgentChatService] Skipping title overwrite — already labeled', {
+        threadId,
+        currentTitle: thread.title,
+      });
       return null;
     }
 
@@ -391,6 +472,7 @@ export class AgentChatService {
       logger.info('[AgentChatService] Thread title auto-generated', {
         threadId,
         title: generatedTitle,
+        previousTitle: currentTitle,
       });
     }
 
@@ -404,20 +486,27 @@ export class AgentChatService {
    * Uses a prompt-only input so it completes in ~300-600ms (well before the
    * first agent token arrives), enabling instant title display in the sidebar.
    *
+   * Always returns a non-empty title. If the LLM call fails or returns empty,
+   * falls back to a deterministic derivation from the prompt so no thread is
+   * ever stuck displaying the raw 80-char prefix.
+   *
    * Does NOT call applyGeneratedThreadTitle — the caller is responsible for
    * applying the title and emitting the SSE event.
    *
-   * @returns The generated title string, or null if generation failed.
+   * @returns The generated title string (never null when the prompt is non-empty).
    */
   async generateTitleFromPromptOnly(
     prompt: string,
     llmService: OpenRouterService
   ): Promise<string | null> {
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt) return null;
+
     try {
       const result = await llmService.complete(
         [
           { role: 'system', content: PROMPT_ONLY_TITLE_GENERATION_PROMPT },
-          { role: 'user', content: `User prompt: "${prompt.trim().slice(0, 300)}"` },
+          { role: 'user', content: `User prompt: "${trimmedPrompt.slice(0, 300)}"` },
         ],
         { tier: 'extraction', maxTokens: 50, temperature: 0.3 }
       );
@@ -426,13 +515,17 @@ export class AgentChatService {
         .replace(/[.!?]+$/, '')
         .trim()
         .slice(0, 50);
-      return title || null;
+      if (title) return title;
+      logger.warn('[AgentChatService] LLM returned empty title — falling back', {
+        promptLength: trimmedPrompt.length,
+      });
     } catch (err) {
-      logger.warn('[AgentChatService] Failed to generate title from prompt only', {
+      logger.warn('[AgentChatService] Failed to generate title from prompt only — falling back', {
         error: err instanceof Error ? err.message : String(err),
       });
-      return null;
     }
+
+    return deriveFallbackTitle(trimmedPrompt);
   }
 
   /**
@@ -622,7 +715,7 @@ export class AgentChatService {
             const enriched = await AgentMessageModel.findOneAndUpdate(
               { idempotencyKey: params.idempotencyKey },
               { $set: patch },
-              { new: true }
+              { returnDocument: 'after' }
             ).exec();
 
             logger.info(
@@ -891,7 +984,7 @@ export class AgentChatService {
           attachments: nextAttachments,
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     )
       .lean()
       .exec();
@@ -919,7 +1012,7 @@ export class AgentChatService {
           attachments: uniqueAttachments,
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     )
       .lean()
       .exec();
@@ -937,6 +1030,46 @@ export class AgentChatService {
       userId: params.userId,
       messageId: params.messageId,
       attachmentCount: params.attachments.length,
+    });
+
+    return this.toMessage(doc);
+  }
+
+  async updateMessageOperationId(params: {
+    userId: string;
+    messageId: string;
+    operationId: string;
+  }): Promise<AgentMessage | null> {
+    const doc = await AgentMessageModel.findOneAndUpdate(
+      {
+        _id: params.messageId,
+        userId: params.userId,
+        role: 'user',
+        deletedAt: null,
+      },
+      {
+        $set: {
+          operationId: params.operationId,
+        },
+      },
+      { returnDocument: 'after' }
+    )
+      .lean()
+      .exec();
+
+    if (!doc) {
+      logger.warn('[AgentChatService] Operation id message update missed', {
+        userId: params.userId,
+        messageId: params.messageId,
+        operationId: params.operationId,
+      });
+      return null;
+    }
+
+    logger.info('[AgentChatService] Operation id persisted to user message', {
+      userId: params.userId,
+      messageId: params.messageId,
+      operationId: params.operationId,
     });
 
     return this.toMessage(doc);
@@ -1036,7 +1169,7 @@ export class AgentChatService {
         deletedAt: null,
       },
       { $set: patch },
-      { new: true }
+      { returnDocument: 'after' }
     )
       .lean()
       .exec();
@@ -1099,7 +1232,7 @@ export class AgentChatService {
           },
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     )
       .lean()
       .exec();
@@ -1207,7 +1340,7 @@ export class AgentChatService {
           },
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     )
       .lean()
       .exec();
@@ -1252,7 +1385,7 @@ export class AgentChatService {
           },
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     )
       .lean()
       .exec();

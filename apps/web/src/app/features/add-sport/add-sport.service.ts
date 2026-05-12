@@ -436,22 +436,48 @@ export class AddSportService {
       // Refresh the auth user signal so sidebar/header reflect new sport immediately
       await this.authFlow.refreshUserProfile();
 
-      if (sportResponse.data?.scrapeJobId) {
+      const allScrapeJobIds =
+        sportResponse.data?.scrapeJobIds ??
+        (sportResponse.data?.scrapeJobId ? [sportResponse.data.scrapeJobId] : []);
+      if (allScrapeJobIds.length > 0) {
         const platformNames =
           this._linkSourcesFormData()
             ?.links?.filter((link) => link.connected)
             .map((link) => link.platform)
             .join(', ') ?? '';
+        const scrapeOperations =
+          sportResponse.data?.scrapeOperations && sportResponse.data.scrapeOperations.length > 0
+            ? sportResponse.data.scrapeOperations
+            : allScrapeJobIds.map((operationId, index) => ({
+                operationId,
+                ...(index === 0 && sportResponse.data?.scrapeThreadId
+                  ? { threadId: sportResponse.data.scrapeThreadId }
+                  : {}),
+                platforms: platformNames ? platformNames.split(', ') : [],
+              }));
+        const primaryScrapeOperation = scrapeOperations[0];
 
-        this.profileGenerationState.attachToOperation(
-          sportResponse.data.scrapeJobId,
-          sportResponse.data.scrapeThreadId,
-          platformNames
-        );
-        this.logger.info('Backend scrape job started for add-sport', {
-          scrapeJobId: sportResponse.data.scrapeJobId,
-          scrapeThreadId: sportResponse.data.scrapeThreadId,
+        // Primary job: starts the banner + opens the SSE resume stream
+        if (primaryScrapeOperation) {
+          this.profileGenerationState.attachToOperation(
+            primaryScrapeOperation.operationId,
+            primaryScrapeOperation.threadId ?? sportResponse.data?.scrapeThreadId,
+            primaryScrapeOperation.platforms.join(', ') || platformNames
+          );
+        }
+        // Additional jobs: register observers so their tool-step events advance the same banner
+        for (const scrapeOperation of scrapeOperations.slice(1)) {
+          this.profileGenerationState.watchForProfileWrites(
+            scrapeOperation.operationId,
+            scrapeOperation.platforms.join(', ') || platformNames
+          );
+        }
+        this.logger.info('Backend scrape jobs started for add-sport', {
+          scrapeJobIds: allScrapeJobIds,
+          scrapeThreadId: sportResponse.data?.scrapeThreadId,
+          scrapeOperations,
           sport: primarySport.sport,
+          jobCount: allScrapeJobIds.length,
         });
       }
 

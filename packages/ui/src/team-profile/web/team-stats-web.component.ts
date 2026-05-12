@@ -1,78 +1,84 @@
 /**
  * @fileoverview Team Stats Web Component
  * @module @nxt1/ui/team-profile/web
- * @version 1.0.0
+ * @version 2.0.0
  *
  * Stats tab content for team profile.
- * Mirrors ProfileStatsWebComponent — injects TeamProfileService directly.
+ * Uses the shared StatsDashboardComponent (same UI as athlete profiles).
+ * Structured stats are mapped via mapTeamStatsToGameLogs().
+ * Polymorphic STAT/METRIC timeline items render above as feed cards.
  *
  * ⭐ WEB ONLY — SSR-safe ⭐
  */
-import { Component, ChangeDetectionStrategy, inject, input, output, computed } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, ChangeDetectionStrategy, inject, input, computed } from '@angular/core';
+import {
+  type FeedItem,
+  type FeedItemMetric,
+  type FeedItemStat,
+  buildSeasonRecordMap,
+  mapTeamStatsToGameLogs,
+} from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon';
+import { FeedStatCardComponent } from '../../post-cards/feed-stat-card.component';
+import { FeedMetricsCardComponent } from '../../post-cards/feed-metrics-card.component';
+import { StatsDashboardComponent } from '../../components/stats-dashboard';
 import { TeamProfileService } from '../team-profile.service';
 
 @Component({
   selector: 'nxt1-team-stats-web',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent],
+  imports: [
+    NxtIconComponent,
+    FeedStatCardComponent,
+    FeedMetricsCardComponent,
+    StatsDashboardComponent,
+  ],
   template: `
     <div class="team-stats-tab">
-      <h2 class="team-section__title">Team Statistics</h2>
-      @if (filteredStats().length > 0) {
-        @for (category of filteredStats(); track category.name) {
-          <div class="team-stats-category">
-            <h3 class="team-subsection-title">
-              {{ category.name }}
-              @if (category.season) {
-                <span class="team-stats-season">{{ category.season }}</span>
-              }
-            </h3>
-            <div class="team-stats-grid">
-              @for (stat of category.stats; track stat.key) {
-                <div class="team-stat-card">
-                  @if (stat.icon) {
-                    <nxt1-icon [name]="stat.icon" [size]="18" />
-                  }
-                  <span class="team-stat-card__value">{{ stat.value }}</span>
-                  <span class="team-stat-card__label">{{ stat.label }}</span>
-                  @if (stat.trend) {
-                    <span
-                      class="team-stat-card__trend"
-                      [class.team-stat-card__trend--up]="stat.trend === 'up'"
-                      [class.team-stat-card__trend--down]="stat.trend === 'down'"
-                    >
-                      <nxt1-icon
-                        [name]="
-                          stat.trend === 'up'
-                            ? 'trending-up'
-                            : stat.trend === 'down'
-                              ? 'trending-down'
-                              : 'remove'
-                        "
-                        [size]="14"
-                      />
-                    </span>
-                  }
-                </div>
-              }
-            </div>
-          </div>
-        }
-      } @else {
-        <div class="madden-empty">
-          <div class="madden-empty__icon" aria-hidden="true">
-            <nxt1-icon name="stats-chart-outline" [size]="40" />
-          </div>
-          <h3>No team stats</h3>
-          <p>Team statistics and season records will appear here.</p>
-          @if (teamProfile.isTeamAdmin()) {
-            <button type="button" class="madden-cta-btn" (click)="manageTeam.emit()">
-              Manage Stats
-            </button>
+      @if (isTimelineLoading()) {
+        <!-- Loading skeleton while timeline is fetching -->
+        <div class="team-stats-loading" aria-hidden="true">
+          @for (i of [1, 2, 3]; track i) {
+            <div class="team-stats-loading__card"></div>
           }
         </div>
+      } @else {
+        <!-- ── Section 1: Polymorphic STAT/METRIC items synced from connected accounts ── -->
+        @if (timelineStatItems().length > 0) {
+          <div class="team-stats-feed">
+            @for (item of timelineStatItems(); track item.id) {
+              @switch (item.feedType) {
+                @case ('STAT') {
+                  <nxt1-feed-stat-card [data]="asStat(item).statData" />
+                }
+                @case ('METRIC') {
+                  <nxt1-feed-metrics-card [data]="asMetric(item).metricsData" />
+                }
+              }
+            }
+          </div>
+        }
+
+        <!-- ── Section 2: Structured stats via shared StatsDashboardComponent ── -->
+        @if (gameLogs().length > 0) {
+          <nxt1-stats-dashboard
+            [gameLogs]="gameLogs()"
+            [entityName]="entityName()"
+            [activeSideTab]="activeSideTab()"
+            emptyMessage="No stats have been recorded for this team yet."
+          />
+        }
+
+        <!-- ── Empty state: nothing from either source ── -->
+        @if (timelineStatItems().length === 0 && gameLogs().length === 0) {
+          <div class="madden-empty">
+            <div class="madden-empty__icon" aria-hidden="true">
+              <nxt1-icon name="stats-chart-outline" [size]="40" />
+            </div>
+            <h3>No stat updates</h3>
+            <p>Stat updates captured in the timeline will appear here.</p>
+          </div>
+        }
       }
     </div>
   `,
@@ -82,82 +88,36 @@ import { TeamProfileService } from '../team-profile.service';
         display: block;
       }
 
-      .team-section__title {
-        font-size: 16px;
-        font-weight: 800;
-        color: var(--m-text, #ffffff);
-        margin: 0 0 12px;
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-        text-transform: uppercase;
-        letter-spacing: 0.02em;
-      }
-
-      .team-subsection-title {
-        font-size: 13px;
-        font-weight: 700;
-        color: var(--m-text-2, rgba(255, 255, 255, 0.7));
-        margin: 16px 0 10px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-
-      .team-stats-season {
-        font-size: 11px;
-        font-weight: 500;
-        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
-      }
-
-      .team-stats-category {
-        margin-bottom: 16px;
-      }
-
-      .team-stats-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-        gap: 10px;
-      }
-
-      .team-stat-card {
+      .team-stats-tab {
         display: flex;
         flex-direction: column;
-        align-items: center;
-        gap: 6px;
-        padding: 16px 12px;
+        gap: 12px;
+      }
+
+      .team-stats-feed {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        margin-bottom: 4px;
+      }
+
+      .team-stats-loading {
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+      }
+
+      .team-stats-loading__card {
+        height: 124px;
         border-radius: 12px;
-        background: var(--m-surface, rgba(255, 255, 255, 0.04));
-        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
-        text-align: center;
-        position: relative;
-      }
-
-      .team-stat-card__value {
-        font-size: 20px;
-        font-weight: 800;
-        color: var(--m-text, #ffffff);
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
-      }
-
-      .team-stat-card__label {
-        font-size: 11px;
-        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-      }
-
-      .team-stat-card__trend {
-        position: absolute;
-        top: 8px;
-        right: 8px;
-        color: var(--m-text-3, rgba(255, 255, 255, 0.45));
-      }
-
-      .team-stat-card__trend--up {
-        color: #4ade80;
-      }
-
-      .team-stat-card__trend--down {
-        color: #f87171;
+        background: linear-gradient(
+          90deg,
+          rgba(255, 255, 255, 0.05) 20%,
+          rgba(255, 255, 255, 0.1) 50%,
+          rgba(255, 255, 255, 0.05) 80%
+        );
+        background-size: 180% 100%;
+        animation: shimmer 1.4s ease-in-out infinite;
       }
 
       .madden-empty {
@@ -193,28 +153,13 @@ import { TeamProfileService } from '../team-profile.service';
         margin: 0;
         max-width: 280px;
       }
-      .madden-cta-btn {
-        margin-top: 12px;
-        padding: 10px 24px;
-        background: var(--nxt1-color-primary);
-        border: none;
-        border-radius: 9999px;
-        color: #000;
-        font-size: 14px;
-        font-weight: 700;
-        cursor: pointer;
-        transition: all 0.2s ease;
-      }
-      .madden-cta-btn:hover {
-        filter: brightness(1.1);
-      }
-      .madden-cta-btn:active {
-        filter: brightness(0.95);
-      }
 
-      @media (max-width: 768px) {
-        .team-stats-grid {
-          grid-template-columns: repeat(2, 1fr);
+      @keyframes shimmer {
+        0% {
+          background-position: 200% 0;
+        }
+        100% {
+          background-position: -200% 0;
         }
       }
     `,
@@ -224,29 +169,46 @@ import { TeamProfileService } from '../team-profile.service';
 export class TeamStatsWebComponent {
   protected readonly teamProfile = inject(TeamProfileService);
 
-  // ============================================
-  // INPUTS
-  // ============================================
+  // ── Inputs ──
 
-  /** Active side tab — category name slug or empty (show all) */
+  /** Active side tab — forwarded to StatsDashboardComponent for season/type filtering. */
   readonly activeSideTab = input.required<string>();
 
-  /** Emitted when admin clicks a manage CTA button */
-  readonly manageTeam = output<void>();
+  // ── Computed ──
 
-  // ============================================
-  // COMPUTED
-  // ============================================
+  /** Loading indicator while the timeline feed is fetching. */
+  protected readonly isTimelineLoading = computed(() => this.teamProfile.timelineLoading());
 
-  /** Filtered stats based on active side tab */
-  protected readonly filteredStats = computed(() => {
-    const sideTab = this.activeSideTab();
-    const stats = this.teamProfile.stats();
+  /** Polymorphic STAT/METRIC items captured in the timeline feed (e.g. synced from Hudl/MaxPreps). */
+  protected readonly timelineStatItems = computed<readonly FeedItem[]>(() =>
+    this.teamProfile
+      .timeline()
+      .filter((item) => item.feedType === 'STAT' || item.feedType === 'METRIC')
+  );
 
-    if (!sideTab || sideTab === '') {
-      return stats;
-    }
+  /** Season record map for enriching each stat category with a W-L record. */
+  private readonly seasonRecordMap = computed(() =>
+    buildSeasonRecordMap(this.teamProfile.team()?.record, this.teamProfile.team()?.seasonHistory)
+  );
 
-    return stats.filter((cat) => cat.name.toLowerCase().replace(/\s+/g, '-') === sideTab);
-  });
+  /**
+   * Structured stats mapped to ProfileSeasonGameLog[] for StatsDashboardComponent.
+   * Uses the shared team-stats helper — same path as athlete profile stats.
+   */
+  protected readonly gameLogs = computed(() =>
+    mapTeamStatsToGameLogs(this.teamProfile.stats(), this.seasonRecordMap())
+  );
+
+  /** Display name passed to the dashboard legend. */
+  protected readonly entityName = computed(() => this.teamProfile.team()?.teamName ?? 'Team');
+
+  // ── Type narrowing helpers ──
+
+  protected asStat(item: FeedItem): FeedItemStat {
+    return item as FeedItemStat;
+  }
+
+  protected asMetric(item: FeedItem): FeedItemMetric {
+    return item as FeedItemMetric;
+  }
 }

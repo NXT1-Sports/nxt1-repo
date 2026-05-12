@@ -156,7 +156,7 @@ describe('Upload Routes', () => {
           metadata: {
             userId: 'test-user',
             context: 'feed',
-            environment: 'staging',
+            environment: 'production',
             originalFileName: 'highlight.mp4',
             mimeType: 'video/mp4',
           },

@@ -29,7 +29,8 @@ type OperationChatStatus =
   | 'error'
   | 'paused'
   | 'awaiting_input'
-  | 'awaiting_approval';
+  | 'awaiting_approval'
+  | 'cancelled';
 
 interface SendOptions {
   readonly text?: string;
@@ -49,6 +50,7 @@ export interface AgentXOperationChatRunControlFacadeHost {
   readonly activeYieldState: WritableSignal<AgentYieldState | null>;
   readonly yieldResolved: WritableSignal<boolean>;
   clearRealtimePipelines(): void;
+  markEnqueueStopped(): void;
   setActivityPhase(
     phase:
       | 'idle'
@@ -144,6 +146,8 @@ export class AgentXOperationChatRunControlFacade {
     const host = this.requireHost();
     let pausedOperationId: string | null = null;
     const threadId = host.resolveActiveThreadId();
+    const isEnqueueWaitingThread =
+      !!threadId && !!this.operationEventService.getEnqueueWaitingEntry(threadId);
 
     if (threadId) {
       this.streamRegistry.abort(threadId);
@@ -156,6 +160,9 @@ export class AgentXOperationChatRunControlFacade {
     }
 
     host.clearRealtimePipelines();
+    // For enqueue jobs, pause acts as a stop/cancel UX state in the thread.
+    // The host implementation is guarded to no-op for non-enqueue chat threads.
+    host.markEnqueueStopped();
 
     // For /chat turns, currentOperationId is set by the SSE stream transport.
     // For /enqueue threads, no SSE stream runs so currentOperationId is null —
@@ -170,7 +177,10 @@ export class AgentXOperationChatRunControlFacade {
 
     this.transitionInFlightMessages('Paused');
     host.loading.set(false);
-    host.setActivityPhase('paused', 'Paused');
+    host.setActivityPhase(
+      isEnqueueWaitingThread ? 'cancelled' : 'paused',
+      isEnqueueWaitingThread ? 'Cancelled' : 'Paused'
+    );
 
     const targetOperationId = pausedOperationId ?? host.contextId();
     if (targetOperationId) {
@@ -190,10 +200,15 @@ export class AgentXOperationChatRunControlFacade {
     });
 
     if (threadId) {
+      const currentOperationId =
+        host.getCurrentOperationId() ??
+        (host.contextType() === 'operation' ? host.contextId() : undefined);
       this.operationEventService.emitOperationStatusUpdated(
         threadId,
-        'paused',
-        new Date().toISOString()
+        isEnqueueWaitingThread ? 'complete' : 'paused',
+        new Date().toISOString(),
+        'chat',
+        currentOperationId ?? undefined
       );
     }
   }
@@ -213,6 +228,7 @@ export class AgentXOperationChatRunControlFacade {
     }
 
     host.clearRealtimePipelines();
+    host.markEnqueueStopped();
 
     // Same enqueue fallback as pauseStream() — contextId() is the operationId
     // for 'operation' context type when no SSE turn has set currentOperationId.
@@ -242,7 +258,9 @@ export class AgentXOperationChatRunControlFacade {
       this.operationEventService.emitOperationStatusUpdated(
         threadId,
         'complete',
-        new Date().toISOString()
+        new Date().toISOString(),
+        'chat',
+        currentOperationId ?? undefined
       );
     }
   }
@@ -479,7 +497,18 @@ export class AgentXOperationChatRunControlFacade {
         });
       }
     } finally {
-      host.loading.set(false);
+      const activeThreadId = host.resolveActiveThreadId();
+      const enqueueWaitingActive =
+        !!activeThreadId && !!this.operationEventService.getEnqueueWaitingEntry(activeThreadId);
+      const keepLoadingForEnqueue =
+        enqueueWaitingActive && host.getOperationStatus() === 'processing';
+
+      if (keepLoadingForEnqueue) {
+        host.loading.set(true);
+        host.setActivityPhase('waiting_delta');
+      } else {
+        host.loading.set(false);
+      }
     }
   }
 

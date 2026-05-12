@@ -13,6 +13,7 @@ import { getStripeConfig, COLLECTIONS } from './config.js';
 import { logger } from '../../utils/logger.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
 import { addWalletTopUp, addFundsToOrgWallet, getBillingState } from './budget.service.js';
+import { trackBillingPurchaseEvent } from './ga4-revenue.service.js';
 import {
   createPeriodKey,
   createPeriodLedgerDocumentId,
@@ -992,6 +993,7 @@ export async function finalizeWalletCheckoutSession(
   readonly userId: string;
   readonly organizationId?: string;
   readonly newBalance: number;
+  readonly alreadyFinalized: boolean;
 }> {
   const metadata = session.metadata ?? {};
   const type = metadata['type'];
@@ -1073,6 +1075,19 @@ export async function finalizeWalletCheckoutSession(
         newBalance,
         finalizationSource,
       });
+
+      if (!alreadyFinalized) {
+        await trackBillingPurchaseEvent({
+          userId,
+          transactionId: session.id,
+          valueCents: amountCents,
+          itemId: `org-wallet-topup-${amountCents}`,
+          itemName: 'NXT1 Team Credits',
+          itemCategory: 'wallet_topup',
+          billingEntity: 'organization',
+          source: 'stripe_checkout',
+        });
+      }
     } else {
       ({ newBalance, alreadyFinalized } = await addWalletTopUp(db, userId, amountCents, 'stripe', {
         checkoutSessionId: session.id,
@@ -1158,6 +1173,19 @@ export async function finalizeWalletCheckoutSession(
         finalizationSource,
         alreadyFinalized,
       });
+
+      if (!alreadyFinalized) {
+        await trackBillingPurchaseEvent({
+          userId,
+          transactionId: session.id,
+          valueCents: amountCents,
+          itemId: `wallet-topup-${amountCents}`,
+          itemName: 'NXT1 Wallet Credits',
+          itemCategory: 'wallet_topup',
+          billingEntity: 'individual',
+          source: 'stripe_checkout',
+        });
+      }
     }
 
     return {
@@ -1165,6 +1193,7 @@ export async function finalizeWalletCheckoutSession(
       userId,
       organizationId,
       newBalance,
+      alreadyFinalized,
     };
   } catch (error) {
     logger.error('[handleCheckoutSessionCompleted] Failed to credit wallet', {

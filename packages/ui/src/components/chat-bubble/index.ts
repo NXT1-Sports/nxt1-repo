@@ -1,1 +1,5 @@
-export { NxtChatBubbleComponent, type ChatBubbleVariant } from './chat-bubble.component';
+export {
+  NxtChatBubbleComponent,
+  type ChatBubbleVariant,
+  type ChatBubbleMediaRequestedEvent,
+} from './chat-bubble.component';

@@ -626,7 +626,7 @@ export class AgentXInputBarComponent {
 
   // ── Inputs ──
   readonly userMessage = input('');
-  readonly placeholder = input('Message A Coordinator');
+  readonly placeholder = input('Message Agent X');
   readonly isLoading = input(false);
   readonly uploading = input(false);
   readonly canSend = input(false);

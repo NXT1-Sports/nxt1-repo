@@ -114,6 +114,8 @@ export interface AgentOperation {
  */
 export interface AgentArtifactHandoff {
   readonly imageUrl?: string;
+  readonly diagramUrl?: string;
+  readonly logoUrl?: string;
   readonly storagePath?: string;
   readonly cloudflareVideoId?: string;
   readonly videoUrl?: string;
@@ -137,6 +139,23 @@ export interface AgentOperationResult {
   readonly artifacts?: AgentArtifactHandoff;
   /** Follow-up suggestions the agent proactively offers. */
   readonly suggestions?: readonly string[];
+  /**
+   * Whether the operation produced a usable result. `false` signals the worker
+   * to route the job through `markFailed` instead of `markCompleted` so the
+   * sidebar/operations-log shows a red error state rather than a green check
+   * when an underlying tool failed, the agent hit max iterations, or a
+   * guardrail aborted execution.
+   *
+   * Defaults to `true` (treat as success) when omitted to preserve existing
+   * call-site behavior for plan executors / coordinators that have not yet
+   * been updated.
+   */
+  readonly success?: boolean;
+  /**
+   * Optional human-readable failure message used as the persisted error string
+   * when `success === false`. Falls back to `summary` when not provided.
+   */
+  readonly errorMessage?: string;
 }
 
 // ─── Sub-Agent Identifiers ──────────────────────────────────────────────────

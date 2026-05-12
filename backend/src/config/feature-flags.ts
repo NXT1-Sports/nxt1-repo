@@ -17,3 +17,11 @@ function parseBooleanFlag(value: string | undefined, defaultValue: boolean): boo
 export function isTeamIntelEnabled(): boolean {
   return parseBooleanFlag(process.env['ENABLE_TEAM_INTEL'], false);
 }
+
+/**
+ * Team profile UI feature switch.
+ * Defaults to false so team public profile surfaces stay disabled until re-enabled.
+ */
+export function isTeamProfilesEnabled(): boolean {
+  return parseBooleanFlag(process.env['ENABLE_TEAM_PROFILES'], false);
+}

@@ -27,6 +27,8 @@ export class InteractWithLiveViewTool extends BaseTool {
     'The user watches the actions happen in real time in their side panel. ' +
     'Use this whenever the user wants actions performed in the page that is already open in live view. ' +
     'This tool is for navigation and page manipulation only: clicking tabs, signing in, opening menus, expanding playlists, scrolling, or moving between pages. ' +
+    'Before any visually ambiguous page-changing action, use read_live_view and/or capture_live_view_screenshot so the current page state is grounded. ' +
+    'For requests to watch, analyze, report on, or batch-process Hudl clips/playlists/plays, do not use this tool to scroll through clips; use extract_live_view_playlist or extract_live_view_media through the film coordinator workflow. ' +
     'Do NOT use this tool to watch video, evaluate plays, infer what happened in motion, grade technique from playback, or simulate film study by clicking through frames or playlist items. ' +
     'If the user wants actual film analysis, use this tool only to reach the correct page state, then use `extract_live_view_media` and the downstream video pipeline on real media URLs. ' +
     "The sessionId is optional — if omitted, the tool automatically finds the user's active session. " +
@@ -51,9 +53,22 @@ export class InteractWithLiveViewTool extends BaseTool {
   private static readonly DESTRUCTIVE_KEYWORDS =
     /\b(submit|send|confirm|purchase|buy|place\s+order|delete|remove|pay|checkout|sign\s+up|register|apply|publish|post|transfer|authorize|approve)\b/i;
 
+  private static readonly READ_ONLY_PROMPT =
+    /\b(read|scan|inspect|check|tell\s+me|what\s+(?:is|are)|how\s+many|identify|look\s+at|see\s+what)\b/i;
+
+  private static readonly ACTION_PROMPT =
+    /\b(click|type|write|press|scroll|submit|send|select|choose|open|close|navigate|go\s+to|play|pause|expand|collapse|sign\s+in|log\s+in)\b/i;
+
   constructor(sessionService: LiveViewSessionService) {
     super();
     this.sessionService = sessionService;
+  }
+
+  private isReadOnlyPrompt(prompt: string): boolean {
+    return (
+      InteractWithLiveViewTool.READ_ONLY_PROMPT.test(prompt) &&
+      !InteractWithLiveViewTool.ACTION_PROMPT.test(prompt)
+    );
   }
 
   async execute(
@@ -97,6 +112,33 @@ export class InteractWithLiveViewTool extends BaseTool {
     }
 
     try {
+      const preflight = await this.sessionService.extractContent(sessionId, userId);
+
+      if (this.isReadOnlyPrompt(prompt)) {
+        logger.info('[InteractWithLiveViewTool] Read-only prompt served via page scan', {
+          sessionId,
+          userId,
+          url: preflight.url,
+          title: preflight.title,
+          contentLength: preflight.content.length,
+        });
+
+        return {
+          success: true,
+          data: {
+            sessionId,
+            url: preflight.url,
+            title: preflight.title,
+            content: preflight.content,
+            scannedBeforeInteraction: true,
+            interactionSkipped: true,
+            output:
+              'I scanned the current live-view page instead of interacting because the prompt only asked to read/check page state.',
+            message: `Scanned the current live-view page without interacting. Current URL: ${preflight.url}`,
+          },
+        };
+      }
+
       const result = await this.sessionService.executePrompt(sessionId, userId, prompt);
 
       logger.info('[InteractWithLiveViewTool] Prompt executed', {
@@ -110,6 +152,12 @@ export class InteractWithLiveViewTool extends BaseTool {
         success: result.success,
         data: {
           sessionId,
+          preflight: {
+            url: preflight.url,
+            title: preflight.title,
+            contentPreview: preflight.content.slice(0, 4000),
+          },
+          scannedBeforeInteraction: true,
           output: result.output,
           message: result.success
             ? `Interaction completed. The user can see the changes in their live view panel. Firecrawl AI response: ${result.output}`

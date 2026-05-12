@@ -581,7 +581,7 @@ describe('ScraperService', () => {
 
       expect(scrapeMock).toHaveBeenCalledTimes(2);
       expect(scrapeMock).toHaveBeenCalledWith(expect.any(String), {
-        formats: ['markdown', 'html'],
+        formats: ['markdown', 'rawHtml'],
       });
       expect(result.total).toBe(2);
       expect(result.warmed).toBe(2);

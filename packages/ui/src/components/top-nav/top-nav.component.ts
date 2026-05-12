@@ -319,6 +319,21 @@ import type {
              ACTIONS SECTION
              ============================================ -->
         <div class="nav-actions z-2 ml-auto flex shrink-0 items-center gap-3">
+          <!-- Mobile hamburger button (opens shared top-nav drawer) -->
+          <button
+            type="button"
+            class="mobile-hamburger-btn"
+            [class.open]="mobileMenuOpen()"
+            [attr.aria-expanded]="mobileMenuOpen()"
+            aria-controls="mobile-menu"
+            aria-label="Toggle menu"
+            (click)="toggleMobileMenu()"
+          >
+            <span class="hamburger-line"></span>
+            <span class="hamburger-line"></span>
+            <span class="hamburger-line"></span>
+          </button>
+
           <!-- Search Bar (only when NOT in sidebar mode - sidebar mode has centered search) -->
           @if (showSearch() && config().showLogo !== false) {
             <div
@@ -380,8 +395,8 @@ import type {
 
           <!-- Sign In (unauthenticated state) -->
           @if (showSignInButton()) {
-            <a class="nav-auth-btn nav-auth-btn--primary" routerLink="/auth" aria-label="Sign in">
-              Sign In
+            <a class="nav-auth-btn nav-auth-btn--primary" routerLink="/auth" aria-label="Try NXT1">
+              Try NXT1
             </a>
           }
 
@@ -624,263 +639,260 @@ import type {
       role="navigation"
       aria-label="Mobile navigation"
     >
-      <div class="mobile-menu-content flex min-h-full flex-col pt-[calc(56px+16px)]">
-        <!-- Mobile Nav Items -->
-        <ul class="mobile-nav-list m-0 list-none p-2">
-          @for (item of items(); track item.id) {
-            <li class="mobile-nav-item mb-1" [class.active]="isActiveItem(item)">
-              <button
-                type="button"
-                class="mobile-nav-btn"
-                [class.active]="isActiveItem(item)"
-                (click)="onItemClick(item, $event); closeMobileMenu()"
-              >
-                @if (item.icon) {
-                  <nxt1-icon
-                    [name]="isActiveItem(item) ? item.icon + 'Filled' : item.icon"
-                    size="22"
-                  />
-                }
-                <span class="mobile-nav-label flex-1">{{ item.label }}</span>
-                @if (item.badge && item.badge > 0) {
-                  <span
-                    class="mobile-nav-badge bg-(--nxt1-ui-error)] flex min-w-[20px] items-center justify-center rounded-[10px] px-1.5 text-[11px] font-semibold text-white"
-                  >
-                    {{ item.badge > 99 ? '99+' : item.badge }}
-                  </span>
-                }
-              </button>
-            </li>
-          }
-        </ul>
+      <div class="mobile-menu-content">
+        <div class="mobile-menu-shell">
+          <div class="mobile-menu-header">
+            <button
+              type="button"
+              class="mobile-menu-brand"
+              aria-label="Go to home page"
+              (click)="onLogoClick($event); closeMobileMenu()"
+            >
+              <span class="mobile-menu-brand__logo">
+                <img src="assets/shared/logo/nxt1_icon.png" alt="" width="22" height="22" />
+              </span>
+              <span class="mobile-menu-brand__copy">
+                <span class="mobile-menu-brand__eyebrow">NXT1</span>
+                <span class="mobile-menu-brand__title">Menu</span>
+              </span>
+            </button>
+          </div>
 
-        <!-- Mobile User Section -->
-        @if (user()) {
-          <div class="mobile-user-section border-(--nxt1-nav-border)] mt-auto border-t p-4">
-            <!-- Switcher Title -->
-            @if (user()?.switcherTitle) {
-              <div
-                class="mobile-user-switcher-title text-(--nxt1-nav-text-secondary)] mb-2 px-1 text-xs font-medium tracking-normal"
-              >
-                {{ user()?.switcherTitle }}
-              </div>
-            }
-
-            <!-- User Row + Expand Arrow -->
-            <div class="mobile-user-row mb-4 flex w-full items-center gap-2">
-              @if (user()?.isTeamRole && !user()?.isOnTeam && user()?.canAddProfile) {
-                <button
-                  type="button"
-                  class="mobile-user-info flex flex-1 items-center gap-3 rounded-lg bg-transparent p-0 text-left"
-                  (click)="onAddSportButtonClick($event); closeMobileMenu()"
-                  aria-label="Add team"
-                >
-                  <div
-                    class="mobile-user-avatar flex h-12 w-12 items-center justify-center overflow-hidden rounded-full"
-                  >
-                    <nxt1-avatar
-                      [src]="user()?.profileImg"
-                      [name]="user()?.actionLabel || 'Add Team'"
-                      [initials]="'AT'"
-                      [isTeamRole]="true"
-                      [customSize]="48"
-                      [showSkeleton]="false"
-                      cssClass="nav-mobile-user-avatar"
-                    />
-                  </div>
-                  <div class="mobile-user-text flex flex-col gap-0.5">
-                    <span
-                      class="mobile-user-name text-(--nxt1-nav-text)] text-base font-semibold"
-                      >{{ user()?.actionLabel || 'Add Team' }}</span
-                    >
-                    <span class="mobile-user-sport text-(--nxt1-nav-text-secondary)] text-sm">
-                      Set up your first team
-                    </span>
-                  </div>
-                </button>
-              } @else {
-                <button
-                  type="button"
-                  class="mobile-user-info flex flex-1 items-center gap-3 rounded-lg bg-transparent p-0 text-left"
-                  (click)="onUserInfoClick($event); closeMobileMenu()"
-                  aria-label="View profile"
-                >
-                  <div
-                    class="mobile-user-avatar flex h-12 w-12 items-center justify-center overflow-hidden rounded-full"
-                  >
-                    <nxt1-avatar
-                      [src]="user()?.profileImg"
-                      [name]="user()?.name"
-                      [initials]="user()?.initials"
-                      [isTeamRole]="user()?.isTeamRole"
-                      [customSize]="48"
-                      [showSkeleton]="false"
-                      cssClass="nav-mobile-user-avatar"
-                    />
-                  </div>
-                  <div class="mobile-user-text flex flex-col gap-0.5">
-                    <span
-                      class="mobile-user-name text-(--nxt1-nav-text)] text-base font-semibold"
-                      >{{ user()?.name }}</span
-                    >
-                    @if (user()?.sportLabel) {
-                      <span class="mobile-user-sport text-(--nxt1-nav-text-secondary)] text-sm">{{
-                        user()?.sportLabel
-                      }}</span>
-                    }
-                  </div>
-                </button>
-              }
-
-              @if ((user()?.sportProfiles?.length ?? 0) > 0) {
-                <button
-                  type="button"
-                  class="mobile-user-expand flex h-8 w-8 items-center justify-center rounded-full transition-transform"
-                  [class.rotate-180]="sportSwitcherExpanded()"
-                  (click)="toggleSportSwitcher($event)"
-                  [attr.aria-expanded]="sportSwitcherExpanded()"
-                  aria-label="Show sports"
-                >
-                  <nxt1-icon name="chevronDown" [size]="16" />
-                </button>
-              }
-            </div>
-
-            <!-- Expandable Sport/Team Profiles List -->
-            @if (sportSwitcherExpanded() && (user()?.sportProfiles?.length ?? 0) > 0) {
-              <div class="mobile-sport-list mb-4 flex flex-col gap-1">
-                @for (profile of user()!.sportProfiles; track profile.id) {
+          <div class="mobile-menu-body">
+            <ul class="mobile-nav-list m-0 list-none p-0" aria-label="Primary navigation">
+              @for (item of items(); track item.id) {
+                <li class="mobile-nav-item" [class.active]="isActiveItem(item)">
                   <button
                     type="button"
-                    class="mobile-sport-item flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors"
-                    [class.mobile-sport-item--active]="profile.isActive"
-                    (click)="onSportProfileClick(profile, $event)"
+                    class="mobile-nav-btn"
+                    [class.active]="isActiveItem(item)"
+                    (click)="onItemClick(item, $event); closeMobileMenu()"
                   >
-                    <nxt1-avatar
-                      [src]="profile.profileImg || user()?.profileImg"
-                      [name]="user()?.name"
-                      [isTeamRole]="user()!.isTeamRole ?? false"
-                      [defaultIcon]="user()!.isTeamRole ? 'shield' : ''"
-                      [customSize]="28"
-                      [showSkeleton]="false"
-                    />
-                    <div class="flex flex-col">
-                      <span class="text-(--nxt1-nav-text)] text-sm font-medium">{{
-                        formatSportDisplay(profile.sport)
-                      }}</span>
-                      @if (profile.position) {
-                        <span class="text-(--nxt1-nav-text-secondary)] text-xs">{{
-                          profile.position
-                        }}</span>
-                      }
-                    </div>
-                    @if (profile.isActive) {
+                    @if (item.icon) {
                       <nxt1-icon
-                        name="checkmark"
-                        [size]="14"
-                        class="text-(--nxt1-color-primary)] ml-auto"
+                        [name]="isActiveItem(item) ? item.icon + 'Filled' : item.icon"
+                        size="22"
                       />
                     }
-                  </button>
-                }
-
-                @if (user()?.canAddProfile) {
-                  <!-- Add Sport / Add Team Button -->
-                  <button
-                    type="button"
-                    class="mobile-sport-item mobile-sport-item--add text-(--nxt1-color-primary)] flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm font-medium transition-colors"
-                    (click)="onAddSportButtonClick($event); closeMobileMenu()"
-                  >
-                    <div
-                      class="flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-current"
-                    >
-                      <svg
-                        viewBox="0 0 24 24"
-                        width="14"
-                        height="14"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2.2"
-                        stroke-linecap="round"
-                        aria-hidden="true"
+                    <span class="mobile-nav-label flex-1">{{ item.label }}</span>
+                    @if (item.badge && item.badge > 0) {
+                      <span
+                        class="mobile-nav-badge bg-(--nxt1-ui-error)] flex min-w-[20px] items-center justify-center rounded-[10px] px-1.5 text-[11px] font-semibold text-white"
                       >
-                        <path d="M12 5v14" />
-                        <path d="M5 12h14" />
-                      </svg>
-                    </div>
-                    <span>{{
-                      user()?.actionLabel || (user()?.isTeamRole ? 'Add Team' : 'Add Sport')
-                    }}</span>
-                  </button>
-                }
-              </div>
-            }
-
-            <ul class="mobile-user-menu m-0 list-none p-0">
-              @for (menuItem of userMenuItems(); track menuItem.id) {
-                @if (menuItem.divider) {
-                  <li class="mobile-menu-divider bg-(--nxt1-nav-border)] my-2 h-px"></li>
-                }
-                <li>
-                  <button
-                    type="button"
-                    class="mobile-menu-btn text-(--nxt1-nav-text-secondary)] hover:bg-(--nxt1-nav-hover-bg)] hover:text-(--nxt1-nav-text)] flex w-full items-center gap-3 rounded-md px-2 py-3 text-left text-sm transition-colors"
-                    [class.danger]="menuItem.variant === 'danger'"
-                    (click)="onUserMenuItemClick(menuItem, $event); closeMobileMenu()"
-                  >
-                    @if (menuItem.icon) {
-                      <nxt1-icon [name]="menuItem.icon" size="20" />
+                        {{ item.badge > 99 ? '99+' : item.badge }}
+                      </span>
                     }
-                    <span>{{ menuItem.label }}</span>
                   </button>
                 </li>
               }
             </ul>
-          </div>
-        } @else if (showSignInButton()) {
-          <!-- Mobile Auth Buttons (for unauthenticated users) -->
-          <div class="mobile-auth-section flex flex-col gap-3 p-6">
-            <button
-              type="button"
-              class="mobile-auth-btn mobile-auth-btn--primary bg-(--nxt1-color-primary)] hover:bg-(--nxt1-color-primary-dark)] flex h-12 w-full items-center justify-center rounded-xl font-semibold text-white transition-all duration-200 active:scale-[0.98]"
-              (click)="closeMobileMenu()"
-              routerLink="/auth"
-            >
-              Sign In
-            </button>
-            <button
-              type="button"
-              class="mobile-auth-btn mobile-auth-btn--secondary border-(--nxt1-nav-border)] text-(--nxt1-nav-text)] hover:bg-(--nxt1-nav-hover-bg)] flex h-12 w-full items-center justify-center rounded-xl border bg-transparent font-semibold transition-all duration-200 active:scale-[0.98]"
-              (click)="closeMobileMenu()"
-              routerLink="/auth"
-            >
-              Create Account
-            </button>
-          </div>
-        }
 
-        <!-- ============================================
-             MOBILE HAMBURGER BUTTON (visible on mobile only, right side)
-             ============================================ -->
-        <button
-          type="button"
-          class="mobile-menu-btn hover:bg-(--nxt1-nav-hover-bg)] z-1001 relative flex h-10 w-10 flex-col items-center justify-center gap-1.5 rounded-lg bg-transparent transition-colors duration-200 lg:hidden"
-          [class.open]="mobileMenuOpen()"
-          [attr.aria-expanded]="mobileMenuOpen()"
-          aria-controls="mobile-menu"
-          aria-label="Toggle menu"
-          (click)="toggleMobileMenu()"
-        >
-          <span
-            class="hamburger-line bg-(--nxt1-nav-text)] block h-0.5 w-5 origin-center rounded-full transition-all duration-300"
-          ></span>
-          <span
-            class="hamburger-line bg-(--nxt1-nav-text)] block h-0.5 w-5 origin-center rounded-full transition-all duration-300"
-          ></span>
-          <span
-            class="hamburger-line bg-(--nxt1-nav-text)] block h-0.5 w-5 origin-center rounded-full transition-all duration-300"
-          ></span>
-        </button>
+            @if (user()) {
+              <div class="mobile-user-section mobile-menu-section mt-auto">
+                @if (user()?.switcherTitle) {
+                  <div
+                    class="mobile-user-switcher-title text-(--nxt1-nav-text-secondary)] mb-2 px-1 text-xs font-medium tracking-normal"
+                  >
+                    {{ user()?.switcherTitle }}
+                  </div>
+                }
+
+                <div class="mobile-user-row mb-4 flex w-full items-center gap-2">
+                  @if (user()?.isTeamRole && !user()?.isOnTeam && user()?.canAddProfile) {
+                    <button
+                      type="button"
+                      class="mobile-user-info flex flex-1 items-center gap-3 rounded-lg bg-transparent p-0 text-left"
+                      (click)="onAddSportButtonClick($event); closeMobileMenu()"
+                      aria-label="Add team"
+                    >
+                      <div
+                        class="mobile-user-avatar flex h-12 w-12 items-center justify-center overflow-hidden rounded-full"
+                      >
+                        <nxt1-avatar
+                          [src]="user()?.profileImg"
+                          [name]="user()?.actionLabel || 'Add Team'"
+                          [initials]="'AT'"
+                          [isTeamRole]="true"
+                          [customSize]="48"
+                          [showSkeleton]="false"
+                          cssClass="nav-mobile-user-avatar"
+                        />
+                      </div>
+                      <div class="mobile-user-text flex flex-col gap-0.5">
+                        <span
+                          class="mobile-user-name text-(--nxt1-nav-text)] text-base font-semibold"
+                        >
+                          {{ user()?.actionLabel || 'Add Team' }}
+                        </span>
+                        <span class="mobile-user-sport text-(--nxt1-nav-text-secondary)] text-sm">
+                          Set up your first team
+                        </span>
+                      </div>
+                    </button>
+                  } @else {
+                    <button
+                      type="button"
+                      class="mobile-user-info flex flex-1 items-center gap-3 rounded-lg bg-transparent p-0 text-left"
+                      (click)="onUserInfoClick($event); closeMobileMenu()"
+                      aria-label="View profile"
+                    >
+                      <div
+                        class="mobile-user-avatar flex h-12 w-12 items-center justify-center overflow-hidden rounded-full"
+                      >
+                        <nxt1-avatar
+                          [src]="user()?.profileImg"
+                          [name]="user()?.name"
+                          [initials]="user()?.initials"
+                          [isTeamRole]="user()?.isTeamRole"
+                          [customSize]="48"
+                          [showSkeleton]="false"
+                          cssClass="nav-mobile-user-avatar"
+                        />
+                      </div>
+                      <div class="mobile-user-text flex flex-col gap-0.5">
+                        <span
+                          class="mobile-user-name text-(--nxt1-nav-text)] text-base font-semibold"
+                        >
+                          {{ user()?.name }}
+                        </span>
+                        @if (user()?.sportLabel) {
+                          <span class="mobile-user-sport text-(--nxt1-nav-text-secondary)] text-sm">
+                            {{ user()?.sportLabel }}
+                          </span>
+                        }
+                      </div>
+                    </button>
+                  }
+
+                  @if ((user()?.sportProfiles?.length ?? 0) > 0) {
+                    <button
+                      type="button"
+                      class="mobile-user-expand flex h-8 w-8 items-center justify-center rounded-full transition-transform"
+                      [class.rotate-180]="sportSwitcherExpanded()"
+                      (click)="toggleSportSwitcher($event)"
+                      [attr.aria-expanded]="sportSwitcherExpanded()"
+                      aria-label="Show sports"
+                    >
+                      <nxt1-icon name="chevronDown" [size]="16" />
+                    </button>
+                  }
+                </div>
+
+                @if (sportSwitcherExpanded() && (user()?.sportProfiles?.length ?? 0) > 0) {
+                  <div class="mobile-sport-list mb-4 flex flex-col gap-1">
+                    @for (profile of user()!.sportProfiles; track profile.id) {
+                      <button
+                        type="button"
+                        class="mobile-sport-item flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left transition-colors"
+                        [class.mobile-sport-item--active]="profile.isActive"
+                        (click)="onSportProfileClick(profile, $event)"
+                      >
+                        <nxt1-avatar
+                          [src]="profile.profileImg || user()?.profileImg"
+                          [name]="user()?.name"
+                          [isTeamRole]="user()!.isTeamRole ?? false"
+                          [defaultIcon]="user()!.isTeamRole ? 'shield' : ''"
+                          [customSize]="28"
+                          [showSkeleton]="false"
+                        />
+                        <div class="flex flex-col">
+                          <span class="text-(--nxt1-nav-text)] text-sm font-medium">
+                            {{ formatSportDisplay(profile.sport) }}
+                          </span>
+                          @if (profile.position) {
+                            <span class="text-(--nxt1-nav-text-secondary)] text-xs">
+                              {{ profile.position }}
+                            </span>
+                          }
+                        </div>
+                        @if (profile.isActive) {
+                          <nxt1-icon
+                            name="checkmark"
+                            [size]="14"
+                            class="text-(--nxt1-color-primary)] ml-auto"
+                          />
+                        }
+                      </button>
+                    }
+
+                    @if (user()?.canAddProfile) {
+                      <button
+                        type="button"
+                        class="mobile-sport-item mobile-sport-item--add text-(--nxt1-color-primary)] flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left text-sm font-medium transition-colors"
+                        (click)="onAddSportButtonClick($event); closeMobileMenu()"
+                      >
+                        <div
+                          class="flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-current"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            width="14"
+                            height="14"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2.2"
+                            stroke-linecap="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M12 5v14" />
+                            <path d="M5 12h14" />
+                          </svg>
+                        </div>
+                        <span>
+                          {{
+                            user()?.actionLabel || (user()?.isTeamRole ? 'Add Team' : 'Add Sport')
+                          }}
+                        </span>
+                      </button>
+                    }
+                  </div>
+                }
+
+                <ul class="mobile-user-menu m-0 list-none p-0">
+                  @for (menuItem of userMenuItems(); track menuItem.id) {
+                    @if (menuItem.divider) {
+                      <li class="mobile-menu-divider bg-(--nxt1-nav-border)] my-2 h-px"></li>
+                    }
+                    <li>
+                      <button
+                        type="button"
+                        class="mobile-user-menu-btn"
+                        [class.danger]="menuItem.variant === 'danger'"
+                        (click)="onUserMenuItemClick(menuItem, $event); closeMobileMenu()"
+                      >
+                        @if (menuItem.icon) {
+                          <nxt1-icon [name]="menuItem.icon" size="20" />
+                        }
+                        <span>{{ menuItem.label }}</span>
+                      </button>
+                    </li>
+                  }
+                </ul>
+              </div>
+            } @else if (showSignInButton()) {
+              <div class="mobile-auth-section mt-auto">
+                <div class="mobile-auth-actions">
+                  <button
+                    type="button"
+                    class="mobile-auth-btn mobile-auth-btn--primary"
+                    (click)="closeMobileMenu()"
+                    routerLink="/auth"
+                  >
+                    Create Account
+                  </button>
+                  <button
+                    type="button"
+                    class="mobile-auth-btn mobile-auth-btn--secondary"
+                    (click)="closeMobileMenu()"
+                    routerLink="/auth"
+                  >
+                    Sign In
+                  </button>
+                </div>
+              </div>
+            }
+          </div>
+        </div>
       </div>
     </nav>
   `,
@@ -909,7 +921,7 @@ export class NxtHeaderComponent implements OnDestroy {
   // ============================================
 
   /** Navigation items to display */
-  readonly items = input<TopNavItem[]>(DEFAULT_TOP_NAV_ITEMS);
+  readonly items = input<readonly TopNavItem[]>(DEFAULT_TOP_NAV_ITEMS);
 
   /** User data for avatar/menu display */
   readonly user = input<TopNavUserData | null>(null);
@@ -922,7 +934,7 @@ export class NxtHeaderComponent implements OnDestroy {
   readonly isAuthenticated = input<boolean | null>(null);
 
   /** User menu items */
-  readonly userMenuItems = input<TopNavUserMenuItem[]>(DEFAULT_USER_MENU_ITEMS);
+  readonly userMenuItems = input<readonly TopNavUserMenuItem[]>(DEFAULT_USER_MENU_ITEMS);
 
   /** Navigation configuration */
   readonly config = input<TopNavConfig>(createTopNavConfig());
@@ -1044,8 +1056,12 @@ export class NxtHeaderComponent implements OnDestroy {
   /** Whether to show search bar */
   readonly showSearch = computed(() => this.config().showSearch !== false);
 
-  /** Whether to show notifications */
-  readonly showNotifications = computed(() => this.config().showNotifications !== false);
+  /** Whether to show notifications (authenticated users only) */
+  readonly showNotifications = computed(
+    () =>
+      this.config().showNotifications !== false &&
+      (this.isAuthenticated() === true || this.user() !== null)
+  );
 
   /**
    * Whether to show the user menu (avatar + dropdown).

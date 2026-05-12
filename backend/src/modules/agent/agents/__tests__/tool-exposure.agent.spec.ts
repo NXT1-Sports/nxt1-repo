@@ -52,6 +52,7 @@ describe('Agent tool exposure regressions', () => {
       expect(tools).not.toContain('navigate_live_view');
       expect(tools).not.toContain('interact_with_live_view');
       expect(tools).not.toContain('read_live_view');
+      expect(tools).not.toContain('capture_live_view_screenshot');
       expect(tools).not.toContain('extract_live_view_media');
       expect(tools).not.toContain('close_live_view');
     }
@@ -83,6 +84,7 @@ describe('Agent tool exposure regressions', () => {
       expect(tools).not.toContain('navigate_live_view');
       expect(tools).not.toContain('interact_with_live_view');
       expect(tools).not.toContain('read_live_view');
+      expect(tools).not.toContain('capture_live_view_screenshot');
       expect(tools).not.toContain('extract_live_view_media');
       expect(tools).not.toContain('close_live_view');
     }
@@ -133,8 +135,12 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('user_profile_snapshot');
     expect(prompt).toContain('team_profile_snapshot');
     expect(prompt).toContain('organization_profile_snapshot');
+    expect(prompt).toContain('team_roster_members');
+    expect(prompt).toContain('organization_roster_members');
     expect(prompt).toContain('profileImgs');
+    expect(prompt).toContain('profile.profileImgs');
     expect(prompt).toContain('galleryImages');
+    expect(prompt).toContain('analyze_image');
     expect(prompt).toContain('user_timeline_feed');
     expect(prompt).toContain('team_timeline_feed');
   });
@@ -158,7 +164,7 @@ describe('Agent tool exposure regressions', () => {
     expect(tools).toContain('search_colleges');
     expect(tools).toContain('search_college_coaches');
     expect(tools).not.toContain('run_google_workspace_tool');
-    expect(isToolAllowedByPatterns('query_gmail_emails', tools)).toBe(true);
+    expect(isToolAllowedByPatterns('query_gmail_emails', tools)).toBe(false);
   });
 
   it('teaches recruiting coordinator to use database-first research before web fallback', () => {
@@ -177,6 +183,7 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools().length).toBeGreaterThan(0);
     expect(agent.getAvailableTools()).toContain('get_analytics_summary');
     expect(agent.getAvailableTools()).toContain('generate_chart_visualization');
+    expect(agent.getAvailableTools()).toContain('create_play_diagram');
     expect(agent.getAvailableTools()).toContain('analyze_video');
     expect(agent.getAvailableTools()).not.toContain('write_intel');
     expect(agent.getAvailableTools()).not.toContain('firecrawl_agent_research');
@@ -198,6 +205,7 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('analyze_video');
     expect(prompt).toContain('extract_live_view_media');
     expect(prompt).toContain('extract_live_view_playlist');
+    expect(prompt).toContain('Firecrawl can scroll virtualized Hudl rows');
     expect(prompt).toContain('skipMediaPersistence: true');
     // import_video reserved for persistent editing
     expect(prompt).toContain('import_video');
@@ -209,12 +217,14 @@ describe('Agent tool exposure regressions', () => {
     const strategyTools = getEffectiveAgentToolPolicy('strategy_coordinator');
 
     expect(performanceTools).toContain('open_live_view');
+    expect(performanceTools).toContain('capture_live_view_screenshot');
     expect(performanceTools).toContain('extract_live_view_media');
     expect(performanceTools).toContain('extract_live_view_playlist');
     expect(performanceTools).toContain('analyze_video');
     expect(performanceTools).not.toContain('stage_media');
 
     expect(strategyTools).toContain('open_live_view');
+    expect(strategyTools).toContain('capture_live_view_screenshot');
     expect(strategyTools).toContain('extract_live_view_media');
     expect(strategyTools).toContain('extract_live_view_playlist');
     expect(strategyTools).toContain('analyze_video');
@@ -238,7 +248,7 @@ describe('Agent tool exposure regressions', () => {
     }
   });
 
-  it('allows direct Google Workspace tool families for the router policy', () => {
+  it('keeps Google Workspace limited to email sending for the router policy', () => {
     const routerTools = getEffectiveAgentToolPolicy('router');
 
     expect(routerTools).toContain('search_colleges');
@@ -246,13 +256,13 @@ describe('Agent tool exposure regressions', () => {
     expect(routerTools).not.toContain('generate_chart_visualization');
     expect(isToolAllowedByPatterns('send_email', routerTools)).toBe(true);
     expect(isToolAllowedByPatterns('batch_send_email', routerTools)).toBe(true);
-    expect(isToolAllowedByPatterns('query_gmail_emails', routerTools)).toBe(true);
     expect(isToolAllowedByPatterns('gmail_send_email', routerTools)).toBe(true);
-    expect(isToolAllowedByPatterns('calendar_get_events', routerTools)).toBe(true);
-    expect(isToolAllowedByPatterns('drive_search_files', routerTools)).toBe(true);
-    expect(isToolAllowedByPatterns('docs_create_document', routerTools)).toBe(true);
-    expect(isToolAllowedByPatterns('sheets_create_spreadsheet', routerTools)).toBe(true);
-    expect(isToolAllowedByPatterns('create_presentation_from_markdown', routerTools)).toBe(true);
+    expect(isToolAllowedByPatterns('query_gmail_emails', routerTools)).toBe(false);
+    expect(isToolAllowedByPatterns('calendar_get_events', routerTools)).toBe(false);
+    expect(isToolAllowedByPatterns('drive_search_files', routerTools)).toBe(false);
+    expect(isToolAllowedByPatterns('docs_create_document', routerTools)).toBe(false);
+    expect(isToolAllowedByPatterns('sheets_create_spreadsheet', routerTools)).toBe(false);
+    expect(isToolAllowedByPatterns('create_presentation_from_markdown', routerTools)).toBe(false);
   });
 
   it('supports wildcard matching beyond simple prefix-only patterns', () => {
@@ -263,8 +273,14 @@ describe('Agent tool exposure regressions', () => {
   });
 
   it('enforces ask-user decision matrix language across coordinator prompts', () => {
+    const dataCoordinatorPrompt = new DataCoordinatorAgent().getSystemPrompt(context);
+    expect(dataCoordinatorPrompt).toContain('query_nxt1_platform_data');
+    expect(dataCoordinatorPrompt).toContain('search_nxt1_platform');
+    expect(dataCoordinatorPrompt).not.toContain('query_platform_data');
+    expect(dataCoordinatorPrompt).not.toContain('search_platform_registry');
+
     const prompts = [
-      new DataCoordinatorAgent().getSystemPrompt(context),
+      dataCoordinatorPrompt,
       new BrandCoordinatorAgent().getSystemPrompt(context),
       new PerformanceCoordinatorAgent().getSystemPrompt(context),
       new RecruitingCoordinatorAgent().getSystemPrompt(context),

@@ -250,8 +250,9 @@ export {
   type WelcomeSlidesConfig,
   type WelcomeSlideType,
 
-  // Config map
+  // Config maps
   WELCOME_SLIDES_BY_ROLE,
+  LEGACY_WELCOME_SLIDES_BY_ROLE,
 
   // Helper functions
   getWelcomeSlidesForRole,
@@ -260,4 +261,5 @@ export {
   // Constants
   DEFAULT_WELCOME_SLIDES,
   WELCOME_SLIDES_COUNT,
+  LEGACY_WELCOME_SLIDES_COUNT,
 } from './onboarding-welcome-slides.config';

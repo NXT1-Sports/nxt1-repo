@@ -39,7 +39,33 @@ describe('FfmpegTrimVideoTool', () => {
 
     expect(result.success).toBe(true);
     expect(bridge.trimVideo).toHaveBeenCalledTimes(1);
-    expect((result.data as Record<string, unknown>)['outputPath']).toBe('/tmp/output.mp4');
+    expect((result.data as Record<string, unknown>)['outputUrl']).toBe('/tmp/output.mp4');
+  });
+
+  it('accepts legacy inputUrl alias and numeric time inputs', async () => {
+    bridge.trimVideo.mockResolvedValue({
+      success: true,
+      output_path: '/tmp/trimmed.mp4',
+    });
+
+    const result = await tool.execute(
+      {
+        inputUrl: '/tmp/input.mp4',
+        startTime: 5,
+        duration: 10,
+      },
+      TEST_CONTEXT
+    );
+
+    expect(result.success).toBe(true);
+    expect(bridge.trimVideo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputPath: '/tmp/input.mp4',
+        startTime: '5',
+        duration: '10',
+      }),
+      TEST_CONTEXT
+    );
   });
 
   it('fails validation when endTime and duration are both provided', async () => {

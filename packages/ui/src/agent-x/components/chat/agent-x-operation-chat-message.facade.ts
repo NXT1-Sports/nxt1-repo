@@ -88,6 +88,39 @@ export class AgentXOperationChatMessageFacade {
     });
   }
 
+  pushOptimisticUserReply(params: {
+    readonly operationId: string;
+    readonly content: string;
+    readonly messageId?: string;
+  }): void {
+    const content = params.content.trim();
+    const operationId = params.operationId.trim();
+    if (!content || !operationId) return;
+
+    const id = `ask-user-reply:${operationId}:${params.messageId?.trim() || content}`;
+    this.messages.update((previous) => {
+      const alreadyPresent = previous.some(
+        (message) =>
+          message.id === id ||
+          (message.role === 'user' &&
+            message.operationId === operationId &&
+            message.content.trim() === content)
+      );
+      if (alreadyPresent) return previous;
+
+      return [
+        ...previous,
+        {
+          id,
+          role: 'user',
+          content,
+          timestamp: new Date(),
+          operationId,
+        },
+      ];
+    });
+  }
+
   replaceTyping(message: OperationMessage): void {
     this.clearPendingTypingDelta();
     this.messages.update((previous) => [
@@ -664,6 +697,7 @@ export class AgentXOperationChatMessageFacade {
     const messageId = this.inlineYieldMessageId(yieldState, operationId);
     const incomingKey = this.yieldIdentityKey(yieldState);
     const promptText = this.normalizeYieldPrompt(yieldState.promptToUser);
+    const cardOnlyYield = yieldState.reason === 'needs_input';
 
     this.messages.update((messages) => {
       const isActionableApprovalCard = (card: AgentXRichCard): boolean => {
@@ -696,6 +730,22 @@ export class AgentXOperationChatMessageFacade {
           (carriedParts?.length ?? 0) > 0 ||
           (carriedCards?.length ?? 0) > 0);
 
+      const keepYieldCard = (card: AgentXRichCard): boolean => {
+        if (!incomingKey) return false;
+        return this.cardPayloadYieldIdentityKey(card) === incomingKey;
+      };
+
+      const yieldOnlyCards = (message: OperationMessage | undefined): AgentXRichCard[] =>
+        (message?.cards ?? []).filter(keepYieldCard);
+
+      const yieldOnlyParts = (
+        message: OperationMessage | undefined
+      ): Extract<AgentXMessagePart, { type: 'card' }>[] =>
+        (message?.parts ?? []).filter(
+          (part): part is Extract<AgentXMessagePart, { type: 'card' }> =>
+            part.type === 'card' && keepYieldCard(part.card)
+        );
+
       const carriedTypingPayload: Partial<OperationMessage> = hasCarriedTypingPayload
         ? {
             content: typingMessage?.content ?? '',
@@ -711,6 +761,23 @@ export class AgentXOperationChatMessageFacade {
       const clearTypingCarrier = (rows: readonly OperationMessage[]): OperationMessage[] => {
         if (!hasCarriedTypingPayload) return [...rows];
 
+        if (cardOnlyYield) {
+          // For ask_user interruptions, commit the streamed typing payload as
+          // a regular assistant bubble so prose/tool-steps/parts remain visible
+          // above the yield bubble. The yield bubble itself carries only the
+          // question text (via promptToUser → messageContentForBubble fallback).
+          // The committed id is stable per typing timestamp so subsequent
+          // yields in the same operation don't collide.
+          const committedId = `${operationId || 'op'}:assistant_partial:${
+            typingMessage?.timestamp?.getTime() ?? Date.now()
+          }`;
+          return rows.map((message) =>
+            message.id !== 'typing' ? message : { ...message, id: committedId, isTyping: false }
+          );
+        }
+
+        // For approval interruptions, preserve prior stream context while
+        // neutralizing the typing sentinel.
         return rows.map((message) =>
           message.id !== 'typing'
             ? message
@@ -785,18 +852,46 @@ export class AgentXOperationChatMessageFacade {
 
       if (existingIndex >= 0) {
         const existing = messages[existingIndex];
-        const updated: OperationMessage = {
-          ...existing,
-          ...(!messageHasVisiblePayload(existing) ? carriedTypingPayload : {}),
-          id: messageId,
-          yieldState,
-          operationId: operationId || existing.operationId,
-          yieldCardState: existing.yieldCardState ?? 'idle',
-        };
+        const preservedYieldCards = [...yieldOnlyCards(existing), ...yieldOnlyCards(typingMessage)];
+        const preservedYieldParts = [...yieldOnlyParts(existing), ...yieldOnlyParts(typingMessage)];
+        const updated: OperationMessage = cardOnlyYield
+          ? {
+              ...existing,
+              id: messageId,
+              ...(preservedYieldCards.length > 0 ? { cards: preservedYieldCards } : { cards: [] }),
+              ...(preservedYieldParts.length > 0 ? { parts: preservedYieldParts } : { parts: [] }),
+              yieldState,
+              operationId: operationId || existing.operationId,
+              yieldCardState: existing.yieldCardState ?? 'idle',
+            }
+          : {
+              ...existing,
+              ...(!messageHasVisiblePayload(existing) ? carriedTypingPayload : {}),
+              id: messageId,
+              yieldState,
+              operationId: operationId || existing.operationId,
+              yieldCardState: existing.yieldCardState ?? 'idle',
+            };
 
-        // Keep existing persisted row inline with the active stream: when a typing
-        // placeholder exists, the ask-user card should sit directly below it.
+        // Replace any live typing row with the canonical yield row so the card
+        // occupies the active SSE position rather than appearing below stream prose.
         if (typingIndex >= 0) {
+          if (cardOnlyYield) {
+            // clearTypingCarrier commits the typing row in-place as a regular
+            // assistant bubble; the yield row must go AFTER that committed
+            // row so the streamed prose stays visible above the question.
+            const withoutExisting = clearTypingCarrier(messages).filter(
+              (_, index) => index !== existingIndex
+            );
+            const adjustedTypingIndex = existingIndex < typingIndex ? typingIndex - 1 : typingIndex;
+            const insertAt = adjustedTypingIndex + 1;
+            return [
+              ...withoutExisting.slice(0, insertAt),
+              updated,
+              ...withoutExisting.slice(insertAt),
+            ];
+          }
+
           const withoutExisting = clearTypingCarrier(messages).filter(
             (_, index) => index !== existingIndex
           );
@@ -815,19 +910,43 @@ export class AgentXOperationChatMessageFacade {
         );
       }
 
-      const yieldMessage: OperationMessage = {
-        id: messageId,
-        role: 'assistant',
-        ...(carriedTypingPayload as Omit<OperationMessage, 'id' | 'role' | 'timestamp'>),
-        content: (carriedTypingPayload.content as string | undefined) ?? '',
-        timestamp: typingMessage?.timestamp ?? new Date(),
-        operationId,
-        yieldState,
-        yieldCardState: 'idle',
-      };
+      const yieldMessage: OperationMessage = cardOnlyYield
+        ? {
+            // For ask_user: yield bubble carries ONLY the question (no prose,
+            // no tool steps, no parts). The streamed prose lives in the
+            // committed assistant bubble that clearTypingCarrier produces.
+            id: messageId,
+            role: 'assistant',
+            content: '',
+            timestamp: typingMessage?.timestamp ?? new Date(),
+            operationId,
+            yieldState,
+            yieldCardState: 'idle',
+          }
+        : {
+            id: messageId,
+            role: 'assistant',
+            ...(carriedTypingPayload as Omit<OperationMessage, 'id' | 'role' | 'timestamp'>),
+            content: (carriedTypingPayload.content as string | undefined) ?? '',
+            timestamp: typingMessage?.timestamp ?? new Date(),
+            operationId,
+            yieldState,
+            yieldCardState: 'idle',
+          };
 
       if (typingIndex < 0) {
         return [...messages, yieldMessage];
+      }
+
+      if (cardOnlyYield) {
+        // clearTypingCarrier commits the typing row in-place as a regular
+        // assistant bubble; yield goes AFTER it so streamed prose stays above.
+        const committed = clearTypingCarrier(messages);
+        return [
+          ...committed.slice(0, typingIndex + 1),
+          yieldMessage,
+          ...committed.slice(typingIndex + 1),
+        ];
       }
 
       return clearTypingCarrier([
@@ -964,8 +1083,6 @@ export class AgentXOperationChatMessageFacade {
     const nowIso = new Date().toISOString();
     const expiresIso = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     const context = typeof payload.context === 'string' ? payload.context.trim() : '';
-    const operationId = typeof payload.operationId === 'string' ? payload.operationId.trim() : '';
-    const threadId = typeof payload.threadId === 'string' ? payload.threadId.trim() : '';
     const prompt = context ? `${question}\n\n${context}` : question;
 
     return {
@@ -975,12 +1092,10 @@ export class AgentXOperationChatMessageFacade {
       messages: [],
       pendingToolCall: {
         toolName: 'ask_user',
-        toolCallId: operationId ? `ask_user:${operationId}` : `ask_user:${question}`,
+        toolCallId: `ask_user:${question}`,
         toolInput: {
           question,
           ...(context ? { context } : {}),
-          ...(operationId ? { operationId } : {}),
-          ...(threadId ? { threadId } : {}),
         },
       },
       yieldedAt: nowIso,

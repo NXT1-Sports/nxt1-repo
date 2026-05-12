@@ -42,6 +42,7 @@ import {
   DestroyRef,
   HostBinding,
   OnDestroy,
+  Injector,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { isPlatformBrowser, CommonModule } from '@angular/common';
@@ -51,6 +52,7 @@ import { NxtLogoComponent } from '../logo';
 import { NxtIconComponent } from '../icon';
 import { NxtAvatarComponent } from '../avatar';
 import { NxtFloatingActionBarComponent } from '../floating-action-bar';
+import { NxtThemeSelectorComponent } from '../theme-selector';
 import { NxtThemeService } from '../../services/theme';
 import { HapticsService } from '../../services/haptics';
 import { NxtBrowserService } from '../../services/browser';
@@ -79,6 +81,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
     NxtLogoComponent,
     NxtIconComponent,
     NxtAvatarComponent,
+    NxtThemeSelectorComponent,
     NxtFloatingActionBarComponent,
     AgentXOperationsLogComponent,
   ],
@@ -117,7 +120,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
       </div>
 
       <!-- Scrollable Content -->
-      <nav class="mobile-sidebar__nav">
+      <nav class="mobile-sidebar__nav" [class.mobile-sidebar__nav--with-floating-bar]="!!user()">
         <!-- Sign In / User Section — mutually exclusive -->
         @if (user()) {
           <!-- User Section (authenticated) — Sport Profile Switcher -->
@@ -479,15 +482,41 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
             </div>
           }
         }
+
+        <!-- Logged-out utilities: visible in sidebar (not hidden behind floating panel) -->
+        @if (!user()) {
+          @if (config().showThemeToggle !== false) {
+            <div class="mobile-sidebar__theme mobile-sidebar__theme--pre-section">
+              <nxt1-theme-selector
+                variant="compact"
+                [showLabels]="false"
+                [showAppearance]="true"
+                [showSportThemes]="true"
+                [singleRow]="true"
+              />
+            </div>
+          }
+
+          @if (config().showLegalLinks !== false) {
+            <div class="mobile-sidebar__legal">
+              <a routerLink="/terms" class="mobile-sidebar__legal-link" (click)="close()">Terms</a>
+              <a routerLink="/privacy" class="mobile-sidebar__legal-link" (click)="close()"
+                >Privacy</a
+              >
+            </div>
+          }
+        }
       </nav>
 
-      <!-- Floating action bar (Get the App + three-dot panel with themes, follow-us, legal) -->
-      <nxt1-floating-action-bar
-        #floatingBar
-        [followItems]="followItems()"
-        [config]="floatingBarConfig()"
-        (linkClick)="close()"
-      />
+      <!-- Floating action bar is authenticated-only on web sidebar -->
+      @if (user()) {
+        <nxt1-floating-action-bar
+          #floatingBar
+          [followItems]="followItems()"
+          [config]="floatingBarConfig()"
+          (linkClick)="close()"
+        />
+      }
     </aside>
   `,
   styles: [
@@ -626,6 +655,10 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
         overscroll-behavior: contain;
         scrollbar-width: thin;
         scrollbar-color: var(--mobile-sidebar-border) transparent;
+        padding-bottom: var(--nxt1-spacing-4, 1rem);
+      }
+
+      .mobile-sidebar__nav--with-floating-bar {
         /* Extra room at the bottom so content scrolls above the floating bar */
         padding-bottom: 80px;
       }
@@ -1358,9 +1391,9 @@ export class NxtMobileSidebarComponent implements OnDestroy {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(Injector);
   private readonly haptics = inject(HapticsService);
   private readonly browser = inject(NxtBrowserService);
-  private readonly bottomSheet = inject(NxtBottomSheetService);
   protected readonly theme = inject(NxtThemeService);
 
   // ============================================
@@ -1421,8 +1454,13 @@ export class NxtMobileSidebarComponent implements OnDestroy {
   // FLOATING ACTION BAR STATE
   // ============================================
 
-  /** Main nav sections — excludes follow-us (it lives in the floating action bar panel) */
-  readonly mainNavSections = computed(() => this.sections().filter((s) => s.id !== 'follow-us'));
+  /** Main nav sections — guests see follow-us inline; authenticated keeps it in floating panel. */
+  readonly mainNavSections = computed(() => {
+    if (this.user()) {
+      return this.sections().filter((s) => s.id !== 'follow-us');
+    }
+    return this.sections();
+  });
 
   /** Follow items shaped for NxtFloatingActionBarComponent */
   readonly followItems = computed(() => {
@@ -1533,7 +1571,10 @@ export class NxtMobileSidebarComponent implements OnDestroy {
         ? entry.operationId
         : undefined;
 
-      void this.bottomSheet.openSheet({
+      const bottomSheet = this.injector.get(NxtBottomSheetService, null);
+      if (!bottomSheet) return;
+
+      void bottomSheet.openSheet({
         component: AgentXOperationChatComponent,
         componentProps: {
           contextId: resolvedOperationId ?? entry.threadId ?? entry.id,

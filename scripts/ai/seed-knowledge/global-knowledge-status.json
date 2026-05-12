@@ -1,0 +1,70 @@
+{
+  "generatedAt": "2026-05-10T22:40:05.790Z",
+  "totalChunks": 40,
+  "distinctSourceRefCount": 6,
+  "expectedSourceRefCount": 6,
+  "missingSourceRefs": [],
+  "mismatchedChunkDeclarations": [],
+  "unexpectedSourceRefs": [],
+  "gradeAPlus": true,
+  "perSource": [
+    {
+      "sourceRef": "nxt1://platform-guide/overview",
+      "present": true,
+      "versions": [1],
+      "latestVersion": 1,
+      "latestChunkCount": 7,
+      "declaredTotalChunks": 7,
+      "chunkCountMatchesDeclaration": true
+    },
+    {
+      "sourceRef": "nxt1://platform-guide/agent-x",
+      "present": true,
+      "versions": [1],
+      "latestVersion": 1,
+      "latestChunkCount": 12,
+      "declaredTotalChunks": 12,
+      "chunkCountMatchesDeclaration": true
+    },
+    {
+      "sourceRef": "nxt1://platform-guide/teams",
+      "present": true,
+      "versions": [1],
+      "latestVersion": 1,
+      "latestChunkCount": 3,
+      "declaredTotalChunks": 3,
+      "chunkCountMatchesDeclaration": true
+    },
+    {
+      "sourceRef": "nxt1://platform-guide/account-billing",
+      "present": true,
+      "versions": [1],
+      "latestVersion": 1,
+      "latestChunkCount": 6,
+      "declaredTotalChunks": 6,
+      "chunkCountMatchesDeclaration": true
+    },
+    {
+      "sourceRef": "nxt1://help-center/troubleshooting",
+      "present": true,
+      "versions": [1],
+      "latestVersion": 1,
+      "latestChunkCount": 4,
+      "declaredTotalChunks": 4,
+      "chunkCountMatchesDeclaration": true
+    },
+    {
+      "sourceRef": "nxt1://brand/messaging",
+      "present": true,
+      "versions": [1],
+      "latestVersion": 1,
+      "latestChunkCount": 8,
+      "declaredTotalChunks": 8,
+      "chunkCountMatchesDeclaration": true
+    }
+  ],
+  "ingestSummary": {
+    "docsProcessed": 6,
+    "chunksCreated": 40
+  }
+}

@@ -453,3 +453,23 @@ ion-button.nxt1-auth-btn--team-code:not(.hydrated) {
 [authTerms] a:hover {
   text-decoration: underline;
 }
+
+/* Public marketing pages must use the document as the single scroll owner.
+   Keep this at the end so deferred Ionic/auth rules cannot recreate body scroll. */
+html.nxt1-public-marketing-scroll {
+  min-height: 100% !important;
+  height: auto !important;
+  overflow-x: hidden !important;
+  overflow-y: auto !important;
+}
+
+html.nxt1-public-marketing-scroll body.nxt1-public-marketing-scroll {
+  min-height: 100% !important;
+  height: auto !important;
+  overflow: visible !important;
+}
+
+html.nxt1-public-marketing-scroll body.nxt1-public-marketing-scroll app-root {
+  display: block;
+  min-height: 100dvh;
+}

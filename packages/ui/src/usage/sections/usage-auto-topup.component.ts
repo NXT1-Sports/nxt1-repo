@@ -252,18 +252,25 @@ export class UsageAutoTopupComponent implements OnInit {
   );
 
   constructor() {
-    // Sync local state whenever inputs change (e.g. after a save round-trips)
+    // Sync local state whenever inputs change (e.g. after a save round-trips).
+    // Guard against zero-value props: when auto top-up hasn't been configured
+    // yet the service signals default to 0. Fall back to sensible presets so
+    // the form stays valid and the backend min-500 constraint is satisfied.
     effect(() => {
       this.enabledLocal.set(this.enabled());
-      this.thresholdCentsLocal.set(this.thresholdCents());
-      this.amountCentsLocal.set(this.amountCents());
+      const threshold = this.thresholdCents();
+      this.thresholdCentsLocal.set(threshold > 0 ? threshold : 500);
+      const amount = this.amountCents();
+      this.amountCentsLocal.set(amount > 0 ? amount : 1_000);
     });
   }
 
   ngOnInit(): void {
     this.enabledLocal.set(this.enabled());
-    this.thresholdCentsLocal.set(this.thresholdCents());
-    this.amountCentsLocal.set(this.amountCents());
+    const threshold = this.thresholdCents();
+    this.thresholdCentsLocal.set(threshold > 0 ? threshold : 500);
+    const amount = this.amountCents();
+    this.amountCentsLocal.set(amount > 0 ? amount : 1_000);
   }
 
   protected onToggleEnabled(event: CustomEvent<{ checked: boolean }>): void {

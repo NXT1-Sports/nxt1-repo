@@ -94,6 +94,31 @@ function readTrackingHash(value: unknown): string | null {
   return /^[a-f0-9]{64}$/.test(parsed) ? parsed : null;
 }
 
+function readTrackingDisplayName(value: unknown): string | null {
+  const raw = readTrackingString(value, 200);
+  if (!raw) return null;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(raw);
+  } catch {
+    decoded = raw;
+  }
+  const sanitized = decoded
+    .replace(/<[^>]*>/g, '') // strip HTML tags
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x1F\x7F]/g, '') // strip control characters
+    .trim()
+    .slice(0, 200);
+  return sanitized || null;
+}
+
+const RECIPIENT_KIND_VALUES = new Set(['coach', 'college', 'person', 'organization', 'unknown']);
+
+function parseRecipientKind(value: unknown): string | null {
+  const parsed = readTrackingString(value, 40)?.toLowerCase() ?? null;
+  return parsed && RECIPIENT_KIND_VALUES.has(parsed) ? parsed : null;
+}
+
 function parseRedirectDestination(value: unknown): URL | null {
   const parsed = readTrackingString(value, 2_000);
   if (!parsed) return null;
@@ -111,30 +136,20 @@ function parseRedirectDestination(value: unknown): URL | null {
 
 function determineTrackingConfidence(input: {
   readonly viewerUserId: string | null;
-  readonly recipientCoachId: string | null;
-  readonly recipientCollegeId: string | null;
+  readonly recipientName: string | null;
   readonly recipientEmailHash: string | null;
 }): 'verified' | 'known-recipient' | 'anonymous' {
   if (input.viewerUserId) return 'verified';
-  if (input.recipientCoachId || input.recipientCollegeId || input.recipientEmailHash) {
-    return 'known-recipient';
-  }
+  if (input.recipientName || input.recipientEmailHash) return 'known-recipient';
   return 'anonymous';
 }
 
 function buildTrackingRecipientKey(input: {
   readonly viewerUserId: string | null;
-  readonly recipientCoachId: string | null;
-  readonly recipientCollegeId: string | null;
   readonly recipientEmailHash: string | null;
+  readonly recipientName: string | null;
 }): string {
-  return (
-    input.viewerUserId ??
-    input.recipientCoachId ??
-    input.recipientCollegeId ??
-    input.recipientEmailHash ??
-    'anonymous'
-  );
+  return input.viewerUserId ?? input.recipientEmailHash ?? input.recipientName ?? 'anonymous';
 }
 
 function buildTrackingNotificationIdempotencyKey(input: {
@@ -170,8 +185,9 @@ function buildTrackingNotification(input: {
   readonly sessionId: string | null;
   readonly destination: URL | undefined;
   readonly normalizedUrl: string | null;
-  readonly recipientCoachId: string | null;
-  readonly recipientCollegeId: string | null;
+  readonly recipientName: string | null;
+  readonly recipientKind: string | null;
+  readonly recipientOrgName: string | null;
   readonly recipientEmailHash: string | null;
   readonly attributionConfidence: 'verified' | 'known-recipient' | 'anonymous';
 }): DispatchNotificationInput | null {
@@ -185,25 +201,34 @@ function buildTrackingNotification(input: {
 
   const recipientKey = buildTrackingRecipientKey({
     viewerUserId: input.viewerUserId,
-    recipientCoachId: input.recipientCoachId,
-    recipientCollegeId: input.recipientCollegeId,
     recipientEmailHash: input.recipientEmailHash,
+    recipientName: input.recipientName,
   });
   const type =
     input.eventType === 'email_opened'
       ? NOTIFICATION_TYPES.EMAIL_OPENED
       : NOTIFICATION_TYPES.LINK_CLICKED;
+
   const body =
     input.eventType === 'email_opened'
-      ? 'A recipient opened an email you sent.'
-      : 'A recipient clicked a link in your email.';
+      ? input.recipientName
+        ? `${input.recipientName} opened your email.`
+        : 'A recipient opened your email.'
+      : input.recipientName
+        ? `${input.recipientName} clicked a link in your email.`
+        : 'A recipient clicked a link in your email.';
+
+  const sourceLabel =
+    input.recipientName && input.recipientOrgName
+      ? `${input.recipientName} \u00b7 ${input.recipientOrgName}`
+      : (input.recipientName ?? input.recipientOrgName ?? undefined);
 
   return {
     userId: input.subjectId,
     type,
     title: input.eventType === 'email_opened' ? 'Email opened' : 'Link clicked',
     body,
-    deepLink: '/analytics',
+    deepLink: '/activity',
     data: {
       entityId: input.sourceRecordId,
       sourceRecordId: input.sourceRecordId,
@@ -214,8 +239,9 @@ function buildTrackingNotification(input: {
       messageId: input.messageId ?? '',
       threadId: input.threadId ?? '',
       sessionId: input.sessionId ?? '',
-      recipientCoachId: input.recipientCoachId ?? '',
-      recipientCollegeId: input.recipientCollegeId ?? '',
+      recipientName: input.recipientName ?? '',
+      recipientKind: input.recipientKind ?? '',
+      recipientOrgName: input.recipientOrgName ?? '',
       recipientEmailHash: input.recipientEmailHash ?? '',
       attributionConfidence: input.attributionConfidence,
     },
@@ -230,13 +256,14 @@ function buildTrackingNotification(input: {
       normalizedUrl: input.normalizedUrl,
       host: input.destination?.host ?? null,
       path: input.destination?.pathname ?? null,
-      recipientCoachId: input.recipientCoachId,
-      recipientCollegeId: input.recipientCollegeId,
+      recipientName: input.recipientName,
+      recipientKind: input.recipientKind,
+      recipientOrgName: input.recipientOrgName,
       recipientEmailHash: input.recipientEmailHash,
       attributionConfidence: input.attributionConfidence,
     },
     source: {
-      userName: 'Email analytics',
+      userName: sourceLabel,
     },
     idempotencyKey: buildTrackingNotificationIdempotencyKey({
       eventType: input.eventType,
@@ -274,13 +301,13 @@ async function trackCommunicationOrEngagementEvent(
   const postId = readTrackingString(req.query['postId'], 120);
   const sourceRecordId = readTrackingString(req.query['sourceRecordId'], 120);
   const sessionId = readTrackingString(req.query['sessionId'], 120);
-  const recipientCoachId = readTrackingString(req.query['recipientCoachId'], 120);
-  const recipientCollegeId = readTrackingString(req.query['recipientCollegeId'], 120);
+  const recipientName = readTrackingDisplayName(req.query['recipientName']);
+  const recipientKind = parseRecipientKind(req.query['recipientKind']);
+  const recipientOrgName = readTrackingDisplayName(req.query['recipientOrgName']);
   const recipientEmailHash = readTrackingHash(req.query['recipientEmailHash']);
   const attributionConfidence = determineTrackingConfidence({
     viewerUserId: viewerUserId ?? null,
-    recipientCoachId,
-    recipientCollegeId,
+    recipientName,
     recipientEmailHash,
   });
 
@@ -311,8 +338,9 @@ async function trackCommunicationOrEngagementEvent(
     },
     metadata: {
       attributionConfidence,
-      recipientCoachId,
-      recipientCollegeId,
+      recipientName,
+      recipientKind,
+      recipientOrgName,
       recipientEmailHash,
       referer: readTrackingString(req.get('referer'), 500),
       userAgent: readTrackingString(req.get('user-agent'), 500),
@@ -331,8 +359,9 @@ async function trackCommunicationOrEngagementEvent(
     sessionId,
     destination,
     normalizedUrl,
-    recipientCoachId,
-    recipientCollegeId,
+    recipientName,
+    recipientKind,
+    recipientOrgName,
     recipientEmailHash,
     attributionConfidence,
   });
@@ -375,8 +404,8 @@ router.post('/events', optionalAuth, (req: Request, res: Response) => {
 /**
  * Track email open events.
  * GET /api/v1/analytics/track/open
- * Query params: subjectId, subjectType, messageId, threadId, recipientCoachId,
- * recipientCollegeId, recipientEmailHash, surface
+ * Query params: subjectId, subjectType, messageId, threadId, recipientName,
+ * recipientKind, recipientOrgName, recipientEmailHash, surface
  */
 router.get('/track/open', optionalAuth, async (req: Request, res: Response) => {
   void trackCommunicationOrEngagementEvent(req, 'email_opened').catch((err: unknown) => {
@@ -399,7 +428,7 @@ router.get('/track/open', optionalAuth, async (req: Request, res: Response) => {
  * Track outbound link clicks and safely redirect.
  * GET /api/v1/analytics/track/click
  * Query params: destination, subjectId, subjectType, surface, messageId,
- * threadId, postId, recipientCoachId, recipientCollegeId, recipientEmailHash
+ * threadId, postId, recipientName, recipientKind, recipientOrgName, recipientEmailHash
  */
 router.get('/track/click', optionalAuth, async (req: Request, res: Response) => {
   const destination = parseRedirectDestination(req.query['destination']);

@@ -124,12 +124,12 @@ fi
 
 ## 📁 Files
 
-| File                                       | Description                     |
-| ------------------------------------------ | ------------------------------- |
-| `BACKEND-PERFORMANCE-MONITORING.md`        | Full documentation (English)    |
-| `BACKEND-PERFORMANCE-MONITORING-VI.md`     | Full documentation (Vietnamese) |
-| `BACKEND-PERFORMANCE-QUICK-REFERENCE.md`   | This quick reference            |
-| `src/middleware/performance.middleware.ts` | Implementation code             |
+| File                                                           | Description                     |
+| -------------------------------------------------------------- | ------------------------------- |
+| `BACKEND-PERFORMANCE-MONITORING.md`                            | Full documentation (English)    |
+| `BACKEND-PERFORMANCE-MONITORING-VI.md`                         | Full documentation (Vietnamese) |
+| `BACKEND-PERFORMANCE-QUICK-REFERENCE.md`                       | This quick reference            |
+| `backend/src/middleware/performance/performance.middleware.ts` | Implementation code             |
 
 ---
 
@@ -138,7 +138,7 @@ fi
 - Full docs (EN):
   [BACKEND-PERFORMANCE-MONITORING.md](./BACKEND-PERFORMANCE-MONITORING.md)
 - Middleware code:
-  [performance.middleware.ts](./src/middleware/performance.middleware.ts)
+  [performance.middleware.ts](../../backend/src/middleware/performance/performance.middleware.ts)
 
 ---
 

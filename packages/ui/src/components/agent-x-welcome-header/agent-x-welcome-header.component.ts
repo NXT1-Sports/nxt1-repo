@@ -11,98 +11,100 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
-import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
-import { NxtCtaButtonComponent } from '../cta-button';
-import { NxtHeaderCardComponent } from '../header-card';
-
-interface ShowcaseImage {
-  readonly src: string;
-  readonly alt: string;
-  readonly width: number;
-  readonly height: number;
-}
+import { Router } from '@angular/router';
+import { NxtMarketingInputBarComponent } from '../marketing-input-bar';
 
 @Component({
   selector: 'nxt1-agent-x-welcome-header',
   standalone: true,
-  imports: [CommonModule, NxtCtaButtonComponent, NxtHeaderCardComponent],
+  imports: [CommonModule, NxtMarketingInputBarComponent],
   template: `
-    <nxt1-header-card title="First of Its Kind" titleId="agentx-title">
-      <div nxtHeaderBackground class="agentx-header__bg">
+    <section class="agentx-hero" aria-labelledby="agentx-title">
+      <div class="agentx-header__bg" aria-hidden="true">
         <div class="agentx-orb agentx-orb--one"></div>
         <div class="agentx-orb agentx-orb--two"></div>
         <div class="agentx-grid"></div>
       </div>
 
-      <p nxtHeaderBadge class="agentx-badge">Agent X • Online</p>
+      <div class="agentx-hero__content">
+        <div class="agentx-copy">
+          <p class="agentx-badge">Agent X • Online</p>
 
-      <div nxtHeaderSubtitle class="agentx-typed-container">
-        <p class="agentx-typed-ghost" aria-hidden="true">{{ message() }}&nbsp;</p>
-        <p class="agentx-typed" [attr.aria-label]="message()">
-          {{ displayText() }}<span class="agentx-cursor" aria-hidden="true"></span>
-        </p>
-      </div>
+          <h1 id="agentx-title" class="agentx-title">
+            <span class="agentx-title__line">Your Sports Intelligence</span>
+            <span class="agentx-title__line">Command Center</span>
+          </h1>
 
-      <div nxtHeaderActions class="agentx-actions">
-        <nxt1-cta-button label="Meet Agent X" route="/agent-x" variant="primary" />
-        <nxt1-cta-button label="Explore Platform" route="/explore" variant="ghost" />
-      </div>
+          <div class="agentx-typed-container">
+            <p class="agentx-typed-ghost" aria-hidden="true">{{ message() }}&nbsp;</p>
+            <p class="agentx-typed" [attr.aria-label]="message()">
+              {{ displayText() }}<span class="agentx-cursor" aria-hidden="true"></span>
+            </p>
+          </div>
 
-      <div nxtHeaderOverlay class="agentx-photo-rail" aria-hidden="true" role="presentation">
-        <div class="agentx-photo-cluster agentx-photo-cluster--left">
-          @for (image of leftShowcaseImages; track image.src) {
-            <div class="agentx-photo-card">
-              <img
-                [src]="image.src"
-                [alt]="image.alt"
-                [width]="image.width"
-                [height]="image.height"
-                class="agentx-photo-image"
-                loading="lazy"
-                decoding="async"
-                fetchpriority="low"
-              />
-            </div>
-          }
-        </div>
-
-        <div class="agentx-photo-cluster agentx-photo-cluster--right">
-          @for (image of rightShowcaseImages; track image.src) {
-            <div class="agentx-photo-card">
-              <img
-                [src]="image.src"
-                [alt]="image.alt"
-                [width]="image.width"
-                [height]="image.height"
-                class="agentx-photo-image"
-                loading="lazy"
-                decoding="async"
-                fetchpriority="low"
-              />
-            </div>
-          }
+          <div class="agentx-command-zone">
+            <nxt1-marketing-input-bar
+              [placeholder]="commandPlaceholder()"
+              [value]="commandInput()"
+              ariaLabel="Command Agent X"
+              buttonLabel="Ask NXT1"
+              [active]="true"
+              (valueChange)="commandInput.set($event)"
+              (submitCommand)="onCommandSubmit($event)"
+              (submitButtonClick)="navigateToAuth()"
+            />
+          </div>
         </div>
       </div>
-    </nxt1-header-card>
+    </section>
   `,
   styles: [
     `
       :host {
         display: block;
+        --nxt1-agentx-hero-min-height: clamp(
+          40rem,
+          calc(100vh - var(--nxt1-nav-height, 56px) - (var(--nxt1-spacing-4) * 2)),
+          54rem
+        );
+        --nxt1-agentx-hero-min-height-tablet: clamp(36rem, 82vh, 50rem);
+        --nxt1-agentx-hero-min-height-mobile: clamp(34rem, 84vh, 44rem);
       }
 
-      nxt1-header-card {
-        --nxt1-header-min-height: calc(var(--nxt1-spacing-10) * 8);
-        --nxt1-header-padding: var(--nxt1-spacing-7) var(--nxt1-spacing-5);
-        --nxt1-header-title-margin: var(--nxt1-spacing-3) 0 var(--nxt1-spacing-2) 0;
-        --nxt1-header-title-line-height: 1.05;
-        --nxt1-header-actions-margin-top: var(--nxt1-spacing-5);
+      .agentx-hero {
+        position: relative;
+        min-height: var(--nxt1-agentx-hero-min-height);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        background: var(--nxt1-color-bg-primary);
       }
 
       .agentx-header__bg {
-        position: relative;
+        position: absolute;
+        inset: 0;
         width: 100%;
         height: 100%;
+        pointer-events: none;
+      }
+
+      .agentx-hero__content {
+        position: relative;
+        z-index: 1;
+        width: 100%;
+        padding: clamp(var(--nxt1-spacing-8), 6vw, var(--nxt1-spacing-10))
+          clamp(var(--nxt1-spacing-5), 4vw, var(--nxt1-spacing-8));
+      }
+
+      .agentx-copy {
+        width: 100%;
+        max-width: min(70rem, 100%);
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
       }
 
       .agentx-orb {
@@ -163,15 +165,29 @@ interface ShowcaseImage {
         border: 1px solid var(--nxt1-color-border-subtle);
       }
 
+      .agentx-title {
+        margin: var(--nxt1-spacing-3) 0 var(--nxt1-spacing-2) 0;
+        max-width: 22ch;
+        color: var(--nxt1-color-text-primary);
+        font-size: clamp(3rem, 7vw, 4.75rem);
+        line-height: 1.05;
+        font-weight: var(--nxt1-fontWeight-bold);
+        text-wrap: balance;
+      }
+
+      .agentx-title__line {
+        display: block;
+      }
+
       .agentx-typed-container {
         position: relative;
-        max-width: var(--nxt1-content-max-readable, 65ch);
+        max-width: min(72ch, 100%);
       }
 
       .agentx-typed-ghost {
         visibility: hidden;
         margin: 0;
-        font-size: var(--nxt1-fontSize-lg);
+        font-size: clamp(1.05rem, 1.8vw, 1.35rem);
         line-height: 1.5;
       }
 
@@ -182,8 +198,15 @@ interface ShowcaseImage {
         right: 0;
         margin: 0;
         color: var(--nxt1-color-text-secondary);
-        font-size: var(--nxt1-fontSize-lg);
+        font-size: clamp(1.05rem, 1.8vw, 1.35rem);
         line-height: 1.5;
+      }
+
+      .agentx-command-zone {
+        width: 100%;
+        max-width: 38rem;
+        margin-top: var(--nxt1-spacing-6);
+        margin-bottom: var(--nxt1-spacing-5);
       }
 
       .agentx-cursor {
@@ -196,183 +219,18 @@ interface ShowcaseImage {
         animation: blink 1s step-end infinite;
       }
 
-      .agentx-photo-rail {
-        position: absolute;
-        left: var(--nxt1-spacing-5);
-        right: var(--nxt1-spacing-5);
-        bottom: calc(var(--nxt1-spacing-3) * -1);
-        display: flex;
-        justify-content: space-between;
-        align-items: end;
-        gap: var(--nxt1-spacing-4);
-        pointer-events: none;
-        z-index: 1;
-      }
-
-      .agentx-photo-cluster {
-        display: flex;
-        align-items: end;
-        position: relative;
-        isolation: isolate;
-      }
-
-      .agentx-photo-cluster--left {
-        -webkit-mask-image: linear-gradient(
-          to right,
-          transparent 0%,
-          black 24%,
-          black 78%,
-          transparent 100%
-        );
-        mask-image: linear-gradient(
-          to right,
-          transparent 0%,
-          black 24%,
-          black 78%,
-          transparent 100%
-        );
-      }
-
-      .agentx-photo-cluster--right {
-        -webkit-mask-image: linear-gradient(
-          to left,
-          transparent 0%,
-          black 24%,
-          black 78%,
-          transparent 100%
-        );
-        mask-image: linear-gradient(
-          to left,
-          transparent 0%,
-          black 24%,
-          black 78%,
-          transparent 100%
-        );
-      }
-
-      .agentx-photo-cluster .agentx-photo-card + .agentx-photo-card {
-        margin-left: calc(var(--nxt1-spacing-6) * -1);
-      }
-
-      .agentx-photo-card {
-        width: var(
-          --nxt1-agentx-photo-size,
-          calc((var(--nxt1-spacing-10) * 4) + var(--nxt1-spacing-8))
-        );
-        aspect-ratio: 3 / 4;
-        border-radius: var(--nxt1-borderRadius-2xl);
-        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-subtle) 72%, transparent);
-        box-shadow: 0 var(--nxt1-spacing-3) var(--nxt1-spacing-8)
-          color-mix(in srgb, var(--nxt1-color-bg-primary) 28%, transparent);
-        opacity: 0.9;
-        overflow: hidden;
-        backdrop-filter: blur(2px);
-      }
-
-      .agentx-photo-cluster .agentx-photo-card:first-child {
-        transform: translateY(calc(var(--nxt1-spacing-1) * -1));
-      }
-
-      .agentx-photo-cluster .agentx-photo-card:last-child {
-        transform: translateY(calc(var(--nxt1-spacing-3) * -1));
-      }
-
-      .agentx-photo-image {
-        width: 100%;
-        height: 100%;
-        display: block;
-        object-fit: cover;
-        border-radius: inherit;
-        filter: saturate(0.92) contrast(0.96);
-      }
-
-      @media (max-width: 1024px) {
-        .agentx-photo-rail {
-          left: var(--nxt1-spacing-4);
-          right: var(--nxt1-spacing-4);
-          bottom: var(--nxt1-spacing-2);
-        }
-
-        .agentx-photo-card {
-          width: calc((var(--nxt1-spacing-10) * 3) + var(--nxt1-spacing-8));
-        }
-      }
-
       @media (max-width: 768px) {
-        .agentx-photo-rail {
-          position: relative;
-          left: auto;
-          right: auto;
-          bottom: auto;
-          padding: 0;
-          justify-content: center;
-          z-index: 1;
-          margin-top: var(--nxt1-spacing-1);
+        .agentx-hero {
+          min-height: var(--nxt1-agentx-hero-min-height-mobile);
         }
 
-        .agentx-photo-card {
-          width: calc((var(--nxt1-spacing-10) * 3) + var(--nxt1-spacing-6));
+        .agentx-hero__content {
+          padding: var(--nxt1-spacing-7) var(--nxt1-spacing-4) var(--nxt1-spacing-8);
         }
 
-        .agentx-photo-cluster .agentx-photo-card + .agentx-photo-card {
-          margin-left: calc(var(--nxt1-spacing-6) * -1);
+        .agentx-title {
+          font-size: clamp(2.5rem, 9vw, 3.5rem);
         }
-
-        .agentx-photo-cluster .agentx-photo-card:first-child,
-        .agentx-photo-cluster .agentx-photo-card:last-child {
-          transform: none;
-        }
-
-        .agentx-photo-cluster--left {
-          -webkit-mask-image: linear-gradient(
-            to right,
-            transparent 0%,
-            black 28%,
-            black 72%,
-            transparent 100%
-          );
-          mask-image: linear-gradient(
-            to right,
-            transparent 0%,
-            black 28%,
-            black 72%,
-            transparent 100%
-          );
-        }
-
-        .agentx-photo-cluster--right {
-          -webkit-mask-image: linear-gradient(
-            to left,
-            transparent 0%,
-            black 28%,
-            black 72%,
-            transparent 100%
-          );
-          mask-image: linear-gradient(
-            to left,
-            transparent 0%,
-            black 28%,
-            black 72%,
-            transparent 100%
-          );
-        }
-      }
-
-      @media (max-width: 480px) {
-        .agentx-photo-card {
-          width: calc((var(--nxt1-spacing-10) * 2) + var(--nxt1-spacing-8));
-        }
-
-        .agentx-photo-cluster .agentx-photo-card + .agentx-photo-card {
-          margin-left: calc(var(--nxt1-spacing-5) * -1);
-        }
-      }
-
-      .agentx-actions {
-        display: flex;
-        flex-wrap: wrap;
-        gap: var(--nxt1-spacing-3);
-        justify-content: center;
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -410,29 +268,25 @@ export class NxtAgentXWelcomeHeaderComponent implements OnInit {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly destroyRef = inject(DestroyRef);
   private readonly hostElement = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly router = inject(Router);
   private typingStarted = false;
+  private placeholderTimer: ReturnType<typeof setTimeout> | null = null;
 
-  /**
-   * Showcase images with intrinsic dimensions for CLS prevention.
-   * Dimensions match source files in @nxt1/design-tokens/assets/images.
-   */
-  private readonly showcaseImages: readonly ShowcaseImage[] = [
-    { src: `/${IMAGE_PATHS.athlete1}`, alt: 'High school athlete', width: 500, height: 500 },
-    { src: `/${IMAGE_PATHS.athlete2}`, alt: 'Club athlete', width: 500, height: 500 },
-    { src: `/${IMAGE_PATHS.athlete3}`, alt: 'Student athlete', width: 500, height: 500 },
-    { src: `/${IMAGE_PATHS.coach1}`, alt: 'Sports coach', width: 408, height: 612 },
-  ];
-
-  protected readonly leftShowcaseImages = [this.showcaseImages[0], this.showcaseImages[1]] as const;
-  protected readonly rightShowcaseImages = [
-    this.showcaseImages[2],
-    this.showcaseImages[3],
+  private readonly commandPlaceholderPhrases = [
+    'What do you need Agent X to execute?',
+    'Build the game plan for this week...',
+    'Analyze film and surface the edge...',
+    'Create the briefing for staff review...',
+    'Package content and publish the rollout...',
   ] as const;
 
   readonly message = input(
-    "Hi, I'm Agent X — the first autonomous AI agent built for athletes and coaches. Highlights, graphics, and smarter recruiting start here."
+    "Hi, I'm Agent X — the execution engine for athletes, coaches, directors, and programs. I build the briefings, creative, film packages, and intelligence that keep your operation moving."
   );
   readonly typingSpeedMs = input(24);
+  protected readonly commandInput = signal('');
+  private readonly _commandPlaceholder = signal<string>(this.commandPlaceholderPhrases[0]);
+  protected readonly commandPlaceholder = computed(() => this._commandPlaceholder());
 
   private readonly _displayText = signal('');
   readonly displayText = computed(() => this._displayText());
@@ -448,6 +302,8 @@ export class NxtAgentXWelcomeHeaderComponent implements OnInit {
       this._displayText.set(this.message());
       return;
     }
+
+    this.startPlaceholderAnimation();
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -465,7 +321,28 @@ export class NxtAgentXWelcomeHeaderComponent implements OnInit {
     );
 
     observer.observe(this.hostElement.nativeElement);
-    this.destroyRef.onDestroy(() => observer.disconnect());
+    this.destroyRef.onDestroy(() => {
+      observer.disconnect();
+
+      if (this.placeholderTimer) {
+        clearTimeout(this.placeholderTimer);
+      }
+    });
+  }
+
+  protected onCommandSubmit(command: string): void {
+    if (!command.trim()) {
+      return;
+    }
+
+    this.commandInput.set('');
+    void this.navigateToAuth(command.trim());
+  }
+
+  protected navigateToAuth(command?: string): Promise<boolean> {
+    return this.router.navigate(['/auth'], {
+      queryParams: command ? { q: command } : undefined,
+    });
   }
 
   private startTyping(): void {
@@ -491,5 +368,43 @@ export class NxtAgentXWelcomeHeaderComponent implements OnInit {
     );
 
     this.destroyRef.onDestroy(() => window.clearInterval(timer));
+  }
+
+  private startPlaceholderAnimation(): void {
+    let phraseIndex = 0;
+    let charIndex = 0;
+    let isDeleting = false;
+
+    const typingSpeed = 26;
+    const deletingSpeed = 15;
+    const pauseBetweenPhrases = 1200;
+
+    const animate = () => {
+      const currentPhrase = this.commandPlaceholderPhrases[phraseIndex];
+
+      if (isDeleting) {
+        charIndex -= 1;
+
+        if (charIndex < 0) {
+          isDeleting = false;
+          phraseIndex = (phraseIndex + 1) % this.commandPlaceholderPhrases.length;
+          this.placeholderTimer = setTimeout(animate, 280);
+          return;
+        }
+      } else {
+        charIndex += 1;
+
+        if (charIndex > currentPhrase.length) {
+          isDeleting = true;
+          this.placeholderTimer = setTimeout(animate, pauseBetweenPhrases);
+          return;
+        }
+      }
+
+      this._commandPlaceholder.set(currentPhrase.slice(0, charIndex));
+      this.placeholderTimer = setTimeout(animate, isDeleting ? deletingSpeed : typingSpeed);
+    };
+
+    animate();
   }
 }

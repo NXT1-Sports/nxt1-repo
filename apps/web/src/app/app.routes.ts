@@ -1,15 +1,58 @@
+import { isPlatformBrowser } from '@angular/common';
+import { inject, PLATFORM_ID, TransferState } from '@angular/core';
+import { toObservable } from '@angular/core/rxjs-interop';
 import { type Routes, type CanMatchFn, type UrlSegment } from '@angular/router';
+import { filter, map, take } from 'rxjs/operators';
+import { AuthFlowService } from './core/services/auth';
+import {
+  AUTH_TRANSFER_STATE_KEY,
+  type TransferredAuthState,
+} from './core/services/auth/ssr-tokens';
 
 /**
  * Prevents the team route from activating for static asset URLs.
  * Browsers request .css.map / .js files relative to the current page URL,
  * which can match the `team/:slug` route and trigger spurious API calls.
  */
-const rejectFileExtensionSlugs: CanMatchFn = (_route, segments: UrlSegment[]) => {
+const _rejectFileExtensionSlugs: CanMatchFn = (_route, segments: UrlSegment[]) => {
   const slug = segments[1]?.path ?? '';
   const teamCode = segments[2]?.path ?? '';
   return !slug.includes('.') && !teamCode.includes('.');
 };
+
+const EMPTY_TRANSFERRED_AUTH_STATE: TransferredAuthState = {
+  user: null,
+  firebaseUser: null,
+};
+
+function hasTransferredAuthUser(): boolean {
+  return (
+    inject(TransferState).get(AUTH_TRANSFER_STATE_KEY, EMPTY_TRANSFERRED_AUTH_STATE).user !== null
+  );
+}
+
+// Agent X is the only route with distinct logged-out and logged-in shells.
+// Wait for browser auth readiness before matching so refresh cannot pick the wrong shell.
+function matchAgentXLayout(matchesAuthenticatedUser: boolean): ReturnType<CanMatchFn> {
+  if (!isPlatformBrowser(inject(PLATFORM_ID))) {
+    return hasTransferredAuthUser() === matchesAuthenticatedUser;
+  }
+
+  const authFlow = inject(AuthFlowService);
+
+  if (authFlow.isAuthReady()) {
+    return authFlow.isAuthenticated() === matchesAuthenticatedUser;
+  }
+
+  return toObservable(authFlow.isAuthReady).pipe(
+    filter(Boolean),
+    take(1),
+    map(() => authFlow.isAuthenticated() === matchesAuthenticatedUser)
+  );
+}
+
+const _matchLoggedOutAgentXLayout: CanMatchFn = () => matchAgentXLayout(false);
+const _matchAuthenticatedAgentXLayout: CanMatchFn = () => matchAgentXLayout(true);
 
 /**
  * @fileoverview Web App Routes — 2026 Professional Pattern
@@ -37,18 +80,37 @@ const rejectFileExtensionSlugs: CanMatchFn = (_route, segments: UrlSegment[]) =>
 
 export const routes: Routes = [
   // ============================================
-  // PUBLIC LANDING PAGE (Marketing/Welcome)
+  // PUBLIC MARKETING ROUTES (No heavy app shell)
   // ============================================
 
-  /**
-   * Public Landing Page
-   * SEO-critical: Main marketing page for unauthenticated users
-   * Example: nxt1sports.com/welcome
-   */
   {
-    path: 'welcome',
-    pathMatch: 'full',
-    redirectTo: '',
+    path: '',
+    loadComponent: () =>
+      import('./marketing/public-marketing-shell.component').then(
+        (m) => m.PublicMarketingShellComponent
+      ),
+    children: [
+      {
+        path: '',
+        pathMatch: 'full',
+        title: 'NXT1 Sports | The Sports Intelligence Platform',
+        loadComponent: () =>
+          import('./marketing/landing/landing.component').then((m) => m.LandingComponent),
+      },
+      {
+        path: 'programs',
+        loadChildren: () => import('./marketing/team-platform/team-platform.routes'),
+      },
+      {
+        path: 'agent-x',
+        canMatch: [_matchLoggedOutAgentXLayout],
+        title: 'NXT1 Agent X | AI Command Center for Sports',
+        loadComponent: () =>
+          import('./marketing/agent-x-marketing/agent-x-marketing.component').then(
+            (m) => m.AgentXMarketingComponent
+          ),
+      },
+    ],
   },
 
   // ============================================
@@ -75,17 +137,13 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./core/layout/web-shell.component').then((m) => m.WebShellComponent),
     children: [
-      // Default route → Agent X (AI-first landing)
-      {
-        path: '',
-        pathMatch: 'full',
-        redirectTo: 'agent-x',
-      },
-
-      // Agent X - AI Assistant (canonical route)
+      // Agent X - logged-in command center, logged-out Agent X landing state
       {
         path: 'agent-x',
-        loadChildren: () => import('./features/agent-x/agent-x.routes'),
+        canMatch: [_matchAuthenticatedAgentXLayout],
+        title: 'NXT1 Agent X | AI Command Center for Sports',
+        loadComponent: () =>
+          import('./features/agent-x/agent-x.component').then((m) => m.AgentXComponent),
       },
 
       // Activity - Notifications & Activity Feed
@@ -137,103 +195,11 @@ export const routes: Routes = [
         loadChildren: () => import('./features/pulse/pulse.routes').then((m) => m.PULSE_ROUTES),
       },
 
-      // NIL - NIL & Monetization campaign page
-      {
-        path: 'nil',
-        loadChildren: () => import('./marketing/nil/nil.routes'),
-      },
-
-      // Team Profile - Public Team Pages (strict canonical route)
-      // Canonical URL: /team/:slug/:teamCode (e.g. /team/akron-buchtel/57L791)
-      {
-        path: 'team/:slug/:teamCode',
-        canMatch: [rejectFileExtensionSlugs],
-        loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
-      },
-
-      // Team Platform - Programs/Organizations Page
-      {
-        path: 'team-platform',
-        loadChildren: () => import('./marketing/team-platform/team-platform.routes'),
-      },
-
-      // Super Profiles - Interactive Profile Breakdown + Athlete Landing
-      {
-        path: 'super-profiles',
-        loadChildren: () => import('./marketing/super-profiles/super-profiles.routes'),
-      },
-
-      // ---- Persona-Specific Marketing Pages ----
-
-      // Athletes - Student-Athlete Intelligence & Discovery
-      {
-        path: 'athletes',
-        loadChildren: () => import('./marketing/athletes/athletes.routes'),
-      },
-
-      // Recruiting Athletes - Recruiting Radar & Signals
-      {
-        path: 'recruiting-athletes',
-        loadChildren: () => import('./marketing/recruiting-athletes/recruiting-athletes.routes'),
-      },
-
-      // Content Creation for Athletes
-      {
-        path: 'content-creation-athletes',
-        loadChildren: () =>
-          import('./marketing/content-creation-athletes/content-creation-athletes.routes'),
-      },
-
-      // Media & Coverage for Athletes
-      {
-        path: 'media-coverage',
-        loadChildren: () => import('./marketing/media-coverage/media-coverage.routes'),
-      },
-
-      // AI for Athletes - Intelligent Outreach & Profile Distribution
-      {
-        path: 'ai-athletes',
-        loadChildren: () => import('./marketing/ai-athletes/ai-athletes.routes'),
-      },
-
-      // College Coaches - Prospect Discovery & Management Tools (canonical)
-      {
-        path: 'college-coaches',
-        loadChildren: () => import('./marketing/coaches/coaches.routes'),
-      },
-
-      // Legacy alias
-      {
-        path: 'coaches',
-        pathMatch: 'full',
-        redirectTo: 'college-coaches',
-      },
-
-      // Parents - Family Recruiting Dashboard
-      {
-        path: 'parents',
-        loadChildren: () => import('./marketing/parents/parents.routes'),
-      },
-
-      // Scouts - Scouting & Evaluation Tools
-      {
-        path: 'scouts',
-        loadChildren: () => import('./marketing/scouts/scouts.routes'),
-      },
-
-      // ---- Sport-Vertical Marketing Pages ----
-      // Single component, config-driven: /football, /basketball, etc.
-
-      {
-        path: 'football',
-        data: { sport: 'football' },
-        loadChildren: () => import('./marketing/sport-landing/sport-landing.routes'),
-      },
-      {
-        path: 'basketball',
-        data: { sport: 'basketball' },
-        loadChildren: () => import('./marketing/sport-landing/sport-landing.routes'),
-      },
+      // ============================================
+      // MARKETING PAGES (MVP Only)
+      // ============================================
+      // For archived/disabled routes, see app.routes.marketing.archived.ts
+      // To re-enable any marketing routes, copy from the archived file.
 
       // ---- Legal Pages (inside shell for consistent layout) ----
       {
@@ -309,6 +275,6 @@ export const routes: Routes = [
   // 404 Not Found Page (catch-all route)
   {
     path: '**',
-    loadComponent: () => import('@nxt1/ui').then((m) => m.NotFoundComponent),
+    loadComponent: () => import('@nxt1/ui/components/not-found').then((m) => m.NotFoundComponent),
   },
 ];

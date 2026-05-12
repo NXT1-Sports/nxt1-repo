@@ -580,8 +580,6 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
     activityTracking: true,
     analyticsTracking: true,
     biometricLogin: false,
-    dismissedPrompts: [],
-    defaultSportIndex: 0,
     theme: 'system',
   };
 

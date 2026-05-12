@@ -46,16 +46,13 @@ the NXT1 monorepo platform.
       'self' https: wss:;"
   ```
 
-**4. Test Job `continue-on-error: true` (Quality Gate)**
+**4. CI Quality Gate (Resolved)**
 
-- **The Problem**: In the GitHub Actions CI pipeline
-  (`.github/workflows/ci.yml`), automated tests are set to
-  `continue-on-error: true`. If a developer opens a Pull Request that completely
-  breaks the app and causes 50 tests to fail, the CI pipeline will still show a
-  green ✅ checkmark. It prevents your tests from actually blocking bad code
-  from merging into `main`.
-- **The Fix**: Simply remove the `continue-on-error: true` line so that failing
-  tests cause the GitHub Action to fail and block the PR.
+- **Status**: The CI pipeline at `.github/workflows/ci.yml` now enforces failing
+  checks correctly (no `continue-on-error: true` on test gates).
+- **Impact**: PRs with failing quality checks are blocked as expected.
+- **Follow-up**: Keep branch protection rules enabled so required CI checks
+  remain mandatory.
 
 ## 🟡 Medium Priority
 

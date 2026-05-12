@@ -595,6 +595,7 @@ function sortCoordinatorCategories(
         [pendingFiles]="agentX.pendingFiles()"
         [pendingSources]="pendingConnectedSources()"
         [selectedTask]="agentX.selectedTask()?.title ?? null"
+        [placeholder]="inputPlaceholder()"
         (messageChange)="onInputChange($event)"
         (send)="onSendMessage()"
         (toggleAttachments)="onToggleAttachments()"
@@ -1878,6 +1879,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
 
   /** Connected app sources staged from attachment sheet taps. */
   protected readonly pendingConnectedSources = signal<ConnectedAppSource[]>([]);
+  private readonly selectedCoordinatorLabel = signal<string | null>(null);
   private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
 
   // ============================================
@@ -1982,6 +1984,12 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     const total = this.playbookTotalCount();
     if (total === 0) return 0;
     return Math.round((this.playbookCompletedCount() / total) * 100);
+  });
+
+  /** Input placeholder reflects the latest selected coordinator context. */
+  protected readonly inputPlaceholder = computed(() => {
+    const label = this.selectedCoordinatorLabel()?.trim();
+    return label ? `Message ${label}` : 'Message Agent X';
   });
 
   /** Coordinator cards are rendered strictly from backend dashboard config. */
@@ -2164,6 +2172,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
    */
   protected async onCategoryTap(cat: CommandCategory): Promise<void> {
     await this.haptics.impact('light');
+    this.selectedCoordinatorLabel.set(cat.label);
     const quickActions: OperationQuickAction[] = cat.commands.map((cmd) => ({
       id: cmd.id,
       label: cmd.label,

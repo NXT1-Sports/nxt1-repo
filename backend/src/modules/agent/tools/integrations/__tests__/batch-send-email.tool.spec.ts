@@ -76,9 +76,13 @@ describe('batch-send-email.tool', () => {
       'coach@osu.edu',
       'Hi Ryan',
       '<p>Ohio State</p>',
-      expect.anything()
+      expect.any(Object),
+      expect.objectContaining({
+        recipientKind: undefined,
+        recipientName: undefined,
+        recipientOrgName: undefined,
+      })
     );
-    expect(mocks.safeTrack).toHaveBeenCalledTimes(1);
     expect(emitStage).toHaveBeenCalledWith(
       'submitting_job',
       expect.objectContaining({

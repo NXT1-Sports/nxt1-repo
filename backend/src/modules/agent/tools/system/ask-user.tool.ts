@@ -46,13 +46,21 @@ export const ASK_USER_CONTEXT_KEY = '__yieldContext' as const;
 export class AskUserTool extends BaseTool {
   readonly name = 'ask_user';
   readonly description =
-    'Ask the user a question when you need information that is not available in the context, profile data, or any tool result. ' +
-    'This will pause your execution, show the user a question card, and send a push notification. ' +
-    "Use this sparingly — only when you truly cannot proceed without the user's input. " +
-    'CRITICAL: Call this tool EXACTLY ONCE per turn. Combine all your questions into a single concise message. ' +
-    'Calling it immediately suspends the entire conversation and shows the user a question card.';
+    'Pause execution to wait for the user when you cannot proceed without their input.\n\n' +
+    'CRITICAL — TWO-STEP USAGE:\n' +
+    '  1. FIRST: write your actual question to the user as a normal conversational chat message (assistant prose). Be warm, specific, and complete — this is what the user reads in chat.\n' +
+    '  2. THEN: invoke `ask_user` in the SAME turn. The `question` parameter is a SHORT one-line label (≤ 80 chars) used for the push/SMS notification preview and a tiny "waiting for your reply…" affordance in the chat. Do NOT repeat your full question in the parameter — the chat already shows it.\n\n' +
+    'Example:\n' +
+    '  Assistant message (streamed prose): "Before I draft this email, what tone are you going for — formal and recruiter-style, or casual and personal?"\n' +
+    '  Then call: ask_user({ question: "Pick an email tone" })\n\n' +
+    'RULES:\n' +
+    '  • Call this tool EXACTLY ONCE per turn.\n' +
+    '  • Use sparingly — only when you truly cannot proceed without the user.\n' +
+    '  • Never paste the full question into `question`; the prose message owns the question copy.\n' +
+    '  • Calling this tool immediately suspends the conversation.';
   readonly parameters = z.object({
-    question: z.string().trim().min(1),
+    /** Short label for push/SMS preview + waiting affordance — NOT the full question (write that as prose first). */
+    question: z.string().trim().min(1).max(120),
     context: z.string().trim().min(1).optional(),
   });
   readonly isMutation = false;

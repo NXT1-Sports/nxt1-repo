@@ -71,8 +71,7 @@ describe('normalizeRole', () => {
     expect(normalizeRole('director')).toBe('director');
   });
 
-  it('should map legacy recruiter and parent to core roles', () => {
-    expect(normalizeRole('recruiter')).toBe('coach');
+  it('should map legacy parent to athlete role', () => {
     expect(normalizeRole('parent')).toBe('athlete');
   });
 

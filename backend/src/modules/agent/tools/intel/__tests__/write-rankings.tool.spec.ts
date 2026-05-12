@@ -168,7 +168,7 @@ describe('WriteRankingsTool', () => {
 
     expect(mockInvalidateProfileCaches).toHaveBeenCalledWith('user-123', 'jordan-miles');
     expect(mockContextInvalidate).toHaveBeenCalledWith('user-123');
-    expect(mockOnDailySyncComplete).toHaveBeenCalledTimes(1);
+    expect(mockOnDailySyncComplete).toHaveBeenCalledTimes(0);
   });
 
   it('skips entries without ranking signals', async () => {

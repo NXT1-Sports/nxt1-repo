@@ -108,9 +108,6 @@ const DEFAULT_LINK_GROUPS: SiteFooterLinkGroup[] = [
 
 @Component({
   selector: 'nxt1-site-footer',
-  host: {
-    style: 'display: none !important;',
-  },
   standalone: true,
   imports: [RouterLink, NxtLogoComponent, NxtIconComponent],
   template: `

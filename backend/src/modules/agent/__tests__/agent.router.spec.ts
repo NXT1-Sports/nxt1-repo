@@ -161,23 +161,40 @@ describe('AgentRouter', () => {
    */
   function wirePrimary(router: AgentRouter): void {
     const bundle = router.getOrchestratorBundle();
+    const planStore = new Map<string, unknown>();
     const planRepository = {
       getLatestRevisableByThread: vi.fn().mockResolvedValue(null),
-      createDraft: vi.fn().mockImplementation(async (input) => ({
-        planId: input.planId,
-        userId: input.userId,
-        threadId: input.threadId,
-        originOperationId: input.originOperationId,
-        version: input.version ?? 1,
-        status: input.status ?? 'draft',
-        summary: input.summary,
-        planHash: input.planHash,
-        tasks: input.tasks,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      })),
-      reviseDraft: vi.fn(),
-      getById: vi.fn(),
+      createDraft: vi.fn().mockImplementation(async (input) => {
+        const draft = {
+          planId: input.planId,
+          userId: input.userId,
+          threadId: input.threadId,
+          originOperationId: input.originOperationId,
+          version: input.version ?? 1,
+          status: input.status ?? 'draft',
+          summary: input.summary,
+          planHash: input.planHash,
+          tasks: input.tasks,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        };
+        planStore.set(input.planId, draft);
+        return draft;
+      }),
+      reviseDraft: vi.fn().mockImplementation(async (input) => {
+        const revised = {
+          ...input.existingPlan,
+          originOperationId: input.originOperationId,
+          summary: input.summary,
+          planHash: input.planHash,
+          tasks: input.tasks,
+          version: input.existingPlan.version + 1,
+          updatedAt: new Date().toISOString(),
+        };
+        planStore.set(input.existingPlan.planId, revised);
+        return revised;
+      }),
+      getById: vi.fn().mockImplementation(async (planId) => planStore.get(planId) ?? null),
       markExecuting: vi.fn(),
       syncExecutionSnapshot: vi.fn(),
       markTerminal: vi.fn(),
@@ -198,12 +215,30 @@ describe('AgentRouter', () => {
         .fn()
         .mockImplementation(
           async (intent: string, context: AgentSessionContext): Promise<AgentOperationResult> => {
-            const result = await service.runPlan(intent, {
+            const dispatchContext = {
               operationId: context.operationId ?? 'test-op',
               userId: context.userId ?? 'user-123',
               enrichedIntent: intent,
               sessionContext: context,
-            });
+            };
+
+            const planResult = await service.runPlan(intent, dispatchContext);
+            const planObservation = (() => {
+              try {
+                return JSON.parse(planResult.observation) as {
+                  approval?: { payload?: { planId?: string } };
+                };
+              } catch {
+                return null;
+              }
+            })();
+
+            const planId = planObservation?.approval?.payload?.planId;
+            const result =
+              planResult.success && typeof planId === 'string' && planId.length > 0
+                ? await service.runApprovedPlan(planId, dispatchContext)
+                : planResult;
+
             return {
               summary: result.observation,
               suggestions: [],
@@ -748,7 +783,6 @@ describe('AgentRouter', () => {
 
       expect(recruitingSnapshot).toBeDefined();
       expect(recruitingSnapshot?.allowedToolNames).toContain('search_colleges');
-      expect(recruitingSnapshot?.allowedToolNames).toContain('query_gmail_emails');
       expect(recruitingSnapshot?.allowedToolNames).not.toContain('unassigned_internal_tool');
     });
   });

@@ -36,8 +36,8 @@ We expect all contributors to adhere to professional standards of conduct.
 
 Ensure your development environment meets these requirements:
 
-- **Node.js**: v20.0.0 or higher
-- **npm**: v10.0.0 or higher
+- **Node.js**: v22.x
+- **npm**: v11.0.0 or higher
 - **Git**: Latest stable version
 - **Firebase CLI**: `npm install -g firebase-tools`
 - **Native Tools** (for mobile):
@@ -49,7 +49,7 @@ Ensure your development environment meets these requirements:
 1. **Clone the repository:**
 
    ```bash
-   git clone https://github.com/nxt1/nxt1-monorepo.git
+   git clone https://github.com/NXT1-Sports/nxt1-repo.git
    cd nxt1-monorepo
    ```
 
@@ -72,8 +72,10 @@ Ensure your development environment meets these requirements:
 
 We follow a strict branching model:
 
-- **`main`**: Production-ready code. Protected branch. Triggers production
-  deployments.
+- **`main`**: Primary integration branch. Protected branch. Triggers staging
+  deploy workflows and release automation.
+- **`production`**: Production deployment branch for web/mobile production
+  workflows.
 - **`develop`**: Integration branch for the next release. Staging environment.
 - **`feat/feature-name`**: For new features.
 - **`fix/issue-description`**: For bug fixes.

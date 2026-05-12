@@ -1,6 +1,7 @@
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 import { logger } from '../../../../../utils/logger.js';
 import { type FfmpegMcpBridgeService } from './ffmpeg-mcp-bridge.service.js';
+import { normalizeFfmpegToolInput } from './ffmpeg-input-normalizer.js';
 import { MergeVideosInputSchema } from './schemas.js';
 
 export class FfmpegMergeVideosTool extends BaseTool {
@@ -20,7 +21,26 @@ export class FfmpegMergeVideosTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const parsed = MergeVideosInputSchema.safeParse(input);
+    const normalizedInput = normalizeFfmpegToolInput(input, {
+      mapOutputFormatToOutputPath: true,
+      defaultOutputBase: 'merged',
+    });
+
+    const normalizedInputPaths = Array.isArray(normalizedInput['inputPaths'])
+      ? normalizedInput['inputPaths'].filter(
+          (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+        )
+      : [];
+
+    if (normalizedInputPaths.length > 0 && normalizedInputPaths.length < 2) {
+      return {
+        success: false,
+        error:
+          'ffmpeg_merge_videos requires at least 2 inputPaths. Provide two or more video URLs/paths, e.g. inputPaths: ["clip1.mp4", "clip2.mp4"].',
+      };
+    }
+
+    const parsed = MergeVideosInputSchema.safeParse(normalizedInput);
     if (!parsed.success) return this.zodError(parsed.error);
 
     context?.emitStage?.('processing_media', {

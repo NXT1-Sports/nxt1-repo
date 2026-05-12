@@ -471,9 +471,11 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                 @if (primaryRailTeam(); as team) {
                   <div class="madden-team-stack">
                     <div
-                      class="madden-team-block madden-team-block--clickable"
-                      role="button"
-                      tabindex="0"
+                      class="madden-team-block"
+                      [class.madden-team-block--clickable]="canNavigateTeam(team)"
+                      [attr.role]="canNavigateTeam(team) ? 'button' : null"
+                      [attr.tabindex]="canNavigateTeam(team) ? '0' : null"
+                      [attr.aria-disabled]="canNavigateTeam(team) ? null : 'true'"
                       (click)="onTeamClick(team)"
                       (keydown.enter)="onTeamClick(team)"
                       (keydown.space)="onTeamClick(team); $event.preventDefault()"
@@ -1879,7 +1881,14 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
     this.editProfileClick.emit();
   }
 
+  protected canNavigateTeam(team: ProfileTeamAffiliation): boolean {
+    return !!team.teamCode?.trim();
+  }
+
   protected onTeamClick(team: ProfileTeamAffiliation): void {
+    if (!this.canNavigateTeam(team)) {
+      return;
+    }
     this.teamClick.emit(team);
   }
 

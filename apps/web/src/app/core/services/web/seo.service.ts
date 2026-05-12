@@ -62,10 +62,10 @@ const SITE_NAME = 'NXT1 Sports';
 
 /** Default site description */
 const DEFAULT_DESCRIPTION =
-  'The sports intelligence platform powered by AI coordinators. Autonomous workflows, AI scout reports, and a unified command center for athletes, coaches, scouts, and teams.';
+  'NXT1 is the first AI command center for sports organizations to run their entire program from one system.';
 
 /** Default OG image */
-const DEFAULT_OG_IMAGE = 'https://nxt1sports.com/assets/images/og-image.jpg';
+const DEFAULT_OG_IMAGE = 'https://nxt1sports.com/assets/shared/images/og-image.jpg';
 
 /** Base URL for canonical links */
 const BASE_URL = 'https://nxt1sports.com';
@@ -276,11 +276,10 @@ export class SeoService {
     const { page, openGraph, twitter, structuredData } = config;
 
     // Set page title
-    const fullTitle = page.title.includes(SITE_NAME) ? page.title : `${page.title} | ${SITE_NAME}`;
-    this.title.setTitle(fullTitle);
+    this.title.setTitle(page.title);
 
     // Core meta tags
-    this.updateMetaTag('description', truncateDescription(sanitizeMetaText(page.description)));
+    this.updateMetaTag('description', sanitizeMetaText(page.description));
 
     if (page.keywords?.length) {
       this.updateMetaTag('keywords', page.keywords.join(', '));
@@ -325,29 +324,50 @@ export class SeoService {
   }
 
   /**
+   * Update a meta tag by name only when content is present, otherwise remove it.
+   */
+  private updateOptionalNamedTag(name: string, content?: string | null): void {
+    if (content && content.length > 0) {
+      this.meta.updateTag({ name, content });
+      return;
+    }
+
+    this.meta.removeTag(`name='${name}'`);
+  }
+
+  /**
+   * Update a meta tag by property only when content is present, otherwise remove it.
+   */
+  private updateOptionalPropertyTag(property: string, content?: string | null): void {
+    if (content && content.length > 0) {
+      this.meta.updateTag({ property, content });
+      return;
+    }
+
+    this.meta.removeTag(`property='${property}'`);
+  }
+
+  /**
    * Update Open Graph meta tags
    */
   private updateOpenGraphTags(page: PageMetadata, og?: Partial<SeoConfig['openGraph']>): void {
     this.updatePropertyTag('og:type', og?.type || 'website');
     this.updatePropertyTag('og:site_name', og?.siteName || SITE_NAME);
     this.updatePropertyTag('og:title', og?.title || page.title);
-    this.updatePropertyTag(
-      'og:description',
-      truncateDescription(sanitizeMetaText(og?.description || page.description))
-    );
+    this.updatePropertyTag('og:description', sanitizeMetaText(og?.description || page.description));
     this.updatePropertyTag('og:url', og?.url || page.canonicalUrl || this.getCurrentUrl());
     this.updatePropertyTag('og:image', og?.image || page.image || DEFAULT_OG_IMAGE);
     this.updatePropertyTag('og:locale', og?.locale || 'en_US');
-
-    if (og?.imageWidth) {
-      this.updatePropertyTag('og:image:width', String(og.imageWidth));
-    }
-    if (og?.imageHeight) {
-      this.updatePropertyTag('og:image:height', String(og.imageHeight));
-    }
-    if (og?.video) {
-      this.updatePropertyTag('og:video', og.video);
-    }
+    this.updateOptionalPropertyTag('og:image:alt', og?.imageAlt || page.imageAlt);
+    this.updateOptionalPropertyTag(
+      'og:image:width',
+      og?.imageWidth ? String(og.imageWidth) : undefined
+    );
+    this.updateOptionalPropertyTag(
+      'og:image:height',
+      og?.imageHeight ? String(og.imageHeight) : undefined
+    );
+    this.updateOptionalPropertyTag('og:video', og?.video);
   }
 
   /**
@@ -360,10 +380,7 @@ export class SeoService {
   ): void {
     this.meta.updateTag({ name: 'twitter:card', content: twitter?.card || 'summary_large_image' });
     this.meta.updateTag({ name: 'twitter:site', content: twitter?.site || TWITTER_SITE });
-
-    if (twitter?.creator) {
-      this.meta.updateTag({ name: 'twitter:creator', content: twitter.creator });
-    }
+    this.updateOptionalNamedTag('twitter:creator', twitter?.creator);
 
     // Twitter falls back to OG then page
     this.meta.updateTag({
@@ -372,35 +389,24 @@ export class SeoService {
     });
     this.meta.updateTag({
       name: 'twitter:description',
-      content: truncateDescription(
-        sanitizeMetaText(twitter?.description || og?.description || page.description)
-      ),
+      content: sanitizeMetaText(twitter?.description || og?.description || page.description),
     });
     this.meta.updateTag({
       name: 'twitter:image',
       content: twitter?.image || og?.image || page.image || DEFAULT_OG_IMAGE,
     });
-
-    if (twitter?.imageAlt || page.imageAlt) {
-      this.meta.updateTag({
-        name: 'twitter:image:alt',
-        content: twitter?.imageAlt || page.imageAlt || '',
-      });
-    }
+    this.updateOptionalNamedTag('twitter:image:alt', twitter?.imageAlt || page.imageAlt);
 
     // Video player card
-    if (twitter?.player) {
-      this.meta.updateTag({ name: 'twitter:player', content: twitter.player });
-      if (twitter.playerWidth) {
-        this.meta.updateTag({ name: 'twitter:player:width', content: String(twitter.playerWidth) });
-      }
-      if (twitter.playerHeight) {
-        this.meta.updateTag({
-          name: 'twitter:player:height',
-          content: String(twitter.playerHeight),
-        });
-      }
-    }
+    this.updateOptionalNamedTag('twitter:player', twitter?.player);
+    this.updateOptionalNamedTag(
+      'twitter:player:width',
+      twitter?.playerWidth ? String(twitter.playerWidth) : undefined
+    );
+    this.updateOptionalNamedTag(
+      'twitter:player:height',
+      twitter?.playerHeight ? String(twitter.playerHeight) : undefined
+    );
   }
 
   /**

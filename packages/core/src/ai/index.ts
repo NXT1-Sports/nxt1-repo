@@ -92,6 +92,7 @@ export type {
   AgentXConfirmationVariant,
   AgentXConfirmationEmailData,
   AgentXConfirmationTimelinePostData,
+  AgentXConnectAccountPayload,
   AgentXPlanApprovalData,
   AgentXPlanApprovalStep,
   AgentXGenericApprovalCategory,
@@ -113,6 +114,7 @@ export type {
   AgentXBillingActionReason,
   AgentXBillingActionPayload,
   AgentXDocumentPayload,
+  AgentXScrapeOperationRef,
 } from './agent-x.types';
 
 // Constants
@@ -160,7 +162,14 @@ export {
 } from './agent-x-content.constants';
 
 // API
-export { createAgentXApi, type AgentXApi, type ThreadMessagesResponse } from './agent-x.api';
+export {
+  createAgentXApi,
+  type AgentXApi,
+  type ThreadMessagesResponse,
+  type AgentXThreadActionType,
+  type AgentXThreadActionRequest,
+  type AgentXThreadActionResponse,
+} from './agent-x.api';
 
 // Shared copy resolvers
 export {

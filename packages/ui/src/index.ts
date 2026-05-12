@@ -252,11 +252,11 @@ export { NxtGenesisMomentComponent } from './components/genesis-moment';
 // PARTNER MARQUEE (Infinite Logo Scroll)
 // ============================================
 export {
-  NxtPartnerMarqueeComponent,
-  type PartnerItem,
+  NxtIntegrationMarqueeComponent,
+  type IntegrationItem,
   type MarqueeDirection,
   type MarqueeVariant,
-} from './components/partner-marquee';
+} from './components/integration-marquee';
 
 export {
   NxtMovementSectionComponent,

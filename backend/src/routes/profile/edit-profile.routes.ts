@@ -16,6 +16,7 @@ import { asyncHandler } from '@nxt1/core/errors/express';
 import { notFoundError, forbiddenError, fieldError } from '@nxt1/core/errors';
 import type { User, SportProfile, TeamType, UserRole, VerifiedMetric } from '@nxt1/core';
 import { formatFileSize, TEAM_TYPES, SPORT_POSITIONS, normalizeSportKey } from '@nxt1/core';
+import { mapToConnectedSources } from '@nxt1/core/profile';
 import { invalidateProfileCaches } from './shared.js';
 import { enqueueWelcomeGraphicIfReady } from '../../modules/agent/services/agent-welcome.service.js';
 import { createRosterEntryService } from '../../services/team/roster-entry.service.js';
@@ -618,17 +619,27 @@ function sectionToFirestoreUpdate(
         }[];
       };
 
-      const connectedSources = Array.isArray(data.connectedSources)
+      const sourceEntries = Array.isArray(data.connectedSources)
         ? data.connectedSources
+            .filter((link) => typeof link.platform === 'string')
+            .map((link) => ({
+              platform: link.platform,
+              connected: true,
+              url: link.profileUrl,
+              scopeType: link.scopeType,
+              scopeId: link.scopeId,
+            }))
         : (data.links ?? [])
             .filter((link) => typeof link.platform === 'string')
             .map((link) => ({
               platform: link.platform,
-              profileUrl: link.url?.trim() || link.username?.trim() || '',
+              connected: true,
+              url: link.url?.trim() || link.username?.trim() || '',
               scopeType: link.scopeType,
               scopeId: link.scopeId,
-            }))
-            .filter((link) => link.profileUrl.length > 0);
+            }));
+
+      const connectedSources = mapToConnectedSources(sourceEntries);
 
       updates['connectedSources'] = connectedSources;
       break;

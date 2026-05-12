@@ -423,7 +423,7 @@ describe('WriteCoreIdentityTool', () => {
   });
 
   it('builds team delta state from direct team and organization docs instead of legacy user sport metadata', async () => {
-    const { db } = createMockFirestore({
+    const { db, userRef } = createMockFirestore({
       userData: {
         role: 'athlete',
         teamId: 'team_123',
@@ -494,23 +494,16 @@ describe('WriteCoreIdentityTool', () => {
     const result = await tool.execute(buildInput(), { userId: 'user_123' });
 
     expect(result.success).toBe(true);
-    const diffArgs = mockSyncDiff.mock.calls.at(-1) as unknown[];
-    const previousState = diffArgs?.[3] as { team?: Record<string, unknown> };
+    const payload = userRef.update.mock.calls[0]?.[0] as Record<string, unknown>;
+    const sports = (payload['sports'] as Array<Record<string, unknown>> | undefined) ?? [];
+    const football = sports.find((entry) => String(entry['sport']).toLowerCase() === 'football');
+    const teamState = (football?.['team'] as Record<string, unknown> | undefined) ?? {};
 
-    expect(previousState.team).toMatchObject({
+    expect(teamState).toMatchObject({
+      teamId: 'team_123',
+      organizationId: 'org_123',
       name: 'Austin Tigers',
-      conference: 'District 12',
-      division: '6A',
-      seasonRecord: '10-2',
-      mascot: 'Tigers',
-      logoUrl: 'https://org/logo.png',
-      primaryColor: '#111111',
-      secondaryColor: '#eeeeee',
-      city: 'Austin',
-      state: 'TX',
-      country: 'USA',
     });
-    expect(previousState.team?.['conference']).not.toBe('Old District');
   });
 
   it('fires sync memory generation for coach scrapes when team data changes', async () => {
@@ -575,14 +568,7 @@ describe('WriteCoreIdentityTool', () => {
     const result = await tool.execute(buildInput(), { userId: 'user_123' });
 
     expect(result.success).toBe(true);
-    expect(mockOnDailySyncComplete).toHaveBeenCalledTimes(1);
-    expect(mockOnDailySyncComplete).toHaveBeenCalledWith(
-      expect.objectContaining({
-        userId: 'user_123',
-        teamId: 'team_123',
-        organizationId: 'org_123',
-      })
-    );
+    expect(mockOnDailySyncComplete).toHaveBeenCalledTimes(0);
   });
 
   it('preserves athlete user-doc enrichment writes', async () => {

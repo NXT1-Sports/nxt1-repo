@@ -14,6 +14,7 @@
 
 import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { isTeamRole, normalizeBaseSportKey, type UserRole } from '@nxt1/core';
+import { normalizeConnectedPlatform, normalizeConnectedProfileUrl } from '@nxt1/core/profile';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import { ScraperMediaService } from '../../integrations/social/scraper-media.service.js';
 import { getCacheService } from '../../../../../services/core/cache.service.js';
@@ -30,6 +31,7 @@ import { ContextBuilder } from '../../../memory/context-builder.js';
 import { invalidateProfileCaches } from '../../../../../routes/profile/shared.js';
 import { provisionOnboardingPrograms } from '../../../../../services/platform/onboarding-program-provisioning.service.js';
 import { platformDisplayName } from '../../platform/platform-utils.js';
+import { getConnectedSourceSyncTracker } from '../../../services/connected-source-sync-tracker.service.js';
 import { logger } from '../../../../../utils/logger.js';
 import { z } from 'zod';
 
@@ -194,6 +196,7 @@ export class WriteCoreIdentityTool extends BaseTool {
     if (!parsed.success) return this.zodError(parsed.error);
 
     const { userId, source, profileUrl, targetSport } = parsed.data;
+    const sourcePlatform = normalizeConnectedPlatform(source);
     const faviconUrl = parsed.data.faviconUrl;
     const identity = parsed.data.identity as Record<string, unknown> | undefined;
     const academics = parsed.data.academics as Record<string, unknown> | undefined;
@@ -560,11 +563,14 @@ export class WriteCoreIdentityTool extends BaseTool {
               : [];
             const connectedSourcesUpdate = this.buildConnectedSourcesUpdate(
               existingTeamConnectedSources,
-              source,
+              sourcePlatform,
               profileUrl,
               targetSport,
               now,
-              faviconUrl
+              faviconUrl,
+              context?.operationId
+                ? { operationId: context.operationId, docType: 'team', docId: teamId }
+                : undefined
             );
             await teamRef.set(
               { connectedSources: connectedSourcesUpdate, updatedAt: FieldValue.serverTimestamp() },
@@ -587,11 +593,14 @@ export class WriteCoreIdentityTool extends BaseTool {
       } else {
         const connectedSourcesUpdate = this.buildConnectedSourcesUpdate(
           (userData['connectedSources'] ?? []) as Record<string, unknown>[],
-          source,
+          sourcePlatform,
           profileUrl,
           targetSport,
           now,
-          faviconUrl
+          faviconUrl,
+          context?.operationId
+            ? { operationId: context.operationId, docType: 'user', docId: userId }
+            : undefined
         );
         payload['connectedSources'] = connectedSourcesUpdate;
       }
@@ -1041,17 +1050,35 @@ export class WriteCoreIdentityTool extends BaseTool {
     profileUrl: string,
     scopeId: string,
     now: string,
-    faviconUrl?: string
+    faviconUrl?: string,
+    trackingOpts?: { operationId: string; docType: 'user' | 'team'; docId: string }
   ): Record<string, unknown>[] {
     const updated = [...existing];
-    const matchIndex = updated.findIndex(
-      (cs) => cs['platform'] === platform && cs['scopeId'] === scopeId
-    );
+    const normalizedPlatform = normalizeConnectedPlatform(platform);
+    const normalizedProfileUrl = normalizeConnectedProfileUrl(profileUrl);
+    const matchIndex = updated.findIndex((cs) => {
+      const existingPlatform =
+        typeof cs['platform'] === 'string' ? normalizeConnectedPlatform(cs['platform']) : '';
+      const existingScopeId = typeof cs['scopeId'] === 'string' ? cs['scopeId'] : '';
+      const existingProfileUrl =
+        typeof cs['profileUrl'] === 'string' ? normalizeConnectedProfileUrl(cs['profileUrl']) : '';
+      const samePlatform = existingPlatform === normalizedPlatform;
+      const sameScope = existingScopeId === scopeId;
+      const sameUrl = existingProfileUrl !== '' && existingProfileUrl === normalizedProfileUrl;
+      return samePlatform && (sameScope || sameUrl);
+    });
+
+    // When called from within an agent job (operationId present), write
+    // syncStatus: 'pending' — the finalization service will stamp the true
+    // outcome (success | error) once the entire job completes.
+    // When called directly (no operationId), mark success immediately.
+    const syncStatus = trackingOpts ? 'pending' : 'success';
+
     const record: Record<string, unknown> = {
-      platform,
+      platform: normalizedPlatform,
       profileUrl,
       lastSyncedAt: now,
-      syncStatus: 'success',
+      syncStatus,
       scopeType: 'sport',
       scopeId,
       ...(faviconUrl && { faviconUrl }),
@@ -1061,6 +1088,19 @@ export class WriteCoreIdentityTool extends BaseTool {
     } else {
       updated.push(record);
     }
+
+    // Register with the tracker so the finalization service can stamp the
+    // final outcome when the full agent job completes.
+    if (trackingOpts) {
+      getConnectedSourceSyncTracker().track(trackingOpts.operationId, {
+        docType: trackingOpts.docType,
+        docId: trackingOpts.docId,
+        platform: normalizedPlatform,
+        profileUrl,
+        scopeId,
+      });
+    }
+
     return updated;
   }
 

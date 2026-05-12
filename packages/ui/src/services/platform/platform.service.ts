@@ -31,7 +31,6 @@
 
 import { Injectable, inject, PLATFORM_ID, signal, computed, NgZone } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import { Platform } from '@ionic/angular/standalone';
 
 /** Device form factor types */
 export type DeviceType = 'mobile' | 'tablet' | 'desktop';
@@ -92,7 +91,6 @@ export const BREAKPOINTS = {
 @Injectable({ providedIn: 'root' })
 export class NxtPlatformService {
   private readonly platformId = inject(PLATFORM_ID);
-  private readonly ionicPlatform = inject(Platform);
   private readonly ngZone = inject(NgZone);
 
   // ============================================
@@ -167,7 +165,7 @@ export class NxtPlatformService {
   readonly isAndroid = computed(() => this._os() === 'android');
 
   /** True if running in native app (Capacitor) */
-  readonly isNative = computed(() => this.ionicPlatform.is('capacitor'));
+  readonly isNative = computed(() => this.isNativeRuntime());
 
   /** True if running as PWA */
   readonly isPWA = computed(() => this._capabilities().pwa);
@@ -225,12 +223,11 @@ export class NxtPlatformService {
   }
 
   private detectOS(): OperatingSystem {
-    if (this.ionicPlatform.is('ios')) return 'ios';
-    if (this.ionicPlatform.is('android')) return 'android';
-
-    // Fallback to user agent detection
     const ua = navigator.userAgent.toLowerCase();
-    if (/iphone|ipad|ipod/.test(ua)) return 'ios';
+    const platform = navigator.platform.toLowerCase();
+    const hasTouch = navigator.maxTouchPoints > 0;
+
+    if (/iphone|ipad|ipod/.test(ua) || (platform === 'macintel' && hasTouch)) return 'ios';
     if (/android/.test(ua)) return 'android';
     if (/win/.test(ua)) return 'windows';
     if (/mac/.test(ua)) return 'macos';
@@ -240,37 +237,27 @@ export class NxtPlatformService {
   }
 
   private detectDeviceType(): DeviceType {
-    // Use Ionic platform detection
-    if (this.ionicPlatform.is('mobileweb') || this.ionicPlatform.is('mobile')) {
-      // Distinguish between phone and tablet
-      const width = window.innerWidth;
-      const height = window.innerHeight;
-      const screenSize = Math.min(width, height);
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+    const screenSize = Math.min(width, height);
+    const ua = navigator.userAgent.toLowerCase();
+    const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
-      // Tablets typically have a shorter dimension of 600px or more
-      if (screenSize >= 600) {
-        return 'tablet';
-      }
-      return 'mobile';
-    }
-
-    if (this.ionicPlatform.is('tablet')) {
+    if (/ipad|tablet/.test(ua) || (this.detectOS() === 'ios' && hasTouch && screenSize >= 600)) {
       return 'tablet';
     }
 
-    if (this.ionicPlatform.is('desktop')) {
-      return 'desktop';
+    if (/iphone|ipod|android.*mobile/.test(ua)) {
+      return 'mobile';
     }
 
-    // Fallback: use viewport width
-    const width = window.innerWidth;
     if (width < 576) return 'mobile';
     if (width < 992) return 'tablet';
     return 'desktop';
   }
 
   private detectCapabilities(): PlatformCapabilities {
-    const isNative = this.ionicPlatform.is('capacitor');
+    const isNative = this.isNativeRuntime();
     const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
     return {
@@ -389,7 +376,7 @@ export class NxtPlatformService {
     if (this._capabilities().touch) classes.push('has-touch');
     if (this._capabilities().hover) classes.push('has-hover');
     if (this._capabilities().pwa) classes.push('is-pwa');
-    if (this.ionicPlatform.is('capacitor')) classes.push('is-native');
+    if (this.isNativeRuntime()) classes.push('is-native');
 
     return classes.join(' ');
   }
@@ -402,7 +389,7 @@ export class NxtPlatformService {
 
     try {
       // For native apps, use Capacitor Haptics plugin
-      if (this.ionicPlatform.is('capacitor')) {
+      if (this.isNativeRuntime()) {
         // Dynamically import to avoid bundling when not needed
         const { Haptics, ImpactStyle } = await import('@capacitor/haptics');
         const styleMap = {
@@ -428,7 +415,7 @@ export class NxtPlatformService {
     if (!this._capabilities().haptics) return;
 
     try {
-      if (this.ionicPlatform.is('capacitor')) {
+      if (this.isNativeRuntime()) {
         const { Haptics } = await import('@capacitor/haptics');
         await Haptics.selectionStart();
         await Haptics.selectionEnd();
@@ -447,7 +434,7 @@ export class NxtPlatformService {
     if (!this._capabilities().haptics) return;
 
     try {
-      if (this.ionicPlatform.is('capacitor')) {
+      if (this.isNativeRuntime()) {
         const { Haptics, NotificationType } = await import('@capacitor/haptics');
         const typeMap = {
           success: NotificationType.Success,
@@ -479,13 +466,56 @@ export class NxtPlatformService {
    * Check if a specific Ionic platform is active
    */
   is(platformName: string): boolean {
-    return this.ionicPlatform.is(platformName as Parameters<typeof this.ionicPlatform.is>[0]);
+    const normalizedPlatform = platformName.toLowerCase();
+    const deviceType = this._deviceType();
+    const os = this._os();
+
+    switch (normalizedPlatform) {
+      case 'capacitor':
+      case 'hybrid':
+      case 'native':
+        return this.isNativeRuntime();
+      case 'ios':
+      case 'android':
+      case 'windows':
+      case 'macos':
+      case 'linux':
+        return os === normalizedPlatform;
+      case 'mobile':
+      case 'mobileweb':
+        return deviceType === 'mobile';
+      case 'tablet':
+        return deviceType === 'tablet';
+      case 'desktop':
+        return deviceType === 'desktop';
+      case 'pwa':
+        return this._capabilities().pwa;
+      default:
+        return false;
+    }
   }
 
   /**
    * Wait for the platform to be ready
    */
   ready(): Promise<string> {
-    return this.ionicPlatform.ready();
+    return Promise.resolve(this.isNativeRuntime() ? 'capacitor' : 'dom');
+  }
+
+  private isNativeRuntime(): boolean {
+    if (!isPlatformBrowser(this.platformId)) return false;
+
+    const capacitor = (
+      window as Window & {
+        Capacitor?: {
+          isNativePlatform?: () => boolean;
+          getPlatform?: () => string;
+        };
+      }
+    ).Capacitor;
+
+    if (!capacitor) return false;
+
+    return capacitor.isNativePlatform?.() === true || capacitor.getPlatform?.() !== 'web';
   }
 }

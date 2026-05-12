@@ -60,6 +60,7 @@ import {
   DEFAULT_BROWSER_OPTIONS,
   sanitizeUrl,
   buildTrackedLinkUrl,
+  extractTrackedDestinationUrl,
   detectLinkType,
   extractDomain,
   shouldOpenInExternalApp,
@@ -285,9 +286,13 @@ export class NxtBrowserService {
       return options.url;
     }
 
+    // Normalize inputs that are already backend-tracked so we only ever apply
+    // one analytics wrapper and preserve clean user-facing destination URLs.
+    const destinationUrl = extractTrackedDestinationUrl(options.url) ?? options.url;
+
     const configuredTrackingBaseUrl = this.trackingBaseUrl?.trim();
     if (configuredTrackingBaseUrl) {
-      return buildTrackedLinkUrl(configuredTrackingBaseUrl, options.url, {
+      return buildTrackedLinkUrl(configuredTrackingBaseUrl, destinationUrl, {
         source: options.source,
         surface: options.surface,
         subjectType: options.subjectType,
@@ -296,15 +301,15 @@ export class NxtBrowserService {
     }
 
     if (this.isNativePlatform) {
-      return options.url;
+      return destinationUrl;
     }
 
     const origin = globalThis.location?.origin;
     if (!origin || !/^https?:\/\//i.test(origin)) {
-      return options.url;
+      return destinationUrl;
     }
 
-    return buildTrackedLinkUrl(origin, options.url, {
+    return buildTrackedLinkUrl(origin, destinationUrl, {
       source: options.source,
       surface: options.surface,
       subjectType: options.subjectType,

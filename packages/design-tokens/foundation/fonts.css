@@ -34,6 +34,7 @@
   font-display: swap;
   src:
     local('Rajdhani Light'),
+    url('../assets/fonts/Rajdhani/Rajdhani-Light.woff2') format('woff2'),
     url('../assets/fonts/Rajdhani/Rajdhani-Light.ttf') format('truetype');
 }
 
@@ -48,6 +49,7 @@
   font-display: swap;
   src:
     local('Rajdhani Regular'),
+    url('../assets/fonts/Rajdhani/Rajdhani-Regular.woff2') format('woff2'),
     url('../assets/fonts/Rajdhani/Rajdhani-Regular.ttf') format('truetype');
 }
 
@@ -62,6 +64,7 @@
   font-display: swap;
   src:
     local('Rajdhani Medium'),
+    url('../assets/fonts/Rajdhani/Rajdhani-Medium.woff2') format('woff2'),
     url('../assets/fonts/Rajdhani/Rajdhani-Medium.ttf') format('truetype');
 }
 
@@ -76,6 +79,7 @@
   font-display: swap;
   src:
     local('Rajdhani SemiBold'),
+    url('../assets/fonts/Rajdhani/Rajdhani-SemiBold.woff2') format('woff2'),
     url('../assets/fonts/Rajdhani/Rajdhani-SemiBold.ttf') format('truetype');
 }
 
@@ -90,6 +94,7 @@
   font-display: swap;
   src:
     local('Rajdhani Bold'),
+    url('../assets/fonts/Rajdhani/Rajdhani-Bold.woff2') format('woff2'),
     url('../assets/fonts/Rajdhani/Rajdhani-Bold.ttf') format('truetype');
 }
 

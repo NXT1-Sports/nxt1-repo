@@ -60,6 +60,7 @@ import {
 import { CrashlyticsService } from '../../core/services/infrastructure/crashlytics.service';
 import { LiveUpdateService } from '../../core/services/native/live-update.service';
 import { Capacitor } from '@capacitor/core';
+import { App as CapacitorApp } from '@capacitor/app';
 import { Preferences } from '@capacitor/preferences';
 import { CRASH_KEYS } from '@nxt1/core/crashlytics';
 import { environment } from '../../../environments/environment';
@@ -174,6 +175,16 @@ import { environment } from '../../../environments/environment';
                 <p>{{ otaPlatform() }} — {{ otaChannel() }}</p>
               </ion-label>
               <ion-badge slot="end" color="primary">{{ otaChannel() }}</ion-badge>
+            </ion-item>
+            <ion-item>
+              <ion-label>
+                <h3>Native Binary Version</h3>
+                <p>
+                  {{ nativeVersion() || '(fetching…)'
+                  }}{{ nativeBuildNumber() ? ' (' + nativeBuildNumber() + ')' : '' }}
+                </p>
+              </ion-label>
+              <ion-badge slot="end" color="tertiary">BINARY</ion-badge>
             </ion-item>
             <ion-item>
               <ion-label>
@@ -520,6 +531,10 @@ export class DevSettingsComponent {
   readonly crashlyticsEnabled = signal(false);
   readonly didCrashPreviously = signal(false);
 
+  // Native binary version (from CapacitorApp.getInfo() — used for minNativeVersion check)
+  readonly nativeVersion = signal('');
+  readonly nativeBuildNumber = signal('');
+
   // OTA signals — live from service
   readonly otaCurrentVersion = this.liveUpdate.currentVersion;
   readonly otaChecking = this.liveUpdate.checking;
@@ -574,9 +589,38 @@ export class DevSettingsComponent {
       wifiOutline,
     });
 
-    // Initialize status
-    this.refreshStatus();
-    void this.loadOtaState();
+    // Silent init on page open — no toast
+    void this.initializeOtaStatus();
+    void this.refreshStatusSilent();
+  }
+
+  /** Fetches the real native binary version + refreshes OTA state on page open. */
+  private async initializeOtaStatus(): Promise<void> {
+    // Fetch the actual native binary version (what the OTA minNativeVersion check uses)
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const info = await CapacitorApp.getInfo();
+        this.nativeVersion.set(info.version);
+        this.nativeBuildNumber.set(info.build);
+      } catch {
+        this.nativeVersion.set('(unavailable)');
+      }
+    } else {
+      this.nativeVersion.set('web / browser');
+    }
+
+    // Refresh the Capgo active bundle version signal from the plugin
+    await this.liveUpdate.refreshCurrentVersion();
+
+    // Sync local OTA state (failure count, last checked at)
+    await this.loadOtaState();
+  }
+
+  /** Refresh Crashlytics status without showing a toast (used on init). */
+  private async refreshStatusSilent(): Promise<void> {
+    this.crashlyticsReady.set(this.crashlytics.isReady());
+    this.crashlyticsEnabled.set(await this.crashlytics.isEnabled());
+    this.didCrashPreviously.set(await this.crashlytics.didCrashOnPreviousExecution());
   }
 
   async loadOtaState(): Promise<void> {
@@ -596,6 +640,8 @@ export class DevSettingsComponent {
     try {
       // checkOnly() = pure Firestore read, no notifyAppReady, no download
       const result = await this.liveUpdate.checkOnly();
+      // Refresh the active bundle version from the plugin and persist state
+      await this.liveUpdate.refreshCurrentVersion();
       await this.loadOtaState();
 
       let title = '';
@@ -709,6 +755,7 @@ export class DevSettingsComponent {
           handler: async () => {
             try {
               await this.liveUpdate.downloadAndApplyNow();
+              await this.liveUpdate.refreshCurrentVersion();
               await this.loadOtaState();
               await this.showToast('✅ Bundle applied — WebView reloaded', 'success');
             } catch (err) {
@@ -748,6 +795,7 @@ export class DevSettingsComponent {
           role: 'destructive',
           handler: async () => {
             await this.liveUpdate.resetToNativeBundle();
+            await this.liveUpdate.refreshCurrentVersion();
             await this.loadOtaState();
             await this.showToast('Reset to native bundle', 'warning');
           },
@@ -761,6 +809,9 @@ export class DevSettingsComponent {
     this.crashlyticsReady.set(this.crashlytics.isReady());
     this.crashlyticsEnabled.set(await this.crashlytics.isEnabled());
     this.didCrashPreviously.set(await this.crashlytics.didCrashOnPreviousExecution());
+    // Also refresh OTA state so "Refresh Status" button updates everything
+    await this.liveUpdate.refreshCurrentVersion();
+    await this.loadOtaState();
     await this.showToast('Status refreshed', 'success');
   }
 

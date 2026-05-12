@@ -8,6 +8,33 @@
 
 import { onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { logger } from 'firebase-functions/v2';
+import { linkPendingRosterEntriesForUser } from './linkPendingRosterEntries';
+
+function stableJson(value: unknown): string {
+  try {
+    return JSON.stringify(value ?? null);
+  } catch {
+    return '';
+  }
+}
+
+function shouldAttemptPendingLink(
+  beforeData: FirebaseFirestore.DocumentData,
+  afterData: FirebaseFirestore.DocumentData
+): boolean {
+  const watchedKeys: Array<keyof FirebaseFirestore.DocumentData> = [
+    'firstName',
+    'lastName',
+    'displayName',
+    'name',
+    'classOf',
+    'unicode',
+    'teamCode',
+    'sports',
+  ];
+
+  return watchedKeys.some((key) => stableJson(beforeData[key]) !== stableJson(afterData[key]));
+}
 
 /**
  * On user profile updated - handle side effects
@@ -29,4 +56,10 @@ export const onUserProfileUpdatedV3 = onDocumentUpdated('Users/{userId}', async 
   if (!wasVerified && isVerified) {
     logger.info('User verified', { userId });
   }
+
+  if (!shouldAttemptPendingLink(beforeData, afterData)) {
+    return;
+  }
+
+  await linkPendingRosterEntriesForUser({ userId, userData: afterData });
 });

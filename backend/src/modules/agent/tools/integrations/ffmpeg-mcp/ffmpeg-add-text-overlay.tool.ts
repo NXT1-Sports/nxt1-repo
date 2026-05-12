@@ -1,6 +1,7 @@
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 import { logger } from '../../../../../utils/logger.js';
 import { type FfmpegMcpBridgeService } from './ffmpeg-mcp-bridge.service.js';
+import { normalizeFfmpegToolInput } from './ffmpeg-input-normalizer.js';
 import { AddTextOverlayInputSchema } from './schemas.js';
 
 export class FfmpegAddTextOverlayTool extends BaseTool {
@@ -21,7 +22,8 @@ export class FfmpegAddTextOverlayTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const parsed = AddTextOverlayInputSchema.safeParse(input);
+    const normalizedInput = normalizeFfmpegToolInput(input);
+    const parsed = AddTextOverlayInputSchema.safeParse(normalizedInput);
     if (!parsed.success) return this.zodError(parsed.error);
 
     context?.emitStage?.('processing_media', {

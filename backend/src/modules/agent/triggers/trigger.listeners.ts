@@ -54,6 +54,19 @@ function getSyncMemoryExtractor(): SyncMemoryExtractorService {
   return _syncMemoryExtractor;
 }
 
+async function getEligibleUserIdsWithGoals(): Promise<string[]> {
+  const { getFirestore } = await import('firebase-admin/firestore');
+  const db = getFirestore();
+  const snapshot = await db.collection('Users').select('agentGoals').get();
+
+  return snapshot.docs
+    .filter((doc) => {
+      const goals = doc.data()['agentGoals'];
+      return Array.isArray(goals) && goals.length > 0;
+    })
+    .map((doc) => doc.id);
+}
+
 // ─── Database Event Listeners ───────────────────────────────────────────────
 
 /**
@@ -223,18 +236,9 @@ export async function onDailySyncComplete(delta: SyncDeltaReport): Promise<void>
 export async function runDailyBriefings(): Promise<void> {
   const generation = getGenerationService();
 
-  // Fetch users who have agent goals set (they opted into Agent X)
   let eligibleUserIds: string[];
   try {
-    const { getFirestore } = await import('firebase-admin/firestore');
-    const db = getFirestore();
-    const usersWithGoals = await db
-      .collection('Users')
-      .where('agentGoals', '!=', [])
-      .select() // Only fetch doc IDs — no full document reads
-      .get();
-
-    eligibleUserIds = usersWithGoals.docs.map((doc) => doc.id);
+    eligibleUserIds = await getEligibleUserIdsWithGoals();
   } catch (err) {
     logger.error('[TriggerListener] Failed to fetch eligible users for daily briefings', {
       error: err instanceof Error ? err.message : String(err),
@@ -295,10 +299,7 @@ export async function runWeeklyPlaybooks(): Promise<void> {
 
   let eligibleUserIds: string[];
   try {
-    const { getFirestore } = await import('firebase-admin/firestore');
-    const db = getFirestore();
-    const snap = await db.collection('Users').where('agentGoals', '!=', []).select().get();
-    eligibleUserIds = snap.docs.map((doc) => doc.id);
+    eligibleUserIds = await getEligibleUserIdsWithGoals();
   } catch (err) {
     logger.error('[TriggerListener] Failed to fetch eligible users for weekly playbooks', {
       error: err instanceof Error ? err.message : String(err),
@@ -482,8 +483,11 @@ export async function runPlaybookNudge(): Promise<void> {
   // ── 1. Fetch users who have active goals ──────────────────────────────
   let userDocs: FirebaseFirestore.QueryDocumentSnapshot[];
   try {
-    const snap = await db.collection('Users').where('agentGoals', '!=', []).select().get();
-    userDocs = snap.docs;
+    const snap = await db.collection('Users').select('agentGoals').get();
+    userDocs = snap.docs.filter((doc) => {
+      const goals = doc.data()['agentGoals'];
+      return Array.isArray(goals) && goals.length > 0;
+    });
   } catch (err) {
     logger.error('[TriggerListener] runPlaybookNudge: failed to fetch users', {
       error: err instanceof Error ? err.message : String(err),

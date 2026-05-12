@@ -69,13 +69,17 @@ vi.mock('../../llm/openrouter.service.js', () => ({
 
 vi.mock('../../memory/vector.service.js', () => ({
   VectorMemoryService: class VectorMemoryService {
-    constructor(_llm: unknown) {}
+    constructor(_llm: unknown) {
+      void _llm;
+    }
   },
 }));
 
 vi.mock('../../memory/context-builder.js', () => ({
   ContextBuilder: class ContextBuilder {
-    constructor(_vector: unknown) {}
+    constructor(_vector: unknown) {
+      void _vector;
+    }
   },
 }));
 
@@ -212,5 +216,99 @@ describe('AgentMutationPolicyService', () => {
 
     const summary = deltaArg['summary'] as Record<string, unknown>;
     expect(Number(summary['newPlaybooks'] ?? 0)).toBeGreaterThan(0);
+  });
+
+  it('routes recruiting single-email executions to recruiting analytics domain', async () => {
+    const { AgentMutationPolicyService } = await import('../mutation-policy.service.js');
+    const service = new AgentMutationPolicyService();
+
+    await service.apply({
+      toolName: 'send_email',
+      input: {
+        userId: 'user_1',
+        toEmail: 'coach@example.edu',
+        subject: 'Recruiting update',
+        bodyHtml: '<p>Hello coach</p>',
+        recipientKind: 'coach',
+      },
+      context: {
+        userId: 'user_1',
+        operationId: 'op_recruiting_send_email',
+      },
+    });
+
+    expect(safeTrack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          templateBaseDomain: 'recruiting',
+        }),
+      })
+    );
+  });
+
+  it('keeps non-recruiting email executions in communication analytics domain', async () => {
+    const { AgentMutationPolicyService } = await import('../mutation-policy.service.js');
+    const service = new AgentMutationPolicyService();
+
+    await service.apply({
+      toolName: 'send_email',
+      input: {
+        userId: 'user_1',
+        toEmail: 'support@example.com',
+        subject: 'General support',
+        bodyHtml: '<p>Hello support</p>',
+        recipientKind: 'person',
+      },
+      context: {
+        userId: 'user_1',
+        operationId: 'op_non_recruiting_send_email',
+      },
+    });
+
+    expect(safeTrack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          templateBaseDomain: 'communication',
+        }),
+      })
+    );
+  });
+
+  it('routes recruiting batch-email executions to recruiting analytics domain', async () => {
+    const { AgentMutationPolicyService } = await import('../mutation-policy.service.js');
+    const service = new AgentMutationPolicyService();
+
+    await service.apply({
+      toolName: 'batch_send_email',
+      input: {
+        userId: 'user_1',
+        recipients: [
+          {
+            toEmail: 'coach@example.edu',
+            variables: {},
+            recipientKind: 'coach',
+          },
+          {
+            toEmail: 'other@example.com',
+            variables: {},
+            recipientKind: 'person',
+          },
+        ],
+        subjectTemplate: 'Hello {{firstName}}',
+        bodyHtmlTemplate: '<p>Recruiting update</p>',
+      },
+      context: {
+        userId: 'user_1',
+        operationId: 'op_recruiting_batch_send_email',
+      },
+    });
+
+    expect(safeTrack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          templateBaseDomain: 'recruiting',
+        }),
+      })
+    );
   });
 });

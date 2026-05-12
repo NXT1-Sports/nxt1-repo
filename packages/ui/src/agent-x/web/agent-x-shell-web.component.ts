@@ -76,7 +76,6 @@ import {
   resolveCoordinatorActionId,
   resolveCoordinatorChipId,
 } from '../components/chat/agent-x-operation-chat.utils';
-import type { DraftSubmittedEvent } from '../components/cards/agent-x-draft-card.component';
 import { AgentXInputBarComponent } from '../components/inputs/agent-x-input-bar.component';
 import {
   AgentXControlPanelStateService,
@@ -535,7 +534,6 @@ function sortCoordinatorCategories(
                 [user]="user()"
                 (userMessageSent)="onUserMessageSent()"
                 (responseComplete)="onResponseComplete()"
-                (draftSubmitted)="onDraftSubmitted($event)"
                 (coordinatorQuickActionSelected)="onEmbeddedCoordinatorQuickAction($event)"
                 (connectedAccountsSave)="connectedAccountsSave.emit($event)"
               />
@@ -1311,7 +1309,7 @@ function sortCoordinatorCategories(
           [pendingFiles]="agentX.pendingFiles()"
           [pendingSources]="[]"
           [selectedTask]="agentX.selectedTask()?.title ?? null"
-          placeholder="Message A Coordinator"
+          [placeholder]="mobileInputPlaceholder()"
           (messageChange)="agentX.setUserMessage($event)"
           (send)="onMobileSendMessage()"
           (removeTask)="agentX.clearTask()"
@@ -1341,6 +1339,8 @@ function sortCoordinatorCategories(
         --agent-primary: var(--nxt1-color-primary, #ccff00);
         --agent-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
         --agent-glass-bg: var(--nxt1-glass-bg, rgba(255, 255, 255, 0.8));
+        --agent-rail-content-padding-start: calc(var(--nxt1-spacing-5, 20px) * 2);
+        --agent-rail-content-padding-end: var(--nxt1-spacing-5, 20px);
       }
 
       :host-context(.dark),
@@ -1464,6 +1464,11 @@ function sortCoordinatorCategories(
         border-right: 1px solid var(--agent-border);
       }
 
+      .agent-rail-column .agent-column-header {
+        padding-inline: var(--agent-rail-content-padding-end);
+        padding-inline-start: var(--agent-rail-content-padding-start);
+      }
+
       .agent-column-header {
         padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-2, 8px);
         border-bottom: 1px solid var(--agent-border);
@@ -1561,6 +1566,8 @@ function sortCoordinatorCategories(
 
       .agent-rail-scroll {
         gap: var(--nxt1-spacing-5, 20px);
+        padding-inline: var(--agent-rail-content-padding-end);
+        padding-inline-start: var(--agent-rail-content-padding-start);
       }
 
       .sessions-section {
@@ -1578,7 +1585,7 @@ function sortCoordinatorCategories(
       }
 
       :host ::ng-deep .sessions-section .log-scroll {
-        padding: 0;
+        padding-inline: 0;
         padding-bottom: var(--nxt1-spacing-4, 16px);
       }
 
@@ -3527,6 +3534,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly operationEventService = inject(AgentXOperationEventService);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly platform = inject(NxtPlatformService);
+  private readonly selectedCoordinatorLabel = signal<string | null>(null);
   private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
   private desktopSessionCounter = 0;
 
@@ -4026,6 +4034,12 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     return sortCoordinatorCategories(this.agentX.coordinators());
   });
 
+  /** Mobile footer input placeholder reflects the latest selected coordinator. */
+  protected readonly mobileInputPlaceholder = computed(() => {
+    const label = this.selectedCoordinatorLabel()?.trim();
+    return label ? `Message ${label}` : 'Message Agent X';
+  });
+
   constructor() {
     this.resetToDefaultDesktopSession();
 
@@ -4089,6 +4103,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         contextIcon: pending.icon ?? 'bolt',
         contextType: 'operation',
         threadId: pending.threadId,
+        resumeOperationId: pending.operationId,
       });
     });
 
@@ -4350,29 +4365,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.operationsLog()?.refresh();
   }
 
-  /** Handle draft approval from the desktop shell. */
-  protected async onDraftSubmitted(event: DraftSubmittedEvent): Promise<void> {
-    if (event.approvalId) {
-      await this.agentX.resolveInlineApproval({
-        approvalId: event.approvalId,
-        decision: 'approved',
-        toolInput: {
-          ...(event.toEmail ? { toEmail: event.toEmail } : {}),
-          subject: event.subject,
-          bodyHtml: event.content,
-        },
-        successMessage: 'Draft approved — Agent X is resuming',
-      });
-      return;
-    }
-
-    this.logger.warn('Desktop draft submission missing approvalId', {
-      toEmail: event.toEmail,
-      subject: event.subject?.slice(0, 50),
-    });
-    this.toast.error('This draft can no longer be sent directly. Refresh and try again.');
-  }
-
   /**
    * Handle active operation card tap — opens the persisted worker conversation
    * in a bottom sheet so the user sees Agent X's actual output logs.
@@ -4413,12 +4405,15 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       contextTitle: entry.title,
       contextIcon: entry.icon,
       contextType: 'operation',
-      operationStatus: resolvedOperationId
+      operationStatus: entry.threadId
         ? operationStatus
-        : operationStatus === 'processing'
-          ? null
-          : operationStatus,
+        : resolvedOperationId
+          ? operationStatus
+          : operationStatus === 'processing'
+            ? null
+            : operationStatus,
       threadId: entry.threadId ?? '',
+      resumeOperationId: resolvedOperationId,
       hasRecurringTasksHint,
     });
   }
@@ -4738,6 +4733,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    */
   public async onMobileCategoryTap(cat: CommandCategory): Promise<void> {
     await this.haptics.impact('light');
+    this.selectedCoordinatorLabel.set(cat.label);
 
     const ref = this.overlay.open<AgentXOperationChatComponent>({
       component: AgentXOperationChatComponent,

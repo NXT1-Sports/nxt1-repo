@@ -46,7 +46,7 @@ export class NilComponent implements OnInit {
           'local sponsor campaigns',
         ],
         canonicalUrl: 'https://nxt1sports.com/nil',
-        image: 'https://nxt1sports.com/assets/images/og-image.jpg',
+        image: 'https://nxt1sports.com/assets/shared/images/og-image.jpg',
       },
       structuredData: {
         '@context': 'https://schema.org',

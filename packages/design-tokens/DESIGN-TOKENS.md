@@ -3,8 +3,8 @@
 ## Overview
 
 The NXT1 Design Token System v2.0 is an enterprise-grade, framework-agnostic
-design system that replaces the previous Ionic CSS foundation with a custom
-cascading token architecture.
+design system built on DTCG-style token JSON, generated CSS custom properties,
+and platform adapters for web and Ionic/mobile.
 
 ## Architecture
 
@@ -28,14 +28,12 @@ cascading token architecture.
 │  ├── mobile.css                │  Touch, safe areas, momentum       │
 │  └── ionic-adapter.css         │  Ionic CSS variable mapping        │
 ├─────────────────────────────────────────────────────────────────────┤
-│  js/                           │  JavaScript/TypeScript Exports     │
-│  ├── tokens.mjs                │  ES Module token values            │
-│  └── tokens.d.ts               │  TypeScript definitions            │
+│  dist/js/                       │  JavaScript/TypeScript Exports    │
+│  ├── tokens.mjs                 │  ES Module token values           │
+│  └── tokens.d.ts                │  TypeScript definitions           │
 ├─────────────────────────────────────────────────────────────────────┤
-│  tokens/                       │  Legacy SCSS (backwards compat)    │
-│  ├── _index.scss               │  Main entry point                  │
-│  ├── _bridge.scss              │  Legacy → v2.0 bridge              │
-│  └── ...                       │  Individual token files            │
+│  dist/scss/                     │  Generated SCSS Artifact          │
+│  └── _tokens.scss               │  SCSS variables (not primary API) │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -61,13 +59,13 @@ APPLICATION CSS CUSTOM PROPERTIES
 /* apps/web/src/styles.scss */
 
 /* 1. Foundation - reset, app shell, utilities */
-@import '@nxt1/design-tokens/css/foundation';
+@import '@nxt1/design-tokens/css';
+@import '@nxt1/design-tokens/foundation';
+@import '@nxt1/design-tokens/foundation/app-shell';
+@import '@nxt1/design-tokens/foundation/utilities';
 
 /* 2. Platform adaptation - hover states, scrollbar */
-@import '@nxt1/design-tokens/css/platform/web';
-
-/* 3. SCSS variables (optional) */
-@use '@nxt1/design-tokens/scss' as tokens;
+@import '@nxt1/design-tokens/platform/web';
 
 /* 4. Tailwind */
 @tailwind base;
@@ -81,16 +79,16 @@ APPLICATION CSS CUSTOM PROPERTIES
 /* apps/mobile/src/global.scss */
 
 /* 1. Foundation - reset, app shell, utilities */
-@import '@nxt1/design-tokens/css/foundation';
+@import '@nxt1/design-tokens/css';
+@import '@nxt1/design-tokens/foundation';
+@import '@nxt1/design-tokens/foundation/app-shell';
+@import '@nxt1/design-tokens/foundation/utilities';
 
 /* 2. Platform adaptation - touch, safe areas */
-@import '@nxt1/design-tokens/css/platform/mobile';
+@import '@nxt1/design-tokens/platform/mobile';
 
 /* 3. Ionic adapter - maps NXT1 tokens → Ionic CSS vars */
-@import '@nxt1/design-tokens/css/platform/ionic-adapter';
-
-/* 4. SCSS variables (optional) */
-@use '@nxt1/design-tokens/scss' as tokens;
+@import '@nxt1/design-tokens/platform/ionic';
 
 /* 5. Tailwind */
 @tailwind base;
@@ -210,23 +208,8 @@ UI component-specific defaults.
 
 ## Migration from v1.0
 
-### Before (v1.0)
-
-```scss
-/* Tightly coupled to Ionic */
-@import '@ionic/angular/css/normalize.css';
-@import '@ionic/angular/css/structure.css';
-@use '@nxt1/design-tokens/tokens' as *;
-```
-
-### After (v2.0)
-
-```scss
-/* Framework-agnostic foundation */
-@import '@nxt1/design-tokens/css/foundation';
-@import '@nxt1/design-tokens/css/platform/mobile';
-@import '@nxt1/design-tokens/css/platform/ionic-adapter'; /* Only if using Ionic */
-```
+Use exported CSS entry points from package exports (`./css`, `./foundation`,
+`./platform/*`, `./ionic`). Prefer these over deep file paths.
 
 ## Key Benefits
 
@@ -243,15 +226,20 @@ UI component-specific defaults.
 
 ```json
 {
-  "@nxt1/design-tokens": "./js/tokens.mjs",
-  "@nxt1/design-tokens/css": "./foundation/index.css",
-  "@nxt1/design-tokens/css/foundation": "./foundation/index.css",
-  "@nxt1/design-tokens/css/platform/web": "./platform/web.css",
-  "@nxt1/design-tokens/css/platform/mobile": "./platform/mobile.css",
-  "@nxt1/design-tokens/css/platform/ionic-adapter": "./platform/ionic-adapter.css",
-  "@nxt1/design-tokens/scss": "./tokens/_index.scss",
-  "@nxt1/design-tokens/js": "./js/tokens.mjs",
-  "@nxt1/design-tokens/legacy": "./index.scss"
+  "@nxt1/design-tokens": "./dist/js/tokens.mjs",
+  "@nxt1/design-tokens/css": "./dist/css/tokens.css",
+  "@nxt1/design-tokens/foundation": "./foundation/index.css",
+  "@nxt1/design-tokens/foundation/reset": "./foundation/foundation.css",
+  "@nxt1/design-tokens/foundation/app-shell": "./foundation/app-shell.css",
+  "@nxt1/design-tokens/foundation/utilities": "./foundation/utilities.css",
+  "@nxt1/design-tokens/platform/web": "./platform/web.css",
+  "@nxt1/design-tokens/platform/mobile": "./platform/mobile.css",
+  "@nxt1/design-tokens/platform/ionic": "./platform/ionic-adapter.css",
+  "@nxt1/design-tokens/ionic": "./ionic/index.css",
+  "@nxt1/design-tokens/ionic/theme": "./ionic/ionic-theme.css",
+  "@nxt1/design-tokens/ionic/generated": "./dist/ionic/ionic-generated.css",
+  "@nxt1/design-tokens/js": "./dist/js/tokens.mjs",
+  "@nxt1/design-tokens/json": "./dist/json/resolved.json"
 }
 ```
 
@@ -264,6 +252,4 @@ UI component-specific defaults.
 
 ## Legacy Documentation (v1.0)
 
-The original documentation is preserved below for reference during migration.
-
----
+Legacy SCSS-era import paths are no longer the primary API surface.

@@ -20,6 +20,8 @@ import {
 } from './email-tool.utils.js';
 import { z } from 'zod';
 
+const RECIPIENT_KIND_ENUM = ['coach', 'college', 'person', 'organization', 'unknown'] as const;
+
 const SendEmailInputSchema = z.object({
   userId: z.string().trim().min(1),
   toEmail: z.string().trim().email(),
@@ -36,6 +38,30 @@ const SendEmailInputSchema = z.object({
         '<ul>/<li> for bullet point lists, ' +
         '<strong> for bold emphasis. ' +
         'Example: <p>Hi John,</p><p>Here are the details...</p><ul><li>Point 1</li><li>Point 2</li></ul><p>Best,<br>Coach Smith</p>'
+    ),
+  recipientName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe(
+      "Display name of the recipient if known (e.g. 'Alex Morgan'). " +
+        'Include when sending to a named contact. Used in email engagement notifications.'
+    ),
+  recipientKind: z
+    .enum(RECIPIENT_KIND_ENUM)
+    .optional()
+    .describe('Category of recipient: coach, college, person, organization, or unknown.'),
+  recipientOrgName: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .optional()
+    .describe(
+      "Organization, college, or team the recipient belongs to, if known (e.g. 'Ohio State'). " +
+        'Used in email engagement notifications.'
     ),
 });
 
@@ -87,7 +113,11 @@ export class SendEmailTool extends BaseTool {
         error: lookupErr instanceof Error ? lookupErr.message : String(lookupErr),
         userId,
       });
-      return { success: false, error: 'Failed to look up connected email account.' };
+      return {
+        success: false,
+        error: 'Failed to look up connected email account.',
+        data: { requiresEmailConnection: true },
+      };
     }
 
     // ── Send via the unified email service ────────────────────────────────
@@ -105,7 +135,12 @@ export class SendEmailTool extends BaseTool {
         toEmail,
         subject,
         bodyHtml,
-        this.db
+        this.db,
+        {
+          recipientName: parsed.data.recipientName,
+          recipientKind: parsed.data.recipientKind,
+          recipientOrgName: parsed.data.recipientOrgName,
+        }
       );
       logger.info('Email sent via agent tool', {
         userId,

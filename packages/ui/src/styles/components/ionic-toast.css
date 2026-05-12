@@ -191,3 +191,147 @@ ion-toast.nxt-toast[position='top'] {
     border-radius: var(--nxt1-borderRadius-xl);
   }
 }
+
+/* ============================================
+   LIGHTWEIGHT DOM TOAST IMPLEMENTATION
+   ============================================ */
+
+.nxt-toast-shell {
+  position: fixed;
+  left: 50%;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-3, 0.75rem);
+  width: min(calc(100vw - 2rem), 400px);
+  padding: var(--nxt1-spacing-3, 0.75rem) var(--nxt1-spacing-4, 1rem);
+  border-radius: var(--nxt1-borderRadius-lg, 0.75rem);
+  box-shadow: var(--nxt1-shadow-lg, 0 18px 45px rgb(0 0 0 / 0.18));
+  font-family: var(--nxt1-fontFamily-brand, inherit);
+  user-select: none;
+  -webkit-user-select: none;
+  opacity: 0;
+  pointer-events: auto;
+  transform: translateX(-50%) translateY(0.5rem) scale(0.98);
+  transition:
+    opacity var(--nxt1-duration-fast, 160ms) var(--nxt1-easing-out, ease-out),
+    transform var(--nxt1-duration-fast, 160ms) var(--nxt1-easing-out, ease-out);
+}
+
+.nxt-toast-shell--visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) scale(1);
+}
+
+.nxt-toast--dismissing {
+  opacity: 0;
+  transform: translateX(-50%) translateY(0.5rem) scale(0.98);
+}
+
+.nxt-toast-shell--bottom {
+  bottom: calc(env(safe-area-inset-bottom, 0px) + var(--nxt1-spacing-4, 1rem));
+}
+
+.nxt-toast-shell--top {
+  top: calc(env(safe-area-inset-top, 0px) + var(--nxt1-spacing-4, 1rem));
+}
+
+.nxt-toast-shell--middle {
+  top: 50%;
+  transform: translateX(-50%) translateY(calc(-50% + 0.5rem)) scale(0.98);
+}
+
+.nxt-toast-shell--middle.nxt-toast-shell--visible {
+  transform: translateX(-50%) translateY(-50%) scale(1);
+}
+
+.nxt-toast-shell__content {
+  display: grid;
+  gap: var(--nxt1-spacing-1, 0.25rem);
+  min-width: 0;
+  flex: 1;
+}
+
+.nxt-toast-shell__header {
+  font-size: var(--nxt1-fontSize-base, 1rem);
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
+  line-height: var(--nxt1-lineHeight-tight, 1.2);
+}
+
+.nxt-toast-shell__message {
+  font-size: var(--nxt1-fontSize-sm, 0.875rem);
+  font-weight: var(--nxt1-fontWeight-medium, 500);
+  line-height: var(--nxt1-lineHeight-normal, 1.5);
+}
+
+.nxt-toast-shell__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--nxt1-spacing-2, 0.5rem);
+}
+
+.nxt-toast-shell__button {
+  border: 0;
+  border-radius: var(--nxt1-borderRadius-md, 0.5rem);
+  background: rgb(255 255 255 / 0.16);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--nxt1-fontSize-xs, 0.75rem);
+  font-weight: var(--nxt1-fontWeight-semibold, 600);
+  letter-spacing: var(--nxt1-letterSpacing-wide, 0.04em);
+  padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-3, 0.75rem);
+  text-transform: uppercase;
+}
+
+.nxt-toast-shell__button:hover {
+  opacity: 0.85;
+}
+
+.nxt-toast-shell--success {
+  background: var(--nxt1-color-success);
+  border: 1px solid var(--nxt1-color-successDark);
+  color: var(--nxt1-color-neutral-dark-1000);
+}
+
+.nxt-toast-shell--error {
+  background: var(--nxt1-color-error);
+  border: 1px solid var(--nxt1-color-errorDark);
+  color: var(--nxt1-color-neutral-dark-1000);
+}
+
+.nxt-toast-shell--warning {
+  background: var(--nxt1-color-warning);
+  border: 1px solid var(--nxt1-color-warningDark);
+  color: var(--nxt1-color-neutral-dark-0);
+}
+
+.nxt-toast-shell--info {
+  background: var(--nxt1-color-primary);
+  border: 1px solid var(--nxt1-color-primaryDark);
+  color: var(--nxt1-color-text-onPrimary);
+}
+
+.nxt-toast-shell--success.nxt-toast-soft {
+  background: var(--nxt1-color-successBg);
+  border-color: var(--nxt1-color-success);
+  color: var(--nxt1-color-success);
+}
+
+.nxt-toast-shell--error.nxt-toast-soft {
+  background: var(--nxt1-color-errorBg);
+  border-color: var(--nxt1-color-error);
+  color: var(--nxt1-color-error);
+}
+
+.nxt-toast-shell--warning.nxt-toast-soft {
+  background: var(--nxt1-color-warningBg);
+  border-color: var(--nxt1-color-warning);
+  color: var(--nxt1-color-warning);
+}
+
+.nxt-toast-shell--info.nxt-toast-soft {
+  background: var(--nxt1-color-alpha-primary10);
+  border-color: var(--nxt1-color-primary);
+  color: var(--nxt1-color-primary);
+}

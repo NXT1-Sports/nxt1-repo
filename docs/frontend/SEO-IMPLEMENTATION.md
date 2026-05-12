@@ -88,12 +88,12 @@ nxt1-monorepo/
 └── docs/
     └── SEO-IMPLEMENTATION.md       # This file
 
-nxt1-backend/
-├── controllers/sitemap/
-│   └── sitemapController.js        # Dynamic sitemap generation
-├── controllers/ssr/
-│   └── ssrController.js            # SEO data APIs for SSR
-└── routes/sitemap/
+backend/
+├── src/routes/core/
+│   └── sitemap.routes.ts           # Dynamic sitemap generation
+├── src/routes/ssr/
+│   └── ssr.routes.ts               # SEO data APIs for SSR
+└── src/routes/sitemap/
     └── sitemapRouter.js            # Sitemap routes
 ```
 
@@ -372,8 +372,8 @@ export const serverRoutes: ServerRoute[] = [
   { path: 'team/:teamName', renderMode: RenderMode.Server },
   { path: 'post/:userUnicode/:postId', renderMode: RenderMode.Server },
 
-  // Auth pages can be client-rendered (no SEO value)
-  { path: 'auth/**', renderMode: RenderMode.Client },
+  // Auth pages are currently server-rendered in this repository
+  { path: 'auth/**', renderMode: RenderMode.Server },
 
   // Default fallback
   { path: '**', renderMode: RenderMode.Server },
@@ -388,16 +388,13 @@ The backend provides SEO data endpoints for SSR and external services.
 
 ### SSR Data Endpoints
 
-**Location:** `nxt1-backend/controllers/ssr/ssrController.js`
+**Location:** monorepo backend routes and services under `backend/src/routes/**`
+and `backend/src/services/**`.
 
-| Endpoint                       | Purpose                    |
-| ------------------------------ | -------------------------- |
-| `GET /v1/ssr/api/profile/:id`  | Profile SEO data           |
-| `GET /v1/ssr/api/team/:id`     | Team SEO data              |
-| `GET /v1/ssr/api/prospect/:id` | Prospect/live profile data |
-| `GET /v1/ssr/api/post/:id`     | Post SEO data              |
+**Note:** endpoint shapes can evolve. Always verify against live backend route
+definitions before wiring new SSR/SEO callers.
 
-These endpoints return minimal, public data needed for meta tags:
+Typical SEO payloads return minimal, public data needed for meta tags:
 
 ```json
 {
@@ -419,7 +416,7 @@ These endpoints return minimal, public data needed for meta tags:
 
 Dynamic sitemaps are generated from Firestore data with 24-hour caching.
 
-**Location:** `nxt1-backend/controllers/sitemap/sitemapController.js`
+**Location:** `backend/src/routes/core/sitemap.routes.ts`
 
 ### Sitemap Structure
 
@@ -451,7 +448,7 @@ const staticPages = [
   { loc: '/search-videos', priority: '0.8', changefreq: 'daily' },
   { loc: '/leaderboards', priority: '0.8', changefreq: 'daily' },
   { loc: '/ai-scout', priority: '0.8', changefreq: 'weekly' },
-  { loc: '/team-platform', priority: '0.9', changefreq: 'weekly' },
+  { loc: '/programs', priority: '0.9', changefreq: 'weekly' },
   // ...
 ];
 ```
@@ -493,7 +490,7 @@ Allow: /discover-teams
 Allow: /search-videos
 Allow: /ai-scout
 Allow: /leaderboards
-Allow: /team-platform
+Allow: /programs
 Allow: /auth
 Allow: /start
 
@@ -587,7 +584,7 @@ If the page should be crawled, ensure it's not in the Disallow list.
 # Build and serve SSR locally
 cd apps/web
 npm run build
-npm run serve:ssr:nxt1-web
+npm run serve:ssr
 
 # Test meta tags
 curl -s http://localhost:4000/profile/test-user | grep -E '<title>|og:|twitter:'

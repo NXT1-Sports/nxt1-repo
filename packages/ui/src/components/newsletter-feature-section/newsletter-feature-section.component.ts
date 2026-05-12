@@ -64,7 +64,7 @@ let newsletterFeatureInstanceCounter = 0;
             >
               <img
                 class="newsletter-card__photo"
-                src="/assets/images/og-image.jpg"
+                src="/assets/shared/images/og-image.jpg"
                 alt="Featured athlete in the NXT1 weekly digest"
                 loading="lazy"
                 decoding="async"

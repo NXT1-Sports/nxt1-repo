@@ -33,9 +33,6 @@ export enum UserRole {
   COACH = 'coach',
   DIRECTOR = 'director',
   ADMIN = 'admin',
-  /** @deprecated Maps to COACH */
-  // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
-  RECRUITER = 'coach',
   /** @deprecated Maps to ATHLETE */
   // eslint-disable-next-line @typescript-eslint/no-duplicate-enum-values
   PARENT = 'athlete',

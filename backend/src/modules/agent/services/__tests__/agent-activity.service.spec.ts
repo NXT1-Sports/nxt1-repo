@@ -16,7 +16,7 @@ vi.mock('../../../../utils/logger.js', () => ({
   },
 }));
 
-import { logAgentTaskCompletion } from '../agent-activity.service.js';
+import { deriveBodyFromResult, logAgentTaskCompletion } from '../agent-activity.service.js';
 
 describe('logAgentTaskCompletion', () => {
   beforeEach(() => {
@@ -73,6 +73,47 @@ describe('logAgentTaskCompletion', () => {
       expect.objectContaining({
         title: 'Agent X Update',
       })
+    );
+  });
+});
+
+describe('deriveBodyFromResult', () => {
+  it('prefers result.data.response when summary is missing', () => {
+    const body = deriveBodyFromResult({
+      data: {
+        response: 'I built your scouting report with top strengths and next steps.',
+      },
+    } as never);
+
+    expect(body).toBe('I built your scouting report with top strengths and next steps.');
+  });
+
+  it('prefers coordinator observation over generic completed-steps fallback', () => {
+    const body = deriveBodyFromResult({
+      data: {
+        toolCallRecords: [
+          {
+            toolName: 'create_play_diagram',
+            status: 'success',
+          },
+          {
+            toolName: 'write_playbooks',
+            status: 'success',
+          },
+          {
+            toolName: 'delegate_to_coordinator',
+            status: 'success',
+            output: {
+              coordinator_observation:
+                'I generated three route concepts and saved them into your playbook with diagram links.',
+            },
+          },
+        ],
+      },
+    } as never);
+
+    expect(body).toBe(
+      'I generated three route concepts and saved them into your playbook with diagram links.'
     );
   });
 });

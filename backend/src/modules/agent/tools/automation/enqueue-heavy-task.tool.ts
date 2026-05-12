@@ -16,6 +16,8 @@
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import type { AgentQueueService } from '../../queue/queue.service.js';
+import type { Firestore } from 'firebase-admin/firestore';
+import { enqueueWithOutbox } from '../../queue/outbox.service.js';
 import type { AgentJobPayload, AgentJobOrigin } from '@nxt1/core';
 import { logger } from '../../../../utils/logger.js';
 import { randomUUID } from 'node:crypto';
@@ -34,11 +36,11 @@ export class EnqueueHeavyTaskTool extends BaseTool {
 
   readonly description =
     'Queue a long-running or complex operation for background processing. ' +
-    "Use this when the user's request requires heavy work that would take more than ~10 seconds: " +
+    "Use this only when the user's request clearly requires work that would take more than 5 minutes: " +
     'generating highlight reels, batch emailing coaches, creating scout reports, ' +
-    'image/video generation, or multi-step recruiting outreach. ' +
-    'Returns an operationId the user can track. The chat should immediately ' +
-    'acknowledge the task was queued and explain what will happen.';
+    'large video processing, or multi-step recruiting outreach. ' +
+    'Do not use this for normal chat, logo/graphic/image generation, coordinator delegation, ' +
+    'database lookup, analytics logging, or any task that can finish inline.';
 
   readonly parameters = EnqueueHeavyTaskInputSchema;
 
@@ -47,7 +49,10 @@ export class EnqueueHeavyTaskTool extends BaseTool {
   readonly entityGroup = 'platform_tools' as const;
   override readonly allowedAgents = ['*'] as const;
 
-  constructor(private readonly queueService: AgentQueueService) {
+  constructor(
+    private readonly queueService: AgentQueueService,
+    private readonly db: Firestore
+  ) {
     super();
   }
 
@@ -77,6 +82,22 @@ export class EnqueueHeavyTaskTool extends BaseTool {
     }
 
     const inputContext = parsed.data.context ?? {};
+    const normalizedIntent = intent.toLowerCase();
+    const looksLikeInlineGraphicRequest =
+      /\b(graphic|promo graphic|image|logo|poster|flyer|banner|thumbnail|social post|creative)\b/.test(
+        normalizedIntent
+      ) &&
+      !/\b(highlight reel|video|film|batch|scout report|bulk|all coaches|multiple coaches)\b/.test(
+        normalizedIntent
+      );
+
+    if (looksLikeInlineGraphicRequest) {
+      return {
+        success: false,
+        error:
+          'Graphic and image generation should run inline through the brand/media coordinator, not as a background enqueue job.',
+      };
+    }
 
     const inheritedParentOperationId =
       typeof inputContext['parentOperationId'] === 'string' &&
@@ -89,17 +110,15 @@ export class EnqueueHeavyTaskTool extends BaseTool {
         ? String(inputContext['parentThreadId'])
         : undefined;
 
-    const operationId =
-      parsed.data.parentOperationId ??
-      inheritedParentOperationId ??
-      context?.operationId ??
-      randomUUID();
+    const parentOperationId =
+      parsed.data.parentOperationId ?? inheritedParentOperationId ?? context?.operationId;
+    const operationId = randomUUID();
     const threadId = parsed.data.parentThreadId ?? inheritedParentThreadId ?? context?.threadId;
 
     const mergedContext: Record<string, unknown> = {
       ...inputContext,
       ...(threadId ? { threadId } : {}),
-      ...(operationId ? { parentOperationId: operationId } : {}),
+      ...(parentOperationId ? { parentOperationId } : {}),
     };
 
     const payload: AgentJobPayload = {
@@ -122,9 +141,11 @@ export class EnqueueHeavyTaskTool extends BaseTool {
         (inputContext['environment'] as 'staging' | 'production') ??
         context?.environment ??
         'production';
-      const jobId = await this.queueService.enqueue(payload, env);
+      const { jobId } = await enqueueWithOutbox(this.db, payload, env, this.queueService);
       logger.info('Heavy task enqueued from chat', {
         operationId,
+        parentOperationId,
+        threadId,
         jobId,
         userId,
         intent: intent.slice(0, 100),
@@ -133,10 +154,11 @@ export class EnqueueHeavyTaskTool extends BaseTool {
       return {
         success: true,
         data: {
-          operationId,
-          jobId,
           status: 'queued',
-          message: `Background operation started. Operation ID: ${operationId}`,
+          message: 'Background operation started.',
+          heavyTaskOperationId: operationId,
+          ...(parentOperationId ? { parentOperationId } : {}),
+          ...(threadId ? { threadId } : {}),
         },
       };
     } catch (err) {

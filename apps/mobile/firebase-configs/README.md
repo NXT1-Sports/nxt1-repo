@@ -19,10 +19,10 @@ firebase-configs/
 ## How to Download
 
 1. Go to Firebase Console → Project Settings → Your Apps
-2. For **Staging** (`nxt-1-staging`):
+2. For **Staging** (`nxt-1-staging-v2`):
    - Download iOS config → Save to `staging/ios/GoogleService-Info.plist`
    - Download Android config → Save to `staging/android/google-services.json`
-3. For **Production** (`nxt-1-de054`):
+3. For **Production** (`nxt-1-v2`):
    - Download iOS config → Save to `production/ios/GoogleService-Info.plist`
    - Download Android config → Save to `production/android/google-services.json`
 
@@ -43,7 +43,7 @@ npm run config:production
 Each Firebase project has its own Crashlytics dashboard. Crashes are reported to
 the Firebase project configured in the app at build time:
 
-- **Staging builds**: Crashes appear in `nxt-1-staging` → Crashlytics
-- **Production builds**: Crashes appear in `nxt-1-de054` → Crashlytics
+- **Staging builds**: Crashes appear in `nxt-1-staging-v2` → Crashlytics
+- **Production builds**: Crashes appear in `nxt-1-v2` → Crashlytics
 
 Make sure to use production config for App Store/Play Store releases!

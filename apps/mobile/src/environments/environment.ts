@@ -16,11 +16,11 @@
  */
 
 // AUTO-GENERATED: Do not edit this line - updated by detect-local-ip.js
-const DETECTED_LOCAL_IP = '192.168.1.154';
+const DETECTED_LOCAL_IP = '192.168.1.156';
 
 export const environment = {
   production: false,
-  appVersion: '1.33.22-dev',
+  appVersion: '1.33.29-dev',
 
   // Development API - Local backend
   apiUrl: `http://${DETECTED_LOCAL_IP}:3000/api/v1/staging`,

@@ -129,7 +129,7 @@ export class ActivityComponent implements OnInit {
           });
           return;
         }
-      } catch (err) {
+      } catch {
         this.logger.warn('Failed to parse manage-team deep link', { deepLink: normalizedLink });
       }
     }

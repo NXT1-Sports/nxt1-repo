@@ -11,97 +11,20 @@
 
 import { Router, type Request, type Response } from 'express';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
-import {
-  extractMediaAttachmentsFromResultData,
-  type AgentThreadCategory,
-  type AgentMessage,
-  type AgentXAttachment,
-} from '@nxt1/core';
+import { type AgentThreadCategory, type AgentMessage, type AgentXAttachment } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
 import { chatService, isValidObjectId, VALID_THREAD_CATEGORIES } from './shared.js';
 import { getStorage } from 'firebase-admin/storage';
+import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
 
 const router = Router();
-
-function resolveAttachmentTypeFromMimeType(mimeType: string): AgentXAttachment['type'] {
-  if (mimeType.startsWith('image/')) return 'image';
-  if (mimeType.startsWith('video/')) return 'video';
-  if (mimeType === 'application/pdf') return 'pdf';
-  if (
-    mimeType === 'text/csv' ||
-    mimeType === 'text/plain' ||
-    mimeType === 'application/vnd.ms-excel' ||
-    mimeType === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-  ) {
-    return 'csv';
-  }
-  return 'doc';
-}
-
-function extractLegacyMessageAttachments(message: AgentMessage): readonly AgentXAttachment[] {
-  const matches = [
-    ...message.content.matchAll(
-      /\[Attached (?:file|video): (.+?) \((.+?)\) — (https?:\/\/[^\]]+)\]/g
-    ),
-  ];
-
-  return matches.map((match, index) => {
-    const name = match[1] ?? `attachment-${index + 1}`;
-    const mimeType = match[2] ?? 'application/octet-stream';
-    const url = match[3] ?? '';
-    return {
-      id: `${message.id}-legacy-${index + 1}`,
-      url,
-      name,
-      mimeType,
-      type: resolveAttachmentTypeFromMimeType(mimeType),
-      sizeBytes: 0,
-    };
-  });
-}
-
-function inferMimeTypeFromAttachmentType(type: AgentXAttachment['type']): string {
-  if (type === 'image') return 'image/jpeg';
-  if (type === 'video') return 'video/mp4';
-  if (type === 'pdf') return 'application/pdf';
-  if (type === 'csv') return 'text/csv';
-  if (type === 'app') return 'application/json';
-  return 'application/octet-stream';
-}
-
-function extractResultDataAttachments(message: AgentMessage): readonly AgentXAttachment[] {
-  const resultData = message.resultData;
-  if (!resultData || typeof resultData !== 'object') return [];
-
-  const extracted = extractMediaAttachmentsFromResultData(resultData);
-  return extracted.map((attachment, index) => ({
-    id: `${message.id}-result-${index + 1}`,
-    url: attachment.url,
-    name: attachment.name,
-    mimeType: inferMimeTypeFromAttachmentType(attachment.type),
-    type: attachment.type,
-    sizeBytes: 0,
-  }));
-}
-
-function extractStoragePathFromUrl(url: string, bucketName: string): string | null {
-  try {
-    const parsed = new URL(url);
-    const pathname = decodeURIComponent(parsed.pathname.replace(/^\//, ''));
-    if (pathname.startsWith(`${bucketName}/`)) {
-      return pathname.slice(bucketName.length + 1);
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
 
 async function refreshStorageUrl(
   media: Pick<AgentXAttachment, 'url'> & Partial<Pick<AgentXAttachment, 'storagePath'>>,
   bucketName: string
 ): Promise<Pick<AgentXAttachment, 'url'> & Partial<Pick<AgentXAttachment, 'storagePath'>>> {
-  const storagePath = media.storagePath ?? extractStoragePathFromUrl(media.url, bucketName);
+  const storagePath =
+    media.storagePath ?? AgentMediaLifecycleService.extractStoragePathFromUrl(media.url);
   if (!storagePath) return media;
 
   try {
@@ -251,33 +174,26 @@ async function refreshMessageResultDataMedia(
 
 async function refreshMessageAttachments(message: AgentMessage): Promise<AgentMessage> {
   const bucketName = getStorage().bucket().name;
+  // Single source of truth: message.attachments[] only.
+  // No legacy content-scanning or resultData fallbacks.
   const attachments =
-    message.attachments && message.attachments.length > 0
-      ? message.attachments
-      : (() => {
-          const fromResultData = extractResultDataAttachments(message);
-          if (fromResultData.length > 0) return fromResultData;
-          return extractLegacyMessageAttachments(message);
-        })();
-  const refreshedAttachments =
-    attachments && attachments.length > 0
-      ? await Promise.all(
-          attachments.map((attachment) =>
-            refreshAttachmentUrl(attachment as AgentXAttachment, bucketName)
-          )
+    message.attachments && message.attachments.length > 0 ? message.attachments : null;
+  const refreshedAttachments = attachments
+    ? await Promise.all(
+        attachments.map((attachment) =>
+          refreshAttachmentUrl(attachment as AgentXAttachment, bucketName)
         )
-      : attachments;
+      )
+    : null;
   const refreshedResultData = await refreshMessageResultDataMedia(message.resultData, bucketName);
 
-  if (refreshedAttachments === attachments && refreshedResultData === message.resultData) {
+  if (refreshedAttachments === null && refreshedResultData === message.resultData) {
     return message;
   }
 
   return {
     ...message,
-    ...(refreshedAttachments && refreshedAttachments.length > 0
-      ? { attachments: refreshedAttachments }
-      : {}),
+    ...(refreshedAttachments ? { attachments: refreshedAttachments } : {}),
     ...(refreshedResultData ? { resultData: refreshedResultData } : {}),
   };
 }
@@ -405,10 +321,18 @@ router.get('/threads/:threadId/messages', appGuard, async (req: Request, res: Re
 
     // Reconcile any pending upload-outbox entries for this user's thread.
     // No-op when outbox is empty; applies and marks synced when entries exist.
-    const reconciledItems = await chatService.reconcileUploadOutboxForThread({
+    // Re-sign after reconciliation: reconcile fetches raw MongoDB docs that
+    // carry expired signed URLs — refreshMessageAttachments must run again on
+    // any message that was updated so the caller always receives fresh URLs.
+    const reconciledRaw = await chatService.reconcileUploadOutboxForThread({
       userId: user.uid,
       messages: refreshedItems,
     });
+    const reconciledItems = await Promise.all(
+      reconciledRaw.map((item, index) =>
+        item === refreshedItems[index] ? item : refreshMessageAttachments(item)
+      )
+    );
 
     res.json({
       success: true,

@@ -98,6 +98,48 @@ export class UsageApiService {
   readonly getBreakdown: UsageApi['getBreakdown'] = this.api.getBreakdown;
   readonly getHistory: UsageApi['getHistory'] = this.api.getHistory;
 
+  async getChartDataFresh(
+    timeframe: UsageTimeframe
+  ): Promise<readonly import('@nxt1/core').UsageChartDataPoint[]> {
+    const response = await firstValueFrom(
+      this.http.get<{
+        success: boolean;
+        data?: readonly import('@nxt1/core').UsageChartDataPoint[];
+        error?: string;
+      }>(`${this.baseUrl}/usage/chart`, {
+        ...this.noCacheOptions,
+        params: { timeframe },
+      })
+    );
+
+    if (!response.success || !response.data) {
+      throw new Error(response.error ?? 'Failed to fetch chart data');
+    }
+
+    return response.data;
+  }
+
+  async getBreakdownFresh(
+    timeframe: UsageTimeframe
+  ): Promise<readonly import('@nxt1/core').UsageBreakdownRow[]> {
+    const response = await firstValueFrom(
+      this.http.get<{
+        success: boolean;
+        data?: readonly import('@nxt1/core').UsageBreakdownRow[];
+        error?: string;
+      }>(`${this.baseUrl}/usage/breakdown`, {
+        ...this.noCacheOptions,
+        params: { timeframe },
+      })
+    );
+
+    if (!response.success || !response.data) {
+      throw new Error(response.error ?? 'Failed to fetch usage breakdown');
+    }
+
+    return response.data;
+  }
+
   // ── Payment Methods (read-only display) ───
 
   readonly getPaymentMethods: UsageApi['getPaymentMethods'] = this.api.getPaymentMethods;

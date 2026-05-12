@@ -7,6 +7,9 @@ export type EmailTemplateVariableValue = string | number | boolean;
 export interface BatchEmailRecipient {
   readonly toEmail: string;
   readonly variables: Readonly<Record<string, EmailTemplateVariableValue>>;
+  readonly recipientName?: string;
+  readonly recipientKind?: string;
+  readonly recipientOrgName?: string;
 }
 
 export const MAX_SUBJECT_LENGTH = 500;

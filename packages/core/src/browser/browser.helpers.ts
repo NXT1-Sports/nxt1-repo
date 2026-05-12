@@ -109,6 +109,29 @@ export function buildTrackedLinkUrl(
   }
 }
 
+/**
+ * Extract the destination URL from a tracked click URL.
+ * Returns null when the input is not an analytics click tracker URL.
+ */
+export function extractTrackedDestinationUrl(url: string): string | null {
+  const sanitizedUrl = sanitizeUrl(url);
+  if (!sanitizedUrl) return null;
+
+  try {
+    const parsed = new URL(sanitizedUrl);
+    if (!/\/analytics\/track\/click\/?$/i.test(parsed.pathname)) {
+      return null;
+    }
+
+    const destination = parsed.searchParams.get('destination');
+    if (!destination) return null;
+
+    return sanitizeUrl(destination);
+  } catch {
+    return null;
+  }
+}
+
 // ============================================
 // LINK TYPE DETECTION
 // ============================================

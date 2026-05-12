@@ -17,7 +17,10 @@ const router = Router();
  * Must be applied before any body parser
  */
 export const webhookRawBodyMiddleware: RequestHandler = (req: Request, _res, next) => {
-  if (req.originalUrl.includes('webhook')) {
+  const normalizedUrl = req.originalUrl.toLowerCase();
+  const isStripeWebhook = /\/api\/v1(?:\/staging)?\/webhook(?:\/|$)/.test(normalizedUrl);
+
+  if (isStripeWebhook) {
     let data = '';
     req.setEncoding('utf8');
 

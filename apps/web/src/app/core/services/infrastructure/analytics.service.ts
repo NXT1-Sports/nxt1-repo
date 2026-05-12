@@ -18,15 +18,6 @@ import {
   type UserProperties,
 } from '@nxt1/core/analytics';
 import type { ILogger } from '@nxt1/core/logging';
-import { getApp, getApps, initializeApp } from 'firebase/app';
-import {
-  getAnalytics,
-  isSupported,
-  logEvent,
-  setAnalyticsCollectionEnabled,
-  setUserId,
-  setUserProperties,
-} from 'firebase/analytics';
 import { LoggingService } from './logging.service';
 import { environment } from '../../../../environments/environment';
 
@@ -56,7 +47,7 @@ export class AnalyticsService implements AnalyticsAdapter {
   private readonly logger: ILogger;
   private adapter: AnalyticsAdapter | null = null;
   private readonly pendingOperations: Array<(adapter: AnalyticsAdapter) => void> = [];
-  private readonly initPromise: Promise<void>;
+  private initPromise: Promise<void> | null = null;
   private initialized = false;
 
   /** Current user ID for event enrichment */
@@ -74,7 +65,6 @@ export class AnalyticsService implements AnalyticsAdapter {
   constructor() {
     const loggingService = inject(LoggingService);
     this.logger = loggingService.child('Analytics');
-    this.initPromise = this.initializeAdapter();
   }
 
   /** Whether we're in browser environment */
@@ -332,6 +322,11 @@ export class AnalyticsService implements AnalyticsAdapter {
     }
 
     try {
+      const [firebaseAppSdk, firebaseAnalyticsSdk] = await Promise.all([
+        import('firebase/app'),
+        import('firebase/analytics'),
+      ]);
+
       this.adapter = await createFirebaseAnalyticsAdapter({
         firebaseConfig: environment.firebase,
         debug: !environment.production,
@@ -339,15 +334,15 @@ export class AnalyticsService implements AnalyticsAdapter {
         platform: 'web',
         appVersion: environment.appVersion || environment.version,
         firebaseSdk: {
-          initializeApp,
-          getApps,
-          getApp,
-          getAnalytics,
-          logEvent,
-          setUserId,
-          setUserProperties,
-          setAnalyticsCollectionEnabled,
-          isSupported,
+          initializeApp: firebaseAppSdk.initializeApp,
+          getApps: firebaseAppSdk.getApps,
+          getApp: firebaseAppSdk.getApp,
+          getAnalytics: firebaseAnalyticsSdk.getAnalytics,
+          logEvent: firebaseAnalyticsSdk.logEvent,
+          setUserId: firebaseAnalyticsSdk.setUserId,
+          setUserProperties: firebaseAnalyticsSdk.setUserProperties,
+          setAnalyticsCollectionEnabled: firebaseAnalyticsSdk.setAnalyticsCollectionEnabled,
+          isSupported: firebaseAnalyticsSdk.isSupported,
         },
       });
 
@@ -406,6 +401,7 @@ export class AnalyticsService implements AnalyticsAdapter {
     }
 
     this.pendingOperations.push(operation);
+    this.initPromise ??= this.initializeAdapter();
     void this.initPromise;
   }
 

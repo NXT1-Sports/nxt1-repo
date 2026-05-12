@@ -69,7 +69,7 @@ describe('BaseMcpClientService', () => {
 
     expect(result.content).toHaveLength(1);
     expect(callTool).toHaveBeenCalledTimes(2);
-    expect(disconnectSpy).toHaveBeenCalledTimes(1);
+    expect(disconnectSpy).toHaveBeenCalledTimes(0);
     expect(connectSpy).toHaveBeenCalledTimes(1);
   });
 

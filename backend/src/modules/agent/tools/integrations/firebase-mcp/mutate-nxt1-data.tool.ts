@@ -20,9 +20,12 @@ import { ALLOWED_MUTATION_COLLECTIONS } from './mutation-policy.js';
 
 const MutateNxt1DataInputSchema = z.object({
   operation: z
-    .enum(['update', 'delete'])
+    .enum(['update', 'delete', 'set'])
     .describe(
-      'The mutation to perform. Use "update" to patch one or more fields; use "delete" to remove the document.'
+      'The mutation to perform. Use "set" to create or fully upsert a document (new or existing); ' +
+        'use "update" to patch one or more fields on an existing document; ' +
+        'use "delete" to remove the document. ' +
+        'Note: not all collections allow all operations — the server enforces per-collection policies.'
     ),
   collection: z
     .string()
@@ -36,8 +39,9 @@ const MutateNxt1DataInputSchema = z.object({
     .record(z.string(), z.unknown())
     .optional()
     .describe(
-      'Fields to merge into the document. Required when operation is "update". ' +
-        'Ownership and immutable fields (userId, teamId, ownerId, createdAt) are stripped server-side.'
+      'Fields to write into the document. Required when operation is "update" or "set". ' +
+        'For "set" on a new document, include all required fields (e.g. teamId for team-owned collections). ' +
+        'Ownership and immutable fields (userId, ownerId, createdAt) are managed server-side.'
     ),
 });
 
@@ -45,10 +49,11 @@ export class MutateNxt1DataTool extends BaseTool {
   readonly name = 'mutate_nxt1_data';
 
   readonly description =
-    'Update or delete an NXT1 Firestore document in a permitted collection. ' +
-    'Ownership is verified server-side — the authenticated user must own the document. ' +
+    'Create, update, or delete an NXT1 Firestore document in a permitted collection. ' +
+    'Ownership is verified server-side — the authenticated user must own the document (or the team/org it belongs to). ' +
+    'Use "set" to create new documents (e.g. a new TeamPlaybooks entry); use "update" to patch existing ones. ' +
     'Use this for Awards, Rankings, CombineMetrics, PlayerStats, Recruiting, Organizations, ' +
-    'Schedule, Roster, TeamStats, TeamNews, Calendar, Events, and similar structured profile data. ' +
+    'Schedule, Roster, TeamStats, TeamNews, Calendar, Events, TeamPlaybooks, and similar structured data. ' +
     'Do NOT use this for timeline posts — use write_timeline_post / delete_timeline_post instead.';
 
   readonly parameters = MutateNxt1DataInputSchema;

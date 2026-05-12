@@ -1104,7 +1104,6 @@ export function mapTeamCodeRole(role: string): OnboardingUserType {
     director: 'director',
     admin: 'director',
     // Legacy aliases → 3 core roles (kept for backward compatibility with old data)
-    recruiter: 'coach',
     'college-coach': 'coach',
     'recruiting-service': 'coach',
     service: 'coach',

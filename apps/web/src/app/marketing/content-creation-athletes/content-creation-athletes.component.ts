@@ -69,7 +69,7 @@ export class ContentCreationAthletesComponent implements OnInit {
         'nxt1 media empire',
         'tiktok reels shorts automation',
       ],
-      image: 'https://nxt1sports.com/assets/images/og-image.jpg',
+      image: 'https://nxt1sports.com/assets/shared/images/og-image.jpg',
     });
   }
 }

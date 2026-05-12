@@ -83,7 +83,6 @@ const plannerAgentAliases: Readonly<Record<string, (typeof COORDINATOR_AGENT_IDS
   strategycoordinator: 'strategy_coordinator',
   strategy_coordinator: 'strategy_coordinator',
   recruiting: 'recruiting_coordinator',
-  recruiter: 'recruiting_coordinator',
   recruitingcoordinator: 'recruiting_coordinator',
   recruiting_coordinator: 'recruiting_coordinator',
   performance: 'performance_coordinator',
@@ -195,6 +194,7 @@ ${agentCatalogue}
 8. Assign each task to exactly one coordinator by id.
 9. If the user input contains [Plan Revision Context], treat it as an in-place revision of an existing saved plan. Preserve valid steps where possible and modify only the parts required by the latest request.
 10. For tasks containing external links/media URLs, plan direct extraction first (classification/scrape/staged media path). Do not start with live view unless the source is explicitly auth-gated or direct extraction fails.
+11. ARTIFACT DELIVERY PROTOCOL (MANDATORY): When a task will generate a user-facing artifact, always add a description directive that selects the best-fit output tool and tells the coordinator to reference the artifact in the chat summary instead of pasting raw content. Use dynamic_export for PDFs/CSVs/documents/tables, generate_chart_visualization for charts/funnels/process visuals, create_play_diagram or create_board_diagram for play/drill diagrams, and native media tools for graphics/video/audio outputs.
 
 ## Output Format (STRICT JSON)
 Respond with ONLY a JSON object:

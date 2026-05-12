@@ -10,6 +10,9 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import { ExportService } from '../export.service.js';
 import type { CsvExportOptions, PdfExportOptions } from '../export.service.js';
 
+const TINY_PNG_DATA_URL =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAAAAgAB4iG8MwAAAABJRU5ErkJggg==';
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 const sampleColumns = [
@@ -174,6 +177,20 @@ describe('ExportService', () => {
       );
       const header = result.subarray(0, 5).toString('ascii');
       expect(header).toBe('%PDF-');
+    });
+
+    it('should embed provided image URLs into PDF', async () => {
+      const result = await service.generatePdf(
+        pdfOpts({
+          includeTable: false,
+          columns: undefined,
+          rows: undefined,
+          imageUrls: [TINY_PNG_DATA_URL],
+        })
+      );
+      const header = result.subarray(0, 5).toString('ascii');
+      expect(header).toBe('%PDF-');
+      expect(result.length).toBeGreaterThan(100);
     });
 
     it('should use custom footer text when provided', async () => {

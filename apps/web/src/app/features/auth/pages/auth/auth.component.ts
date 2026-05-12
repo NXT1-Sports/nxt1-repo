@@ -43,9 +43,10 @@ import {
   type TeamCodeValidationState,
 } from '@nxt1/ui/auth/auth-team-code';
 import { AuthFlowService, AuthApiService } from '../../../../core/services/auth';
-import { AuthNavigationService, NxtLoggingService } from '@nxt1/ui/services';
+import { AuthNavigationService } from '@nxt1/ui/services/auth-navigation';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { SeoService } from '../../../../core/services';
-import { NxtToastService } from '@nxt1/ui/services';
+import { NxtToastService } from '@nxt1/ui/services/toast';
 import { isValidTeamCode } from '@nxt1/core';
 import type { ValidatedTeamInfo } from '@nxt1/core';
 import { PENDING_REFERRAL_KEY, type PendingReferral } from '../../../join/join.component';

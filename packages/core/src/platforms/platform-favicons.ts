@@ -3,14 +3,14 @@
  * @module @nxt1/core/platforms
  *
  * Maps every platform slug → canonical domain, used to fetch
- * platform favicons via the DuckDuckGo favicon service.
+ * platform favicons via Google's favicon service.
  *
  * ⭐ PURE DATA — No framework dependencies, no side effects.
  */
 
 /**
  * Platform slug → canonical domain.
- * Used for favicon resolution via `https://icons.duckduckgo.com/ip3/{domain}.ico`.
+ * Used for favicon resolution via `https://www.google.com/s2/favicons?domain={domain}&sz=64`.
  *
  * Includes both link-mode platforms and their `_signin` counterparts,
  * which share the same domain.
@@ -18,6 +18,7 @@
 export const PLATFORM_FAVICON_DOMAINS: Readonly<Record<string, string>> = {
   // Social
   instagram: 'instagram.com',
+  x: 'x.com',
   twitter: 'x.com',
   tiktok: 'tiktok.com',
   youtube: 'youtube.com',
@@ -84,6 +85,7 @@ export const PLATFORM_FAVICON_DOMAINS: Readonly<Record<string, string>> = {
   microsoft: 'microsoft.com',
   // Sign-in counterparts (same domain as link variants)
   instagram_signin: 'instagram.com',
+  x_signin: 'x.com',
   twitter_signin: 'x.com',
   tiktok_signin: 'tiktok.com',
   youtube_signin: 'youtube.com',
@@ -136,19 +138,25 @@ export const PLATFORM_FAVICON_DOMAINS: Readonly<Record<string, string>> = {
   campsite_signin: 'campsite.bio',
 } as const;
 
+const GOOGLE_FAVICON_SIZE = 64;
+
+function buildPlatformFaviconUrl(domain: string): string {
+  return `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=${GOOGLE_FAVICON_SIZE}`;
+}
+
 /**
- * Returns the DuckDuckGo favicon service URL for a given platform ID.
+ * Returns the Google favicon service URL for a given platform ID.
  * Returns null when no domain mapping exists.
  *
  * @example
- * getPlatformFaviconUrl('instagram') // 'https://icons.duckduckgo.com/ip3/instagram.com.ico'
+ * getPlatformFaviconUrl('instagram') // 'https://www.google.com/s2/favicons?domain=instagram.com&sz=64'
  * getPlatformFaviconUrl('unknown')   // null
  *
  * ⭐ PURE FUNCTION - No dependencies
  */
 export function getPlatformFaviconUrl(platformId: string): string | null {
   const domain = (PLATFORM_FAVICON_DOMAINS as Record<string, string>)[platformId];
-  return domain ? `https://icons.duckduckgo.com/ip3/${domain}.ico` : null;
+  return domain ? buildPlatformFaviconUrl(domain) : null;
 }
 
 /**
@@ -161,7 +169,7 @@ export function getPlatformFaviconUrlFromUrl(url: string): string | null {
     for (const domain of Object.values(PLATFORM_FAVICON_DOMAINS)) {
       const normalizedDomain = domain.toLowerCase().replace(/^www\./, '');
       if (hostname === normalizedDomain || hostname.endsWith(`.${normalizedDomain}`)) {
-        return `https://icons.duckduckgo.com/ip3/${normalizedDomain}.ico`;
+        return buildPlatformFaviconUrl(normalizedDomain);
       }
     }
     return null;

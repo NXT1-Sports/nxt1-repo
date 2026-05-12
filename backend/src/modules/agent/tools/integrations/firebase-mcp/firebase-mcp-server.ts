@@ -20,6 +20,7 @@ import { executeFirebaseViewQuery, listFirebaseViewMetadata } from './views.js';
 import { getMutationPolicy, ALLOWED_MUTATION_COLLECTIONS } from './mutation-policy.js';
 import { canManageOrganizationMutation } from './mutation-authorization.js';
 import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
+import { canManageTeamMutationForUser } from '../../../../../services/team/team-intel-permissions.js';
 
 const MCP_SERVER_NAME = 'firebase-readonly';
 const MCP_SERVER_VERSION = '1.0.0';
@@ -247,11 +248,19 @@ async function run(): Promise<void> {
         // Fetch document and verify ownership
         const docRef = firestore.collection(collection).doc(documentId);
         const docSnap = await docRef.get();
-        if (!docSnap.exists) {
-          return errorResult(`Document "${documentId}" not found in "${collection}".`);
-        }
 
-        const docData = docSnap.data() as Record<string, unknown>;
+        // For 'set' (upsert/create), the document may not exist yet — ownership
+        // is established via the teamId/organizationId field in the patch payload.
+        let docData: Record<string, unknown>;
+        if (!docSnap.exists) {
+          if (operation !== 'set') {
+            return errorResult(`Document "${documentId}" not found in "${collection}".`);
+          }
+          // Use patch as the data source for ownership verification on create
+          docData = (patch as Record<string, unknown>) ?? {};
+        } else {
+          docData = docSnap.data() as Record<string, unknown>;
+        }
 
         let isAuthorized = false;
         if (policy.ownershipPath === '__team_owner') {
@@ -264,6 +273,22 @@ async function run(): Promise<void> {
             ? ((teamSnap.data() as Record<string, unknown>)['ownerId'] as string | undefined)
             : undefined;
           isAuthorized = !!ownerId && ownerId === scope.userId;
+        } else if (policy.ownershipPath === '__team_admin_or_owner') {
+          const teamId = typeof docData['teamId'] === 'string' ? docData['teamId'] : undefined;
+          if (!teamId) {
+            return errorResult(`Document "${documentId}" has no teamId — cannot verify ownership.`);
+          }
+          const teamSnap = await firestore.collection('Teams').doc(teamId).get();
+          if (!teamSnap.exists) {
+            return errorResult(`Team "${teamId}" not found — cannot verify ownership.`);
+          }
+          const teamData = teamSnap.data() as Record<string, unknown>;
+          isAuthorized = await canManageTeamMutationForUser(
+            firestore,
+            scope.userId,
+            teamId,
+            teamData
+          );
         } else if (policy.ownershipPath === '__org_owner') {
           const orgId =
             typeof docData['organizationId'] === 'string' ? docData['organizationId'] : undefined;
@@ -324,6 +349,35 @@ async function run(): Promise<void> {
           } else {
             await docRef.delete();
           }
+        } else if (operation === 'set') {
+          // Upsert (create or fully replace allowed fields)
+          if (!patch || Object.keys(patch).length === 0) {
+            return errorResult('patch is required and must be non-empty for set operations.');
+          }
+
+          let filteredPatch: Record<string, unknown>;
+          if (policy.allowedPatchFields) {
+            const allowed = new Set(policy.allowedPatchFields);
+            filteredPatch = Object.fromEntries(
+              Object.entries(patch).filter(([key]) => allowed.has(key))
+            );
+            if (Object.keys(filteredPatch).length === 0) {
+              return errorResult(
+                `None of the supplied patch fields are allowed for collection "${collection}". ` +
+                  `Allowed fields: ${[...policy.allowedPatchFields].join(', ')}.`
+              );
+            }
+          } else {
+            filteredPatch = { ...patch };
+          }
+
+          filteredPatch['createdAt'] = docSnap.exists
+            ? docData['createdAt']
+            : FieldValue.serverTimestamp();
+          filteredPatch['updatedAt'] = FieldValue.serverTimestamp();
+          // Preserve identity fields from existing doc or patch
+          if (docData['teamId']) filteredPatch['teamId'] = docData['teamId'];
+          await docRef.set(filteredPatch, { merge: true });
         } else {
           // update
           if (!patch || Object.keys(patch).length === 0) {
@@ -375,7 +429,12 @@ async function run(): Promise<void> {
           documentId,
           operation,
           success: true,
-          message: `${operation === 'delete' ? 'Deleted' : 'Updated'} ${collection}/${documentId} successfully.`,
+          message:
+            operation === 'delete'
+              ? `Deleted ${collection}/${documentId} successfully.`
+              : operation === 'set'
+                ? `Created/upserted ${collection}/${documentId} successfully.`
+                : `Updated ${collection}/${documentId} successfully.`,
         });
 
         return serializeResult(mutateResult);

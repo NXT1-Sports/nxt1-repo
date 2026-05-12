@@ -687,7 +687,10 @@ export function createTopNavConfig(config: Partial<TopNavConfig> = {}): TopNavCo
  * @param id Item ID to find
  * @returns The matching item or undefined
  */
-export function findTopNavItemById(items: TopNavItem[], id: string): TopNavItem | undefined {
+export function findTopNavItemById(
+  items: readonly TopNavItem[],
+  id: string
+): TopNavItem | undefined {
   return items.find((item) => item.id === id);
 }
 
@@ -699,7 +702,7 @@ export function findTopNavItemById(items: TopNavItem[], id: string): TopNavItem 
  * @returns The matching item or undefined
  */
 export function findTopNavItemByRoute(
-  items: TopNavItem[],
+  items: readonly TopNavItem[],
   route: string,
   exact = false
 ): TopNavItem | undefined {
@@ -720,7 +723,7 @@ export function findTopNavItemByRoute(
  * @returns New array with updated item
  */
 export function updateTopNavBadge(
-  items: TopNavItem[],
+  items: readonly TopNavItem[],
   itemId: string,
   badge: number | undefined
 ): TopNavItem[] {

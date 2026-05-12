@@ -5,12 +5,15 @@ import {
   afterNextRender,
   computed,
   input,
+  inject,
   output,
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { NxtCtaButtonComponent } from '../cta-button';
+import { Router } from '@angular/router';
 import { NxtHeaderCardComponent } from '../header-card';
+import { NxtIconComponent } from '../icon';
+import { NxtMarketingInputBarComponent } from '../marketing-input-bar';
 
 export interface ImmersiveHeroShot {
   readonly id: 'upload' | 'processing' | 'polished' | 'offer';
@@ -22,36 +25,272 @@ export interface ImmersiveHeroShot {
 @Component({
   selector: 'nxt1-immersive-hero',
   standalone: true,
-  imports: [CommonModule, NxtCtaButtonComponent, NxtHeaderCardComponent],
+  imports: [CommonModule, NxtHeaderCardComponent, NxtIconComponent, NxtMarketingInputBarComponent],
   template: `
-    <nxt1-header-card [title]="headline()" titleId="immersive-hook-title">
-      <div nxtHeaderBackground class="hook__background" [class.hook--loaded]="loaded()">
-        <!-- Animated gradient mesh blobs -->
-        <div class="hook__mesh">
-          <div class="hook__blob hook__blob--1"></div>
-          <div class="hook__blob hook__blob--2"></div>
-          <div class="hook__blob hook__blob--3"></div>
-          <div class="hook__blob hook__blob--4"></div>
+    @if (variant() === 'sleek') {
+      <!-- SLEEK FULL-WIDTH VARIANT: Sports Intelligence Style -->
+      <div class="hero-sleek" [class.hero-sleek--loaded]="loaded()">
+        <div class="hero-sleek__background">
+          @if (loaded()) {
+            <!-- Tech Wave Layer (deferred until first paint for LCP) -->
+            <svg class="hero-sleek__wave" viewBox="0 0 1440 320" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="wave-gradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                  <stop
+                    offset="0%"
+                    style="stop-color: var(--nxt1-color-primary); stop-opacity: 0.08"
+                  />
+                  <stop
+                    offset="50%"
+                    style="stop-color: var(--nxt1-color-secondary); stop-opacity: 0.04"
+                  />
+                  <stop offset="100%" style="stop-color: transparent" />
+                </linearGradient>
+                <linearGradient id="wave-line-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                  <stop
+                    offset="0%"
+                    style="stop-color: var(--nxt1-color-primary); stop-opacity: 0.25"
+                  />
+                  <stop
+                    offset="50%"
+                    style="stop-color: var(--nxt1-color-secondary); stop-opacity: 0.5"
+                  />
+                  <stop
+                    offset="100%"
+                    style="stop-color: var(--nxt1-color-primary); stop-opacity: 0.25"
+                  />
+                </linearGradient>
+              </defs>
+              <!-- Primary wave -->
+              <path
+                d="M0,96L48,112C96,128,192,160,288,160C384,160,480,128,576,122.7C672,117,768,139,864,144C960,149,1056,139,1152,128C1248,117,1344,107,1392,101.3L1440,96L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"
+                fill="url(#wave-gradient)"
+                class="wave-path wave-path--primary"
+              />
+              <!-- Secondary wave (offset & subtle) -->
+              <path
+                d="M0,160L48,170.7C96,181,192,203,288,197.3C384,192,480,160,576,154.7C672,149,768,171,864,176C960,181,1056,171,1152,160C1248,149,1344,139,1392,133.3L1440,128L1440,320L1392,320C1344,320,1248,320,1152,320C1056,320,960,320,864,320C768,320,672,320,576,320C480,320,384,320,288,320C192,320,96,320,48,320L0,320Z"
+                fill="url(#wave-gradient)"
+                class="wave-path wave-path--secondary"
+                opacity="0.6"
+              />
+              <!-- Signal line to read as premium technology layer -->
+              <path
+                d="M0,128C160,145,320,176,480,165C640,154,800,102,960,112C1120,122,1280,170,1440,152"
+                fill="none"
+                stroke="url(#wave-line-gradient)"
+                stroke-width="2"
+                stroke-linecap="round"
+                class="wave-line"
+              />
+            </svg>
+
+            <!-- Animated grid network for sports data vibe -->
+            <svg class="hero-sleek__grid" viewBox="0 0 1200 800" preserveAspectRatio="none">
+              <defs>
+                <linearGradient id="grid-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                  <stop
+                    offset="0%"
+                    style="stop-color: var(--nxt1-color-primary); stop-opacity: 0.1"
+                  />
+                  <stop
+                    offset="50%"
+                    style="stop-color: var(--nxt1-color-secondary); stop-opacity: 0.05"
+                  />
+                  <stop
+                    offset="100%"
+                    style="stop-color: var(--nxt1-color-primary); stop-opacity: 0"
+                  />
+                </linearGradient>
+              </defs>
+              <!-- Horizontal grid lines -->
+              <line x1="0" y1="200" x2="1200" y2="200" class="grid-line" />
+              <line x1="0" y1="400" x2="1200" y2="400" class="grid-line" />
+              <line x1="0" y1="600" x2="1200" y2="600" class="grid-line" />
+              <!-- Vertical grid lines -->
+              <line x1="300" y1="0" x2="300" y2="800" class="grid-line" />
+              <line x1="600" y1="0" x2="600" y2="800" class="grid-line" />
+              <line x1="900" y1="0" x2="900" y2="800" class="grid-line" />
+              <!-- Accent diagonal lines for data flow -->
+              <line x1="0" y1="0" x2="1200" y2="800" class="grid-line grid-line--accent" />
+              <line x1="1200" y1="0" x2="0" y2="800" class="grid-line grid-line--accent" />
+            </svg>
+
+            <!-- Gradient blobs (subtle backdrop) -->
+            <div class="hero-sleek__blob hero-sleek__blob--1"></div>
+            <div class="hero-sleek__blob hero-sleek__blob--2"></div>
+            <div class="hero-sleek__blob hero-sleek__blob--3"></div>
+
+            <!-- Animated data particles -->
+            <div class="hero-sleek__particles">
+              <div class="particle" style="--particle-delay: 0s"></div>
+              <div class="particle" style="--particle-delay: 0.2s"></div>
+              <div class="particle" style="--particle-delay: 0.4s"></div>
+              <div class="particle" style="--particle-delay: 0.6s"></div>
+              <div class="particle" style="--particle-delay: 0.8s"></div>
+              <div class="particle" style="--particle-delay: 1s"></div>
+            </div>
+          }
+
+          <!-- Scrim for readability -->
+          <div class="hero-sleek__scrim"></div>
         </div>
 
-        <!-- Fine grain texture for depth -->
-        <div class="hook__grain"></div>
+        <div class="hero-sleek__content">
+          <h1 id="sleek-hero-title" class="hero-sleek__title">{{ headline() }}</h1>
+          <p class="hero-sleek__subtitle">{{ subhead() }}</p>
 
-        <!-- Soft readability scrim -->
-        <div class="hook__scrim"></div>
+          <!-- Command Interface -->
+          <div class="hero-sleek__command-zone">
+            <nxt1-marketing-input-bar
+              [placeholder]="commandPlaceholder()"
+              [value]="commandInput()"
+              ariaLabel="Command Agent X"
+              buttonLabel="Ask NXT1"
+              [active]="true"
+              (valueChange)="commandInput.set($event)"
+              (submitCommand)="onCommandSubmit($event)"
+              (submitButtonClick)="navigateToAuth()"
+            />
+
+            <!-- Quick Action Tabs -->
+            <div
+              class="hero-sleek__quick-actions"
+              role="tablist"
+              aria-label="Quick Agent X commands"
+            >
+              <button
+                type="button"
+                class="hero-sleek__quick-action-tab"
+                (click)="onQuickAction('Analyze')"
+                role="tab"
+                aria-selected="false"
+              >
+                <span>Analyze</span>
+              </button>
+              <button
+                type="button"
+                class="hero-sleek__quick-action-tab"
+                (click)="onQuickAction('Create')"
+                role="tab"
+                aria-selected="false"
+              >
+                <span>Create</span>
+              </button>
+              <button
+                type="button"
+                class="hero-sleek__quick-action-tab"
+                (click)="onQuickAction('Plan')"
+                role="tab"
+                aria-selected="false"
+              >
+                <span>Plan</span>
+              </button>
+              <button
+                type="button"
+                class="hero-sleek__quick-action-tab"
+                (click)="onQuickAction('Discover')"
+                role="tab"
+                aria-selected="false"
+              >
+                <span>Discover</span>
+              </button>
+            </div>
+          </div>
+
+          <p class="hero-sleek__proof" role="status" aria-live="polite">
+            <span class="hero-proof-pill">
+              <nxt1-icon name="agentX" [size]="28" className="hero-proof-pill__icon" />
+              <span>Agent X Active</span>
+              <span class="hero-proof-pill__dot" aria-hidden="true"></span>
+            </span>
+          </p>
+        </div>
       </div>
+    } @else {
+      <!-- DEFAULT VARIANT (existing) -->
+      <nxt1-header-card [title]="headline()" titleId="immersive-hook-title">
+        <div nxtHeaderBackground class="hook__background" [class.hook--loaded]="loaded()">
+          <!-- Animated gradient mesh blobs -->
+          <div class="hook__mesh">
+            <div class="hook__blob hook__blob--1"></div>
+            <div class="hook__blob hook__blob--2"></div>
+            <div class="hook__blob hook__blob--3"></div>
+            <div class="hook__blob hook__blob--4"></div>
+          </div>
 
-      <p nxtHeaderSubtitle class="hook__subtitle">{{ subhead() }}</p>
+          <!-- Fine grain texture for depth -->
+          <div class="hook__grain"></div>
 
-      <div nxtHeaderActions class="hook__actions">
-        <nxt1-cta-button label="Get Started" route="/auth" variant="primary" />
-        <nxt1-cta-button label="Explore Platform" variant="ghost" (clicked)="openReel()" />
-      </div>
+          <!-- Soft readability scrim -->
+          <div class="hook__scrim"></div>
+        </div>
 
-      <p nxtHeaderFooter class="hook__proof" role="status" aria-live="polite">
-        🔥 412 athletes signed offers today.
-      </p>
-    </nxt1-header-card>
+        <p nxtHeaderSubtitle class="hook__subtitle">{{ subhead() }}</p>
+
+        <!-- Command Interface -->
+        <div class="hook__command-zone" nxtHeaderActions>
+          <nxt1-marketing-input-bar
+            [placeholder]="commandPlaceholder()"
+            [value]="commandInput()"
+            ariaLabel="Command Agent X"
+            buttonLabel="Ask NXT1"
+            [active]="true"
+            (valueChange)="commandInput.set($event)"
+            (submitCommand)="onCommandSubmit($event)"
+            (submitButtonClick)="navigateToAuth()"
+          />
+
+          <!-- Quick Action Tabs -->
+          <div class="hook__quick-actions" role="tablist" aria-label="Quick Agent X commands">
+            <button
+              type="button"
+              class="hook__quick-action-tab"
+              (click)="onQuickAction('Analyze')"
+              role="tab"
+              aria-selected="false"
+            >
+              <span>Analyze</span>
+            </button>
+            <button
+              type="button"
+              class="hook__quick-action-tab"
+              (click)="onQuickAction('Create')"
+              role="tab"
+              aria-selected="false"
+            >
+              <span>Create</span>
+            </button>
+            <button
+              type="button"
+              class="hook__quick-action-tab"
+              (click)="onQuickAction('Plan')"
+              role="tab"
+              aria-selected="false"
+            >
+              <span>Plan</span>
+            </button>
+            <button
+              type="button"
+              class="hook__quick-action-tab"
+              (click)="onQuickAction('Discover')"
+              role="tab"
+              aria-selected="false"
+            >
+              <span>Discover</span>
+            </button>
+          </div>
+        </div>
+
+        <p nxtHeaderFooter class="hook__proof" role="status" aria-live="polite">
+          <span class="hero-proof-pill">
+            <nxt1-icon name="agentX" [size]="28" className="hero-proof-pill__icon" />
+            <span>Agent X Active</span>
+            <span class="hero-proof-pill__dot" aria-hidden="true"></span>
+          </span>
+        </p>
+      </nxt1-header-card>
+    }
 
     @if (isReelOpen()) {
       <div class="hook-reel" role="presentation" (click)="closeReel()">
@@ -94,6 +333,599 @@ export interface ImmersiveHeroShot {
   `,
   styles: [
     `
+      /* ═══════════════════════════════════════════════════
+         SLEEK VARIANT: Full-width Sports Intelligence
+         ═══════════════════════════════════════════════════ */
+
+      @keyframes grid-pulse {
+        0% {
+          opacity: 0.3;
+          stroke-width: 1px;
+        }
+        50% {
+          opacity: 0.6;
+          stroke-width: 1.2px;
+        }
+        100% {
+          opacity: 0.3;
+          stroke-width: 1px;
+        }
+      }
+
+      @keyframes agentx-status-pulse {
+        0% {
+          transform: scale(1);
+          opacity: 1;
+        }
+        70% {
+          transform: scale(1.5);
+          opacity: 0;
+        }
+        100% {
+          transform: scale(1.5);
+          opacity: 0;
+        }
+      }
+
+      .hero-proof-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2);
+      }
+
+      .hero-proof-pill__icon {
+        color: var(--nxt1-color-primary);
+      }
+
+      .hero-proof-pill__dot {
+        position: relative;
+        inline-size: 8px;
+        block-size: 8px;
+        border-radius: var(--nxt1-borderRadius-full);
+        background: var(--nxt1-color-success, #22c55e);
+      }
+
+      .hero-proof-pill__dot::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        border-radius: var(--nxt1-borderRadius-full);
+        background: var(--nxt1-color-success, #22c55e);
+        animation: agentx-status-pulse 1.8s ease-out infinite;
+      }
+
+      @keyframes particle-float {
+        0% {
+          transform: translateY(0) translateX(0) scale(1);
+          opacity: 0;
+        }
+        10% {
+          opacity: 1;
+        }
+        90% {
+          opacity: 1;
+        }
+        100% {
+          transform: translateY(-800px) translateX(var(--particle-x, 200px)) scale(0);
+          opacity: 0;
+        }
+      }
+
+      @keyframes data-flow-1 {
+        0% {
+          stroke-dashoffset: 1000;
+        }
+        100% {
+          stroke-dashoffset: 0;
+        }
+      }
+
+      @keyframes data-flow-2 {
+        0% {
+          stroke-dashoffset: 0;
+        }
+        100% {
+          stroke-dashoffset: 1000;
+        }
+      }
+
+      /* Tech Wave Animations (GPU-accelerated, LCP/CLS safe) */
+      @keyframes wave-motion {
+        0% {
+          transform: translateX(0) translateZ(0);
+        }
+        50% {
+          transform: translateX(40px) translateZ(0);
+        }
+        100% {
+          transform: translateX(0) translateZ(0);
+        }
+      }
+
+      @keyframes wave-motion-offset {
+        0% {
+          transform: translateX(-20px) translateZ(0);
+        }
+        50% {
+          transform: translateX(60px) translateZ(0);
+        }
+        100% {
+          transform: translateX(-20px) translateZ(0);
+        }
+      }
+
+      @keyframes wave-signal-flow {
+        0% {
+          stroke-dashoffset: 180;
+        }
+        100% {
+          stroke-dashoffset: 0;
+        }
+      }
+
+      .hero-sleek {
+        position: relative;
+        width: 100%;
+        min-height: 90vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        background: var(--nxt1-color-bg-primary);
+      }
+
+      .hero-sleek__background {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+
+      /* SVG Grid Network */
+      .hero-sleek__grid {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        opacity: 0.15;
+      }
+
+      /* Tech Wave Layer */
+      .hero-sleek__wave {
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 32%;
+        opacity: 0.92;
+        z-index: 2;
+        pointer-events: none;
+        will-change: transform;
+      }
+
+      .wave-path {
+        will-change: transform;
+      }
+
+      .wave-path--primary {
+        animation: wave-motion 6s ease-in-out infinite;
+      }
+
+      .wave-path--secondary {
+        animation: wave-motion-offset 8s ease-in-out infinite;
+      }
+
+      .wave-line {
+        stroke-dasharray: 14 8;
+        stroke-dashoffset: 180;
+        opacity: 0.7;
+      }
+
+      .hero-sleek--loaded .wave-line {
+        animation: wave-signal-flow 2.8s linear infinite;
+      }
+
+      .hero-sleek--loaded .wave-path--primary {
+        animation-play-state: running;
+      }
+
+      .hero-sleek--loaded .wave-path--secondary {
+        animation-play-state: running;
+      }
+
+      .grid-line {
+        stroke: var(--nxt1-color-primary);
+        stroke-width: 1px;
+        opacity: 0.4;
+      }
+
+      .hero-sleek--loaded .grid-line {
+        animation: grid-pulse 4s ease-in-out infinite;
+      }
+
+      .grid-line--accent {
+        stroke: var(--nxt1-color-secondary);
+        opacity: 0.2;
+        animation-delay: 1s;
+      }
+
+      /* Subtle gradient blobs (backdrop) */
+      .hero-sleek__blob {
+        position: absolute;
+        border-radius: 50%;
+        pointer-events: none;
+        will-change: transform;
+        filter: blur(80px);
+      }
+
+      .hero-sleek__blob--1 {
+        top: -10%;
+        left: -5%;
+        width: 500px;
+        height: 500px;
+        background: radial-gradient(
+          ellipse at 30% 30%,
+          color-mix(in srgb, var(--nxt1-color-primary) 25%, transparent) 0%,
+          transparent 70%
+        );
+      }
+
+      .hero-sleek--loaded .hero-sleek__blob--1 {
+        animation: blob-drift-1 20s ease-in-out infinite;
+      }
+
+      .hero-sleek__blob--2 {
+        bottom: -8%;
+        right: -3%;
+        width: 450px;
+        height: 450px;
+        background: radial-gradient(
+          ellipse at 60% 60%,
+          color-mix(in srgb, var(--nxt1-color-secondary) 20%, transparent) 0%,
+          transparent 70%
+        );
+      }
+
+      .hero-sleek--loaded .hero-sleek__blob--2 {
+        animation: blob-drift-2 22s ease-in-out infinite;
+        animation-delay: -3s;
+      }
+
+      .hero-sleek__blob--3 {
+        top: -10%;
+        right: -5%;
+        width: 500px;
+        height: 500px;
+        background: radial-gradient(
+          ellipse at 70% 30%,
+          color-mix(in srgb, var(--nxt1-color-primary) 25%, transparent) 0%,
+          transparent 70%
+        );
+      }
+
+      .hero-sleek--loaded .hero-sleek__blob--3 {
+        animation: blob-drift-sleek-3 24s ease-in-out infinite;
+        animation-delay: -5s;
+      }
+
+      /* Animated data particles */
+      .hero-sleek__particles {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+      }
+
+      .particle {
+        position: absolute;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: radial-gradient(
+          circle at 30% 30%,
+          var(--nxt1-color-primary),
+          var(--nxt1-color-secondary)
+        );
+        box-shadow: 0 0 12px var(--nxt1-color-primary);
+        left: var(--particle-x, 50%);
+        bottom: -10%;
+        --particle-x: calc(10% + var(--random, 0) * 80%);
+      }
+
+      .hero-sleek--loaded .particle {
+        animation: particle-float 6s ease-out var(--particle-delay, 0s) infinite;
+      }
+
+      .particle:nth-child(1) {
+        --particle-x: 15%;
+      }
+      .particle:nth-child(2) {
+        --particle-x: 28%;
+      }
+      .particle:nth-child(3) {
+        --particle-x: 42%;
+      }
+      .particle:nth-child(4) {
+        --particle-x: 58%;
+      }
+      .particle:nth-child(5) {
+        --particle-x: 72%;
+      }
+      .particle:nth-child(6) {
+        --particle-x: 85%;
+      }
+
+      /* Readability scrim */
+      .hero-sleek__scrim {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          180deg,
+          color-mix(in srgb, var(--nxt1-color-bg-primary) 18%, transparent) 0%,
+          color-mix(in srgb, var(--nxt1-color-bg-primary) 45%, transparent) 45%,
+          color-mix(in srgb, var(--nxt1-color-bg-primary) 78%, transparent) 100%
+        );
+        pointer-events: none;
+      }
+
+      /* Content positioning */
+      .hero-sleek__content {
+        position: relative;
+        z-index: 10;
+        text-align: center;
+        padding: var(--nxt1-spacing-10) var(--nxt1-spacing-4);
+        max-width: 900px;
+        width: 100%;
+      }
+
+      .hero-sleek__title {
+        margin: 0 0 var(--nxt1-spacing-4) 0;
+        font-size: clamp(2.5rem, 8vw, 4.5rem);
+        font-family: var(--nxt1-fontFamily-display);
+        font-weight: var(--nxt1-fontWeight-bold);
+        line-height: 1.1;
+        color: var(--nxt1-color-text-primary);
+        letter-spacing: -0.02em;
+      }
+
+      .hero-sleek__subtitle {
+        margin: 0 0 var(--nxt1-spacing-8) 0;
+        max-width: 60ch;
+        margin-left: auto;
+        margin-right: auto;
+        font-size: clamp(1rem, 2vw, 1.25rem);
+        font-family: var(--nxt1-fontFamily-brand);
+        line-height: 1.6;
+        color: var(--nxt1-color-text-secondary);
+        text-wrap: pretty;
+      }
+
+      .hero-sleek__command-zone {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-3);
+        margin-bottom: var(--nxt1-spacing-6);
+        max-width: 600px;
+        width: 100%;
+        margin-left: auto;
+        margin-right: auto;
+      }
+
+      .hero-sleek__command-form {
+        display: flex;
+        gap: var(--nxt1-spacing-2);
+        align-items: center;
+        background: color-mix(in srgb, var(--nxt1-color-surface-100) 40%, transparent);
+        backdrop-filter: blur(20px);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 40%, transparent);
+        border-radius: var(--nxt1-borderRadius-lg);
+        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
+        transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+
+      .hero-sleek__command-form:focus-within {
+        background: color-mix(in srgb, var(--nxt1-color-surface-100) 60%, transparent);
+        border-color: var(--nxt1-color-primary);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--nxt1-color-primary) 15%, transparent);
+      }
+
+      .hero-sleek__command-input {
+        flex: 1;
+        background: transparent;
+        border: none;
+        color: var(--nxt1-color-text-primary);
+        font-size: var(--nxt1-fontSize-base);
+        font-family: var(--nxt1-fontFamily-brand);
+        outline: none;
+        padding: 0;
+      }
+
+      .hero-sleek__command-input::placeholder {
+        color: var(--nxt1-color-text-tertiary);
+        animation: typewriter-cursor 0.6s infinite;
+      }
+
+      @keyframes typewriter-cursor {
+        0%,
+        49% {
+          color: var(--nxt1-color-text-tertiary);
+        }
+        50%,
+        100% {
+          color: transparent;
+        }
+      }
+
+      .hero-sleek__command-button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--nxt1-spacing-2);
+        background: var(--nxt1-color-surface-200);
+        color: var(--nxt1-color-text-secondary);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-borderRadius-md);
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+        cursor: pointer;
+        transition: all 0.15s ease;
+        flex-shrink: 0;
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-semibold);
+      }
+
+      .hero-sleek__command-button-text {
+        display: inline;
+      }
+
+      .hero-sleek__command-button.active {
+        background: var(--nxt1-color-primary);
+        color: var(--nxt1-color-bg-primary);
+        border-color: var(--nxt1-color-primary);
+        box-shadow: 0 4px 12px color-mix(in srgb, var(--nxt1-color-primary) 30%, transparent);
+      }
+
+      .hero-sleek__command-button:hover:not(:disabled) {
+        transform: translateY(-2px);
+      }
+
+      @media (max-width: 640px) {
+        .hero-sleek__command-button {
+          padding: var(--nxt1-spacing-2);
+          gap: 0;
+        }
+
+        .hero-sleek__command-button-text {
+          display: none;
+        }
+      }
+
+      .hero-sleek__quick-actions {
+        display: flex;
+        gap: var(--nxt1-spacing-2);
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+
+      .hero-sleek__quick-action-tab {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: color-mix(in srgb, var(--nxt1-color-surface-200) 50%, transparent);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 30%, transparent);
+        border-radius: var(--nxt1-borderRadius-full);
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+        color: var(--nxt1-color-text-secondary);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .hero-sleek__quick-action-tab:hover {
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-primary) 20%,
+          var(--nxt1-color-surface-200)
+        );
+        color: var(--nxt1-color-primary);
+        border-color: var(--nxt1-color-primary);
+        transform: translateY(-2px);
+      }
+
+      .hero-sleek__actions {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        align-items: center;
+        gap: var(--nxt1-spacing-3);
+        margin-bottom: var(--nxt1-spacing-6);
+      }
+
+      .hero-sleek__proof {
+        margin: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-4);
+        border-radius: var(--nxt1-borderRadius-full);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 50%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-surface-100) 60%, transparent);
+        backdrop-filter: blur(10px);
+        color: var(--nxt1-color-text-secondary);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
+      }
+
+      /* Responsive: sleek variant */
+      @media (max-width: 768px) {
+        .hero-sleek {
+          min-height: 84vh;
+        }
+
+        .hero-sleek__title {
+          font-size: clamp(var(--nxt1-fontSize-3xl), 8vw, var(--nxt1-fontSize-5xl));
+          line-height: 1.08;
+        }
+
+        .hero-sleek__subtitle {
+          font-size: clamp(var(--nxt1-fontSize-base), 3.2vw, var(--nxt1-fontSize-xl));
+        }
+
+        .hero-sleek__content {
+          padding: var(--nxt1-spacing-7) var(--nxt1-spacing-4);
+        }
+
+        .hero-sleek__grid {
+          opacity: 0.18;
+        }
+
+        .grid-line {
+          stroke-width: 1.1px;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .hero-sleek {
+          min-height: 78vh;
+        }
+
+        .hero-sleek__title {
+          font-size: clamp(var(--nxt1-fontSize-3xl), 9.4vw, var(--nxt1-fontSize-4xl));
+          margin-bottom: var(--nxt1-spacing-4);
+        }
+
+        .hero-sleek__subtitle {
+          font-size: var(--nxt1-fontSize-base);
+          line-height: var(--nxt1-lineHeight-relaxed);
+          margin-bottom: var(--nxt1-spacing-6);
+        }
+
+        .hero-sleek__actions {
+          gap: var(--nxt1-spacing-2);
+          margin-bottom: var(--nxt1-spacing-5);
+        }
+
+        .hero-sleek__proof {
+          font-size: var(--nxt1-fontSize-xs);
+          padding: var(--nxt1-spacing-1) var(--nxt1-spacing-3);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .hero-sleek--loaded .grid-line,
+        .hero-sleek--loaded .particle,
+        .hero-sleek--loaded .hero-sleek__blob--1,
+        .hero-sleek--loaded .hero-sleek__blob--2,
+        .hero-sleek--loaded .hero-sleek__blob--3 {
+          animation: none !important;
+        }
+      }
+
+      /* ═══════════════════════════════════════════════════
+         DEFAULT VARIANT: Existing styles (preserved)
+         ═══════════════════════════════════════════════════ */
+
       /* ─── keyframes ─── */
 
       @keyframes blob-drift-1 {
@@ -146,7 +978,7 @@ export interface ImmersiveHeroShot {
         }
       }
 
-      @keyframes blob-drift-3 {
+      @keyframes blob-drift-sleek-3 {
         0% {
           transform: translate(0, 0) scale(1);
           border-radius: 48% 52% 46% 54% / 52% 48% 52% 48%;
@@ -377,6 +1209,126 @@ export interface ImmersiveHeroShot {
         text-wrap: pretty;
       }
 
+      .hook__command-zone {
+        display: flex;
+        flex-direction: column;
+        gap: var(--nxt1-spacing-3);
+        max-width: 600px;
+        width: 100%;
+        margin-left: auto;
+        margin-right: auto;
+      }
+
+      .hook__command-form {
+        display: flex;
+        gap: var(--nxt1-spacing-2);
+        align-items: center;
+        background: color-mix(in srgb, var(--nxt1-color-surface-100) 40%, transparent);
+        backdrop-filter: blur(20px);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 40%, transparent);
+        border-radius: var(--nxt1-borderRadius-lg);
+        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4);
+        transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      }
+
+      .hook__command-form:focus-within {
+        background: color-mix(in srgb, var(--nxt1-color-surface-100) 60%, transparent);
+        border-color: var(--nxt1-color-primary);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--nxt1-color-primary) 15%, transparent);
+      }
+
+      .hook__command-input {
+        flex: 1;
+        background: transparent;
+        border: none;
+        color: var(--nxt1-color-text-primary);
+        font-size: var(--nxt1-fontSize-base);
+        font-family: var(--nxt1-fontFamily-brand);
+        outline: none;
+        padding: 0;
+      }
+
+      .hook__command-input::placeholder {
+        color: var(--nxt1-color-text-tertiary);
+        animation: typewriter-cursor 0.6s infinite;
+      }
+
+      .hook__command-button {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--nxt1-spacing-2);
+        background: var(--nxt1-color-surface-200);
+        color: var(--nxt1-color-text-secondary);
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: var(--nxt1-borderRadius-md);
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+        cursor: pointer;
+        transition: all 0.15s ease;
+        flex-shrink: 0;
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-semibold);
+      }
+
+      .hook__command-button-text {
+        display: inline;
+      }
+
+      .hook__command-button.active {
+        background: var(--nxt1-color-primary);
+        color: var(--nxt1-color-bg-primary);
+        border-color: var(--nxt1-color-primary);
+        box-shadow: 0 4px 12px color-mix(in srgb, var(--nxt1-color-primary) 30%, transparent);
+      }
+
+      .hook__command-button:hover:not(:disabled) {
+        transform: translateY(-2px);
+      }
+
+      @media (max-width: 640px) {
+        .hook__command-button {
+          padding: var(--nxt1-spacing-2);
+          gap: 0;
+        }
+
+        .hook__command-button-text {
+          display: none;
+        }
+      }
+
+      .hook__quick-actions {
+        display: flex;
+        gap: var(--nxt1-spacing-2);
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+
+      .hook__quick-action-tab {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: color-mix(in srgb, var(--nxt1-color-surface-200) 50%, transparent);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-default) 30%, transparent);
+        border-radius: var(--nxt1-borderRadius-full);
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+        color: var(--nxt1-color-text-secondary);
+        font-size: var(--nxt1-fontSize-sm);
+        font-weight: var(--nxt1-fontWeight-medium);
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .hook__quick-action-tab:hover {
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-primary) 20%,
+          var(--nxt1-color-surface-200)
+        );
+        color: var(--nxt1-color-primary);
+        border-color: var(--nxt1-color-primary);
+        transform: translateY(-2px);
+      }
+
       .hook__actions {
         display: flex;
         flex-wrap: wrap;
@@ -591,16 +1543,38 @@ export interface ImmersiveHeroShot {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtImmersiveHeroComponent {
+  readonly variant = input<'default' | 'sleek'>('default');
   readonly headline = input('The Sports Intelligence Platform');
   readonly subhead = input(
-    'Elite design. AI coordinators. Autonomous workflows. All in one platform.'
+    'The AI command center for sports organizations to run complex operations, automate workflows, and coordinate execution from one system.'
   );
   readonly shots = input<readonly ImmersiveHeroShot[]>([]);
 
   readonly exploreRequested = output<void>();
+  readonly commandSubmitted = output<string>();
+  readonly quickActionSelected = output<string>();
+
+  protected readonly commandInput = signal('');
+
+  private readonly typewriterPhrases = [
+    'What can Agent X help with?',
+    'Analyze game film...',
+    'Generate performance reports...',
+    'Build game strategies...',
+    'Scout opponents...',
+    'Track team metrics...',
+    'Design AI playbooks...',
+  ];
+
+  private readonly _displayedPlaceholder = signal(this.typewriterPhrases[0]);
+  protected readonly displayedPlaceholder = computed(() => this._displayedPlaceholder());
+
+  protected readonly commandPlaceholder = computed(() => this.displayedPlaceholder());
 
   private readonly _isReelOpen = signal(false);
   protected readonly isReelOpen = computed(() => this._isReelOpen());
+
+  private readonly router = inject(Router);
 
   /** Becomes true after the first render so animations only run post-load. */
   private readonly _loaded = signal(false);
@@ -608,9 +1582,57 @@ export class NxtImmersiveHeroComponent {
 
   constructor() {
     afterNextRender(() => {
-      // Small raf delay ensures paint is complete before triggering animations
+      // Mark hero as loaded on first frame so non-critical visuals mount after LCP candidate.
       requestAnimationFrame(() => this._loaded.set(true));
+
+      // Start typewriter when the main thread is idle to avoid competing with initial paint.
+      const idleCallback = (globalThis as { requestIdleCallback?: (cb: () => void) => number })
+        .requestIdleCallback;
+
+      if (idleCallback) {
+        idleCallback(() => this.startTypewriterAnimation());
+        return;
+      }
+
+      setTimeout(() => this.startTypewriterAnimation(), 1200);
     });
+  }
+
+  private startTypewriterAnimation(): void {
+    let phraseIndex = 0;
+    let charIndex = 0;
+    let isDeleting = false;
+    const typingSpeed = 25; // ms per character
+    const deletingSpeed = 15; // ms per character
+    const pauseBetweenPhrases = 1000; // ms pause before deleting
+
+    const animate = () => {
+      const currentPhrase = this.typewriterPhrases[phraseIndex];
+
+      if (isDeleting) {
+        // Delete characters one by one
+        charIndex--;
+        if (charIndex < 0) {
+          isDeleting = false;
+          phraseIndex = (phraseIndex + 1) % this.typewriterPhrases.length;
+          setTimeout(animate, 300);
+          return;
+        }
+      } else {
+        // Type characters one by one
+        charIndex++;
+        if (charIndex > currentPhrase.length) {
+          isDeleting = true;
+          setTimeout(animate, pauseBetweenPhrases);
+          return;
+        }
+      }
+
+      this._displayedPlaceholder.set(currentPhrase.substring(0, charIndex));
+      setTimeout(animate, isDeleting ? deletingSpeed : typingSpeed);
+    };
+
+    animate();
   }
 
   protected openReel(): void {
@@ -620,6 +1642,21 @@ export class NxtImmersiveHeroComponent {
 
   protected closeReel(): void {
     this._isReelOpen.set(false);
+  }
+
+  protected onCommandSubmit(command: string): void {
+    if (command) {
+      this.commandSubmitted.emit(command);
+      this.commandInput.set('');
+    }
+  }
+
+  protected onQuickAction(action: string): void {
+    this.quickActionSelected.emit(action);
+  }
+
+  protected navigateToAuth(): void {
+    this.router.navigate(['/auth']);
   }
 
   @HostListener('document:keydown.escape')

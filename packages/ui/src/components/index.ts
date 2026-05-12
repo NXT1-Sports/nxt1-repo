@@ -382,11 +382,11 @@ export { NxtGenesisMomentComponent } from './genesis-moment';
 // PARTNER MARQUEE (Infinite Logo Scroll)
 // ============================================
 export {
-  NxtPartnerMarqueeComponent,
-  type PartnerItem,
+  NxtIntegrationMarqueeComponent,
+  type IntegrationItem,
   type MarqueeDirection,
   type MarqueeVariant,
-} from './partner-marquee';
+} from './integration-marquee';
 
 export { NxtFaqSectionComponent, type FaqItem } from './faq-section';
 export { NxtStatsBarComponent, type StatsBarItem } from './stats-bar';

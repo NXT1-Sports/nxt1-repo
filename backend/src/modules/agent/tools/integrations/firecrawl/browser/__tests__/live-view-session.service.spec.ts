@@ -230,12 +230,42 @@ describe('LiveViewSessionService', () => {
       expect(result.session.platformKey).toBe('maxpreps');
     });
 
+    it('should allow instagram URLs for live-view sessions', async () => {
+      const result = await service.startSession(TEST_USER_ID, {
+        url: 'https://www.instagram.com/nxt1sports/',
+      });
+
+      expect(result.session).toBeDefined();
+      expect(result.session.requestedUrl).toBe('https://www.instagram.com/nxt1sports/');
+      expect(result.session.sessionId).toBe(TEST_SESSION_ID);
+    });
+
+    it('should allow twitter URLs for live-view sessions', async () => {
+      const result = await service.startSession(TEST_USER_ID, {
+        url: 'https://twitter.com/NXT1Sports',
+      });
+
+      expect(result.session).toBeDefined();
+      expect(result.session.requestedUrl).toBe('https://twitter.com/NXT1Sports');
+      expect(result.session.sessionId).toBe(TEST_SESSION_ID);
+    });
+
     it('should throw when Firecrawl scrape() fails', async () => {
       mockScrape.mockRejectedValue(new Error('Rate limited'));
 
       await expect(
         service.startSession(TEST_USER_ID, { url: 'https://www.example.com' })
       ).rejects.toThrow('Rate limited');
+    });
+
+    it('should map provider unsupported-site errors to a clear live-view message', async () => {
+      mockScrape.mockRejectedValue(
+        new Error('We apologize for the inconvenience but we do not support this site.')
+      );
+
+      await expect(
+        service.startSession(TEST_USER_ID, { url: 'https://x.com/i/flow/login' })
+      ).rejects.toThrow('Live view is not available for X with the current browser provider.');
     });
 
     it('should retry with saveChanges: false when profile is locked by a stale session', async () => {
@@ -422,6 +452,110 @@ describe('LiveViewSessionService', () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────
+  // captureScreenshot
+  // ────────────────────────────────────────────────────────────────────────
+
+  describe('captureScreenshot', () => {
+    it('should capture the current Firecrawl interact page with Playwright', async () => {
+      await service.startSession(TEST_USER_ID, { url: 'https://www.example.com' });
+
+      const base64 = Buffer.from('png-bytes').toString('base64');
+      mockInteract.mockResolvedValueOnce(
+        createSuccessfulInteractResult({
+          result: JSON.stringify({
+            url: 'https://www.example.com/dashboard',
+            title: 'Dashboard',
+            mimeType: 'image/png',
+            base64,
+            sizeBytes: 9,
+            capturedAt: '2026-05-12T12:00:00.000Z',
+            fullPage: false,
+            selector: null,
+            viewport: { width: 1280, height: 720 },
+            source: 'firecrawl_interact_playwright',
+          }),
+        })
+      );
+
+      const result = await service.captureScreenshot(TEST_SESSION_ID, TEST_USER_ID, {
+        viewport: { width: 1280, height: 720 },
+      });
+
+      expect(result.url).toBe('https://www.example.com/dashboard');
+      expect(result.mimeType).toBe('image/png');
+      expect(result.base64).toBe(base64);
+      expect(mockInteract).toHaveBeenCalledTimes(2);
+      const screenshotCall = mockInteract.mock.calls[1][1];
+      expect(screenshotCall).toEqual(
+        expect.objectContaining({
+          code: expect.stringContaining('page.screenshot'),
+        })
+      );
+      expect(screenshotCall.code).toContain('page.setViewportSize');
+      expect(screenshotCall.code).toContain('firecrawl_interact_playwright');
+    });
+
+    it('should capture a selector screenshot with jpeg quality', async () => {
+      await service.startSession(TEST_USER_ID, { url: 'https://www.example.com' });
+
+      mockInteract.mockResolvedValueOnce(
+        createSuccessfulInteractResult({
+          result: JSON.stringify({
+            url: 'https://www.example.com/video',
+            title: 'Video',
+            mimeType: 'image/jpeg',
+            base64: Buffer.from('jpg-bytes').toString('base64'),
+            sizeBytes: 9,
+            capturedAt: '2026-05-12T12:00:00.000Z',
+            fullPage: false,
+            selector: '.video-player',
+            viewport: { width: 1365, height: 768 },
+            source: 'firecrawl_interact_playwright',
+          }),
+        })
+      );
+
+      const result = await service.captureScreenshot(TEST_SESSION_ID, TEST_USER_ID, {
+        selector: '.video-player',
+        format: 'jpeg',
+        quality: 74,
+        fullPage: true,
+      });
+
+      expect(result.mimeType).toBe('image/jpeg');
+      expect(result.selector).toBe('.video-player');
+      const screenshotCall = mockInteract.mock.calls[1][1];
+      expect(screenshotCall.code).toContain('page.$(options.selector)');
+      expect(screenshotCall.code).toContain('screenshotOptions.quality');
+    });
+
+    it('should throw for screenshots above the maximum supported size', async () => {
+      await service.startSession(TEST_USER_ID, { url: 'https://www.example.com' });
+
+      mockInteract.mockResolvedValueOnce(
+        createSuccessfulInteractResult({
+          result: JSON.stringify({
+            url: 'https://www.example.com',
+            title: 'Example',
+            mimeType: 'image/png',
+            base64: Buffer.from('too-large').toString('base64'),
+            sizeBytes: 13 * 1024 * 1024,
+            capturedAt: '2026-05-12T12:00:00.000Z',
+            fullPage: true,
+            selector: null,
+            viewport: { width: 1280, height: 720 },
+            source: 'firecrawl_interact_playwright',
+          }),
+        })
+      );
+
+      await expect(
+        service.captureScreenshot(TEST_SESSION_ID, TEST_USER_ID, { fullPage: true })
+      ).rejects.toThrow('exceeded the maximum supported size');
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
   // extractMedia
   // ────────────────────────────────────────────────────────────────────────
 
@@ -472,6 +606,17 @@ The video player is currently active and playing.`,
           prompt: expect.stringContaining('analyzing a web page with video'),
         })
       );
+    });
+
+    it('should purge the local session when Firecrawl reports the browser session was destroyed', async () => {
+      await service.startSession(TEST_USER_ID, { url: 'https://www.hudl.com/profile/12345' });
+
+      mockInteract.mockRejectedValueOnce(new Error('Browser session has been destroyed.'));
+
+      await expect(service.extractMedia(TEST_SESSION_ID, TEST_USER_ID)).rejects.toThrow(
+        'Browser session has expired. Open live view again to continue.'
+      );
+      expect(service.isSessionActive(TEST_SESSION_ID)).toBe(false);
     });
 
     it('should extract URLs from markdown-formatted AI response', async () => {
@@ -527,6 +672,12 @@ No video URLs were detected in the network tab.`,
     it('should parse playlist items from AI-generated response', async () => {
       await service.startSession(TEST_USER_ID, { url: 'https://www.hudl.com/profile/12345' });
 
+      mockInteract.mockResolvedValueOnce({
+        success: true,
+        stdout: JSON.stringify({ items: [] }),
+        exitCode: 0,
+      });
+
       // Mock the AI prompt response with structured label format
       mockInteract.mockResolvedValueOnce({
         success: true,
@@ -569,21 +720,27 @@ Thumbnail: https://images.example.com/clip-2.jpg
       expect(urls).toContain('https://www.hudl.com/video/clip-1');
       expect(urls).toContain('https://www.hudl.com/video/clip-2');
 
-      // Should have called interact for startSession + prompt + metadata
-      expect(mockInteract).toHaveBeenCalledTimes(3);
+      // Should have called interact for startSession + browser preflight + prompt + metadata
+      expect(mockInteract).toHaveBeenCalledTimes(4);
 
-      // Second call should be the AI prompt for playlist extraction
+      // Third call should be the AI prompt for playlist extraction after browser preflight returns empty
       expect(mockInteract).toHaveBeenNthCalledWith(
-        2,
+        3,
         TEST_SESSION_ID,
         expect.objectContaining({
-          prompt: expect.stringContaining('Extract information about ALL the clips'),
+          prompt: expect.stringContaining('Extract information about the current bounded subset'),
         })
       );
     });
 
     it('should parse playlist from numbered list format', async () => {
       await service.startSession(TEST_USER_ID, { url: 'https://www.hudl.com/profile/12345' });
+
+      mockInteract.mockResolvedValueOnce({
+        success: true,
+        stdout: JSON.stringify({ items: [] }),
+        exitCode: 0,
+      });
 
       mockInteract.mockResolvedValueOnce({
         success: true,
@@ -618,6 +775,55 @@ Thumbnail: https://images.example.com/clip-2.jpg
       // Check URLs are parsed (title parsing may vary with different formats)
       const urls = result.items.map((item) => item.url);
       expect(urls).toContain('https://www.hudl.com/video/clip-1');
+    });
+
+    it('should parse Hudl accessibility PLAY rows when AI returns a page snapshot', async () => {
+      await service.startSession(TEST_USER_ID, { url: 'https://www.hudl.com/library/18832' });
+
+      mockInteract.mockResolvedValueOnce({
+        success: true,
+        stdout: JSON.stringify({ items: [] }),
+        exitCode: 0,
+      });
+
+      mockInteract.mockResolvedValueOnce({
+        success: true,
+        stdout:
+          '✓ Done\n' +
+          '- heading "RK" [level=5, ref=e63]\n' +
+          '- generic "PLAY #96 ODK HASH L YARD LN-40 PLAY TYPE KO Rec RESULT Penalty QTR 1" [ref=e72]\n' +
+          '- generic "PLAY #97 ODK D HASH M YARD LN-35 PLAY TYPE Rush RESULT Gain QTR 1" [ref=e73]\n' +
+          '- generic "PLAY #98 ODK O HASH R YARD LN-20 PLAY TYPE Pass RESULT Complete QTR 1" [ref=e74]\n' +
+          '- generic "PLAY #99 ODK D HASH L YARD LN-10 PLAY TYPE Rush RESULT Touchdown QTR 1" [ref=e75]\n' +
+          '- generic "PLAY #100 ODK K HASH M YARD LN-03 PLAY TYPE Extra Pt RESULT Good QTR 1" [ref=e76]',
+        exitCode: 0,
+      });
+
+      mockInteract.mockResolvedValueOnce({
+        success: true,
+        stdout: JSON.stringify({
+          url: 'https://www.hudl.com/library/18832',
+          title: 'Library - Boys Varsity Football - Hudl',
+          playlistTitle: null,
+          userAgent: 'Mozilla/5.0 Test Browser',
+          cookies: [],
+        }),
+        exitCode: 0,
+      });
+
+      const result = await service.extractPlaylist(TEST_SESSION_ID, TEST_USER_ID, 5, {
+        selection: 'last',
+      });
+
+      expect(result.items).toHaveLength(5);
+      expect(result.items.map((item) => item.itemId)).toEqual([
+        'play-96',
+        'play-97',
+        'play-98',
+        'play-99',
+        'play-100',
+      ]);
+      expect(result.items.at(-1)?.textSnippet).toContain('Extra Pt');
     });
 
     it('should throw when no playlist items are detected', async () => {
@@ -888,6 +1094,52 @@ Thumbnail: https://images.example.com/clip-2.jpg
 
       expect(result.success).toBe(true);
       expect(result.output).toBe('Action completed successfully.');
+    });
+
+    it('should execute simple scroll prompts with deterministic browser code', async () => {
+      await service.startSession(TEST_USER_ID, { url: 'https://www.hudl.com/library/18832' });
+
+      mockInteract.mockResolvedValueOnce({
+        success: true,
+        stdout: JSON.stringify({
+          direction: 'bottom',
+          url: 'https://www.hudl.com/library/18832',
+          title: 'Library - Boys Varsity Football - Hudl',
+          before: { scrollTop: 0, scrollHeight: 5000, clientHeight: 900 },
+          after: { scrollTop: 4100, scrollHeight: 5000, clientHeight: 900 },
+          snapshot: 'Play #96\nPlay #97\nPlay #98\nPlay #99\nPlay #100',
+        }),
+        exitCode: 0,
+      });
+
+      const result = await service.executePrompt(
+        TEST_SESSION_ID,
+        TEST_USER_ID,
+        'Scroll all the way to the bottom of the clip list to see the last clips'
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.output).toContain('Deterministic scroll completed (bottom)');
+      expect(result.output).toContain('Play #100');
+      expect(mockInteract).toHaveBeenNthCalledWith(
+        2,
+        TEST_SESSION_ID,
+        expect.objectContaining({
+          code: expect.stringContaining('scrollContainer'),
+        })
+      );
+      expect(mockInteract.mock.calls[1][1]).not.toHaveProperty('prompt');
+    });
+
+    it('should purge the local session when Firecrawl reports a destroyed session', async () => {
+      await service.startSession(TEST_USER_ID, { url: 'https://www.example.com' });
+
+      mockInteract.mockRejectedValueOnce(new Error('Browser session has been destroyed.'));
+
+      await expect(
+        service.executePrompt(TEST_SESSION_ID, TEST_USER_ID, 'Click something')
+      ).rejects.toThrow('Browser session has expired. Open live view again to continue.');
+      expect(service.isSessionActive(TEST_SESSION_ID)).toBe(false);
     });
 
     it('should throw for unknown session', async () => {

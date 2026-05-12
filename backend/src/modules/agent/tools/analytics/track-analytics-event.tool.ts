@@ -30,7 +30,7 @@ const TrackAnalyticsEventInputSchema = z.object({
   templateKey: z.string().trim().min(1).optional(),
   value: z.union([z.number(), z.string(), z.boolean(), z.null()]).optional(),
   tags: z.array(z.string()).optional(),
-  payload: z.record(z.string(), z.unknown()),
+  payload: z.record(z.string(), z.unknown()).default({}),
   source: z.enum(['agent', 'user', 'system']).optional(),
 });
 

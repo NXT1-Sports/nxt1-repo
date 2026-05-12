@@ -22,12 +22,12 @@ import { NxtSectionHeaderComponent } from '../section-header';
       <div class="value-prop__header">
         <nxt1-section-header
           titleId="value-prop-title"
-          eyebrow="The Old Way vs. The NXT1 Way"
+          eyebrow="The Shift"
           align="center"
           [headingLevel]="2"
-          title="Stop Fighting Algorithms."
-          accentText="Start Commanding Attention."
-          subtitle="Move from scattered workflows and uncertainty to a professional recruiting system built for visibility, trust, and action."
+          title="From Fragmented Tools to Unified"
+          accentText="Intelligence Platform."
+          subtitle="Replace disconnected hustle with a Sports Intelligence Platform built for athletes, coaches, scouts, and program leadership."
         />
       </div>
 
@@ -40,38 +40,40 @@ import { NxtSectionHeaderComponent } from '../section-header';
         <article class="comparison-panel comparison-panel--old" aria-label="Old way">
           <header class="comparison-panel__header">
             <p class="comparison-panel__label">Old Way</p>
-            <h3 class="comparison-panel__title">Hard to Track. Easy to Miss.</h3>
+            <h3 class="comparison-panel__title">Scattered Tools. Hours Lost.</h3>
           </header>
 
           <div class="comparison-panel__surface" aria-hidden="true">
-            <div class="surface-card">Messy email chains</div>
-            <div class="surface-card">Google Doc stat sheets</div>
-            <div class="surface-card surface-card--strong">“Hope they see it.”</div>
+            <div class="surface-card">Data spread across 10 systems</div>
+            <div class="surface-card">Manual copy-paste and busywork</div>
+            <div class="surface-card surface-card--strong">
+              No central command center. No coordination.
+            </div>
           </div>
 
-          <ul class="comparison-panel__list" aria-label="Old recruiting process pain points">
-            <li>Fragmented updates across tools</li>
-            <li>No clear verification signal</li>
-            <li>Uncertain coach visibility</li>
+          <ul class="comparison-panel__list" aria-label="Old platform challenges">
+            <li>Your work lives in disconnected silos—film, stats, communications everywhere</li>
+            <li>You do the analysis. No intelligence layer to automate the heavy lifting.</li>
+            <li>Campaigns, workflows, and coordinated action take hours to execute manually</li>
           </ul>
         </article>
 
         <article class="comparison-panel comparison-panel--new" aria-label="NXT1 way">
           <header class="comparison-panel__header">
             <p class="comparison-panel__label">The NXT1 Way</p>
-            <h3 class="comparison-panel__title">Built for Elite Recruiting Outcomes.</h3>
+            <h3 class="comparison-panel__title">Built for Operational Advantage.</h3>
           </header>
 
           <div class="comparison-panel__surface" aria-hidden="true">
-            <div class="surface-card">ESPN-style graphics</div>
-            <div class="surface-card">Elite highlight reel</div>
-            <div class="surface-card surface-card--strong">Verified profile badge</div>
+            <div class="surface-card">Automated workflows from one command</div>
+            <div class="surface-card">End-to-end outcome tracking</div>
+            <div class="surface-card surface-card--strong">Execution playbooks with ownership</div>
           </div>
 
           <ul class="comparison-panel__list" aria-label="NXT1 recruiting workflow benefits">
-            <li>One-click send to coach</li>
-            <li>Read receipts and visibility tracking</li>
-            <li>Professional presentation by default</li>
+            <li>Coordinated outreach from one command center</li>
+            <li>Clear engagement signals and next-best actions</li>
+            <li>Consistent trust layer for athletes, coaches, scouts, and programs</li>
           </ul>
         </article>
 
@@ -223,6 +225,15 @@ import { NxtSectionHeaderComponent } from '../section-header';
         background: var(--nxt1-color-alpha-primary10);
         color: var(--nxt1-color-text-primary);
         border-color: var(--nxt1-color-alpha-primary30);
+      }
+
+      @media (max-width: 575px) {
+        .comparison-panel--new .surface-card {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          font-size: var(--nxt1-fontSize-xs);
+        }
       }
 
       .surface-card--strong {

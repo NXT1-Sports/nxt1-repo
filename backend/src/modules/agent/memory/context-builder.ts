@@ -421,13 +421,11 @@ export class ContextBuilder {
 
     const shouldShowProfileLinks = context.role === 'athlete';
     const hasExactNxt1Links =
-      (shouldShowProfileLinks &&
-        Boolean(context.profilePath || context.profilePathsBySport?.length)) ||
-      Boolean(context.teamPath || context.teamPaths?.length);
+      shouldShowProfileLinks && Boolean(context.profilePath || context.profilePathsBySport?.length);
 
     if (hasExactNxt1Links) {
       lines.push(
-        'Use the exact NXT1 URLs below when referencing a profile or team. Do not invent, shorten, or rewrite them.'
+        'Use the exact NXT1 profile URLs below when referencing a profile. Do not invent, shorten, or rewrite them.'
       );
     }
 
@@ -441,21 +439,6 @@ export class ContextBuilder {
         .map((link) => `${link.sport}: ${toAbsoluteAppUrl(link.path, { appBaseUrl })}`)
         .join(' | ');
       lines.push(`All Sport Profile URLs: ${profileLinks}`);
-    }
-
-    if (context.teamPath) {
-      lines.push(`Team URL: ${toAbsoluteAppUrl(context.teamPath, { appBaseUrl })}`);
-    }
-
-    if (context.teamPaths?.length) {
-      const teamLinks = context.teamPaths
-        .slice(0, 8)
-        .map(
-          (link) =>
-            `${link.teamName ?? link.teamCode}: ${toAbsoluteAppUrl(link.path, { appBaseUrl })}`
-        )
-        .join(' | ');
-      lines.push(`Team URLs: ${teamLinks}`);
     }
 
     if (recentSyncSummaries.length) {
@@ -678,16 +661,13 @@ export class ContextBuilder {
     const activeSport = sports?.[activeSportIndex] ?? sports?.[0];
     const coach = user['coach'] as Record<string, unknown> | undefined;
     const director = user['director'] as Record<string, unknown> | undefined;
-    const recruiter = user['recruiter'] as Record<string, unknown> | undefined;
 
     const roleSports =
       role === 'coach'
         ? asStringArray(coach?.['coachingSports'])
         : role === 'director'
           ? asStringArray(director?.['overseeSports'])
-          : role === 'coach'
-            ? asStringArray(recruiter?.['sports'])
-            : [];
+          : [];
 
     const sport =
       asString(activeSport?.['sport']) ??
@@ -1467,12 +1447,6 @@ export function resolvePrimarySport(userData: Record<string, unknown>): string {
     if (Array.isArray(arr) && arr.length > 0) return String(arr[0]);
   }
 
-  const recruiter = userData['recruiter'] as Record<string, unknown> | undefined;
-  if (recruiter) {
-    const arr = recruiter['sports'];
-    if (Array.isArray(arr) && arr.length > 0) return String(arr[0]);
-  }
-
   const director = userData['director'] as Record<string, unknown> | undefined;
   if (director) {
     const arr = director['overseeSports'];
@@ -1497,7 +1471,6 @@ function buildIdentityLine(
     case 'athlete':
       return buildAthleteIdentity(userData, name, primarySport, location);
     case 'coach':
-    case 'recruiter': // legacy → coach
       return buildCoachIdentity(userData, name, primarySport, location);
     case 'parent': // legacy → athlete
       return buildAthleteIdentity(userData, name, primarySport, location);
@@ -1693,8 +1666,6 @@ function buildRoleContext(role: string, userData: Record<string, unknown>): stri
       return buildParentRoleContext(userData);
     case 'director':
       return buildDirectorRoleContext(userData);
-    case 'recruiter':
-      return buildRecruiterRoleContext(userData);
     default:
       return null;
   }
@@ -1787,26 +1758,6 @@ function buildDirectorRoleContext(userData: Record<string, unknown>): string | n
   return `This director oversees the athletic program. ${base}`;
 }
 
-function buildRecruiterRoleContext(userData: Record<string, unknown>): string | null {
-  const base =
-    'Focus on prospect evaluation, relationship building, and talent pipeline management.';
-  const recruiter = userData['recruiter'] as Record<string, unknown> | undefined;
-
-  if (!recruiter) return base;
-
-  const lines: string[] = [];
-  const division = str(recruiter['division']);
-  if (division) lines.push(`Recruiting at the ${division} level.`);
-
-  const regions = recruiter['regions'];
-  if (Array.isArray(regions) && regions.length > 0) {
-    lines.push(`Active recruiting regions: ${regions.join(', ')}.`);
-  }
-
-  lines.push(base);
-  return lines.join(' ');
-}
-
 // ─── Recurring Habit Menus (Role × Season) ──────────────────────────────────
 
 interface RecurringHabitMenu {
@@ -1883,20 +1834,6 @@ const ROLE_HABITS: Readonly<Record<string, RecurringHabitMenu>> = {
       'Review athlete retention and transfer portal activity',
     ],
     general: ['Run a department-wide analytics review for the week'],
-  },
-
-  recruiter: {
-    inSeason: [
-      'Update your prospect evaluation board with weekend game observations',
-      'Log high-school coach communications and follow-ups from the week',
-      'Review weekend film of committed prospects and watchlist athletes',
-    ],
-    offSeason: [
-      'Refresh your recruiting target list and update prospect rankings',
-      'Review camp and showcase invitee lists for upcoming events',
-      'Audit your communication cadence with top prospects',
-    ],
-    general: ['Sync your recruiting pipeline — update contact logs and prospect notes'],
   },
 };
 

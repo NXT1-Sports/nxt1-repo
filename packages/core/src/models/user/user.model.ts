@@ -22,7 +22,6 @@ import {
   type AccountStatus,
   type Gender,
   type Theme,
-  type DismissablePrompt,
 } from '../../constants/user.constants';
 
 // Import all sub-types
@@ -73,10 +72,6 @@ export interface UserPreferences {
   /** Biometric login enabled (Face ID / Touch ID) */
   biometricLogin?: boolean;
 
-  /** Dismissed dialogs/tooltips */
-  dismissedPrompts: DismissablePrompt[];
-  /** Default sport to display (index in sports array) */
-  defaultSportIndex: number;
   theme?: Theme;
   language?: string;
 }
@@ -391,7 +386,12 @@ export function isDirector(user: User): boolean {
 export function isOnboarded(user: User): boolean {
   // onboardingCompletedAt is NEVER set by migration — only by real onboarding completion.
   // legacyOnboardingCompleted is set after a legacy user completes the 3-step intro.
-  return !!user.onboardingCompletedAt || user.legacyOnboardingCompleted === true;
+  // onboardingCompleted is a simple boolean flag that can be set via frontend or backend.
+  return (
+    !!user.onboardingCompletedAt ||
+    user.legacyOnboardingCompleted === true ||
+    user.onboardingCompleted === true
+  );
 }
 
 /** Check if user is verified (verified or premium status) */

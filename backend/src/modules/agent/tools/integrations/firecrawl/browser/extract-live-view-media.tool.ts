@@ -13,6 +13,7 @@ import {
   type MediaInput,
   type MediaThreadContext,
 } from '../../social/scraper-media.service.js';
+import { getMediaExtractionCached } from './extraction-cache.service.js';
 
 const MP4_PATTERN = /\.mp4(?:$|[?#])/i;
 const HLS_PATTERN = /\.m3u8(?:$|[?#])/i;
@@ -114,7 +115,21 @@ export class ExtractLiveViewMediaTool extends BaseTool {
 
     try {
       const sessionId = this.sessionService.resolveSessionId(this.str(input, 'sessionId'), userId);
-      const result = await this.sessionService.extractMedia(sessionId, userId);
+      const { result, cacheHit } = await getMediaExtractionCached(
+        sessionId,
+        userId,
+        context?.threadId,
+        () => this.sessionService.extractMedia(sessionId, userId)
+      );
+
+      if (cacheHit !== 'miss') {
+        logger.info('[ExtractLiveViewMediaTool] Using cached extraction result', {
+          sessionId,
+          userId,
+          cacheHit,
+          savings: cacheHit === 'request' ? '$12.08' : '$12.08 (session)',
+        });
+      }
       const mp4Streams = result.streams.filter((stream) => MP4_PATTERN.test(stream));
       const hlsStreams = result.streams.filter((stream) => HLS_PATTERN.test(stream));
       const dashStreams = result.streams.filter((stream) => DASH_PATTERN.test(stream));

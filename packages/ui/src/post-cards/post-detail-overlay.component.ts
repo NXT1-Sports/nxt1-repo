@@ -11,13 +11,21 @@
  * SSR-safe — no direct browser API access.
  */
 
-import { Component, ChangeDetectionStrategy, input, output, computed, inject } from '@angular/core';
+import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import type { IconName } from '@nxt1/design-tokens/assets/icons';
-import { NxtImageComponent } from '../components/image';
 import { NxtIconComponent } from '../components/icon';
 import { NxtAvatarComponent } from '../components/avatar';
+import {
+  type FeedExternalSource,
+  type FeedItemPost,
+  type FeedMedia,
+  type FeedNewsData,
+  type FeedPostTag,
+  type FeedPostType,
+  type FeedVideoProcessingStatus,
+} from '@nxt1/core';
+import { FeedPostContentComponent } from './feed-post-content.component';
 
 // ============================================
 // POST DETAIL INPUT — normalized shape compatible
@@ -32,12 +40,27 @@ export interface PostDetailInput {
   readonly id: string;
   readonly type: string;
   readonly title?: string;
+  /** Legacy alias for content body used by existing profile/team post DTOs. */
   readonly body?: string;
+  /** Canonical text body used by feed payloads. */
+  readonly content?: string;
+  /** Canonical feed media array (supports carousel with mixed images/videos). */
+  readonly media?: readonly FeedMedia[];
   readonly thumbnailUrl?: string;
   readonly mediaUrl?: string;
   /** Cloudflare Stream iframe embed URL (preferred for CF videos) */
   readonly iframeUrl?: string;
+  /** HLS stream URL for Cloudflare video playback */
+  readonly hlsUrl?: string;
+  /** Cloudflare Video ID */
+  readonly cloudflareVideoId?: string;
+  /** Cloudflare video processing status (e.g. 'ready', 'processing', 'error') */
+  readonly processingStatus?: FeedVideoProcessingStatus | string;
   readonly externalLink?: string;
+  readonly externalSource?: FeedExternalSource;
+  readonly location?: string;
+  readonly postTags?: readonly FeedPostTag[];
+  readonly embeds?: readonly FeedNewsData[];
   readonly shareCount?: number;
   readonly viewCount?: number;
   readonly duration?: number;
@@ -67,7 +90,7 @@ const TYPE_LABELS: Record<string, string> = {
 @Component({
   selector: 'nxt1-post-detail-overlay',
   standalone: true,
-  imports: [NxtImageComponent, NxtIconComponent, NxtAvatarComponent, DatePipe, DecimalPipe],
+  imports: [NxtIconComponent, NxtAvatarComponent, FeedPostContentComponent, DatePipe, DecimalPipe],
   template: `
     <div
       class="pdo-panel"
@@ -120,76 +143,16 @@ const TYPE_LABELS: Record<string, string> = {
           </div>
         </div>
 
-        <!-- ── MEDIA ── -->
-        @if (hasVideo()) {
-          <div class="pdo-video-wrap">
-            @if (videoEmbedUrl(); as embedUrl) {
-              <iframe
-                [src]="embedUrl"
-                class="pdo-video-iframe"
-                allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                allowfullscreen
-                loading="lazy"
-                title="{{ post().title || 'Post video' }}"
-              ></iframe>
-            } @else {
-              <!-- Video is still processing — show thumbnail if available, otherwise placeholder -->
-              <div class="pdo-video-processing">
-                @if (post().thumbnailUrl) {
-                  <nxt1-image
-                    [src]="post().thumbnailUrl!"
-                    alt="Video thumbnail"
-                    [width]="800"
-                    [height]="450"
-                    fit="cover"
-                    class="pdo-video-thumb"
-                  />
-                }
-                <div class="pdo-video-processing-overlay">
-                  <span class="pdo-video-processing-label">Video processing…</span>
-                </div>
-              </div>
-            }
-          </div>
-        } @else if (hasImage()) {
-          <div class="pdo-image-wrap">
-            <nxt1-image
-              [src]="imageUrl()"
-              [alt]="post().title || 'Post media'"
-              [width]="800"
-              [height]="500"
-              fit="cover"
-              class="pdo-image"
-            />
-          </div>
-        }
-
-        <!-- ── CONTENT ── -->
-        @if (post().title) {
-          <h2 class="pdo-title">{{ post().title }}</h2>
-        }
-
-        @if (post().body) {
-          <p class="pdo-body-text">{{ post().body }}</p>
-        }
-
-        @if (post().externalLink) {
-          <a
-            [href]="post().externalLink"
-            class="pdo-external-link"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <nxt1-icon name="open" [size]="14" />
-            View Source
-          </a>
-        }
+        <!-- ── CONTENT (shared renderer with feed timeline cards) ── -->
+        <div class="pdo-content-wrap">
+          <nxt1-feed-post-content [data]="feedPostData()" />
+        </div>
 
         <!-- ── STATS BAR ── -->
         <div class="pdo-stats-bar">
           @if (post().viewCount) {
             <span class="pdo-stat">
-              <nxt1-icon name="eye" [size]="14" aria-hidden="true" />
+              <nxt1-icon name="barChart" [size]="14" aria-hidden="true" />
               {{ post().viewCount | number }} views
             </span>
           }
@@ -375,108 +338,14 @@ const TYPE_LABELS: Record<string, string> = {
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
       }
 
-      /* ─── MEDIA ─── */
-      .pdo-video-wrap {
-        position: relative;
-        width: 100%;
-        aspect-ratio: 16 / 9;
-        background: #000;
-        overflow: hidden;
-      }
-
-      .pdo-video-iframe {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-        border: none;
-      }
-
-      .pdo-video-processing {
-        position: absolute;
-        inset: 0;
-        width: 100%;
-        height: 100%;
-      }
-
-      .pdo-video-thumb {
-        display: block;
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        opacity: 0.4;
-      }
-
-      .pdo-video-processing-overlay {
-        position: absolute;
-        inset: 0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: rgba(0, 0, 0, 0.45);
-      }
-
-      .pdo-video-processing-label {
-        font-size: 13px;
-        font-weight: 600;
-        color: rgba(255, 255, 255, 0.75);
-        letter-spacing: 0.02em;
-      }
-
-      .pdo-image-wrap {
-        width: 100%;
-        max-height: 420px;
-        overflow: hidden;
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
-      }
-
-      .pdo-image {
-        display: block;
-        width: 100%;
-        height: 100%;
-        max-height: 420px;
-        object-fit: cover;
-      }
-
       /* ─── CONTENT ─── */
-      .pdo-title {
-        font-size: 18px;
-        font-weight: 700;
-        color: var(--nxt1-color-text-primary, #fff);
-        line-height: 1.4;
-        margin: 0;
-        padding: 16px 20px 4px;
-        font-family: var(--nxt1-fontFamily-brand, 'Rajdhani', sans-serif);
+      .pdo-content-wrap {
+        padding: 0 20px;
       }
 
-      .pdo-body-text {
-        font-size: 14px;
-        line-height: 1.65;
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-        margin: 0;
-        padding: 8px 20px 0;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-
-      .pdo-external-link {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        margin: 12px 20px 0;
-        padding: 6px 14px;
-        border-radius: 8px;
-        border: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
-        background: var(--nxt1-color-surface-100, rgba(255, 255, 255, 0.04));
-        color: var(--nxt1-color-primary, #d4ff00);
-        font-size: 13px;
-        font-weight: 600;
-        text-decoration: none;
-        transition: background 0.15s ease;
-      }
-
-      .pdo-external-link:hover {
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.08));
+      :host ::ng-deep .pdo-content-wrap .post-content__media {
+        margin-left: -20px;
+        margin-right: -20px;
       }
 
       /* ─── STATS BAR ─── */
@@ -514,8 +383,6 @@ const TYPE_LABELS: Record<string, string> = {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class PostDetailOverlayComponent {
-  private readonly sanitizer = inject(DomSanitizer);
-
   // ─── INPUTS ───
   readonly post = input.required<PostDetailInput>();
   readonly author = input<PostAuthorInfo>({ name: 'Athlete' });
@@ -543,34 +410,82 @@ export class PostDetailOverlayComponent {
     return map[this.post().type] ?? 'documentText';
   });
 
-  protected readonly hasVideo = computed(() => {
-    const p = this.post();
-    return !!(p.iframeUrl || (p.type === 'video' && (p.mediaUrl || p.thumbnailUrl)));
-  });
+  protected readonly feedPostData = computed<FeedItemPost>(() => {
+    const post = this.post();
+    const fallbackMedia: FeedMedia[] = [];
 
-  protected readonly hasImage = computed(() => {
-    const p = this.post();
-    if (this.hasVideo()) return false;
-    return !!(p.thumbnailUrl || (p.type === 'image' && p.mediaUrl));
-  });
+    if (post.media?.length) {
+      fallbackMedia.push(...post.media);
+    } else if (post.mediaUrl || post.thumbnailUrl || post.iframeUrl) {
+      const type = post.type === 'video' ? 'video' : 'image';
+      fallbackMedia.push({
+        id: `${post.id}-media-0`,
+        type,
+        // For video: iframeUrl is the primary renderable URL (Cloudflare Stream player)
+        url:
+          type === 'video'
+            ? (post.iframeUrl ?? post.mediaUrl ?? post.thumbnailUrl ?? '')
+            : (post.mediaUrl ?? post.thumbnailUrl ?? ''),
+        thumbnailUrl: post.thumbnailUrl,
+        duration: post.duration,
+        iframeUrl: post.iframeUrl,
+        hlsUrl: post.hlsUrl,
+        cloudflareVideoId: post.cloudflareVideoId,
+        processingStatus: post.processingStatus as FeedVideoProcessingStatus | undefined,
+        altText: post.title ?? undefined,
+      });
+    }
 
-  protected readonly videoEmbedUrl = computed<SafeResourceUrl | null>(() => {
-    const p = this.post();
-    const rawUrl = p.iframeUrl ?? p.mediaUrl ?? '';
-    if (!rawUrl) return null;
-    return this.sanitizer.bypassSecurityTrustResourceUrl(rawUrl);
-  });
+    const normalizedPostType = this.normalizePostType(post.type);
+    const derivedContent = post.content ?? post.body;
+    const externalSource: FeedExternalSource | undefined =
+      post.externalSource ??
+      (post.externalLink
+        ? {
+            platform: 'External',
+            label: 'External Source',
+            originalUrl: post.externalLink,
+          }
+        : undefined);
 
-  protected readonly imageUrl = computed(() => {
-    const p = this.post();
-    return p.thumbnailUrl ?? p.mediaUrl ?? '';
+    return {
+      id: post.id,
+      feedType: 'POST',
+      postType: normalizedPostType,
+      title: post.title,
+      content: derivedContent,
+      media: fallbackMedia,
+      location: post.location,
+      externalSource,
+      postTags: post.postTags,
+      embeds: post.embeds,
+      isPinned: !!post.isPinned,
+      createdAt: post.createdAt,
+      updatedAt: post.createdAt,
+      author: {
+        uid: 'post-detail-overlay',
+        profileCode: '',
+        displayName: this.author().name,
+        firstName: '',
+        lastName: '',
+        avatarUrl: this.author().avatarUrl,
+      },
+      engagement: {
+        likeCount: 0,
+        commentCount: 0,
+        shareCount: post.shareCount ?? 0,
+        viewCount: post.viewCount ?? 0,
+        saveCount: 0,
+      },
+    };
   });
 
   protected readonly durationLabel = computed(() => {
     const dur = this.post().duration;
     if (!dur) return '';
-    const m = Math.floor(dur / 60);
-    const s = dur % 60;
+    const totalSeconds = Math.max(0, Math.floor(dur));
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
     return m > 0 ? `${m}:${String(s).padStart(2, '0')}` : `0:${String(s).padStart(2, '0')}`;
   });
 
@@ -578,5 +493,29 @@ export class PostDetailOverlayComponent {
 
   protected onClose(): void {
     this.close.emit();
+  }
+
+  private normalizePostType(type: string): FeedPostType {
+    switch (type) {
+      case 'stat':
+        return 'stats';
+      case 'metric':
+        return 'metrics';
+      case 'announcement':
+        return 'news';
+      case 'news':
+      case 'video':
+      case 'image':
+      case 'text':
+      case 'offer':
+      case 'award':
+      case 'camp':
+      case 'visit':
+      case 'game':
+      case 'schedule':
+        return type;
+      default:
+        return 'text';
+    }
   }
 }

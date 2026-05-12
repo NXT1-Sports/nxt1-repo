@@ -207,6 +207,19 @@ export const BILLING_TIER_MAP: Record<string, keyof typeof MODEL_CATALOGUE> = {
  */
 export const IMAGE_MODEL = 'google/gemini-3-pro-image-preview' as const;
 
+export const SUPPORTED_IMAGE_GENERATION_MODELS = [
+  'google/gemini-3-pro-image-preview',
+  'openai/gpt-5.4-image-2',
+] as const;
+
+export function resolveSafeImageGenerationModel(model: string): string {
+  return SUPPORTED_IMAGE_GENERATION_MODELS.includes(
+    model as (typeof SUPPORTED_IMAGE_GENERATION_MODELS)[number]
+  )
+    ? model
+    : IMAGE_MODEL;
+}
+
 /** Timeout for image generation requests (models are slow). */
 export const IMAGE_GENERATION_TIMEOUT_MS = 180_000;
 

@@ -101,11 +101,12 @@ npm run e2e               # Critical flows
 
 **NEVER manually deploy. Push to branch → CI handles it.**
 
-| Branch      | Action                          | Auto-Deploy? |
-| ----------- | ------------------------------- | ------------ |
-| `feature/*` | CI tests, no deploy             | No           |
-| `develop`   | CI tests + deploy to staging    | Yes          |
-| `main`      | CI tests + deploy to production | Yes          |
+| Branch       | Action                        | Auto-Deploy? |
+| ------------ | ----------------------------- | ------------ |
+| `feature/*`  | CI tests, no deploy           | No           |
+| `develop`    | CI tests (integration branch) | No           |
+| `main`       | CI tests + web staging deploy | Yes          |
+| `production` | CI tests + production deploys | Yes          |
 
 **Before merging:**
 
@@ -400,7 +401,7 @@ document thoroughly.
 
 **Before writing code:**
 
-- [ ] Read [GitHub Copilot Instructions](../.github/copilot-instructions.md)
+- [ ] Read [GitHub Copilot Instructions](../../.github/copilot-instructions.md)
 - [ ] Read [Architecture Overview](../architecture/ARCHITECTURE.md)
 - [ ] Clone repo, run `npm install`, verify build works
 - [ ] Deploy to staging once (via CI, not manually)
@@ -419,16 +420,16 @@ document thoroughly.
 
 ## 📚 Reference Docs
 
-| Topic              | Location                                                                 |
-| ------------------ | ------------------------------------------------------------------------ |
-| Architecture       | [ARCHITECTURE.md](../architecture/ARCHITECTURE.md)                       |
-| Caching            | [CACHING-STRATEGY.md](../infrastructure/CACHING-STRATEGY.md)             |
-| CI/CD Setup        | [CI-CD-SETUP.md](../infrastructure/CI-CD-SETUP.md)                       |
-| Crashlytics        | [CRASHLYTICS-SETUP.md](../testing/CRASHLYTICS-SETUP.md)                  |
-| Runtime Monitoring | [RUNTIME-ERROR-MONITORING.md](../testing/RUNTIME-ERROR-MONITORING.md)    |
-| E2E Testing        | [E2E-TESTING.md](../testing/E2E-TESTING.md)                              |
-| Design System      | [DESIGN-SYSTEM.md](../frontend/DESIGN-SYSTEM.md)                         |
-| Copilot Guidelines | [../.github/copilot-instructions.md](../.github/copilot-instructions.md) |
+| Topic              | Location                                                                       |
+| ------------------ | ------------------------------------------------------------------------------ |
+| Architecture       | [ARCHITECTURE.md](../architecture/ARCHITECTURE.md)                             |
+| Caching            | [CACHING-STRATEGY.md](../infrastructure/CACHING-STRATEGY.md)                   |
+| CI/CD Setup        | [CI-CD-SETUP.md](../infrastructure/CI-CD-SETUP.md)                             |
+| Crashlytics        | [CRASHLYTICS-SETUP.md](../testing/CRASHLYTICS-SETUP.md)                        |
+| Runtime Monitoring | Covered by CI/CD setup and Crashlytics docs                                    |
+| E2E Testing        | [E2E-TESTING.md](../testing/E2E-TESTING.md)                                    |
+| Design System      | [DESIGN-SYSTEM.md](../frontend/DESIGN-SYSTEM.md)                               |
+| Copilot Guidelines | [../../.github/copilot-instructions.md](../../.github/copilot-instructions.md) |
 
 ---
 

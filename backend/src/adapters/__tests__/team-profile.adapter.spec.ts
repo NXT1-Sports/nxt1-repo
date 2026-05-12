@@ -165,7 +165,7 @@ describe('mapTeamCodeToProfile', () => {
     expect(result.roster[0]?.unicode).toBe('legacy-athlete');
   });
 
-  it('prefers canonical roster fields and falls back to legacy playerId for user hydration', async () => {
+  it('uses canonical userId roster mapping and preserves cached names for pending entries', async () => {
     getUsersByIdsMock.mockResolvedValue([
       {
         id: 'athlete-canonical-1',
@@ -178,11 +178,11 @@ describe('mapTeamCodeToProfile', () => {
         sports: [{ sport: 'Basketball', positions: ['SG'] }],
       },
       {
-        id: 'athlete-legacy-1',
+        id: 'athlete-canonical-2',
         firstName: 'Taylor',
-        lastName: 'Legacy',
-        displayName: 'Taylor Legacy',
-        unicode: 'taylor-legacy',
+        lastName: 'Linked',
+        displayName: 'Taylor Linked',
+        unicode: 'taylor-linked',
         role: 'athlete',
         classOf: 2029,
         sports: [{ sport: 'Basketball', positions: ['SF'] }],
@@ -203,12 +203,24 @@ describe('mapTeamCodeToProfile', () => {
       {
         id: 'r2',
         teamId: 'team-canonical',
-        playerId: 'athlete-legacy-1',
+        userId: 'athlete-canonical-2',
         role: 'athlete',
         status: RosterEntryStatus.ACTIVE,
         sport: 'Basketball',
         position: 'PF',
         classYear: '2026',
+      },
+      {
+        id: 'r3',
+        teamId: 'team-canonical',
+        role: 'athlete',
+        status: RosterEntryStatus.PENDING,
+        claimStatus: 'pending',
+        firstName: 'Casey',
+        lastName: 'Prospect',
+        displayName: 'Casey Prospect',
+        sport: 'Basketball',
+        classOf: 2030,
       },
     ]);
 
@@ -224,22 +236,34 @@ describe('mapTeamCodeToProfile', () => {
       db as never
     );
 
-    expect(result.roster).toHaveLength(2);
+    expect(result.roster).toHaveLength(3);
     expect(result.roster.map((member) => member.id)).toEqual([
       'athlete-canonical-1',
-      'athlete-legacy-1',
+      'athlete-canonical-2',
+      'r3',
     ]);
     expect(result.roster[0]).toMatchObject({
       id: 'athlete-canonical-1',
       unicode: 'jordan-miles',
       position: 'PG',
       classYear: '2027',
+      isProfileNavigable: true,
     });
     expect(result.roster[1]).toMatchObject({
-      id: 'athlete-legacy-1',
-      unicode: 'taylor-legacy',
-      position: 'PF',
+      id: 'athlete-canonical-2',
+      unicode: 'taylor-linked',
+      position: 'SF',
       classYear: '2026',
+      isProfileNavigable: true,
+    });
+    expect(result.roster[2]).toMatchObject({
+      id: 'r3',
+      firstName: 'Casey',
+      lastName: 'Prospect',
+      displayName: 'Casey Prospect',
+      classYear: '2030',
+      isClaimed: false,
+      isProfileNavigable: false,
     });
   });
 });
