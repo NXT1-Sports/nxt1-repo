@@ -62,12 +62,23 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- Fingerprint/Biometric: USE_FINGERPRINT implies android.hardware.fingerprint — must be optional -->
+    <uses-feature android:name="android.hardware.fingerprint" android:required="false" />
+
     <!-- Geolocation Permissions (Required for @capacitor/geolocation) -->
+    <!-- ACCESS_COARSE_LOCATION implies location.network; ACCESS_FINE_LOCATION implies location.gps — both optional -->
+    <uses-feature android:name="android.hardware.location" android:required="false" />
+    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
+    <uses-feature android:name="android.hardware.location.network" android:required="false" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <!-- Camera Permissions (for profile photos and videos) -->
+    <!-- required="false" ensures devices without cameras (tablets, etc.) are not filtered from Play Store -->
+    <!-- android.permission.CAMERA implicitly requires camera + camera.autofocus — both must be optional -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.front" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />

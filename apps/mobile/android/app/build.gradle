@@ -14,7 +14,7 @@ android {
         applicationId "com.nxt1sports.app.twa"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 321
+        versionCode 415
         versionName "5.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
@@ -47,6 +47,20 @@ android {
         sourceCompatibility JavaVersion.VERSION_21
         targetCompatibility JavaVersion.VERSION_21
     }
+    bundle {
+        abi {
+            // Disable all AAB splits → Play Store serves a single universal APK to ALL devices.
+            // Required because previous production releases were universal (no splits),
+            // so any device that had the old app installed must be able to receive an upgrade.
+            enableSplit false
+        }
+        density {
+            enableSplit false
+        }
+        language {
+            enableSplit false
+        }
+    }
 }
 
 repositories {
@@ -62,9 +76,9 @@ dependencies {
     implementation "androidx.core:core-splashscreen:$coreSplashScreenVersion"
     implementation project(':capacitor-android')
     
-    // Firebase Performance Monitoring SDK (automatically collected metrics)
+    // Firebase BOM — manages all Firebase SDK versions
     implementation platform('com.google.firebase:firebase-bom:34.8.0')
-    implementation 'com.google.firebase:firebase-perf'
+    // firebase-perf removed — its Gradle plugin caused AAB routing conflicts in Play Store
     
     // Firebase Crashlytics & Analytics (Required for proper routing and crash-free users)
     implementation 'com.google.firebase:firebase-crashlytics'
@@ -83,16 +97,17 @@ try {
         apply plugin: 'com.google.gms.google-services'
         // Firebase Crashlytics plugin - upload mapping files for deobfuscation
         apply plugin: 'com.google.firebase.crashlytics'
-        // Firebase Performance Monitoring plugin - automatic HTTP/S monitoring
-        apply plugin: 'com.google.firebase.firebase-perf'
+        // firebase-perf plugin removed — caused AAB routing conflicts in Play Store
         
         // Configure Crashlytics after plugin is applied
         android.buildTypes.release {
             firebaseCrashlytics {
                 // Upload mapping files for code deobfuscation
                 mappingFileUploadEnabled true
-                // Enable native symbol upload for NDK crashes (if using native code)
-                nativeSymbolUploadEnabled true
+                // nativeSymbolUploadEnabled is for NDK/C++ apps only.
+                // Capacitor is a WebView app — no custom native code, so this must be false.
+                // Setting to true with no NDK code breaks ABI coverage in the AAB.
+                nativeSymbolUploadEnabled false
             }
         }
         android.buildTypes.debug {
