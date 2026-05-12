@@ -6,6 +6,7 @@ import { NxtLoggingService } from '../../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { AgentXJobService, isEnqueueFailure } from '../../agent-x/services/agent-x-job.service';
+import { ProfileGenerationStateService } from '../../profile/profile-generation-state.service';
 
 export interface ConnectedAccountsResyncSource {
   readonly platform: string;
@@ -26,6 +27,7 @@ export class ConnectedAccountsResyncService {
   private readonly analytics: AnalyticsAdapter | null =
     inject(ANALYTICS_ADAPTER, { optional: true }) ?? null;
   private readonly agentXJobService = inject(AgentXJobService);
+  private readonly profileGeneration = inject(ProfileGenerationStateService);
 
   async request(
     accounts: readonly ConnectedAccountsResyncSource[] = [],
@@ -85,6 +87,11 @@ export class ConnectedAccountsResyncService {
         jobId: job.jobId,
         operationId: job.operationId,
       });
+
+      // Start the profile generation banner immediately for account re-sync jobs.
+      // This keeps /profile UX consistent even when backend tool-step labels evolve.
+      this.profileGeneration.attachToOperation(job.operationId, job.threadId, platformSummary);
+
       return true;
     } catch (err) {
       this.toast.error('Unable to start re-sync right now. Please try again.');

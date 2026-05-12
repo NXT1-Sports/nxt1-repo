@@ -11,8 +11,8 @@ Department.**
 
 When you use NXT1, you aren't just downloading an app; you are hiring a
 fully-staffed, AI-powered athletic department that works for you 24/7. We
-elevate athletes, coaches, scouts, and programs to a **Grade A+** operational
-standard.
+elevate high school athletic departments, competitive youth clubs, and
+multi-sport facilities to a **Grade A+** operational standard.
 
 ### The NXT1 Advantage: Active vs. Passive
 
@@ -40,9 +40,9 @@ an entire front office:
   background, providing daily proactive briefings, and keeping you steps ahead
   of the competition.
 
-This framework also supports the broader ICP around each decision-maker: parents
-and content creators who help athletes and programs execute with speed and
-consistency.
+This framework also supports activated users around each decision-maker:
+athletes and families, plus content creators who help programs execute with
+speed and consistency.
 
 We don't just give you a better hammer. We are the builders. Welcome to the
 **Grade A+** standard of sports tech.

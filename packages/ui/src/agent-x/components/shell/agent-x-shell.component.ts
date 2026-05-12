@@ -656,7 +656,7 @@ function sortCoordinatorCategories(
         justify-content: center;
         width: 100%;
         margin-top: -2px;
-        margin-left: -36px;
+        margin-left: -39px;
       }
 
       .header-logo nxt1-logo {

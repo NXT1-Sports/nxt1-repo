@@ -54,6 +54,6 @@ generates it. When it's time to communicate with universities, Agent X builds
 the outreach plan, sends the emails, and organizes the replies.
 
 NXT1 pairs Moneyball-level predictive intelligence with an AI engine that
-executes your daily tasks. It's the end of the passive profile, and the
-beginning of the active command center for athletes, coaches, scouts, and
-program leaders."
+executes daily operations. It's the end of the passive profile, and the
+beginning of the active command center for high school athletic departments,
+competitive youth clubs, and multi-sport facility operators."

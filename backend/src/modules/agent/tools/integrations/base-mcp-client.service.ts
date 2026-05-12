@@ -447,14 +447,35 @@ export abstract class BaseMcpClientService {
       } catch (err) {
         this.reconnectAttempts++;
         const delay = RECONNECT_BASE_DELAY_MS * Math.pow(2, this.reconnectAttempts - 1);
+        const isNonRetryableConnectError = this.isNonRetryableConnectError(err);
 
         logger.warn(
           `[MCP:${this.serverName}] Connection attempt ${this.reconnectAttempts} failed`,
           {
             error: err instanceof Error ? err.message : String(err),
-            nextRetryMs: this.reconnectAttempts <= MAX_RECONNECT_ATTEMPTS ? delay : null,
+            nextRetryMs:
+              !isNonRetryableConnectError && this.reconnectAttempts <= MAX_RECONNECT_ATTEMPTS
+                ? delay
+                : null,
           }
         );
+
+        if (isNonRetryableConnectError) {
+          this.openCircuit(CIRCUIT_BREAKER_DEFAULT_OPEN_MS, 'transport');
+          throw new AgentEngineError(
+            'AGENT_SERVICE_UNAVAILABLE',
+            `[MCP:${this.serverName}] Non-retryable connection failure: ` +
+              (err instanceof Error ? err.message : String(err)),
+            {
+              cause: err,
+              metadata: {
+                serverName: this.serverName,
+                reconnectAttempts: this.reconnectAttempts,
+                nonRetryable: true,
+              },
+            }
+          );
+        }
 
         if (this.reconnectAttempts > MAX_RECONNECT_ATTEMPTS) {
           throw new AgentEngineError(
@@ -849,6 +870,36 @@ export abstract class BaseMcpClientService {
       msg.includes('network') ||
       msg.includes('fetch failed') ||
       msg.includes('stream')
+    );
+  }
+
+  /**
+   * Local process/bootstrap failures are not helped by reconnect backoff.
+   */
+  private isNonRetryableConnectError(err: unknown): boolean {
+    const errorRecord = err as {
+      code?: unknown;
+      cause?: {
+        code?: unknown;
+      };
+    };
+
+    const details = [
+      err instanceof Error ? err.message : String(err),
+      typeof errorRecord.code === 'string' ? errorRecord.code : '',
+      typeof errorRecord.cause?.code === 'string' ? errorRecord.cause.code : '',
+    ]
+      .join(' ')
+      .toLowerCase();
+
+    return (
+      details.includes('enospc') ||
+      details.includes('no space left on device') ||
+      details.includes('enoent') ||
+      details.includes('command not found') ||
+      details.includes('eacces') ||
+      details.includes('permission denied') ||
+      details.includes('exec format error')
     );
   }
 }

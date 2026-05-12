@@ -48,17 +48,6 @@ import { logger } from '../../../utils/logger.js';
 /** Firestore collection for approval request documents. */
 const APPROVALS_COLLECTION = 'AgentApprovalRequests' as const;
 
-const LIVE_VIEW_DESTRUCTIVE_KEYWORDS =
-  /\b(submit|send|confirm|purchase|buy|place\s+order|delete|remove|pay|checkout|sign\s+up|register|apply|publish|post|transfer|authorize|approve)\b/i;
-
-const LIVE_VIEW_APPROVAL_POLICY: AgentApprovalPolicy = {
-  toolName: 'interact_with_live_view',
-  requiresApproval: true,
-  autoApproveOnExpiry: false,
-  expiryMs: 86_400_000,
-  riskLevel: 'high',
-};
-
 const APPROVAL_RETENTION_TTL_DAYS = 30;
 
 function approvalRecordTtlFromNow(days: number): FirebaseFirestore.Timestamp {
@@ -271,23 +260,6 @@ export class ApprovalGateService {
       };
     }
 
-    if (toolName === 'interact_with_live_view') {
-      const prompt = typeof toolInput['prompt'] === 'string' ? toolInput['prompt'].trim() : '';
-      if (!prompt || !LIVE_VIEW_DESTRUCTIVE_KEYWORDS.test(prompt)) {
-        return null;
-      }
-
-      const copy = resolveAgentApprovalCopy({
-        toolName,
-        toolInput,
-      });
-      return {
-        policy: LIVE_VIEW_APPROVAL_POLICY,
-        reasonCode: copy.reasonCode,
-        actionSummary: copy.actionSummary,
-      };
-    }
-
     return null;
   }
 
@@ -339,7 +311,13 @@ export class ApprovalGateService {
       toolInput: normalizedInput,
     });
     const approvalCopy = requirement ?? {
-      policy: policy ?? LIVE_VIEW_APPROVAL_POLICY,
+      policy: policy ?? {
+        toolName: params.toolName,
+        requiresApproval: true,
+        autoApproveOnExpiry: false,
+        expiryMs: 86_400_000,
+        riskLevel: 'high',
+      },
       reasonCode: fallbackCopy.reasonCode,
       actionSummary: fallbackCopy.actionSummary,
     };

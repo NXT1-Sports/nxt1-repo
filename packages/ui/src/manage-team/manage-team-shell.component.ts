@@ -27,6 +27,7 @@ import { isPlatformBrowser } from '@angular/common';
 import { IonSpinner } from '@ionic/angular/standalone';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type {
+  ConnectedSource,
   ManageTeamSectionId,
   ManageTeamFormData,
   RosterActionEvent,
@@ -174,6 +175,10 @@ export interface ManageTeamCloseEvent {
               />
             </div>
           </div>
+          <p class="nxt1-mt-media-help">
+            Logo appears on your team profile, invites, and cards. Team images fill the profile
+            gallery and give Agent X real visuals for graphics.
+          </p>
 
           <!-- Connected Accounts -->
           <nxt1-list-section header="Connected accounts">
@@ -186,9 +191,9 @@ export interface ManageTeamCloseEvent {
 
           <!-- Team setup / branding -->
           <nxt1-list-section header="Team setup">
-            <nxt1-list-row label="Website & branding" (tap)="manageTeamSetup()">
-              <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!accountsSummary()">
-                {{ accountsSummary() || 'Update team setup' }}
+            <nxt1-list-row label="Branding" (tap)="manageTeamSetup()">
+              <span class="nxt1-list-value" [class.nxt1-list-placeholder]="!brandingSummary()">
+                {{ brandingSummary() || 'Update branding' }}
               </span>
             </nxt1-list-row>
           </nxt1-list-section>
@@ -439,6 +444,14 @@ export interface ManageTeamCloseEvent {
         min-width: 0;
       }
 
+      .nxt1-mt-media-help {
+        margin: calc(-1 * var(--nxt1-spacing-3)) 0 0;
+        color: var(--nxt1-color-text-tertiary);
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
+        line-height: var(--nxt1-lineHeight-normal);
+      }
+
       /* ============================================
          LIST ROW VALUES
          ============================================ */
@@ -675,12 +688,7 @@ export class ManageTeamShellComponent implements OnInit {
 
   protected readonly emailSummary = computed(() => this.service.formData()?.contact?.email ?? '');
   protected readonly phoneSummary = computed(() => this.service.formData()?.contact?.phone ?? '');
-  protected readonly accountsSummary = computed(() => {
-    const website = this.service.formData()?.contact?.website?.trim();
-    if (website) {
-      return website.replace(/^https?:\/\/(www\.)?/i, '');
-    }
-
+  protected readonly brandingSummary = computed(() => {
     const branding = this.service.formData()?.branding;
     const configuredCount = [
       branding?.logo,
@@ -745,10 +753,9 @@ export class ManageTeamShellComponent implements OnInit {
     this.emitAction('accounts', 'manage');
 
     const result = await this.modalService.actionSheet({
-      title: 'Team Setup',
-      message: 'Choose what you want to update.',
+      title: 'Team Branding',
+      message: 'Choose the brand color you want to update.',
       actions: [
-        { text: 'Website', data: 'website' },
         { text: 'Primary Color', data: 'primaryColor' },
         { text: 'Secondary Color', data: 'secondaryColor' },
         { text: 'Cancel', cancel: true },
@@ -761,12 +768,6 @@ export class ManageTeamShellComponent implements OnInit {
     }
 
     switch (result.data) {
-      case 'website':
-        await this.editWebsite();
-        break;
-      case 'logo':
-        await this.openLogoPrompt();
-        break;
       case 'primaryColor':
       case 'secondaryColor':
         await this.editBrandColor(result.data);
@@ -780,10 +781,7 @@ export class ManageTeamShellComponent implements OnInit {
     const sport = this.service.formData()?.basicInfo?.sport;
     const selectedSports = sport ? [sport] : [];
 
-    const linkSourcesData = buildLinkSourcesFormData({
-      connectedSources: this.service.connectedSources(),
-      connectedEmails: [],
-    }) as LinkSourcesFormData | null;
+    const linkSourcesData = this.buildTeamLinkSourcesData();
 
     const result = await this.connectedAccountsModal.open({
       role: 'coach',
@@ -797,11 +795,58 @@ export class ManageTeamShellComponent implements OnInit {
     }
 
     const connectedSources = mapToConnectedSources(result.linkSources.links);
+    this.syncWebsiteFromConnectedSources(connectedSources);
     this.service.setConnectedSources(connectedSources);
     this.emitAction('accounts', 'editConnectedAccounts', {
       count: connectedSources.length,
     });
     this.service.expandSection('accounts');
+  }
+
+  private buildTeamLinkSourcesData(): LinkSourcesFormData | null {
+    return buildLinkSourcesFormData({
+      connectedSources: this.connectedSourcesWithWebsite(),
+      connectedEmails: [],
+    }) as LinkSourcesFormData | null;
+  }
+
+  private connectedSourcesWithWebsite(): ConnectedSource[] {
+    const connectedSources = [...this.service.connectedSources()];
+    const website = this.service.formData()?.contact?.website?.trim();
+    if (!website) {
+      return connectedSources;
+    }
+
+    const hasWebsiteSource = connectedSources.some(
+      (source) => source.platform.trim().toLowerCase() === 'website'
+    );
+    if (hasWebsiteSource) {
+      return connectedSources;
+    }
+
+    return [
+      {
+        platform: 'website',
+        profileUrl: website,
+        connected: true,
+        scopeType: 'team',
+      },
+      ...connectedSources,
+    ];
+  }
+
+  private syncWebsiteFromConnectedSources(sources: readonly ConnectedSource[]): void {
+    const website =
+      sources
+        .find((source) => source.platform.trim().toLowerCase() === 'website')
+        ?.profileUrl.trim() ?? '';
+    const currentWebsite = this.service.formData()?.contact?.website?.trim() ?? '';
+
+    if (website === currentWebsite) {
+      return;
+    }
+
+    this.service.updateField({ sectionId: 'contact', fieldId: 'website', value: website });
   }
 
   protected async editTeamName(): Promise<void> {
@@ -996,22 +1041,6 @@ export class ManageTeamShellComponent implements OnInit {
       this.emitAction('contact', 'editPhone');
       this.service.updateField({ sectionId: 'contact', fieldId: 'phone', value: result.value });
       this.service.expandSection('contact');
-    }
-  }
-
-  protected async editWebsite(): Promise<void> {
-    const result = await this.modalService.prompt({
-      title: 'Team Website',
-      placeholder: 'https://yourteam.com',
-      defaultValue: this.service.formData()?.contact?.website ?? '',
-      inputType: 'url',
-      submitText: 'Done',
-      preferNative: 'native',
-    });
-
-    if (result.confirmed) {
-      this.service.updateField({ sectionId: 'contact', fieldId: 'website', value: result.value });
-      this.service.expandSection('team-info');
     }
   }
 

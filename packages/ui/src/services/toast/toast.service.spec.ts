@@ -2,6 +2,7 @@ import '@angular/compiler';
 
 import { Injector, NgZone, runInInjectionContext } from '@angular/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ToastController } from '@ionic/angular/standalone';
 
 import { HapticsService } from '../haptics';
 import { NxtLoggingService } from '../logging';
@@ -22,39 +23,97 @@ describe('NxtToastService', () => {
     document.getElementById('nxt1-toast-runtime-styles')?.remove();
   });
 
-  it('injects the runtime DOM toast styles before showing a toast', () => {
+  it('renders the DOM toast fallback on web platforms', () => {
     const service = createToastService();
 
     service.success('Session archived', { duration: 0 });
 
-    const runtimeStyles = document.getElementById('nxt1-toast-runtime-styles');
     const toast = document.querySelector('.nxt-toast-shell--success');
 
-    expect(runtimeStyles?.textContent).toContain('.nxt-toast-shell');
     expect(toast?.textContent).toContain('Session archived');
-    expect(toast?.classList.contains('nxt-toast-shell--visible')).toBe(true);
   });
 
-  it('does not duplicate runtime style tags across multiple toasts', () => {
+  it('queues additional DOM toasts while one is already visible', () => {
     const service = createToastService();
 
     service.success('First toast', { duration: 0 });
     service.info('Second toast', { duration: 0 });
 
-    expect(document.querySelectorAll('#nxt1-toast-runtime-styles')).toHaveLength(1);
+    expect(document.querySelectorAll('.nxt-toast-shell')).toHaveLength(1);
+    expect(document.querySelector('.nxt-toast-shell')?.textContent).toContain('First toast');
+    expect(service.queueLength()).toBe(1);
+  });
+
+  it('uses Ionic ToastController on mobile/native platforms', async () => {
+    const create = vi.fn().mockResolvedValue({
+      present: vi.fn().mockResolvedValue(undefined),
+      dismiss: vi.fn().mockResolvedValue(true),
+      onDidDismiss: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const service = createToastService({
+      platform: {
+        isBrowser: () => true,
+        isNative: () => true,
+        isMobile: () => true,
+      },
+      toastController: { create },
+    });
+
+    service.success('Saved successfully');
+    await Promise.resolve();
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: 'Saved successfully',
+        cssClass: expect.arrayContaining(['nxt-toast', 'nxt-toast-success']),
+      })
+    );
+    expect(document.querySelector('.nxt-toast-shell')).toBeNull();
+  });
+
+  it('falls back to DOM toast when Ionic toast presentation fails', async () => {
+    const create = vi.fn().mockRejectedValue(new Error('overlay failed'));
+
+    const service = createToastService({
+      platform: {
+        isBrowser: () => true,
+        isNative: () => true,
+        isMobile: () => true,
+      },
+      toastController: { create },
+    });
+
+    service.error('Offline mode');
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(create).toHaveBeenCalled();
+    expect(document.querySelector('.nxt-toast-shell--error')?.textContent).toContain(
+      'Offline mode'
+    );
   });
 });
 
-function createToastService(): NxtToastService {
+function createToastService(options?: {
+  platform?: {
+    isBrowser: () => boolean;
+    isNative: () => boolean;
+    isMobile: () => boolean;
+  };
+  toastController?: Pick<ToastController, 'create'>;
+}): NxtToastService {
+  const platform = options?.platform ?? {
+    isBrowser: () => true,
+    isNative: () => false,
+    isMobile: () => false,
+  };
+
   const injector = Injector.create({
     providers: [
       {
         provide: NxtPlatformService,
-        useValue: {
-          isBrowser: () => true,
-          isNative: () => false,
-          isMobile: () => false,
-        },
+        useValue: platform,
       },
       {
         provide: HapticsService,
@@ -68,8 +127,13 @@ function createToastService(): NxtToastService {
         useValue: {
           child: () => ({
             debug: vi.fn(),
+            error: vi.fn(),
           }),
         },
+      },
+      {
+        provide: ToastController,
+        useValue: options?.toastController ?? null,
       },
       { provide: NgZone, useValue: { run: (callback: () => void) => callback() } },
     ],

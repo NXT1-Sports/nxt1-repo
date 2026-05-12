@@ -750,6 +750,16 @@ export const PLATFORM_REGISTRY: readonly PlatformDefinition[] = [
 
   // ---- Contact / Website surfaces ----
   {
+    platform: 'website',
+    label: 'Website',
+    icon: 'link',
+    connectionType: 'link',
+    category: 'contact',
+    scope: 'team',
+    sports: [],
+    placeholder: 'Team website URL',
+  },
+  {
     platform: 'linktree',
     label: 'Linktree',
     icon: 'link',

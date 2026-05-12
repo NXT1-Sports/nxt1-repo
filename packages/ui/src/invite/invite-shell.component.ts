@@ -66,6 +66,13 @@ export interface InviteUser {
   readonly location?: string | null;
 }
 
+export function buildInviteBrowserShareData(shareData: ShareData): ShareData {
+  return {
+    title: shareData.title,
+    text: [shareData.text, shareData.url].filter(Boolean).join('\n\n'),
+  };
+}
+
 @Component({
   selector: 'nxt1-invite-shell',
   standalone: true,
@@ -641,6 +648,8 @@ export class InviteShellComponent implements OnInit {
       text: shareText,
       url,
     };
+    const browserShareData = buildInviteBrowserShareData(shareData);
+    const fallbackShareText = browserShareData.text ?? url;
 
     try {
       if (isCapacitor()) {
@@ -660,15 +669,15 @@ export class InviteShellComponent implements OnInit {
         isPlatformBrowser(this.platformId) &&
         typeof navigator !== 'undefined' &&
         navigator.share &&
-        navigator.canShare?.(shareData)
+        navigator.canShare?.(browserShareData)
       ) {
-        await navigator.share(shareData);
+        await navigator.share(browserShareData);
         this.logger.info('Invite shared via native share sheet', {
           senderRole: this.user()?.role ?? null,
         });
       } else {
         // Fallback: copy invite link to clipboard
-        await navigator.clipboard.writeText(`${shareData.text} ${url}`);
+        await navigator.clipboard.writeText(fallbackShareText);
         await this.haptics.notification('success');
         this.toast.success('Invite link copied to clipboard');
         this.logger.info('Invite link copied (share fallback)', {
@@ -681,7 +690,7 @@ export class InviteShellComponent implements OnInit {
         this.logger.warn('Invite share failed', { error: String(err) });
         // Clipboard fallback on unexpected error
         try {
-          await navigator.clipboard.writeText(`${shareData.text} ${url}`);
+          await navigator.clipboard.writeText(fallbackShareText);
           this.toast.success('Invite link copied to clipboard');
         } catch {
           this.toast.error('Could not open share sheet');

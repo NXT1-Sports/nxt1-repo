@@ -61,6 +61,7 @@ import { TeamProfileService } from '@nxt1/ui/team-profile';
 import { EditProfileModalService } from '@nxt1/ui/edit-profile';
 import { ManageTeamModalService } from '@nxt1/ui/manage-team';
 import { ConnectedAccountsModalService } from '@nxt1/ui/components/connected-sources';
+import { ConnectedAccountsResyncService } from '@nxt1/ui/components/connected-sources';
 import { NxtOverlayService } from '@nxt1/ui/components/overlay';
 import {
   ShareActionsOverlayComponent,
@@ -78,6 +79,8 @@ import { QrCodeService } from '@nxt1/ui/qr-code';
 import {
   buildCanonicalProfilePath,
   buildCanonicalTeamPath,
+  buildLinkSourcesFormData,
+  mapToConnectedSources,
   parseApiError,
   requiresAuth,
   isTeamRole,
@@ -85,7 +88,13 @@ import {
   UTM_MEDIUM,
   UTM_CAMPAIGN,
 } from '@nxt1/core';
-import type { ProfileTabId, ProfileShareSource, ProfileTeamAffiliation, User } from '@nxt1/core';
+import type {
+  LinkSourcesFormData,
+  ProfileTabId,
+  ProfileShareSource,
+  ProfileTeamAffiliation,
+  User,
+} from '@nxt1/core';
 import type { ApiResponse } from '@nxt1/core/profile';
 import { AUTH_SERVICE, type IAuthService } from '../../core/services/auth/auth.interface';
 import { AuthFlowService } from '../../core/services/auth';
@@ -190,6 +199,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
   private readonly editProfileModal = inject(EditProfileModalService);
   private readonly manageTeamModal = inject(ManageTeamModalService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
+  private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly platform = inject(NxtPlatformService);
   private readonly router = inject(Router);
@@ -930,13 +940,75 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
   protected async onConnectedAccounts(): Promise<void> {
     const user = this.authService.user();
-    const role = user?.role ?? null;
+    if (!user?.uid) {
+      this.toast.error('Unable to open connected accounts right now. Please try again.');
+      return;
+    }
 
-    await this.connectedAccountsModal.open({
+    const role = user?.role ?? null;
+    const linkSourcesData = buildLinkSourcesFormData({
+      connectedSources: user.connectedSources ?? [],
+      connectedEmails: user.connectedEmails ?? [],
+      firebaseProviders: this.authService.firebaseUser()?.providerData ?? [],
+    }) as LinkSourcesFormData | null;
+
+    const selectedSports = user.selectedSports ?? [];
+    const scope = role === 'coach' || role === 'director' ? 'team' : 'athlete';
+
+    const result = await this.connectedAccountsModal.open({
       role,
-      selectedSports: user?.selectedSports ?? [],
-      scope: role === 'coach' || role === 'director' ? 'team' : 'athlete',
+      selectedSports,
+      linkSourcesData,
+      scope,
     });
+
+    if (result.linkSources && result.updatedLinks) {
+      const connectedSources = mapToConnectedSources(result.linkSources.links);
+      const saveResult = await this.editProfileApiService.updateSection(
+        user.uid,
+        'connected-sources',
+        {
+          connectedSources,
+        }
+      );
+
+      if (!saveResult.success) {
+        this.logger.error('Failed to save connected accounts from profile', undefined, {
+          error: saveResult.error,
+        });
+        this.toast.error(saveResult.error ?? 'Failed to save connected accounts');
+        return;
+      }
+
+      await this.authService.refreshUserProfile();
+      this.apiProfileService.invalidateAllProfileCache();
+      this.reloadProfile();
+
+      if (result.resync) {
+        await this.connectedAccountsResync.request(result.sources ?? connectedSources);
+      } else {
+        this.toast.success('Connected accounts updated');
+      }
+      return;
+    }
+
+    if (result.resync) {
+      const resyncSources =
+        result.sources && result.sources.length > 0
+          ? result.sources
+          : (linkSourcesData?.links ?? [])
+              .filter((link) => link.connected)
+              .map((link) => ({
+                platform: link.platform,
+                label: link.platform,
+                connected: true,
+                username: link.username,
+                url: link.url,
+                connectionType: link.connectionType,
+              }));
+
+      await this.connectedAccountsResync.request(resyncSources);
+    }
   }
 
   /**

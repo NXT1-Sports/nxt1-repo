@@ -29,6 +29,7 @@ import {
 } from '../../components/history-timeline';
 import { ProfileService } from '../profile.service';
 import { NxtToastService } from '../../services/toast/toast.service';
+import { ConnectedAccountsResyncService } from '../../components/connected-sources';
 import {
   type ProfileTeamType,
   type ProfileTeamAffiliation,
@@ -1575,6 +1576,7 @@ export class ProfileOverviewComponent implements OnDestroy {
   protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
   protected readonly profile = inject(ProfileService);
   private readonly toast = inject(NxtToastService);
+  private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly isBrowser = isPlatformBrowser(this.platformId);
 
@@ -1940,10 +1942,17 @@ export class ProfileOverviewComponent implements OnDestroy {
 
   protected async onSyncNow(): Promise<void> {
     try {
-      await this.profile.refresh();
-      this.toast.success('Profile synced with Agent X');
+      const connectedSources = this.profile.user()?.connectedSources ?? [];
+      const resyncSources = connectedSources.map((source) => ({
+        platform: source.platform,
+        label: source.platform,
+        url: source.profileUrl,
+        connected: true,
+      }));
+
+      await this.connectedAccountsResync.request(resyncSources);
     } catch {
-      this.toast.error('Sync failed. Please try again.');
+      this.toast.error('Unable to start sync. Please try again.');
     }
   }
 

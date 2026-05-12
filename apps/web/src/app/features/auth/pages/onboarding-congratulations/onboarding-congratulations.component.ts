@@ -248,8 +248,11 @@ export class OnboardingCongratulationsComponent implements OnInit {
     this.selectedGoals.set(goals);
     this.logger.debug('Goals updated', { count: goals.length });
 
-    // If transition is already visible, immediately prepare using latest goals.
-    if (this.isTransitioningToAgent()) {
+    // If transition is visible or this is the prewarm slide, prepare using latest goals.
+    if (
+      this.isTransitioningToAgent() ||
+      (goals.length > 0 && this.isPreparationSlide(this.currentSlideIndex()))
+    ) {
       void this.prepareInitialAgentStateIfNeeded();
     }
   }
@@ -276,8 +279,10 @@ export class OnboardingCongratulationsComponent implements OnInit {
     this.logger.debug('Slide viewed', event);
 
     // Prepare agent state on the second-to-last slide (so Agent X loads while user views final slide)
-    const prepSlideIndex = Math.max(0, this.totalSlides() - 2);
-    if (event.index === prepSlideIndex) {
+    if (
+      this.isPreparationSlide(event.index) &&
+      (!this.isGoalsSlide(event.index) || this.selectedGoals().length > 0)
+    ) {
       void this.prepareInitialAgentStateIfNeeded();
     }
   }
@@ -351,6 +356,20 @@ export class OnboardingCongratulationsComponent implements OnInit {
       .map((goal) => `${goal.id}|${goal.text}|${goal.category ?? 'custom'}`)
       .sort()
       .join('||');
+  }
+
+  private isPreparationSlide(index: number): boolean {
+    return index === Math.max(0, this.totalSlides() - 2);
+  }
+
+  private isGoalsSlide(index: number): boolean {
+    const role = this.userRole() ?? 'athlete';
+    const slides = getWelcomeSlidesForRole(
+      role,
+      this.isLegacy(),
+      this.isMigratedPaidLegacy()
+    ).slides;
+    return slides[index]?.type === 'goals';
   }
 
   private async prepareInitialAgentState(goals: readonly AgentGoal[]): Promise<void> {

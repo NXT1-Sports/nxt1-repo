@@ -15,30 +15,28 @@ describe('approval-gate.service', () => {
     vi.clearAllMocks();
   });
 
-  it('requires approval for destructive intel tools', () => {
+  it('requires approval for email tools', () => {
     const service = new ApprovalGateService({} as Firestore);
 
-    const requirement = service.getApprovalRequirement('delete_timeline_post', {
-      postId: 'post-123',
+    const requirement = service.getApprovalRequirement('send_email', {
+      toEmail: 'coach@example.com',
+      subject: 'Thanks coach',
     });
 
     expect(requirement).not.toBeNull();
-    expect(requirement?.policy.toolName).toBe('delete_timeline_post');
-    expect(requirement?.policy.riskLevel).toBe('critical');
-    expect(requirement?.actionSummary).toContain('Delete timeline post');
+    expect(requirement?.policy.toolName).toBe('send_email');
+    expect(requirement?.policy.riskLevel).toBe('high');
+    expect(requirement?.actionSummary).toContain('Send an email');
   });
 
-  it('requires approval for workspace mutation tools', () => {
+  it('does not require approval for non-email tools', () => {
     const service = new ApprovalGateService({} as Firestore);
 
-    const requirement = service.getApprovalRequirement('run_google_workspace_tool', {
-      tool: 'docs_append_text',
+    const requirement = service.getApprovalRequirement('write_core_identity', {
+      userId: 'user-1',
     });
 
-    expect(requirement).not.toBeNull();
-    expect(requirement?.policy.toolName).toBe('run_google_workspace_tool');
-    expect(requirement?.policy.riskLevel).toBe('high');
-    expect(requirement?.actionSummary).toContain('Google Workspace action');
+    expect(requirement).toBeNull();
   });
 
   it('stamps a Firestore TTL timestamp when creating approval requests', async () => {
