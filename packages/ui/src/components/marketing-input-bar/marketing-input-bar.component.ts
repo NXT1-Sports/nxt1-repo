@@ -138,18 +138,6 @@ import { NxtIconComponent } from '../icon';
 
       .marketing-input-bar__input::placeholder {
         color: var(--nxt1-color-text-tertiary);
-        animation: typewriter-cursor 0.6s infinite;
-      }
-
-      @keyframes typewriter-cursor {
-        0%,
-        49% {
-          color: var(--nxt1-color-text-tertiary);
-        }
-        50%,
-        100% {
-          color: transparent;
-        }
       }
 
       .marketing-input-bar__button {

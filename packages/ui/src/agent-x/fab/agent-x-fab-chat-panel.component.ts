@@ -47,8 +47,6 @@ import { NxtIconComponent } from '../../components/icon/icon.component';
 import { NxtChatBubbleComponent } from '../../components/chat-bubble';
 import { NxtToastService } from '../../services/toast/toast.service';
 import { AgentXService } from '../services/agent-x.service';
-
-import type { AskUserReplyEvent } from '../components/cards/agent-x-ask-user-card.component';
 import { AgentXFabService } from './agent-x-fab.service';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 
@@ -210,7 +208,6 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
                   [steps]="message.steps ?? []"
                   [cards]="message.cards ?? []"
                   [parts]="message.parts ?? []"
-                  (askUserReply)="onAskUserReply($event)"
                   (retryRequested)="onRetryErrorMessage(message)"
                 />
                 @if (message.attachments?.length) {
@@ -1021,13 +1018,6 @@ export class AgentXFabChatPanelComponent {
    */
   protected async onClearChat(): Promise<void> {
     await this.agentX.clearMessages();
-  }
-
-  /** Route an ask_user card reply into the chat as a user message. */
-  protected async onAskUserReply(event: AskUserReplyEvent): Promise<void> {
-    this.agentX.setUserMessage(event.answer);
-    // TODO(@fab-migration): FAB streaming not yet migrated to AgentXOperationChatComponent
-    this.toast.info('Open Agent X to continue your conversation.');
   }
 
   /** Remove the error bubble and pre-populate the input with the failed message. */

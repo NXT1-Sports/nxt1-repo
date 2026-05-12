@@ -17,8 +17,80 @@ import { randomUUID } from 'node:crypto';
 import type { Firestore } from 'firebase-admin/firestore';
 import { logger } from '../../../../../../utils/logger.js';
 import type { BoardDiagramAsset, BoardDiagramAssetPatch } from '../shared/board-diagram.types.js';
+import type { DiagramLayout, DiagramRoute } from '../../play-diagram/shared/diagram.types.js';
 
 const COLLECTION = 'diagramAssets';
+
+type FirestoreDiagramPoint = {
+  readonly x: number;
+  readonly y: number;
+};
+
+type FirestoreDiagramRoute = Omit<DiagramRoute, 'points'> & {
+  readonly points: FirestoreDiagramPoint[];
+};
+
+type FirestoreDiagramLayout = Omit<DiagramLayout, 'routes'> & {
+  readonly routes: FirestoreDiagramRoute[];
+};
+
+function serializeLayoutForFirestore(layout: DiagramLayout): FirestoreDiagramLayout {
+  return {
+    ...layout,
+    routes: layout.routes.map((route) => ({
+      ...route,
+      points: route.points.map(([x, y]) => ({ x, y })),
+    })),
+  };
+}
+
+function deserializeLayoutFromFirestore(layout: unknown): DiagramLayout {
+  const parsed = layout as DiagramLayout | FirestoreDiagramLayout;
+
+  return {
+    ...parsed,
+    routes: parsed.routes.map((route) => ({
+      ...route,
+      points: route.points.map((point) => {
+        if (Array.isArray(point) && point.length >= 2) {
+          return [point[0], point[1]] as [number, number];
+        }
+
+        const candidate = point as Partial<FirestoreDiagramPoint>;
+        return [Number(candidate.x ?? 0), Number(candidate.y ?? 0)] as [number, number];
+      }),
+    })),
+  };
+}
+
+function serializeAssetForFirestore(asset: BoardDiagramAsset): Record<string, unknown> {
+  return {
+    ...asset,
+    sourceLayout: serializeLayoutForFirestore(asset.sourceLayout),
+  };
+}
+
+function deserializeAssetFromFirestore(
+  data: BoardDiagramAsset | Record<string, unknown>
+): BoardDiagramAsset {
+  const asset = data as BoardDiagramAsset;
+
+  return {
+    ...asset,
+    sourceLayout: deserializeLayoutFromFirestore(asset.sourceLayout),
+  };
+}
+
+function serializePatchForFirestore(patch: BoardDiagramAssetPatch): Record<string, unknown> {
+  if (!patch.sourceLayout) {
+    return patch as Record<string, unknown>;
+  }
+
+  return {
+    ...patch,
+    sourceLayout: serializeLayoutForFirestore(patch.sourceLayout),
+  };
+}
 
 export class BoardDiagramAssetService {
   constructor(private readonly db: Firestore) {}
@@ -33,7 +105,7 @@ export class BoardDiagramAssetService {
     const id = randomUUID();
     const doc: BoardDiagramAsset = { ...asset, id };
 
-    await this.db.collection(COLLECTION).doc(id).set(doc);
+    await this.db.collection(COLLECTION).doc(id).set(serializeAssetForFirestore(doc));
 
     logger.info('[BoardDiagramAssetService] Asset created', {
       id,
@@ -65,7 +137,7 @@ export class BoardDiagramAssetService {
       return null;
     }
 
-    const data = snap.data() as BoardDiagramAsset;
+    const data = deserializeAssetFromFirestore(snap.data() as Record<string, unknown>);
 
     if (data.userId !== userId) {
       logger.warn('[BoardDiagramAssetService] Unauthorized asset access attempt', {
@@ -107,10 +179,7 @@ export class BoardDiagramAssetService {
 
     const update: BoardDiagramAssetPatch = { ...patch, updatedAt: Date.now() };
 
-    await this.db
-      .collection(COLLECTION)
-      .doc(assetId)
-      .update(update as Record<string, unknown>);
+    await this.db.collection(COLLECTION).doc(assetId).update(serializePatchForFirestore(update));
 
     logger.info('[BoardDiagramAssetService] Asset patched', {
       assetId,
@@ -169,6 +238,6 @@ export class BoardDiagramAssetService {
       .limit(limit)
       .get();
 
-    return snap.docs.map((d) => d.data() as BoardDiagramAsset);
+    return snap.docs.map((d) => deserializeAssetFromFirestore(d.data() as Record<string, unknown>));
   }
 }

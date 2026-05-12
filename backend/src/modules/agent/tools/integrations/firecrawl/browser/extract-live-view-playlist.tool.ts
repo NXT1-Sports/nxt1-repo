@@ -13,18 +13,21 @@ import {
   type MediaInput,
   type MediaThreadContext,
 } from '../../social/scraper-media.service.js';
+import { getPlaylistExtractionCached } from './extraction-cache.service.js';
 
 export class ExtractLiveViewPlaylistTool extends BaseTool {
   readonly name = 'extract_live_view_playlist';
 
   readonly description =
     'Extracts playlist clip URLs, titles, durations, thumbnails, and authenticated request material from the active live-view browser session. ' +
-    'Use this when the page in live view shows a Hudl or similar playlist and the user wants the first N clips, multiple plays, or batch film analysis without manual clip-by-clip UI navigation. ' +
-    'Returns the playlist entries plus session credentials so the clips can be fetched and processed directly.';
+    'Use this for a bounded Hudl or similar playlist subset when the user wants multiple plays, last N plays, specific play numbers, or batch film analysis. ' +
+    'It can use Firecrawl browser interaction to scroll virtualized rows, but it must stay bounded to the requested subset. Returns playlist entries plus session credentials so clips can be fetched and processed directly.';
 
   readonly parameters = z.object({
     sessionId: z.string().trim().min(1).optional(),
-    maxItems: z.number().int().min(1).max(100).optional(),
+    maxItems: z.number().int().min(1).max(25).optional(),
+    selection: z.enum(['visible', 'first', 'last']).optional(),
+    playNumbers: z.array(z.number().int().positive()).max(25).optional(),
   });
 
   readonly isMutation = false;
@@ -88,8 +91,41 @@ export class ExtractLiveViewPlaylistTool extends BaseTool {
 
     try {
       const sessionId = this.sessionService.resolveSessionId(this.str(input, 'sessionId'), userId);
-      const maxItems = typeof input['maxItems'] === 'number' ? input['maxItems'] : undefined;
-      const result = await this.sessionService.extractPlaylist(sessionId, userId, maxItems);
+      const requestedMaxItems = typeof input['maxItems'] === 'number' ? input['maxItems'] : 5;
+      const maxItems = Math.min(Math.max(Math.trunc(requestedMaxItems) || 5, 1), 25);
+      const selection =
+        input['selection'] === 'first' || input['selection'] === 'last'
+          ? input['selection']
+          : 'visible';
+      const playNumbers = Array.isArray(input['playNumbers'])
+        ? input['playNumbers']
+            .map((value) => (typeof value === 'number' ? Math.trunc(value) : NaN))
+            .filter((value) => Number.isFinite(value) && value > 0)
+            .slice(0, 25)
+        : [];
+      const { result, cacheHit } = await getPlaylistExtractionCached(
+        sessionId,
+        userId,
+        context?.threadId,
+        maxItems,
+        selection,
+        playNumbers,
+        () =>
+          this.sessionService.extractPlaylist(sessionId, userId, maxItems, {
+            selection,
+            playNumbers,
+          })
+      );
+
+      if (cacheHit !== 'miss') {
+        logger.info('[ExtractLiveViewPlaylistTool] Using cached extraction result', {
+          sessionId,
+          userId,
+          itemCount: result.items.length,
+          cacheHit,
+          savings: cacheHit === 'request' ? '$12.99' : '$12.99 (session)',
+        });
+      }
 
       const recommendedHeaders: Record<string, string> = {};
       if (result.auth.cookieHeader) {

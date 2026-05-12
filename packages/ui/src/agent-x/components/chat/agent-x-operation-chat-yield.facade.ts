@@ -139,6 +139,12 @@ export class AgentXOperationChatYieldFacade {
 
       if (result) {
         await this.haptics.notification('success');
+        this.messageFacade.pushOptimisticUserReply({
+          operationId,
+          content: event.answer,
+          ...(event.messageId ? { messageId: event.messageId } : {}),
+        });
+        this.messageFacade.settleActiveToolSteps('success');
         this.messageFacade.updateInlineYieldMessageState(operationId, 'resolved', 'Answered');
 
         if (result.resumed && result.operationId) {
@@ -237,6 +243,12 @@ export class AgentXOperationChatYieldFacade {
 
       if (result) {
         await this.haptics.notification('success');
+        this.messageFacade.pushOptimisticUserReply({
+          operationId,
+          content: event.response,
+          ...(event.messageId ? { messageId: event.messageId } : {}),
+        });
+        this.messageFacade.settleActiveToolSteps('success');
         this.messageFacade.updateInlineYieldMessageState(operationId, 'resolved', 'Replied');
 
         if (result.resumed && result.operationId) {

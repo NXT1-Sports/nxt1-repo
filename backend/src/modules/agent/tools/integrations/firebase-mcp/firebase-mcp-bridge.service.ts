@@ -175,7 +175,7 @@ export class FirebaseMcpBridgeService extends BaseMcpClientService {
 
     return new StdioClientTransport({
       command: process.execPath,
-      args: [serverPath],
+      args: ['-r', 'dotenv/config', serverPath],
       env: {
         ...(process.env as Record<string, string>),
         FIREBASE_MCP_SCOPE_SECRET: this.scopeSecret,

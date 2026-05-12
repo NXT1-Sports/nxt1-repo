@@ -137,12 +137,45 @@ export interface LiveViewPlaylistExtractionResult {
   readonly auth: LiveViewRequestAuthContext;
 }
 
+export interface LiveViewPlaylistExtractionOptions {
+  readonly selection?: 'visible' | 'first' | 'last';
+  readonly playNumbers?: readonly number[];
+}
+
+export interface LiveViewScreenshotViewport {
+  readonly width: number;
+  readonly height: number;
+}
+
+export interface LiveViewScreenshotOptions {
+  readonly format?: 'png' | 'jpeg';
+  readonly fullPage?: boolean;
+  readonly selector?: string | null;
+  readonly quality?: number;
+  readonly viewport?: LiveViewScreenshotViewport;
+}
+
+export interface LiveViewScreenshotResult {
+  readonly url: string;
+  readonly title: string;
+  readonly mimeType: 'image/png' | 'image/jpeg';
+  readonly base64: string;
+  readonly sizeBytes: number;
+  readonly capturedAt: string;
+  readonly fullPage: boolean;
+  readonly selector: string | null;
+  readonly viewport: LiveViewScreenshotViewport | null;
+  readonly source: 'firecrawl_interact_playwright';
+}
+
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-/** Live-view sessions last 10 minutes (longer than sign-in flows). */
-const LIVE_VIEW_TTL_SECONDS = 600;
+/** Live-view sessions last 1 hour. */
+const LIVE_VIEW_TTL_SECONDS = 3600;
 const MIN_PROMPT_OUTPUT_CHARS_FOR_CONFIDENCE = 140;
 const MAX_PROBE_SECTION_CHARS = 20_000;
+const MAX_SCREENSHOT_BYTES = 12 * 1024 * 1024;
+const LIVE_VIEW_INTERACT_DEADLINE_MS = 45_000;
 
 /**
  * NOTE: We intentionally do NOT pass a `timeout` parameter to Firecrawl's
@@ -156,6 +189,13 @@ const MAX_PROBE_SECTION_CHARS = 20_000;
 // ─── Service ────────────────────────────────────────────────────────────────
 
 export class LiveViewSessionService {
+  private static readonly REMOTE_SESSION_UNAVAILABLE_MESSAGES = [
+    'browser session has been destroyed',
+    'session has been destroyed',
+    'session expired on firecrawl',
+    'session not found',
+  ] as const;
+
   private readonly client: Firecrawl;
   private readonly profileService: FirecrawlProfileService;
 
@@ -181,40 +221,137 @@ export class LiveViewSessionService {
     return JSON.stringify(value);
   }
 
+  private isRemoteSessionUnavailableMessage(message: string): boolean {
+    const normalized = message.trim().toLowerCase();
+    if (!normalized) return false;
+
+    if (
+      LiveViewSessionService.REMOTE_SESSION_UNAVAILABLE_MESSAGES.some((candidate) =>
+        normalized.includes(candidate)
+      )
+    ) {
+      return true;
+    }
+
+    return normalized.includes('session') && normalized.includes('expired');
+  }
+
+  private normalizeSessionExecutionError(
+    sessionId: string,
+    error: unknown,
+    fallbackMessage: string
+  ): AgentEngineError {
+    if (
+      error instanceof AgentEngineError &&
+      (error.code === 'LIVE_VIEW_SESSION_EXPIRED' || error.code === 'LIVE_VIEW_SESSION_NOT_FOUND')
+    ) {
+      return error;
+    }
+
+    const message =
+      error instanceof Error
+        ? error.message.trim() || fallbackMessage
+        : String(error || fallbackMessage);
+
+    if (this.isRemoteSessionUnavailableMessage(message)) {
+      const hadTrackedSession = this.activeSessions.delete(sessionId);
+      logger.warn('[LiveViewSession] Remote session unavailable; purged local session', {
+        sessionId,
+        hadTrackedSession,
+        error: message,
+      });
+      return new AgentEngineError(
+        'LIVE_VIEW_SESSION_EXPIRED',
+        'Browser session has expired. Open live view again to continue.',
+        {
+          cause: error,
+          metadata: {
+            sessionId,
+            remoteError: message,
+          },
+        }
+      );
+    }
+
+    if (error instanceof AgentEngineError) {
+      return error;
+    }
+
+    return new AgentEngineError('LIVE_VIEW_REQUEST_FAILED', message, {
+      cause: error,
+      metadata: { sessionId },
+    });
+  }
+
+  private async withInteractionDeadline<T>(
+    sessionId: string,
+    label: string,
+    run: () => Promise<T>,
+    deadlineMs: number = LIVE_VIEW_INTERACT_DEADLINE_MS
+  ): Promise<T> {
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const timeout = new Promise<T>((_, reject) => {
+      timeoutHandle = setTimeout(() => {
+        reject(
+          new AgentEngineError(
+            'LIVE_VIEW_REQUEST_TIMEOUT',
+            `${label} did not finish within ${Math.round(deadlineMs / 1000)} seconds. Try a smaller, more specific live-view action.`,
+            { metadata: { sessionId, deadlineMs } }
+          )
+        );
+      }, deadlineMs);
+    });
+
+    try {
+      return await Promise.race([run(), timeout]);
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+    }
+  }
+
   /**
    * Execute Playwright code in an active scrape interact session.
    * Uses `language: 'node'` (Playwright) — the default for the interact API.
    * The `agent-browser` bash CLI is only available in /v2/browser sessions.
    */
   private async executeBrowserCommand(sessionId: string, code: string): Promise<string> {
-    const result: ScrapeExecuteResponse = await this.client.interact(sessionId, {
-      code,
-    });
-
-    const stdoutLength = typeof result.stdout === 'string' ? result.stdout.length : 0;
-    const resultType = Array.isArray(result.result) ? 'array' : typeof result.result;
-    logger.info('[LiveViewSession] Browser command response', {
-      sessionId,
-      success: result.success,
-      exitCode: result.exitCode ?? null,
-      killed: result.killed === true,
-      stdoutLength,
-      resultType,
-      ...(typeof result.result === 'string' ? { resultLength: result.result.length } : {}),
-    });
-
-    const hiddenError = result.error?.trim();
-    if (!result.success || result.killed || (result.exitCode ?? 0) !== 0 || hiddenError) {
-      throw new AgentEngineError(
-        'LIVE_VIEW_REQUEST_FAILED',
-        hiddenError || result.stderr || 'Browser command failed',
-        {
-          metadata: { sessionId },
-        }
+    try {
+      const result: ScrapeExecuteResponse = await this.withInteractionDeadline(
+        sessionId,
+        'Browser command',
+        () =>
+          this.client.interact(sessionId, {
+            code,
+          })
       );
-    }
 
-    return this.resolveInteractText(result);
+      const stdoutLength = typeof result.stdout === 'string' ? result.stdout.length : 0;
+      const resultType = Array.isArray(result.result) ? 'array' : typeof result.result;
+      logger.info('[LiveViewSession] Browser command response', {
+        sessionId,
+        success: result.success,
+        exitCode: result.exitCode ?? null,
+        killed: result.killed === true,
+        stdoutLength,
+        resultType,
+        ...(typeof result.result === 'string' ? { resultLength: result.result.length } : {}),
+      });
+
+      const hiddenError = result.error?.trim();
+      if (!result.success || result.killed || (result.exitCode ?? 0) !== 0 || hiddenError) {
+        throw new AgentEngineError(
+          'LIVE_VIEW_REQUEST_FAILED',
+          hiddenError || result.stderr || 'Browser command failed',
+          {
+            metadata: { sessionId },
+          }
+        );
+      }
+
+      return this.resolveInteractText(result);
+    } catch (error) {
+      throw this.normalizeSessionExecutionError(sessionId, error, 'Browser command failed');
+    }
   }
 
   /**
@@ -260,31 +397,44 @@ export class LiveViewSessionService {
    * edge cases intelligently.
    */
   private async executeBrowserPrompt(sessionId: string, prompt: string): Promise<string> {
-    const result: ScrapeExecuteResponse = await this.client.interact(sessionId, {
-      prompt,
-    });
+    try {
+      const result: ScrapeExecuteResponse = await this.withInteractionDeadline(
+        sessionId,
+        'Browser interaction',
+        () =>
+          this.client.interact(sessionId, {
+            prompt,
+          })
+      );
 
-    logger.info('[LiveViewSession] Browser prompt response', {
-      sessionId,
-      success: result.success,
-      exitCode: result.exitCode ?? null,
-      killed: result.killed === true,
-      ...(typeof result.stdout === 'string' ? { stdoutLength: result.stdout.length } : {}),
-      ...(typeof result.result === 'string' ? { resultLength: result.result.length } : {}),
-    });
+      logger.info('[LiveViewSession] Browser prompt response', {
+        sessionId,
+        success: result.success,
+        exitCode: result.exitCode ?? null,
+        killed: result.killed === true,
+        ...(typeof result.stdout === 'string' ? { stdoutLength: result.stdout.length } : {}),
+        ...(typeof result.result === 'string' ? { resultLength: result.result.length } : {}),
+      });
 
-    const hiddenError = result.error?.trim();
-    if (!result.success || result.killed || (result.exitCode ?? 0) !== 0 || hiddenError) {
-      throw new AgentEngineError(
-        'LIVE_VIEW_REQUEST_FAILED',
-        hiddenError || result.stderr || 'Browser prompt execution failed',
-        {
-          metadata: { sessionId },
-        }
+      const hiddenError = result.error?.trim();
+      if (!result.success || result.killed || (result.exitCode ?? 0) !== 0 || hiddenError) {
+        throw new AgentEngineError(
+          'LIVE_VIEW_REQUEST_FAILED',
+          hiddenError || result.stderr || 'Browser prompt execution failed',
+          {
+            metadata: { sessionId },
+          }
+        );
+      }
+
+      return this.resolveInteractText(result);
+    } catch (error) {
+      throw this.normalizeSessionExecutionError(
+        sessionId,
+        error,
+        'Browser prompt execution failed'
       );
     }
-
-    return this.resolveInteractText(result);
   }
 
   /**
@@ -1003,6 +1153,123 @@ export class LiveViewSessionService {
     return { url, title, content: content.slice(0, 30_000) };
   }
 
+  private normalizeScreenshotOptions(options?: LiveViewScreenshotOptions): Required<
+    Pick<LiveViewScreenshotOptions, 'format' | 'fullPage'>
+  > & {
+    readonly selector: string | null;
+    readonly quality: number | null;
+    readonly viewport: LiveViewScreenshotViewport | null;
+  } {
+    const format = options?.format === 'jpeg' ? 'jpeg' : 'png';
+    const selector = options?.selector?.trim() ? options.selector.trim().slice(0, 512) : null;
+    const quality =
+      format === 'jpeg' ? Math.max(1, Math.min(Math.round(options?.quality ?? 82), 100)) : null;
+    const rawViewport = options?.viewport;
+    const viewport = rawViewport
+      ? {
+          width: Math.max(320, Math.min(Math.round(rawViewport.width), 3840)),
+          height: Math.max(240, Math.min(Math.round(rawViewport.height), 2160)),
+        }
+      : null;
+
+    return {
+      format,
+      fullPage: options?.fullPage === true,
+      selector,
+      quality,
+      viewport,
+    };
+  }
+
+  async captureScreenshot(
+    sessionId: string,
+    userId: string,
+    options?: LiveViewScreenshotOptions
+  ): Promise<LiveViewScreenshotResult> {
+    this.assertOwnership(sessionId, userId);
+
+    const normalized = this.normalizeScreenshotOptions(options);
+    const payload = JSON.stringify(normalized);
+
+    logger.info('[LiveViewSession] Capturing screenshot', {
+      sessionId,
+      format: normalized.format,
+      fullPage: normalized.fullPage,
+      hasSelector: !!normalized.selector,
+      viewport: normalized.viewport,
+    });
+
+    const code = `
+const options = ${payload};
+if (options.viewport) {
+  await page.setViewportSize(options.viewport);
+}
+await page.waitForLoadState('networkidle').catch(() => undefined);
+const target = options.selector ? await page.$(options.selector) : null;
+if (options.selector && !target) {
+  throw new Error('No element matched selector: ' + options.selector);
+}
+const screenshotOptions = { type: options.format };
+if (!options.selector) {
+  screenshotOptions.fullPage = options.fullPage === true;
+}
+if (options.format === 'jpeg' && typeof options.quality === 'number') {
+  screenshotOptions.quality = options.quality;
+}
+const buffer = target
+  ? await target.screenshot(screenshotOptions)
+  : await page.screenshot(screenshotOptions);
+const viewport = await page.viewportSize();
+const response = {
+  url: page.url(),
+  title: await page.title(),
+  mimeType: options.format === 'jpeg' ? 'image/jpeg' : 'image/png',
+  base64: buffer.toString('base64'),
+  sizeBytes: buffer.length,
+  capturedAt: new Date().toISOString(),
+  fullPage: options.selector ? false : options.fullPage === true,
+  selector: options.selector ?? null,
+  viewport: viewport ? { width: viewport.width, height: viewport.height } : null,
+  source: 'firecrawl_interact_playwright',
+};
+JSON.stringify(response);
+`;
+
+    const raw = await this.executeBrowserCommand(sessionId, code);
+    const result = this.parseBrowserJson<LiveViewScreenshotResult>(
+      raw,
+      sessionId,
+      'Firecrawl screenshot capture returned an unreadable response'
+    );
+
+    if (!result.base64 || result.sizeBytes <= 0) {
+      throw new AgentEngineError(
+        'LIVE_VIEW_REQUEST_FAILED',
+        'Firecrawl screenshot capture returned an empty image',
+        { metadata: { sessionId } }
+      );
+    }
+
+    if (result.sizeBytes > MAX_SCREENSHOT_BYTES) {
+      throw new AgentEngineError(
+        'LIVE_VIEW_REQUEST_FAILED',
+        'Live view screenshot exceeded the maximum supported size. Retry with fullPage=false or a smaller viewport.',
+        { metadata: { sessionId, sizeBytes: result.sizeBytes } }
+      );
+    }
+
+    logger.info('[LiveViewSession] Screenshot captured', {
+      sessionId,
+      url: result.url,
+      mimeType: result.mimeType,
+      sizeBytes: result.sizeBytes,
+      fullPage: result.fullPage,
+      selector: result.selector,
+    });
+
+    return result;
+  }
+
   /**
    * Extract real media URLs from the current live-view session using the
    * browser's own Performance API rather than DOM blob URLs.
@@ -1180,15 +1447,31 @@ JSON.stringify(await (async () => ({
   async extractPlaylist(
     sessionId: string,
     userId: string,
-    maxItems: number = 25
+    maxItems: number = 5,
+    options: LiveViewPlaylistExtractionOptions = {}
   ): Promise<LiveViewPlaylistExtractionResult> {
     this.assertOwnership(sessionId, userId);
 
-    const boundedMaxItems = Math.min(Math.max(Math.trunc(maxItems) || 25, 1), 100);
+    const boundedMaxItems = Math.min(Math.max(Math.trunc(maxItems) || 5, 1), 25);
+    const selection = options.selection ?? 'visible';
+    const playNumbers = Array.from(
+      new Set(
+        (options.playNumbers ?? [])
+          .map((value) => Math.trunc(value))
+          .filter((value) => Number.isFinite(value) && value > 0)
+      )
+    ).slice(0, 25);
 
     logger.info('[LiveViewSession] Extracting playlist via AI', {
       sessionId,
       maxItems: boundedMaxItems,
+      selection,
+      playNumbers,
+    });
+
+    const browserItems = await this.extractPlaylistRowsViaBrowser(sessionId, boundedMaxItems, {
+      selection,
+      playNumbers,
     });
 
     /**
@@ -1199,7 +1482,17 @@ JSON.stringify(await (async () => ({
     const playlistPrompt = `
 You are analyzing a page with a playlist or collection of video/media clips.
 
-Your task: Extract information about ALL the clips/videos visible on this page.
+Your task: Extract information about the current bounded subset of clips/videos visible on this page.
+
+Target subset: ${
+      playNumbers.length > 0
+        ? `plays ${playNumbers.join(', ')}`
+        : selection === 'last'
+          ? `the last ${boundedMaxItems} loaded playlist rows`
+          : selection === 'first'
+            ? `the first ${boundedMaxItems} loaded playlist rows`
+            : `up to ${boundedMaxItems} currently visible playlist rows`
+    }.
 
 For each clip/video, gather:
 1. Title or name of the clip
@@ -1210,8 +1503,10 @@ For each clip/video, gather:
 
 IMPORTANT: 
 - Include up to ${boundedMaxItems} items
+- Use bounded scrolling only if needed to reveal the requested target subset
+- Do NOT enumerate or analyze the entire playlist when a small subset was requested
 - Extract ACTUAL clip/video URLs, not just player frame URLs
-- If clips are in a carousel or lazy-loaded, try to capture what's visible
+- If clips are in a carousel or lazy-loaded, capture only what's currently visible or already loaded
 - Return as a structured list with clear labels for each field
 
 Response format:
@@ -1226,7 +1521,20 @@ If it's a single-clip page (not a playlist), say so explicitly.
 `;
 
     try {
-      const rawResult = await this.executeBrowserPrompt(sessionId, playlistPrompt);
+      const rawResult =
+        browserItems.length > 0
+          ? browserItems
+              .map((item) => {
+                const parts = [
+                  `- Title: ${item.title}`,
+                  `- URL: ${item.url ?? ''}`,
+                  `- Duration: ${item.durationText ?? ''}`,
+                  `- Thumbnail: ${item.thumbnailUrl ?? ''}`,
+                ];
+                return parts.join('\n');
+              })
+              .join('\n---\n')
+          : await this.executeBrowserPrompt(sessionId, playlistPrompt);
 
       logger.info('[LiveViewSession] AI playlist response', {
         sessionId,
@@ -1234,7 +1542,10 @@ If it's a single-clip page (not a playlist), say so explicitly.
       });
 
       // Parse the AI response to extract items
-      const items = this.parsePlaylistFromResponse(rawResult);
+      const items =
+        browserItems.length > 0
+          ? browserItems
+          : this.parsePlaylistFromResponse(rawResult, boundedMaxItems);
 
       if (items.length === 0) {
         throw new AgentEngineError(
@@ -1356,11 +1667,159 @@ JSON.stringify(await (async () => ({
     }
   }
 
+  private async extractPlaylistRowsViaBrowser(
+    sessionId: string,
+    maxItems: number,
+    options: Required<LiveViewPlaylistExtractionOptions>
+  ): Promise<LiveViewPlaylistItem[]> {
+    const payload = JSON.stringify({ maxItems, ...options });
+    const code = `
+JSON.stringify(await (async () => {
+  const options = ${payload};
+  const normalize = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+  const visible = (element) => {
+    const style = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
+  };
+  const extractPlayNumber = (text) => {
+    const match = text.match(/\\b(?:play\\s*#?|#)\\s*(\\d{1,4})\\b/i);
+    return match ? Number(match[1]) : null;
+  };
+  const selectors = [
+    '[role="row"]',
+    'tr',
+    'li',
+    '[tabindex]',
+    '[data-testid*="play" i]',
+    '[data-testid*="clip" i]',
+    '[class*="play" i]',
+    '[class*="clip" i]',
+    '[class*="row" i]'
+  ];
+  const rowPattern = /\\b(play\\s*#?|qtr|odk|result|rush|pass|kick|punt|touchdown|penalty|interception|fumble|ko\\s*rec|extra\\s*pt)\\b/i;
+  const collectRows = () => {
+    const seen = new Set();
+    const rows = [];
+    for (const selector of selectors) {
+      for (const element of Array.from(document.querySelectorAll(selector))) {
+        if (!(element instanceof HTMLElement) || !visible(element)) continue;
+        const text = normalize(element.innerText || element.textContent || '');
+        if (text.length < 8 || !rowPattern.test(text)) continue;
+        const href = element.closest('a')?.href || element.querySelector('a[href]')?.href || null;
+        const thumbnail = element.querySelector('img[src]')?.src || null;
+        const durationMatch = text.match(/\\b\\d{1,2}:\\d{2}(?::\\d{2})?\\b/);
+        const playNumber = extractPlayNumber(text);
+        const key = playNumber ? 'play-' + playNumber : text.slice(0, 160);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rows.push({
+          playNumber,
+          title: playNumber ? 'Play #' + playNumber : text.slice(0, 80),
+          url: href,
+          durationText: durationMatch ? durationMatch[0] : null,
+          thumbnailUrl: thumbnail,
+          textSnippet: text.slice(0, 240),
+          isCurrent: /\\b(current|selected|active|playing)\\b/i.test(String(element.className || '') + ' ' + String(element.getAttribute('aria-current') || '') + ' ' + String(element.getAttribute('aria-selected') || '')),
+        });
+      }
+    }
+    return rows;
+  };
+  const scrollCandidates = Array.from(document.querySelectorAll('*')).filter((element) => {
+    if (!(element instanceof HTMLElement)) return false;
+    if (!visible(element)) return false;
+    const canScroll = element.scrollHeight > element.clientHeight + 120;
+    if (!canScroll) return false;
+    const text = normalize(element.innerText || element.textContent || '');
+    return rowPattern.test(text);
+  });
+  const scrollContainer = scrollCandidates.sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight))[0] || document.scrollingElement || document.documentElement;
+  const collected = new Map();
+  const remember = () => {
+    for (const row of collectRows()) {
+      const key = row.playNumber ? 'play-' + row.playNumber : row.textSnippet;
+      collected.set(key, row);
+    }
+  };
+  remember();
+  const needsTargetedScroll = options.selection === 'last' || (Array.isArray(options.playNumbers) && options.playNumbers.length > 0);
+  if (needsTargetedScroll && scrollContainer) {
+    const targetSet = new Set(options.playNumbers || []);
+    const maxSteps = targetSet.size > 0 ? 24 : 8;
+    const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+    for (let step = 0; step <= maxSteps; step++) {
+      if (options.selection === 'last' && targetSet.size === 0) {
+        scrollContainer.scrollTop = maxScrollTop;
+      } else {
+        scrollContainer.scrollTop = Math.round((maxScrollTop * step) / Math.max(maxSteps, 1));
+      }
+      scrollContainer.dispatchEvent(new Event('scroll', { bubbles: true }));
+      await page.waitForTimeout(300);
+      remember();
+      if (targetSet.size > 0 && Array.from(targetSet).every((playNumber) => collected.has('play-' + playNumber))) {
+        break;
+      }
+    }
+  }
+  let rows = Array.from(collected.values());
+  if (Array.isArray(options.playNumbers) && options.playNumbers.length > 0) {
+    const order = new Map(options.playNumbers.map((playNumber, index) => [playNumber, index]));
+    rows = rows
+      .filter((row) => row.playNumber && order.has(row.playNumber))
+      .sort((a, b) => (order.get(a.playNumber) || 0) - (order.get(b.playNumber) || 0));
+  } else if (options.selection === 'last') {
+    rows = rows
+      .sort((a, b) => (a.playNumber || 0) - (b.playNumber || 0))
+      .slice(-options.maxItems);
+  } else if (options.selection === 'first') {
+    rows = rows
+      .sort((a, b) => (a.playNumber || 0) - (b.playNumber || 0))
+      .slice(0, options.maxItems);
+  } else {
+    rows = rows.slice(0, options.maxItems);
+  }
+  return {
+    items: rows.slice(0, options.maxItems).map((row, index) => ({
+      index,
+      itemId: row.playNumber ? 'play-' + row.playNumber : null,
+      title: row.title,
+      url: row.url,
+      durationText: row.durationText,
+      thumbnailUrl: row.thumbnailUrl,
+      textSnippet: row.textSnippet,
+      isCurrent: row.isCurrent,
+    })),
+    discoveredCount: collected.size,
+  };
+})());
+`;
+
+    try {
+      const raw = await this.executeBrowserCommand(sessionId, code);
+      const parsed = this.parseBrowserJson<{ items?: LiveViewPlaylistItem[] }>(
+        raw,
+        sessionId,
+        'Could not extract playlist rows from browser state'
+      );
+      return Array.isArray(parsed.items) ? parsed.items.slice(0, maxItems) : [];
+    } catch (err) {
+      logger.warn('[LiveViewSession] Browser playlist row extraction failed; falling back to AI', {
+        sessionId,
+        error: err instanceof Error ? err.message : 'unknown',
+      });
+      return [];
+    }
+  }
+
   /**
    * Parse AI-generated playlist response to extract structured clip items.
    * Handles various response formats (labeled lists, markdown, etc.)
    */
-  private parsePlaylistFromResponse(response: string): Array<{
+  private parsePlaylistFromResponse(
+    response: string,
+    maxItems: number
+  ): Array<{
     index: number;
     itemId: string | null;
     title: string;
@@ -1370,6 +1829,9 @@ JSON.stringify(await (async () => ({
     textSnippet: string | null;
     isCurrent: boolean;
   }> {
+    const hudlRows = this.parseHudlPlayRowsFromResponse(response, maxItems);
+    if (hudlRows.length > 0) return hudlRows;
+
     const items: Array<{
       index: number;
       itemId: string | null;
@@ -1386,7 +1848,9 @@ JSON.stringify(await (async () => ({
       .split(/(?:---|===|##\s+Item|\d+\.|Clip\s+\d+)/i)
       .filter((block) => block.trim().length > 10);
 
-    for (let i = 0; i < itemBlocks.length && items.length < 100; i++) {
+    const boundedMaxItems = Math.min(Math.max(Math.trunc(maxItems) || 5, 1), 25);
+
+    for (let i = 0; i < itemBlocks.length && items.length < boundedMaxItems; i++) {
       const block = itemBlocks[i];
 
       // Extract title
@@ -1422,6 +1886,72 @@ JSON.stringify(await (async () => ({
     }
 
     return items;
+  }
+
+  private parseHudlPlayRowsFromResponse(
+    response: string,
+    maxItems: number
+  ): Array<{
+    index: number;
+    itemId: string | null;
+    title: string;
+    url: string | null;
+    durationText: string | null;
+    thumbnailUrl: string | null;
+    textSnippet: string | null;
+    isCurrent: boolean;
+  }> {
+    const boundedMaxItems = Math.min(Math.max(Math.trunc(maxItems) || 5, 1), 25);
+    const normalized = response.replace(/\\n/g, '\n');
+    const playMatches = Array.from(normalized.matchAll(/PLAY\s*#\s*(\d{1,4})/gi));
+    if (playMatches.length === 0) return [];
+
+    const items: Array<{
+      index: number;
+      itemId: string | null;
+      title: string;
+      url: string | null;
+      durationText: string | null;
+      thumbnailUrl: string | null;
+      textSnippet: string | null;
+      isCurrent: boolean;
+    }> = [];
+    const seen = new Set<number>();
+
+    for (const [matchIndex, match] of playMatches.entries()) {
+      const playNumber = Number(match[1]);
+      if (!Number.isFinite(playNumber) || seen.has(playNumber)) continue;
+      seen.add(playNumber);
+
+      const start = match.index ?? 0;
+      const nextStart = playMatches[matchIndex + 1]?.index ?? start + 500;
+      const snippet = normalized
+        .slice(start, Math.min(nextStart, start + 500))
+        .replace(/["'`]+/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      const urlMatch = snippet.match(/https?:\/\/[^\s\]"'<>]+/i);
+      const durationMatch = snippet.match(/\b\d{1,2}:\d{2}(?::\d{2})?\b/);
+      const thumbnailMatch = snippet.match(
+        /https?:\/\/[^\s\]"'<>]+\.(?:png|jpe?g|webp)(?:[?#][^\s\]"'<>]+)?/i
+      );
+
+      items.push({
+        index: items.length,
+        itemId: `play-${playNumber}`,
+        title: `Play #${playNumber}`,
+        url: urlMatch?.[0] ?? null,
+        durationText: durationMatch?.[0] ?? null,
+        thumbnailUrl: thumbnailMatch?.[0] ?? null,
+        textSnippet: snippet.slice(0, 240),
+        isCurrent: /\b(current|selected|active|playing)\b/i.test(snippet),
+      });
+    }
+
+    return items.slice(-boundedMaxItems).map((item, index) => ({
+      ...item,
+      index,
+    }));
   }
   /**
    * Execute a browser action (click, type, scroll, etc.) in an active session.
@@ -1521,15 +2051,35 @@ JSON.stringify(await (async () => ({
       prompt: prompt.slice(0, 200),
     });
 
+    const deterministicScroll = await this.executeDeterministicScrollPrompt(sessionId, prompt);
+    if (deterministicScroll) {
+      return deterministicScroll;
+    }
+
     // Use the SDK's interact() method which natively supports the `prompt` parameter.
     // This calls POST /v2/scrape/{scrapeId}/interact — the correct endpoint for
     // AI-driven interactions: https://docs.firecrawl.dev/features/interact
-    const result: ScrapeExecuteResponse = await this.client.interact(sessionId, {
-      prompt,
-    });
+    let result: ScrapeExecuteResponse;
+    try {
+      result = await this.client.interact(sessionId, {
+        prompt,
+      });
+    } catch (error) {
+      throw this.normalizeSessionExecutionError(sessionId, error, 'Prompt execution failed');
+    }
 
     if (!result.success) {
       const errorMsg = result.error?.trim() || result.stderr?.trim() || 'Prompt execution failed';
+      const normalizedError = this.normalizeSessionExecutionError(
+        sessionId,
+        new AgentEngineError('LIVE_VIEW_REQUEST_FAILED', errorMsg, {
+          metadata: { sessionId },
+        }),
+        'Prompt execution failed'
+      );
+      if (normalizedError.code === 'LIVE_VIEW_SESSION_EXPIRED') {
+        throw normalizedError;
+      }
       logger.warn('[LiveViewSession] Prompt failed', { sessionId, error: errorMsg });
       return { success: false, output: errorMsg };
     }
@@ -1569,6 +2119,137 @@ JSON.stringify(await (async () => ({
     });
 
     return { success: true, output: output || 'Action completed successfully.' };
+  }
+
+  private resolveDeterministicScrollDirection(
+    prompt: string
+  ): 'bottom' | 'top' | 'down' | 'up' | null {
+    const normalized = prompt.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!/\bscroll\b/.test(normalized)) return null;
+
+    const compoundAction = /\b(click|type|write|press|submit|send|select|choose|open)\b/.test(
+      normalized
+    );
+    if (compoundAction) return null;
+
+    if (/\b(bottom|end|last clips?|last plays?|last rows?)\b/.test(normalized)) return 'bottom';
+    if (/\b(top|beginning|first clips?|first plays?|first rows?)\b/.test(normalized)) return 'top';
+    if (/\b(up|previous)\b/.test(normalized)) return 'up';
+    if (/\b(down|next|further)\b/.test(normalized)) return 'down';
+
+    return null;
+  }
+
+  private async executeDeterministicScrollPrompt(
+    sessionId: string,
+    prompt: string
+  ): Promise<LiveViewPromptResult | null> {
+    const direction = this.resolveDeterministicScrollDirection(prompt);
+    if (!direction) return null;
+
+    const payload = JSON.stringify({ direction });
+    const code = `
+JSON.stringify(await (async () => {
+  const options = ${payload};
+  const normalize = (value) => String(value || '').replace(/ +/g, ' ').trim();
+  const visible = (element) => {
+    if (!(element instanceof HTMLElement)) return false;
+    const style = window.getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
+  };
+  const pageTextPattern = /\b(playlist|clip|clips|play|plays|qtr|odk|result|hudl|video|library)\b/i;
+  const candidates = Array.from(document.querySelectorAll('*')).filter((element) => {
+    if (!(element instanceof HTMLElement) || !visible(element)) return false;
+    if (element.scrollHeight <= element.clientHeight + 120) return false;
+    const label = normalize([
+      element.getAttribute('aria-label'),
+      element.getAttribute('role'),
+      element.className,
+      element.id,
+      element.innerText?.slice(0, 1200),
+    ].join(' '));
+    return pageTextPattern.test(label);
+  });
+  const scrollContainer = candidates.sort((a, b) => {
+    const aRoom = a.scrollHeight - a.clientHeight;
+    const bRoom = b.scrollHeight - b.clientHeight;
+    return bRoom - aRoom;
+  })[0] || document.scrollingElement || document.documentElement;
+  const before = {
+    scrollTop: Math.round(scrollContainer.scrollTop || 0),
+    scrollHeight: Math.round(scrollContainer.scrollHeight || 0),
+    clientHeight: Math.round(scrollContainer.clientHeight || 0),
+  };
+  const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
+  const step = Math.max(600, Math.round((scrollContainer.clientHeight || window.innerHeight || 800) * 0.85));
+  if (options.direction === 'bottom') {
+    scrollContainer.scrollTop = maxScrollTop;
+  } else if (options.direction === 'top') {
+    scrollContainer.scrollTop = 0;
+  } else if (options.direction === 'up') {
+    scrollContainer.scrollTop = Math.max(0, before.scrollTop - step);
+  } else {
+    scrollContainer.scrollTop = Math.min(maxScrollTop, before.scrollTop + step);
+  }
+  scrollContainer.dispatchEvent(new Event('scroll', { bubbles: true }));
+  await page.waitForTimeout(650);
+  await page.waitForLoadState('networkidle').catch(() => undefined);
+  const after = {
+    scrollTop: Math.round(scrollContainer.scrollTop || 0),
+    scrollHeight: Math.round(scrollContainer.scrollHeight || 0),
+    clientHeight: Math.round(scrollContainer.clientHeight || 0),
+  };
+  return {
+    direction: options.direction,
+    url: page.url(),
+    title: await page.title(),
+    before,
+    after,
+    snapshot: normalize(document.body?.innerText || '').slice(0, 5000),
+  };
+})());
+`;
+
+    try {
+      const raw = await this.executeBrowserCommand(sessionId, code);
+      const result = this.parseBrowserJson<{
+        direction?: string;
+        url?: string;
+        title?: string;
+        before?: { scrollTop?: number; scrollHeight?: number; clientHeight?: number };
+        after?: { scrollTop?: number; scrollHeight?: number; clientHeight?: number };
+        snapshot?: string;
+      }>(raw, sessionId, 'Deterministic scroll returned an unreadable response');
+
+      const beforeTop = result.before?.scrollTop ?? 0;
+      const afterTop = result.after?.scrollTop ?? 0;
+      const output = [
+        `Deterministic scroll completed (${direction}).`,
+        result.url ? `Current URL: ${result.url}` : '',
+        result.title ? `Current title: ${result.title}` : '',
+        `Scroll position changed from ${beforeTop} to ${afterTop}.`,
+        result.snapshot ? `Current visible page text snapshot:\n${result.snapshot}` : '',
+      ]
+        .filter((part) => part.length > 0)
+        .join('\n');
+
+      logger.info('[LiveViewSession] Deterministic scroll completed', {
+        sessionId,
+        direction,
+        beforeTop,
+        afterTop,
+      });
+
+      return { success: true, output: output.slice(0, 30_000) };
+    } catch (err) {
+      logger.warn('[LiveViewSession] Deterministic scroll failed; falling back to prompt mode', {
+        sessionId,
+        direction,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
   }
 
   // ─── Internal Helpers ─────────────────────────────────────────────────

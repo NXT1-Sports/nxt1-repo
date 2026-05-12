@@ -53,6 +53,7 @@ export class DataCoordinatorAgent extends BaseAgent {
       '- Call `ask_user` when required fields are missing and cannot be resolved from context or one deterministic lookup.',
       '- Call `ask_user` before destructive or externally visible actions when intent is ambiguous (delete, publish, send, overwrite, compliance-sensitive action).',
       '- Do NOT call `ask_user` for data already present in task context, prior tool results, or deterministic lookups.',
+      '- 2-Step Pattern (MANDATORY when calling `ask_user`): STEP 1 — write the full question to the user as ordinary conversational prose in your assistant message (include context, options, examples). STEP 2 — THEN invoke `ask_user`; the `question` argument is a SHORT (≤80 chars) notification label, NOT the full question. The yield bubble is a thin "Waiting for your reply…" affordance — the user only sees the question if you wrote it as prose first.',
       '- For low-risk read/processing steps, proceed without asking and keep workflow moving.',
       '- Ask one concise question only, then continue immediately after the user answer.',
       '',

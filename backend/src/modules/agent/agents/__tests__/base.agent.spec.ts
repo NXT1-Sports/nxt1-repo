@@ -92,6 +92,11 @@ class FakeAgent extends BaseAgent {
   }
 }
 
+class FakeRouterAgent extends FakeAgent {
+  override readonly id: AgentIdentifier = 'router';
+  override readonly name = 'Fake Router Agent';
+}
+
 class FakeExtractLiveViewMediaTool extends BaseTool {
   readonly name = 'extract_live_view_media';
   readonly description = 'Extracts media from live view.';
@@ -646,6 +651,33 @@ describe('BaseAgent identifier scrubbing', () => {
           _dedupedFromOperationMemory: true,
           videoUrl: 'https://cdn.example.com/clip.mp4',
         }),
+      })
+    );
+  });
+
+  it('guides router away from forbidden live-view extraction tools', async () => {
+    const agent = new FakeRouterAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeExtractLiveViewMediaTool());
+
+    const result = await agent.callExecuteTool(
+      {
+        id: 'extract_router_1',
+        type: 'function',
+        function: {
+          name: 'extract_live_view_media',
+          arguments: JSON.stringify({}),
+        },
+      },
+      registry,
+      'viewer-1',
+      { allowedToolNames: ['delegate_to_coordinator'] }
+    );
+
+    expect(JSON.parse(result)).toEqual(
+      expect.objectContaining({
+        errorCode: 'AGENT_TOOL_NOT_ALLOWED',
+        guidance: expect.stringContaining('coordinatorId="performance_coordinator"'),
       })
     );
   });

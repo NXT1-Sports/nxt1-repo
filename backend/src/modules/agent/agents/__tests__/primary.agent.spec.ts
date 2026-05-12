@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentSessionContext } from '@nxt1/core';
-import type { LLMToolCall } from '../../llm/llm.types.js';
+import type { LLMMessage, LLMToolCall } from '../../llm/llm.types.js';
 import type { ToolRegistry } from '../../tools/tool-registry.js';
 import type { AskUserToolContext } from '../../tools/system/ask-user.tool.js';
 import type { ApprovalGateService } from '../../services/approval-gate.service.js';
@@ -11,7 +11,9 @@ import { PrimaryAgent } from '../primary.agent.js';
 import { DelegateToCoordinatorTool } from '../../tools/system/delegate-to-coordinator.tool.js';
 import { PlanAndExecuteTool } from '../../tools/system/plan-and-execute.tool.js';
 import { ToolRegistry as ConcreteToolRegistry } from '../../tools/tool-registry.js';
+import { BaseTool, type ToolResult } from '../../tools/base.tool.js';
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
+import { z } from 'zod';
 import {
   DEFAULT_AGENT_APP_CONFIG,
   parseAgentAppConfig,
@@ -37,7 +39,7 @@ class TestPrimaryAgent extends PrimaryAgent {
     signal?: AbortSignal,
     yieldContext?: AskUserToolContext,
     sessionContext?: { operationId?: string },
-    currentMessages?: readonly [],
+    currentMessages?: readonly LLMMessage[],
     approvalGate?: ApprovalGateService,
     onStreamEvent?: OnStreamEvent
   ): Promise<string> {
@@ -52,6 +54,27 @@ class TestPrimaryAgent extends PrimaryAgent {
       approvalGate,
       onStreamEvent
     );
+  }
+}
+
+class StubCaptureLiveViewScreenshotTool extends BaseTool {
+  readonly name = 'capture_live_view_screenshot';
+  readonly description = 'Capture live-view screenshot';
+  readonly parameters = z.object({});
+  readonly isMutation = false;
+  readonly category = 'system' as const;
+  readonly entityGroup = 'platform_tools' as const;
+
+  async execute(): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        sessionId: 'live-session-1',
+        imageUrl: 'https://storage.example.com/live-view.png',
+        pageUrl: 'https://www.hudl.com/library/18832',
+        mimeType: 'image/png',
+      },
+    };
   }
 }
 
@@ -82,6 +105,7 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain('delegate to `data_coordinator`');
     expect(prompt).toContain('delegate to `strategy_coordinator`');
     expect(prompt).toContain('NEVER call `generate_graphic` directly from router');
+    expect(prompt).toContain('Live-view film requests are coordinator-owned');
     expect(prompt).toContain('single objective sentence as the handoff payload');
     expect(prompt).toContain('Ask User Decision Matrix (CRITICAL)');
     expect(prompt).toContain('Do NOT call `ask_user` for data already present in task context');
@@ -619,5 +643,120 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(observation).toContain('brand_coordinator');
 
     agent.endRun('op-5');
+  });
+
+  it('reroutes live-view clip scrolling to the film coordinator extraction workflow', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: {
+          compactMarkdown: 'Capabilities',
+          detailedMarkdown: 'Capabilities',
+        },
+      }),
+    } as unknown as CapabilityRegistry;
+
+    const dispatcher: PrimaryDispatcher = {
+      runCoordinator: vi.fn().mockResolvedValue({
+        success: true,
+        observation: '## performance_coordinator dispatch result\n- extracted last clips',
+      }),
+      runPlan: vi.fn(),
+    };
+
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const context = {
+      ...createMockContext(),
+      operationId: 'op-live-view-film',
+    };
+
+    agent.beginRun({
+      operationId: 'op-live-view-film',
+      userId: context.userId,
+      sessionContext: context,
+      enrichedIntent: 'Can you watch the last 5 clips on this Hudl page and give me a report?',
+    });
+
+    const toolCall: LLMToolCall = {
+      id: 'call_interact_scroll_clips',
+      type: 'function',
+      function: {
+        name: 'interact_with_live_view',
+        arguments: JSON.stringify({
+          prompt:
+            'Scroll all the way to the bottom of the clip list/playlist on the right side of the page to see the last clips',
+        }),
+      },
+    };
+
+    const currentMessages: readonly LLMMessage[] = [
+      {
+        role: 'tool',
+        content: JSON.stringify({
+          success: true,
+          data: {
+            sessionId: 'live-session-1',
+            url: 'https://www.hudl.com/library/18832',
+            title: 'Library - Boys Varsity Football - Hudl',
+            content: 'Interactive elements:\nClip list with plays and playlist rows',
+          },
+        }),
+      },
+    ];
+
+    const registry = new ConcreteToolRegistry();
+    registry.register(new StubCaptureLiveViewScreenshotTool());
+    const events: Array<Record<string, unknown>> = [];
+    const observation = await agent.callExecuteTool(
+      toolCall,
+      registry,
+      context.userId,
+      undefined,
+      undefined,
+      { operationId: 'op-live-view-film' },
+      currentMessages,
+      undefined,
+      (event) => events.push(event as unknown as Record<string, unknown>)
+    );
+
+    expect(dispatcher.runCoordinator).toHaveBeenCalledWith(
+      'performance_coordinator',
+      expect.stringContaining('real media extraction'),
+      expect.objectContaining({ operationId: 'op-live-view-film' }),
+      expect.objectContaining({
+        source: 'router_live_view_film_interaction_fallback',
+        originalLiveViewPrompt: expect.stringContaining('Scroll all the way'),
+        liveViewContext: expect.objectContaining({
+          sessionId: 'live-session-1',
+          url: 'https://www.hudl.com/library/18832',
+        }),
+        preInteractionScreenshot: expect.objectContaining({
+          imageUrl: 'https://storage.example.com/live-view.png',
+        }),
+      })
+    );
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'tool_result',
+          toolName: 'capture_live_view_screenshot',
+          toolSuccess: true,
+          toolResult: expect.objectContaining({
+            imageUrl: 'https://storage.example.com/live-view.png',
+          }),
+        }),
+        expect.objectContaining({
+          type: 'tool_result',
+          toolName: 'interact_with_live_view',
+          toolSuccess: true,
+          toolResult: expect.objectContaining({
+            delegated: true,
+            coordinatorId: 'performance_coordinator',
+          }),
+        }),
+      ])
+    );
+    expect(observation).toContain('performance_coordinator');
+
+    agent.endRun('op-live-view-film');
   });
 });

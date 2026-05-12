@@ -38,6 +38,7 @@ import {
   NavigateLiveViewTool,
   InteractWithLiveViewTool,
   ReadLiveViewTool,
+  CaptureLiveViewScreenshotTool,
   ExtractLiveViewMediaTool,
   ExtractLiveViewPlaylistTool,
   CloseLiveViewTool,
@@ -391,11 +392,12 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     toolRegistry.register(new NavigateLiveViewTool(liveViewService));
     toolRegistry.register(new InteractWithLiveViewTool(liveViewService));
     toolRegistry.register(new ReadLiveViewTool(liveViewService));
+    toolRegistry.register(new CaptureLiveViewScreenshotTool(liveViewService));
     toolRegistry.register(new ExtractLiveViewMediaTool(liveViewService));
     toolRegistry.register(new ExtractLiveViewPlaylistTool(liveViewService));
     toolRegistry.register(new CloseLiveViewTool(liveViewService));
     logger.info(
-      'Live view tools registered (open, navigate, interact, read, extract media, extract playlist, close)'
+      'Live view tools registered (open, navigate, interact, read, screenshot, extract media, extract playlist, close)'
     );
   } catch {
     logger.warn('LiveViewSessionService init failed — open_live_view tool disabled');

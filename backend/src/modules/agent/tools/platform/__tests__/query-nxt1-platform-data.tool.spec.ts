@@ -173,6 +173,28 @@ describe('QueryNxt1PlatformDataTool', () => {
     ]);
   });
 
+  it('accepts singular entityType aliases like team and maps to teams', async () => {
+    const db = createMockDb({
+      Users: [],
+      Teams: [{ id: 'team-1', name: 'Crown Point Bulldogs', sport: 'Basketball' }],
+      Organizations: [],
+      Posts: [],
+      Recruiting: [],
+      TeamStats: [],
+      PlayerStats: [],
+      PlayerMetrics: [],
+      RosterEntries: [],
+      Events: [],
+    });
+
+    const tool = new QueryNxt1PlatformDataTool({ production: db as never });
+    const result = await tool.execute({ entityType: 'team' });
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['entityType']).toBe('teams');
+    expect((result.data as Record<string, unknown>)['totalCount']).toBe(1);
+  });
+
   it('returns a full cross-collection user bundle', async () => {
     const db = createMockDb({
       Users: [

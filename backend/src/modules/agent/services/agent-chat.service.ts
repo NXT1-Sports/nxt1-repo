@@ -715,7 +715,7 @@ export class AgentChatService {
             const enriched = await AgentMessageModel.findOneAndUpdate(
               { idempotencyKey: params.idempotencyKey },
               { $set: patch },
-              { new: true }
+              { returnDocument: 'after' }
             ).exec();
 
             logger.info(
@@ -984,7 +984,7 @@ export class AgentChatService {
           attachments: nextAttachments,
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     )
       .lean()
       .exec();
@@ -1012,7 +1012,7 @@ export class AgentChatService {
           attachments: uniqueAttachments,
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     )
       .lean()
       .exec();
@@ -1030,6 +1030,46 @@ export class AgentChatService {
       userId: params.userId,
       messageId: params.messageId,
       attachmentCount: params.attachments.length,
+    });
+
+    return this.toMessage(doc);
+  }
+
+  async updateMessageOperationId(params: {
+    userId: string;
+    messageId: string;
+    operationId: string;
+  }): Promise<AgentMessage | null> {
+    const doc = await AgentMessageModel.findOneAndUpdate(
+      {
+        _id: params.messageId,
+        userId: params.userId,
+        role: 'user',
+        deletedAt: null,
+      },
+      {
+        $set: {
+          operationId: params.operationId,
+        },
+      },
+      { returnDocument: 'after' }
+    )
+      .lean()
+      .exec();
+
+    if (!doc) {
+      logger.warn('[AgentChatService] Operation id message update missed', {
+        userId: params.userId,
+        messageId: params.messageId,
+        operationId: params.operationId,
+      });
+      return null;
+    }
+
+    logger.info('[AgentChatService] Operation id persisted to user message', {
+      userId: params.userId,
+      messageId: params.messageId,
+      operationId: params.operationId,
     });
 
     return this.toMessage(doc);
@@ -1129,7 +1169,7 @@ export class AgentChatService {
         deletedAt: null,
       },
       { $set: patch },
-      { new: true }
+      { returnDocument: 'after' }
     )
       .lean()
       .exec();
@@ -1192,7 +1232,7 @@ export class AgentChatService {
           },
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     )
       .lean()
       .exec();
@@ -1300,7 +1340,7 @@ export class AgentChatService {
           },
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     )
       .lean()
       .exec();
@@ -1345,7 +1385,7 @@ export class AgentChatService {
           },
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     )
       .lean()
       .exec();

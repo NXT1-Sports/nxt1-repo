@@ -9,7 +9,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { z } from 'zod';
 import { OpenRouterService } from '../openrouter.service.js';
-import { MODEL_CATALOGUE } from '../llm.types.js';
+import { IMAGE_MODEL, MODEL_CATALOGUE, resolveSafeImageGenerationModel } from '../llm.types.js';
 import {
   DEFAULT_AGENT_APP_CONFIG,
   setCachedAgentAppConfig,
@@ -216,6 +216,37 @@ describe('OpenRouterService', () => {
     const body = JSON.parse((fetchSpy.mock.calls[0] as [string, RequestInit])[1].body as string);
     expect(body.model).toBe('openai/gpt-4o-mini');
     expect(hydrateAgentConfig).toHaveBeenCalledTimes(1);
+  });
+
+  it('should fall back to the dedicated image model when image_generation is misconfigured', () => {
+    expect(resolveSafeImageGenerationModel('~google/gemini-pro-latest')).toBe(IMAGE_MODEL);
+    expect(resolveSafeImageGenerationModel('google/gemini-3-pro-image-preview')).toBe(
+      'google/gemini-3-pro-image-preview'
+    );
+  });
+
+  it('should inline reference images before sending image generation requests', async () => {
+    const imageUrl =
+      'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Colleges/174862.png';
+
+    fetchSpy.mockResolvedValueOnce(
+      new Response(Buffer.from('image-bytes'), {
+        status: 200,
+        headers: { 'Content-Type': 'image/png' },
+      })
+    );
+
+    const result = await (
+      service as unknown as {
+        resolveImageInputUrl(url: string): Promise<string>;
+      }
+    ).resolveImageInputUrl(imageUrl);
+
+    expect(result).toBe('data:image/png;base64,' + Buffer.from('image-bytes').toString('base64'));
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy).toHaveBeenCalledWith(imageUrl, {
+      signal: undefined,
+    });
   });
 
   // ─── Tool Calls ─────────────────────────────────────────────────────────

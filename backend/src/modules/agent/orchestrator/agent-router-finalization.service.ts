@@ -140,13 +140,16 @@ export class AgentRouterFinalizationService {
     const failedTasks = mutableTasks.filter(
       (task): task is AgentExecutionMutableTask => task.status === 'failed'
     );
+    const hasDeliverables = deliverableUrls.length > 0;
 
     if (failedTasks.length > 0) {
       const firstFailedTask = failedTasks[0];
       const firstFailureMessage = firstFailedTask._lastError ?? 'Unknown error';
-      const failureHeadline =
-        `Execution plan failed. Task ${firstFailedTask.id} ` +
-        `(${firstFailedTask.assignedAgent}) failed: ${firstFailureMessage}`;
+      const failureHeadline = hasDeliverables
+        ? `Completed with partial issues. Task ${firstFailedTask.id} ` +
+          `(${firstFailedTask.assignedAgent}) failed: ${firstFailureMessage}`
+        : `Execution plan failed. Task ${firstFailedTask.id} ` +
+          `(${firstFailedTask.assignedAgent}) failed: ${firstFailureMessage}`;
       const partialSummary = summaries.join('\n\n').trim();
       const failedTaskDetails = failedTasks.map((task) => ({
         id: task.id,
@@ -156,11 +159,12 @@ export class AgentRouterFinalizationService {
         error: task._lastError ?? 'Unknown error',
       }));
 
-      logger.error('[AgentRouter] Execution plan failed', {
+      logger[hasDeliverables ? 'warn' : 'error']('[AgentRouter] Execution plan failed', {
         operationId,
         failedTaskId: firstFailedTask.id,
         assignedAgent: firstFailedTask.assignedAgent,
         error: firstFailureMessage,
+        hasDeliverables,
         completedTaskCount: taskResults.size,
         totalTaskCount: mutableTasks.length,
       });
@@ -168,17 +172,17 @@ export class AgentRouterFinalizationService {
       this.telemetry.emitUpdate(
         onUpdate,
         operationId,
-        'failed',
+        hasDeliverables ? 'completed' : 'failed',
         failureHeadline,
         {
-          eventType: 'plan_failed',
+          eventType: hasDeliverables ? 'plan_partial_success' : 'plan_failed',
           failedTasks: failedTaskDetails,
           firstFailedTask: failedTaskDetails[0],
         },
         {
           agentId: firstFailedTask.assignedAgent,
           stage: 'agent_thinking',
-          outcomeCode: 'task_failed',
+          outcomeCode: hasDeliverables ? 'success_default' : 'task_failed',
           metadata: {
             failedTaskId: firstFailedTask.id,
             failedAgentId: firstFailedTask.assignedAgent,
@@ -190,34 +194,35 @@ export class AgentRouterFinalizationService {
       this.telemetry.recordPhaseLatency('aggregation', aggregationDurationMs, {
         operationId,
         userId,
-        status: 'failed',
+        status: hasDeliverables ? 'partial_success' : 'failed',
       });
       this.telemetry.emitProgressOperation(onStreamEvent, {
         operationId,
         stage: 'agent_thinking',
         message: `Aggregation latency: ${aggregationDurationMs}ms`,
+        ...(hasDeliverables ? { status: 'complete' as const } : { status: 'failed' as const }),
         metadata: {
           eventType: 'metric',
           metricName: 'phase_latency_ms',
           phase: 'aggregation',
-          status: 'failed',
+          status: hasDeliverables ? 'partial_success' : 'failed',
           value: aggregationDurationMs,
         },
       });
 
-      // Stamp any connected sources that were registered during this failed
-      // job with syncStatus: 'error' so the UI reflects the true outcome.
-      logger.info('[AgentRouter] Flushing connected sources (error outcome)', {
+      // When a deliverable was produced, connected sources should remain green
+      // even if a non-critical downstream task failed.
+      logger.info('[AgentRouter] Flushing connected sources outcome', {
         operationId,
-        outcome: 'error',
+        outcome: hasDeliverables ? 'success' : 'error',
         taskCount: taskResults.size,
       });
       getConnectedSourceSyncTracker()
-        .flush(operationId, 'error')
+        .flush(operationId, hasDeliverables ? 'success' : 'error')
         .catch((err) =>
           logger.error('[AgentRouter] Connected source sync status stamp failed', {
             operationId,
-            outcome: 'error',
+            outcome: hasDeliverables ? 'success' : 'error',
             error: err instanceof Error ? err.message : String(err),
             errorStack: err instanceof Error ? err.stack : undefined,
           })
@@ -225,7 +230,7 @@ export class AgentRouterFinalizationService {
 
       const failedSummary =
         partialSummary.length > 0
-          ? `${failureHeadline}\n\nPartial completed work:\n${partialSummary}`
+          ? `${failureHeadline}\n\n${hasDeliverables ? 'Completed work:' : 'Partial completed work:'}\n${partialSummary}`
           : failureHeadline;
 
       return {
@@ -233,7 +238,7 @@ export class AgentRouterFinalizationService {
         data: {
           plan,
           taskResults: Object.fromEntries(taskResults),
-          operationStatus: 'failed',
+          operationStatus: hasDeliverables ? 'partial_success' : 'failed',
           failedTasks: failedTaskDetails,
           firstFailedTask: failedTaskDetails[0],
         },

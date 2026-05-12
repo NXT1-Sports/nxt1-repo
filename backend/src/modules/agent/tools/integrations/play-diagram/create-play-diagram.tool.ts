@@ -9,7 +9,7 @@ export class CreatePlayDiagramTool extends BaseTool {
     'Use this when a coach or athlete asks to "draw a play", "diagram a route tree", ' +
     '"create a formation diagram", "show me a blitz scheme", or "build a playbook diagram". ' +
     'The tool generates valid mxGraphModel XML via AI, exports it to a PNG, ' +
-    'and returns the image URL plus the raw XML so coaches can fine-tune the diagram later. ' +
+    'and returns the image URL as the user-facing deliverable; editor metadata is for follow-up edits only unless explicitly requested. ' +
     'Supports football, basketball, soccer, baseball, and softball. ' +
     'After generating, pass imageUrl as diagramUrl into write_playbooks to attach to a play entry.';
 

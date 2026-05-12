@@ -167,10 +167,21 @@ describe('AgentXOperationChatMessageFacade', () => {
     const yieldMessage = facade
       .messages()
       .find((message) => message.yieldState?.reason === 'needs_input');
+    const committedProse = facade
+      .messages()
+      .find(
+        (message) =>
+          message.role === 'assistant' &&
+          !message.yieldState &&
+          message.content === 'I need your direction before I continue.'
+      );
 
+    // Typing sentinel is committed in place as a separate assistant bubble so
+    // the streamed prose/tool-steps remain visible above the yield bubble.
     expect(typing).toBeUndefined();
-    expect(yieldMessage?.content).toBe('I need your direction before I continue.');
-    expect(yieldMessage?.steps ?? []).toEqual([
+    expect(committedProse).toBeDefined();
+    expect(committedProse?.isTyping).toBe(false);
+    expect(committedProse?.steps ?? []).toEqual([
       {
         id: 'tool-1',
         label: 'Ask user',
@@ -178,6 +189,9 @@ describe('AgentXOperationChatMessageFacade', () => {
         stageType: 'tool',
       },
     ]);
+    // Yield bubble carries ONLY the question (via yieldState.promptToUser).
+    expect(yieldMessage?.content).toBe('');
+    expect(yieldMessage?.steps ?? []).toEqual([]);
     expect(yieldMessage?.yieldState).toEqual(yieldState);
   });
 

@@ -37,6 +37,7 @@ import {
   type ShellActionChip,
 } from '@nxt1/core';
 import type { Firestore } from 'firebase-admin/firestore';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { z } from 'zod';
 import {
   MODEL_CATALOGUE as DEFAULT_MODEL_CATALOGUE,
@@ -2303,7 +2304,23 @@ export const DEFAULT_AGENT_APP_CONFIG: AgentAppConfig = {
 
 let cachedAgentAppConfig: AgentAppConfig = DEFAULT_AGENT_APP_CONFIG;
 let cachedAgentAppConfigLoadedAt = 0;
-let cachedAgentAppConfigPromise: Promise<AgentAppConfig> | null = null;
+const agentAppConfigScope = new AsyncLocalStorage<AgentAppConfig>();
+const DEFAULT_AGENT_APP_CONFIG_CACHE_KEY = 'default';
+type AgentAppConfigCacheEntry = {
+  config: AgentAppConfig;
+  loadedAt: number;
+  promise: Promise<AgentAppConfig> | null;
+};
+const agentAppConfigCache = new Map<string, AgentAppConfigCacheEntry>([
+  [
+    DEFAULT_AGENT_APP_CONFIG_CACHE_KEY,
+    {
+      config: DEFAULT_AGENT_APP_CONFIG,
+      loadedAt: 0,
+      promise: null,
+    },
+  ],
+]);
 
 const MODEL_TIER_KEYS = Object.keys(DEFAULT_MODEL_CATALOGUE) as ModelTier[];
 
@@ -2435,18 +2452,85 @@ export function parseAgentAppConfig(
 }
 
 export function getCachedAgentAppConfig(): AgentAppConfig {
-  return cachedAgentAppConfig;
+  return getScopedAgentAppConfig() ?? cachedAgentAppConfig;
 }
 
-export function setCachedAgentAppConfig(config: AgentAppConfig): void {
+export function getScopedAgentAppConfig(): AgentAppConfig | undefined {
+  return agentAppConfigScope.getStore();
+}
+
+export function runWithAgentAppConfig<T>(config: AgentAppConfig, fn: () => T): T {
+  return agentAppConfigScope.run(config, fn);
+}
+
+function getAgentAppConfigCacheKey(db: Firestore): string {
+  const app = (
+    db as Firestore & {
+      readonly app?: { readonly name?: string; readonly options?: { readonly projectId?: string } };
+    }
+  ).app;
+  const appName = app?.name?.trim() || 'default';
+  const projectId = app?.options?.projectId?.trim() || 'unknown-project';
+  return `${projectId}:${appName}`;
+}
+
+function getOrCreateAgentAppConfigCacheEntry(cacheKey: string): AgentAppConfigCacheEntry {
+  const existing = agentAppConfigCache.get(cacheKey);
+  if (existing) {
+    return existing;
+  }
+
+  const created: AgentAppConfigCacheEntry = {
+    config: DEFAULT_AGENT_APP_CONFIG,
+    loadedAt: 0,
+    promise: null,
+  };
+  agentAppConfigCache.set(cacheKey, created);
+  return created;
+}
+
+export function setCachedAgentAppConfig(
+  config: AgentAppConfig,
+  options?: { readonly cacheKey?: string }
+): void {
   cachedAgentAppConfig = config;
   cachedAgentAppConfigLoadedAt = Date.now();
+
+  const cacheKey = options?.cacheKey;
+  if (!cacheKey) {
+    return;
+  }
+
+  const entry = getOrCreateAgentAppConfigCacheEntry(cacheKey);
+  entry.config = config;
+  entry.loadedAt = cachedAgentAppConfigLoadedAt;
 }
 
 export function resetCachedAgentAppConfig(): void {
   cachedAgentAppConfig = DEFAULT_AGENT_APP_CONFIG;
   cachedAgentAppConfigLoadedAt = 0;
-  cachedAgentAppConfigPromise = null;
+  agentAppConfigCache.clear();
+  agentAppConfigCache.set(DEFAULT_AGENT_APP_CONFIG_CACHE_KEY, {
+    config: DEFAULT_AGENT_APP_CONFIG,
+    loadedAt: 0,
+    promise: null,
+  });
+}
+
+export async function withAgentAppConfigForFirestore<T>(
+  db: Firestore | undefined,
+  fn: () => Promise<T>,
+  options?: {
+    readonly forceRefresh?: boolean;
+    readonly maxAgeMs?: number;
+  }
+): Promise<T> {
+  if (!db) {
+    return runWithAgentAppConfig(DEFAULT_AGENT_APP_CONFIG, fn);
+  }
+
+  const config = await getAgentAppConfig(db, options);
+  return runWithAgentAppConfig(config, fn);
 }
 
 export function resolveRolePersona(
@@ -2676,21 +2760,23 @@ export async function getAgentAppConfig(
     readonly maxAgeMs?: number;
   }
 ): Promise<AgentAppConfig> {
+  const cacheKey = getAgentAppConfigCacheKey(db);
+  const cacheEntry = getOrCreateAgentAppConfigCacheEntry(cacheKey);
   const maxAgeMs = options?.maxAgeMs ?? AGENT_APP_CONFIG_CACHE_TTL_MS;
   const cacheIsFresh =
     !options?.forceRefresh &&
-    cachedAgentAppConfigLoadedAt > 0 &&
-    Date.now() - cachedAgentAppConfigLoadedAt < maxAgeMs;
+    cacheEntry.loadedAt > 0 &&
+    Date.now() - cacheEntry.loadedAt < maxAgeMs;
 
   if (cacheIsFresh) {
-    return cachedAgentAppConfig;
+    return cacheEntry.config;
   }
 
-  if (cachedAgentAppConfigPromise) {
-    return cachedAgentAppConfigPromise;
+  if (cacheEntry.promise) {
+    return cacheEntry.promise;
   }
 
-  cachedAgentAppConfigPromise = (async () => {
+  cacheEntry.promise = (async () => {
     try {
       const snap = await db.collection(APP_CONFIG_COLLECTION).doc(AGENT_CONFIG_DOC_ID).get();
       const config = parseAgentAppConfig(snap.data(), (issues) => {
@@ -2703,22 +2789,24 @@ export async function getAgentAppConfig(
         });
       });
 
-      setCachedAgentAppConfig(config);
+      setCachedAgentAppConfig(config, { cacheKey });
       logger.debug('[AgentConfig] Loaded AppConfig/agentConfig', {
         source: snap.exists ? 'firestore' : 'defaults',
+        cacheKey,
         extractionModel: config.modelRouting.catalogue['extraction'],
         routingModel: config.modelRouting.catalogue['routing'],
       });
       return config;
     } catch (error) {
       logger.warn('[AgentConfig] Failed to load AppConfig/agentConfig, using cached config', {
+        cacheKey,
         error: error instanceof Error ? error.message : String(error),
       });
-      return getCachedAgentAppConfig();
+      return cacheEntry.config;
     } finally {
-      cachedAgentAppConfigPromise = null;
+      cacheEntry.promise = null;
     }
   })();
 
-  return cachedAgentAppConfigPromise;
+  return cacheEntry.promise;
 }

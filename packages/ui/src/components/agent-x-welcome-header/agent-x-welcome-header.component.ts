@@ -44,7 +44,7 @@ import { NxtMarketingInputBarComponent } from '../marketing-input-bar';
 
           <div class="agentx-command-zone">
             <nxt1-marketing-input-bar
-              [placeholder]="commandPlaceholder"
+              [placeholder]="commandPlaceholder()"
               [value]="commandInput()"
               ariaLabel="Command Agent X"
               buttonLabel="Ask NXT1"
@@ -270,13 +270,23 @@ export class NxtAgentXWelcomeHeaderComponent implements OnInit {
   private readonly hostElement = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly router = inject(Router);
   private typingStarted = false;
+  private placeholderTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private readonly commandPlaceholderPhrases = [
+    'What do you need Agent X to execute?',
+    'Build the game plan for this week...',
+    'Analyze film and surface the edge...',
+    'Create the briefing for staff review...',
+    'Package content and publish the rollout...',
+  ] as const;
 
   readonly message = input(
     "Hi, I'm Agent X — the execution engine for athletes, coaches, directors, and programs. I build the briefings, creative, film packages, and intelligence that keep your operation moving."
   );
   readonly typingSpeedMs = input(24);
   protected readonly commandInput = signal('');
-  protected readonly commandPlaceholder = 'What do you need Agent X to execute?';
+  private readonly _commandPlaceholder = signal<string>(this.commandPlaceholderPhrases[0]);
+  protected readonly commandPlaceholder = computed(() => this._commandPlaceholder());
 
   private readonly _displayText = signal('');
   readonly displayText = computed(() => this._displayText());
@@ -292,6 +302,8 @@ export class NxtAgentXWelcomeHeaderComponent implements OnInit {
       this._displayText.set(this.message());
       return;
     }
+
+    this.startPlaceholderAnimation();
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -309,7 +321,13 @@ export class NxtAgentXWelcomeHeaderComponent implements OnInit {
     );
 
     observer.observe(this.hostElement.nativeElement);
-    this.destroyRef.onDestroy(() => observer.disconnect());
+    this.destroyRef.onDestroy(() => {
+      observer.disconnect();
+
+      if (this.placeholderTimer) {
+        clearTimeout(this.placeholderTimer);
+      }
+    });
   }
 
   protected onCommandSubmit(command: string): void {
@@ -350,5 +368,43 @@ export class NxtAgentXWelcomeHeaderComponent implements OnInit {
     );
 
     this.destroyRef.onDestroy(() => window.clearInterval(timer));
+  }
+
+  private startPlaceholderAnimation(): void {
+    let phraseIndex = 0;
+    let charIndex = 0;
+    let isDeleting = false;
+
+    const typingSpeed = 26;
+    const deletingSpeed = 15;
+    const pauseBetweenPhrases = 1200;
+
+    const animate = () => {
+      const currentPhrase = this.commandPlaceholderPhrases[phraseIndex];
+
+      if (isDeleting) {
+        charIndex -= 1;
+
+        if (charIndex < 0) {
+          isDeleting = false;
+          phraseIndex = (phraseIndex + 1) % this.commandPlaceholderPhrases.length;
+          this.placeholderTimer = setTimeout(animate, 280);
+          return;
+        }
+      } else {
+        charIndex += 1;
+
+        if (charIndex > currentPhrase.length) {
+          isDeleting = true;
+          this.placeholderTimer = setTimeout(animate, pauseBetweenPhrases);
+          return;
+        }
+      }
+
+      this._commandPlaceholder.set(currentPhrase.slice(0, charIndex));
+      this.placeholderTimer = setTimeout(animate, isDeleting ? deletingSpeed : typingSpeed);
+    };
+
+    animate();
   }
 }

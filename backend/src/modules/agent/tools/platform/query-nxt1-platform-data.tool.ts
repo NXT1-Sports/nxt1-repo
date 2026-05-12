@@ -209,6 +209,28 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
       case 'teamstats':
       case 'team-stats':
         return 'team_stats';
+      case 'user':
+        return 'users';
+      case 'team':
+        return 'teams';
+      case 'organization':
+        return 'organizations';
+      case 'post':
+        return 'posts';
+      case 'event':
+        return 'events';
+      case 'roster':
+      case 'roster_entry':
+      case 'roster-entry':
+        return 'roster_entries';
+      case 'seasonstat':
+      case 'season-stat':
+        return 'season_stats';
+      case 'metric':
+      case 'metrics':
+      case 'physical_metric':
+      case 'physical-metric':
+        return 'physical_metrics';
       default:
         return null;
     }

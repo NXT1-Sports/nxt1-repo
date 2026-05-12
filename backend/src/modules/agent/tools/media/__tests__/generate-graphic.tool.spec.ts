@@ -59,6 +59,45 @@ describe('GenerateGraphicTool', () => {
     expect(result.success).toBe(false);
     expect(result.error).not.toContain('requires user confirmation');
     expect(llm.generateImage).toHaveBeenCalledTimes(1);
+    expect(llm.generateImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        referenceImageUrl:
+          'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/u/profile.png',
+        additionalImageUrls: [
+          'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Organizations/o/logo.png',
+        ],
+      })
+    );
+  });
+
+  it('passes logo-only assets to the image model as the primary reference', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+
+    llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['CROWN POINT'] } });
+    llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
+
+    const logoUrl = 'https://image.maxpreps.io/school-mascot/logo.gif';
+
+    const result = await tool.execute({
+      graphicType: 'team',
+      textRequirements: ['CROWN POINT'],
+      dimensions: '1080x1080',
+      styleDescription: 'Elite sports look',
+      userId: 'user-1',
+      logoUrls: [logoUrl],
+      requiredAssets: {
+        brandLogo: true,
+      },
+      applyMode: 'logo_overlay',
+    });
+
+    expect(result.success).toBe(false);
+    expect(llm.generateImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        referenceImageUrl: logoUrl,
+        additionalImageUrls: [],
+      })
+    );
   });
 
   it('rejects the legacy subjectImageUrl field', async () => {

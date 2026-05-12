@@ -36,11 +36,11 @@ export class EnqueueHeavyTaskTool extends BaseTool {
 
   readonly description =
     'Queue a long-running or complex operation for background processing. ' +
-    "Use this when the user's request requires heavy work that would take more than ~10 seconds: " +
+    "Use this only when the user's request clearly requires work that would take more than 5 minutes: " +
     'generating highlight reels, batch emailing coaches, creating scout reports, ' +
-    'image/video generation, or multi-step recruiting outreach. ' +
-    'The chat should immediately ' +
-    'acknowledge the task was queued and explain what will happen.';
+    'large video processing, or multi-step recruiting outreach. ' +
+    'Do not use this for normal chat, logo/graphic/image generation, coordinator delegation, ' +
+    'database lookup, analytics logging, or any task that can finish inline.';
 
   readonly parameters = EnqueueHeavyTaskInputSchema;
 
@@ -82,6 +82,22 @@ export class EnqueueHeavyTaskTool extends BaseTool {
     }
 
     const inputContext = parsed.data.context ?? {};
+    const normalizedIntent = intent.toLowerCase();
+    const looksLikeInlineGraphicRequest =
+      /\b(graphic|promo graphic|image|logo|poster|flyer|banner|thumbnail|social post|creative)\b/.test(
+        normalizedIntent
+      ) &&
+      !/\b(highlight reel|video|film|batch|scout report|bulk|all coaches|multiple coaches)\b/.test(
+        normalizedIntent
+      );
+
+    if (looksLikeInlineGraphicRequest) {
+      return {
+        success: false,
+        error:
+          'Graphic and image generation should run inline through the brand/media coordinator, not as a background enqueue job.',
+      };
+    }
 
     const inheritedParentOperationId =
       typeof inputContext['parentOperationId'] === 'string' &&

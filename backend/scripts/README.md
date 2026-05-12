@@ -146,6 +146,24 @@ node scripts/data-migrations/backfill-activity-badges.ts
 node scripts/validation/check-agentconfig-prompts.ts
 ```
 
+### Swap Agent Model Routing Presets
+
+```bash
+# Dry run: stage uses the current production routing preset
+npm run model-routing:staging:use-prod-current --workspace=@nxt1/backend
+
+# Commit the same change
+npm run model-routing:staging:use-prod-current --workspace=@nxt1/backend -- --commit
+
+# Generic form
+npm run model-routing:apply --workspace=@nxt1/backend -- --target=staging --preset=staging-current --commit
+```
+
+Available presets:
+
+- `production-current` — Copy of the current production modelRouting block
+- `staging-current` — Copy of the current staging/dev modelRouting block
+
 ---
 
 **Last organized**: May 10, 2026

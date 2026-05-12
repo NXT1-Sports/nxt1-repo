@@ -268,7 +268,25 @@ export class GenerateGraphicTool extends BaseTool {
     hasSubjectPhotos: boolean;
     hasLogos: boolean;
   }): (typeof APPLY_MODES)[number] {
-    if (params.explicit) return params.explicit;
+    if (params.explicit) {
+      if (params.explicit === 'mixed') {
+        if (params.hasSubjectPhotos && params.hasLogos) return 'mixed';
+        if (params.hasSubjectPhotos) return 'photo_lock';
+        if (params.hasLogos) return 'logo_overlay';
+        return 'style_only';
+      }
+
+      if (params.explicit === 'photo_lock' && !params.hasSubjectPhotos) {
+        return params.hasLogos ? 'logo_overlay' : 'style_only';
+      }
+
+      if (params.explicit === 'logo_overlay' && !params.hasLogos) {
+        return params.hasSubjectPhotos ? 'photo_lock' : 'style_only';
+      }
+
+      return params.explicit;
+    }
+
     if (params.hasSubjectPhotos && params.hasLogos) return 'mixed';
     if (params.hasSubjectPhotos) return 'photo_lock';
     if (params.hasLogos) return 'logo_overlay';
@@ -552,6 +570,13 @@ Return JSON only. No explanation outside the JSON.`;
       hasSubjectPhotos: hasSubjectImage,
       hasLogos,
     });
+
+    if (applyMode && applyMode !== resolvedApplyMode) {
+      validationWarnings.push(
+        `Requested applyMode "${applyMode}" could not be satisfied with the supplied assets. Using "${resolvedApplyMode}" instead.`
+      );
+    }
+
     const prompt = this.compileDesignBrief({
       textRequirements: effectiveTextRequirements,
       dimensions: preset,
@@ -579,10 +604,15 @@ Return JSON only. No explanation outside the JSON.`;
         phase: 'generate_image',
       });
 
-      const referenceImageUrl = hasSubjectImage ? normalizedSubjectPhotoUrls[0] : undefined;
-      const hasStrictSubject = !!referenceImageUrl;
+      const referenceImageUrl = hasSubjectImage
+        ? normalizedSubjectPhotoUrls[0]
+        : normalizedLogoUrls[0];
+      const hasStrictSubject = hasSubjectImage;
 
-      const additionalImageUrls = hasStrictSubject ? normalizedSubjectPhotoUrls.slice(1) : [];
+      const additionalImageUrls = [
+        ...(hasStrictSubject ? normalizedSubjectPhotoUrls.slice(1) : []),
+        ...(hasLogos ? normalizedLogoUrls.slice(hasStrictSubject ? 0 : 1) : []),
+      ];
 
       const result = await this.llm.generateImage({
         prompt,

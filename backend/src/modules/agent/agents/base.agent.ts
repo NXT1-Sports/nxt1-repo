@@ -75,6 +75,14 @@ import { logger } from '../../../utils/logger.js';
 /** Maximum tool-calling iterations before we force the agent to respond. */
 const MAX_ITERATIONS = 20;
 
+const TERMINAL_ARTIFACT_TOOL_FAILURES = new Set([
+  'generate_graphic',
+  'create_play_diagram',
+  'generate_highlight_reel',
+  'export_video',
+  'write_intel',
+]);
+
 const SHARED_PERSISTENCE_CONTRACT = [
   '## Shared Persistence Contract (CRITICAL)',
   '- Long-term memory: call `save_memory` immediately when the user states a durable preference, goal, recruiting constraint, performance baseline, recurring workflow preference, or brand/compliance constraint that should persist across sessions.',
@@ -1402,6 +1410,60 @@ export abstract class BaseAgent {
         const artifacts =
           Object.keys(artifactsAcc).length > 0 ? (artifactsAcc as AgentArtifactHandoff) : undefined;
 
+        // Deliverable-based success contract (professional pattern):
+        //
+        // An operation is only failed when the user's requested DELIVERABLE
+        // could not be produced. Concretely:
+        //   1. Pure chat / planning / read-only ops → ALWAYS success.
+        //   2. Ops that invoked at least one terminal artifact tool
+        //      (generate_graphic, create_play_diagram, etc.) → success iff
+        //      ANY artifact tool invocation succeeded OR an artifact URL
+        //      is present in the aggregated tool data. Helper tool failures
+        //      and retry storms that ultimately delivered the artifact must
+        //      not flip the sidebar to red.
+        //   3. Helper/search/planning tool failures alone → success (the
+        //      agent recovered or produced a normal final response).
+        const ARTIFACT_DATA_KEYS = [
+          'imageUrl',
+          'videoUrl',
+          'pdfUrl',
+          'exportUrl',
+          'audioUrl',
+          'thumbnailUrl',
+          'url',
+          'fileUrl',
+          'downloadUrl',
+        ] as const;
+        const hasDeliverableArtifact = ARTIFACT_DATA_KEYS.some(
+          (key) =>
+            typeof extractedToolData[key] === 'string' &&
+            (extractedToolData[key] as string).trim().length > 0
+        );
+        const artifactToolInvocations = toolCallRecords.filter((record) =>
+          TERMINAL_ARTIFACT_TOOL_FAILURES.has(record.toolName)
+        );
+        const anyArtifactToolSucceeded = artifactToolInvocations.some(
+          (record) => record.status === 'success'
+        );
+        const artifactToolWasAttempted = artifactToolInvocations.length > 0;
+        // FAIL only when an artifact was REQUESTED but NEVER produced.
+        const deliverableMissing =
+          artifactToolWasAttempted && !anyArtifactToolSucceeded && !hasDeliverableArtifact;
+        const runLoopSuccess = !deliverableMissing;
+        const runLoopErrorMessage = !runLoopSuccess
+          ? (() => {
+              const lastFailedArtifact = [...artifactToolInvocations]
+                .reverse()
+                .find((record) => record.status !== 'success');
+              const rawErr =
+                lastFailedArtifact?.output && typeof lastFailedArtifact.output === 'object'
+                  ? (lastFailedArtifact.output as Record<string, unknown>)['error']
+                  : undefined;
+              if (typeof rawErr === 'string' && rawErr.trim().length > 0) return rawErr;
+              return `Could not produce the requested ${lastFailedArtifact?.toolName ?? 'deliverable'}.`;
+            })()
+          : undefined;
+
         return {
           summary,
           data: sanitizeAgentPayload({
@@ -1413,6 +1475,8 @@ export abstract class BaseAgent {
           }),
           ...(artifacts ? { artifacts } : {}),
           suggestions: [],
+          success: runLoopSuccess,
+          ...(runLoopErrorMessage ? { errorMessage: runLoopErrorMessage } : {}),
         };
       }
 
@@ -1826,6 +1890,9 @@ export abstract class BaseAgent {
           Object.keys({} as Record<string, string>).length > 0
             ? ({} as AgentArtifactHandoff)
             : undefined;
+        // Delegation short-circuit success: a downstream coordinator has
+        // already streamed a complete user-facing response, so Primary must
+        // end cleanly without an extra LLM turn.
         return {
           summary: '',
           data: sanitizeAgentPayload({
@@ -1836,6 +1903,7 @@ export abstract class BaseAgent {
           }),
           ...(artifacts ? { artifacts } : {}),
           suggestions: [],
+          success: true,
         };
       }
 
@@ -1892,6 +1960,8 @@ export abstract class BaseAgent {
         'The agent reached its maximum iteration limit. ' +
           'The task may be too complex for a single pass.'
       ),
+      success: false,
+      errorMessage: 'Agent reached its maximum iteration limit before completing the task.',
       data: sanitizeAgentPayload({
         maxIterationsReached: true,
         toolCallRecords,
@@ -2402,13 +2472,17 @@ export abstract class BaseAgent {
       allowedToolNames.length > 0 &&
       !allowedToolNames.includes(toolName)
     ) {
-      if (this.id === 'router' && toolName === 'analyze_video') {
+      if (
+        this.id === 'router' &&
+        ['analyze_video', 'extract_live_view_media', 'extract_live_view_playlist'].includes(
+          toolName
+        )
+      ) {
         return JSON.stringify({
-          error:
-            'Tool "analyze_video" is not allowed for agent "router". Delegate this to performance_coordinator via delegate_to_coordinator.',
+          error: `Tool "${toolName}" is not allowed for agent "router". Delegate film and live-view media work to performance_coordinator via delegate_to_coordinator.`,
           errorCode: 'AGENT_TOOL_NOT_ALLOWED',
           guidance:
-            'Call delegate_to_coordinator with coordinatorId="performance_coordinator" and include the extracted playable video URL plus the analysis prompt.',
+            'Call delegate_to_coordinator with coordinatorId="performance_coordinator" and include the user goal, current live-view context, and a strict small-batch limit. Do not retry the forbidden media tool from router.',
         });
       }
 
@@ -2921,6 +2995,7 @@ export abstract class BaseAgent {
       // Live Browser
       open_live_view: 'Opening virtual browser',
       read_live_view: 'Scanning virtual browser',
+      capture_live_view_screenshot: 'Capturing browser screenshot',
       extract_live_view_media: 'Extracting media stream',
       extract_live_view_playlist: 'Extracting playlist clips',
       navigate_live_view: 'Navigating webpage',

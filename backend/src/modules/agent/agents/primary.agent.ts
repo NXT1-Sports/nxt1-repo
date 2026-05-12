@@ -102,6 +102,10 @@ const PRIMARY_REASONING_CONTRACT = [
   '   - Do NOT call `ask_user` for data already present in task context, prior tool results, or deterministic lookups.',
   '   - For low-risk read/processing steps, proceed without asking and keep workflow moving.',
   '   - Ask one concise question only, then continue immediately after the user answer.',
+  '6c) Ask User 2-Step Pattern (MANDATORY when calling `ask_user`):',
+  '   - STEP 1: First, write the full question to the user as ordinary conversational prose in your assistant message. Include any context, options, or examples the user needs. This is what the user reads in chat.',
+  '   - STEP 2: THEN invoke the `ask_user` tool. The `question` argument is a SHORT (≤80 chars) label used only for push/SMS notifications — never repeat the full question there.',
+  '   - NEVER call `ask_user` without first writing the question as prose. The yield bubble renders as a thin "Waiting for your reply…" affordance; the user only sees the question if you write it in your prose.',
   '7) Tool path decision for recruiting and college lookup:',
   "   - Simple factual lookup (find programs by division/state, look up a coach's contact): use `search_colleges` or `search_college_coaches` directly — no delegation needed.",
   '   - Full recruiting workflow (outreach drafting, email sequences, presentation generation, multi-step strategy): use `delegate_to_coordinator` with coordinatorId=`recruiting_coordinator`.',
@@ -116,7 +120,22 @@ const PRIMARY_REASONING_CONTRACT = [
   '    - `performance_coordinator` for film analysis, technique breakdowns, scouting, and player evaluation.',
   '    - `strategy_coordinator` for strategic interpretation, planning recommendations, and executive summaries from video.',
   '    - `brand_coordinator` for ALL creative/brand video work: analyzing highlight or promo video for best moments, visual style, energy, and brand consistency; social edits, thumbnails, branded reels, and storytelling assets. When a user says "analyze my highlight video", "which clips should I use", "review my promo", "check the style of this video", or provides video with intent to create social/brand content → always route to brand_coordinator.',
+  '10-live) Live-view film requests are coordinator-owned. If the user asks to watch, analyze, grade, report on, or summarize clips/plays/video from an already-open live-view page, delegate to `performance_coordinator` immediately. Do NOT call `interact_with_live_view` to scroll through clips or simulate watching. You may call `read_live_view` or `capture_live_view_screenshot` once for current page grounding, then delegate with that context. For "last N clips/plays", tell the coordinator to use `extract_live_view_playlist` with `selection: "last"` and `maxItems: N`.',
   '10i) NEVER call `generate_graphic` directly from router. ALL creative image/poster/thumbnail/social visual requests must be delegated to `brand_coordinator` via `delegate_to_coordinator`.',
+  '10i-a) Brand color/logo source-of-truth rule (CRITICAL): for team/org graphic requests, resolve branding via `query_nxt1_data` snapshots in this order: `organization_profile_snapshot` first, then `team_profile_snapshot` only as fallback.',
+  '10i-b) If organization primaryColor/secondaryColor exist, they override team colors. Do NOT present team colors as final when organization colors are available.',
+  '10i-c) For brand requests, do NOT use `query_nxt1_platform_data` for color authority; use `query_nxt1_data` snapshots because they expose canonical branding fields (`logoUrl`, `primaryColor`, `secondaryColor`).',
+  '10i-d) When delegating to brand_coordinator, pass structured_payload colors from organization snapshot when present; use team colors only if organization colors are missing.',
+  '10j) CRITICAL OVERRIDE — Creative Video Workflow Routing:',
+  '    - When the user request contains an action verb ("create", "make", "generate", "produce", "cut", "edit", "turn into", "convert", "make this") + video goal keyword ("highlight", "reel", "promo", "elite", "cinematic", "best moments", "recap", "teaser", "social video") + ANY video source (URL, attached video, internal video reference) → IMMEDIATELY delegate to `brand_coordinator` with objective "Turn [video source] into [goal]".',
+  '    - Examples that trigger this rule:',
+  '      • "create this video into an elite highlight video" + URL → delegate to brand_coordinator',
+  '      • "make a highlight reel from this Twitter video" + URL → delegate to brand_coordinator',
+  '      • "generate a promo from my game film" → delegate to brand_coordinator',
+  '      • "turn these clips into a cinematic reel" → delegate to brand_coordinator',
+  '      • "create an elite edit from the uploaded video" → delegate to brand_coordinator',
+  '    - Do NOT ask clarification questions or call classify_media_url yourself. Brand_coordinator has the full External URL Ingestion pre-step and will handle source extraction autonomously.',
+  '    - Pass the video source (URL or reference) in the handoff payload objective sentence.',
   '10a) URL ingestion routing rule (CRITICAL):',
   '    - When the user provides any external link and asks to extract, import, analyze, or post media, enforce DIRECT-FIRST acquisition.',
   '    - Delegate link/media ingestion to `data_coordinator` first so it can run `classify_media_url` and follow `nextStep` exactly.',
@@ -373,6 +392,20 @@ export class PrimaryAgent extends BaseAgent {
         onStreamEvent,
         signal
       );
+    }
+
+    if (toolCall.function.name === 'interact_with_live_view') {
+      const liveViewFilmFallback = await this.tryHandleLiveViewFilmInteractionFallback(
+        toolCall,
+        registry,
+        userId,
+        sessionContext?.operationId,
+        approvalGate,
+        onStreamEvent,
+        signal,
+        currentMessages
+      );
+      if (liveViewFilmFallback) return liveViewFilmFallback;
     }
 
     try {
@@ -638,6 +671,199 @@ export class PrimaryAgent extends BaseAgent {
         streamed_char_count: result.streamedCharCount ?? 0,
       },
     });
+  }
+
+  private async tryHandleLiveViewFilmInteractionFallback(
+    toolCall: LLMToolCall,
+    registry: ToolRegistry,
+    userId: string,
+    operationId: string | undefined,
+    approvalGate: ApprovalGateService | undefined,
+    onStreamEvent: OnStreamEvent | undefined,
+    signal: AbortSignal | undefined,
+    currentMessages?: readonly LLMMessage[]
+  ): Promise<string | null> {
+    let args: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(toolCall.function.arguments) as unknown;
+      if (parsed && typeof parsed === 'object') {
+        args = parsed as Record<string, unknown>;
+      }
+    } catch {
+      args = {};
+    }
+
+    const prompt = typeof args['prompt'] === 'string' ? args['prompt'].trim() : '';
+    if (!this.isLiveViewFilmInteractionPrompt(prompt)) return null;
+
+    const ctx = this.resolveDispatchContext(
+      operationId,
+      userId,
+      approvalGate,
+      onStreamEvent,
+      signal
+    );
+    if (!ctx) return null;
+
+    const coordinatorId = this.resolveVideoAnalysisCoordinator(`${ctx.enrichedIntent}\n${prompt}`);
+    const liveViewContext = this.collectLatestLiveViewContext(currentMessages);
+    const preInteractionScreenshot = await this.captureLiveViewCheckpoint(
+      registry,
+      userId,
+      operationId,
+      signal,
+      onStreamEvent,
+      toolCall.id
+    );
+    const goal =
+      "Complete the user's live-view film request using real media extraction, not prompt-based page scrolling. " +
+      'For last/first/specific clips, use extract_live_view_playlist with a strict small-batch limit, then acquire playable video and analyze it.';
+    const structuredPayload = {
+      source: 'router_live_view_film_interaction_fallback',
+      originalLiveViewPrompt: prompt,
+      ...(liveViewContext ? { liveViewContext } : {}),
+      ...(preInteractionScreenshot ? { preInteractionScreenshot } : {}),
+    };
+
+    onStreamEvent?.({
+      type: 'tool_result',
+      agentId: this.id,
+      stepId: toolCall.id,
+      toolName: toolCall.function.name,
+      stageType: 'tool',
+      toolSuccess: true,
+      toolResult: {
+        delegated: true,
+        coordinatorId,
+        reason: 'live_view_film_work_requires_media_extraction',
+      },
+      icon: this.resolveToolStepIcon(toolCall.function.name),
+      message: 'Routing live-view film work to the media extraction workflow',
+    });
+
+    const result = await this.dispatcher.runCoordinator(
+      coordinatorId,
+      goal,
+      ctx,
+      structuredPayload
+    );
+
+    const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
+    const followUpRequired = !result.success && !userAlreadyReceivedResponse;
+    return JSON.stringify({
+      success: result.success,
+      data: {
+        dispatch_kind: result.dispatchKind ?? 'coordinator',
+        coordinator_id: coordinatorId,
+        user_already_received_response: userAlreadyReceivedResponse,
+        follow_up_required: followUpRequired,
+        follow_up_hint: followUpRequired
+          ? 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
+          : 'No follow-up needed because the coordinator already responded directly to the user.',
+        coordinator_observation: result.observation,
+        ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
+          ? { coordinator_artifacts: result.coordinatorArtifacts }
+          : {}),
+        streamed_delta_count: result.streamedDeltaCount ?? 0,
+        streamed_char_count: result.streamedCharCount ?? 0,
+      },
+    });
+  }
+
+  private async captureLiveViewCheckpoint(
+    registry: ToolRegistry,
+    userId: string,
+    operationId: string | undefined,
+    signal: AbortSignal | undefined,
+    onStreamEvent: OnStreamEvent | undefined,
+    parentStepId: string
+  ): Promise<Record<string, unknown> | null> {
+    if (!registry.get('capture_live_view_screenshot')) return null;
+
+    const result = await registry.execute(
+      'capture_live_view_screenshot',
+      {},
+      {
+        userId,
+        ...(operationId ? { operationId } : {}),
+        ...(signal ? { signal } : {}),
+      }
+    );
+
+    const data =
+      result.success && result.data && typeof result.data === 'object'
+        ? (result.data as Record<string, unknown>)
+        : null;
+
+    onStreamEvent?.({
+      type: 'tool_result',
+      agentId: this.id,
+      stepId: `${parentStepId}-live-view-checkpoint`,
+      toolName: 'capture_live_view_screenshot',
+      stageType: 'tool',
+      toolSuccess: result.success,
+      toolResult: data ?? { error: result.error ?? 'Live-view screenshot unavailable' },
+      icon: this.resolveToolStepIcon('capture_live_view_screenshot'),
+      message: result.success
+        ? 'Captured current live-view page before film extraction'
+        : 'Could not capture current live-view page before film extraction',
+    });
+
+    return data;
+  }
+
+  private isLiveViewFilmInteractionPrompt(prompt: string): boolean {
+    const normalized = prompt.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!normalized) return false;
+
+    const filmSignal = /\b(hudl|film|video|videos|clip|clips|playlist|play|plays)\b/.test(
+      normalized
+    );
+    const actionSignal =
+      /\b(watch|analy[sz]e|report|grade|break\s*down|scroll|bottom|last|first|open|click)\b/.test(
+        normalized
+      );
+
+    return filmSignal && actionSignal;
+  }
+
+  private collectLatestLiveViewContext(
+    currentMessages?: readonly LLMMessage[]
+  ): Record<string, unknown> | null {
+    if (!currentMessages?.length) return null;
+
+    let latest: Record<string, unknown> | null = null;
+    for (const msg of currentMessages) {
+      if (msg.role !== 'tool' || typeof msg.content !== 'string') continue;
+      try {
+        const parsed = JSON.parse(msg.content) as Record<string, unknown>;
+        const data = parsed['data'];
+        if (!data || typeof data !== 'object') continue;
+        const record = data as Record<string, unknown>;
+        if (typeof record['sessionId'] !== 'string') continue;
+        if (
+          typeof record['url'] !== 'string' &&
+          typeof record['pageUrl'] !== 'string' &&
+          typeof record['imageUrl'] !== 'string'
+        ) {
+          continue;
+        }
+        latest = {
+          sessionId: record['sessionId'],
+          ...(typeof record['url'] === 'string' ? { url: record['url'] } : {}),
+          ...(typeof record['pageUrl'] === 'string' ? { pageUrl: record['pageUrl'] } : {}),
+          ...(typeof record['title'] === 'string' ? { title: record['title'] } : {}),
+          ...(typeof record['imageUrl'] === 'string' ? { imageUrl: record['imageUrl'] } : {}),
+          ...(typeof record['content'] === 'string'
+            ? { contentPreview: record['content'].slice(0, 4000) }
+            : {}),
+        };
+      } catch {
+        // Ignore non-JSON tool messages.
+      }
+    }
+
+    return latest;
   }
 
   // ─── Dispatcher Integration ─────────────────────────────────────────────

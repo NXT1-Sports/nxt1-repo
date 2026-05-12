@@ -23,6 +23,7 @@ vi.mock('../../../../../../../utils/logger.js', () => ({
 import { NavigateLiveViewTool } from '../navigate-live-view.tool.js';
 import { InteractWithLiveViewTool } from '../interact-with-live-view.tool.js';
 import { ReadLiveViewTool } from '../read-live-view.tool.js';
+import { CaptureLiveViewScreenshotTool } from '../capture-live-view-screenshot.tool.js';
 import { ExtractLiveViewMediaTool } from '../extract-live-view-media.tool.js';
 import { ExtractLiveViewPlaylistTool } from '../extract-live-view-playlist.tool.js';
 import { CloseLiveViewTool } from '../close-live-view.tool.js';
@@ -43,6 +44,18 @@ function createMockService(overrides?: Partial<LiveViewSessionService>): LiveVie
       url: TEST_URL,
       title: 'Hudl Login',
       content: 'Welcome to Hudl. Sign in to continue.',
+    }),
+    captureScreenshot: vi.fn().mockResolvedValue({
+      url: TEST_URL,
+      title: 'Hudl Login',
+      mimeType: 'image/png',
+      base64: Buffer.from('png-bytes').toString('base64'),
+      sizeBytes: 9,
+      capturedAt: '2026-05-12T12:00:00.000Z',
+      fullPage: false,
+      selector: null,
+      viewport: { width: 1280, height: 720 },
+      source: 'firecrawl_interact_playwright',
     }),
     extractMedia: vi.fn().mockResolvedValue({
       url: TEST_URL,
@@ -313,6 +326,104 @@ describe('ReadLiveViewTool', () => {
   });
 });
 
+// ─── CaptureLiveViewScreenshotTool ─────────────────────────────────────────
+
+describe('CaptureLiveViewScreenshotTool', () => {
+  let tool: CaptureLiveViewScreenshotTool;
+  let service: LiveViewSessionService;
+  const mockSave = vi.fn().mockResolvedValue(undefined);
+  const mockGetSignedUrl = vi
+    .fn()
+    .mockResolvedValue(['https://storage.example.com/screenshot.png']);
+  const mockBucket = {
+    name: 'test-bucket',
+    file: vi.fn(() => ({
+      save: mockSave,
+      getSignedUrl: mockGetSignedUrl,
+    })),
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    service = createMockService();
+    tool = new CaptureLiveViewScreenshotTool(service, () => ({ bucket: () => mockBucket }));
+  });
+
+  it('should have correct metadata', () => {
+    expect(tool.name).toBe('capture_live_view_screenshot');
+    expect(tool.isMutation).toBe(false);
+    expect(tool.category).toBe('system');
+    expect(tool.allowedAgents).toEqual(['*']);
+  });
+
+  it('should reject missing userId', async () => {
+    const result = await tool.execute({});
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('userId');
+  });
+
+  it('should capture and persist the current live-view screenshot', async () => {
+    const result = await tool.execute({ userId: TEST_USER_ID });
+
+    expect(result.success).toBe(true);
+    expect(service.resolveSessionId).toHaveBeenCalledWith(null, TEST_USER_ID);
+    expect(service.captureScreenshot).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_USER_ID, {
+      fullPage: undefined,
+      selector: undefined,
+      format: undefined,
+      quality: undefined,
+      viewport: undefined,
+    });
+    expect(mockSave).toHaveBeenCalledWith(expect.any(Buffer), {
+      metadata: {
+        contentType: 'image/png',
+        cacheControl: 'private, max-age=0',
+      },
+    });
+
+    const data = result.data as Record<string, unknown>;
+    expect(data['url']).toBe('https://storage.example.com/screenshot.png');
+    expect(data['imageUrl']).toBe('https://storage.example.com/screenshot.png');
+    expect(data['downloadUrl']).toBe('https://storage.example.com/screenshot.png');
+    expect(data['pageUrl']).toBe(TEST_URL);
+    expect(data['mimeType']).toBe('image/png');
+  });
+
+  it('should pass selector, viewport, and jpeg options to the session service', async () => {
+    const result = await tool.execute(
+      {
+        selector: '.video-player',
+        format: 'jpeg',
+        quality: 74,
+        fullPage: true,
+        viewport: { width: 1365, height: 768 },
+      },
+      TEST_CONTEXT
+    );
+
+    expect(result.success).toBe(true);
+    expect(service.captureScreenshot).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_USER_ID, {
+      selector: '.video-player',
+      format: 'jpeg',
+      quality: 74,
+      fullPage: true,
+      viewport: { width: 1365, height: 768 },
+    });
+  });
+
+  it('should surface capture failures', async () => {
+    service = createMockService({
+      captureScreenshot: vi.fn().mockRejectedValue(new Error('No element matched selector')),
+    } as unknown as Partial<LiveViewSessionService>);
+    tool = new CaptureLiveViewScreenshotTool(service, () => ({ bucket: () => mockBucket }));
+
+    const result = await tool.execute({ selector: '.missing', userId: TEST_USER_ID });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('No element matched selector');
+  });
+});
+
 // ─── ExtractLiveViewMediaTool ─────────────────────────────────────────────
 
 describe('ExtractLiveViewMediaTool', () => {
@@ -423,7 +534,10 @@ describe('ExtractLiveViewPlaylistTool', () => {
 
     expect(result.success).toBe(true);
     expect(service.resolveSessionId).toHaveBeenCalledWith(null, TEST_USER_ID);
-    expect(service.extractPlaylist).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_USER_ID, 10);
+    expect(service.extractPlaylist).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_USER_ID, 10, {
+      selection: 'visible',
+      playNumbers: [],
+    });
     const data = result.data as Record<string, unknown>;
     expect(data['playlistTitle']).toBe('Top 10 Clips');
     expect(data['itemCount']).toBe(2);
@@ -457,6 +571,41 @@ describe('ExtractLiveViewPlaylistTool', () => {
         }),
       ])
     );
+  });
+
+  it('defaults playlist extraction to 5 items', async () => {
+    const result = await tool.execute({ userId: TEST_USER_ID });
+
+    expect(result.success).toBe(true);
+    expect(service.extractPlaylist).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_USER_ID, 5, {
+      selection: 'visible',
+      playNumbers: [],
+    });
+  });
+
+  it('caps playlist extraction at 25 items', async () => {
+    const result = await tool.execute({ maxItems: 100, userId: TEST_USER_ID });
+
+    expect(result.success).toBe(true);
+    expect(service.extractPlaylist).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_USER_ID, 25, {
+      selection: 'visible',
+      playNumbers: [],
+    });
+  });
+
+  it('passes last-play and explicit play number selection through to the session', async () => {
+    const result = await tool.execute({
+      maxItems: 5,
+      selection: 'last',
+      playNumbers: [96, 97, 98, 99, 100],
+      userId: TEST_USER_ID,
+    });
+
+    expect(result.success).toBe(true);
+    expect(service.extractPlaylist).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_USER_ID, 5, {
+      selection: 'last',
+      playNumbers: [96, 97, 98, 99, 100],
+    });
   });
 
   it('should surface playlist extraction failures', async () => {
@@ -586,6 +735,29 @@ describe('InteractWithLiveViewTool', () => {
       expect(data['sessionId']).toBe(TEST_SESSION_ID);
       expect(data['output']).toBe('I clicked the button successfully.');
       expect(data['message']).toContain('Interaction completed');
+      expect(data['scannedBeforeInteraction']).toBe(true);
+      expect(data['preflight']).toEqual(
+        expect.objectContaining({
+          url: TEST_URL,
+          title: 'Hudl Login',
+        })
+      );
+    });
+
+    it('should serve read-only page inspection prompts through extractContent without interaction', async () => {
+      const result = await tool.execute({
+        prompt:
+          'Read the current page and tell me what playlist or film is loaded. Check the page title, team name, and how many clips are visible.',
+        userId: TEST_USER_ID,
+      });
+
+      expect(result.success).toBe(true);
+      expect(service.extractContent).toHaveBeenCalledWith(TEST_SESSION_ID, TEST_USER_ID);
+      expect(service.executePrompt).not.toHaveBeenCalled();
+      const data = result.data as Record<string, unknown>;
+      expect(data['interactionSkipped']).toBe(true);
+      expect(data['scannedBeforeInteraction']).toBe(true);
+      expect(data['content']).toContain('Welcome to Hudl');
     });
   });
 

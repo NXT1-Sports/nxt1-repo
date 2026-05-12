@@ -164,6 +164,39 @@ describe('analytics agent tools', () => {
     );
   });
 
+  it('defaults payload to an empty object when omitted', async () => {
+    const analytics = {
+      track: vi.fn().mockResolvedValue({
+        eventId: 'evt_2',
+        subjectId: 'team_123',
+        subjectType: 'team',
+        domain: 'engagement',
+        eventType: 'content_created',
+        occurredAt: '2026-04-14T00:00:00.000Z',
+      }),
+    } as any;
+
+    const tool = new TrackAnalyticsEventTool(analytics);
+    const result = await tool.execute({
+      userId: 'user_123',
+      subjectId: 'team_123',
+      subjectType: 'team',
+      domain: 'engagement',
+      eventType: 'content_created',
+      value: 'Generated elite promo graphic',
+      tags: ['graphic', 'promo'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(analytics.track).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payload: {},
+        domain: 'engagement',
+        eventType: 'content_created',
+      })
+    );
+  });
+
   it('returns a validation error for an unsupported analytics domain', async () => {
     const tool = new TrackAnalyticsEventTool({ track: vi.fn() } as any);
 

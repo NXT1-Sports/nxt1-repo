@@ -17,9 +17,20 @@ export interface PersistedAssistantStreamSnapshot {
   readonly parts: readonly AgentXMessagePart[];
 }
 
-function sanitizeMetadata(metadata?: AgentProgressMetadata): AgentProgressMetadata | undefined {
-  if (!metadata) return undefined;
-  return sanitizeAgentPayload(metadata) as AgentProgressMetadata;
+function metadataForStep(event: StreamEvent): AgentProgressMetadata | undefined {
+  const merged: Record<string, unknown> = {
+    ...(event.metadata ?? {}),
+  };
+
+  if (event.toolName) merged['toolName'] = event.toolName;
+  const heavyTaskOperationId = event.toolResult?.['heavyTaskOperationId'];
+  if (typeof heavyTaskOperationId === 'string' && heavyTaskOperationId.trim().length > 0) {
+    merged['heavyTaskOperationId'] = heavyTaskOperationId.trim();
+  }
+
+  return Object.keys(merged).length > 0
+    ? (sanitizeAgentPayload(merged) as AgentProgressMetadata)
+    : undefined;
 }
 
 function humanizeToolName(toolName: string): string {
@@ -176,6 +187,36 @@ export class PersistedAssistantStreamBuilder {
     };
   }
 
+  /**
+   * Mark any currently-active steps as `success`. Used on yield checkpoints
+   * (e.g. `ask_user` throws an `AgentYieldException` instead of returning a
+   * `tool_result`, so the step would otherwise stay in `active` state and
+   * spin forever after the user has already replied).
+   *
+   * No filtering is applied — when the agent yields, every active step in the
+   * snapshot is by definition resolved from the worker's point of view: the
+   * agent has paused and is awaiting user input. Subsequent activity will
+   * arrive on the resumed run.
+   */
+  finalizeActiveSteps(): void {
+    for (let i = 0; i < this.steps.length; i++) {
+      const step = this.steps[i];
+      if (step.status !== 'active') continue;
+      const next: AgentXToolStep = { ...step, status: 'success' };
+      this.steps[i] = next;
+
+      for (let p = 0; p < this.parts.length; p++) {
+        const part = this.parts[p];
+        if (part.type !== 'tool-steps') continue;
+        const idx = part.steps.findIndex((c) => c.id === step.id);
+        if (idx < 0) continue;
+        const nextSteps = [...part.steps];
+        nextSteps[idx] = next;
+        this.parts[p] = { type: 'tool-steps', steps: nextSteps };
+      }
+    }
+  }
+
   private nextStepId(prefix: string): string {
     const id = `${prefix}-${this.stepSeq}`;
     this.stepSeq += 1;
@@ -225,7 +266,7 @@ export class PersistedAssistantStreamBuilder {
       stageType: event.stageType,
       stage: event.stage,
       outcomeCode: event.outcomeCode,
-      metadata: sanitizeMetadata(event.metadata),
+      metadata: metadataForStep(event),
       status,
       icon: event.icon,
       ...(detail ? { detail: sanitizeAgentOutputText(detail) } : {}),

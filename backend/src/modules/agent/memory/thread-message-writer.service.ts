@@ -33,6 +33,17 @@ import { logger } from '../../../utils/logger.js';
  * `AgentMessage.toolCalls[]`. The original wire-format payload is
  * preserved in parallel on `AgentMessage.toolCallsWire[]` so replay can
  * reconstruct an OpenRouter-valid LLMMessage.
+ *
+ * NOTE: This intermediate record represents the *invocation* of a tool, not
+ * its outcome — the matching `tool` role observation has not yet been
+ * appended at the time this writer is called. The authoritative
+ * status-bearing `toolCalls[]` on the final assistant message is rebuilt
+ * post-loop via `BaseAgent.extractToolCallRecords()`, which inspects the
+ * actual observation payload. We therefore mark intermediate invocations
+ * as `'success'` only as a structural placeholder so the record type
+ * remains satisfied — UI status (sidebar / step indicators) is derived
+ * from the FINAL message's records and from `agentJobs.status`, not from
+ * these intermediate rows.
  */
 function toolCallRecordFromWire(call: LLMToolCall): {
   readonly toolName: string;

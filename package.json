@@ -51,7 +51,7 @@
     "clean": "turbo run clean && rm -rf node_modules .turbo",
     "clean:cache": "turbo daemon clean",
     "prepare": "husky || true",
-    "twitter:unfollow": "tsx scripts/twitter-unfollow.ts",
+    "twitter:unfollow": "tsx scripts/util/twitter-unfollow.ts",
     "deploy:staging": "turbo run deploy:staging",
     "deploy:staging:no-test": "turbo run deploy:staging:no-test --filter=@nxt1/web",
     "deploy:prod": "turbo run deploy:prod",

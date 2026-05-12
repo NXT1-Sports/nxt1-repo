@@ -597,6 +597,44 @@ describe('AgentWorker', () => {
     expect(finalProgress.message).toContain('Execution plan failed.');
   });
 
+  it('keeps the job completed when deliverables exist even if upstream plan metadata says failed', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockResolvedValue({
+      summary: 'Your graphic is ready.',
+      success: false,
+      errorMessage: 'analytics event failed',
+      data: {
+        operationStatus: 'failed',
+        imageUrl: 'https://cdn.example.com/generated-graphic.jpg',
+        firstFailedTask: {
+          id: 'analytics',
+          assignedAgent: 'brand_coordinator',
+          error: 'analytics event failed',
+        },
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockJobRepo.markCompleted).toHaveBeenCalledWith(
+      'op-worker-test',
+      expect.objectContaining({
+        data: expect.objectContaining({
+          imageUrl: 'https://cdn.example.com/generated-graphic.jpg',
+        }),
+      })
+    );
+    expect(mockJobRepo.markFailed).not.toHaveBeenCalledWith(
+      'op-worker-test',
+      expect.stringContaining('analytics event failed')
+    );
+
+    const finalProgress = job.updateProgress.mock.calls.at(-1)?.[0];
+    expect(finalProgress.status).toBe('completed');
+  });
+
   it('suppresses terminal completion side effects when persisted job is paused', async () => {
     const payload = makePayload({
       context: { threadId: 'thread-paused-1' },

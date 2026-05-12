@@ -52,6 +52,7 @@ describe('Agent tool exposure regressions', () => {
       expect(tools).not.toContain('navigate_live_view');
       expect(tools).not.toContain('interact_with_live_view');
       expect(tools).not.toContain('read_live_view');
+      expect(tools).not.toContain('capture_live_view_screenshot');
       expect(tools).not.toContain('extract_live_view_media');
       expect(tools).not.toContain('close_live_view');
     }
@@ -83,6 +84,7 @@ describe('Agent tool exposure regressions', () => {
       expect(tools).not.toContain('navigate_live_view');
       expect(tools).not.toContain('interact_with_live_view');
       expect(tools).not.toContain('read_live_view');
+      expect(tools).not.toContain('capture_live_view_screenshot');
       expect(tools).not.toContain('extract_live_view_media');
       expect(tools).not.toContain('close_live_view');
     }
@@ -133,8 +135,12 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('user_profile_snapshot');
     expect(prompt).toContain('team_profile_snapshot');
     expect(prompt).toContain('organization_profile_snapshot');
+    expect(prompt).toContain('team_roster_members');
+    expect(prompt).toContain('organization_roster_members');
     expect(prompt).toContain('profileImgs');
+    expect(prompt).toContain('profile.profileImgs');
     expect(prompt).toContain('galleryImages');
+    expect(prompt).toContain('analyze_image');
     expect(prompt).toContain('user_timeline_feed');
     expect(prompt).toContain('team_timeline_feed');
   });
@@ -199,6 +205,7 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('analyze_video');
     expect(prompt).toContain('extract_live_view_media');
     expect(prompt).toContain('extract_live_view_playlist');
+    expect(prompt).toContain('Firecrawl can scroll virtualized Hudl rows');
     expect(prompt).toContain('skipMediaPersistence: true');
     // import_video reserved for persistent editing
     expect(prompt).toContain('import_video');
@@ -210,12 +217,14 @@ describe('Agent tool exposure regressions', () => {
     const strategyTools = getEffectiveAgentToolPolicy('strategy_coordinator');
 
     expect(performanceTools).toContain('open_live_view');
+    expect(performanceTools).toContain('capture_live_view_screenshot');
     expect(performanceTools).toContain('extract_live_view_media');
     expect(performanceTools).toContain('extract_live_view_playlist');
     expect(performanceTools).toContain('analyze_video');
     expect(performanceTools).not.toContain('stage_media');
 
     expect(strategyTools).toContain('open_live_view');
+    expect(strategyTools).toContain('capture_live_view_screenshot');
     expect(strategyTools).toContain('extract_live_view_media');
     expect(strategyTools).toContain('extract_live_view_playlist');
     expect(strategyTools).toContain('analyze_video');

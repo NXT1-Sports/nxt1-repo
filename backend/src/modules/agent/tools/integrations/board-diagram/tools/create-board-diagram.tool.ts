@@ -17,7 +17,7 @@ export class CreateBoardDiagramTool extends BaseTool {
     'Covers PLAY diagrams (route trees, formations, blitz schemes, coverage maps, zone packages) ' +
     'and DRILL diagrams (cone drills, agility work, PnR mechanics, team warmups, skill progressions). ' +
     'Set kind="sport_play" for competitive play diagrams (default), kind="sport_drill" for training drills. ' +
-    'Returns an image URL (display-ready), a diagrams.net editor URL (for manual fine-tuning), ' +
+    'Returns a display-ready image URL for the user; editor metadata is for follow-up edits only unless explicitly requested. ' +
     'the raw mxGraph XML, and a stable assetId for update/delete. ' +
     'The diagram is saved as a first-class asset — pass imageUrl as diagramUrl to write_playbooks. ' +
     'Supports football, basketball, soccer, baseball, and softball.';

@@ -88,7 +88,6 @@ import {
   AgentXActionCardComponent,
   type ActionCardOpenMediaEvent,
 } from '../cards/agent-x-action-card.component';
-import { AgentXAskUserCardComponent } from '../cards/agent-x-ask-user-card.component';
 import { AgentXEnqueueWaitingCardComponent } from '../cards/agent-x-enqueue-waiting-card.component';
 import type { BillingActionResolvedEvent } from '../cards/agent-x-billing-action-card.component';
 import type { ConnectAccountCardActionEvent } from '../cards/agent-x-connect-account-card.component';
@@ -163,7 +162,6 @@ type YieldStateSource =
     AgentXOperationChatExecutionPlanComponent,
     AgentXMessageUndoComponent,
     AgentXActionCardComponent,
-    AgentXAskUserCardComponent,
     AgentXEnqueueWaitingCardComponent,
     AgentXOperationChatRecurringTasksDockComponent,
   ],
@@ -203,7 +201,7 @@ type YieldStateSource =
         }
 
         @for (msg of messages(); track msg.id; let first = $first; let idx = $index) {
-          @if (!shouldHideMessage(msg, idx)) {
+          @if (!shouldHideMessage(msg)) {
             <div
               class="msg-row"
               [class.msg-user]="msg.role === 'user'"
@@ -212,14 +210,14 @@ type YieldStateSource =
               [class.msg-error]="msg.error"
               [class.msg-row--wide]="!!msg.yieldState"
             >
-              @if (hasBubbleProse(msg) || (!approvalYieldForMessage(msg) && !isAskUserYield(msg))) {
+              @if (hasBubbleProse(msg) || (!approvalYieldForMessage(msg) && isAskUserYield(msg))) {
                 @if (msg.id === 'enqueue-waiting') {
                   <nxt1-agent-x-enqueue-waiting-card [isStopped]="!!msg.interruptedReason" />
                 } @else {
                   <nxt1-chat-bubble
                     variant="agent-operation"
                     [isOwn]="msg.role === 'user'"
-                    [content]="msg.content"
+                    [content]="messageContentForBubble(msg)"
                     [isStreaming]="msg.id === 'typing' && isActivityInFlight()"
                     [typingLabel]="msg.id === 'typing' ? thinkingLabel() : 'Thinking...'"
                     [isError]="!!msg.error"
@@ -231,7 +229,6 @@ type YieldStateSource =
                     [externalResolvedText]="msg.yieldResolvedText ?? ''"
                     (mediaRequested)="onBubbleMediaRequested($event)"
                     (billingActionResolved)="onBillingActionResolved($event)"
-                    (askUserReply)="yieldFacade.onAskUserReply($event)"
                     (connectAccountAction)="onConnectAccountAction($event)"
                     (retryRequested)="runControlFacade.onRetryErrorMessage(msg)"
                   />
@@ -254,15 +251,6 @@ type YieldStateSource =
                   (approve)="yieldFacade.onApproveAction($event)"
                   (reply)="yieldFacade.onReplyAction($event)"
                   (openMedia)="onApprovalCardOpenMedia($event)"
-                />
-              } @else if (isAskUserYield(msg)) {
-                <nxt1-agent-x-ask-user-card
-                  [card]="buildAskUserCardFromYield(msg)"
-                  [messageId]="msg.id"
-                  [operationId]="msg.operationId ?? null"
-                  [externalCardState]="resolveExternalCardStateForMessage(msg, idx)"
-                  [externalResolvedText]="msg.yieldResolvedText ?? ''"
-                  (replySubmitted)="yieldFacade.onAskUserReply($event)"
                 />
               }
               @if (!msg.yieldState && messageAttachmentsForStrip(msg).length) {
@@ -505,7 +493,7 @@ type YieldStateSource =
           [selectedTask]="null"
           [placeholder]="getInputPlaceholder()"
           (messageChange)="inputValue.set($event)"
-          (send)="runControlFacade.send()"
+          (send)="onSendRequested()"
           (pause)="runControlFacade.pauseStream()"
           (toggleAttachments)="attachmentsFacade.onUploadClick()"
           (openFile)="attachmentsFacade.openPendingFileViewer($event)"
@@ -2498,6 +2486,13 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       yieldState,
       this.resolveYieldOperationId(yieldState, operationId)
     );
+
+    // Drop the input bar's loading state when the agent is awaiting user
+    // input so the user can immediately type their reply. Without this, the
+    // stop/pause button stays in place and the send button is unreachable.
+    if (yieldState.reason === 'needs_input') {
+      this._loading.set(false);
+    }
   }
 
   // ============================================
@@ -2709,6 +2704,26 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     });
   }
 
+  /** Route composer submit through ask_user reply flow when a pending ask-user yield exists. */
+  protected async onSendRequested(): Promise<void> {
+    const pendingAskUser = this.pendingAskUserReplyTarget();
+    const reply = this.inputValue().trim();
+    const hasStagedAttachments =
+      this.pendingFiles().length > 0 || this.pendingConnectedSources().length > 0;
+
+    if (pendingAskUser && reply.length > 0 && !hasStagedAttachments && !this._loading()) {
+      this.inputValue.set('');
+      await this.yieldFacade.onAskUserReply({
+        answer: reply,
+        ...(pendingAskUser.messageId ? { messageId: pendingAskUser.messageId } : {}),
+        ...(pendingAskUser.operationId ? { operationId: pendingAskUser.operationId } : {}),
+      });
+      return;
+    }
+
+    await this.runControlFacade.send();
+  }
+
   /**
    * True when a message has visible content that should render in a chat
    * bubble alongside any yield card (approval / ask-user). When `false`,
@@ -2743,7 +2758,34 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return false;
   }
 
-  /** Hide planner cards inline in bubbles; planner is rendered once in the composer dock. */
+  /**
+   * Bubble text for an ask_user yield checkpoint.
+   *
+   * Option B (2026): the actual question is streamed as ordinary assistant
+   * prose in the preceding assistant_partial bubble. The yield row itself is
+   * ALWAYS a thin "Waiting for your reply…" affordance — never the question
+   * text. The short `question` label the LLM passes to `ask_user` is used
+   * for push/SMS notification previews only, not for the in-chat bubble.
+   * This guarantees the bubble cannot duplicate (or shadow) the prose row
+   * regardless of legacy data shape.
+   */
+  protected messageContentForBubble(msg: OperationMessage): string {
+    if (!this.isAskUserYield(msg)) return msg.content;
+    return 'Waiting for your reply…';
+  }
+
+  /**
+   * Filter cards rendered inline in bubbles.
+   *
+   * - `planner` is rendered once in the composer dock
+   * - pending approval confirmations are rendered by the dedicated action card
+   * - `ask_user` is filtered out: the prior assistant prose already carries
+   *   the question text in `content`, and the yield message renders the
+   *   question via `messageContentForBubble`. Keeping ask_user inline here
+   *   would shadow `msg.content` (the bubble template takes the parts/cards
+   *   path whenever they are non-empty, skipping legacy content rendering)
+   *   and visually erase the streamed prose.
+   */
   protected messageCardsForBubble(msg: OperationMessage): readonly AgentXRichCard[] {
     return (msg.cards ?? []).filter(
       (card) =>
@@ -2753,7 +2795,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     );
   }
 
-  /** Hide planner card parts inline in bubbles; planner is rendered once in the composer dock. */
+  /**
+   * Filter parts rendered inline in bubbles. Same rationale as
+   * `messageCardsForBubble` for ask_user: parts.length > 0 forces the bubble
+   * onto the interleaved render path and skips `content`, so we must keep
+   * ask_user out of parts to preserve the streamed prose.
+   */
   protected messagePartsForBubble(msg: OperationMessage): readonly AgentXMessagePart[] {
     const suppressedToolIds = this.suppressedToolStepIdsForMessage(msg);
     const filtered = (msg.parts ?? [])
@@ -2952,29 +2999,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return typeof text === 'string' ? text : '';
   }
 
-  /** Build the ask_user card payload directly from the yield message in the shared timeline. */
-  protected buildAskUserCardFromYield(msg: OperationMessage): AgentXRichCard {
-    const yieldState = msg.yieldState;
-    const pendingInput = yieldState?.pendingToolCall?.toolInput;
-    const question =
-      pendingInput && typeof pendingInput['question'] === 'string'
-        ? pendingInput['question']
-        : (yieldState?.promptToUser ?? '');
-    const context =
-      pendingInput && typeof pendingInput['context'] === 'string'
-        ? pendingInput['context']
-        : undefined;
-    return {
-      type: 'ask_user',
-      agentId: yieldState?.agentId ?? 'router',
-      title: 'Quick Question',
-      payload: {
-        question,
-        ...(context ? { context } : {}),
-      },
-    };
-  }
-
   /** Find the approval-backed confirmation card in a message (if present). */
   protected findApprovalCard(msg: OperationMessage): AgentXRichCard | null {
     if (!msg.cards?.length) return null;
@@ -3027,8 +3051,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     });
   }
 
-  /** Remove dismissed pause-yield rows and duplicate ask-user prompts from the timeline. */
-  protected shouldHideMessage(msg: OperationMessage, index?: number): boolean {
+  /** Remove dismissed pause-yield rows and legacy approval resolution artifacts from the timeline. */
+  protected shouldHideMessage(msg: OperationMessage): boolean {
     if (msg.id === 'typing' && this.hasPendingAskUserYieldMessage()) {
       return true;
     }
@@ -3036,7 +3060,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       return true;
     }
     if (this.isLegacyApprovalResolutionMessage(msg)) return true;
-    return this.isDuplicatedAskUserPromptMessage(msg, index);
+    return false;
   }
 
   private hasPendingAskUserYieldMessage(): boolean {
@@ -3047,6 +3071,38 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       (msg, idx) =>
         this.isAskUserYield(msg) && this.resolveExternalCardStateForMessage(msg, idx) === null
     );
+  }
+
+  /** Most recent unresolved ask_user yield in the timeline. */
+  private pendingAskUserYieldMessage(): OperationMessage | null {
+    const allMessages = this.messages();
+    for (let index = allMessages.length - 1; index >= 0; index -= 1) {
+      const msg = allMessages[index];
+      if (!this.isAskUserYield(msg)) continue;
+      if (this.resolveExternalCardStateForMessage(msg, index) !== null) continue;
+      return msg;
+    }
+    return null;
+  }
+
+  private pendingAskUserReplyTarget(): { messageId?: string; operationId?: string } | null {
+    const pendingMessage = this.pendingAskUserYieldMessage();
+    if (pendingMessage) {
+      return {
+        messageId: pendingMessage.id,
+        ...(pendingMessage.operationId ? { operationId: pendingMessage.operationId } : {}),
+      };
+    }
+
+    const yieldState = this.activeYieldState();
+    if (!yieldState || this.yieldResolved()) return null;
+    if (yieldState.reason !== 'needs_input') return null;
+    const toolName = yieldState.pendingToolCall?.toolName;
+    if (toolName === PAUSE_RESUME_TOOL_NAME || toolName === 'execute_saved_plan') return null;
+
+    return {
+      operationId: this.resolveYieldOperationId(yieldState),
+    };
   }
 
   /**
@@ -3107,95 +3163,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       msg.yieldState?.pendingToolCall?.toolName !== PAUSE_RESUME_TOOL_NAME &&
       msg.yieldState?.pendingToolCall?.toolName !== 'execute_saved_plan'
     );
-  }
-
-  private isDuplicatedAskUserPromptMessage(msg: OperationMessage, index?: number): boolean {
-    if (msg.yieldState) return false;
-    if (msg.role !== 'assistant') return false;
-    if (typeof index !== 'number') return false;
-    if (!msg.content.trim()) return false;
-    // Never suppress a message that contains rich content beyond plain text.
-    if (
-      (msg.cards?.length ?? 0) > 0 ||
-      (msg.parts?.some((p) => p.type !== 'text') ?? false) ||
-      (msg.attachments?.length ?? 0) > 0 ||
-      (msg.steps?.length ?? 0) > 0
-    ) {
-      return false;
-    }
-
-    // Scan forward from index + 1 to find an ask-user yield that belongs to
-    // the same operation.  We check up to 2 positions forward to tolerate
-    // any intermediate empty system messages.
-    const allMessages = this.messages();
-    let askUserMsg: OperationMessage | undefined;
-    for (let offset = 1; offset <= 2; offset++) {
-      const candidate = allMessages[index + offset];
-      if (!candidate) break;
-      if (this.isAskUserYield(candidate)) {
-        // operationId must match when both are present.
-        if (msg.operationId && candidate.operationId && msg.operationId !== candidate.operationId) {
-          break;
-        }
-        askUserMsg = candidate;
-        break;
-      }
-      // Stop if we hit another non-yield assistant message (different topic).
-      if (candidate.role === 'assistant' && !candidate.yieldState) break;
-    }
-
-    if (!askUserMsg) return false;
-
-    // While submitting: un-suppress so the question context is visible while the card is locked.
-    // While resolved: fall through to the text-match check below — the duplicate question text
-    // stays suppressed because the ask-user card already shows the question + "Answered" badge.
-    // Showing the same text in a separate bubble directly above the card is jarring and redundant.
-    if (askUserMsg.yieldCardState === 'submitting') {
-      return false;
-    }
-
-    const askUserPrompt = this.rawAskUserPromptForMessage(askUserMsg);
-    if (!askUserPrompt) return false;
-
-    const normalizedMessage = this.normalizeAskUserComparisonText(msg.content);
-    const normalizedPrompt = this.normalizeAskUserComparisonText(askUserPrompt);
-    if (normalizedMessage.length < 24 || normalizedPrompt.length < 24) return false;
-
-    // Only suppress when the message IS the question (exact match or the
-    // Suppress when: (a) the message IS exactly the question, (b) the message
-    // fully contains the question text (LLM preamble + question streamed
-    // together), or (c) the question fully contains the message.
-    return (
-      normalizedMessage === normalizedPrompt ||
-      normalizedMessage.includes(normalizedPrompt) ||
-      normalizedPrompt.includes(normalizedMessage)
-    );
-  }
-
-  private rawAskUserPromptForMessage(msg: OperationMessage): string {
-    const yieldState = msg.yieldState;
-    const pendingInput = yieldState?.pendingToolCall?.toolInput;
-    const question =
-      pendingInput && typeof pendingInput['question'] === 'string'
-        ? pendingInput['question']
-        : (yieldState?.promptToUser ?? '');
-    const context =
-      pendingInput && typeof pendingInput['context'] === 'string' ? pendingInput['context'] : '';
-
-    return [question, context]
-      .filter((value) => value.trim().length > 0)
-      .join('\n\n')
-      .trim();
-  }
-
-  private normalizeAskUserComparisonText(value: string): string {
-    return value
-      .replace(/\*\*(.*?)\*\*/g, '$1')
-      .replace(/__(.*?)__/g, '$1')
-      .replace(/`([^`]+)`/g, '$1')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase();
   }
 
   // ============================================

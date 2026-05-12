@@ -4103,6 +4103,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         contextIcon: pending.icon ?? 'bolt',
         contextType: 'operation',
         threadId: pending.threadId,
+        resumeOperationId: pending.operationId,
       });
     });
 
@@ -4404,12 +4405,15 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       contextTitle: entry.title,
       contextIcon: entry.icon,
       contextType: 'operation',
-      operationStatus: resolvedOperationId
+      operationStatus: entry.threadId
         ? operationStatus
-        : operationStatus === 'processing'
-          ? null
-          : operationStatus,
+        : resolvedOperationId
+          ? operationStatus
+          : operationStatus === 'processing'
+            ? null
+            : operationStatus,
       threadId: entry.threadId ?? '',
+      resumeOperationId: resolvedOperationId,
       hasRecurringTasksHint,
     });
   }
