@@ -22,11 +22,15 @@ platform :ios do
   lane :sync_certs do |options|
     type = options[:type] || "development"
     api_key = load_api_key
+    # In CI, run read-only: fetch certs from the git repo without hitting
+    # Apple's certificate creation API (avoids team membership errors).
+    is_readonly = ENV['CI'] == 'true'
 
     match(
       type: type,
       app_identifier: APP_IDENTIFIER,
-      readonly: false,
+      readonly: is_readonly,
+      team_id: ENV['APPLE_TEAM_ID'] || '794G2RS4WQ',
       git_url: ENV["MATCH_GIT_URL"],
       git_basic_authorization: ENV["MATCH_GIT_BASIC_AUTHORIZATION"],
       api_key: api_key,
