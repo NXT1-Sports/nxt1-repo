@@ -13,7 +13,7 @@
  * - SettingsService (packages/ui) calls this via SETTINGS_PERSISTENCE_ADAPTER token
  */
 
-import { Injectable, inject } from '@angular/core';
+import { Injectable, inject, Injector } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import type { SettingsPreferences, SettingsUsage, UserPreferences } from '@nxt1/core';
@@ -21,7 +21,6 @@ import { DEFAULT_SETTINGS_PREFERENCES } from '@nxt1/core';
 import type { SettingsPersistenceAdapter } from '@nxt1/ui/settings';
 import { environment } from '../../../../environments/environment';
 import { PerformanceService } from '..';
-import { WebPushService } from '../web/web-push.service';
 import { AnalyticsService } from '../infrastructure/analytics.service';
 import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
 
@@ -42,9 +41,14 @@ interface ApiResponse<T> {
 export class SettingsApiService implements SettingsPersistenceAdapter {
   private readonly http = inject(HttpClient);
   private readonly performance = inject(PerformanceService);
-  private readonly webPush = inject(WebPushService);
+  private readonly injector = inject(Injector);
   private readonly analyticsService = inject(AnalyticsService);
   private readonly baseUrl = environment.apiURL;
+
+  private async getWebPushService() {
+    const { WebPushService } = await import('../web/web-push.service');
+    return this.injector.get(WebPushService);
+  }
 
   /**
    * Debounce buffer for notification preference changes.
@@ -104,9 +108,11 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
     // Handle push notifications toggle — register or unregister FCM token
     if (key === 'pushNotifications') {
       if (value === true) {
-        await this.webPush.requestPermission();
+        const webPush = await this.getWebPushService();
+        await webPush.requestPermission();
       } else {
-        await this.webPush.revokeToken();
+        const webPush = await this.getWebPushService();
+        await webPush.revokeToken();
       }
       // Continue to persist preference to backend
     }

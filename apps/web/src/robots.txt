@@ -8,7 +8,7 @@ User-agent: *
 Disallow: /
 
 # SEO-critical public pages (explicitly allowed)
-Allow: /
+Allow: /$
 Allow: /profile/
 Allow: /help-center/
 Allow: /programs/

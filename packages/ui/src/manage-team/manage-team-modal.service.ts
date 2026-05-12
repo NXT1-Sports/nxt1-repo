@@ -31,7 +31,7 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Injectable, inject } from '@angular/core';
+import { Injectable, Injector, inject } from '@angular/core';
 import { NxtPlatformService } from '../services/platform';
 import { NxtOverlayService } from '../components/overlay';
 import { NxtLoggingService } from '../services/logging';
@@ -62,7 +62,7 @@ export interface ManageTeamModalResult {
 
 @Injectable({ providedIn: 'root' })
 export class ManageTeamModalService {
-  private readonly bottomSheet = inject(ManageTeamBottomSheetService);
+  private readonly injector = inject(Injector);
   private readonly overlay = inject(NxtOverlayService);
   private readonly platform = inject(NxtPlatformService);
   private readonly manageTeam = inject(ManageTeamService);
@@ -101,7 +101,14 @@ export class ManageTeamModalService {
   // ============================================
 
   private async openBottomSheet(options: ManageTeamModalOptions): Promise<ManageTeamModalResult> {
-    const result = await this.bottomSheet.open({
+    const bottomSheet = this.injector.get(ManageTeamBottomSheetService, null);
+
+    if (!bottomSheet) {
+      this.logger.warn('Manage team bottom sheet unavailable; falling back to web overlay');
+      return this.openWebOverlay(options);
+    }
+
+    const result = await bottomSheet.open({
       teamId: options.teamId,
       initialSection: options.initialSection ?? undefined,
       title: options.title,
@@ -153,11 +160,8 @@ export class ManageTeamModalService {
   // PLATFORM DETECTION
   // ============================================
 
-  /** Native app and small-screen web should use the Ionic bottom sheet presentation. */
+  /** Native app uses the Ionic bottom sheet presentation; web always uses the overlay path. */
   private shouldUseBottomSheet(): boolean {
-    return (
-      this.platform.isNative() ||
-      (this.platform.isBrowser() && this.platform.viewport().width < 768)
-    );
+    return this.platform.isNative();
   }
 }

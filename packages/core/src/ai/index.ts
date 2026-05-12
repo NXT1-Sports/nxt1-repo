@@ -114,6 +114,7 @@ export type {
   AgentXBillingActionReason,
   AgentXBillingActionPayload,
   AgentXDocumentPayload,
+  AgentXScrapeOperationRef,
 } from './agent-x.types';
 
 // Constants

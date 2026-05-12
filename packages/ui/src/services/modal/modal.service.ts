@@ -106,7 +106,7 @@
  * ⭐ SHARED BETWEEN WEB AND MOBILE ⭐
  */
 
-import { Injectable, inject, signal, computed, PLATFORM_ID } from '@angular/core';
+import { Injectable, Injector, inject, signal, computed, PLATFORM_ID } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import {
   AlertController,
@@ -135,7 +135,7 @@ import type {
 @Injectable({ providedIn: 'root' })
 export class NxtModalService {
   private readonly platformId = inject(PLATFORM_ID);
-  private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly injector = inject(Injector);
   private readonly alertCtrl = inject(AlertController);
   private readonly actionSheetCtrl = inject(ActionSheetController);
   private readonly loadingCtrl = inject(LoadingController);
@@ -883,7 +883,13 @@ export class NxtModalService {
    * ```
    */
   get bottomSheetService(): NxtBottomSheetService {
-    return this.bottomSheet;
+    const bottomSheet = this.injector.get(NxtBottomSheetService, null);
+
+    if (!bottomSheet) {
+      throw new Error('NxtBottomSheetService is unavailable in this platform context.');
+    }
+
+    return bottomSheet;
   }
 
   // ============================================

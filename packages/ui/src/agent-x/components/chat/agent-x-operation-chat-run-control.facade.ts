@@ -200,10 +200,15 @@ export class AgentXOperationChatRunControlFacade {
     });
 
     if (threadId) {
+      const currentOperationId =
+        host.getCurrentOperationId() ??
+        (host.contextType() === 'operation' ? host.contextId() : undefined);
       this.operationEventService.emitOperationStatusUpdated(
         threadId,
         isEnqueueWaitingThread ? 'complete' : 'paused',
-        new Date().toISOString()
+        new Date().toISOString(),
+        'chat',
+        currentOperationId ?? undefined
       );
     }
   }
@@ -253,7 +258,9 @@ export class AgentXOperationChatRunControlFacade {
       this.operationEventService.emitOperationStatusUpdated(
         threadId,
         'complete',
-        new Date().toISOString()
+        new Date().toISOString(),
+        'chat',
+        currentOperationId ?? undefined
       );
     }
   }

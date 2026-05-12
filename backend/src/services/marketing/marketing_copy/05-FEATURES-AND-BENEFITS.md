@@ -5,9 +5,9 @@ How to translate our technical architecture into marketing benefits.
 ## 1. Agent X Shell
 
 - **What it is:** Pure open-ended AI agent interface acting as the primary UI.
-- **How to sell it:** "Your Personal Command Center. Say goodbye to rigid menus.
-  Just type what you need—'Send my latest tape to D2 programs in Ohio'—and watch
-  Agent X execute."
+- **How to sell it:** "Your recruiting command center. Say goodbye to rigid
+  menus. Just type what you need—'Rank the college programs our roster should
+  contact this week and build the outreach queue'—and watch Agent X execute."
 
 ## 2. AI Creative Director
 
@@ -21,9 +21,9 @@ How to translate our technical architecture into marketing benefits.
 
 - **What it is:** Background processes for long-running AI tasks like batch
   emailing and film processing.
-- **How to sell it:** "Work while you sleep. Trigger massive outreach campaigns
-  and film analysis that run in the background. Return to a dashboard full of
-  replies and completed assets."
+- **How to sell it:** "Work while you sleep. Launch roster-wide recruiting
+  outreach and film sends that run in the background. Return to a dashboard full
+  of replies, follow-ups, and completed assets."
 
 ## 4. AI Scout Reports
 

@@ -16,7 +16,7 @@ import { CommonModule } from '@angular/common';
 import { AuthShellComponent } from '@nxt1/ui/auth/auth-shell';
 import { AuthEmailFormComponent, type AuthEmailFormData } from '@nxt1/ui/auth/auth-email-form';
 import { NxtIconComponent } from '@nxt1/ui/components/icon';
-import { AuthNavigationService } from '@nxt1/ui/services';
+import { AuthNavigationService } from '@nxt1/ui/services/auth-navigation';
 import { AuthFlowService } from '../../../../core/services/auth';
 import { SeoService } from '../../../../core/services';
 

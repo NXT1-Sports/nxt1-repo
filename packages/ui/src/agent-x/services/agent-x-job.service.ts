@@ -229,7 +229,8 @@ export class AgentXJobService {
         // get replaced.
         this.operationEventService.emitTitleUpdated(
           response.data.threadId,
-          intent.trim().slice(0, 80)
+          intent.trim().slice(0, 80),
+          response.data.operationId
         );
 
         // Open a lightweight Firestore subscription so the backend's LLM-generated

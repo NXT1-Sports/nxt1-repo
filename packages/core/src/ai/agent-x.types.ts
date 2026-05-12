@@ -983,6 +983,7 @@ export interface AgentXStreamTitleUpdatedEvent {
   readonly seq?: number;
   readonly emittedAt?: string;
   readonly threadId: string;
+  readonly operationId?: string;
   readonly title: string;
 }
 
@@ -1065,6 +1066,8 @@ export interface AgentXStreamStepEvent {
   readonly seq?: number;
   readonly emittedAt?: string;
   readonly messageKey?: string;
+  /** Backend operation identity for routing same-thread progress correctly. */
+  readonly operationId?: string;
   /** Unique step identifier. */
   readonly id: string;
   /** Short human-readable label (e.g. "Querying athlete stats…"). */
@@ -1119,6 +1122,13 @@ export interface AgentXStreamCardEvent {
     | AgentXBillingActionPayload
     | AgentXDocumentPayload
     | Record<string, unknown>;
+}
+
+/** Operation/thread mapping returned when linked-account sync fans out into chunks. */
+export interface AgentXScrapeOperationRef {
+  readonly operationId: string;
+  readonly threadId?: string;
+  readonly platforms: readonly string[];
 }
 
 /**

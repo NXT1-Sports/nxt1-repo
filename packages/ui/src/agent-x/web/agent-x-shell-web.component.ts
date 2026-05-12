@@ -1309,7 +1309,7 @@ function sortCoordinatorCategories(
           [pendingFiles]="agentX.pendingFiles()"
           [pendingSources]="[]"
           [selectedTask]="agentX.selectedTask()?.title ?? null"
-          placeholder="Message A Coordinator"
+          [placeholder]="mobileInputPlaceholder()"
           (messageChange)="agentX.setUserMessage($event)"
           (send)="onMobileSendMessage()"
           (removeTask)="agentX.clearTask()"
@@ -1339,6 +1339,8 @@ function sortCoordinatorCategories(
         --agent-primary: var(--nxt1-color-primary, #ccff00);
         --agent-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
         --agent-glass-bg: var(--nxt1-glass-bg, rgba(255, 255, 255, 0.8));
+        --agent-rail-content-padding-start: calc(var(--nxt1-spacing-5, 20px) * 2);
+        --agent-rail-content-padding-end: var(--nxt1-spacing-5, 20px);
       }
 
       :host-context(.dark),
@@ -1462,6 +1464,11 @@ function sortCoordinatorCategories(
         border-right: 1px solid var(--agent-border);
       }
 
+      .agent-rail-column .agent-column-header {
+        padding-inline: var(--agent-rail-content-padding-end);
+        padding-inline-start: var(--agent-rail-content-padding-start);
+      }
+
       .agent-column-header {
         padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-2, 8px);
         border-bottom: 1px solid var(--agent-border);
@@ -1559,6 +1566,8 @@ function sortCoordinatorCategories(
 
       .agent-rail-scroll {
         gap: var(--nxt1-spacing-5, 20px);
+        padding-inline: var(--agent-rail-content-padding-end);
+        padding-inline-start: var(--agent-rail-content-padding-start);
       }
 
       .sessions-section {
@@ -1576,7 +1585,7 @@ function sortCoordinatorCategories(
       }
 
       :host ::ng-deep .sessions-section .log-scroll {
-        padding: 0;
+        padding-inline: 0;
         padding-bottom: var(--nxt1-spacing-4, 16px);
       }
 
@@ -3525,6 +3534,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly operationEventService = inject(AgentXOperationEventService);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly platform = inject(NxtPlatformService);
+  private readonly selectedCoordinatorLabel = signal<string | null>(null);
   private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
   private desktopSessionCounter = 0;
 
@@ -4022,6 +4032,12 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   /** Coordinator cards are rendered strictly from backend dashboard config. */
   protected readonly commandCategories = computed(() => {
     return sortCoordinatorCategories(this.agentX.coordinators());
+  });
+
+  /** Mobile footer input placeholder reflects the latest selected coordinator. */
+  protected readonly mobileInputPlaceholder = computed(() => {
+    const label = this.selectedCoordinatorLabel()?.trim();
+    return label ? `Message ${label}` : 'Message Agent X';
   });
 
   constructor() {
@@ -4713,6 +4729,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    */
   public async onMobileCategoryTap(cat: CommandCategory): Promise<void> {
     await this.haptics.impact('light');
+    this.selectedCoordinatorLabel.set(cat.label);
 
     const ref = this.overlay.open<AgentXOperationChatComponent>({
       component: AgentXOperationChatComponent,

@@ -42,6 +42,7 @@ import {
   DestroyRef,
   HostBinding,
   OnDestroy,
+  Injector,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { isPlatformBrowser, CommonModule } from '@angular/common';
@@ -1390,9 +1391,9 @@ export class NxtMobileSidebarComponent implements OnDestroy {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly injector = inject(Injector);
   private readonly haptics = inject(HapticsService);
   private readonly browser = inject(NxtBrowserService);
-  private readonly bottomSheet = inject(NxtBottomSheetService);
   protected readonly theme = inject(NxtThemeService);
 
   // ============================================
@@ -1570,7 +1571,10 @@ export class NxtMobileSidebarComponent implements OnDestroy {
         ? entry.operationId
         : undefined;
 
-      void this.bottomSheet.openSheet({
+      const bottomSheet = this.injector.get(NxtBottomSheetService, null);
+      if (!bottomSheet) return;
+
+      void bottomSheet.openSheet({
         component: AgentXOperationChatComponent,
         componentProps: {
           contextId: resolvedOperationId ?? entry.threadId ?? entry.id,

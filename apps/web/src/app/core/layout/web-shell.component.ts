@@ -102,13 +102,11 @@ import {
 import { buildNavigationShellUserData } from '@nxt1/ui/components/user-display';
 import { ProfileService } from '@nxt1/ui/profile';
 // ── Services (separate from component barrel) ──
-import {
-  NxtPlatformService,
-  NxtLoggingService,
-  NxtScrollService,
-  NxtNotificationStateService,
-  NxtToastService,
-} from '@nxt1/ui/services';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtScrollService } from '@nxt1/ui/services/scroll';
+import { NxtNotificationStateService } from '@nxt1/ui/services/notification-state';
+import { NxtToastService } from '@nxt1/ui/services/toast';
 // ── Auth ──
 import { AuthModalService } from '@nxt1/ui/auth';
 // ── Activity (for mark-all-read on /activity route) ──
@@ -336,10 +334,15 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
         between SSR and client (both render authenticated when cookie exists),
         so no risk of hydration mismatch
     -->
-    <div class="shell">
+    <div
+      class="shell"
+      [class.shell--authenticated]="isAuthenticated()"
+      [class.shell--logged-out]="!isAuthenticated()"
+    >
       <!-- DESKTOP: Fixed Sidebar — authenticated users only; CSS-hidden below 768px -->
       @if (showDesktopSidebar()) {
         <nxt1-desktop-sidebar
+          class="shell__desktop-sidebar"
           [sections]="sidebarSections()"
           [user]="sidebarUserData()"
           [config]="sidebarConfig()"
@@ -371,6 +374,7 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
 
       <!-- MOBILE: Top Header Bar — CSS-hidden at 768px+ -->
       <nxt1-mobile-header
+        class="shell__mobile-header"
         [config]="mobileHeaderConfig()"
         [user]="mobileHeaderUserData()"
         (menuClick)="onMobileMenuToggle()"
@@ -391,6 +395,7 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
 
       <!-- MOBILE: Slide-Out Drawer — CSS-hidden at 768px+, self-manages open/close -->
       <nxt1-mobile-sidebar
+        class="shell__mobile-sidebar"
         [sections]="mobileSidebarSections()"
         [user]="mobileSidebarUserData()"
         [config]="mobileSidebarConfig()"
@@ -433,6 +438,7 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
 
         <!-- DESKTOP: Header bar — CSS-hidden below 768px -->
         <nxt1-header
+          class="shell__desktop-header"
           [items]="headerItems()"
           [user]="headerUserData()"
           [isAuthenticated]="topNavIsAuthenticated()"
@@ -462,6 +468,7 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
              This removes ~610 lines of component code from the eager shell chunk. -->
         @defer (when notificationPopoverOpen()) {
           <app-notification-popover
+            class="shell__notification-popover"
             [isOpen]="notificationPopoverOpen()"
             (closePopover)="closeNotificationPopover()"
           />
@@ -481,6 +488,7 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
       <!-- MOBILE: Bottom Tab Bar — CSS-hidden at 768px+, auth-gated -->
       @if (showMobileFooter()) {
         <nxt1-mobile-footer
+          class="shell__mobile-footer"
           [tabs]="footerTabs()"
           [activeTabId]="activeTabId()"
           [config]="footerConfig()"
@@ -557,7 +565,7 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
       /* ============================================
          HEADER (Desktop)
          ============================================ */
-      nxt1-header {
+      .shell__desktop-header {
         flex-shrink: 0;
         z-index: 40;
       }
@@ -565,7 +573,7 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
       /* ============================================
          NOTIFICATION POPOVER (Desktop)
          ============================================ */
-      app-notification-popover {
+      .shell__notification-popover {
         z-index: 45;
       }
 
@@ -614,7 +622,7 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
       /* ============================================
          MOBILE HEADER (sticky)
          ============================================ */
-      nxt1-mobile-header {
+      .shell__mobile-header {
         flex-shrink: 0;
         z-index: 40;
       }
@@ -623,14 +631,14 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
          MOBILE SIDEBAR (overlay drawer)
          Component manages its own transform/visibility.
          ============================================ */
-      nxt1-mobile-sidebar {
+      .shell__mobile-sidebar {
         /* positioned by component — no layout styles needed */
       }
 
       /* ============================================
          MOBILE FOOTER
          ============================================ */
-      nxt1-mobile-footer {
+      .shell__mobile-footer {
         --nxt1-footer-bottom: 28px;
         --nxt1-footer-left: 16px;
         --nxt1-footer-right: 16px;
@@ -659,10 +667,21 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
           flex-direction: column;
         }
 
-        /* Hide desktop navigation chrome */
-        nxt1-desktop-sidebar,
-        nxt1-header,
-        app-notification-popover {
+        /* Hide desktop navigation chrome for authenticated app pages.
+           Logged-out app/marketing pages keep the shared desktop header on mobile. */
+        .shell__desktop-sidebar,
+        .shell__notification-popover {
+          display: none !important;
+        }
+
+        .shell--logged-out .shell__desktop-header,
+        .shell--authenticated .shell__mobile-header {
+          display: block !important;
+        }
+
+        .shell--authenticated .shell__desktop-header,
+        .shell--logged-out .shell__mobile-header,
+        .shell--logged-out .shell__mobile-sidebar {
           display: none !important;
         }
 
@@ -794,9 +813,9 @@ const USER_MENU_ITEMS: TopNavUserMenuItem[] = [];
       /* ─── DESKTOP / TABLET (≥768px) ─── */
       @media (min-width: 768px) {
         /* Hide mobile navigation chrome */
-        nxt1-mobile-header,
-        nxt1-mobile-sidebar,
-        nxt1-mobile-footer {
+        .shell__mobile-header,
+        .shell__mobile-sidebar,
+        .shell__mobile-footer {
           display: none !important;
         }
 
@@ -2010,14 +2029,33 @@ export class WebShellComponent {
         this._currentRoute.set(event.urlAfterRedirects);
         this.syncActiveTabFromRoute(event.urlAfterRedirects);
 
-        // Scroll shell content to top on navigation (replaces window.scrollTo)
-        const scrollEl = this.getShellContentElement();
-        if (scrollEl) {
-          scrollEl.scrollTo({ top: 0, behavior: 'instant' });
-        }
-
-        this.platformBannerScrolledAway.set(false);
+        this.scheduleShellScrollToTop();
       });
+  }
+
+  private scheduleShellScrollToTop(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    const scrollToTop = () => {
+      const scrollEl = this.getShellContentElement();
+      scrollEl?.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+      scrollEl?.querySelectorAll<HTMLElement>('*').forEach((element) => {
+        if (element.scrollTop > 0 || element.scrollLeft > 0) {
+          element.scrollTop = 0;
+          element.scrollLeft = 0;
+        }
+      });
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      this.platformBannerScrolledAway.set(false);
+    };
+
+    scrollToTop();
+    window.requestAnimationFrame(() => {
+      scrollToTop();
+      window.requestAnimationFrame(scrollToTop);
+    });
   }
 
   /**

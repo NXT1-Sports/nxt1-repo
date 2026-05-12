@@ -61,6 +61,7 @@ import {
 export interface ThreadTitleUpdatedEvent {
   readonly threadId: string;
   readonly title: string;
+  readonly operationId?: string;
 }
 
 /** Emitted when an operation's status changes during the /chat SSE stream. */
@@ -71,6 +72,13 @@ export interface OperationStatusUpdatedEvent {
   readonly source: 'chat' | 'enqueue';
   readonly operationId?: string;
   readonly title?: string;
+  /**
+   * Set when this operation is a child of another (e.g. enqueue-heavy-task
+   * tool calls, fan-out scrape chunks 2..N). Child operations must never
+   * create a new sidebar row — they surface only inside the parent's
+   * operations panel.
+   */
+  readonly parentOperationId?: string;
 }
 
 const LIFECYCLE_TO_LOG_STATUS: Readonly<
@@ -476,13 +484,19 @@ export class AgentXOperationEventService {
    * Emit a title-updated event so listeners (operations log, shell) can
    * update the thread title in real-time without a full API refetch.
    */
-  emitTitleUpdated(threadId: string, title: string): void {
-    this.logger.debug('Emitting thread title update', { threadId, title });
+  emitTitleUpdated(threadId: string, title: string, operationId?: string): void {
+    this.logger.debug('Emitting thread title update', { threadId, operationId, title });
     // Run inside NgZone so change detection fires — the SSE ReadableStream
     // reader.read() callback executes outside the Angular zone (native
     // promise not patched by zone.js), so without this, signal writes in
     // the subscriber never trigger a CD tick.
-    this.ngZone.run(() => this._titleUpdated$.next({ threadId, title }));
+    this.ngZone.run(() =>
+      this._titleUpdated$.next({
+        threadId,
+        title,
+        ...(operationId ? { operationId } : {}),
+      })
+    );
   }
 
   /**
@@ -501,7 +515,11 @@ export class AgentXOperationEventService {
       status in LIFECYCLE_TO_LOG_STATUS
         ? LIFECYCLE_TO_LOG_STATUS[status as AgentXOperationLifecycleStatus]
         : (status as OperationLogStatus);
-    this.logger.debug('Emitting operation status update', { threadId, status: normalizedStatus });
+    this.logger.debug('Emitting operation status update', {
+      threadId,
+      operationId,
+      status: normalizedStatus,
+    });
     // Run inside NgZone — same reason as emitTitleUpdated above.
     this.ngZone.run(() =>
       this._operationStatusUpdated$.next({
@@ -1177,20 +1195,30 @@ export class AgentXOperationEventService {
 
       case 'title_updated': {
         if (typeof event.threadId === 'string' && typeof event.title === 'string') {
-          this.emitTitleUpdated(event.threadId, event.title);
+          const titleOperationId =
+            typeof event.operationId === 'string' && event.operationId.trim().length > 0
+              ? event.operationId
+              : operationId;
+          this.emitTitleUpdated(event.threadId, event.title, titleOperationId);
         }
         break;
       }
 
       case 'operation': {
         if (typeof event.threadId === 'string' && typeof event.status === 'string') {
+          const statusOperationId =
+            typeof event.operationId === 'string' && event.operationId.trim().length > 0
+              ? event.operationId
+              : operationId;
           const lifecycleStatus = event.status as AgentXOperationLifecycleStatus;
           const mappedStatus = LIFECYCLE_TO_LOG_STATUS[lifecycleStatus];
           if (mappedStatus) {
             this.emitOperationStatusUpdated(
               event.threadId,
               mappedStatus,
-              typeof event.timestamp === 'string' ? event.timestamp : new Date().toISOString()
+              typeof event.timestamp === 'string' ? event.timestamp : new Date().toISOString(),
+              'enqueue',
+              statusOperationId
             );
           }
         }

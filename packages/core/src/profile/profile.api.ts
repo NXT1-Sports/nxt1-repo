@@ -9,6 +9,7 @@
  */
 
 import type { HttpAdapter } from '../api/http-adapter';
+import type { AgentXScrapeOperationRef } from '../ai/agent-x.types';
 import type {
   User,
   UserSummary,
@@ -56,6 +57,7 @@ export interface AddSportResponse {
   /** All job IDs enqueued (one per 2-account chunk). scrapeJobId === scrapeJobIds[0]. */
   readonly scrapeJobIds?: readonly string[];
   readonly scrapeThreadId?: string;
+  readonly scrapeOperations?: readonly AgentXScrapeOperationRef[];
 }
 
 // ============================================

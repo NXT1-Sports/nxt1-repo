@@ -1617,19 +1617,36 @@ export class OnboardingComponent implements OnInit, OnDestroy {
             ?.filter((l) => l.connected)
             .map((l) => l.platform)
             .join(', ') ?? '';
+        const scrapeOperations =
+          result.scrapeOperations && result.scrapeOperations.length > 0
+            ? result.scrapeOperations
+            : allScrapeJobIds.map((operationId, index) => ({
+                operationId,
+                ...(index === 0 && result.scrapeThreadId
+                  ? { threadId: result.scrapeThreadId }
+                  : {}),
+                platforms: platformNames ? platformNames.split(', ') : [],
+              }));
+        const primaryScrapeOperation = scrapeOperations[0];
         // Primary job: starts the banner + opens the SSE resume stream
-        this.profileGenerationState.attachToOperation(
-          allScrapeJobIds[0],
-          result.scrapeThreadId,
-          platformNames
-        );
+        if (primaryScrapeOperation) {
+          this.profileGenerationState.attachToOperation(
+            primaryScrapeOperation.operationId,
+            primaryScrapeOperation.threadId ?? result.scrapeThreadId,
+            primaryScrapeOperation.platforms.join(', ') || platformNames
+          );
+        }
         // Additional jobs: register observers so their tool-step events advance the same banner
-        for (const jobId of allScrapeJobIds.slice(1)) {
-          this.profileGenerationState.watchForProfileWrites(jobId, platformNames);
+        for (const scrapeOperation of scrapeOperations.slice(1)) {
+          this.profileGenerationState.watchForProfileWrites(
+            scrapeOperation.operationId,
+            scrapeOperation.platforms.join(', ') || platformNames
+          );
         }
         this.logger.info('Backend scrape jobs started', {
           scrapeJobIds: allScrapeJobIds,
           scrapeThreadId: result.scrapeThreadId,
+          scrapeOperations,
           jobCount: allScrapeJobIds.length,
         });
       }

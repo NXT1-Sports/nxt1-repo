@@ -18,102 +18,124 @@ interface WorkflowMode {
 const WORKFLOW_MODES: readonly WorkflowMode[] = [
   {
     id: 'game-plan',
-    label: 'Weekly Plan',
+    label: 'Playbook',
     coordinator: 'Strategy Coordinator',
-    coordinatorSummary: 'Builds the weekly operating plan your staff can actually run.',
-    request: 'Build my weekly game plan and tell the staff what needs to happen next.',
-    inputs: ['Team priorities', 'Schedule and opponent notes', 'Content and recruiting needs'],
-    quickStarts: ['Build the game plan', 'Summarize focus areas', 'Set checkpoints'],
+    coordinatorSummary: 'Builds the weekly playbook, game plan, and staff brief your team can run.',
+    request: "Build this week's playbook, set the game plan, and give me a coach-ready brief.",
+    inputs: [
+      'Team priorities',
+      'Opponent notes and schedule',
+      'Content, recruiting, and staff needs',
+    ],
+    quickStarts: ['Build the playbook', 'Lock the game plan', 'Generate the brief'],
     deliverables: [
-      'A weekly operating plan with priorities, owners, and timing',
-      'A practice emphasis summary for the week',
-      'Clear recruiting and content checkpoints to follow through on',
+      'A weekly playbook with priorities, owners, and daily checkpoints',
+      'A game-plan summary with practice emphasis and opponent notes',
+      'A staff-ready brief you can share or save as a PDF',
     ],
     outcome:
-      'Instead of scattered reminders, your team gets one clear plan everyone can execute this week.',
+      'Your staff gets a real weekly operating package: the playbook, the game plan, and the brief in one place.',
   },
   {
     id: 'outreach',
-    label: 'Coach Outreach',
+    label: 'Recruiting',
     coordinator: 'Recruiting Coordinator',
-    coordinatorSummary: 'Turns warm signals into coach outreach that is ready to send.',
-    request: 'Find the best-fit programs and draft the next coach messages for me.',
+    coordinatorSummary:
+      'Packages recruiting priorities, outreach, and follow-through into one operating lane.',
+    request:
+      'Show me the priority programs, send the emails, and tell staff what follow-up happens next.',
     inputs: [
-      'Coach views and replies',
+      'Coach views, clicks, and replies',
       'Program fit signals',
-      'Recent highlights and stat updates',
+      'Recent stats, film, and highlight updates',
     ],
-    quickStarts: ['Build target list', 'Draft outreach', 'Queue follow-ups'],
+    quickStarts: ['Rank priority programs', 'Send emails to programs', 'Set follow-up cadence'],
     deliverables: [
-      'A ranked list of the programs that deserve attention first',
-      'Coach outreach drafts personalized to the right contacts',
-      'Follow-up timing so conversations do not stall out',
+      'A recruiting priority list with the right programs and contacts first',
+      'Sent emails to priority programs with the right context and updates',
+      'A follow-up tracker with next-touch dates the staff can work from',
     ],
     outcome:
-      'You get a prioritized outreach workflow with the list, the drafts, and the follow-up plan already mapped.',
+      'You get a recruiting workflow the staff can execute, not scattered notes about who to contact.',
   },
   {
     id: 'graphics',
-    label: 'Content Pack',
+    label: 'Media Packs',
     coordinator: 'Brand Coordinator',
     coordinatorSummary:
-      'Turns a week of moments into a content package people can use immediately.',
-    request: 'Turn this week’s best moments into graphics, captions, and a posting plan.',
-    inputs: ['Top plays and performance moments', 'Brand style', 'Publishing windows'],
-    quickStarts: ['Create highlight graphics', 'Draft captions', 'Build posting order'],
-    deliverables: [
-      'A set of social-ready graphics built from the best moments',
-      'Caption options and hooks matched to the story of the week',
-      'A posting sequence so content can go out without extra planning',
+      'Turns your best moments into graphics, videos, captions, and ready-to-post creative.',
+    request: "Turn this week's best moments into a highlight reel, graphics, and a posting pack.",
+    inputs: [
+      'Top plays and photo selects',
+      'Brand style and campaign direction',
+      'Publishing windows and key dates',
     ],
-    outcome: 'You get a finished content pack, not just ideas about what to post.',
+    quickStarts: ['Create highlight graphics', 'Cut the reel', 'Build the caption pack'],
+    deliverables: [
+      "A set of social-ready graphics built from the week's best moments",
+      'A short highlight reel or media cut ready for posting',
+      'A caption pack with hooks, posting order, and creative direction',
+    ],
+    outcome: 'You get finished media outputs, not another brainstorm about what to make next.',
   },
   {
     id: 'leads',
-    label: 'Lead Tracking',
+    label: 'Roster Review',
     coordinator: 'Data Coordinator',
-    coordinatorSummary: 'Turns scattered activity into clear recruiting signals and next steps.',
-    request: 'Show me which programs are warming up and what I should do next.',
-    inputs: ['Coach views and replies', 'Profile traffic spikes', 'Outreach performance'],
-    quickStarts: ['Track warm leads', 'Rank high-intent programs', 'Flag momentum shifts'],
-    deliverables: [
-      'A board showing which programs are warming up',
-      'Priority signals that explain why each lead matters',
-      'Clear next actions based on the strength of the momentum',
+    coordinatorSummary:
+      'Turns roster data into a depth, development, and needs review for coaches and directors.',
+    request: 'Review the roster, show me the depth picture, and flag where we need action next.',
+    inputs: [
+      'Roster status and availability',
+      'Performance trends and usage',
+      'Position depth and staff priorities',
     ],
-    outcome: 'You stop guessing at interest and start working from a ranked list of real momentum.',
+    quickStarts: ['Review position groups', 'Flag roster gaps', 'Build the summary'],
+    deliverables: [
+      'A roster review with position-by-position depth and readiness notes',
+      'A summary of gaps, overloads, and development priorities by group',
+      'A next-action board for staff decisions, support, and follow-up',
+    ],
+    outcome:
+      'You get a real roster picture your coaches can use for decisions, not a vague status update.',
   },
   {
     id: 'performance',
-    label: 'Performance Review',
+    label: 'Opponent Analysis',
     coordinator: 'Performance Coordinator',
-    coordinatorSummary: 'Turns film and metrics into a concise review your staff can act on.',
-    request: 'Review the film and stats, then show me what to improve this week.',
-    inputs: ['Uploaded game film', 'Position metrics', 'Coach notes'],
-    quickStarts: ['Summarize film review', 'List development points', 'Create player feedback'],
+    coordinatorSummary:
+      'Breaks down opponent film, tendencies, and pressure points into a usable prep report.',
+    request:
+      'Break down the opponent, find the tendencies, and give me the report we should coach from.',
+    inputs: ['Opponent film', 'Recent game trends', 'Coach notes and matchup priorities'],
+    quickStarts: ['Break down film', 'Surface tendencies', 'Build the prep report'],
     deliverables: [
-      'A film review summary with the most important patterns surfaced',
-      'Development priorities that matter for the next week',
-      'Coach-ready feedback that can be shared immediately',
+      'An opponent analysis report with patterns, strengths, and pressure points',
+      'A coaching summary with matchup notes and practice emphasis',
+      'A prep brief your staff can share or export as a PDF',
     ],
-    outcome:
-      'You get a performance brief with the takeaways, the coaching points, and the next actions in one place.',
+    outcome: 'Your staff gets a real prep package for the week, not raw film and scattered notes.',
   },
   {
     id: 'admin',
-    label: 'Ops Radar',
+    label: 'Scheduling',
     coordinator: 'Admin Coordinator',
     coordinatorSummary:
-      'Keeps deadlines, approvals, and follow-through visible for the whole staff.',
-    request: 'Show me what deadlines need attention and what the staff should do next.',
-    inputs: ['Schedules and milestones', 'Approvals and checkpoints', 'Open staff follow-through'],
-    quickStarts: ['Surface deadlines', 'Write status recap', 'Schedule follow-through'],
-    deliverables: [
-      'A deadline radar showing what needs attention first',
-      'A clean status recap the staff can work from',
-      'A follow-through schedule so important work does not get lost',
+      'Turns practices, travel, meetings, and deadlines into one scheduling view the whole staff can use.',
+    request: 'Build the schedule, flag conflicts, and package the next actions for staff.',
+    inputs: [
+      'Practice and travel plans',
+      'Meetings, approvals, and milestones',
+      'Open staff tasks and timing constraints',
     ],
-    outcome: 'You get an operating recap with clear priorities so nothing important gets buried.',
+    quickStarts: ['Build the schedule', 'Flag conflicts', 'Generate the checklist'],
+    deliverables: [
+      'A master schedule covering practices, meetings, travel, and deadlines',
+      'A conflict view showing what needs to be moved, approved, or staffed',
+      'A staff checklist you can share as a recap or save as a PDF',
+    ],
+    outcome:
+      'Your staff gets one working schedule with the conflicts and follow-through already surfaced.',
   },
 ] as const;
 
@@ -131,7 +153,7 @@ const WORKFLOW_MODES: readonly WorkflowMode[] = [
           align="center"
           [headingLevel]="2"
           title="Turn Requests Into Finished Work"
-          subtitle="Pick a workflow and see how Agent X turns one request into context, deliverables, and an outcome your team can actually use."
+          subtitle="Pick a workflow and see how Agent X turns one request into real outputs like playbooks, media packs, opponent analysis, recruiting plans, roster reviews, and schedules."
         />
 
         <div class="workflow-showcase__modes" role="tablist" aria-label="Agent X workflow modes">

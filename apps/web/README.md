@@ -136,7 +136,6 @@ callbacks) render outside the shell.
 /auth               → Login, signup, forgot-password (outside shell)
 /add-sport          → Sport/team wizard (outside shell)
 /join/:code         → Invite link landing (outside shell)
-/welcome            → redirects to /
 ```
 
 ### Lazy Loading

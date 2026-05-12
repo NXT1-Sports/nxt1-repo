@@ -1664,7 +1664,7 @@ export const HELP_CENTER_GETTING_STARTED_ARTICLES = [
   // ─────────────────────────────────────────────────────────────────────────────
   {
     slug: 'welcome-to-nxt1',
-    title: 'Welcome to NXT1 — Your Sports Intelligence Command Center',
+    title: 'Welcome to NXT1 — Your AI Command Center',
     excerpt:
       'NXT1 is not a profile. It is an active sports intelligence platform powered by Agent X. Learn what sets it apart, how the platform is organized, and where to go next.',
     type: 'article' as const,
@@ -1696,7 +1696,7 @@ export const HELP_CENTER_GETTING_STARTED_ARTICLES = [
       { id: 'your-next-step', title: 'Your Next Step', level: 2 },
     ],
     seo: {
-      metaTitle: 'Welcome to NXT1 — Getting Started with Your Sports Intelligence Command Center',
+      metaTitle: 'Welcome to NXT1 — Getting Started with Your AI Command Center',
       metaDescription:
         'Learn what NXT1 is, how it works, and how to get started as an athlete, coach, or program director.',
       keywords: [

@@ -90,6 +90,9 @@ export interface OpenGraphMetadata {
   /** Primary image URL (should be absolute) */
   image: string;
 
+  /** Image alt text for richer social previews */
+  imageAlt?: string;
+
   /** Image dimensions for proper rendering */
   imageWidth?: number;
   imageHeight?: number;

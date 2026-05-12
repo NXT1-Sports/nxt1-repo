@@ -521,14 +521,14 @@ export class AgentXOperationChatTransportFacade {
               detail: event.detail,
             };
             const threadId = host.resolvedThreadId();
-            if (threadId) this.streamRegistry.upsertStep(threadId, step);
+            const stepOperationId = event.operationId ?? host.getCurrentOperationId();
+            if (threadId) this.streamRegistry.upsertStep(threadId, step, stepOperationId);
 
             this.intelService?.notifyToolStep(event.id, step.label, event.status, event.detail);
             this.profileService?.notifyAgentToolStep(event.id, step.label, event.status);
             this.teamProfileService?.notifyAgentToolStep(event.id, step.label, event.status);
-            const currentOperationId = host.getCurrentOperationId();
-            if (currentOperationId) {
-              this.profileGenerationState?.receiveStep(currentOperationId, step);
+            if (stepOperationId) {
+              this.profileGenerationState?.receiveStep(stepOperationId, step);
             }
 
             // Detect enqueue_heavy_task tool — flag it so onDone can show the waiting card.
@@ -695,7 +695,9 @@ export class AgentXOperationChatTransportFacade {
             this.operationEventService.emitOperationStatusUpdated(
               event.threadId,
               event.status,
-              event.timestamp
+              event.timestamp,
+              'chat',
+              event.operationId
             );
           },
 
@@ -760,7 +762,11 @@ export class AgentXOperationChatTransportFacade {
           },
 
           onTitleUpdated: (event) => {
-            this.operationEventService.emitTitleUpdated(event.threadId, event.title);
+            this.operationEventService.emitTitleUpdated(
+              event.threadId,
+              event.title,
+              event.operationId
+            );
           },
 
           onPanel: (event) => {
@@ -813,12 +819,16 @@ export class AgentXOperationChatTransportFacade {
               host.setActivityPhase('waiting_delta');
               const threadIdEnqueue = host.resolvedThreadId();
               if (threadIdEnqueue) {
-                this.streamRegistry.markDone(threadIdEnqueue, {
-                  model: event.model,
-                  threadId: event.threadId,
-                  messageId: event.messageId,
-                  usage: event.usage,
-                });
+                this.streamRegistry.markDone(
+                  threadIdEnqueue,
+                  {
+                    model: event.model,
+                    threadId: event.threadId,
+                    messageId: event.messageId,
+                    usage: event.usage,
+                  },
+                  event.operationId ?? pendingOperationId
+                );
               }
               // Fallback: if no step event rendered the card yet, render it now.
               if (!this.enqueueHeavyCardShown) {
@@ -845,13 +855,19 @@ export class AgentXOperationChatTransportFacade {
             host.batchEmailProgress.set(null);
             host.setActivityPhase('completed');
             const threadId = host.resolvedThreadId();
+            const terminalOperationId =
+              event.operationId ?? host.getCurrentOperationId() ?? pendingOperationId;
             if (threadId) {
-              this.streamRegistry.markDone(threadId, {
-                model: event.model,
-                threadId: event.threadId,
-                messageId: event.messageId,
-                usage: event.usage,
-              });
+              this.streamRegistry.markDone(
+                threadId,
+                {
+                  model: event.model,
+                  threadId: event.threadId,
+                  messageId: event.messageId,
+                  usage: event.usage,
+                },
+                terminalOperationId
+              );
             }
 
             this.messageFacade.finalizeStreamedAssistantMessage({
@@ -873,9 +889,8 @@ export class AgentXOperationChatTransportFacade {
               streaming: true,
               model: event.model,
             });
-            const currentOperationId = host.getCurrentOperationId();
-            if (currentOperationId) {
-              this.profileGenerationState?.receiveJobDone(currentOperationId, true);
+            if (terminalOperationId) {
+              this.profileGenerationState?.receiveJobDone(terminalOperationId, true);
             }
             if (event.autoOpenPanel && !this.agentXService.requestedSidePanel()) {
               this.agentXService.requestAutoOpenPanel(event.autoOpenPanel);
@@ -901,7 +916,13 @@ export class AgentXOperationChatTransportFacade {
 
           onError: (event) => {
             const threadId = host.resolvedThreadId();
-            if (threadId) this.streamRegistry.markError(threadId, event.error);
+            if (threadId) {
+              this.streamRegistry.markError(
+                threadId,
+                event.error,
+                host.getCurrentOperationId() ?? pendingOperationId
+              );
+            }
 
             host.setActiveStream(null);
             host.latestProgressLabel.set(null);

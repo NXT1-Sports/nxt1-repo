@@ -49,13 +49,13 @@ import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 // ============================================
 
 const AGENT_X_CTA_AVATARS: readonly CtaAvatarImage[] = [
-  { src: `/${IMAGE_PATHS.athlete1}`, alt: 'High school athlete' },
-  { src: `/${IMAGE_PATHS.athlete2}`, alt: 'Club athlete' },
-  { src: `/${IMAGE_PATHS.athlete3}`, alt: 'Student athlete' },
-  { src: `/${IMAGE_PATHS.athlete4}`, alt: 'Varsity athlete' },
-  { src: `/${IMAGE_PATHS.athlete5}`, alt: 'Travel ball athlete' },
-  { src: `/${IMAGE_PATHS.coach1}`, alt: 'College coach' },
-  { src: `/${IMAGE_PATHS.athlete3}`, alt: 'Elite recruit' },
+  { src: `/${IMAGE_PATHS.athlete1}`, alt: 'Athlete portrait 1' },
+  { src: `/${IMAGE_PATHS.athlete2}`, alt: 'Athlete portrait 2' },
+  { src: `/${IMAGE_PATHS.athlete3}`, alt: 'Athlete portrait 3' },
+  { src: `/${IMAGE_PATHS.coach1}`, alt: 'Coach portrait 1' },
+  { src: `/${IMAGE_PATHS.coach2}`, alt: 'Coach portrait 2' },
+  { src: `/${IMAGE_PATHS.coach3}`, alt: 'Coach portrait 3' },
+  { src: `/${IMAGE_PATHS.coach4}`, alt: 'Coach portrait 4' },
 ] as const;
 
 const AGENT_X_AUDIENCES: AudienceSegment[] = [
@@ -86,6 +86,14 @@ const AGENT_X_WINS_TICKER: readonly string[] = [
   'Generated 14,000 Creative Assets',
   'Queued 500 Communications Workflows',
   'Analyzed 2,000 Hours of Film & Intel',
+  'Ranked 1,200 Program Fits',
+  'Built 340 Roster Outreach Queues',
+  'Sent 2,800 Recruiting Follow-Ups',
+  'Flagged 190 Priority Coach Replies',
+  'Delivered 620 Staff Briefings',
+  'Prepared 410 Film Sends for Coaches',
+  'Updated 275 Prospect Priority Boards',
+  'Generated 860 Recruiting Action Plans',
 ];
 
 const AGENT_X_DEMO_WORKFLOW: readonly AgentXDemoWorkflowStep[] = [
@@ -117,10 +125,11 @@ const AGENT_X_DEMO_WORKFLOW: readonly AgentXDemoWorkflowStep[] = [
   },
   {
     id: 'college-match',
-    title: 'Rank the best-fit opportunities',
+    title: 'Prioritize roster outreach',
     prompt:
-      'Compare the market and rank the programs, prospects, or opponents that deserve attention first.',
-    result: 'Agent X delivers a ranked board with fit signals, urgency, and next-step actions.',
+      'Rank the college programs our roster should contact first and map the next recruiting touchpoint for each one.',
+    result:
+      'Agent X returns a priority outreach board with fit, urgency, and the next action for every target program.',
     outputType: 'college-match',
   },
 ] as const;
@@ -202,6 +211,7 @@ const AGENT_X_FAQS: FaqItem[] = [
       ariaLabel="Agent X live wins ticker"
       [headline]="'What Agent X Executed Today.'"
       [tickerItems]="winsTicker"
+      [tickerDurationSeconds]="60"
       [subtext]="'Creative, intelligence, communications, and operations handled from one command center.'"
       [fullWidth]="true"
     />

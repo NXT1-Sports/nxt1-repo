@@ -23,6 +23,8 @@
 import { Component, ChangeDetectionStrategy, computed, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
 
+const MIN_TICKER_ITEM_COUNT = 12;
+
 // ============================================
 // TYPES
 // ============================================
@@ -49,6 +51,7 @@ export type StatsBarVariant = 'default' | 'minimal' | 'accent';
       [class.stats-bar--accent]="variant() === 'accent'"
       [class.stats-bar--ticker]="hasTicker()"
       [class.stats-bar--full-width]="fullWidth()"
+      [style.--nxt1-stats-bar-ticker-duration]="tickerAnimationDuration()"
       [attr.aria-label]="ariaLabel()"
     >
       @if (hasTicker()) {
@@ -147,7 +150,7 @@ export type StatsBarVariant = 'default' | 'minimal' | 'accent';
         align-items: center;
         gap: var(--nxt1-spacing-3);
         width: max-content;
-        animation: stats-ticker-scroll 22s linear infinite;
+        animation: stats-ticker-scroll var(--nxt1-stats-bar-ticker-duration, 22s) linear infinite;
         will-change: transform;
       }
 
@@ -268,6 +271,9 @@ export class NxtStatsBarComponent {
   /** Optional scrolling ticker items (enables ticker mode when provided). */
   readonly tickerItems = input<readonly string[]>([]);
 
+  /** Ticker animation duration in seconds. */
+  readonly tickerDurationSeconds = input<number>(22);
+
   /** Optional supporting subtext shown below ticker. */
   readonly subtext = input<string>('');
 
@@ -278,8 +284,21 @@ export class NxtStatsBarComponent {
   readonly ariaLabel = input<string>('Platform statistics');
 
   protected readonly hasTicker = computed(() => this.tickerItems().length > 0);
+  protected readonly tickerAnimationDuration = computed(
+    () => `${Math.max(this.tickerDurationSeconds(), 1)}s`
+  );
   protected readonly tickerLoopItems = computed(() => {
     const items = this.tickerItems();
-    return items.length > 0 ? [...items, ...items] : [];
+
+    if (items.length === 0) {
+      return [];
+    }
+
+    const normalizedItems = [...items];
+    while (normalizedItems.length < MIN_TICKER_ITEM_COUNT) {
+      normalizedItems.push(...items);
+    }
+
+    return [...normalizedItems, ...normalizedItems];
   });
 }

@@ -66,6 +66,28 @@ export const IMAGE_PATHS = {
   athlete4: 'assets/shared/images/athlete-4.png',
   athlete5: 'assets/shared/images/athlete-5.png',
   coach1: 'assets/shared/images/coach-1.png',
+  coach2: 'assets/shared/images/coach-2.png',
+  coach3: 'assets/shared/images/coach-3.png',
+  coach4: 'assets/shared/images/coach-4.png',
+  highlightPlaceholder: 'assets/shared/images/higlight-placeholder.png',
+} as const;
+
+/**
+ * Programs page image paths relative to app's assets/shared/images/ folder.
+ */
+export const PROGRAM_PAGE_IMAGE_PATHS = {
+  athleteBriefs: 'assets/shared/images/program-page-images/athlete-briefs.png',
+  emailsDrafted: 'assets/shared/images/program-page-images/emails-drafted.png',
+  filmPull: 'assets/shared/images/program-page-images/film-pull.png',
+  graphicSet: 'assets/shared/images/program-page-images/graphic-set.png',
+  highlightReels: 'assets/shared/images/program-page-images/highlight-reels.png',
+  offerWatch: 'assets/shared/images/program-page-images/offer-watch.png',
+  parentUpdate: 'assets/shared/images/program-page-images/parent-update.png',
+  playbook: 'assets/shared/images/program-page-images/playbook.png',
+  profileAnalysis: 'assets/shared/images/program-page-images/profile-analysis.png',
+  rosterIntake: 'assets/shared/images/program-page-images/roster-intake.png',
+  scoutReports: 'assets/shared/images/program-page-images/scout-reports.png',
+  spotlightDrop: 'assets/shared/images/program-page-images/spotlight-drop.png',
 } as const;
 
 // ============================================
@@ -90,3 +112,4 @@ export * from './icons';
 export type LogoPath = keyof typeof LOGO_PATHS;
 export type LogoDimension = keyof typeof LOGO_DIMENSIONS;
 export type ImagePath = keyof typeof IMAGE_PATHS;
+export type ProgramPageImagePath = keyof typeof PROGRAM_PAGE_IMAGE_PATHS;

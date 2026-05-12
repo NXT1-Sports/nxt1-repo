@@ -289,7 +289,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
             [ngModel]="agentX.getUserMessage()"
             (ngModelChange)="onInputChange($event)"
             (keydown.enter)="onEnterPress($event)"
-            placeholder="Message A Coordinator..."
+            placeholder="Message Agent X"
             rows="1"
             [maxlength]="1000"
           ></textarea>

@@ -26,20 +26,17 @@ import {
   inject,
   NgZone,
   APP_INITIALIZER,
-  EnvironmentInjector,
-  runInInjectionContext,
 } from '@angular/core';
 import {
   provideRouter,
   withComponentInputBinding,
-  withViewTransitions,
   withInMemoryScrolling,
   withPreloading,
   PreloadingStrategy,
   Route,
   Router,
 } from '@angular/router';
-import { Observable } from 'rxjs';
+import { EMPTY, Observable } from 'rxjs';
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import {
   provideClientHydration,
@@ -58,52 +55,45 @@ import {
   GlobalErrorHandler,
   GLOBAL_ERROR_LOGGER,
   GLOBAL_CRASHLYTICS,
+} from '@nxt1/ui/infrastructure/error-handling';
+import {
   httpErrorInterceptor,
   HTTP_ERROR_INTERCEPTOR_FIREBASE_AUTH,
-} from '@nxt1/ui/infrastructure';
-import {
-  ANALYTICS_ADAPTER,
-  NxtLoggingService,
-  LOGGING_CONFIG,
-  PERFORMANCE_ADAPTER,
-} from '@nxt1/ui/services';
+} from '@nxt1/ui/infrastructure/interceptors';
+import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
+import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui/services/logging';
+import { PERFORMANCE_ADAPTER } from '@nxt1/ui/services/performance';
 
 // Core infrastructure (app-specific)
 import { httpCacheInterceptor, authInterceptor } from './core/infrastructure';
 import { httpPerformanceInterceptor } from './core/infrastructure/performance-interceptor';
 
-import { AnalyticsService } from './core/services';
-import { PerformanceService } from './core/services';
+import { AnalyticsService } from './core/services/infrastructure/analytics.service';
+import { PerformanceService } from './core/services/infrastructure/performance.service';
 
-// Badge bridge: connects ActivityService (from @nxt1/ui) → BadgeCountService
-import { provideBadgeBridge } from './core/services';
-
-// Web push notifications: FCM token management + foreground message handling
-import { provideWebPush } from './core/services';
-
-import { TEAM_PROFILE_API_BASE_URL } from '@nxt1/ui/team-profile';
-import { INTEL_API_BASE_URL } from '@nxt1/ui/intel';
-import { MANAGE_TEAM_API_BASE_URL, TEAM_LOGO_UPLOADER } from '@nxt1/ui/manage-team';
+import { TEAM_PROFILE_API_BASE_URL } from '@nxt1/ui/team-profile/tokens';
+import { INTEL_API_BASE_URL } from '@nxt1/ui/intel/tokens';
+import { MANAGE_TEAM_API_BASE_URL, TEAM_LOGO_UPLOADER } from '@nxt1/ui/manage-team/tokens';
 import {
   AGENT_X_API_BASE_URL,
   AGENT_X_AUTH_TOKEN_FACTORY,
   FIRESTORE_ADAPTER,
-} from '@nxt1/ui/agent-x';
+} from '@nxt1/ui/agent-x/tokens';
 import {
   CONNECTED_ACCOUNTS_FIREBASE_USER,
   CONNECTED_ACCOUNTS_OAUTH_HANDLER,
-} from '@nxt1/ui/components/connected-sources';
-import { ACTIVITY_API_BASE_URL, ACTIVITY_API_ADAPTER } from '@nxt1/ui/activity';
-import { INVITE_API_BASE_URL } from '@nxt1/ui/invite';
-import { USAGE_API_BASE_URL, STRIPE_PUBLISHABLE_KEY } from '@nxt1/ui/usage';
+} from '@nxt1/ui/components/connected-sources/tokens';
+import { ACTIVITY_API_BASE_URL, ACTIVITY_API_ADAPTER } from '@nxt1/ui/activity/tokens';
+import { INVITE_API_BASE_URL } from '@nxt1/ui/invite/tokens';
+import { USAGE_API_BASE_URL, STRIPE_PUBLISHABLE_KEY } from '@nxt1/ui/usage/tokens';
 import { BROWSER_TRACKING_BASE_URL } from '@nxt1/ui/services/browser';
 
 // Help Center API adapter — wired at root so the shared HelpCenterService
 // (providedIn: 'root') can resolve the token when it's first injected.
-import { HELP_CENTER_API } from '@nxt1/ui/help-center';
+import { HELP_CENTER_API } from '@nxt1/ui/help-center/tokens';
 import { HelpCenterApiService } from './core/services/api/help-center-api.service';
 // Feed engagement adapter — provides share + view impression tracking to FeedCardShellComponent
-import { FEED_ENGAGEMENT } from '@nxt1/ui/feed';
+import { FEED_ENGAGEMENT } from '@nxt1/ui/feed/tokens';
 import { FeedEngagementWebService } from './core/services/web/feed-engagement.service';
 import { ActivityApiService as WebActivityApiService } from './core/services/api/activity-api.service';
 
@@ -111,31 +101,21 @@ import { ActivityApiService as WebActivityApiService } from './core/services/api
 // IMPORTANT: Only import what's actually used in browser bundle
 // - FirebaseApp: Required for Firebase initialization
 // - Auth: Required for authentication (BrowserAuthService uses it)
-// - Firestore: Required for Agent X live operation events (onSnapshot)
+// - Firestore: Lazy-loaded for Agent X live operation events
 // - Storage: NOT imported - file uploads go through backend API (security)
 // - Analytics/Performance: Lazy-loaded after LCP (see AppComponent)
 import { provideFirebaseApp, initializeApp } from '@angular/fire/app';
 import { provideAuth, getAuth } from '@angular/fire/auth';
 import { providePerformance, getPerformance } from '@angular/fire/performance';
-import {
-  provideFirestore,
-  getFirestore,
-  Firestore,
-  collection,
-  query,
-  orderBy as firestoreOrderBy,
-  onSnapshot as firestoreOnSnapshot,
-  getDocs as firestoreGetDocs,
-} from '@angular/fire/firestore';
 
 // Auth service with injection token pattern
 import { AUTH_SERVICE, BrowserAuthService } from './core/services/auth';
 import { AuthFlowService, type IAuthService } from './core/services/auth';
-import { FileUploadService } from './core/services';
+import { FileUploadService } from './core/services/web/file-upload.service';
 import { WebEmailConnectionService } from './core/services/web/email-connection.service';
 
 // Settings persistence adapter (connects SettingsService → backend API)
-import { SETTINGS_PERSISTENCE_ADAPTER, APP_VERSION } from '@nxt1/ui/settings';
+import { SETTINGS_PERSISTENCE_ADAPTER, APP_VERSION } from '@nxt1/ui/settings/tokens';
 import { SettingsApiService } from './core/services/api/settings-api.service';
 
 // Provider for Sentry
@@ -167,6 +147,24 @@ function normalizeFirestoreSnapshotValue(value: unknown): unknown {
   return value;
 }
 
+let firestoreRuntimePromise: Promise<
+  typeof import('firebase/app') & typeof import('firebase/firestore')
+> | null = null;
+
+function loadFirestoreRuntime() {
+  if (!firestoreRuntimePromise) {
+    firestoreRuntimePromise = Promise.all([
+      import('firebase/app'),
+      import('firebase/firestore'),
+    ]).then(([firebaseApp, firestore]) => ({
+      ...firebaseApp,
+      ...firestore,
+    }));
+  }
+
+  return firestoreRuntimePromise;
+}
+
 /**
  * Custom preloading strategy that waits until the browser is idle
  * before preloading lazy routes. This prevents chunk loading from
@@ -178,7 +176,11 @@ function normalizeFirestoreSnapshotValue(value: unknown): unknown {
 class IdlePreloadStrategy implements PreloadingStrategy {
   private readonly ngZone = inject(NgZone);
 
-  preload(_route: Route, load: () => Observable<unknown>): Observable<unknown> {
+  preload(route: Route, load: () => Observable<unknown>): Observable<unknown> {
+    if (route.data?.['preload'] !== true) {
+      return EMPTY;
+    }
+
     // Schedule the delay OUTSIDE NgZone so Zone.js does not track the
     // setTimeout/requestIdleCallback as a pending macrotask. Without this
     // the app can never stabilize during the delay window.
@@ -224,7 +226,6 @@ export const appConfig: ApplicationConfig = {
     provideRouter(
       routes,
       withComponentInputBinding(),
-      withViewTransitions(),
       withInMemoryScrolling({
         scrollPositionRestoration: 'enabled',
         anchorScrolling: 'enabled',
@@ -233,6 +234,13 @@ export const appConfig: ApplicationConfig = {
       // Prevents preloaded JS from competing with LCP-critical rendering
       withPreloading(IdlePreloadStrategy)
     ),
+
+    // Ionic providers are required on browser for ModalController-based services
+    // used across app-shell features (activity/settings/usage/agent-x helpers).
+    provideIonicAngular({
+      mode: 'md',
+      useSetInputAPI: true,
+    }),
 
     // HTTP client with fetch API, error handling, and caching
     provideHttpClient(
@@ -283,20 +291,6 @@ export const appConfig: ApplicationConfig = {
     provideAnimationsAsync(),
 
     // ============================================
-    // IONIC FRAMEWORK (UI Components Only — routing uses Angular Router)
-    // ============================================
-
-    provideIonicAngular({
-      // Explicitly set 'md' for web to avoid Ionic's platform detection
-      // which triggers forced reflows (reads layout properties synchronously).
-      // Mobile app uses 'ios'/'md' auto-detection via Capacitor.
-      mode: 'md',
-      animated: true,
-      rippleEffect: true,
-      useSetInputAPI: true, // Required for Angular signal input() fields in Ionic modals/sheets
-    }),
-
-    // ============================================
     // FIREBASE
     // ============================================
 
@@ -306,19 +300,14 @@ export const appConfig: ApplicationConfig = {
     // attempt a token force-refresh on 401 before redirecting to /auth.
     { provide: HTTP_ERROR_INTERCEPTOR_FIREBASE_AUTH, useFactory: () => getAuth() },
     providePerformance(() => getPerformance()),
-    provideFirestore(() => getFirestore()),
     // NOTE: Storage is NOT provided in browser bundle —
     // file uploads go through backend API for security
 
-    // Firestore adapter for Agent X live operation events (onSnapshot)
-    // All Firebase modular API calls are wrapped in runInInjectionContext so they
-    // remain associated with the AngularFire injector even when invoked from
-    // outside Angular's injection context (e.g., async tail of getDocs, or from
-    // a bottom-sheet rehydrate path). This silences AngularFire's "called outside
-    // injection context" warning and prevents Zone/CD destabilization.
+    // Firestore adapter for Agent X live operation events (lazy runtime import)
+    // Avoids pulling Firestore into the shared public-route startup bundle.
     {
       provide: FIRESTORE_ADAPTER,
-      useFactory: (firestore: Firestore, injector: EnvironmentInjector) => ({
+      useFactory: (ngZone: NgZone) => ({
         onSnapshot: (
           path: string,
           orderByField: string,
@@ -328,21 +317,45 @@ export const appConfig: ApplicationConfig = {
           if (!/^AgentJobs\/[^/]+\/events$/.test(path)) {
             throw new Error(`Unsupported Firestore subscription path: ${path}`);
           }
-          return runInInjectionContext(injector, () => {
-            const ref = collection(firestore, path);
-            const q = query(ref, firestoreOrderBy(orderByField));
-            return firestoreOnSnapshot(
-              q,
-              (snap) => {
-                onNext(
-                  snap.docs.map(
-                    (d) => normalizeFirestoreSnapshotValue(d.data()) as Record<string, unknown>
-                  )
-                );
-              },
-              onError
-            );
-          });
+
+          let unsubscribe = () => {};
+          let disposed = false;
+
+          void loadFirestoreRuntime()
+            .then(({ getApp, getFirestore, collection, query, orderBy, onSnapshot }) => {
+              const firestore = getFirestore(getApp());
+              const ref = collection(firestore, path);
+              const snapshotQuery = query(ref, orderBy(orderByField));
+              const release = onSnapshot(
+                snapshotQuery,
+                (snap) => {
+                  const docs = snap.docs.map(
+                    (doc) => normalizeFirestoreSnapshotValue(doc.data()) as Record<string, unknown>
+                  );
+                  ngZone.run(() => onNext(docs));
+                },
+                (error) => {
+                  ngZone.run(() => onError(error));
+                }
+              );
+
+              if (disposed) {
+                release();
+                return;
+              }
+
+              unsubscribe = release;
+            })
+            .catch((error: unknown) => {
+              const firestoreError =
+                error instanceof Error ? error : new Error('Failed to load Firestore runtime');
+              ngZone.run(() => onError(firestoreError));
+            });
+
+          return () => {
+            disposed = true;
+            unsubscribe();
+          };
         },
         getDocs: async (
           path: string,
@@ -351,17 +364,19 @@ export const appConfig: ApplicationConfig = {
           if (!/^AgentJobs\/[^/]+\/events$/.test(path)) {
             throw new Error(`Unsupported Firestore query path: ${path}`);
           }
-          return runInInjectionContext(injector, async () => {
-            const ref = collection(firestore, path);
-            const q = query(ref, firestoreOrderBy(orderByField));
-            const snap = await firestoreGetDocs(q);
-            return snap.docs.map(
-              (d) => normalizeFirestoreSnapshotValue(d.data()) as Record<string, unknown>
-            );
-          });
+
+          const { getApp, getFirestore, collection, query, orderBy, getDocs } =
+            await loadFirestoreRuntime();
+          const firestore = getFirestore(getApp());
+          const ref = collection(firestore, path);
+          const snapshotQuery = query(ref, orderBy(orderByField));
+          const snap = await getDocs(snapshotQuery);
+          return snap.docs.map(
+            (doc) => normalizeFirestoreSnapshotValue(doc.data()) as Record<string, unknown>
+          );
         },
       }),
-      deps: [Firestore, EnvironmentInjector],
+      deps: [NgZone],
     },
 
     // ============================================
@@ -371,21 +386,6 @@ export const appConfig: ApplicationConfig = {
     // Provide BrowserAuthService for AUTH_SERVICE token
     // Server uses ServerAuthService instead (see app.config.server.ts)
     { provide: AUTH_SERVICE, useClass: BrowserAuthService },
-
-    // ============================================
-    // BADGE COUNT BRIDGE
-    // ============================================
-
-    // Bridges ActivityService.totalUnread → BadgeCountService.activityBadge
-    // So the shell reads from BadgeCountService without importing ActivityService
-    provideBadgeBridge(),
-
-    // ============================================
-    // WEB PUSH NOTIFICATIONS
-    // ============================================
-
-    // FCM token registration, foreground message handling, background click routing
-    provideWebPush(),
 
     // Team Profile API base URL
     { provide: TEAM_PROFILE_API_BASE_URL, useFactory: () => environment.apiURL },
@@ -498,7 +498,7 @@ export const appConfig: ApplicationConfig = {
     },
     {
       provide: APP_INITIALIZER,
-      useFactory: () => () => undefined,
+      useFactory: () => () => {},
       deps: [Sentry.TraceService],
       multi: true,
     },

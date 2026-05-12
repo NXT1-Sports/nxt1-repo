@@ -26,9 +26,6 @@ if (environment.production && !isLocalDevHost) {
   });
 }
 
-import { PerformanceService } from './app/core/services';
-import { Auth } from '@angular/fire/auth';
-
 if (environment.production) {
   enableProdMode();
 }
@@ -36,14 +33,18 @@ if (environment.production) {
 bootstrapApplication(AppComponent, appConfig)
   .then((appRef) => {
     if (!environment.production) {
-      const performanceService = appRef.injector.get(PerformanceService);
-      (window as unknown as { testPerformance: () => Promise<unknown> }).testPerformance = () =>
-        performanceService.testPerformance();
+      (window as unknown as { testPerformance: () => Promise<unknown> }).testPerformance =
+        async () => {
+          const [{ PerformanceService }] = await Promise.all([import('./app/core/services')]);
+          const performanceService = appRef.injector.get(PerformanceService);
+          return performanceService.testPerformance();
+        };
 
       // Dev helper: get fresh Firebase ID token and copy to clipboard.
       // Usage in browser console: await __getToken()
-      const auth = appRef.injector.get(Auth);
       (window as unknown as { __getToken: () => Promise<string | null> }).__getToken = async () => {
+        const [{ Auth }] = await Promise.all([import('@angular/fire/auth')]);
+        const auth = appRef.injector.get(Auth);
         await auth.authStateReady();
         if (!auth.currentUser) {
           console.warn('Not logged in');
@@ -51,14 +52,14 @@ bootstrapApplication(AppComponent, appConfig)
         }
         const token = await auth.currentUser.getIdToken(true); // force refresh
         console.log(
-          '%c✅ Copy token below (triple-click to select all):',
+          '%cCopy token below (triple-click to select all):',
           'color: green; font-weight: bold'
         );
         console.log('Bearer ' + token);
         return token;
       };
 
-      console.log('🔧 Dev tools: testPerformance() | await __getToken()');
+      console.log('Dev tools: testPerformance() | await __getToken()');
     }
   })
   .catch((err) => console.error('Bootstrap error:', err));

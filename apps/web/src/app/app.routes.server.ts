@@ -8,12 +8,6 @@ import { RenderMode, ServerRoute } from '@angular/ssr';
  * Indexing policy remains controlled by robots.txt + sitemap.xml.
  */
 export const serverRoutes: ServerRoute[] = [
-  // Public landing
-  {
-    path: 'welcome',
-    renderMode: RenderMode.Server,
-  },
-
   // Core public SEO routes
   {
     path: '',

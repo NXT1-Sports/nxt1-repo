@@ -662,6 +662,13 @@ router.post(
     let scrapeJobId: string | undefined;
     let scrapeJobIds: readonly string[] | undefined;
     let scrapeThreadId: string | undefined;
+    let scrapeOperations:
+      | readonly {
+          readonly operationId: string;
+          readonly threadId?: string;
+          readonly platforms: readonly string[];
+        }[]
+      | undefined;
     const firstTeamEntry = sportTeamMap.size > 0 ? sportTeamMap.values().next().value : undefined;
     const resolvedTeamId = firstTeamEntry?.teamId as string | undefined;
     const resolvedOrgId = firstTeamEntry?.organizationId as string | undefined;
@@ -690,6 +697,10 @@ router.post(
         scrapeJobId = scrapeOperationIds[0];
         scrapeJobIds = scrapeOperationIds.length > 0 ? scrapeOperationIds : undefined;
         scrapeThreadId = scrapeResult?.threadId;
+        scrapeOperations =
+          scrapeResult?.operations && scrapeResult.operations.length > 0
+            ? scrapeResult.operations
+            : undefined;
       } catch (err) {
         logger.error('[Auth] Failed to enqueue linked account scrape', { userId, error: err });
       }
@@ -709,6 +720,7 @@ router.post(
       ...(scrapeJobIds && scrapeJobIds.length > 0 && { scrapeJobIds }),
       ...(scrapeJobId && { scrapeJobId }),
       ...(scrapeThreadId && { scrapeThreadId }),
+      ...(scrapeOperations && { scrapeOperations }),
     });
   })
 );

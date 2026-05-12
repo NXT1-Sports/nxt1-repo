@@ -3628,24 +3628,39 @@ router.post(
       await jobRepository.withDb(db).create(payload);
 
       // ── Prompt-only title generation (fire-and-forget) ───────────────────
-      // New threads only: generate an AI title from the user's message before
-      // the worker even starts. Replaces the old approach of blocking title
-      // generation at the end of the full agent run (which took seconds).
-      if (chatService && llmService && resolvedThreadId && !threadId) {
+      // Generate an AI title from the user's message. Runs on every enqueue
+      // call — the applyGeneratedThreadTitle guard prevents overwriting an
+      // already AI-titled thread, so retries are safe and free.
+      // generateTitleFromPromptOnly never returns null (deterministic fallback)
+      // so a clean title is guaranteed for every new conversation.
+      if (chatService && llmService && resolvedThreadId) {
         const _titleThreadId = resolvedThreadId;
         const _titleOpId = operationId;
         const _titleDb = db;
         void (async () => {
           try {
             const title = await chatService.generateTitleFromPromptOnly(intent.trim(), llmService);
-            if (!title) return;
+            if (!title) {
+              logger.warn('Prompt-only title generation returned empty (enqueue)', {
+                operationId: _titleOpId,
+                threadId: _titleThreadId,
+              });
+              return;
+            }
             const applied = await chatService.applyGeneratedThreadTitle(
               _titleThreadId,
               user.uid,
               intent.trim(),
               title
             );
-            if (!applied) return;
+            if (!applied) {
+              logger.debug('Prompt-only title gen skipped — thread already labeled (enqueue)', {
+                operationId: _titleOpId,
+                threadId: _titleThreadId,
+                generatedTitle: title,
+              });
+              return;
+            }
             logger.info('Prompt-only thread title generated (enqueue)', {
               operationId: _titleOpId,
               threadId: _titleThreadId,
@@ -4357,10 +4372,13 @@ router.post(
       await enqueueWithOutboxLocal(db, payload, environment);
 
       // ── Prompt-only title generation (fire-and-forget) ───────────────────
-      // New threads only: generate an AI title from the raw user message.
+      // Generate an AI title from the raw user message on every chat turn.
       // Publishes title_updated via pubsub so the open SSE stream receives it
       // within ~300-600ms of stream open — before the first agent delta arrives.
-      if (chatService && llmService && effectiveThreadId && !threadId) {
+      // The applyGeneratedThreadTitle guard prevents overwriting an existing
+      // AI title on follow-up turns, so this runs cheaply (~$0.0005/call) and
+      // ensures failed first-turn title gens get retried automatically.
+      if (chatService && llmService && effectiveThreadId) {
         const _titleThreadId = effectiveThreadId;
         const _titleOpId = operationId;
         const _rawPrompt = message.trim();
@@ -4368,14 +4386,27 @@ router.post(
         void (async () => {
           try {
             const title = await chatService.generateTitleFromPromptOnly(_rawPrompt, llmService);
-            if (!title) return;
+            if (!title) {
+              logger.warn('Prompt-only title generation returned empty (chat)', {
+                operationId: _titleOpId,
+                threadId: _titleThreadId,
+              });
+              return;
+            }
             const applied = await chatService.applyGeneratedThreadTitle(
               _titleThreadId,
               user.uid,
               _rawPrompt,
               title
             );
-            if (!applied) return;
+            if (!applied) {
+              logger.debug('Prompt-only title gen skipped — thread already labeled (chat)', {
+                operationId: _titleOpId,
+                threadId: _titleThreadId,
+                generatedTitle: title,
+              });
+              return;
+            }
             logger.info('Prompt-only thread title generated (chat)', {
               operationId: _titleOpId,
               threadId: _titleThreadId,

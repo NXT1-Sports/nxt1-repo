@@ -17,7 +17,7 @@
  *
  * @example
  * // In routes:
- * { path: 'welcome', loadComponent: () => import('./landing.component') }
+ * { path: '', loadChildren: () => import('./landing.routes') }
  */
 
 import { Component, ChangeDetectionStrategy, inject, OnInit } from '@angular/core';
@@ -36,7 +36,7 @@ import { NxtCtaBannerComponent, type CtaAvatarImage } from '@nxt1/ui/components/
 import { NxtSiteFooterCompactComponent } from '@nxt1/ui/components/site-footer-compact';
 import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 import { SPORTS } from '@nxt1/core';
-import { SeoService } from '../../core/services';
+import { SeoService } from '../../core/services/web/seo.service';
 import type { SeoConfig } from '@nxt1/core/seo';
 
 const formatSportNameForFaq = (sport: string): string =>
@@ -45,6 +45,8 @@ const formatSportNameForFaq = (sport: string): string =>
 const SUPPORTED_SPORTS_FAQ_ANSWER = `NXT1 supports ${SPORTS.length} sports across men's, women's, and coed programs: ${SPORTS.map(
   formatSportNameForFaq
 ).join(', ')}.`;
+
+const LANDING_PAGE_TITLE = 'NXT1 Sports | The Sports Intelligence Platform';
 
 const LANDING_FAQS: readonly FaqItem[] = [
   {
@@ -92,13 +94,13 @@ const LANDING_FAQS: readonly FaqItem[] = [
 
 /** Floating avatar images for final CTA social proof. */
 const CTA_AVATARS: readonly CtaAvatarImage[] = [
-  { src: `/${IMAGE_PATHS.athlete1}`, alt: 'High school athlete' },
-  { src: `/${IMAGE_PATHS.athlete2}`, alt: 'Club athlete' },
-  { src: `/${IMAGE_PATHS.athlete3}`, alt: 'Student athlete' },
-  { src: `/${IMAGE_PATHS.athlete4}`, alt: 'Varsity athlete' },
-  { src: `/${IMAGE_PATHS.athlete5}`, alt: 'Travel ball athlete' },
-  { src: `/${IMAGE_PATHS.coach1}`, alt: 'College coach' },
-  { src: `/${IMAGE_PATHS.athlete3}`, alt: 'Elite recruit' },
+  { src: `/${IMAGE_PATHS.coach1}`, alt: '' },
+  { src: `/${IMAGE_PATHS.coach2}`, alt: '' },
+  { src: `/${IMAGE_PATHS.coach3}`, alt: '' },
+  { src: `/${IMAGE_PATHS.coach4}`, alt: '' },
+  { src: `/${IMAGE_PATHS.athlete1}`, alt: '' },
+  { src: `/${IMAGE_PATHS.athlete2}`, alt: '' },
+  { src: `/${IMAGE_PATHS.athlete3}`, alt: '' },
 ] as const;
 
 @Component({
@@ -139,27 +141,34 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
           />
         </section>
 
-        <section aria-labelledby="digital-staff-heading">
-          <h2 id="digital-staff-heading" class="sr-only">Digital Sports Staff</h2>
-          <nxt1-digital-sports-staff-section />
-        </section>
+        @defer (on idle; on viewport) {
+          <section aria-labelledby="digital-staff-heading">
+            <h2 id="digital-staff-heading" class="sr-only">Digital Sports Staff</h2>
+            <nxt1-digital-sports-staff-section />
+          </section>
 
-        <section aria-labelledby="capability-graph-heading">
-          <h2 id="capability-graph-heading" class="sr-only">Agent X Capability Network</h2>
-          <nxt1-agent-x-capability-network-section />
-        </section>
+          <section aria-labelledby="capability-graph-heading">
+            <h2 id="capability-graph-heading" class="sr-only">Agent X Capability Network</h2>
+            <nxt1-agent-x-capability-network-section />
+          </section>
 
-        <section aria-labelledby="integrations-heading">
-          <h2 id="integrations-heading" class="sr-only">Seamless Integrations</h2>
-          <nxt1-integration-marquee
-            title="Connect The Apps You Already Use"
-            subtitle="Agent X syncs seamlessly with Hudl, MaxPreps, and your existing tools so you never enter data twice."
-            label="Seamless Integrations"
-            variant="minimal"
-            [showLabel]="true"
-            [gap]="24"
-          />
-        </section>
+          <section aria-labelledby="integrations-heading">
+            <h2 id="integrations-heading" class="sr-only">Seamless Integrations</h2>
+            <nxt1-integration-marquee
+              title="Connect The Apps You Already Use"
+              subtitle="Agent X syncs seamlessly with Hudl, MaxPreps, and your existing tools so you never enter data twice."
+              label="Seamless Integrations"
+              variant="minimal"
+              [showLabel]="true"
+              [gap]="24"
+            />
+          </section>
+        } @placeholder {
+          <div
+            class="landing-section-placeholder landing-section-placeholder--hero-stack"
+            aria-hidden="true"
+          ></div>
+        }
 
         <!-- ═══════════════════════════════════════════════════
              BELOW THE FOLD — Deferred until viewport (performance)
@@ -167,7 +176,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
              ═══════════════════════════════════════════════════ -->
 
         <!-- Value Props + Ecosystem -->
-        @defer (on viewport) {
+        @defer (on idle; on viewport) {
           <section aria-labelledby="ecosystem-heading">
             <h2 id="ecosystem-heading" class="sr-only">The NXT1 Ecosystem</h2>
             <nxt1-ecosystem-map />
@@ -187,7 +196,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
         }
 
         <!-- FAQ Section -->
-        @defer (on viewport) {
+        @defer (on idle; on viewport) {
           <section aria-labelledby="faq-heading">
             <h2 id="faq-heading" class="sr-only">Frequently Asked Questions</h2>
             <nxt1-faq-section
@@ -202,13 +211,13 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
         }
 
         <!-- Final CTA -->
-        @defer (on viewport) {
+        @defer (on idle; on viewport) {
           <section aria-labelledby="landing-final-cta-title">
             <nxt1-cta-banner
               variant="conversion"
               badgeLabel="Join The Revolution"
               title="Stop Competing. Start Dominating."
-              subtitle="Join the NXT1 sports intelligence platform — powered by AI coordinators that build your profile, generate elite highlights, and surface you to college coaches automatically."
+              subtitle="Join the NXT1 sports intelligence platform built for coaches, directors, and program leaders who need one command center for planning, recruiting, player development, content, communications, and day-to-day operations."
               ctaLabel="Create Your NXT1 Account"
               ctaRoute="/auth"
               titleId="landing-final-cta-title"
@@ -246,11 +255,21 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
 
       /* Placeholder blocks for @defer — reserves vertical space to prevent CLS */
       .landing-section-placeholder {
-        min-height: 400px;
+        min-height: 96px;
+      }
+
+      .landing-section-placeholder--hero-stack {
+        min-height: 160px;
       }
 
       .landing-section-placeholder--short {
-        min-height: 200px;
+        min-height: 64px;
+      }
+
+      @media (max-width: 767px) {
+        .landing-section-placeholder--hero-stack {
+          min-height: 96px;
+        }
       }
 
       /* Screen reader only utility (in case Tailwind sr-only is not available in this scope) */
@@ -287,7 +306,7 @@ export class LandingComponent implements OnInit {
 
     const seoConfig: SeoConfig = {
       page: {
-        title: 'NXT1 Sports - The Sports Intelligence Platform',
+        title: LANDING_PAGE_TITLE,
         description:
           'NXT1 is the first AI command center for sports organizations to run their entire program from one system.',
         keywords: [
@@ -310,6 +329,26 @@ export class LandingComponent implements OnInit {
         ],
         canonicalUrl: 'https://nxt1sports.com/',
         image: 'https://nxt1sports.com/assets/shared/images/og-image.jpg',
+        imageAlt: 'NXT1 Sports intelligence platform preview',
+      },
+      openGraph: {
+        type: 'website',
+        title: LANDING_PAGE_TITLE,
+        description:
+          'NXT1 is the first AI command center for sports organizations to run their entire program from one system.',
+        url: 'https://nxt1sports.com/',
+        image: 'https://nxt1sports.com/assets/shared/images/og-image.jpg',
+        imageAlt: 'NXT1 Sports intelligence platform preview',
+        imageWidth: 1200,
+        imageHeight: 630,
+      },
+      twitter: {
+        card: 'summary_large_image',
+        title: LANDING_PAGE_TITLE,
+        description:
+          'NXT1 is the first AI command center for sports organizations to run their entire program from one system.',
+        image: 'https://nxt1sports.com/assets/shared/images/og-image.jpg',
+        imageAlt: 'NXT1 Sports intelligence platform preview',
       },
       structuredData: {
         '@context': 'https://schema.org',
@@ -349,6 +388,14 @@ export class LandingComponent implements OnInit {
             url: 'https://nxt1sports.com',
             name: 'NXT1 Sports',
             publisher: { '@id': 'https://nxt1sports.com/#organization' },
+            potentialAction: {
+              '@type': 'SearchAction',
+              target: {
+                '@type': 'EntryPoint',
+                urlTemplate: 'https://nxt1sports.com/help-center?q={search_term_string}',
+              },
+              'query-input': 'required name=search_term_string',
+            },
           },
 
           // WebPage — describes this specific page
@@ -356,7 +403,7 @@ export class LandingComponent implements OnInit {
             '@type': 'WebPage',
             '@id': 'https://nxt1sports.com/#webpage',
             url: 'https://nxt1sports.com/',
-            name: 'NXT1 Sports - The Sports Intelligence Platform',
+            name: LANDING_PAGE_TITLE,
             isPartOf: { '@id': 'https://nxt1sports.com/#website' },
             about: { '@id': 'https://nxt1sports.com/#organization' },
             description:
@@ -364,6 +411,8 @@ export class LandingComponent implements OnInit {
             primaryImageOfPage: {
               '@type': 'ImageObject',
               url: 'https://nxt1sports.com/assets/shared/images/og-image.jpg',
+              width: 1200,
+              height: 630,
             },
           },
 

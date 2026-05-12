@@ -11,10 +11,12 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
+import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 import { NxtCtaButtonComponent } from '../cta-button';
 import { NxtSectionHeaderComponent } from '../section-header';
 
 let nextDemoId = 0;
+const HIGHLIGHT_REEL_THUMBNAIL_SRC = `/${IMAGE_PATHS.highlightPlaceholder}`;
 
 export interface AgentXDemoChatMessage {
   readonly role: 'user' | 'agent';
@@ -73,10 +75,11 @@ const DEFAULT_WORKFLOW: readonly AgentXDemoWorkflowStep[] = [
   },
   {
     id: 'college-match',
-    title: 'Rank the best-fit opportunities',
+    title: 'Prioritize roster outreach',
     prompt:
-      'Compare the market and rank the programs, prospects, or opponents that deserve attention first.',
-    result: 'Agent X delivers a ranked board with fit signals, urgency, and next-step actions.',
+      'Rank the college programs our roster should contact first and map the next recruiting touchpoint for each one.',
+    result:
+      'Agent X returns a priority outreach board with fit, urgency, and the next action for every target program.',
     outputType: 'college-match',
   },
 ];
@@ -149,7 +152,11 @@ const DEFAULT_WORKFLOW: readonly AgentXDemoWorkflowStep[] = [
                   @case ('highlight-reel') {
                     <div class="output-preview output-preview--highlight">
                       <div class="output-video">
-                        <span class="output-video__badge">Highlight Reel Placeholder</span>
+                        <img
+                          class="output-video__image"
+                          [src]="highlightReelThumbnailSrc"
+                          alt="Highlight reel thumbnail"
+                        />
                         <span class="output-video__play" aria-hidden="true"></span>
                       </div>
                       <div class="output-timeline" role="list" aria-label="Highlight chapters">
@@ -235,9 +242,9 @@ const DEFAULT_WORKFLOW: readonly AgentXDemoWorkflowStep[] = [
                     <div class="output-preview output-preview--match">
                       <div class="output-table" role="table" aria-label="Priority board matches">
                         <div class="output-row output-row--head" role="row">
-                          <span role="columnheader">Opportunity</span>
+                          <span role="columnheader">Program</span>
                           <span role="columnheader">Fit</span>
-                          <span role="columnheader">Action</span>
+                          <span role="columnheader">Next Action</span>
                         </div>
                         <div class="output-row" role="row">
                           <span role="cell"
@@ -245,23 +252,22 @@ const DEFAULT_WORKFLOW: readonly AgentXDemoWorkflowStep[] = [
                             University</span
                           >
                           <span role="cell">92%</span>
-                          <span role="cell">Execute</span>
+                          <span role="cell">Send Intro</span>
                         </div>
                         <div class="output-row" role="row">
                           <span role="cell"
-                            ><span class="output-star" aria-hidden="true">★</span> 2027 Wing
-                            Prospect</span
+                            ><span class="output-star" aria-hidden="true">★</span> Great Lakes
+                            College</span
                           >
                           <span role="cell">88%</span>
-                          <span role="cell">Monitor</span>
+                          <span role="cell">Send Film</span>
                         </div>
                         <div class="output-row" role="row">
                           <span role="cell"
-                            ><span class="output-star" aria-hidden="true">★</span> Friday
-                            Rival</span
+                            ><span class="output-star" aria-hidden="true">★</span> Metro State</span
                           >
                           <span role="cell">84%</span>
-                          <span role="cell">Scout</span>
+                          <span role="cell">Follow Up</span>
                         </div>
                       </div>
                     </div>
@@ -470,6 +476,7 @@ const DEFAULT_WORKFLOW: readonly AgentXDemoWorkflowStep[] = [
 
       .output-video {
         position: relative;
+        overflow: hidden;
         min-height: calc(var(--nxt1-spacing-12) * 3 + var(--nxt1-spacing-4));
         border-radius: var(--nxt1-borderRadius-lg);
         border: 1px solid var(--nxt1-color-alpha-primary30);
@@ -483,31 +490,23 @@ const DEFAULT_WORKFLOW: readonly AgentXDemoWorkflowStep[] = [
         justify-content: center;
       }
 
-      .output-video__badge {
+      .output-video__image {
         position: absolute;
-        top: var(--nxt1-spacing-2);
-        left: var(--nxt1-spacing-2);
-        padding: 0 var(--nxt1-spacing-2);
-        min-height: var(--nxt1-spacing-5);
-        border-radius: var(--nxt1-borderRadius-full);
-        background: var(--nxt1-color-surface-100);
-        border: 1px solid var(--nxt1-color-border-subtle);
-        color: var(--nxt1-color-text-secondary);
-        font-family: var(--nxt1-fontFamily-mono);
-        font-size: var(--nxt1-fontSize-2xs);
-        font-weight: var(--nxt1-fontWeight-semibold);
-        letter-spacing: var(--nxt1-letterSpacing-wide);
-        text-transform: uppercase;
-        display: inline-flex;
-        align-items: center;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        object-position: center;
       }
 
       .output-video__play {
+        z-index: 1;
         width: var(--nxt1-spacing-10);
         height: var(--nxt1-spacing-10);
         border-radius: var(--nxt1-borderRadius-full);
         border: 1px solid var(--nxt1-color-alpha-primary30);
-        background: var(--nxt1-color-surface-100);
+        background: color-mix(in srgb, var(--nxt1-color-surface-100) 90%, transparent);
+        backdrop-filter: blur(10px);
         position: relative;
       }
 
@@ -903,6 +902,7 @@ export class NxtAgentXDemoComponent {
   private readonly destroyRef = inject(DestroyRef);
   private readonly elementRef = inject(ElementRef<HTMLElement>);
 
+  protected readonly highlightReelThumbnailSrc = HIGHLIGHT_REEL_THUMBNAIL_SRC;
   readonly headline = input<string>('See the Command Center Work.');
   readonly subtitle = input<string>(
     'From film and creative to communications and intelligence, Agent X turns one prompt into finished operations.'

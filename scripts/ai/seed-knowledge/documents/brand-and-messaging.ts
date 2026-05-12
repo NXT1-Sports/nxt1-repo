@@ -83,7 +83,7 @@ NXT1's voice is a mix between elite sports strategy (discipline, intent, action)
 
 **Category-defining:**
 - The World's First Autonomous Sports OS.
-- Your Sports Intelligence Command Center.
+- Your AI Command Center.
 - The Agentic Sports Platform.
 - The Ultimate AI Sports Coordinators.
 - The Future of Sports Intelligence.

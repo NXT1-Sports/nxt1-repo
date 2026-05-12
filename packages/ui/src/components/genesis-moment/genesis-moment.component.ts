@@ -30,9 +30,15 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { UpperCasePipe } from '@angular/common';
+import { NgOptimizedImage, UpperCasePipe } from '@angular/common';
+import { PROGRAM_PAGE_IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 
 /* ── Activity card types ── */
+
+interface ActivityCardImage {
+  readonly src: string;
+  readonly alt: string;
+}
 
 interface ActivityCard {
   readonly id: string;
@@ -40,7 +46,7 @@ interface ActivityCard {
   readonly label: string;
   readonly meta: string;
   readonly accent: string;
-  readonly icon: string;
+  readonly image: ActivityCardImage;
 }
 
 const ACTIVITY_CARDS: readonly ActivityCard[] = [
@@ -50,7 +56,10 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
     label: 'Roster Intake',
     meta: '50 athletes synced',
     accent: 'primary',
-    icon: 'ID',
+    image: {
+      src: PROGRAM_PAGE_IMAGE_PATHS.rosterIntake,
+      alt: 'Roster intake dashboard syncing fifty athletes into the NXT1 program command center',
+    },
   },
   {
     id: 'h1',
@@ -58,7 +67,10 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
     label: 'Film Pull',
     meta: 'Friday game indexed',
     accent: 'secondary',
-    icon: 'PLAY',
+    image: {
+      src: PROGRAM_PAGE_IMAGE_PATHS.filmPull,
+      alt: 'Film pull workflow indexing recent game footage for a sports program',
+    },
   },
   {
     id: 'g1',
@@ -66,7 +78,10 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
     label: 'Graphic Set',
     meta: 'Program branded',
     accent: 'primary',
-    icon: 'ART',
+    image: {
+      src: PROGRAM_PAGE_IMAGE_PATHS.graphicSet,
+      alt: 'Program-branded recruiting graphics prepared for athlete promotion',
+    },
   },
   {
     id: 'o1',
@@ -74,7 +89,10 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
     label: 'Offer Watch',
     meta: 'Signals updated',
     accent: 'success',
-    icon: 'WIN',
+    image: {
+      src: PROGRAM_PAGE_IMAGE_PATHS.offerWatch,
+      alt: 'Offer watch panel tracking updated recruiting signals and college interest',
+    },
   },
   {
     id: 'e1',
@@ -82,7 +100,10 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
     label: 'Coach Outreach',
     meta: 'Emails drafted',
     accent: 'info',
-    icon: 'SEND',
+    image: {
+      src: PROGRAM_PAGE_IMAGE_PATHS.emailsDrafted,
+      alt: 'Coach outreach emails drafted with athlete proof points for recruiting follow-up',
+    },
   },
   {
     id: 'p2',
@@ -90,7 +111,10 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
     label: 'Athlete Briefs',
     meta: 'Scout-ready packets',
     accent: 'primary',
-    icon: 'BIO',
+    image: {
+      src: PROGRAM_PAGE_IMAGE_PATHS.athleteBriefs,
+      alt: 'Athlete brief packets assembled for scouts and recruiting staff',
+    },
   },
   {
     id: 's1',
@@ -98,7 +122,10 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
     label: 'Scout Reports',
     meta: 'Benchmarks mapped',
     accent: 'secondary',
-    icon: 'RPT',
+    image: {
+      src: PROGRAM_PAGE_IMAGE_PATHS.scoutReports,
+      alt: 'Scout reports comparing athlete benchmarks and recruiting evaluations',
+    },
   },
   {
     id: 'o2',
@@ -106,7 +133,10 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
     label: 'Fit Scores',
     meta: 'Targets ranked',
     accent: 'success',
-    icon: 'FIT',
+    image: {
+      src: PROGRAM_PAGE_IMAGE_PATHS.profileAnalysis,
+      alt: 'Profile analysis view ranking recruiting fit scores for athlete targets',
+    },
   },
   {
     id: 'g2',
@@ -114,7 +144,10 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
     label: 'Spotlight Drop',
     meta: 'Social ready',
     accent: 'primary',
-    icon: 'POST',
+    image: {
+      src: PROGRAM_PAGE_IMAGE_PATHS.spotlightDrop,
+      alt: 'Player spotlight graphic ready for social media and program promotion',
+    },
   },
   {
     id: 'h2',
@@ -122,7 +155,10 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
     label: 'Highlight Reels',
     meta: 'Clips assembled',
     accent: 'secondary',
-    icon: 'CUT',
+    image: {
+      src: PROGRAM_PAGE_IMAGE_PATHS.highlightReels,
+      alt: 'Highlight reel clips assembled from game footage for athlete recruiting',
+    },
   },
   {
     id: 'e2',
@@ -130,7 +166,10 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
     label: 'Parent Update',
     meta: 'Brief prepared',
     accent: 'info',
-    icon: 'NOTE',
+    image: {
+      src: PROGRAM_PAGE_IMAGE_PATHS.parentUpdate,
+      alt: 'Parent update summary prepared with athlete progress and recruiting context',
+    },
   },
   {
     id: 'o3',
@@ -138,7 +177,10 @@ const ACTIVITY_CARDS: readonly ActivityCard[] = [
     label: 'Playbook',
     meta: 'Next actions live',
     accent: 'success',
-    icon: 'OPS',
+    image: {
+      src: PROGRAM_PAGE_IMAGE_PATHS.playbook,
+      alt: 'Program operations playbook showing next actions for staff and athletes',
+    },
   },
 ];
 
@@ -150,7 +192,7 @@ const COMMAND_AUTO_TAP_PRESS_MS = 160;
 @Component({
   selector: 'nxt1-genesis-moment',
   standalone: true,
-  imports: [UpperCasePipe],
+  imports: [NgOptimizedImage, UpperCasePipe],
   template: `
     <section class="genesis" [class.genesis--active]="deployed()" [attr.aria-labelledby]="ariaId()">
       <div class="genesis__content">
@@ -182,7 +224,18 @@ const COMMAND_AUTO_TAP_PRESS_MS = 160;
           <div class="genesis__terminal-body">
             <div class="genesis__terminal-row">
               <span class="genesis__terminal-prompt">▶</span>
-              <span class="genesis__terminal-url">{{ displayedCommand() }}</span>
+              @if (isCommandUrlLink()) {
+                <a
+                  class="genesis__terminal-url"
+                  [href]="commandUrl()"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {{ displayedCommand() }}
+                </a>
+              } @else {
+                <span class="genesis__terminal-url">{{ displayedCommand() }}</span>
+              }
               <span
                 class="genesis__terminal-cursor"
                 [class.genesis__terminal-cursor--hidden]="deployed()"
@@ -226,9 +279,16 @@ const COMMAND_AUTO_TAP_PRESS_MS = 160;
                 [class.bento__card--profile]="card.type === 'profile'"
                 [style.animation-delay]="i * 70 + 'ms'"
               >
-                <!-- Image placeholder -->
+                <!-- Program workflow image -->
                 <div class="bento__visual" [class]="'bento__visual bento__visual--' + card.type">
-                  <span class="bento__visual-icon">{{ card.icon }}</span>
+                  <img
+                    class="bento__visual-image"
+                    [ngSrc]="card.image.src"
+                    [alt]="card.image.alt"
+                    fill
+                    sizes="(max-width: 767px) 44vw, (max-width: 1024px) 28vw, 14rem"
+                    loading="lazy"
+                  />
                 </div>
                 <!-- Card info -->
                 <div class="bento__info">
@@ -509,6 +569,13 @@ const COMMAND_AUTO_TAP_PRESS_MS = 160;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        text-decoration: none;
+      }
+
+      a.genesis__terminal-url:hover,
+      a.genesis__terminal-url:focus-visible {
+        color: var(--nxt1-color-primary);
+        text-decoration: underline;
       }
 
       .genesis__terminal-cursor {
@@ -600,7 +667,7 @@ const COMMAND_AUTO_TAP_PRESS_MS = 160;
         animation: genesis-card-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
       }
 
-      /* ── Visual placeholder (top of card) ── */
+      /* ── Visual asset (top of card) ── */
 
       .bento__visual {
         position: relative;
@@ -611,49 +678,28 @@ const COMMAND_AUTO_TAP_PRESS_MS = 160;
         overflow: hidden;
       }
 
-      .bento__visual-icon {
-        color: var(--nxt1-color-text-primary);
-        font-family: var(--nxt1-fontFamily-mono);
-        font-size: var(--nxt1-fontSize-xs);
-        font-weight: var(--nxt1-fontWeight-bold);
-        letter-spacing: var(--nxt1-letterSpacing-wide);
-        line-height: var(--nxt1-lineHeight-none);
-        opacity: 0.82;
-        z-index: 1;
+      .bento__visual::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          180deg,
+          color-mix(in srgb, transparent 72%, var(--nxt1-color-surface-900)) 0%,
+          transparent 45%,
+          color-mix(in srgb, transparent 18%, var(--nxt1-color-surface-900)) 100%
+        );
+        pointer-events: none;
       }
 
-      /* Type-specific visual placeholders — token-only backgrounds */
-      .bento__visual--profile {
-        background: var(--nxt1-color-surface-200);
-      }
-      .bento__visual--highlight {
-        background: var(--nxt1-color-surface-200);
-      }
-      .bento__visual--graphic {
-        background: var(--nxt1-color-surface-200);
-      }
-      .bento__visual--offer {
-        background: var(--nxt1-color-surface-200);
-      }
-      .bento__visual--email {
-        background: var(--nxt1-color-surface-200);
-      }
-      .bento__visual--scout {
-        background: var(--nxt1-color-surface-200);
+      .bento__visual-image {
+        object-fit: cover;
+        object-position: center;
+        filter: saturate(1.02) contrast(1.01);
+        transform: scale(1.01);
       }
 
-      /* Highlight cards get a play button overlay */
-      .bento__card--highlight .bento__visual-icon {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        width: var(--nxt1-spacing-10);
-        height: var(--nxt1-spacing-10);
-        border-radius: var(--nxt1-borderRadius-full);
-        background: color-mix(in srgb, var(--nxt1-color-surface-100) 70%, transparent);
-        backdrop-filter: blur(var(--nxt1-blur-sm, 8px));
-        font-size: var(--nxt1-fontSize-xs);
-        opacity: 1;
+      .bento__card--highlight .bento__visual-image {
+        object-position: center 44%;
       }
 
       /* ── Card info section ── */
@@ -896,6 +942,7 @@ export class NxtGenesisMomentComponent implements OnDestroy {
   protected readonly deployed = computed(() => this._deployed());
   protected readonly displayedCommand = computed(() => this._displayedCommand());
   protected readonly autoTapActive = computed(() => this._autoTapActive());
+  protected readonly isCommandUrlLink = computed(() => /^https?:\/\//.test(this.commandUrl()));
 
   /* ── Static activity data ── */
 

@@ -448,7 +448,7 @@ const staticPages = [
   { loc: '/search-videos', priority: '0.8', changefreq: 'daily' },
   { loc: '/leaderboards', priority: '0.8', changefreq: 'daily' },
   { loc: '/ai-scout', priority: '0.8', changefreq: 'weekly' },
-  { loc: '/team-platform', priority: '0.9', changefreq: 'weekly' },
+  { loc: '/programs', priority: '0.9', changefreq: 'weekly' },
   // ...
 ];
 ```
@@ -490,7 +490,7 @@ Allow: /discover-teams
 Allow: /search-videos
 Allow: /ai-scout
 Allow: /leaderboards
-Allow: /team-platform
+Allow: /programs
 Allow: /auth
 Allow: /start
 

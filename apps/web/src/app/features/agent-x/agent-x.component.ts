@@ -29,31 +29,40 @@ import {
   effect,
   Injector,
   afterNextRender,
+  TransferState,
 } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 import { mapToConnectedSources } from '@nxt1/core';
-import { AgentXShellWebComponent } from '@nxt1/ui/agent-x/web';
 import {
-  ConnectedAccountsResyncService,
-  NxtAgentXLandingComponent,
+  AgentXShellWebComponent,
   type AgentXConnectedAccountsSaveRequest,
   type AgentXUser,
-} from '@nxt1/ui';
-import { AgentXService } from '@nxt1/ui/agent-x';
+} from '@nxt1/ui/agent-x/web';
+import { AgentXService } from '@nxt1/ui/agent-x/services';
+import { NxtAgentXLandingComponent } from '@nxt1/ui/agent-x/landing';
+import { ConnectedAccountsResyncService } from '@nxt1/ui/components/connected-sources/resync';
 import { NxtAgentXExecutionLayerSectionComponent } from '@nxt1/ui/components/agent-x-execution-layer-section';
 import { NxtAgentXWelcomeHeaderComponent } from '@nxt1/ui/components/agent-x-welcome-header';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
-import { EditProfileApiService, SeoService } from '../../core/services';
+import {
+  AUTH_TRANSFER_STATE_KEY,
+  type TransferredAuthState,
+} from '../../core/services/auth/ssr-tokens';
+import { EditProfileApiService } from '../../core/services/api/edit-profile-api.service';
+import { SeoService } from '../../core/services/web/seo.service';
 import type { SeoConfig } from '@nxt1/core/seo';
 
-const AGENT_X_PAGE_TITLE = 'Agent X - Sports Intelligence Command Center';
+const AGENT_X_PAGE_TITLE = 'NXT1 Agent X | AI Command Center for Sports';
 const AGENT_X_PAGE_DESCRIPTION =
-  'Agent X is the NXT1 sports intelligence command center that executes film, creative, communications, and operations for athletes, coaches, directors, and programs.';
+  'Agent X is the NXT1 AI command center for sports that executes film, creative, communications, and operations for athletes, coaches, directors, and programs.';
 const AGENT_X_PAGE_URL = 'https://nxt1sports.com/agent-x';
 const AGENT_X_PAGE_IMAGE = 'https://nxt1sports.com/assets/shared/images/og-image.jpg';
+const AGENT_X_PAGE_IMAGE_ALT = 'Agent X AI command center for sports preview';
+const AGENT_X_PAGE_IMAGE_WIDTH = 1200;
+const AGENT_X_PAGE_IMAGE_HEIGHT = 630;
 const AGENT_X_PAGE_KEYWORDS = [
   'agent x',
   'sports intelligence command center',
@@ -73,7 +82,7 @@ const AGENT_X_STRUCTURED_DATA = {
       '@type': 'WebPage',
       '@id': 'https://nxt1sports.com/agent-x#webpage',
       url: AGENT_X_PAGE_URL,
-      name: 'Agent X - Sports Intelligence Command Center | NXT1 Sports',
+      name: AGENT_X_PAGE_TITLE,
       description: AGENT_X_PAGE_DESCRIPTION,
       isPartOf: {
         '@type': 'WebSite',
@@ -85,6 +94,8 @@ const AGENT_X_STRUCTURED_DATA = {
       primaryImageOfPage: {
         '@type': 'ImageObject',
         url: AGENT_X_PAGE_IMAGE,
+        width: AGENT_X_PAGE_IMAGE_WIDTH,
+        height: AGENT_X_PAGE_IMAGE_HEIGHT,
       },
     },
     {
@@ -132,11 +143,15 @@ const AGENT_X_STRUCTURED_DATA = {
 
     @if (isAuthenticated()) {
       <!-- Authenticated users: full Agent X shell (goals check handled inside shell) -->
-      <nxt1-agent-x-shell-web
-        [user]="userInfo()"
-        [hideInput]="false"
-        (connectedAccountsSave)="onConnectedAccountsSave($event)"
-      />
+      @defer (when isAuthenticated()) {
+        <nxt1-agent-x-shell-web
+          [user]="userInfo()"
+          [hideInput]="false"
+          (connectedAccountsSave)="onConnectedAccountsSave($event)"
+        />
+      } @placeholder {
+        <div class="auth-init-mask"></div>
+      }
     } @else {
       <!-- Logged-out users: full-screen landing state only -->
       <div class="agent-landing-shell">
@@ -148,7 +163,11 @@ const AGENT_X_STRUCTURED_DATA = {
           <nxt1-agent-x-execution-layer-section />
         </div>
 
-        <nxt1-agent-x-landing />
+        @defer (on viewport) {
+          <nxt1-agent-x-landing />
+        } @placeholder {
+          <div class="agent-landing-placeholder" aria-hidden="true"></div>
+        }
       </div>
     }
   `,
@@ -184,9 +203,13 @@ const AGENT_X_STRUCTURED_DATA = {
         position: fixed;
         inset: 0;
         z-index: 9999;
-        background: var(--nxt1-color-bg-primary);
+        background: transparent;
         pointer-events: none;
         animation: authMaskFadeOut 200ms ease 50ms both;
+      }
+
+      :host(.agent-authenticated) .auth-init-mask {
+        background: var(--nxt1-color-bg-primary);
       }
 
       @keyframes authMaskFadeOut {
@@ -218,9 +241,17 @@ const AGENT_X_STRUCTURED_DATA = {
         display: block;
       }
 
+      .agent-landing-placeholder {
+        min-height: 1800px;
+      }
+
       @media (max-width: 768px) {
         .agent-welcome-hero {
           min-height: auto;
+        }
+
+        .agent-landing-placeholder {
+          min-height: 1200px;
         }
       }
     `,
@@ -228,15 +259,21 @@ const AGENT_X_STRUCTURED_DATA = {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AgentXComponent {
-  private readonly authFlow = inject(AuthFlowService);
   private readonly logger = inject(NxtLoggingService).child('AgentXComponent');
   private readonly toast = inject(NxtToastService);
   private readonly seo = inject(SeoService);
   private readonly route = inject(ActivatedRoute);
-  private readonly agentX = inject(AgentXService);
   private readonly injector = inject(Injector);
-  private readonly editProfileApi = inject(EditProfileApiService);
-  private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
+  private readonly transferState = inject(TransferState);
+  private readonly transferredAuth = this.transferState.get<TransferredAuthState>(
+    AUTH_TRANSFER_STATE_KEY,
+    { user: null, firebaseUser: null }
+  );
+  private readonly hasTransferredUser = this.transferredAuth.user !== null;
+  private readonly authFlowRef = signal<AuthFlowService | null>(null);
+  private readonly agentXRef = signal<AgentXService | null>(null);
+  private editProfileApi: EditProfileApiService | null = null;
+  private connectedAccountsResync: ConnectedAccountsResyncService | null = null;
   private readonly queryParamMap = toSignal(this.route.queryParamMap, {
     initialValue: this.route.snapshot.queryParamMap,
   });
@@ -253,18 +290,26 @@ export class AgentXComponent {
 
   constructor() {
     afterNextRender(() => {
-      if (!this.authFlow.isInitialized()) {
-        this.showAuthMask.set(true);
-        const stop = effect(
-          () => {
-            if (this.authFlow.isInitialized()) {
-              this.showAuthMask.set(false);
-              stop.destroy();
-            }
-          },
-          { injector: this.injector }
-        );
+      if (!this.shouldResolveAuthOnClient()) {
+        return;
       }
+
+      const authFlow = this.ensureAuthFlow();
+      if (authFlow.isInitialized()) {
+        this.showAuthMask.set(false);
+        return;
+      }
+
+      this.showAuthMask.set(this.shouldShowAuthMaskDuringResolve());
+      const stop = effect(
+        () => {
+          if (authFlow.isInitialized()) {
+            this.showAuthMask.set(false);
+            stop.destroy();
+          }
+        },
+        { injector: this.injector }
+      );
     });
 
     effect(
@@ -279,12 +324,12 @@ export class AgentXComponent {
           return;
         }
 
-        if (!this.authFlow.isAuthenticated() || queuedThreadId === threadId) {
+        if (!this.isAuthenticated() || queuedThreadId === threadId) {
           return;
         }
 
         this.logger.info('Queuing thread from query param', { threadId });
-        this.agentX.queuePendingThread({ threadId, title: 'Agent X' });
+        this.ensureAgentX().queuePendingThread({ threadId, title: 'Agent X' });
         this.queuedThreadId.set(threadId);
       },
       { injector: this.injector }
@@ -302,12 +347,12 @@ export class AgentXComponent {
           return;
         }
 
-        if (!this.authFlow.isAuthenticated() || queuedStartupPrompt === startupPrompt) {
+        if (!this.isAuthenticated() || queuedStartupPrompt === startupPrompt) {
           return;
         }
 
         this.logger.info('Queuing startup prompt from query param');
-        this.agentX.queueStartupMessage(startupPrompt);
+        this.ensureAgentX().queueStartupMessage(startupPrompt);
         this.queuedStartupPrompt.set(startupPrompt);
       },
       { injector: this.injector }
@@ -315,13 +360,14 @@ export class AgentXComponent {
 
     effect(
       () => {
-        const isAuthenticated = this.authFlow.isAuthenticated();
+        const isAuthenticated = this.isAuthenticated();
         const seoConfig: SeoConfig = {
           page: {
             title: AGENT_X_PAGE_TITLE,
             description: AGENT_X_PAGE_DESCRIPTION,
             canonicalUrl: AGENT_X_PAGE_URL,
             image: AGENT_X_PAGE_IMAGE,
+            imageAlt: AGENT_X_PAGE_IMAGE_ALT,
             keywords: [...AGENT_X_PAGE_KEYWORDS],
             noIndex: isAuthenticated,
           },
@@ -331,12 +377,16 @@ export class AgentXComponent {
             description: AGENT_X_PAGE_DESCRIPTION,
             url: AGENT_X_PAGE_URL,
             image: AGENT_X_PAGE_IMAGE,
+            imageAlt: AGENT_X_PAGE_IMAGE_ALT,
+            imageWidth: AGENT_X_PAGE_IMAGE_WIDTH,
+            imageHeight: AGENT_X_PAGE_IMAGE_HEIGHT,
           },
           twitter: {
             card: 'summary_large_image',
             title: AGENT_X_PAGE_TITLE,
             description: AGENT_X_PAGE_DESCRIPTION,
             image: AGENT_X_PAGE_IMAGE,
+            imageAlt: AGENT_X_PAGE_IMAGE_ALT,
           },
           structuredData: AGENT_X_STRUCTURED_DATA,
         };
@@ -348,44 +398,108 @@ export class AgentXComponent {
   }
 
   /** Auth state — hard-gates shell visibility */
-  protected readonly isAuthenticated = computed(() => this.authFlow.isAuthenticated());
+  protected readonly isAuthenticated = computed(() => {
+    const authFlow = this.authFlowRef();
+    return authFlow ? authFlow.isAuthenticated() : this.hasTransferredUser;
+  });
 
   /**
    * Transform auth user to AgentXUser interface.
    */
   protected readonly userInfo = computed<AgentXUser | null>(() => {
-    const user = this.authFlow.user();
+    const authFlow = this.authFlowRef();
+    if (authFlow) {
+      const user = authFlow.user();
+      if (!user) return null;
+
+      return {
+        profileImg: user.profileImg ?? null,
+        displayName: user.displayName,
+        role: user.role,
+        selectedSports: user.sports?.map(({ sport }) => sport) ?? [],
+        connectedSources: user.connectedSources ?? [],
+        connectedEmails: user.connectedEmails ?? [],
+        firebaseProviders: authFlow.firebaseUser()?.providerData ?? [],
+      };
+    }
+
+    const user = this.transferredAuth.user;
     if (!user) return null;
 
     return {
       profileImg: user.profileImg ?? null,
       displayName: user.displayName,
-      role: user.role,
-      selectedSports: user.sports?.map(({ sport }) => sport) ?? [],
-      connectedSources: user.connectedSources ?? [],
-      connectedEmails: user.connectedEmails ?? [],
-      firebaseProviders: this.authFlow.firebaseUser()?.providerData ?? [],
+      role: user.role as AgentXUser['role'],
+      selectedSports: user.selectedSports ?? [],
+      connectedSources: [],
+      connectedEmails: (user.connectedEmails as AgentXUser['connectedEmails']) ?? [],
+      firebaseProviders: this.transferredAuth.firebaseUser?.providerData ?? [],
     };
   });
+
+  private shouldResolveAuthOnClient(): boolean {
+    return true;
+  }
+
+  private shouldShowAuthMaskDuringResolve(): boolean {
+    return this.hasTransferredUser;
+  }
+
+  private ensureAuthFlow(): AuthFlowService {
+    const existing = this.authFlowRef();
+    if (existing) {
+      return existing;
+    }
+
+    const authFlow = this.injector.get(AuthFlowService);
+    this.authFlowRef.set(authFlow);
+    return authFlow;
+  }
+
+  private ensureAgentX(): AgentXService {
+    const existing = this.agentXRef();
+    if (existing) {
+      return existing;
+    }
+
+    const agentX = this.injector.get(AgentXService);
+    this.agentXRef.set(agentX);
+    return agentX;
+  }
+
+  private getEditProfileApi(): EditProfileApiService {
+    if (!this.editProfileApi) {
+      this.editProfileApi = this.injector.get(EditProfileApiService);
+    }
+    return this.editProfileApi;
+  }
+
+  private getConnectedAccountsResync(): ConnectedAccountsResyncService {
+    if (!this.connectedAccountsResync) {
+      this.connectedAccountsResync = this.injector.get(ConnectedAccountsResyncService);
+    }
+    return this.connectedAccountsResync;
+  }
 
   protected async onConnectedAccountsSave(
     request: AgentXConnectedAccountsSaveRequest
   ): Promise<void> {
-    const user = this.authFlow.user();
+    const authFlow = this.ensureAuthFlow();
+    const user = authFlow.user();
     if (!user?.uid) {
       this.toast.error('Not signed in. Please refresh and try again.');
       return;
     }
 
     const connectedSources = mapToConnectedSources(request.linkSources.links);
-    const result = await this.editProfileApi.updateSection(user.uid, 'connected-sources', {
+    const result = await this.getEditProfileApi().updateSection(user.uid, 'connected-sources', {
       connectedSources,
     });
 
     if (result.success) {
-      await this.authFlow.refreshUserProfile();
+      await authFlow.refreshUserProfile();
       if (request.requestResync) {
-        await this.connectedAccountsResync.request(request.resyncSources ?? []);
+        await this.getConnectedAccountsResync().request(request.resyncSources ?? []);
       } else {
         this.toast.success('Connected accounts updated');
       }

@@ -324,6 +324,30 @@ export class SeoService {
   }
 
   /**
+   * Update a meta tag by name only when content is present, otherwise remove it.
+   */
+  private updateOptionalNamedTag(name: string, content?: string | null): void {
+    if (content && content.length > 0) {
+      this.meta.updateTag({ name, content });
+      return;
+    }
+
+    this.meta.removeTag(`name='${name}'`);
+  }
+
+  /**
+   * Update a meta tag by property only when content is present, otherwise remove it.
+   */
+  private updateOptionalPropertyTag(property: string, content?: string | null): void {
+    if (content && content.length > 0) {
+      this.meta.updateTag({ property, content });
+      return;
+    }
+
+    this.meta.removeTag(`property='${property}'`);
+  }
+
+  /**
    * Update Open Graph meta tags
    */
   private updateOpenGraphTags(page: PageMetadata, og?: Partial<SeoConfig['openGraph']>): void {
@@ -334,16 +358,16 @@ export class SeoService {
     this.updatePropertyTag('og:url', og?.url || page.canonicalUrl || this.getCurrentUrl());
     this.updatePropertyTag('og:image', og?.image || page.image || DEFAULT_OG_IMAGE);
     this.updatePropertyTag('og:locale', og?.locale || 'en_US');
-
-    if (og?.imageWidth) {
-      this.updatePropertyTag('og:image:width', String(og.imageWidth));
-    }
-    if (og?.imageHeight) {
-      this.updatePropertyTag('og:image:height', String(og.imageHeight));
-    }
-    if (og?.video) {
-      this.updatePropertyTag('og:video', og.video);
-    }
+    this.updateOptionalPropertyTag('og:image:alt', og?.imageAlt || page.imageAlt);
+    this.updateOptionalPropertyTag(
+      'og:image:width',
+      og?.imageWidth ? String(og.imageWidth) : undefined
+    );
+    this.updateOptionalPropertyTag(
+      'og:image:height',
+      og?.imageHeight ? String(og.imageHeight) : undefined
+    );
+    this.updateOptionalPropertyTag('og:video', og?.video);
   }
 
   /**
@@ -356,10 +380,7 @@ export class SeoService {
   ): void {
     this.meta.updateTag({ name: 'twitter:card', content: twitter?.card || 'summary_large_image' });
     this.meta.updateTag({ name: 'twitter:site', content: twitter?.site || TWITTER_SITE });
-
-    if (twitter?.creator) {
-      this.meta.updateTag({ name: 'twitter:creator', content: twitter.creator });
-    }
+    this.updateOptionalNamedTag('twitter:creator', twitter?.creator);
 
     // Twitter falls back to OG then page
     this.meta.updateTag({
@@ -374,27 +395,18 @@ export class SeoService {
       name: 'twitter:image',
       content: twitter?.image || og?.image || page.image || DEFAULT_OG_IMAGE,
     });
-
-    if (twitter?.imageAlt || page.imageAlt) {
-      this.meta.updateTag({
-        name: 'twitter:image:alt',
-        content: twitter?.imageAlt || page.imageAlt || '',
-      });
-    }
+    this.updateOptionalNamedTag('twitter:image:alt', twitter?.imageAlt || page.imageAlt);
 
     // Video player card
-    if (twitter?.player) {
-      this.meta.updateTag({ name: 'twitter:player', content: twitter.player });
-      if (twitter.playerWidth) {
-        this.meta.updateTag({ name: 'twitter:player:width', content: String(twitter.playerWidth) });
-      }
-      if (twitter.playerHeight) {
-        this.meta.updateTag({
-          name: 'twitter:player:height',
-          content: String(twitter.playerHeight),
-        });
-      }
-    }
+    this.updateOptionalNamedTag('twitter:player', twitter?.player);
+    this.updateOptionalNamedTag(
+      'twitter:player:width',
+      twitter?.playerWidth ? String(twitter.playerWidth) : undefined
+    );
+    this.updateOptionalNamedTag(
+      'twitter:player:height',
+      twitter?.playerHeight ? String(twitter.playerHeight) : undefined
+    );
   }
 
   /**

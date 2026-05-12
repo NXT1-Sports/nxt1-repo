@@ -59,7 +59,7 @@ import { NxtAppStoreBadgesComponent } from '../app-store-badges';
 /** Avatar image descriptor for floating social-proof circles. */
 export interface CtaAvatarImage {
   readonly src: string;
-  readonly alt: string;
+  readonly alt?: string;
 }
 
 /** Visual variant for the CTA banner. */
@@ -91,7 +91,7 @@ export type CtaBannerVariant = 'default' | 'minimal' | 'accent' | 'conversion';
               >
                 <img
                   [src]="avatar.src"
-                  [alt]="avatar.alt"
+                  alt=""
                   width="64"
                   height="64"
                   loading="lazy"

@@ -39,8 +39,6 @@
  */
 
 import { Injectable, inject, signal, computed, NgZone } from '@angular/core';
-import { ToastController } from '@ionic/angular/standalone';
-
 import { NxtPlatformService } from '../platform';
 import { HapticsService } from '../haptics';
 import { NxtLoggingService } from '../logging';
@@ -52,7 +50,6 @@ export type { ToastType, ToastPosition, ToastAction, ToastOptions } from './toas
 // Register icons used by toast service
 @Injectable({ providedIn: 'root' })
 export class NxtToastService {
-  private readonly toastController = inject(ToastController);
   private readonly platform = inject(NxtPlatformService);
   private readonly haptics = inject(HapticsService);
   private readonly ngZone = inject(NgZone);
@@ -68,8 +65,11 @@ export class NxtToastService {
   /** Currently displayed toast */
   private readonly _currentToast = signal<QueuedToast | null>(null);
 
-  /** Active Ionic toast element */
-  private activeToast: HTMLIonToastElement | null = null;
+  /** Active toast element */
+  private activeToast: HTMLElement | null = null;
+
+  /** Current toast auto-dismiss timer */
+  private activeToastTimer: ReturnType<typeof setTimeout> | null = null;
 
   /** Processing flag to prevent race conditions */
   private isProcessing = false;
@@ -177,9 +177,35 @@ export class NxtToastService {
    * Dismiss the current toast
    */
   async dismiss(): Promise<void> {
-    if (this.activeToast) {
-      await this.activeToast.dismiss();
+    if (!this.activeToast || this.isDismissing) {
+      return;
     }
+
+    this.isDismissing = true;
+    this.destroyTapDismissListener();
+
+    if (this.activeToastTimer) {
+      clearTimeout(this.activeToastTimer);
+      this.activeToastTimer = null;
+    }
+
+    const toastEl = this.activeToast;
+    toastEl.classList.add('nxt-toast--dismissing');
+
+    await new Promise<void>((resolve) => {
+      setTimeout(() => {
+        toastEl.remove();
+        this._currentToast.set(null);
+        this.activeToast = null;
+        this.isDismissing = false;
+
+        setTimeout(() => {
+          this.processQueue();
+        }, 200);
+
+        resolve();
+      }, 160);
+    });
   }
 
   /**
@@ -246,33 +272,18 @@ export class NxtToastService {
         });
       }
 
-      // Create and present toast
-      // Note: We don't pass 'color' to let CSS handle theming via nxt-toast-* classes
-      this.activeToast = await this.toastController.create({
-        message: nextToast.message,
-        header: nextToast.header,
-        duration: nextToast.duration,
-        position: nextToast.position,
-        icon: nextToast.icon,
-        cssClass: `nxt-toast nxt-toast-${nextToast.type} ${nextToast.cssClass ?? ''}`.trim(),
-        buttons: buttons.length > 0 ? buttons : undefined,
+      this.activeToast = this.createToastElement(nextToast, buttons);
+      document.body.appendChild(this.activeToast);
+
+      requestAnimationFrame(() => {
+        this.activeToast?.classList.add('nxt-toast--visible');
       });
 
-      // Handle dismiss
-      this.activeToast.onDidDismiss().then(() => {
-        this.destroyTapDismissListener();
-
-        this._currentToast.set(null);
-        this.activeToast = null;
-        this.isDismissing = false;
-
-        // Process next toast in queue
-        setTimeout(() => {
-          this.processQueue();
-        }, 200); // Small delay between toasts
-      });
-
-      await this.activeToast.present();
+      if (nextToast.duration > 0) {
+        this.activeToastTimer = setTimeout(() => {
+          void this.dismiss();
+        }, nextToast.duration);
+      }
 
       // Provide haptic feedback on toast appear
       if (nextToast.hapticFeedback) {
@@ -286,6 +297,54 @@ export class NxtToastService {
     } finally {
       this.isProcessing = false;
     }
+  }
+
+  private createToastElement(
+    toast: QueuedToast,
+    buttons: Array<{ text?: string; icon?: string; role?: string; handler?: () => void }>
+  ): HTMLElement {
+    const toastEl = document.createElement('div');
+    toastEl.setAttribute('role', toast.type === 'error' ? 'alert' : 'status');
+    toastEl.setAttribute('aria-live', toast.type === 'error' ? 'assertive' : 'polite');
+    toastEl.className =
+      `nxt-toast-shell nxt-toast-shell--${toast.type} nxt-toast-shell--${toast.position} ${toast.cssClass ?? ''}`.trim();
+
+    const content = document.createElement('div');
+    content.className = 'nxt-toast-shell__content';
+
+    if (toast.header) {
+      const header = document.createElement('strong');
+      header.className = 'nxt-toast-shell__header';
+      header.textContent = toast.header;
+      content.appendChild(header);
+    }
+
+    const message = document.createElement('span');
+    message.className = 'nxt-toast-shell__message';
+    message.textContent = toast.message;
+    content.appendChild(message);
+    toastEl.appendChild(content);
+
+    if (buttons.length > 0) {
+      const actions = document.createElement('div');
+      actions.className = 'nxt-toast-shell__actions';
+
+      for (const buttonConfig of buttons) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'nxt-toast-shell__button';
+        button.textContent = buttonConfig.text ?? buttonConfig.icon ?? 'Close';
+        button.addEventListener('click', () => {
+          buttonConfig.handler?.();
+          void this.dismiss();
+        });
+        actions.appendChild(button);
+      }
+
+      toastEl.appendChild(actions);
+    }
+
+    return toastEl;
   }
 
   /**
@@ -311,25 +370,25 @@ export class NxtToastService {
   /**
    * Setup tap-to-dismiss for entire toast container
    */
-  private setupTapToDismiss(toastEl: HTMLIonToastElement): void {
-    requestAnimationFrame(() => {
-      const wrapper = toastEl.shadowRoot?.querySelector('.toast-wrapper') as HTMLElement | null;
-      if (!wrapper) return;
+  private setupTapToDismiss(toastEl: HTMLElement): void {
+    const onTap = (event: MouseEvent) => {
+      if (this.isDismissing) return;
 
-      const onTap = () => {
-        if (this.isDismissing) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('button')) {
+        return;
+      }
 
-        this.ngZone.run(() => {
-          void this.dismiss();
-        });
-      };
+      this.ngZone.run(() => {
+        void this.dismiss();
+      });
+    };
 
-      wrapper.addEventListener('click', onTap, { passive: true });
-      this.tapDismissCleanup = () => {
-        wrapper.removeEventListener('click', onTap);
-        this.tapDismissCleanup = null;
-      };
-    });
+    toastEl.addEventListener('click', onTap, { passive: true });
+    this.tapDismissCleanup = () => {
+      toastEl.removeEventListener('click', onTap);
+      this.tapDismissCleanup = null;
+    };
   }
 
   /**

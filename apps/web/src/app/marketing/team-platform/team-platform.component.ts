@@ -9,7 +9,7 @@ import type { SeoConfig } from '@nxt1/core/seo';
 
 const PROGRAMS_PAGE_TITLE = 'NXT1 Programs | The Digital Athletic Department for Sports Programs';
 const PROGRAMS_PAGE_DESCRIPTION =
-  'NXT1 turns sports programs into autonomous command centers. Agent X coordinates film, rosters, content, outreach, briefings, and recruiting execution for coaches, scouts, athletes, and program leaders.';
+  'NXT1 turns sports programs into autonomous command centers. Agent X coordinates film, rosters, content, outreach, briefings, and recruiting execution for coaches, directors, athletes, and program leaders.';
 const PROGRAMS_PAGE_URL = 'https://nxt1sports.com/programs';
 const PROGRAMS_PAGE_IMAGE = 'https://nxt1sports.com/assets/shared/images/og-image.jpg';
 const PROGRAMS_PAGE_KEYWORDS = [
@@ -223,7 +223,7 @@ const PROGRAM_PERSONAS: readonly ProgramPersona[] = [
       <nxt1-genesis-moment
         headline="The Digital Athletic Department for modern sports programs."
         subhead="Agent X turns the systems your staff already uses into autonomous operations: film, rosters, content, outreach, briefings, and recruiting execution."
-        commandUrl="Agent X: build this week's program operations playbook."
+        commandUrl="https://www.maxpreps.com/al/hoover/hoover-buccaneers/football/"
         [headingLevel]="1"
       />
 

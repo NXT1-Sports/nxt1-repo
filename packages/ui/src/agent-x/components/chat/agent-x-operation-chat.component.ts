@@ -503,7 +503,7 @@ type YieldStateSource =
           [pendingFiles]="promptInputPendingFiles()"
           [pendingSources]="pendingConnectedSources()"
           [selectedTask]="null"
-          placeholder="Message A Coordinator"
+          [placeholder]="getInputPlaceholder()"
           (messageChange)="inputValue.set($event)"
           (send)="runControlFacade.send()"
           (pause)="runControlFacade.pauseStream()"
@@ -1655,6 +1655,14 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Coordinator description shown as the welcome message. */
   @Input() contextDescription = '';
+
+  protected getInputPlaceholder(): string {
+    if (this.contextType === 'operation') return 'Message Agent X';
+
+    const title = this.contextTitle.trim();
+    if (!title) return 'Message Agent X';
+    return `Message ${title}`;
+  }
 
   /** When true, renders as a desktop-embedded panel instead of a dismissible sheet. */
   @Input() embedded = false;

@@ -44,6 +44,7 @@
  */
 
 import type { HttpAdapter } from '../api/http-adapter';
+import type { AgentXScrapeOperationRef } from '../ai/agent-x.types';
 import type { TeamTypeApi } from '../models/team/team-code.model';
 import type { UserRole } from '../constants/user.constants';
 import type {
@@ -183,6 +184,8 @@ export interface OnboardingCompleteResponse {
   scrapeJobIds?: readonly string[];
   /** Thread ID for the Agent X conversation tied to the scrape job. */
   scrapeThreadId?: string;
+  /** Exact operation/thread mappings for each linked-account scrape chunk. */
+  scrapeOperations?: readonly AgentXScrapeOperationRef[];
 }
 
 /**

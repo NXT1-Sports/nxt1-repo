@@ -9,7 +9,7 @@ export const AGENT_X_ROUTES: Routes = [
   {
     path: '',
     loadComponent: () => import('./agent-x.component').then((m) => m.AgentXComponent),
-    title: 'Agent X - Sports Intelligence Command Center | NXT1 Sports',
+    title: 'NXT1 Agent X | AI Command Center for Sports',
   },
 ];
 

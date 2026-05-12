@@ -264,31 +264,20 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       }
     }
 
-    // ── Deduplicate by threadId for historical rows only ────────────────
-    // jobs[] is already ordered by createdAt DESC from Firestore, so the
-    // first job seen for a threadId is the most recent one.
+    // ── Deduplicate by threadId (professional-app pattern) ────────────────
+    // jobs[] is ordered by createdAt DESC from Firestore, so the first job
+    // seen for a threadId is the most recent and represents the conversation's
+    // current state. All later jobs for the same thread (retries, fan-out
+    // chunks, follow-up turns, child operations from tools) collapse into
+    // that single sidebar row. This mirrors how ChatGPT, Claude, Linear, and
+    // Cursor present agent sessions: one row per conversation.
     //
-    // Active rows are intentionally not deduplicated. During fan-out flows,
-    // multiple in-flight operations can share one thread and should each be
-    // visible in the sessions log.
-
-    // Pre-count active sibling ops per thread so we can show per-job titles
-    // when a thread has more than one concurrent operation (fan-out scrape jobs).
-    const activeCountPerThread = new Map<string, number>();
-    const activeStatuses = new Set([
-      'in-progress',
-      'paused',
-      'awaiting_input',
-      'awaiting_approval',
-    ]);
-    for (const job of jobs) {
-      const tid = (job['threadId'] as string) ?? '';
-      if (!tid) continue;
-      const st = mapJobStatus((job['status'] as string) ?? '', () => undefined, job['yieldState']);
-      if (activeStatuses.has(st)) {
-        activeCountPerThread.set(tid, (activeCountPerThread.get(tid) ?? 0) + 1);
-      }
-    }
+    // Jobs without a threadId (rare — typically orphaned enqueue jobs) keep
+    // their own row keyed by operationId.
+    //
+    // Child operations (context.parentOperationId set) are never rendered as
+    // their own row regardless of thread state — they are sub-steps of the
+    // parent and surface only inside the parent's operations log panel.
 
     const seenThreadIds = new Set<string>();
     const entries: OperationLogEntry[] = [];
@@ -303,10 +292,22 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
             ? (jobContext as { mode: string }).mode
             : undefined
           : undefined;
+      const parentOperationId =
+        jobContext && typeof jobContext === 'object' && 'parentOperationId' in jobContext
+          ? typeof (jobContext as { parentOperationId?: unknown }).parentOperationId === 'string'
+            ? (jobContext as { parentOperationId: string }).parentOperationId
+            : undefined
+          : undefined;
 
       // Option 2 UX: hide background playbook-generation jobs from session history.
       // These jobs do not create a chat thread and open as empty chats when tapped.
       if (operationId.startsWith('playbook-') || jobMode === 'playbook') {
+        continue;
+      }
+
+      // Child operations never surface in the sidebar. They live inside the
+      // parent operation's expanded operations log.
+      if (parentOperationId) {
         continue;
       }
 
@@ -321,25 +322,17 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       const threadId = (job['threadId'] as string) ?? undefined;
       const resolvedTitle = threadId ? (threadTitleById.get(threadId)?.trim() ?? '') : '';
 
-      // If this job belongs to a thread we've already represented, skip it for
-      // historical statuses. Keep separate rows for active statuses so users can
-      // see concurrent operations in the same thread.
+      // Single-thread dedupe: one sidebar row per thread, regardless of status.
+      // The newest job (already first thanks to DESC ordering) wins — its
+      // status drives the row's "Processing…", "Awaiting input", etc. badge.
       if (threadId) {
         // Guardrail: ignore stale jobs referencing deleted/archived threads.
         // Only apply when threadQuerySucceeded — distinguishes "query returned 0
         // active threads" (user archived everything) from "query failed" (be lenient).
         if (threadQuerySucceeded && !activeThreadIds.has(threadId)) continue;
 
-        const isActiveStatus =
-          status === 'in-progress' ||
-          status === 'paused' ||
-          status === 'awaiting_input' ||
-          status === 'awaiting_approval';
-
-        if (!isActiveStatus && seenThreadIds.has(threadId)) continue;
-        if (!isActiveStatus) {
-          seenThreadIds.add(threadId);
-        }
+        if (seenThreadIds.has(threadId)) continue;
+        seenThreadIds.add(threadId);
         representedThreadIds.add(threadId);
       }
 
@@ -350,12 +343,11 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       const jobOrigin = validateJobOrigin(job['origin']);
       const isScheduled = isScheduledOrigin(jobOrigin);
 
-      // For fan-out jobs: when a thread has multiple active sibling operations,
-      // use the per-job intent (first line only, no URL list) as the title so
-      // each session card is distinct in the sidebar.
-      const isSiblingActive = threadId != null && (activeCountPerThread.get(threadId) ?? 0) > 1;
+      // Prefer the thread's title (user-meaningful conversation label) over
+      // the per-operation intent. Fall back to the first line of intent when
+      // a title hasn't been generated yet.
       const intentFirstLine = intent.split('\n')[0] ?? intent;
-      const displayTitle = isSiblingActive ? intentFirstLine : resolvedTitle || intentFirstLine;
+      const displayTitle = resolvedTitle || intentFirstLine;
 
       entries.push({
         id: (job['operationId'] as string) ?? threadId ?? '',

@@ -18,6 +18,7 @@ type Canonicalizer = {
     }>,
     operationId: string
   ): boolean;
+  hasMongoFinalForOperation(items: readonly AgentMessage[], operationId: string | null): boolean;
   collectMessageMedia(message: AgentMessage): {
     imageUrl?: string;
     videoUrl?: string;
@@ -352,5 +353,18 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(ids).not.toContain('yield-old-1');
     expect(ids).toContain('tool-old-1');
     expect(ids).toContain('final-old-1');
+  });
+
+  it('only treats assistant_final as completion evidence for the matching operation', () => {
+    const finalForPreviousOperation = assistantMessage('final-previous', 'assistant_final', {
+      operationId: 'op-previous',
+    });
+    const finalForCurrentOperation = assistantMessage('final-current', 'assistant_final', {
+      operationId: 'op-current',
+    });
+
+    expect(facade.hasMongoFinalForOperation([finalForPreviousOperation], 'op-current')).toBe(false);
+    expect(facade.hasMongoFinalForOperation([finalForCurrentOperation], 'op-current')).toBe(true);
+    expect(facade.hasMongoFinalForOperation([finalForPreviousOperation], null)).toBe(true);
   });
 });

@@ -101,6 +101,12 @@ export interface OperationObserver {
   onError(error: string): void;
 }
 
+interface OperationTerminalState {
+  readonly error: string | null;
+  readonly metadata: Record<string, unknown> | null;
+  readonly completedAt: number;
+}
+
 /** Snapshot returned to a remounting component. */
 export interface StreamSnapshot {
   content: string;
@@ -146,7 +152,9 @@ export class AgentXStreamRegistryService {
    * Used to route registry step/done/error calls to the right observers.
    */
   private readonly operationToThread = new Map<string, string>();
-  private readonly threadToOperation = new Map<string, string>();
+  private readonly latestOperationByThread = new Map<string, string>();
+  private readonly threadOperations = new Map<string, Set<string>>();
+  private readonly operationTerminalStates = new Map<string, OperationTerminalState>();
 
   /** Periodic prune timer. */
   private pruneTimer: ReturnType<typeof setInterval> | null = null;
@@ -169,7 +177,18 @@ export class AgentXStreamRegistryService {
     const handle = Symbol('op-observer');
     this.operationObservers.get(operationId)!.set(handle, observer);
 
-    // Replay completion state if the stream already finished
+    const terminalState = this.operationTerminalStates.get(operationId);
+    if (terminalState) {
+      if (terminalState.error) {
+        observer.onError(terminalState.error);
+      } else {
+        observer.onDone(terminalState.metadata);
+      }
+      return handle;
+    }
+
+    // Legacy fallback for callers that registered before operationId-aware
+    // terminal state existed. Prefer operationTerminalStates for new streams.
     const threadId = this.operationToThread.get(operationId);
     if (threadId) {
       const entry = this.entries.get(threadId);
@@ -200,7 +219,10 @@ export class AgentXStreamRegistryService {
    */
   linkOperation(operationId: string, threadId: string): void {
     this.operationToThread.set(operationId, threadId);
-    this.threadToOperation.set(threadId, operationId);
+    this.latestOperationByThread.set(threadId, operationId);
+    const operationIds = this.threadOperations.get(threadId) ?? new Set<string>();
+    operationIds.add(operationId);
+    this.threadOperations.set(threadId, operationIds);
   }
 
   /**
@@ -209,7 +231,52 @@ export class AgentXStreamRegistryService {
    * operation that is currently streaming live into the typing bubble.
    */
   getOperationIdForThread(threadId: string): string | undefined {
-    return this.threadToOperation.get(threadId);
+    return this.latestOperationByThread.get(threadId);
+  }
+
+  getOperationIdsForThread(threadId: string): readonly string[] {
+    return Array.from(this.threadOperations.get(threadId) ?? []);
+  }
+
+  private resolveObserverOperationId(threadId: string, operationId?: string | null): string | null {
+    const resolvedOperationId = operationId?.trim() || this.latestOperationByThread.get(threadId);
+    return resolvedOperationId ?? null;
+  }
+
+  private notifyOperationStep(
+    threadId: string,
+    step: AgentXToolStep,
+    operationId?: string | null
+  ): void {
+    const resolvedOperationId = this.resolveObserverOperationId(threadId, operationId);
+    if (!resolvedOperationId) return;
+    this.operationObservers.get(resolvedOperationId)?.forEach((obs) => obs.onStep(step));
+  }
+
+  private notifyOperationDone(
+    threadId: string,
+    metadata: Record<string, unknown> | null,
+    operationId?: string | null
+  ): void {
+    const resolvedOperationId = this.resolveObserverOperationId(threadId, operationId);
+    if (!resolvedOperationId) return;
+    this.operationTerminalStates.set(resolvedOperationId, {
+      error: null,
+      metadata,
+      completedAt: Date.now(),
+    });
+    this.operationObservers.get(resolvedOperationId)?.forEach((obs) => obs.onDone(metadata));
+  }
+
+  private notifyOperationError(threadId: string, error: string, operationId?: string | null): void {
+    const resolvedOperationId = this.resolveObserverOperationId(threadId, operationId);
+    if (!resolvedOperationId) return;
+    this.operationTerminalStates.set(resolvedOperationId, {
+      error,
+      metadata: null,
+      completedAt: Date.now(),
+    });
+    this.operationObservers.get(resolvedOperationId)?.forEach((obs) => obs.onError(error));
   }
 
   /**
@@ -295,7 +362,7 @@ export class AgentXStreamRegistryService {
     entry.listener?.onThinking(content);
   }
 
-  upsertStep(threadId: string, step: AgentXToolStep): void {
+  upsertStep(threadId: string, step: AgentXToolStep, operationId?: string | null): void {
     const entry = this.entries.get(threadId);
     if (!entry) return;
     // Only real tool invocations become visible rows. Router-stage chatter
@@ -303,10 +370,7 @@ export class AgentXStreamRegistryService {
     // hidden from the chat — the streaming prose IS the thinking indicator.
     if (step.stageType !== 'tool') {
       entry.listener?.onStep(step);
-      const operationId = this.threadToOperation.get(threadId);
-      if (operationId) {
-        this.operationObservers.get(operationId)?.forEach((obs) => obs.onStep(step));
-      }
+      this.notifyOperationStep(threadId, step, operationId);
       return;
     }
     const idx = entry.steps.findIndex((s) => s.id === step.id);
@@ -355,11 +419,7 @@ export class AgentXStreamRegistryService {
 
     entry.listener?.onStep(mergedStep);
 
-    // Notify per-operation observers
-    const operationId = this.threadToOperation.get(threadId);
-    if (operationId) {
-      this.operationObservers.get(operationId)?.forEach((obs) => obs.onStep(mergedStep));
-    }
+    this.notifyOperationStep(threadId, mergedStep, operationId);
   }
 
   appendCard(threadId: string, card: AgentXRichCard): void {
@@ -373,11 +433,15 @@ export class AgentXStreamRegistryService {
     entry.listener?.onCard(card);
   }
 
-  markDone(threadId: string, metadata: Record<string, unknown> | null): void {
+  markDone(
+    threadId: string,
+    metadata: Record<string, unknown> | null,
+    operationId?: string | null
+  ): void {
     const entry = this.entries.get(threadId);
     if (!entry) return;
     if (entry.done) {
-      this.logger.debug('Duplicate stream done suppressed', { threadId });
+      this.logger.debug('Duplicate stream done suppressed', { threadId, operationId });
       return;
     }
     entry.done = true;
@@ -385,16 +449,12 @@ export class AgentXStreamRegistryService {
     entry.completedAt = Date.now();
     entry.listener?.onDone(metadata);
 
-    // Notify per-operation observers
-    const operationId = this.threadToOperation.get(threadId);
-    if (operationId) {
-      this.operationObservers.get(operationId)?.forEach((obs) => obs.onDone(metadata));
-    }
+    this.notifyOperationDone(threadId, metadata, operationId);
 
-    this.logger.info('Stream completed', { threadId });
+    this.logger.info('Stream completed', { threadId, operationId });
   }
 
-  markError(threadId: string, error: string): void {
+  markError(threadId: string, error: string, operationId?: string | null): void {
     const entry = this.entries.get(threadId);
     if (!entry) return;
     if (entry.done) {
@@ -408,13 +468,9 @@ export class AgentXStreamRegistryService {
     entry.completedAt = Date.now();
     entry.listener?.onError(error);
 
-    // Notify per-operation observers
-    const operationId = this.threadToOperation.get(threadId);
-    if (operationId) {
-      this.operationObservers.get(operationId)?.forEach((obs) => obs.onError(error));
-    }
+    this.notifyOperationError(threadId, error, operationId);
 
-    this.logger.info('Stream errored', { threadId, error });
+    this.logger.info('Stream errored', { threadId, operationId, error });
   }
 
   // ─── Claim (called when a component mounts/remounts) ─────────────────
@@ -514,6 +570,11 @@ export class AgentXStreamRegistryService {
     for (const [threadId, entry] of this.entries) {
       if (entry.completedAt && now - entry.completedAt > entry.completedEntryTtlMs) {
         this.entries.delete(threadId);
+      }
+    }
+    for (const [operationId, terminalState] of this.operationTerminalStates) {
+      if (now - terminalState.completedAt > COMPLETED_ENTRY_TTL_LONG_RUNNING_MS) {
+        this.operationTerminalStates.delete(operationId);
       }
     }
     if (this.entries.size === 0 && this.pruneTimer) {

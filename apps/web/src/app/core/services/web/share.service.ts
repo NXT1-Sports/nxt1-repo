@@ -35,7 +35,9 @@ import {
   buildPostShareText,
   buildPostShareDescription,
 } from '@nxt1/core/seo';
-import { NxtToastService, NxtLoggingService, ANALYTICS_ADAPTER } from '@nxt1/ui/services';
+import { NxtToastService } from '@nxt1/ui/services/toast';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 
 // ============================================
 // TYPES

@@ -8,7 +8,7 @@ billboards, email subject lines, and apparel.
 _The lines that establish what NXT1 actually is._
 
 - The World’s First Autonomous Sports Platform.
-- Your Sports Intelligence Command Center.
+- Your AI Command Center.
 - The Agentic Sports Platform.
 - The Ultimate AI Sports Coordinators.
 

@@ -80,6 +80,11 @@ async function enqueueAddSportScrape(options: {
   readonly scrapeJobId?: string;
   readonly scrapeJobIds?: readonly string[];
   readonly scrapeThreadId?: string;
+  readonly scrapeOperations?: readonly {
+    readonly operationId: string;
+    readonly threadId?: string;
+    readonly platforms: readonly string[];
+  }[];
 }> {
   if (options.linkedAccounts.length === 0) {
     return {};
@@ -106,6 +111,9 @@ async function enqueueAddSportScrape(options: {
     return {
       ...(operationIds[0] ? { scrapeJobId: operationIds[0], scrapeJobIds: operationIds } : {}),
       ...(scrapeResult?.threadId ? { scrapeThreadId: scrapeResult.threadId } : {}),
+      ...(scrapeResult?.operations && scrapeResult.operations.length > 0
+        ? { scrapeOperations: scrapeResult.operations }
+        : {}),
     };
   } catch (err) {
     logger.error('[Profile] Failed to enqueue linked account scrape for added sport', {

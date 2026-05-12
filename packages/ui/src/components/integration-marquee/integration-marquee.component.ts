@@ -209,6 +209,8 @@ const DEFAULT_INTEGRATIONS: readonly IntegrationItem[] = MARKETING_INTEGRATION_P
                         [src]="integration.logoUrl"
                         [alt]="integration.name + ' logo'"
                         class="integration-marquee__logo"
+                        width="48"
+                        height="48"
                         loading="lazy"
                         decoding="async"
                       />
@@ -218,6 +220,8 @@ const DEFAULT_INTEGRATIONS: readonly IntegrationItem[] = MARKETING_INTEGRATION_P
                       [src]="integration.logoUrl"
                       [alt]="integration.name + ' logo'"
                       class="integration-marquee__logo"
+                      width="48"
+                      height="48"
                       loading="lazy"
                       decoding="async"
                     />
@@ -272,6 +276,8 @@ const DEFAULT_INTEGRATIONS: readonly IntegrationItem[] = MARKETING_INTEGRATION_P
                         [src]="integration.logoUrl"
                         [alt]="''"
                         class="integration-marquee__logo"
+                        width="48"
+                        height="48"
                         loading="lazy"
                         decoding="async"
                       />
@@ -281,6 +287,8 @@ const DEFAULT_INTEGRATIONS: readonly IntegrationItem[] = MARKETING_INTEGRATION_P
                       [src]="integration.logoUrl"
                       alt=""
                       class="integration-marquee__logo"
+                      width="48"
+                      height="48"
                       loading="lazy"
                       decoding="async"
                     />

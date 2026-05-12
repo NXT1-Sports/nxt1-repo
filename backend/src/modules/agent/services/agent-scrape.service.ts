@@ -27,10 +27,19 @@ export interface ScrapeLinkedAccountsInput {
 }
 
 export interface ScrapeLinkedAccountsResult {
-  /** Operation IDs for enqueued jobs (onboarding currently enqueues one job). */
+  /** Operation IDs for enqueued jobs (one per linked-account chunk). */
   readonly operationIds: readonly string[];
+  /** First operation thread, retained for older clients that only understand one thread. */
   readonly threadId?: string;
+  /** Exact operation-to-thread mappings for each chunked scrape job. */
+  readonly operations: readonly {
+    readonly operationId: string;
+    readonly threadId?: string;
+    readonly platforms: readonly string[];
+  }[];
 }
+
+type ScrapeLinkedAccountOperation = ScrapeLinkedAccountsResult['operations'][number];
 
 let queueService: import('../queue/queue.service.js').AgentQueueService | null = null;
 let jobRepository: import('../queue/job.repository.js').AgentJobRepository | null = null;
@@ -69,6 +78,7 @@ export async function enqueueLinkedAccountScrape(
   const repo = jobRepository;
 
   const operationIds: string[] = [];
+  const operations: ScrapeLinkedAccountOperation[] = [];
   const normalizeScopeId = (value?: string): string => (value ?? '').trim().toLowerCase();
   const isTeamRole = input.role === 'coach' || input.role === 'director';
   const profileTarget = isTeamRole ? 'team profile' : 'NXT1 profile';
@@ -89,69 +99,81 @@ export async function enqueueLinkedAccountScrape(
       chunks.push(input.linkedAccounts.slice(i, i + CHUNK_SIZE));
     }
 
-    // ─── Create jobs for each chunk (each gets its own thread + operationId + sessionId) ──
-    for (const chunk of chunks) {
+    // ─── Create ONE shared thread for the entire scrape session ────────────
+    // Professional-app pattern: a single conversation row in the sidebar
+    // regardless of how many fan-out chunk operations run underneath.
+    // Chunks 2..N are tagged with parentOperationId so downstream surfaces
+    // can treat them as child operations of the first chunk.
+    const allPlatforms = input.linkedAccounts
+      .map((a) => a.platform.trim())
+      .filter(Boolean)
+      .join(', ');
+    const sharedPrompt = `Sync my connected accounts (${allPlatforms}). Target profile: ${profileTarget}. ${onboardingObjective} ${executionDirective}`;
+
+    let sharedThreadId: string | undefined;
+    if (chatService) {
+      try {
+        const { thread } = await chatService.startConversation({
+          userId: input.userId,
+          prompt: sharedPrompt,
+          category: 'analytics',
+          origin: 'database_event',
+        });
+        sharedThreadId = thread.id;
+
+        if (llmService) {
+          try {
+            const generatedTitle = await chatService.generateTitleFromPromptOnly(
+              sharedPrompt,
+              llmService
+            );
+            if (generatedTitle) {
+              await chatService.applyGeneratedThreadTitle(
+                sharedThreadId,
+                input.userId,
+                sharedPrompt,
+                generatedTitle
+              );
+            }
+          } catch (titleErr) {
+            logger.warn('[Scrape] Failed to apply prompt-only thread title', {
+              userId: input.userId,
+              threadId: sharedThreadId,
+              error: titleErr instanceof Error ? titleErr.message : String(titleErr),
+            });
+          }
+        }
+
+        logger.info('[Scrape] Shared scrape thread created', {
+          userId: input.userId,
+          threadId: sharedThreadId,
+          platforms: allPlatforms,
+          chunkCount: chunks.length,
+        });
+      } catch (err) {
+        logger.warn('[Scrape] Failed to create shared scrape thread', {
+          userId: input.userId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    let parentScrapeOperationId: string | undefined;
+
+    // ─── Create jobs for each chunk (each gets its own operationId + sessionId) ──
+    // All chunks share the same threadId. Chunks 2..N are children of chunk 1.
+    for (const [chunkIndex, chunk] of chunks.entries()) {
       const operationId = crypto.randomUUID();
       const sessionId = crypto.randomUUID();
-
-      // Create a separate thread PER CHUNK so each job only sees its own prompts
-      let chunkThreadId: string | undefined;
-      if (chatService) {
-        try {
-          const chunkPlatforms = chunk.map((a) => a.platform).join(', ');
-          const chunkPrompt = `Sync my connected accounts. Linked accounts in this job: ${chunkPlatforms}. Target profile: ${profileTarget}. ${onboardingObjective} ${executionDirective}`;
-          const { thread } = await chatService.startConversation({
-            userId: input.userId,
-            prompt: chunkPrompt,
-            category: 'analytics',
-            origin: 'database_event',
-          });
-          chunkThreadId = thread.id;
-
-          if (llmService) {
-            try {
-              const generatedTitle = await chatService.generateTitleFromPromptOnly(
-                chunkPrompt,
-                llmService
-              );
-              if (generatedTitle) {
-                await chatService.applyGeneratedThreadTitle(
-                  chunkThreadId,
-                  input.userId,
-                  chunkPrompt,
-                  generatedTitle
-                );
-              }
-            } catch (titleErr) {
-              logger.warn('[Scrape] Failed to apply prompt-only thread title', {
-                userId: input.userId,
-                chunkIndex: chunks.indexOf(chunk) + 1,
-                threadId: chunkThreadId,
-                error: titleErr instanceof Error ? titleErr.message : String(titleErr),
-              });
-            }
-          }
-
-          logger.info('[Scrape] Chunk thread created', {
-            userId: input.userId,
-            chunkIndex: chunks.indexOf(chunk) + 1,
-            threadId: chunkThreadId,
-            platforms: chunkPlatforms,
-          });
-        } catch (err) {
-          logger.warn('[Scrape] Failed to create chunk thread', {
-            userId: input.userId,
-            chunkIndex: chunks.indexOf(chunk) + 1,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
+      const platforms = chunk.map((account) => account.platform.trim()).filter(Boolean);
+      const chunkThreadId = sharedThreadId;
+      const isChildChunk = chunkIndex > 0;
 
       // Build intent + URL list for THIS chunk only
       const urlList = chunk
         .map((account) => `- ${account.platform}: ${account.profileUrl}`)
         .join('\n');
-      const platformList = chunk.map((account) => account.platform).join(', ');
+      const platformList = platforms.join(', ');
       const intent = `Sync my connected accounts. Linked accounts in this job: ${platformList}. Target profile: ${profileTarget}. ${onboardingObjective} ${executionDirective}\n\nAccounts to sync:\n${urlList}`;
 
       // Build connectedSourceTargets for THIS chunk only
@@ -190,6 +212,9 @@ export async function enqueueLinkedAccountScrape(
           connectedSourceTargetCount: chunkConnectedSourceTargets.length,
           connectedSourceTargetVersion: 1,
           ...(chunkThreadId ? { threadId: chunkThreadId } : {}),
+          ...(isChildChunk && parentScrapeOperationId
+            ? { parentOperationId: parentScrapeOperationId }
+            : {}),
           ...(input.teamId ? { teamId: input.teamId } : {}),
           ...(input.organizationId ? { organizationId: input.organizationId } : {}),
         },
@@ -198,6 +223,14 @@ export async function enqueueLinkedAccountScrape(
       await repo.withDb(db).create(payload);
       await enqueueWithOutbox(db, payload, environment, queueService);
       operationIds.push(operationId);
+      if (!parentScrapeOperationId) {
+        parentScrapeOperationId = operationId;
+      }
+      operations.push({
+        operationId,
+        platforms,
+        ...(chunkThreadId ? { threadId: chunkThreadId } : {}),
+      });
 
       // Chunk-specific thread is already included in the context above
       // No need to patch separately
@@ -205,9 +238,9 @@ export async function enqueueLinkedAccountScrape(
       logger.info('[Scrape] Linked account scrape job enqueued (chunked)', {
         userId: input.userId,
         operationId,
-        chunkIndex: chunks.indexOf(chunk) + 1,
+        chunkIndex: chunkIndex + 1,
         chunkSize: chunk.length,
-        platforms: chunk.map((a) => a.platform).join(', '),
+        platforms: platformList,
         chunkThreadId,
       });
     }
@@ -221,7 +254,11 @@ export async function enqueueLinkedAccountScrape(
       accountsPerChunk: CHUNK_SIZE,
     });
 
-    return { operationIds };
+    return {
+      operationIds,
+      operations,
+      ...(operations[0]?.threadId ? { threadId: operations[0].threadId } : {}),
+    };
   } catch (err) {
     logger.error('[Scrape] Failed to enqueue linked account scrape jobs', {
       userId: input.userId,
@@ -230,7 +267,11 @@ export async function enqueueLinkedAccountScrape(
     });
     // Return partial results if at least one job enqueued successfully
     if (operationIds.length > 0) {
-      return { operationIds };
+      return {
+        operationIds,
+        operations,
+        ...(operations[0]?.threadId ? { threadId: operations[0].threadId } : {}),
+      };
     }
     return null;
   }
