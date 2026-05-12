@@ -230,6 +230,28 @@ export class LiveUpdateService {
   }
 
   /**
+   * Re-reads the currently active Capgo bundle from the native plugin and
+   * refreshes the `currentVersion` signal. Safe to call at any time —
+   * no-ops on web and when the plugin is not installed.
+   *
+   * Call this from developer tools whenever you need an up-to-date view of
+   * the active bundle (e.g., when the Dev Settings page opens, or after an
+   * OTA operation completes).
+   */
+  async refreshCurrentVersion(): Promise<void> {
+    if (!Capacitor.isNativePlatform()) return;
+    await this.ensureUpdaterLoaded();
+    const updater = this.updaterInstance;
+    if (!updater) return;
+    try {
+      const current = await updater.current();
+      this._currentVersion.set(current.bundle?.version ?? null);
+    } catch {
+      this._currentVersion.set(null);
+    }
+  }
+
+  /**
    * Fetch the raw Firestore manifest for the current platform + channel.
    * Returns null when not on a native platform or when no document exists.
    * Used by developer tools for diagnostics.
