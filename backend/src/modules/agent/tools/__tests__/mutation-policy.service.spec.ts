@@ -63,6 +63,43 @@ vi.mock('../../../../services/core/sync-delta-event.service.js', () => ({
   }),
 }));
 
+vi.mock('../../../../utils/firebase.js', () => ({
+  db: {
+    collection: vi.fn((name: string) => {
+      if (name === 'Teams') {
+        return {
+          doc: vi.fn((_id: string) => ({
+            get: vi.fn(async () => ({
+              exists: true,
+              data: () => ({ sportId: 'football' }),
+            })),
+          })),
+          where: vi.fn().mockReturnThis(),
+          limit: vi.fn().mockReturnThis(),
+          get: vi.fn(async () => ({ empty: true, docs: [] })),
+        };
+      }
+
+      if (name === 'Organizations') {
+        return {
+          doc: vi.fn((_id: string) => ({
+            get: vi.fn(async () => ({ exists: false, data: () => ({}) })),
+          })),
+        };
+      }
+
+      return {
+        doc: vi.fn((_id: string) => ({
+          get: vi.fn(async () => ({ exists: false, data: () => ({}) })),
+        })),
+        where: vi.fn().mockReturnThis(),
+        limit: vi.fn().mockReturnThis(),
+        get: vi.fn(async () => ({ empty: true, docs: [] })),
+      };
+    }),
+  },
+}));
+
 vi.mock('../../llm/openrouter.service.js', () => ({
   OpenRouterService: class OpenRouterService {},
 }));
@@ -216,6 +253,33 @@ describe('AgentMutationPolicyService', () => {
 
     const summary = deltaArg['summary'] as Record<string, unknown>;
     expect(Number(summary['newPlaybooks'] ?? 0)).toBeGreaterThan(0);
+  });
+
+  it('profiles save_gameplan with synthetic delta fallback and records sync output', async () => {
+    const { AgentMutationPolicyService } = await import('../mutation-policy.service.js');
+    const service = new AgentMutationPolicyService();
+
+    await service.apply({
+      toolName: 'save_gameplan',
+      input: {
+        teamId: 'team_1',
+        sport: 'football',
+        title: 'Week 3 vs Westlake',
+        opponentName: 'Westlake',
+        identityFocus: 'Control tempo and win first down.',
+      },
+      context: {
+        userId: 'user_1',
+        operationId: 'op_5',
+      },
+    });
+
+    expect(recordDelta).toHaveBeenCalledOnce();
+    const deltaArg = recordDelta.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect((deltaArg['metadata'] as Record<string, unknown>)?.['generationType']).toBe('synthetic');
+
+    const summary = deltaArg['summary'] as Record<string, unknown>;
+    expect(Number(summary['identityFieldsChanged'] ?? 0)).toBeGreaterThan(0);
   });
 
   it('routes recruiting single-email executions to recruiting analytics domain', async () => {

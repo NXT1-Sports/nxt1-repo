@@ -61,6 +61,7 @@ import {
   NxtBottomSheetService,
   SHEET_PRESETS,
   ConnectedAccountsModalService,
+  ConnectedAccountsResyncService,
   InviteBottomSheetService,
   type ActionFooterButton,
   type TeamSearchResult,
@@ -68,6 +69,8 @@ import {
 import {
   buildCanonicalProfilePath,
   buildCanonicalTeamPath,
+  buildLinkSourcesFormData,
+  mapToConnectedSources,
   parseApiError,
   requiresAuth,
   isTeamRole,
@@ -75,6 +78,7 @@ import {
   UTM_MEDIUM,
   UTM_CAMPAIGN,
 } from '@nxt1/core';
+import type { LinkSourcesFormData } from '@nxt1/core/api';
 import { resolveCanonicalTeamRoute } from '@nxt1/core/helpers';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { User, ProfileTabId, ProfileTeamAffiliation } from '@nxt1/core';
@@ -281,6 +285,7 @@ export class ProfileComponent {
   protected readonly intel = inject(IntelService);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
+  private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
   private readonly inviteModal = inject(InviteBottomSheetService);
 
   // Team profile dependencies (for coach/director own-profile view)
@@ -1323,15 +1328,78 @@ export class ProfileComponent {
 
   protected async onConnectAccountsFooter(): Promise<void> {
     const user = this.uiProfileService.user();
+    if (!user?.uid) {
+      this.toast.error('Unable to open connected accounts right now. Please try again.');
+      return;
+    }
+
     const role = user?.role ?? null;
-    await this.connectedAccountsModal.open({
+    const linkSourcesData = buildLinkSourcesFormData({
+      connectedSources: user.connectedSources ?? [],
+      connectedEmails: this.authService.user()?.connectedEmails ?? [],
+      firebaseProviders: this.authService.state().firebaseUser?.providerData ?? [],
+    }) as LinkSourcesFormData | null;
+
+    const selectedSports = [
+      ...(user?.primarySport ? [user.primarySport.name] : []),
+      ...(user?.additionalSports?.map((s) => s.name) ?? []),
+    ];
+    const scope = role === 'coach' || role === 'director' ? 'team' : 'athlete';
+
+    const result = await this.connectedAccountsModal.open({
       role,
-      selectedSports: [
-        ...(user?.primarySport ? [user.primarySport.name] : []),
-        ...(user?.additionalSports?.map((s) => s.name) ?? []),
-      ],
-      scope: role === 'coach' || role === 'director' ? 'team' : 'athlete',
+      selectedSports,
+      linkSourcesData,
+      scope,
     });
+
+    if (result.linkSources && result.updatedLinks) {
+      const connectedSources = mapToConnectedSources(result.linkSources.links);
+      const saveResult = await this.editProfileApiService.updateSection(
+        user.uid,
+        'connected-sources',
+        {
+          connectedSources,
+        }
+      );
+
+      if (!saveResult.success) {
+        this.logger.error('Failed to save connected accounts from profile', undefined, {
+          error: saveResult.error,
+        });
+        this.toast.error(saveResult.error ?? 'Failed to save connected accounts');
+        return;
+      }
+
+      await this.authFlow.refreshUserProfile();
+      await this.profileApiService.invalidateCache(user.uid);
+      await this.onRefreshRequest();
+
+      if (result.resync) {
+        await this.connectedAccountsResync.request(result.sources ?? connectedSources);
+      } else {
+        this.toast.success('Connected accounts updated');
+      }
+      return;
+    }
+
+    if (result.resync) {
+      const resyncSources =
+        result.sources && result.sources.length > 0
+          ? result.sources
+          : (linkSourcesData?.links ?? [])
+              .filter((link) => link.connected)
+              .map((link) => ({
+                platform: link.platform,
+                label: link.platform,
+                connected: true,
+                username: link.username,
+                url: link.url,
+                connectionType: link.connectionType,
+              }));
+
+      await this.connectedAccountsResync.request(resyncSources);
+    }
   }
 
   protected async onInviteRoster(): Promise<void> {

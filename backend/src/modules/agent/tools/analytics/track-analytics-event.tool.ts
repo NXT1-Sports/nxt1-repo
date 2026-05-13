@@ -20,6 +20,38 @@ import {
 } from '../../services/analytics/analytics-template-registry.service.js';
 import { z } from 'zod';
 
+const FAILED_ANALYTICS_OUTCOME_VALUES = new Set([
+  'failed',
+  'error',
+  'cancelled',
+  'canceled',
+  'aborted',
+]);
+
+function hasFailedAnalyticsOutcome(payload: Record<string, unknown>): boolean {
+  const outcome = payload['outcome'];
+  if (typeof outcome === 'string') {
+    const normalizedOutcome = outcome.trim().toLowerCase();
+    if (FAILED_ANALYTICS_OUTCOME_VALUES.has(normalizedOutcome)) {
+      return true;
+    }
+  }
+
+  if (payload['success'] === false) {
+    return true;
+  }
+
+  const status = payload['status'];
+  if (typeof status === 'string') {
+    const normalizedStatus = status.trim().toLowerCase();
+    if (FAILED_ANALYTICS_OUTCOME_VALUES.has(normalizedStatus)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 const TrackAnalyticsEventInputSchema = z.object({
   userId: z.string().trim().min(1),
   subjectId: z.string().trim().min(1).optional(),
@@ -76,6 +108,14 @@ export class TrackAnalyticsEventTool extends BaseTool {
     }
 
     const { userId, domain, payload, templateId, templateKey } = parsed.data;
+
+    if (hasFailedAnalyticsOutcome(payload)) {
+      return {
+        success: false,
+        error:
+          'Failed outcomes must not be recorded in analytics events. Use operational logs instead.',
+      };
+    }
 
     // Validate domain is a known analytics domain
     if (!isAnalyticsDomain(domain)) {

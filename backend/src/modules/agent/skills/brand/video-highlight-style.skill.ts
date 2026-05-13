@@ -12,7 +12,7 @@ import { BaseSkill, type SkillCategory } from '../base.skill.js';
 export class VideoHighlightStyleSkill extends BaseSkill {
   readonly name = 'video_highlight_style';
   readonly description =
-    'Highlight reel editing guidelines with explicit tool orchestration for generate_graphic, runway_generate_video, runway_edit_video, runway_upscale_video, runway_check_task, ffmpeg_trim_video, ffmpeg_merge_videos, ffmpeg_add_text_overlay, ffmpeg_burn_subtitles, ffmpeg_convert_video, and ffmpeg_compress_video.';
+    'Highlight reel editing guidelines with explicit tool orchestration for generate_graphic, runway_generate_video, runway_upscale_video, runway_check_task, ffmpeg_trim_video, ffmpeg_merge_videos, ffmpeg_add_text_overlay, ffmpeg_burn_subtitles, ffmpeg_convert_video, and ffmpeg_compress_video.';
   readonly category: SkillCategory = 'brand';
 
   getPromptContext(_params?: Record<string, unknown>): string {
@@ -53,11 +53,11 @@ Use concrete tool pipelines for production-grade outputs:
 - Call ALL ffmpeg_trim_video operations simultaneously as a single parallel batch to isolate each play.
 - Do not wait for one trim to finish before starting the next. Only call ffmpeg_merge_videos after all trims have resolved.
 - Use ffmpeg_merge_videos to assemble intro + highlights + outro.
-- Use ffmpeg_add_text_overlay for athlete name, position, and verified metrics.
+- Use ffmpeg_add_text_overlay only for short lower-thirds/stat cards of 15 seconds or less. Use generate_graphic title cards for full-reel branding.
 
 3. **Polish and delivery**
-- Use runway_edit_video for cinematic AI transforms only when explicitly requested.
-- Use runway_upscale_video for quality refinement.
+- Do not send Hudl clips, game film, merged reels, uploaded videos, or FFmpeg outputs to Runway video-to-video. Runway is only for animating generated graphics/images or refining Runway-generated motion outputs.
+- Use runway_upscale_video only for Runway-generated outputs.
 - Use ffmpeg_burn_subtitles when captions are requested.
 - Use ffmpeg_convert_video and ffmpeg_compress_video for platform-ready delivery.
 

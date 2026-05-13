@@ -1010,8 +1010,12 @@ export class ContextBuilder {
     const emails = user['connectedEmails'] as Array<Record<string, unknown>> | undefined;
     if (emails) {
       for (const email of emails) {
+        const provider =
+          typeof email['provider'] === 'string' && email['provider'].trim().length > 0
+            ? email['provider'].trim().toLowerCase()
+            : 'gmail';
         accounts.push({
-          provider: 'gmail',
+          provider,
           email: email['email'] as string | undefined,
           isTokenValid: (email['isValid'] as boolean) ?? true,
           lastSyncAt: email['lastSyncedAt'] as string | undefined,

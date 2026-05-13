@@ -33,20 +33,33 @@ const PLATFORM_FROM_NAME = process.env['PLATFORM_FROM_NAME']?.trim() || 'NXT1';
 // ─── Transport singleton ──────────────────────────────────────────────────
 
 let _transport: Transporter | null = null;
+let _transportAuthKey: string | null = null;
+
+function normalizeEnvCredential(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  // Allow quoted env secrets in .env files while preserving inner content.
+  return trimmed.replace(/^['"]|['"]$/g, '');
+}
 
 function getTransport(): Transporter | null {
-  const user = process.env['GMAIL_USER'];
-  const pass = process.env['GMAIL_APP_PASSWORD'];
+  const user = normalizeEnvCredential(process.env['GMAIL_USER'] ?? process.env['SMTP_USER']);
+  // Gmail app passwords are often copied with spaces in 4-char groups.
+  const pass = normalizeEnvCredential(
+    process.env['GMAIL_APP_PASSWORD'] ?? process.env['SMTP_PASS']
+  )?.replace(/\s+/g, '');
 
   if (!user || !pass) {
     return null;
   }
 
-  if (!_transport) {
+  const authKey = `${user}:${pass}`;
+  if (!_transport || _transportAuthKey !== authKey) {
     _transport = nodemailer.createTransport({
       service: 'gmail',
       auth: { user, pass },
     });
+    _transportAuthKey = authKey;
   }
 
   return _transport;
@@ -71,10 +84,13 @@ export async function sendPlatformEmail(
   const transport = getTransport();
 
   if (!transport) {
-    logger.warn('[PlatformEmail] GMAIL_USER or GMAIL_APP_PASSWORD not configured — skipping send', {
-      to,
-      subject,
-    });
+    logger.warn(
+      '[PlatformEmail] Missing SMTP credentials (expected GMAIL_USER/GMAIL_APP_PASSWORD or SMTP_USER/SMTP_PASS) — skipping send',
+      {
+        to,
+        subject,
+      }
+    );
     return;
   }
 

@@ -1009,6 +1009,50 @@ router.post(
 
       // ── Team join (outside the batch; uses its own Firestore operations) ──
       if (resolvedTeamCode) {
+        // Guard: if the team's organization has no admins or billing owner, there is no
+        // responsible party to manage billing. Fall back to a general (personal) invite —
+        // skip the team join so the athlete's usage charges to their personal budget.
+        try {
+          const teamLookup = await teamCodeService.getTeamCodeByCode(db, resolvedTeamCode, false);
+          const teamOrganizationId = teamLookup.team?.organizationId ?? '';
+
+          if (teamOrganizationId) {
+            const orgDoc = await db.collection('Organizations').doc(teamOrganizationId).get();
+            const orgData = orgDoc.data();
+
+            const adminIds = ((orgData?.['admins'] as Array<{ userId?: string }> | undefined) ?? [])
+              .map((a) => a.userId)
+              .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+            const ownerId = orgData?.['ownerId'];
+            const billingOwnerUid = orgData?.['billingOwnerUid'];
+
+            const hasOwnership =
+              adminIds.length > 0 ||
+              (typeof ownerId === 'string' && ownerId.length > 0) ||
+              (typeof billingOwnerUid === 'string' && billingOwnerUid.length > 0);
+
+            if (!hasOwnership) {
+              logger.warn(
+                '[POST /invite/accept] Team org has no admin or billing owner — skipping team join, treating as general invite',
+                { userId, teamCode: resolvedTeamCode, organizationId: teamOrganizationId }
+              );
+              resolvedTeamCode = undefined;
+            }
+          }
+        } catch (orgCheckErr) {
+          logger.warn(
+            '[POST /invite/accept] Could not verify org ownership; proceeding with team join',
+            {
+              userId,
+              teamCode: resolvedTeamCode,
+              error: orgCheckErr instanceof Error ? orgCheckErr.message : String(orgCheckErr),
+            }
+          );
+        }
+      }
+
+      if (resolvedTeamCode) {
         try {
           const userDoc = await db.collection(USERS_COLLECTION).doc(userId).get();
           const userData = userDoc.data() as UserDoc | undefined;

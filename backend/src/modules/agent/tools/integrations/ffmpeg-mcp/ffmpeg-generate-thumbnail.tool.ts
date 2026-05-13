@@ -37,7 +37,7 @@ export class FfmpegGenerateThumbnailTool extends BaseTool {
       const outputUrl = result.outputUrl ?? result.output_path;
       return {
         success: true,
-        data: { outputUrl, result },
+        data: { outputUrl, imageUrl: outputUrl, thumbnailUrl: outputUrl, result },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to generate thumbnail';

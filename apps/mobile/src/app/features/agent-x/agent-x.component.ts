@@ -15,7 +15,14 @@
  * - User context from AuthFlowService
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed, OnInit } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  computed,
+  OnInit,
+  OnDestroy,
+} from '@angular/core';
 import { ActivatedRoute } from '@angular/router';
 import { mapToConnectedSources } from '@nxt1/core';
 import {
@@ -30,6 +37,9 @@ import {
 } from '@nxt1/ui';
 import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
 import { EditProfileApiService } from '../../core/services/api/edit-profile-api.service';
+import { NativeAppService } from '../../core/services/native/native-app.service';
+import { Subscription } from 'rxjs';
+import { filter } from 'rxjs/operators';
 
 @Component({
   selector: 'app-agent-x',
@@ -62,7 +72,7 @@ import { EditProfileApiService } from '../../core/services/api/edit-profile-api.
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class AgentXComponent implements OnInit {
+export class AgentXComponent implements OnInit, OnDestroy {
   private readonly authFlow = inject(AuthFlowService);
   private readonly sidenavService = inject(NxtSidenavService);
   private readonly logger = inject(NxtLoggingService).child('AgentXComponent');
@@ -71,6 +81,9 @@ export class AgentXComponent implements OnInit {
   private readonly agentX = inject(AgentXService);
   private readonly editProfileApi = inject(EditProfileApiService);
   private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
+  private readonly nativeApp = inject(NativeAppService);
+
+  private resumeSub?: Subscription;
 
   /**
    * Transform auth user to AgentXUser interface.
@@ -132,6 +145,35 @@ export class AgentXComponent implements OnInit {
       this.logger.info('Queuing thread from query param', { threadId });
       this.agentX.queuePendingThread({ threadId, title: 'Agent X' });
     }
+
+    // Mobile foreground recovery: when the OS resumes the app from background,
+    // the SSE stream that was open before backgrounding will have been killed
+    // (iOS/Android suspend network for suspended WebViews). If a drop-recovery
+    // op was persisted in sessionStorage before the app was backgrounded, re-queue
+    // it as a pending thread so the Agent X shell can re-attach to the stream.
+    this.resumeSub = this.nativeApp.lifecycleEvents$
+      .pipe(filter((event) => event === 'resume'))
+      .subscribe(() => {
+        const pendingOp = this.agentX.getAndClearDropRecoveryOp();
+        if (!pendingOp) return;
+
+        this.logger.info('Foreground recovery: re-queuing drop-recovery operation', {
+          operationId: pendingOp.operationId,
+          threadId: pendingOp.threadId,
+        });
+
+        if (pendingOp.threadId) {
+          this.agentX.queuePendingThread({
+            threadId: pendingOp.threadId,
+            title: 'Agent X',
+            operationId: pendingOp.operationId,
+          });
+        }
+      });
+  }
+
+  ngOnDestroy(): void {
+    this.resumeSub?.unsubscribe();
   }
 
   /**

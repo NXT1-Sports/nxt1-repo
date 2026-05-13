@@ -14,6 +14,7 @@ describe('coordinator skill bindings', () => {
     expect(agent.getSkills()).toContain('film_breakdown_taxonomy');
     expect(agent.getSkills()).toContain('opponent_scouting_packet');
     expect(agent.getSkills()).toContain('coach_game_plan_and_adjustments');
+    expect(agent.getSkills()).toContain('predictive_performance_analysis');
     expect(agent.getSkills()).toContain('intel_report_quality');
     expect(agent.getSkillBudget()).toBe(5);
   });
@@ -28,6 +29,8 @@ describe('coordinator skill bindings', () => {
     expect(agent.getSkills()).toContain('recruiting_fit_scoring');
     expect(agent.getSkills()).toContain('college_visit_planning');
     expect(agent.getSkills()).toContain('nil_deal_evaluation');
+    expect(agent.getSkills()).toContain('play_design_simulation');
+    expect(agent.getSkills()).toContain('predictive_performance_analysis');
     expect(agent.getSkillBudget()).toBe(5);
   });
 

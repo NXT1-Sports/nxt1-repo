@@ -14,7 +14,7 @@ changes **without submitting to the App Store**. Key files:
 | ----------------------------------------------------------------- | -------------------------------------------------- |
 | `apps/mobile/src/app/core/services/native/live-update.service.ts` | Orchestrator: check, download, stage               |
 | `apps/mobile/src/app/app.component.ts` (line 234)                 | Triggers `initialize()` on every cold start        |
-| `backend/scripts/deploy-mobile-bundle.ts`                         | Build → zip → upload R2 → write Firestore manifest |
+| `backend/scripts/deployments/deploy-mobile-bundle.ts`             | Build → zip → upload R2 → write Firestore manifest |
 | Firestore `AppUpdates/ios_production`                             | Manifest: version, URL, SHA-256, rollout%          |
 | Cloudflare R2 `nxt1-app-bundles-prod`                             | Bundle file storage                                |
 

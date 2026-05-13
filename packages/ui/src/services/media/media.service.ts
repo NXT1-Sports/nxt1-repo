@@ -221,13 +221,30 @@ export class NxtMediaService {
         /* noop */
       });
       return { success: true, path: 'Photos' };
-    } catch {
-      // Fallback: if @capacitor-community/media isn't installed,
-      // the file is already saved in cache — inform the user
-      this.logger.info('Media plugin unavailable, file saved to app cache', {
+    } catch (mediaErr) {
+      this.logger.warn('Media plugin unavailable, falling back to share sheet', {
+        error: mediaErr instanceof Error ? mediaErr.message : String(mediaErr),
         path: tempResult.uri,
       });
-      return { success: true, path: tempResult.uri };
+
+      // Fallback: open native share sheet with the temp file so the user can
+      // tap "Save Image" to save it to their camera roll.
+      try {
+        const { Share } = await import('@capacitor/share');
+        await Share.share({
+          title: 'Save Image',
+          files: [tempResult.uri],
+          dialogTitle: 'Save to Camera Roll',
+        });
+        return { success: true, path: tempResult.uri };
+      } catch (shareErr) {
+        // User dismissed the share sheet — not an error
+        const message = shareErr instanceof Error ? shareErr.message : String(shareErr);
+        if (message.includes('cancel') || message.includes('dismissed')) {
+          return { success: false, error: 'Cancelled' };
+        }
+        return { success: false, error: 'Could not save image. Please try again.' };
+      }
     }
   }
 
@@ -381,6 +398,65 @@ export class NxtMediaService {
     }
 
     return new Blob([buffer], { type: mimeType });
+  }
+
+  /**
+   * Save an image that has already been written to the device filesystem.
+   *
+   * Use this when you already have a local file URI (e.g. from
+   * `Filesystem.downloadFile()`). Skips the fetch + base64 round-trip that
+   * `saveImage()` performs, making it more efficient for large files.
+   *
+   * Only meaningful on native Capacitor. On web it is a no-op that returns
+   * `{ success: false }`.
+   */
+  async saveImageFromFileUri(fileUri: string, album?: string): Promise<SaveImageResult> {
+    if (!this.isBrowser || !isCapacitor()) {
+      return { success: false, error: 'Only available on native' };
+    }
+
+    this.logger.info('Saving image from file URI', { fileUri, album });
+
+    try {
+      const { Filesystem, Directory } = await import('@capacitor/filesystem');
+
+      try {
+        const { MediaPlugin } = await this.loadMediaPlugin();
+        await MediaPlugin.savePhoto({ path: fileUri, album: album ?? 'NXT1' });
+        // Clean up — best effort
+        await Filesystem.deleteFile({ path: fileUri, directory: Directory.Cache }).catch(() => {});
+        await this.haptics.notification('success');
+        this.logger.info('Image saved to camera roll from file URI');
+        return { success: true, path: 'Photos' };
+      } catch (mediaErr) {
+        this.logger.warn('Media plugin unavailable, falling back to share sheet', {
+          error: mediaErr instanceof Error ? mediaErr.message : String(mediaErr),
+        });
+
+        const { Share } = await import('@capacitor/share');
+        try {
+          await Share.share({
+            title: 'Save Image',
+            files: [fileUri],
+            dialogTitle: 'Save to Camera Roll',
+          });
+          return { success: true, path: fileUri };
+        } catch (shareErr) {
+          const message = shareErr instanceof Error ? shareErr.message : String(shareErr);
+          if (
+            message.toLowerCase().includes('cancel') ||
+            message.toLowerCase().includes('dismiss')
+          ) {
+            return { success: false, error: 'Cancelled' };
+          }
+          return { success: false, error: 'Could not save image. Please try again.' };
+        }
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save image';
+      this.logger.error('saveImageFromFileUri error', err, { fileUri });
+      return { success: false, error: message };
+    }
   }
 
   /**

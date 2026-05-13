@@ -23,10 +23,6 @@ function metadataForStep(event: StreamEvent): AgentProgressMetadata | undefined 
   };
 
   if (event.toolName) merged['toolName'] = event.toolName;
-  const heavyTaskOperationId = event.toolResult?.['heavyTaskOperationId'];
-  if (typeof heavyTaskOperationId === 'string' && heavyTaskOperationId.trim().length > 0) {
-    merged['heavyTaskOperationId'] = heavyTaskOperationId.trim();
-  }
 
   return Object.keys(merged).length > 0
     ? (sanitizeAgentPayload(merged) as AgentProgressMetadata)

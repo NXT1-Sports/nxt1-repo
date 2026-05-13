@@ -26,16 +26,21 @@ ourselves from the old model of sports tech.
 ## ✅ What We ARE: A Sports Intelligence Platform
 
 NXT1 is an active, autonomous system powered by **AI Coordinators**—intelligent
-agents that do real work for athletes, coaches, scouts, and college programs.
+agents that do real work for high school athletic departments, competitive youth
+clubs, and multi-sport facility operators.
 
 ## ICP Alignment (Use This Exact Framing)
 
 When defining NXT1's ideal customer profile in copy, presentations, or campaign
 docs:
 
-- **Primary ICP:** Athletes, coaches, scouts, and program leaders.
-- **Secondary ICP:** Parents and content creators supporting athlete and program
-  outcomes.
+- **Primary ICP:** Athletic directors and coaching leadership at mid-to-large
+  high schools (800+ students), plus directors of competitive youth
+  clubs/training academies.
+- **Secondary ICP:** Facility owners and operators managing multi-sport
+  complexes, camps, and recurring bookings.
+- **Activated users:** Athletes and families, with content creators supporting
+  engagement and communication execution.
 
 Use persona language that reinforces operational outcomes (execution,
 intelligence, delegation), not passive discovery language.

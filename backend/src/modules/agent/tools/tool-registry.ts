@@ -99,6 +99,11 @@ const TOOL_ENTITY_GROUP_OVERRIDES: Readonly<Record<string, AgentToolEntityGroup>
   write_team_news: 'team_tools',
   write_roster_entries: 'team_tools',
   write_playbooks: 'team_tools',
+  get_gameplan: 'team_tools',
+  list_gameplans: 'team_tools',
+  save_gameplan: 'team_tools',
+  update_gameplan: 'team_tools',
+  delete_gameplan: 'team_tools',
   write_schedule: 'team_tools',
   write_calendar_events: 'team_tools',
 
@@ -289,6 +294,13 @@ export class ToolRegistry {
     accessContext?: AgentToolAccessContext
   ): boolean {
     if (!accessContext) return true;
+
+    if (
+      accessContext.blockedToolNames?.length &&
+      accessContext.blockedToolNames.map(canonicalToolName).includes(canonicalToolName(tool.name))
+    ) {
+      return false;
+    }
 
     const entityGroup = this.resolveEntityGroup(tool);
     if (entityGroup === 'system_tools') return true;

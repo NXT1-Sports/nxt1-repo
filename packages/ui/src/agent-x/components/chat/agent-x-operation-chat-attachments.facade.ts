@@ -625,6 +625,9 @@ export class AgentXOperationChatAttachmentsFacade {
       items: mediaItems,
       initialIndex: Math.max(0, Math.min(index, mediaItems.length - 1)),
       source: 'agent-x-chat',
+      // Force overlay so the Agent X bottom sheet stays open beneath the viewer.
+      // Default bottom-sheet path calls dismiss() first which would close Agent X.
+      presentation: 'overlay',
     });
   }
 

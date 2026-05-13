@@ -12,6 +12,7 @@ import { AthleteScoutingSkill } from '../evaluation/athlete-scouting.skill.js';
 import { TeamScoutingSkill } from '../evaluation/team-scouting.skill.js';
 import { VideoAnalysisSkill } from '../evaluation/video-analysis.skill.js';
 import { FilmBreakdownTaxonomySkill } from '../evaluation/film-breakdown-taxonomy.skill.js';
+import { PredictivePerformanceAnalysisSkill } from '../evaluation/predictive-performance-analysis.skill.js';
 import { OutreachCopywritingSkill } from '../copywriting/outreach-copywriting.skill.js';
 import { StaticGraphicStyleSkill } from '../brand/static-graphic-style.skill.js';
 import { GlobalKnowledgeSkill } from '../knowledge/global-knowledge.skill.js';
@@ -24,6 +25,7 @@ import { CollegeVisitPlanningSkill } from '../strategy/college-visit-planning.sk
 import { CoachGamePlanAndAdjustmentsSkill } from '../strategy/coach-game-plan-and-adjustments.skill.js';
 import { OpponentScoutingPacketSkill } from '../evaluation/opponent-scouting-packet.skill.js';
 import { LineupRotationOptimizerSkill } from '../strategy/lineup-rotation-optimizer.skill.js';
+import { PlayDesignSimulationSkill } from '../strategy/play-design-simulation.skill.js';
 
 class EmptyContextSkill extends BaseSkill {
   readonly name = 'empty_context';
@@ -151,6 +153,8 @@ describe('BaseSkill.matchIntent', () => {
     expect(new CoachGamePlanAndAdjustmentsSkill().category).toBe('strategy');
     expect(new OpponentScoutingPacketSkill().category).toBe('evaluation');
     expect(new LineupRotationOptimizerSkill().category).toBe('strategy');
+    expect(new PlayDesignSimulationSkill().category).toBe('strategy');
+    expect(new PredictivePerformanceAnalysisSkill().category).toBe('evaluation');
   });
 
   it('should expose NIL deal, growth, report export, and college visit guidance', () => {
@@ -170,6 +174,8 @@ describe('BaseSkill.matchIntent', () => {
     expect(new LineupRotationOptimizerSkill().getPromptContext()).toContain(
       'Rotation Design Principles'
     );
+    expect(new PlayDesignSimulationSkill().getPromptContext()).toContain('Simulation Checklist');
+    expect(new PredictivePerformanceAnalysisSkill().getPromptContext()).toContain('Scenario Bands');
   });
 });
 

@@ -1125,45 +1125,6 @@ export class AgentXOperationChatSessionFacade {
     return null;
   }
 
-  private resolveContextFirestoreOperationId(): string | null {
-    const host = this.requireHost();
-    const candidates = [host.resumeOperationId().trim() || null, host.contextId().trim() || null];
-
-    for (const candidate of candidates) {
-      if (this.isFirestoreOperationId(candidate)) return candidate;
-    }
-
-    return null;
-  }
-
-  private mapLifecycleStatusToOperationStatus(
-    status:
-      | 'queued'
-      | 'running'
-      | 'paused'
-      | 'awaiting_input'
-      | 'awaiting_approval'
-      | 'complete'
-      | 'failed'
-      | 'cancelled'
-  ): OperationStatus {
-    if (status === 'queued' || status === 'running') return 'processing';
-    if (status === 'failed') return 'error';
-    if (status === 'cancelled') return 'complete';
-    return status;
-  }
-
-  private hasMongoFinalForOperation(
-    items: readonly AgentMessage[],
-    operationId: string | null
-  ): boolean {
-    return items.some((item) => {
-      if (item.role !== 'assistant' || item.semanticPhase !== 'assistant_final') return false;
-      if (!operationId) return true;
-      return item.operationId === operationId;
-    });
-  }
-
   subscribeToFirestoreJobEvents(
     explicitOperationId?: string,
     startAfterSeq?: number,
@@ -1322,9 +1283,7 @@ export class AgentXOperationChatSessionFacade {
               this.operationEventService.emitOperationStatusUpdated(
                 refreshThreadId || operationId,
                 'complete',
-                new Date().toISOString(),
-                'enqueue',
-                operationId
+                new Date().toISOString()
               );
               host.loading.set(false);
               host.getActiveFirestoreSub()?.unsubscribe();
@@ -1877,25 +1836,26 @@ export class AgentXOperationChatSessionFacade {
         !host.activeYieldState() &&
         !hasPendingYieldInTimeline
       ) {
-        // Mongo can only prove completion for thread-only sessions. Real
-        // Firestore operations use stored lifecycle events as the source of truth.
-        const operationId =
-          this.resolveContextFirestoreOperationId() ?? this.resolveFirestoreOperationId();
-        const hasMongoFinal = this.hasMongoFinalForOperation(canonicalItems, operationId);
-        if (!operationId && hasMongoFinal) {
+        // ── Mongo-authoritative fast path ──────────────────────────────────
+        // If any canonical row carries assistant_final the operation has
+        // completed, regardless of what Firestore says for the stored
+        // operationId. This covers parent/child approval flows where the
+        // parent ends at awaiting_approval (no `done` in Firestore for it)
+        // but the child wrote assistant_final to MongoDB.
+        const hasMongoFinal = canonicalItems.some(
+          (item) => item.role === 'assistant' && item.semanticPhase === 'assistant_final'
+        );
+        if (hasMongoFinal) {
           host.setOperationStatus('complete');
           this.operationEventService.emitOperationStatusUpdated(
             threadId,
             'complete',
             new Date().toISOString()
           );
-          this.logger.info(
-            'Reconciled thread-only operation to complete from Mongo assistant_final',
-            {
-              threadId,
-              contextId: host.contextId(),
-            }
-          );
+          this.logger.info('Reconciled operation to complete from Mongo assistant_final', {
+            threadId,
+            contextId: host.contextId(),
+          });
         } else {
           // ── Firestore fallback: check stored lifecycle state ──────────────
           let pendingYieldState: AgentYieldState | null = null;
@@ -1909,51 +1869,36 @@ export class AgentXOperationChatSessionFacade {
             | 'failed'
             | 'cancelled'
             | null = null;
-          let storedIsDone = false;
 
-          const storedOperationId = operationId;
-          if (storedOperationId) {
-            const stored = await this.operationEventService.getStoredEventState(storedOperationId);
+          const operationId = this.resolveFirestoreOperationId();
+          if (operationId) {
+            const stored = await this.operationEventService.getStoredEventState(operationId);
             pendingYieldState = stored.latestYieldState;
             latestLifecycleStatus = stored.latestLifecycleStatus;
-            storedIsDone = stored.isDone;
           }
 
-          if (storedIsDone || latestLifecycleStatus === 'complete') {
-            host.setOperationStatus('complete');
-            this.operationEventService.emitOperationStatusUpdated(
-              threadId,
-              'complete',
-              new Date().toISOString(),
-              'chat',
-              operationId ?? undefined
-            );
-
-            this.logger.info('Reconciled operation to complete from stored lifecycle state', {
-              threadId,
-              contextId: host.contextId(),
-              operationId,
-              lifecycleStatus: latestLifecycleStatus,
-            });
-          } else if (pendingYieldState) {
+          if (pendingYieldState) {
             this.applyPendingYieldState(pendingYieldState, threadId, 'firestore-fallback');
           } else if (latestLifecycleStatus) {
             const reconciledStatus =
-              this.mapLifecycleStatusToOperationStatus(latestLifecycleStatus);
+              latestLifecycleStatus === 'queued' || latestLifecycleStatus === 'running'
+                ? 'processing'
+                : latestLifecycleStatus === 'failed'
+                  ? 'error'
+                  : latestLifecycleStatus === 'cancelled'
+                    ? 'complete'
+                    : latestLifecycleStatus;
 
             host.setOperationStatus(reconciledStatus);
             this.operationEventService.emitOperationStatusUpdated(
               threadId,
               latestLifecycleStatus,
-              new Date().toISOString(),
-              'chat',
-              operationId ?? undefined
+              new Date().toISOString()
             );
 
             this.logger.info('Reconciled operation status from stored lifecycle state', {
               threadId,
               contextId: host.contextId(),
-              operationId,
               lifecycleStatus: latestLifecycleStatus,
               reconciledStatus,
             });
@@ -1963,8 +1908,6 @@ export class AgentXOperationChatSessionFacade {
             this.logger.info('Keeping operation in processing while awaiting upstream events', {
               threadId,
               contextId: host.contextId(),
-              operationId,
-              hasMongoFinal,
             });
           }
         }
@@ -2513,9 +2456,7 @@ export class AgentXOperationChatSessionFacade {
           this.operationEventService.emitOperationStatusUpdated(
             host.threadId().trim() || operationId,
             'complete',
-            new Date().toISOString(),
-            'chat',
-            operationId
+            new Date().toISOString()
           );
           return;
         }

@@ -150,6 +150,7 @@ describe('Agent tool exposure regressions', () => {
 
     expect(agent.getAvailableTools()).not.toContain('write_intel');
     expect(agent.getAvailableTools()).toContain('analyze_video');
+    expect(agent.getAvailableTools()).toContain('recommend_learning_videos');
     expect(agent.getAvailableTools()).toContain('get_video_details');
     expect(agent.getAvailableTools()).toContain('call_apify_actor');
     expect(agent.getAvailableTools()).not.toContain('stage_media');
@@ -163,6 +164,7 @@ describe('Agent tool exposure regressions', () => {
 
     expect(tools).toContain('search_colleges');
     expect(tools).toContain('search_college_coaches');
+    expect(tools).toContain('recommend_learning_videos');
     expect(tools).not.toContain('run_google_workspace_tool');
     expect(isToolAllowedByPatterns('query_gmail_emails', tools)).toBe(false);
   });
@@ -184,7 +186,9 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('get_analytics_summary');
     expect(agent.getAvailableTools()).toContain('generate_chart_visualization');
     expect(agent.getAvailableTools()).toContain('create_play_diagram');
+    expect(agent.getAvailableTools()).toContain('save_gameplan');
     expect(agent.getAvailableTools()).toContain('analyze_video');
+    expect(agent.getAvailableTools()).toContain('recommend_learning_videos');
     expect(agent.getAvailableTools()).not.toContain('write_intel');
     expect(agent.getAvailableTools()).not.toContain('firecrawl_agent_research');
     expect(agent.getAvailableTools()).not.toContain('schedule_recurring_task');
@@ -203,6 +207,9 @@ describe('Agent tool exposure regressions', () => {
 
     // Priority ladder covers all key paths
     expect(prompt).toContain('analyze_video');
+    expect(prompt).toContain('recommend_learning_videos');
+    expect(prompt).toContain('proactively include 3-5 recommended videos');
+    expect(prompt).toContain('save_gameplan');
     expect(prompt).toContain('extract_live_view_media');
     expect(prompt).toContain('extract_live_view_playlist');
     expect(prompt).toContain('Firecrawl can scroll virtualized Hudl rows');
@@ -245,6 +252,7 @@ describe('Agent tool exposure regressions', () => {
       expect(tools).toContain('track_analytics_event');
       expect(tools).toContain('get_analytics_summary');
       expect(tools).toContain('save_memory');
+      expect(tools).toContain('recommend_learning_videos');
     }
   });
 
@@ -253,9 +261,13 @@ describe('Agent tool exposure regressions', () => {
 
     expect(routerTools).toContain('search_colleges');
     expect(routerTools).toContain('search_college_coaches');
-    expect(routerTools).not.toContain('generate_chart_visualization');
+    expect(routerTools).not.toContain('save_gameplan');
+    expect(routerTools).not.toContain('write_playbooks');
+    expect(routerTools).not.toContain('create_play_diagram');
     expect(isToolAllowedByPatterns('send_email', routerTools)).toBe(true);
     expect(isToolAllowedByPatterns('batch_send_email', routerTools)).toBe(true);
+    expect(isToolAllowedByPatterns('send_email_via_nxt1', routerTools)).toBe(false);
+    expect(isToolAllowedByPatterns('batch_send_email_via_nxt1', routerTools)).toBe(false);
     expect(isToolAllowedByPatterns('gmail_send_email', routerTools)).toBe(true);
     expect(isToolAllowedByPatterns('query_gmail_emails', routerTools)).toBe(false);
     expect(isToolAllowedByPatterns('calendar_get_events', routerTools)).toBe(false);

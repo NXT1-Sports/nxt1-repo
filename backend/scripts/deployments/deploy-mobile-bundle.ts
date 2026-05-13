@@ -18,7 +18,7 @@
  *   #   cd apps/mobile && npm run build:staging   # staging
  *
  *   # Then from /backend:
- *   tsx scripts/deploy-mobile-bundle.ts \
+ *   tsx scripts/deployments/deploy-mobile-bundle.ts \
  *     --channel production \
  *     --platform ios \
  *     --version 1.4.2 \
@@ -54,7 +54,7 @@ import { fileURLToPath } from 'node:url';
 
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
-import { db } from '../src/utils/firebase.js';
+import { db } from '../../src/utils/firebase.js';
 import {
   LIVE_UPDATE_PATHS,
   type LiveUpdateChannel,
@@ -110,7 +110,7 @@ function parseArgs(): CliArgs {
   }
 
   const here = fileURLToPath(import.meta.url);
-  const repoRoot = resolve(here, '../../..');
+  const repoRoot = resolve(here, '../../../..');
   const defaultBundleDir = join(repoRoot, 'apps', 'mobile', 'www', 'browser');
   const bundleDir = get('bundle-dir') ?? defaultBundleDir;
 

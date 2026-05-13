@@ -30,6 +30,7 @@ import type {
   AgentSessionContext,
   AgentSessionMessage,
   AgentRetrievedMemories,
+  AgentToolAccessContext,
   AgentUserContext,
 } from '@nxt1/core';
 import type { OpenRouterService } from './llm/openrouter.service.js';
@@ -54,6 +55,13 @@ import { getThreadMessageReplayService } from './memory/thread-message-replay.se
 import { logger } from '../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
+
+const EMAIL_ADDRESS_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i;
+const EMAIL_SEND_VERB_PATTERN = /\b(send|sending|sent|deliver|delivering)\b/i;
+const EMAIL_CONTEXT_PATTERN = /\b(email|emails|mail|outreach|campaign)\b/i;
+const EMAIL_DRAFT_ONLY_PATTERN = /\b(draft|write|compose)\b/i;
+const EMAIL_CONNECTION_REQUIRED_SUMMARY =
+  'To send emails through Agent X, please connect your Gmail or Outlook account first in Settings -> Email.';
 
 /**
  * Fallback values used when Firestore `AppConfig/agentConfig` is absent.
@@ -587,6 +595,37 @@ export class AgentRouter {
       undefined,
       activeThreadsSummary
     );
+    const toolAccessContext = this.policyService.buildToolAccessContext(userContext);
+
+    if (this.shouldBlockEmailSendUntilProviderConnected(intent, userContext)) {
+      this.emitEmailConnectionRequired(onStreamEvent);
+      this.emitUpdate(
+        onUpdate,
+        operationId,
+        'completed',
+        EMAIL_CONNECTION_REQUIRED_SUMMARY,
+        undefined,
+        {
+          agentId: 'router',
+          stage: 'routing_to_agent',
+          outcomeCode: 'input_required',
+          metadata: { reason: 'email_connection_required' },
+        }
+      );
+      logger.info(
+        '[AgentRouter] Blocked email send before Primary because no provider is connected',
+        {
+          operationId,
+          userId,
+        }
+      );
+      return {
+        summary: EMAIL_CONNECTION_REQUIRED_SUMMARY,
+        suggestions: [
+          'Connect Gmail or Outlook in Settings -> Email, then ask me to send it again.',
+        ],
+      };
+    }
 
     // ── PRIMARY AGENT (sole entry point since 2026 enterprise migration) ──
     // All conversational requests flow through Primary's streaming ReAct
@@ -599,6 +638,7 @@ export class AgentRouter {
       intent,
       enrichedIntent,
       context,
+      toolAccessContext,
       approvalGate,
       onUpdate,
       onStreamEvent,
@@ -668,6 +708,7 @@ export class AgentRouter {
     intent: string;
     enrichedIntent: string;
     context: AgentSessionContext;
+    toolAccessContext: AgentToolAccessContext;
     approvalGate?: ApprovalGateService;
     onUpdate?: (update: AgentJobUpdate) => void;
     onStreamEvent?: OnStreamEvent;
@@ -706,7 +747,10 @@ export class AgentRouter {
       // declared on PrimaryAgent. Passing an empty array here would cause
       // BaseAgent.execute to expose ZERO tools to the LLM (it filters the
       // passed array; it does not fetch from the registry).
-      const toolDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(this.toolRegistry);
+      const toolDefinitions = PrimaryAgent.buildPrimaryToolDefinitions(
+        this.toolRegistry,
+        opts.toolAccessContext
+      );
       logger.info('[AgentRouter] Primary tool surface', {
         operationId: opts.operationId,
         toolCount: toolDefinitions.length,
@@ -827,5 +871,46 @@ export class AgentRouter {
     }
   ): void {
     this.telemetryService.emitMetricSample(onStreamEvent, payload);
+  }
+
+  private shouldBlockEmailSendUntilProviderConnected(
+    intent: string,
+    userContext: AgentUserContext
+  ): boolean {
+    if (!this.isEmailSendIntent(intent)) return false;
+    return !this.hasConnectedEmailProvider(userContext);
+  }
+
+  private isEmailSendIntent(intent: string): boolean {
+    if (!EMAIL_ADDRESS_PATTERN.test(intent)) return false;
+    const hasSendVerb = EMAIL_SEND_VERB_PATTERN.test(intent);
+    const hasEmailContext = EMAIL_CONTEXT_PATTERN.test(intent);
+    const isDraftOnly = EMAIL_DRAFT_ONLY_PATTERN.test(intent) && !hasSendVerb;
+    return !isDraftOnly && (hasSendVerb || hasEmailContext);
+  }
+
+  private hasConnectedEmailProvider(userContext: AgentUserContext): boolean {
+    return (userContext.connectedAccounts ?? []).some(
+      (account) =>
+        account.isTokenValid && (account.provider === 'gmail' || account.provider === 'microsoft')
+    );
+  }
+
+  private emitEmailConnectionRequired(onStreamEvent?: OnStreamEvent): void {
+    onStreamEvent?.({
+      type: 'card',
+      agentId: 'router',
+      cardData: {
+        agentId: 'router',
+        type: 'connect-account',
+        title: 'Email Account Required',
+        payload: {
+          reason:
+            'Connect your Gmail or Outlook account in Settings -> Email before sending from your own address.',
+          connectLabel: 'Connect Gmail or Outlook',
+          suggestedAction: 'connect-account',
+        },
+      },
+    });
   }
 }

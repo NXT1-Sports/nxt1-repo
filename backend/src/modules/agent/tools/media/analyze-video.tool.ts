@@ -2,12 +2,13 @@
  * @fileoverview Analyze Video Tool
  * @module @nxt1/backend/modules/agent/tools/media
  *
- * Agent X tool for analyzing video content via OpenRouter's native video_url
- * support on Gemini models. Handles the full pipeline:
+ * Agent X tool for analyzing video content via Gemini Files API whenever a
+ * resolved video URL is backend-downloadable, with OpenRouter native video URL
+ * handling kept as a fallback for non-uploadable sources. Handles the full pipeline:
  *
  * 1. Receives a URL (page with video, direct MP4, or YouTube link).
  * 2. If the URL is a page (not a direct video), scrapes it to extract video URLs.
- * 3. Sends the video URL(s) + user prompt to a video-capable model via OpenRouter.
+ * 3. Uploads direct video URL(s) to Gemini Files API and analyzes with Gemini directly.
  * 4. Returns the model's analysis as structured text.
  *
  * Supported video sources:
@@ -15,8 +16,9 @@
  * - YouTube URLs (youtube.com/watch, youtu.be) — Gemini processes natively
  * - Pages containing embedded videos (Hudl profiles, MaxPreps, etc.)
  *
- * The tool uses the `video_analysis` model tier (Gemini 2.5 Flash) which
- * supports up to 2-hour videos and has a massive context window.
+ * Direct Gemini Files API analysis avoids OpenRouter provider fetch/rate-limit
+ * failures for CDN-hosted sports video while preserving the existing OpenRouter
+ * path for YouTube and other non-uploadable providers.
  */
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
@@ -401,22 +403,19 @@ export class AnalyzeVideoTool extends BaseTool {
     readonly result: Awaited<ReturnType<OpenRouterService['complete']>>;
     readonly analyzedVideoUrls: readonly string[];
   }> {
-    // ── Proactive Gemini Files API upload for Firebase/GCS MOV files ──────
-    // Firebase/GCS signed URLs with a .mov extension (or any Firebase/GCS URL)
-    // fail Gemini ingest via OpenRouter because Gemini cannot fetch those URLs
-    // directly (IP restrictions, signed token binding, CORS).
-    //
-    // Fix: download the video with our privileged backend fetch, upload to the
-    // Gemini Files API, and pass the resulting stable `file_uri` instead.
-    // This works natively for MOV (video/quicktime) — no FFmpeg needed.
-    const needsFilesApiUpload = videoUrls.some((url) => this.needsGeminiFilesUpload(url));
+    // ── Preferred path: Gemini Files API for every uploadable video URL ─────
+    // The backend downloads the resolved video bytes, uploads them to Gemini
+    // Files API, then calls Gemini directly. This bypasses OpenRouter's
+    // provider-side URL fetch path and its upstream Google AI Studio rate limits.
+    const filesApiUrls = videoUrls.filter((url) => this.shouldUseGeminiFilesApi(url));
 
-    if (needsFilesApiUpload && this.geminiFiles) {
+    if (this.geminiFiles && filesApiUrls.length > 0) {
       logger.info(
-        '[AnalyzeVideoTool] Analyzing Firebase/GCS video(s) via Gemini Files API (direct, no OpenRouter)',
+        '[AnalyzeVideoTool] Analyzing video(s) via Gemini Files API (direct, no OpenRouter)',
         {
           videoCount: videoUrls.length,
-          uploadCount: videoUrls.filter((u) => this.needsGeminiFilesUpload(u)).length,
+          uploadCount: filesApiUrls.length,
+          openRouterFallbackCount: videoUrls.length - filesApiUrls.length,
         }
       );
 
@@ -426,22 +425,27 @@ export class AnalyzeVideoTool extends BaseTool {
         videoCount: videoUrls.length,
       });
 
-      // For each Firebase/GCS URL: upload + analyze directly via Gemini SDK.
-      // For mixed batches (some Firebase, some public), use the first Firebase
-      // URL for Files API and fall back to OpenRouter for the rest.
-      // In practice, video analysis batches are typically single-source.
-      const primaryFirebaseUrl = videoUrls.find((u) => this.needsGeminiFilesUpload(u));
-      const result = await this.geminiFiles.analyzeVideoFromUrl(
-        primaryFirebaseUrl!,
+      const filesResult = await this.geminiFiles.analyzeVideosFromUrls(
+        filesApiUrls,
         prompt,
         Math.min(4096 + (videoUrls.length - 1) * 2048, 8192)
       );
       // Register the Gemini direct-call cost into the job tracker so
       // executeBillingDeduction can apply the platform markup and charge the user.
-      if (result.costUsd > 0 && context?.operationId) {
-        addJobCost(context.operationId, result.costUsd);
+      if (filesResult.costUsd > 0 && context?.operationId) {
+        addJobCost(context.operationId, filesResult.costUsd);
       }
-      return { result, analyzedVideoUrls: videoUrls };
+
+      if (filesApiUrls.length === videoUrls.length) {
+        return { result: filesResult, analyzedVideoUrls: videoUrls };
+      }
+
+      const fallbackUrls = videoUrls.filter((url) => !this.shouldUseGeminiFilesApi(url));
+      const fallbackResult = await this.completeVideoAnalysis(fallbackUrls, prompt, context);
+      return {
+        result: this.combineCompletionResults(filesResult, fallbackResult),
+        analyzedVideoUrls: videoUrls,
+      };
     }
 
     // ── Proactive FFmpeg conversion (fallback when GeminiFiles not configured) ──
@@ -504,8 +508,8 @@ export class AnalyzeVideoTool extends BaseTool {
             videoCount: videoUrls.length,
           });
 
-          const result = await this.geminiFiles.analyzeVideoFromUrl(
-            primaryFirebaseUrl,
+          const result = await this.geminiFiles.analyzeVideosFromUrls(
+            [primaryFirebaseUrl],
             prompt,
             Math.min(4096 + (videoUrls.length - 1) * 2048, 8192)
           );
@@ -543,13 +547,38 @@ export class AnalyzeVideoTool extends BaseTool {
   }
 
   /**
-   * Returns `true` for URLs that should be uploaded via Gemini Files API
-   * before analysis. This covers any Firebase/GCS-hosted video (signed or
-   * unsigned) because Gemini cannot fetch those URLs directly via OpenRouter.
+   * Returns `true` for resolved video URLs that should be uploaded via Gemini
+   * Files API before analysis. YouTube is intentionally excluded because the
+   * Files API requires downloadable bytes, while Gemini supports YouTube via
+   * URL reference through the existing OpenRouter path.
    */
-  private needsGeminiFilesUpload(url: string): boolean {
+  private shouldUseGeminiFilesApi(url: string): boolean {
     if (YOUTUBE_PATTERN.test(url)) return false;
-    return FIREBASE_GCS_HOST_PATTERN.test(url) || GCS_SIGNED_URL_PATTERN.test(url);
+    return (
+      HUDL_CDN_PATTERN.test(url) ||
+      DIRECT_VIDEO_EXTENSIONS.test(url) ||
+      FIREBASE_GCS_HOST_PATTERN.test(url) ||
+      GCS_SIGNED_URL_PATTERN.test(url)
+    );
+  }
+
+  private combineCompletionResults(
+    primary: Awaited<ReturnType<OpenRouterService['complete']>>,
+    fallback: Awaited<ReturnType<OpenRouterService['complete']>>
+  ): Awaited<ReturnType<OpenRouterService['complete']>> {
+    return {
+      content: [primary.content, fallback.content].filter(Boolean).join('\n\n'),
+      toolCalls: [],
+      model: `${primary.model}+${fallback.model}`,
+      usage: {
+        inputTokens: primary.usage.inputTokens + fallback.usage.inputTokens,
+        outputTokens: primary.usage.outputTokens + fallback.usage.outputTokens,
+        totalTokens: primary.usage.totalTokens + fallback.usage.totalTokens,
+      },
+      latencyMs: primary.latencyMs + fallback.latencyMs,
+      costUsd: primary.costUsd + fallback.costUsd,
+      finishReason: fallback.finishReason,
+    };
   }
 
   /**

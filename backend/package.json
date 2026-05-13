@@ -75,7 +75,10 @@
     "deploy:ota:android": "NODE_ENV=production tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts --channel production --platform android",
     "deploy:ota:android:staging": "NODE_ENV=staging tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts --channel staging --platform android",
     "storage:cors": "bash ./scripts/configure-storage-cors.sh",
-    "email:setup-brevo-migration": "node scripts/email/setup-brevo-migration-campaign.mjs"
+    "email:setup-brevo-migration": "node scripts/email/setup-brevo-migration-campaign.mjs",
+    "email:legacy:gmail:dry-run": "node scripts/email/send-legacy-users-gmail.mjs",
+    "email:legacy:gmail:send": "node scripts/email/send-legacy-users-gmail.mjs --commit",
+    "email:legacy:gmail:resume": "node scripts/email/send-legacy-users-gmail.mjs --commit --resume"
   },
   "dependencies": {
     "@apple/app-store-server-library": "^3.0.0",

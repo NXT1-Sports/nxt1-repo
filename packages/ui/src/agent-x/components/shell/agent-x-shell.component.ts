@@ -333,7 +333,7 @@ function sortCoordinatorCategories(
                 (click)="openConnectedAccounts()"
               >
                 <nxt1-icon name="link" [size]="14"></nxt1-icon>
-                <span>Connected Accounts</span>
+                <span class="w-[125px]">Connected Accounts</span>
               </button>
             </div>
 
@@ -656,7 +656,7 @@ function sortCoordinatorCategories(
         justify-content: center;
         width: 100%;
         margin-top: -2px;
-        margin-left: -36px;
+        margin-left: -39px;
       }
 
       .header-logo nxt1-logo {
@@ -721,6 +721,15 @@ function sortCoordinatorCategories(
         100% {
           transform: scale(1);
           opacity: 1;
+        }
+      }
+
+      @keyframes op-spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
         }
       }
 
@@ -989,8 +998,11 @@ function sortCoordinatorCategories(
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        width: 16px;
+        height: 16px;
         color: var(--agent-primary);
         animation: op-spin 1.2s linear infinite;
+        transform-origin: center center;
       }
 
       .operation-status-icon {

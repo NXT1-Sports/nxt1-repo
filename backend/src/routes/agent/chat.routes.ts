@@ -1306,17 +1306,43 @@ async function resolveCompletedOperationMessageId(
     return undefined;
   }
 
-  try {
-    const message = await resolver.getLatestAssistantMessageForOperation(operationId);
-    return typeof message?.id === 'string' && message.id.length > 0 ? message.id : undefined;
-  } catch (err) {
-    logger.warn('Failed to resolve completed operation message ID for synthetic done event', {
-      operationId,
-      threadId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return undefined;
+  // Retry with backoff to handle the race condition where the SSE handler sees
+  // job.status === 'completed' before the worker's MongoDB addMessage write has
+  // propagated (BullMQ marks the job done before the async persist finishes).
+  const RETRY_DELAYS_MS = [0, 300, 700, 1500];
+
+  for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
+    const delayMs = RETRY_DELAYS_MS[attempt];
+    if (delayMs > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+    }
+
+    try {
+      const message = await resolver.getLatestAssistantMessageForOperation(operationId);
+      const resolvedId =
+        typeof message?.id === 'string' && message.id.length > 0 ? message.id : undefined;
+
+      if (resolvedId) return resolvedId;
+
+      if (attempt < RETRY_DELAYS_MS.length - 1) {
+        logger.debug('resolveCompletedOperationMessageId: message not found yet, retrying', {
+          operationId,
+          threadId,
+          attempt,
+        });
+      }
+    } catch (err) {
+      logger.warn('Failed to resolve completed operation message ID for synthetic done event', {
+        operationId,
+        threadId,
+        attempt,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      // On transient error, retry; on final attempt return undefined
+    }
   }
+
+  return undefined;
 }
 
 function buildPauseYieldState(params: {
@@ -3980,6 +4006,21 @@ router.post(
             userId: user.uid,
           });
         }
+      }
+
+      // If the client supplied a threadId but resolveThread returned undefined, the
+      // job will have no threadId in its context — the assistant response will not be
+      // persisted and the frontend will log "missing persisted DB message ID".
+      // This is the primary driver of that client-side error. Root cause is most
+      // likely an auth UID mismatch (note #4: "auth user state issue prod").
+      if (threadId && !effectiveThreadId) {
+        logger.error(
+          'Chat route: client threadId failed ownership check — job will run without threadId context',
+          {
+            requestedThreadId: threadId,
+            userId: user.uid,
+          }
+        );
       }
 
       const { chargeAmountCents: estimatedGateCostCents } = estimateChargeAmountSync(

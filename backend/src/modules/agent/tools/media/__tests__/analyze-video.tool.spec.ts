@@ -18,6 +18,10 @@ describe('AnalyzeVideoTool', () => {
   const ffmpeg = {
     convertVideo: vi.fn(),
   };
+  const geminiFiles = {
+    analyzeVideoFromUrl: vi.fn(),
+    analyzeVideosFromUrls: vi.fn(),
+  };
 
   const context: ToolExecutionContext = {
     userId: 'user-123',
@@ -31,7 +35,90 @@ describe('AnalyzeVideoTool', () => {
     vi.clearAllMocks();
   });
 
-  it('sends public direct video files straight to OpenRouter', async () => {
+  it('uses Gemini Files API for public direct video files when configured', async () => {
+    const tool = new AnalyzeVideoTool(
+      scraper as never,
+      llm as never,
+      apify as never,
+      ffmpeg as never,
+      geminiFiles as never
+    );
+
+    geminiFiles.analyzeVideosFromUrls.mockResolvedValueOnce({
+      content: 'Detailed Gemini Files football play analysis',
+      toolCalls: [],
+      model: 'gemini-2.5-flash',
+      usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+      latencyMs: 1200,
+      costUsd: 0.001,
+      finishReason: 'STOP',
+    });
+
+    const result = await tool.execute(
+      {
+        url: 'https://cdn.example.com/game-film.mp4',
+        prompt: 'Analyze this clip.',
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    expect(geminiFiles.analyzeVideosFromUrls).toHaveBeenCalledWith(
+      ['https://cdn.example.com/game-film.mp4'],
+      'Analyze this clip.',
+      4096
+    );
+    expect(llm.complete).not.toHaveBeenCalled();
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        analysis: 'Detailed Gemini Files football play analysis',
+        model: 'gemini-2.5-flash',
+        sourceVideoUrls: ['https://cdn.example.com/game-film.mp4'],
+        videoUrls: ['https://cdn.example.com/game-film.mp4'],
+      })
+    );
+  });
+
+  it('uses Gemini Files API for Hudl CDN MP4s when configured', async () => {
+    const tool = new AnalyzeVideoTool(
+      scraper as never,
+      llm as never,
+      apify as never,
+      ffmpeg as never,
+      geminiFiles as never
+    );
+
+    const hudlUrl =
+      'https://vf.hudl.com/p-highlights/User/18167874/63122f7d2aa66805346b6425/a821e6aa_720.mp4?v=EAA6F78B7EC0DA08';
+
+    geminiFiles.analyzeVideosFromUrls.mockResolvedValueOnce({
+      content: 'Hudl video analyzed through Gemini Files',
+      toolCalls: [],
+      model: 'gemini-2.5-flash',
+      usage: { inputTokens: 90, outputTokens: 45, totalTokens: 135 },
+      latencyMs: 1000,
+      costUsd: 0.001,
+      finishReason: 'STOP',
+    });
+
+    const result = await tool.execute(
+      {
+        url: hudlUrl,
+        prompt: 'Find the best moments.',
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    expect(geminiFiles.analyzeVideosFromUrls).toHaveBeenCalledWith(
+      [hudlUrl],
+      'Find the best moments.',
+      4096
+    );
+    expect(llm.complete).not.toHaveBeenCalled();
+  });
+
+  it('falls back to OpenRouter for public direct video files when Gemini Files is not configured', async () => {
     const tool = new AnalyzeVideoTool(scraper as never, llm as never);
 
     llm.complete.mockResolvedValueOnce({

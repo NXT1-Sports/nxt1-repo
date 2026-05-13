@@ -180,6 +180,12 @@ export class OnboardingCongratulationsPage implements OnInit {
   /** Reused across final-slide prewarm and CTA completion to avoid duplicate work. */
   private initialPreparationPromise: Promise<void> | null = null;
 
+  /** Signature of goal selection used for the currently active preparation run. */
+  private initialPreparationGoalsKey: string | null = null;
+
+  /** Monotonic run id so stale async completions cannot flip readiness early. */
+  private initialPreparationRunId = 0;
+
   // ============================================
   // COMPUTED (from AuthFlowService)
   // ============================================
@@ -279,6 +285,14 @@ export class OnboardingCongratulationsPage implements OnInit {
   onGoalsChanged(goals: AgentGoal[]): void {
     this.selectedGoals.set(goals);
     this.logger.debug('Goals updated', { count: goals.length });
+
+    // If transition is visible or this is the prewarm slide, prepare using latest goals.
+    if (
+      this.isTransitioningToAgent() ||
+      (goals.length > 0 && this.isPreparationSlide(this.currentSlideIndex()))
+    ) {
+      void this.prepareInitialAgentStateIfNeeded();
+    }
   }
 
   /** Handle complete (CTA button click) */
@@ -308,8 +322,7 @@ export class OnboardingCongratulationsPage implements OnInit {
     });
 
     // Prepare agent state on the second-to-last slide (works for both 3 and 5 slide flows)
-    const prepSlideIndex = Math.max(0, this.totalSlides() - 2);
-    if (event.index === prepSlideIndex) {
+    if (this.isPreparationSlide(event.index) && (!this.isGoalsSlide() || this.hasSelectedGoals())) {
       void this.prepareInitialAgentStateIfNeeded();
     }
   }
@@ -339,7 +352,6 @@ export class OnboardingCongratulationsPage implements OnInit {
     }
 
     this.isTransitioningToAgent.set(true);
-    this.initialGenerationReady.set(false);
     void this.prepareInitialAgentStateIfNeeded();
   }
 
@@ -383,20 +395,40 @@ export class OnboardingCongratulationsPage implements OnInit {
   }
 
   private prepareInitialAgentStateIfNeeded(): Promise<void> {
-    if (this.initialPreparationPromise) {
+    const goalsSnapshot = this.selectedGoals();
+    const goalsKey = this.buildGoalsPreparationKey(goalsSnapshot);
+
+    if (this.initialPreparationPromise && this.initialPreparationGoalsKey === goalsKey) {
       return this.initialPreparationPromise;
     }
 
-    this.initialPreparationPromise = this.prepareInitialAgentState().finally(() => {
-      this.initialGenerationReady.set(true);
+    // Either first run or goals changed since prewarm started.
+    this.initialGenerationReady.set(false);
+    this.initialPreparationGoalsKey = goalsKey;
+    this.initialPreparationRunId += 1;
+    const runId = this.initialPreparationRunId;
+
+    this.initialPreparationPromise = this.prepareInitialAgentState(goalsSnapshot).finally(() => {
+      if (runId === this.initialPreparationRunId) {
+        this.initialGenerationReady.set(true);
+      }
     });
 
     return this.initialPreparationPromise;
   }
 
-  private async prepareInitialAgentState(): Promise<void> {
-    const goals = this.selectedGoals();
+  private buildGoalsPreparationKey(goals: readonly AgentGoal[]): string {
+    return goals
+      .map((goal) => `${goal.id}|${goal.text}|${goal.category ?? 'custom'}`)
+      .sort()
+      .join('||');
+  }
 
+  private isPreparationSlide(index: number): boolean {
+    return index === Math.max(0, this.totalSlides() - 2);
+  }
+
+  private async prepareInitialAgentState(goals: readonly AgentGoal[]): Promise<void> {
     if (goals.length > 0) {
       const dashboardGoals: AgentDashboardGoal[] = goals.map((g) => ({
         id: g.id,

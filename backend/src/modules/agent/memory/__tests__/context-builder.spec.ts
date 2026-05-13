@@ -385,6 +385,26 @@ describe('ContextBuilder', () => {
       expect(gmail?.email).toBe('john@gmail.com');
     });
 
+    it('should preserve the provider name for connected email accounts', async () => {
+      mockCacheGet.mockResolvedValueOnce(null);
+      const user = createFullUserDoc();
+      user.connectedEmails = [
+        {
+          provider: 'microsoft',
+          email: 'john@outlook.com',
+          isValid: true,
+          lastSyncedAt: '2026-03-05T12:00:00Z',
+        },
+      ];
+      mockGetUserById.mockResolvedValueOnce(user);
+
+      const ctx = await builder.buildContext('user-123');
+
+      const microsoft = ctx.connectedAccounts?.find((a) => a.provider === 'microsoft');
+      expect(microsoft).toBeDefined();
+      expect(microsoft?.email).toBe('john@outlook.com');
+    });
+
     it('should map the last active timestamp', async () => {
       mockCacheGet.mockResolvedValueOnce(null);
       mockGetUserById.mockResolvedValueOnce(createFullUserDoc());

@@ -14,7 +14,7 @@ import {
   EnvironmentInjector,
   runInInjectionContext,
 } from '@angular/core';
-import { APP_BASE_HREF } from '@angular/common';
+import { APP_BASE_HREF, IMAGE_CONFIG } from '@angular/common';
 import { provideRouter, withComponentInputBinding, RouteReuseStrategy } from '@angular/router';
 import { provideHttpClient, withFetch, withInterceptors } from '@angular/common/http';
 import { provideAnimations } from '@angular/platform-browser/animations';
@@ -61,6 +61,7 @@ import {
   INTEL_API_BASE_URL,
   HELP_CENTER_API,
   TEAM_PROFILE_API_BASE_URL,
+  NXT_USE_IONIC_TOASTS,
 } from '@nxt1/ui';
 import { FEED_ENGAGEMENT } from '@nxt1/ui/feed';
 import { MANAGE_TEAM_API_BASE_URL, TEAM_LOGO_UPLOADER } from '@nxt1/ui/manage-team';
@@ -155,6 +156,15 @@ export const appConfig: ApplicationConfig = {
     // Explicit base href for Capacitor and Vite dev server compatibility
     { provide: APP_BASE_HREF, useValue: '/' },
 
+    // NgOptimizedImage configuration for Capacitor.
+    // Disables responsive srcset generation since Capacitor serves local assets
+    // from capacitor://localhost/ where width-variant URLs don't exist.
+    // The built-in noop loader (default) is kept — no custom loader override needed.
+    {
+      provide: IMAGE_CONFIG,
+      useValue: { disableImageSizeWarning: true, disableOptimizedSrcset: true },
+    },
+
     provideRouter(routes, withComponentInputBinding()),
 
     // HTTP client with error handling
@@ -190,6 +200,9 @@ export const appConfig: ApplicationConfig = {
       scrollAssist: true, // Auto-scroll focused inputs into view when keyboard opens
       scrollPadding: true, // Add padding to content when keyboard opens to prevent overlap
     }),
+
+    // Mobile app uses Ionic overlays for every shared NxtToastService call.
+    { provide: NXT_USE_IONIC_TOASTS, useValue: true },
 
     { provide: RouteReuseStrategy, useClass: IonicRouteStrategy },
 

@@ -6,8 +6,12 @@ import { BaseMcpClientService } from '../base-mcp-client.service.js';
 class TestMcpClientService extends BaseMcpClientService {
   readonly serverName = 'test';
   connectMock?: ReturnType<typeof vi.fn>;
+  transportFactory?: () => Transport;
 
   protected getTransport(): Transport {
+    if (this.transportFactory) {
+      return this.transportFactory();
+    }
     return {} as Transport;
   }
 
@@ -154,5 +158,18 @@ describe('BaseMcpClientService', () => {
     ).rejects.toThrow('bad actor input');
 
     expect(callTool).toHaveBeenCalledTimes(2);
+  });
+
+  it('fails fast on non-retryable connect errors like ENOSPC', async () => {
+    const transportFactory = vi.fn(() => {
+      const error = new Error('npm error code ENOSPC: no space left on device');
+      (error as Error & { code?: string }).code = 'ENOSPC';
+      throw error;
+    });
+    service.transportFactory = transportFactory;
+
+    await expect(service.connect()).rejects.toThrow('Non-retryable connection failure');
+
+    expect(transportFactory).toHaveBeenCalledTimes(1);
   });
 });

@@ -3,6 +3,8 @@
  * @module @nxt1/backend/modules/agent/skills/strategy
  *
  * Adds a practical framework for pre-game planning and in-game adaptation.
+ * Enhanced to receive team context (our team vs opponent, colors, perspective)
+ * so it can generate perspective-aware game plans.
  */
 
 import { BaseSkill, type SkillCategory } from '../base.skill.js';
@@ -14,9 +16,50 @@ export class CoachGamePlanAndAdjustmentsSkill extends BaseSkill {
     'halftime resets, matchup exploitation, and decision triggers by game state.';
   readonly category: SkillCategory = 'strategy';
 
-  getPromptContext(): string {
-    return `## Coach Game Plan And Adjustments
+  getPromptContext(params?: Record<string, unknown>): string {
+    // Extract team context if provided
+    const team = (params as any)?.team;
+    const game = (params as any)?.game;
 
+    const teamContext =
+      team && (team.ownTeamName || team.opponentTeamName || team.perspectiveTeam)
+        ? `\n### Team Context\n` +
+          (team.ownTeamName ? `- **Our Team**: ${team.ownTeamName}` : '') +
+          (team.ownTeamColor ? ` (${team.ownTeamColor} jersey)` : '') +
+          '\n' +
+          (team.opponentTeamName ? `- **Opponent**: ${team.opponentTeamName}` : '') +
+          (team.opponentTeamColor ? ` (${team.opponentTeamColor} jersey)` : '') +
+          '\n' +
+          (team.perspectiveTeam
+            ? team.perspectiveTeam === 'own'
+              ? '- **Perspective**: Our team (offensive planning)'
+              : '- **Perspective**: Opponent scouting (defensive analysis)'
+            : '') +
+          '\n'
+        : '';
+
+    const gameContext =
+      game && (game.phase || game.sport)
+        ? `\n### Game Context\n` +
+          (game.sport
+            ? `- **Sport**: ${game.sport}` + (game.division ? ` (${game.division})` : '') + '\n'
+            : '') +
+          (game.phase
+            ? `- **Phase**: ${game.phase}` +
+              (game.phase === 'pregame'
+                ? ' — Focus on predictive prep and contingency planning'
+                : game.phase === 'in-game'
+                  ? ' — Focus on reactive adjustments and momentum preservation'
+                  : game.phase === 'postgame'
+                    ? ' — Focus on learning and refinement'
+                    : '') +
+              '\n'
+            : '') +
+          ''
+        : '';
+
+    return `## Coach Game Plan And Adjustments
+${teamContext}${gameContext}
 ### Pre-Game Plan Structure
 1. **Identity First**: anchor on team strengths and preferred tempo
 2. **Primary Attack Plan**: top actions/sets/calls to create high-value outcomes

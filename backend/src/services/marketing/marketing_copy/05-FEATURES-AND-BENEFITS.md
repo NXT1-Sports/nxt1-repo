@@ -6,8 +6,9 @@ How to translate our technical architecture into marketing benefits.
 
 - **What it is:** Pure open-ended AI agent interface acting as the primary UI.
 - **How to sell it:** "Your recruiting command center. Say goodbye to rigid
-  menus. Just type what you need—'Rank the college programs our roster should
-  contact this week and build the outreach queue'—and watch Agent X execute."
+  menus. Just type what you need-'Build this week's outreach queue for our high
+  school program and prioritize best-fit clubs and college pathways'-and watch
+  Agent X execute."
 
 ## 2. AI Creative Director
 
@@ -22,8 +23,8 @@ How to translate our technical architecture into marketing benefits.
 - **What it is:** Background processes for long-running AI tasks like batch
   emailing and film processing.
 - **How to sell it:** "Work while you sleep. Launch roster-wide recruiting
-  outreach and film sends that run in the background. Return to a dashboard full
-  of replies, follow-ups, and completed assets."
+  outreach, family communications, and film sends that run in the background.
+  Return to a dashboard full of replies, follow-ups, and completed assets."
 
 ## 4. AI Scout Reports
 

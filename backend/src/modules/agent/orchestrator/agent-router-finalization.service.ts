@@ -77,7 +77,30 @@ function appendDeliverablesSection(summary: string, urls: readonly string[]): st
   if (missing.length === 0) return summary;
 
   const prefix = summary.trim().length > 0 ? `${summary.trim()}\n\n` : '';
-  const lines = missing.map((url) => `- ${url}`).join('\n');
+  const lines = missing
+    .map((url) => {
+      // Image URLs → render as inline image (markdown renderer converts to <img>)
+      if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)([?#]|$)/i.test(url)) {
+        return `- ![](${url})`;
+      }
+      // Video URLs → labeled link with filename
+      if (/\.(mp4|mov|webm|m4v)([?#]|$)/i.test(url)) {
+        try {
+          const filename = new URL(url).pathname.split('/').pop() ?? 'video';
+          return `- [▶ ${filename}](${url})`;
+        } catch {
+          return `- [Video](${url})`;
+        }
+      }
+      // Other URLs (PDF, export, etc.) → labeled link with filename
+      try {
+        const filename = new URL(url).pathname.split('/').pop() ?? '';
+        return filename ? `- [${filename}](${url})` : `- [View file](${url})`;
+      } catch {
+        return `- [View file](${url})`;
+      }
+    })
+    .join('\n');
   return `${prefix}Deliverables:\n${lines}`;
 }
 

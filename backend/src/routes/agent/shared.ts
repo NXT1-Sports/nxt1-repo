@@ -227,10 +227,17 @@ export async function resolveThread(
   if (threadId) {
     const thread = await service.getThread(threadId, userId);
     if (!thread) {
-      logger.warn('Thread ownership check failed — threadId does not belong to user', {
-        threadId,
-        userId,
-      });
+      // Log at error level: this is a data-loss scenario — the assistant response
+      // will have no threadId in the job context and won't be persisted.
+      // Most likely caused by an auth UID mismatch (stale token or re-auth with
+      // different UID) where the thread was created under a previous UID.
+      logger.error(
+        'Thread ownership check failed — threadId not found for userId; message will not persist',
+        {
+          threadId,
+          userId,
+        }
+      );
       return undefined;
     }
     return threadId;

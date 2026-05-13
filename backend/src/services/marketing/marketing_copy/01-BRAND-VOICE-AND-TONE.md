@@ -14,9 +14,12 @@ sports strategy (discipline, intent, action) and high-end enterprise software
 
 When describing who NXT1 serves, use this exact persona framing:
 
-- **Core users:** Athletes, coaches, scouts, and sports programs.
-- **Expanded users (when relevant):** Parents and content creators supporting
-  athlete/program outcomes.
+- **Primary ICP:** Athletic directors and coaching leadership at mid-to-large
+  high schools (800+ students) and competitive youth clubs/training academies.
+- **Secondary ICP:** Facility owners and operators managing multi-sport
+  complexes and camps.
+- **Activated users:** Athletes and families, with content creators supporting
+  engagement and communication outcomes.
 
 Always position NXT1 as an active platform that does work for these personas,
 not a passive place where they upload information and wait.

@@ -31,6 +31,7 @@ import {
   type AgentIdentifier,
   type AgentOperationResult,
   type AgentSessionContext,
+  type AgentToolAccessContext,
   type AgentToolDefinition,
   type ModelRoutingConfig,
   MODEL_ROUTING_DEFAULTS,
@@ -91,9 +92,33 @@ const PRIMARY_REASONING_CONTRACT = [
   '  EXAMPLE (team): "delete last 2 schedule items" → query team_timeline_feed → choose first 2 with feedType `SCHEDULE` → pass `referenceId` values for `delete_schedule_event`. EXAMPLE (profile): "delete my last 2 posts" → query user_timeline_feed → items[0].id/userId + items[1].id/userId → delegate. NEVER ask for IDs.',
   '',
   '1) Decide request class first: simple_routing | ambiguous | numeric_or_aggregation | safety_or_mutation.',
+  '',
+  '   CRITICAL — Delegating a creation/write task to a coordinator IS always safety_or_mutation, never simple_routing:',
+  '   Any request where a coordinator will create, save, or permanently write an artifact MUST be classified as safety_or_mutation.',
+  '   This includes: "create a game plan", "build a playbook", "write a training program", "design plays", "make a scout report",',
+  '   "draft emails / send outreach", "create an export or PDF", "build a drill board", "generate a schedule".',
+  '   Reason: coordinators execute immediately on delegation — you are the last checkpoint before any persistent write happens.',
+  '',
   '2) Before choosing the first tool, sketch the likely steps to finish the request and check whether any required step depends on coordinator-owned tools.',
   '3) For simple_routing: route immediately when the answer can be completed from router-owned tools without clarification overhead.',
-  '4) For ambiguous or safety_or_mutation: ask concise clarification questions before acting.',
+  '4) For ambiguous or safety_or_mutation:',
+  '   a) Identify the minimum required intake fields for the specific request type.',
+  '      Game plan: opponent (confirmed name/ID) + date/week + focus scope + diagram preference.',
+  '      Playbook: sport + team + play types + diagram preference.',
+  '      Training program: athlete or roster segment + duration + phase goal.',
+  '      Email/outreach: confirmed recipient(s) + goal/tone.',
+  '      Export/PDF: audience + branding preference.',
+  '      Play diagrams: sport + formation/concept + positions.',
+  '   b) Fields already present in task context or resolvable in one deterministic lookup — do NOT ask.',
+  '   c) Genuinely missing fields — write a single friendly prose question covering ALL gaps at once, then call `ask_user` and wait.',
+  '   d) Once all required context is gathered, write a brief "Here is what I will do" summary and explicitly ask "Should I go ahead?"',
+  '      before delegating to any coordinator for a creation/write task.',
+  '   e) After the user confirms, delegate to the coordinator with full gathered context included in the handoff payload.',
+  '',
+  '   EXCEPTION — Skip step (d) confirmation but never skip intake when the user already said "yes", "go ahead", "do it",',
+  '   "just create it", or equivalent affirmation in the same message as the original request.',
+  '   EXCEPTION — Skip intake entirely for reads, searches, analysis, and lookups that produce no persistent output.',
+  '',
   '5) For numeric_or_aggregation: prefer deterministic tool-backed computation before answering.',
   '6) Never hallucinate counts/totals; if data is missing, ask for the minimum missing detail.',
   '6b) Ask User Decision Matrix (CRITICAL):',
@@ -157,12 +182,12 @@ const PRIMARY_REASONING_CONTRACT = [
   '    - Use `delegate_to_coordinator` with `data_coordinator` when the chart should be built from imported, scraped, or normalized datasets.',
   '    - Only use `brand_coordinator` when the user explicitly wants a creative poster, social graphic, thumbnail, or image-first branded asset rather than a data/process chart.',
   '10d-ii) Play Diagram Routing Rule (CRITICAL — NO EXCEPTIONS):',
-  '    - NEVER call `create_play_diagram` or `write_playbooks` directly from the router — these tools are NOT in the router tool policy and will be rejected.',
-  '    - Play diagrams and playbook persistence are ALWAYS a strategy_coordinator responsibility — they are X-and-O route trees and formation diagrams for playbook design, not creative/marketing assets.',
-  '    - When a user asks to "draw a play", "create play diagrams", "diagram routes", "design a playbook", "add plays to my playbook", or requests multi-play playbook generation with diagrams → delegate to `strategy_coordinator` via `delegate_to_coordinator`, NOT brand_coordinator.',
+  '    - NEVER call `create_play_diagram`, `write_playbooks`, or `save_gameplan` directly from the router — these tools are NOT in the router tool policy and will be rejected.',
+  '    - Play diagrams, reusable playbook persistence, and matchup-specific game plan persistence are ALWAYS a strategy_coordinator responsibility — they are X-and-O route trees, coaching diagrams, and tactical strategy artifacts, not creative/marketing assets.',
+  '    - When a user asks to "draw a play", "create play diagrams", "diagram routes", "design a playbook", "add plays to my playbook", "build a game plan", or requests multi-play playbook generation with diagrams → delegate to `strategy_coordinator` via `delegate_to_coordinator`, NOT brand_coordinator.',
   '    - Brand_coordinator handles marketing graphics, social thumbnails, and branded visuals. Strategy_coordinator handles play diagrams, strategic visuals, and sports-specific tactical content.',
   '    - If your step summary or handoff mentions "diagrams for the playbook", "route diagrams", "play formations", or "coaching diagrams" → immediately correct to strategy_coordinator.',
-  '    - This rule applies even when a play diagram URL already exists in context — `write_playbooks` still runs inside strategy_coordinator, not from the router.',
+  '    - This rule applies even when a play diagram URL already exists in context — `write_playbooks` and `save_gameplan` still run inside strategy_coordinator, not from the router.',
   '10e) Analytics event routing rule:',
   '    - Requests for raw analytics events, Agent X activity so far, outreach event history, engagement summaries, exported activity data, or spreadsheet/table views of activity should go to `data_coordinator`.',
   '    - Requests for interpretation, recommendations, strategic takeaways, or executive-style dashboard narratives from analytics should go to `strategy_coordinator`.',
@@ -185,11 +210,10 @@ const PRIMARY_REASONING_CONTRACT = [
   '12) After `delegate_to_coordinator`, `create_plan`, or `execute_saved_plan`, inspect the tool result JSON fields `user_already_received_response` and `follow_up_required`.',
   '13) If `user_already_received_response` is true and `follow_up_required` is false, do NOT add any extra narration, recap, or postamble. End your turn immediately.',
   '14) Only add follow-up text when `follow_up_required` is true (for example failures or missing output). Keep it to one concise recovery sentence.',
-  '15) `enqueue_heavy_task` — background queue escalation rules (STRICT):',
-  "   15a) ONLY call `enqueue_heavy_task` when the user's request clearly requires an operation that would take longer than 5 minutes to complete. If the operation can finish in under 5 minutes, handle it through normal coordinator delegation or plan mode — never queue it.",
-  '   15b) DO NOT call `enqueue_heavy_task` for requests that can be handled conversationally, through coordinator delegation, or via a saved plan — those are always the preferred paths.',
-  '   15c) NEVER call `enqueue_heavy_task` when the current mode is `planner`. In planner mode the user wants a reviewable plan, not background execution. Use `create_plan` instead.',
-  '   15d) When you enqueue a heavy task, immediately tell the user what was queued, that it is running in the background, and that they will receive a notification when it is done. Do not add further tool calls after enqueuing.',
+  '15) Execution path rule (STRICT):',
+  '   15a) Complete requests using your own active toolset and normal coordinator delegation flow. Do not attempt background queue escalation.',
+  '   15b) If work spans multiple steps, keep executing within this run via direct tools, `delegate_to_coordinator`, or planner tools as appropriate.',
+  '   15c) In planner mode, always produce reviewable plans with `create_plan` or `plan_and_execute` per user intent.',
 ].join('\n');
 
 interface PrimaryToolSelectionTrace {
@@ -1239,10 +1263,13 @@ export class PrimaryAgent extends BaseAgent {
    * the registry; included here so callers don't need to know the curated
    * list manually.
    */
-  static buildPrimaryToolDefinitions(registry: ToolRegistry): readonly AgentToolDefinition[] {
+  static buildPrimaryToolDefinitions(
+    registry: ToolRegistry,
+    accessContext?: AgentToolAccessContext
+  ): readonly AgentToolDefinition[] {
     const allowed = new Set([...getRouterToolPolicy(), ...PRIMARY_SYSTEM_TOOLS]);
     return registry
-      .getDefinitions('router')
+      .getDefinitions('router', accessContext)
       .filter((def) => def.category === 'system' || allowed.has(def.name));
   }
 }

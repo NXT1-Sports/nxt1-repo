@@ -2873,6 +2873,22 @@ const billingResolutionCache = new Map<string, CachedBillingResolution>();
 export function evictBillingResolutionCache(userId: string): void {
   billingResolutionCache.delete(userId);
 }
+
+/**
+ * Called immediately after a coach/director's organization is created during
+ * onboarding.  Writes the org billing target to the user's `Users` doc and
+ * evicts the resolution cache so the very next call to `resolveBillingTarget`
+ * sees the new org target rather than defaulting to personal billing.
+ */
+export async function initOrganizationBillingTargetForUser(
+  db: Firestore,
+  userId: string,
+  organizationId: string
+): Promise<void> {
+  const orgTarget = buildOrganizationBillingTarget(organizationId, undefined, 'organization');
+  await setActiveBillingTarget(db, userId, orgTarget);
+  evictBillingResolutionCache(userId);
+}
 const BILLING_RESOLUTION_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const BILLING_RESOLUTION_CACHE_MAX_SIZE = 10_000; // Prevent unbounded growth
 

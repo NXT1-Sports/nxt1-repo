@@ -171,6 +171,21 @@ export {
   type AgentXThreadActionResponse,
 } from './agent-x.api';
 
+export {
+  createTeamGamePlanApi,
+  type TeamGamePlanApi,
+  type CreateTeamGamePlanRequest,
+  type CreateTeamGamePlanResponse,
+  type UpdateTeamGamePlanRequest,
+  type UpdateTeamGamePlanResponse,
+  type GetTeamGamePlanRequest,
+  type GetTeamGamePlanResponse,
+  type ListTeamGamePlansRequest,
+  type ListTeamGamePlansResponse,
+  type DeleteTeamGamePlanRequest,
+  type DeleteTeamGamePlanResponse,
+} from './team-game-plan.api';
+
 // Shared copy resolvers
 export {
   resolveAgentApprovalCopy,
@@ -331,6 +346,15 @@ export type {
   JobEventType,
   JobEvent,
 } from './agent.types';
+
+// Game Analysis Parameters (Team & Game Context for Skills)
+export type {
+  GameAnalysisTeamContext,
+  GameAnalysisGameContext,
+  GameAnalysisParams,
+} from './game-analysis-params';
+
+export { isGameAnalysisParams, extractGameAnalysisParams } from './game-analysis-params';
 
 // Agentic constants
 export {

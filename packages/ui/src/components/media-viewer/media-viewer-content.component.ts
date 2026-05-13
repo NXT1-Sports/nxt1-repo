@@ -838,12 +838,41 @@ export class NxtMediaViewerContentComponent implements OnInit {
   }
 
   private async saveImageItem(item: MediaViewerItem): Promise<void> {
+    const baseName = item.name?.replace(/\.[^.]+$/, '') ?? this.deriveFileName(item);
+
+    if (this.platform.isNative()) {
+      // On iOS native, browser fetch() to cross-origin URLs (e.g. Firebase Storage)
+      // fails with "Load failed" (NSURLError) because WKWebView blocks the request.
+      // Filesystem.downloadFile() uses native NSURLSession which has no such restriction.
+      const { Filesystem, Directory } = await import('@capacitor/filesystem');
+      const tempName = `nxt1_img_${Date.now()}.jpg`;
+      const downloaded = await Filesystem.downloadFile({
+        url: item.url,
+        path: tempName,
+        directory: Directory.Cache,
+      });
+
+      if (!downloaded.path) throw new Error('Download failed — no path returned');
+
+      const result = await this.mediaService.saveImageFromFileUri(downloaded.path, 'NXT1');
+
+      if (result.success) {
+        if (result.path === 'Photos') {
+          this.toast.success('Saved to camera roll!');
+        }
+        // Share sheet shown — no extra toast needed
+      } else if (result.error && result.error !== 'Cancelled') {
+        this.toast.error(result.error ?? 'Failed to save');
+      }
+      return;
+    }
+
+    // Web: fetch as blob (cross-origin blob URL workaround for <a download>)
     const response = await fetch(item.url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
     const blob = await response.blob();
     const format = this.inferImageFormat(blob, item.url);
-    const baseName = item.name?.replace(/\.[^.]+$/, '') ?? this.deriveFileName(item);
 
     const result = await this.mediaService.saveImage({
       data: blob,
@@ -853,8 +882,8 @@ export class NxtMediaViewerContentComponent implements OnInit {
     });
 
     if (result.success) {
-      this.toast.success(this.platform.isNative() ? 'Saved to camera roll!' : 'Download started');
-    } else {
+      this.toast.success('Download started');
+    } else if (result.error && result.error !== 'Cancelled') {
       this.toast.error(result.error ?? 'Failed to save');
     }
   }

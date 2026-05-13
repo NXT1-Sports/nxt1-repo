@@ -41,6 +41,7 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'get_recent_sync_summaries',
   'delete_memory',
   'dynamic_export',
+  'recommend_learning_videos',
   'ask_user',
   'search_web',
   'scrape_webpage',
@@ -74,15 +75,10 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'classify_media_url',
   'extract_page_images',
   'extract_hudl_video',
-  // Background queue escalation — any agent can offload a genuinely heavy operation
-  'enqueue_heavy_task',
   // Diagram board CRUD tools used by strategy/coaching flows
   'create_board_diagram',
   'update_board_diagram',
   'delete_board_diagram',
-  // Internal outbound mail transport wrappers still exposed as callable tools
-  'send_email_via_nxt1',
-  'batch_send_email_via_nxt1',
 ]);
 
 /**
@@ -118,14 +114,15 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   'read_live_view',
   'capture_live_view_screenshot',
   'close_live_view',
+  'recommend_learning_videos',
   'get_analytics_summary',
+  'generate_chart_visualization',
+  'dynamic_export',
   'track_analytics_event',
   'scan_timeline_posts',
   'list_recurring_tasks',
   'send_email',
   'batch_send_email',
-  // Background queue escalation (Primary only uses this directly for whole-request hand-off)
-  'enqueue_heavy_task',
   // Google Workspace is limited to email workflows for now; broader Docs/
   // Sheets/Slides/Drive actions are intentionally not exposed.
   'gmail_send_email',
@@ -174,7 +171,6 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'call_apify_actor',
     'get_apify_actor_output',
     'runway_generate_video',
-    'runway_edit_video',
     'runway_upscale_video',
     'runway_check_task',
     'ffmpeg_trim_video',
@@ -246,6 +242,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'write_combine_metrics',
     'write_schedule',
     'analyze_video',
+    'recommend_learning_videos',
     'analyze_image',
     'get_video_details',
     'search_apify_actors',
@@ -267,6 +264,7 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
   recruiting_coordinator: composeToolPatterns([
     'search_colleges',
     'search_college_coaches',
+    'recommend_learning_videos',
     'stage_media',
     'write_recruiting_activity',
     'send_email',
@@ -274,16 +272,22 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
   ]),
 
   strategy_coordinator: composeToolPatterns([
+    'get_gameplan',
+    'list_gameplans',
     'get_analytics_summary',
     'generate_chart_visualization',
     'create_play_diagram',
     'write_playbooks',
+    'save_gameplan',
+    'update_gameplan',
+    'delete_gameplan',
     'list_recurring_tasks',
     'update_recurring_task',
     'cancel_recurring_task',
     'list_microsoft_365_tools',
     'run_microsoft_365_tool',
     'analyze_video',
+    'recommend_learning_videos',
     'analyze_image',
     'get_video_details',
     'search_apify_actors',

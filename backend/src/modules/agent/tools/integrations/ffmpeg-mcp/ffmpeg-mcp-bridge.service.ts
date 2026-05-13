@@ -30,8 +30,26 @@ import {
   type CompressVideoInput,
 } from './schemas.js';
 
-const DEFAULT_TIMEOUT_MS = 60_000;
-const LONG_RUNNING_TIMEOUT_MS = 180_000;
+function readPositiveIntegerEnv(name: string, fallback: number): number {
+  const rawValue = process.env[name];
+  if (!rawValue) return fallback;
+
+  const parsed = Number.parseInt(rawValue, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    logger.warn('[FfmpegMCP] Ignoring invalid timeout environment value', {
+      name,
+      value: rawValue,
+      fallback,
+    });
+    return fallback;
+  }
+
+  return parsed;
+}
+
+const DEFAULT_TIMEOUT_MS = readPositiveIntegerEnv('FFMPEG_MCP_DEFAULT_TIMEOUT_MS', 60_000);
+const LONG_RUNNING_TIMEOUT_MS = readPositiveIntegerEnv('FFMPEG_MCP_LONG_TIMEOUT_MS', 180_000);
+const REENCODE_TIMEOUT_MS = readPositiveIntegerEnv('FFMPEG_MCP_REENCODE_TIMEOUT_MS', 300_000);
 
 /**
  * Unwrap the `{ result: "<json-string>" }` envelope that some MCP server
@@ -510,7 +528,7 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
         box: input.box,
         box_color: input.boxColor,
       },
-      LONG_RUNNING_TIMEOUT_MS,
+      REENCODE_TIMEOUT_MS,
       context
     );
   }
@@ -530,7 +548,7 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
         primary_color: input.primaryColor,
         margin_v: input.marginV,
       },
-      LONG_RUNNING_TIMEOUT_MS,
+      REENCODE_TIMEOUT_MS,
       context
     );
   }
@@ -568,7 +586,7 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
         crf: input.crf,
         extra_args: input.extraArgs,
       },
-      LONG_RUNNING_TIMEOUT_MS,
+      REENCODE_TIMEOUT_MS,
       context
     );
   }
@@ -587,7 +605,7 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
         video_codec: input.videoCodec,
         preset: input.preset,
       },
-      LONG_RUNNING_TIMEOUT_MS,
+      REENCODE_TIMEOUT_MS,
       context
     );
   }

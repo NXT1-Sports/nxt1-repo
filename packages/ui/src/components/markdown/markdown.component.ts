@@ -110,7 +110,9 @@ function buildVideoThumb(safeHref: string, label: string): string {
 function createNxtRenderer(): Renderer {
   const renderer = new Renderer();
 
-  // Links → if href is a video URL, render inline <video>; otherwise open in new tab
+  // Links → if href is a video URL, render inline <video>;
+  //          if href is a bare image URL (text === href), render inline <img>;
+  //          otherwise open in new tab.
   renderer.link = ({ href, title, text }) => {
     const normalizedHref = normalizeTrackedLink(href);
 
@@ -123,6 +125,15 @@ function createNxtRenderer(): Renderer {
 
     if (isVideoUrl(normalizedHref)) {
       return buildVideoThumb(safeHref, displayText);
+    }
+
+    // When the AI outputs a bare image URL (e.g. Firebase Storage) the GFM
+    // autolinker produces a link where text === href. Render it as an inline
+    // image instead of a raw URL anchor.
+    const isBareUrl = href && normalizedHref && text === href;
+    if (isBareUrl && inferMediaTypeFromUrl(normalizedHref ?? '') === 'image') {
+      const titleAttr = title ? ` title="${escapeAttr(title)}"` : '';
+      return `<img src="${safeHref}" alt=""${titleAttr} loading="lazy" class="md-inline-img" />`;
     }
 
     const titleAttr = title ? ` title="${escapeAttr(title)}"` : '';
@@ -164,6 +175,84 @@ function createNxtRenderer(): Renderer {
   };
 
   return renderer;
+}
+
+// ─── Streaming normalizer ────────────────────────────────────────────────────
+
+/**
+ * Closes any unclosed fenced code block so `marked` renders a valid (if
+ * truncated) block instead of leaking raw text during SSE streaming.
+ * Also closes a trailing unclosed inline-code backtick span.
+ *
+ * Only called when `isStreaming=true` to avoid unnecessary work on
+ * complete (history) messages.
+ */
+function normalizeStreamingMarkdown(raw: string): string {
+  const lines = raw.split('\n');
+  let inFence = false;
+  let fenceChar = '';
+  let fenceLen = 0;
+
+  for (const line of lines) {
+    const m = /^(`{3,}|~{3,})/.exec(line.trimStart());
+    if (m) {
+      const char = m[1]![0]!;
+      const len = m[1]!.length;
+      if (!inFence) {
+        inFence = true;
+        fenceChar = char;
+        fenceLen = len;
+      } else if (char === fenceChar && len >= fenceLen) {
+        inFence = false;
+        fenceChar = '';
+        fenceLen = 0;
+      }
+    }
+  }
+
+  if (inFence) {
+    // Append a closing fence so marked produces a valid code block.
+    return raw + '\n' + fenceChar.repeat(fenceLen);
+  }
+
+  // ── Unclosed inline code at the trailing edge ─────────────────────────────
+  // If the last line has an odd number of non-escaped backtick characters, the
+  // cursor is mid-token.  Close it so the span renders as code rather than
+  // leaking the opening backtick as plain text.
+  const lastLine = lines[lines.length - 1] ?? '';
+  const backtickCount = (lastLine.match(/(?<!\\)`/g) ?? []).length;
+  if (backtickCount % 2 !== 0) {
+    return raw + '`';
+  }
+
+  return raw;
+}
+
+// ─── Storage URL pre-processor ──────────────────────────────────────────────
+
+/**
+ * Matches bare Firebase / Google Storage URLs pointing to image files.
+ * Negative lookbehind `(?<!\()` skips URLs that are already inside
+ * Markdown link/image syntax `[text](url)` or `![alt](url)`.
+ */
+const BARE_STORAGE_IMAGE_URL_RE =
+  /(?<!\()https:\/\/(?:storage\.googleapis\.com|firebasestorage\.googleapis\.com)\/[^\s)\]]+/g;
+
+/**
+ * Converts bare Firebase/Google Storage image URLs to Markdown image syntax.
+ * Prevents raw URLs from appearing as yellow link text in chat bubbles.
+ *
+ * `- https://storage.googleapis.com/.../file.png`
+ *   → `- ![](https://storage.googleapis.com/.../file.png)`
+ *
+ * URLs that are already wrapped in `[text](url)` or `![alt](url)` are left
+ * untouched because the lookbehind prevents a match when the URL is preceded
+ * by `(`.
+ */
+function preprocessStorageImageUrls(source: string): string {
+  return source.replace(BARE_STORAGE_IMAGE_URL_RE, (url) =>
+    inferMediaTypeFromUrl(url) === 'image' ? `![](${url})` : url
+  );
 }
 
 // ─── Marked singleton ──────────────────────────────────────────────────────
@@ -534,6 +623,13 @@ const markedInstance = new Marked({
 export class NxtMarkdownComponent {
   /** Raw markdown string (can be partial during SSE streaming). */
   readonly content = input('');
+  /**
+   * Set to `true` while the message is being streamed via SSE.
+   * Enables a pre-parse normalizer that closes incomplete markdown tokens
+   * (fenced code blocks, inline code spans) so `marked` produces clean HTML
+   * for every incremental chunk rather than leaking raw syntax.
+   */
+  readonly isStreaming = input(false);
   readonly trackingSource = input('markdown');
   readonly trackingSurface = input<TrackingSurface>('message');
   readonly mediaRequested = output<MarkdownMediaRequestedEvent>();
@@ -673,8 +769,16 @@ export class NxtMarkdownComponent {
     const raw = this.content();
     if (!raw) return '';
 
+    // When streaming, close any incomplete markdown tokens so `marked`
+    // produces clean HTML for every partial chunk.
+    const normalized = this.isStreaming() ? normalizeStreamingMarkdown(raw) : raw;
+
+    // Convert bare Firebase/Google Storage image URLs to Markdown image syntax
+    // so they render as <img> instead of raw yellow link text.
+    const source = preprocessStorageImageUrls(normalized);
+
     // Parse Markdown → HTML string
-    const html = markedInstance.parse(raw, { async: false }) as string;
+    const html = markedInstance.parse(source, { async: false }) as string;
 
     // Browser + DOMPurify available → full sanitization with attribute preservation
     if (this._dompurifyReady()) {

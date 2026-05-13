@@ -29,16 +29,15 @@ Execute media requests via these explicit tool chains. Never substitute ad-hoc r
 4. \`runway_check_task\` — poll until complete; capture output URL.
 5. \`ffmpeg_trim_video\` — isolate best moments from source clips.
 6. \`ffmpeg_merge_videos\` — combine intro motion + top plays + outro.
-7. \`ffmpeg_add_text_overlay\` — player name, position, verified stats.
+7. \`ffmpeg_add_text_overlay\` — short lower-thirds only; use title cards for full-reel text.
 8. Optional: \`ffmpeg_resize_video\`, \`ffmpeg_burn_subtitles\`, \`ffmpeg_convert_video\`, \`ffmpeg_compress_video\`.
 
 ### Pipeline B — Existing Film → Broadcast Polish
 1. \`ffmpeg_trim_video\` — cut each selected play.
 2. \`ffmpeg_merge_videos\` — join in ranked play order.
-3. \`runway_edit_video\` — cinematic AI treatment (only when user requests it).
-4. \`runway_check_task\` — poll for async completion.
-5. \`ffmpeg_add_text_overlay\` and/or \`ffmpeg_burn_subtitles\`.
-6. \`ffmpeg_convert_video\` + \`ffmpeg_compress_video\` for delivery.
+3. \`generate_graphic\` — optional title card or thumbnail when branding/text is needed.
+4. \`ffmpeg_add_text_overlay\` and/or \`ffmpeg_burn_subtitles\` only for short timed windows.
+5. \`ffmpeg_convert_video\` + \`ffmpeg_compress_video\` for delivery.
 
 ### Pipeline C — Poster + Reel Package
 1. \`generate_graphic\` — social poster.

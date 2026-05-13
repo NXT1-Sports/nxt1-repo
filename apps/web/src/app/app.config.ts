@@ -113,6 +113,7 @@ import { AUTH_SERVICE, BrowserAuthService } from './core/services/auth';
 import { AuthFlowService, type IAuthService } from './core/services/auth';
 import { FileUploadService } from './core/services/web/file-upload.service';
 import { WebEmailConnectionService } from './core/services/web/email-connection.service';
+import { provideBadgeBridge } from './core/services';
 
 // Settings persistence adapter (connects SettingsService → backend API)
 import { SETTINGS_PERSISTENCE_ADAPTER, APP_VERSION } from '@nxt1/ui/settings/tokens';
@@ -318,7 +319,9 @@ export const appConfig: ApplicationConfig = {
             throw new Error(`Unsupported Firestore subscription path: ${path}`);
           }
 
-          let unsubscribe = () => {};
+          let unsubscribe = () => {
+            // intentionally empty
+          };
           let disposed = false;
 
           void loadFirestoreRuntime()
@@ -454,6 +457,9 @@ export const appConfig: ApplicationConfig = {
     // Activity API adapter — use the web-specific service with performance tracing
     { provide: ACTIVITY_API_ADAPTER, useExisting: WebActivityApiService },
 
+    // Bridge @nxt1/ui ActivityService unread counts into shell badge state.
+    provideBadgeBridge(),
+
     // Invite API base URL
     { provide: INVITE_API_BASE_URL, useFactory: () => environment.apiURL },
 
@@ -498,7 +504,9 @@ export const appConfig: ApplicationConfig = {
     },
     {
       provide: APP_INITIALIZER,
-      useFactory: () => () => {},
+      useFactory: () => () => {
+        // intentionally empty
+      },
       deps: [Sentry.TraceService],
       multi: true,
     },

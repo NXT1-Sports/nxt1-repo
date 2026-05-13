@@ -38,7 +38,12 @@
  * ```
  */
 
-import { Injectable, inject, signal, computed, NgZone } from '@angular/core';
+import { Injectable, inject, signal, computed, NgZone, InjectionToken } from '@angular/core';
+import {
+  ToastController,
+  type ToastButton,
+  type ToastOptions as IonicToastOptions,
+} from '@ionic/angular/standalone';
 import { NxtPlatformService } from '../platform';
 import { HapticsService } from '../haptics';
 import { NxtLoggingService } from '../logging';
@@ -47,10 +52,17 @@ import { ToastType, ToastOptions, QueuedToast, DEFAULT_DURATIONS } from './toast
 // Re-export types for consumers
 export type { ToastType, ToastPosition, ToastAction, ToastOptions } from './toast.types';
 
+export const NXT_USE_IONIC_TOASTS = new InjectionToken<boolean>('NXT_USE_IONIC_TOASTS', {
+  providedIn: 'root',
+  factory: () => false,
+});
+
 // Register icons used by toast service
 @Injectable({ providedIn: 'root' })
 export class NxtToastService {
   private readonly platform = inject(NxtPlatformService);
+  private readonly toastController = inject(ToastController, { optional: true });
+  private readonly useIonicToasts = inject(NXT_USE_IONIC_TOASTS);
   private readonly haptics = inject(HapticsService);
   private readonly ngZone = inject(NgZone);
   private readonly logger = inject(NxtLoggingService).child('ToastService');
@@ -65,8 +77,11 @@ export class NxtToastService {
   /** Currently displayed toast */
   private readonly _currentToast = signal<QueuedToast | null>(null);
 
-  /** Active toast element */
-  private activeToast: HTMLElement | null = null;
+  /** Active DOM toast element */
+  private activeDomToast: HTMLElement | null = null;
+
+  /** Active Ionic toast overlay */
+  private activeIonicToast: HTMLIonToastElement | null = null;
 
   /** Current toast auto-dismiss timer */
   private activeToastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -177,7 +192,24 @@ export class NxtToastService {
    * Dismiss the current toast
    */
   async dismiss(): Promise<void> {
-    if (!this.activeToast || this.isDismissing) {
+    if (this.isDismissing) {
+      return;
+    }
+
+    if (this.activeIonicToast) {
+      this.isDismissing = true;
+      this.destroyTapDismissListener();
+
+      if (this.activeToastTimer) {
+        clearTimeout(this.activeToastTimer);
+        this.activeToastTimer = null;
+      }
+
+      await this.activeIonicToast.dismiss();
+      return;
+    }
+
+    if (!this.activeDomToast) {
       return;
     }
 
@@ -189,19 +221,13 @@ export class NxtToastService {
       this.activeToastTimer = null;
     }
 
-    const toastEl = this.activeToast;
+    const toastEl = this.activeDomToast;
     toastEl.classList.add('nxt-toast--dismissing');
 
     await new Promise<void>((resolve) => {
       setTimeout(() => {
         toastEl.remove();
-        this._currentToast.set(null);
-        this.activeToast = null;
-        this.isDismissing = false;
-
-        setTimeout(() => {
-          this.processQueue();
-        }, 200);
+        this.finalizeDismiss(toastEl);
 
         resolve();
       }, 160);
@@ -251,8 +277,7 @@ export class NxtToastService {
       this._currentToast.set(nextToast);
 
       // Build toast buttons
-      const buttons: Array<{ text?: string; icon?: string; role?: string; handler?: () => void }> =
-        [];
+      const buttons: ToastButton[] = [];
 
       if (nextToast.action) {
         buttons.push({
@@ -272,31 +297,113 @@ export class NxtToastService {
         });
       }
 
-      this.activeToast = this.createToastElement(nextToast, buttons);
-      document.body.appendChild(this.activeToast);
-
-      requestAnimationFrame(() => {
-        this.activeToast?.classList.add('nxt-toast--visible');
-      });
-
-      if (nextToast.duration > 0) {
-        this.activeToastTimer = setTimeout(() => {
-          void this.dismiss();
-        }, nextToast.duration);
-      }
-
-      // Provide haptic feedback on toast appear
-      if (nextToast.hapticFeedback) {
-        this.provideHapticFeedback(nextToast.type);
-      }
-
-      // Dismiss on tap anywhere on toast container
-      if (this.activeToast) {
-        this.setupTapToDismiss(this.activeToast);
+      if (this.shouldUseIonicToast()) {
+        try {
+          await this.presentIonicToast(nextToast, buttons);
+        } catch (error) {
+          this.logger.error('Ionic toast presentation failed, falling back to DOM toast', error, {
+            type: nextToast.type,
+            position: nextToast.position,
+          });
+          this.activeIonicToast = null;
+          this.presentDomToast(nextToast, buttons);
+        }
+      } else {
+        this.presentDomToast(nextToast, buttons);
       }
     } finally {
       this.isProcessing = false;
     }
+  }
+
+  private shouldUseIonicToast(): boolean {
+    return this.useIonicToasts && this.toastController !== null;
+  }
+
+  private async presentIonicToast(toast: QueuedToast, buttons: ToastButton[]): Promise<void> {
+    if (!this.toastController) {
+      return;
+    }
+
+    const ionicToast = await this.toastController.create(
+      this.buildIonicToastOptions(toast, buttons)
+    );
+    this.activeIonicToast = ionicToast;
+
+    ionicToast.onDidDismiss().then(() => {
+      this.finalizeDismiss(ionicToast);
+    });
+
+    await ionicToast.present();
+
+    if (toast.hapticFeedback) {
+      this.provideHapticFeedback(toast.type);
+    }
+  }
+
+  private presentDomToast(
+    toast: QueuedToast,
+    buttons: Array<{ text?: string; icon?: string; role?: string; handler?: () => void }>
+  ): void {
+    this.activeDomToast = this.createToastElement(toast, buttons);
+    document.body.appendChild(this.activeDomToast);
+
+    requestAnimationFrame(() => {
+      this.activeDomToast?.classList.add('nxt-toast-shell--visible');
+    });
+
+    if (toast.duration > 0) {
+      this.activeToastTimer = setTimeout(() => {
+        void this.dismiss();
+      }, toast.duration);
+    }
+
+    if (toast.hapticFeedback) {
+      this.provideHapticFeedback(toast.type);
+    }
+
+    if (this.activeDomToast) {
+      this.setupTapToDismiss(this.activeDomToast);
+    }
+  }
+
+  private buildIonicToastOptions(toast: QueuedToast, buttons: ToastButton[]): IonicToastOptions {
+    const cssClasses = ['nxt-toast', `nxt-toast-${toast.type}`];
+
+    if (toast.cssClass) {
+      cssClasses.push(toast.cssClass);
+    }
+
+    return {
+      message: toast.message,
+      header: toast.header,
+      duration: toast.duration,
+      position: toast.position,
+      buttons,
+      cssClass: cssClasses,
+      swipeGesture: toast.swipeToDismiss ? 'vertical' : undefined,
+      icon: toast.icon,
+    };
+  }
+
+  private finalizeDismiss(toast: HTMLElement | HTMLIonToastElement): void {
+    if (this.activeDomToast !== toast && this.activeIonicToast !== toast) {
+      return;
+    }
+
+    if (this.activeToastTimer) {
+      clearTimeout(this.activeToastTimer);
+      this.activeToastTimer = null;
+    }
+
+    this._currentToast.set(null);
+    this.activeDomToast = null;
+    this.activeIonicToast = null;
+    this.isDismissing = false;
+
+    setTimeout(() => {
+      this.processQueue();
+    }, 200);
   }
 
   private createToastElement(

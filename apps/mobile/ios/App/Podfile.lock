@@ -23,6 +23,9 @@ PODS:
     - Capacitor
   - CapacitorCommunityAppleSignIn (7.1.0):
     - Capacitor
+  - CapacitorCommunityMedia (7.0.1):
+    - Capacitor
+    - SDWebImage
   - CapacitorCordova (8.3.0)
   - CapacitorDevice (8.0.2):
     - Capacitor
@@ -211,6 +214,9 @@ PODS:
   - RecognizebvCapacitorPluginMsauth (4.1.0):
     - Capacitor
     - MSAL (~> 1.1)
+  - SDWebImage (5.21.7):
+    - SDWebImage/Core (= 5.21.7)
+  - SDWebImage/Core (5.21.7)
   - Version (0.8.0)
   - ZIPFoundation (0.9.20)
 
@@ -221,6 +227,7 @@ DEPENDENCIES:
   - "CapacitorBrowser (from `../../../../node_modules/@capacitor/browser`)"
   - "CapacitorCamera (from `../../../../node_modules/@capacitor/camera`)"
   - "CapacitorCommunityAppleSignIn (from `../../../../node_modules/@capacitor-community/apple-sign-in`)"
+  - "CapacitorCommunityMedia (from `../../../../node_modules/@capacitor-community/media`)"
   - "CapacitorCordova (from `../../../../node_modules/@capacitor/ios`)"
   - "CapacitorDevice (from `../../../../node_modules/@capacitor/device`)"
   - "CapacitorDialog (from `../../../../node_modules/@capacitor/dialog`)"
@@ -278,6 +285,7 @@ SPEC REPOS:
     - PromisesObjC
     - PromisesSwift
     - RecaptchaInterop
+    - SDWebImage
     - Version
     - ZIPFoundation
 
@@ -294,6 +302,8 @@ EXTERNAL SOURCES:
     :path: "../../../../node_modules/@capacitor/camera"
   CapacitorCommunityAppleSignIn:
     :path: "../../../../node_modules/@capacitor-community/apple-sign-in"
+  CapacitorCommunityMedia:
+    :path: "../../../../node_modules/@capacitor-community/media"
   CapacitorCordova:
     :path: "../../../../node_modules/@capacitor/ios"
   CapacitorDevice:
@@ -350,6 +360,7 @@ SPEC CHECKSUMS:
   CapacitorBrowser: c987c73d09d8bd3b5ec13f06338b1e14d5d2be69
   CapacitorCamera: 66bb9c4ea1703a5acf2a328bac0e613d278c399c
   CapacitorCommunityAppleSignIn: 271cb2860576fd2961508bbfa7a82117d93eadca
+  CapacitorCommunityMedia: a3ae1c14d9b30ca500171a62f58b859e06c00fd1
   CapacitorCordova: 2e1e2bb93b2f365309dc4ff18b72b9a69a7814a9
   CapacitorDevice: 14cba6f88d1c3074cbf825fea977c8c526453ff8
   CapacitorDialog: 854c5dac405081cae697c177ca43bcaa95ae67bf
@@ -399,9 +410,10 @@ SPEC CHECKSUMS:
   PromisesSwift: 9d77319bbe72ebf6d872900551f7eeba9bce2851
   RecaptchaInterop: 11e0b637842dfb48308d242afc3f448062325aba
   RecognizebvCapacitorPluginMsauth: c108ed22d9d2329bc729661356f9fce24354e2c2
+  SDWebImage: e9fc87c1aab89a8ab1bbd74eba378c6f53be8abf
   Version: de5907f2c5d0f3cf21708db7801d1d5401139486
   ZIPFoundation: dfd3d681c4053ff7e2f7350bc4e53b5dba3f5351
 
-PODFILE CHECKSUM: 03366a506c0994e390b9700eb45f24bc9ae0ac74
+PODFILE CHECKSUM: 7ac5ac6d67c3739d48341488bc0a90045a44782f
 
 COCOAPODS: 1.16.2

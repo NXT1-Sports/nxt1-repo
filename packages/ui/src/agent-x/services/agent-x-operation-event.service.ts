@@ -73,8 +73,8 @@ export interface OperationStatusUpdatedEvent {
   readonly operationId?: string;
   readonly title?: string;
   /**
-   * Set when this operation is a child of another (e.g. enqueue-heavy-task
-   * tool calls, fan-out scrape chunks 2..N). Child operations must never
+   * Set when this operation is a child of another (e.g. fan-out scrape
+   * chunks 2..N). Child operations must never
    * create a new sidebar row — they surface only inside the parent's
    * operations panel.
    */
@@ -1135,11 +1135,12 @@ export class AgentXOperationEventService {
           explicitStepId ??
           (event.toolName ? pendingStepIds.get(event.toolName)?.shift() : undefined) ??
           `${event.toolName ?? 'tool'}-${event.seq}`;
+        // Match SSE adapter behavior: treat undefined/missing toolSuccess as success (only explicit false is error)
         callbacks.onStep(
           this.buildToolStep(
             event,
             stepId,
-            event.toolSuccess ? 'success' : 'error',
+            event.toolSuccess !== false ? 'success' : 'error',
             label,
             event.toolResult ? this.summarizeToolResult(event.toolResult) : undefined
           )

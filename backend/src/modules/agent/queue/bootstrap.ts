@@ -38,7 +38,6 @@ import {
   NavigateLiveViewTool,
   InteractWithLiveViewTool,
   ReadLiveViewTool,
-  CaptureLiveViewScreenshotTool,
   ExtractLiveViewMediaTool,
   ExtractLiveViewPlaylistTool,
   CloseLiveViewTool,
@@ -61,6 +60,11 @@ import {
   WriteScheduleTool,
   WriteTeamStatsTool,
   WritePlaybooksTool,
+  GetGameplanTool,
+  ListGameplansTool,
+  SaveGameplanTool,
+  UpdateGameplanTool,
+  DeleteGameplanTool,
   WriteTeamNewsTool,
   WriteTeamPostTool,
   WriteRosterEntriesTool,
@@ -99,6 +103,8 @@ import {
   AnalyzeImageTool,
   StageMediaTool,
   ExtractHudlVideoTool,
+  RecommendLearningVideosTool,
+  LearningVideoRecommendationService,
 } from '../tools/media/index.js';
 import { GeminiFilesService } from '../llm/gemini-files.service.js';
 import { ClassifyMediaUrlTool } from '../tools/media/classify-media-url.tool.js';
@@ -215,6 +221,7 @@ import {
   ImageAnalysisSkill,
   FilmBreakdownTaxonomySkill,
   OpponentScoutingPacketSkill,
+  PredictivePerformanceAnalysisSkill,
   OutreachCopywritingSkill,
   ComplianceRulebookSkill,
   NilAndBrandComplianceSkill,
@@ -232,6 +239,7 @@ import {
   CollegeVisitPlanningSkill,
   CoachGamePlanAndAdjustmentsSkill,
   LineupRotationOptimizerSkill,
+  PlayDesignSimulationSkill,
   DataNormalizationAndEntityResolutionSkill,
   ReportFormattingAndExportSkill,
   GlobalKnowledgeSkill,
@@ -392,12 +400,11 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     toolRegistry.register(new NavigateLiveViewTool(liveViewService));
     toolRegistry.register(new InteractWithLiveViewTool(liveViewService));
     toolRegistry.register(new ReadLiveViewTool(liveViewService));
-    toolRegistry.register(new CaptureLiveViewScreenshotTool(liveViewService));
     toolRegistry.register(new ExtractLiveViewMediaTool(liveViewService));
     toolRegistry.register(new ExtractLiveViewPlaylistTool(liveViewService));
     toolRegistry.register(new CloseLiveViewTool(liveViewService));
     logger.info(
-      'Live view tools registered (open, navigate, interact, read, screenshot, extract media, extract playlist, close)'
+      'Live view tools registered (open, navigate, interact, read, extract media, extract playlist, close)'
     );
   } catch {
     logger.warn('LiveViewSessionService init failed — open_live_view tool disabled');
@@ -413,6 +420,11 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteScheduleTool(stagingDb));
   toolRegistry.register(new WriteTeamStatsTool(stagingDb));
   toolRegistry.register(new WritePlaybooksTool(stagingDb));
+  toolRegistry.register(new GetGameplanTool(stagingDb));
+  toolRegistry.register(new ListGameplansTool(stagingDb));
+  toolRegistry.register(new SaveGameplanTool(stagingDb));
+  toolRegistry.register(new UpdateGameplanTool(stagingDb));
+  toolRegistry.register(new DeleteGameplanTool(stagingDb));
   toolRegistry.register(new WriteTeamNewsTool(stagingDb));
   toolRegistry.register(new WriteTeamPostTool(stagingDb));
   toolRegistry.register(new WriteRosterEntriesTool(stagingDb));
@@ -443,6 +455,11 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GenerateGraphicTool(llm));
   toolRegistry.register(new StageMediaTool());
   toolRegistry.register(new ClassifyMediaUrlTool());
+  toolRegistry.register(
+    new RecommendLearningVideosTool(
+      new LearningVideoRecommendationService({ scraper: scraperService })
+    )
+  );
   toolRegistry.register(new ExtractHudlVideoTool());
   toolRegistry.register(new DynamicExportTool());
 
@@ -612,18 +629,16 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     logger.warn('FFMPEG_MCP_URL not configured — FFmpeg MCP tools disabled');
   }
 
-  // ── Gemini Files API service (for Firebase/GCS video analysis) ────────────
+  // ── Gemini Files API service (for direct video analysis) ──────────────────
   // Enables direct video upload to Gemini Files API, bypassing the OpenRouter
-  // proxy for Firebase GCS signed URLs that Gemini cannot fetch directly.
+  // proxy for backend-downloadable video URLs that Gemini cannot fetch reliably.
   // Supports MOV (video/quicktime) natively — no FFmpeg conversion needed.
   if (GeminiFilesService.isConfigured()) {
     geminiFiles = new GeminiFilesService();
-    logger.info(
-      'GeminiFilesService initialized — Firebase/GCS video analysis via Files API enabled'
-    );
+    logger.info('GeminiFilesService initialized — direct video analysis via Files API enabled');
   } else {
     logger.warn(
-      'GEMINI_API_KEY not configured — GeminiFilesService disabled. Firebase MOV analysis will use FFmpeg fallback.'
+      'GEMINI_API_KEY not configured — GeminiFilesService disabled. Video analysis will use OpenRouter/FFmpeg fallback.'
     );
   }
 
@@ -699,6 +714,8 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   skillRegistry.register(new CollegeVisitPlanningSkill());
   skillRegistry.register(new CoachGamePlanAndAdjustmentsSkill());
   skillRegistry.register(new LineupRotationOptimizerSkill());
+  skillRegistry.register(new PlayDesignSimulationSkill());
+  skillRegistry.register(new PredictivePerformanceAnalysisSkill());
   skillRegistry.register(new DataNormalizationAndEntityResolutionSkill());
   skillRegistry.register(new ReportFormattingAndExportSkill());
 
