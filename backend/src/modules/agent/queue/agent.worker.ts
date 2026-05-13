@@ -2754,12 +2754,39 @@ export class AgentWorker {
         // prompt prefix — still readable. applyGeneratedThreadTitle's guard
         // prevents any accidental overwrite if both paths ran.
       } catch (chatErr) {
-        // Chat persistence must never fail the job
-        logger.warn('Failed to persist agent response to MongoDB', {
-          threadId,
-          operationId: payload.operationId,
-          error: chatErr instanceof Error ? chatErr.message : String(chatErr),
-        });
+        // Chat persistence must never fail the job, but log at error level since
+        // this causes the done event to have no messageId — a data-loss scenario.
+        logger.error(
+          'Failed to persist agent response to MongoDB — done event will lack messageId',
+          {
+            threadId,
+            operationId: payload.operationId,
+            error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+          }
+        );
+      }
+    }
+
+    if (!persistedAssistantMessageId) {
+      if (!threadId) {
+        logger.error(
+          'Agent done event emitted without messageId: threadId was absent from job context',
+          {
+            operationId: payload.operationId,
+            userId: payload.userId,
+            hasChatService: !!this.chatService,
+          }
+        );
+      } else {
+        // threadId was present but addMessage threw above
+        logger.error(
+          'Agent done event emitted without messageId: assistant message persistence failed',
+          {
+            operationId: payload.operationId,
+            threadId,
+            userId: payload.userId,
+          }
+        );
       }
     }
 

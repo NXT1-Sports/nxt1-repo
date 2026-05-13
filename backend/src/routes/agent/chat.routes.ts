@@ -3982,6 +3982,21 @@ router.post(
         }
       }
 
+      // If the client supplied a threadId but resolveThread returned undefined, the
+      // job will have no threadId in its context — the assistant response will not be
+      // persisted and the frontend will log "missing persisted DB message ID".
+      // This is the primary driver of that client-side error. Root cause is most
+      // likely an auth UID mismatch (note #4: "auth user state issue prod").
+      if (threadId && !effectiveThreadId) {
+        logger.error(
+          'Chat route: client threadId failed ownership check — job will run without threadId context',
+          {
+            requestedThreadId: threadId,
+            userId: user.uid,
+          }
+        );
+      }
+
       const { chargeAmountCents: estimatedGateCostCents } = estimateChargeAmountSync(
         CHAT_BILLING_GATE_ESTIMATED_COST_USD
       );
