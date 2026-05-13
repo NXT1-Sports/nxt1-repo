@@ -22,8 +22,6 @@ const DeleteGameplanInputSchema = z.object({
   reason: z.string().trim().min(1).optional(),
 });
 
-type DeleteGameplanInput = z.infer<typeof DeleteGameplanInputSchema>;
-
 export class DeleteGameplanTool extends BaseTool {
   readonly name = 'delete_gameplan';
   readonly description =
@@ -82,8 +80,8 @@ export class DeleteGameplanTool extends BaseTool {
         return { success: false, error: 'Not authorized to delete game plans for this team.' };
       }
 
-      context.emitStage?.('archiving_gameplan', {
-        icon: 'trash',
+      context.emitStage?.('deleting_resource', {
+        icon: 'delete',
         phase: 'delete_gameplan',
         gamePlanId,
         title: gamePlan.title,

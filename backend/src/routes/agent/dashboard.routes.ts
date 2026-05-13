@@ -50,6 +50,7 @@ import {
 } from './shared.js';
 import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
 import { canManageTeamMutationForUser } from '../../services/team/team-intel-permissions.js';
+import { getCacheService } from '../../services/core/cache.service.js';
 
 type AuthenticatedRequest = Request & {
   user?: {
@@ -711,7 +712,7 @@ router.post('/gameplans', appGuard, async (req: Request, res: Response) => {
     const payload = req.body as Record<string, unknown>;
 
     // Validate required fields
-    if (!payload.teamId || !payload.sport || !payload.title) {
+    if (!payload['teamId'] || !payload['sport'] || !payload['title']) {
       res.status(400).json({
         success: false,
         error: 'teamId, sport, and title are required',
@@ -719,7 +720,7 @@ router.post('/gameplans', appGuard, async (req: Request, res: Response) => {
       return;
     }
 
-    const teamId = String(payload.teamId).trim();
+    const teamId = String(payload['teamId']).trim();
     const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
 
     if (!teamDoc.exists) {
@@ -742,11 +743,11 @@ router.post('/gameplans', appGuard, async (req: Request, res: Response) => {
     }
 
     const now = new Date().toISOString();
-    const normalizedSport = String(payload.sport).trim().toLowerCase();
-    const phase = (payload.phase ?? 'pregame') as string;
-    const status = (payload.status ?? 'draft') as string;
-    const docId = `${teamId}_${normalizedSport}_${phase}_${payload.gameDate ? String(payload.gameDate).substring(0, 10) : 'open'}_${String(
-      payload.opponentName ?? payload.title
+    const normalizedSport = String(payload['sport']).trim().toLowerCase();
+    const phase = (payload['phase'] ?? 'pregame') as string;
+    const status = (payload['status'] ?? 'draft') as string;
+    const docId = `${teamId}_${normalizedSport}_${phase}_${payload['gameDate'] ? String(payload['gameDate']).substring(0, 10) : 'open'}_${String(
+      payload['opponentName'] ?? payload['title']
     )
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
@@ -756,41 +757,49 @@ router.post('/gameplans', appGuard, async (req: Request, res: Response) => {
       id: docId,
       teamId,
       sport: normalizedSport,
-      title: String(payload.title).trim(),
+      title: String(payload['title']).trim(),
       phase: phase as any,
       status: status as any,
-      ...(payload.season ? { season: String(payload.season).trim() } : {}),
-      ...(payload.opponentName ? { opponentName: String(payload.opponentName).trim() } : {}),
-      ...(payload.gameDate ? { gameDate: String(payload.gameDate).trim() } : {}),
-      ...(payload.identityFocus ? { identityFocus: String(payload.identityFocus).trim() } : {}),
-      ...(payload.primaryAttackPlan
-        ? { primaryAttackPlan: String(payload.primaryAttackPlan).trim() }
+      ...(payload['season'] ? { season: String(payload['season']).trim() } : {}),
+      ...(payload['opponentName'] ? { opponentName: String(payload['opponentName']).trim() } : {}),
+      ...(payload['gameDate'] ? { gameDate: String(payload['gameDate']).trim() } : {}),
+      ...(payload['identityFocus']
+        ? { identityFocus: String(payload['identityFocus']).trim() }
         : {}),
-      ...(payload.defensivePriorities
-        ? { defensivePriorities: String(payload.defensivePriorities).trim() }
+      ...(payload['primaryAttackPlan']
+        ? { primaryAttackPlan: String(payload['primaryAttackPlan']).trim() }
         : {}),
-      ...(payload.specialSituations
-        ? { specialSituations: String(payload.specialSituations).trim() }
+      ...(payload['defensivePriorities']
+        ? { defensivePriorities: String(payload['defensivePriorities']).trim() }
         : {}),
-      ...(Array.isArray(payload.openingScript)
+      ...(payload['specialSituations']
+        ? { specialSituations: String(payload['specialSituations']).trim() }
+        : {}),
+      ...(Array.isArray(payload['openingScript'])
         ? {
-            openingScript: payload.openingScript
+            openingScript: payload['openingScript']
               .map((v) => String(v).trim())
               .filter((v) => v.length > 0),
           }
         : {}),
-      ...(Array.isArray(payload.adjustmentTriggers)
-        ? { adjustmentTriggers: payload.adjustmentTriggers as any }
+      ...(Array.isArray(payload['adjustmentTriggers'])
+        ? { adjustmentTriggers: payload['adjustmentTriggers'] as any }
         : {}),
-      ...(Array.isArray(payload.halftimePriorities)
-        ? { halftimePriorities: payload.halftimePriorities as any }
+      ...(Array.isArray(payload['halftimePriorities'])
+        ? { halftimePriorities: payload['halftimePriorities'] as any }
         : {}),
-      ...(Array.isArray(payload.customSections)
-        ? { customSections: payload.customSections as any }
+      ...(Array.isArray(payload['customSections'])
+        ? { customSections: payload['customSections'] as any }
         : {}),
-      ...(Array.isArray(payload.linkedPlays) ? { linkedPlays: payload.linkedPlays as any } : {}),
-      ...(Array.isArray(payload.tags)
-        ? { tags: payload.tags.map((v) => String(v).trim()).filter((v) => v.length > 0) }
+      ...(Array.isArray(payload['linkedPlays'])
+        ? { linkedPlays: payload['linkedPlays'] as any }
+        : {}),
+      ...(Array.isArray(payload['tags'])
+        ? {
+            tags: (payload['tags'] as unknown[])
+              .map((v) => String(v).trim())
+              .filter((v) => v.length > 0),
+          }
         : {}),
       source: 'api_direct',
       schemaVersion: 1,
@@ -819,7 +828,7 @@ router.post('/gameplans', appGuard, async (req: Request, res: Response) => {
       gamePlanId: docId,
       teamId,
       sport: normalizedSport,
-      title: gamePlanData.title,
+      title: gamePlanData['title'],
     });
 
     res.status(201).json({
@@ -886,32 +895,36 @@ router.put('/gameplans/:gamePlanId', appGuard, async (req: Request, res: Respons
     const updateData: Record<string, unknown> = { updatedBy: user.uid, updatedAt: now };
 
     // Merge only provided fields
-    if (typeof payload.title === 'string') updateData.title = payload.title.trim();
-    if (typeof payload.status === 'string') updateData.status = payload.status;
-    if (typeof payload.phase === 'string') updateData.phase = payload.phase;
-    if (typeof payload.gameDate === 'string') updateData.gameDate = payload.gameDate.trim();
-    if (typeof payload.opponentName === 'string')
-      updateData.opponentName = payload.opponentName.trim();
-    if (typeof payload.identityFocus === 'string')
-      updateData.identityFocus = payload.identityFocus.trim();
-    if (typeof payload.primaryAttackPlan === 'string')
-      updateData.primaryAttackPlan = payload.primaryAttackPlan.trim();
-    if (typeof payload.defensivePriorities === 'string')
-      updateData.defensivePriorities = payload.defensivePriorities.trim();
-    if (typeof payload.specialSituations === 'string')
-      updateData.specialSituations = payload.specialSituations.trim();
-    if (Array.isArray(payload.openingScript))
-      updateData.openingScript = payload.openingScript
+    if (typeof payload['title'] === 'string') updateData['title'] = payload['title'].trim();
+    if (typeof payload['status'] === 'string') updateData['status'] = payload['status'];
+    if (typeof payload['phase'] === 'string') updateData['phase'] = payload['phase'];
+    if (typeof payload['gameDate'] === 'string')
+      updateData['gameDate'] = payload['gameDate'].trim();
+    if (typeof payload['opponentName'] === 'string')
+      updateData['opponentName'] = payload['opponentName'].trim();
+    if (typeof payload['identityFocus'] === 'string')
+      updateData['identityFocus'] = payload['identityFocus'].trim();
+    if (typeof payload['primaryAttackPlan'] === 'string')
+      updateData['primaryAttackPlan'] = payload['primaryAttackPlan'].trim();
+    if (typeof payload['defensivePriorities'] === 'string')
+      updateData['defensivePriorities'] = payload['defensivePriorities'].trim();
+    if (typeof payload['specialSituations'] === 'string')
+      updateData['specialSituations'] = payload['specialSituations'].trim();
+    if (Array.isArray(payload['openingScript']))
+      updateData['openingScript'] = (payload['openingScript'] as unknown[])
         .map((v) => String(v).trim())
         .filter((v) => v.length > 0);
-    if (Array.isArray(payload.adjustmentTriggers))
-      updateData.adjustmentTriggers = payload.adjustmentTriggers;
-    if (Array.isArray(payload.halftimePriorities))
-      updateData.halftimePriorities = payload.halftimePriorities;
-    if (Array.isArray(payload.customSections)) updateData.customSections = payload.customSections;
-    if (Array.isArray(payload.linkedPlays)) updateData.linkedPlays = payload.linkedPlays;
-    if (Array.isArray(payload.tags))
-      updateData.tags = payload.tags.map((v) => String(v).trim()).filter((v) => v.length > 0);
+    if (Array.isArray(payload['adjustmentTriggers']))
+      updateData['adjustmentTriggers'] = payload['adjustmentTriggers'];
+    if (Array.isArray(payload['halftimePriorities']))
+      updateData['halftimePriorities'] = payload['halftimePriorities'];
+    if (Array.isArray(payload['customSections']))
+      updateData['customSections'] = payload['customSections'];
+    if (Array.isArray(payload['linkedPlays'])) updateData['linkedPlays'] = payload['linkedPlays'];
+    if (Array.isArray(payload['tags']))
+      updateData['tags'] = (payload['tags'] as unknown[])
+        .map((v) => String(v).trim())
+        .filter((v) => v.length > 0);
 
     const docRef = db.collection(TEAM_GAMEPLANS_COLLECTION).doc(gamePlanId);
     await docRef.update(updateData);

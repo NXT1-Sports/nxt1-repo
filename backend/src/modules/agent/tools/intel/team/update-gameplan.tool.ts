@@ -92,8 +92,6 @@ const UpdateGameplanInputSchema = z
     message: 'At least one field besides gamePlanId must be provided for update',
   });
 
-type UpdateGameplanInput = z.infer<typeof UpdateGameplanInputSchema>;
-
 export class UpdateGameplanTool extends BaseTool {
   readonly name = 'update_gameplan';
   readonly description =
@@ -153,8 +151,8 @@ export class UpdateGameplanTool extends BaseTool {
         return { success: false, error: 'Not authorized to update game plans for this team.' };
       }
 
-      context.emitStage?.('updating_gameplan', {
-        icon: 'pencil',
+      context.emitStage?.('persisting_result', {
+        icon: 'document',
         phase: 'update_gameplan',
         gamePlanId,
         fields: Object.keys(updates),
