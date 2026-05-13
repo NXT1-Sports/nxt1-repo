@@ -1306,17 +1306,43 @@ async function resolveCompletedOperationMessageId(
     return undefined;
   }
 
-  try {
-    const message = await resolver.getLatestAssistantMessageForOperation(operationId);
-    return typeof message?.id === 'string' && message.id.length > 0 ? message.id : undefined;
-  } catch (err) {
-    logger.warn('Failed to resolve completed operation message ID for synthetic done event', {
-      operationId,
-      threadId,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    return undefined;
+  // Retry with backoff to handle the race condition where the SSE handler sees
+  // job.status === 'completed' before the worker's MongoDB addMessage write has
+  // propagated (BullMQ marks the job done before the async persist finishes).
+  const RETRY_DELAYS_MS = [0, 300, 700, 1500];
+
+  for (let attempt = 0; attempt < RETRY_DELAYS_MS.length; attempt++) {
+    const delayMs = RETRY_DELAYS_MS[attempt];
+    if (delayMs > 0) {
+      await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+    }
+
+    try {
+      const message = await resolver.getLatestAssistantMessageForOperation(operationId);
+      const resolvedId =
+        typeof message?.id === 'string' && message.id.length > 0 ? message.id : undefined;
+
+      if (resolvedId) return resolvedId;
+
+      if (attempt < RETRY_DELAYS_MS.length - 1) {
+        logger.debug('resolveCompletedOperationMessageId: message not found yet, retrying', {
+          operationId,
+          threadId,
+          attempt,
+        });
+      }
+    } catch (err) {
+      logger.warn('Failed to resolve completed operation message ID for synthetic done event', {
+        operationId,
+        threadId,
+        attempt,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      // On transient error, retry; on final attempt return undefined
+    }
   }
+
+  return undefined;
 }
 
 function buildPauseYieldState(params: {

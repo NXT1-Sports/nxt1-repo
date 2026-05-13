@@ -20,6 +20,7 @@ import { logger } from './utils/logger.js';
 
 // Import database configuration
 import { connectToMongoDB, disconnectFromMongoDB } from './config/database.config.js';
+import mongoose from 'mongoose';
 
 // Import cache service
 import { initializeCacheService } from './services/core/cache.service.js';
@@ -222,11 +223,27 @@ async function setupApplication() {
   // Health Checks
   // ============================================================================
   app.get('/health', (_req, res) => {
-    res.json({ status: 'Production OK', timestamp: new Date().toISOString() });
+    const mongoState = mongoose.connection.readyState;
+    const mongoStatus =
+      mongoState === 1 ? 'connected' : mongoState === 2 ? 'connecting' : 'disconnected';
+    const healthy = mongoState === 1;
+    res.status(healthy ? 200 : 503).json({
+      status: healthy ? 'Production OK' : 'Production DEGRADED',
+      timestamp: new Date().toISOString(),
+      mongo: mongoStatus,
+    });
   });
 
   app.get('/staging/health', (_req, res) => {
-    res.json({ status: 'Staging OK', timestamp: new Date().toISOString() });
+    const mongoState = mongoose.connection.readyState;
+    const mongoStatus =
+      mongoState === 1 ? 'connected' : mongoState === 2 ? 'connecting' : 'disconnected';
+    const healthy = mongoState === 1;
+    res.status(healthy ? 200 : 503).json({
+      status: healthy ? 'Staging OK' : 'Staging DEGRADED',
+      timestamp: new Date().toISOString(),
+      mongo: mongoStatus,
+    });
   });
 
   // ============================================================================

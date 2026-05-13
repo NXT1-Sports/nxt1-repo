@@ -38,6 +38,10 @@ env:
     value: 'false'
   - variable: NPM_CONFIG_INCLUDE
     value: 'dev'
+  - variable: MONGO
+    secret: MONGO
+    availability:
+      - RUNTIME
   - variable: FFMPEG_MCP_URL
     secret: FFMPEG_MCP_URL
     availability:
@@ -68,9 +72,5 @@ env:
       - RUNTIME
   - variable: CHART_MCP_API_TOKEN
     secret: CHART_MCP_API_TOKEN
-    availability:
-      - RUNTIME
-  - variable: GEMINI_API_KEY
-    secret: GEMINI_API_KEY
     availability:
       - RUNTIME

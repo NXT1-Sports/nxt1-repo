@@ -2701,10 +2701,10 @@ export class AgentWorker {
             ? `${baseAssistantContent}${missingMediaLinks.length > 0 ? `\n\n${missingMediaLinks.join('\n')}` : ''}${missingDocLinks.length > 0 ? `\n\nDownload:\n${missingDocLinks.join('\n')}` : ''}`
             : baseAssistantContent;
 
-        const persistedAssistantMessage = await this.chatService.addMessage({
+        const addMessageParams = {
           threadId,
           userId: payload.userId,
-          role: 'assistant',
+          role: 'assistant' as const,
           content: persistedAssistantContentForStorage,
           origin: payload.origin,
           agentId,
@@ -2718,7 +2718,7 @@ export class AgentWorker {
           // Phase-aware: final row supersedes any assistant_partial row written
           // on pause/abort. The UI projection removes partial rows when final
           // exists for the same operationId.
-          semanticPhase: 'assistant_final',
+          semanticPhase: 'assistant_final' as const,
           ...(persistedStreamSnapshot.steps.length > 0
             ? { steps: persistedStreamSnapshot.steps }
             : {}),
@@ -2729,23 +2729,56 @@ export class AgentWorker {
             ? { attachments: attachmentsFromResultData }
             : {}),
           resultData: resultDataRecord,
-        });
-        persistedAssistantMessageId = persistedAssistantMessage.id;
-        logger.info('Agent response persisted to MongoDB thread', {
-          threadId,
-          operationId: payload.operationId,
-          messageId: persistedAssistantMessageId,
-        });
+        };
 
-        if ((agentId ?? finalAgentId) === 'router') {
-          logger.info('[PrimaryChat] assistant_message_persisted', {
-            operationId: payload.operationId,
-            userId: payload.userId,
+        // Retry transient MongoDB write failures (network blip, replica lag).
+        // The idempotency key guarantees exactly-once semantics across retries.
+        const PERSIST_RETRY_DELAYS_MS = [0, 500, 1500];
+        let lastPersistError: unknown;
+        for (let attempt = 0; attempt < PERSIST_RETRY_DELAYS_MS.length; attempt++) {
+          const delayMs = PERSIST_RETRY_DELAYS_MS[attempt];
+          if (delayMs > 0) {
+            await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+          }
+          try {
+            const persistedAssistantMessage = await this.chatService.addMessage(addMessageParams);
+            persistedAssistantMessageId = persistedAssistantMessage.id;
+            lastPersistError = undefined;
+            break;
+          } catch (err) {
+            lastPersistError = err;
+            if (attempt < PERSIST_RETRY_DELAYS_MS.length - 1) {
+              logger.warn('Transient MongoDB write failure persisting agent response, retrying', {
+                threadId,
+                operationId: payload.operationId,
+                attempt,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            }
+          }
+        }
+
+        if (persistedAssistantMessageId) {
+          logger.info('Agent response persisted to MongoDB thread', {
             threadId,
+            operationId: payload.operationId,
             messageId: persistedAssistantMessageId,
-            persistedAt: new Date().toISOString(),
-            summaryPreview: persistedAssistantContentForStorage.slice(0, 160),
           });
+
+          if ((agentId ?? finalAgentId) === 'router') {
+            logger.info('[PrimaryChat] assistant_message_persisted', {
+              operationId: payload.operationId,
+              userId: payload.userId,
+              threadId,
+              messageId: persistedAssistantMessageId,
+              persistedAt: new Date().toISOString(),
+              summaryPreview: persistedAssistantContentForStorage.slice(0, 160),
+            });
+          }
+        } else if (lastPersistError) {
+          // Chat persistence must never fail the job, but log at error level since
+          // this causes the done event to have no messageId — a data-loss scenario.
+          throw lastPersistError;
         }
 
         // Thread title is managed at enqueue time via generateTitleFromPromptOnly
@@ -2804,6 +2837,7 @@ export class AgentWorker {
       outcomeCode: terminalOutcomeCode,
       agentId: finalAgentId,
       messageId: persistedAssistantMessageId,
+      ...(threadId ? { threadId } : {}),
     });
     await eventWriter.dispose();
 
