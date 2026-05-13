@@ -783,13 +783,13 @@ export interface AgentXAskUserPayload {
   readonly operationId?: string;
 }
 
-/** Payload for the `connect-account` card type — prompts user to connect email or use NXT1 fallback. */
+/** Payload for the `connect-account` card type — prompts user to connect an email provider. */
 export interface AgentXConnectAccountPayload {
   /** Why the card is shown. */
   readonly reason: string;
   /** Primary button label (connect provider account). */
   readonly connectLabel?: string;
-  /** Secondary button label (send via NXT1 instead). */
+  /** Optional secondary button label for an alternate fallback action. */
   readonly fallbackLabel?: string;
   /** Tool that failed and triggered this card (if known). */
   readonly pendingTool?: string;

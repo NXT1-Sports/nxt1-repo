@@ -74,15 +74,10 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'classify_media_url',
   'extract_page_images',
   'extract_hudl_video',
-  // Background queue escalation — any agent can offload a genuinely heavy operation
-  'enqueue_heavy_task',
   // Diagram board CRUD tools used by strategy/coaching flows
   'create_board_diagram',
   'update_board_diagram',
   'delete_board_diagram',
-  // Internal outbound mail transport wrappers still exposed as callable tools
-  'send_email_via_nxt1',
-  'batch_send_email_via_nxt1',
 ]);
 
 /**
@@ -124,8 +119,6 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   'list_recurring_tasks',
   'send_email',
   'batch_send_email',
-  // Background queue escalation (Primary only uses this directly for whole-request hand-off)
-  'enqueue_heavy_task',
   // Google Workspace is limited to email workflows for now; broader Docs/
   // Sheets/Slides/Drive actions are intentionally not exposed.
   'gmail_send_email',
@@ -174,7 +167,6 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
     'call_apify_actor',
     'get_apify_actor_output',
     'runway_generate_video',
-    'runway_edit_video',
     'runway_upscale_video',
     'runway_check_task',
     'ffmpeg_trim_video',

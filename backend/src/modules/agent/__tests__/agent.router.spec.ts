@@ -258,6 +258,40 @@ describe('AgentRouter', () => {
   });
 
   describe('run()', () => {
+    it('blocks email send requests before Primary routing when no provider is connected', async () => {
+      const router = new AgentRouter(llm, toolRegistry, contextBuilder);
+      const streamEvents: Array<{ type: string; cardData?: { type?: string; title?: string } }> =
+        [];
+
+      const result = await router.run(
+        {
+          operationId: 'op-email-provider-required',
+          userId: 'user-123',
+          intent:
+            'send email to john@nxt1sports.com & ray@nxt1sports.com telling them check out nxt 1',
+          origin: TEST_ORIGIN,
+          priority: 'normal',
+          createdAt: new Date().toISOString(),
+        },
+        undefined,
+        undefined,
+        (event) => streamEvents.push(event)
+      );
+
+      expect(result.summary).toBe(
+        'To send emails through Agent X, please connect your Gmail or Outlook account first in Settings -> Email.'
+      );
+      expect(streamEvents).toContainEqual(
+        expect.objectContaining({
+          type: 'card',
+          cardData: expect.objectContaining({
+            type: 'connect-account',
+            title: 'Email Account Required',
+          }),
+        })
+      );
+    });
+
     it('passes existing draft context into planning before revising the saved plan', async () => {
       llm = createMockLLM({
         summary: 'Updated plan scoped to D1 only.',
@@ -885,6 +919,17 @@ describe('AgentRouter', () => {
       const recruitingAgent = createMockAgent('recruiting_coordinator', {
         summary: 'Email sent successfully.',
         suggestions: [],
+      });
+
+      contextBuilder = createMockContextBuilder({
+        ...createMockUserContext(),
+        connectedAccounts: [
+          {
+            provider: 'gmail',
+            email: 'sender@gmail.com',
+            isTokenValid: true,
+          },
+        ],
       });
 
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);

@@ -3,9 +3,7 @@
  * @module @nxt1/backend/modules/agent/llm
  *
  * Uploads video/media files to the Gemini Files API and performs direct
- * Gemini analysis — bypassing the OpenRouter-proxied `video_url` fetch path
- * that fails for Firebase GCS signed URLs (CORS restrictions, IP allowlisting,
- * short-lived tokens).
+ * Gemini analysis — bypassing the OpenRouter-proxied `video_url` fetch path.
  *
  * ## Why this exists
  * When Agent X analyzes a Firebase/GCS-hosted video (especially `.mov`) via
@@ -116,26 +114,48 @@ export class GeminiFilesService {
   }
 
   /**
-   * Full analysis workflow: download from Firebase/GCS → upload to Gemini Files API
+   * Full analysis workflow: download URL → upload to Gemini Files API
    * → call Gemini directly (NOT via OpenRouter) → return `LLMCompletionResult`.
    *
-   * This is the primary entry point for `AnalyzeVideoTool` when analyzing
-   * Firebase/GCS-hosted videos. It bypasses OpenRouter entirely because
-   * OpenRouter cannot proxy Gemini Files API file references.
+   * This is the primary entry point for `AnalyzeVideoTool` when analyzing a
+   * single direct video URL. It bypasses OpenRouter entirely because OpenRouter
+   * cannot proxy Gemini Files API file references.
    */
   async analyzeVideoFromUrl(
     sourceUrl: string,
     prompt: string,
     maxOutputTokens = 8192
   ): Promise<LLMCompletionResult> {
+    return this.analyzeVideosFromUrls([sourceUrl], prompt, maxOutputTokens);
+  }
+
+  /**
+   * Full analysis workflow for one or more direct video URLs. Each URL is
+   * downloaded by the backend, uploaded to Gemini Files API, then referenced in
+   * a single Gemini request so batched video analysis stays in one model call.
+   */
+  async analyzeVideosFromUrls(
+    sourceUrls: readonly string[],
+    prompt: string,
+    maxOutputTokens = 8192
+  ): Promise<LLMCompletionResult> {
+    if (sourceUrls.length === 0) {
+      throw new Error('Gemini Files API video analysis requires at least one source URL.');
+    }
+
     const startMs = Date.now();
 
-    const { fileUri, mimeType } = await this.uploadFromUrl(sourceUrl);
+    const uploads: GeminiUploadResult[] = [];
+    for (const sourceUrl of sourceUrls) {
+      uploads.push(await this.uploadFromUrl(sourceUrl));
+    }
 
-    logger.info('[GeminiFilesService] Calling Gemini directly with Files API reference', {
-      sourceUrl,
-      fileUri,
-      mimeType,
+    logger.info('[GeminiFilesService] Calling Gemini directly with Files API references', {
+      sourceUrls,
+      files: uploads.map((upload) => ({
+        fileUri: upload.fileUri,
+        mimeType: upload.mimeType,
+      })),
       model: GEMINI_VIDEO_MODEL,
     });
 
@@ -149,7 +169,9 @@ export class GeminiFilesService {
     });
 
     const result = await model.generateContent([
-      { fileData: { mimeType, fileUri } },
+      ...uploads.map((upload) => ({
+        fileData: { mimeType: upload.mimeType, fileUri: upload.fileUri },
+      })),
       { text: prompt },
     ]);
 
@@ -159,7 +181,7 @@ export class GeminiFilesService {
     const latencyMs = Date.now() - startMs;
 
     logger.info('[GeminiFilesService] Video analysis complete', {
-      sourceUrl,
+      sourceUrls,
       model: GEMINI_VIDEO_MODEL,
       latencyMs,
       inputTokens: usageMeta?.promptTokenCount ?? 0,
@@ -173,7 +195,7 @@ export class GeminiFilesService {
       outputTokens * GEMINI_2_5_FLASH_OUTPUT_COST_PER_TOKEN;
 
     logger.info('[GeminiFilesService] Computed video analysis cost', {
-      sourceUrl,
+      sourceUrls,
       model: GEMINI_VIDEO_MODEL,
       inputTokens,
       outputTokens,

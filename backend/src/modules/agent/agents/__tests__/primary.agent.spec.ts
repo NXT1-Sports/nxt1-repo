@@ -78,7 +78,34 @@ class StubCaptureLiveViewScreenshotTool extends BaseTool {
   }
 }
 
+class StubSendEmailTool extends BaseTool {
+  readonly name = 'send_email';
+  readonly description = 'Send email';
+  readonly parameters = z.object({});
+  readonly isMutation = true;
+  readonly category = 'communication' as const;
+  readonly entityGroup = 'system_tools' as const;
+
+  async execute(): Promise<ToolResult> {
+    return { success: true };
+  }
+}
+
 describe('PrimaryAgent delegation control flow', () => {
+  it('hides blocked email send tools from the primary tool surface', () => {
+    const registry = new ConcreteToolRegistry();
+    registry.register(new StubSendEmailTool());
+
+    const definitions = PrimaryAgent.buildPrimaryToolDefinitions(registry, {
+      userId: 'viewer-1',
+      role: 'athlete',
+      allowedEntityGroups: ['system_tools'],
+      blockedToolNames: ['send_email'],
+    });
+
+    expect(definitions.some((definition) => definition.name === 'send_email')).toBe(false);
+  });
+
   it('injects the 2026 reasoning contract into system prompt', () => {
     const capabilities = {
       current: () => ({

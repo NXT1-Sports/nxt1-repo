@@ -135,6 +135,43 @@ describe('AgentXOperationChatExecutionPlanComponent', () => {
     const spinner = nativeEl.querySelector('.execution-plan-dock__item-spinner');
     expect(spinner).toBeNull();
   });
+
+  it('sanitizes delegated router errors before rendering the note', () => {
+    fixture.componentRef.setInput('items', [
+      {
+        id: '2',
+        label: 'Extract Coach Contacts',
+        done: false,
+        status: 'failed',
+        note: 'Delegated back to router: Execute a personalized email outreach campaign to 42 college football coaches.\n\n[Prior Work from data_coordinator] Tools already executed: create_plan, search_web',
+      },
+    ]);
+    fixture.detectChanges();
+
+    const note = nativeEl.querySelector('.execution-plan-dock__item-note')?.textContent ?? '';
+
+    expect(note).toContain('Coordinator handoff failed. Router could not reassign this task.');
+    expect(nativeEl.textContent).not.toContain('Execute a personalized email outreach campaign');
+    expect(nativeEl.textContent).not.toContain('[Prior Work from data_coordinator]');
+  });
+
+  it('sanitizes raw delegation notes without the legacy router prefix', () => {
+    fixture.componentRef.setInput('items', [
+      {
+        id: '2',
+        label: 'Extract Coach Contacts',
+        done: false,
+        status: 'failed',
+        note: 'Agent "data_coordinator" delegated: "Execute a recruiting email campaign"',
+      },
+    ]);
+    fixture.detectChanges();
+
+    const note = nativeEl.querySelector('.execution-plan-dock__item-note')?.textContent ?? '';
+
+    expect(note).toContain('Coordinator handoff failed. Router could not reassign this task.');
+    expect(nativeEl.textContent).not.toContain('Execute a recruiting email campaign');
+  });
 });
 
 describe('AgentXOperationChatRecurringTasksDockComponent', () => {

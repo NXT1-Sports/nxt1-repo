@@ -144,6 +144,7 @@ export class PerformanceCoordinatorAgent extends BaseAgent {
       'film_breakdown_taxonomy',
       'opponent_scouting_packet',
       'coach_game_plan_and_adjustments',
+      'predictive_performance_analysis',
       'intel_report_quality',
       'global_knowledge',
     ];

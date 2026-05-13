@@ -332,6 +332,15 @@ export type {
   JobEvent,
 } from './agent.types';
 
+// Game Analysis Parameters (Team & Game Context for Skills)
+export type {
+  GameAnalysisTeamContext,
+  GameAnalysisGameContext,
+  GameAnalysisParams,
+} from './game-analysis-params';
+
+export { isGameAnalysisParams, extractGameAnalysisParams } from './game-analysis-params';
+
 // Agentic constants
 export {
   AGENT_DESCRIPTORS,

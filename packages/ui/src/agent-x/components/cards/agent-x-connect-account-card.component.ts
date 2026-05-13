@@ -27,13 +27,15 @@ export interface ConnectAccountCardActionEvent {
         >
           {{ connectLabel() }}
         </button>
-        <button
-          type="button"
-          class="connect-card__btn connect-card__btn--secondary"
-          (click)="onSendViaNxt1()"
-        >
-          {{ fallbackLabel() }}
-        </button>
+        @if (hasFallbackAction()) {
+          <button
+            type="button"
+            class="connect-card__btn connect-card__btn--secondary"
+            (click)="onSendViaNxt1()"
+          >
+            {{ fallbackLabel() }}
+          </button>
+        }
       </div>
     </div>
   `,
@@ -105,8 +107,7 @@ export class AgentXConnectAccountCardComponent {
 
   protected readonly message = computed(
     () =>
-      this.payload().reason ||
-      'Connect your Gmail or Outlook account to send from your address, or send via NXT1 instead.'
+      this.payload().reason || 'Connect your Gmail or Outlook account to send from your address.'
   );
 
   protected readonly connectLabel = computed(
@@ -116,6 +117,11 @@ export class AgentXConnectAccountCardComponent {
   protected readonly fallbackLabel = computed(
     () => this.payload().fallbackLabel ?? 'Send via NXT1 instead'
   );
+
+  protected readonly hasFallbackAction = computed(() => {
+    const label = this.payload().fallbackLabel;
+    return typeof label === 'string' && label.trim().length > 0;
+  });
 
   protected async onConnect(): Promise<void> {
     await this.haptics.impact('light');

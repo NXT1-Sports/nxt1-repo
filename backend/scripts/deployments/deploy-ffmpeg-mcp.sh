@@ -15,6 +15,7 @@ Usage:
     [--min-instances <number>] \
     [--max-instances <number>] \
     [--concurrency <number>] \
+    [--timeout <seconds>] \
     [--service-account <email>] \
     [--token-secret <secret:version>] \
     [--set-env KEY=VALUE]... \
@@ -57,6 +58,7 @@ MEMORY="2Gi"
 MIN_INSTANCES="0"
 MAX_INSTANCES="3"
 CONCURRENCY="4"
+TIMEOUT="900"
 SERVICE_ACCOUNT=""
 TOKEN_SECRET="FFMPEG_MCP_BEARER_TOKEN:latest"
 DRY_RUN="false"
@@ -99,6 +101,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --concurrency)
       CONCURRENCY="$2"
+      shift 2
+      ;;
+    --timeout)
+      TIMEOUT="$2"
       shift 2
       ;;
     --service-account)
@@ -201,6 +207,7 @@ DEPLOY_CMD=(
   --cpu "${CPU}"
   --memory "${MEMORY}"
   --concurrency "${CONCURRENCY}"
+  --timeout "${TIMEOUT}"
   --min-instances "${MIN_INSTANCES}"
   --max-instances "${MAX_INSTANCES}"
   --port 8080

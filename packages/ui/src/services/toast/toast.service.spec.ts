@@ -7,7 +7,7 @@ import { ToastController } from '@ionic/angular/standalone';
 import { HapticsService } from '../haptics';
 import { NxtLoggingService } from '../logging';
 import { NxtPlatformService } from '../platform';
-import { NxtToastService } from './toast.service';
+import { NXT_USE_IONIC_TOASTS, NxtToastService } from './toast.service';
 
 describe('NxtToastService', () => {
   beforeEach(() => {
@@ -44,7 +44,7 @@ describe('NxtToastService', () => {
     expect(service.queueLength()).toBe(1);
   });
 
-  it('uses Ionic ToastController on mobile/native platforms', async () => {
+  it('keeps the DOM toast on web even when Ionic providers are available', async () => {
     const create = vi.fn().mockResolvedValue({
       present: vi.fn().mockResolvedValue(undefined),
       dismiss: vi.fn().mockResolvedValue(true),
@@ -54,10 +54,36 @@ describe('NxtToastService', () => {
     const service = createToastService({
       platform: {
         isBrowser: () => true,
-        isNative: () => true,
+        isNative: () => false,
         isMobile: () => true,
       },
       toastController: { create },
+    });
+
+    service.success('Web mobile viewport', { duration: 0 });
+    await Promise.resolve();
+
+    expect(create).not.toHaveBeenCalled();
+    expect(document.querySelector('.nxt-toast-shell--success')?.textContent).toContain(
+      'Web mobile viewport'
+    );
+  });
+
+  it('uses Ionic ToastController when the mobile app enables Ionic toasts', async () => {
+    const create = vi.fn().mockResolvedValue({
+      present: vi.fn().mockResolvedValue(undefined),
+      dismiss: vi.fn().mockResolvedValue(true),
+      onDidDismiss: vi.fn().mockResolvedValue(undefined),
+    });
+
+    const service = createToastService({
+      platform: {
+        isBrowser: () => true,
+        isNative: () => false,
+        isMobile: () => false,
+      },
+      toastController: { create },
+      useIonicToasts: true,
     });
 
     service.success('Saved successfully');
@@ -82,6 +108,7 @@ describe('NxtToastService', () => {
         isMobile: () => true,
       },
       toastController: { create },
+      useIonicToasts: true,
     });
 
     service.error('Offline mode');
@@ -102,6 +129,7 @@ function createToastService(options?: {
     isMobile: () => boolean;
   };
   toastController?: Pick<ToastController, 'create'>;
+  useIonicToasts?: boolean;
 }): NxtToastService {
   const platform = options?.platform ?? {
     isBrowser: () => true,
@@ -134,6 +162,10 @@ function createToastService(options?: {
       {
         provide: ToastController,
         useValue: options?.toastController ?? null,
+      },
+      {
+        provide: NXT_USE_IONIC_TOASTS,
+        useValue: options?.useIonicToasts ?? false,
       },
       { provide: NgZone, useValue: { run: (callback: () => void) => callback() } },
     ],

@@ -11,7 +11,7 @@
  * immediately tell the user "I'm working on it in the background."
  *
  * This keeps the SSE chat responsive (< 30 s) while still leveraging
- * the full PlannerAgent → sub-agent pipeline for complex work.
+ * the full PlannerAgent -> sub-agent pipeline for complex work.
  */
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';

@@ -54,7 +54,12 @@ export class FfmpegMergeVideosTool extends BaseTool {
       const outputUrl = result.outputUrl ?? result.output_path;
       return {
         success: true,
-        data: { outputUrl, filesMerged: parsed.data.inputPaths.length, result },
+        data: {
+          outputUrl,
+          videoUrl: outputUrl,
+          filesMerged: parsed.data.inputPaths.length,
+          result,
+        },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to merge videos';

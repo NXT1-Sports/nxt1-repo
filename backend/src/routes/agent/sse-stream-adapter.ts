@@ -12,7 +12,7 @@
  *   step_done    → event: step    { id, label, status: 'success' }
  *   step_error   → event: step    { id, label, status: 'error' }
  *   card         → event: card    { ...cardData }
- *   tool_result  → captures heavyTaskOperationId / media / autoOpenPanel
+ *   tool_result  → captures media / autoOpenPanel
  *   tool_call    → no-op (step_active carries the canonical UI step identity)
  */
 
@@ -229,16 +229,8 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
           stepTracker.get(event.toolName) ??
           stepTracker.getOrCreate(event.toolName);
         const succeeded = event.toolSuccess !== false;
-        const heavyTaskOperationId =
-          event.toolName === 'enqueue_heavy_task' &&
-          event.toolResult &&
-          typeof event.toolResult['heavyTaskOperationId'] === 'string' &&
-          event.toolResult['heavyTaskOperationId'].trim().length > 0
-            ? String(event.toolResult['heavyTaskOperationId']).trim()
-            : null;
         const enrichedMetadata = {
           ...((event.metadata as Record<string, unknown> | undefined) ?? {}),
-          ...(heavyTaskOperationId ? { heavyTaskOperationId } : {}),
         };
         const payload = toStepPayload(
           { ...event, stepId, metadata: enrichedMetadata },

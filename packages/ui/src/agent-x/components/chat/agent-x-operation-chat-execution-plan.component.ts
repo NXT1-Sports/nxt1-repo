@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output } from '@angular/core';
 import type { AgentXPlannerItem } from '@nxt1/core/ai';
+import { formatPlannerItemNote } from '../../utils/planner-note.util';
 
 @Component({
   selector: 'nxt1-agent-x-operation-chat-execution-plan',
@@ -22,7 +23,7 @@ import type { AgentXPlannerItem } from '@nxt1/core/ai';
 
       <div class="execution-plan-dock__body">
         <div class="execution-plan-dock__items">
-          @for (item of items; track item.id) {
+          @for (item of displayItems; track item.id) {
             <div
               class="execution-plan-dock__item"
               [class.execution-plan-dock__item--done]="item.done"
@@ -240,6 +241,20 @@ export class AgentXOperationChatExecutionPlanComponent {
 
   protected get totalCount(): number {
     return this.items.length;
+  }
+
+  protected get displayItems(): readonly AgentXPlannerItem[] {
+    return this.items.map((item) => {
+      const note = formatPlannerItemNote(item.note);
+      if (note === item.note || (note === null && item.note === undefined)) {
+        return item;
+      }
+
+      return {
+        ...item,
+        ...(note ? { note } : {}),
+      };
+    });
   }
 
   protected get doneCount(): number {

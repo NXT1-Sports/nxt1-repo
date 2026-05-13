@@ -290,6 +290,13 @@ export class ToolRegistry {
   ): boolean {
     if (!accessContext) return true;
 
+    if (
+      accessContext.blockedToolNames?.length &&
+      accessContext.blockedToolNames.map(canonicalToolName).includes(canonicalToolName(tool.name))
+    ) {
+      return false;
+    }
+
     const entityGroup = this.resolveEntityGroup(tool);
     if (entityGroup === 'system_tools') return true;
 

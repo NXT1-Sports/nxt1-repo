@@ -38,7 +38,7 @@ export class FfmpegTrimVideoTool extends BaseTool {
       const outputUrl = result.outputUrl ?? result.output_path;
       return {
         success: true,
-        data: { outputUrl, result },
+        data: { outputUrl, videoUrl: outputUrl, result },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to trim video';

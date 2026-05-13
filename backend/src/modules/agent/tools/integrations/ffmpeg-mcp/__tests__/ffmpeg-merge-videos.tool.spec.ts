@@ -36,6 +36,7 @@ describe('FfmpegMergeVideosTool', () => {
     );
 
     expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['videoUrl']).toBe('/tmp/merged.webm');
     expect(bridge.mergeVideos).toHaveBeenCalledWith(
       expect.objectContaining({
         inputPaths: ['/tmp/intro.mp4', '/tmp/highlight.mp4'],

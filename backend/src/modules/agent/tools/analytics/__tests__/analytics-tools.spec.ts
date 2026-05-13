@@ -164,6 +164,30 @@ describe('analytics agent tools', () => {
     );
   });
 
+  it('rejects failed outcomes before writing analytics events', async () => {
+    const analytics = {
+      track: vi.fn(),
+    } as any;
+
+    const tool = new TrackAnalyticsEventTool(analytics);
+    const result = await tool.execute({
+      userId: 'user_123',
+      domain: 'communication',
+      payload: {
+        coordinatorId: 'recruiting',
+        workflow: 'platform_intro_email',
+        outcome: 'failed',
+        toolName: 'send_email_via_nxt1',
+        recipient: 'john@nxt1sports.com',
+      },
+      source: 'agent',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Failed outcomes must not be recorded');
+    expect(analytics.track).not.toHaveBeenCalled();
+  });
+
   it('defaults payload to an empty object when omitted', async () => {
     const analytics = {
       track: vi.fn().mockResolvedValue({

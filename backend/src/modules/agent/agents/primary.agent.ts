@@ -31,6 +31,7 @@ import {
   type AgentIdentifier,
   type AgentOperationResult,
   type AgentSessionContext,
+  type AgentToolAccessContext,
   type AgentToolDefinition,
   type ModelRoutingConfig,
   MODEL_ROUTING_DEFAULTS,
@@ -185,11 +186,10 @@ const PRIMARY_REASONING_CONTRACT = [
   '12) After `delegate_to_coordinator`, `create_plan`, or `execute_saved_plan`, inspect the tool result JSON fields `user_already_received_response` and `follow_up_required`.',
   '13) If `user_already_received_response` is true and `follow_up_required` is false, do NOT add any extra narration, recap, or postamble. End your turn immediately.',
   '14) Only add follow-up text when `follow_up_required` is true (for example failures or missing output). Keep it to one concise recovery sentence.',
-  '15) `enqueue_heavy_task` — background queue escalation rules (STRICT):',
-  "   15a) ONLY call `enqueue_heavy_task` when the user's request clearly requires an operation that would take longer than 5 minutes to complete. If the operation can finish in under 5 minutes, handle it through normal coordinator delegation or plan mode — never queue it.",
-  '   15b) DO NOT call `enqueue_heavy_task` for requests that can be handled conversationally, through coordinator delegation, or via a saved plan — those are always the preferred paths.',
-  '   15c) NEVER call `enqueue_heavy_task` when the current mode is `planner`. In planner mode the user wants a reviewable plan, not background execution. Use `create_plan` instead.',
-  '   15d) When you enqueue a heavy task, immediately tell the user what was queued, that it is running in the background, and that they will receive a notification when it is done. Do not add further tool calls after enqueuing.',
+  '15) Execution path rule (STRICT):',
+  '   15a) Complete requests using your own active toolset and normal coordinator delegation flow. Do not attempt background queue escalation.',
+  '   15b) If work spans multiple steps, keep executing within this run via direct tools, `delegate_to_coordinator`, or planner tools as appropriate.',
+  '   15c) In planner mode, always produce reviewable plans with `create_plan` or `plan_and_execute` per user intent.',
 ].join('\n');
 
 interface PrimaryToolSelectionTrace {
@@ -1239,10 +1239,13 @@ export class PrimaryAgent extends BaseAgent {
    * the registry; included here so callers don't need to know the curated
    * list manually.
    */
-  static buildPrimaryToolDefinitions(registry: ToolRegistry): readonly AgentToolDefinition[] {
+  static buildPrimaryToolDefinitions(
+    registry: ToolRegistry,
+    accessContext?: AgentToolAccessContext
+  ): readonly AgentToolDefinition[] {
     const allowed = new Set([...getRouterToolPolicy(), ...PRIMARY_SYSTEM_TOOLS]);
     return registry
-      .getDefinitions('router')
+      .getDefinitions('router', accessContext)
       .filter((def) => def.category === 'system' || allowed.has(def.name));
   }
 }

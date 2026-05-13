@@ -257,7 +257,9 @@ export const OPERATIONS_LOG_TEST_IDS = {
                             <nxt1-icon name="close" [size]="14" />
                           }
                           @case ('in-progress') {
-                            <nxt1-icon name="refresh" [size]="14" class="log-entry-spinner" />
+                            <span class="log-entry-spinner">
+                              <nxt1-icon name="refresh" [size]="14" />
+                            </span>
                           }
                           @case ('paused') {
                             <nxt1-icon name="time" [size]="14" />
@@ -349,7 +351,9 @@ export const OPERATIONS_LOG_TEST_IDS = {
                           <nxt1-icon name="close" [size]="14" />
                         }
                         @case ('in-progress') {
-                          <nxt1-icon name="refresh" [size]="14" class="log-entry-spinner" />
+                          <span class="log-entry-spinner">
+                            <nxt1-icon name="refresh" [size]="14" />
+                          </span>
                         }
                         @case ('paused') {
                           <nxt1-icon name="time" [size]="14" />
@@ -974,8 +978,8 @@ export const OPERATIONS_LOG_TEST_IDS = {
       }
 
       .log-entry-spinner {
+        display: inline-flex;
         animation: log-spin 1.2s linear infinite;
-        transform-origin: center center;
       }
 
       .log-entry-meta {
@@ -1131,7 +1135,7 @@ export const OPERATIONS_LOG_TEST_IDS = {
         }
 
         .log-entry-spinner {
-          animation: none !important;
+          animation: none;
         }
 
         .log-entry--active,
@@ -1471,14 +1475,11 @@ export class AgentXOperationsLogComponent {
           this._sseGeneratedTitlesByOperation.set(evt.operationId, evt.title);
         }
         this._operations.update((ops) => {
-          // Match by threadId first — once a title is generated for a
-          // conversation it applies to every operation on that thread.
-          // Fall back to operationId for orphan rows (no threadId).
-          const matchesTitleEvent = (op: OperationLogEntry): boolean => {
-            if (evt.threadId && op.threadId === evt.threadId) return true;
-            if (evt.operationId && op.operationId === evt.operationId) return true;
-            return false;
-          };
+          const matchesTitleEvent = (op: OperationLogEntry): boolean =>
+            evt.operationId
+              ? op.operationId === evt.operationId ||
+                (!op.operationId && op.threadId === evt.threadId)
+              : op.threadId === evt.threadId;
           const target = ops.find(matchesTitleEvent);
           if (!target || target.title === evt.title) return ops;
           return ops.map((op) => (matchesTitleEvent(op) ? { ...op, title: evt.title } : op));
@@ -1514,17 +1515,11 @@ export class AgentXOperationsLogComponent {
           status: effectiveStatus,
         });
         this._operations.update((ops) => {
-          // Professional-app pattern: one sidebar row per thread (conversation).
-          // Match by threadId first — every status update for any operation on
-          // the same thread (fan-out chunks, retries, follow-up turns, child
-          // tool calls) collapses into that single row. Fall back to
-          // operationId only for orphan rows that have no thread association
-          // (rare — typically pre-thread enqueue jobs).
-          const matchesEvent = (op: OperationLogEntry): boolean => {
-            if (evt.threadId && op.threadId === evt.threadId) return true;
-            if (evt.operationId && op.operationId === evt.operationId) return true;
-            return false;
-          };
+          const matchesEvent = (op: OperationLogEntry): boolean =>
+            evt.operationId
+              ? op.operationId === evt.operationId ||
+                (!op.operationId && op.threadId === evt.threadId)
+              : op.threadId === evt.threadId;
           const idx = ops.findIndex(matchesEvent);
           if (idx >= 0) {
             const prior = ops[idx];
@@ -1569,32 +1564,10 @@ export class AgentXOperationsLogComponent {
             return [newEntry, ...ops];
           }
 
-          // Child operations (fired by enqueue-heavy-task, scrape fan-out
-          // chunks 2..N, etc.) must never create a new sidebar row. They are
-          // sub-steps of their parent and only surface inside the parent's
-          // operations panel. If no row exists for the thread yet, wait for
-          // canonical HTTP hydration to insert the parent row.
-          if (evt.parentOperationId) {
-            return ops;
-          }
-
-          // New top-level operation — insert at the top of the list.
-          //
-          // Consult the SSE title cache: the backend's prompt-only title
-          // generation runs in parallel with the worker and frequently emits
-          // `title_updated` BEFORE the first operation lifecycle event lands.
-          // When that happens the title arrives, gets cached, but has no row
-          // to attach to. Without this lookup the new row would display
-          // "Processing…" forever (until canonical HTTP hydration races in).
-          const cachedTitle =
-            (evt.operationId
-              ? this._sseGeneratedTitlesByOperation.get(evt.operationId)
-              : undefined) ||
-            this._sseGeneratedTitles.get(evt.threadId) ||
-            evt.title?.trim();
+          // New operation — insert at the top of the list
           const newEntry: OperationLogEntry = {
             id: evt.operationId ?? evt.threadId,
-            title: cachedTitle || 'Processing…',
+            title: 'Processing…',
             summary: '',
             status: effectiveStatus,
             category: 'system',

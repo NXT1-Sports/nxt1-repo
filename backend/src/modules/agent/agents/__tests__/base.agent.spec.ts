@@ -70,6 +70,12 @@ class FakeAgent extends BaseAgent {
     return this.augmentToolCallWithArtifact(toolCall, messages, context, artifactLedger);
   }
 
+  callPruneMessageHistory(messages: LLMMessage[]): void {
+    (
+      this as unknown as { pruneMessageHistory: (messages: LLMMessage[]) => void }
+    ).pruneMessageHistory(messages);
+  }
+
   callExecuteTool(
     toolCall: LLMToolCall,
     registry: ToolRegistry,
@@ -281,6 +287,37 @@ afterEach(() => {
 });
 
 describe('BaseAgent identifier scrubbing', () => {
+  it('returns connect-provider guidance when a stale email send tool call is not allowed', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_send_email',
+        type: 'function',
+        function: {
+          name: 'send_email',
+          arguments:
+            '{"toEmail":"john@nxt1sports.com","subject":"Check out NXT1","bodyHtml":"<p>Check out NXT1.</p>"}',
+        },
+      },
+      registry,
+      'viewer-1',
+      {
+        operationId: 'op-email-blocked',
+        sessionId: 'session-email-blocked',
+        allowedToolNames: ['fake_read_tool'],
+      }
+    );
+
+    expect(JSON.parse(observation)).toEqual({
+      success: false,
+      error:
+        'No connected email account found. Please connect Gmail or Outlook in Settings -> Email before sending emails.',
+      data: { requiresEmailConnection: true },
+    });
+  });
+
   it('preserves identifier fields inside internal tool observations for follow-up tool calls', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();
@@ -428,6 +465,106 @@ describe('BaseAgent identifier scrubbing', () => {
     });
 
     expect(label).toBe('Analyzing game film');
+  });
+
+  it('normalizes scrape webpage labels without surfacing wait timings', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('scrape_webpage', {
+      url: 'https://fan.hudl.com/team/example',
+      waitFor: 8000,
+      format: 'rawHtml',
+    });
+
+    expect(label).toBe('Reviewing web page');
+  });
+
+  it('normalizes ffmpeg trim labels without surfacing clip offsets', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('ffmpeg_trim_video', {
+      inputPath: 'https://cdn.example.com/source.mp4',
+      startTime: 103,
+      endTime: 117,
+    });
+
+    expect(label).toBe('Trimming video');
+  });
+
+  it('normalizes ffmpeg merge labels without surfacing raw input URL arrays', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('ffmpeg_merge_videos', {
+      inputPaths: [
+        'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/3TURitdha123/clip-1.mp4',
+        'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/3TURitdha123/clip-2.mp4',
+      ],
+    });
+
+    expect(label).toBe('Merging video clips');
+  });
+
+  it('keeps artifact URLs in compacted tool history summaries', () => {
+    const agent = new FakeAgent();
+    const toolExchange = (
+      id: string,
+      name: string,
+      data: Record<string, unknown>
+    ): LLMMessage[] => [
+      {
+        role: 'assistant',
+        content: '',
+        tool_calls: [
+          {
+            id,
+            type: 'function',
+            function: { name, arguments: JSON.stringify({ inputPath: `${id}.mp4` }) },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        tool_call_id: id,
+        content: JSON.stringify({ success: true, data }),
+      },
+    ];
+
+    const messages: LLMMessage[] = [
+      { role: 'system', content: 'system' },
+      { role: 'user', content: 'build a highlight reel' },
+      ...toolExchange('t1', 'extract_hudl_video', {
+        videoUrl: 'https://cdn.example.com/source.mp4',
+      }),
+      ...toolExchange('t2', 'analyze_video', { summary: 'best plays found' }),
+      ...toolExchange('t3', 'ffmpeg_trim_video', {
+        videoUrl: 'https://cdn.example.com/clip-1.mp4',
+      }),
+      ...toolExchange('t4', 'ffmpeg_merge_videos', {
+        outputUrl: 'https://cdn.example.com/merged.mp4',
+        videoUrl: 'https://cdn.example.com/merged.mp4',
+      }),
+      ...toolExchange('t5', 'ffmpeg_generate_thumbnail', {
+        thumbnailUrl: 'https://cdn.example.com/thumb.jpg',
+      }),
+      ...toolExchange('t6', 'analyze_image', { summary: 'usable image' }),
+      ...toolExchange('t7', 'generate_graphic', { imageUrl: 'https://cdn.example.com/card.png' }),
+      ...toolExchange('t8', 'runway_generate_video', {
+        videoUrl: 'https://cdn.example.com/intro.mp4',
+      }),
+    ];
+
+    agent.callPruneMessageHistory(messages);
+
+    const compactedSummary = messages.find(
+      (message) =>
+        message.role === 'assistant' &&
+        typeof message.content === 'string' &&
+        message.content.includes('[Context compacted')
+    );
+
+    expect(compactedSummary?.content).toContain('ffmpeg_merge_videos');
+    expect(compactedSummary?.content).toContain('videoUrl=https://cdn.example.com/merged.mp4');
+    expect(compactedSummary?.content).toContain('thumbnailUrl=https://cdn.example.com/thumb.jpg');
   });
 
   it('auto-injects mediaArtifact from conversationHistory into analyze_video', () => {

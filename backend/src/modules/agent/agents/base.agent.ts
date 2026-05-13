@@ -25,6 +25,7 @@ import type {
   AgentOperationResult,
   AgentToolCallRecord,
   AgentXToolStepIcon,
+  GameAnalysisParams,
   ModelRoutingConfig,
   ToolStage,
 } from '@nxt1/core';
@@ -96,6 +97,13 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- Final response delivery is mandatory: when tools return deliverable URLs (image/video/pdf/export/download links), include those exact URLs in the same user-facing reply. Never claim a file/diagram/report is ready without surfacing its link(s).',
   '- Never claim a deliverable exists before calling the tool: do NOT write "I have created your diagrams", "your report is ready", "diagrams are complete", or any equivalent completion statement unless you have already executed the relevant tool (e.g. create_play_diagram, generate_graphic, write_intel) in this response and received its output. If a tool call is pending, skipped, or failed, explicitly state what is incomplete rather than falsely claiming success.',
   '- Recurring task delivery (CRITICAL — never contradict this): when a recurring task is scheduled with a sourceId/threadId, each run executes inside that originating thread and posts its full response there, exactly like a normal chat reply. The user sees results in-thread. A push notification is ALSO sent as a supplementary alert. Do NOT tell users recurring tasks only notify via push or that results will not appear in the chat — both happen automatically.',
+  '',
+  '## Email Tool Selection (CRITICAL — All Agents)',
+  '- **Multiple recipients (2+)**: ALWAYS use `batch_send_email` with a single template and recipient array. This sends one approved template to many people with per-recipient variable substitution ({{firstName}}, {{collegeName}}, etc.).',
+  '- **Single recipient (1)**: use `send_email` for one-off messages.',
+  '- **NEVER loop** `send_email` multiple times. If a user asks you to send the same email to more than one person, construct a recipients array and call `batch_send_email` ONCE instead of calling `send_email` in a loop.',
+  '- **Connected provider check first**: Before calling any email tool, verify the injected connected-account context shows an active Gmail or Microsoft connection. If no provider is connected, tell the user to connect Gmail or Outlook in Settings → Email, then call the email tool.',
+  '- **Fallback to NXT1**: If the user has no connected provider, use `batch_send_email_via_nxt1` (for 2+ recipients) or `send_email_via_nxt1` (for 1 recipient) to send via the platform address (nxt1@nxt1sports.com).',
 ].join('\n');
 
 /**
@@ -191,6 +199,9 @@ const CONTEXT_KEEP_LAST_EXCHANGES = 3;
  * collapsed middle or the prune is a no-op).
  */
 const CONTEXT_PRUNE_THRESHOLD = CONTEXT_KEEP_FIRST_EXCHANGES + CONTEXT_KEEP_LAST_EXCHANGES + 1;
+const EMAIL_SEND_TOOL_NAMES = new Set(['send_email', 'batch_send_email', 'gmail_send_email']);
+const EMAIL_CONNECTION_REQUIRED_MESSAGE =
+  'No connected email account found. Please connect Gmail or Outlook in Settings -> Email before sending emails.';
 
 export interface ToolSessionContext {
   readonly sessionId?: string;
@@ -683,7 +694,8 @@ export abstract class BaseAgent {
               await m.skill.retrieveForIntent(intent, intentEmbedding);
             }
           }
-          skillBlock = skillRegistry.buildPromptBlock(selectedSkills);
+          const skillContextParams = this.buildGameAnalysisParams(intent);
+          skillBlock = skillRegistry.buildPromptBlock(selectedSkills, skillContextParams);
           logger.info(`[${this.id}] Injected ${selectedSkills.length} skill(s) into prompt`, {
             agentId: this.id,
             skills: selectedSkills.map((m) => m.skill.name),
@@ -1121,13 +1133,27 @@ export abstract class BaseAgent {
       );
       observation = this.truncateObservation(observation);
 
+      let toolSuccess: boolean;
+      let toolResult: Record<string, unknown> | undefined;
+      try {
+        const parsed = JSON.parse(observation) as Record<string, unknown>;
+        toolSuccess = parsed['success'] === true;
+        toolResult =
+          typeof parsed['data'] === 'object' && parsed['data'] !== null
+            ? sanitizeAgentPayload(parsed['data'] as Record<string, unknown>)
+            : undefined;
+      } catch {
+        toolSuccess = observation.length > 0;
+      }
+
       onStreamEvent?.({
         type: 'tool_result',
         agentId: this.id,
         stepId: pendingToolCall.id,
         toolName: pendingToolCall.function.name,
         stageType: 'tool',
-        toolSuccess: true,
+        toolSuccess,
+        toolResult,
         icon: this.resolveToolStepIcon(pendingToolCall.function.name),
         message: this.resolveToolInvocationLabel(
           pendingToolCall.function.name,
@@ -1353,6 +1379,9 @@ export abstract class BaseAgent {
               // Not JSON — skip
             }
           }
+        }
+        for (const entry of artifactLedger) {
+          Object.assign(extractedToolData, sanitizeAgentPayload(entry.artifacts));
         }
 
         // Build persistent tool call records from the conversation history
@@ -1935,6 +1964,9 @@ export abstract class BaseAgent {
         }
       }
     }
+    for (const entry of artifactLedger) {
+      Object.assign(extractedToolData, sanitizeAgentPayload(entry.artifacts));
+    }
     const toolCallRecords = this.extractToolCallRecords(messages, toolExecutionMeta);
     const evidenceTrace = this.buildEvidenceTrace(
       'The agent reached its maximum iteration limit.',
@@ -2259,6 +2291,9 @@ export abstract class BaseAgent {
             const p = JSON.parse(toolMsg.content) as Record<string, unknown>;
             if (p['success'] === false) {
               outcome = `failed: ${sanitizeAgentOutputText(String(p['error'] ?? 'unknown'))}`;
+            } else {
+              const artifactSummary = this.summarizeToolObservationArtifacts(p);
+              if (artifactSummary) outcome = `completed; ${artifactSummary}`;
             }
           } catch {
             /* non-JSON observation — treat as completed */
@@ -2317,6 +2352,23 @@ export abstract class BaseAgent {
     } catch {
       return argsJson.slice(0, 40);
     }
+  }
+
+  private summarizeToolObservationArtifacts(observation: Record<string, unknown>): string | null {
+    const data = observation['data'];
+    if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+
+    const record = data as Record<string, unknown>;
+    const parts: string[] = [];
+
+    for (const key of ARTIFACT_KEYS) {
+      const value = record[key];
+      if (typeof value === 'string' && value.trim().length > 0) {
+        parts.push(`${key}=${value.trim()}`);
+      }
+    }
+
+    return parts.length > 0 ? `artifacts: ${parts.join(', ')}` : null;
   }
 
   // ─── Tool Call Record Extraction ──────────────────────────────────────────
@@ -2472,6 +2524,14 @@ export abstract class BaseAgent {
       allowedToolNames.length > 0 &&
       !allowedToolNames.includes(toolName)
     ) {
+      if (EMAIL_SEND_TOOL_NAMES.has(toolName)) {
+        return JSON.stringify({
+          success: false,
+          error: EMAIL_CONNECTION_REQUIRED_MESSAGE,
+          data: { requiresEmailConnection: true },
+        });
+      }
+
       if (
         this.id === 'router' &&
         ['analyze_video', 'extract_live_view_media', 'extract_live_view_playlist'].includes(
@@ -2834,7 +2894,7 @@ export abstract class BaseAgent {
       firecrawl_agent_research: 'Conducting web research',
       firecrawl_search_web: 'Searching the web',
       extract_web_data: 'Extracting structured data',
-      scrape_webpage: 'Scraping web page',
+      scrape_webpage: 'Reviewing web page',
       map_website: 'Mapping website structure',
       search_web: 'Searching the web',
 
@@ -2970,7 +3030,6 @@ export abstract class BaseAgent {
       run_microsoft_365_tool: 'Using Microsoft 365',
 
       // Automation
-      enqueue_heavy_task: 'Queueing background operation',
       schedule_recurring_task: 'Scheduling automation',
       update_recurring_task: 'Updating scheduled automation',
       list_recurring_tasks: 'Reviewing scheduled automations',
@@ -3834,6 +3893,13 @@ export abstract class BaseAgent {
     inputOrArgs?: Record<string, unknown> | string
   ): string {
     const baseLabel = this.humanizeToolName(toolName);
+    if (
+      toolName === 'scrape_webpage' ||
+      toolName === 'ffmpeg_trim_video' ||
+      toolName === 'ffmpeg_merge_videos'
+    ) {
+      return baseLabel;
+    }
     const descriptor = this.resolveToolInvocationDescriptor(inputOrArgs);
     return descriptor ? `${baseLabel}: ${descriptor}` : baseLabel;
   }
@@ -4089,6 +4155,158 @@ export abstract class BaseAgent {
     }
 
     return null;
+  }
+
+  private buildGameAnalysisParams(intent: string): GameAnalysisParams | undefined {
+    const normalizedIntent = intent.trim();
+    if (!normalizedIntent) return undefined;
+
+    const clean = (value: string | undefined): string | undefined => {
+      if (!value) return undefined;
+      const normalized = value
+        .replace(/[\s\n\t]+/g, ' ')
+        .trim()
+        .replace(/[.,;:!?]+$/, '');
+      return normalized.length > 0 ? normalized : undefined;
+    };
+
+    const capture = (pattern: RegExp): string | undefined => {
+      const match = normalizedIntent.match(pattern);
+      return clean(match?.[1]);
+    };
+
+    let ownTeamName = capture(/(?:^|\b)(?:our\s+team|team)\s*:\s*([^.;,\n]+)/i);
+    let opponentTeamName = capture(/(?:^|\b)opponent\s*:\s*([^.;,\n]+)/i);
+
+    let ownTeamColor = capture(/(?:^|\b)(?:our\s+team\s+color|team\s+color)\s*:\s*([^.;,\n]+)/i);
+    let opponentTeamColor = capture(/(?:^|\b)opponent\s+color\s*:\s*([^.;,\n]+)/i);
+
+    const splitTeamAndColor = (value: string | undefined): { name?: string; color?: string } => {
+      if (!value) return {};
+      const match = value.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
+      if (!match) return { name: value };
+      return {
+        name: clean(match[1]),
+        color: clean(match[2]),
+      };
+    };
+
+    const ownSplit = splitTeamAndColor(ownTeamName);
+    ownTeamName = ownSplit.name ?? ownTeamName;
+    ownTeamColor = ownTeamColor ?? ownSplit.color;
+
+    const opponentSplit = splitTeamAndColor(opponentTeamName);
+    opponentTeamName = opponentSplit.name ?? opponentTeamName;
+    opponentTeamColor = opponentTeamColor ?? opponentSplit.color;
+
+    const versusMatch = normalizedIntent.match(
+      /([A-Za-z0-9][A-Za-z0-9 '&.-]{1,60})\s*\(([^)]+)\)\s+vs\.?\s+([A-Za-z0-9][A-Za-z0-9 '&.-]{1,60})\s*\(([^)]+)\)/i
+    );
+    if (versusMatch) {
+      ownTeamName = ownTeamName ?? clean(versusMatch[1]);
+      ownTeamColor = ownTeamColor ?? clean(versusMatch[2]);
+      opponentTeamName = opponentTeamName ?? clean(versusMatch[3]);
+      opponentTeamColor = opponentTeamColor ?? clean(versusMatch[4]);
+    }
+
+    if (!opponentTeamColor && opponentTeamName) {
+      const escapedOpponent = opponentTeamName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const opponentWithColor = normalizedIntent.match(
+        new RegExp(`${escapedOpponent}\\s*\\(([^)]+)\\)`, 'i')
+      );
+      opponentTeamColor = clean(opponentWithColor?.[1]);
+    }
+
+    const sportLabel = capture(/(?:^|\b)sport\s*:\s*([^.;,\n]+)/i);
+    const inferredSportMatch = normalizedIntent.match(
+      /\b(football|basketball|baseball|softball|soccer|lacrosse|volleyball|hockey|track|wrestling|tennis|golf)\b/i
+    );
+    const sport = sportLabel ?? clean(inferredSportMatch?.[1]);
+
+    const division = capture(/(?:^|\b)division\s*:\s*([^.;,\n]+)/i);
+    const weekRaw = capture(/(?:^|\b)week\s*:\s*(\d{1,2})/i);
+    const week = weekRaw ? Number.parseInt(weekRaw, 10) : undefined;
+
+    const explicitPhaseRaw = capture(
+      /(?:^|\b)(?:game\s*phase|phase)\s*:\s*(pregame|pre-game|in-game|in\s*game|postgame|post-game|scouting)/i
+    );
+    const normalizePhase = (
+      phase: string | undefined
+    ): 'pregame' | 'in-game' | 'postgame' | 'scouting' | undefined => {
+      if (!phase) return undefined;
+      const value = phase.toLowerCase().replace(/\s+/g, '-');
+      if (value === 'pre-game') return 'pregame';
+      if (value === 'in-game' || value === 'in--game') return 'in-game';
+      if (value === 'post-game') return 'postgame';
+      if (value === 'pregame' || value === 'postgame' || value === 'scouting') {
+        return value as 'pregame' | 'postgame' | 'scouting';
+      }
+      return undefined;
+    };
+
+    let phase = normalizePhase(explicitPhaseRaw);
+    if (!phase) {
+      if (
+        /\b(film\s+review|review\s+film|postgame|post-game|after\s+the\s+game)\b/i.test(
+          normalizedIntent
+        )
+      ) {
+        phase = 'postgame';
+      } else if (/\b(scout|scouting|opponent\s+film)\b/i.test(normalizedIntent)) {
+        phase = 'scouting';
+      } else if (
+        /\b(plan|planning|prepare|pregame|pre-game|ahead\s+of\s+time)\b/i.test(normalizedIntent)
+      ) {
+        phase = 'pregame';
+      }
+    }
+
+    const perspectiveRaw = capture(
+      /(?:^|\b)perspective\s*:\s*(own|opponent|neutral)/i
+    )?.toLowerCase();
+    let perspectiveTeam: 'own' | 'opponent' | 'neutral' | undefined;
+    if (perspectiveRaw === 'own' || perspectiveRaw === 'opponent' || perspectiveRaw === 'neutral') {
+      perspectiveTeam = perspectiveRaw;
+    } else if (
+      /\b(scout\s+the\s+opponent|opponent\s+film|their\s+perspective)\b/i.test(normalizedIntent)
+    ) {
+      perspectiveTeam = 'opponent';
+    } else if (/\b(our\s+perspective|from\s+our\s+perspective)\b/i.test(normalizedIntent)) {
+      perspectiveTeam = 'own';
+    }
+
+    const hasTeamData = Boolean(
+      ownTeamName || opponentTeamName || ownTeamColor || opponentTeamColor || perspectiveTeam
+    );
+    const hasGameData = Boolean(
+      sport || division || phase || (typeof week === 'number' && !Number.isNaN(week))
+    );
+
+    if (!hasTeamData && !hasGameData) return undefined;
+
+    return {
+      ...(hasTeamData
+        ? {
+            team: {
+              ...(ownTeamName ? { ownTeamName } : {}),
+              ...(ownTeamColor ? { ownTeamColor } : {}),
+              ...(opponentTeamName ? { opponentTeamName } : {}),
+              ...(opponentTeamColor ? { opponentTeamColor } : {}),
+              ...(perspectiveTeam ? { perspectiveTeam } : {}),
+            },
+          }
+        : {}),
+      ...(hasGameData
+        ? {
+            game: {
+              ...(sport ? { sport } : {}),
+              ...(division ? { division } : {}),
+              ...(typeof week === 'number' && !Number.isNaN(week) ? { week } : {}),
+              ...(phase ? { phase } : {}),
+            },
+          }
+        : {}),
+    };
   }
 
   private resolveToolStageLabel(

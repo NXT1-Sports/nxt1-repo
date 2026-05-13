@@ -2,28 +2,26 @@
  * @fileoverview Runway Generate Video Tool
  * @module @nxt1/backend/modules/agent/tools/media
  *
- * Submits a text-to-video or image-to-video generation task to Runway via the
- * MCP bridge.  Returns a task ID that can be polled with RunwayCheckTaskTool.
+ * Submits an image-to-video generation task to Runway via the MCP bridge.
+ * Returns a task ID that can be polled with RunwayCheckTaskTool.
  */
 
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import type {
   RunwayMcpBridgeService,
   RunwayGenerateVideoOptions,
-  RunwayTextToVideoOptions,
 } from './runway-mcp-bridge.service.js';
 import { extractRunwayTaskDetails } from './runway-task-result.util.js';
 import { MediaTransportResolverService } from '../../media/media-transport-resolver.service.js';
 import { z } from 'zod';
 
 const IMAGE_TO_VIDEO_MODELS = ['gen4_turbo', 'gen4.5', 'veo3.1'] as const;
-const TEXT_TO_VIDEO_MODELS = ['gen3a_turbo', 'gen4.5', 'veo3', 'veo3.1', 'veo3.1_fast'] as const;
 
 export class RunwayGenerateVideoTool extends BaseTool {
   readonly name = 'runway_generate_video';
   readonly description =
-    'Generate a video from a text prompt, with or without a reference image, using Runway. ' +
-    'If promptImage is provided, this uses image-to-video models. If promptImage is omitted, this uses text-to-video models including VEO. ' +
+    'Animate a generated graphic, poster, title card, or still image into a short video using Runway image-to-video. ' +
+    'promptImage is required; generate a graphic/image first, then pass its URL here. ' +
     'Returns a task ID — use runway_check_task to poll for completion and retrieve the output URL.';
 
   readonly parameters = z.object({
@@ -66,22 +64,26 @@ export class RunwayGenerateVideoTool extends BaseTool {
       }
 
       const rawPromptImage = (input['promptImage'] as string) || undefined;
-      let promptImage = rawPromptImage;
-      if (rawPromptImage) {
-        const resolved = await this.mediaResolver.resolveProcessingUrl({
-          sourceUrl: rawPromptImage,
-          fallbackToFirebaseStaging: true,
-          stageMediaKind: 'image',
-          executionContext: context,
-        });
-        promptImage = resolved.url;
+      if (!rawPromptImage?.trim()) {
+        return {
+          success: false,
+          error:
+            'runway_generate_video requires promptImage. Generate a graphic, poster, title card, or still image first, then animate that image with Runway.',
+        };
       }
+
+      let promptImage = rawPromptImage;
+      const resolved = await this.mediaResolver.resolveProcessingUrl({
+        sourceUrl: rawPromptImage,
+        fallbackToFirebaseStaging: true,
+        stageMediaKind: 'image',
+        executionContext: context,
+      });
+      promptImage = resolved.url;
       const rawModel = input['model'] as string | undefined;
-      const ratio = ((input['ratio'] as string) || '1280:720') as
-        | RunwayGenerateVideoOptions['ratio']
-        | RunwayTextToVideoOptions['ratio'];
+      const ratio = ((input['ratio'] as string) ||
+        '1280:720') as RunwayGenerateVideoOptions['ratio'];
       const seed = input['seed'] != null ? (input['seed'] as number) : undefined;
-      const audio = (input['audio'] as boolean) ?? false;
       const watermark = (input['watermark'] as boolean) ?? false;
 
       context?.emitStage?.('submitting_job', {
@@ -91,51 +93,27 @@ export class RunwayGenerateVideoTool extends BaseTool {
         ratio,
       });
 
-      let result: Record<string, unknown>;
-
-      if (promptImage) {
-        const model = rawModel || 'gen4_turbo';
-        if (!IMAGE_TO_VIDEO_MODELS.includes(model as (typeof IMAGE_TO_VIDEO_MODELS)[number])) {
-          return {
-            success: false,
-            error: `Model "${model}" is not supported for image-to-video. Use one of: ${IMAGE_TO_VIDEO_MODELS.join(', ')}.`,
-          };
-        }
-
-        const defaultDuration = model === 'veo3.1' ? 8 : 5;
-        const duration = ((input['duration'] as number) ||
-          defaultDuration) as RunwayGenerateVideoOptions['duration'];
-
-        result = (await this.bridge.generateVideo({
-          promptText: promptText.trim(),
-          promptImage,
-          model: model as RunwayGenerateVideoOptions['model'],
-          duration,
-          ratio: ratio as RunwayGenerateVideoOptions['ratio'],
-          seed,
-          watermark,
-        })) as Record<string, unknown>;
-      } else {
-        const model = rawModel || 'veo3.1';
-        if (!TEXT_TO_VIDEO_MODELS.includes(model as (typeof TEXT_TO_VIDEO_MODELS)[number])) {
-          return {
-            success: false,
-            error: `Model "${model}" is not supported for text-to-video. Use one of: ${TEXT_TO_VIDEO_MODELS.join(', ')}.`,
-          };
-        }
-
-        const defaultDuration = model.startsWith('veo') ? 8 : 5;
-        const duration = ((input['duration'] as number) ||
-          defaultDuration) as RunwayTextToVideoOptions['duration'];
-
-        result = (await this.bridge.textToVideo({
-          promptText: promptText.trim(),
-          model: model as RunwayTextToVideoOptions['model'],
-          duration,
-          ratio: ratio as RunwayTextToVideoOptions['ratio'],
-          audio,
-        })) as Record<string, unknown>;
+      const model = rawModel || 'gen4_turbo';
+      if (!IMAGE_TO_VIDEO_MODELS.includes(model as (typeof IMAGE_TO_VIDEO_MODELS)[number])) {
+        return {
+          success: false,
+          error: `Model "${model}" is not supported for image-to-video. Use one of: ${IMAGE_TO_VIDEO_MODELS.join(', ')}.`,
+        };
       }
+
+      const defaultDuration = model === 'veo3.1' ? 8 : 5;
+      const duration = ((input['duration'] as number) ||
+        defaultDuration) as RunwayGenerateVideoOptions['duration'];
+
+      const result = (await this.bridge.generateVideo({
+        promptText: promptText.trim(),
+        promptImage,
+        model: model as RunwayGenerateVideoOptions['model'],
+        duration,
+        ratio,
+        seed,
+        watermark,
+      })) as Record<string, unknown>;
 
       const taskDetails = extractRunwayTaskDetails(result);
       if (!taskDetails.taskId) {

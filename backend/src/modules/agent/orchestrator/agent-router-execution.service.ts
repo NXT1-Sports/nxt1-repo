@@ -25,13 +25,14 @@ import { getOperationMemoryService } from '../services/operation-memory.service.
 
 export type AgentExecutionMutableTask = Omit<
   AgentTask,
-  'status' | 'assignedAgent' | 'description' | 'displayLabel' | 'structuredPayload'
+  'status' | 'assignedAgent' | 'description' | 'displayLabel' | 'structuredPayload' | 'statusNote'
 > & {
   status: AgentTaskStatus;
   assignedAgent: Exclude<AgentIdentifier, 'router'>;
   displayLabel?: string;
   description: string;
   structuredPayload?: Record<string, unknown>;
+  statusNote?: string;
   _lastError?: string;
 };
 
@@ -49,6 +50,9 @@ type TelemetryDeps = Pick<
 const routableCoordinatorSet = new Set<string>(COORDINATOR_AGENT_IDS);
 const SEMANTIC_MATCH_THRESHOLD = 0.35;
 const SAFETY_BUFFER_THRESHOLD = 0.2;
+const MAX_COORDINATOR_HANDOFFS_PER_TASK = 3;
+const COORDINATOR_HANDOFF_FAILED_NOTE =
+  'Coordinator handoff failed. Router could not reassign this task.';
 const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
   scrape_and_index_profile: [
     'read_distilled_section',
@@ -109,6 +113,41 @@ const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
   write_season_stats: ['mutate_nxt1_data'],
   write_recruiting_activity: ['mutate_nxt1_data'],
   write_combine_metrics: ['mutate_nxt1_data'],
+  extract_hudl_video: [
+    'stage_media',
+    'analyze_video',
+    'ffmpeg_trim_video',
+    'ffmpeg_merge_videos',
+    'ffmpeg_generate_thumbnail',
+  ],
+  extract_live_view_media: [
+    'stage_media',
+    'analyze_video',
+    'ffmpeg_trim_video',
+    'ffmpeg_merge_videos',
+    'ffmpeg_generate_thumbnail',
+  ],
+  extract_live_view_playlist: [
+    'stage_media',
+    'analyze_video',
+    'ffmpeg_trim_video',
+    'ffmpeg_merge_videos',
+    'ffmpeg_generate_thumbnail',
+  ],
+  stage_media: [
+    'analyze_video',
+    'ffmpeg_trim_video',
+    'ffmpeg_merge_videos',
+    'ffmpeg_generate_thumbnail',
+  ],
+  analyze_video: [
+    'ffmpeg_trim_video',
+    'ffmpeg_merge_videos',
+    'ffmpeg_generate_thumbnail',
+    'ffmpeg_add_text_overlay',
+    'ffmpeg_burn_subtitles',
+  ],
+  ffmpeg_trim_video: ['ffmpeg_merge_videos', 'ffmpeg_generate_thumbnail'],
   runway_generate_video: ['runway_check_task'],
   runway_edit_video: ['runway_check_task'],
   runway_upscale_video: ['runway_check_task'],
@@ -182,6 +221,7 @@ export class AgentRouterExecutionService {
       readonly assignedAgent: Exclude<AgentIdentifier, 'router'>;
       readonly description: string;
       readonly structuredPayload?: Record<string, unknown>;
+      readonly statusNote?: string;
     } | null>;
   }): Promise<AgentExecutionLoopResult> {
     const {
@@ -274,7 +314,10 @@ export class AgentRouterExecutionService {
         );
 
         const runTask = async (task: AgentExecutionMutableTask): Promise<void> => {
-          for (let attempt = 0; attempt <= taskMaxRetries; attempt += 1) {
+          let attempt = 0;
+          let handoffCount = 0;
+
+          while (attempt <= taskMaxRetries) {
             try {
               this.throwIfAborted(signal);
 
@@ -476,8 +519,42 @@ export class AgentRouterExecutionService {
                 );
 
                 if (reroute) {
+                  handoffCount += 1;
+                  if (handoffCount > MAX_COORDINATOR_HANDOFFS_PER_TASK) {
+                    task._lastError = COORDINATOR_HANDOFF_FAILED_NOTE;
+                    task.status = 'failed' as AgentTaskStatus;
+                    this.telemetry.emitUpdate(
+                      onUpdate,
+                      operationId,
+                      'acting',
+                      `Task ${task.id} exceeded coordinator handoff limit.`,
+                      {
+                        eventType: 'task_failed',
+                        taskId: task.id,
+                        assignedAgent: originalAgentId,
+                        error: task._lastError,
+                        internalError: `Coordinator handoff limit exceeded after ${handoffCount} handoffs. Last intent: ${delErr.payload.forwardingIntent}`,
+                      },
+                      {
+                        agentId: 'router',
+                        stage: 'routing_to_agent',
+                        outcomeCode: 'routing_failed',
+                        metadata: {
+                          taskId: task.id,
+                          delegatedAgentId: originalAgentId,
+                          handoffCount,
+                        },
+                      }
+                    );
+                    this.cascadeFailure(task.id, mutableTasks);
+                    this.emitPlannerCard(onStreamEvent, mutableTasks);
+                    await onPlanStateChange?.(mutableTasks, taskResults);
+                    return;
+                  }
+
                   task.assignedAgent = reroute.assignedAgent;
                   task.description = reroute.description;
+                  task.statusNote = reroute.statusNote;
                   // Preserve structured payload through reroute so the new
                   // coordinator receives all verbatim IDs and references.
                   if (reroute.structuredPayload !== undefined) {
@@ -508,7 +585,7 @@ export class AgentRouterExecutionService {
                   continue;
                 }
 
-                task._lastError = `Delegated back to router: ${delErr.payload.forwardingIntent}`;
+                task._lastError = COORDINATOR_HANDOFF_FAILED_NOTE;
                 task.status = 'failed' as AgentTaskStatus;
                 this.telemetry.emitUpdate(
                   onUpdate,
@@ -520,6 +597,7 @@ export class AgentRouterExecutionService {
                     taskId: task.id,
                     assignedAgent: originalAgentId,
                     error: task._lastError,
+                    internalError: `Delegated back to router: ${delErr.payload.forwardingIntent}`,
                   },
                   {
                     agentId: 'router',
@@ -528,6 +606,7 @@ export class AgentRouterExecutionService {
                     metadata: {
                       taskId: task.id,
                       delegatedAgentId: originalAgentId,
+                      forwardingIntent: delErr.payload.forwardingIntent.slice(0, 500),
                     },
                   }
                 );
@@ -574,7 +653,10 @@ export class AgentRouterExecutionService {
                 this.cascadeFailure(task.id, mutableTasks);
                 this.emitPlannerCard(onStreamEvent, mutableTasks);
                 await onPlanStateChange?.(mutableTasks, taskResults);
+                return;
               }
+
+              attempt += 1;
             }
           }
         };
@@ -719,7 +801,7 @@ export class AgentRouterExecutionService {
       done: task.status === ('completed' as AgentTaskStatus),
       active: task.status === ('in_progress' as AgentTaskStatus),
       status: task.status,
-      ...(task._lastError ? { note: task._lastError } : {}),
+      ...((task._lastError ?? task.statusNote) ? { note: task._lastError ?? task.statusNote } : {}),
     };
   }
 

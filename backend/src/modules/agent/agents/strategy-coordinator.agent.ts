@@ -195,6 +195,8 @@ export class StrategyCoordinatorAgent extends BaseAgent {
       'recruiting_fit_scoring',
       'college_visit_planning',
       'nil_deal_evaluation',
+      'play_design_simulation',
+      'predictive_performance_analysis',
       'film_breakdown_taxonomy',
       'intel_report_quality',
       'communication_approval_and_safety',

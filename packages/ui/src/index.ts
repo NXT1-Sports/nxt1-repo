@@ -860,6 +860,7 @@ export {
 
 export {
   NxtToastService,
+  NXT_USE_IONIC_TOASTS,
   type ToastType,
   type ToastPosition,
   type ToastAction,

@@ -12,6 +12,7 @@
 
 import { Component, ChangeDetectionStrategy, input, output, computed } from '@angular/core';
 import type { AgentXPlannerItem, AgentXRichCard } from '@nxt1/core/ai';
+import { formatPlannerItemNote } from '../../utils/planner-note.util';
 
 @Component({
   selector: 'nxt1-agent-x-planner-card',
@@ -254,7 +255,17 @@ export class AgentXPlannerCardComponent {
   protected readonly items = computed<readonly AgentXPlannerItem[]>(() => {
     const payload = this.card().payload;
     if ('items' in payload && Array.isArray(payload.items)) {
-      return payload.items as readonly AgentXPlannerItem[];
+      return (payload.items as readonly AgentXPlannerItem[]).map((item) => {
+        const note = formatPlannerItemNote(item.note);
+        if (note === item.note || (note === null && item.note === undefined)) {
+          return item;
+        }
+
+        return {
+          ...item,
+          ...(note ? { note } : {}),
+        };
+      });
     }
     return [];
   });

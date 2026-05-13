@@ -12,6 +12,7 @@ import { AgentRouterExecutionService } from '../agent-router-execution.service.j
 import type { BaseAgent } from '../../agents/base.agent.js';
 import type { ToolRegistry, MatchedToolDefinition } from '../../tools/tool-registry.js';
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
+import { AgentDelegationException } from '../../exceptions/agent-delegation.exception.js';
 
 function createContext(): AgentSessionContext {
   const now = new Date().toISOString();
@@ -265,6 +266,133 @@ describe('Agent handoff and tool narrowing', () => {
     expect(usedToolNames).toContain('runway_check_task');
   });
 
+  it('retains FFmpeg trim tools when a narrowed brand video-staging workflow is selected', async () => {
+    const baseDefs: AgentToolDefinition[] = [
+      {
+        name: 'stage_media',
+        description: 'Stage an external media URL for downstream video editing',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'analyze_video',
+        description: 'Analyze game film and return highlight timestamps',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'ffmpeg_trim_video',
+        description: 'Trim a source video to a specific time range',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'ffmpeg_merge_videos',
+        description: 'Merge multiple trimmed video clips',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'ffmpeg_generate_thumbnail',
+        description: 'Generate a thumbnail from a video frame',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+    ];
+
+    const scoredDefs: MatchedToolDefinition[] = [{ ...baseDefs[0], semanticScore: 0.9 }];
+
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue(baseDefs),
+      matchWithScores: vi.fn().mockResolvedValue(scoredDefs),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const capturedToolDefs: AgentToolDefinition[][] = [];
+    const fakeAgent = {
+      id: 'brand_coordinator' as AgentIdentifier,
+      name: 'Brand',
+      execute: vi
+        .fn()
+        .mockImplementation(
+          async (
+            _intent: string,
+            _context: AgentSessionContext,
+            defs: readonly AgentToolDefinition[]
+          ) => {
+            capturedToolDefs.push([...defs]);
+            return {
+              summary: 'ok',
+              data: {},
+              suggestions: [],
+            } as AgentOperationResult;
+          }
+        ),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+
+    const task: AgentTask = {
+      id: 't2b',
+      assignedAgent: 'brand_coordinator',
+      description: 'Stage Hudl clips and build an elite highlight reel',
+      dependsOn: [],
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    const accessContext: AgentToolAccessContext = {
+      userId: 'user-1',
+      role: 'athlete',
+      allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools'],
+    };
+
+    await service.executePlan({
+      operationId: 'op-2b',
+      userId: 'user-1',
+      plan: { tasks: [task] },
+      enrichedIntent: 'Grab my last couple Hudl videos and build an elite highlight reel',
+      context: createContext(),
+      toolAccessContext: accessContext,
+      taskMaxRetries: 0,
+      agents: new Map([['brand_coordinator', fakeAgent]]),
+      buildTaskIntent: () => 'Objective: Stage Hudl clips and build an elite highlight reel',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    const usedToolNames = (capturedToolDefs[0] ?? []).map((tool) => tool.name);
+    expect(usedToolNames).toContain('stage_media');
+    expect(usedToolNames).toContain('analyze_video');
+    expect(usedToolNames).toContain('ffmpeg_trim_video');
+    expect(usedToolNames).toContain('ffmpeg_merge_videos');
+    expect(usedToolNames).toContain('ffmpeg_generate_thumbnail');
+    expect(usedToolNames).not.toContain('runway_edit_video');
+  });
+
   it('retains distilled scrape follow-up tools when profile ingestion is selected', async () => {
     const baseDefs: AgentToolDefinition[] = [
       {
@@ -478,6 +606,166 @@ describe('Agent handoff and tool narrowing', () => {
         expect.objectContaining({ id: 'a', status: 'completed' }),
         expect.objectContaining({ id: 'b', status: 'completed' }),
       ])
+    );
+  });
+
+  it('continues the same task under a rerouted coordinator after delegation', async () => {
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue([]),
+      matchWithScores: vi.fn().mockResolvedValue([]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.2, 0.2, 0.2]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const dataAgent = {
+      id: 'data_coordinator' as AgentIdentifier,
+      name: 'Data',
+      execute: vi.fn().mockRejectedValue(
+        new AgentDelegationException({
+          sourceAgent: 'data_coordinator',
+          forwardingIntent: 'Draft and send personalized recruiting emails to Texas coaches.',
+        })
+      ),
+    } as unknown as BaseAgent;
+
+    const recruitingAgent = {
+      id: 'recruiting_coordinator' as AgentIdentifier,
+      name: 'Recruiting',
+      execute: vi.fn().mockResolvedValue({
+        summary: 'Drafted outreach campaign for coach approval.',
+        data: {},
+        suggestions: [],
+      } as AgentOperationResult),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+    const task: AgentTask = {
+      id: '2',
+      assignedAgent: 'data_coordinator',
+      description: 'Extract Coach Contacts',
+      dependsOn: [],
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    const accessContext: AgentToolAccessContext = {
+      userId: 'user-1',
+      role: 'athlete',
+      allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools'],
+    };
+
+    const result = await service.executePlan({
+      operationId: 'op-reroute',
+      userId: 'user-1',
+      plan: { tasks: [task] },
+      enrichedIntent: 'Send emails to college coaches',
+      context: createContext(),
+      toolAccessContext: accessContext,
+      taskMaxRetries: 0,
+      agents: new Map([
+        ['data_coordinator', dataAgent],
+        ['recruiting_coordinator', recruitingAgent],
+      ]),
+      buildTaskIntent: (activeTask) => `Objective: ${activeTask.description}`,
+      rerouteDelegatedTask: async () => ({
+        assignedAgent: 'recruiting_coordinator',
+        description: 'Draft and send personalized recruiting emails to Texas coaches.',
+        statusNote: 'Reassigned from data_coordinator to recruiting_coordinator.',
+      }),
+    });
+
+    expect(dataAgent.execute).toHaveBeenCalledOnce();
+    expect(recruitingAgent.execute).toHaveBeenCalledOnce();
+    expect(result.mutableTasks[0]).toEqual(
+      expect.objectContaining({
+        id: '2',
+        assignedAgent: 'recruiting_coordinator',
+        status: 'completed',
+        statusNote: 'Reassigned from data_coordinator to recruiting_coordinator.',
+        _lastError: undefined,
+      })
+    );
+  });
+
+  it('stores a safe task error when delegation cannot be rerouted', async () => {
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue([]),
+      matchWithScores: vi.fn().mockResolvedValue([]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.2, 0.2, 0.2]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const rawForwardingIntent =
+      'Execute a personalized email outreach campaign.\n\n[Prior Work from data_coordinator] Tools already executed: search_web';
+    const dataAgent = {
+      id: 'data_coordinator' as AgentIdentifier,
+      name: 'Data',
+      execute: vi.fn().mockRejectedValue(
+        new AgentDelegationException({
+          sourceAgent: 'data_coordinator',
+          forwardingIntent: rawForwardingIntent,
+        })
+      ),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+    const task: AgentTask = {
+      id: '2',
+      assignedAgent: 'data_coordinator',
+      description: 'Extract Coach Contacts',
+      dependsOn: [],
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    const accessContext: AgentToolAccessContext = {
+      userId: 'user-1',
+      role: 'athlete',
+      allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools'],
+    };
+
+    const result = await service.executePlan({
+      operationId: 'op-reroute-failed',
+      userId: 'user-1',
+      plan: { tasks: [task] },
+      enrichedIntent: 'Send emails to college coaches',
+      context: createContext(),
+      toolAccessContext: accessContext,
+      taskMaxRetries: 0,
+      agents: new Map([['data_coordinator', dataAgent]]),
+      buildTaskIntent: (activeTask) => `Objective: ${activeTask.description}`,
+      rerouteDelegatedTask: async () => null,
+    });
+
+    expect(result.mutableTasks[0]).toEqual(
+      expect.objectContaining({
+        id: '2',
+        status: 'failed',
+        _lastError: 'Coordinator handoff failed. Router could not reassign this task.',
+      })
+    );
+    expect(result.mutableTasks[0]?._lastError).not.toContain(rawForwardingIntent);
+    const failedUpdateCall = telemetry.emitUpdate.mock.calls.find(
+      (call) => typeof call[4] === 'object' && call[4] !== null && 'internalError' in call[4]
+    );
+    expect(failedUpdateCall?.[4]).toEqual(
+      expect.objectContaining({ internalError: expect.stringContaining(rawForwardingIntent) })
     );
   });
 });

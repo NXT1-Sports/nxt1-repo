@@ -61,6 +61,7 @@ import {
   INTEL_API_BASE_URL,
   HELP_CENTER_API,
   TEAM_PROFILE_API_BASE_URL,
+  NXT_USE_IONIC_TOASTS,
 } from '@nxt1/ui';
 import { FEED_ENGAGEMENT } from '@nxt1/ui/feed';
 import { MANAGE_TEAM_API_BASE_URL, TEAM_LOGO_UPLOADER } from '@nxt1/ui/manage-team';
@@ -199,6 +200,9 @@ export const appConfig: ApplicationConfig = {
       scrollAssist: true, // Auto-scroll focused inputs into view when keyboard opens
       scrollPadding: true, // Add padding to content when keyboard opens to prevent overlap
     }),
+
+    // Mobile app uses Ionic overlays for every shared NxtToastService call.
+    { provide: NXT_USE_IONIC_TOASTS, useValue: true },
 
     { provide: RouteReuseStrategy, useClass: IonicRouteStrategy },
 

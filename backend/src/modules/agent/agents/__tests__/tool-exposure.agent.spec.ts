@@ -256,6 +256,8 @@ describe('Agent tool exposure regressions', () => {
     expect(routerTools).not.toContain('generate_chart_visualization');
     expect(isToolAllowedByPatterns('send_email', routerTools)).toBe(true);
     expect(isToolAllowedByPatterns('batch_send_email', routerTools)).toBe(true);
+    expect(isToolAllowedByPatterns('send_email_via_nxt1', routerTools)).toBe(false);
+    expect(isToolAllowedByPatterns('batch_send_email_via_nxt1', routerTools)).toBe(false);
     expect(isToolAllowedByPatterns('gmail_send_email', routerTools)).toBe(true);
     expect(isToolAllowedByPatterns('query_gmail_emails', routerTools)).toBe(false);
     expect(isToolAllowedByPatterns('calendar_get_events', routerTools)).toBe(false);

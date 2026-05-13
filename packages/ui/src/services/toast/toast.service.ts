@@ -38,7 +38,7 @@
  * ```
  */
 
-import { Injectable, inject, signal, computed, NgZone } from '@angular/core';
+import { Injectable, inject, signal, computed, NgZone, InjectionToken } from '@angular/core';
 import {
   ToastController,
   type ToastButton,
@@ -52,11 +52,17 @@ import { ToastType, ToastOptions, QueuedToast, DEFAULT_DURATIONS } from './toast
 // Re-export types for consumers
 export type { ToastType, ToastPosition, ToastAction, ToastOptions } from './toast.types';
 
+export const NXT_USE_IONIC_TOASTS = new InjectionToken<boolean>('NXT_USE_IONIC_TOASTS', {
+  providedIn: 'root',
+  factory: () => false,
+});
+
 // Register icons used by toast service
 @Injectable({ providedIn: 'root' })
 export class NxtToastService {
   private readonly platform = inject(NxtPlatformService);
   private readonly toastController = inject(ToastController, { optional: true });
+  private readonly useIonicToasts = inject(NXT_USE_IONIC_TOASTS);
   private readonly haptics = inject(HapticsService);
   private readonly ngZone = inject(NgZone);
   private readonly logger = inject(NxtLoggingService).child('ToastService');
@@ -311,7 +317,7 @@ export class NxtToastService {
   }
 
   private shouldUseIonicToast(): boolean {
-    return this.toastController !== null && (this.platform.isNative() || this.platform.isMobile());
+    return this.useIonicToasts && this.toastController !== null;
   }
 
   private async presentIonicToast(toast: QueuedToast, buttons: ToastButton[]): Promise<void> {

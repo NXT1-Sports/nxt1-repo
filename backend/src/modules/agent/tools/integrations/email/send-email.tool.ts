@@ -109,13 +109,17 @@ export class SendEmailTool extends BaseTool {
     try {
       provider = await resolveConnectedEmailProvider(userId, this.db);
     } catch (lookupErr) {
+      const errorMessage =
+        lookupErr instanceof Error
+          ? lookupErr.message
+          : 'Failed to look up connected email account.';
       logger.error('Failed to look up user email provider', {
-        error: lookupErr instanceof Error ? lookupErr.message : String(lookupErr),
+        error: errorMessage,
         userId,
       });
       return {
         success: false,
-        error: 'Failed to look up connected email account.',
+        error: errorMessage,
         data: { requiresEmailConnection: true },
       };
     }

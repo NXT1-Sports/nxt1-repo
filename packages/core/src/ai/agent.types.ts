@@ -230,6 +230,8 @@ export interface AgentToolAccessContext {
   readonly teamId?: string;
   readonly organizationId?: string;
   readonly allowedEntityGroups: readonly AgentToolEntityGroup[];
+  /** Optional per-request tool denylist applied before semantic matching. */
+  readonly blockedToolNames?: readonly string[];
 }
 
 /** The record of a single tool invocation during an operation. */

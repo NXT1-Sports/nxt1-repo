@@ -125,8 +125,8 @@ export class AgentXJobService {
    * Enqueue a new Agent X background job.
    *
    * Enqueue a task via the unified /chat SSE endpoint.
-   * The LLM processes the intent and may call `enqueue_heavy_task` internally
-   * for heavy work, with the SSE proxy streaming results back transparently.
+   * The LLM processes the intent and the SSE proxy streams results back
+   * transparently for the background operation.
    *
    * @param intent - Natural language description of the task
    * @param context - Arbitrary context data for the AI agent
