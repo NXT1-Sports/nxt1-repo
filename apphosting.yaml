@@ -40,7 +40,7 @@ env:
 
 # Custom headers for all responses
 headers:
-  # Security headers
+  # Security headers + default no-cache for all SSR routes
   - source: '**'
     headers:
       - header: X-Content-Type-Options
@@ -51,6 +51,8 @@ headers:
         value: '1; mode=block'
       - header: Referrer-Policy
         value: strict-origin-when-cross-origin
+      - header: Cache-Control
+        value: 'no-cache, no-store, must-revalidate'
 
   # Cache static assets aggressively
   - source: '**/*.{js,css,woff2,woff,ttf,png,jpg,jpeg,gif,svg,ico,webp}'
