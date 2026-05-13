@@ -51,6 +51,13 @@ export interface BillingDeductionInput {
   iapHoldId?: string;
   /** Team ID for the usage event (required for org dashboard queries). When omitted, the pipeline resolves it via resolveBillingTarget. */
   teamId?: string;
+  /**
+   * Optional org ID hint for onboarding/first-run scenarios.
+   * When resolveBillingTarget cannot find an org (e.g. billing docs not yet
+   * initialized), this fallback ensures charges are routed to the correct
+   * organization wallet instead of the user's personal wallet.
+   */
+  organizationId?: string;
   /** Optional metadata attached to the usage event for audit */
   metadata?: Record<string, unknown>;
   /**
@@ -101,7 +108,10 @@ export async function executeBillingDeduction(
     knownCostUsd,
   } = input;
   let resolvedTeamId = input.teamId;
-  let resolvedOrgId: string | undefined;
+  // Seed resolvedOrgId from the caller-supplied hint. This covers first-run
+  // scenarios (e.g. onboarding link scrape) where resolveBillingTarget may
+  // not yet have the org billing docs ready.
+  let resolvedOrgId: string | undefined = input.organizationId;
 
   try {
     const resolvedFeature = resolveBillableFeature({

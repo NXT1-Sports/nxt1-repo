@@ -63,3 +63,6 @@ headers:
     headers:
       - header: Cache-Control
         value: 'no-cache, no-store, must-revalidate'
+secrets:
+  - variable: MONGO
+    secret: MONGO

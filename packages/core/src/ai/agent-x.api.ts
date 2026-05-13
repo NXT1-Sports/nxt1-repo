@@ -834,8 +834,30 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
           let buffer = '';
           let hasTerminalEvent = false;
 
+          // iOS/Android suspend network connections when the app goes to background.
+          // Without a read timeout, reader.read() hangs indefinitely — no error
+          // is thrown, no data arrives, the UI freezes. We race each read against
+          // a stall timer so the Firestore fallback path is triggered instead of
+          // leaving the user stuck on a spinner or forced to hard-close the app.
+          const SSE_STALL_TIMEOUT_MS = AGENT_X_RUNTIME_CONFIG.operationStream.idleTimeoutMs;
+
           while (true) {
-            const { done, value } = await reader.read();
+            let stallTimerId: ReturnType<typeof setTimeout> | undefined;
+            const stall = new Promise<never>((_, reject) => {
+              stallTimerId = setTimeout(
+                () => reject(new Error('SSE read stall: no data received')),
+                SSE_STALL_TIMEOUT_MS
+              );
+            });
+
+            let readResult: ReadableStreamReadResult<Uint8Array>;
+            try {
+              readResult = await Promise.race([reader.read(), stall]);
+            } finally {
+              clearTimeout(stallTimerId);
+            }
+
+            const { done, value } = readResult;
             if (done) break;
 
             buffer += decoder.decode(value, { stream: true });

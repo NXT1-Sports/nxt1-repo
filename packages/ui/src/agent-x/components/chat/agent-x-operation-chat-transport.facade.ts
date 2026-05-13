@@ -938,10 +938,17 @@ export class AgentXOperationChatTransportFacade {
 
             const isNetworkDrop = !event.status || event.status === 0 || event.status >= 500;
             const isResumeThrottle = event.status === 429 && Boolean(request.resumeOperationId);
-            const currentOperationId = host.getCurrentOperationId();
+            // When the iOS/Android OS kills the network while the app is in background,
+            // the SSE stream terminates before the backend sends the `thread` event
+            // (which is the only place currentOperationId is set). Fall back to
+            // pendingOperationId (the contextId or resumeOperationId known before the
+            // stream started) so the Firestore watch path is still attempted.
+            const currentOperationId =
+              host.getCurrentOperationId() ?? (pendingOperationId?.trim() || null);
             if ((isNetworkDrop || isResumeThrottle) && currentOperationId) {
               this.logger.warn('SSE stream unavailable — falling back to Firestore watch', {
                 operationId: currentOperationId,
+                resolvedFromPending: !host.getCurrentOperationId() && !!pendingOperationId,
                 status: event.status,
                 resumeOperationId: request.resumeOperationId,
               });

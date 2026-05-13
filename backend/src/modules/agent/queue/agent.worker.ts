@@ -2489,6 +2489,13 @@ export class AgentWorker {
     await emitTerminalOperationEvent(operationFailed ? 'failed' : 'complete');
 
     // Billing deduction: use centralized pipeline
+    // Pass organizationId from job context as a fallback for onboarding
+    // scrape jobs where the billing docs may not yet have been initialized
+    // before the worker picked up the job.
+    const contextOrgId =
+      typeof (payloadContext as Record<string, unknown>)['organizationId'] === 'string'
+        ? ((payloadContext as Record<string, unknown>)['organizationId'] as string)
+        : undefined;
     void executeBillingDeduction({
       db: billingDb,
       userId: payload.userId,
@@ -2498,6 +2505,7 @@ export class AgentWorker {
       successfulTools,
       environment: job.data.environment,
       iapHoldId: iapHoldId ?? undefined,
+      organizationId: contextOrgId,
       metadata: { agent: payload.agent, agentTools: invokedTools, successfulTools },
     });
 

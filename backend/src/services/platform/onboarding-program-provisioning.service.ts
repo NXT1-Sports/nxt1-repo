@@ -283,6 +283,18 @@ async function resolvePrograms(
           error: err,
         });
       }
+
+      // Set the joined org as the active billing target so that any
+      // onboarding-triggered AI jobs (link scrape) are charged to the org
+      // wallet instead of the coach/director's personal wallet.
+      try {
+        await initOrganizationBillingTargetForUser(input.db, input.userId, organizationId);
+      } catch (billingErr) {
+        logger.warn(
+          '[OnboardingProgramProvisioning] Failed to set org billing target after org join',
+          { error: billingErr, userId: input.userId, organizationId }
+        );
+      }
     }
   }
 

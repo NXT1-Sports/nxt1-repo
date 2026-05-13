@@ -228,6 +228,33 @@ function normalizeStreamingMarkdown(raw: string): string {
   return raw;
 }
 
+// ─── Storage URL pre-processor ──────────────────────────────────────────────
+
+/**
+ * Matches bare Firebase / Google Storage URLs pointing to image files.
+ * Negative lookbehind `(?<!\()` skips URLs that are already inside
+ * Markdown link/image syntax `[text](url)` or `![alt](url)`.
+ */
+const BARE_STORAGE_IMAGE_URL_RE =
+  /(?<!\()https:\/\/(?:storage\.googleapis\.com|firebasestorage\.googleapis\.com)\/[^\s)\]]+/g;
+
+/**
+ * Converts bare Firebase/Google Storage image URLs to Markdown image syntax.
+ * Prevents raw URLs from appearing as yellow link text in chat bubbles.
+ *
+ * `- https://storage.googleapis.com/.../file.png`
+ *   → `- ![](https://storage.googleapis.com/.../file.png)`
+ *
+ * URLs that are already wrapped in `[text](url)` or `![alt](url)` are left
+ * untouched because the lookbehind prevents a match when the URL is preceded
+ * by `(`.
+ */
+function preprocessStorageImageUrls(source: string): string {
+  return source.replace(BARE_STORAGE_IMAGE_URL_RE, (url) =>
+    inferMediaTypeFromUrl(url) === 'image' ? `![](${url})` : url
+  );
+}
+
 // ─── Marked singleton ──────────────────────────────────────────────────────
 
 const markedInstance = new Marked({
@@ -744,7 +771,11 @@ export class NxtMarkdownComponent {
 
     // When streaming, close any incomplete markdown tokens so `marked`
     // produces clean HTML for every partial chunk.
-    const source = this.isStreaming() ? normalizeStreamingMarkdown(raw) : raw;
+    const normalized = this.isStreaming() ? normalizeStreamingMarkdown(raw) : raw;
+
+    // Convert bare Firebase/Google Storage image URLs to Markdown image syntax
+    // so they render as <img> instead of raw yellow link text.
+    const source = preprocessStorageImageUrls(normalized);
 
     // Parse Markdown → HTML string
     const html = markedInstance.parse(source, { async: false }) as string;
