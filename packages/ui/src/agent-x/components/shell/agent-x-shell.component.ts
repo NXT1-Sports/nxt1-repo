@@ -333,7 +333,7 @@ function sortCoordinatorCategories(
                 (click)="openConnectedAccounts()"
               >
                 <nxt1-icon name="link" [size]="14"></nxt1-icon>
-                <span>Connected Accounts</span>
+                <span class="w-[125px]">Connected Accounts</span>
               </button>
             </div>
 
