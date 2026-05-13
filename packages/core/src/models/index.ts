@@ -105,6 +105,19 @@ export {
 // Team stats model (sport-agnostic, Schedule collection)
 export { type TeamStatTrend, type TeamStatEntry, type TeamStatDoc } from './team/team-stats.model';
 
+// Team game plan model (sport-agnostic, TeamGamePlans collection)
+export {
+  type TeamGamePlanStatus,
+  type TeamGamePlanPhase,
+  type TeamGamePlanPerspective,
+  type TeamGamePlanPriorityKind,
+  type TeamGamePlanAdjustmentTrigger,
+  type TeamGamePlanPriority,
+  type TeamGamePlanSection,
+  type TeamGamePlanPlayReference,
+  type TeamGamePlanDoc,
+} from './team/team-gameplan.model';
+
 // User model - Core types (use these)
 export {
   USER_SCHEMA_VERSION,

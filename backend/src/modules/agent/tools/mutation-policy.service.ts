@@ -473,6 +473,7 @@ const SYNC_MEMORY_PROFILED_TOOLS = new Set([
   'write_season_stats',
   'write_rankings',
   'write_playbooks',
+  'save_gameplan',
   'write_team_stats',
 ]);
 
@@ -544,6 +545,21 @@ const MUTATION_ANALYTICS_PROFILES: Readonly<Record<string, MutationAnalyticsProf
     templateKey: 'mutation_write_playbooks',
     templateBaseDomain: 'performance',
     tags: ['playbooks', 'coaching'],
+  },
+  save_gameplan: {
+    templateKey: 'mutation_save_gameplan',
+    templateBaseDomain: 'performance',
+    tags: ['gameplan', 'strategy', 'coaching'],
+  },
+  update_gameplan: {
+    templateKey: 'mutation_update_gameplan',
+    templateBaseDomain: 'performance',
+    tags: ['gameplan', 'strategy', 'coaching'],
+  },
+  delete_gameplan: {
+    templateKey: 'mutation_delete_gameplan',
+    templateBaseDomain: 'performance',
+    tags: ['gameplan', 'strategy', 'coaching'],
   },
   write_team_stats: {
     templateKey: 'mutation_write_team_stats',

@@ -349,7 +349,7 @@ export class NxtToastService {
     document.body.appendChild(this.activeDomToast);
 
     requestAnimationFrame(() => {
-      this.activeDomToast?.classList.add('nxt-toast--visible');
+      this.activeDomToast?.classList.add('nxt-toast-shell--visible');
     });
 
     if (toast.duration > 0) {

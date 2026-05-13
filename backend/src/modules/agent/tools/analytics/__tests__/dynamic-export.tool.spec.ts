@@ -244,6 +244,47 @@ describe('DynamicExportTool', () => {
       const data = result.data as Record<string, unknown>;
       expect(data['format']).toBe('pdf');
     });
+
+    it('should accept PDF with both diagram and chart image URLs', async () => {
+      const result = await tool.execute(
+        pdfInput({
+          columns: undefined,
+          rows: undefined,
+          bodyParagraphs: undefined,
+          bulletPoints: undefined,
+          description: undefined,
+          imageUrls: [
+            'https://cdn.example.com/diagram-1.png',
+            'https://storage.googleapis.com/nxt1-media/charts/recruiting-funnel-chart.png',
+          ],
+        }),
+        context
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data['format']).toBe('pdf');
+      expect(data['fileName']).toBe('Scout Report.pdf');
+    });
+
+    it('should accept PDF when chart URL appears inline in bodyParagraphs', async () => {
+      const result = await tool.execute(
+        pdfInput({
+          columns: undefined,
+          rows: undefined,
+          bulletPoints: undefined,
+          bodyParagraphs: [
+            'Recruiting funnel chart: https://storage.googleapis.com/nxt1-media/charts/funnel-2026.png',
+          ],
+          description: undefined,
+        }),
+        context
+      );
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data['format']).toBe('pdf');
+    });
   });
 
   // ── File Name Sanitization ───────────────────────────────────────────────

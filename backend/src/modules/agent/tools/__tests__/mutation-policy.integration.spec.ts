@@ -359,6 +359,25 @@ describe('AgentMutationPolicyService — All Write Tools Integration (real Mongo
     expect(rows.every((r) => r.status === 'completed')).toBe(true);
   });
 
+  it('save_gameplan → 3 steps', async () => {
+    await service.apply({
+      toolName: 'save_gameplan',
+      input: {
+        teamId: 'team_strategy',
+        sport: 'football',
+        title: 'Week 3 vs Westlake',
+        opponentName: 'Westlake',
+        primaryAttackPlan: 'Attack the boundary with condensed formations and play-action.',
+      },
+      context: { userId: 'u_gameplan', operationId: 'op_gameplan' },
+    });
+    const rows = await getOutboxRows('u_gameplan');
+    printRows('save_gameplan', rows, 3);
+    expect(rows).toHaveLength(3);
+    expect(rows.map((r) => r.step).sort()).toEqual(['analytics', 'memory', 'sync_delta']);
+    expect(rows.every((r) => r.status === 'completed')).toBe(true);
+  });
+
   it('write_team_stats → 3 steps', async () => {
     await service.apply({
       toolName: 'write_team_stats',

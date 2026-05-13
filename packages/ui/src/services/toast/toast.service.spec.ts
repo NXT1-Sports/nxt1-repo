@@ -31,6 +31,7 @@ describe('NxtToastService', () => {
     const toast = document.querySelector('.nxt-toast-shell--success');
 
     expect(toast?.textContent).toContain('Session archived');
+    expect(toast?.classList.contains('nxt-toast-shell--visible')).toBe(true);
   });
 
   it('queues additional DOM toasts while one is already visible', () => {

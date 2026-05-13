@@ -171,6 +171,21 @@ export {
   type AgentXThreadActionResponse,
 } from './agent-x.api';
 
+export {
+  createTeamGamePlanApi,
+  type TeamGamePlanApi,
+  type CreateTeamGamePlanRequest,
+  type CreateTeamGamePlanResponse,
+  type UpdateTeamGamePlanRequest,
+  type UpdateTeamGamePlanResponse,
+  type GetTeamGamePlanRequest,
+  type GetTeamGamePlanResponse,
+  type ListTeamGamePlansRequest,
+  type ListTeamGamePlansResponse,
+  type DeleteTeamGamePlanRequest,
+  type DeleteTeamGamePlanResponse,
+} from './team-game-plan.api';
+
 // Shared copy resolvers
 export {
   resolveAgentApprovalCopy,

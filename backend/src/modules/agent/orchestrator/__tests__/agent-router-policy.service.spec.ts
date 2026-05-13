@@ -97,6 +97,25 @@ describe('AgentRouterPolicyService', () => {
     });
   });
 
+  it('deterministically reroutes video-study requests to performance coordinator', async () => {
+    const planner = { execute: vi.fn() };
+    const policy = new AgentRouterPolicyService(planner as never);
+
+    const reroute = await policy.rerouteDelegatedTask(
+      'I need a list of videos to watch to improve my quarterback footwork and film study habits.',
+      'strategy_coordinator',
+      createSessionContext()
+    );
+
+    expect(planner.execute).not.toHaveBeenCalled();
+    expect(reroute).toEqual(
+      expect.objectContaining({
+        assignedAgent: 'performance_coordinator',
+        statusNote: 'Reassigned from strategy_coordinator to performance_coordinator.',
+      })
+    );
+  });
+
   it('uses planner fallback when deterministic routing cannot infer a different owner', async () => {
     const planner = {
       execute: vi.fn().mockResolvedValue({
