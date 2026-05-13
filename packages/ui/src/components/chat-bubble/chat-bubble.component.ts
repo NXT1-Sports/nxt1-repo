@@ -587,7 +587,7 @@ export interface ChatBubbleMediaRequestedEvent {
         cursor: pointer;
       }
 
-      :host ::ng-deep nxt1-markdown .md img,
+      :host ::ng-deep nxt1-markdown .md img:not(.md-link-favicon),
       :host ::ng-deep nxt1-markdown .md video {
         width: min(100%, var(--bubble-media-max-width));
         max-width: min(100%, var(--bubble-media-max-width));

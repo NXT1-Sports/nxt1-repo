@@ -958,6 +958,22 @@ export const APP_EVENTS = {
   WEB_RESEARCH_STARTED: 'web_research_started',
   /** Agent X firecrawl_agent_research job completed successfully */
   WEB_RESEARCH_COMPLETED: 'web_research_completed',
+
+  // ============================================
+  // TEAM GAME PLAN EVENTS
+  // ============================================
+  /** Game plan viewed */
+  GAMEPLAN_VIEWED: 'gameplan_viewed',
+  /** Game plan created */
+  GAMEPLAN_CREATED: 'gameplan_created',
+  /** Game plan updated */
+  GAMEPLAN_UPDATED: 'gameplan_updated',
+  /** Game plan deleted/archived */
+  GAMEPLAN_DELETED: 'gameplan_deleted',
+  /** Game plan list loaded */
+  GAMEPLAN_LIST_LOADED: 'gameplan_list_loaded',
+  /** Game plan filter applied */
+  GAMEPLAN_FILTER_APPLIED: 'gameplan_filter_applied',
 } as const;
 
 export type AppEventName = (typeof APP_EVENTS)[keyof typeof APP_EVENTS];

@@ -1515,25 +1515,43 @@ export class AgentXOperationsLogComponent {
           status: effectiveStatus,
         });
         this._operations.update((ops) => {
+          const eventThreadId = evt.threadId.trim();
+          const eventOperationId = evt.operationId?.trim() ?? '';
+          const isChatEvent = evt.source === 'chat';
+
           const matchesEvent = (op: OperationLogEntry): boolean =>
-            evt.operationId
-              ? op.operationId === evt.operationId ||
-                (!op.operationId && op.threadId === evt.threadId)
-              : op.threadId === evt.threadId;
+            isChatEvent
+              ? op.threadId === eventThreadId
+              : eventOperationId
+                ? op.operationId === eventOperationId ||
+                  (!op.operationId && op.threadId === eventThreadId)
+                : op.threadId === eventThreadId;
           const idx = ops.findIndex(matchesEvent);
           if (idx >= 0) {
             const prior = ops[idx];
             if (!prior) return ops;
 
-            if (prior.status === effectiveStatus) {
+            const resolvedTitle = evt.title?.trim() || prior.title;
+            const shouldUpdateOperationId =
+              !!eventOperationId && prior.operationId !== eventOperationId;
+            const shouldUpdateTitle = resolvedTitle !== prior.title;
+
+            if (
+              prior.status === effectiveStatus &&
+              !shouldUpdateOperationId &&
+              !shouldUpdateTitle
+            ) {
               return ops;
             }
+
             // Update existing entry's status in place
             return ops.map((op) =>
               matchesEvent(op)
                 ? {
                     ...op,
                     status: effectiveStatus,
+                    ...(shouldUpdateOperationId ? { operationId: eventOperationId } : {}),
+                    ...(shouldUpdateTitle ? { title: resolvedTitle } : {}),
                   }
                 : op
             );
@@ -1566,14 +1584,20 @@ export class AgentXOperationsLogComponent {
 
           // New operation — insert at the top of the list
           const newEntry: OperationLogEntry = {
-            id: evt.operationId ?? evt.threadId,
-            title: 'Processing…',
+            id: eventThreadId,
+            title:
+              evt.title?.trim() ||
+              (eventOperationId
+                ? this._sseGeneratedTitlesByOperation.get(eventOperationId)
+                : undefined) ||
+              this._sseGeneratedTitles.get(eventThreadId) ||
+              'Processing…',
             summary: '',
             status: effectiveStatus,
             category: 'system',
             timestamp: evt.timestamp,
-            threadId: evt.threadId,
-            ...(evt.operationId ? { operationId: evt.operationId } : {}),
+            threadId: eventThreadId,
+            ...(eventOperationId ? { operationId: eventOperationId } : {}),
             icon: 'sparkles',
           };
           return [newEntry, ...ops];

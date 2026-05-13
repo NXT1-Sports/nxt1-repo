@@ -415,6 +415,13 @@ export const TRACE_NAMES = {
   AGENT_THREAD_REPLAY_LOAD: 'agent_thread_replay_load',
   AGENT_THREAD_MESSAGE_APPEND: 'agent_thread_message_append',
   AGENT_BUDGET_TOOL_TRIM: 'agent_budget_tool_trim',
+
+  // Team game plan traces
+  GAMEPLAN_LIST: 'gameplan_list',
+  GAMEPLAN_DETAIL: 'gameplan_detail',
+  GAMEPLAN_CREATE: 'gameplan_create',
+  GAMEPLAN_UPDATE: 'gameplan_update',
+  GAMEPLAN_DELETE: 'gameplan_delete',
 } as const;
 
 export type TraceName = (typeof TRACE_NAMES)[keyof typeof TRACE_NAMES];

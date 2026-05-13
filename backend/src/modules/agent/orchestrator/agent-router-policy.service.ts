@@ -38,7 +38,7 @@ const DETERMINISTIC_ROUTING_RULES: readonly {
   {
     agent: 'performance_coordinator',
     pattern:
-      /\b(film|tape|highlight|hudl|video analysis|scouting report|performance|stats?|combine|metrics?|breakdown|evaluate)\b/i,
+      /\b(film|tape|highlight|hudl|video analysis|scouting report|performance|stats?|combine|metrics?|breakdown|evaluate|videos? to watch|what videos? should i watch|film study videos?)\b/i,
   },
   {
     agent: 'brand_coordinator',

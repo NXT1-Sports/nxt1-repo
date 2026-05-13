@@ -1284,6 +1284,65 @@ const HELP_CENTER_TEST_IDS = {
   QUICK_ACTION: 'help-center-quick-action',
 } as const;
 
+// ============================================
+// TEAM GAME PLAN TEST IDS
+// ============================================
+export const GAMEPLAN_TEST_IDS = {
+  // List view
+  LIST_CONTAINER: 'gameplan-list-container',
+  LIST_ITEM: 'gameplan-list-item',
+  LIST_EMPTY_STATE: 'gameplan-empty-state',
+  LIST_ERROR_STATE: 'gameplan-error-state',
+  LIST_LOADING_SKELETON: 'gameplan-loading-skeleton',
+
+  // Filters & search
+  FILTER_BUTTON: 'gameplan-filter-button',
+  FILTER_SPORT: 'gameplan-filter-sport',
+  FILTER_STATUS: 'gameplan-filter-status',
+  FILTER_PHASE: 'gameplan-filter-phase',
+  SEARCH_INPUT: 'gameplan-search-input',
+
+  // Detail view
+  DETAIL_CONTAINER: 'gameplan-detail-container',
+  DETAIL_TITLE: 'gameplan-detail-title',
+  DETAIL_SPORT: 'gameplan-detail-sport',
+  DETAIL_OPPONENT: 'gameplan-detail-opponent',
+  DETAIL_GAME_DATE: 'gameplan-detail-game-date',
+  DETAIL_CONTENT: 'gameplan-detail-content',
+  DETAIL_ADJUSTMENTS: 'gameplan-detail-adjustments',
+  DETAIL_PRIORITIES: 'gameplan-detail-priorities',
+
+  // Editor
+  EDITOR_FORM: 'gameplan-editor-form',
+  EDITOR_TITLE_INPUT: 'gameplan-editor-title-input',
+  EDITOR_SPORT_SELECT: 'gameplan-editor-sport-select',
+  EDITOR_PHASE_SELECT: 'gameplan-editor-phase-select',
+  EDITOR_OPPONENT_INPUT: 'gameplan-editor-opponent-input',
+  EDITOR_DATE_INPUT: 'gameplan-editor-date-input',
+  EDITOR_CONTENT_TEXTAREA: 'gameplan-editor-content-textarea',
+  EDITOR_ADJUSTMENTS_EDITOR: 'gameplan-editor-adjustments-editor',
+  EDITOR_PRIORITIES_EDITOR: 'gameplan-editor-priorities-editor',
+  EDITOR_SAVE_BUTTON: 'gameplan-editor-save-button',
+  EDITOR_DELETE_BUTTON: 'gameplan-editor-delete-button',
+  EDITOR_CANCEL_BUTTON: 'gameplan-editor-cancel-button',
+  EDITOR_LOADING: 'gameplan-editor-loading',
+  EDITOR_ERROR: 'gameplan-editor-error',
+
+  // Action buttons
+  CREATE_BUTTON: 'gameplan-create-button',
+  EDIT_BUTTON: 'gameplan-edit-button',
+  DELETE_BUTTON: 'gameplan-delete-button',
+  SHARE_BUTTON: 'gameplan-share-button',
+  ARCHIVE_BUTTON: 'gameplan-archive-button',
+  RESTORE_BUTTON: 'gameplan-restore-button',
+
+  // Modals & confirmations
+  DELETE_CONFIRMATION: 'gameplan-delete-confirmation',
+  DELETE_CONFIRMATION_MESSAGE: 'gameplan-delete-confirmation-message',
+  DELETE_CONFIRM_BUTTON: 'gameplan-delete-confirm-button',
+  DELETE_CANCEL_BUTTON: 'gameplan-delete-cancel-button',
+} as const;
+
 export const TEST_IDS = {
   AUTH: AUTH_TEST_IDS,
   AUTH_PAGE: AUTH_PAGE_TEST_IDS,
@@ -1319,6 +1378,7 @@ export const TEST_IDS = {
   LIVE_VIEW_LAUNCHER: LIVE_VIEW_LAUNCHER_TEST_IDS,
   TEAM_TIMELINE: TEAM_TIMELINE_TEST_IDS,
   HELP_CENTER: HELP_CENTER_TEST_IDS,
+  GAMEPLAN: GAMEPLAN_TEST_IDS,
 } as const;
 
 // Type exports for TypeScript

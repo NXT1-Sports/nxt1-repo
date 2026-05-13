@@ -60,6 +60,11 @@ import {
   WriteScheduleTool,
   WriteTeamStatsTool,
   WritePlaybooksTool,
+  GetGameplanTool,
+  ListGameplansTool,
+  SaveGameplanTool,
+  UpdateGameplanTool,
+  DeleteGameplanTool,
   WriteTeamNewsTool,
   WriteTeamPostTool,
   WriteRosterEntriesTool,
@@ -98,6 +103,8 @@ import {
   AnalyzeImageTool,
   StageMediaTool,
   ExtractHudlVideoTool,
+  RecommendLearningVideosTool,
+  LearningVideoRecommendationService,
 } from '../tools/media/index.js';
 import { GeminiFilesService } from '../llm/gemini-files.service.js';
 import { ClassifyMediaUrlTool } from '../tools/media/classify-media-url.tool.js';
@@ -413,6 +420,11 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteScheduleTool(stagingDb));
   toolRegistry.register(new WriteTeamStatsTool(stagingDb));
   toolRegistry.register(new WritePlaybooksTool(stagingDb));
+  toolRegistry.register(new GetGameplanTool(stagingDb));
+  toolRegistry.register(new ListGameplansTool(stagingDb));
+  toolRegistry.register(new SaveGameplanTool(stagingDb));
+  toolRegistry.register(new UpdateGameplanTool(stagingDb));
+  toolRegistry.register(new DeleteGameplanTool(stagingDb));
   toolRegistry.register(new WriteTeamNewsTool(stagingDb));
   toolRegistry.register(new WriteTeamPostTool(stagingDb));
   toolRegistry.register(new WriteRosterEntriesTool(stagingDb));
@@ -443,6 +455,11 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GenerateGraphicTool(llm));
   toolRegistry.register(new StageMediaTool());
   toolRegistry.register(new ClassifyMediaUrlTool());
+  toolRegistry.register(
+    new RecommendLearningVideosTool(
+      new LearningVideoRecommendationService({ scraper: scraperService })
+    )
+  );
   toolRegistry.register(new ExtractHudlVideoTool());
   toolRegistry.register(new DynamicExportTool());
 

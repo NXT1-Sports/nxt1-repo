@@ -21,6 +21,7 @@ import type {
   ShellBriefingInsight,
   OperationLogEntry,
   CompletedGoalRecord,
+  TeamGamePlanDoc,
 } from '@nxt1/core';
 import { AGENT_X_MAX_VIDEO_FILE_SIZE } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
@@ -48,6 +49,7 @@ import {
   contextBuilder,
 } from './shared.js';
 import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
+import { canManageTeamMutationForUser } from '../../services/team/team-intel-permissions.js';
 
 type AuthenticatedRequest = Request & {
   user?: {
@@ -76,6 +78,46 @@ type FirestoreDocLike = {
 
 const router = Router();
 const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
+const TEAM_GAMEPLANS_COLLECTION = 'TeamGamePlans' as const;
+const TEAMS_COLLECTION = 'Teams' as const;
+
+function parsePositiveInt(input: unknown, fallback: number, max: number): number {
+  const value = typeof input === 'string' ? Number(input) : Number.NaN;
+  if (!Number.isFinite(value) || value <= 0) return fallback;
+  return Math.min(Math.floor(value), max);
+}
+
+function normalizeString(input: unknown): string | undefined {
+  if (typeof input !== 'string') return undefined;
+  const value = input.trim();
+  return value.length > 0 ? value : undefined;
+}
+
+function toGameplanSummary(item: TeamGamePlanDoc): Record<string, unknown> {
+  return {
+    id: item.id,
+    teamId: item.teamId,
+    sport: item.sport,
+    title: item.title,
+    phase: item.phase,
+    status: item.status,
+    season: item.season,
+    division: item.division,
+    gameDate: item.gameDate,
+    opponentId: item.opponentId,
+    opponentName: item.opponentName,
+    identityFocus: item.identityFocus,
+    primaryAttackPlan: item.primaryAttackPlan,
+    defensivePriorities: item.defensivePriorities,
+    specialSituations: item.specialSituations,
+    updatedAt: item.updatedAt,
+    createdAt: item.createdAt,
+    adjustmentTriggerCount: item.adjustmentTriggers?.length ?? 0,
+    halftimePriorityCount: item.halftimePriorities?.length ?? 0,
+    customSectionCount: item.customSections?.length ?? 0,
+    linkedPlayCount: item.linkedPlays?.length ?? 0,
+  };
+}
 
 function readRecurringTaskString(data: Record<string, unknown>, key: string): string | undefined {
   const value = data[key];
@@ -509,6 +551,490 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('Failed to get operations log', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Failed to get operations log' });
+  }
+});
+
+// ─── GET /gameplans ─────────────────────────────────────────────────────
+
+router.get('/gameplans', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const teamId = normalizeString(req.query['teamId']);
+    const sport = normalizeString(req.query['sport'])?.toLowerCase();
+    const status = normalizeString(req.query['status']);
+    const phase = normalizeString(req.query['phase']);
+    const opponentName = normalizeString(req.query['opponentName'])?.toLowerCase();
+    const includeArchived = String(req.query['includeArchived'] ?? '').toLowerCase() === 'true';
+    const limit = parsePositiveInt(req.query['limit'], 25, 100);
+
+    let candidates: TeamGamePlanDoc[] = [];
+
+    if (teamId) {
+      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
+      if (!teamDoc.exists) {
+        res.status(404).json({ success: false, error: `Team ${teamId} not found` });
+        return;
+      }
+
+      const authorized = await canManageTeamMutationForUser(
+        db,
+        user.uid,
+        teamId,
+        teamDoc.data() ?? {}
+      );
+      if (!authorized) {
+        res.status(403).json({ success: false, error: 'Forbidden' });
+        return;
+      }
+
+      const snap = await db
+        .collection(TEAM_GAMEPLANS_COLLECTION)
+        .where('teamId', '==', teamId)
+        .limit(Math.max(limit * 4, 80))
+        .get();
+      candidates = snap.docs.map((doc) => doc.data() as TeamGamePlanDoc);
+    } else {
+      const [updatedBySnap, createdBySnap] = await Promise.all([
+        db
+          .collection(TEAM_GAMEPLANS_COLLECTION)
+          .where('updatedBy', '==', user.uid)
+          .limit(Math.max(limit * 3, 60))
+          .get(),
+        db
+          .collection(TEAM_GAMEPLANS_COLLECTION)
+          .where('createdBy', '==', user.uid)
+          .limit(Math.max(limit * 3, 60))
+          .get(),
+      ]);
+
+      const byId = new Map<string, TeamGamePlanDoc>();
+      for (const doc of [...updatedBySnap.docs, ...createdBySnap.docs]) {
+        const item = doc.data() as TeamGamePlanDoc;
+        byId.set(item.id, item);
+      }
+      candidates = [...byId.values()];
+    }
+
+    const filtered = candidates
+      .filter((item) => (includeArchived ? true : item.status !== 'archived'))
+      .filter((item) => (status ? item.status === status : true))
+      .filter((item) => (phase ? item.phase === phase : true))
+      .filter((item) => (sport ? item.sport.toLowerCase() === sport : true))
+      .filter((item) => {
+        if (!opponentName) return true;
+        return (item.opponentName ?? '').toLowerCase().includes(opponentName);
+      })
+      .sort((a, b) => (a.updatedAt > b.updatedAt ? -1 : 1))
+      .slice(0, limit)
+      .map(toGameplanSummary);
+
+    res.json({
+      success: true,
+      data: {
+        gamePlans: filtered,
+        count: filtered.length,
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to list gameplans', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to list gameplans' });
+  }
+});
+
+// ─── GET /gameplans/:gamePlanId ────────────────────────────────────────
+
+router.get('/gameplans/:gamePlanId', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const gamePlanIdParam = req.params['gamePlanId'];
+    const gamePlanId = Array.isArray(gamePlanIdParam) ? gamePlanIdParam[0] : gamePlanIdParam;
+    if (!gamePlanId) {
+      res.status(400).json({ success: false, error: 'gamePlanId is required' });
+      return;
+    }
+
+    const doc = await db.collection(TEAM_GAMEPLANS_COLLECTION).doc(gamePlanId).get();
+    if (!doc.exists) {
+      res.status(404).json({ success: false, error: 'Game plan not found' });
+      return;
+    }
+
+    const gamePlan = doc.data() as TeamGamePlanDoc;
+    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(gamePlan.teamId).get();
+    const canManageTeam = teamDoc.exists
+      ? await canManageTeamMutationForUser(db, user.uid, gamePlan.teamId, teamDoc.data() ?? {})
+      : false;
+    const isOwner = gamePlan.createdBy === user.uid || gamePlan.updatedBy === user.uid;
+
+    if (!canManageTeam && !isOwner) {
+      res.status(403).json({ success: false, error: 'Forbidden' });
+      return;
+    }
+
+    res.json({
+      success: true,
+      data: {
+        gamePlan,
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to load gameplan', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to load gameplan' });
+  }
+});
+
+// ─── POST /gameplans ───────────────────────────────────────────────────
+
+router.post('/gameplans', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const payload = req.body as Record<string, unknown>;
+
+    // Validate required fields
+    if (!payload.teamId || !payload.sport || !payload.title) {
+      res.status(400).json({
+        success: false,
+        error: 'teamId, sport, and title are required',
+      });
+      return;
+    }
+
+    const teamId = String(payload.teamId).trim();
+    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
+
+    if (!teamDoc.exists) {
+      res.status(404).json({ success: false, error: `Team ${teamId} not found` });
+      return;
+    }
+
+    const isAuthorized = await canManageTeamMutationForUser(
+      db,
+      user.uid,
+      teamId,
+      teamDoc.data() ?? {}
+    );
+
+    if (!isAuthorized) {
+      res
+        .status(403)
+        .json({ success: false, error: 'Not authorized to create game plans for this team' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const normalizedSport = String(payload.sport).trim().toLowerCase();
+    const phase = (payload.phase ?? 'pregame') as string;
+    const status = (payload.status ?? 'draft') as string;
+    const docId = `${teamId}_${normalizedSport}_${phase}_${payload.gameDate ? String(payload.gameDate).substring(0, 10) : 'open'}_${String(
+      payload.opponentName ?? payload.title
+    )
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')}`;
+
+    const gamePlanData: TeamGamePlanDoc = {
+      id: docId,
+      teamId,
+      sport: normalizedSport,
+      title: String(payload.title).trim(),
+      phase: phase as any,
+      status: status as any,
+      ...(payload.season ? { season: String(payload.season).trim() } : {}),
+      ...(payload.opponentName ? { opponentName: String(payload.opponentName).trim() } : {}),
+      ...(payload.gameDate ? { gameDate: String(payload.gameDate).trim() } : {}),
+      ...(payload.identityFocus ? { identityFocus: String(payload.identityFocus).trim() } : {}),
+      ...(payload.primaryAttackPlan
+        ? { primaryAttackPlan: String(payload.primaryAttackPlan).trim() }
+        : {}),
+      ...(payload.defensivePriorities
+        ? { defensivePriorities: String(payload.defensivePriorities).trim() }
+        : {}),
+      ...(payload.specialSituations
+        ? { specialSituations: String(payload.specialSituations).trim() }
+        : {}),
+      ...(Array.isArray(payload.openingScript)
+        ? {
+            openingScript: payload.openingScript
+              .map((v) => String(v).trim())
+              .filter((v) => v.length > 0),
+          }
+        : {}),
+      ...(Array.isArray(payload.adjustmentTriggers)
+        ? { adjustmentTriggers: payload.adjustmentTriggers as any }
+        : {}),
+      ...(Array.isArray(payload.halftimePriorities)
+        ? { halftimePriorities: payload.halftimePriorities as any }
+        : {}),
+      ...(Array.isArray(payload.customSections)
+        ? { customSections: payload.customSections as any }
+        : {}),
+      ...(Array.isArray(payload.linkedPlays) ? { linkedPlays: payload.linkedPlays as any } : {}),
+      ...(Array.isArray(payload.tags)
+        ? { tags: payload.tags.map((v) => String(v).trim()).filter((v) => v.length > 0) }
+        : {}),
+      source: 'api_direct',
+      schemaVersion: 1,
+      createdBy: user.uid,
+      updatedBy: user.uid,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    const docRef = db.collection(TEAM_GAMEPLANS_COLLECTION).doc(docId);
+    await docRef.set(gamePlanData);
+
+    // Invalidate cache
+    try {
+      const cache = getCacheService();
+      await Promise.all([
+        cache.del(`intel:team:${teamId}`),
+        cache.del(`team:gameplans:${teamId}:${normalizedSport}`),
+        cache.del(`team:profile:${teamId}`),
+      ]);
+    } catch {
+      // Best effort
+    }
+
+    logger.info('Game plan created via API', {
+      gamePlanId: docId,
+      teamId,
+      sport: normalizedSport,
+      title: gamePlanData.title,
+    });
+
+    res.status(201).json({
+      success: true,
+      data: { gamePlan: gamePlanData },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to create gameplan', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to create gameplan' });
+  }
+});
+
+// ─── PUT /gameplans/:gamePlanId ────────────────────────────────────────
+
+router.put('/gameplans/:gamePlanId', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const gamePlanIdParam = req.params['gamePlanId'];
+    const gamePlanId = Array.isArray(gamePlanIdParam) ? gamePlanIdParam[0] : gamePlanIdParam;
+
+    if (!gamePlanId) {
+      res.status(400).json({ success: false, error: 'gamePlanId is required' });
+      return;
+    }
+
+    const doc = await db.collection(TEAM_GAMEPLANS_COLLECTION).doc(gamePlanId).get();
+
+    if (!doc.exists) {
+      res.status(404).json({ success: false, error: 'Game plan not found' });
+      return;
+    }
+
+    const existing = doc.data() as TeamGamePlanDoc;
+    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(existing.teamId).get();
+
+    if (!teamDoc.exists) {
+      res.status(404).json({ success: false, error: `Team ${existing.teamId} not found` });
+      return;
+    }
+
+    const isAuthorized = await canManageTeamMutationForUser(
+      db,
+      user.uid,
+      existing.teamId,
+      teamDoc.data() ?? {}
+    );
+
+    if (!isAuthorized) {
+      res
+        .status(403)
+        .json({ success: false, error: 'Not authorized to update game plans for this team' });
+      return;
+    }
+
+    const payload = req.body as Record<string, unknown>;
+    const now = new Date().toISOString();
+    const updateData: Record<string, unknown> = { updatedBy: user.uid, updatedAt: now };
+
+    // Merge only provided fields
+    if (typeof payload.title === 'string') updateData.title = payload.title.trim();
+    if (typeof payload.status === 'string') updateData.status = payload.status;
+    if (typeof payload.phase === 'string') updateData.phase = payload.phase;
+    if (typeof payload.gameDate === 'string') updateData.gameDate = payload.gameDate.trim();
+    if (typeof payload.opponentName === 'string')
+      updateData.opponentName = payload.opponentName.trim();
+    if (typeof payload.identityFocus === 'string')
+      updateData.identityFocus = payload.identityFocus.trim();
+    if (typeof payload.primaryAttackPlan === 'string')
+      updateData.primaryAttackPlan = payload.primaryAttackPlan.trim();
+    if (typeof payload.defensivePriorities === 'string')
+      updateData.defensivePriorities = payload.defensivePriorities.trim();
+    if (typeof payload.specialSituations === 'string')
+      updateData.specialSituations = payload.specialSituations.trim();
+    if (Array.isArray(payload.openingScript))
+      updateData.openingScript = payload.openingScript
+        .map((v) => String(v).trim())
+        .filter((v) => v.length > 0);
+    if (Array.isArray(payload.adjustmentTriggers))
+      updateData.adjustmentTriggers = payload.adjustmentTriggers;
+    if (Array.isArray(payload.halftimePriorities))
+      updateData.halftimePriorities = payload.halftimePriorities;
+    if (Array.isArray(payload.customSections)) updateData.customSections = payload.customSections;
+    if (Array.isArray(payload.linkedPlays)) updateData.linkedPlays = payload.linkedPlays;
+    if (Array.isArray(payload.tags))
+      updateData.tags = payload.tags.map((v) => String(v).trim()).filter((v) => v.length > 0);
+
+    const docRef = db.collection(TEAM_GAMEPLANS_COLLECTION).doc(gamePlanId);
+    await docRef.update(updateData);
+
+    // Invalidate cache
+    try {
+      const cache = getCacheService();
+      await Promise.all([
+        cache.del(`intel:team:${existing.teamId}`),
+        cache.del(`team:gameplans:${existing.teamId}:${existing.sport}`),
+        cache.del(`team:profile:${existing.teamId}`),
+      ]);
+    } catch {
+      // Best effort
+    }
+
+    logger.info('Game plan updated via API', {
+      gamePlanId,
+      teamId: existing.teamId,
+      updatedFields: Object.keys(payload),
+    });
+
+    // Fetch updated document
+    const updatedDoc = await docRef.get();
+    const updatedData = updatedDoc.data() as TeamGamePlanDoc;
+
+    res.json({
+      success: true,
+      data: { gamePlan: updatedData },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to update gameplan', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to update gameplan' });
+  }
+});
+
+// ─── DELETE /gameplans/:gamePlanId ─────────────────────────────────────
+
+router.delete('/gameplans/:gamePlanId', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const gamePlanIdParam = req.params['gamePlanId'];
+    const gamePlanId = Array.isArray(gamePlanIdParam) ? gamePlanIdParam[0] : gamePlanIdParam;
+
+    if (!gamePlanId) {
+      res.status(400).json({ success: false, error: 'gamePlanId is required' });
+      return;
+    }
+
+    const doc = await db.collection(TEAM_GAMEPLANS_COLLECTION).doc(gamePlanId).get();
+
+    if (!doc.exists) {
+      res.status(404).json({ success: false, error: 'Game plan not found' });
+      return;
+    }
+
+    const gamePlan = doc.data() as TeamGamePlanDoc;
+    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(gamePlan.teamId).get();
+
+    if (!teamDoc.exists) {
+      res.status(404).json({ success: false, error: `Team ${gamePlan.teamId} not found` });
+      return;
+    }
+
+    const isAuthorized = await canManageTeamMutationForUser(
+      db,
+      user.uid,
+      gamePlan.teamId,
+      teamDoc.data() ?? {}
+    );
+
+    if (!isAuthorized) {
+      res
+        .status(403)
+        .json({ success: false, error: 'Not authorized to delete game plans for this team' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const docRef = db.collection(TEAM_GAMEPLANS_COLLECTION).doc(gamePlanId);
+
+    // Soft-delete: archive instead of removing
+    await docRef.update({
+      status: 'archived',
+      updatedBy: user.uid,
+      updatedAt: now,
+      archivedAt: now,
+      archivedBy: user.uid,
+    });
+
+    // Invalidate cache
+    try {
+      const cache = getCacheService();
+      await Promise.all([
+        cache.del(`intel:team:${gamePlan.teamId}`),
+        cache.del(`team:gameplans:${gamePlan.teamId}:${gamePlan.sport}`),
+        cache.del(`team:profile:${gamePlan.teamId}`),
+      ]);
+    } catch {
+      // Best effort
+    }
+
+    logger.info('Game plan archived via API', {
+      gamePlanId,
+      teamId: gamePlan.teamId,
+      title: gamePlan.title,
+    });
+
+    res.json({
+      success: true,
+      data: { message: `Game plan archived: ${gamePlan.title}` },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to delete gameplan', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to delete gameplan' });
   }
 });
 
