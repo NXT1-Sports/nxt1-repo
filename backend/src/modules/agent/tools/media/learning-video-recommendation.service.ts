@@ -12,16 +12,13 @@ const MAX_SEARCH_RESULTS = 10;
 const MAX_RECOMMENDATIONS = 6;
 const MAX_SCRAPE_CANDIDATES = 4;
 
-const RECOMMENDATION_TYPES = [
-  'drills',
-  'skill_improvement',
-  'film_study',
-  'recruiting_examples',
-  'role_specific_learning',
-  'general',
-] as const;
-
-type RecommendationType = (typeof RECOMMENDATION_TYPES)[number];
+type RecommendationType =
+  | 'drills'
+  | 'skill_improvement'
+  | 'film_study'
+  | 'recruiting_examples'
+  | 'role_specific_learning'
+  | 'general';
 type RecommendationLevel = 'youth' | 'high_school' | 'college' | 'pro' | 'any';
 type SuggestedNextStep = 'analyze_video' | 'extract_hudl_video' | 'stage_media' | 'review_link';
 type RecommendationSourceType = 'direct_video' | 'video_page';

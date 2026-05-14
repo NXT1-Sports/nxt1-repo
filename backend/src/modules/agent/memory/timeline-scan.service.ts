@@ -473,7 +473,7 @@ export class TimelineScanService {
         userId,
         target,
         content: fact.content,
-        category: fact.category,
+        category: fact.category as AgentMemoryCategory,
       }).lean();
       if (existing) continue;
 

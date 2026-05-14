@@ -16,6 +16,8 @@ import {
   EXPERIMENTAL_FLAGS,
   InvalidFlagValueError,
   FlagNotFoundError,
+  type FeatureFlagKey,
+  type FlagScope,
 } from '../index';
 
 describe('Feature Flag Registry', () => {
@@ -49,7 +51,7 @@ describe('Feature Flag Registry', () => {
     });
 
     it('should return undefined for unknown key', () => {
-      const flag = FEATURE_FLAG_REGISTRY.getFlag('unknown.flag' as any);
+      const flag = FEATURE_FLAG_REGISTRY.getFlag('unknown.flag' as unknown as FeatureFlagKey);
       expect(flag).toBeUndefined();
     });
   });
@@ -68,7 +70,7 @@ describe('Feature Flag Registry', () => {
     });
 
     it('should return empty array for non-existent scope', () => {
-      const flags = FEATURE_FLAG_REGISTRY.getFlagsByScope('nonexistent' as any);
+      const flags = FEATURE_FLAG_REGISTRY.getFlagsByScope('nonexistent' as unknown as FlagScope);
       expect(flags).toEqual([]);
     });
   });
@@ -173,7 +175,7 @@ describe('Feature Flag Registry', () => {
 describe('Error Classes', () => {
   describe('FlagNotFoundError', () => {
     it('should create with proper message', () => {
-      const err = new FlagNotFoundError('unknown.flag' as any);
+      const err = new FlagNotFoundError('unknown.flag' as unknown as FeatureFlagKey);
       expect(err.message).toContain('unknown.flag');
       expect(err.name).toBe('FlagNotFoundError');
     });
@@ -182,7 +184,7 @@ describe('Error Classes', () => {
   describe('InvalidFlagValueError', () => {
     it('should create with detailed message', () => {
       const err = new InvalidFlagValueError(
-        'team.intel.enabled' as any,
+        'team.intel.enabled' as FeatureFlagKey,
         'invalid',
         'Expected boolean'
       );

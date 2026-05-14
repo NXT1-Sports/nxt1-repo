@@ -23,8 +23,7 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { OnStreamEvent } from '../queue/event-writer.js';
-import type { AgentJobPayload, AgentJobUpdate } from '@nxt1/core';
-import type { AgentUserContext } from '@nxt1/core';
+import type { AgentJobUpdate, AgentUserContext } from '@nxt1/core/ai';
 
 // ─── Mocks & Test Helpers ───────────────────────────────────────────────────
 
@@ -81,7 +80,6 @@ describe('[Agent Router] TTFT Optimization - Progressive Context Injection', () 
       // Acknowledgment emitted at T+50ms (SSE latency only)
       // Context build starts at T+50ms but won't finish until T+850ms
       const ackTimestampMs = Date.now();
-      const contextStartMs = ackTimestampMs + 50;
 
       // Emit ack
       const ackEvent: OnStreamEvent['arguments'][0] = {
@@ -313,6 +311,9 @@ describe('[Agent Router] TTFT Optimization - Progressive Context Injection', () 
         operationId: ctx.operationId,
         status: 'failed',
         step: {
+          id: 'step-context-failed',
+          timestamp: new Date().toISOString(),
+          status: 'failed',
           stage: 'building_context',
           message: 'Failed to load your profile: Database connection failed',
           outcomeCode: 'context_build_failed',

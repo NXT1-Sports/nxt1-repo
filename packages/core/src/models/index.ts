@@ -445,3 +445,6 @@ export {
   buildUserDisplayContext,
   deduplicateSportProfiles,
 } from './user/user-display-context';
+
+// Agent job types (backend integration)
+export type { AgentJobPayload, AgentJobUpdate, AgentUserContext } from '../ai/agent.types';

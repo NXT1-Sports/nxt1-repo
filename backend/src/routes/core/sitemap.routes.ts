@@ -231,7 +231,6 @@ router.get('/sitemaps/core.xml', async (req: Request, res: Response): Promise<vo
 
     logger.info(`[${requestId}] Generating fresh core sitemap`);
 
-    const { db } = req.firebase!;
     const baseUrl = process.env['PUBLIC_URL'] || 'https://nxt1sports.com';
 
     const entries: SitemapEntry[] = [];
@@ -282,62 +281,18 @@ router.get('/sitemaps/core.xml', async (req: Request, res: Response): Promise<vo
       logger.error(`[${requestId}] Error fetching help center entries`, { error });
     }
 
-    // 3) Public posts (/post/:unicode/:id).
-    try {
-      const postsSnapshot = await db
-        .collection('Posts')
-        .where('isPublic', '==', true)
-        .select('userId', 'updatedAt', 'createdAt')
-        .limit(10000)
-        .get();
-
-      logger.info(`[${requestId}] Found ${postsSnapshot.size} public posts`);
-
-      const userIds = new Set<string>();
-      postsSnapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
-        const data = doc.data();
-        const userId = data['userId'] as string | undefined;
-        if (userId) userIds.add(userId);
-      });
-
-      const userUnicodeMap = new Map<string, string>();
-      const userIdChunks = chunkArray([...userIds], 30);
-
-      for (const chunk of userIdChunks) {
-        if (chunk.length === 0) continue;
-
-        const usersSnapshot = await db
-          .collection('Users')
-          .where(FieldPath.documentId(), 'in', chunk)
-          .select('unicode')
-          .get();
-
-        usersSnapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
-          const unicode = doc.get('unicode') as string | undefined;
-          if (unicode) {
-            userUnicodeMap.set(doc.id, unicode);
-          }
-        });
-      }
-
-      postsSnapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
-        const data = doc.data();
-        const userId = data['userId'] as string | undefined;
-        if (!userId) return;
-
-        const unicode = userUnicodeMap.get(userId);
-        if (!unicode) return;
-
-        entries.push({
-          loc: `${baseUrl}/post/${encodeURIComponent(unicode)}/${encodeURIComponent(doc.id)}`,
-          lastmod: coerceLastMod(data['updatedAt'] ?? data['createdAt']),
-          changefreq: 'daily',
-          priority: 0.65,
-        });
-      });
-    } catch (error) {
-      logger.error(`[${requestId}] Error fetching public posts`, { error });
-    }
+    // 3) Public posts — TEMPORARILY DISABLED (UI not ready for public indexing)
+    // Posts will be re-enabled once the post detail/card UI is refined
+    // TODO: Re-enable public posts in sitemap once UI is production-ready
+    // try {
+    //   const postsSnapshot = await db
+    //     .collection('Posts')
+    //     .where('isPublic', '==', true)
+    //     .select('userId', 'updatedAt', 'createdAt')
+    //     .limit(10000)
+    //     .get();
+    //   ... (code omitted)
+    // }
 
     const xml = generateSitemapXml(entries);
     coreSitemapCache = { xml, timestamp: now };
@@ -430,14 +385,6 @@ router.get('/sitemaps/profiles-:page.xml', async (req: Request, res: Response): 
       );
   }
 });
-
-function chunkArray<T>(items: readonly T[], chunkSize: number): T[][] {
-  const chunks: T[][] = [];
-  for (let i = 0; i < items.length; i += chunkSize) {
-    chunks.push(items.slice(i, i + chunkSize));
-  }
-  return chunks;
-}
 
 /**
  * Generate XML sitemap index from sitemap entries

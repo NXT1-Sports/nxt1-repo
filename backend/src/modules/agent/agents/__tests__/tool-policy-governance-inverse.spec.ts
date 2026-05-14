@@ -72,6 +72,9 @@ const DYNAMIC_GOOGLE_WORKSPACE_TOOLS = new Set<string>([
   'duplicate_slide',
   'delete_slide',
   'create_presentation_from_markdown',
+  // Live-view capabilities may be exposed via wildcard families without
+  // individual bootstrap registrations.
+  'capture_live_view_screenshot',
 ]);
 
 function walkTsFiles(rootDir: string): string[] {

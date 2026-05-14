@@ -14,8 +14,6 @@ import express from 'express';
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RosterEntryService } from '../../services/team/roster-entry.service.js';
-// Pull in the Express global augmentations (isStaging, firebase, user)
-import '../../types/express.js';
 
 // ─── Mock heavy dependencies BEFORE importing the route ───────────────────────
 // vi.hoisted ensures these variables are available inside vi.mock() factory

@@ -584,7 +584,7 @@ describe('PrimaryAgent delegation control flow', () => {
     );
 
     expect(dispatcher.runCoordinator).toHaveBeenCalledWith(
-      'strategy_coordinator',
+      'performance_coordinator',
       expect.stringContaining('Analyze the provided video'),
       expect.objectContaining({
         operationId: 'op-4',

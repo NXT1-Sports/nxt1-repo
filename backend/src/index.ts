@@ -51,6 +51,7 @@ import helpCenterRoutes from './routes/platform/help-center.routes.js';
 import editProfileRoutes from './routes/profile/edit-profile.routes.js';
 import agentXRoutes from './routes/agent/index.js';
 import messagesRoutes from './routes/communications/messages.routes.js';
+import { queueService } from './routes/agent/shared.js';
 
 import { bootstrapAgentQueue } from './modules/agent/queue/bootstrap.js';
 import { ensureTopicExists } from './modules/billing/index.js';
@@ -76,6 +77,79 @@ import logsRoutes from './routes/platform/logs.routes.js';
 const app: ReturnType<typeof express> = express();
 const PORT = process.env['PORT'] || 3000;
 const REQUEST_TIMEOUT_MS = 30_000; // 30 seconds
+const OPENROUTER_MODELS_URL = 'https://openrouter.ai/api/v1/models';
+const OPENROUTER_HEALTH_CACHE_TTL_MS = 30_000;
+
+type OpenRouterHealthSnapshot = {
+  configured: boolean;
+  reachable: boolean;
+  statusCode: number | null;
+  checkedAt: string;
+};
+
+let openRouterHealthCache: {
+  checkedAtMs: number;
+  snapshot: OpenRouterHealthSnapshot;
+} | null = null;
+
+async function checkOpenRouterHealth(): Promise<OpenRouterHealthSnapshot> {
+  const now = Date.now();
+  if (
+    openRouterHealthCache &&
+    now - openRouterHealthCache.checkedAtMs < OPENROUTER_HEALTH_CACHE_TTL_MS
+  ) {
+    return openRouterHealthCache.snapshot;
+  }
+
+  const apiKey = process.env['OPENROUTER_API_KEY'];
+  if (!apiKey) {
+    const snapshot: OpenRouterHealthSnapshot = {
+      configured: false,
+      reachable: false,
+      statusCode: null,
+      checkedAt: new Date().toISOString(),
+    };
+    openRouterHealthCache = { checkedAtMs: now, snapshot };
+    return snapshot;
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 2500);
+
+  try {
+    const response = await fetch(OPENROUTER_MODELS_URL, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal: controller.signal,
+    });
+
+    // A response below 500 means OpenRouter is reachable from this process,
+    // even if auth/policy on the key itself is restricted.
+    const snapshot: OpenRouterHealthSnapshot = {
+      configured: true,
+      reachable: response.status < 500,
+      statusCode: response.status,
+      checkedAt: new Date().toISOString(),
+    };
+
+    openRouterHealthCache = { checkedAtMs: now, snapshot };
+    return snapshot;
+  } catch {
+    const snapshot: OpenRouterHealthSnapshot = {
+      configured: true,
+      reachable: false,
+      statusCode: null,
+      checkedAt: new Date().toISOString(),
+    };
+
+    openRouterHealthCache = { checkedAtMs: now, snapshot };
+    return snapshot;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 // ============================================================================
 // Application Setup Function (Async)
@@ -243,6 +317,30 @@ async function setupApplication() {
       status: healthy ? 'Staging OK' : 'Staging DEGRADED',
       timestamp: new Date().toISOString(),
       mongo: mongoStatus,
+    });
+  });
+
+  app.get('/health/agent', async (_req, res) => {
+    const queueInitialized = queueService !== null;
+    const [openrouter, queueHealthy, queueCounts, queuePaused] = await Promise.all([
+      checkOpenRouterHealth(),
+      queueService ? queueService.isHealthy().catch(() => false) : Promise.resolve(false),
+      queueService ? queueService.getCounts().catch(() => null) : Promise.resolve(null),
+      queueService ? queueService.isPaused().catch(() => null) : Promise.resolve(null),
+    ]);
+
+    const healthy = queueInitialized && queueHealthy && openrouter.reachable;
+
+    res.status(healthy ? 200 : 503).json({
+      status: healthy ? 'Agent OK' : 'Agent DEGRADED',
+      timestamp: new Date().toISOString(),
+      queue: {
+        initialized: queueInitialized,
+        healthy: queueHealthy,
+        paused: queuePaused,
+        counts: queueCounts,
+      },
+      openrouter,
     });
   });
 

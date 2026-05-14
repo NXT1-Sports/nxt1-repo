@@ -32,6 +32,10 @@ env:
   - variable: APP_ENV
     value: 'staging'
 
+  # Backend API URL for proxying sitemap and other XML endpoints (staging backend)
+  - variable: BACKEND_URL
+    value: 'https://nxt1-repo-backend--nxt-1-staging-v2.us-east4.hosted.app'
+
   # Allow SSR for ALL hosts
   - variable: NG_ALLOWED_HOSTS
     value: '*'

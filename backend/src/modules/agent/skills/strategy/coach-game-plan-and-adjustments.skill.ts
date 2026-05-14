@@ -8,6 +8,7 @@
  */
 
 import { BaseSkill, type SkillCategory } from '../base.skill.js';
+import { extractGameAnalysisParams } from '@nxt1/core';
 
 export class CoachGamePlanAndAdjustmentsSkill extends BaseSkill {
   readonly name = 'coach_game_plan_and_adjustments';
@@ -17,9 +18,9 @@ export class CoachGamePlanAndAdjustmentsSkill extends BaseSkill {
   readonly category: SkillCategory = 'strategy';
 
   getPromptContext(params?: Record<string, unknown>): string {
-    // Extract team context if provided
-    const team = (params as any)?.team;
-    const game = (params as any)?.game;
+    const gameAnalysisParams = extractGameAnalysisParams(params);
+    const team = gameAnalysisParams?.team;
+    const game = gameAnalysisParams?.game;
 
     const teamContext =
       team && (team.ownTeamName || team.opponentTeamName || team.perspectiveTeam)

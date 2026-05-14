@@ -7,7 +7,7 @@
  * 3. Tool policy prevents incorrect routing
  */
 
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { isToolAllowedByPatterns, getEffectiveAgentToolPolicy } from '../tool-policy.js';
 
 describe('Phase 5: Tool Routing & Policy Integration', () => {
@@ -201,15 +201,16 @@ describe('Phase 5: Tool Routing & Policy Integration', () => {
     });
 
     it('tool policy enforces that only strategy_coordinator has create_play_diagram among coordinators', () => {
-      const strategies = ['strategy_coordinator'];
-      const others = ['recruiting_coordinator', 'data_coordinator', 'performance_coordinator'];
+      const others: Array<
+        'recruiting_coordinator' | 'data_coordinator' | 'performance_coordinator'
+      > = ['recruiting_coordinator', 'data_coordinator', 'performance_coordinator'];
 
       const strategyPolicy = getEffectiveAgentToolPolicy('strategy_coordinator');
       expect(isToolAllowedByPatterns('create_play_diagram', strategyPolicy)).toBe(true);
 
       // Verify others do not have it
       others.forEach((coordinator) => {
-        const policy = getEffectiveAgentToolPolicy(coordinator as any);
+        const policy = getEffectiveAgentToolPolicy(coordinator);
         expect(isToolAllowedByPatterns('create_play_diagram', policy)).toBe(false);
       });
     });

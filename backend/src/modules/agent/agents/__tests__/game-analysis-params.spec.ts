@@ -43,7 +43,15 @@ class TestAgent extends BaseAgent {
 
   // Expose private methods for testing
   public testBuildGameAnalysisParams(intent: string) {
-    return (this as any).buildGameAnalysisParams(intent);
+    const buildGameAnalysisParams = Reflect.get(this, 'buildGameAnalysisParams') as
+      | ((value: string) => unknown)
+      | undefined;
+
+    if (typeof buildGameAnalysisParams !== 'function') {
+      throw new Error('buildGameAnalysisParams is not available on TestAgent');
+    }
+
+    return buildGameAnalysisParams.call(this, intent);
   }
 }
 

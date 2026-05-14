@@ -262,13 +262,6 @@ describe('Phase 5: Strategy Coordinator Diagram Tool Routing & Hardening', () =>
     });
 
     it('tool policy does NOT accidentally move drill tools back to GLOBAL_SYSTEM_TOOL_POLICY', () => {
-      const globalPolicy = [
-        'send_email',
-        'batch_send_email',
-        'create_support_ticket',
-        'delegate_task',
-        'get_analytics_summary',
-      ];
       // Check a known global tool, verify it's not create_board_diagram
       // (This is defensive against accidental re-addition)
       const policy = getAgentToolPolicy('router'); // Router has restricted policy

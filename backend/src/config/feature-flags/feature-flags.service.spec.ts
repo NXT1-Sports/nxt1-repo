@@ -8,14 +8,13 @@
  * @version 1.0.0
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import {
   FeatureFlagsService,
   getFeatureFlagsService,
   resetFeatureFlagsService,
-} from '../feature-flags.service';
+} from './feature-flags.service.ts';
 import type { Firestore } from 'firebase-admin/firestore';
-import { InvalidFlagValueError } from '@nxt1/core/flags';
 
 describe('FeatureFlagsService', () => {
   let mockFirestore: Firestore;
@@ -23,9 +22,7 @@ describe('FeatureFlagsService', () => {
 
   beforeEach(() => {
     // Mock Firestore (minimal mock for testing)
-    mockFirestore = {
-      // Minimal mock implementation
-    } as any;
+    mockFirestore = {} as Firestore;
 
     service = new FeatureFlagsService(mockFirestore, 1); // 1-second TTL for testing
   });
@@ -43,9 +40,9 @@ describe('FeatureFlagsService', () => {
     });
 
     it('should validate flag values', async () => {
-      const invalidService = service as any;
       // Attempt to set invalid value would fail validation
       // (This is tested more thoroughly via setFlagValue in integration tests)
+      await expect(service.getFlagValue('team.intel.enabled')).resolves.toBeTypeOf('boolean');
     });
   });
 

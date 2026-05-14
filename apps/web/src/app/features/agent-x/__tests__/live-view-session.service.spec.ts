@@ -53,6 +53,7 @@ import type { LiveViewSession } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { LiveViewSessionService } from '../../../../../../../packages/ui/src/agent-x/live-view-session.service';
 import { AGENT_X_API_BASE_URL } from '../../../../../../../packages/ui/src/agent-x/services/agent-x-job.service';
+import { LiveViewHistoryService } from '../../../../../../../packages/ui/src/agent-x/services/live-view-history.service';
 import { NxtToastService } from '../../../../../../../packages/ui/src/services/toast';
 import { NxtLoggingService } from '../../../../../../../packages/ui/src/services/logging';
 import { NxtBreadcrumbService } from '../../../../../../../packages/ui/src/services/breadcrumb/breadcrumb.service';
@@ -105,6 +106,14 @@ const createAnalyticsMock = () => ({
   setUserProperties: vi.fn(),
 });
 
+const createHistoryMock = () => ({
+  recordSession: vi.fn(),
+  getSessionById: vi.fn().mockReturnValue(null),
+  removeSession: vi.fn(),
+  clearAll: vi.fn(),
+  availableSessions: vi.fn().mockReturnValue([]),
+});
+
 // ============================================
 // TEST DATA
 // ============================================
@@ -155,6 +164,7 @@ function createService() {
   const analyticsMock = createAnalyticsMock();
   const _breadcrumbMock = createBreadcrumbMock();
   const performanceMock = createPerformanceMock();
+  const historyMock = createHistoryMock();
 
   const injector = Injector.create({
     providers: [
@@ -163,6 +173,7 @@ function createService() {
       { provide: NxtToastService, useValue: toastMock },
       { provide: NxtLoggingService, useValue: loggerMock },
       { provide: NxtBreadcrumbService, useValue: _breadcrumbMock },
+      { provide: LiveViewHistoryService, useValue: historyMock },
       { provide: ANALYTICS_ADAPTER, useValue: analyticsMock },
       { provide: PERFORMANCE_ADAPTER, useValue: performanceMock },
     ],
@@ -348,7 +359,7 @@ describe('LiveViewSessionService', () => {
     it('should return false when no active session', async () => {
       // Close the session first
       httpMock.post.mockReturnValue(of({ success: true }));
-      await service.closeSession();
+      await service.destroySession();
       vi.clearAllMocks();
 
       const result = await service.navigate('https://www.hudl.com/video');
@@ -410,11 +421,11 @@ describe('LiveViewSessionService', () => {
     });
   });
 
-  // ─── closeSession ─────────────────────────────────────────────────
+  // ─── destroySession ───────────────────────────────────────────────
 
-  describe('closeSession', () => {
+  describe('destroySession', () => {
     it('should no-op when no active session', async () => {
-      await service.closeSession();
+      await service.destroySession();
       expect(httpMock.post).not.toHaveBeenCalled();
     });
 
@@ -423,24 +434,21 @@ describe('LiveViewSessionService', () => {
       expect(service.hasActiveSession()).toBe(true);
 
       httpMock.post.mockReturnValue(of({ success: true }));
-      await service.closeSession();
+      await service.destroySession();
 
       expect(service.activeSession()).toBeNull();
       expect(service.hasActiveSession()).toBe(false);
     });
 
-    it('should track SESSION_CLOSED analytics', async () => {
+    it('should call backend close endpoint', async () => {
       service.adoptSession(MOCK_SESSION);
       httpMock.post.mockReturnValue(of({ success: true }));
 
-      await service.closeSession();
+      await service.destroySession();
 
-      expect(analyticsMock.trackEvent).toHaveBeenCalledWith(
-        APP_EVENTS.LIVE_VIEW_SESSION_CLOSED,
-        expect.objectContaining({
-          session_id: MOCK_SESSION.sessionId,
-          destination_tier: 'platform',
-        })
+      expect(httpMock.post).toHaveBeenCalledWith(
+        '/api/agent-x/live-view/close',
+        expect.objectContaining({ sessionId: MOCK_SESSION.sessionId })
       );
     });
 
@@ -448,7 +456,7 @@ describe('LiveViewSessionService', () => {
       service.adoptSession(MOCK_SESSION);
       httpMock.post.mockReturnValue(throwError(() => new Error('Network error')));
 
-      await service.closeSession();
+      await service.destroySession();
 
       expect(service.activeSession()).toBeNull();
       expect(loggerChild.warn).toHaveBeenCalled();

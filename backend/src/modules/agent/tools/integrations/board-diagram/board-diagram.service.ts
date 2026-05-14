@@ -80,6 +80,17 @@ const MAX_LAYOUT_ATTEMPTS = 2;
 type TeamFocus = 'offense' | 'defense' | 'both';
 type TeamFocusRequest = TeamFocus | 'auto';
 
+function extractBoardDiagramKind(value: unknown): BoardDiagramKind | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+
+  const kindValue = (value as { kind?: unknown }).kind;
+  if (kindValue === 'sport_play' || kindValue === 'sport_drill') {
+    return kindValue;
+  }
+
+  return undefined;
+}
+
 // ─── Private utilities ────────────────────────────────────────────────────────
 
 function buildUserPrompt(
@@ -562,7 +573,7 @@ export class BoardDiagramService {
     const teamFocus =
       requestedTeamFocus && requestedTeamFocus !== 'auto' ? requestedTeamFocus : derivedTeamFocus;
     // Select render profile based on kind
-    const kind = kindOverride ?? (context as any)?.kind ?? (layout as any)?.kind;
+    const kind = kindOverride ?? extractBoardDiagramKind(context) ?? 'sport_play';
     let renderProfile: RenderProfileOptions;
     if (kind === 'sport_drill') {
       renderProfile = {

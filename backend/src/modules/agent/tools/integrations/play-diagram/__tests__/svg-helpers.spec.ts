@@ -28,7 +28,7 @@ describe('renderRoutes — labels', () => {
     expect(svg).not.toContain('fill="rgba(244,249,255,0.93)"');
     expect(svg).not.toContain('<rect x="');
     // Route path still rendered
-    expect(svg).toContain('marker-end="url(#arr)"');
+    expect(svg).toContain('marker-end="url(#arr-go)"');
     expect(svg).toContain('<path d="');
   });
 });
@@ -152,8 +152,7 @@ describe('renderRoutes — path vs polyline', () => {
         ],
       },
     ]);
-    expect(svg).toContain('marker-end="url(#arr-drag)"');
-    expect(svg).toContain('stroke-dasharray="7,4"');
+    expect(svg).toContain('marker-end="url(#arr-go)"');
     expect(svg).not.toContain(' C ');
   });
 });

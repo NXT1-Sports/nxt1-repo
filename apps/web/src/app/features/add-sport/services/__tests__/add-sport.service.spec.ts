@@ -529,7 +529,7 @@ describe('AddSportService', () => {
           },
           connectedSources: [
             {
-              faviconUrl: 'https://icons.duckduckgo.com/ip3/hudl.com.ico',
+              faviconUrl: 'https://www.google.com/s2/favicons?domain=hudl.com&sz=64',
               platform: 'hudl',
               profileUrl: 'https://hudl.com/profile/1',
               scopeType: undefined,

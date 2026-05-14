@@ -42,7 +42,7 @@ function getFlagsService(): FeatureFlagsService {
  * Auth verification middleware.
  * All flag endpoints require authentication.
  */
-const requireAuth = asyncHandler(async (req: Request, _res: Response, next: () => void) => {
+const requireAuth = asyncHandler(async (req: Request, res: Response, next: () => void) => {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith('Bearer ')) {
     throw unauthorizedError('missing');
@@ -51,9 +51,24 @@ const requireAuth = asyncHandler(async (req: Request, _res: Response, next: () =
   const token = authHeader.slice(7);
   try {
     const decodedToken = await getAuth().verifyIdToken(token);
-    (req as any).user = decodedToken;
+    req.user = {
+      uid: decodedToken.uid,
+      email: decodedToken.email || '',
+      emailVerified: decodedToken.email_verified || false,
+      displayName: decodedToken['name'],
+      photoURL: decodedToken.picture,
+    };
+
+    const decoded = decodedToken as Record<string, unknown>;
+    const claims =
+      typeof decoded['claims'] === 'object' && decoded['claims'] !== null
+        ? (decoded['claims'] as Record<string, unknown>)
+        : undefined;
+    const isAdmin = decoded['admin'] === true || claims?.['admin'] === true;
+    res.locals['isAdmin'] = isAdmin;
+
     next();
-  } catch (err) {
+  } catch {
     throw unauthorizedError('invalid');
   }
 });
@@ -176,10 +191,9 @@ router.get(
 router.get(
   '/all',
   requireAuth,
-  asyncHandler(async (req: Request, res: Response) => {
+  asyncHandler(async (_req: Request, res: Response) => {
     // Check admin role (simple implementation)
-    const user = (req as any).user;
-    const isAdmin = user.claims?.admin === true;
+    const isAdmin = res.locals['isAdmin'] === true;
 
     if (!isAdmin) {
       throw forbiddenError('admin');

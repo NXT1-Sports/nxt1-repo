@@ -424,7 +424,14 @@ export class NxtMediaService {
         const { MediaPlugin } = await this.loadMediaPlugin();
         await MediaPlugin.savePhoto({ path: fileUri, album: album ?? 'NXT1' });
         // Clean up — best effort
-        await Filesystem.deleteFile({ path: fileUri, directory: Directory.Cache }).catch(() => {});
+        await Filesystem.deleteFile({ path: fileUri, directory: Directory.Cache }).catch(
+          (cleanupErr: unknown) => {
+            this.logger.warn('Failed to clean up cached image file', {
+              fileUri,
+              error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+            });
+          }
+        );
         await this.haptics.notification('success');
         this.logger.info('Image saved to camera roll from file URI');
         return { success: true, path: 'Photos' };

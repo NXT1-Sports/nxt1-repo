@@ -132,7 +132,10 @@ describe('CreateBoardDiagramTool', () => {
   it('includes files, attachments, and mediaArtifact in response', async () => {
     serviceMock.createDiagram.mockResolvedValue(MOCK_ASSET);
 
-    const result = await tool.execute({ description: 'Cover 2', sport: 'football' }, TEST_CONTEXT);
+    const result = await tool.execute(
+      { description: 'Cover 2', sport: 'football', kind: 'sport_play' },
+      TEST_CONTEXT
+    );
 
     const data = result.data as Record<string, unknown>;
     expect(Array.isArray(data['files'])).toBe(true);
@@ -148,7 +151,7 @@ describe('CreateBoardDiagramTool', () => {
     const emitStage = vi.fn();
 
     await tool.execute(
-      { description: 'Cover 2', sport: 'football' },
+      { description: 'Cover 2', sport: 'football', kind: 'sport_play' },
       { ...TEST_CONTEXT, emitStage }
     );
 
@@ -161,7 +164,10 @@ describe('CreateBoardDiagramTool', () => {
   it('returns error when service throws', async () => {
     serviceMock.createDiagram.mockRejectedValue(new Error('LLM timeout'));
 
-    const result = await tool.execute({ description: 'Cover 2', sport: 'football' }, TEST_CONTEXT);
+    const result = await tool.execute(
+      { description: 'Cover 2', sport: 'football', kind: 'sport_play' },
+      TEST_CONTEXT
+    );
 
     expect(result.success).toBe(false);
     expect(result.error).toBe('LLM timeout');
