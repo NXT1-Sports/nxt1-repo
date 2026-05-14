@@ -215,6 +215,24 @@ export class AgentXOperationChatAttachmentsFacade {
     }
   }
 
+  async onFilesPasted(files: readonly File[]): Promise<void> {
+    const host = this.requireHost();
+    const addedCount = this.stageFiles(files);
+    if (addedCount === 0) {
+      return;
+    }
+
+    await this.haptics.impact('light');
+    this.logger.info('Files pasted into operation chat', {
+      contextId: host.contextId(),
+      count: addedCount,
+    });
+    this.breadcrumb.trackUserAction('agent-x-files-pasted', {
+      contextId: host.contextId(),
+      count: addedCount,
+    });
+  }
+
   onDesktopAttachmentSourceSelected(source: ConnectedAppSource): void {
     this.addPendingConnectedSource(source);
     this.showDesktopAttachmentMenu.set(false);

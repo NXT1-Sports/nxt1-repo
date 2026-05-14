@@ -135,6 +135,7 @@ interface PendingConnectedSource {
           [placeholder]="placeholder()"
           [maxlength]="1000"
           (keydown.enter)="onEnterKey($event)"
+          (paste)="onPaste($event)"
         ></textarea>
 
         <div class="input-actions">
@@ -640,6 +641,7 @@ export class AgentXInputBarComponent {
   readonly send = output<void>();
   readonly pause = output<void>();
   readonly toggleAttachments = output<void>();
+  readonly filesPasted = output<File[]>();
   readonly openFile = output<number>();
   readonly removeFile = output<number>();
   readonly removeSource = output<number>();
@@ -668,6 +670,34 @@ export class AgentXInputBarComponent {
 
   protected onInputFocus(): void {
     this.focusInput.emit();
+  }
+
+  protected onPaste(event: ClipboardEvent): void {
+    const clipboard = event.clipboardData;
+    if (!clipboard) {
+      return;
+    }
+
+    const pastedImages: File[] = [];
+
+    for (const item of Array.from(clipboard.items)) {
+      if (!item.type.startsWith('image/')) {
+        continue;
+      }
+
+      const file = item.getAsFile();
+      if (file && file.size > 0) {
+        pastedImages.push(file);
+      }
+    }
+
+    if (pastedImages.length === 0) {
+      return;
+    }
+
+    // Keep image paste in the attachment pipeline instead of inserting raw data into text.
+    event.preventDefault();
+    this.filesPasted.emit(pastedImages);
   }
 
   protected onSwipeStart(event: TouchEvent): void {

@@ -28,8 +28,10 @@
  */
 
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { GoogleAIFileManager, FileState } from '@google/generative-ai/server';
+import { GoogleAICacheManager, GoogleAIFileManager, FileState } from '@google/generative-ai/server';
+import { createHash } from 'node:crypto';
 import { logger } from '../../../utils/logger.js';
+import { getCacheService } from '../../../services/core/cache.service.js';
 import type { LLMCompletionResult } from './llm.types.js';
 
 // ─── MIME type map ───────────────────────────────────────────────────────────
@@ -70,11 +72,47 @@ const VIDEO_ANALYSIS_SYSTEM_PROMPT =
 
 /** Fallback when extension is unknown. */
 const DEFAULT_VIDEO_MIME = 'video/mp4';
-const MAX_UPLOAD_BYTES = 200 * 1024 * 1024;
+const DEFAULT_MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;
+const DEFAULT_FILE_ACTIVE_TIMEOUT_MS = 5 * 60 * 1000;
+const DEFAULT_CONTEXT_CACHE_TTL_SECONDS = 6 * 60 * 60;
+const DEFAULT_CONTEXT_CACHE_META_TTL_SECONDS = 7 * 60 * 60;
+
+function parsePositiveIntEnv(envName: string, fallback: number): number {
+  const raw = process.env[envName];
+  if (!raw) return fallback;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    logger.warn('[GeminiFilesService] Invalid env override; using fallback', {
+      envName,
+      raw,
+      fallback,
+    });
+    return fallback;
+  }
+  return Math.floor(parsed);
+}
+
+const MAX_UPLOAD_BYTES = parsePositiveIntEnv(
+  'AGENT_X_GEMINI_MAX_UPLOAD_BYTES',
+  DEFAULT_MAX_UPLOAD_BYTES
+);
+const CONTEXT_CACHE_ENABLED =
+  (process.env['AGENT_X_GEMINI_CONTEXT_CACHE_ENABLED'] ?? 'true').trim().toLowerCase() !== 'false';
+const CONTEXT_CACHE_TTL_SECONDS = parsePositiveIntEnv(
+  'AGENT_X_GEMINI_CONTEXT_CACHE_TTL_SECONDS',
+  DEFAULT_CONTEXT_CACHE_TTL_SECONDS
+);
+const CONTEXT_CACHE_META_TTL_SECONDS = parsePositiveIntEnv(
+  'AGENT_X_GEMINI_CONTEXT_CACHE_META_TTL_SECONDS',
+  DEFAULT_CONTEXT_CACHE_META_TTL_SECONDS
+);
 
 /** How long to wait for Gemini Files API to finish processing an upload (ms). */
 const FILE_ACTIVE_POLL_INTERVAL_MS = 2_000;
-const FILE_ACTIVE_TIMEOUT_MS = 60_000;
+const FILE_ACTIVE_TIMEOUT_MS = parsePositiveIntEnv(
+  'AGENT_X_GEMINI_FILE_ACTIVE_TIMEOUT_MS',
+  DEFAULT_FILE_ACTIVE_TIMEOUT_MS
+);
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -87,11 +125,34 @@ export interface GeminiUploadResult {
   readonly sourceUrl: string;
 }
 
+export interface GeminiVideoAnalysisOptions {
+  readonly userId?: string;
+  readonly threadId?: string;
+  readonly operationId?: string;
+  readonly enableContextCache?: boolean;
+}
+
+interface GeminiContextCacheMetadata {
+  readonly cacheName: string;
+  readonly cacheKey: string;
+  readonly model: string;
+  readonly userId: string;
+  readonly threadId?: string;
+  readonly sourceUrlDigest: string;
+  readonly createdAt: string;
+  readonly expiresAt?: string;
+  readonly lastUsedAt?: string;
+  readonly hitCount: number;
+}
+
 // ─── Service ─────────────────────────────────────────────────────────────────
 
 export class GeminiFilesService {
   private readonly fileManager: GoogleAIFileManager;
+  private readonly cacheManager: GoogleAICacheManager;
   private readonly genAI: GoogleGenerativeAI;
+  private contextCacheRuntimeDisabled = false;
+  private contextCacheDisableReason: string | null = null;
 
   constructor(apiKey?: string) {
     const key = apiKey ?? process.env['GEMINI_API_KEY'];
@@ -102,6 +163,7 @@ export class GeminiFilesService {
       );
     }
     this.fileManager = new GoogleAIFileManager(key);
+    this.cacheManager = new GoogleAICacheManager(key);
     this.genAI = new GoogleGenerativeAI(key);
   }
 
@@ -124,9 +186,10 @@ export class GeminiFilesService {
   async analyzeVideoFromUrl(
     sourceUrl: string,
     prompt: string,
-    maxOutputTokens = 8192
+    maxOutputTokens = 8192,
+    options?: GeminiVideoAnalysisOptions
   ): Promise<LLMCompletionResult> {
-    return this.analyzeVideosFromUrls([sourceUrl], prompt, maxOutputTokens);
+    return this.analyzeVideosFromUrls([sourceUrl], prompt, maxOutputTokens, options);
   }
 
   /**
@@ -137,13 +200,29 @@ export class GeminiFilesService {
   async analyzeVideosFromUrls(
     sourceUrls: readonly string[],
     prompt: string,
-    maxOutputTokens = 8192
+    maxOutputTokens = 8192,
+    options?: GeminiVideoAnalysisOptions
   ): Promise<LLMCompletionResult> {
     if (sourceUrls.length === 0) {
       throw new Error('Gemini Files API video analysis requires at least one source URL.');
     }
 
     const startMs = Date.now();
+    const cacheKey = this.buildContextCacheKey(sourceUrls, options);
+
+    if (this.shouldUseContextCache(options) && cacheKey) {
+      const cachedAnalysis = await this.tryAnalyzeWithContextCache(
+        cacheKey,
+        sourceUrls,
+        prompt,
+        maxOutputTokens,
+        startMs,
+        options
+      );
+      if (cachedAnalysis) {
+        return cachedAnalysis;
+      }
+    }
 
     const uploads: GeminiUploadResult[] = [];
     for (const sourceUrl of sourceUrls) {
@@ -159,21 +238,35 @@ export class GeminiFilesService {
       model: GEMINI_VIDEO_MODEL,
     });
 
-    const model = this.genAI.getGenerativeModel({
-      model: GEMINI_VIDEO_MODEL,
-      systemInstruction: VIDEO_ANALYSIS_SYSTEM_PROMPT,
-      generationConfig: {
-        maxOutputTokens,
-        temperature: 0.3,
-      },
-    });
+    const maybeCachedContent =
+      this.shouldUseContextCache(options) && cacheKey
+        ? await this.tryCreateContextCache(cacheKey, uploads, options)
+        : null;
 
-    const result = await model.generateContent([
-      ...uploads.map((upload) => ({
-        fileData: { mimeType: upload.mimeType, fileUri: upload.fileUri },
-      })),
-      { text: prompt },
-    ]);
+    const result = maybeCachedContent
+      ? await this.genAI
+          .getGenerativeModelFromCachedContent(maybeCachedContent, {
+            generationConfig: {
+              maxOutputTokens,
+              temperature: 0.3,
+            },
+          })
+          .generateContent([{ text: prompt }])
+      : await this.genAI
+          .getGenerativeModel({
+            model: GEMINI_VIDEO_MODEL,
+            systemInstruction: VIDEO_ANALYSIS_SYSTEM_PROMPT,
+            generationConfig: {
+              maxOutputTokens,
+              temperature: 0.3,
+            },
+          })
+          .generateContent([
+            ...uploads.map((upload) => ({
+              fileData: { mimeType: upload.mimeType, fileUri: upload.fileUri },
+            })),
+            { text: prompt },
+          ]);
 
     const response = result.response;
     const content = response.text();
@@ -186,6 +279,8 @@ export class GeminiFilesService {
       latencyMs,
       inputTokens: usageMeta?.promptTokenCount ?? 0,
       outputTokens: usageMeta?.candidatesTokenCount ?? 0,
+      contextCacheHit: false,
+      contextCacheCreated: Boolean(maybeCachedContent),
     });
 
     const inputTokens = usageMeta?.promptTokenCount ?? 0;
@@ -215,6 +310,252 @@ export class GeminiFilesService {
       costUsd,
       finishReason: response.candidates?.[0]?.finishReason ?? 'STOP',
     };
+  }
+
+  private shouldUseContextCache(options?: GeminiVideoAnalysisOptions): boolean {
+    if (!CONTEXT_CACHE_ENABLED) return false;
+    if (this.contextCacheRuntimeDisabled) return false;
+    if (options?.enableContextCache === false) return false;
+    return Boolean(options?.userId);
+  }
+
+  private disableContextCacheRuntime(reason: string): void {
+    if (this.contextCacheRuntimeDisabled) return;
+    this.contextCacheRuntimeDisabled = true;
+    this.contextCacheDisableReason = reason;
+    logger.warn('[GeminiFilesService] Context cache disabled for current process runtime', {
+      reason,
+      model: GEMINI_VIDEO_MODEL,
+    });
+  }
+
+  private isNonRecoverableContextCacheError(err: unknown): boolean {
+    const message = err instanceof Error ? err.message : String(err);
+    const normalized = message.toLowerCase();
+
+    return (
+      normalized.includes('totalcachedcontentstoragetokenspermodelfreetier') ||
+      (normalized.includes('limit exceeded') && normalized.includes('cachedcontent')) ||
+      normalized.includes('limit=0') ||
+      normalized.includes('403') ||
+      normalized.includes('permission denied')
+    );
+  }
+
+  private buildContextCacheKey(
+    sourceUrls: readonly string[],
+    options?: GeminiVideoAnalysisOptions
+  ): string | null {
+    if (!options?.userId) return null;
+
+    const digest = this.computeSourceUrlDigest(sourceUrls);
+    const scopeMaterial = JSON.stringify({
+      model: GEMINI_VIDEO_MODEL,
+      userId: options.userId,
+      threadId: options.threadId ?? '',
+      sourceDigest: digest,
+    });
+    const hash = createHash('sha256').update(scopeMaterial).digest('hex').slice(0, 32);
+    return `agent:gemini:video-context-cache:${hash}`;
+  }
+
+  private computeSourceUrlDigest(sourceUrls: readonly string[]): string {
+    const canonical = sourceUrls
+      .map((url) => this.normalizeSourceUrlForCache(url))
+      .sort((a, b) => a.localeCompare(b));
+    return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
+  }
+
+  private normalizeSourceUrlForCache(url: string): string {
+    try {
+      const parsed = new URL(url);
+      return `${parsed.origin}${parsed.pathname}`;
+    } catch {
+      const [base] = url.split('?');
+      return base ?? url;
+    }
+  }
+
+  private async tryAnalyzeWithContextCache(
+    cacheKey: string,
+    sourceUrls: readonly string[],
+    prompt: string,
+    maxOutputTokens: number,
+    startMs: number,
+    options?: GeminiVideoAnalysisOptions
+  ): Promise<LLMCompletionResult | null> {
+    const metadata = await this.getContextCacheMetadata(cacheKey);
+    if (!metadata?.cacheName) return null;
+
+    try {
+      const cachedContent = await this.cacheManager.get(metadata.cacheName);
+      const model = this.genAI.getGenerativeModelFromCachedContent(cachedContent, {
+        generationConfig: {
+          maxOutputTokens,
+          temperature: 0.3,
+        },
+      });
+      const result = await model.generateContent([{ text: prompt }]);
+      const response = result.response;
+      const usageMeta = response.usageMetadata;
+      const latencyMs = Date.now() - startMs;
+
+      await this.setContextCacheMetadata(cacheKey, {
+        ...metadata,
+        hitCount: metadata.hitCount + 1,
+        lastUsedAt: new Date().toISOString(),
+      });
+
+      const inputTokens = usageMeta?.promptTokenCount ?? 0;
+      const outputTokens = usageMeta?.candidatesTokenCount ?? 0;
+      const costUsd =
+        inputTokens * GEMINI_2_5_FLASH_INPUT_COST_PER_TOKEN +
+        outputTokens * GEMINI_2_5_FLASH_OUTPUT_COST_PER_TOKEN;
+
+      logger.info('[GeminiFilesService] Video analysis complete via context cache', {
+        sourceUrls,
+        model: GEMINI_VIDEO_MODEL,
+        latencyMs,
+        inputTokens,
+        outputTokens,
+        contextCacheHit: true,
+        cacheKey,
+        cacheName: metadata.cacheName,
+        operationId: options?.operationId,
+      });
+
+      return {
+        content: response.text() || null,
+        toolCalls: [],
+        model: GEMINI_VIDEO_MODEL,
+        usage: {
+          inputTokens,
+          outputTokens,
+          totalTokens: usageMeta?.totalTokenCount ?? 0,
+        },
+        latencyMs,
+        costUsd,
+        finishReason: response.candidates?.[0]?.finishReason ?? 'STOP',
+      };
+    } catch (err) {
+      logger.warn(
+        '[GeminiFilesService] Context cache lookup failed; falling back to direct upload',
+        {
+          cacheKey,
+          cacheName: metadata.cacheName,
+          error: err instanceof Error ? err.message : String(err),
+        }
+      );
+      if (this.isNonRecoverableContextCacheError(err)) {
+        this.disableContextCacheRuntime(err instanceof Error ? err.message : String(err));
+      }
+      await this.deleteContextCacheMetadata(cacheKey);
+      return null;
+    }
+  }
+
+  private async tryCreateContextCache(
+    cacheKey: string,
+    uploads: readonly GeminiUploadResult[],
+    options?: GeminiVideoAnalysisOptions
+  ): Promise<import('@google/generative-ai').CachedContent | null> {
+    if (!options?.userId || uploads.length === 0) return null;
+
+    try {
+      const cachedContent = await this.cacheManager.create({
+        model: `models/${GEMINI_VIDEO_MODEL}`,
+        systemInstruction: VIDEO_ANALYSIS_SYSTEM_PROMPT,
+        ttlSeconds: CONTEXT_CACHE_TTL_SECONDS,
+        displayName: `nxt1-video-cache-${Date.now()}`,
+        contents: [
+          {
+            role: 'user',
+            parts: uploads.map((upload) => ({
+              fileData: {
+                mimeType: upload.mimeType,
+                fileUri: upload.fileUri,
+              },
+            })),
+          },
+        ],
+      });
+
+      if (!cachedContent.name) {
+        logger.warn(
+          '[GeminiFilesService] Created context cache without cache name; skipping metadata write'
+        );
+        return null;
+      }
+
+      await this.setContextCacheMetadata(cacheKey, {
+        cacheKey,
+        cacheName: cachedContent.name,
+        model: GEMINI_VIDEO_MODEL,
+        userId: options.userId,
+        threadId: options.threadId,
+        sourceUrlDigest: this.computeSourceUrlDigest(uploads.map((u) => u.sourceUrl)),
+        createdAt: new Date().toISOString(),
+        expiresAt: cachedContent.expireTime,
+        hitCount: 0,
+      });
+
+      logger.info('[GeminiFilesService] Context cache created for video analysis', {
+        cacheKey,
+        cacheName: cachedContent.name,
+        userId: options.userId,
+        threadId: options.threadId,
+        ttlSeconds: CONTEXT_CACHE_TTL_SECONDS,
+      });
+
+      return cachedContent;
+    } catch (err) {
+      if (this.isNonRecoverableContextCacheError(err)) {
+        this.disableContextCacheRuntime(err instanceof Error ? err.message : String(err));
+      }
+      logger.warn('[GeminiFilesService] Failed to create context cache; continuing without cache', {
+        cacheKey,
+        error: err instanceof Error ? err.message : String(err),
+        contextCacheRuntimeDisabled: this.contextCacheRuntimeDisabled,
+        disableReason: this.contextCacheDisableReason,
+      });
+      return null;
+    }
+  }
+
+  private async getContextCacheMetadata(
+    cacheKey: string
+  ): Promise<GeminiContextCacheMetadata | null> {
+    try {
+      const cache = getCacheService();
+      const value = await cache.get<GeminiContextCacheMetadata>(cacheKey);
+      return value ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async setContextCacheMetadata(
+    cacheKey: string,
+    metadata: GeminiContextCacheMetadata
+  ): Promise<void> {
+    try {
+      const cache = getCacheService();
+      await cache.set(cacheKey, metadata, { ttl: CONTEXT_CACHE_META_TTL_SECONDS });
+    } catch (err) {
+      logger.warn('[GeminiFilesService] Failed to persist context cache metadata', {
+        cacheKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  private async deleteContextCacheMetadata(cacheKey: string): Promise<void> {
+    try {
+      const cache = getCacheService();
+      await cache.del(cacheKey);
+    } catch {
+      // Best effort cleanup.
+    }
   }
 
   /**

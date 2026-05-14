@@ -1218,39 +1218,44 @@ export class LiveViewSessionService {
     });
 
     const code = `
-var options = ${payload};
-if (options.viewport) {
-  await page.setViewportSize(options.viewport);
-}
-await page.waitForLoadState('networkidle').catch(() => undefined);
-const target = options.selector ? await page.$(options.selector) : null;
-if (options.selector && !target) {
-  throw new Error('No element matched selector: ' + options.selector);
-}
-const screenshotOptions = { type: options.format };
-if (!options.selector) {
-  screenshotOptions.fullPage = options.fullPage === true;
-}
-if (options.format === 'jpeg' && typeof options.quality === 'number') {
-  screenshotOptions.quality = options.quality;
-}
-const buffer = target
-  ? await target.screenshot(screenshotOptions)
-  : await page.screenshot(screenshotOptions);
-const viewport = await page.viewportSize();
-const response = {
-  url: page.url(),
-  title: await page.title(),
-  mimeType: options.format === 'jpeg' ? 'image/jpeg' : 'image/png',
-  base64: buffer.toString('base64'),
-  sizeBytes: buffer.length,
-  capturedAt: new Date().toISOString(),
-  fullPage: options.selector ? false : options.fullPage === true,
-  selector: options.selector ?? null,
-  viewport: viewport ? { width: viewport.width, height: viewport.height } : null,
-  source: 'firecrawl_interact_playwright',
-};
-JSON.stringify(response);
+await (async () => {
+  const options = ${payload};
+  if (options.viewport) {
+    await page.setViewportSize(options.viewport);
+  }
+  await page.waitForLoadState('networkidle').catch(() => undefined);
+
+  const screenshotTarget = options.selector ? await page.$(options.selector) : null;
+  if (options.selector && !screenshotTarget) {
+    throw new Error('No element matched selector: ' + options.selector);
+  }
+
+  const screenshotOptions = { type: options.format };
+  if (!options.selector) {
+    screenshotOptions.fullPage = options.fullPage === true;
+  }
+  if (options.format === 'jpeg' && typeof options.quality === 'number') {
+    screenshotOptions.quality = options.quality;
+  }
+
+  const buffer = screenshotTarget
+    ? await screenshotTarget.screenshot(screenshotOptions)
+    : await page.screenshot(screenshotOptions);
+  const viewport = await page.viewportSize();
+
+  return JSON.stringify({
+    url: page.url(),
+    title: await page.title(),
+    mimeType: options.format === 'jpeg' ? 'image/jpeg' : 'image/png',
+    base64: buffer.toString('base64'),
+    sizeBytes: buffer.length,
+    capturedAt: new Date().toISOString(),
+    fullPage: options.selector ? false : options.fullPage === true,
+    selector: options.selector ?? null,
+    viewport: viewport ? { width: viewport.width, height: viewport.height } : null,
+    source: 'firecrawl_interact_playwright',
+  });
+})();
 `;
 
     const raw = await this.executeBrowserCommand(sessionId, code);

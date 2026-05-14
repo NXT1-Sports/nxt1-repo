@@ -271,6 +271,24 @@ describe('AgentQueueService', () => {
       expect(result).toBe(true);
       expect(mockRemove).toHaveBeenCalled();
     });
+
+    it('should treat locked active jobs as a controlled cancellation outcome', async () => {
+      const mockRemove = vi
+        .fn()
+        .mockRejectedValue(
+          new Error('Job op-123 could not be removed because it is locked by another worker')
+        );
+
+      mockGetJob.mockResolvedValue({
+        getState: vi.fn().mockResolvedValue('active'),
+        remove: mockRemove,
+      });
+
+      const result = await service.cancel('op-123');
+
+      expect(result).toBe(true);
+      expect(mockRemove).toHaveBeenCalled();
+    });
   });
 
   // ── Pause / Resume ──────────────────────────────────────────────────────

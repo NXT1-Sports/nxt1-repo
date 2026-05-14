@@ -1513,6 +1513,7 @@ function sortCoordinatorCategories(
           [placeholder]="mobileInputPlaceholder()"
           (messageChange)="agentX.setUserMessage($event)"
           (send)="onMobileSendMessage()"
+          (filesPasted)="onMobileFilesPasted($event)"
           (removeTask)="agentX.clearTask()"
           (toggleAttachments)="onToggleTasks()"
           (removeFile)="agentX.removeFile($event)"
@@ -5398,6 +5399,14 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     });
 
     await ref.closed;
+  }
+
+  public onMobileFilesPasted(files: File[]): void {
+    if (files.length === 0) {
+      return;
+    }
+
+    this.agentX.addFiles(files);
   }
 
   public async onActivityLogClick(): Promise<void> {

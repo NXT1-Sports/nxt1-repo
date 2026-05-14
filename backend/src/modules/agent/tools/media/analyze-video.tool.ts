@@ -428,7 +428,12 @@ export class AnalyzeVideoTool extends BaseTool {
       const filesResult = await this.geminiFiles.analyzeVideosFromUrls(
         filesApiUrls,
         prompt,
-        Math.min(4096 + (videoUrls.length - 1) * 2048, 8192)
+        Math.min(4096 + (videoUrls.length - 1) * 2048, 8192),
+        {
+          userId: context?.userId,
+          threadId: context?.threadId,
+          operationId: context?.operationId,
+        }
       );
       // Register the Gemini direct-call cost into the job tracker so
       // executeBillingDeduction can apply the platform markup and charge the user.
@@ -511,7 +516,12 @@ export class AnalyzeVideoTool extends BaseTool {
           const result = await this.geminiFiles.analyzeVideosFromUrls(
             [primaryFirebaseUrl],
             prompt,
-            Math.min(4096 + (videoUrls.length - 1) * 2048, 8192)
+            Math.min(4096 + (videoUrls.length - 1) * 2048, 8192),
+            {
+              userId: context?.userId,
+              threadId: context?.threadId,
+              operationId: context?.operationId,
+            }
           );
           // Register the Gemini direct-call cost into the job tracker so
           // executeBillingDeduction can apply the platform markup and charge the user.

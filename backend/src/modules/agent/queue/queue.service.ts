@@ -212,8 +212,25 @@ export class AgentQueueService {
     const state = await job.getState();
     if (state === 'completed' || state === 'failed') return false;
 
-    await job.remove();
+    try {
+      await job.remove();
+    } catch (error) {
+      if (this.isBullLockContentionError(error)) {
+        return controller !== undefined || state === 'active';
+      }
+      throw error;
+    }
+
     return true;
+  }
+
+  private isBullLockContentionError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    const normalized = message.toLowerCase();
+    return (
+      normalized.includes('locked by another worker') ||
+      (normalized.includes('could not be removed') && normalized.includes('locked'))
+    );
   }
 
   /**

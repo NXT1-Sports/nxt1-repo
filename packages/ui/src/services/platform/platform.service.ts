@@ -117,6 +117,9 @@ export class NxtPlatformService {
     hover: true,
   });
 
+  private pendingViewportCommit: ViewportInfo | null = null;
+  private viewportCommitScheduled = false;
+
   // ============================================
   // PUBLIC COMPUTED SIGNALS
   // ============================================
@@ -288,15 +291,32 @@ export class NxtPlatformService {
       right: parseInt(computedStyle.getPropertyValue('--ion-safe-area-right') || '0', 10),
     };
 
-    this._viewport.set({
+    const nextViewport: ViewportInfo = {
       width,
       height,
       orientation: width > height ? 'landscape' : 'portrait',
       safeAreaInsets,
-    });
+    };
 
-    // Re-evaluate device type on significant size changes
-    this._deviceType.set(this.detectDeviceType());
+    this.scheduleViewportCommit(nextViewport);
+  }
+
+  private scheduleViewportCommit(nextViewport: ViewportInfo): void {
+    this.pendingViewportCommit = nextViewport;
+    if (this.viewportCommitScheduled) return;
+
+    this.viewportCommitScheduled = true;
+    queueMicrotask(() => {
+      this.viewportCommitScheduled = false;
+      const payload = this.pendingViewportCommit;
+      this.pendingViewportCommit = null;
+      if (!payload) return;
+
+      this._viewport.set(payload);
+
+      // Re-evaluate device type after viewport commit.
+      this._deviceType.set(this.detectDeviceType());
+    });
   }
 
   // ============================================

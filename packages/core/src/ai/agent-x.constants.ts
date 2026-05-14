@@ -107,8 +107,8 @@ export const AGENT_X_MAX_ATTACHMENTS = 5;
 /** Maximum single file size in bytes (20 MB) for non-video files. */
 export const AGENT_X_MAX_FILE_SIZE = 20 * 1024 * 1024;
 
-/** Maximum single video file size in bytes (500 MB) — videos upload directly to Firebase Storage. */
-export const AGENT_X_MAX_VIDEO_FILE_SIZE = 500 * 1024 * 1024;
+/** Maximum single video file size in bytes (2 GB) — videos upload directly to Firebase Storage. */
+export const AGENT_X_MAX_VIDEO_FILE_SIZE = 2 * 1024 * 1024 * 1024;
 
 /**
  * Resolve a MIME type to the high-level `AgentXAttachmentType`.

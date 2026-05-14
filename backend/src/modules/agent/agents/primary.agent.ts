@@ -60,7 +60,7 @@ import type { OnStreamEvent } from '../queue/event-writer.js';
 import type { AskUserToolContext } from '../tools/system/ask-user.tool.js';
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import { getCachedAgentAppConfig } from '../config/agent-app-config.js';
-import { getRouterToolPolicy } from './tool-policy.js';
+import { getRouterToolPolicy, isToolAllowedByPatterns } from './tool-policy.js';
 import { getOperationMemoryService } from '../services/operation-memory.service.js';
 
 /**
@@ -1256,9 +1256,14 @@ export class PrimaryAgent extends BaseAgent {
     registry: ToolRegistry,
     accessContext?: AgentToolAccessContext
   ): readonly AgentToolDefinition[] {
-    const allowed = new Set([...getRouterToolPolicy(), ...PRIMARY_SYSTEM_TOOLS]);
+    const routerPolicy = getRouterToolPolicy();
     return registry
       .getDefinitions('router', accessContext)
-      .filter((def) => def.category === 'system' || allowed.has(def.name));
+      .filter(
+        (def) =>
+          def.category === 'system' ||
+          PRIMARY_SYSTEM_TOOLS.includes(def.name) ||
+          isToolAllowedByPatterns(def.name, routerPolicy)
+      );
   }
 }

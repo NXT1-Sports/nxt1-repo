@@ -81,6 +81,35 @@ const router = Router();
 const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
 const TEAM_GAMEPLANS_COLLECTION = 'TeamGamePlans' as const;
 const TEAMS_COLLECTION = 'Teams' as const;
+const MB = 1024 * 1024;
+const GB = 1024 * MB;
+const VIDEO_UPLOAD_URL_TTL_MS_SMALL = 30 * 60 * 1000;
+const VIDEO_UPLOAD_URL_TTL_MS_MEDIUM = 60 * 60 * 1000;
+const VIDEO_UPLOAD_URL_TTL_MS_LARGE = 120 * 60 * 1000;
+
+function formatSizeLabel(bytes: number): string {
+  if (bytes >= GB) {
+    const value = bytes / GB;
+    return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)} GB`;
+  }
+  return `${Math.round(bytes / MB)} MB`;
+}
+
+function parsePositiveIntEnv(input: string | undefined): number | null {
+  if (!input) return null;
+  const parsed = Number(input);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.floor(parsed);
+}
+
+function resolveVideoUploadUrlTtlMs(fileSize: number): number {
+  const configuredTtlMs = parsePositiveIntEnv(process.env['AGENT_X_VIDEO_UPLOAD_URL_TTL_MS']);
+  if (configuredTtlMs) return configuredTtlMs;
+
+  if (fileSize <= 250 * MB) return VIDEO_UPLOAD_URL_TTL_MS_SMALL;
+  if (fileSize <= GB) return VIDEO_UPLOAD_URL_TTL_MS_MEDIUM;
+  return VIDEO_UPLOAD_URL_TTL_MS_LARGE;
+}
 
 function parsePositiveInt(input: unknown, fallback: number, max: number): number {
   const value = typeof input === 'string' ? Number(input) : Number.NaN;
@@ -758,8 +787,8 @@ router.post('/gameplans', appGuard, async (req: Request, res: Response) => {
       teamId,
       sport: normalizedSport,
       title: String(payload['title']).trim(),
-      phase: phase as any,
-      status: status as any,
+      phase: phase as unknown as typeof gamePlanData.phase,
+      status: status as unknown as typeof gamePlanData.status,
       ...(payload['season'] ? { season: String(payload['season']).trim() } : {}),
       ...(payload['opponentName'] ? { opponentName: String(payload['opponentName']).trim() } : {}),
       ...(payload['gameDate'] ? { gameDate: String(payload['gameDate']).trim() } : {}),
@@ -783,21 +812,25 @@ router.post('/gameplans', appGuard, async (req: Request, res: Response) => {
           }
         : {}),
       ...(Array.isArray(payload['strengthsWeaknesses'])
-        ? { strengthsWeaknesses: payload['strengthsWeaknesses'] as any }
+        ? { strengthsWeaknesses: payload['strengthsWeaknesses'] as unknown[] }
         : {}),
-      ...(Array.isArray(payload['priorities']) ? { priorities: payload['priorities'] as any } : {}),
-      ...(Array.isArray(payload['planBlocks']) ? { planBlocks: payload['planBlocks'] as any } : {}),
+      ...(Array.isArray(payload['priorities'])
+        ? { priorities: payload['priorities'] as unknown[] }
+        : {}),
+      ...(Array.isArray(payload['planBlocks'])
+        ? { planBlocks: payload['planBlocks'] as unknown[] }
+        : {}),
       ...(Array.isArray(payload['adjustmentTriggers'])
-        ? { adjustmentTriggers: payload['adjustmentTriggers'] as any }
+        ? { adjustmentTriggers: payload['adjustmentTriggers'] as unknown[] }
         : {}),
       ...(Array.isArray(payload['halftimePriorities'])
-        ? { halftimePriorities: payload['halftimePriorities'] as any }
+        ? { halftimePriorities: payload['halftimePriorities'] as unknown[] }
         : {}),
       ...(Array.isArray(payload['customSections'])
-        ? { customSections: payload['customSections'] as any }
+        ? { customSections: payload['customSections'] as unknown[] }
         : {}),
       ...(Array.isArray(payload['linkedPlays'])
-        ? { linkedPlays: payload['linkedPlays'] as any }
+        ? { linkedPlays: payload['linkedPlays'] as unknown[] }
         : {}),
       ...(Array.isArray(payload['tags'])
         ? {
@@ -1945,7 +1978,7 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
     if (fileSize > AGENT_X_MAX_VIDEO_FILE_SIZE) {
       res.status(400).json({
         success: false,
-        error: `File exceeds maximum video size limit (500 MB)`,
+        error: `File exceeds maximum video size limit (${formatSizeLabel(AGENT_X_MAX_VIDEO_FILE_SIZE)})`,
         code: 'FILE_TOO_LARGE',
       });
       return;
@@ -1972,7 +2005,7 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
       }) => Promise<[string]>;
     };
 
-    const uploadExpiresAtMs = Date.now() + 30 * 60 * 1000;
+    const uploadExpiresAtMs = Date.now() + resolveVideoUploadUrlTtlMs(fileSize);
     const readExpiresAtMs = Date.now() + AgentMediaLifecycleService.DEFAULT_SIGNED_URL_TTL_MS;
 
     const [uploadUrl, readUrl] = await Promise.all([

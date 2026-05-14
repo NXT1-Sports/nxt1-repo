@@ -600,6 +600,7 @@ function sortCoordinatorCategories(
         (messageChange)="onInputChange($event)"
         (send)="onSendMessage()"
         (toggleAttachments)="onToggleAttachments()"
+        (filesPasted)="onFilesPasted($event)"
         (openFile)="onOpenPendingFileViewer($event)"
         (removeFile)="agentX.removeFile($event)"
         (removeSource)="onRemovePendingSource($event)"
@@ -2463,6 +2464,14 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
   /** Input change — update service and the keyboard-height CSS var is handled by the component. */
   protected onInputChange(value: string): void {
     this.agentX.setUserMessage(value);
+  }
+
+  protected onFilesPasted(files: File[]): void {
+    if (files.length === 0) {
+      return;
+    }
+
+    this.agentX.addFiles(files);
   }
 
   /** + button — open attachments bottom sheet with file and source options. */

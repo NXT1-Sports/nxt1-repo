@@ -4,6 +4,7 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
 import { NxtStateViewComponent } from '../../../components/state-view/state-view.component';
+import { AgentXService } from '../../services/agent-x.service';
 import { AGENT_X_API_BASE_URL } from '../../services/agent-x-job.service';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -66,6 +67,18 @@ interface PlaybookDetailResponse {
 interface MutationResponse {
   readonly success: boolean;
   readonly data?: Record<string, unknown>;
+  readonly error?: string;
+}
+
+interface UploadAttachmentResponse {
+  readonly success: boolean;
+  readonly data?: {
+    readonly url: string;
+    readonly storagePath?: string;
+    readonly name?: string;
+    readonly mimeType?: string;
+    readonly sizeBytes?: number;
+  };
   readonly error?: string;
 }
 
@@ -238,10 +251,14 @@ function parseTags(raw: string): string[] {
 
           @if (hasIndexes()) {
             <section class="detail-section">
-              <h3 class="section-title">Quick Filters</h3>
+              <h3 class="section-title">Playbook Index</h3>
+              <p class="section-meta">
+                Auto-built from your saved plays so staff can scan concepts, fronts, personnel, and
+                call families fast.
+              </p>
               @if (selectedPlaybook()!.conceptTagIndex?.length) {
                 <div class="index-group">
-                  <span class="index-label">Tactics</span>
+                  <span class="index-label">Concept Tags</span>
                   <div class="chip-list">
                     @for (tag of selectedPlaybook()!.conceptTagIndex!; track tag) {
                       <span class="chip">{{ tag }}</span>
@@ -251,7 +268,7 @@ function parseTags(raw: string): string[] {
               }
               @if (selectedPlaybook()!.formationIndex?.length) {
                 <div class="index-group">
-                  <span class="index-label">Alignments</span>
+                  <span class="index-label">Formations</span>
                   <div class="chip-list">
                     @for (tag of selectedPlaybook()!.formationIndex!; track tag) {
                       <span class="chip chip--soft">{{ tag }}</span>
@@ -261,7 +278,7 @@ function parseTags(raw: string): string[] {
               }
               @if (selectedPlaybook()!.personnelIndex?.length) {
                 <div class="index-group">
-                  <span class="index-label">Groups</span>
+                  <span class="index-label">Personnel Packages</span>
                   <div class="chip-list">
                     @for (tag of selectedPlaybook()!.personnelIndex!; track tag) {
                       <span class="chip chip--soft">{{ tag }}</span>
@@ -271,7 +288,7 @@ function parseTags(raw: string): string[] {
               }
               @if (selectedPlaybook()!.categoryIndex?.length) {
                 <div class="index-group">
-                  <span class="index-label">Types</span>
+                  <span class="index-label">Call Families</span>
                   <div class="chip-list">
                     @for (tag of selectedPlaybook()!.categoryIndex!; track tag) {
                       <span class="chip chip--soft">{{ tag }}</span>
@@ -446,12 +463,29 @@ function parseTags(raw: string): string[] {
                           [value]="editPlayForm().conceptTags"
                           (input)="patchEditPlayForm('conceptTags', $event)"
                         />
-                        <input
-                          class="form-input"
-                          placeholder="Diagram URL"
-                          [value]="editPlayForm().diagramUrl"
-                          (input)="patchEditPlayForm('diagramUrl', $event)"
-                        />
+                        <div class="diagram-upload-row">
+                          <input
+                            #editDiagramInput
+                            class="hidden-file-input"
+                            type="file"
+                            accept="image/*"
+                            (change)="onEditDiagramFileSelected($event)"
+                          />
+                          <button
+                            type="button"
+                            class="btn-upload-diagram"
+                            (click)="editDiagramInput.click()"
+                          >
+                            Upload Diagram
+                          </button>
+                          @if (editPlayDiagramFileName()) {
+                            <span class="diagram-upload-status">{{
+                              editPlayDiagramFileName()
+                            }}</span>
+                          } @else if (editPlayForm().diagramUrl) {
+                            <span class="diagram-upload-status">Current diagram attached</span>
+                          }
+                        </div>
                         <div class="form-actions">
                           <button type="button" class="btn-cancel" (click)="cancelEditPlay()">
                             Cancel
@@ -617,7 +651,6 @@ function parseTags(raw: string): string[] {
         <div class="playbooks-list-header">
           <div>
             <h3>Playbooks</h3>
-            <p>Practice-ready playbooks with diagrams, installs, and role details</p>
           </div>
           @if (!showCreateForm()) {
             <button type="button" class="btn-new" (click)="startCreate()">
@@ -847,7 +880,7 @@ function parseTags(raw: string): string[] {
           border-color 120ms ease,
           background 120ms ease;
         width: 100%;
-        padding-top: 32px;
+        padding-bottom: 40px;
       }
       .playbook-card:hover {
         transform: translateY(-1px);
@@ -860,8 +893,8 @@ function parseTags(raw: string): string[] {
         align-items: center;
         gap: 4px;
         position: absolute;
-        top: 8px;
-        right: 8px;
+        left: 8px;
+        bottom: 8px;
       }
 
       .playbook-card-static {
@@ -1039,14 +1072,18 @@ function parseTags(raw: string): string[] {
         border-radius: var(--nxt1-radius-sm, 8px);
         padding: 10px;
         background: var(--agent-surface-hover, rgba(0, 0, 0, 0.05));
-        display: grid;
+        display: flex;
+        flex-direction: column;
         gap: 8px;
+        min-height: 100%;
       }
 
       .play-actions {
         display: flex;
-        justify-content: flex-end;
+        justify-content: flex-start;
         gap: 4px;
+        order: 99;
+        margin-top: auto;
       }
 
       .play-head {
@@ -1134,6 +1171,38 @@ function parseTags(raw: string): string[] {
       .play-edit-form {
         display: grid;
         gap: 7px;
+      }
+
+      .diagram-upload-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .btn-upload-diagram {
+        padding: 4px 10px;
+        border-radius: var(--nxt1-radius-sm, 8px);
+        border: 1px solid var(--agent-border, rgba(0, 0, 0, 0.08));
+        background: transparent;
+        color: var(--agent-text-secondary, rgba(0, 0, 0, 0.7));
+        font-size: 0.72rem;
+        font-weight: 600;
+        cursor: pointer;
+        height: 28px;
+      }
+      .btn-upload-diagram:hover {
+        border-color: var(--agent-primary, #ccff00);
+        color: var(--agent-text-primary, #1a1a1a);
+      }
+
+      .diagram-upload-status {
+        font-size: 0.7rem;
+        color: var(--agent-text-secondary, rgba(0, 0, 0, 0.7));
+      }
+
+      .hidden-file-input {
+        display: none;
       }
 
       /* ── Icon Buttons ── */
@@ -1324,6 +1393,7 @@ function parseTags(raw: string): string[] {
 })
 export class AgentXPlaybooksPanelComponent {
   private readonly http = inject(HttpClient);
+  private readonly agentX = inject(AgentXService);
   private readonly baseUrl = `${inject(AGENT_X_API_BASE_URL)}/agent-x`;
 
   // ── Read state ──────────────────────────────────────────────────────────────
@@ -1348,8 +1418,12 @@ export class AgentXPlaybooksPanelComponent {
   protected readonly addPlayForm = signal<PlayForm>({ ...EMPTY_PLAY_FORM });
   protected readonly editingPlayIndex = signal<number | null>(null);
   protected readonly editPlayForm = signal<PlayForm>({ ...EMPTY_PLAY_FORM });
+  protected readonly editPlayDiagramFile = signal<File | null>(null);
   protected readonly deletingPlayIndex = signal<number | null>(null);
   protected readonly savingPlay = signal(false);
+  protected readonly editPlayDiagramFileName = computed(
+    () => this.editPlayDiagramFile()?.name ?? ''
+  );
 
   // ── Computed ─────────────────────────────────────────────────────────────────
   protected readonly showingDetail = computed(
@@ -1561,8 +1635,9 @@ export class AgentXPlaybooksPanelComponent {
     }
   }
 
-  protected startEditPlay(index: number, play: PlaybookPlay): void {
+  protected async startEditPlay(index: number, play: PlaybookPlay): Promise<void> {
     this.editingPlayIndex.set(index);
+    this.editPlayDiagramFile.set(null);
     this.editPlayForm.set({
       name: play.name ?? play.title ?? '',
       series: play.series ?? '',
@@ -1574,10 +1649,15 @@ export class AgentXPlaybooksPanelComponent {
       conceptTags: (play.conceptTags ?? []).join(', '),
       diagramUrl: play.diagramUrl ?? '',
     });
+
+    if (play.diagramUrl) {
+      await this.seedDiagramEditInAgentChat(play);
+    }
   }
   protected cancelEditPlay(): void {
     this.editingPlayIndex.set(null);
     this.editPlayForm.set({ ...EMPTY_PLAY_FORM });
+    this.editPlayDiagramFile.set(null);
   }
   protected patchEditPlayForm(field: keyof PlayForm, event: Event): void {
     this.editPlayForm.update((p) => ({
@@ -1591,6 +1671,10 @@ export class AgentXPlaybooksPanelComponent {
     if (!form.name.trim() || !playbook) return;
     this.savingPlay.set(true);
     try {
+      const uploadedDiagramUrl = await this.uploadEditPlayDiagramIfNeeded();
+      const nextDiagramUrl =
+        uploadedDiagramUrl ?? (form.diagramUrl.trim().length ? form.diagramUrl.trim() : undefined);
+
       await firstValueFrom(
         this.http.patch<MutationResponse>(
           `${this.baseUrl}/playbooks/${playbook.id}/plays/${index}`,
@@ -1602,7 +1686,7 @@ export class AgentXPlaybooksPanelComponent {
             personnel: form.personnel.trim() || undefined,
             objective: form.objective.trim() || undefined,
             installNotes: form.installNotes.trim() || undefined,
-            diagramUrl: form.diagramUrl.trim() || undefined,
+            diagramUrl: nextDiagramUrl,
             conceptTags: parseTags(form.conceptTags),
           }
         )
@@ -1614,6 +1698,18 @@ export class AgentXPlaybooksPanelComponent {
     } finally {
       this.savingPlay.set(false);
     }
+  }
+
+  protected onEditDiagramFileSelected(event: Event): void {
+    const target = event.target as HTMLInputElement | null;
+    const file = target?.files?.[0] ?? null;
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      if (target) target.value = '';
+      return;
+    }
+    this.editPlayDiagramFile.set(file);
+    if (target) target.value = '';
   }
 
   protected confirmDeletePlay(index: number): void {
@@ -1656,6 +1752,75 @@ export class AgentXPlaybooksPanelComponent {
   protected isImageUrl(url?: string): boolean {
     if (!url) return false;
     return /\.(png|jpg|jpeg|gif|webp|svg)(\?.*)?$/i.test(url);
+  }
+
+  private async uploadEditPlayDiagramIfNeeded(): Promise<string | null> {
+    const file = this.editPlayDiagramFile();
+    if (!file) return null;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await firstValueFrom(
+      this.http.post<UploadAttachmentResponse>(`${this.baseUrl}/upload`, formData)
+    );
+
+    if (!response.success || !response.data?.url) {
+      throw new Error(response.error ?? 'Failed to upload diagram');
+    }
+
+    return response.data.url;
+  }
+
+  private async seedDiagramEditInAgentChat(play: PlaybookPlay): Promise<void> {
+    const diagramUrl = play.diagramUrl?.trim();
+    if (!diagramUrl) return;
+
+    const playName = (play.title || play.name || 'this play').trim();
+    const prompt = `Edit this play diagram for "${playName}". Keep the concept intact, improve spacing and labels, and return an updated diagram.`;
+
+    const fetchedFile = await this.fetchDiagramAsFile(diagramUrl, playName);
+    if (fetchedFile) {
+      this.agentX.addFiles([fetchedFile]);
+      this.agentX.setUserMessage(prompt);
+      return;
+    }
+
+    this.agentX.setUserMessage(`${prompt}\n\nSource diagram: ${diagramUrl}`);
+  }
+
+  private async fetchDiagramAsFile(diagramUrl: string, playName: string): Promise<File | null> {
+    try {
+      const response = await fetch(diagramUrl);
+      if (!response.ok) return null;
+
+      const blob = await response.blob();
+      if (!blob.type.startsWith('image/')) return null;
+
+      const safeBaseName =
+        playName
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '') || 'play-diagram';
+      const extension = this.getImageExtension(blob.type, diagramUrl);
+      return new File([blob], `${safeBaseName}.${extension}`, { type: blob.type });
+    } catch {
+      return null;
+    }
+  }
+
+  private getImageExtension(mimeType: string, diagramUrl: string): string {
+    if (mimeType === 'image/png') return 'png';
+    if (mimeType === 'image/jpeg') return 'jpg';
+    if (mimeType === 'image/webp') return 'webp';
+    if (mimeType === 'image/gif') return 'gif';
+    if (mimeType === 'image/svg+xml') return 'svg';
+
+    const urlMatch = diagramUrl.match(/\.(png|jpe?g|webp|gif|svg)(\?.*)?$/i);
+    if (urlMatch?.[1]) {
+      return urlMatch[1].toLowerCase().replace('jpeg', 'jpg');
+    }
+    return 'png';
   }
 
   // ── Loaders ──────────────────────────────────────────────────────────────────

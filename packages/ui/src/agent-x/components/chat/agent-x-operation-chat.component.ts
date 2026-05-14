@@ -506,6 +506,7 @@ type YieldStateSource =
           (send)="onSendRequested()"
           (pause)="runControlFacade.pauseStream()"
           (toggleAttachments)="attachmentsFacade.onUploadClick()"
+          (filesPasted)="attachmentsFacade.onFilesPasted($event)"
           (openFile)="attachmentsFacade.openPendingFileViewer($event)"
           (removeFile)="attachmentsFacade.removePendingFile($event)"
           (removeSource)="attachmentsFacade.removePendingConnectedSource($event)"

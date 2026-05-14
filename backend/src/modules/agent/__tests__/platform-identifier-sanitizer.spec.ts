@@ -87,11 +87,19 @@ describe('platform identifier sanitizer', () => {
       expect(sanitized).not.toContain('signed URL');
     });
 
-    it('scrubs raw firebasestorage.googleapis.com URLs', () => {
+    it('preserves downloadable storage URLs for user-visible links', () => {
       const sanitized = sanitizeAgentOutputText(
-        'Download from https://firebasestorage.googleapis.com/v0/b/bucket/o/file.mp4?alt=media to proceed.'
+        'Download from https://firebasestorage.googleapis.com/v0/b/bucket/o/exports%2F1778736286715-c5eecfe6.pdf?alt=media to proceed.'
       );
-      expect(sanitized).not.toContain('firebasestorage.googleapis.com');
+      expect(sanitized).toContain('firebasestorage.googleapis.com');
+      expect(sanitized).toContain('.pdf?alt=media');
+    });
+
+    it('keeps non-deliverable raw storage URLs intact in user-visible text', () => {
+      const sanitized = sanitizeAgentOutputText(
+        'Internal path: https://firebasestorage.googleapis.com/v0/b/bucket/o/internal/chunk to proceed.'
+      );
+      expect(sanitized).toContain('firebasestorage.googleapis.com');
     });
 
     it('replaces Apify-specific terms with friendly equivalents', () => {
