@@ -1,7 +1,8 @@
 /**
  * @fileoverview BoardDiagramAssetService — Firestore CRUD for diagram assets.
  *
- * Collection: `diagramAssets/{assetId}`
+ * Primary collection: `DiagramAssets/{assetId}`
+ * Legacy fallback: `diagramAssets/{assetId}`
  *
  * Design notes:
  *   - The `userId` is stored as a document field (not a path segment) so that
@@ -19,7 +20,9 @@ import { logger } from '../../../../../../utils/logger.js';
 import type { BoardDiagramAsset, BoardDiagramAssetPatch } from '../shared/board-diagram.types.js';
 import type { DiagramLayout, DiagramRoute } from '../../play-diagram/shared/diagram.types.js';
 
-const COLLECTION = 'diagramAssets';
+const PRIMARY_COLLECTION = 'DiagramAssets';
+const LEGACY_COLLECTION = 'diagramAssets';
+const READ_COLLECTIONS = [PRIMARY_COLLECTION, LEGACY_COLLECTION] as const;
 
 type FirestoreDiagramPoint = {
   readonly x: number;
@@ -95,6 +98,40 @@ function serializePatchForFirestore(patch: BoardDiagramAssetPatch): Record<strin
 export class BoardDiagramAssetService {
   constructor(private readonly db: Firestore) {}
 
+  private async getByIdWithCollection(
+    assetId: string,
+    userId: string
+  ): Promise<{
+    asset: BoardDiagramAsset;
+    collectionName: (typeof READ_COLLECTIONS)[number];
+  } | null> {
+    for (const collectionName of READ_COLLECTIONS) {
+      const snap = await this.db.collection(collectionName).doc(assetId).get();
+
+      if (!snap?.exists) {
+        continue;
+      }
+
+      const data = deserializeAssetFromFirestore(snap.data() as Record<string, unknown>);
+
+      if (data.userId !== userId) {
+        logger.warn('[BoardDiagramAssetService] Unauthorized asset access attempt', {
+          assetId,
+          requestingUserId: userId,
+        });
+        return null;
+      }
+
+      if (data.deleted) {
+        return null;
+      }
+
+      return { asset: data, collectionName };
+    }
+
+    return null;
+  }
+
   // ─── Create ──────────────────────────────────────────────────────────────
 
   /**
@@ -105,7 +142,7 @@ export class BoardDiagramAssetService {
     const id = randomUUID();
     const doc: BoardDiagramAsset = { ...asset, id };
 
-    await this.db.collection(COLLECTION).doc(id).set(serializeAssetForFirestore(doc));
+    await this.db.collection(PRIMARY_COLLECTION).doc(id).set(serializeAssetForFirestore(doc));
 
     logger.info('[BoardDiagramAssetService] Asset created', {
       id,
@@ -131,27 +168,8 @@ export class BoardDiagramAssetService {
    * avoid leaking asset existence to unauthorized callers.
    */
   async getById(assetId: string, userId: string): Promise<BoardDiagramAsset | null> {
-    const snap = await this.db.collection(COLLECTION).doc(assetId).get();
-
-    if (!snap.exists) {
-      return null;
-    }
-
-    const data = deserializeAssetFromFirestore(snap.data() as Record<string, unknown>);
-
-    if (data.userId !== userId) {
-      logger.warn('[BoardDiagramAssetService] Unauthorized asset access attempt', {
-        assetId,
-        requestingUserId: userId,
-      });
-      return null;
-    }
-
-    if (data.deleted) {
-      return null;
-    }
-
-    return data;
+    const found = await this.getByIdWithCollection(assetId, userId);
+    return found?.asset ?? null;
   }
 
   // ─── Update ───────────────────────────────────────────────────────────────
@@ -170,7 +188,8 @@ export class BoardDiagramAssetService {
     userId: string,
     patch: BoardDiagramAssetPatch
   ): Promise<BoardDiagramAsset | null> {
-    const existing = await this.getById(assetId, userId);
+    const found = await this.getByIdWithCollection(assetId, userId);
+    const existing = found?.asset;
 
     if (!existing) {
       logger.warn('[BoardDiagramAssetService] Patch target not found', { assetId, userId });
@@ -179,7 +198,10 @@ export class BoardDiagramAssetService {
 
     const update: BoardDiagramAssetPatch = { ...patch, updatedAt: Date.now() };
 
-    await this.db.collection(COLLECTION).doc(assetId).update(serializePatchForFirestore(update));
+    await this.db
+      .collection(found.collectionName)
+      .doc(assetId)
+      .update(serializePatchForFirestore(update));
 
     logger.info('[BoardDiagramAssetService] Asset patched', {
       assetId,
@@ -200,7 +222,8 @@ export class BoardDiagramAssetService {
    * Returns `true` on success, `false` if the asset was not found.
    */
   async softDelete(assetId: string, userId: string): Promise<boolean> {
-    const existing = await this.getById(assetId, userId);
+    const found = await this.getByIdWithCollection(assetId, userId);
+    const existing = found?.asset;
 
     if (!existing) {
       logger.warn('[BoardDiagramAssetService] Delete target not found', { assetId, userId });
@@ -209,7 +232,7 @@ export class BoardDiagramAssetService {
 
     const now = Date.now();
 
-    await this.db.collection(COLLECTION).doc(assetId).update({
+    await this.db.collection(found.collectionName).doc(assetId).update({
       deleted: true,
       deletedAt: now,
       updatedAt: now,
@@ -230,14 +253,27 @@ export class BoardDiagramAssetService {
    *   (userId ASC, deleted ASC, createdAt DESC).
    */
   async listByUser(userId: string, limit = 50): Promise<BoardDiagramAsset[]> {
-    const snap = await this.db
-      .collection(COLLECTION)
-      .where('userId', '==', userId)
-      .where('deleted', '==', false)
-      .orderBy('createdAt', 'desc')
-      .limit(limit)
-      .get();
+    const snaps = await Promise.all(
+      READ_COLLECTIONS.map((collectionName) =>
+        this.db
+          .collection(collectionName)
+          .where('userId', '==', userId)
+          .where('deleted', '==', false)
+          .orderBy('createdAt', 'desc')
+          .limit(limit)
+          .get()
+      )
+    );
 
-    return snap.docs.map((d) => deserializeAssetFromFirestore(d.data() as Record<string, unknown>));
+    const deduped = new Map<string, BoardDiagramAsset>();
+
+    for (const snap of snaps) {
+      for (const doc of snap.docs) {
+        const asset = deserializeAssetFromFirestore(doc.data() as Record<string, unknown>);
+        deduped.set(asset.id, asset);
+      }
+    }
+
+    return [...deduped.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
   }
 }
