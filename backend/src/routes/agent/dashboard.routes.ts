@@ -782,13 +782,13 @@ router.post('/gameplans', appGuard, async (req: Request, res: Response) => {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')}`;
 
-    const gamePlanData: TeamGamePlanDoc = {
+    const gamePlanData = {
       id: docId,
       teamId,
       sport: normalizedSport,
       title: String(payload['title']).trim(),
-      phase: phase as unknown as typeof gamePlanData.phase,
-      status: status as unknown as typeof gamePlanData.status,
+      phase: phase as unknown,
+      status: status as unknown,
       ...(payload['season'] ? { season: String(payload['season']).trim() } : {}),
       ...(payload['opponentName'] ? { opponentName: String(payload['opponentName']).trim() } : {}),
       ...(payload['gameDate'] ? { gameDate: String(payload['gameDate']).trim() } : {}),
@@ -812,25 +812,25 @@ router.post('/gameplans', appGuard, async (req: Request, res: Response) => {
           }
         : {}),
       ...(Array.isArray(payload['strengthsWeaknesses'])
-        ? { strengthsWeaknesses: payload['strengthsWeaknesses'] as unknown[] }
+        ? { strengthsWeaknesses: payload['strengthsWeaknesses'] as unknown }
         : {}),
       ...(Array.isArray(payload['priorities'])
-        ? { priorities: payload['priorities'] as unknown[] }
+        ? { priorities: payload['priorities'] as unknown }
         : {}),
       ...(Array.isArray(payload['planBlocks'])
-        ? { planBlocks: payload['planBlocks'] as unknown[] }
+        ? { planBlocks: payload['planBlocks'] as unknown }
         : {}),
       ...(Array.isArray(payload['adjustmentTriggers'])
-        ? { adjustmentTriggers: payload['adjustmentTriggers'] as unknown[] }
+        ? { adjustmentTriggers: payload['adjustmentTriggers'] as unknown }
         : {}),
       ...(Array.isArray(payload['halftimePriorities'])
-        ? { halftimePriorities: payload['halftimePriorities'] as unknown[] }
+        ? { halftimePriorities: payload['halftimePriorities'] as unknown }
         : {}),
       ...(Array.isArray(payload['customSections'])
-        ? { customSections: payload['customSections'] as unknown[] }
+        ? { customSections: payload['customSections'] as unknown }
         : {}),
       ...(Array.isArray(payload['linkedPlays'])
-        ? { linkedPlays: payload['linkedPlays'] as unknown[] }
+        ? { linkedPlays: payload['linkedPlays'] as unknown }
         : {}),
       ...(Array.isArray(payload['tags'])
         ? {
@@ -845,7 +845,7 @@ router.post('/gameplans', appGuard, async (req: Request, res: Response) => {
       updatedBy: user.uid,
       createdAt: now,
       updatedAt: now,
-    };
+    } as unknown as TeamGamePlanDoc;
 
     const docRef = db.collection(TEAM_GAMEPLANS_COLLECTION).doc(docId);
     await docRef.set(gamePlanData);
