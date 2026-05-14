@@ -329,6 +329,15 @@ export class GeminiFilesService {
     });
   }
 
+  private isTooSmallForContextCacheError(err: unknown): boolean {
+    const message = err instanceof Error ? err.message : String(err);
+    const normalized = message.toLowerCase();
+    return (
+      normalized.includes('cached content is too small') ||
+      (normalized.includes('400') && normalized.includes('min_total_token_count'))
+    );
+  }
+
   private isNonRecoverableContextCacheError(err: unknown): boolean {
     const message = err instanceof Error ? err.message : String(err);
     const normalized = message.toLowerCase();
@@ -509,6 +518,13 @@ export class GeminiFilesService {
 
       return cachedContent;
     } catch (err) {
+      if (this.isTooSmallForContextCacheError(err)) {
+        logger.debug(
+          '[GeminiFilesService] Skipping context cache — content below minimum token threshold',
+          { cacheKey, error: err instanceof Error ? err.message : String(err) }
+        );
+        return null;
+      }
       if (this.isNonRecoverableContextCacheError(err)) {
         this.disableContextCacheRuntime(err instanceof Error ? err.message : String(err));
       }
