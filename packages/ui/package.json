@@ -38,7 +38,7 @@
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist .turbo"
+    "clean": "rm -rf dist .turbo node_modules/.cache/ng-packagr"
   },
   "dependencies": {
     "@nxt1/core": "*",

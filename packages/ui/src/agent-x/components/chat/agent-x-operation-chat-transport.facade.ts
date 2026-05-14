@@ -433,19 +433,23 @@ export class AgentXOperationChatTransportFacade {
             ) {
               host.setShadowFirestoreSub(
                 runInInjectionContext(this.injector, () =>
-                  this.operationEventService.subscribe(event.operationId!, {
-                    onDelta: (text) => {
-                      const watermark = host.getStreamTurnWatermark();
-                      if (watermark) {
-                        watermark.confirmedChars += text.length;
-                      }
+                  this.operationEventService.subscribe(
+                    event.operationId!,
+                    {
+                      onDelta: (text) => {
+                        const watermark = host.getStreamTurnWatermark();
+                        if (watermark) {
+                          watermark.confirmedChars += text.length;
+                        }
+                      },
+                      onThinking: () => undefined,
+                      onStep: () => undefined,
+                      onCard: () => undefined,
+                      onDone: () => undefined,
+                      onError: () => undefined,
                     },
-                    onThinking: () => undefined,
-                    onStep: () => undefined,
-                    onCard: () => undefined,
-                    onDone: () => undefined,
-                    onError: () => undefined,
-                  })
+                    { isolated: true }
+                  )
                 )
               );
               this.logger.debug('Shadow Firestore sub opened for SSE drop protection', {
