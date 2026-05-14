@@ -216,6 +216,7 @@ import { AgentChatService } from '../services/agent-chat.service.js';
 import { getCacheService } from '../../../services/core/cache.service.js';
 import { db as appDb } from '../../../utils/firebase.js';
 import { stagingDb } from '../../../utils/firebase-staging.js';
+import { db } from '../../../utils/firebase.js';
 import { logger } from '../../../utils/logger.js';
 import {
   SkillRegistry,
@@ -401,7 +402,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new DispatchExtractionTool(llm));
   try {
     const liveViewService = new LiveViewSessionService();
-    toolRegistry.register(new OpenLiveViewTool(liveViewService, stagingDb));
+    toolRegistry.register(new OpenLiveViewTool(liveViewService, db));
     toolRegistry.register(new NavigateLiveViewTool(liveViewService));
     toolRegistry.register(new InteractWithLiveViewTool(liveViewService));
     toolRegistry.register(new ReadLiveViewTool(liveViewService));
@@ -415,44 +416,44 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     logger.warn('LiveViewSessionService init failed — open_live_view tool disabled');
   }
 
-  toolRegistry.register(new WriteCoreIdentityTool(stagingDb));
-  toolRegistry.register(new WriteAwardsTool(stagingDb));
-  toolRegistry.register(new WriteCombineMetricsTool(stagingDb));
-  toolRegistry.register(new WriteRankingsTool(stagingDb));
-  toolRegistry.register(new WriteSeasonStatsTool(stagingDb));
-  toolRegistry.register(new WriteRecruitingActivityTool(stagingDb));
-  toolRegistry.register(new WriteCalendarEventsTool(stagingDb));
-  toolRegistry.register(new WriteScheduleTool(stagingDb));
-  toolRegistry.register(new WriteTeamStatsTool(stagingDb));
-  toolRegistry.register(new WritePlaybooksTool(stagingDb));
-  toolRegistry.register(new GetPlaybookTool(stagingDb));
-  toolRegistry.register(new ListPlaybooksTool(stagingDb));
-  toolRegistry.register(new UpdatePlaybookTool(stagingDb));
-  toolRegistry.register(new DeletePlaybookTool(stagingDb));
-  toolRegistry.register(new GetGameplanTool(stagingDb));
-  toolRegistry.register(new ListGameplansTool(stagingDb));
-  toolRegistry.register(new SaveGameplanTool(stagingDb));
-  toolRegistry.register(new UpdateGameplanTool(stagingDb));
-  toolRegistry.register(new DeleteGameplanTool(stagingDb));
-  toolRegistry.register(new WriteTeamNewsTool(stagingDb));
-  toolRegistry.register(new WriteTeamPostTool(stagingDb));
-  toolRegistry.register(new WriteRosterEntriesTool(stagingDb));
-  toolRegistry.register(new WriteAthleteVideosTool(stagingDb));
-  toolRegistry.register(new WriteAthleteImagesTool(stagingDb));
-  toolRegistry.register(new WriteIntelTool(stagingDb));
+  toolRegistry.register(new WriteCoreIdentityTool(db));
+  toolRegistry.register(new WriteAwardsTool(db));
+  toolRegistry.register(new WriteCombineMetricsTool(db));
+  toolRegistry.register(new WriteRankingsTool(db));
+  toolRegistry.register(new WriteSeasonStatsTool(db));
+  toolRegistry.register(new WriteRecruitingActivityTool(db));
+  toolRegistry.register(new WriteCalendarEventsTool(db));
+  toolRegistry.register(new WriteScheduleTool(db));
+  toolRegistry.register(new WriteTeamStatsTool(db));
+  toolRegistry.register(new WritePlaybooksTool(db));
+  toolRegistry.register(new GetPlaybookTool(db));
+  toolRegistry.register(new ListPlaybooksTool(db));
+  toolRegistry.register(new UpdatePlaybookTool(db));
+  toolRegistry.register(new DeletePlaybookTool(db));
+  toolRegistry.register(new GetGameplanTool(db));
+  toolRegistry.register(new ListGameplansTool(db));
+  toolRegistry.register(new SaveGameplanTool(db));
+  toolRegistry.register(new UpdateGameplanTool(db));
+  toolRegistry.register(new DeleteGameplanTool(db));
+  toolRegistry.register(new WriteTeamNewsTool(db));
+  toolRegistry.register(new WriteTeamPostTool(db));
+  toolRegistry.register(new WriteRosterEntriesTool(db));
+  toolRegistry.register(new WriteAthleteVideosTool(db));
+  toolRegistry.register(new WriteAthleteImagesTool(db));
+  toolRegistry.register(new WriteIntelTool(db));
   // ── Update (patch) tools ─────────────────────────────────────────────
-  toolRegistry.register(new UpdateIntelTool(stagingDb));
-  toolRegistry.register(new UpdateCoreIdentityTool(stagingDb));
-  toolRegistry.register(new UpdateAthleteVideosTool(stagingDb));
-  toolRegistry.register(new UpdateTimelinePostTool(stagingDb));
-  toolRegistry.register(new UpdateTeamPostTool(stagingDb));
-  toolRegistry.register(new UpdateConnectedSourceTool(stagingDb));
+  toolRegistry.register(new UpdateIntelTool(db));
+  toolRegistry.register(new UpdateCoreIdentityTool(db));
+  toolRegistry.register(new UpdateAthleteVideosTool(db));
+  toolRegistry.register(new UpdateTimelinePostTool(db));
+  toolRegistry.register(new UpdateTeamPostTool(db));
+  toolRegistry.register(new UpdateConnectedSourceTool(db));
   // ── Delete tools ─────────────────────────────────────────────────────
-  toolRegistry.register(new DeleteCoreIdentityTool(stagingDb));
-  toolRegistry.register(new DeleteAthleteVideosTool(stagingDb));
-  toolRegistry.register(new DeleteTimelinePostTool(stagingDb));
-  toolRegistry.register(new DeleteTeamPostTool(stagingDb));
-  toolRegistry.register(new DeleteConnectedSourceTool(stagingDb));
+  toolRegistry.register(new DeleteCoreIdentityTool(db));
+  toolRegistry.register(new DeleteAthleteVideosTool(db));
+  toolRegistry.register(new DeleteTimelinePostTool(db));
+  toolRegistry.register(new DeleteTeamPostTool(db));
+  toolRegistry.register(new DeleteConnectedSourceTool(db));
   toolRegistry.register(new SearchNxt1PlatformTool());
   toolRegistry.register(new QueryNxt1PlatformDataTool());
   toolRegistry.register(new TrackAnalyticsEventTool());
@@ -496,14 +497,14 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GetRecentSyncSummariesTool());
   toolRegistry.register(new SaveMemoryTool(vectorMemory));
   toolRegistry.register(new DeleteMemoryTool(vectorMemory));
-  toolRegistry.register(new WriteConnectedSourceTool(stagingDb));
+  toolRegistry.register(new WriteConnectedSourceTool(db));
   toolRegistry.register(new AskUserTool());
-  toolRegistry.register(new WriteTimelinePostTool(stagingDb));
-  toolRegistry.register(new ScanTimelinePostsTool(stagingDb, llm, vectorMemory));
-  toolRegistry.register(new SendEmailTool(stagingDb));
-  toolRegistry.register(new BatchSendEmailTool(stagingDb));
-  toolRegistry.register(new SendEmailViaNxt1Tool(stagingDb));
-  toolRegistry.register(new BatchSendEmailViaNxt1Tool(stagingDb));
+  toolRegistry.register(new WriteTimelinePostTool(db));
+  toolRegistry.register(new ScanTimelinePostsTool(db, llm, vectorMemory));
+  toolRegistry.register(new SendEmailTool(db));
+  toolRegistry.register(new BatchSendEmailTool(db));
+  toolRegistry.register(new SendEmailViaNxt1Tool(db));
+  toolRegistry.register(new BatchSendEmailViaNxt1Tool(db));
   toolRegistry.register(new CreateSupportTicketTool());
 
   // ── 1b. Twitter/X & Instagram scraping (Apify-hosted actors) ─────────
@@ -782,11 +783,11 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   const agentChatService = new AgentChatService(queueService, sessionMemory);
 
   // ── 3a. Automation tools (require queueService + Firestore for durable metadata) ──
-  toolRegistry.register(new ScheduleRecurringTaskTool(queueService, stagingDb));
-  toolRegistry.register(new UpdateRecurringTaskTool(queueService, stagingDb));
-  toolRegistry.register(new ListRecurringTasksTool(queueService, stagingDb));
-  toolRegistry.register(new CancelRecurringTaskTool(queueService, stagingDb));
-  toolRegistry.register(new EnqueueHeavyTaskTool(queueService, stagingDb));
+  toolRegistry.register(new ScheduleRecurringTaskTool(queueService, db));
+  toolRegistry.register(new UpdateRecurringTaskTool(queueService, db));
+  toolRegistry.register(new ListRecurringTasksTool(queueService, db));
+  toolRegistry.register(new CancelRecurringTaskTool(queueService, db));
+  toolRegistry.register(new EnqueueHeavyTaskTool(queueService, db));
 
   // ── 4. Create the Redis PubSub service (real-time SSE pipe) ───────────
   // Enables BullMQ workers to stream tokens/steps back to the Express SSE
