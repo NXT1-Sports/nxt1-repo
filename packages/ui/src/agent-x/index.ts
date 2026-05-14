@@ -35,6 +35,7 @@ export {
   type OperationEventSubscription,
 } from './services/agent-x-operation-event.service';
 export { LiveViewSessionService } from './services/live-view-session.service';
+export { LiveViewHistoryService } from './services/live-view-history.service';
 
 // Components
 export {

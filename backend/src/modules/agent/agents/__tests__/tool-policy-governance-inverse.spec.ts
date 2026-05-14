@@ -25,7 +25,7 @@ const WILDCARD_PATTERNS_MANUALLY_VALIDATED = new Set<string>([
   'read_live_view',
   'capture_live_view_screenshot',
   'extract_live_view_media',
-  'extract_live_view_playlist',
+  // 'extract_live_view_playlist', // DISABLED: Not yet stable
   'close_live_view',
 ]);
 

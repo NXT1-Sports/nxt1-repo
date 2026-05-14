@@ -11,7 +11,7 @@ import type { DiagramLayout } from '../shared/diagram.types.js';
 // ─── Route rendering ──────────────────────────────────────────────────────────
 
 describe('renderRoutes — labels', () => {
-  it('renders route labels with readability halo and offset text', () => {
+  it('renders route paths without inline label boxes (labels moved to annotation strip)', () => {
     const svg = renderRoutes([
       {
         from: 'QB',
@@ -24,10 +24,12 @@ describe('renderRoutes — labels', () => {
       },
     ]);
 
-    expect(svg).toContain('stroke="white"');
-    expect(svg).toContain('paint-order="stroke"');
-    expect(svg).toContain('Drive');
+    // No floating label boxes on the field anymore
+    expect(svg).not.toContain('fill="rgba(244,249,255,0.93)"');
+    expect(svg).not.toContain('<rect x="');
+    // Route path still rendered
     expect(svg).toContain('marker-end="url(#arr)"');
+    expect(svg).toContain('<path d="');
   });
 });
 
@@ -59,7 +61,7 @@ describe('renderRoutes — path vs polyline', () => {
     expect(svg).toMatch(/d="M 0,0 L 100,100"/);
   });
 
-  it('emits Cubic Bézier C commands for 3-point go routes', () => {
+  it('emits straight L segments for 3-point go routes by default', () => {
     const svg = renderRoutes([
       {
         from: 'WR',
@@ -71,7 +73,8 @@ describe('renderRoutes — path vs polyline', () => {
         ],
       },
     ]);
-    expect(svg).toContain(' C ');
+    expect(svg).not.toContain(' C ');
+    expect(svg).toContain('L 100,200');
   });
 
   it('emits straight L segments for block routes regardless of point count', () => {
@@ -120,6 +123,38 @@ describe('renderRoutes — path vs polyline', () => {
       },
     ]);
     expect(svg).toContain(' C ');
+  });
+
+  it('keeps fade routes smooth by default', () => {
+    const svg = renderRoutes([
+      {
+        from: 'WR',
+        type: 'fade',
+        points: [
+          [200, 300],
+          [220, 220],
+          [260, 160],
+        ],
+      },
+    ]);
+    expect(svg).toContain(' C ');
+  });
+
+  it('uses the dedicated drag marker for drag routes', () => {
+    const svg = renderRoutes([
+      {
+        from: 'Y',
+        type: 'drag',
+        points: [
+          [200, 300],
+          [170, 300],
+          [140, 300],
+        ],
+      },
+    ]);
+    expect(svg).toContain('marker-end="url(#arr-drag)"');
+    expect(svg).toContain('stroke-dasharray="7,4"');
+    expect(svg).not.toContain(' C ');
   });
 });
 
@@ -266,15 +301,14 @@ describe('renderDiagramSvg — layer order', () => {
     zones: [{ id: 'z1', label: 'C2', x: 100, y: 80, width: 120, height: 60 }],
   };
 
-  it('draws players before routes before zones', () => {
+  it('draws routes before players before zones', () => {
     const svg = renderDiagramSvg(LAYOUT, '<g id="field"/>');
-    // Route <path> elements use `d="M x,y` (space after M). Defs marker paths
-    // use `d="M0,0` (no space) so this pattern uniquely identifies rendered routes.
-    const playerIdx = svg.indexOf('<circle');
-    const routeIdx = svg.indexOf('d="M ');
+    const routeIdx = svg.indexOf('class="route-layer"');
+    const playerIdx = svg.indexOf('class="player-layer"');
     const zoneIdx = svg.indexOf('zone-overlays');
+    expect(routeIdx).toBeGreaterThan(-1);
     expect(playerIdx).toBeGreaterThan(-1);
-    expect(routeIdx).toBeGreaterThan(playerIdx);
+    expect(routeIdx).toBeLessThan(playerIdx);
     expect(zoneIdx).toBeGreaterThan(routeIdx);
   });
 

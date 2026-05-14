@@ -1,10 +1,5 @@
 /**
  * @fileoverview Zod schemas for all board-diagram platform tools.
- *
- * Three tools are exposed:
- *   create_board_diagram — generate a new play or drill diagram
- *   update_board_diagram — regenerate an existing asset with new description/title
- *   delete_board_diagram — soft-delete an asset and remove its storage PNG
  */
 
 import { z } from 'zod';
@@ -29,11 +24,13 @@ export const CreateBoardDiagramInputSchema = z.object({
   /** Human-readable title for the diagram. Defaults to "<sport> Play/Drill" when omitted. */
   title: z.string().trim().min(1).optional(),
   /**
-   * Diagram subtype.
-   * - 'sport_play' (default) — competitive play/formation diagram
+   * Diagram subtype (MANDATORY).
+   * - 'sport_play' — competitive play/formation diagram
    * - 'sport_drill' — training drill movement pattern
+   *
+   * NOTE: This field is REQUIRED. There is no default. The orchestrator must always specify kind.
    */
-  kind: BoardDiagramKindSchema.default('sport_play'),
+  kind: BoardDiagramKindSchema,
   /**
    * Optional seed JSON layout to refine rather than generate from scratch.
    * When provided, the LLM will adapt this layout rather than produce a new one.

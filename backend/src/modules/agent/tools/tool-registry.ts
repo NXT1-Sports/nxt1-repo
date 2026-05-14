@@ -43,7 +43,8 @@ import {
   isToolDisabled,
 } from '../config/agent-app-config.js';
 import { getAgentMutationPolicyService } from './mutation-policy.service.js';
-import { isTeamIntelEnabled } from '../../../config/feature-flags.js';
+import { getFeatureFlagsService } from '../../../config/feature-flags/index.js';
+import { getFirestore } from 'firebase-admin/firestore';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import { z } from 'zod';
 
@@ -99,6 +100,10 @@ const TOOL_ENTITY_GROUP_OVERRIDES: Readonly<Record<string, AgentToolEntityGroup>
   write_team_news: 'team_tools',
   write_roster_entries: 'team_tools',
   write_playbooks: 'team_tools',
+  get_playbook: 'team_tools',
+  list_playbooks: 'team_tools',
+  update_playbook: 'team_tools',
+  delete_playbook: 'team_tools',
   get_gameplan: 'team_tools',
   list_gameplans: 'team_tools',
   save_gameplan: 'team_tools',
@@ -569,7 +574,7 @@ export class ToolRegistry {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<void> {
-    const plans = this.deriveIntelSyncPlans(toolName, input);
+    const plans = await this.deriveIntelSyncPlans(toolName, input);
     if (plans.length === 0) return;
 
     const writeIntelTool = this.tools.get('write_intel');
@@ -662,10 +667,10 @@ export class ToolRegistry {
     }
   }
 
-  private deriveIntelSyncPlans(
+  private async deriveIntelSyncPlans(
     toolName: string,
     input: Record<string, unknown>
-  ): readonly IntelSyncPlan[] {
+  ): Promise<readonly IntelSyncPlan[]> {
     const userId = this.readString(input, 'userId');
     const teamId = this.readString(input, 'teamId');
     const plans: IntelSyncPlan[] = [];
@@ -834,7 +839,10 @@ export class ToolRegistry {
         break;
     }
 
-    if (isTeamIntelEnabled()) {
+    const teamIntelEnabled =
+      await getFeatureFlagsService(getFirestore()).isEnabled('team.intel.enabled');
+
+    if (teamIntelEnabled) {
       return plans;
     }
 

@@ -118,7 +118,7 @@ const MAX_INLINE_DOCUMENT_BYTES = 8 * 1024 * 1024;
 const MAX_ATTACHMENT_TEXT_CHARS = 30_000;
 const MAX_ATTACHMENT_PREVIEW_ROWS = 60;
 const MAX_ATTACHMENT_PREVIEW_COLUMNS = 20;
-const DUPLICATE_GUARDED_TOOLS = new Set(['extract_live_view_media', 'extract_live_view_playlist']);
+const DUPLICATE_GUARDED_TOOLS = new Set(['extract_live_view_media']);
 const COMPUTE_KEYWORDS = [
   'how many',
   'count',
@@ -2534,12 +2534,7 @@ export abstract class BaseAgent {
         });
       }
 
-      if (
-        this.id === 'router' &&
-        ['analyze_video', 'extract_live_view_media', 'extract_live_view_playlist'].includes(
-          toolName
-        )
-      ) {
+      if (this.id === 'router' && ['analyze_video', 'extract_live_view_media'].includes(toolName)) {
         return JSON.stringify({
           error: `Tool "${toolName}" is not allowed for agent "router". Delegate film and live-view media work to performance_coordinator via delegate_to_coordinator.`,
           errorCode: 'AGENT_TOOL_NOT_ALLOWED',
@@ -2788,6 +2783,17 @@ export abstract class BaseAgent {
       }
 
       if (result.success && result.markdown) {
+        // Preserve structured payloads when available. Returning markdown-only here
+        // hides `data` from the LLM (e.g., play entries in get_playbook), which
+        // breaks downstream reasoning for search and matching tasks.
+        if (rawData !== undefined || advisory) {
+          return JSON.stringify({
+            success: true,
+            markdown: result.markdown,
+            ...(rawData !== undefined ? { data: rawData } : {}),
+            ...(advisory ? { _advisory: advisory } : {}),
+          });
+        }
         return result.markdown;
       }
 
@@ -3058,7 +3064,6 @@ export abstract class BaseAgent {
       read_live_view: 'Scanning virtual browser',
       capture_live_view_screenshot: 'Capturing browser screenshot',
       extract_live_view_media: 'Extracting media stream',
-      extract_live_view_playlist: 'Extracting playlist clips',
       navigate_live_view: 'Navigating webpage',
       interact_with_live_view: 'Interacting with webpage',
       close_live_view: 'Closing virtual browser',

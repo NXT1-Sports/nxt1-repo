@@ -245,7 +245,7 @@ export class WritePlaybooksTool extends BaseTool {
 
   readonly parameters = WritePlaybooksInputSchema;
 
-  override readonly allowedAgents = ['data_coordinator', 'strategy_coordinator'] as const;
+  override readonly allowedAgents = ['router', 'data_coordinator', 'strategy_coordinator'] as const;
   readonly isMutation = true;
   readonly category = 'database' as const;
   readonly entityGroup = 'team_tools' as const;

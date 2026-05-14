@@ -73,6 +73,17 @@ function createSuccessfulInteractResult(overrides?: Partial<Record<string, unkno
   };
 }
 
+function createProbeStdout(url: string, title: string, interactive: string, full: string): string {
+  return [
+    `URL:${url}`,
+    `TITLE:${title}`,
+    '---INTERACTIVE---',
+    interactive,
+    '---FULL---',
+    full,
+  ].join('\n');
+}
+
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 describe('LiveViewSessionService', () => {
@@ -669,6 +680,126 @@ No video URLs were detected in the network tab.`,
   });
 
   describe('extractPlaylist', () => {
+    it('should run Firecrawl prompt-based playlist extraction and use extracted rows without AI fallback', async () => {
+      await service.startSession(TEST_USER_ID, { url: 'https://www.hudl.com/library/18832' });
+
+      mockInteract.mockResolvedValueOnce({
+        success: true,
+        stdout: JSON.stringify({
+          items: [
+            {
+              index: 0,
+              itemId: 'play-101',
+              title: 'Play #101',
+              url: 'https://www.hudl.com/video/3/101',
+              durationText: '00:12',
+              thumbnailUrl: null,
+              textSnippet: 'PLAY #101 PASS COMPLETE',
+              isCurrent: false,
+            },
+          ],
+          discoveredCount: 1,
+        }),
+        exitCode: 0,
+      });
+
+      mockInteract.mockResolvedValueOnce({
+        success: true,
+        stdout: JSON.stringify({
+          url: 'https://www.hudl.com/library/18832',
+          title: 'Library - Boys Varsity Football - Hudl',
+          playlistTitle: null,
+          userAgent: 'Mozilla/5.0 Test Browser',
+          cookies: [],
+        }),
+        exitCode: 0,
+      });
+
+      const result = await service.extractPlaylist(TEST_SESSION_ID, TEST_USER_ID, 5);
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]?.url).toBe('https://www.hudl.com/video/3/101');
+
+      // startSession init + Firecrawl prompt extraction + metadata
+      expect(mockInteract).toHaveBeenCalledTimes(3);
+      expect(mockInteract).toHaveBeenNthCalledWith(
+        2,
+        TEST_SESSION_ID,
+        expect.objectContaining({
+          prompt: expect.stringContaining('Return ONLY strict JSON'),
+        })
+      );
+
+      // Ensure we did not call the AI playlist prompt path when browser rows already exist.
+      expect(mockInteract).not.toHaveBeenCalledWith(
+        TEST_SESSION_ID,
+        expect.objectContaining({
+          prompt: expect.stringContaining('Extract information about the current bounded subset'),
+        })
+      );
+    });
+
+    it('should hydrate missing playlist item URLs by clicking target play rows', async () => {
+      await service.startSession(TEST_USER_ID, { url: 'https://www.hudl.com/library/18832' });
+
+      mockInteract.mockResolvedValueOnce({
+        success: true,
+        stdout: JSON.stringify({
+          items: [
+            {
+              index: 0,
+              itemId: 'play-4',
+              title: 'Play #4',
+              url: null,
+              durationText: '00:07',
+              thumbnailUrl: null,
+              textSnippet: 'PLAY #4 PASS LEFT',
+              isCurrent: true,
+            },
+          ],
+        }),
+        exitCode: 0,
+      });
+
+      mockInteract.mockResolvedValueOnce({
+        success: true,
+        stdout: JSON.stringify({
+          updates: [
+            {
+              index: 0,
+              itemId: 'play-4',
+              url: 'https://stream.example.com/play4/master.m3u8',
+              textSnippet: 'PLAY #4 PASS LEFT',
+              isCurrent: true,
+            },
+          ],
+        }),
+        exitCode: 0,
+      });
+
+      mockInteract.mockResolvedValueOnce({
+        success: true,
+        stdout: JSON.stringify({
+          url: 'https://www.hudl.com/library/18832',
+          title: 'Library - Boys Varsity Football - Hudl',
+          playlistTitle: null,
+          userAgent: 'Mozilla/5.0 Test Browser',
+          cookies: [],
+        }),
+        exitCode: 0,
+      });
+
+      const result = await service.extractPlaylist(TEST_SESSION_ID, TEST_USER_ID, 5, {
+        playNumbers: [4],
+      });
+
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0]?.url).toBe('https://stream.example.com/play4/master.m3u8');
+
+      // startSession init + row extraction prompt + hydration browser command + metadata browser command
+      expect(mockInteract).toHaveBeenCalledTimes(4);
+    });
+
     it('should parse playlist items from AI-generated response', async () => {
       await service.startSession(TEST_USER_ID, { url: 'https://www.hudl.com/profile/12345' });
 
@@ -831,6 +962,12 @@ Thumbnail: https://images.example.com/clip-2.jpg
 
       mockInteract.mockResolvedValueOnce({
         success: true,
+        stdout: JSON.stringify({ items: [] }),
+        exitCode: 0,
+      });
+
+      mockInteract.mockResolvedValueOnce({
+        success: true,
         stdout: `This appears to be a single video page, not a playlist. No clips or linked videos found.`,
         exitCode: 0,
       });
@@ -986,11 +1123,25 @@ Thumbnail: https://images.example.com/clip-2.jpg
     it('should call the Firecrawl SDK interact() with prompt parameter and return output', async () => {
       await service.startSession(TEST_USER_ID, { url: 'https://www.example.com' });
 
-      mockInteract.mockResolvedValueOnce({
-        success: true,
-        output:
-          'I clicked the Login button successfully and verified the page transitioned to the authenticated dashboard with the top navigation, recent activity widget, and the account menu visible in the header.',
-      });
+      mockInteract
+        // preflight probe
+        .mockResolvedValueOnce({ success: true, stdout: '' })
+        // prompt execution
+        .mockResolvedValueOnce({
+          success: true,
+          output:
+            'I clicked the Login button successfully and verified the page transitioned to the authenticated dashboard with the top navigation, recent activity widget, and the account menu visible in the header.',
+        })
+        // postflight probe
+        .mockResolvedValueOnce({
+          success: true,
+          stdout: createProbeStdout(
+            'https://www.example.com/dashboard',
+            'Dashboard',
+            '@e1 [button] "Sign out"',
+            '[document] [heading] "Dashboard"'
+          ),
+        });
 
       const result = await service.executePrompt(
         TEST_SESSION_ID,
@@ -1000,6 +1151,9 @@ Thumbnail: https://images.example.com/clip-2.jpg
 
       expect(result.success).toBe(true);
       expect(result.output).toContain('I clicked the Login button successfully');
+      expect(result.output).toContain('Verification: VERIFIED');
+      expect(result.attempts).toBe(1);
+      expect(result.verification?.status).toBe('verified');
 
       // Verify the SDK interact() was called with prompt (not code)
       expect(mockInteract).toHaveBeenCalledWith(
@@ -1014,19 +1168,22 @@ Thumbnail: https://images.example.com/clip-2.jpg
       await service.startSession(TEST_USER_ID, { url: 'https://www.example.com' });
 
       mockInteract
+        // preflight probe
+        .mockResolvedValueOnce({ success: true, stdout: '' })
+        // prompt execution
         .mockResolvedValueOnce({
           success: true,
           output: 'Clicked it.',
         })
+        // postflight probe
         .mockResolvedValueOnce({
           success: true,
-          stdout:
-            'URL:https://www.example.com/dashboard\n' +
-            'TITLE:Dashboard\n' +
-            '---INTERACTIVE---\n' +
-            '@e1 [button] "Sign out"\n' +
-            '---FULL---\n' +
-            '[document]\n  [heading] "Dashboard"',
+          stdout: createProbeStdout(
+            'https://www.example.com/dashboard',
+            'Dashboard',
+            '@e1 [button] "Sign out"',
+            '[document] [heading] "Dashboard"'
+          ),
         });
 
       const result = await service.executePrompt(
@@ -1037,14 +1194,12 @@ Thumbnail: https://images.example.com/clip-2.jpg
 
       expect(result.success).toBe(true);
       expect(result.output).toContain('Clicked it.');
-      expect(result.output).toContain('Page grounding details');
-      expect(result.output).toContain('Interactive snapshot');
-      expect(result.output).toContain('Full snapshot');
+      expect(result.output).toContain('Verification: VERIFIED');
+      expect(result.output).toContain('Current URL: https://www.example.com/dashboard');
       expect(mockInteract).toHaveBeenCalledWith(
         TEST_SESSION_ID,
         expect.objectContaining({
-          code: expect.stringContaining('agent-browser snapshot -i'),
-          language: 'bash',
+          prompt: 'Click the login button',
         })
       );
     });
@@ -1052,7 +1207,7 @@ Thumbnail: https://images.example.com/clip-2.jpg
     it('should return failure with error message when API returns success: false', async () => {
       await service.startSession(TEST_USER_ID, { url: 'https://www.example.com' });
 
-      mockInteract.mockResolvedValueOnce({
+      mockInteract.mockResolvedValueOnce({ success: true, stdout: '' }).mockResolvedValueOnce({
         success: false,
         error: 'Could not find the specified element',
       });
@@ -1070,7 +1225,7 @@ Thumbnail: https://images.example.com/clip-2.jpg
     it('should return stderr as output when error is empty', async () => {
       await service.startSession(TEST_USER_ID, { url: 'https://www.example.com' });
 
-      mockInteract.mockResolvedValueOnce({
+      mockInteract.mockResolvedValueOnce({ success: true, stdout: '' }).mockResolvedValueOnce({
         success: false,
         error: '',
         stderr: 'Timeout waiting for element',
@@ -1082,35 +1237,74 @@ Thumbnail: https://images.example.com/clip-2.jpg
       expect(result.output).toBe('Timeout waiting for element');
     });
 
-    it('should return default message when output is empty on success', async () => {
+    it('should fail with structured verification context when no observable page-state change occurs', async () => {
       await service.startSession(TEST_USER_ID, { url: 'https://www.example.com' });
 
-      mockInteract.mockResolvedValueOnce({
-        success: true,
-        output: '',
-      });
+      mockInteract
+        // preflight probe
+        .mockResolvedValueOnce({ success: true, stdout: '' })
+        // first attempt output
+        .mockResolvedValueOnce({ success: true, output: '' })
+        // first verification probe empty
+        .mockResolvedValueOnce({ success: true, stdout: '' })
+        // retry attempt output
+        .mockResolvedValueOnce({ success: true, output: '' })
+        // retry verification probe empty
+        .mockResolvedValueOnce({ success: true, stdout: '' });
 
       const result = await service.executePrompt(TEST_SESSION_ID, TEST_USER_ID, 'Scroll down');
 
-      expect(result.success).toBe(true);
-      expect(result.output).toBe('Action completed successfully.');
+      expect(result.success).toBe(false);
+      expect(result.attempts).toBe(2);
+      expect(result.verification?.status).toBe('ambiguous');
+      expect(result.output).toContain('Verification: FAILED');
     });
 
-    it('should execute simple scroll prompts with deterministic browser code', async () => {
+    it('should mark prompt as verified when provider reports success but probes are unavailable', async () => {
+      await service.startSession(TEST_USER_ID, { url: 'https://www.example.com' });
+
+      mockInteract
+        // preflight probe unavailable
+        .mockResolvedValueOnce({ success: true, stdout: '' })
+        // prompt execution succeeds with explicit action completion text
+        .mockResolvedValueOnce({
+          success: true,
+          output: 'Clicked the Apply Filters button successfully and updated the visible list.',
+        })
+        // postflight probe unavailable
+        .mockResolvedValueOnce({ success: true, stdout: '' });
+
+      const result = await service.executePrompt(
+        TEST_SESSION_ID,
+        TEST_USER_ID,
+        'Click the apply filters button'
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.verification?.status).toBe('verified');
+      expect(result.output).toContain('Verification: VERIFIED');
+      expect(result.output).toContain('Provider reported successful action');
+    });
+
+    it('should still execute legacy simple scroll prompts with deterministic browser code', async () => {
       await service.startSession(TEST_USER_ID, { url: 'https://www.hudl.com/library/18832' });
 
-      mockInteract.mockResolvedValueOnce({
-        success: true,
-        stdout: JSON.stringify({
-          direction: 'bottom',
-          url: 'https://www.hudl.com/library/18832',
-          title: 'Library - Boys Varsity Football - Hudl',
-          before: { scrollTop: 0, scrollHeight: 5000, clientHeight: 900 },
-          after: { scrollTop: 4100, scrollHeight: 5000, clientHeight: 900 },
-          snapshot: 'Play #96\nPlay #97\nPlay #98\nPlay #99\nPlay #100',
-        }),
-        exitCode: 0,
-      });
+      mockInteract
+        // preflight probe
+        .mockResolvedValueOnce({ success: true, stdout: '' })
+        // deterministic scroll command
+        .mockResolvedValueOnce({
+          success: true,
+          stdout: JSON.stringify({
+            direction: 'bottom',
+            url: 'https://www.hudl.com/library/18832',
+            title: 'Library - Boys Varsity Football - Hudl',
+            before: { scrollTop: 0, scrollHeight: 5000, clientHeight: 900 },
+            after: { scrollTop: 4100, scrollHeight: 5000, clientHeight: 900 },
+            snapshot: 'Play #96\nPlay #97\nPlay #98\nPlay #99\nPlay #100',
+          }),
+          exitCode: 0,
+        });
 
       const result = await service.executePrompt(
         TEST_SESSION_ID,
@@ -1122,19 +1316,21 @@ Thumbnail: https://images.example.com/clip-2.jpg
       expect(result.output).toContain('Deterministic scroll completed (bottom)');
       expect(result.output).toContain('Play #100');
       expect(mockInteract).toHaveBeenNthCalledWith(
-        2,
+        3,
         TEST_SESSION_ID,
         expect.objectContaining({
           code: expect.stringContaining('scrollContainer'),
         })
       );
-      expect(mockInteract.mock.calls[1][1]).not.toHaveProperty('prompt');
+      expect(mockInteract.mock.calls[2][1]).not.toHaveProperty('prompt');
     });
 
     it('should purge the local session when Firecrawl reports a destroyed session', async () => {
       await service.startSession(TEST_USER_ID, { url: 'https://www.example.com' });
 
-      mockInteract.mockRejectedValueOnce(new Error('Browser session has been destroyed.'));
+      mockInteract
+        .mockResolvedValueOnce({ success: true, stdout: '' })
+        .mockRejectedValueOnce(new Error('Browser session has been destroyed.'));
 
       await expect(
         service.executePrompt(TEST_SESSION_ID, TEST_USER_ID, 'Click something')

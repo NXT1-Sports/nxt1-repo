@@ -950,6 +950,10 @@ export const APP_EVENTS = {
   LIVE_VIEW_LAUNCHER_ACCOUNT_SELECTED: 'live_view_launcher_account_selected',
   /** User submitted a custom URL from launcher */
   LIVE_VIEW_LAUNCHER_URL_SUBMITTED: 'live_view_launcher_url_submitted',
+  /** User recovered and reconnected to a previous session */
+  LIVE_VIEW_SESSION_RECOVERED: 'live_view_session_recovered',
+  /** User discarded a stored session from recovery list */
+  LIVE_VIEW_SESSION_DISCARDED: 'live_view_session_discarded',
 
   // ============================================
   // WEB RESEARCH (Firecrawl Agent) EVENTS

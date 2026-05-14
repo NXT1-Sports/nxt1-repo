@@ -37,6 +37,8 @@ import type { ToolExecutionContext } from '../../base.tool.js';
 import { buildSystemPrompt } from '../play-diagram/prompts/index.js';
 import { getSportRenderer } from '../play-diagram/renderers/index.js';
 import { applySportFeatureFlag, normalizeSportId } from '../play-diagram/sport-normalization.js';
+import { getFeatureFlagsService } from '../../../../../config/feature-flags/index.js';
+import { getFirestore } from 'firebase-admin/firestore';
 import {
   coercePlayerShape,
   coerceRouteType,
@@ -44,7 +46,11 @@ import {
 } from '../play-diagram/shared/layout-enhancement.js';
 import { validateLayoutForSport } from '../play-diagram/shared/layout-validation.js';
 import { layoutToMxGraphModel } from '../play-diagram/shared/mxgraph.js';
-import { clampCoord, renderDiagramSvg } from '../play-diagram/shared/svg-helpers.js';
+import {
+  clampCoord,
+  renderDiagramSvg,
+  type RenderProfileOptions,
+} from '../play-diagram/shared/svg-helpers.js';
 import type {
   DiagramLayout,
   DiagramPlayer,
@@ -54,6 +60,7 @@ import type {
 
 // ── Board-diagram specific ───────────────────────────────────────────────────
 import { validateDrillLayout } from './shared/drill-validation.js';
+import { enhanceDrillLayout } from './shared/drill-enhancement.js';
 import { getDrillPromptForSport } from './prompts/drill.prompt.js';
 import { BoardDiagramAssetService } from './services/board-diagram-asset.service.js';
 import type { BoardDiagramAsset, BoardDiagramKind } from './shared/board-diagram.types.js';
@@ -70,6 +77,8 @@ const LLM_TIMEOUT_MS = 60_000;
 const CANVAS_WIDTH = 600;
 const CANVAS_HEIGHT = 440;
 const MAX_LAYOUT_ATTEMPTS = 2;
+type TeamFocus = 'offense' | 'defense' | 'both';
+type TeamFocusRequest = TeamFocus | 'auto';
 
 // ─── Private utilities ────────────────────────────────────────────────────────
 
@@ -77,15 +86,85 @@ function buildUserPrompt(
   description: string,
   title: string,
   sport: NormalizedSport,
+  teamFocus: TeamFocusRequest,
   xmlTemplate?: string
 ): string {
   let prompt = `Sport: ${sport}\nTitle: ${title}\nDescription: ${description}`;
+  if (teamFocus === 'both') {
+    prompt +=
+      '\n\nTEAM FOCUS: BOTH SIDES (offense + defense). Include both offense and defense players in the output.';
+  } else if (teamFocus === 'offense' || teamFocus === 'defense') {
+    prompt += `\n\nTEAM FOCUS: ${teamFocus.toUpperCase()} ONLY. Include ONLY ${teamFocus} players in the output.`;
+  } else {
+    prompt +=
+      '\n\nTEAM FOCUS: AUTO. Infer the correct side of the ball from the request, defaulting to offense if ambiguous.';
+  }
+
   if (xmlTemplate) {
     prompt += `\n\nBase layout JSON to adapt:\n${xmlTemplate}`;
   }
   prompt +=
     '\n\nOutput the JSON layout for this diagram. Ensure coordinates are in bounds. Raw JSON only.';
   return prompt;
+}
+
+function inferRequestedTeamFocus(title: string, description: string): TeamFocusRequest {
+  const text = `${title} ${description}`.toLowerCase();
+
+  // Explicit matchup language ("X vs Y", "X versus Y") → show both sides.
+  if (/\b(vs\.?|versus)\b/.test(text)) return 'both';
+
+  // Explicit request for both sides simultaneously.
+  if (/\b(both (sides|teams|offense and defense|defense and offense))\b/.test(text)) return 'both';
+
+  // Find the first occurrence of a defense keyword and an offense keyword.
+  // Whichever appears first in the text is the PRIMARY subject.
+  // This correctly handles cases like:
+  //   "defense diagrams to beat west coast offense" → defense wins (appears first)
+  //   "offensive play against cover 2" → offense wins (appears first)
+  //   "draw cover 2 against the spread offense" → defense wins (cover 2 appears first)
+  const defenseMatch =
+    /\b(defense|defensive|defender|defenders|coverage|blitz|scheme|cover \d)\b/.exec(text);
+  const offenseMatch = /\b(offense|offensive|attacking)\b/.exec(text);
+
+  if (defenseMatch && offenseMatch) {
+    return defenseMatch.index < offenseMatch.index ? 'defense' : 'offense';
+  }
+  if (defenseMatch) return 'defense';
+  if (offenseMatch) return 'offense';
+
+  return 'auto';
+}
+
+function validateTeamFocusMatch(layout: DiagramLayout, requested: TeamFocusRequest): void {
+  if (requested === 'auto') return;
+
+  const hasOffense = layout.players.some((player) => player.team === 'offense');
+  const hasDefense = layout.players.some((player) => player.team === 'defense');
+
+  if (requested === 'both') {
+    if (!hasOffense || !hasDefense) {
+      throw new AgentEngineError(
+        'BOARD_DIAGRAM_LLM_INVALID_LAYOUT',
+        'Layout team focus mismatch: request requires BOTH offense and defense players.'
+      );
+    }
+    return;
+  }
+
+  if (requested === 'offense' && (!hasOffense || hasDefense)) {
+    throw new AgentEngineError(
+      'BOARD_DIAGRAM_LLM_INVALID_LAYOUT',
+      'Layout team focus mismatch: request requires offense-only players.'
+    );
+  }
+
+  if (requested === 'defense' && (!hasDefense || hasOffense)) {
+    throw new AgentEngineError(
+      'BOARD_DIAGRAM_LLM_INVALID_LAYOUT',
+      'Layout team focus mismatch: request requires defense-only players.'
+    );
+  }
 }
 
 function sanitizeFileName(input: string): string {
@@ -215,7 +294,8 @@ function parseLlmLayout(
   raw: string,
   requestedSport: NormalizedSport,
   fallbackLosY: number,
-  kind: BoardDiagramKind
+  kind: BoardDiagramKind,
+  extendedSportsEnabled: boolean
 ): DiagramLayout {
   const cleaned = raw
     .replace(/^```[a-z]*\n?/im, '')
@@ -235,7 +315,7 @@ function parseLlmLayout(
   const obj = parsed as Record<string, unknown>;
   const sportFromPayload =
     typeof obj['sport'] === 'string' ? normalizeSportId(obj['sport']) : requestedSport;
-  const sport = applySportFeatureFlag(sportFromPayload);
+  const sport = applySportFeatureFlag(sportFromPayload, extendedSportsEnabled);
 
   if (!Array.isArray(obj['players']) || !Array.isArray(obj['routes'])) {
     throw new AgentEngineError(
@@ -374,6 +454,8 @@ export class BoardDiagramService {
     title: string,
     sport: NormalizedSport,
     kind: BoardDiagramKind,
+    teamFocus: TeamFocusRequest,
+    extendedSportsEnabled: boolean,
     xmlTemplate: string | undefined,
     context?: ToolExecutionContext
   ): Promise<DiagramLayout> {
@@ -382,7 +464,7 @@ export class BoardDiagramService {
     let previousError: string | null = null;
 
     for (let attempt = 1; attempt <= MAX_LAYOUT_ATTEMPTS; attempt += 1) {
-      const basePrompt = buildUserPrompt(description, title, sport, xmlTemplate);
+      const basePrompt = buildUserPrompt(description, title, sport, teamFocus, xmlTemplate);
       const prompt =
         previousError === null
           ? basePrompt
@@ -420,7 +502,16 @@ export class BoardDiagramService {
           );
         }
 
-        const layout = parseLlmLayout(rawOutput, sport, renderer.defaultLosY, kind);
+        const layout = parseLlmLayout(
+          rawOutput,
+          sport,
+          renderer.defaultLosY,
+          kind,
+          extendedSportsEnabled
+        );
+
+        // Enforce that generated players match the side of ball requested by the user.
+        validateTeamFocusMatch(layout, teamFocus);
 
         logger.info('[BoardDiagramService] Layout generation succeeded', {
           sport,
@@ -458,11 +549,39 @@ export class BoardDiagramService {
   private async renderAndUpload(
     layout: DiagramLayout,
     storagePath: string,
-    context?: ToolExecutionContext
+    context?: ToolExecutionContext,
+    kindOverride?: BoardDiagramKind,
+    requestedTeamFocus?: TeamFocusRequest
   ): Promise<{ imageUrl: string; xmlContent: string; editUrl: string }> {
     const renderer = getSportRenderer(layout.sport);
     const fieldSvg = renderer.renderField(layout);
-    const svgString = renderDiagramSvg(layout, fieldSvg);
+    const hasOffense = layout.players.some((player) => player.team === 'offense');
+    const hasDefense = layout.players.some((player) => player.team === 'defense');
+    const derivedTeamFocus: TeamFocus =
+      hasOffense && hasDefense ? 'both' : hasDefense ? 'defense' : 'offense';
+    const teamFocus =
+      requestedTeamFocus && requestedTeamFocus !== 'auto' ? requestedTeamFocus : derivedTeamFocus;
+    // Select render profile based on kind
+    const kind = kindOverride ?? (context as any)?.kind ?? (layout as any)?.kind;
+    let renderProfile: RenderProfileOptions;
+    if (kind === 'sport_drill') {
+      renderProfile = {
+        kind,
+        showLegend: false,
+        showTitleBar: true,
+        annotationClutter: false,
+        teamFocus,
+      };
+    } else {
+      renderProfile = {
+        kind,
+        showLegend: true,
+        showTitleBar: true,
+        annotationClutter: true,
+        teamFocus,
+      };
+    }
+    const svgString = renderDiagramSvg(layout, fieldSvg, renderProfile);
     const pngBuffer = await convertSvgToPng(svgString);
     const imageUrl = await this.uploadPng(pngBuffer, storagePath, context);
     const mxXml = layoutToMxGraphModel(layout);
@@ -483,11 +602,18 @@ export class BoardDiagramService {
     input: CreateBoardDiagramInput,
     context?: ToolExecutionContext
   ): Promise<BoardDiagramAsset> {
-    const requestedSport = applySportFeatureFlag(normalizeSportId(input.sport));
-    const kind: BoardDiagramKind = input.kind ?? 'sport_play';
+    const extendedSportsEnabled = await getFeatureFlagsService(getFirestore()).isEnabled(
+      'ai.play.diagram.extended.sports.enabled'
+    );
+    const requestedSport = applySportFeatureFlag(
+      normalizeSportId(input.sport),
+      extendedSportsEnabled
+    );
+    const kind: BoardDiagramKind = input.kind;
     const title =
       input.title ??
       `${requestedSport.charAt(0).toUpperCase() + requestedSport.slice(1)} ${kind === 'sport_drill' ? 'Drill' : 'Play'}`;
+    const requestedTeamFocus = inferRequestedTeamFocus(title, input.description);
 
     logger.info('[BoardDiagramService] Creating diagram', {
       requestedSport,
@@ -497,25 +623,36 @@ export class BoardDiagramService {
     });
 
     try {
+      // Generate layout from LLM
       const layout = await this.generateLayoutWithRetry(
         input.description,
         title,
         requestedSport,
         kind,
+        requestedTeamFocus,
+        extendedSportsEnabled,
         input.xmlTemplate,
         context
       );
 
-      const conceptText = `${input.title ?? ''} ${input.description}`.trim();
-      const enhancedLayout = enhanceLayoutForConcept(layout, conceptText);
-      const finalLayout =
-        kind === 'sport_drill' ? cleanDrillLayout(enhancedLayout) : enhancedLayout;
+      // Split enhancement pipeline: plays get concept enhancement, drills get drill enhancement
+      let finalLayout: DiagramLayout;
+      if (kind === 'sport_play') {
+        const conceptText = `${input.title ?? ''} ${input.description}`.trim();
+        finalLayout = enhanceLayoutForConcept(layout, conceptText);
+      } else {
+        // Deterministic drill post-processing (spacing, max players/routes, etc.)
+        finalLayout = enhanceDrillLayout(cleanDrillLayout(layout));
+      }
 
+      // Render and upload, toggling legend/title bar in SVG helpers (to be implemented)
       const storagePath = this.buildStoragePath(title, context);
       const { imageUrl, xmlContent, editUrl } = await this.renderAndUpload(
         finalLayout,
         storagePath,
-        context
+        context,
+        kind,
+        requestedTeamFocus
       );
 
       const now = Date.now();
@@ -523,7 +660,7 @@ export class BoardDiagramService {
 
       const asset = await assetService.create({
         kind,
-        sport: enhancedLayout.sport,
+        sport: finalLayout.sport,
         title,
         description: input.description,
         imageUrl,
@@ -575,6 +712,10 @@ export class BoardDiagramService {
     input: UpdateBoardDiagramInput,
     context?: ToolExecutionContext
   ): Promise<BoardDiagramAsset> {
+    const extendedSportsEnabled = await getFeatureFlagsService(getFirestore()).isEnabled(
+      'ai.play.diagram.extended.sports.enabled'
+    );
+
     const assetService = this.getAssetService(context);
     const existing = await assetService.getById(input.assetId, input.userId);
 
@@ -587,6 +728,7 @@ export class BoardDiagramService {
 
     const description = input.description ?? existing.description;
     const title = input.title ?? existing.title;
+    const requestedTeamFocus = inferRequestedTeamFocus(title, description);
 
     logger.info('[BoardDiagramService] Updating diagram', {
       assetId: input.assetId,
@@ -602,21 +744,28 @@ export class BoardDiagramService {
         title,
         existing.sport,
         existing.kind,
+        requestedTeamFocus,
+        extendedSportsEnabled,
         undefined,
         context
       );
 
-      const conceptText = `${title} ${description}`.trim();
-      const enhancedLayout = enhanceLayoutForConcept(layout, conceptText);
-      const finalLayout =
-        existing.kind === 'sport_drill' ? cleanDrillLayout(enhancedLayout) : enhancedLayout;
+      let finalLayout: DiagramLayout;
+      if (existing.kind === 'sport_play') {
+        const conceptText = `${title} ${description}`.trim();
+        finalLayout = enhanceLayoutForConcept(layout, conceptText);
+      } else {
+        finalLayout = enhanceDrillLayout(cleanDrillLayout(layout));
+      }
 
       // Upload the new PNG before patching the asset record
       const newStoragePath = this.buildStoragePath(title, context);
       const { imageUrl, xmlContent, editUrl } = await this.renderAndUpload(
         finalLayout,
         newStoragePath,
-        context
+        context,
+        undefined,
+        requestedTeamFocus
       );
 
       const updated = await assetService.patch(input.assetId, input.userId, {

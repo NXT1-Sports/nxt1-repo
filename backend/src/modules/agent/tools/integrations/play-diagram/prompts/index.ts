@@ -54,6 +54,13 @@ CURVE RULES — set "curve" on every route:
 - false → straight-line assignments: go routes with 2 points, block assignments (sharp/linear)
 - When in doubt for skill positions, use true
 
+TEAM VISIBILITY RULES (CRITICAL — READ USER MESSAGE FOR TEAM FOCUS DIRECTIVE FIRST):
+- The user message will contain a "TEAM FOCUS:" directive. That directive overrides all defaults below.
+- TEAM FOCUS: DEFENSE ONLY → output ONLY players with "team":"defense". Do NOT output any offense players. Populate the field with real defensive positions (CB, FS, SS, OLB, MLB, DE, DT).
+- TEAM FOCUS: OFFENSE ONLY → output ONLY players with "team":"offense". Do NOT output any defense players.
+- TEAM FOCUS: BOTH SIDES → output BOTH offense AND defense players in the same layout.
+- TEAM FOCUS: AUTO → default to offense-only unless the description clearly describes a defensive scheme.
+
 ${prompt.systemSection}
 
 EXAMPLE JSON:

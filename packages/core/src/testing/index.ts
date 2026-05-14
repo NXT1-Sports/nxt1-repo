@@ -771,6 +771,10 @@ export const AGENT_X_OPERATION_CHAT_TEST_IDS = {
   RECURRING_ITEM: 'agent-op-chat-recurring-item',
   RECURRING_NEXT_SEND: 'agent-op-chat-recurring-next-send',
   BTN_RECURRING_CANCEL: 'agent-op-chat-btn-recurring-cancel',
+  HINT_DOCK: 'agent-op-chat-hint-dock',
+  HINT_ITEM: 'agent-op-chat-hint-item',
+  HINT_ACTION: 'agent-op-chat-hint-action',
+  HINT_CLOSE: 'agent-op-chat-hint-close',
 } as const;
 
 export const AGENT_X_CHAT_BUBBLE_ACTIONS_TEST_IDS = {
@@ -1201,6 +1205,12 @@ export const LIVE_VIEW_TEST_IDS = {
 export const LIVE_VIEW_LAUNCHER_TEST_IDS = {
   /** Root container for the live-view launcher panel */
   CONTAINER: 'live-view-launcher-container',
+  /** Section with recovered/stored sessions */
+  RECOVERY_SECTION: 'live-view-launcher-recovery-section',
+  /** Individual stored session tab/button (suffixed with -{sessionId}) */
+  RECOVERY_SESSION: 'live-view-launcher-recovery-session',
+  /** Button to dismiss/discard a stored session */
+  RECOVERY_SESSION_DISMISS: 'live-view-launcher-recovery-dismiss',
   /** Custom URL text input */
   URL_INPUT: 'live-view-launcher-url-input',
   /** Submit button for the custom URL */

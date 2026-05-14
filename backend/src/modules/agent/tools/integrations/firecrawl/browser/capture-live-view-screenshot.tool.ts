@@ -39,7 +39,7 @@ export class CaptureLiveViewScreenshotTool extends BaseTool {
     'Captures a visual screenshot from the active Firecrawl live-view browser session and stores it as a signed image URL. ' +
     'Use this when you need visual evidence of the current page state, a UI debug snapshot, a proof screenshot, or a still view of what the user sees. ' +
     'This uses Firecrawl Interact Playwright screenshot support on the same browser session shown in the live-view panel. ' +
-    'Do not use screenshots as a substitute for actual film/video analysis; for video breakdowns, use extract_live_view_media or extract_live_view_playlist to obtain real media URLs.';
+    'Do not use screenshots as a substitute for actual film/video analysis; for video breakdowns, use extract_live_view_media to obtain real media URLs.';
 
   readonly parameters = ScreenshotInputSchema;
   readonly isMutation = false;

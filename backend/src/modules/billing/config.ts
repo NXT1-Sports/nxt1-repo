@@ -8,6 +8,7 @@
 import type { StripeConfig } from './types/index.js';
 import { getUsageProductConfig } from '@nxt1/core/usage';
 import { logger } from '../../utils/logger.js';
+import { isFeatureEnabledSync } from '../../config/feature-flags/index.js';
 
 function getPricePrefix(environment: 'staging' | 'production'): 'STAGING' | 'PRODUCTION' {
   return environment === 'staging' ? 'STAGING' : 'PRODUCTION';
@@ -35,7 +36,7 @@ export function getStripeConfig(environment: 'staging' | 'production'): StripeCo
     environment === 'staging'
       ? process.env['STRIPE_TEST_WEBHOOK_SECRET']
       : process.env['STRIPE_WEBHOOK_SECRET'];
-  const enabled = process.env['STRIPE_ENABLED'] !== 'false';
+  const enabled = isFeatureEnabledSync('billing.stripe.enabled');
 
   if (!secretKey && enabled) {
     logger.warn(`⚠️  Stripe secret key not configured for ${environment} - billing disabled`);

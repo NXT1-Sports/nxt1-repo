@@ -17,6 +17,8 @@ import type { ToolExecutionContext } from '../../base.tool.js';
 import { buildSystemPrompt } from './prompts/index.js';
 import { getSportRenderer } from './renderers/index.js';
 import { applySportFeatureFlag, normalizeSportId } from './sport-normalization.js';
+import { getFeatureFlagsService } from '../../../../../config/feature-flags/index.js';
+import { getFirestore } from 'firebase-admin/firestore';
 import {
   coercePlayerShape,
   coerceRouteType,
@@ -135,7 +137,8 @@ async function uploadToStorage(
 function parseLlmLayout(
   raw: string,
   requestedSport: NormalizedSport,
-  fallbackLosY: number
+  fallbackLosY: number,
+  extendedSportsEnabled: boolean
 ): DiagramLayout {
   const cleaned = raw
     .replace(/^```[a-z]*\n?/im, '')
@@ -155,7 +158,7 @@ function parseLlmLayout(
   const obj = parsed as Record<string, unknown>;
   const sportFromPayload =
     typeof obj['sport'] === 'string' ? normalizeSportId(obj['sport']) : requestedSport;
-  const sport = applySportFeatureFlag(sportFromPayload);
+  const sport = applySportFeatureFlag(sportFromPayload, extendedSportsEnabled);
 
   if (!Array.isArray(obj['players']) || !Array.isArray(obj['routes'])) {
     throw new AgentEngineError(
@@ -217,6 +220,7 @@ export class PlayDiagramService {
   private async generateLayoutWithRetry(
     input: CreatePlayDiagramInput,
     sport: NormalizedSport,
+    extendedSportsEnabled: boolean,
     context: ToolExecutionContext | undefined
   ): Promise<DiagramLayout> {
     const renderer = getSportRenderer(sport);
@@ -261,7 +265,12 @@ export class PlayDiagramService {
           );
         }
 
-        const layout = parseLlmLayout(rawOutput, sport, renderer.defaultLosY);
+        const layout = parseLlmLayout(
+          rawOutput,
+          sport,
+          renderer.defaultLosY,
+          extendedSportsEnabled
+        );
         logger.info('[PlayDiagramService] Layout generation succeeded', {
           sport,
           attempt,
@@ -294,20 +303,29 @@ export class PlayDiagramService {
     input: CreatePlayDiagramInput,
     context?: ToolExecutionContext
   ): Promise<PlayDiagramResult> {
-    const requestedSport = applySportFeatureFlag(normalizeSportId(input.sport));
+    const extendedSportsEnabled = await getFeatureFlagsService(getFirestore()).isEnabled(
+      'ai.play.diagram.extended.sports.enabled'
+    );
+    const requestedSport = applySportFeatureFlag(
+      normalizeSportId(input.sport),
+      extendedSportsEnabled
+    );
     const title = input.title ?? `${requestedSport} Diagram`;
 
     logger.info('[PlayDiagramService] Start generation', {
       requestedSport,
       title,
       hasTemplate: Boolean(input.xmlTemplate),
-      extendedSportsEnabled: !/^(0|false|no)$/i.test(
-        process.env['PLAY_DIAGRAM_ENABLE_EXTENDED_SPORTS'] ?? 'true'
-      ),
+      extendedSportsEnabled,
     });
 
     try {
-      const layout = await this.generateLayoutWithRetry(input, requestedSport, context);
+      const layout = await this.generateLayoutWithRetry(
+        input,
+        requestedSport,
+        extendedSportsEnabled,
+        context
+      );
       const conceptText = `${input.title ?? ''} ${input.description}`.trim();
       const enhancedLayout = enhanceLayoutForConcept(layout, conceptText);
 

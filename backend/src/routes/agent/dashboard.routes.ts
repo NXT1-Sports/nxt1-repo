@@ -782,6 +782,11 @@ router.post('/gameplans', appGuard, async (req: Request, res: Response) => {
               .filter((v) => v.length > 0),
           }
         : {}),
+      ...(Array.isArray(payload['strengthsWeaknesses'])
+        ? { strengthsWeaknesses: payload['strengthsWeaknesses'] as any }
+        : {}),
+      ...(Array.isArray(payload['priorities']) ? { priorities: payload['priorities'] as any } : {}),
+      ...(Array.isArray(payload['planBlocks']) ? { planBlocks: payload['planBlocks'] as any } : {}),
       ...(Array.isArray(payload['adjustmentTriggers'])
         ? { adjustmentTriggers: payload['adjustmentTriggers'] as any }
         : {}),
@@ -802,7 +807,7 @@ router.post('/gameplans', appGuard, async (req: Request, res: Response) => {
           }
         : {}),
       source: 'api_direct',
-      schemaVersion: 1,
+      schemaVersion: 2,
       createdBy: user.uid,
       updatedBy: user.uid,
       createdAt: now,
@@ -914,6 +919,10 @@ router.put('/gameplans/:gamePlanId', appGuard, async (req: Request, res: Respons
       updateData['openingScript'] = (payload['openingScript'] as unknown[])
         .map((v) => String(v).trim())
         .filter((v) => v.length > 0);
+    if (Array.isArray(payload['strengthsWeaknesses']))
+      updateData['strengthsWeaknesses'] = payload['strengthsWeaknesses'];
+    if (Array.isArray(payload['priorities'])) updateData['priorities'] = payload['priorities'];
+    if (Array.isArray(payload['planBlocks'])) updateData['planBlocks'] = payload['planBlocks'];
     if (Array.isArray(payload['adjustmentTriggers']))
       updateData['adjustmentTriggers'] = payload['adjustmentTriggers'];
     if (Array.isArray(payload['halftimePriorities']))
@@ -2009,5 +2018,704 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
     res.status(500).json({ success: false, error: 'Failed to provision video upload URL' });
   }
 });
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TeamPlaybooks REST CRUD
+// GET    /playbooks              — list playbooks for a team
+// GET    /playbooks/:id          — get full playbook detail
+// POST   /playbooks              — create a new playbook
+// PATCH  /playbooks/:id          — update playbook metadata
+// DELETE /playbooks/:id          — hard-delete a playbook
+// POST   /playbooks/:id/plays    — append a play
+// PATCH  /playbooks/:id/plays/:i — update play by index
+// DELETE /playbooks/:id/plays/:i — remove play by index
+// ═══════════════════════════════════════════════════════════════════════════
+
+const TEAM_PLAYBOOKS_COLLECTION = 'TeamPlaybooks';
+
+/** Title-case every word in a string. */
+function titleCaseStr(s: string): string {
+  return s.trim().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Title-case every element in a string array (or return []). */
+function titleCaseArr(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return (raw as unknown[])
+    .filter((v): v is string => typeof v === 'string' && v.trim().length > 0)
+    .map((v) => titleCaseStr(v));
+}
+
+/** Rebuild concept / formation / personnel / category indexes from plays array. */
+function buildPlayIndexes(plays: Record<string, unknown>[]): Record<string, string[]> {
+  const concepts = new Set<string>();
+  const formations = new Set<string>();
+  const personnel = new Set<string>();
+  const categories = new Set<string>();
+
+  for (const play of plays) {
+    const formation = play['formation'];
+    const pers = play['personnel'];
+    const cat = play['category'];
+    const tags = play['conceptTags'];
+    if (typeof formation === 'string' && formation.trim()) formations.add(formation.trim());
+    if (typeof pers === 'string' && pers.trim()) personnel.add(pers.trim());
+    if (typeof cat === 'string' && cat.trim()) categories.add(cat.trim());
+    if (Array.isArray(tags)) {
+      for (const t of tags) {
+        if (typeof t === 'string' && t.trim()) concepts.add(titleCaseStr(t));
+      }
+    }
+  }
+
+  return {
+    conceptTagIndex: [...concepts].sort(),
+    formationIndex: [...formations].sort(),
+    personnelIndex: [...personnel].sort(),
+    categoryIndex: [...categories].sort(),
+  };
+}
+
+/** Summarize a TeamPlaybooks doc for the list response. */
+function toPlaybookSummary(id: string, data: Record<string, unknown>): Record<string, unknown> {
+  const plays = Array.isArray(data['plays']) ? (data['plays'] as unknown[]) : [];
+  return {
+    id,
+    teamId: data['teamId'],
+    sport: data['sport'],
+    name: data['name'],
+    title: data['title'],
+    season: data['season'],
+    source: data['source'],
+    sourceUrl: data['sourceUrl'],
+    playCount: typeof data['playCount'] === 'number' ? data['playCount'] : plays.length,
+    conceptTagCount: Array.isArray(data['conceptTagIndex']) ? data['conceptTagIndex'].length : 0,
+    formationCount: Array.isArray(data['formationIndex']) ? data['formationIndex'].length : 0,
+    personnelCount: Array.isArray(data['personnelIndex']) ? data['personnelIndex'].length : 0,
+    categoryCount: Array.isArray(data['categoryIndex']) ? data['categoryIndex'].length : 0,
+    archived: data['archived'] === true,
+    updatedAt: data['updatedAt'],
+    createdAt: data['createdAt'],
+  };
+}
+
+// ─── GET /playbooks ──────────────────────────────────────────────────────────
+router.get('/playbooks', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const teamId = typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : null;
+    if (!teamId) {
+      res.status(400).json({ success: false, error: 'teamId is required' });
+      return;
+    }
+
+    const limit = Math.min(parseInt(String(req.query['limit'] ?? '25'), 10) || 25, 100);
+    const includeArchived = req.query['includeArchived'] === 'true';
+
+    const { db } = req.firebase!;
+    const teamDoc = await db.collection('Teams').doc(teamId).get();
+    if (!teamDoc.exists) {
+      res.status(404).json({ success: false, error: 'Team not found' });
+      return;
+    }
+
+    const authorized = await canManageTeamMutationForUser(
+      db,
+      user.uid,
+      teamId,
+      teamDoc.data() ?? {}
+    );
+    if (!authorized) {
+      res
+        .status(403)
+        .json({ success: false, error: 'Not authorized to view playbooks for this team' });
+      return;
+    }
+
+    const snap = await db
+      .collection(TEAM_PLAYBOOKS_COLLECTION)
+      .where('teamId', '==', teamId)
+      .limit(limit * 4)
+      .get();
+
+    const playbooks = snap.docs
+      .map((doc: FirestoreDocLike) => ({ id: doc.id, ...doc.data() }))
+      .filter((p: Record<string, unknown>) => includeArchived || p['archived'] !== true)
+      .sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+        const left = String(a['updatedAt'] ?? a['createdAt'] ?? '');
+        const right = String(b['updatedAt'] ?? b['createdAt'] ?? '');
+        return left > right ? -1 : 1;
+      })
+      .slice(0, limit)
+      .map((p: Record<string, unknown>) => toPlaybookSummary(String(p['id']), p));
+
+    logger.info('GET /playbooks', { userId: user.uid, teamId, count: playbooks.length });
+    res.json({ success: true, data: { playbooks, count: playbooks.length } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('GET /playbooks failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to load playbooks' });
+  }
+});
+
+// ─── GET /playbooks/:playbookId ──────────────────────────────────────────────
+router.get('/playbooks/:playbookId', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { playbookId } = req.params as { playbookId: string };
+    const teamId = typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : null;
+
+    const { db } = req.firebase!;
+    const doc = await db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId).get();
+    if (!doc.exists) {
+      res.status(404).json({ success: false, error: 'Playbook not found' });
+      return;
+    }
+
+    const data = doc.data() as Record<string, unknown>;
+    const playbookTeamId = String(data['teamId'] ?? '');
+
+    if (teamId && playbookTeamId !== teamId) {
+      res.status(403).json({ success: false, error: 'Playbook does not belong to this team' });
+      return;
+    }
+
+    const teamDoc = await db.collection('Teams').doc(playbookTeamId).get();
+    const authorized = await canManageTeamMutationForUser(
+      db,
+      user.uid,
+      playbookTeamId,
+      teamDoc.data() ?? {}
+    );
+    if (!authorized) {
+      res.status(403).json({ success: false, error: 'Not authorized' });
+      return;
+    }
+
+    res.json({ success: true, data: { playbook: { id: doc.id, ...data } } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('GET /playbooks/:id failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to load playbook' });
+  }
+});
+
+// ─── POST /playbooks ─────────────────────────────────────────────────────────
+router.post('/playbooks', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const body = req.body as Record<string, unknown>;
+    const teamId = typeof body['teamId'] === 'string' ? body['teamId'].trim() : '';
+    const sport = typeof body['sport'] === 'string' ? body['sport'].trim() : '';
+    const name = typeof body['name'] === 'string' ? body['name'].trim() : '';
+
+    if (!teamId) {
+      res.status(400).json({ success: false, error: 'teamId is required' });
+      return;
+    }
+    if (!sport) {
+      res.status(400).json({ success: false, error: 'sport is required' });
+      return;
+    }
+    if (!name) {
+      res.status(400).json({ success: false, error: 'name is required' });
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const teamDoc = await db.collection('Teams').doc(teamId).get();
+    if (!teamDoc.exists) {
+      res.status(404).json({ success: false, error: 'Team not found' });
+      return;
+    }
+
+    const authorized = await canManageTeamMutationForUser(
+      db,
+      user.uid,
+      teamId,
+      teamDoc.data() ?? {}
+    );
+    if (!authorized) {
+      res
+        .status(403)
+        .json({ success: false, error: 'Not authorized to create playbooks for this team' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const normalizedSport = sport.toLowerCase();
+    const slug = name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .slice(0, 40);
+    const docId = `${teamId}_${normalizedSport}_${slug}_${Date.now()}`;
+
+    const payload: Record<string, unknown> = {
+      id: docId,
+      teamId,
+      sport: normalizedSport,
+      name: titleCaseStr(name),
+      plays: [],
+      playCount: 0,
+      conceptTagIndex: [],
+      formationIndex: [],
+      personnelIndex: [],
+      categoryIndex: [],
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: user.uid,
+      updatedBy: user.uid,
+    };
+
+    const season = body['season'];
+    const source = body['source'];
+    const sourceUrl = body['sourceUrl'];
+    if (typeof season === 'string' && season.trim()) payload['season'] = season.trim();
+    if (typeof source === 'string' && source.trim()) payload['source'] = source.trim();
+    if (typeof sourceUrl === 'string' && sourceUrl.trim()) payload['sourceUrl'] = sourceUrl.trim();
+
+    await db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(docId).set(payload);
+
+    logger.info('POST /playbooks — created', {
+      teamId,
+      sport: normalizedSport,
+      name,
+      docId,
+      createdBy: user.uid,
+    });
+    res.status(201).json({ success: true, data: { playbook: payload } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('POST /playbooks failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to create playbook' });
+  }
+});
+
+// ─── PATCH /playbooks/:playbookId ────────────────────────────────────────────
+router.patch('/playbooks/:playbookId', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { playbookId } = req.params as { playbookId: string };
+    const { db } = req.firebase!;
+
+    const docRef = db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      res.status(404).json({ success: false, error: 'Playbook not found' });
+      return;
+    }
+
+    const existing = doc.data() as Record<string, unknown>;
+    const playbookTeamId = String(existing['teamId'] ?? '');
+
+    const teamDoc = await db.collection('Teams').doc(playbookTeamId).get();
+    const authorized = await canManageTeamMutationForUser(
+      db,
+      user.uid,
+      playbookTeamId,
+      teamDoc.data() ?? {}
+    );
+    if (!authorized) {
+      res.status(403).json({ success: false, error: 'Not authorized' });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const updates: Record<string, unknown> = { updatedAt: now, updatedBy: user.uid };
+
+    const body = req.body as Record<string, unknown>;
+    if (typeof body['name'] === 'string' && body['name'].trim()) {
+      updates['name'] = titleCaseStr(body['name']);
+    }
+    if (typeof body['season'] === 'string') updates['season'] = body['season'].trim();
+    if (typeof body['source'] === 'string') updates['source'] = body['source'].trim();
+    if (typeof body['sourceUrl'] === 'string') updates['sourceUrl'] = body['sourceUrl'].trim();
+    if (typeof body['archived'] === 'boolean') updates['archived'] = body['archived'];
+
+    await docRef.update(updates);
+
+    try {
+      const cache = getCacheService();
+      await Promise.all([
+        cache.del(`intel:team:${playbookTeamId}`),
+        cache.del(`team:playbooks:${playbookTeamId}:${String(existing['sport'] ?? '')}`),
+      ]);
+    } catch {
+      /* best effort */
+    }
+
+    logger.info('PATCH /playbooks/:id', {
+      playbookId,
+      teamId: playbookTeamId,
+      updatedBy: user.uid,
+    });
+    res.json({ success: true, data: { id: playbookId, ...updates } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('PATCH /playbooks/:id failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to update playbook' });
+  }
+});
+
+// ─── DELETE /playbooks/:playbookId ───────────────────────────────────────────
+router.delete('/playbooks/:playbookId', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { playbookId } = req.params as { playbookId: string };
+    const { db } = req.firebase!;
+
+    const docRef = db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      res.status(404).json({ success: false, error: 'Playbook not found' });
+      return;
+    }
+
+    const existing = doc.data() as Record<string, unknown>;
+    const playbookTeamId = String(existing['teamId'] ?? '');
+
+    const teamDoc = await db.collection('Teams').doc(playbookTeamId).get();
+    const authorized = await canManageTeamMutationForUser(
+      db,
+      user.uid,
+      playbookTeamId,
+      teamDoc.data() ?? {}
+    );
+    if (!authorized) {
+      res.status(403).json({ success: false, error: 'Not authorized' });
+      return;
+    }
+
+    await docRef.delete();
+
+    try {
+      const cache = getCacheService();
+      await Promise.all([
+        cache.del(`intel:team:${playbookTeamId}`),
+        cache.del(`team:playbooks:${playbookTeamId}:${String(existing['sport'] ?? '')}`),
+      ]);
+    } catch {
+      /* best effort */
+    }
+
+    logger.info('DELETE /playbooks/:id', {
+      playbookId,
+      teamId: playbookTeamId,
+      deletedBy: user.uid,
+    });
+    res.json({ success: true });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('DELETE /playbooks/:id failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to delete playbook' });
+  }
+});
+
+// ─── POST /playbooks/:playbookId/plays ───────────────────────────────────────
+router.post('/playbooks/:playbookId/plays', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { playbookId } = req.params as { playbookId: string };
+    const { db } = req.firebase!;
+
+    const docRef = db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId);
+    const doc = await docRef.get();
+    if (!doc.exists) {
+      res.status(404).json({ success: false, error: 'Playbook not found' });
+      return;
+    }
+
+    const existing = doc.data() as Record<string, unknown>;
+    const playbookTeamId = String(existing['teamId'] ?? '');
+
+    const teamDoc = await db.collection('Teams').doc(playbookTeamId).get();
+    const authorized = await canManageTeamMutationForUser(
+      db,
+      user.uid,
+      playbookTeamId,
+      teamDoc.data() ?? {}
+    );
+    if (!authorized) {
+      res.status(403).json({ success: false, error: 'Not authorized' });
+      return;
+    }
+
+    const body = req.body as Record<string, unknown>;
+    const playName = typeof body['name'] === 'string' ? body['name'].trim() : '';
+    if (!playName) {
+      res.status(400).json({ success: false, error: 'play name is required' });
+      return;
+    }
+
+    const newPlay: Record<string, unknown> = { name: titleCaseStr(playName) };
+    const strFields = [
+      'series',
+      'category',
+      'formation',
+      'personnel',
+      'downDistance',
+      'objective',
+      'installNotes',
+      'diagramUrl',
+      'videoUrl',
+    ] as const;
+    for (const field of strFields) {
+      if (typeof body[field] === 'string' && (body[field] as string).trim()) {
+        newPlay[field] = (body[field] as string).trim();
+      }
+    }
+    const concepts = titleCaseArr(body['conceptTags']);
+    if (concepts.length) newPlay['conceptTags'] = concepts;
+    const tags = titleCaseArr(body['tags']);
+    if (tags.length) newPlay['tags'] = tags;
+
+    const plays: Record<string, unknown>[] = [
+      ...((existing['plays'] as Record<string, unknown>[]) ?? []),
+      newPlay,
+    ];
+    const now = new Date().toISOString();
+    const indexes = buildPlayIndexes(plays);
+
+    await docRef.update({
+      plays,
+      playCount: plays.length,
+      ...indexes,
+      updatedAt: now,
+      updatedBy: user.uid,
+    });
+
+    try {
+      const cache = getCacheService();
+      await cache.del(`team:playbooks:${playbookTeamId}:${String(existing['sport'] ?? '')}`);
+    } catch {
+      /* best effort */
+    }
+
+    logger.info('POST /playbooks/:id/plays', { playbookId, teamId: playbookTeamId, playName });
+    res.status(201).json({ success: true, data: { play: newPlay, playCount: plays.length } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('POST /playbooks/:id/plays failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to add play' });
+  }
+});
+
+// ─── PATCH /playbooks/:playbookId/plays/:playIndex ───────────────────────────
+router.patch(
+  '/playbooks/:playbookId/plays/:playIndex',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { playbookId, playIndex } = req.params as { playbookId: string; playIndex: string };
+      const idx = parseInt(playIndex, 10);
+      if (Number.isNaN(idx) || idx < 0) {
+        res.status(400).json({ success: false, error: 'Invalid play index' });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const docRef = db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        res.status(404).json({ success: false, error: 'Playbook not found' });
+        return;
+      }
+
+      const existing = doc.data() as Record<string, unknown>;
+      const plays: Record<string, unknown>[] = [
+        ...((existing['plays'] as Record<string, unknown>[]) ?? []),
+      ];
+
+      if (idx >= plays.length) {
+        res.status(404).json({ success: false, error: 'Play index out of range' });
+        return;
+      }
+
+      const playbookTeamId = String(existing['teamId'] ?? '');
+      const teamDoc = await db.collection('Teams').doc(playbookTeamId).get();
+      const authorized = await canManageTeamMutationForUser(
+        db,
+        user.uid,
+        playbookTeamId,
+        teamDoc.data() ?? {}
+      );
+      if (!authorized) {
+        res.status(403).json({ success: false, error: 'Not authorized' });
+        return;
+      }
+
+      const body = req.body as Record<string, unknown>;
+      const updated: Record<string, unknown> = { ...plays[idx] };
+
+      if (typeof body['name'] === 'string' && body['name'].trim())
+        updated['name'] = titleCaseStr(body['name']);
+      const strFields = [
+        'series',
+        'category',
+        'formation',
+        'personnel',
+        'downDistance',
+        'objective',
+        'installNotes',
+        'diagramUrl',
+        'videoUrl',
+      ] as const;
+      for (const field of strFields) {
+        if (typeof body[field] === 'string') updated[field] = (body[field] as string).trim();
+      }
+      if (Array.isArray(body['conceptTags']))
+        updated['conceptTags'] = titleCaseArr(body['conceptTags']);
+      if (Array.isArray(body['tags'])) updated['tags'] = titleCaseArr(body['tags']);
+
+      plays[idx] = updated;
+      const now = new Date().toISOString();
+      const indexes = buildPlayIndexes(plays);
+
+      await docRef.update({
+        plays,
+        playCount: plays.length,
+        ...indexes,
+        updatedAt: now,
+        updatedBy: user.uid,
+      });
+
+      try {
+        const cache = getCacheService();
+        await cache.del(`team:playbooks:${playbookTeamId}:${String(existing['sport'] ?? '')}`);
+      } catch {
+        /* best effort */
+      }
+
+      logger.info('PATCH /playbooks/:id/plays/:i', { playbookId, idx, teamId: playbookTeamId });
+      res.json({ success: true, data: { play: updated } });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('PATCH /playbooks/:id/plays/:i failed', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to update play' });
+    }
+  }
+);
+
+// ─── DELETE /playbooks/:playbookId/plays/:playIndex ──────────────────────────
+router.delete(
+  '/playbooks/:playbookId/plays/:playIndex',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { playbookId, playIndex } = req.params as { playbookId: string; playIndex: string };
+      const idx = parseInt(playIndex, 10);
+      if (Number.isNaN(idx) || idx < 0) {
+        res.status(400).json({ success: false, error: 'Invalid play index' });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const docRef = db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        res.status(404).json({ success: false, error: 'Playbook not found' });
+        return;
+      }
+
+      const existing = doc.data() as Record<string, unknown>;
+      const plays: Record<string, unknown>[] = [
+        ...((existing['plays'] as Record<string, unknown>[]) ?? []),
+      ];
+
+      if (idx >= plays.length) {
+        res.status(404).json({ success: false, error: 'Play index out of range' });
+        return;
+      }
+
+      const playbookTeamId = String(existing['teamId'] ?? '');
+      const teamDoc = await db.collection('Teams').doc(playbookTeamId).get();
+      const authorized = await canManageTeamMutationForUser(
+        db,
+        user.uid,
+        playbookTeamId,
+        teamDoc.data() ?? {}
+      );
+      if (!authorized) {
+        res.status(403).json({ success: false, error: 'Not authorized' });
+        return;
+      }
+
+      plays.splice(idx, 1);
+      const now = new Date().toISOString();
+      const indexes = buildPlayIndexes(plays);
+
+      await docRef.update({
+        plays,
+        playCount: plays.length,
+        ...indexes,
+        updatedAt: now,
+        updatedBy: user.uid,
+      });
+
+      try {
+        const cache = getCacheService();
+        await cache.del(`team:playbooks:${playbookTeamId}:${String(existing['sport'] ?? '')}`);
+      } catch {
+        /* best effort */
+      }
+
+      logger.info('DELETE /playbooks/:id/plays/:i', { playbookId, idx, teamId: playbookTeamId });
+      res.json({ success: true, data: { playCount: plays.length } });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('DELETE /playbooks/:id/plays/:i failed', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to delete play' });
+    }
+  }
+);
 
 export default router;

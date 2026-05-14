@@ -24,11 +24,22 @@ export const C = {
   defStroke: '#d93025',
   defText: '#8b1a14',
 
-  route: '#1967d2',
-  routeLabel: '#1967d2',
-  zoneFill: 'rgba(25,103,210,0.14)',
-  zoneStroke: 'rgba(25,103,210,0.55)',
-  zoneLabel: '#0b3d91',
+  // Professional color palette (color-blind safe, Madden/2K inspired)
+  routePass: '#f7b500', // bright yellow
+  routeRun: '#00b386', // teal/green
+  routeScreen: '#00b7ff', // light blue
+  routeBlock: '#444444', // dark gray
+  routePick: '#a259f7', // purple
+  routeCut: '#ff6f00', // orange
+  routeDrag: '#ff4081', // pink
+  routeFade: '#bdbdbd', // light gray
+  routeLabel: '#222',
+  routeSpace: '#4caf50', // green for space routes
+  routeGo: '#f7b500', // same as routePass
+
+  zoneFill: 'rgba(0, 120, 255, 0.13)', // blue zone
+  zoneStroke: 'rgba(0, 120, 255, 0.55)',
+  zoneLabel: '#0057b7',
 
   titleBg: 'rgba(0,0,0,0.6)',
   titleText: '#ffffff',

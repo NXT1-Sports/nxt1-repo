@@ -39,7 +39,7 @@ import {
   InteractWithLiveViewTool,
   ReadLiveViewTool,
   ExtractLiveViewMediaTool,
-  ExtractLiveViewPlaylistTool,
+  // ExtractLiveViewPlaylistTool, // DISABLED: Playlist extraction not yet stable
   CloseLiveViewTool,
   LiveViewSessionService,
   ScraperService,
@@ -60,6 +60,10 @@ import {
   WriteScheduleTool,
   WriteTeamStatsTool,
   WritePlaybooksTool,
+  GetPlaybookTool,
+  ListPlaybooksTool,
+  UpdatePlaybookTool,
+  DeletePlaybookTool,
   GetGameplanTool,
   ListGameplansTool,
   SaveGameplanTool,
@@ -257,6 +261,7 @@ import { setWelcomeDependencies } from '../services/agent-welcome.service.js';
 import { setScrapeDependencies } from '../services/agent-scrape.service.js';
 import { addJobCost } from './job-cost-tracker.js';
 import { getAgentRunConfig } from '../config/agent-app-config.js';
+import { isFeatureEnabledSync } from '../../../config/feature-flags/index.js';
 
 /**
  * Quick probe: attempt a single TCP connect + PING to Redis.
@@ -296,9 +301,9 @@ async function isRedisAvailable(url: string): Promise<boolean> {
  * @returns A shutdown function that gracefully closes all connections.
  */
 export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
-  // ── 0. Kill-switch: set AGENT_ENGINE_DISABLED=true in .env to skip entirely ──
-  if (process.env['AGENT_ENGINE_DISABLED'] === 'true') {
-    logger.warn('⚠️  AGENT_ENGINE_DISABLED=true — Agent Engine skipped.');
+  // ── 0. Kill-switch ─────────────────────────────────────────────────
+  if (!isFeatureEnabledSync('experimental.agent.engine.enabled')) {
+    logger.warn('⚠️  experimental.agent.engine.enabled=false — Agent Engine skipped.');
     return async () => {
       /* noop shutdown */
     };
@@ -319,7 +324,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
       logger.warn(
         '⚠️  Redis unavailable — Agent Engine skipped. ' +
           'Start Redis locally (e.g. via WSL2/Docker: `docker run -p 6379:6379 redis`) ' +
-          'or set AGENT_ENGINE_DISABLED=true to suppress this warning.'
+          'or disable experimental.agent.engine.enabled to suppress this warning.'
       );
     }
     // Do NOT throw — let the server start so all other routes keep working.
@@ -401,10 +406,10 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     toolRegistry.register(new InteractWithLiveViewTool(liveViewService));
     toolRegistry.register(new ReadLiveViewTool(liveViewService));
     toolRegistry.register(new ExtractLiveViewMediaTool(liveViewService));
-    toolRegistry.register(new ExtractLiveViewPlaylistTool(liveViewService));
+    // toolRegistry.register(new ExtractLiveViewPlaylistTool(liveViewService)); // DISABLED: Use extract_live_view_media instead
     toolRegistry.register(new CloseLiveViewTool(liveViewService));
     logger.info(
-      'Live view tools registered (open, navigate, interact, read, extract media, extract playlist, close)'
+      'Live view tools registered (open, navigate, interact, read, extract media, close)'
     );
   } catch {
     logger.warn('LiveViewSessionService init failed — open_live_view tool disabled');
@@ -420,6 +425,10 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteScheduleTool(stagingDb));
   toolRegistry.register(new WriteTeamStatsTool(stagingDb));
   toolRegistry.register(new WritePlaybooksTool(stagingDb));
+  toolRegistry.register(new GetPlaybookTool(stagingDb));
+  toolRegistry.register(new ListPlaybooksTool(stagingDb));
+  toolRegistry.register(new UpdatePlaybookTool(stagingDb));
+  toolRegistry.register(new DeletePlaybookTool(stagingDb));
   toolRegistry.register(new GetGameplanTool(stagingDb));
   toolRegistry.register(new ListGameplansTool(stagingDb));
   toolRegistry.register(new SaveGameplanTool(stagingDb));

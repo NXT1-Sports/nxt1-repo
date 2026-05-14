@@ -102,6 +102,7 @@ export interface AgentXUser {
   readonly profileImg?: string | null;
   readonly displayName?: string | null;
   readonly role?: string;
+  readonly activeTeamId?: string | null;
   readonly selectedSports?: readonly string[];
   readonly connectedSources?: readonly {
     platform: string;
@@ -2658,9 +2659,18 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     scopeType?: 'global' | 'sport' | 'team';
     scopeId?: string;
   }): string {
-    return `${source.platform.toLowerCase()}|${source.scopeType ?? 'global'}|${
+    return `${this.normalizeAttachmentPlatformKey(source.platform)}|${source.scopeType ?? 'global'}|${
       this.normalizeScopeKey(source.scopeId) || 'global'
     }`;
+  }
+
+  /** Canonicalize platform aliases so the attachments menu does not show duplicate chips. */
+  private normalizeAttachmentPlatformKey(platform: string): string {
+    const normalized = platform.trim().toLowerCase();
+    if (normalized === 'x' || normalized === 'x.com' || normalized === 'twitter.com') {
+      return 'twitter';
+    }
+    return normalized;
   }
 
   private resolveAttachmentProfileUrl(platform: string, url?: string): string {

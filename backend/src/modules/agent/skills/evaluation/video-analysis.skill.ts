@@ -23,7 +23,7 @@ Use real video media for film analysis. Never infer plays, technique, or movemen
 - read_live_view is for understanding page structure, titles, and clip ordering.
 - capture_live_view_screenshot is for visual page evidence, UI debugging, or proving the current browser state; it is not a film-analysis input.
 - extract_live_view_media is the entry point for obtaining the real media URLs and authenticated request material from the user's active browser session.
-- extract_live_view_playlist is the entry point for obtaining multiple clip URLs and their auth bundle from a playlist page without opening clips one by one.
+- extract_live_view_playlist is currently DISABLED (not yet stable). For multiple clips, use interact_with_live_view to navigate + extract_live_view_media for each clip.
 - analyze_video should only receive a directly playable video URL or a downloadable MP4 URL.
 - Before the first page-changing live-view interaction in a film workflow, capture a screenshot or read the page so the user and agent have a grounded checkpoint of the current browser state.
 
@@ -37,13 +37,12 @@ Use real video media for film analysis. Never infer plays, technique, or movemen
 
 ### Playlist Or Multi-Clip Workflow
 1. Default to a small bounded set: max 5 clips unless the user explicitly requests a larger count.
-2. First use extract_live_view_playlist with maxItems equal to the requested small count. For "last N plays", pass selection="last". For explicit play numbers like #96-100, pass playNumbers=[96,97,98,99,100]. The tool can use Firecrawl browser interaction to scroll virtualized rows, but it must stay bounded to the requested subset.
-3. Use read_live_view only if you need extra context about clip order or visible labels that the playlist extractor did not return.
-4. Pass the extracted clip URLs plus auth headers or cookies into the downloader workflow instead of opening clips manually in the browser.
-5. Run the clip acquisition steps independently and in parallel whenever possible.
-6. Batch up to 5 final playable video URLs into one analyze_video call when the prompt is the same.
-7. If more than 5 clips are requested, ask the user to narrow the range or process in explicit 5-clip batches.
-8. For "last N plays" on a long virtualized Hudl table, use targeted bounded scrolling via extract_live_view_playlist instead of asking the user immediately. If the target rows still cannot be clicked or do not expose extractable media after one bounded attempt, then ask the user to load the first target play and analyze the currently loaded clip.
+2. extract_live_view_playlist is currently DISABLED. Instead: Use read_live_view to inspect the page and identify clips, then use interact_with_live_view to navigate to each clip sequentially, and extract_live_view_media for each.
+3. For explicit clip selection (e.g., plays #96-100): Use interact_with_live_view to scroll/navigate to those plays, then extract media from each.
+4. Run the clip acquisition steps independently and in parallel whenever possible.
+5. Batch up to 5 final playable video URLs into one analyze_video call when the prompt is the same.
+6. If more than 5 clips are requested, ask the user to narrow the range or process in explicit 5-clip batches.
+7. For "last N plays": Use read_live_view to find the last clips, then interact_with_live_view to navigate and extract_live_view_media for each. If the target rows still cannot be clicked or media URLs are not extractable, ask the user to load the first target play and analyze the currently loaded clip.
 
 ### Hard Prohibitions
 - Never treat interact_with_live_view as a vision tool.

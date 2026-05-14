@@ -81,6 +81,8 @@ import { resolveCoordinatorActionId } from './agent-x-operation-chat.utils';
 import { AgentXOperationChatYieldFacade } from './agent-x-operation-chat-yield.facade';
 import { AgentXOperationChatRecurringFacade } from './agent-x-operation-chat-recurring.facade';
 import { AgentXOperationChatRecurringTasksDockComponent } from './agent-x-operation-chat-recurring-tasks-dock.component';
+import { AgentXOperationChatHintFacade } from './agent-x-operation-chat-hint.facade';
+import { AgentXOperationChatHintDockComponent } from './agent-x-operation-chat-hint-dock.component';
 import type { OperationEventSubscription } from '../../services/agent-x-operation-event.service';
 import { NxtPlatformIconComponent } from '../../../components/platform-icon/platform-icon.component';
 import { NxtDragDropDirective } from '../../../services/gesture';
@@ -164,6 +166,7 @@ type YieldStateSource =
     AgentXActionCardComponent,
     AgentXEnqueueWaitingCardComponent,
     AgentXOperationChatRecurringTasksDockComponent,
+    AgentXOperationChatHintDockComponent,
   ],
   template: `
     <div
@@ -481,6 +484,13 @@ type YieldStateSource =
             [expanded]="recurringDockExpanded()"
             (expandedChange)="recurringDockExpanded.set($event)"
             (cancelTask)="recurringFacade.cancelRecurringTask($event)"
+          />
+        }
+
+        @if (hintFacade.shouldRenderDock()) {
+          <nxt1-agent-x-operation-chat-hint-dock
+            [hints]="hintFacade.hints()"
+            (dismissHint)="hintFacade.dismissHint($event)"
           />
         }
 
@@ -1552,6 +1562,7 @@ type YieldStateSource =
     AgentXOperationChatSessionFacade,
     AgentXOperationChatYieldFacade,
     AgentXOperationChatRecurringFacade,
+    AgentXOperationChatHintFacade,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -1565,6 +1576,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private readonly sessionFacade = inject(AgentXOperationChatSessionFacade);
   private readonly transportFacade = inject(AgentXOperationChatTransportFacade);
   protected readonly yieldFacade = inject(AgentXOperationChatYieldFacade);
+  protected readonly recurringFacade = inject(AgentXOperationChatRecurringFacade);
+  protected readonly hintFacade = inject(AgentXOperationChatHintFacade);
   private readonly hostElement = inject(ElementRef);
   private readonly desktopAttachmentFileInput = viewChild<ElementRef<HTMLInputElement>>(
     'desktopAttachmentFileInput'
@@ -1700,6 +1713,21 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * Used to keep recurring-task UI affordances visible during loading states.
    */
   @Input() hasRecurringTasksHint = false;
+
+  /**
+   * Optional callback to pass the current live view status to the parent.
+   * Allows the hint facade to know when a live view session is active.
+   */
+  private readonly _hasActiveLiveView = signal(false);
+
+  @Input()
+  set hasActiveLiveView(value: boolean) {
+    this._hasActiveLiveView.set(!!value);
+  }
+
+  get hasActiveLiveView(): boolean {
+    return this._hasActiveLiveView();
+  }
 
   /**
    * When the operation is in `awaiting_input` state, the shell passes
@@ -2145,8 +2173,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   private readonly messagesArea = viewChild<ElementRef>('messagesArea');
 
-  protected readonly recurringFacade = inject(AgentXOperationChatRecurringFacade);
-
   constructor() {
     this.recurringFacade.configure({
       resolveActiveThreadId: () => this.sessionFacade.resolveActiveThreadId(),
@@ -2411,6 +2437,16 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     effect(() => {
       const resolvedId = this._resolvedThreadId();
       this.recurringFacade.refreshForThread(resolvedId ?? (this.threadId.trim() || null));
+    });
+
+    // Track live view status for hint facade
+    effect(() => {
+      const hasLiveView = this._hasActiveLiveView();
+      if (hasLiveView) {
+        this.hintFacade.markLiveViewActive();
+      } else {
+        this.hintFacade.markLiveViewInactive();
+      }
     });
   }
 

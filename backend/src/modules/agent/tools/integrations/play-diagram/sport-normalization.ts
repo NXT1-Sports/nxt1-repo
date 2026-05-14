@@ -36,9 +36,11 @@ export function supportsExtendedSport(sport: NormalizedSport): boolean {
   return sport === 'soccer' || sport === 'baseball' || sport === 'softball';
 }
 
-export function applySportFeatureFlag(sport: NormalizedSport): NormalizedSport {
-  const enabled = process.env['PLAY_DIAGRAM_ENABLE_EXTENDED_SPORTS'];
-  if (enabled && /^(0|false|no)$/i.test(enabled) && supportsExtendedSport(sport)) {
+export function applySportFeatureFlag(
+  sport: NormalizedSport,
+  extendedSportsEnabled: boolean
+): NormalizedSport {
+  if (!extendedSportsEnabled && supportsExtendedSport(sport)) {
     return 'football';
   }
   return sport;

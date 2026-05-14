@@ -211,7 +211,7 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('proactively include 3-5 recommended videos');
     expect(prompt).toContain('save_gameplan');
     expect(prompt).toContain('extract_live_view_media');
-    expect(prompt).toContain('extract_live_view_playlist');
+    // extract_live_view_playlist is currently DISABLED
     expect(prompt).toContain('Firecrawl can scroll virtualized Hudl rows');
     expect(prompt).toContain('skipMediaPersistence: true');
     // import_video reserved for persistent editing
@@ -226,14 +226,14 @@ describe('Agent tool exposure regressions', () => {
     expect(performanceTools).toContain('open_live_view');
     expect(performanceTools).toContain('capture_live_view_screenshot');
     expect(performanceTools).toContain('extract_live_view_media');
-    expect(performanceTools).toContain('extract_live_view_playlist');
+    // extract_live_view_playlist is currently DISABLED
     expect(performanceTools).toContain('analyze_video');
     expect(performanceTools).not.toContain('stage_media');
 
     expect(strategyTools).toContain('open_live_view');
     expect(strategyTools).toContain('capture_live_view_screenshot');
     expect(strategyTools).toContain('extract_live_view_media');
-    expect(strategyTools).toContain('extract_live_view_playlist');
+    // extract_live_view_playlist is currently DISABLED
     expect(strategyTools).toContain('analyze_video');
     expect(strategyTools).toContain('stage_media');
   });

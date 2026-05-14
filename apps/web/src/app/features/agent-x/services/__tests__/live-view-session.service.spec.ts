@@ -455,6 +455,58 @@ describe('LiveViewSessionService', () => {
     });
   });
 
+  describe('closePanel', () => {
+    it('should clear local state only (keep backend session alive)', async () => {
+      service.adoptSession(MOCK_SESSION);
+      expect(service.hasActiveSession()).toBe(true);
+
+      await service.closePanel();
+
+      expect(service.activeSession()).toBeNull();
+      expect(service.hasActiveSession()).toBe(false);
+      // Should NOT call HTTP close endpoint
+      expect(httpMock.post).not.toHaveBeenCalled();
+    });
+
+    it('should track SESSION_CLOSED analytics', async () => {
+      service.adoptSession(MOCK_SESSION);
+
+      await service.closePanel();
+
+      expect(analyticsMock.trackEvent).toHaveBeenCalledWith(
+        APP_EVENTS.LIVE_VIEW_SESSION_CLOSED,
+        expect.objectContaining({
+          session_id: MOCK_SESSION.sessionId,
+          destination_tier: 'platform',
+        })
+      );
+    });
+  });
+
+  describe('destroySession', () => {
+    it('should terminate backend session', async () => {
+      service.adoptSession(MOCK_SESSION);
+      httpMock.post.mockReturnValue(of({ success: true }));
+
+      await service.destroySession();
+
+      expect(service.activeSession()).toBeNull();
+      expect(httpMock.post).toHaveBeenCalledWith(
+        expect.stringContaining('/live-view/close'),
+        expect.objectContaining({ sessionId: MOCK_SESSION.sessionId })
+      );
+    });
+
+    it('should handle destroy errors gracefully', async () => {
+      service.adoptSession(MOCK_SESSION);
+      httpMock.post.mockReturnValue(throwError(() => new Error('Network error')));
+
+      await service.destroySession();
+
+      expect(service.activeSession()).toBeNull();
+    });
+  });
+
   // ─── adoptSession ─────────────────────────────────────────────────
 
   describe('adoptSession', () => {

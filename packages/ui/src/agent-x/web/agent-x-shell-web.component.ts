@@ -64,6 +64,7 @@ import { AgentXDashboardSkeletonComponent } from '../components/shared/agent-x-d
 import {
   LiveViewLauncherComponent,
   type LiveViewLaunchEvent,
+  type LiveViewReconnectEvent,
 } from './live-view-launcher.component';
 import { AgentXControlPanelComponent } from '../components/shell/agent-x-control-panel.component';
 import { AgentXOperationsLogComponent } from '../components/shared/agent-x-operations-log.component';
@@ -100,9 +101,13 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
 import { buildLinkSourcesFormData, buildTrackedLinkUrl, type OnboardingUserType } from '@nxt1/core';
 import type { LinkSourcesFormData } from '@nxt1/core/api';
 import { TEST_IDS } from '@nxt1/core/testing';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { NxtBrowserService } from '../../services/browser';
 import { getPlatformFaviconUrl, PLATFORM_FAVICON_DOMAINS } from '@nxt1/core/platforms';
 import type { ConnectedAppSource } from '../components/modals/agent-x-attachments-sheet.component';
+import { AgentXGameplansPanelComponent } from '../components/shared/agent-x-gameplans-panel.component';
+import { AgentXPlaybooksPanelComponent } from '../components/shared/agent-x-playbooks-panel.component';
+import { ANALYTICS_ADAPTER } from '../../services/analytics';
 
 /**
  * Content descriptor for the expanded side panel.
@@ -127,6 +132,7 @@ export interface AgentXUser {
   readonly profileImg?: string | null;
   readonly displayName?: string | null;
   readonly role?: string;
+  readonly activeTeamId?: string | null;
   readonly selectedSports?: readonly string[];
   readonly connectedSources?: readonly {
     platform: string;
@@ -175,7 +181,12 @@ interface AgentXDesktopSession {
   readonly resumeOperationId?: string;
 }
 
-type AgentXDesktopResizablePanel = 'sessions' | 'action-plan' | 'expanded-panel';
+type AgentXDesktopResizablePanel =
+  | 'sessions'
+  | 'action-plan'
+  | 'gameplans'
+  | 'playbooks'
+  | 'expanded-panel';
 
 interface AgentXDesktopResizeState {
   readonly panel: AgentXDesktopResizablePanel;
@@ -218,6 +229,8 @@ function sortCoordinatorCategories(
     AgentXOperationChatComponent,
     AgentXInputBarComponent,
     LiveViewLauncherComponent,
+    AgentXGameplansPanelComponent,
+    AgentXPlaybooksPanelComponent,
   ],
   template: `
     <!-- Portal: center — Agent X title + centered nav pills -->
@@ -274,14 +287,17 @@ function sortCoordinatorCategories(
               <span class="header-nav-pill-count">{{ playbookTotalCount() }}</span>
             }
           </button>
-          @if (!platform.isMobile()) {
+          <div class="header-nav-dropdown" [class.header-nav-dropdown--open]="isPanelMenuOpen()">
             <button
               type="button"
-              class="header-nav-pill"
-              [class.header-nav-pill--active]="!!expandedSidePanel()"
+              class="header-nav-pill header-nav-pill--dropdown"
+              [class.header-nav-pill--active]="isPanelMenuActive()"
               [class.header-nav-pill--loading]="liveView.loading()"
               [disabled]="liveView.loading()"
-              (click)="toggleDevLiveView()"
+              [attr.aria-expanded]="isPanelMenuOpen()"
+              aria-haspopup="menu"
+              aria-label="Panel options"
+              (click)="togglePanelMenu($event)"
             >
               @if (liveView.loading()) {
                 <svg
@@ -298,6 +314,39 @@ function sortCoordinatorCategories(
                 >
                   <circle cx="12" cy="12" r="10" stroke-opacity="0.25" />
                   <path d="M12 2a10 10 0 0 1 10 10" />
+                </svg>
+              } @else if (showPlaybooksModal()) {
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                </svg>
+              } @else if (showGameplansModal()) {
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 2l9 5v10l-9 5-9-5V7l9-5z" />
+                  <path d="M12 12l6.5-3.75M12 12l-6.5-3.75M12 12v7.5" />
+                  <path d="M5.5 8.25v5.5M18.5 8.25v5.5" />
                 </svg>
               } @else {
                 <svg
@@ -317,9 +366,79 @@ function sortCoordinatorCategories(
                   <line x1="12" y1="17" x2="12" y2="21" />
                 </svg>
               }
-              <span>Live View</span>
+              <span>{{ panelMenuLabel() }}</span>
+              <svg
+                class="header-nav-pill-chevron"
+                xmlns="http://www.w3.org/2000/svg"
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.25"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M6 9l6 6 6-6" />
+              </svg>
             </button>
-          }
+
+            @if (isPanelMenuOpen()) {
+              <div class="header-nav-dropdown-menu" role="menu" aria-label="Panel options">
+                @if (!platform.isMobile()) {
+                  <button
+                    type="button"
+                    class="header-nav-dropdown-item"
+                    [class.header-nav-dropdown-item--active]="panelMenuSelection() === 'live-view'"
+                    role="menuitemradio"
+                    [attr.aria-checked]="panelMenuSelection() === 'live-view'"
+                    (click)="onSelectPanelMenuOption('live-view', $event)"
+                  >
+                    <span>Live View (Preview)</span>
+                    <nxt1-icon
+                      class="header-nav-dropdown-item-indicator"
+                      name="checkmark"
+                      [size]="14"
+                      aria-hidden="true"
+                    />
+                  </button>
+                }
+                <button
+                  type="button"
+                  class="header-nav-dropdown-item"
+                  [class.header-nav-dropdown-item--active]="panelMenuSelection() === 'playbooks'"
+                  role="menuitemradio"
+                  [attr.aria-checked]="panelMenuSelection() === 'playbooks'"
+                  (click)="onSelectPanelMenuOption('playbooks', $event)"
+                >
+                  <span>Playbooks</span>
+                  <nxt1-icon
+                    class="header-nav-dropdown-item-indicator"
+                    name="checkmark"
+                    [size]="14"
+                    aria-hidden="true"
+                  />
+                </button>
+                <button
+                  type="button"
+                  class="header-nav-dropdown-item"
+                  [class.header-nav-dropdown-item--active]="panelMenuSelection() === 'gameplans'"
+                  role="menuitemradio"
+                  [attr.aria-checked]="panelMenuSelection() === 'gameplans'"
+                  (click)="onSelectPanelMenuOption('gameplans', $event)"
+                >
+                  <span>Game Plans</span>
+                  <nxt1-icon
+                    class="header-nav-dropdown-item-indicator"
+                    name="checkmark"
+                    [size]="14"
+                    aria-hidden="true"
+                  />
+                </button>
+              </div>
+            }
+          </div>
         </div>
       </div>
     </ng-template>
@@ -395,7 +514,15 @@ function sortCoordinatorCategories(
       #desktopMain
       class="agent-main agent-desktop"
       [class.agent-main--with-sessions]="showSessionsRail()"
-      [class.agent-main--with-plan]="showActionPlanModal() && !expandedSidePanel()"
+      [class.agent-main--with-plan]="
+        showActionPlanModal() &&
+        !expandedSidePanel() &&
+        !showGameplansModal() &&
+        !showPlaybooksModal()
+      "
+      [class.agent-main--with-gameplans]="
+        (showGameplansModal() || showPlaybooksModal()) && !expandedSidePanel()
+      "
       [class.agent-main--with-expanded-panel]="!!expandedSidePanel()"
       [class.agent-main--resizing]="isDesktopPanelResizing()"
       [style.--agent-left-column-width.px]="leftRailWidth()"
@@ -528,6 +655,7 @@ function sortCoordinatorCategories(
                 [initialMessage]="session.initialMessage ?? ''"
                 [threadId]="session.threadId ?? ''"
                 [hasRecurringTasksHint]="session.hasRecurringTasksHint ?? false"
+                [hasActiveLiveView]="expandedSidePanel()?.type === 'live-view'"
                 [resumeOperationId]="session.resumeOperationId ?? ''"
                 [yieldState]="session.yieldState ?? null"
                 [operationStatus]="session.operationStatus ?? null"
@@ -544,7 +672,12 @@ function sortCoordinatorCategories(
         <!-- ═══════════════════════════════════════════
              ACTION PLAN PANEL (right column in desktop grid)
              ═══════════════════════════════════════════ -->
-        @if (showActionPlanModal() && !expandedSidePanel()) {
+        @if (
+          showActionPlanModal() &&
+          !showGameplansModal() &&
+          !showPlaybooksModal() &&
+          !expandedSidePanel()
+        ) {
           <aside class="agent-column agent-action-plan-column" aria-label="This Week's Game Plan">
             <div
               class="agent-resize-handle agent-resize-handle--left"
@@ -796,6 +929,73 @@ function sortCoordinatorCategories(
         }
 
         <!-- ═══════════════════════════════════════════
+             GAME PLANS PANEL (right column, identical to Action Plan)
+             ═══════════════════════════════════════════ -->
+        @if (showGameplansModal() && !expandedSidePanel()) {
+          <aside class="agent-column agent-action-plan-column" aria-label="Game Plans">
+            <div
+              class="agent-resize-handle agent-resize-handle--left"
+              [class.agent-resize-handle--active]="activeDesktopResize()?.panel === 'gameplans'"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize game plans panel"
+              (mousedown)="startDesktopPanelResize('gameplans', $event)"
+              (dblclick)="resetDesktopPanelWidth('gameplans', $event)"
+            ></div>
+            <div class="agent-column-header">
+              <div class="agent-column-header-row">
+                <h2 class="agent-column-title">Game Plans</h2>
+                <button
+                  type="button"
+                  class="rail-close-btn"
+                  (click)="showGameplansModal.set(false)"
+                  aria-label="Close game plans"
+                >
+                  <nxt1-icon name="close" [size]="16"></nxt1-icon>
+                </button>
+              </div>
+              <p class="agent-column-subtitle">Team strategy & playbooks</p>
+            </div>
+            <div class="action-plan-panel__body">
+              <nxt1-agent-x-gameplans-panel [teamId]="resolvedActiveTeamId()" />
+            </div>
+          </aside>
+        }
+
+        @if (showPlaybooksModal() && !expandedSidePanel()) {
+          <aside class="agent-column agent-action-plan-column" aria-label="Playbooks">
+            <div
+              class="agent-resize-handle agent-resize-handle--left"
+              [class.agent-resize-handle--active]="activeDesktopResize()?.panel === 'playbooks'"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize playbooks panel"
+              (mousedown)="startDesktopPanelResize('playbooks', $event)"
+              (dblclick)="resetDesktopPanelWidth('playbooks', $event)"
+            ></div>
+            <div class="agent-column-header">
+              <div class="agent-column-header-row">
+                <h2 class="agent-column-title">Playbooks</h2>
+                <button
+                  type="button"
+                  class="rail-close-btn"
+                  (click)="showPlaybooksModal.set(false)"
+                  aria-label="Close playbooks"
+                >
+                  <nxt1-icon name="close" [size]="16"></nxt1-icon>
+                </button>
+              </div>
+              <p class="agent-column-subtitle">
+                Team playbooks with full diagrams, install notes, and practice-ready detail
+              </p>
+            </div>
+            <div class="action-plan-panel__body">
+              <nxt1-agent-x-playbooks-panel [teamId]="resolvedActiveTeamId()" />
+            </div>
+          </aside>
+        }
+
+        <!-- ═══════════════════════════════════════════
              EXPANDED SIDE PANEL (Firecrawl Live View / Media)
              Replaces Action Plan when active — wider column
              ═══════════════════════════════════════════ -->
@@ -928,6 +1128,7 @@ function sortCoordinatorCategories(
                     <nxt1-live-view-launcher
                       [role]="user()?.role ?? null"
                       (launch)="onLiveViewLaunch($event)"
+                      (reconnect)="onLiveViewReconnect($event)"
                     />
                   }
                 }
@@ -1388,6 +1589,17 @@ function sortCoordinatorCategories(
           var(--agent-right-column-width, 540px);
       }
 
+      .agent-main--with-gameplans {
+        grid-template-columns: minmax(0, 1fr) var(--agent-right-column-width, 620px);
+      }
+
+      .agent-main--with-sessions.agent-main--with-gameplans {
+        grid-template-columns:
+          var(--agent-left-column-width, 280px)
+          minmax(0, 1fr)
+          var(--agent-right-column-width, 620px);
+      }
+
       .agent-main--resizing {
         cursor: col-resize;
       }
@@ -1796,6 +2008,91 @@ function sortCoordinatorCategories(
         line-height: 1;
       }
 
+      .header-nav-dropdown {
+        position: relative;
+      }
+
+      .header-nav-pill--dropdown {
+        padding-right: 10px;
+      }
+
+      .header-nav-pill-chevron {
+        opacity: 0.72;
+        transition: transform 0.15s ease;
+        flex-shrink: 0;
+      }
+
+      .header-nav-dropdown--open .header-nav-pill-chevron {
+        transform: rotate(180deg);
+      }
+
+      .header-nav-dropdown-menu {
+        position: absolute;
+        top: calc(100% + 8px);
+        right: 0;
+        min-width: 176px;
+        display: grid;
+        gap: 4px;
+        padding: 6px;
+        border-radius: 10px;
+        background: var(--nxt1-color-surface-100, var(--agent-surface));
+        border: 1px solid var(--nxt1-color-border-default, var(--agent-border));
+        box-shadow: var(
+          --nxt1-navigation-dropdown,
+          0 12px 30px color-mix(in srgb, var(--agent-text-primary) 24%, transparent)
+        );
+        z-index: 18;
+      }
+
+      .header-nav-dropdown-item {
+        display: inline-flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        width: 100%;
+        min-height: 32px;
+        padding: 7px 10px;
+        border-radius: 8px;
+        border: none;
+        background: transparent;
+        color: var(--nxt1-nav-text, var(--agent-text-primary));
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        cursor: pointer;
+        text-align: left;
+        transition:
+          background-color 0.15s ease,
+          color 0.15s ease;
+      }
+
+      .header-nav-dropdown-item span {
+        white-space: nowrap;
+      }
+
+      .header-nav-dropdown-item:hover {
+        background: var(--nxt1-nav-hover-bg, var(--agent-surface-hover));
+      }
+
+      .header-nav-dropdown-item-indicator {
+        opacity: 0;
+        color: inherit;
+        transition: opacity 0.15s ease;
+      }
+
+      .header-nav-dropdown-item--active {
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-primary, var(--agent-primary)) 14%,
+          transparent
+        );
+        color: var(--nxt1-color-primary, var(--agent-primary));
+      }
+
+      .header-nav-dropdown-item--active .header-nav-dropdown-item-indicator {
+        opacity: 1;
+      }
+
       .header-portal-actions {
         display: flex;
         align-items: center;
@@ -1947,6 +2244,25 @@ function sortCoordinatorCategories(
 
       .agent-expanded-panel-column .agent-column-header {
         padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
+      }
+
+      .agent-gameplans-column {
+        border-left: 1px solid var(--agent-border);
+        background: var(--agent-bg);
+        animation: ap-slide-in 0.22s ease;
+      }
+
+      .agent-gameplans-column .agent-column-header {
+        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
+        border-bottom: 1px solid var(--agent-border);
+      }
+
+      .agent-gameplans-scroll {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        overscroll-behavior: contain;
+        padding: var(--nxt1-spacing-3, 12px);
       }
 
       .expanded-panel__body {
@@ -3509,7 +3825,11 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private static readonly DESKTOP_LEFT_PANEL_DEFAULT_WIDTH = 280;
   private static readonly DESKTOP_LEFT_PANEL_MIN_WIDTH = 220;
   private static readonly DESKTOP_ACTION_PLAN_DEFAULT_WIDTH = 320;
+  private static readonly DESKTOP_GAMEPLANS_DEFAULT_WIDTH = 620;
+  private static readonly DESKTOP_PLAYBOOKS_DEFAULT_WIDTH = 620;
   private static readonly DESKTOP_ACTION_PLAN_MIN_WIDTH = 260;
+  private static readonly DESKTOP_GAMEPLANS_MIN_WIDTH = 420;
+  private static readonly DESKTOP_PLAYBOOKS_MIN_WIDTH = 420;
   private static readonly DESKTOP_EXPANDED_PANEL_MIN_WIDTH = 400;
 
   protected readonly resolveCoordinatorChipId = resolveCoordinatorChipId;
@@ -3523,6 +3843,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly firecrawlSignIn = inject(FirecrawlSignInService);
   private readonly headerPortal = inject(NxtHeaderPortalService);
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
   // Portal template refs
   private readonly desktopMain = viewChild<ElementRef<HTMLElement>>('desktopMain');
@@ -3581,7 +3902,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     // Tear down any active live-view session so Firecrawl releases the
     // concurrent browser slot immediately (fire-and-forget).
     if (this.liveView.activeSession()) {
-      this.liveView.closeSession();
+      this.liveView.closePanel();
     }
   }
 
@@ -3631,12 +3952,62 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly actionPlanWidth = signal(
     AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH
   );
+  protected readonly gameplansWidth = signal(
+    AgentXShellWebComponent.DESKTOP_GAMEPLANS_DEFAULT_WIDTH
+  );
+  protected readonly playbooksWidth = signal(
+    AgentXShellWebComponent.DESKTOP_PLAYBOOKS_DEFAULT_WIDTH
+  );
   protected readonly expandedPanelWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly activeDesktopResize = signal<AgentXDesktopResizeState | null>(null);
   protected readonly isDesktopPanelResizing = computed(() => this.activeDesktopResize() !== null);
   protected readonly activeRightPanelWidth = computed(() =>
-    this.expandedSidePanel() ? this.expandedPanelWidth() : this.actionPlanWidth()
+    this.expandedSidePanel()
+      ? this.expandedPanelWidth()
+      : this.showPlaybooksModal()
+        ? this.playbooksWidth()
+        : this.showGameplansModal()
+          ? this.gameplansWidth()
+          : this.actionPlanWidth()
   );
+
+  /** Whether the Game Plans panel is visible (behind feature flag). Starts closed. */
+  protected readonly showGameplansModal = signal(false);
+  protected readonly showPlaybooksModal = signal(false);
+  protected readonly isPanelMenuOpen = signal(false);
+  protected readonly panelMenuSelection = computed<'live-view' | 'gameplans' | 'playbooks' | null>(
+    () => {
+      if (this.showPlaybooksModal()) return 'playbooks';
+      if (this.showGameplansModal()) return 'gameplans';
+
+      const expanded = this.expandedSidePanel();
+      if (expanded?.type === 'live-view' || expanded?.type === 'live-view-launcher') {
+        return 'live-view';
+      }
+
+      return null;
+    }
+  );
+  protected readonly panelMenuLabel = computed(() =>
+    this.showPlaybooksModal() ? 'Playbooks' : this.showGameplansModal() ? 'Game Plans' : 'Live View'
+  );
+  protected readonly isPanelMenuActive = computed(
+    () => this.showPlaybooksModal() || this.showGameplansModal() || !!this.expandedSidePanel()
+  );
+  protected readonly resolvedActiveTeamId = computed(() => {
+    const user = this.user();
+    if (!user) return null;
+
+    if (typeof user.activeTeamId === 'string' && user.activeTeamId.trim().length > 0) {
+      return user.activeTeamId.trim();
+    }
+
+    const scopedTeamSource = user.connectedSources?.find(
+      (source) => source.scopeType === 'team' && typeof source.scopeId === 'string'
+    );
+    const scopedTeamId = scopedTeamSource?.scopeId?.trim();
+    return scopedTeamId && scopedTeamId.length > 0 ? scopedTeamId : null;
+  });
 
   // ── Expanded Side Panel (Firecrawl Live View / Media) ──────────────
 
@@ -3685,7 +4056,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly expandedPanelTitle = computed(() => {
     const panel = this.expandedSidePanel();
     if (!panel) return '';
-    if (panel.type === 'live-view-launcher') return 'Live View';
+    if (panel.type === 'live-view-launcher') return 'Live View (Preview)';
     return panel.title || (panel.type === 'live-view' ? 'Live View' : 'Preview');
   });
 
@@ -3781,13 +4152,20 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     const mainWidth = this.getDesktopMainWidth();
     const leftWidth = panel === 'sessions' ? 0 : this.showSessionsRail() ? this.leftRailWidth() : 0;
     const rightWidth =
-      panel === 'action-plan' || panel === 'expanded-panel'
+      panel === 'action-plan' ||
+      panel === 'gameplans' ||
+      panel === 'playbooks' ||
+      panel === 'expanded-panel'
         ? 0
         : this.expandedSidePanel()
           ? this.expandedPanelWidth()
-          : this.showActionPlanModal()
-            ? this.actionPlanWidth()
-            : 0;
+          : this.showPlaybooksModal()
+            ? this.playbooksWidth()
+            : this.showGameplansModal()
+              ? this.gameplansWidth()
+              : this.showActionPlanModal()
+                ? this.actionPlanWidth()
+                : 0;
     const remainingWidth = Math.max(
       mainWidth - leftWidth - rightWidth - AgentXShellWebComponent.DESKTOP_CHAT_MIN_WIDTH,
       0
@@ -3798,8 +4176,14 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_LEFT_PANEL_MIN_WIDTH);
       case 'action-plan':
         return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_ACTION_PLAN_MIN_WIDTH);
+      case 'gameplans':
+        return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_GAMEPLANS_MIN_WIDTH);
+      case 'playbooks':
+        return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_PLAYBOOKS_MIN_WIDTH);
       case 'expanded-panel':
         return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_EXPANDED_PANEL_MIN_WIDTH);
+      default:
+        return remainingWidth;
     }
   }
 
@@ -3812,6 +4196,14 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       case 'action-plan':
         this.closeActionPlanModal();
         this.actionPlanWidth.set(AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH);
+        break;
+      case 'gameplans':
+        this.showGameplansModal.set(false);
+        this.gameplansWidth.set(AgentXShellWebComponent.DESKTOP_GAMEPLANS_DEFAULT_WIDTH);
+        break;
+      case 'playbooks':
+        this.showPlaybooksModal.set(false);
+        this.playbooksWidth.set(AgentXShellWebComponent.DESKTOP_PLAYBOOKS_DEFAULT_WIDTH);
         break;
       case 'expanded-panel':
         this.closeExpandedSidePanel();
@@ -3835,6 +4227,20 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         this.getDesktopPanelMaxWidth('action-plan')
       )
     );
+    this.gameplansWidth.set(
+      this.clampWidth(
+        this.gameplansWidth(),
+        AgentXShellWebComponent.DESKTOP_GAMEPLANS_MIN_WIDTH,
+        this.getDesktopPanelMaxWidth('gameplans')
+      )
+    );
+    this.playbooksWidth.set(
+      this.clampWidth(
+        this.playbooksWidth(),
+        AgentXShellWebComponent.DESKTOP_PLAYBOOKS_MIN_WIDTH,
+        this.getDesktopPanelMaxWidth('playbooks')
+      )
+    );
     this.expandedPanelWidth.set(
       this.clampWidth(
         this.expandedPanelWidth(),
@@ -3854,6 +4260,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private resetDesktopPanelWidths(): void {
     this.leftRailWidth.set(AgentXShellWebComponent.DESKTOP_LEFT_PANEL_DEFAULT_WIDTH);
     this.actionPlanWidth.set(AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH);
+    this.gameplansWidth.set(AgentXShellWebComponent.DESKTOP_GAMEPLANS_DEFAULT_WIDTH);
+    this.playbooksWidth.set(AgentXShellWebComponent.DESKTOP_PLAYBOOKS_DEFAULT_WIDTH);
     this.expandedPanelWidth.set(this.getDefaultExpandedPanelWidth());
     this.clampDesktopPanelWidths();
   }
@@ -3870,7 +4278,11 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         ? this.leftRailWidth()
         : panel === 'action-plan'
           ? this.actionPlanWidth()
-          : this.expandedPanelWidth();
+          : panel === 'gameplans'
+            ? this.gameplansWidth()
+            : panel === 'playbooks'
+              ? this.playbooksWidth()
+              : this.expandedPanelWidth();
 
     this.activeDesktopResize.set({
       panel,
@@ -3890,6 +4302,12 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         break;
       case 'action-plan':
         this.actionPlanWidth.set(AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH);
+        break;
+      case 'gameplans':
+        this.gameplansWidth.set(AgentXShellWebComponent.DESKTOP_GAMEPLANS_DEFAULT_WIDTH);
+        break;
+      case 'playbooks':
+        this.playbooksWidth.set(AgentXShellWebComponent.DESKTOP_PLAYBOOKS_DEFAULT_WIDTH);
         break;
       case 'expanded-panel':
         this.expandedPanelWidth.set(this.getDefaultExpandedPanelWidth());
@@ -3944,6 +4362,28 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
+    if (resizeState.panel === 'gameplans') {
+      this.gameplansWidth.set(
+        this.clampWidth(
+          nextWidth,
+          AgentXShellWebComponent.DESKTOP_GAMEPLANS_MIN_WIDTH,
+          this.getDesktopPanelMaxWidth('gameplans')
+        )
+      );
+      return;
+    }
+
+    if (resizeState.panel === 'playbooks') {
+      this.playbooksWidth.set(
+        this.clampWidth(
+          nextWidth,
+          AgentXShellWebComponent.DESKTOP_PLAYBOOKS_MIN_WIDTH,
+          this.getDesktopPanelMaxWidth('playbooks')
+        )
+      );
+      return;
+    }
+
     this.expandedPanelWidth.set(
       this.clampWidth(
         nextWidth,
@@ -3965,6 +4405,15 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   @HostListener('window:resize')
   protected onDesktopViewportResize(): void {
     this.clampDesktopPanelWidths();
+  }
+
+  @HostListener('document:click', ['$event'])
+  protected onDocumentClick(event: MouseEvent): void {
+    if (!this.isPanelMenuOpen()) return;
+    const target = event.target;
+    if (!(target instanceof Element) || !target.closest('.header-nav-dropdown')) {
+      this.isPanelMenuOpen.set(false);
+    }
   }
 
   // ============================================
@@ -4510,12 +4959,51 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
   /** Toggles the Action Plan right-column panel (desktop). */
   public async toggleActionPlanPanel(): Promise<void> {
+    this.isPanelMenuOpen.set(false);
     await this.haptics.impact('light');
-    this.showActionPlanModal.update((value) => {
-      if (value) return false;
-      this.actionPlanWidth.set(AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH);
-      return true;
-    });
+
+    if (
+      this.showActionPlanModal() &&
+      !this.showGameplansModal() &&
+      !this.showPlaybooksModal() &&
+      !this.expandedSidePanel()
+    ) {
+      this.showActionPlanModal.set(false);
+      return;
+    }
+
+    if (this.expandedSidePanel()) {
+      this.closeExpandedSidePanel();
+    }
+    this.showPlaybooksModal.set(false);
+    this.showGameplansModal.set(false);
+    this.actionPlanWidth.set(AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH);
+    this.showActionPlanModal.set(true);
+  }
+
+  /** Toggles the Game Plans right-column panel (desktop, feature-gated). */
+  public async toggleGameplansPanel(): Promise<void> {
+    this.isPanelMenuOpen.set(false);
+    await this.haptics.impact('light');
+    const newValue = !this.showGameplansModal();
+    if (newValue) {
+      if (this.expandedSidePanel()) {
+        this.closeExpandedSidePanel();
+      }
+      this.showActionPlanModal.set(false);
+      this.showPlaybooksModal.set(false);
+      this.gameplansWidth.set(AgentXShellWebComponent.DESKTOP_GAMEPLANS_DEFAULT_WIDTH);
+    }
+    this.showGameplansModal.set(newValue);
+    this.logger.info('Game plans panel toggled', { shown: newValue });
+    if (newValue) {
+      this.analytics?.trackEvent(APP_EVENTS.GAMEPLAN_LIST_LOADED, {
+        surface: 'agent_x_shell_pill',
+      });
+      this.breadcrumb.trackStateChange('agent_x_shell:game_plans_opened', {});
+    } else {
+      this.breadcrumb.trackStateChange('agent_x_shell:game_plans_closed', {});
+    }
   }
 
   /**
@@ -4523,6 +5011,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    */
   protected async openActionPlanModal(): Promise<void> {
     await this.haptics.impact('light');
+    this.showPlaybooksModal.set(false);
+    this.showGameplansModal.set(false);
     this.actionPlanWidth.set(AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH);
     this.showActionPlanModal.set(true);
   }
@@ -4661,20 +5151,21 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.expandedSidePanel.set(content);
   }
 
-  /** Closes the expanded side panel, tears down any active session, and restores the Action Plan. */
+  /** Closes the expanded side panel and restores the Action Plan. */
   public closeExpandedSidePanel(): void {
     const panel = this.expandedSidePanel();
     this.expandedSidePanel.set(null);
     this.expandedPanelIframeLoading.set(false);
 
-    // Clean up the backend live-view session (fire-and-forget)
+    // Close the panel UI only — live view session persists on backend for agent access
     if (panel?.type === 'live-view' && panel.sessionId && this.liveView.activeSession()) {
-      this.liveView.closeSession();
+      void this.liveView.closePanel();
     }
   }
 
   /** Toggle the live-view launcher panel (or close it if already open). */
   public async toggleDevLiveView(): Promise<void> {
+    this.isPanelMenuOpen.set(false);
     await this.haptics.impact('light');
 
     if (this.expandedSidePanel()) {
@@ -4682,16 +5173,119 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
+    this.showPlaybooksModal.set(false);
+    this.showGameplansModal.set(false);
+
     // Open the native launcher UI inside the panel instead of starting a session immediately
     this.openExpandedSidePanel({
       type: 'live-view-launcher',
       url: '',
-      title: 'Live View',
+      title: 'Live View (Preview)',
     });
+  }
+
+  public togglePanelMenu(event: MouseEvent): void {
+    event.stopPropagation();
+    if (this.liveView.loading()) return;
+    this.isPanelMenuOpen.update((value) => !value);
+  }
+
+  public async onSelectPanelMenuOption(
+    option: 'live-view' | 'gameplans' | 'playbooks',
+    event: MouseEvent
+  ): Promise<void> {
+    event.stopPropagation();
+    this.isPanelMenuOpen.set(false);
+
+    if (option === 'live-view') {
+      await this.haptics.impact('light');
+      this.showPlaybooksModal.set(false);
+      this.showGameplansModal.set(false);
+
+      const expanded = this.expandedSidePanel();
+      const isLiveViewPanel =
+        expanded?.type === 'live-view' || expanded?.type === 'live-view-launcher';
+
+      if (!isLiveViewPanel) {
+        if (expanded) {
+          this.closeExpandedSidePanel();
+        }
+
+        this.openExpandedSidePanel({
+          type: 'live-view-launcher',
+          url: '',
+          title: 'Live View (Preview)',
+        });
+      }
+      return;
+    }
+
+    if (option === 'playbooks') {
+      await this.haptics.impact('light');
+
+      if (this.expandedSidePanel()) {
+        this.closeExpandedSidePanel();
+      }
+
+      this.showActionPlanModal.set(false);
+      this.showGameplansModal.set(false);
+      this.playbooksWidth.set(AgentXShellWebComponent.DESKTOP_PLAYBOOKS_DEFAULT_WIDTH);
+      this.showPlaybooksModal.set(true);
+      this.breadcrumb.trackStateChange('agent_x_shell:playbooks_opened', {});
+      return;
+    }
+
+    await this.haptics.impact('light');
+
+    if (this.expandedSidePanel()) {
+      this.closeExpandedSidePanel();
+    }
+
+    const wasOpen = this.showGameplansModal();
+    this.showActionPlanModal.set(false);
+    this.showPlaybooksModal.set(false);
+    this.gameplansWidth.set(AgentXShellWebComponent.DESKTOP_GAMEPLANS_DEFAULT_WIDTH);
+    this.showGameplansModal.set(true);
+
+    if (!wasOpen) {
+      this.logger.info('Game plans panel toggled', { shown: true });
+      this.analytics?.trackEvent(APP_EVENTS.GAMEPLAN_LIST_LOADED, {
+        surface: 'agent_x_shell_pill',
+      });
+      this.breadcrumb.trackStateChange('agent_x_shell:game_plans_opened', {});
+    }
+  }
+
+  /** Called when the launcher emits a reconnect request for an existing session. */
+  public onLiveViewReconnect(event: LiveViewReconnectEvent): void {
+    const sessionId = event.sessionId;
+    this.logger.info('Reconnecting to stored session', { sessionId });
+    this.breadcrumb.trackStateChange('live-view-reconnecting', { sessionId });
+
+    // Show loading state
+    this.expandedPanelIframeLoading.set(true);
+
+    const reconnected = this.liveView.reconnectToSession(sessionId);
+    if (reconnected) {
+      const session = this.liveView.activeSession();
+      if (session) {
+        this.expandedSidePanel.set({
+          type: 'live-view',
+          url: session.interactiveUrl,
+          title: `Live View - ${session.domainLabel}`,
+          sessionId: session.sessionId,
+        });
+        return;
+      }
+    }
+
+    this.expandedPanelIframeLoading.set(false);
+    this.toast.error('Session no longer available. Please start a new session.');
   }
 
   /** Called when the launcher component emits a destination (account card or custom URL). */
   public async onLiveViewLaunch(event: LiveViewLaunchEvent): Promise<void> {
+    // Normal launch flow (new session from account or custom URL)
     this.logger.info('Live view launch requested', {
       url: event.url,
       source: event.source,
@@ -4708,7 +5302,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.expandedSidePanel.set({
         type: 'live-view',
         url: session.interactiveUrl,
-        title: `Live View — ${session.domainLabel}`,
+        title: `Live View - ${session.domainLabel}`,
         sessionId: session.sessionId,
       });
     } else {
@@ -5073,9 +5667,18 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     scopeType?: 'global' | 'sport' | 'team';
     scopeId?: string;
   }): string {
-    return `${source.platform.toLowerCase()}|${source.scopeType ?? 'global'}|${
+    return `${this.normalizeAttachmentPlatformKey(source.platform)}|${source.scopeType ?? 'global'}|${
       this.normalizeScopeKey(source.scopeId) || 'global'
     }`;
+  }
+
+  /** Canonicalize platform aliases so the attachments menu does not show duplicate chips. */
+  private normalizeAttachmentPlatformKey(platform: string): string {
+    const normalized = platform.trim().toLowerCase();
+    if (normalized === 'x' || normalized === 'x.com' || normalized === 'twitter.com') {
+      return 'twitter';
+    }
+    return normalized;
   }
 
   private resolveAttachmentProfileUrl(platform: string, url?: string): string {

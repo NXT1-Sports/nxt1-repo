@@ -485,6 +485,9 @@ function buildSearchQueries(intent: NormalizedIntent): readonly string[] {
   const baseContext = [intent.sport, intent.position, intent.goal].filter(Boolean).join(' ');
   const levelContext = LEVEL_TERMS[intent.level].join(' ');
   const audienceContext = intent.audienceRole ?? '';
+  const currentYear = new Date().getFullYear();
+  // Include current and previous year to bias search toward recent content
+  const yearHint = `${currentYear - 1} ${currentYear}`;
 
   const rawQueries = new Set<string>();
 
@@ -495,6 +498,7 @@ function buildSearchQueries(intent: NormalizedIntent): readonly string[] {
       recommendationPhrase(intent.recommendationType),
       audienceContext,
       'YouTube',
+      yearHint,
     ])
   );
 
@@ -505,15 +509,16 @@ function buildSearchQueries(intent: NormalizedIntent): readonly string[] {
       intent.recommendationType === 'recruiting_examples'
         ? 'Hudl recruiting highlight example'
         : 'video breakdown',
+      yearHint,
     ])
   );
 
   if (intent.recommendationType === 'role_specific_learning') {
-    rawQueries.add(compactQuery([baseContext, 'coach clinic video install']));
+    rawQueries.add(compactQuery([baseContext, 'coach clinic video install', yearHint]));
   }
 
   if (intent.recommendationType === 'film_study') {
-    rawQueries.add(compactQuery([baseContext, 'film study breakdown']));
+    rawQueries.add(compactQuery([baseContext, 'film study breakdown', yearHint]));
   }
 
   return [...rawQueries].filter((query) => query.length > 0);
@@ -638,20 +643,29 @@ function scoreCandidate(candidate: RankedCandidate, intent: NormalizedIntent): n
         score += 0;
       } else if (ageMonths <= 6) {
         // Last 6 months - strong bonus (very current)
-        score += 0.2;
+        score += 0.25;
       } else if (ageMonths <= 12) {
         // Last 12 months - medium bonus (current)
-        score += 0.12;
+        score += 0.18;
       } else if (ageMonths <= 18) {
         // Last 18 months - light bonus (reasonably recent)
-        score += 0.06;
+        score += 0.1;
+      } else if (ageMonths <= 24) {
+        // 18-24 months - neutral to slight negative
+        score -= 0.05;
+      } else if (ageMonths <= 36) {
+        // 2-3 years old - moderate penalty
+        score -= 0.22;
       } else if (ageMonths > 36) {
-        // Older than 3 years - penalty (potentially outdated coaching methodologies)
-        score -= 0.15;
+        // Older than 3 years - heavy penalty (stale coaching methodologies)
+        score -= 0.45;
       }
     } catch {
       // Invalid date format - no adjustment
     }
+  } else {
+    // No date metadata: apply a small penalty since we cannot verify recency
+    score -= 0.08;
   }
 
   if (score >= 1.35) {

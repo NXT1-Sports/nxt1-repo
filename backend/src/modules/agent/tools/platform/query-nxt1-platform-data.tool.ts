@@ -43,6 +43,7 @@ const COLLECTIONS = {
   PLAYER_METRICS: 'PlayerMetrics',
   ROSTER_ENTRIES: 'RosterEntries',
   EVENTS: 'Events',
+  PLAYBOOKS: 'TeamPlaybooks',
 } as const;
 
 type PlatformEntityType =
@@ -56,10 +57,11 @@ type PlatformEntityType =
   | 'physical_metrics'
   | 'roster_entries'
   | 'events'
+  | 'playbooks'
   | 'user_bundle';
 
 const PLATFORM_ENTITY_TYPE_ERROR =
-  'Parameter "entityType" must be one of: users, teams, organizations, posts, recruiting, team_stats, season_stats, physical_metrics, roster_entries, events, user_bundle.';
+  'Parameter "entityType" must be one of: users, teams, organizations, posts, recruiting, team_stats, season_stats, physical_metrics, roster_entries, events, playbooks, user_bundle.';
 
 interface PlatformFirestoreMap {
   readonly production?: Firestore;
@@ -103,7 +105,7 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
 
   readonly description =
     'Query read-only NXT1 platform data across all major Firestore collections. ' +
-    'Use this for platform-wide counts and samples of users, teams, organizations, posts, recruiting records, team stats, season stats, physical metrics, roster entries, and events. ' +
+    'Use this for platform-wide counts and samples of users, teams, organizations, posts, recruiting records, team stats, season stats, physical metrics, roster entries, events, and playbooks. ' +
     'Use entityType "user_bundle" to pull one athlete or user across their related collections (profile, posts, recruiting, stats, metrics, roster memberships, and events). ' +
     'For count questions, answer from totalCount or bundle totals, not from the visible items array length.';
 
@@ -204,8 +206,11 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
       case 'physical_metrics':
       case 'roster_entries':
       case 'events':
+      case 'playbooks':
       case 'user_bundle':
         return normalized;
+      case 'playbook':
+        return 'playbooks';
       case 'teamstats':
       case 'team-stats':
         return 'team_stats';
@@ -635,6 +640,8 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
         return COLLECTIONS.ROSTER_ENTRIES;
       case 'events':
         return COLLECTIONS.EVENTS;
+      case 'playbooks':
+        return COLLECTIONS.PLAYBOOKS;
     }
   }
 
@@ -664,6 +671,8 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
         return this.matchesRosterEntryFilters(record, filters);
       case 'events':
         return this.matchesEventFilters(record, filters);
+      case 'playbooks':
+        return this.matchesPlaybookFilters(record, filters);
     }
   }
 
@@ -1100,6 +1109,35 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
     return true;
   }
 
+  private matchesPlaybookFilters(
+    record: Record<string, unknown>,
+    filters: PlatformDataFilters
+  ): boolean {
+    if (filters.teamId && String(record['teamId'] ?? '') !== filters.teamId) {
+      return false;
+    }
+
+    if (
+      filters.sport &&
+      String(record['sport'] ?? '').toLowerCase() !== filters.sport.toLowerCase()
+    ) {
+      return false;
+    }
+
+    if (filters.season && String(record['season'] ?? '') !== filters.season) {
+      return false;
+    }
+
+    if (
+      filters.query &&
+      !this.matchesQuery(record, filters.query, ['name', 'title', 'sport', 'season'])
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
   private matchesSportFilter(record: Record<string, unknown>, sport: string): boolean {
     const normalizedSport = sport.toLowerCase().trim();
     const topSport = String(record['primarySport'] ?? record['sport'] ?? '')
@@ -1308,6 +1346,23 @@ export class QueryNxt1PlatformDataTool extends BaseTool {
           'endsAt',
           'createdAt',
           'updatedAt',
+        ]);
+      case 'playbooks':
+        return this.pickFields(record, [
+          'id',
+          'teamId',
+          'sport',
+          'name',
+          'title',
+          'season',
+          'source',
+          'sourceUrl',
+          'playCount',
+          'archived',
+          'createdAt',
+          'updatedAt',
+          'createdBy',
+          'updatedBy',
         ]);
     }
   }

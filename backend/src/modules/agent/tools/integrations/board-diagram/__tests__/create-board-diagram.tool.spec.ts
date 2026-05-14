@@ -65,11 +65,11 @@ describe('CreateBoardDiagramTool', () => {
     tool = new CreateBoardDiagramTool(serviceMock as unknown as BoardDiagramService);
   });
 
-  it('returns assetId, imageUrl, editUrl, xmlContent, and kind on success', async () => {
+  it('returns assetId, imageUrl, editUrl, xmlContent, and kind on play success', async () => {
     serviceMock.createDiagram.mockResolvedValue(MOCK_ASSET);
 
     const result = await tool.execute(
-      { description: 'Cover 2 zone coverage', sport: 'football' },
+      { description: 'Cover 2 zone coverage', sport: 'football', kind: 'sport_play' },
       TEST_CONTEXT
     );
 
@@ -86,15 +86,30 @@ describe('CreateBoardDiagramTool', () => {
     expect(data['mimeType']).toBe('image/png');
   });
 
-  it('defaults kind to sport_play when not provided', async () => {
-    serviceMock.createDiagram.mockResolvedValue(MOCK_ASSET);
+  it('returns assetId, imageUrl, editUrl, xmlContent, and kind on drill success', async () => {
+    serviceMock.createDiagram.mockResolvedValue(MOCK_DRILL_ASSET);
 
-    await tool.execute({ description: 'Some play', sport: 'football' }, TEST_CONTEXT);
-
-    expect(serviceMock.createDiagram).toHaveBeenCalledWith(
-      expect.objectContaining({ kind: 'sport_play' }),
+    const result = await tool.execute(
+      { description: '3-man weave to basket', sport: 'basketball', kind: 'sport_drill' },
       TEST_CONTEXT
     );
+
+    expect(result.success).toBe(true);
+    const data = result.data as Record<string, unknown>;
+    expect(data['assetId']).toBe('asset-drill-5678');
+    expect(data['kind']).toBe('sport_drill');
+    expect(data['sport']).toBe('basketball');
+  });
+
+  it('throws error if kind is missing', async () => {
+    serviceMock.createDiagram.mockResolvedValue(MOCK_ASSET);
+    const result = await tool.execute(
+      { description: 'Some play', sport: 'football' },
+      TEST_CONTEXT
+    );
+    // Should fail Zod validation or service error
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/kind/i);
   });
 
   it('passes kind=sport_drill to the service', async () => {

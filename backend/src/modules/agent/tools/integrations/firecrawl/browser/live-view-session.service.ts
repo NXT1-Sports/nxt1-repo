@@ -88,6 +88,17 @@ export interface LiveViewPromptResult {
   readonly success: boolean;
   /** Natural language response from Firecrawl's AI describing what it did. */
   readonly output: string;
+  readonly attempts?: number;
+  readonly verification?: {
+    readonly status: 'verified' | 'ambiguous' | 'failed';
+    readonly reason: string;
+    readonly currentUrl: string;
+    readonly currentTitle: string;
+    readonly changedUrl: boolean;
+    readonly changedTitle: boolean;
+    readonly changedInteractiveSnapshot: boolean;
+    readonly changedFullSnapshot: boolean;
+  };
 }
 
 export interface LiveViewRequestCookie {
@@ -170,12 +181,14 @@ export interface LiveViewScreenshotResult {
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-/** Live-view sessions last 1 hour. */
-const LIVE_VIEW_TTL_SECONDS = 3600;
-const MIN_PROMPT_OUTPUT_CHARS_FOR_CONFIDENCE = 140;
+/** Live-view sessions last 10 minutes. */
+const LIVE_VIEW_TTL_SECONDS = 600;
 const MAX_PROBE_SECTION_CHARS = 20_000;
 const MAX_SCREENSHOT_BYTES = 12 * 1024 * 1024;
 const LIVE_VIEW_INTERACT_DEADLINE_MS = 45_000;
+const LIVE_VIEW_MEDIA_EXTRACT_DEADLINE_MS = 90_000;
+const LIVE_VIEW_PLAYLIST_EXTRACT_DEADLINE_MS = 90_000;
+const MAX_PROMPT_EXECUTION_RETRIES = 1;
 
 /**
  * NOTE: We intentionally do NOT pass a `timeout` parameter to Firecrawl's
@@ -396,7 +409,11 @@ export class LiveViewSessionService {
    * extracting media URLs, as the AI can reason about the page and handle
    * edge cases intelligently.
    */
-  private async executeBrowserPrompt(sessionId: string, prompt: string): Promise<string> {
+  private async executeBrowserPrompt(
+    sessionId: string,
+    prompt: string,
+    deadlineMs: number = LIVE_VIEW_INTERACT_DEADLINE_MS
+  ): Promise<string> {
     try {
       const result: ScrapeExecuteResponse = await this.withInteractionDeadline(
         sessionId,
@@ -404,7 +421,8 @@ export class LiveViewSessionService {
         () =>
           this.client.interact(sessionId, {
             prompt,
-          })
+          }),
+        deadlineMs
       );
 
       logger.info('[LiveViewSession] Browser prompt response', {
@@ -1200,7 +1218,7 @@ export class LiveViewSessionService {
     });
 
     const code = `
-const options = ${payload};
+var options = ${payload};
 if (options.viewport) {
   await page.setViewportSize(options.viewport);
 }
@@ -1314,7 +1332,11 @@ If no media URLs found, explain what you checked and why.
 `;
 
     try {
-      const rawResult = await this.executeBrowserPrompt(sessionId, extractionPrompt);
+      const rawResult = await this.executeBrowserPrompt(
+        sessionId,
+        extractionPrompt,
+        LIVE_VIEW_MEDIA_EXTRACT_DEADLINE_MS
+      );
 
       logger.info('[LiveViewSession] AI extraction response', {
         sessionId,
@@ -1534,7 +1556,11 @@ If it's a single-clip page (not a playlist), say so explicitly.
                 return parts.join('\n');
               })
               .join('\n---\n')
-          : await this.executeBrowserPrompt(sessionId, playlistPrompt);
+          : await this.executeBrowserPrompt(
+              sessionId,
+              playlistPrompt,
+              LIVE_VIEW_PLAYLIST_EXTRACT_DEADLINE_MS
+            );
 
       logger.info('[LiveViewSession] AI playlist response', {
         sessionId,
@@ -1542,10 +1568,14 @@ If it's a single-clip page (not a playlist), say so explicitly.
       });
 
       // Parse the AI response to extract items
-      const items =
+      let items =
         browserItems.length > 0
           ? browserItems
           : this.parsePlaylistFromResponse(rawResult, boundedMaxItems);
+
+      if (items.length > 0) {
+        items = await this.hydratePlaylistItemsWithPlayableUrls(sessionId, items, boundedMaxItems);
+      }
 
       if (items.length === 0) {
         throw new AgentEngineError(
@@ -1672,12 +1702,97 @@ JSON.stringify(await (async () => ({
     maxItems: number,
     options: Required<LiveViewPlaylistExtractionOptions>
   ): Promise<LiveViewPlaylistItem[]> {
-    const payload = JSON.stringify({ maxItems, ...options });
+    const targetDescription =
+      Array.isArray(options.playNumbers) && options.playNumbers.length > 0
+        ? `plays ${options.playNumbers.join(', ')}`
+        : options.selection === 'last'
+          ? `the last ${maxItems} loaded playlist rows`
+          : options.selection === 'first'
+            ? `the first ${maxItems} loaded playlist rows`
+            : `up to ${maxItems} currently visible playlist rows`;
+
+    const prompt = `You are operating inside a sports film playlist view (Hudl-like UI).
+
+Target subset: ${targetDescription}.
+
+Goal:
+- Extract playlist rows for ONLY the bounded target subset.
+- If URL is missing for a requested row, click that row, wait for player update, then extract the best playable media URL from video/source/network evidence.
+- Use bounded scrolling only when required to reach the target subset.
+- Never enumerate the full playlist if a bounded subset is requested.
+
+Return format requirements:
+- Return ONLY strict JSON.
+- JSON shape must be:
+{
+  "items": [
+    {
+      "index": 0,
+      "itemId": "play-101" | null,
+      "title": "Play #101",
+      "url": "https://..." | null,
+      "durationText": "00:12" | null,
+      "thumbnailUrl": "https://..." | null,
+      "textSnippet": "short evidence text",
+      "isCurrent": false
+    }
+  ]
+}
+- Include at most ${maxItems} items.
+- If no items are found, return {"items": []}.
+- Do not include markdown fences.`;
+
+    try {
+      const raw = await this.executeBrowserPrompt(
+        sessionId,
+        prompt,
+        LIVE_VIEW_PLAYLIST_EXTRACT_DEADLINE_MS
+      );
+      const jsonItems = this.parsePlaylistItemsFromJsonResponse(raw, maxItems);
+      if (jsonItems.length > 0) {
+        return jsonItems;
+      }
+
+      return this.parsePlaylistFromResponse(raw, maxItems);
+    } catch (err) {
+      logger.warn('[LiveViewSession] Browser playlist row extraction failed; falling back to AI', {
+        sessionId,
+        error: err instanceof Error ? err.message : 'unknown',
+      });
+      return [];
+    }
+  }
+
+  private async hydratePlaylistItemsWithPlayableUrls(
+    sessionId: string,
+    items: readonly LiveViewPlaylistItem[],
+    maxItems: number
+  ): Promise<LiveViewPlaylistItem[]> {
+    const boundedMaxItems = Math.min(Math.max(Math.trunc(maxItems) || 5, 1), 25);
+    const unresolved = items
+      .filter(
+        (item) => !item.url && (typeof item.itemId === 'string' || item.title.trim().length > 0)
+      )
+      .slice(0, boundedMaxItems);
+
+    if (unresolved.length === 0) {
+      return items.slice(0, boundedMaxItems).map((item, index) => ({ ...item, index }));
+    }
+
+    const payload = JSON.stringify({
+      targets: unresolved.map((item) => ({
+        index: item.index,
+        itemId: item.itemId,
+        title: item.title,
+      })),
+    });
+
     const code = `
-JSON.stringify(await (async () => {
-  const options = ${payload};
+JSON.stringify(await page.evaluate(async (options) => {
   const normalize = (value) => String(value || '').replace(/\\s+/g, ' ').trim();
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   const visible = (element) => {
+    if (!(element instanceof HTMLElement)) return false;
     const style = window.getComputedStyle(element);
     const rect = element.getBoundingClientRect();
     return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
@@ -1686,130 +1801,240 @@ JSON.stringify(await (async () => {
     const match = text.match(/\\b(?:play\\s*#?|#)\\s*(\\d{1,4})\\b/i);
     return match ? Number(match[1]) : null;
   };
-  const selectors = [
-    '[role="row"]',
-    'tr',
-    'li',
-    '[tabindex]',
-    '[data-testid*="play" i]',
-    '[data-testid*="clip" i]',
-    '[class*="play" i]',
-    '[class*="clip" i]',
-    '[class*="row" i]'
-  ];
-  const rowPattern = /\\b(play\\s*#?|qtr|odk|result|rush|pass|kick|punt|touchdown|penalty|interception|fumble|ko\\s*rec|extra\\s*pt)\\b/i;
-  const collectRows = () => {
-    const seen = new Set();
-    const rows = [];
-    for (const selector of selectors) {
-      for (const element of Array.from(document.querySelectorAll(selector))) {
-        if (!(element instanceof HTMLElement) || !visible(element)) continue;
-        const text = normalize(element.innerText || element.textContent || '');
-        if (text.length < 8 || !rowPattern.test(text)) continue;
-        const href = element.closest('a')?.href || element.querySelector('a[href]')?.href || null;
-        const thumbnail = element.querySelector('img[src]')?.src || null;
-        const durationMatch = text.match(/\\b\\d{1,2}:\\d{2}(?::\\d{2})?\\b/);
-        const playNumber = extractPlayNumber(text);
-        const key = playNumber ? 'play-' + playNumber : text.slice(0, 160);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        rows.push({
-          playNumber,
-          title: playNumber ? 'Play #' + playNumber : text.slice(0, 80),
-          url: href,
-          durationText: durationMatch ? durationMatch[0] : null,
-          thumbnailUrl: thumbnail,
-          textSnippet: text.slice(0, 240),
-          isCurrent: /\\b(current|selected|active|playing)\\b/i.test(String(element.className || '') + ' ' + String(element.getAttribute('aria-current') || '') + ' ' + String(element.getAttribute('aria-selected') || '')),
-        });
+  const readPlayableUrl = () => {
+    const video = document.querySelector('video');
+    if (video instanceof HTMLVideoElement) {
+      const directSrc = normalize(video.currentSrc || video.src || '');
+      if (directSrc && !directSrc.startsWith('blob:')) return directSrc;
+      for (const source of Array.from(video.querySelectorAll('source[src]'))) {
+        if (!(source instanceof HTMLSourceElement)) continue;
+        const sourceSrc = normalize(source.src || '');
+        if (sourceSrc && !sourceSrc.startsWith('blob:')) return sourceSrc;
       }
     }
-    return rows;
+
+    const perf = Array.from(performance.getEntriesByType('resource'))
+      .map((entry) => normalize(entry.name || ''))
+      .filter((url) => /\\.(m3u8|mp4|webm|mpd)(?:$|[?#])/i.test(url));
+    return perf.length > 0 ? perf[perf.length - 1] : null;
   };
-  const scrollCandidates = Array.from(document.querySelectorAll('*')).filter((element) => {
-    if (!(element instanceof HTMLElement)) return false;
-    if (!visible(element)) return false;
-    const canScroll = element.scrollHeight > element.clientHeight + 120;
-    if (!canScroll) return false;
-    const text = normalize(element.innerText || element.textContent || '');
-    return rowPattern.test(text);
-  });
-  const scrollContainer = scrollCandidates.sort((a, b) => (b.scrollHeight - b.clientHeight) - (a.scrollHeight - a.clientHeight))[0] || document.scrollingElement || document.documentElement;
-  const collected = new Map();
-  const remember = () => {
-    for (const row of collectRows()) {
-      const key = row.playNumber ? 'play-' + row.playNumber : row.textSnippet;
-      collected.set(key, row);
-    }
-  };
-  remember();
-  const needsTargetedScroll = options.selection === 'last' || (Array.isArray(options.playNumbers) && options.playNumbers.length > 0);
-  if (needsTargetedScroll && scrollContainer) {
-    const targetSet = new Set(options.playNumbers || []);
-    const maxSteps = targetSet.size > 0 ? 24 : 8;
-    const maxScrollTop = Math.max(0, scrollContainer.scrollHeight - scrollContainer.clientHeight);
-    for (let step = 0; step <= maxSteps; step++) {
-      if (options.selection === 'last' && targetSet.size === 0) {
-        scrollContainer.scrollTop = maxScrollTop;
-      } else {
-        scrollContainer.scrollTop = Math.round((maxScrollTop * step) / Math.max(maxSteps, 1));
+
+  const candidates = Array.from(
+    document.querySelectorAll('[role="row"], [role="listitem"], tr, li, button, a, [tabindex], div')
+  ).filter((element) => element instanceof HTMLElement && visible(element));
+
+  const updates = [];
+
+  for (const target of options.targets || []) {
+    const targetPlayNumber =
+      typeof target.itemId === 'string' && /play-(\\d+)/i.test(target.itemId)
+        ? Number(target.itemId.match(/play-(\\d+)/i)?.[1] || NaN)
+        : extractPlayNumber(String(target.title || ''));
+
+    let chosen = null;
+    let bestScore = -1;
+
+    for (const element of candidates) {
+      const text = normalize(element.innerText || element.textContent || '');
+      if (!text) continue;
+
+      let score = 0;
+      const playNumber = extractPlayNumber(text);
+      if (targetPlayNumber && playNumber === targetPlayNumber) score += 5;
+      if (typeof target.title === 'string' && target.title.length > 0) {
+        const condensedTitle = normalize(target.title).toLowerCase();
+        if (condensedTitle.length > 0 && text.toLowerCase().includes(condensedTitle)) score += 3;
       }
-      scrollContainer.dispatchEvent(new Event('scroll', { bubbles: true }));
-      await page.waitForTimeout(300);
-      remember();
-      if (targetSet.size > 0 && Array.from(targetSet).every((playNumber) => collected.has('play-' + playNumber))) {
-        break;
+      if (/play\\s*#|odk|qtr|result|rush|pass|kick|punt/i.test(text)) score += 1;
+
+      if (score > bestScore) {
+        bestScore = score;
+        chosen = element;
       }
     }
+
+    if (!(chosen instanceof HTMLElement) || bestScore < 1) continue;
+
+    try {
+      chosen.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'auto' });
+    } catch {
+      // no-op
+    }
+
+    try {
+      const clickable =
+        chosen.closest('a,button,[role="button"]') ||
+        chosen.querySelector('a,button,[role="button"]') ||
+        chosen;
+      clickable.click();
+    } catch {
+      // no-op
+    }
+
+    await sleep(900);
+
+    const playableUrl = readPlayableUrl();
+    const snippet = normalize(chosen.innerText || chosen.textContent || '').slice(0, 280);
+
+    updates.push({
+      index: typeof target.index === 'number' ? Math.max(0, Math.trunc(target.index)) : null,
+      itemId: typeof target.itemId === 'string' ? target.itemId : null,
+      title: typeof target.title === 'string' ? target.title : null,
+      url: playableUrl,
+      textSnippet: snippet || null,
+      isCurrent: /\\b(current|selected|active|playing)\\b/i.test(snippet),
+    });
   }
-  let rows = Array.from(collected.values());
-  if (Array.isArray(options.playNumbers) && options.playNumbers.length > 0) {
-    const order = new Map(options.playNumbers.map((playNumber, index) => [playNumber, index]));
-    rows = rows
-      .filter((row) => row.playNumber && order.has(row.playNumber))
-      .sort((a, b) => (order.get(a.playNumber) || 0) - (order.get(b.playNumber) || 0));
-  } else if (options.selection === 'last') {
-    rows = rows
-      .sort((a, b) => (a.playNumber || 0) - (b.playNumber || 0))
-      .slice(-options.maxItems);
-  } else if (options.selection === 'first') {
-    rows = rows
-      .sort((a, b) => (a.playNumber || 0) - (b.playNumber || 0))
-      .slice(0, options.maxItems);
-  } else {
-    rows = rows.slice(0, options.maxItems);
-  }
-  return {
-    items: rows.slice(0, options.maxItems).map((row, index) => ({
-      index,
-      itemId: row.playNumber ? 'play-' + row.playNumber : null,
-      title: row.title,
-      url: row.url,
-      durationText: row.durationText,
-      thumbnailUrl: row.thumbnailUrl,
-      textSnippet: row.textSnippet,
-      isCurrent: row.isCurrent,
-    })),
-    discoveredCount: collected.size,
-  };
-})());
+
+  return { updates };
+}, ${payload}));
 `;
 
     try {
       const raw = await this.executeBrowserCommand(sessionId, code);
-      const parsed = this.parseBrowserJson<{ items?: LiveViewPlaylistItem[] }>(
-        raw,
-        sessionId,
-        'Could not extract playlist rows from browser state'
-      );
-      return Array.isArray(parsed.items) ? parsed.items.slice(0, maxItems) : [];
-    } catch (err) {
-      logger.warn('[LiveViewSession] Browser playlist row extraction failed; falling back to AI', {
-        sessionId,
-        error: err instanceof Error ? err.message : 'unknown',
+      const parsed = this.parseBrowserJson<{
+        updates?: Array<{
+          index: number | null;
+          itemId: string | null;
+          title: string | null;
+          url: string | null;
+          textSnippet?: string | null;
+          isCurrent?: boolean;
+        }>;
+      }>(raw, sessionId, 'Could not hydrate playlist media URLs from browser playback state');
+
+      const updates = Array.isArray(parsed.updates) ? parsed.updates : [];
+      if (updates.length === 0) {
+        return items.slice(0, boundedMaxItems).map((item, index) => ({ ...item, index }));
+      }
+
+      const byIndex = new Map<number, (typeof updates)[number]>();
+      const byItemId = new Map<string, (typeof updates)[number]>();
+      for (const update of updates) {
+        if (typeof update.index === 'number' && Number.isFinite(update.index)) {
+          byIndex.set(Math.trunc(update.index), update);
+        }
+        if (typeof update.itemId === 'string' && update.itemId.trim().length > 0) {
+          byItemId.set(update.itemId, update);
+        }
+      }
+
+      return items.slice(0, boundedMaxItems).map((item, index) => {
+        const update =
+          byIndex.get(item.index) ?? (item.itemId ? byItemId.get(item.itemId) : undefined);
+        const hydratedUrl =
+          typeof update?.url === 'string' && update.url.trim().length > 0
+            ? update.url.trim()
+            : item.url;
+        const hydratedSnippet =
+          typeof update?.textSnippet === 'string' && update.textSnippet.trim().length > 0
+            ? update.textSnippet.trim()
+            : item.textSnippet;
+
+        return {
+          ...item,
+          index,
+          url: hydratedUrl ?? null,
+          textSnippet: hydratedSnippet ?? null,
+          isCurrent: update?.isCurrent === true ? true : item.isCurrent,
+        };
       });
-      return [];
+    } catch (err) {
+      logger.warn(
+        '[LiveViewSession] Playlist media URL hydration failed; continuing with extracted rows',
+        {
+          sessionId,
+          error: err instanceof Error ? err.message : 'unknown',
+        }
+      );
+      return items.slice(0, boundedMaxItems).map((item, index) => ({ ...item, index }));
     }
+  }
+
+  private parsePlaylistItemsFromJsonResponse(
+    response: string,
+    maxItems: number
+  ): LiveViewPlaylistItem[] {
+    const boundedMaxItems = Math.min(Math.max(Math.trunc(maxItems) || 5, 1), 25);
+
+    const sanitizeItems = (items: unknown): LiveViewPlaylistItem[] => {
+      if (!Array.isArray(items)) return [];
+
+      const sanitized: LiveViewPlaylistItem[] = [];
+      for (const [index, item] of items.entries()) {
+        if (!item || typeof item !== 'object') continue;
+
+        const record = item as Record<string, unknown>;
+        const titleValue =
+          typeof record['title'] === 'string' && record['title'].trim().length > 0
+            ? record['title'].trim()
+            : null;
+        const urlValue =
+          typeof record['url'] === 'string' && record['url'].trim().length > 0
+            ? record['url'].trim()
+            : null;
+
+        if (!titleValue && !urlValue) continue;
+
+        sanitized.push({
+          index:
+            typeof record['index'] === 'number' && Number.isFinite(record['index'])
+              ? Math.max(0, Math.trunc(record['index']))
+              : index,
+          itemId:
+            typeof record['itemId'] === 'string' && record['itemId'].trim().length > 0
+              ? record['itemId'].trim()
+              : null,
+          title: titleValue ?? 'Untitled clip',
+          url: urlValue,
+          durationText:
+            typeof record['durationText'] === 'string' && record['durationText'].trim().length > 0
+              ? record['durationText'].trim()
+              : null,
+          thumbnailUrl:
+            typeof record['thumbnailUrl'] === 'string' && record['thumbnailUrl'].trim().length > 0
+              ? record['thumbnailUrl'].trim()
+              : null,
+          textSnippet:
+            typeof record['textSnippet'] === 'string' && record['textSnippet'].trim().length > 0
+              ? record['textSnippet'].trim().slice(0, 280)
+              : null,
+          isCurrent: record['isCurrent'] === true,
+        });
+      }
+
+      return sanitized
+        .sort((a, b) => a.index - b.index)
+        .slice(0, boundedMaxItems)
+        .map((item, index) => ({ ...item, index }));
+    };
+
+    const parseCandidate = (candidate: string): LiveViewPlaylistItem[] => {
+      try {
+        const parsed = JSON.parse(candidate) as { items?: unknown };
+        return sanitizeItems(parsed.items ?? []);
+      } catch {
+        return [];
+      }
+    };
+
+    const trimmed = response.trim();
+    const direct = parseCandidate(trimmed);
+    if (direct.length > 0) return direct;
+
+    const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+    if (fencedMatch?.[1]) {
+      const fenced = parseCandidate(fencedMatch[1]);
+      if (fenced.length > 0) return fenced;
+    }
+
+    const objectMatch = trimmed.match(/\{[\s\S]*"items"[\s\S]*\}/);
+    if (objectMatch?.[0]) {
+      const fromObject = parseCandidate(objectMatch[0]);
+      if (fromObject.length > 0) return fromObject;
+    }
+
+    return [];
   }
 
   /**
@@ -2051,101 +2276,144 @@ JSON.stringify(await (async () => {
       prompt: prompt.slice(0, 200),
     });
 
-    const deterministicScroll = await this.executeDeterministicScrollPrompt(sessionId, prompt);
+    const beforeProbe = await this.collectInteractiveProbeWithTolerance(sessionId, 'preflight');
+
+    const deterministicScroll = await this.tryDeterministicScrollPrompt(sessionId, prompt);
     if (deterministicScroll) {
       return deterministicScroll;
     }
 
-    // Use the SDK's interact() method which natively supports the `prompt` parameter.
-    // This calls POST /v2/scrape/{scrapeId}/interact — the correct endpoint for
-    // AI-driven interactions: https://docs.firecrawl.dev/features/interact
-    let result: ScrapeExecuteResponse;
-    try {
-      result = await this.client.interact(sessionId, {
-        prompt,
-      });
-    } catch (error) {
-      throw this.normalizeSessionExecutionError(sessionId, error, 'Prompt execution failed');
-    }
+    let finalOutput = '';
+    let verification: {
+      readonly status: 'verified' | 'ambiguous' | 'failed';
+      readonly reason: string;
+      readonly currentUrl: string;
+      readonly currentTitle: string;
+      readonly changedUrl: boolean;
+      readonly changedTitle: boolean;
+      readonly changedInteractiveSnapshot: boolean;
+      readonly changedFullSnapshot: boolean;
+    } | null = null;
+    let attempts = 0;
 
-    if (!result.success) {
-      const errorMsg = result.error?.trim() || result.stderr?.trim() || 'Prompt execution failed';
-      const normalizedError = this.normalizeSessionExecutionError(
-        sessionId,
-        new AgentEngineError('LIVE_VIEW_REQUEST_FAILED', errorMsg, {
-          metadata: { sessionId },
-        }),
-        'Prompt execution failed'
-      );
-      if (normalizedError.code === 'LIVE_VIEW_SESSION_EXPIRED') {
-        throw normalizedError;
-      }
-      logger.warn('[LiveViewSession] Prompt failed', { sessionId, error: errorMsg });
-      return { success: false, output: errorMsg };
-    }
+    for (let attempt = 1; attempt <= MAX_PROMPT_EXECUTION_RETRIES + 1; attempt++) {
+      attempts = attempt;
 
-    const output = (result.output ?? result.stdout ?? result.result ?? '').trim();
-
-    if (output.length > 0 && output.length < MIN_PROMPT_OUTPUT_CHARS_FOR_CONFIDENCE) {
+      let result: ScrapeExecuteResponse;
       try {
-        const probe = await this.collectInteractiveProbe(sessionId);
-        if (probe && (probe.interactiveSnapshot || probe.fullSnapshot)) {
-          const sections = [
-            probe.interactiveSnapshot ? `Interactive snapshot:\n${probe.interactiveSnapshot}` : '',
-            probe.fullSnapshot ? `Full snapshot:\n${probe.fullSnapshot}` : '',
-          ].filter((section) => section.length > 0);
+        result = await this.client.interact(sessionId, {
+          prompt,
+        });
+      } catch (error) {
+        throw this.normalizeSessionExecutionError(sessionId, error, 'Prompt execution failed');
+      }
 
-          if (sections.length > 0) {
-            const enrichedOutput = `${output}\n\nPage grounding details:\n${sections.join('\n\n')}`;
-            logger.info('[LiveViewSession] Prompt output enriched with deterministic probe', {
-              sessionId,
-              outputLength: output.length,
-              enrichedLength: enrichedOutput.length,
-            });
-            return { success: true, output: enrichedOutput.slice(0, 30_000) };
-          }
-        }
-      } catch (err) {
-        logger.warn('[LiveViewSession] Prompt probe enrichment failed', {
+      if (!result.success) {
+        const errorMsg = result.error?.trim() || result.stderr?.trim() || 'Prompt execution failed';
+        const normalizedError = this.normalizeSessionExecutionError(
           sessionId,
-          error: err instanceof Error ? err.message : String(err),
+          new AgentEngineError('LIVE_VIEW_REQUEST_FAILED', errorMsg, {
+            metadata: { sessionId },
+          }),
+          'Prompt execution failed'
+        );
+        if (normalizedError.code === 'LIVE_VIEW_SESSION_EXPIRED') {
+          throw normalizedError;
+        }
+        logger.warn('[LiveViewSession] Prompt failed', { sessionId, error: errorMsg, attempt });
+        return { success: false, output: errorMsg, attempts: attempt };
+      }
+
+      const output = (result.output ?? result.stdout ?? result.result ?? '').trim();
+      finalOutput = output || 'Action completed successfully.';
+
+      const afterProbe = await this.collectInteractiveProbeWithTolerance(
+        sessionId,
+        `postflight_attempt_${attempt}`
+      );
+      verification = this.verifyPromptExecution({
+        prompt,
+        output,
+        before: beforeProbe,
+        after: afterProbe,
+      });
+
+      if (verification.status === 'verified') {
+        logger.info('[LiveViewSession] Prompt completed with verified page-state change', {
+          sessionId,
+          attempt,
+          reason: verification.reason,
+          changedUrl: verification.changedUrl,
+          changedTitle: verification.changedTitle,
+          changedInteractiveSnapshot: verification.changedInteractiveSnapshot,
+          changedFullSnapshot: verification.changedFullSnapshot,
+        });
+        return {
+          success: true,
+          output: this.summarizeVerification(finalOutput, verification),
+          attempts: attempt,
+          verification,
+        };
+      }
+
+      if (attempt <= MAX_PROMPT_EXECUTION_RETRIES) {
+        logger.warn('[LiveViewSession] Prompt verification ambiguous; retrying', {
+          sessionId,
+          attempt,
+          reason: verification.reason,
         });
       }
     }
 
-    logger.info('[LiveViewSession] Prompt completed', {
+    logger.warn('[LiveViewSession] Prompt finished without verifiable page-state change', {
       sessionId,
-      outputLength: output.length,
+      attempts,
+      reason: verification?.reason,
     });
 
-    return { success: true, output: output || 'Action completed successfully.' };
+    return {
+      success: false,
+      output: this.summarizeVerification(finalOutput, verification, { failed: true }),
+      attempts,
+      verification: verification ?? {
+        status: 'failed',
+        reason: 'No observable page-state change detected after prompt execution.',
+        currentUrl: '',
+        currentTitle: '',
+        changedUrl: false,
+        changedTitle: false,
+        changedInteractiveSnapshot: false,
+        changedFullSnapshot: false,
+      },
+    };
   }
 
-  private resolveDeterministicScrollDirection(
-    prompt: string
-  ): 'bottom' | 'top' | 'down' | 'up' | null {
+  private shouldUseDeterministicScroll(prompt: string): boolean {
     const normalized = prompt.toLowerCase().replace(/\s+/g, ' ').trim();
-    if (!/\bscroll\b/.test(normalized)) return null;
+    if (!/\bscroll\b/.test(normalized)) return false;
 
     const compoundAction = /\b(click|type|write|press|submit|send|select|choose|open)\b/.test(
       normalized
     );
-    if (compoundAction) return null;
+    if (compoundAction) return false;
 
+    return /\b(bottom|top|end|last|first|all the way)\b/.test(normalized);
+  }
+
+  private resolveDeterministicScrollDirection(prompt: string): 'bottom' | 'top' | 'down' | 'up' {
+    const normalized = prompt.toLowerCase().replace(/\s+/g, ' ').trim();
     if (/\b(bottom|end|last clips?|last plays?|last rows?)\b/.test(normalized)) return 'bottom';
     if (/\b(top|beginning|first clips?|first plays?|first rows?)\b/.test(normalized)) return 'top';
     if (/\b(up|previous)\b/.test(normalized)) return 'up';
-    if (/\b(down|next|further)\b/.test(normalized)) return 'down';
-
-    return null;
+    return 'down';
   }
 
-  private async executeDeterministicScrollPrompt(
+  private async tryDeterministicScrollPrompt(
     sessionId: string,
     prompt: string
   ): Promise<LiveViewPromptResult | null> {
+    if (!this.shouldUseDeterministicScroll(prompt)) return null;
     const direction = this.resolveDeterministicScrollDirection(prompt);
-    if (!direction) return null;
 
     const payload = JSON.stringify({ direction });
     const code = `
@@ -2241,7 +2509,7 @@ JSON.stringify(await (async () => {
         afterTop,
       });
 
-      return { success: true, output: output.slice(0, 30_000) };
+      return { success: true, output: output.slice(0, 30_000), attempts: 1 };
     } catch (err) {
       logger.warn('[LiveViewSession] Deterministic scroll failed; falling back to prompt mode', {
         sessionId,
@@ -2250,6 +2518,137 @@ JSON.stringify(await (async () => {
       });
       return null;
     }
+  }
+
+  private async collectInteractiveProbeWithTolerance(
+    sessionId: string,
+    phase: string
+  ): Promise<LiveViewProbeResult | null> {
+    try {
+      return await this.collectInteractiveProbe(sessionId);
+    } catch (error) {
+      logger.warn('[LiveViewSession] Probe collection failed (non-fatal)', {
+        sessionId,
+        phase,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  private verifyPromptExecution(input: {
+    prompt: string;
+    output: string;
+    before: LiveViewProbeResult | null;
+    after: LiveViewProbeResult | null;
+  }): {
+    status: 'verified' | 'ambiguous' | 'failed';
+    reason: string;
+    currentUrl: string;
+    currentTitle: string;
+    changedUrl: boolean;
+    changedTitle: boolean;
+    changedInteractiveSnapshot: boolean;
+    changedFullSnapshot: boolean;
+  } {
+    const normalize = (value: string) => value.replace(/\s+/g, ' ').trim().toLowerCase();
+
+    const beforeUrl = normalize(input.before?.url ?? '');
+    const afterUrl = normalize(input.after?.url ?? '');
+    const beforeTitle = normalize(input.before?.title ?? '');
+    const afterTitle = normalize(input.after?.title ?? '');
+    const beforeInteractive = normalize(input.before?.interactiveSnapshot ?? '');
+    const afterInteractive = normalize(input.after?.interactiveSnapshot ?? '');
+    const beforeFull = normalize(input.before?.fullSnapshot ?? '');
+    const afterFull = normalize(input.after?.fullSnapshot ?? '');
+
+    const changedUrl = Boolean(afterUrl) && (!beforeUrl || beforeUrl !== afterUrl);
+    const changedTitle = Boolean(afterTitle) && (!beforeTitle || beforeTitle !== afterTitle);
+    const changedInteractiveSnapshot =
+      Boolean(afterInteractive) && (!beforeInteractive || beforeInteractive !== afterInteractive);
+    const changedFullSnapshot = Boolean(afterFull) && (!beforeFull || beforeFull !== afterFull);
+
+    const outputSignal = normalize(input.output);
+    const successVerb =
+      /\b(clicked|typed|selected|submitted|opened|closed|navigated|scrolled|updated|changed|completed)\b/.test(
+        outputSignal
+      );
+
+    const hasProbeData = Boolean(afterUrl || afterTitle || afterInteractive || afterFull);
+    const hadPreflightProbeData = Boolean(
+      beforeUrl || beforeTitle || beforeInteractive || beforeFull
+    );
+
+    if (
+      changedUrl ||
+      changedTitle ||
+      changedInteractiveSnapshot ||
+      changedFullSnapshot ||
+      (!hadPreflightProbeData && hasProbeData && successVerb)
+    ) {
+      return {
+        status: 'verified',
+        reason: 'Observed deterministic page-state change after prompt execution.',
+        currentUrl: input.after?.url ?? '',
+        currentTitle: input.after?.title ?? '',
+        changedUrl,
+        changedTitle,
+        changedInteractiveSnapshot,
+        changedFullSnapshot,
+      };
+    }
+
+    if (!hasProbeData && successVerb) {
+      return {
+        status: 'verified',
+        reason:
+          'Provider reported successful action and probe snapshots were unavailable; accepting provider signal.',
+        currentUrl: input.after?.url ?? '',
+        currentTitle: input.after?.title ?? '',
+        changedUrl,
+        changedTitle,
+        changedInteractiveSnapshot,
+        changedFullSnapshot,
+      };
+    }
+
+    return {
+      status: 'ambiguous',
+      reason:
+        'Prompt execution returned success but no deterministic page-state change was observed. Retry recommended.',
+      currentUrl: input.after?.url ?? '',
+      currentTitle: input.after?.title ?? '',
+      changedUrl,
+      changedTitle,
+      changedInteractiveSnapshot,
+      changedFullSnapshot,
+    };
+  }
+
+  private summarizeVerification(
+    output: string,
+    verification: {
+      status: 'verified' | 'ambiguous' | 'failed';
+      reason: string;
+      currentUrl: string;
+      currentTitle: string;
+    } | null,
+    options?: { failed?: boolean }
+  ): string {
+    if (!verification) return output || 'Action completed.';
+
+    const statusLabel =
+      verification.status === 'verified' ? 'VERIFIED' : options?.failed ? 'FAILED' : 'AMBIGUOUS';
+
+    const parts = [
+      output || 'Action completed.',
+      '',
+      `Verification: ${statusLabel}`,
+      verification.reason,
+    ];
+    if (verification.currentUrl) parts.push(`Current URL: ${verification.currentUrl}`);
+    if (verification.currentTitle) parts.push(`Current title: ${verification.currentTitle}`);
+    return parts.join('\n').slice(0, 30_000);
   }
 
   // ─── Internal Helpers ─────────────────────────────────────────────────

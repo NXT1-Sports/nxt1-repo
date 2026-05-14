@@ -13,9 +13,12 @@ import type { HttpAdapter, HttpRequestConfig } from '../api/http-adapter.js';
 import type {
   TeamGamePlanDoc,
   TeamGamePlanAdjustmentTrigger,
+  TeamGamePlanBlock,
+  TeamGamePlanMomentPriority,
   TeamGamePlanPriority,
   TeamGamePlanSection,
   TeamGamePlanPlayReference,
+  TeamGamePlanStrengthWeaknessItem,
 } from '../models/team/team-gameplan.model.js';
 
 // ============================================
@@ -53,6 +56,9 @@ export interface CreateTeamGamePlanRequest {
   readonly defensivePriorities?: string;
   readonly specialSituations?: string;
   readonly openingScript?: readonly string[];
+  readonly strengthsWeaknesses?: readonly TeamGamePlanStrengthWeaknessItem[];
+  readonly priorities?: readonly TeamGamePlanMomentPriority[];
+  readonly planBlocks?: readonly TeamGamePlanBlock[];
   readonly adjustmentTriggers?: readonly TeamGamePlanAdjustmentTrigger[];
   readonly halftimePriorities?: readonly TeamGamePlanPriority[];
   readonly customSections?: readonly TeamGamePlanSection[];
@@ -88,6 +94,9 @@ export interface UpdateTeamGamePlanRequest {
   readonly defensivePriorities?: string;
   readonly specialSituations?: string;
   readonly openingScript?: readonly string[];
+  readonly strengthsWeaknesses?: readonly TeamGamePlanStrengthWeaknessItem[];
+  readonly priorities?: readonly TeamGamePlanMomentPriority[];
+  readonly planBlocks?: readonly TeamGamePlanBlock[];
   readonly adjustmentTriggers?: readonly TeamGamePlanAdjustmentTrigger[];
   readonly halftimePriorities?: readonly TeamGamePlanPriority[];
   readonly customSections?: readonly TeamGamePlanSection[];
