@@ -29,7 +29,7 @@ export type BoardDiagramKind = 'sport_play' | 'sport_drill';
  * delete, and reference operations (playbooks, drill libraries, chat artifacts)
  * work identically regardless of subtype.
  *
- * Firestore collection: `diagramAssets/{id}`
+ * Firestore collection: `DiagramAssets/{id}` (legacy reads also support `diagramAssets/{id}`).
  * Security: `userId === auth.uid` enforced at the service layer.
  */
 export interface BoardDiagramAsset {
