@@ -386,24 +386,6 @@ function sortCoordinatorCategories(
 
             @if (isPanelMenuOpen()) {
               <div class="header-nav-dropdown-menu" role="menu" aria-label="Panel options">
-                @if (!platform.isMobile()) {
-                  <button
-                    type="button"
-                    class="header-nav-dropdown-item"
-                    [class.header-nav-dropdown-item--active]="panelMenuSelection() === 'live-view'"
-                    role="menuitemradio"
-                    [attr.aria-checked]="panelMenuSelection() === 'live-view'"
-                    (click)="onSelectPanelMenuOption('live-view', $event)"
-                  >
-                    <span>Live View (Preview)</span>
-                    <nxt1-icon
-                      class="header-nav-dropdown-item-indicator"
-                      name="checkmark"
-                      [size]="14"
-                      aria-hidden="true"
-                    />
-                  </button>
-                }
                 <button
                   type="button"
                   class="header-nav-dropdown-item"
@@ -436,6 +418,24 @@ function sortCoordinatorCategories(
                     aria-hidden="true"
                   />
                 </button>
+                @if (!platform.isMobile()) {
+                  <button
+                    type="button"
+                    class="header-nav-dropdown-item"
+                    [class.header-nav-dropdown-item--active]="panelMenuSelection() === 'live-view'"
+                    role="menuitemradio"
+                    [attr.aria-checked]="panelMenuSelection() === 'live-view'"
+                    (click)="onSelectPanelMenuOption('live-view', $event)"
+                  >
+                    <span>Live View (Preview)</span>
+                    <nxt1-icon
+                      class="header-nav-dropdown-item-indicator"
+                      name="checkmark"
+                      [size]="14"
+                      aria-hidden="true"
+                    />
+                  </button>
+                }
               </div>
             }
           </div>

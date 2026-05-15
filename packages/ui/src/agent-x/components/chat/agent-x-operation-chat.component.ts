@@ -1669,8 +1669,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   @Input() contextDescription = '';
 
   protected getInputPlaceholder(): string {
+    // For operations: always use generic placeholder
     if (this.contextType === 'operation') return 'Message Agent X';
 
+    // For commands/coordinators: show coordinator name if available
     const title = this.contextTitle.trim();
     if (!title) return 'Message Agent X';
     return `Message ${title}`;
