@@ -107,6 +107,21 @@ const CONTEXT_CACHE_META_TTL_SECONDS = parsePositiveIntEnv(
   DEFAULT_CONTEXT_CACHE_META_TTL_SECONDS
 );
 
+/**
+ * Redis/in-memory key used to persist the non-recoverable context cache
+ * disabled state across process restarts (e.g. free-tier 429 limit=0).
+ */
+const CONTEXT_CACHE_DISABLED_CACHE_KEY = 'agent:gemini:context-cache:disabled';
+
+/**
+ * How long (seconds) to suppress context cache retries after a non-recoverable
+ * error. Defaults to 24 h so the daily quota window has time to reset.
+ */
+const CONTEXT_CACHE_DISABLED_TTL_SECONDS = parsePositiveIntEnv(
+  'AGENT_X_GEMINI_CONTEXT_CACHE_DISABLED_TTL_SECONDS',
+  24 * 60 * 60
+);
+
 /** How long to wait for Gemini Files API to finish processing an upload (ms). */
 const FILE_ACTIVE_POLL_INTERVAL_MS = 2_000;
 const FILE_ACTIVE_TIMEOUT_MS = parsePositiveIntEnv(
@@ -153,6 +168,8 @@ export class GeminiFilesService {
   private readonly genAI: GoogleGenerativeAI;
   private contextCacheRuntimeDisabled = false;
   private contextCacheDisableReason: string | null = null;
+  /** Set to `true` after the first async lookup of the persisted disabled flag. */
+  private contextCachePersistentStateChecked = false;
 
   constructor(apiKey?: string) {
     const key = apiKey ?? process.env['GEMINI_API_KEY'];
@@ -206,6 +223,8 @@ export class GeminiFilesService {
     if (sourceUrls.length === 0) {
       throw new Error('Gemini Files API video analysis requires at least one source URL.');
     }
+
+    await this.ensureContextCachePersistentStateLoaded();
 
     const startMs = Date.now();
     const cacheKey = this.buildContextCacheKey(sourceUrls, options);
@@ -327,6 +346,46 @@ export class GeminiFilesService {
       reason,
       model: GEMINI_VIDEO_MODEL,
     });
+    // Persist so that the next process restart skips context cache without
+    // triggering another 429 during the backoff window.
+    getCacheService()
+      .set(
+        CONTEXT_CACHE_DISABLED_CACHE_KEY,
+        { reason, disabledAt: new Date().toISOString() },
+        { ttl: CONTEXT_CACHE_DISABLED_TTL_SECONDS }
+      )
+      .catch(() => {
+        // Best-effort — in-memory flag already guards this session.
+      });
+  }
+
+  /**
+   * Lazily checks the cache service for a persisted context-cache disabled
+   * flag written by a previous process restart. Called once per instance
+   * before the first video analysis attempt.
+   */
+  private async ensureContextCachePersistentStateLoaded(): Promise<void> {
+    if (this.contextCachePersistentStateChecked || !CONTEXT_CACHE_ENABLED) return;
+    this.contextCachePersistentStateChecked = true;
+    try {
+      const persisted = await getCacheService().get<{ reason: string; disabledAt: string }>(
+        CONTEXT_CACHE_DISABLED_CACHE_KEY
+      );
+      if (persisted) {
+        this.contextCacheRuntimeDisabled = true;
+        this.contextCacheDisableReason = persisted.reason;
+        logger.info(
+          '[GeminiFilesService] Context cache disabled state restored from persistent cache',
+          {
+            reason: persisted.reason,
+            disabledAt: persisted.disabledAt,
+            model: GEMINI_VIDEO_MODEL,
+          }
+        );
+      }
+    } catch {
+      // Best-effort — inability to read the flag should not block analysis.
+    }
   }
 
   private isTooSmallForContextCacheError(err: unknown): boolean {
