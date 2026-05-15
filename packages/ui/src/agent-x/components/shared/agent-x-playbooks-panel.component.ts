@@ -648,17 +648,19 @@ function parseTags(raw: string): string[] {
           (action)="reload()"
         />
       } @else {
-        <div class="playbooks-list-header">
-          <div>
-            <h3>Playbooks</h3>
+        @if (playbooks().length > 0 || showCreateForm()) {
+          <div class="playbooks-list-header">
+            <div>
+              <h3>Playbooks</h3>
+            </div>
+            @if (!showCreateForm()) {
+              <button type="button" class="btn-new" (click)="startCreate()">
+                <nxt1-icon name="plus" [size]="14"></nxt1-icon>
+                New
+              </button>
+            }
           </div>
-          @if (!showCreateForm()) {
-            <button type="button" class="btn-new" (click)="startCreate()">
-              <nxt1-icon name="plus" [size]="14"></nxt1-icon>
-              New
-            </button>
-          }
-        </div>
+        }
 
         @if (showCreateForm()) {
           <div class="inline-form">
@@ -699,9 +701,10 @@ function parseTags(raw: string): string[] {
 
         @if (playbooks().length === 0 && !showCreateForm()) {
           <nxt1-state-view
-            title="No playbooks yet"
+            variant="empty"
+            icon="clipboard"
+            title="No Playbooks"
             message="Generate team playbooks with Agent X or create one manually."
-            icon="grid"
           />
         }
 

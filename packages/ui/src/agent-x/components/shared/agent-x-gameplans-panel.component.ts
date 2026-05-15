@@ -513,7 +513,7 @@ interface GamePlanDetailResponse {
         <!-- EMPTY STATE -->
         <nxt1-state-view
           variant="empty"
-          icon="layers"
+          icon="clipboard"
           title="No Game Plans"
           message="Start creating game plans to organize your team strategy"
         />
