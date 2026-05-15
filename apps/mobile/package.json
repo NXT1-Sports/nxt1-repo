@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/mobile",
-  "version": "1.33.29",
+  "version": "1.33.31",
   "description": "NXT1 Mobile Application - Ionic + Capacitor",
   "private": true,
   "scripts": {
@@ -44,6 +44,7 @@
     "@capacitor-firebase/crashlytics": "^8.0.1",
     "@capacitor-firebase/messaging": "^8.1.0",
     "@capacitor-firebase/performance": "^8.0.1",
+    "@capacitor-firebase/storage": "^8.0.1",
     "@capacitor/action-sheet": "^8.0.0",
     "@capacitor/android": "^8.0.1",
     "@capacitor/app": "^8.0.0",

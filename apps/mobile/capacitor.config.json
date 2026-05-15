@@ -6,6 +6,9 @@
   "server": {
     "androidScheme": "https"
   },
+  "CapacitorHttp": {
+    "enabled": true
+  },
   "plugins": {
     "CapacitorUpdater": {
       "autoUpdate": false,

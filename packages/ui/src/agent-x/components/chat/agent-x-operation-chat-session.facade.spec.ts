@@ -6,10 +6,10 @@ type Canonicalizer = {
   resolveCanonicalAssistantRows(items: readonly AgentMessage[]): readonly AgentMessage[];
   coercePersistedYieldStateFromMessage(
     message: AgentMessage,
-    persistedCards: readonly AgentMessage['cards']
+    persistedCards: AgentMessage['cards']
   ): unknown;
   hasYieldedAssistantRowForOperation(
-    messages: readonly Array<{
+    messages: ReadonlyArray<{
       role: string;
       operationId?: string;
       yieldState?: AgentMessage['resultData'];

@@ -167,8 +167,19 @@ export class NxtPlatformService {
   /** True if running on Android */
   readonly isAndroid = computed(() => this._os() === 'android');
 
-  /** True if running in native app (Capacitor) */
-  readonly isNative = computed(() => this.isNativeRuntime());
+  /**
+   * True if running in native app (Capacitor).
+   *
+   * Intentionally a `signal()` initialised eagerly at construction time rather
+   * than a `computed()`.  A `computed()` with no Angular-signal dependencies is
+   * evaluated lazily on first access and cached permanently — if the service
+   * was first accessed before the Capacitor bridge had set `window.Capacitor`
+   * (e.g. during an early Angular DI resolution), the value would be cached as
+   * `false` forever.  Evaluating at construction time guarantees that the
+   * Capacitor bridge (which runs synchronously before `main.ts` bootstraps) is
+   * already present.
+   */
+  readonly isNative = signal(this.isNativeRuntime());
 
   /** True if running as PWA */
   readonly isPWA = computed(() => this._capabilities().pwa);
