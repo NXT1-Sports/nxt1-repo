@@ -134,7 +134,7 @@ jobs:
         run: corepack enable npm
 
       - name: Download web assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: mobile-www
           path: apps/mobile/www
@@ -289,7 +289,7 @@ jobs:
           cache: 'gradle'
 
       - name: Download web assets
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: mobile-www
           path: apps/mobile/www
