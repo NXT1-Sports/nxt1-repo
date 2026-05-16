@@ -51,7 +51,7 @@ export interface PlayItem {
 /**
  * Request type for creating a play
  */
-export interface CreatePlayRequest extends PlayItem {}
+export type CreatePlayRequest = PlayItem;
 
 /**
  * Response type for play creation
@@ -65,7 +65,7 @@ export interface CreatePlayResponse {
 /**
  * Request type for updating a play
  */
-export interface UpdatePlayRequest extends Partial<PlayItem> {}
+export type UpdatePlayRequest = Partial<PlayItem>;
 
 /**
  * Response type for play update
@@ -119,15 +119,9 @@ export function createPlaybookApi(http: HttpAdapter, baseUrl: string) {
      * Create a new play in a playbook
      * POST /playbooks/:playbookId/plays
      */
-    async createPlay(
-      playbookId: string,
-      playData: CreatePlayRequest
-    ): Promise<PlayItem> {
+    async createPlay(playbookId: string, playData: CreatePlayRequest): Promise<PlayItem> {
       const endpoint = `${playbooksEndpoint}/${playbookId}/plays`;
-      const response = await http.post<ApiResponse<CreatePlayResponse>>(
-        endpoint,
-        playData
-      );
+      const response = await http.post<ApiResponse<CreatePlayResponse>>(endpoint, playData);
 
       if (!response.success || !response.data?.play) {
         throw new Error(response.error ?? 'Failed to create play');
@@ -146,10 +140,7 @@ export function createPlaybookApi(http: HttpAdapter, baseUrl: string) {
       playData: UpdatePlayRequest
     ): Promise<PlayItem> {
       const endpoint = `${playbooksEndpoint}/${playbookId}/plays/${playIndex}`;
-      const response = await http.patch<ApiResponse<UpdatePlayResponse>>(
-        endpoint,
-        playData
-      );
+      const response = await http.patch<ApiResponse<UpdatePlayResponse>>(endpoint, playData);
 
       if (!response.success || !response.data?.play) {
         throw new Error(response.error ?? 'Failed to update play');
@@ -164,9 +155,7 @@ export function createPlaybookApi(http: HttpAdapter, baseUrl: string) {
      */
     async deletePlay(playbookId: string, playIndex: number): Promise<void> {
       const endpoint = `${playbooksEndpoint}/${playbookId}/plays/${playIndex}`;
-      const response = await http.delete<ApiResponse<DeletePlayResponse>>(
-        endpoint
-      );
+      const response = await http.delete<ApiResponse<DeletePlayResponse>>(endpoint);
 
       if (!response.success) {
         throw new Error(response.error ?? 'Failed to delete play');
