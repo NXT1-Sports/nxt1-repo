@@ -41,14 +41,24 @@ export function buildPendingAttachmentViewer(
     .map((file) => {
       const kind = resolveKind(file);
 
-      let url: string | null = file.previewUrl;
+      let url: string | null = null;
 
-      if (!url && kind === 'doc' && objectUrlApi) {
+      if (kind === 'image') {
+        // previewUrl is a blob/data URL for the image — use directly.
+        url = file.previewUrl;
+      } else if (kind === 'video') {
+        // previewUrl is a JPEG canvas thumbnail — NOT a playable video.
+        // Always create a real blob URL from the actual file for the viewer.
+        if (objectUrlApi) {
+          url = objectUrlApi.createObjectURL(file.file);
+          tempObjectUrls.push(url);
+        }
+      } else if (kind === 'doc' && objectUrlApi) {
         url = objectUrlApi.createObjectURL(file.file);
         tempObjectUrls.push(url);
       }
 
-      // Match operation-chat behavior: image/video require preview URL.
+      // Require a resolvable URL to include the item.
       if (!url) {
         return null;
       }
