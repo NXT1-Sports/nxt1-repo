@@ -958,7 +958,9 @@ export class AgentXService {
 
   /**
    * Stage files for upload. Validates MIME type, size, and attachment count.
-   * Creates preview URLs for images and videos. Call before sendMessage().
+   * Creates preview URLs for images. For videos, generates a canvas-extracted
+   * thumbnail frame so iOS shows a real preview instead of a blank element.
+   * Call before sendMessage().
    */
   addFiles(files: File[]): void {
     const current = this._pendingFiles();
@@ -984,19 +986,111 @@ export class AgentXService {
         continue;
       }
 
-      const shouldCreatePreview = file.type.startsWith('image/') || file.type.startsWith('video/');
-      const previewUrl =
-        shouldCreatePreview && isPlatformBrowser(this.platformId)
-          ? URL.createObjectURL(file)
-          : null;
-      const pending: AgentXPendingFile = {
-        file,
-        previewUrl,
-        type: resolveAttachmentType(file.type),
-      };
-      this._pendingFiles.update((list) => [...list, pending]);
-      this.logger.debug('File staged', { name: file.name, type: pending.type });
+      if (!isPlatformBrowser(this.platformId)) {
+        const pending: AgentXPendingFile = {
+          file,
+          previewUrl: null,
+          type: resolveAttachmentType(file.type),
+        };
+        this._pendingFiles.update((list) => [...list, pending]);
+        continue;
+      }
+
+      if (isVideoFile) {
+        // Add file immediately with no preview, then replace with canvas thumbnail
+        const pending: AgentXPendingFile = {
+          file,
+          previewUrl: null,
+          type: resolveAttachmentType(file.type),
+        };
+        this._pendingFiles.update((list) => [...list, pending]);
+        this.logger.debug('File staged (video thumbnail pending)', { name: file.name });
+        void this.generateVideoThumbnail(file)
+          .then((thumbnailDataUrl) => {
+            this._pendingFiles.update((list) =>
+              list.map((p) =>
+                p.file === file && p.previewUrl === null
+                  ? { ...p, previewUrl: thumbnailDataUrl }
+                  : p
+              )
+            );
+          })
+          .catch(() => {
+            this.logger.warn('Video thumbnail generation failed', { name: file.name });
+          });
+      } else {
+        const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
+        const pending: AgentXPendingFile = {
+          file,
+          previewUrl,
+          type: resolveAttachmentType(file.type),
+        };
+        this._pendingFiles.update((list) => [...list, pending]);
+        this.logger.debug('File staged', { name: file.name, type: pending.type });
+      }
     }
+  }
+
+  /**
+   * Generate a JPEG thumbnail from a video File using a hidden canvas.
+   * Seeks to a representative frame (1 s or 25% of duration, whichever is earlier).
+   * Returns a data URL safe to use as `<img src>` on all platforms including iOS.
+   */
+  private generateVideoThumbnail(file: File): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const objectUrl = URL.createObjectURL(file);
+      const video = document.createElement('video');
+      video.muted = true;
+      video.setAttribute('playsinline', '');
+      video.preload = 'metadata';
+      video.setAttribute('crossorigin', 'anonymous');
+
+      const cleanup = () => {
+        URL.revokeObjectURL(objectUrl);
+      };
+
+      const captureFrame = () => {
+        try {
+          const w = video.videoWidth || 320;
+          const h = video.videoHeight || 180;
+          const canvas = document.createElement('canvas');
+          canvas.width = w;
+          canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            cleanup();
+            reject(new Error('Canvas 2D context unavailable'));
+            return;
+          }
+          ctx.drawImage(video, 0, 0, w, h);
+          cleanup();
+          resolve(canvas.toDataURL('image/jpeg', 0.75));
+        } catch (err) {
+          cleanup();
+          reject(err);
+        }
+      };
+
+      video.onloadeddata = () => {
+        // Seek to 1 s or 25% of duration — avoids blank frames at time 0 on some codecs
+        const seekTo = Math.min(1, (video.duration || 0) * 0.25);
+        if (seekTo > 0 && isFinite(seekTo)) {
+          video.currentTime = seekTo;
+        } else {
+          captureFrame();
+        }
+      };
+
+      video.onseeked = captureFrame;
+
+      video.onerror = () => {
+        cleanup();
+        reject(new Error('Video element failed to load for thumbnail'));
+      };
+
+      video.src = objectUrl;
+      video.load();
+    });
   }
 
   /**

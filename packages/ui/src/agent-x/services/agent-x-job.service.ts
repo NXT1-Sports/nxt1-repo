@@ -72,7 +72,11 @@ export function resolveCurrentAgentXAppBaseUrl(): string | undefined {
   if (typeof origin !== 'string' || !origin.trim()) return undefined;
 
   try {
-    return new URL(origin).origin;
+    const parsed = new URL(origin);
+    // Only send http/https origins — native app schemes (capacitor://, ionic://, file://)
+    // are not meaningful backend URLs and would fail server-side URL validation.
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return undefined;
+    return parsed.origin;
   } catch {
     return undefined;
   }

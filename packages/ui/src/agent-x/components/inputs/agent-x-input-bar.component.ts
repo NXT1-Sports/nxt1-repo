@@ -58,13 +58,11 @@ interface PendingConnectedSource {
             <div class="input-attachment" [title]="f.file.name" (click)="openFile.emit($index)">
               @if (f.previewUrl) {
                 @if (f.file.type.startsWith('video/')) {
-                  <video
+                  <img
                     class="input-attachment-thumb input-attachment-thumb--video"
                     [src]="f.previewUrl"
-                    muted
-                    playsinline
-                    preload="auto"
-                  ></video>
+                    [alt]="f.file.name"
+                  />
                   <div class="input-attachment-play-icon">
                     <nxt1-icon name="playCircle" [size]="16" />
                   </div>

@@ -351,6 +351,9 @@ export class AgentXOperationChatRunControlFacade {
       url: pendingFile.previewUrl ?? '',
       type: pendingFile.isImage ? 'image' : pendingFile.isVideo ? 'video' : 'doc',
       name: pendingFile.file.name,
+      ...(pendingFile.isVideo && pendingFile.previewUrl
+        ? { thumbnailUrl: pendingFile.previewUrl }
+        : {}),
     }));
 
     const sourceDisplayAttachments: MessageAttachment[] = pendingSources.map((source) => ({

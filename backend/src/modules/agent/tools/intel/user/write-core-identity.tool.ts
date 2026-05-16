@@ -736,7 +736,11 @@ export class WriteCoreIdentityTool extends BaseTool {
       // as synced so the graphic enqueues automatically.
       if (shouldUpdateUserDoc) {
         try {
-          const welcomeResult = await enqueueWelcomeGraphicIfReady(this.db, { userId }, 'staging');
+          const welcomeResult = await enqueueWelcomeGraphicIfReady(
+            this.db,
+            { userId },
+            context?.environment ?? 'production'
+          );
 
           if (welcomeResult.status === 'enqueued') {
             logger.info('[WriteCoreIdentity] Welcome graphic enqueued after sync completion', {

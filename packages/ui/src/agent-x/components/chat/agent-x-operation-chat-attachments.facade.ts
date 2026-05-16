@@ -760,7 +760,9 @@ export class AgentXOperationChatAttachmentsFacade {
       nextPending.push({
         id: crypto.randomUUID(),
         file,
-        previewUrl: isImage || isVideo ? URL.createObjectURL(file) : null,
+        // Videos: start null, canvas thumbnail is set async below.
+        // Images: blob URL is fine as <img src> renders it directly.
+        previewUrl: isImage ? URL.createObjectURL(file) : null,
         isImage,
         isVideo,
       });
@@ -770,9 +772,87 @@ export class AgentXOperationChatAttachmentsFacade {
     if (nextPending.length > 0) {
       this.pendingFiles.update((previous) => [...previous, ...nextPending]);
       void this.primePendingUploads(nextPending);
+      for (const pending of nextPending.filter((p) => p.isVideo)) {
+        void this.generateAndSetVideoThumbnail(pending);
+      }
     }
 
     return nextPending.length;
+  }
+
+  private async generateAndSetVideoThumbnail(pending: PendingFile): Promise<void> {
+    if (!isPlatformBrowser(this.platformId)) return;
+    try {
+      const dataUrl = await this.generateVideoThumbnail(pending.file);
+      this.pendingFiles.update((list) =>
+        list.map((p) =>
+          p.id === pending.id && p.previewUrl === null ? { ...p, previewUrl: dataUrl } : p
+        )
+      );
+    } catch {
+      this.logger.warn('Video thumbnail generation failed', { name: pending.file.name });
+    }
+  }
+
+  private generateVideoThumbnail(file: File): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const video = document.createElement('video');
+      video.muted = true;
+      video.playsInline = true;
+      video.preload = 'metadata';
+      const objectUrl = URL.createObjectURL(file);
+      video.src = objectUrl;
+
+      const cleanup = (): void => {
+        video.removeAttribute('src');
+        video.load();
+        URL.revokeObjectURL(objectUrl);
+      };
+
+      video.addEventListener(
+        'loadeddata',
+        () => {
+          video.currentTime = Math.min(1, video.duration * 0.25) || 0;
+        },
+        { once: true }
+      );
+
+      video.addEventListener(
+        'seeked',
+        () => {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth || 320;
+            canvas.height = video.videoHeight || 240;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) {
+              cleanup();
+              reject(new Error('Canvas 2D context unavailable'));
+              return;
+            }
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+            cleanup();
+            resolve(dataUrl);
+          } catch (err) {
+            cleanup();
+            reject(err);
+          }
+        },
+        { once: true }
+      );
+
+      video.addEventListener(
+        'error',
+        () => {
+          cleanup();
+          reject(new Error(`Video thumbnail failed: ${file.name}`));
+        },
+        { once: true }
+      );
+
+      video.load();
+    });
   }
 
   private async primePendingUploads(files: readonly PendingFile[]): Promise<void> {

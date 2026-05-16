@@ -133,6 +133,41 @@ export class AgentXOperationChatSessionFacade {
     return (value ?? '').replace(/\s+/g, ' ').trim();
   }
 
+  /**
+   * Returns true when the error string represents a client-side connectivity
+   * failure (SSE stall, network drop, stream cut) rather than a real backend
+   * error.  Used to decide whether to fall back to Firestore instead of
+   * showing the raw technical message to the user.
+   */
+  private isClientSideConnectivityError(error: string): boolean {
+    const lower = (error ?? '').toLowerCase();
+    return (
+      lower.includes('stall') ||
+      lower.includes('sse') ||
+      lower.includes('unexpected eof') ||
+      lower.includes('unexpected end') ||
+      lower.includes('stream ended') ||
+      lower.includes('network') ||
+      lower.includes('connection')
+    );
+  }
+
+  /**
+   * Returns true when the operation is still "active" — i.e. it could still
+   * produce more output or is waiting for user input/approval.  This covers
+   * all non-terminal statuses so that connectivity failures in any yield or
+   * pause state trigger a Firestore fallback instead of an error bubble.
+   */
+  private isActiveOperation(): boolean {
+    const status = this.requireHost().getOperationStatus();
+    return (
+      status === 'processing' ||
+      status === 'paused' ||
+      status === 'awaiting_input' ||
+      status === 'awaiting_approval'
+    );
+  }
+
   private stepSignature(steps: readonly AgentXToolStep[] | undefined): string {
     if (!steps || steps.length === 0) return '';
     return steps.map((step) => `${step.id}|${step.label}|${step.status}`).join('||');
@@ -905,11 +940,7 @@ export class AgentXOperationChatSessionFacade {
       return;
     }
 
-    if (
-      host.contextId().trim() &&
-      host.contextType() === 'operation' &&
-      host.getOperationStatus() === 'processing'
-    ) {
+    if (host.contextId().trim() && host.contextType() === 'operation' && this.isActiveOperation()) {
       host.threadMode.set(true);
       this.subscribeToFirestoreJobEvents();
       return;
@@ -1464,6 +1495,10 @@ export class AgentXOperationChatSessionFacade {
   async loadThreadMessages(threadId: string): Promise<void> {
     const host = this.requireHost();
     host.loading.set(true);
+    // When a Firestore fallback is started from the catch block we must NOT call
+    // host.loading.set(false) in the finally — the Firestore subscription owns
+    // the loading state from that point on and will clear it on done/error.
+    let firestoreFallbackStarted = false;
     this.logger.info('Loading operation thread', { threadId, contextId: host.contextId() });
 
     try {
@@ -2015,6 +2050,28 @@ export class AgentXOperationChatSessionFacade {
         threadId,
         contextId: host.contextId(),
       });
+      // On iOS/Android, the network may not be immediately available after app resume.
+      // If the operation is still expected to be running, start the Firestore fallback
+      // instead of surfacing a "failed to load" error — the live event stream does not
+      // depend on loading prior history from the backend.
+      if (
+        host.contextType() === 'operation' &&
+        this.isActiveOperation() &&
+        host.contextId().trim()
+      ) {
+        this.logger.info(
+          'Thread history load failed with operation still active — starting Firestore fallback',
+          // includes: processing | paused | awaiting_input | awaiting_approval
+          { threadId, contextId: host.contextId() }
+        );
+        this.breadcrumb.trackStateChange('operation-chat:load-failed-firestore-fallback', {
+          threadId,
+          contextId: host.contextId(),
+        });
+        firestoreFallbackStarted = true;
+        this.subscribeToFirestoreJobEvents();
+        return;
+      }
       this.messageFacade.pushMessage({
         id: host.uid(),
         role: 'assistant',
@@ -2023,7 +2080,9 @@ export class AgentXOperationChatSessionFacade {
         error: true,
       });
     } finally {
-      host.loading.set(false);
+      if (!firestoreFallbackStarted) {
+        host.loading.set(false);
+      }
     }
   }
 
@@ -2242,6 +2301,25 @@ export class AgentXOperationChatSessionFacade {
         this.transportFacade.emitResponseCompleteOnce('stream-registry-done');
       },
       onError: (error) => {
+        // If the stream died due to a client-side connectivity issue (iOS/Android
+        // backgrounding, stall timer) and the operation is still expected to be
+        // running, fall back to Firestore instead of showing a technical error.
+        // isActiveOperation() covers 'processing' | 'paused' | 'awaiting_input' |
+        // 'awaiting_approval' — including the "Waiting for your reply" yield state
+        // where the SSE stream may still be held open by the server.
+        if (
+          this.isClientSideConnectivityError(error ?? '') &&
+          host.contextId().trim() &&
+          host.contextType() === 'operation' &&
+          this.isActiveOperation()
+        ) {
+          this.logger.info(
+            'SSE claim listener error — connectivity issue detected, falling back to Firestore',
+            { threadId, error, operationId: host.contextId() }
+          );
+          this.subscribeToFirestoreJobEvents();
+          return;
+        }
         this.messageFacade.replaceTyping({
           id: host.uid(),
           role: 'assistant',
@@ -2319,6 +2397,37 @@ export class AgentXOperationChatSessionFacade {
 
         if (fresh.done) {
           if (fresh.error) {
+            // If the stream errored due to a client-side connectivity failure
+            // (iOS/Android killed the network while backgrounded, SSE stall timer),
+            // never surface the raw transport error string to the user:
+            //   - If the operation is still processing → fall back to Firestore.
+            //   - If the operation is already complete/errored → loadThreadMessages
+            //     already reconciled the final state; silently drop the stale error.
+            if (this.isClientSideConnectivityError(fresh.error)) {
+              if (
+                host.contextId().trim() &&
+                host.contextType() === 'operation' &&
+                this.isActiveOperation()
+              ) {
+                this.logger.info(
+                  'Stale SSE connectivity error on session re-entry — falling back to Firestore',
+                  { threadId, error: fresh.error, operationId: host.contextId() }
+                );
+                this.breadcrumb.trackStateChange(
+                  'operation-chat:stale-sse-error-firestore-fallback',
+                  { operationId: host.contextId(), error: fresh.error }
+                );
+                this.subscribeToFirestoreJobEvents();
+                return;
+              }
+              // Operation completed or errored while backgrounded — drop the stale
+              // transport error silently. The messages are already loaded.
+              this.logger.info(
+                'Stale SSE connectivity error suppressed — operation already reconciled',
+                { threadId, error: fresh.error, operationStatus: host.getOperationStatus() }
+              );
+              return;
+            }
             this.messageFacade.messages.update((messages) => [
               ...messages,
               {

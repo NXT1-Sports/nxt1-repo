@@ -277,18 +277,42 @@ type YieldStateSource =
                           "
                         />
                       } @else if (att.type === 'video') {
-                        <video
-                          [src]="att.url"
-                          class="msg-attachment__thumb"
-                          preload="metadata"
+                        @if (att.thumbnailUrl) {
+                          <img
+                            [src]="att.thumbnailUrl"
+                            [alt]="att.name"
+                            class="msg-attachment__thumb"
+                            (click)="
+                              attachmentsFacade.openAttachmentViewer(
+                                messageAttachmentsForStrip(msg),
+                                $index
+                              )
+                            "
+                          />
+                        } @else {
+                          <video
+                            [src]="att.url"
+                            class="msg-attachment__thumb"
+                            muted
+                            playsinline
+                            preload="metadata"
+                            (click)="
+                              attachmentsFacade.openAttachmentViewer(
+                                messageAttachmentsForStrip(msg),
+                                $index
+                              )
+                            "
+                          ></video>
+                        }
+                        <div
+                          class="msg-attachment__play"
                           (click)="
                             attachmentsFacade.openAttachmentViewer(
                               messageAttachmentsForStrip(msg),
                               $index
                             )
                           "
-                        ></video>
-                        <div class="msg-attachment__play">
+                        >
                           <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
                             <path d="M8 5v14l11-7L8 5z" />
                           </svg>

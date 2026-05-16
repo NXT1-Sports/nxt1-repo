@@ -229,7 +229,12 @@ export class FirebaseMcpBridgeService extends BaseMcpClientService {
       organizationIds,
       ...(context.threadId ? { threadId: context.threadId } : {}),
       ...(context.sessionId ? { sessionId: context.sessionId } : {}),
-      ...(context.appBaseUrl ? { appBaseUrl: context.appBaseUrl } : {}),
+      // Only include appBaseUrl if it is a valid http/https URL. Native-app origins
+      // (e.g. "capacitor://localhost", "ionic://localhost") stored from older jobs fail
+      // Zod z.string().url() and must be excluded so the MCP scope envelope is valid.
+      ...(context.appBaseUrl && /^https?:\/\//i.test(context.appBaseUrl)
+        ? { appBaseUrl: context.appBaseUrl }
+        : {}),
       ...(teamIds.length > 0 ? { defaultTeamId: teamIds[0] } : {}),
       ...(organizationIds.length > 0 ? { defaultOrganizationId: organizationIds[0] } : {}),
     };

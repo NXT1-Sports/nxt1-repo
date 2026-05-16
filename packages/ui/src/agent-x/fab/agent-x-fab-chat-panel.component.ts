@@ -42,10 +42,11 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import type { AgentXQuickTask } from '@nxt1/core';
-import type { AgentXMessage } from '@nxt1/core/ai';
+import type { AgentXAttachment, AgentXMessage } from '@nxt1/core/ai';
 import { NxtIconComponent } from '../../components/icon/icon.component';
 import { NxtChatBubbleComponent } from '../../components/chat-bubble';
 import { NxtToastService } from '../../services/toast/toast.service';
+import { NxtMediaViewerService } from '../../components/media-viewer/media-viewer.service';
 import { AgentXService } from '../services/agent-x.service';
 import { AgentXFabService } from './agent-x-fab.service';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
@@ -223,9 +224,17 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
                           <video
                             [src]="att.url"
                             class="msg-attachment__thumb"
+                            muted
+                            playsinline
                             preload="metadata"
+                            style="cursor: pointer"
+                            (click)="openVideoAttachment(att)"
                           ></video>
-                          <div class="msg-attachment__play">
+                          <div
+                            class="msg-attachment__play"
+                            style="cursor: pointer"
+                            (click)="openVideoAttachment(att)"
+                          >
                             <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
                               <path d="M8 5v14l11-7L8 5z" />
                             </svg>
@@ -880,6 +889,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
 })
 export class AgentXFabChatPanelComponent {
   private readonly toast = inject(NxtToastService);
+  private readonly mediaViewer = inject(NxtMediaViewerService);
 
   protected readonly agentX = inject(AgentXService);
   private readonly fabService = inject(AgentXFabService);
@@ -1018,6 +1028,14 @@ export class AgentXFabChatPanelComponent {
    */
   protected async onClearChat(): Promise<void> {
     await this.agentX.clearMessages();
+  }
+
+  /** Open a video attachment in the full-screen media viewer. */
+  protected openVideoAttachment(att: AgentXAttachment): void {
+    void this.mediaViewer.open({
+      items: [{ url: att.url, type: 'video', alt: att.name }],
+      source: 'fab-chat',
+    });
   }
 
   /** Remove the error bubble and pre-populate the input with the failed message. */

@@ -11,6 +11,12 @@ export interface MessageAttachment {
   readonly url: string;
   readonly type: 'image' | 'video' | 'doc' | 'app';
   readonly name: string;
+  /**
+   * Canvas-extracted thumbnail data URL for video attachments.
+   * Generated client-side before upload so iOS can display a static preview
+   * frame instead of a blank `<video>` element.
+   */
+  readonly thumbnailUrl?: string;
   readonly platform?: string;
   readonly faviconUrl?: string;
 }

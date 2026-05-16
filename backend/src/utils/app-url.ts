@@ -11,6 +11,10 @@ function normalizeBaseUrl(value: string | undefined): string | undefined {
 
   try {
     const parsed = new URL(trimmed);
+    // Reject non-http/https schemes (e.g. capacitor://, ionic://, file://).
+    // These are native-app WebView origins that are meaningless as a web base URL
+    // and will fail Zod z.string().url() validation downstream.
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return undefined;
     return parsed.origin.replace(/\/$/, '');
   } catch {
     return undefined;
