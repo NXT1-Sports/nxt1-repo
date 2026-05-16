@@ -379,9 +379,6 @@ export function validateLayoutForSport(layout: DiagramLayout): void {
   const criticalFinding = report.findings.find((item) => item.severity === 'critical');
 
   if (criticalFinding) {
-    throw new AgentEngineError(
-      'PLAY_DIAGRAM_LLM_INVALID_LAYOUT',
-      criticalFinding.message
-    );
+    throw new AgentEngineError('PLAY_DIAGRAM_LLM_INVALID_LAYOUT', criticalFinding.message);
   }
 }

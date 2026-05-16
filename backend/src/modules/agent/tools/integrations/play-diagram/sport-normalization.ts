@@ -29,11 +29,7 @@ const SOCCER_ALIASES = new Set([
   'ice_hockey_womens',
 ]);
 
-const BASKETBALL_STYLE_ALIASES = new Set([
-  'volleyball',
-  'volleyball_mens',
-  'volleyball_womens',
-]);
+const BASKETBALL_STYLE_ALIASES = new Set(['volleyball', 'volleyball_mens', 'volleyball_womens']);
 
 export function normalizeSportId(value: string | undefined | null): NormalizedSport {
   const raw = (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');

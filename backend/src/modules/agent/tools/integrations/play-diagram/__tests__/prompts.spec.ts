@@ -17,7 +17,9 @@ describe('play diagram prompts', () => {
   it('includes QB route restriction rule in football prompt', () => {
     const footballPrompt = buildSystemPrompt('football');
     expect(footballPrompt).toContain('QB ROUTE RULE');
-    expect(footballPrompt).toContain('DO NOT create a QB route unless the play explicitly involves QB movement');
+    expect(footballPrompt).toContain(
+      'DO NOT create a QB route unless the play explicitly involves QB movement'
+    );
     expect(footballPrompt).toContain('QB routes are ONLY needed for: scrambles, QB runs, rollouts');
     expect(footballPrompt).toContain('QB is stationary in pocket by default');
   });
@@ -33,7 +35,9 @@ describe('play diagram prompts', () => {
   it('includes mandatory OL blocking scheme instructions for run/protection concepts', () => {
     const footballPrompt = buildSystemPrompt('football');
     expect(footballPrompt).toContain('BLOCKING SCHEME RULES');
-    expect(footballPrompt).toContain('include explicit blocking assignments for OL: LT, LG, C, RG, RT');
+    expect(footballPrompt).toContain(
+      'include explicit blocking assignments for OL: LT, LG, C, RG, RT'
+    );
     expect(footballPrompt).toContain('OL assignments MUST use type: "block"');
   });
 });

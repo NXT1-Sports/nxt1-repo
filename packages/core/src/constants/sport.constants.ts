@@ -278,7 +278,13 @@ export const SPORT_PLAYBOOK_CONFIG: Record<string, SportPlaybookConfig> = {
       {
         key: 'base_state',
         label: 'Base State',
-        options: ['bases empty', 'runner on 1st', 'runner on 2nd', 'runners in scoring position', 'bases loaded'],
+        options: [
+          'bases empty',
+          'runner on 1st',
+          'runner on 2nd',
+          'runners in scoring position',
+          'bases loaded',
+        ],
       },
     ],
     defaultCategory: 'Situation',
@@ -301,7 +307,13 @@ export const SPORT_PLAYBOOK_CONFIG: Record<string, SportPlaybookConfig> = {
       {
         key: 'base_state',
         label: 'Base State',
-        options: ['bases empty', 'runner on 1st', 'runner on 2nd', 'runners in scoring position', 'bases loaded'],
+        options: [
+          'bases empty',
+          'runner on 1st',
+          'runner on 2nd',
+          'runners in scoring position',
+          'bases loaded',
+        ],
       },
     ],
     defaultCategory: 'Situation',

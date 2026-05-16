@@ -120,7 +120,10 @@ function getFootballBackfieldDepth(conceptText: string): { qbDepth: number; rbDe
   return { qbDepth: 38, rbDepth: 58 };
 }
 
-function normalizeFootballOffenseAlignment(layout: DiagramLayout, conceptText: string): DiagramLayout {
+function normalizeFootballOffenseAlignment(
+  layout: DiagramLayout,
+  conceptText: string
+): DiagramLayout {
   if (layout.sport !== 'football') return layout;
 
   const { qbDepth, rbDepth } = getFootballBackfieldDepth(conceptText);
@@ -318,9 +321,10 @@ function isFootballBlockingConcept(conceptText: string): boolean {
 
 function getFootballBlockingMode(conceptText: string): 'run' | 'pass' {
   const concept = conceptText.toLowerCase();
-  const passLike = /(pass pro|protection|slide protect|max protect|half slide|full slide|play action protection|pocket)/.test(
-    concept
-  );
+  const passLike =
+    /(pass pro|protection|slide protect|max protect|half slide|full slide|play action protection|pocket)/.test(
+      concept
+    );
   return passLike ? 'pass' : 'run';
 }
 
@@ -333,7 +337,10 @@ function getFootballBlockingDirection(conceptText: string): 'left' | 'right' | '
   return 'middle';
 }
 
-function normalizeFootballBlockingSchemes(layout: DiagramLayout, conceptText: string): DiagramLayout {
+function normalizeFootballBlockingSchemes(
+  layout: DiagramLayout,
+  conceptText: string
+): DiagramLayout {
   if (layout.sport !== 'football') return layout;
   if (!isFootballBlockingConcept(conceptText)) return layout;
 
@@ -345,8 +352,11 @@ function normalizeFootballBlockingSchemes(layout: DiagramLayout, conceptText: st
   );
   const olPlayers = olOrder
     .map((label) => ({ label, player: playersByLabel.get(label) }))
-    .filter((entry): entry is { label: (typeof olOrder)[number]; player: DiagramLayout['players'][number] } =>
-      Boolean(entry.player)
+    .filter(
+      (
+        entry
+      ): entry is { label: (typeof olOrder)[number]; player: DiagramLayout['players'][number] } =>
+        Boolean(entry.player)
     );
 
   if (olPlayers.length < 3) return layout;
@@ -356,12 +366,18 @@ function normalizeFootballBlockingSchemes(layout: DiagramLayout, conceptText: st
   const maxX = Math.max(6, layout.fieldWidth - 6);
   const minY = 6;
 
-  const runOffsets: Record<'left' | 'right' | 'middle', Record<(typeof olOrder)[number], number>> = {
+  const runOffsets: Record<
+    'left' | 'right' | 'middle',
+    Record<(typeof olOrder)[number], number>
+  > = {
     left: { LT: -20, LG: -16, C: -12, RG: -8, RT: -4 },
     right: { LT: 4, LG: 8, C: 12, RG: 16, RT: 20 },
     middle: { LT: -8, LG: -4, C: 0, RG: 4, RT: 8 },
   };
-  const passOffsets: Record<'left' | 'right' | 'middle', Record<(typeof olOrder)[number], number>> = {
+  const passOffsets: Record<
+    'left' | 'right' | 'middle',
+    Record<(typeof olOrder)[number], number>
+  > = {
     left: { LT: -14, LG: -10, C: -6, RG: -2, RT: 2 },
     right: { LT: -2, LG: 2, C: 6, RG: 10, RT: 14 },
     middle: { LT: -8, LG: -4, C: 0, RG: 4, RT: 8 },
@@ -426,9 +442,7 @@ function normalizeFootballBlockingSchemes(layout: DiagramLayout, conceptText: st
 function mergeRunningBackRoutes(layout: DiagramLayout): DiagramLayout {
   if (layout.sport !== 'football') return layout;
   // Find all RBs (id or label contains 'RB')
-  const rbPlayers = layout.players.filter(
-    (p) => /rb/i.test(p.id) || /rb/i.test(p.label)
-  );
+  const rbPlayers = layout.players.filter((p) => /rb/i.test(p.id) || /rb/i.test(p.label));
   if (rbPlayers.length === 0) return layout;
 
   const newRoutes: DiagramRoute[] = [];
@@ -439,7 +453,7 @@ function mergeRunningBackRoutes(layout: DiagramLayout): DiagramLayout {
       continue;
     }
     // Heuristic: main path = longest, others = reads/cutbacks
-    const sorted = [...rbRoutes].sort((a, b) => (b.points.length - a.points.length));
+    const sorted = [...rbRoutes].sort((a, b) => b.points.length - a.points.length);
     const main = sorted[0];
     const reads = sorted.slice(1);
     newRoutes.push(main);
