@@ -92,6 +92,12 @@ export class IapService {
   readonly loading = signal(false);
   readonly purchasing = signal(false);
 
+  // Tracks whether products in the `products` signal came from StoreKit (true)
+  // or from the hardcoded fallback (false). purchaseProduct() only works after
+  // getProducts() has populated the plugin's internal cache — if this is false,
+  // we must reload before purchasing.
+  private _storeKitLoaded = false;
+
   // ── Platform check ──────────────────────────────────────────────────────
   readonly isSupported = Capacitor.getPlatform() === 'ios';
 
@@ -118,15 +124,22 @@ export class IapService {
       });
 
       if (products.length === 0) {
-        this.logger.warn('No IAP products returned — check App Store Connect product IDs');
+        this.logger.warn('No IAP products returned from StoreKit — using fallback display prices');
+        this._storeKitLoaded = false;
         this._loadFallbackProducts();
         return;
       }
 
+      this._storeKitLoaded = true;
       this.products.set(this._mapProducts(products));
-      this.logger.info('IAP products loaded', { count: products.length });
+      this.logger.info('IAP products loaded from StoreKit', { count: products.length });
     } catch (err) {
-      this.logger.error('Failed to fetch IAP products', { error: err });
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.logger.error('Failed to fetch IAP products from StoreKit', {
+        error: err,
+        message: errMsg,
+      });
+      this._storeKitLoaded = false;
       this._loadFallbackProducts();
     } finally {
       this.loading.set(false);
@@ -147,12 +160,34 @@ export class IapService {
     }
 
     this.purchasing.set(true);
-    // Generate a UUID token for this purchase — required by StoreKit 2 for
-    // refund attribution via App Store Server Notifications webhook.
-    // Must be RFC 4122 UUID format (iOS requirement).
-    const appAccountToken = crypto.randomUUID();
 
     try {
+      // NOTE: purchaseProduct() in the native plugin ALSO calls Product.products(for:)
+      // internally — it does NOT rely on a separate cache from getProducts().
+      // If getProducts() returned empty, purchaseProduct() will fail too with
+      // "Cannot find product for id X". Both fail because Apple's StoreKit API
+      // isn't returning these product IDs for this app.
+      //
+      // Root cause: either bundle ID mismatch with App Store Connect, or products
+      // were recently approved and haven't propagated to Apple's servers yet
+      // (can take 24–48 hours even after showing "Approved" in ASC).
+      if (!this._storeKitLoaded) {
+        this.logger.error('StoreKit products unavailable — purchase blocked', {
+          productId,
+          note: 'Product.products(for:) returned empty. Check bundle ID in ASC or wait for propagation.',
+        });
+        this.toast.error(
+          'Purchase unavailable: App Store products not found. If products were recently added, please wait a few hours and try again.',
+          { duration: 8000 }
+        );
+        return null;
+      }
+
+      // Generate a UUID token for this purchase — required by StoreKit 2 for
+      // refund attribution via App Store Server Notifications webhook.
+      // Must be RFC 4122 UUID format (iOS requirement).
+      const appAccountToken = crypto.randomUUID();
+
       const transaction = await NativePurchases.purchaseProduct({
         productIdentifier: productId,
         productType: PURCHASE_TYPE.INAPP,
@@ -170,7 +205,14 @@ export class IapService {
       // Prefer jwsRepresentation (StoreKit 2) — backend handles both
       const jwsTransaction = transaction.jwsRepresentation ?? transaction.receipt;
       if (!jwsTransaction) {
-        throw new Error('Transaction completed but no JWS or receipt returned from StoreKit');
+        // Transaction completed in StoreKit (user was charged) but no JWS returned.
+        // Do NOT say "Purchase failed" — show the reconciliation message instead.
+        this.logger.error('Transaction completed but no JWS/receipt returned', {
+          productId,
+          transactionId: transaction.transactionId,
+        });
+        this.toast.warning('Purchase recorded — credits will appear shortly.', { duration: 4000 });
+        return null;
       }
 
       // Verify with backend → credits wallet
@@ -192,7 +234,11 @@ export class IapService {
       }
 
       this.logger.error('IAP purchase failed', { productId, errorCode, message, error: err });
-      this.toast.error('Purchase failed. Please try again.');
+
+      // Show the raw StoreKit error on-screen so it can be diagnosed without Xcode.
+      // Truncate to 120 chars to keep the toast readable.
+      const displayMsg = message.length > 120 ? message.slice(0, 120) + '…' : message;
+      this.toast.error(`Purchase failed: ${displayMsg}`, { duration: 6000 });
       return null;
     } finally {
       this.purchasing.set(false);

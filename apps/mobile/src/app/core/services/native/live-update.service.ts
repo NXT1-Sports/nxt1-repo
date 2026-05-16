@@ -39,6 +39,7 @@ import {
   isInRollout,
 } from '@nxt1/core';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtToastService } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
 import { environment } from '../../../../environments/environment';
 
@@ -61,14 +62,18 @@ interface LiveUpdaterPlugin {
 export class LiveUpdateService {
   private readonly firestore = inject(Firestore);
   private readonly logger: ILogger = inject(NxtLoggingService).child('LiveUpdateService');
+  private readonly toast = inject(NxtToastService);
 
   private readonly _checking = signal(false);
   private readonly _applying = signal(false);
+  private readonly _updateStaged = signal(false);
   private readonly _currentVersion = signal<string | null>(null);
   private readonly _lastResult = signal<LiveUpdateCheckResult | null>(null);
 
   readonly checking = computed(() => this._checking());
   readonly applying = computed(() => this._applying());
+  /** True after a new bundle has been successfully staged (ready on next launch). */
+  readonly updateStaged = computed(() => this._updateStaged());
   readonly currentVersion = computed(() => this._currentVersion());
   readonly lastResult = computed(() => this._lastResult());
 
@@ -348,6 +353,9 @@ export class LiveUpdateService {
     }
 
     this._applying.set(true);
+    this._updateStaged.set(false);
+    // Notify user that a background update is in progress.
+    this.toast.info('Downloading update...');
     const state = await this.loadState();
     try {
       this.logger.info('OTA download starting', {
@@ -363,9 +371,12 @@ export class LiveUpdateService {
       // session. The new bundle is applied automatically when the app is
       // backgrounded or killed and reopened (Apple-friendly UX).
       await updater.next({ id: bundle.id });
+      this._updateStaged.set(true);
       this.logger.info('OTA bundle staged for next launch', {
         version: manifest.version,
       });
+      // Inform the user the update is ready and will apply on next launch.
+      this.toast.success('Update ready! Close and reopen the app to apply.');
       await this.saveState({
         currentVersion: manifest.version,
         lastCheckedAt: new Date().toISOString(),

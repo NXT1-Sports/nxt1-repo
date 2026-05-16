@@ -277,18 +277,48 @@ type YieldStateSource =
                           "
                         />
                       } @else if (att.type === 'video') {
-                        <video
-                          [src]="att.url"
-                          class="msg-attachment__thumb"
-                          preload="metadata"
+                        @if (att.thumbnailUrl) {
+                          <img
+                            [src]="att.thumbnailUrl"
+                            [alt]="att.name"
+                            class="msg-attachment__thumb"
+                            (click)="
+                              attachmentsFacade.openAttachmentViewer(
+                                messageAttachmentsForStrip(msg),
+                                $index
+                              )
+                            "
+                          />
+                        } @else {
+                          <!-- autoplay muted playsinline: the only reliable way to show a
+                               first-frame thumbnail on iOS Safari without canvas/CORS.
+                               We pause immediately on loadeddata so the video freezes
+                               on the first decoded frame and acts as a static preview. -->
+                          <video
+                            [src]="att.url"
+                            class="msg-attachment__thumb"
+                            muted
+                            playsinline
+                            autoplay
+                            preload="auto"
+                            (loadeddata)="pauseVideoThumbnail($event)"
+                            (click)="
+                              attachmentsFacade.openAttachmentViewer(
+                                messageAttachmentsForStrip(msg),
+                                $index
+                              )
+                            "
+                          ></video>
+                        }
+                        <div
+                          class="msg-attachment__play"
                           (click)="
                             attachmentsFacade.openAttachmentViewer(
                               messageAttachmentsForStrip(msg),
                               $index
                             )
                           "
-                        ></video>
-                        <div class="msg-attachment__play">
+                        >
                           <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
                             <path d="M8 5v14l11-7L8 5z" />
                           </svg>
@@ -1667,6 +1697,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Coordinator description shown as the welcome message. */
   @Input() contextDescription = '';
+
+  /**
+   * Pause a video element immediately after the first frame is decoded.
+   * Used for thumbnail strip: `autoplay muted playsinline` forces iOS to decode
+   * the first frame; pausing here freezes it as a static preview image.
+   */
+  protected pauseVideoThumbnail(event: Event): void {
+    (event.target as HTMLVideoElement).pause();
+  }
 
   protected getInputPlaceholder(): string {
     // For operations: always use generic placeholder

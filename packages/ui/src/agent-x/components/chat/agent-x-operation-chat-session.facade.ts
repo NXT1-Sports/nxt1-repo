@@ -133,6 +133,63 @@ export class AgentXOperationChatSessionFacade {
     return (value ?? '').replace(/\s+/g, ' ').trim();
   }
 
+  /**
+   * Returns true when the error string represents a client-side connectivity
+   * failure (SSE stall, network drop, stream cut) rather than a real backend
+   * error.  Used to decide whether to fall back to Firestore instead of
+   * showing the raw technical message to the user.
+   *
+   * Covers browser Fetch API errors, iOS WebKit / NSURLError strings, Android
+   * OkHttp errors, and generic network / abort patterns so that any transport
+   * layer failure gets routed to the Firestore fallback rather than rendered
+   * as an error bubble in the chat.
+   */
+  private isClientSideConnectivityError(error: string): boolean {
+    const lower = (error ?? '').toLowerCase();
+    return (
+      // Generic stream / SSE patterns
+      lower.includes('stall') ||
+      lower.includes('sse') ||
+      lower.includes('unexpected eof') ||
+      lower.includes('unexpected end') ||
+      lower.includes('stream ended') ||
+      // Generic network patterns
+      lower.includes('network') ||
+      lower.includes('connection') ||
+      // iOS WebKit / NSURLError — thrown when the OS kills the SSE connection
+      // while the app is backgrounded (e.g. "Load failed", "The network
+      // connection was lost.", "Request failed").
+      lower.includes('load failed') ||
+      lower.includes('timed out') ||
+      lower.includes('timeout') ||
+      // iOS NSURLErrorCancelled / Android cancelled requests
+      lower.includes('cancelled') ||
+      lower.includes('canceled') ||
+      // Browser Fetch API generic failure
+      lower.includes('failed to fetch') ||
+      // Chromium net error codes (e.g. "net::ERR_INTERNET_DISCONNECTED")
+      lower.includes('net::err_') ||
+      // AbortError from AbortController or iOS-side abort
+      lower.includes('abort')
+    );
+  }
+
+  /**
+   * Returns true when the operation is still "active" — i.e. it could still
+   * produce more output or is waiting for user input/approval.  This covers
+   * all non-terminal statuses so that connectivity failures in any yield or
+   * pause state trigger a Firestore fallback instead of an error bubble.
+   */
+  private isActiveOperation(): boolean {
+    const status = this.requireHost().getOperationStatus();
+    return (
+      status === 'processing' ||
+      status === 'paused' ||
+      status === 'awaiting_input' ||
+      status === 'awaiting_approval'
+    );
+  }
+
   private stepSignature(steps: readonly AgentXToolStep[] | undefined): string {
     if (!steps || steps.length === 0) return '';
     return steps.map((step) => `${step.id}|${step.label}|${step.status}`).join('||');
@@ -905,11 +962,7 @@ export class AgentXOperationChatSessionFacade {
       return;
     }
 
-    if (
-      host.contextId().trim() &&
-      host.contextType() === 'operation' &&
-      host.getOperationStatus() === 'processing'
-    ) {
+    if (host.contextId().trim() && host.contextType() === 'operation' && this.isActiveOperation()) {
       host.threadMode.set(true);
       this.subscribeToFirestoreJobEvents();
       return;
@@ -1464,6 +1517,10 @@ export class AgentXOperationChatSessionFacade {
   async loadThreadMessages(threadId: string): Promise<void> {
     const host = this.requireHost();
     host.loading.set(true);
+    // When a Firestore fallback is started from the catch block we must NOT call
+    // host.loading.set(false) in the finally — the Firestore subscription owns
+    // the loading state from that point on and will clear it on done/error.
+    let firestoreFallbackStarted = false;
     this.logger.info('Loading operation thread', { threadId, contextId: host.contextId() });
 
     try {
@@ -1771,6 +1828,12 @@ export class AgentXOperationChatSessionFacade {
           : [...persistedRows, ...preservedInlineYieldRows]
       );
 
+      // Async canvas thumbnails for video attachments loaded from history.
+      // History messages from the backend never carry a thumbnailUrl — generate
+      // a JPEG preview frame client-side so the attachment strip renders a
+      // static image instead of a blank <video> element on iOS.
+      this.generateThumbnailsForHistoryVideos(persistedRows);
+
       const enqueueWaitingEntry = this.operationEventService.getEnqueueWaitingEntry(threadId);
       if (enqueueWaitingEntry) {
         const latestAssistantTimestampMs = mapped
@@ -2015,6 +2078,34 @@ export class AgentXOperationChatSessionFacade {
         threadId,
         contextId: host.contextId(),
       });
+      // On iOS/Android, the network may not be immediately available after app resume.
+      // If the operation is still expected to be running, start the Firestore fallback
+      // instead of surfacing a "failed to load" error — the live event stream does not
+      // depend on loading prior history from the backend.
+      //
+      // Also fall back when operationStatus is null — this happens when the component
+      // is freshly mounted after the OS killed the app (all signals reset to defaults).
+      // In that case the operation status hasn't been loaded yet, so we must treat it
+      // as "potentially still running" and let Firestore resolve the final state rather
+      // than immediately showing an error message to the user.
+      if (
+        host.contextType() === 'operation' &&
+        (this.isActiveOperation() || host.getOperationStatus() === null) &&
+        host.contextId().trim()
+      ) {
+        this.logger.info(
+          'Thread history load failed with operation still active — starting Firestore fallback',
+          // includes: processing | paused | awaiting_input | awaiting_approval | null (fresh mount)
+          { threadId, contextId: host.contextId() }
+        );
+        this.breadcrumb.trackStateChange('operation-chat:load-failed-firestore-fallback', {
+          threadId,
+          contextId: host.contextId(),
+        });
+        firestoreFallbackStarted = true;
+        this.subscribeToFirestoreJobEvents();
+        return;
+      }
       this.messageFacade.pushMessage({
         id: host.uid(),
         role: 'assistant',
@@ -2023,7 +2114,9 @@ export class AgentXOperationChatSessionFacade {
         error: true,
       });
     } finally {
-      host.loading.set(false);
+      if (!firestoreFallbackStarted) {
+        host.loading.set(false);
+      }
     }
   }
 
@@ -2242,6 +2335,46 @@ export class AgentXOperationChatSessionFacade {
         this.transportFacade.emitResponseCompleteOnce('stream-registry-done');
       },
       onError: (error) => {
+        // If the stream died due to a client-side connectivity issue (iOS/Android
+        // backgrounding, stall timer) and the operation is still expected to be
+        // running, fall back to Firestore instead of showing a technical error.
+        // isActiveOperation() covers 'processing' | 'paused' | 'awaiting_input' |
+        // 'awaiting_approval' — including the "Waiting for your reply" yield state
+        // where the SSE stream may still be held open by the server.
+        if (
+          this.isClientSideConnectivityError(error ?? '') &&
+          host.contextId().trim() &&
+          host.contextType() === 'operation' &&
+          this.isActiveOperation()
+        ) {
+          this.logger.info(
+            'SSE claim listener error — connectivity issue detected, falling back to Firestore',
+            { threadId, error, operationId: host.contextId() }
+          );
+          // Build a delta watermark from the SSE content already accumulated in the
+          // typing bubble.  Without this, Firestore replays ALL historical delta events
+          // (startAfterSeq = -1) and appends them on top of the existing SSE text.
+          // That duplication can place a "### heading" mid-line (no preceding \n),
+          // causing marked to parse it as inline text instead of an ATX heading —
+          // the user sees raw "###" characters instead of a rendered heading.
+          //
+          // IMPORTANT: flush any pending RAF-batched delta BEFORE reading content.length.
+          // On iOS/Android, requestAnimationFrame is suspended while the app is
+          // backgrounded, so pendingTypingDelta may hold SSE chars that were queued
+          // but never written to message.content. Without this flush the watermark
+          // would be too small, Firestore would re-append those chars, and when the
+          // RAF fires on foreground return the same text lands twice — placing "###"
+          // mid-line so marked treats it as inline text rather than an ATX heading.
+          this.messageFacade.flushPendingTypingDelta();
+          const sseTypingMsg = this.messageFacade.messages().find((m) => m.id === 'typing');
+          const sseAccumulatedLength = sseTypingMsg?.content?.length ?? 0;
+          const sseStreamWatermark =
+            sseAccumulatedLength > 0
+              ? { optimisticChars: sseAccumulatedLength, confirmedChars: 0 }
+              : null;
+          this.subscribeToFirestoreJobEvents(undefined, undefined, sseStreamWatermark);
+          return;
+        }
         this.messageFacade.replaceTyping({
           id: host.uid(),
           role: 'assistant',
@@ -2319,6 +2452,51 @@ export class AgentXOperationChatSessionFacade {
 
         if (fresh.done) {
           if (fresh.error) {
+            // If the stream errored due to a client-side connectivity failure
+            // (iOS/Android killed the network while backgrounded, SSE stall timer),
+            // never surface the raw transport error string to the user:
+            //   - If the operation is still processing → fall back to Firestore.
+            //   - If the operation is already complete/errored → loadThreadMessages
+            //     already reconciled the final state; silently drop the stale error.
+            if (this.isClientSideConnectivityError(fresh.error)) {
+              if (
+                host.contextId().trim() &&
+                host.contextType() === 'operation' &&
+                this.isActiveOperation()
+              ) {
+                this.logger.info(
+                  'Stale SSE connectivity error on session re-entry — falling back to Firestore',
+                  { threadId, error: fresh.error, operationId: host.contextId() }
+                );
+                this.breadcrumb.trackStateChange(
+                  'operation-chat:stale-sse-error-firestore-fallback',
+                  { operationId: host.contextId(), error: fresh.error }
+                );
+                // Same watermark protection as the live onError path: if the typing
+                // bubble already has SSE-accumulated content (possible when SSE died
+                // during the loadThreadMessages async gap), prevent Firestore full
+                // replay from appending duplicate text that would break heading
+                // detection (### mid-line → raw text instead of <h3>).
+                // Flush any pending RAF-batched delta first — same reasoning as the
+                // live onError path above (iOS backgrounding suspends RAF callbacks).
+                this.messageFacade.flushPendingTypingDelta();
+                const staleTypingMsg = this.messageFacade.messages().find((m) => m.id === 'typing');
+                const staleAccumulatedLength = staleTypingMsg?.content?.length ?? 0;
+                const staleStreamWatermark =
+                  staleAccumulatedLength > 0
+                    ? { optimisticChars: staleAccumulatedLength, confirmedChars: 0 }
+                    : null;
+                this.subscribeToFirestoreJobEvents(undefined, undefined, staleStreamWatermark);
+                return;
+              }
+              // Operation completed or errored while backgrounded — drop the stale
+              // transport error silently. The messages are already loaded.
+              this.logger.info(
+                'Stale SSE connectivity error suppressed — operation already reconciled',
+                { threadId, error: fresh.error, operationStatus: host.getOperationStatus() }
+              );
+              return;
+            }
             this.messageFacade.messages.update((messages) => [
               ...messages,
               {
@@ -2387,10 +2565,25 @@ export class AgentXOperationChatSessionFacade {
             return;
           }
 
-          // Bug A: cancel any RAF-buffered delta that accumulated between claim() and
-          // this bubble insert. fresh.content already has all content from the registry,
-          // so the pending delta would be double-counted if the RAF fired after insertion.
-          this.messageFacade.clearPendingTypingDelta();
+          // Bug A: sync RAF-buffered deltas with any existing typing bubble before
+          // applying fresh.content. When a bubble ALREADY EXISTS (seeded from snapshot
+          // above), pendingTypingDelta may contain chars that arrived between claim() and
+          // this .then() callback (e.g. "\n\n" before "## heading"). Discarding those
+          // chars with clearPendingTypingDelta() leaves a gap that collapses newlines,
+          // turning "---\n\n## heading" into "---## heading" and breaking markdown.
+          // Flush instead so the pending chars are written into the existing bubble
+          // and the content stays contiguous. The "never add a second typing bubble"
+          // guard below still prevents fresh.content from being re-inserted.
+          // If no bubble exists yet, discard the pending delta as before — fresh.content
+          // will be used as the authoritative full content for the new insertion below.
+          const hasExistingTypingBubble = this.messageFacade
+            .messages()
+            .some((m) => m.id === 'typing');
+          if (hasExistingTypingBubble) {
+            this.messageFacade.flushPendingTypingDelta();
+          } else {
+            this.messageFacade.clearPendingTypingDelta();
+          }
           this.messageFacade.messages.update((messages) => {
             // Guard: if a finalized (non-typing) assistant message already has
             // this exact content, the operation completed before we arrived
@@ -2972,5 +3165,124 @@ export class AgentXOperationChatSessionFacade {
     }
 
     return this.host;
+  }
+
+  /**
+   * After loading history messages, asynchronously generate canvas thumbnails
+   * for any video attachment that does not yet have a thumbnailUrl.
+   * Silently no-ops in SSR and on CORS/canvas failures.
+   */
+  private generateThumbnailsForHistoryVideos(messages: readonly OperationMessage[]): void {
+    if (typeof document === 'undefined') return;
+
+    for (const message of messages) {
+      if (!message.attachments?.length) continue;
+
+      for (const [attIdx, att] of message.attachments.entries()) {
+        if (att.type !== 'video' || att.thumbnailUrl || !att.url) continue;
+
+        const msgId = message.id;
+        void this.generateVideoThumbnailFromUrl(att.url).then((thumbnailUrl) => {
+          if (!thumbnailUrl) return;
+
+          this.messageFacade.messages.update((msgs) =>
+            msgs.map((msg) => {
+              if (msg.id !== msgId || !msg.attachments) return msg;
+              const updated = msg.attachments.map((a, i) =>
+                i === attIdx && a.type === 'video' && !a.thumbnailUrl
+                  ? ({ ...a, thumbnailUrl } as typeof a)
+                  : a
+              );
+              return { ...msg, attachments: updated };
+            })
+          );
+        });
+      }
+    }
+  }
+
+  /**
+   * Extract a JPEG thumbnail from a remote video URL using Canvas.
+   * Requires the server to send proper CORS headers (Access-Control-Allow-Origin);
+   * Firebase Storage buckets with the project CORS config satisfy this.
+   * Returns null on any failure so callers can fall back gracefully.
+   */
+  private generateVideoThumbnailFromUrl(url: string): Promise<string | null> {
+    return new Promise<string | null>((resolve) => {
+      try {
+        const video = document.createElement('video');
+        video.crossOrigin = 'anonymous';
+        video.muted = true;
+        video.playsInline = true;
+        // preload="auto" ensures the browser downloads enough data to fire
+        // loadedmetadata and decode a seekable frame — required for canvas draw.
+        video.preload = 'auto';
+        video.src = url;
+
+        const cleanup = (): void => {
+          video.removeAttribute('src');
+          video.load();
+        };
+
+        // Give up after 10 s to avoid leaking event listeners on slow/broken URLs.
+        const timeoutId = setTimeout(() => {
+          cleanup();
+          resolve(null);
+        }, 10_000);
+
+        const done = (result: string | null): void => {
+          clearTimeout(timeoutId);
+          resolve(result);
+        };
+
+        // loadedmetadata fires with preload="metadata" or "auto" once duration
+        // and dimensions are known. We then seek to the first frame.
+        video.addEventListener(
+          'loadedmetadata',
+          () => {
+            video.currentTime = Math.min(1, video.duration * 0.25) || 0;
+          },
+          { once: true }
+        );
+
+        video.addEventListener(
+          'seeked',
+          () => {
+            try {
+              const canvas = document.createElement('canvas');
+              canvas.width = video.videoWidth || 320;
+              canvas.height = video.videoHeight || 240;
+              const ctx = canvas.getContext('2d');
+              if (!ctx) {
+                cleanup();
+                done(null);
+                return;
+              }
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+              cleanup();
+              done(dataUrl);
+            } catch {
+              cleanup();
+              done(null);
+            }
+          },
+          { once: true }
+        );
+
+        video.addEventListener(
+          'error',
+          () => {
+            cleanup();
+            done(null);
+          },
+          { once: true }
+        );
+
+        video.load();
+      } catch {
+        resolve(null);
+      }
+    });
   }
 }

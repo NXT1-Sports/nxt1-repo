@@ -184,8 +184,10 @@ function createNxtRenderer(): Renderer {
  * truncated) block instead of leaking raw text during SSE streaming.
  * Also closes a trailing unclosed inline-code backtick span.
  *
- * Only called when `isStreaming=true` to avoid unnecessary work on
- * complete (history) messages.
+ * Safe to call on complete (history) messages — it is a no-op when all
+ * fences and backticks are already properly closed. Always applied so that
+ * messages persisted mid-stream (user exited before streaming finished)
+ * render correctly on reload without requiring a full page refresh.
  */
 function normalizeStreamingMarkdown(raw: string): string {
   const lines = raw.split('\n');
@@ -769,9 +771,12 @@ export class NxtMarkdownComponent {
     const raw = this.content();
     if (!raw) return '';
 
-    // When streaming, close any incomplete markdown tokens so `marked`
-    // produces clean HTML for every partial chunk.
-    const normalized = this.isStreaming() ? normalizeStreamingMarkdown(raw) : raw;
+    // Always normalize markdown to close any incomplete tokens (unclosed fences,
+    // trailing backticks). For live streaming this handles partial chunks; for
+    // history messages this handles content that was persisted mid-stream when
+    // the user navigated away before the response finished — ensuring correct
+    // rendering on reload without requiring a full page refresh.
+    const normalized = normalizeStreamingMarkdown(raw);
 
     // Convert bare Firebase/Google Storage image URLs to Markdown image syntax
     // so they render as <img> instead of raw yellow link text.

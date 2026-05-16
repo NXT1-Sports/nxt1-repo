@@ -2029,6 +2029,18 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       // if dashboard signals or route rendering re-run the effect.
       this.agentX.clearPendingThread();
 
+      // ── Resume guard ──────────────────────────────────────────────────────
+      // If the operation-chat sheet is already open (the app resumed with the
+      // sheet still visible), the existing component is self-recovering via its
+      // Firestore fallback. Re-opening would call bottomSheet.openSheet() which
+      // always dismisses the current modal first — closing the correct session
+      // before the new one has a chance to load, producing "Load failed".
+      // Skip the re-open; the mounted component handles its own recovery.
+      if (this.bottomSheet.isOpen()) {
+        return;
+      }
+      // ─────────────────────────────────────────────────────────────────────
+
       void this.openOperationChat(
         pending.operationId ?? pending.threadId,
         pending.title,
