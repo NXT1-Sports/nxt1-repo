@@ -52,7 +52,11 @@ export const FirebaseMcpScopeSchema = z.object({
   defaultOrganizationId: z.string().min(1).optional(),
   threadId: z.string().min(1).optional(),
   sessionId: z.string().min(1).optional(),
-  appBaseUrl: z.string().url().optional(),
+  // .catch(undefined) silently discards values that fail Zod v4's strict URL
+  // validator (e.g. non-standard hostnames, native-app origins that slipped past
+  // the bridge-side regex). normalizeScope never includes appBaseUrl in its
+  // return value anyway, so validation failures here should never be fatal.
+  appBaseUrl: z.string().url().optional().catch(undefined),
 });
 
 export type FirebaseMcpScope = z.infer<typeof FirebaseMcpScopeSchema>;

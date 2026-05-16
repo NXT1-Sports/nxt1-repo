@@ -52,7 +52,8 @@ export class MutateNxt1DataTool extends BaseTool {
     'Create, update, or delete an NXT1 Firestore document in a permitted collection. ' +
     'Ownership is verified server-side — the authenticated user must own the document (or the team/org it belongs to). ' +
     'Use "set" to create new documents (e.g. a new TeamPlaybooks entry); use "update" to patch existing ones. ' +
-    'Use this for Awards, Rankings, CombineMetrics, PlayerStats, Recruiting, Organizations, ' +
+    'Use "update" (NOT "set") for existing documents such as Organizations, Schedule, Roster, TeamStats, TeamNews, and Calendar — these collections do not allow "set". ' +
+    'Use this for Awards, Rankings, CombineMetrics, PlayerStats, Recruiting, Organizations (update only), ' +
     'Schedule, Roster, TeamStats, TeamNews, Calendar, Events, TeamPlaybooks, and similar structured data. ' +
     'Do NOT use this for timeline posts — use write_timeline_post / delete_timeline_post instead.';
 

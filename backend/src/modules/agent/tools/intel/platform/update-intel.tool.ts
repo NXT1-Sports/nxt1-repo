@@ -30,6 +30,7 @@ export class UpdateIntelTool extends BaseTool {
 
   readonly description =
     'Updates a single section of an existing Agent X Intel report for an athlete or team. ' +
+    'IMPORTANT: The full Intel report MUST already exist before calling this tool — use the generate_intel tool first if no report has been created yet. ' +
     'Use this when the user wants to refresh or regenerate one specific section rather than the full report. ' +
     'Call this once you have confirmed the entityType, entityId, and sectionId with the user. ' +
     'Valid athlete sectionIds: agent_x_brief, athletic_measurements, season_stats, recruiting_activity, academic_profile, awards_honors. ' +

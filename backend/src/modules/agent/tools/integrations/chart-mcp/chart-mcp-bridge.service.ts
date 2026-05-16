@@ -389,6 +389,14 @@ function buildPayload(
     return merged;
   }
 
+  if (chartType === 'radar') {
+    // AntV radar chart requires { category, value, group? } rows.
+    // Without this normalisation the renderer throws "Invalid grid data"
+    // because it expects explicit field names it can map to axes.
+    merged['data'] = normalizeCategoryValueRows(input, fields);
+    return merged;
+  }
+
   return merged;
 }
 
