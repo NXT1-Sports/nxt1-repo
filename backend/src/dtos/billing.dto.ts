@@ -14,6 +14,7 @@ import {
   IsInt,
   IsNumber,
   IsObject,
+  IsBoolean,
   Min,
   Max,
   MaxLength,
@@ -186,6 +187,29 @@ export class IAPVerifyReceiptDto {
     message: 'jwsTransaction must be a valid JWS compact serialization (header.payload.signature)',
   })
   jwsTransaction!: string;
+
+  /**
+   * Whether the transaction was issued in the Apple Sandbox environment.
+   * Must be true for simulator, TestFlight, and development builds.
+   * Overrides URL-based staging detection so TestFlight builds (which use
+   * a production binary but receive Sandbox JWS tokens) verify correctly.
+   */
+  @IsBoolean({ message: 'sandboxEnvironment must be a boolean' })
+  @IsOptional()
+  sandboxEnvironment?: boolean;
+
+  /**
+   * UUID v4 token generated client-side and passed to StoreKit as appAccountToken.
+   * Stored alongside the processed transaction so the webhook can attribute
+   * refunds to the correct user when Apple sends REFUND notifications.
+   * Must be RFC 4122 UUID format (StoreKit 2 iOS requirement).
+   */
+  @IsString({ message: 'appAccountToken must be a string' })
+  @IsOptional()
+  @Matches(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, {
+    message: 'appAccountToken must be a valid UUID',
+  })
+  appAccountToken?: string;
 }
 
 // ============================================

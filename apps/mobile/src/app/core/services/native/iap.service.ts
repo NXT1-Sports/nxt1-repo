@@ -24,7 +24,7 @@
  */
 
 import { Injectable, inject, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { Capacitor } from '@capacitor/core';
 import { NativePurchases, PURCHASE_TYPE } from '@capgo/native-purchases';
@@ -72,7 +72,8 @@ interface VerifyReceiptResponse {
   readonly success: boolean;
   readonly newBalanceCents: number;
   readonly transactionId: string;
-  readonly message?: string;
+  /** Error message from backend (on success: false responses) */
+  readonly error?: string;
 }
 
 // ─── Service ──────────────────────────────────────────────────────────────
@@ -146,17 +147,24 @@ export class IapService {
     }
 
     this.purchasing.set(true);
+    // Generate a UUID token for this purchase — required by StoreKit 2 for
+    // refund attribution via App Store Server Notifications webhook.
+    // Must be RFC 4122 UUID format (iOS requirement).
+    const appAccountToken = crypto.randomUUID();
+
     try {
       const transaction = await NativePurchases.purchaseProduct({
         productIdentifier: productId,
         productType: PURCHASE_TYPE.INAPP,
         isConsumable: true,
+        appAccountToken,
       });
 
       this.logger.info('StoreKit transaction completed', {
         productId,
         transactionId: transaction.transactionId,
         hasJws: !!transaction.jwsRepresentation,
+        environment: transaction.environment,
       });
 
       // Prefer jwsRepresentation (StoreKit 2) — backend handles both
@@ -166,17 +174,24 @@ export class IapService {
       }
 
       // Verify with backend → credits wallet
-      const result = await this._verifyWithBackend(jwsTransaction, transaction.transactionId);
+      const result = await this._verifyWithBackend(
+        jwsTransaction,
+        transaction.transactionId,
+        appAccountToken,
+        transaction.environment
+      );
       return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      // Extract error code for diagnostics (StoreKit errors have a numeric code)
+      const errorCode = (err as Record<string, unknown>)?.['code'] ?? 'unknown';
 
       // User-cancelled purchases are silent (SKError code 2)
       if (this._isUserCancelled(message)) {
         return null;
       }
 
-      this.logger.error('IAP purchase failed', { productId, error: err });
+      this.logger.error('IAP purchase failed', { productId, errorCode, message, error: err });
       this.toast.error('Purchase failed. Please try again.');
       return null;
     } finally {
@@ -231,17 +246,33 @@ export class IapService {
 
   private async _verifyWithBackend(
     jwsTransaction: string,
-    transactionId: string
+    transactionId: string,
+    appAccountToken: string,
+    transactionEnvironment?: 'Sandbox' | 'Production' | 'Xcode'
   ): Promise<number | null> {
+    // Tell the backend which Apple environment to use for JWS verification.
+    // Critical for TestFlight builds: they use a production binary but Apple
+    // issues Sandbox JWS tokens, which would fail against the production verifier.
+    const sandboxEnvironment =
+      transactionEnvironment === 'Sandbox' || transactionEnvironment === 'Xcode';
+
     try {
       const response = await firstValueFrom(
         this.http.post<VerifyReceiptResponse>(`${this.baseUrl}/iap/verify-receipt`, {
           jwsTransaction,
+          sandboxEnvironment,
+          appAccountToken,
         })
       );
 
+      // Defensive check for unexpected 200 success:false responses
       if (!response.success) {
-        throw new Error(response.message ?? 'Backend verification failed');
+        this.logger.error('Backend IAP verification returned success:false', {
+          transactionId,
+          error: response.error,
+        });
+        this.toast.error(response.error ?? 'Verification failed. Please contact support.');
+        return null;
       }
 
       this.logger.info('IAP verified by backend', {
@@ -256,10 +287,36 @@ export class IapService {
 
       return response.newBalanceCents;
     } catch (err) {
-      this.logger.error('Backend IAP verification failed', { transactionId, error: err });
-      // Do NOT show error toast for network issues — Apple already charged the user.
-      // The webhook will process the transaction server-side as a fallback.
-      this.toast.warning('Purchase recorded — credits will appear shortly.', { duration: 4000 });
+      if (err instanceof HttpErrorResponse) {
+        const isNetworkError = err.status === 0;
+        if (isNetworkError) {
+          // No connectivity — Apple already charged the user; webhook will reconcile
+          this.logger.error('Network error during IAP verification — webhook will reconcile', {
+            transactionId,
+            error: err.message,
+          });
+          this.toast.warning('Purchase recorded — credits will appear shortly.', {
+            duration: 4000,
+          });
+        } else {
+          // Backend explicitly rejected the transaction (4xx/5xx)
+          const errBody = err.error as { error?: string } | null;
+          const errMsg = errBody?.error ?? 'Verification failed. Please contact support.';
+          this.logger.error('Backend IAP verification rejected', {
+            transactionId,
+            status: err.status,
+            error: errMsg,
+          });
+          this.toast.error(`Purchase error: ${errMsg}`);
+        }
+      } else {
+        // Unexpected non-HTTP error
+        this.logger.error('Unexpected error during IAP verification', {
+          transactionId,
+          error: err,
+        });
+        this.toast.warning('Purchase recorded — credits will appear shortly.', { duration: 4000 });
+      }
       return null;
     }
   }
