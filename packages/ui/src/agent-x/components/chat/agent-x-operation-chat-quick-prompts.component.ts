@@ -32,7 +32,7 @@ import { chunkOperationActions, resolveCoordinatorChipId } from './agent-x-opera
             <span class="quick-option-chip__topline">
               <span class="quick-option-chip__title">{{ action.label }}</span>
             </span>
-            @if (action.description) {
+            @if (shouldShowDescription(action)) {
               <span class="quick-option-chip__description">{{ action.description }}</span>
             }
           </button>
@@ -52,7 +52,7 @@ import { chunkOperationActions, resolveCoordinatorChipId } from './agent-x-opera
                 <span class="quick-option-chip__topline">
                   <span class="quick-option-chip__title">{{ action.label }}</span>
                 </span>
-                @if (action.description) {
+                @if (shouldShowDescription(action)) {
                   <span class="quick-option-chip__description">{{ action.description }}</span>
                 }
               </button>
@@ -83,7 +83,7 @@ import { chunkOperationActions, resolveCoordinatorChipId } from './agent-x-opera
             <span class="quick-option-chip__topline">
               <span class="quick-option-chip__title">{{ action.label }}</span>
             </span>
-            @if (action.description) {
+            @if (shouldShowDescription(action)) {
               <span class="quick-option-chip__description">{{ action.description }}</span>
             }
           </button>
@@ -103,7 +103,7 @@ import { chunkOperationActions, resolveCoordinatorChipId } from './agent-x-opera
                 <span class="quick-option-chip__topline">
                   <span class="quick-option-chip__title">{{ action.label }}</span>
                 </span>
-                @if (action.description) {
+                @if (shouldShowDescription(action)) {
                   <span class="quick-option-chip__description">{{ action.description }}</span>
                 }
               </button>
@@ -126,7 +126,7 @@ import { chunkOperationActions, resolveCoordinatorChipId } from './agent-x-opera
             <span class="quick-option-chip__topline">
               <span class="quick-option-chip__title">{{ action.label }}</span>
             </span>
-            @if (action.description) {
+            @if (shouldShowDescription(action)) {
               <span class="quick-option-chip__description">{{ action.description }}</span>
             }
           </button>
@@ -145,7 +145,7 @@ import { chunkOperationActions, resolveCoordinatorChipId } from './agent-x-opera
                 <span class="quick-option-chip__topline">
                   <span class="quick-option-chip__title">{{ action.label }}</span>
                 </span>
-                @if (action.description) {
+                @if (shouldShowDescription(action)) {
                   <span class="quick-option-chip__description">{{ action.description }}</span>
                 }
               </button>
@@ -196,7 +196,7 @@ import { chunkOperationActions, resolveCoordinatorChipId } from './agent-x-opera
 
       .quick-options {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 12px;
         padding: 0 0 16px;
         animation: fadeSlideIn 0.3s ease-out;
@@ -277,16 +277,15 @@ import { chunkOperationActions, resolveCoordinatorChipId } from './agent-x-opera
       }
 
       .quick-option-chip[data-coordinator] {
-        --coordinator-pill-accent: var(--op-primary);
-        border-color: var(--coordinator-pill-accent);
-        background: color-mix(in srgb, var(--coordinator-pill-accent) 12%, transparent);
+        border-color: var(--op-border);
+        background: var(--op-surface);
         color: var(--op-text);
         font-weight: 600;
         box-shadow:
-          0 4px 16px color-mix(in srgb, var(--coordinator-pill-accent) 20%, transparent),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 25%, white);
-        backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
-        -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
+          0 14px 34px color-mix(in srgb, var(--op-shadow, #000) 22%, transparent),
+          inset 0 1px 0 color-mix(in srgb, white 7%, transparent);
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
         transition:
           border-color 0.15s ease,
           background 0.15s ease,
@@ -296,87 +295,33 @@ import { chunkOperationActions, resolveCoordinatorChipId } from './agent-x-opera
       }
 
       .quick-option-chip[data-coordinator]:active {
-        background: color-mix(in srgb, var(--coordinator-pill-accent) 22%, transparent);
-        box-shadow:
-          0 6px 18px color-mix(in srgb, var(--coordinator-pill-accent) 28%, transparent),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 30%, white);
+        background: var(--op-primary-glow);
+        border-color: var(--op-primary);
+        color: var(--op-primary);
         transform: translateY(1px) scale(0.99);
       }
 
-      :host-context(.light) .quick-option-chip[data-coordinator],
-      :host-context([data-theme='light']) .quick-option-chip[data-coordinator],
-      :host-context([data-base-theme='light']) .quick-option-chip[data-coordinator] {
-        background: color-mix(in srgb, var(--coordinator-pill-accent) 16%, transparent);
-      }
-
-      :host-context(.light) .quick-option-chip[data-coordinator]:active,
-      :host-context([data-theme='light']) .quick-option-chip[data-coordinator]:active,
-      :host-context([data-base-theme='light']) .quick-option-chip[data-coordinator]:active {
-        background: color-mix(in srgb, var(--coordinator-pill-accent) 26%, transparent);
-      }
-
-      .quick-option-chip[data-coordinator='coord-admin'] {
-        --coordinator-pill-accent: #3fa3ff;
-      }
-
-      .quick-option-chip[data-coordinator='coord-brand'] {
-        --coordinator-pill-accent: #ff7a45;
-      }
-
-      .quick-option-chip[data-coordinator='coord-strategy'] {
-        --coordinator-pill-accent: #9d7bff;
-      }
-
-      .quick-option-chip[data-coordinator='coord-performance'] {
-        --coordinator-pill-accent: #41b8ff;
-      }
-
-      .quick-option-chip[data-coordinator='coord-data'] {
-        --coordinator-pill-accent: #2fd39a;
-      }
-
-      .quick-option-chip[data-coordinator='coord-recruiting'] {
-        --coordinator-pill-accent: #ccff00;
-      }
-
-      .quick-option-chip[data-coordinator='coord-media'] {
-        --coordinator-pill-accent: #ff7a45;
-      }
-
-      .quick-option-chip[data-coordinator='coord-scout'] {
-        --coordinator-pill-accent: #41b8ff;
-      }
-
-      .quick-option-chip[data-coordinator='coord-academics'] {
-        --coordinator-pill-accent: #9d7bff;
-      }
-
-      .quick-option-chip[data-coordinator='coord-roster'] {
-        --coordinator-pill-accent: #2fd39a;
-      }
-
-      .quick-option-chip[data-coordinator='coord-scouting'] {
-        --coordinator-pill-accent: #3fa3ff;
-      }
-
-      .quick-option-chip[data-coordinator='coord-team-media'] {
-        --coordinator-pill-accent: #ff5d8f;
-      }
-
-      .quick-option-chip[data-coordinator='coord-prospect-search'] {
-        --coordinator-pill-accent: #ffd447;
-      }
-
-      .quick-option-chip[data-coordinator='coord-evaluation'] {
-        --coordinator-pill-accent: #57d4ff;
-      }
-
-      .quick-option-chip[data-coordinator='coord-outreach'] {
-        --coordinator-pill-accent: #ff9a3d;
-      }
-
+      .quick-option-chip[data-coordinator='coord-admin'],
+      .quick-option-chip[data-coordinator='coord-brand'],
+      .quick-option-chip[data-coordinator='coord-strategy'],
+      .quick-option-chip[data-coordinator='coord-performance'],
+      .quick-option-chip[data-coordinator='coord-data'],
+      .quick-option-chip[data-coordinator='coord-recruiting'],
+      .quick-option-chip[data-coordinator='coord-media'],
+      .quick-option-chip[data-coordinator='coord-scout'],
+      .quick-option-chip[data-coordinator='coord-academics'],
+      .quick-option-chip[data-coordinator='coord-roster'],
+      .quick-option-chip[data-coordinator='coord-scouting'],
+      .quick-option-chip[data-coordinator='coord-team-media'],
+      .quick-option-chip[data-coordinator='coord-prospect-search'],
+      .quick-option-chip[data-coordinator='coord-evaluation'],
+      .quick-option-chip[data-coordinator='coord-outreach'],
       .quick-option-chip[data-coordinator='coord-compliance'] {
-        --coordinator-pill-accent: #44d6c2;
+        background: var(--op-surface);
+        border-color: var(--op-border);
+        box-shadow:
+          0 14px 34px color-mix(in srgb, var(--op-shadow, #000) 22%, transparent),
+          inset 0 1px 0 color-mix(in srgb, white 7%, transparent);
       }
 
       .scheduled-title {
@@ -479,5 +424,19 @@ export class AgentXOperationChatQuickPromptsComponent {
 
   protected resolveCoordinatorId(action: OperationQuickAction): string | null {
     return resolveCoordinatorChipId(action);
+  }
+
+  protected shouldShowDescription(action: OperationQuickAction): boolean {
+    const description = action.description?.trim();
+    if (!description) {
+      return false;
+    }
+
+    const selectedAction = action.selectedAction;
+    if (!selectedAction) {
+      return true;
+    }
+
+    return selectedAction.actionId !== selectedAction.coordinatorId;
   }
 }

@@ -2376,7 +2376,10 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
     }
 
     const threadId = jobDoc.threadId;
-    if (resumeFromPausedState && threadId && chatService && trimmedUserResponse.length > 0) {
+    // Persist the user's response for ALL yield types (ask_user and pause).
+    // Previously this was gated on resumeFromPausedState, which caused ask_user
+    // responses to never be written to MongoDB — making them disappear on reload.
+    if (threadId && chatService && trimmedUserResponse.length > 0) {
       try {
         await chatService.addMessage({
           threadId,

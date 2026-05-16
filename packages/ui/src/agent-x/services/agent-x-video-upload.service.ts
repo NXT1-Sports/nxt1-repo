@@ -194,7 +194,7 @@ export class AgentXVideoUploadService {
       await (this.performance?.trace(
         TRACE_NAMES.VIDEO_UPLOAD,
         () =>
-          this._xhrPutWithRetry(file, uploadUrl, (percent) => {
+          this._xhrPutWithRetry(file, uploadUrl, storagePath, (percent) => {
             subject.next({ phase: 'uploading', percent });
           }),
         {
@@ -204,7 +204,7 @@ export class AgentXVideoUploadService {
           },
         }
       ) ??
-        this._xhrPutWithRetry(file, uploadUrl, (percent) => {
+        this._xhrPutWithRetry(file, uploadUrl, storagePath, (percent) => {
           subject.next({ phase: 'uploading', percent });
         }));
 
@@ -249,13 +249,56 @@ export class AgentXVideoUploadService {
     }
   }
   /**
-   * Retry direct PUT once for transient network/browser failures.
+   * PUT the video to Firebase Storage, selecting the upload channel at runtime.
+   *
+   *   Native Capacitor (iOS / Android)
+   *     → `_nativeFirebasePut()` — writes the File to the Capacitor cache
+   *       filesystem and uploads via `@capacitor-firebase/storage.uploadFile()`,
+   *       calling `storageRef.putFile(from: URL)` on the native Firebase Storage
+   *       SDK. This completely bypasses the WKWebView HTTP bridge, which cannot
+   *       perform cross-origin PUT requests to `storage.googleapis.com` on iOS
+   *       without the `com.apple.runningboard.assertions.webkit` entitlement.
+   *
+   *       Detection is behavioural, not heuristic: `_nativeFirebasePut()` probes
+   *       the Capacitor Filesystem plugin to check whether it returns a native
+   *       `file://` URI. On web the plugin returns a virtual URI and the method
+   *       returns `false`, falling through to the XHR path below. This approach
+   *       is immune to Angular build optimisations and bridge initialisation races
+   *       that defeat `Capacitor.isNativePlatform()` and URL-scheme heuristics.
+   *
+   *   Desktop web
+   *     → `_xhrPut()` for granular upload-progress events, with retry.
    */
   private async _xhrPutWithRetry(
     file: File,
     uploadUrl: string,
+    storagePath: string,
     onProgress: (percent: number) => void
   ): Promise<void> {
+    // Try the native Firebase Storage SDK first. On native Capacitor (iOS/Android)
+    // the Filesystem probe confirms `file://` URIs and the upload proceeds natively.
+    // On web the probe returns a virtual URI → method returns false → fall through.
+    const uploadedViaNative = await this._nativeFirebasePut(file, storagePath, onProgress);
+    if (uploadedViaNative) return;
+
+    // ⚠️  Native Firebase path did not handle the upload (returned false).
+    // Falling through to the XHR path. On native Capacitor with CapacitorHttp enabled
+    // the XHR bridge serialises the File body as base64 (~1.37× the raw size) which
+    // can exceed the WKWebView bridge message limit for large files (>~10 MB).
+    // If you see "Network error during video upload" after this log, check the
+    // _nativeFirebasePut WARN logs above to identify why the native path was skipped.
+    this.logger.warn(
+      '[_xhrPutWithRetry] Native Firebase Storage path returned false; falling back to XHR upload. ' +
+        'Large files may fail on native Capacitor due to CapacitorHttp bridge size limits.',
+      {
+        name: file.name,
+        sizeBytes: file.size,
+        mimeType: file.type,
+        storagePath,
+      }
+    );
+
+    // Web path: XHR with retry for granular progress events.
     const maxAttempts = AGENT_X_RUNTIME_CONFIG.videoUpload.directPutMaxAttempts;
     let lastError: unknown = null;
 
@@ -280,6 +323,218 @@ export class AgentXVideoUploadService {
     }
 
     throw lastError instanceof Error ? lastError : new Error('Video upload failed after retry');
+  }
+
+  /**
+   * Upload a video file to Firebase Storage via the native Capacitor SDK.
+   *
+   * Avoids the WKWebView HTTP bridge entirely. iOS WKWebView cannot perform
+   * cross-origin PUT requests to `storage.googleapis.com` without the
+   * `com.apple.runningboard.assertions.webkit` entitlement, which third-party
+   * apps do not hold. Instead this method:
+   *
+   *   1. Probes `Filesystem.getUri()` to confirm we are on native Capacitor.
+   *      On native (iOS/Android), the Capacitor Filesystem plugin returns a
+   *      `file://` URI. On web it returns a virtual URI. This behavioural check
+   *      is the sole platform discriminator — it cannot be defeated by Angular
+   *      build optimisations or bridge initialisation timing races.
+   *
+   *   2. Writes the browser `File` object (as a `Blob`) to the Capacitor cache
+   *      filesystem. In Capacitor 6+, Blob data is streamed natively without
+   *      base64 overhead.
+   *
+   *   3. Uploads from the local `file://` URI via
+   *      `@capacitor-firebase/storage.uploadFile()`, which calls
+   *      `storageRef.putFile(from: URL)` — the native Firebase Storage SDK
+   *      path that handles large files correctly via native stream I/O.
+   *
+   *   4. Cleans up the temp cache file after success or failure.
+   *
+   * Both packages are dynamically imported to keep the web app bundle clean.
+   *
+   * @returns `true` if the upload was handled by the native SDK;
+   *          `false` if not running on native Capacitor (web / SSR).
+   */
+  private async _nativeFirebasePut(
+    file: File,
+    storagePath: string,
+    onProgress: (percent: number) => void
+  ): Promise<boolean> {
+    // Dynamic imports — present on native Capacitor (hoisted to root node_modules).
+    let filesystemMod: typeof import('@capacitor/filesystem');
+    let firebaseStorageMod: typeof import('@capacitor-firebase/storage');
+
+    try {
+      [filesystemMod, firebaseStorageMod] = await Promise.all([
+        import('@capacitor/filesystem'),
+        import('@capacitor-firebase/storage'),
+      ]);
+    } catch (importErr) {
+      this.logger.warn(
+        '[_nativeFirebasePut] Failed to import native Capacitor modules; falling back to XHR upload path',
+        {
+          error: importErr instanceof Error ? importErr.message : String(importErr),
+          name: file.name,
+          sizeBytes: file.size,
+        }
+      );
+      return false;
+    }
+
+    const { Filesystem, Directory } = filesystemMod;
+    const { FirebaseStorage } = firebaseStorageMod;
+
+    // ── Native environment probe ─────────────────────────────────────────────
+    // On native Capacitor, `Filesystem.getUri()` returns a `file://` URI
+    // (e.g. `file:///var/mobile/...` on iOS, `file:///data/user/0/...` on Android).
+    // On web, the Filesystem plugin returns a virtual URI
+    // (e.g. `_capacitor_file_://localhost/...`). Checking this before writing
+    // the large file prevents filling browser storage on web.
+    let cacheProbeUri: string;
+    try {
+      const probe = await Filesystem.getUri({ path: '_nxt1_probe', directory: Directory.Cache });
+      cacheProbeUri = probe.uri;
+    } catch (probeErr) {
+      // Plugin not functional in this environment (SSR or stripped build).
+      this.logger.warn(
+        '[_nativeFirebasePut] Filesystem.getUri probe threw; native Capacitor environment not detected',
+        {
+          error: probeErr instanceof Error ? probeErr.message : String(probeErr),
+          name: file.name,
+          sizeBytes: file.size,
+        }
+      );
+      return false;
+    }
+
+    if (!cacheProbeUri.startsWith('file://')) {
+      this.logger.info('Filesystem probe returned non-native URI; using web XHR upload path', {
+        name: file.name,
+        cacheProbeUri,
+      });
+      return false;
+    }
+
+    // ── Native upload ────────────────────────────────────────────────────────
+    // Sanitise the file name for the temp path (strip chars unsafe on iOS/Android).
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const tempFileName = `nxt1_video_${Date.now()}_${safeName}`;
+
+    this.logger.info('Writing video to device cache for native Firebase upload', {
+      name: file.name,
+      tempFileName,
+      sizeBytes: file.size,
+      storagePath,
+    });
+    this.breadcrumb.trackStateChange('agent-x-video-upload:native-firebase-put-start', {
+      name: file.name,
+      sizeBytes: file.size,
+      storagePath,
+    });
+
+    // Small initial ping so the UI does not appear frozen during the cache write.
+    onProgress(2);
+
+    try {
+      // Attempt Blob write first (Capacitor 8 supports native Blob transfer via WKWebView binary channel).
+      // If the platform does not support Blob (Capacitor emits an error), fall back to base64.
+      // NOTE: base64 for large files will pass ~17 MB through the bridge on iOS which may also
+      // fail — but we log the error so production crashes are visible.
+      try {
+        await Filesystem.writeFile({
+          path: tempFileName,
+          data: file as Blob,
+          directory: Directory.Cache,
+        });
+      } catch (blobWriteErr) {
+        this.logger.warn(
+          '[_nativeFirebasePut] Blob writeFile failed; retrying with base64 encoding',
+          {
+            error: blobWriteErr instanceof Error ? blobWriteErr.message : String(blobWriteErr),
+            name: file.name,
+            sizeBytes: file.size,
+          }
+        );
+        // Convert Blob → base64 string for older Capacitor / iOS configurations.
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const result = reader.result as string;
+            // FileReader.readAsDataURL returns "data:<mime>;base64,<data>" — strip the prefix.
+            resolve(result.substring(result.indexOf(',') + 1));
+          };
+          reader.onerror = () => reject(new Error('FileReader error during base64 conversion'));
+          reader.readAsDataURL(file);
+        });
+        await Filesystem.writeFile({
+          path: tempFileName,
+          data: base64,
+          directory: Directory.Cache,
+        });
+      }
+
+      const { uri: fileUri } = await Filesystem.getUri({
+        path: tempFileName,
+        directory: Directory.Cache,
+      });
+
+      this.logger.info('Video written to cache; uploading via native Firebase Storage SDK', {
+        name: file.name,
+        fileUri,
+        storagePath,
+      });
+
+      // 5 % reserved for the cache-write phase; 5–100 % for the upload itself.
+      onProgress(5);
+
+      await new Promise<void>((resolve, reject) => {
+        FirebaseStorage.uploadFile(
+          {
+            path: storagePath,
+            uri: fileUri,
+            metadata: { contentType: file.type },
+          },
+          (event, error) => {
+            if (error) {
+              reject(error instanceof Error ? error : new Error(String(error)));
+              return;
+            }
+            if (event) {
+              if (typeof event.progress === 'number') {
+                // Map 0–1 Firebase progress to our 5–100 % range.
+                const percent = 5 + Math.round(event.progress * 95);
+                onProgress(Math.min(percent, event.completed ? 100 : 99));
+              }
+              if (event.completed) {
+                resolve();
+              }
+            }
+          }
+        ).catch((uploadSetupErr: unknown) => {
+          // uploadFile() returns a Promise<CallbackId>. If the native plugin rejects
+          // this Promise (e.g. plugin unavailable, bridge error) the rejection would
+          // otherwise be swallowed inside the Promise executor and cause a hang.
+          reject(
+            uploadSetupErr instanceof Error
+              ? uploadSetupErr
+              : new Error(`FirebaseStorage.uploadFile() setup rejected: ${String(uploadSetupErr)}`)
+          );
+        });
+      });
+
+      return true;
+    } finally {
+      // Best-effort cleanup of the temporary cache file.
+      await Filesystem.deleteFile({
+        path: tempFileName,
+        directory: Directory.Cache,
+      }).catch((cleanupErr) => {
+        this.logger.warn('Failed to clean up temp video cache file', {
+          tempFileName,
+          error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
+        });
+      });
+    }
   }
 
   /**

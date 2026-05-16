@@ -6,6 +6,9 @@
   "server": {
     "androidScheme": "https"
   },
+  "CapacitorHttp": {
+    "enabled": true
+  },
   "plugins": {
     "CapacitorUpdater": {
       "autoUpdate": false,
@@ -19,10 +22,18 @@
     },
     "FirebaseAuthentication": {
       "skipNativeAuth": false,
-      "providers": ["apple.com", "google.com", "microsoft.com"]
+      "providers": [
+        "apple.com",
+        "google.com",
+        "microsoft.com"
+      ]
     },
     "PushNotifications": {
-      "presentationOptions": ["badge", "sound", "alert"]
+      "presentationOptions": [
+        "badge",
+        "sound",
+        "alert"
+      ]
     },
     "Keyboard": {
       "resize": "none",

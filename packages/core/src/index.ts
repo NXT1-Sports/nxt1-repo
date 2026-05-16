@@ -45,6 +45,12 @@ export * from './ai';
 export * from './browser';
 
 // ============================================
+// FEATURE FLAGS
+// ============================================
+
+export * from './flags';
+
+// ============================================
 // MODELS
 // ============================================
 
@@ -224,6 +230,12 @@ export {
   type UserDisplayContext,
   buildUserDisplayContext,
   deduplicateSportProfiles,
+  // Agent Job Payload
+  type AgentJobPayload,
+  // Agent Job Update
+  type AgentJobUpdate,
+  // Agent User Context
+  type AgentUserContext,
 } from './models';
 
 // ============================================

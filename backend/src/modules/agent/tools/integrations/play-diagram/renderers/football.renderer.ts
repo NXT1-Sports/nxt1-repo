@@ -32,8 +32,8 @@ export const footballRenderer: SportRenderer = {
     }
 
     parts.push(
-      `<line x1="0" y1="${losY}" x2="${fieldWidth}" y2="${losY}" stroke="${C.los}" stroke-width="2.5" stroke-dasharray="10,5"/>`,
-      `<text x="6" y="${losY - 6}" fill="${C.losText}" font-size="10" font-family="Arial,sans-serif" font-weight="bold">LOS</text>`
+      `<line x1="10" y1="${losY}" x2="${fieldWidth - 10}" y2="${losY}" stroke="${C.los}" stroke-width="2.5" stroke-dasharray="10,5"/>`,
+      `<text x="16" y="${losY - 6}" fill="${C.losText}" font-size="10" font-family="Arial,sans-serif" font-weight="bold">LOS</text>`
     );
 
     return parts.join('\n');

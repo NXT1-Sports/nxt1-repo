@@ -15,6 +15,7 @@ import { SyncDiffService, type PreviousProfileState } from '../sync/index.js';
 import type { DistilledProfile } from './integrations/firecrawl/scraping/distillers/distiller.types.js';
 import { db as appDb } from '../../../utils/firebase.js';
 import { logger } from '../../../utils/logger.js';
+import { getFeatureFlagsService } from '../../../config/feature-flags/index.js';
 
 const POLICY_VERSION = '2026-05-06-typed-deltas';
 
@@ -457,11 +458,6 @@ const TYPED_DELTA_ADAPTERS: Readonly<Record<string, TypedDeltaAdapter>> = {
   },
 };
 
-// ─── Feature Flag for Typed Deltas ───────────────────────────────────────────
-
-/** Enable/disable typed delta generation. Defaults to true with synthetic fallback. */
-const ENABLE_TYPED_DELTAS = process.env['ENABLE_TYPED_DELTAS'] !== 'false';
-
 const SYNC_MEMORY_PROFILED_TOOLS = new Set([
   'write_calendar_events',
   'write_schedule',
@@ -677,6 +673,10 @@ function getSyncMemoryExtractor(): SyncMemoryExtractorService {
 }
 
 export class AgentMutationPolicyService {
+  private async isTypedDeltasEnabled(): Promise<boolean> {
+    return getFeatureFlagsService(appDb).isEnabled('experimental.typed.deltas.enabled');
+  }
+
   async apply(input: AgentMutationPolicyInput): Promise<void> {
     const executionKey = this.buildExecutionKey(input.toolName, input.input, input.context);
     const scope = await this.resolveScope(input.input, input.context);
@@ -742,7 +742,7 @@ export class AgentMutationPolicyService {
     let generationType: 'typed' | 'synthetic' = 'synthetic';
     let fallbackReason: string | undefined;
 
-    if (ENABLE_TYPED_DELTAS) {
+    if (await this.isTypedDeltasEnabled()) {
       const typedResult = await this.tryTypedDelta(input, scope);
       if (typedResult.success) {
         delta = typedResult.delta;

@@ -17,6 +17,7 @@ import { NxtLoggingService } from '../../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { HapticsService } from '../../services/haptics/haptics.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics';
+import { LiveViewHistoryService } from '../services/live-view-history.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { resolveLiveViewLauncherPlatform } from './live-view-launcher.utils';
@@ -43,6 +44,10 @@ export interface LiveViewLaunchEvent {
   readonly platformKey?: string;
   /** How the user triggered the launch. */
   readonly source: 'account' | 'custom-url';
+}
+
+export interface LiveViewReconnectEvent {
+  readonly sessionId: string;
 }
 
 interface LiveViewStoryBenefit {
@@ -261,6 +266,63 @@ const LIVE_VIEW_ROLE_STORIES = LiveViewStoriesSchema.parse({
   template: `
     @if (story(); as story) {
       <div class="launcher" [attr.data-testid]="testIds.CONTAINER">
+        <!-- RECOVERY SECTION: Show stored sessions user can reconnect to -->
+        @if (availableSessions().length > 0) {
+          <section
+            class="launcher__section launcher__recovery"
+            [attr.data-testid]="testIds.RECOVERY_SECTION"
+          >
+            <h3 class="launcher__section-title">
+              Recent Sessions ({{ availableSessions().length }}/2)
+            </h3>
+            <p class="launcher__section-desc">Pick up where you left off</p>
+            <div class="launcher__recovery-tabs">
+              @for (entry of availableSessions(); track entry.session.sessionId) {
+                <div class="launcher__recovery-tab-item">
+                  <button
+                    type="button"
+                    class="launcher__recovery-tab"
+                    (click)="onReconnectSession(entry.session.sessionId)"
+                    [attr.data-testid]="testIds.RECOVERY_SESSION"
+                    [attr.data-session-id]="entry.session.sessionId"
+                    [title]="entry.session.domainLabel"
+                  >
+                    <span class="launcher__recovery-tab-domain">{{
+                      entry.session.domainLabel
+                    }}</span>
+                  </button>
+                  <button
+                    type="button"
+                    class="launcher__recovery-tab-dismiss"
+                    (click)="
+                      onDismissSession($event, entry.session.sessionId, entry.session.domainLabel)
+                    "
+                    [attr.data-testid]="testIds.RECOVERY_SESSION_DISMISS"
+                    title="Remove from list"
+                    aria-label="Remove session"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                </div>
+              }
+            </div>
+          </section>
+        }
+
         <section class="launcher__section" [attr.data-testid]="testIds.URL_SECTION">
           <h3 class="launcher__section-title">{{ story.urlSectionTitle }}</h3>
           <p class="launcher__section-desc">{{ story.urlSectionDescription }}</p>
@@ -653,6 +715,101 @@ const LIVE_VIEW_ROLE_STORIES = LiveViewStoriesSchema.parse({
         grid-template-columns: repeat(3, minmax(0, 1fr));
       }
     }
+
+    /* ─── RECOVERY SECTION ─────────────────────────────────────────────── */
+
+    .launcher__recovery {
+      padding-top: var(--nxt1-spacing-3, 12px);
+    }
+
+    .launcher__recovery-tabs {
+      display: flex;
+      align-items: center;
+      flex-wrap: nowrap;
+      gap: var(--nxt1-spacing-2, 8px);
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding-bottom: 2px;
+      scrollbar-width: thin;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .launcher__recovery-tab-item {
+      position: relative;
+      display: flex;
+      align-items: center;
+      flex: 0 0 auto;
+    }
+
+    .launcher__recovery-tab {
+      all: unset;
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      overflow-y: hidden;
+      align-items: center;
+      padding-bottom: 2px;
+      scrollbar-width: thin;
+      gap: 8px;
+      max-width: 220px;
+      min-width: 140px;
+      height: 34px;
+      padding: 0 34px 0 12px;
+      background: color-mix(in srgb, var(--launcher-accent) 5%, var(--launcher-surface));
+      border: 1px solid color-mix(in srgb, var(--launcher-accent) 65%, var(--launcher-border));
+      border-radius: 10px 10px 8px 8px;
+      cursor: pointer;
+      transition:
+        border-color 150ms ease,
+        background-color 150ms ease,
+        box-shadow 150ms ease,
+        transform 100ms ease;
+    }
+
+    .launcher__recovery-tab:hover {
+      background: color-mix(in srgb, var(--launcher-accent) 9%, var(--launcher-surface));
+      box-shadow: 0 1px 5px color-mix(in srgb, var(--launcher-accent) 20%, transparent);
+    }
+
+    .launcher__recovery-tab-domain {
+      flex: 1;
+      border-radius: 10px 10px 0 0;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--launcher-accent);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .launcher__recovery-tab-dismiss {
+      all: unset;
+      position: absolute;
+      right: 9px;
+      top: 50%;
+      transform: translateY(-50%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      cursor: pointer;
+      color: var(--launcher-text-muted);
+      transition: all 150ms ease-out;
+      padding: 0;
+    }
+
+    .launcher__recovery-tab-dismiss:hover {
+      background: color-mix(in srgb, var(--launcher-accent) 15%, var(--launcher-surface-hover));
+      color: var(--launcher-text-primary);
+    }
+
+    .launcher__recovery-tab-time {
+      flex-shrink: 0;
+      font-size: 0.6875rem;
+      line-height: 1;
+      color: var(--launcher-text-muted);
+    }
   `,
 })
 export class LiveViewLauncherComponent {
@@ -662,12 +819,15 @@ export class LiveViewLauncherComponent {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly haptics = inject(HapticsService);
+  private readonly history = inject(LiveViewHistoryService);
 
   protected readonly testIds = TEST_IDS.LIVE_VIEW_LAUNCHER;
   readonly launch = output<LiveViewLaunchEvent>();
+  readonly reconnect = output<LiveViewReconnectEvent>();
 
   protected customUrl = '';
   protected readonly platforms = LAUNCHER_PLATFORMS;
+  protected readonly availableSessions = computed(() => this.history.availableSessions());
   protected readonly story = computed<LiveViewStory>(() => {
     const normalizedRole = LiveViewRoleSchema.parse(this.role() ?? '');
     return LIVE_VIEW_ROLE_STORIES[normalizedRole];
@@ -711,6 +871,51 @@ export class LiveViewLauncherComponent {
     this.launch.emit({
       url,
       source: 'custom-url',
+    });
+  }
+
+  /**
+   * Format a timestamp as "X minutes ago" or "X hours ago".
+   */
+  protected getTimeAgoText(timestamp: number): string {
+    const now = Date.now();
+    const diff = now - timestamp;
+    const minutes = Math.floor(diff / 60_000);
+    const hours = Math.floor(minutes / 60);
+
+    if (minutes < 1) return 'just now';
+    if (minutes < 60) return `${minutes}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    return 'earlier today';
+  }
+
+  /**
+   * Reconnect to a previously stored live-view session.
+   */
+  protected async onReconnectSession(sessionId: string): Promise<void> {
+    await this.haptics.impact('light');
+    this.logger.info('Reconnecting to stored session', { sessionId });
+    this.breadcrumb.trackStateChange('live-view-reconnecting', { sessionId });
+
+    this.reconnect.emit({ sessionId });
+  }
+
+  /**
+   * Remove a stored session from the recovery list.
+   */
+  protected async onDismissSession(
+    event: Event,
+    sessionId: string,
+    domainLabel: string
+  ): Promise<void> {
+    event.stopPropagation(); // Don't trigger reconnection
+    await this.haptics.selection();
+
+    this.logger.info('Dismissing stored session', { sessionId, domainLabel });
+    this.history.removeSession(sessionId);
+    this.analytics?.trackEvent(APP_EVENTS.LIVE_VIEW_SESSION_DISCARDED, {
+      session_id: sessionId,
+      domain: domainLabel,
     });
   }
 }

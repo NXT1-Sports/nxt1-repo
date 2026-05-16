@@ -516,37 +516,37 @@ export class AgentRouter {
     // that reaches the router should enter Primary or the planner; there is no
     // direct coordinator-routing fallback branch anymore.
 
-    // ── Step 1: Build context ─────────────────────────────────────────────
-    const contextPhaseStartMs = Date.now();
-    this.emitUpdate(onUpdate, operationId, 'acting', 'Loading your profile...', undefined, {
-      agentId: 'router',
-      stage: 'building_context',
-      metadata: { phase: 'context_build', phaseIndex: 1, phaseTotal: 5 },
-    });
-    this.emitProgressOperation(onStreamEvent, {
-      operationId,
-      stage: 'building_context',
-      message: 'Loading your profile...',
-      metadata: {
-        eventType: 'progress_stage',
-        phase: 'context_build',
-        phaseIndex: 1,
-        phaseTotal: 5,
-      },
-    });
+    // REMOVED: PHASE 0 (Cheap model acknowledgment) — was generating out-of-context
+    // responses before context loaded, causing confusion. Reverted to full-model-only
+    // approach to ensure all responses are context-aware.
 
-    let userContext: AgentUserContext;
+    // ── Step 1: Build context (parallel, non-blocking) ───────────────────
+    // Start context loading immediately without blocking. It usually finishes
+    // ~500-1500ms later, well before Primary needs it. If somehow Primary
+    // catches up first, we await here—no regression in latency.
+    const contextPhaseStartMs = Date.now();
+    const contextBuildPromise = this.buildContextWithTelemetry(
+      userId,
+      firestore,
+      operationId,
+      onStreamEvent,
+      onUpdate
+    );
+
+    // Continue setup while context loads in parallel
+    let activeThreadsSummary = '';
     try {
-      userContext = await this.contextBuilder.buildContext(userId, firestore);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Context building failed';
-      this.emitUpdate(onUpdate, operationId, 'failed', `Context error: ${message}`, undefined, {
-        agentId: 'router',
-        stage: 'building_context',
-        outcomeCode: 'context_build_failed',
-      });
+      activeThreadsSummary = await this.contextBuilder.getActiveThreadsSummary(userId, 8);
+    } catch {
+      // Non-critical — continue without it
+    }
+
+    // Await context (it's likely ready by now; if not, we wait here once)
+    const userContext = await contextBuildPromise;
+    if (!userContext) {
+      // buildContextWithTelemetry already emitted error events and logged
       return {
-        summary: `Failed to build user context: ${message}`,
+        summary: 'Failed to build user context. Please try again.',
         suggestions: ['Try again later or contact support.'],
       };
     }
@@ -559,32 +559,17 @@ export class AgentRouter {
     this.emitProgressOperation(onStreamEvent, {
       operationId,
       stage: 'building_context',
-      message: `Context build latency: ${contextBuildDurationMs}ms`,
+      message: `Context ready (${Math.round(contextBuildDurationMs)}ms).`,
       metadata: {
         eventType: 'metric',
-        metricName: 'phase_latency_ms',
+        metricName: 'context_build_latency_ms',
         phase: 'context_build',
         value: contextBuildDurationMs,
       },
     });
-    this.emitProgressOperation(onStreamEvent, {
-      operationId,
-      stage: 'building_context',
-      message: 'Profile ready.',
-      metadata: { eventType: 'progress_subphase', phase: 'context_build', status: 'done' },
-    });
-    // Phase C (thread-as-truth): the canonical conversation now lives in
-    // `context.conversationHistory` as a full LLMMessage[]. The legacy
-    // 500-char `threadHistoryStr` injection was a lossy duplicate —
-    // removed. We still surface a tiny cross-thread summary so the
-    // agent can answer "what were our recent chats about?" in a
-    // brand-new thread.
-    let activeThreadsSummary = '';
-    try {
-      activeThreadsSummary = await this.contextBuilder.getActiveThreadsSummary(userId, 8);
-    } catch {
-      // Non-critical — continue without it
-    }
+
+    // Emit context_ready event for client observability
+    this.emitContextReady(onStreamEvent, operationId, userId, contextBuildDurationMs);
 
     const enrichedIntent = this.enrichIntentWithContext(
       intent,
@@ -910,6 +895,122 @@ export class AgentRouter {
           connectLabel: 'Connect Gmail or Outlook',
           suggestedAction: 'connect-account',
         },
+      },
+    });
+  }
+
+  // ─── Progressive Context Injection (TTFT Optimization) ──────────────────
+
+  /**
+   * Build user context with full observability and error handling.
+   * Runs in parallel from the start of the operation so context loads
+   * while acknowledgment is being streamed to the client.
+   *
+   * Returns `null` on failure after emitting error events and logging.
+   * Always emits progress events to onStreamEvent for client visibility.
+   *
+   * @returns AgentUserContext if successful, null if context build failed.
+   */
+  private async buildContextWithTelemetry(
+    userId: string,
+    firestore: FirebaseFirestore.Firestore | undefined,
+    operationId: string,
+    onStreamEvent: OnStreamEvent | undefined,
+    onUpdate: ((update: AgentJobUpdate) => void) | undefined
+  ): Promise<AgentUserContext | null> {
+    this.emitProgressOperation(onStreamEvent, {
+      operationId,
+      stage: 'building_context',
+      message: 'Loading your profile...',
+      metadata: {
+        eventType: 'progress_stage',
+        phase: 'context_build',
+        phaseIndex: 1,
+        phaseTotal: 5,
+      },
+    });
+
+    const contextStartMs = Date.now();
+    try {
+      const userContext = await this.contextBuilder.buildContext(userId, firestore);
+      const contextMs = Date.now() - contextStartMs;
+
+      logger.info('[AgentRouter] Context built successfully (parallel)', {
+        operationId,
+        userId,
+        durationMs: contextMs,
+      });
+
+      return userContext;
+    } catch (err) {
+      const errorMs = Date.now() - contextStartMs;
+      const message = err instanceof Error ? err.message : 'Context building failed';
+
+      logger.error('[AgentRouter] Context build failed (parallel)', {
+        operationId,
+        userId,
+        durationMs: errorMs,
+        errorMessage: message,
+        error: err instanceof Error ? (err.stack ?? err.message) : String(err),
+      });
+
+      this.emitProgressOperation(onStreamEvent, {
+        operationId,
+        stage: 'building_context',
+        message: `Context error: ${message}`,
+        metadata: {
+          eventType: 'error',
+          phase: 'context_build',
+          error: message,
+        },
+      });
+
+      this.emitUpdate(
+        onUpdate,
+        operationId,
+        'failed',
+        `Failed to load your profile: ${message}`,
+        undefined,
+        {
+          agentId: 'router',
+          stage: 'building_context',
+          outcomeCode: 'context_build_failed',
+          metadata: { errorMessage: message },
+        }
+      );
+
+      return null;
+    }
+  }
+
+  /**
+   * Emit a delta event with optional acknowledgment flag.
+   */
+  /**
+   * Emit context-ready event when context is loaded.
+   */
+  private emitContextReady(
+    onStreamEvent: OnStreamEvent | undefined,
+    operationId: string,
+    userId: string,
+    contextBuildDurationMs: number
+  ): void {
+    logger.info('[AgentRouter] Context ready for streaming', {
+      operationId,
+      userId,
+      contextBuildDurationMs,
+    });
+
+    onStreamEvent?.({
+      type: 'operation',
+      operationId,
+      stage: 'agent_thinking',
+      status: 'running',
+      message: 'Context ready.',
+      metadata: {
+        phase: 'context_ready',
+        contextBuildMs: contextBuildDurationMs,
+        ttftOptimization: true,
       },
     });
   }

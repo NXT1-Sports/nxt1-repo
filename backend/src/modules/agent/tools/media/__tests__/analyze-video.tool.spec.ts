@@ -66,7 +66,11 @@ describe('AnalyzeVideoTool', () => {
     expect(geminiFiles.analyzeVideosFromUrls).toHaveBeenCalledWith(
       ['https://cdn.example.com/game-film.mp4'],
       'Analyze this clip.',
-      4096
+      4096,
+      expect.objectContaining({
+        userId: 'user-123',
+        threadId: 'thread-456',
+      })
     );
     expect(llm.complete).not.toHaveBeenCalled();
     expect(result.data).toEqual(
@@ -113,7 +117,11 @@ describe('AnalyzeVideoTool', () => {
     expect(geminiFiles.analyzeVideosFromUrls).toHaveBeenCalledWith(
       [hudlUrl],
       'Find the best moments.',
-      4096
+      4096,
+      expect.objectContaining({
+        userId: 'user-123',
+        threadId: 'thread-456',
+      })
     );
     expect(llm.complete).not.toHaveBeenCalled();
   });

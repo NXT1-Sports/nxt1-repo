@@ -102,6 +102,7 @@ export interface AgentXUser {
   readonly profileImg?: string | null;
   readonly displayName?: string | null;
   readonly role?: string;
+  readonly activeTeamId?: string | null;
   readonly selectedSports?: readonly string[];
   readonly connectedSources?: readonly {
     platform: string;
@@ -599,6 +600,7 @@ function sortCoordinatorCategories(
         (messageChange)="onInputChange($event)"
         (send)="onSendMessage()"
         (toggleAttachments)="onToggleAttachments()"
+        (filesPasted)="onFilesPasted($event)"
         (openFile)="onOpenPendingFileViewer($event)"
         (removeFile)="agentX.removeFile($event)"
         (removeSource)="onRemovePendingSource($event)"
@@ -2464,6 +2466,14 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     this.agentX.setUserMessage(value);
   }
 
+  protected onFilesPasted(files: File[]): void {
+    if (files.length === 0) {
+      return;
+    }
+
+    this.agentX.addFiles(files);
+  }
+
   /** + button — open attachments bottom sheet with file and source options. */
   protected async onToggleAttachments(): Promise<void> {
     await this.haptics.impact('light');
@@ -2658,9 +2668,18 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     scopeType?: 'global' | 'sport' | 'team';
     scopeId?: string;
   }): string {
-    return `${source.platform.toLowerCase()}|${source.scopeType ?? 'global'}|${
+    return `${this.normalizeAttachmentPlatformKey(source.platform)}|${source.scopeType ?? 'global'}|${
       this.normalizeScopeKey(source.scopeId) || 'global'
     }`;
+  }
+
+  /** Canonicalize platform aliases so the attachments menu does not show duplicate chips. */
+  private normalizeAttachmentPlatformKey(platform: string): string {
+    const normalized = platform.trim().toLowerCase();
+    if (normalized === 'x' || normalized === 'x.com' || normalized === 'twitter.com') {
+      return 'twitter';
+    }
+    return normalized;
   }
 
   private resolveAttachmentProfileUrl(platform: string, url?: string): string {

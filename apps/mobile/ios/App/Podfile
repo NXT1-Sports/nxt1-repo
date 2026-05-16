@@ -7,6 +7,32 @@ def resolve_node_modules
   Dir.exist?(File.join(root_nm, '@capacitor', 'ios')) ? root_nm : local_nm
 end
 NODE_MODULES = resolve_node_modules
+
+# ── Patch: @capgo/native-purchases for CocoaPods 1.14+ ─────────────────────
+# CocoaPods 1.14+ evaluates podspec files in an isolated module context where
+# top-level `def` methods are not callable inside Pod::Spec.new blocks.
+# Convert `def has_storekit_265_sdk?` to a Ruby module class method — module
+# constants are globally accessible from any evaluation context (including
+# instance_eval), so this survives the CocoaPods spec sandbox.
+# The guard `!include?('module CapgoStoreKit')` makes the patch idempotent.
+begin
+  _capgo_podspec = File.join(NODE_MODULES, '@capgo/native-purchases/CapgoNativePurchases.podspec')
+  if File.exist?(_capgo_podspec)
+    _content = File.read(_capgo_podspec)
+    if _content.include?('def has_storekit_265_sdk?') && !_content.include?('module CapgoStoreKit')
+      _patched = _content
+        .gsub('def has_storekit_265_sdk?', "module CapgoStoreKit\n  def self.check?")
+        .gsub(/^end(\n\nPod::Spec)/, "  end\nend\\1")
+        .gsub('has_storekit_265_sdk?', 'CapgoStoreKit.check?')
+      File.write(_capgo_podspec, _patched)
+      puts "✅ Patched CapgoNativePurchases.podspec (CocoaPods 1.14+ module fix)"
+    end
+  end
+rescue => _e
+  puts "⚠️  CapgoNativePurchases patch skipped: #{_e.message}"
+end
+# ────────────────────────────────────────────────────────────────────────────
+
 require File.join(NODE_MODULES, '@capacitor/ios/scripts/pods_helpers')
 
 platform :ios, '15.0'
@@ -26,6 +52,7 @@ def capacitor_pods
   pod 'CapacitorFirebaseCrashlytics', :path => '../../../../node_modules/@capacitor-firebase/crashlytics'
   pod 'CapacitorFirebaseMessaging', :path => '../../../../node_modules/@capacitor-firebase/messaging'
   pod 'CapacitorFirebasePerformance', :path => '../../../../node_modules/@capacitor-firebase/performance'
+  pod 'CapacitorFirebaseStorage', :path => '../../../../node_modules/@capacitor-firebase/storage'
   pod 'CapacitorActionSheet', :path => '../../../../node_modules/@capacitor/action-sheet'
   pod 'CapacitorApp', :path => '../../../../node_modules/@capacitor/app'
   pod 'CapacitorBrowser', :path => '../../../../node_modules/@capacitor/browser'
@@ -33,7 +60,7 @@ def capacitor_pods
   pod 'CapacitorDevice', :path => '../../../../node_modules/@capacitor/device'
   pod 'CapacitorDialog', :path => '../../../../node_modules/@capacitor/dialog'
   pod 'CapacitorFilesystem', :path => '../../../../node_modules/@capacitor/filesystem'
-  pod 'CapacitorGeolocation', :path => '../../node_modules/@capacitor/geolocation'
+  pod 'CapacitorGeolocation', :path => '../../../../node_modules/@capacitor/geolocation'
   pod 'CapacitorHaptics', :path => '../../../../node_modules/@capacitor/haptics'
   pod 'CapacitorKeyboard', :path => '../../../../node_modules/@capacitor/keyboard'
   pod 'CapacitorNetwork', :path => '../../../../node_modules/@capacitor/network'

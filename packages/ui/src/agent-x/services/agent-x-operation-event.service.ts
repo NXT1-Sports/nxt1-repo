@@ -874,12 +874,20 @@ export class AgentXOperationEventService {
   subscribe(
     operationId: string,
     callbacks: OperationEventCallbacks,
-    options?: { startAfterSeq?: number }
+    options?: { startAfterSeq?: number; isolated?: boolean }
   ): OperationEventSubscription {
     if (!this.firestoreAdapter) {
       this.logger.warn('No FIRESTORE_ADAPTER provided — live events unavailable');
       callbacks.onError('Live event streaming is not available');
       return { operationId, unsubscribe: () => undefined };
+    }
+
+    // Isolated subscribers get their own private Firestore listener that does NOT
+    // join the shared fanout and does NOT advance the fanout's lastProcessedSeq.
+    // Used for shadow subs opened during SSE — they must not corrupt the resume
+    // cursor that the post-SSE main subscriber will rely on.
+    if (options?.isolated) {
+      return this.createIsolatedListener(operationId, callbacks, options);
     }
 
     const firestoreAdapter = this.firestoreAdapter;
@@ -1015,6 +1023,91 @@ export class AgentXOperationEventService {
     return {
       operationId,
       unsubscribe: () => this.removeListener(operationId, listenerId),
+    };
+  }
+
+  /**
+   * Create a private, isolated Firestore listener that does not participate in
+   * the shared fanout (`activeSubs`). Each call opens its own Firestore
+   * connection with a private `localLastSeq` cursor that never interferes with
+   * the shared cursor used by main subscribers.
+   *
+   * This prevents the shadow-sub watermark-tracking listener (opened while SSE
+   * is active) from advancing the shared cursor to a high seq value before the
+   * main fallback subscriber has a chance to attach with its own startAfterSeq.
+   */
+  private createIsolatedListener(
+    operationId: string,
+    callbacks: OperationEventCallbacks,
+    options?: { startAfterSeq?: number }
+  ): OperationEventSubscription {
+    const firestoreAdapter = this.firestoreAdapter!;
+    const collectionPath = `AgentJobs/${operationId}/events`;
+    let localLastSeq = options?.startAfterSeq ?? -1;
+    const pendingStepIds = new Map<string, string[]>();
+    let unsub: () => void = () => undefined;
+    let active = true;
+
+    const maxRetries = 3;
+    const retryDelayMs = 2_000;
+
+    const openListener = (attemptNumber: number): void => {
+      unsub = firestoreAdapter.onSnapshot(
+        collectionPath,
+        'seq',
+        (docs) => {
+          this.ngZone.run(() => {
+            if (!active) return;
+            for (const doc of docs) {
+              const event = doc as unknown as JobEvent;
+              if (typeof event.seq !== 'number' || event.seq <= localLastSeq) continue;
+              localLastSeq = event.seq;
+              this.processEvent(event, callbacks, operationId, pendingStepIds);
+            }
+          });
+        },
+        (error) => {
+          const errorCode = (error as unknown as Record<string, unknown>)['code'] as
+            | string
+            | undefined;
+          const isPermissionDenied = errorCode === 'permission-denied';
+
+          if (isPermissionDenied && attemptNumber < maxRetries && active) {
+            this.logger.warn(
+              'Isolated Firestore listener: permission denied — AgentJobs doc not yet ready, retrying',
+              { operationId, attempt: attemptNumber, retryDelayMs, collectionPath }
+            );
+            this.ngZone.run(() => {
+              setTimeout(() => {
+                if (active) openListener(attemptNumber + 1);
+              }, retryDelayMs * attemptNumber);
+            });
+            return;
+          }
+
+          if (active) {
+            // Shadow sub errors are non-fatal — log a warning but do not surface
+            // to the user. SSE is the primary delivery path; Firestore is advisory.
+            this.logger.warn('Isolated Firestore listener error (non-fatal)', {
+              operationId,
+              errorCode,
+              errorMessage: error.message,
+            });
+          }
+        }
+      );
+    };
+
+    openListener(1);
+    this.logger.debug('Opened isolated Firestore listener (shadow sub)', { operationId });
+
+    return {
+      operationId,
+      unsubscribe: () => {
+        active = false;
+        unsub();
+        this.logger.debug('Isolated Firestore listener closed', { operationId });
+      },
     };
   }
 

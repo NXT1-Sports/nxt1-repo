@@ -18,7 +18,10 @@
       "@angular/*": ["../../node_modules/@angular/*"],
       "rxjs": ["../../node_modules/rxjs"],
       "rxjs/*": ["../../node_modules/rxjs/*"],
-      "@ionic/*": ["../../node_modules/@ionic/*"]
+      "@ionic/*": ["../../node_modules/@ionic/*"],
+      "@capacitor-firebase/storage": [
+        "../../node_modules/@capacitor-firebase/storage/dist/esm/index.d.ts"
+      ]
     }
   },
   "angularCompilerOptions": {

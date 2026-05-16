@@ -416,7 +416,7 @@ export class ScanTimelinePostsTool extends BaseTool {
         userId,
         target,
         content: fact.content,
-        category: fact.category,
+        category: fact.category as AgentMemoryCategory,
       }).lean();
       if (existing) continue;
 

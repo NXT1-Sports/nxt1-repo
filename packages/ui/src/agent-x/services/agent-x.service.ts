@@ -82,6 +82,17 @@ const AGENT_X_PENDING_STARTUP_MESSAGE_KEY = 'nxt1_pending_startup_message';
 const AGENT_X_WEEKLY_TASKS_GOAL_ID = 'recurring';
 const AGENT_X_WEEKLY_TASKS_GOAL_LABEL = 'Weekly Tasks';
 
+function formatFileSizeLabel(bytes: number): string {
+  const gb = 1024 * 1024 * 1024;
+  if (bytes >= gb) {
+    const value = bytes / gb;
+    const rounded = Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1);
+    return `${rounded} GB`;
+  }
+
+  return `${Math.round(bytes / (1024 * 1024))} MB`;
+}
+
 function isWeeklyTasksGoalPill(pill: { id: string; label: string }): boolean {
   return (
     pill.id === AGENT_X_WEEKLY_TASKS_GOAL_ID ||
@@ -966,7 +977,7 @@ export class AgentXService {
 
       const isVideoFile = file.type.startsWith('video/');
       const maxSize = isVideoFile ? AGENT_X_MAX_VIDEO_FILE_SIZE : AGENT_X_MAX_FILE_SIZE;
-      const maxLabel = isVideoFile ? '500 MB' : '20 MB';
+      const maxLabel = formatFileSizeLabel(maxSize);
       if (file.size > maxSize) {
         this.toast.error(`File too large: ${file.name} (max ${maxLabel})`);
         this.logger.warn('Rejected oversized file', { name: file.name, sizeBytes: file.size });

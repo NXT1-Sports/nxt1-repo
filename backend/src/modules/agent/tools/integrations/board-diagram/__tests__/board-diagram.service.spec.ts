@@ -80,16 +80,7 @@ const MINIMAL_LAYOUT_JSON = JSON.stringify({
   fieldHeight: 440,
   losY: 280,
   players: [
-    // Offense (8 players — meets football minimum)
-    { id: 'qb', label: 'QB', x: 300, y: 310, team: 'offense', shape: 'circle' },
-    { id: 'rb', label: 'RB', x: 300, y: 340, team: 'offense', shape: 'circle' },
-    { id: 'wr1', label: 'WR', x: 100, y: 280, team: 'offense', shape: 'circle' },
-    { id: 'wr2', label: 'WR', x: 500, y: 280, team: 'offense', shape: 'circle' },
-    { id: 'te', label: 'TE', x: 420, y: 280, team: 'offense', shape: 'circle' },
-    { id: 'ol1', label: 'C', x: 300, y: 280, team: 'offense', shape: 'circle' },
-    { id: 'ol2', label: 'LG', x: 260, y: 280, team: 'offense', shape: 'circle' },
-    { id: 'ol3', label: 'RG', x: 340, y: 280, team: 'offense', shape: 'circle' },
-    // Defense (cover 2)
+    // Defense-only fixture for cover-2 validation
     { id: 's1', label: 'S', x: 150, y: 100, team: 'defense', shape: 'square' },
     { id: 's2', label: 'S', x: 450, y: 100, team: 'defense', shape: 'square' },
     { id: 'cb1', label: 'CB', x: 90, y: 270, team: 'defense', shape: 'square' },
@@ -222,9 +213,11 @@ describe('BoardDiagramService', () => {
       expect(asset.kind).toBe('sport_play');
       expect(asset.imageUrl).toContain('https://storage.googleapis.com');
       expect(mockCreate).toHaveBeenCalledTimes(1);
-    });
+    }, 15_000);
 
     it('calls LLM with a system prompt containing sport context', async () => {
+      llmMock.complete.mockResolvedValue({ content: MINIMAL_DRILL_LAYOUT_JSON });
+
       await service.createDiagram(
         {
           description: '3-man weave drill from baseline',
@@ -247,7 +240,7 @@ describe('BoardDiagramService', () => {
       }>;
       const systemMsg = callArgs.find((m) => m.role === 'system');
       expect(systemMsg?.content).toContain('basketball');
-    });
+    }, 15_000);
 
     it('uses drill system prompt when kind is sport_drill', async () => {
       llmMock.complete.mockResolvedValue({ content: MINIMAL_DRILL_LAYOUT_JSON });

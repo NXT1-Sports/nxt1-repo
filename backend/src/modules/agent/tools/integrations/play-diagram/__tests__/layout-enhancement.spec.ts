@@ -203,6 +203,45 @@ describe('football concept enhancers', () => {
     const layout = enhanceLayoutForConcept(makeFootballLayout(), 'Tampa 2 zone shell');
     expect(layout.zones?.some((z) => z.label === 'Deep Half')).toBe(true);
   });
+
+  it('normalizes defensive rush/penetrate routes to attack toward LOS/offense', () => {
+    const layoutWithBadRushVectors: DiagramLayout = {
+      ...makeFootballLayout(),
+      players: [
+        { id: 'DE', label: 'DE', x: 240, y: 295, team: 'defense' },
+        { id: 'DT', label: 'DT', x: 300, y: 295, team: 'defense' },
+      ],
+      routes: [
+        {
+          from: 'DE',
+          points: [
+            [240, 295],
+            [220, 260],
+          ],
+          label: 'LDE: Gap Rush',
+          type: 'go',
+        },
+        {
+          from: 'DT',
+          points: [
+            [300, 295],
+            [300, 250],
+          ],
+          label: 'LDT: A-Gap Penetrate',
+          type: 'go',
+        },
+      ],
+    };
+
+    const enhanced = enhanceLayoutForConcept(layoutWithBadRushVectors, 'press man defense');
+    const de = enhanced.routes.find((r) => r.from === 'DE');
+    const dt = enhanced.routes.find((r) => r.from === 'DT');
+
+    expect(de).toBeDefined();
+    expect(dt).toBeDefined();
+    expect((de?.points[1] ?? [0, 0])[1]).toBeGreaterThan((de?.points[0] ?? [0, 0])[1]);
+    expect((dt?.points[1] ?? [0, 0])[1]).toBeGreaterThan((dt?.points[0] ?? [0, 0])[1]);
+  });
 });
 
 // ─── Basketball concepts ──────────────────────────────────────────────────────

@@ -22,6 +22,7 @@ import { AGENT_X_ENDPOINTS } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
 import { AGENT_X_API_BASE_URL } from './agent-x-job.service';
+import { LiveViewHistoryService } from './live-view-history.service';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
@@ -47,6 +48,7 @@ export class LiveViewSessionService {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly performance = inject(PERFORMANCE_ADAPTER, { optional: true });
+  private readonly history = inject(LiveViewHistoryService);
 
   // ─── State ──────────────────────────────────────────────────────────────
 
@@ -108,6 +110,9 @@ export class LiveViewSessionService {
 
       const session = response.data;
       this._activeSession.set(session);
+
+      // Record in history for recovery if user closes the panel
+      this.history.recordSession(session);
 
       this.logger.info('Live view session started', {
         sessionId: session.sessionId,
@@ -263,45 +268,77 @@ export class LiveViewSessionService {
   }
 
   /**
-   * Close the active session and clean up backend resources.
+   * Close the live view panel UI only.
+   * The backend session remains alive (1 hour TTL) so Agent X can continue to access it.
+   * The agent can still use extract_live_view_media and other tools on the active session.
    */
-  async closeSession(): Promise<void> {
+  async closePanel(): Promise<void> {
     const session = this._activeSession();
     if (!session) return;
 
-    this.logger.info('Closing live view session', { sessionId: session.sessionId });
-    this.breadcrumb.trackStateChange('live-view: closing', { sessionId: session.sessionId });
+    this.logger.info('Closing live view panel (session remains active)', {
+      sessionId: session.sessionId,
+    });
+    this.breadcrumb.trackStateChange('live-view: panel closed', { sessionId: session.sessionId });
 
     const trace = await this.performance?.startTrace(TRACE_NAMES.LIVE_VIEW_SESSION_CLOSE);
 
-    // Clear local state immediately (optimistic)
+    // Clear local UI state only — backend session lives for 1 hour TTL
     this._activeSession.set(null);
     this._error.set(null);
 
     try {
-      await firstValueFrom(
-        this.http.post<LiveViewApiResponse<void>>(
-          `${this.apiBaseUrl}${AGENT_X_ENDPOINTS.LIVE_VIEW_CLOSE}`,
-          { sessionId: session.sessionId }
-        )
-      );
-
       this.analytics?.trackEvent(APP_EVENTS.LIVE_VIEW_SESSION_CLOSED, {
         session_id: session.sessionId,
         destination_tier: session.destinationTier,
       });
 
-      this.logger.info('Live view session closed', { sessionId: session.sessionId });
+      this.logger.info('Live view panel closed (session persists on backend)', {
+        sessionId: session.sessionId,
+      });
       await trace?.putAttribute('success', 'true');
     } catch (err) {
-      // Best-effort — session is already cleared locally
-      this.logger.warn('Live view close error (best-effort)', {
+      this.logger.warn('Live view panel close tracking error', {
         sessionId: session.sessionId,
         error: err instanceof Error ? err.message : String(err),
       });
       await trace?.putAttribute('success', 'false');
     } finally {
       await trace?.stop();
+    }
+  }
+
+  /**
+   * Explicitly close the session on the backend (terminates Firecrawl browser).
+   * Use only when explicitly requested or on logout.
+   */
+  async destroySession(): Promise<void> {
+    const session = this._activeSession();
+    if (!session) return;
+
+    this.logger.info('Destroying live view session on backend', {
+      sessionId: session.sessionId,
+    });
+    this.breadcrumb.trackStateChange('live-view: destroyed', { sessionId: session.sessionId });
+
+    // Clear local state first
+    this._activeSession.set(null);
+    this._error.set(null);
+
+    try {
+      // Best-effort call to backend to terminate Firecrawl resources
+      await firstValueFrom(
+        this.http.post<LiveViewApiResponse<void>>(
+          `${this.apiBaseUrl}${AGENT_X_ENDPOINTS.LIVE_VIEW_CLOSE}`,
+          { sessionId: session.sessionId }
+        )
+      );
+      this.logger.info('Live view session destroyed', { sessionId: session.sessionId });
+    } catch (err) {
+      this.logger.warn('Live view destroy error (best-effort)', {
+        sessionId: session.sessionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -313,6 +350,8 @@ export class LiveViewSessionService {
     this._activeSession.set(session);
     this._loading.set(false);
     this._error.set(null);
+    // Auto-opened sessions must also be recoverable in the launcher.
+    this.history.recordSession(session);
     this.logger.info('Adopted live view session from backend', {
       sessionId: session.sessionId,
       tier: session.destinationTier,
@@ -330,6 +369,47 @@ export class LiveViewSessionService {
         error: err instanceof Error ? err.message : String(err),
       });
     }
+  }
+
+  /**
+   * Get all available sessions that can be recovered (non-expired).
+   */
+  getAvailableSessions() {
+    return this.history.availableSessions;
+  }
+
+  /**
+   * Reconnect to a previously stored session.
+   * @param sessionId - Session to recover
+   */
+  reconnectToSession(sessionId: string): boolean {
+    const session = this.history.getSessionById(sessionId);
+    if (!session) {
+      const availableSessionIds = this.history
+        .availableSessions()
+        .map((entry) => entry.session.sessionId);
+      this.logger.warn('Session not found in history', { sessionId, availableSessionIds });
+      return false;
+    }
+
+    // Adopt the session (same as auto-open from backend)
+    this.adoptSession(session);
+    this.logger.info('Reconnected to stored live view session', { sessionId });
+    this.breadcrumb.trackStateChange('live-view: reconnected', { sessionId });
+
+    this.analytics?.trackEvent(APP_EVENTS.LIVE_VIEW_SESSION_RECOVERED, {
+      session_id: sessionId,
+      destination_tier: session.destinationTier,
+    });
+
+    return true;
+  }
+
+  /**
+   * Explicitly remove a stored session from history.
+   */
+  removeFromHistory(sessionId: string): void {
+    this.history.removeSession(sessionId);
   }
 
   // ─── Internal ─────────────────────────────────────────────────────────

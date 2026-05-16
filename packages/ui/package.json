@@ -38,15 +38,15 @@
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "typecheck": "tsc --noEmit",
-    "clean": "rm -rf dist .turbo"
+    "clean": "rm -rf dist .turbo node_modules/.cache/ng-packagr"
   },
   "dependencies": {
     "@nxt1/core": "*",
     "@nxt1/design-tokens": "*",
     "@stripe/stripe-js": "^5.10.0",
-    "zod": "^4.3.6",
+    "dompurify": "^3.4.0",
     "marked": "^17.0.0",
-    "dompurify": "^3.4.0"
+    "zod": "^4.4.3"
   },
   "peerDependencies": {
     "@angular/animations": "^21.0.0",

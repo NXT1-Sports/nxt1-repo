@@ -15,7 +15,7 @@
  *
  * Execution model:
  * - Calls `firecrawl_agent` MCP tool to start an async job → returns a job ID.
- * - Polls `firecrawl_agent_status` every 5 seconds until complete or timeout (3 min).
+ * - Polls `firecrawl_agent_status` until completion/failure (hard timeout optional).
  * - Returns synthesized results when `status === 'completed'`.
  *
  * Configuration:
@@ -37,10 +37,24 @@ import { logger } from '../../../../../../utils/logger.js';
 const MAX_OUTPUT_CHARS = 60_000;
 
 /** Polling interval between agent status checks (5 seconds). */
-const POLL_INTERVAL_MS = 5_000;
+const POLL_INTERVAL_MS = parseIntEnv('FIRECRAWL_AGENT_POLL_INTERVAL_MS', 5_000, {
+  min: 1_000,
+});
 
-/** Maximum total wait time for a research job (3 minutes). */
-const RESEARCH_TIMEOUT_MS = 180_000;
+/**
+ * Maximum total wait time for a research job.
+ *
+ * Set `FIRECRAWL_AGENT_RESEARCH_TIMEOUT_MS=0` to disable the hard timeout and
+ * wait until Firecrawl reports completion/failure.
+ */
+const RESEARCH_TIMEOUT_MS = parseIntEnv('FIRECRAWL_AGENT_RESEARCH_TIMEOUT_MS', 0, {
+  min: 0,
+});
+
+/** Maximum consecutive poll failures before returning an infrastructure error. */
+const MAX_CONSECUTIVE_POLL_ERRORS = parseIntEnv('FIRECRAWL_AGENT_MAX_CONSECUTIVE_POLL_ERRORS', 12, {
+  min: 1,
+});
 
 /** Maximum credit allowance per research job (internal safety cap). */
 const MAX_CREDITS_PER_JOB = 500;
@@ -60,6 +74,22 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function parseIntEnv(
+  key: string,
+  fallback: number,
+  options?: { min?: number; max?: number }
+): number {
+  const raw = process.env[key];
+  if (!raw) return fallback;
+
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+
+  if (options?.min !== undefined && parsed < options.min) return fallback;
+  if (options?.max !== undefined && parsed > options.max) return fallback;
+  return parsed;
+}
+
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
 export class FirecrawlAgentTool extends BaseTool {
@@ -72,7 +102,7 @@ export class FirecrawlAgentTool extends BaseTool {
     'Use for: comparing college programs, aggregating recruit rankings from multiple sites, ' +
     'researching coaching staff across multiple pages, gathering NIL market data, ' +
     'or any complex research task where the sources are unknown upfront. ' +
-    'Runs asynchronously and may take up to 3 minutes. Returns synthesized results.';
+    'Runs asynchronously and polls until completion/failure (or configurable timeout). Returns synthesized results.';
 
   readonly parameters = z.object({
     prompt: z
@@ -162,23 +192,40 @@ export class FirecrawlAgentTool extends BaseTool {
     }
 
     // ── Polling loop ──────────────────────────────────────────────────────────
-    const deadline = Date.now() + RESEARCH_TIMEOUT_MS;
+    const deadline = RESEARCH_TIMEOUT_MS > 0 ? Date.now() + RESEARCH_TIMEOUT_MS : null;
     let attempt = 0;
+    let consecutivePollErrors = 0;
 
-    while (Date.now() < deadline) {
+    while (deadline === null || Date.now() < deadline) {
       await delay(POLL_INTERVAL_MS);
       attempt++;
 
       let statusResult: { status: string; data?: unknown; creditsUsed?: number };
       try {
         statusResult = await this.bridge.getAgentStatus(jobId);
+        consecutivePollErrors = 0;
       } catch (err) {
+        consecutivePollErrors++;
         const message = err instanceof Error ? err.message : String(err);
         logger.warn('[FirecrawlAgent] Status poll failed (will retry)', {
           jobId,
           attempt,
+          consecutivePollErrors,
           error: message,
         });
+        if (consecutivePollErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
+          logger.error('[FirecrawlAgent] Status polling failed repeatedly', {
+            jobId,
+            attempts: attempt,
+            consecutivePollErrors,
+          });
+          return {
+            success: false,
+            error:
+              `Research job status checks failed ${consecutivePollErrors} times in a row ` +
+              `(job: ${jobId}). This indicates an infrastructure issue while polling Firecrawl.`,
+          };
+        }
         // Transient poll failure — keep retrying until deadline
         continue;
       }
@@ -220,6 +267,8 @@ export class FirecrawlAgentTool extends BaseTool {
           };
         }
 
+        case 'queued':
+        case 'running':
         case 'processing':
         default:
           // Still running — continue polling

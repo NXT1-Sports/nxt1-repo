@@ -49,7 +49,6 @@ import {
   buildProfileSeoConfig,
   buildTeamSeoConfig,
   buildVideoSeoConfig,
-  truncateDescription,
   sanitizeMetaText,
 } from '@nxt1/core/seo';
 

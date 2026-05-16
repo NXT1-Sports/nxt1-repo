@@ -87,6 +87,7 @@ import { getConnectedSourceSyncTracker } from '../services/connected-source-sync
 import { logger } from '../../../utils/logger.js';
 import { AgentGenerationService } from '../services/generation.service.js';
 import { runWithMongoEnvironmentScope } from '../../../middleware/mongo/mongo-scope.context.js';
+import { sendSlackAlert } from '../../../services/platform/alert.service.js';
 import crypto from 'node:crypto';
 
 const AGENT_IDENTIFIER_SET = new Set<AgentIdentifier>([
@@ -3048,6 +3049,42 @@ export class AgentWorker {
 
   // ─── Event Listeners ───────────────────────────────────────────────────
 
+  private resolveQueueStatsUrl(): string {
+    const baseUrl = process.env['BACKEND_BASE_URL'] ?? process.env['BACKEND_URL'] ?? '';
+    if (!baseUrl) {
+      return '/api/v1/agent/queue-stats';
+    }
+
+    return `${baseUrl.replace(/\/$/, '')}/api/v1/agent/queue-stats`;
+  }
+
+  private async postWorkerAlert(
+    eventType: 'failed' | 'stalled',
+    details: {
+      jobId?: string | number;
+      operationId?: string;
+      error?: string;
+    }
+  ): Promise<void> {
+    const headerText =
+      eventType === 'failed' ? 'Agent Queue Job Failed' : 'Agent Queue Job Stalled';
+    const queueStatsUrl = this.resolveQueueStatsUrl();
+
+    await sendSlackAlert({
+      target: 'agent',
+      severity: 'critical',
+      title: headerText,
+      summary: 'Agent queue event requires attention.',
+      fields: [
+        { label: 'Job ID', value: String(details.jobId ?? 'unknown') },
+        ...(details.operationId ? [{ label: 'Operation ID', value: details.operationId }] : []),
+        ...(details.error ? [{ label: 'Error', value: details.error }] : []),
+      ],
+      linkText: 'Queue Stats',
+      linkUrl: queueStatsUrl,
+    });
+  }
+
   private attachEventListeners(): void {
     this.worker.on('completed', (job) => {
       if (job) {
@@ -3087,12 +3124,23 @@ export class AgentWorker {
         error: err.message,
         stack: err.stack,
       });
+
+      void this.postWorkerAlert('failed', {
+        jobId: job?.id,
+        operationId,
+        error: err.message,
+      });
     });
 
     this.worker.on('stalled', (jobId) => {
       logger.error('Agent job stalled (lock expired) — marking as failed in Firestore', {
         jobId,
       });
+
+      void this.postWorkerAlert('stalled', {
+        jobId,
+      });
+
       // Mark both production and staging repos — we don't know which env the job belongs to
       const failMessage = 'Job stalled: processing exceeded lock duration and was abandoned.';
       void this.productionJobRepo.markFailed(jobId, failMessage).catch(() => {

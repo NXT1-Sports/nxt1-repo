@@ -123,6 +123,44 @@ const AGENT_X_STRUCTURED_DATA = {
   ],
 } as const;
 
+function resolveAgentXActiveTeamId(
+  user:
+    | {
+        readonly activeSportIndex?: number | null;
+        readonly sports?: ReadonlyArray<{
+          readonly isPrimary?: boolean;
+          readonly team?: {
+            readonly teamId?: string | null;
+            readonly organizationId?: string | null;
+            readonly id?: string | null;
+          } | null;
+        }> | null;
+      }
+    | null
+    | undefined
+): string | null {
+  const sports = user?.sports ?? [];
+  if (!sports.length) return null;
+
+  const indexedSport =
+    typeof user?.activeSportIndex === 'number' && user.activeSportIndex >= 0
+      ? (sports[user.activeSportIndex] ?? null)
+      : null;
+  const primarySport = sports.find((sport) => sport.isPrimary) ?? null;
+  const teamSport = sports.find(
+    (sport) =>
+      !!(sport.team?.teamId?.trim() || sport.team?.organizationId?.trim() || sport.team?.id?.trim())
+  );
+
+  const resolvedTeam = indexedSport?.team ?? primarySport?.team ?? teamSport?.team ?? null;
+  return (
+    resolvedTeam?.teamId?.trim() ||
+    resolvedTeam?.organizationId?.trim() ||
+    resolvedTeam?.id?.trim() ||
+    null
+  );
+}
+
 @Component({
   selector: 'app-agent-x',
   standalone: true,
@@ -416,6 +454,7 @@ export class AgentXComponent {
         profileImg: user.profileImg ?? null,
         displayName: user.displayName,
         role: user.role,
+        activeTeamId: resolveAgentXActiveTeamId(user),
         selectedSports: user.sports?.map(({ sport }) => sport) ?? [],
         connectedSources: user.connectedSources ?? [],
         connectedEmails: user.connectedEmails ?? [],
@@ -430,6 +469,19 @@ export class AgentXComponent {
       profileImg: user.profileImg ?? null,
       displayName: user.displayName,
       role: user.role as AgentXUser['role'],
+      activeTeamId: resolveAgentXActiveTeamId(
+        user as {
+          readonly activeSportIndex?: number | null;
+          readonly sports?: ReadonlyArray<{
+            readonly isPrimary?: boolean;
+            readonly team?: {
+              readonly teamId?: string | null;
+              readonly organizationId?: string | null;
+              readonly id?: string | null;
+            } | null;
+          }> | null;
+        }
+      ),
       selectedSports: user.selectedSports ?? [],
       connectedSources: [],
       connectedEmails: (user.connectedEmails as AgentXUser['connectedEmails']) ?? [],

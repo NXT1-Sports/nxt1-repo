@@ -315,7 +315,7 @@ export class MemorySummarizationService {
           ? { organizationId: context.organizationId }
           : {}),
         content: fact.content,
-        category: fact.category,
+        category: fact.category as AgentMemoryCategory,
       }).lean();
       if (existing) continue;
 

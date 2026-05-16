@@ -422,6 +422,12 @@ export const TRACE_NAMES = {
   GAMEPLAN_CREATE: 'gameplan_create',
   GAMEPLAN_UPDATE: 'gameplan_update',
   GAMEPLAN_DELETE: 'gameplan_delete',
+
+  // Team playbook play traces
+  PLAYBOOK_LIST: 'playbook_list',
+  PLAYBOOK_PLAY_CREATE: 'playbook_play_create',
+  PLAYBOOK_PLAY_UPDATE: 'playbook_play_update',
+  PLAYBOOK_PLAY_DELETE: 'playbook_play_delete',
 } as const;
 
 export type TraceName = (typeof TRACE_NAMES)[keyof typeof TRACE_NAMES];

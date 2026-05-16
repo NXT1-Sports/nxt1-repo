@@ -21,18 +21,15 @@ describe('play diagram sport normalization', () => {
   });
 
   it('feature flag downgrades extended sports to football when disabled', () => {
-    const prior = process.env['PLAY_DIAGRAM_ENABLE_EXTENDED_SPORTS'];
-    process.env['PLAY_DIAGRAM_ENABLE_EXTENDED_SPORTS'] = 'false';
+    expect(applySportFeatureFlag('soccer', false)).toBe('football');
+    expect(applySportFeatureFlag('baseball', false)).toBe('football');
+    expect(applySportFeatureFlag('softball', false)).toBe('football');
+    expect(applySportFeatureFlag('basketball', false)).toBe('basketball');
+  });
 
-    expect(applySportFeatureFlag('soccer')).toBe('football');
-    expect(applySportFeatureFlag('baseball')).toBe('football');
-    expect(applySportFeatureFlag('softball')).toBe('football');
-    expect(applySportFeatureFlag('basketball')).toBe('basketball');
-
-    if (prior === undefined) {
-      delete process.env['PLAY_DIAGRAM_ENABLE_EXTENDED_SPORTS'];
-    } else {
-      process.env['PLAY_DIAGRAM_ENABLE_EXTENDED_SPORTS'] = prior;
-    }
+  it('keeps extended sports when enabled', () => {
+    expect(applySportFeatureFlag('soccer', true)).toBe('soccer');
+    expect(applySportFeatureFlag('baseball', true)).toBe('baseball');
+    expect(applySportFeatureFlag('softball', true)).toBe('softball');
   });
 });

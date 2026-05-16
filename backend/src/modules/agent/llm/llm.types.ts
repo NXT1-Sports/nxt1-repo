@@ -9,6 +9,7 @@
 
 import type { ModelTier, AgentIdentifier } from '@nxt1/core';
 import type { ZodType } from 'zod';
+import { isFeatureEnabledSync } from '../../../config/feature-flags/index.js';
 
 // ─── Model Catalogue ────────────────────────────────────────────────────────
 
@@ -73,10 +74,11 @@ export const DEV_MODEL_CATALOGUE: Record<ModelTier, string> = {
 /**
  * Maps our abstract model tiers to concrete OpenRouter model slugs.
  * Resolves to PROD or DEV versions based on NODE_ENV.
- * Can be overridden in dev with USE_PROD_MODELS_IN_DEV="true".
+ * Can be overridden in dev with ai.model.prod.catalog.in.dev.enabled.
  */
 export const MODEL_CATALOGUE: Record<ModelTier, string> =
-  process.env['NODE_ENV'] === 'production' || process.env['USE_PROD_MODELS_IN_DEV'] === 'true'
+  process.env['NODE_ENV'] === 'production' ||
+  isFeatureEnabledSync('ai.model.prod.catalog.in.dev.enabled')
     ? PROD_MODEL_CATALOGUE
     : DEV_MODEL_CATALOGUE;
 
@@ -176,10 +178,11 @@ export const DEV_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
 
 /**
  * Ordered fallback chains per tier. Resolves based on NODE_ENV.
- * Can be overridden in dev with USE_PROD_MODELS_IN_DEV="true".
+ * Can be overridden in dev with ai.model.prod.catalog.in.dev.enabled.
  */
 export const MODEL_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> =
-  process.env['NODE_ENV'] === 'production' || process.env['USE_PROD_MODELS_IN_DEV'] === 'true'
+  process.env['NODE_ENV'] === 'production' ||
+  isFeatureEnabledSync('ai.model.prod.catalog.in.dev.enabled')
     ? PROD_FALLBACK_CHAIN
     : DEV_FALLBACK_CHAIN;
 

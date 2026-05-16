@@ -23,7 +23,7 @@ import { VectorMemoryService } from '../memory/vector.service.js';
 import { OpenRouterService } from '../llm/openrouter.service.js';
 import { resolveStructuredOutput } from '../llm/structured-output.js';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
-import { isTeamIntelEnabled } from '../../../config/feature-flags.js';
+import { getFeatureFlagsService } from '../../../config/feature-flags/index.js';
 import { z } from 'zod';
 
 // ─── Section Order Constants ─────────────────────────────────────────────────
@@ -264,8 +264,9 @@ export class IntelGenerationService {
     return this.ownedContextBuilder;
   }
 
-  private ensureTeamIntelEnabled(): void {
-    if (isTeamIntelEnabled()) return;
+  private async ensureTeamIntelEnabled(db: Firestore): Promise<void> {
+    const teamIntelEnabled = await getFeatureFlagsService(db).isEnabled('team.intel.enabled');
+    if (teamIntelEnabled) return;
 
     throw new AgentEngineError('TEAM_INTEL_DISABLED', 'Team Intel is currently disabled.', {
       metadata: { entityType: 'team' },
@@ -624,9 +625,10 @@ export class IntelGenerationService {
     teamId: string,
     dbOverride?: Firestore
   ): Promise<Record<string, unknown> | null> {
-    if (!isTeamIntelEnabled()) return null;
-
     const db = this.resolveDb(dbOverride);
+    const teamIntelEnabled = await getFeatureFlagsService(db).isEnabled('team.intel.enabled');
+    if (!teamIntelEnabled) return null;
+
     const snap = await db
       .collection('Teams')
       .doc(teamId)
@@ -643,9 +645,9 @@ export class IntelGenerationService {
     teamId: string,
     dbOverride?: Firestore
   ): Promise<Record<string, unknown>> {
-    this.ensureTeamIntelEnabled();
-
     const db = this.resolveDb(dbOverride);
+    await this.ensureTeamIntelEnabled(db);
+
     const teamDoc = await db.collection('Teams').doc(teamId).get();
     if (!teamDoc.exists) {
       throw new AgentEngineError('INTEL_TEAM_NOT_FOUND', 'Team not found', {
@@ -1726,9 +1728,8 @@ Output this EXACT JSON structure with all 5 sections:
     sectionId: TeamSectionId,
     dbOverride?: Firestore
   ): Promise<Record<string, unknown>> {
-    this.ensureTeamIntelEnabled();
-
     const db = this.resolveDb(dbOverride);
+    await this.ensureTeamIntelEnabled(db);
 
     // ── Load the most-recent existing report ──
     const snap = await db

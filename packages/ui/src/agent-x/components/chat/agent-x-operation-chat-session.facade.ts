@@ -592,19 +592,48 @@ export class AgentXOperationChatSessionFacade {
 
     // ── Pass 1: phase-tagged rows (new writes) ────────────────────────────
     const finalOperationIds = new Set<string>();
-    let lastBareFinalIndex = -1;
-    items.forEach((item, index) => {
+    for (const item of items) {
       if (
         item.role === 'assistant' &&
         item.semanticPhase === 'assistant_final' &&
         item.operationId
       ) {
         finalOperationIds.add(item.operationId);
-        if (!isChatPrefixedOperationId(item.operationId)) {
-          lastBareFinalIndex = Math.max(lastBareFinalIndex, index);
+      }
+    }
+
+    // ── Pass 1b: identify direct chat-* parents of bare-UUID resume finals ─
+    // When a bare-UUID final immediately follows a chat-* op (no intervening
+    // user turn), that chat-* op is the stale parent trajectory that must be
+    // hidden. Track only the DIRECT parents — a global lastBareFinalIndex was
+    // too broad and incorrectly suppressed unrelated prior-turn messages from
+    // long-running threads.
+    const suppressedParentOpIds = new Set<string>();
+    {
+      let lastChatPrefixedOpId: string | null = null;
+      for (const item of items) {
+        if (item.role === 'user') {
+          // A real user turn resets tracking; yield replies keep it active.
+          const opId = item.operationId?.trim() ?? '';
+          if (!answeredYieldOpIds.has(opId)) {
+            lastChatPrefixedOpId = null;
+          }
+        } else if (item.role === 'assistant' && item.operationId) {
+          if (isChatPrefixedOperationId(item.operationId)) {
+            lastChatPrefixedOpId = item.operationId;
+          } else if (
+            item.semanticPhase === 'assistant_final' &&
+            lastChatPrefixedOpId &&
+            !yieldedOperationIds.has(lastChatPrefixedOpId)
+          ) {
+            // This bare-UUID final directly follows a non-yielded chat-* op:
+            // mark that parent for suppression.
+            suppressedParentOpIds.add(lastChatPrefixedOpId);
+            lastChatPrefixedOpId = null;
+          }
         }
       }
-    });
+    }
 
     // ── Pass 2: collapse assistant_tool_call rows (no final exists) ───────
     // When no assistant_final exists for an operationId, keep only the LAST
@@ -685,6 +714,31 @@ export class AgentXOperationChatSessionFacade {
       }
     }
 
+    // ── Pass 2d: collapse tool_call rows for answered ask_user (needs_input) ops ─
+    // When an ask_user yield is answered, the pre-yield assistant_tool_call row(s)
+    // (prose the agent wrote before calling ask_user) are restored as visible chat
+    // bubbles (see inputYieldedOpIds exception below). Deduplicate here so only
+    // the LAST tool_call row renders, matching the collapse behaviour for other
+    // no-final operations.
+    const answeredInputYieldToolCallSuppressedIds = new Set<string>();
+    {
+      const lastSeenToolCall = new Map<string, string>();
+      for (const item of items) {
+        if (
+          item.role === 'assistant' &&
+          item.semanticPhase === 'assistant_tool_call' &&
+          item.operationId &&
+          answeredYieldOpIds.has(item.operationId) &&
+          inputYieldedOpIds.has(item.operationId) &&
+          !finalOperationIds.has(item.operationId)
+        ) {
+          const prev = lastSeenToolCall.get(item.operationId);
+          if (prev) answeredInputYieldToolCallSuppressedIds.add(prev);
+          lastSeenToolCall.set(item.operationId, item.id);
+        }
+      }
+    }
+
     // ── Pass 3: legacy rows (no semanticPhase) ───────────────────────────
     // Collect operationIds that appear on multiple untagged assistant rows.
     const legacyMultiMap = new Map<string, AgentMessage[]>();
@@ -715,46 +769,27 @@ export class AgentXOperationChatSessionFacade {
       }
     }
 
-    return items.filter((item, index) => {
-      // Suppress user messages that are replies to an answered ask_user card.
-      // Their content is shown inline as yieldResolvedText on the resolved
-      // card bubble rather than as a separate standalone message.
-      if (
-        item.role === 'user' &&
-        typeof item.operationId === 'string' &&
-        answeredYieldOpIds.has(item.operationId.trim())
-      ) {
-        return false;
-      }
-
+    return items.filter((item) => {
+      // All non-assistant messages (user, system) pass through without suppression.
+      // ask_user reply messages (role='user', operationId set) show as normal user
+      // bubbles — the previous design of suppressing them and showing the text inside
+      // a "resolved yield card" was broken because nxt1-chat-bubble never renders
+      // externalResolvedText in its template.
       if (item.role !== 'assistant') return true;
 
-      // Suppress `assistant_yield` rows from rendering. These are persisted
-      // by the worker so the LLM has the prompt text in its context on
-      // resume — they are *not* user-facing. The same prompt is already
-      // shown inside the inline approval / ask-user card carried by the
-      // assistant_partial row (or the synthetic yield bubble created by
-      // applyPendingYieldState). Rendering this row produces a duplicate
-      // "Review and approve…" prose bubble alongside the card.
+      // Suppress ALL `assistant_yield` rows. These are persisted by the worker so
+      // the LLM has the prompt text in its context on resume — they are *not*
+      // user-facing. Live yield cards are shown via applyPendingYieldState during
+      // streaming. For answered ask_user yields the user reply message now shows as
+      // a normal user bubble in the conversation history on reload.
       if (item.semanticPhase === 'assistant_yield') {
-        const opId = typeof item.operationId === 'string' ? item.operationId.trim() : '';
-        // Keep answered yield rows — they render as resolved ask_user cards on
-        // reload so history shows the question+answer pair. Active (unanswered)
-        // yield rows are still suppressed; the card is shown via applyPendingYieldState.
-        return opId.length > 0 && answeredYieldOpIds.has(opId);
-      }
-
-      // ask_user (needs_input) operations render as card-only interruptions.
-      // Suppress prior trajectory for input ops only.
-      // needs_approval operations keep their tool steps visible alongside the card.
-      if (item.operationId && inputYieldedOpIds.has(item.operationId)) {
         return false;
       }
 
       // When assistant_final exists for this operationId, keep only the final
-      // row. Suppress everything else — including assistant_partial snapshots
-      // and untagged trajectory rows written by ThreadMessageWriter — to
-      // prevent duplicate bubbles with repeated media/cards.
+      // row. This check must run BEFORE inputYieldedOpIds so that a completed
+      // ask_user operation (which got an assistant_final after the user replied)
+      // is not incorrectly suppressed in full by the trajectory-collapse rule.
       //
       // Exception: completed yielded operations (both ask_user and approval) also
       // keep the last tool_call row so pre-yield context (search results, step
@@ -769,15 +804,38 @@ export class AgentXOperationChatSessionFacade {
         return item.semanticPhase === 'assistant_final';
       }
 
+      // ask_user (needs_input) operations render as card-only interruptions.
+      // Suppress prior trajectory for input ops only (runs AFTER finalOperationIds
+      // so that a completed ask_user op keeps its final answer visible on reload).
+      // needs_approval operations keep their tool steps visible alongside the card.
+      //
+      // Exception: when the ask_user yield has been answered, restore the last
+      // assistant_tool_call row so the pre-yield prose (question context and search
+      // results the agent wrote before calling ask_user) remains visible in the chat
+      // history alongside the resolved ask_user card. This matches the mandatory
+      // 2-step ask_user pattern where the agent writes the full question as prose
+      // BEFORE invoking the ask_user tool.
+      if (item.operationId && inputYieldedOpIds.has(item.operationId)) {
+        if (
+          answeredYieldOpIds.has(item.operationId) &&
+          item.semanticPhase === 'assistant_tool_call' &&
+          !answeredInputYieldToolCallSuppressedIds.has(item.id)
+        ) {
+          return true;
+        }
+        return false;
+      }
+
       // Pause/resume cross-operation collapse:
       // parent operation ids are `chat-*` while resumed child operations use
-      // bare UUID ids. When a later bare-UUID final exists, suppress stale
-      // parent assistant trajectory rows so only the resumed final bubble remains.
+      // bare UUID ids. Suppress stale parent trajectory rows so only the
+      // resumed final bubble remains. Only the DIRECT parent of each bare-UUID
+      // final is suppressed — suppressedParentOpIds is built in Pass 1b by
+      // walking chronologically and matching each bare-UUID final to the
+      // chat-* op that immediately preceded it (within the same user turn).
       if (
-        lastBareFinalIndex >= 0 &&
-        index < lastBareFinalIndex &&
         item.operationId &&
-        isChatPrefixedOperationId(item.operationId) &&
+        suppressedParentOpIds.has(item.operationId) &&
         !yieldedOperationIds.has(item.operationId) &&
         !finalOperationIds.has(item.operationId) &&
         (item.semanticPhase === 'assistant_tool_call' || !item.semanticPhase)
@@ -1682,7 +1740,15 @@ export class AgentXOperationChatSessionFacade {
 
           const hasPersistedYieldAssistantForLiveOperation =
             this.hasYieldedAssistantRowForOperation(persistedRows, liveOperationId);
-          if (hasPersistedYieldAssistantForLiveOperation) {
+          // Only drop the typing bubble when the yield is still pending (no user
+          // reply). If the user already answered (user message with same
+          // operationId exists in history), the yield is resolved and the agent
+          // is continuing — preserve the typing bubble so the live stream
+          // response remains visible.
+          const isYieldAnsweredForLiveOp = reorderedMapped.some(
+            (m) => m.role === 'user' && m.operationId === liveOperationId
+          );
+          if (hasPersistedYieldAssistantForLiveOperation && !isYieldAnsweredForLiveOp) {
             preserveTyping = false;
           }
 
@@ -1695,6 +1761,7 @@ export class AgentXOperationChatSessionFacade {
             assistantRowsForLiveOperation,
             preserveTyping,
             hasPersistedYieldAssistantForLiveOperation,
+            isYieldAnsweredForLiveOp,
           });
         }
       }
@@ -1770,18 +1837,34 @@ export class AgentXOperationChatSessionFacade {
         host.setCurrentOperationId(latestMessageOperationId);
       }
 
+      // Determine whether the last yield in the thread timeline has already been
+      // answered: a subsequent assistant_final after the last yield row means the
+      // resumed operation completed. Used to guard both the thread-metadata and
+      // timeline-fallback yield-state paths (Bug #6 safety net).
+      const lastYieldIdx = items.reduce(
+        (latest, item, idx) =>
+          item.role === 'assistant' && item.semanticPhase === 'assistant_yield' ? idx : latest,
+        -1
+      );
+      const yieldAlreadyCompleted =
+        lastYieldIdx >= 0 &&
+        items
+          .slice(lastYieldIdx + 1)
+          .some((item) => item.role === 'assistant' && item.semanticPhase === 'assistant_final');
+
       if (persistedPendingYieldState) {
         // applyPendingYieldState already calls upsertInlineYieldMessage internally
         // with the correct operationId — do NOT call it again or a second message
         // with a different operationId would create a duplicate action card.
-        if (!hasMatchingYieldMessage(persistedPendingYieldState)) {
+        if (!hasMatchingYieldMessage(persistedPendingYieldState) && !yieldAlreadyCompleted) {
           this.applyPendingYieldState(persistedPendingYieldState, threadId, 'thread-metadata');
         } else {
           this.logger.info(
-            'Skipped applying thread-metadata yield: already present in mapped messages',
+            'Skipped applying thread-metadata yield: already present in mapped messages or yield completed',
             {
               threadId,
               contextId: host.contextId(),
+              yieldAlreadyCompleted,
             }
           );
         }
@@ -1842,8 +1925,10 @@ export class AgentXOperationChatSessionFacade {
         // operationId. This covers parent/child approval flows where the
         // parent ends at awaiting_approval (no `done` in Firestore for it)
         // but the child wrote assistant_final to MongoDB.
-        const hasMongoFinal = canonicalItems.some(
-          (item) => item.role === 'assistant' && item.semanticPhase === 'assistant_final'
+        const currentContextOperationId = this.resolveFirestoreOperationId();
+        const hasMongoFinal = this.hasMongoFinalForOperation(
+          canonicalItems,
+          currentContextOperationId
         );
         if (hasMongoFinal) {
           host.setOperationStatus('complete');
@@ -2540,6 +2625,41 @@ export class AgentXOperationChatSessionFacade {
 
       const stored = await this.operationEventService.getStoredEventState(operationId);
       if (!stored.latestYieldState) return;
+
+      // Guard: don't restore yield state if the loaded message timeline shows
+      // the yield was already answered and the resumed operation completed.
+      //
+      // Strategy: look at messages that come AFTER the last user message.
+      // Completed session  → has an assistant message without yieldState (the
+      //   final response) AND no unresolved yield card in that slice.
+      // Pending ask_user   → slice is empty (yield row suppressed by
+      //   inputYieldedOpIds filtering), so we fall through and apply.
+      // Pending approval   → slice contains toolCallMsg (no yieldState) AND
+      //   an approval card (yieldState != null, not resolved); the unresolved
+      //   yield flag prevents false-positive skipping.
+      // Multi-round pending → last user message has nothing after it yet;
+      //   both flags are false → we fall through and apply correctly.
+      const currentMessages = this.messageFacade.messages();
+      const lastUserMsgIdx = currentMessages.reduceRight(
+        (found: number, m, idx) => (found >= 0 ? found : m.role === 'user' ? idx : -1),
+        -1
+      );
+      const messagesAfterLastUser =
+        lastUserMsgIdx >= 0 ? currentMessages.slice(lastUserMsgIdx + 1) : currentMessages;
+      const hasUnresolvedYieldAfterLastUser = messagesAfterLastUser.some(
+        (m) => m.role === 'assistant' && !!m.yieldState && m.yieldCardState !== 'resolved'
+      );
+      const hasAssistantFinalAfterLastUser = messagesAfterLastUser.some(
+        (m) => m.role === 'assistant' && !m.yieldState
+      );
+      if (hasAssistantFinalAfterLastUser && !hasUnresolvedYieldAfterLastUser) {
+        this.logger.info(
+          'Skipped stored-state-pending: message timeline shows yield already completed',
+          { threadId, contextId: host.contextId(), operationId }
+        );
+        return;
+      }
+
       host.applyYieldState({
         yieldState: stored.latestYieldState,
         source: 'stored-state-pending',
@@ -2681,6 +2801,17 @@ export class AgentXOperationChatSessionFacade {
       const persistedYieldCardStateRaw = item.resultData?.['yieldCardState'];
       if (persistedYieldCardStateRaw === 'resolved') continue;
 
+      // Skip completed yields: if any assistant_final follows this yield row
+      // in the thread timeline, the yield was answered and the resumed
+      // operation has completed. Without this check, reloading a finished
+      // ask_user session incorrectly shows "Waiting for your reply..." because
+      // the raw MongoDB row never has yieldCardState set to 'resolved'
+      // (that field is frontend-only during the live stream, Bug #6).
+      const hasSubsequentFinal = items
+        .slice(index + 1)
+        .some((later) => later.role === 'assistant' && later.semanticPhase === 'assistant_final');
+      if (hasSubsequentFinal) continue;
+
       return yieldState;
     }
 
@@ -2772,6 +2903,28 @@ export class AgentXOperationChatSessionFacade {
         message.role === 'assistant' &&
         message.operationId === operationId &&
         (!!message.yieldState || this.messageHasYieldCard(message))
+    );
+  }
+
+  private hasMongoFinalForOperation(
+    items: readonly AgentMessage[],
+    operationId: string | null
+  ): boolean {
+    // If we cannot resolve the current operationId, fall back to the legacy
+    // behaviour (any assistant_final in the thread signals completion) rather
+    // than leaving the operation spinner running indefinitely.
+    if (!operationId) {
+      return items.some(
+        (item) => item.role === 'assistant' && item.semanticPhase === 'assistant_final'
+      );
+    }
+    // Scope the check to the current operation so that a completed prior turn
+    // does not prematurely mark a still-running operation as complete.
+    return items.some(
+      (item) =>
+        item.role === 'assistant' &&
+        item.semanticPhase === 'assistant_final' &&
+        item.operationId === operationId
     );
   }
 

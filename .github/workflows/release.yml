@@ -124,7 +124,7 @@ jobs:
           echo "tag=$TAG" >> $GITHUB_OUTPUT
 
       - name: Sync appVersion into environment files
-        run: node scripts/sync-version.mjs ${{ steps.version.outputs.new_version }}
+        run: node scripts/dev/sync-version.mjs ${{ steps.version.outputs.new_version }}
 
       - name: Generate changelog
         id: changelog

@@ -117,6 +117,9 @@ export class NxtPlatformService {
     hover: true,
   });
 
+  private pendingViewportCommit: ViewportInfo | null = null;
+  private viewportCommitScheduled = false;
+
   // ============================================
   // PUBLIC COMPUTED SIGNALS
   // ============================================
@@ -164,8 +167,19 @@ export class NxtPlatformService {
   /** True if running on Android */
   readonly isAndroid = computed(() => this._os() === 'android');
 
-  /** True if running in native app (Capacitor) */
-  readonly isNative = computed(() => this.isNativeRuntime());
+  /**
+   * True if running in native app (Capacitor).
+   *
+   * Intentionally a `signal()` initialised eagerly at construction time rather
+   * than a `computed()`.  A `computed()` with no Angular-signal dependencies is
+   * evaluated lazily on first access and cached permanently — if the service
+   * was first accessed before the Capacitor bridge had set `window.Capacitor`
+   * (e.g. during an early Angular DI resolution), the value would be cached as
+   * `false` forever.  Evaluating at construction time guarantees that the
+   * Capacitor bridge (which runs synchronously before `main.ts` bootstraps) is
+   * already present.
+   */
+  readonly isNative = signal(this.isNativeRuntime());
 
   /** True if running as PWA */
   readonly isPWA = computed(() => this._capabilities().pwa);
@@ -288,15 +302,32 @@ export class NxtPlatformService {
       right: parseInt(computedStyle.getPropertyValue('--ion-safe-area-right') || '0', 10),
     };
 
-    this._viewport.set({
+    const nextViewport: ViewportInfo = {
       width,
       height,
       orientation: width > height ? 'landscape' : 'portrait',
       safeAreaInsets,
-    });
+    };
 
-    // Re-evaluate device type on significant size changes
-    this._deviceType.set(this.detectDeviceType());
+    this.scheduleViewportCommit(nextViewport);
+  }
+
+  private scheduleViewportCommit(nextViewport: ViewportInfo): void {
+    this.pendingViewportCommit = nextViewport;
+    if (this.viewportCommitScheduled) return;
+
+    this.viewportCommitScheduled = true;
+    queueMicrotask(() => {
+      this.viewportCommitScheduled = false;
+      const payload = this.pendingViewportCommit;
+      this.pendingViewportCommit = null;
+      if (!payload) return;
+
+      this._viewport.set(payload);
+
+      // Re-evaluate device type after viewport commit.
+      this._deviceType.set(this.detectDeviceType());
+    });
   }
 
   // ============================================

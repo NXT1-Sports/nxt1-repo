@@ -32,7 +32,7 @@ import type {
 import { resolveAgentApprovalPrompt } from '@nxt1/core';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { ToolRegistry } from '../tools/tool-registry.js';
-import type { ToolExecutionContext } from '../tools/base.tool.js';
+import type { ToolExecutionContext, ToolResult } from '../tools/base.tool.js';
 import type {
   LLMMessage,
   LLMToolSchema,
@@ -69,6 +69,10 @@ import {
 } from '../config/agent-app-config.js';
 import { getToolLoopDetector } from '../services/tool-loop-detector.service.js';
 import { getPromptBudgetService } from '../services/prompt-budget.service.js';
+import {
+  normalizeModelSlugForBudget,
+  resolvePromptBudgetPolicyForTier,
+} from '../services/model-context-window.service.js';
 import { getOperationMemoryService } from '../services/operation-memory.service.js';
 import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
 import { logger } from '../../../utils/logger.js';
@@ -113,12 +117,20 @@ const SHARED_PERSISTENCE_CONTRACT = [
  * Prevents context overflow when scrape results are very large.
  */
 const MAX_OBSERVATION_LENGTH = 12_000;
+const TOOL_RETRY_MAX_ATTEMPTS = 3;
+const TOOL_RETRY_BASE_BACKOFF_MS = 1_000;
+const COMPRESSION_TRIGGER_MIN_ITERATION = 6;
+const COMPRESSION_TRIGGER_TOKEN_RATIO = 0.7;
+const COMPRESSION_KEEP_FIRST_EXCHANGES = 1;
+const COMPRESSION_KEEP_LAST_EXCHANGES = 3;
+const COMPRESSION_MAX_EXCHANGE_LINES = 36;
+const COMPRESSION_SUMMARY_MAX_CHARS = 2_000;
 const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_INLINE_DOCUMENT_BYTES = 8 * 1024 * 1024;
 const MAX_ATTACHMENT_TEXT_CHARS = 30_000;
 const MAX_ATTACHMENT_PREVIEW_ROWS = 60;
 const MAX_ATTACHMENT_PREVIEW_COLUMNS = 20;
-const DUPLICATE_GUARDED_TOOLS = new Set(['extract_live_view_media', 'extract_live_view_playlist']);
+const DUPLICATE_GUARDED_TOOLS = new Set(['extract_live_view_media']);
 const COMPUTE_KEYWORDS = [
   'how many',
   'count',
@@ -201,6 +213,7 @@ const CONTEXT_KEEP_LAST_EXCHANGES = 3;
  * collapsed middle or the prune is a no-op).
  */
 const CONTEXT_PRUNE_THRESHOLD = CONTEXT_KEEP_FIRST_EXCHANGES + CONTEXT_KEEP_LAST_EXCHANGES + 1;
+const CONTEXT_PRUNE_TOKEN_RATIO = 0.85;
 const EMAIL_SEND_TOOL_NAMES = new Set(['send_email', 'batch_send_email', 'gmail_send_email']);
 const EMAIL_CONNECTION_REQUIRED_MESSAGE =
   'No connected email account found. Please connect Gmail or Outlook in Settings -> Email before sending emails.';
@@ -1262,27 +1275,57 @@ export abstract class BaseAgent {
     let lastProgressCommentaryToolCount = 0;
     let lastProgressCommentaryText = '';
 
+    const appConfig = getCachedAgentAppConfig();
+    const promptBudgetPolicy = resolvePromptBudgetPolicyForTier(routing.tier, appConfig);
+    let activeBudgetMode: 'primary' | 'fallback_safe' = 'primary';
+
     for (let iteration = 0; iteration < MAX_ITERATIONS; iteration++) {
       this.throwIfAborted(context.signal);
+
+      const promptBudget =
+        activeBudgetMode === 'primary'
+          ? promptBudgetPolicy.primaryBudget
+          : promptBudgetPolicy.fallbackSafeBudget;
 
       // Prune the context window before every LLM call (except the first iteration
       // which only has system + user messages — nothing to prune yet).
       // No-op when total tool-calling exchanges is below CONTEXT_PRUNE_THRESHOLD.
-      if (iteration > 0) this.pruneMessageHistory(messages);
+      if (iteration > 0) this.pruneMessageHistory(messages, promptBudget.maxPromptTokens);
 
       // Token-budget governor: enforce a hard ceiling on prompt size with a
       // deterministic degradation ladder. This is a per-LLM-call guard;
       // operations are not bounded — long jobs still run to completion.
       // Throws PromptBudgetExceededError if degradation cannot recover; the
       // outer ReAct loop lets it propagate so the user sees a clear error.
-      const primaryCfg = getCachedAgentAppConfig().primary;
-      if (primaryCfg) {
+      await this.compressMessageHistoryIfNeeded({
+        messages,
+        llm,
+        context,
+        iteration,
+        promptBudgetTokens: promptBudget.maxPromptTokens,
+      });
+
+      if (promptBudget.source === 'model_aware') {
+        logger.info(`[${this.id}] Model-aware prompt budget applied`, {
+          agentId: this.id,
+          operationId: context.operationId,
+          tier: routing.tier,
+          budgetMode: activeBudgetMode,
+          modelWindowTokens: promptBudget.modelWindowTokens,
+          safetyRatio: promptBudget.safetyRatio,
+          configuredCeiling: appConfig.primary.maxPromptTokens,
+          effectiveCeiling: promptBudget.maxPromptTokens,
+          consideredModels: promptBudget.consideredModels,
+        });
+      }
+
+      if (promptBudget) {
         getPromptBudgetService().applyBudget(
           messages,
           {
-            maxPromptTokens: primaryCfg.maxPromptTokens,
-            maxMessageChars: primaryCfg.maxMessageChars,
-            maxToolResultChars: primaryCfg.maxToolResultChars,
+            maxPromptTokens: promptBudget.maxPromptTokens,
+            maxMessageChars: promptBudget.maxMessageChars,
+            maxToolResultChars: promptBudget.maxToolResultChars,
           },
           this.id,
           context.operationId
@@ -1352,6 +1395,55 @@ export abstract class BaseAgent {
         : await llm.complete(messages, llmOptions);
 
       this.throwIfAborted(context.signal);
+
+      const usedModel = normalizeModelSlugForBudget(result.model);
+      const primaryModel = normalizeModelSlugForBudget(
+        promptBudgetPolicy.fallbackSafeBudget.consideredModels[0] ?? promptBudgetPolicy.primaryModel
+      );
+      const knownFallbackModels = new Set(promptBudgetPolicy.fallbackSafeBudget.consideredModels);
+      const fallbackTriggered =
+        usedModel.length > 0 &&
+        primaryModel.length > 0 &&
+        knownFallbackModels.has(usedModel) &&
+        usedModel !== primaryModel;
+
+      if (
+        fallbackTriggered &&
+        activeBudgetMode === 'primary' &&
+        promptBudgetPolicy.fallbackSafeBudget.maxPromptTokens <
+          promptBudgetPolicy.primaryBudget.maxPromptTokens
+      ) {
+        activeBudgetMode = 'fallback_safe';
+        logger.warn(`[${this.id}] Fallback model detected — switching to fallback-safe budget`, {
+          agentId: this.id,
+          operationId: context.operationId,
+          tier: routing.tier,
+          primaryModel,
+          usedModel,
+          primaryBudgetTokens: promptBudgetPolicy.primaryBudget.maxPromptTokens,
+          fallbackSafeBudgetTokens: promptBudgetPolicy.fallbackSafeBudget.maxPromptTokens,
+        });
+
+        await this.compressMessageHistoryIfNeeded({
+          messages,
+          llm,
+          context,
+          iteration,
+          promptBudgetTokens: promptBudgetPolicy.fallbackSafeBudget.maxPromptTokens,
+          force: true,
+        });
+
+        getPromptBudgetService().applyBudget(
+          messages,
+          {
+            maxPromptTokens: promptBudgetPolicy.fallbackSafeBudget.maxPromptTokens,
+            maxMessageChars: promptBudgetPolicy.fallbackSafeBudget.maxMessageChars,
+            maxToolResultChars: promptBudgetPolicy.fallbackSafeBudget.maxToolResultChars,
+          },
+          this.id,
+          context.operationId
+        );
+      }
 
       // If the LLM responded with text and no tool calls → we're done
       if (result.toolCalls.length === 0) {
@@ -2218,8 +2310,15 @@ export abstract class BaseAgent {
    * - Prior summary messages (from earlier prunes) are folded into the new
    *   summary rather than re-inserted as stand-alone messages.
    */
-  private pruneMessageHistory(messages: LLMMessage[]): void {
+  private pruneMessageHistory(messages: LLMMessage[], maxPromptTokens?: number): void {
     if (messages.length <= 2) return;
+
+    if (typeof maxPromptTokens === 'number' && maxPromptTokens > 0) {
+      const estimatedTokens = getPromptBudgetService().estimateTokens(messages);
+      if (estimatedTokens < Math.floor(maxPromptTokens * CONTEXT_PRUNE_TOKEN_RATIO)) {
+        return;
+      }
+    }
 
     const systemMsg = messages[0];
     const userMsg = messages[1];
@@ -2337,23 +2436,355 @@ export abstract class BaseAgent {
     });
   }
 
+  private async compressMessageHistoryIfNeeded(params: {
+    messages: LLMMessage[];
+    llm: OpenRouterService;
+    context: AgentSessionContext;
+    iteration: number;
+    promptBudgetTokens: number;
+    force?: boolean;
+  }): Promise<void> {
+    if (!params.force && params.iteration < COMPRESSION_TRIGGER_MIN_ITERATION) return;
+    if (params.messages.length <= 2) return;
+
+    const budgetService = getPromptBudgetService();
+    const estimatedTokens = budgetService.estimateTokens(params.messages);
+    if (
+      !params.force &&
+      estimatedTokens < Math.floor(params.promptBudgetTokens * COMPRESSION_TRIGGER_TOKEN_RATIO)
+    ) {
+      return;
+    }
+
+    const parsed = this.parseToolExchangesForCompaction(params.messages);
+    if (
+      parsed.exchanges.length <
+      COMPRESSION_KEEP_FIRST_EXCHANGES + COMPRESSION_KEEP_LAST_EXCHANGES + 2
+    ) {
+      return;
+    }
+
+    const firstExchanges = parsed.exchanges.slice(0, COMPRESSION_KEEP_FIRST_EXCHANGES);
+    const lastExchanges = parsed.exchanges.slice(
+      parsed.exchanges.length - COMPRESSION_KEEP_LAST_EXCHANGES
+    );
+    const middleExchanges = parsed.exchanges.slice(
+      COMPRESSION_KEEP_FIRST_EXCHANGES,
+      parsed.exchanges.length - COMPRESSION_KEEP_LAST_EXCHANGES
+    );
+
+    const summary = await this.summarizeMiddleExchangesWithLlm(
+      middleExchanges,
+      params.llm,
+      params.context
+    );
+    const summaryMsg: LLMMessage = {
+      role: 'assistant',
+      content: summary,
+    };
+
+    const totalBefore = params.messages.length;
+    params.messages.splice(
+      0,
+      params.messages.length,
+      parsed.systemMsg,
+      parsed.userMsg,
+      ...firstExchanges.flat(),
+      summaryMsg,
+      ...lastExchanges.flat()
+    );
+
+    logger.info(`[${this.id}] Mid-run context compression applied`, {
+      agentId: this.id,
+      operationId: params.context.operationId,
+      iteration: params.iteration + 1,
+      tokensBefore: estimatedTokens,
+      tokensAfter: budgetService.estimateTokens(params.messages),
+      messagesBefore: totalBefore,
+      messagesAfter: params.messages.length,
+      summarizedExchanges: middleExchanges.length,
+    });
+  }
+
+  private parseToolExchangesForCompaction(messages: LLMMessage[]): {
+    systemMsg: LLMMessage;
+    userMsg: LLMMessage;
+    exchanges: LLMMessage[][];
+  } {
+    const systemMsg = messages[0];
+    const userMsg = messages[1];
+    const tail = messages.slice(2);
+    const exchanges: LLMMessage[][] = [];
+    let current: LLMMessage[] = [];
+
+    for (const msg of tail) {
+      if (msg.role === 'assistant') {
+        if (current.length > 0) {
+          const head = current[0];
+          if (head.tool_calls && head.tool_calls.length > 0) {
+            exchanges.push(current);
+          }
+        }
+        current = [msg];
+      } else {
+        current.push(msg);
+      }
+    }
+
+    if (current.length > 0) {
+      const head = current[0];
+      if (head.tool_calls && head.tool_calls.length > 0) {
+        exchanges.push(current);
+      }
+    }
+
+    return { systemMsg, userMsg, exchanges };
+  }
+
+  private async summarizeMiddleExchangesWithLlm(
+    middleExchanges: readonly LLMMessage[][],
+    llm: OpenRouterService,
+    context: AgentSessionContext
+  ): Promise<string> {
+    const fallbackSummary = this.buildDeterministicCompressionSummary(middleExchanges);
+
+    try {
+      const transcript = this.buildCompressionTranscript(middleExchanges);
+      const result = await llm.complete(
+        [
+          {
+            role: 'system',
+            content:
+              'Summarize prior completed agent work into a compact operational memory block. ' +
+              'Return plain text only, no markdown, no bullets with special characters, no JSON. ' +
+              'Include what was attempted, what succeeded, what failed, and the latest known state.',
+          },
+          {
+            role: 'user',
+            content:
+              `Create a compressed summary in <= ${COMPRESSION_SUMMARY_MAX_CHARS} characters.\n\n` +
+              transcript,
+          },
+        ],
+        {
+          tier: 'extraction',
+          maxTokens: 420,
+          temperature: 0.1,
+          ...(context.signal ? { signal: context.signal } : {}),
+          ...(context.operationId
+            ? {
+                telemetryContext: {
+                  operationId: context.operationId,
+                  userId: context.userId,
+                  agentId: this.id,
+                },
+              }
+            : {}),
+        }
+      );
+
+      const summary = sanitizeAgentOutputText(result.content ?? '').trim();
+      if (!summary) return fallbackSummary;
+
+      return this.wrapCompressionSummary(summary);
+    } catch (err) {
+      logger.warn(`[${this.id}] LLM compression failed; using deterministic summary`, {
+        agentId: this.id,
+        operationId: context.operationId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return fallbackSummary;
+    }
+  }
+
+  private buildCompressionTranscript(middleExchanges: readonly LLMMessage[][]): string {
+    const lines: string[] = [];
+
+    for (const exchange of middleExchanges) {
+      const assistant = exchange[0];
+      const assistantText =
+        typeof assistant.content === 'string' ? sanitizeAgentOutputText(assistant.content) : '';
+      if (assistantText.trim().length > 0) {
+        lines.push(`assistant: ${assistantText.slice(0, 240)}`);
+      }
+
+      for (const toolCall of assistant.tool_calls ?? []) {
+        const toolMsg = exchange.find((m) => m.role === 'tool' && m.tool_call_id === toolCall.id);
+        const toolOutcome = this.extractToolOutcome(toolMsg?.content);
+        lines.push(`tool: ${toolCall.function.name} -> ${toolOutcome}`);
+      }
+
+      if (lines.length >= COMPRESSION_MAX_EXCHANGE_LINES) break;
+    }
+
+    return lines.slice(0, COMPRESSION_MAX_EXCHANGE_LINES).join('\n');
+  }
+
+  private buildDeterministicCompressionSummary(middleExchanges: readonly LLMMessage[][]): string {
+    const lines: string[] = [];
+
+    for (const exchange of middleExchanges) {
+      const assistant = exchange[0];
+      for (const toolCall of assistant.tool_calls ?? []) {
+        const toolMsg = exchange.find((m) => m.role === 'tool' && m.tool_call_id === toolCall.id);
+        const outcome = this.extractToolOutcome(toolMsg?.content);
+        lines.push(`${toolCall.function.name}: ${outcome}`);
+        if (lines.length >= 18) break;
+      }
+      if (lines.length >= 18) break;
+    }
+
+    return this.wrapCompressionSummary(lines.join('; '));
+  }
+
+  private wrapCompressionSummary(summary: string): string {
+    const bounded = summary.slice(0, COMPRESSION_SUMMARY_MAX_CHARS).trim();
+    return `[Context compressed] ${bounded}`;
+  }
+
+  private extractToolOutcome(content: unknown): string {
+    if (typeof content !== 'string' || !content.trim()) return 'completed';
+
+    try {
+      const parsed = JSON.parse(content) as Record<string, unknown>;
+      if (parsed['success'] === false) {
+        return `failed (${sanitizeAgentOutputText(String(parsed['error'] ?? 'error'))})`;
+      }
+
+      const data = parsed['data'];
+      if (data && typeof data === 'object') {
+        const keys = Object.keys(data as Record<string, unknown>);
+        if (keys.length > 0) return `completed (${keys.slice(0, 4).join(', ')})`;
+      }
+
+      return 'completed';
+    } catch {
+      return 'completed';
+    }
+  }
+
   /**
    * Compress tool call arguments into a short, human-readable string for use
    * inside the context compaction summary. Never fed back to the LLM as tool
    * input — purely for readability in the summary message.
    */
   private summarizeToolArgs(argsJson: string): string {
-    try {
-      const args = JSON.parse(argsJson) as Record<string, unknown>;
-      const entries = Object.entries(args);
-      if (entries.length === 0) return '';
-      const [key, val] = entries[0];
-      const valStr = String(val).slice(0, 50);
-      const suffix = entries.length > 1 ? ` +${entries.length - 1}` : '';
-      return `${key}: "${valStr}"${suffix}`;
-    } catch {
-      return argsJson.slice(0, 40);
+    const args = this.parseToolCallInput(argsJson);
+    if (!args) return argsJson.slice(0, 40);
+
+    const entries = Object.entries(args);
+    if (entries.length === 0) return '';
+    const [key, val] = entries[0];
+    const valStr = String(val).slice(0, 50);
+    const suffix = entries.length > 1 ? ` +${entries.length - 1}` : '';
+    return `${key}: "${valStr}"${suffix}`;
+  }
+
+  private parseToolCallInput(rawArgs: string): Record<string, unknown> | null {
+    const tryParse = (candidate: string): Record<string, unknown> | null => {
+      try {
+        const parsed = JSON.parse(candidate) as unknown;
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          return parsed as Record<string, unknown>;
+        }
+      } catch {
+        return null;
+      }
+      return null;
+    };
+
+    const repairUnclosedJson = (candidate: string): string | null => {
+      const stack: string[] = [];
+      let inString = false;
+      let escaped = false;
+
+      for (const char of candidate) {
+        if (inString) {
+          if (escaped) {
+            escaped = false;
+            continue;
+          }
+          if (char === '\\') {
+            escaped = true;
+            continue;
+          }
+          if (char === '"') {
+            inString = false;
+          }
+          continue;
+        }
+
+        if (char === '"') {
+          inString = true;
+          continue;
+        }
+
+        if (char === '{') {
+          stack.push('}');
+          continue;
+        }
+
+        if (char === '[') {
+          stack.push(']');
+          continue;
+        }
+
+        if (char === '}' || char === ']') {
+          const expected = stack.pop();
+          if (expected !== char) {
+            return null;
+          }
+        }
+      }
+
+      if (inString) {
+        return null;
+      }
+
+      if (stack.length === 0) {
+        return candidate;
+      }
+
+      const sanitized = candidate.replace(/,\s*$/u, '').trimEnd();
+      return `${sanitized}${stack.reverse().join('')}`;
+    };
+
+    const direct = tryParse(rawArgs);
+    if (direct) return direct;
+
+    const trimmed = rawArgs.trim();
+    const unfenced = trimmed.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+    const fromFence = tryParse(unfenced);
+    if (fromFence) return fromFence;
+
+    const repairedUnfenced = repairUnclosedJson(unfenced);
+    if (repairedUnfenced) {
+      const repaired = tryParse(repairedUnfenced);
+      if (repaired) return repaired;
     }
+
+    const firstBrace = unfenced.indexOf('{');
+    const lastBrace = unfenced.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      const objectSlice = unfenced.slice(firstBrace, lastBrace + 1);
+      const sliced = tryParse(objectSlice);
+      if (sliced) return sliced;
+
+      const withoutTrailingCommas = objectSlice.replace(/,\s*([}\]])/g, '$1');
+      const repaired = tryParse(withoutTrailingCommas);
+      if (repaired) return repaired;
+    }
+
+    if (firstBrace !== -1) {
+      const objectTail = unfenced.slice(firstBrace);
+      const repairedTail = repairUnclosedJson(objectTail);
+      if (repairedTail) {
+        const repaired = tryParse(repairedTail);
+        if (repaired) return repaired;
+      }
+    }
+
+    return null;
   }
 
   private summarizeToolObservationArtifacts(observation: Record<string, unknown>): string | null {
@@ -2534,12 +2965,7 @@ export abstract class BaseAgent {
         });
       }
 
-      if (
-        this.id === 'router' &&
-        ['analyze_video', 'extract_live_view_media', 'extract_live_view_playlist'].includes(
-          toolName
-        )
-      ) {
+      if (this.id === 'router' && ['analyze_video', 'extract_live_view_media'].includes(toolName)) {
         return JSON.stringify({
           error: `Tool "${toolName}" is not allowed for agent "router". Delegate film and live-view media work to performance_coordinator via delegate_to_coordinator.`,
           errorCode: 'AGENT_TOOL_NOT_ALLOWED',
@@ -2554,10 +2980,8 @@ export abstract class BaseAgent {
       });
     }
 
-    let input: Record<string, unknown>;
-    try {
-      input = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
-    } catch {
+    const input = this.parseToolCallInput(toolCall.function.arguments);
+    if (!input) {
       return JSON.stringify({
         error: `Invalid JSON arguments for tool "${toolName}".`,
         errorCode: 'AGENT_TOOL_ARGS_INVALID',
@@ -2714,7 +3138,15 @@ export abstract class BaseAgent {
     // AgentDelegationException from DelegateTaskTool must propagate out so the
     // AgentRouter can re-dispatch through the PlannerAgent.
     try {
-      const result = await registry.execute(toolName, input, toolExecContext);
+      const result = await this.executeToolWithRetry({
+        registry,
+        toolName,
+        input,
+        toolExecContext,
+        signal,
+        canRetry: Boolean(tool && !tool.isMutation && !isSystemTool),
+        operationId: sessionContext?.operationId,
+      });
       this.throwIfAborted(signal);
 
       // Keep exact tool payloads for the agent's internal ReAct loop so later
@@ -2788,6 +3220,17 @@ export abstract class BaseAgent {
       }
 
       if (result.success && result.markdown) {
+        // Preserve structured payloads when available. Returning markdown-only here
+        // hides `data` from the LLM (e.g., play entries in get_playbook), which
+        // breaks downstream reasoning for search and matching tasks.
+        if (rawData !== undefined || advisory) {
+          return JSON.stringify({
+            success: true,
+            markdown: result.markdown,
+            ...(rawData !== undefined ? { data: rawData } : {}),
+            ...(advisory ? { _advisory: advisory } : {}),
+          });
+        }
         return result.markdown;
       }
 
@@ -2861,6 +3304,133 @@ export abstract class BaseAgent {
         ...(advisory ? { advisory } : {}),
       });
     }
+  }
+
+  private async executeToolWithRetry(params: {
+    registry: ToolRegistry;
+    toolName: string;
+    input: Record<string, unknown>;
+    toolExecContext: ToolExecutionContext;
+    signal?: AbortSignal;
+    canRetry: boolean;
+    operationId?: string;
+  }): Promise<ToolResult> {
+    const maxAttempts = params.canRetry ? TOOL_RETRY_MAX_ATTEMPTS : 1;
+    let attempt = 1;
+
+    while (attempt <= maxAttempts) {
+      this.throwIfAborted(params.signal);
+      try {
+        const result = await params.registry.execute(
+          params.toolName,
+          params.input,
+          params.toolExecContext
+        );
+
+        if (
+          result.success ||
+          !this.isTransientToolFailure(result.error) ||
+          attempt >= maxAttempts
+        ) {
+          return result;
+        }
+
+        const delayMs = TOOL_RETRY_BASE_BACKOFF_MS * attempt;
+        logger.warn(`[${this.id}] Retrying transient tool failure`, {
+          agentId: this.id,
+          operationId: params.operationId,
+          tool: params.toolName,
+          attempt,
+          nextAttempt: attempt + 1,
+          delayMs,
+          reason: result.error,
+        });
+        await this.delayWithAbort(delayMs, params.signal);
+        attempt += 1;
+      } catch (err) {
+        if (this.isAbortError(err)) throw err;
+        if (isAgentYield(err)) throw err;
+        if (isAgentDelegation(err)) throw err;
+        if (isDelegateToCoordinator(err)) throw err;
+        if (isPlanAndExecute(err)) throw err;
+        if (isExecuteSavedPlan(err)) throw err;
+
+        if (!params.canRetry || !this.isTransientToolFailure(err) || attempt >= maxAttempts) {
+          throw err;
+        }
+
+        const delayMs = TOOL_RETRY_BASE_BACKOFF_MS * attempt;
+        logger.warn(`[${this.id}] Retrying transient thrown tool error`, {
+          agentId: this.id,
+          operationId: params.operationId,
+          tool: params.toolName,
+          attempt,
+          nextAttempt: attempt + 1,
+          delayMs,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        await this.delayWithAbort(delayMs, params.signal);
+        attempt += 1;
+      }
+    }
+
+    return {
+      success: false,
+      error: 'Tool execution failed after retries.',
+    };
+  }
+
+  private isTransientToolFailure(err: unknown): boolean {
+    const text =
+      typeof err === 'string'
+        ? err
+        : err instanceof Error
+          ? err.message
+          : typeof err === 'object' && err !== null && 'error' in err
+            ? String((err as { error?: unknown }).error ?? '')
+            : '';
+
+    const normalized = text.toLowerCase();
+    if (!normalized) return false;
+
+    return (
+      normalized.includes('429') ||
+      normalized.includes('rate limit') ||
+      normalized.includes('timeout') ||
+      normalized.includes('timed out') ||
+      normalized.includes('econnreset') ||
+      normalized.includes('econnaborted') ||
+      normalized.includes('socket hang up') ||
+      normalized.includes('503') ||
+      normalized.includes('502') ||
+      normalized.includes('504')
+    );
+  }
+
+  private async delayWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
+    if (!signal) {
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, ms);
+      });
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        signal.removeEventListener('abort', onAbort);
+        resolve();
+      }, ms);
+
+      const onAbort = () => {
+        clearTimeout(timer);
+        signal.removeEventListener('abort', onAbort);
+        const abortError = new Error('Operation aborted');
+        abortError.name = 'AbortError';
+        reject(abortError);
+      };
+
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
   }
 
   private isAbortError(err: unknown): err is Error {
@@ -3058,7 +3628,6 @@ export abstract class BaseAgent {
       read_live_view: 'Scanning virtual browser',
       capture_live_view_screenshot: 'Capturing browser screenshot',
       extract_live_view_media: 'Extracting media stream',
-      extract_live_view_playlist: 'Extracting playlist clips',
       navigate_live_view: 'Navigating webpage',
       interact_with_live_view: 'Interacting with webpage',
       close_live_view: 'Closing virtual browser',
@@ -3912,14 +4481,8 @@ export abstract class BaseAgent {
     let input: Record<string, unknown> | null = null;
 
     if (typeof inputOrArgs === 'string') {
-      try {
-        const parsed = JSON.parse(inputOrArgs) as unknown;
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-          input = parsed as Record<string, unknown>;
-        }
-      } catch {
-        return null;
-      }
+      input = this.parseToolCallInput(inputOrArgs);
+      if (!input) return null;
     } else if (inputOrArgs && typeof inputOrArgs === 'object' && !Array.isArray(inputOrArgs)) {
       input = inputOrArgs;
     }
@@ -3983,6 +4546,9 @@ export abstract class BaseAgent {
 
     const draftPostDescriptor = this.resolveDraftPostDescriptor(input);
     if (draftPostDescriptor) return draftPostDescriptor;
+
+    const playbookDescriptor = this.resolvePlaybookDescriptor(input['playbookId']);
+    if (playbookDescriptor) return playbookDescriptor;
 
     const priorityKeys = [
       'actionSummary',
@@ -4083,6 +4649,7 @@ export abstract class BaseAgent {
       'viewId',
       'taskId',
       'planId',
+      'playbookId',
       'parentOperationId',
       'parentThreadId',
       'sessionId',
@@ -4095,6 +4662,30 @@ export abstract class BaseAgent {
       // block here to prevent raw snake_case fallback (e.g. team_timeline_feed).
       'view',
     ].includes(key);
+  }
+
+  private resolvePlaybookDescriptor(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+
+    const normalized = value.trim();
+    if (!normalized) return null;
+
+    const aliasParts = normalized
+      .split('_')
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+
+    if (aliasParts.length >= 3) {
+      const name = aliasParts.slice(2).join(' ');
+      const humanizedName = name.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
+      return humanizedName ? humanizedName.replace(/\b\w/g, (char) => char.toUpperCase()) : null;
+    }
+
+    if (/^[A-Za-z0-9]{12,}$/.test(normalized)) {
+      return null;
+    }
+
+    return this.formatToolInvocationValue(normalized.replace(/[-_]+/g, ' '));
   }
 
   private resolveDraftPostDescriptor(input: Record<string, unknown>): string | null {

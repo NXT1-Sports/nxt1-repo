@@ -51,7 +51,7 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'read_live_view',
   'capture_live_view_screenshot',
   'extract_live_view_media',
-  'extract_live_view_playlist',
+  // 'extract_live_view_playlist', // DISABLED: Not yet stable
   'close_live_view',
   'schedule_recurring_task',
   'update_recurring_task',
@@ -75,10 +75,6 @@ const GLOBAL_SYSTEM_TOOL_POLICY: readonly ToolPattern[] = composeToolPatterns([
   'classify_media_url',
   'extract_page_images',
   'extract_hudl_video',
-  // Diagram board CRUD tools used by strategy/coaching flows
-  'create_board_diagram',
-  'update_board_diagram',
-  'delete_board_diagram',
 ]);
 
 /**
@@ -120,6 +116,9 @@ const ROUTER_TOOL_POLICY: readonly ToolPattern[] = [
   'dynamic_export',
   'track_analytics_event',
   'scan_timeline_posts',
+  // Read-only playbook lookup for direct router answers
+  'list_playbooks',
+  'get_playbook',
   'list_recurring_tasks',
   'send_email',
   'batch_send_email',
@@ -274,10 +273,17 @@ const AGENT_TOOL_POLICY: Readonly<Record<CoordinatorAgentId, readonly ToolPatter
   strategy_coordinator: composeToolPatterns([
     'get_gameplan',
     'list_gameplans',
+    'get_playbook',
+    'list_playbooks',
     'get_analytics_summary',
     'generate_chart_visualization',
     'create_play_diagram',
+    'create_board_diagram',
+    'update_board_diagram',
+    'delete_board_diagram',
     'write_playbooks',
+    'update_playbook',
+    'delete_playbook',
     'save_gameplan',
     'update_gameplan',
     'delete_gameplan',

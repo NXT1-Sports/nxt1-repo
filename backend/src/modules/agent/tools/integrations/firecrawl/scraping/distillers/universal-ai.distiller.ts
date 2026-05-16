@@ -25,6 +25,7 @@ import type { DistilledProfile } from './distiller.types.js';
 import type { PageVideo } from '../page-data.types.js';
 import { asNumber } from './distiller-helpers.js';
 import { logger } from '../../../../../../../utils/logger.js';
+import { isFeatureEnabledSync } from '../../../../../../../config/feature-flags/index.js';
 import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -42,8 +43,8 @@ const MAX_MARKDOWN_CHARS = 50_000;
 /** Maximum tokens for the LLM response. Stats-heavy pages can produce large JSON. */
 const MAX_RESPONSE_TOKENS = 8192;
 
-/** Kill switch: set AI_DISTILLER_ENABLED=false to disable AI distillation entirely. */
-const AI_DISTILLER_ENABLED = process.env['AI_DISTILLER_ENABLED'] !== 'false';
+/** Kill switch routed via centralized feature flags. */
+const AI_DISTILLER_ENABLED = isFeatureEnabledSync('ai.distiller.enabled');
 
 const distilledSectionSchema = z.record(z.string(), z.unknown());
 
@@ -323,7 +324,7 @@ export async function distillWithAI(
   }
 
   if (!AI_DISTILLER_ENABLED) {
-    logger.info('[AI-Distiller] Disabled via AI_DISTILLER_ENABLED=false');
+    logger.info('[AI-Distiller] Disabled via ai.distiller.enabled=false');
     return null;
   }
 

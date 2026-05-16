@@ -356,14 +356,20 @@ const MAX_POSITIONS = 5;
         padding: 0 6px;
         margin-inline-start: 2px;
         border-radius: var(--nxt1-radius-full, 9999px);
-        background: var(--nxt1-color-surface-300);
+        background: var(--nxt1-color-surface-500);
+        color: var(--nxt1-color-text-primary);
         font-size: var(--nxt1-fontSize-2xs);
         font-weight: var(--nxt1-fontWeight-bold);
         line-height: 1;
       }
 
       .nxt1-mm__seg-pill--active .nxt1-mm__seg-badge {
-        background: var(--nxt1-color-surface-500);
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-bg-primary) 18%,
+          var(--nxt1-color-text-primary)
+        );
+        color: var(--nxt1-color-bg-primary);
       }
 
       /* ═══════════════════════════════════════════

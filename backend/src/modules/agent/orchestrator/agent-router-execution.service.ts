@@ -127,13 +127,13 @@ const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
     'ffmpeg_merge_videos',
     'ffmpeg_generate_thumbnail',
   ],
-  extract_live_view_playlist: [
-    'stage_media',
-    'analyze_video',
-    'ffmpeg_trim_video',
-    'ffmpeg_merge_videos',
-    'ffmpeg_generate_thumbnail',
-  ],
+  // extract_live_view_playlist: [ // DISABLED: Not yet stable — use extract_live_view_media instead
+  //   'stage_media',
+  //   'analyze_video',
+  //   'ffmpeg_trim_video',
+  //   'ffmpeg_merge_videos',
+  //   'ffmpeg_generate_thumbnail',
+  // ],
   stage_media: [
     'analyze_video',
     'ffmpeg_trim_video',

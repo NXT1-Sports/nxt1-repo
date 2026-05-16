@@ -41,6 +41,31 @@ class FakeReadTool extends BaseTool {
   }
 }
 
+class FakeDynamicExportTool extends BaseTool {
+  readonly name = 'dynamic_export';
+  readonly description = 'Exports a structured document.';
+  readonly parameters = z.object({
+    format: z.string(),
+    fileName: z.string(),
+    title: z.string(),
+    rows: z.array(z.array(z.string())).min(1),
+  });
+  readonly isMutation = false;
+  readonly category = 'system' as const;
+  readonly entityGroup = 'platform_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        fileName: input['fileName'],
+        rowCount: Array.isArray(input['rows']) ? input['rows'].length : 0,
+      },
+    };
+  }
+}
+
 class FakeAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'strategy_coordinator';
   readonly name = 'Fake Agent';
@@ -95,6 +120,46 @@ class FakeAgent extends BaseAgent {
       undefined,
       sessionContext as never
     );
+  }
+
+  callCompressMessageHistoryIfNeeded(params: {
+    messages: LLMMessage[];
+    llm: { complete: (...args: unknown[]) => Promise<{ content: string | null }> };
+    context: AgentSessionContext;
+    iteration: number;
+    promptBudgetTokens: number;
+  }): Promise<void> {
+    return (
+      this as unknown as {
+        compressMessageHistoryIfNeeded: (args: {
+          messages: LLMMessage[];
+          llm: {
+            complete: (...args: unknown[]) => Promise<{ content: string | null }>;
+          };
+          context: AgentSessionContext;
+          iteration: number;
+          promptBudgetTokens: number;
+        }) => Promise<void>;
+      }
+    ).compressMessageHistoryIfNeeded(params);
+  }
+
+  callSummarizeMiddleExchangesWithLlm(
+    middleExchanges: readonly LLMMessage[][],
+    llm: { complete: (...args: unknown[]) => Promise<{ content: string | null }> },
+    context: AgentSessionContext
+  ): Promise<string> {
+    return (
+      this as unknown as {
+        summarizeMiddleExchangesWithLlm: (
+          middle: readonly LLMMessage[][],
+          llmArg: {
+            complete: (...args: unknown[]) => Promise<{ content: string | null }>;
+          },
+          ctx: AgentSessionContext
+        ) => Promise<string>;
+      }
+    ).summarizeMiddleExchangesWithLlm(middleExchanges, llm, context);
   }
 }
 
@@ -162,6 +227,55 @@ class FakeDelegateTaskTool extends BaseTool {
       forwardingIntent: String(input['forwarding_intent'] ?? 'delegate'),
       sourceAgent: 'delegate_task_tool',
     });
+  }
+}
+
+class FakeTransientReadTool extends BaseTool {
+  readonly name = 'fake_transient_read_tool';
+  readonly description = 'Fails once with a transient error, then succeeds.';
+  readonly parameters = z.object({});
+  readonly isMutation = false;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'platform_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  calls = 0;
+
+  async execute(): Promise<ToolResult> {
+    this.calls += 1;
+    if (this.calls === 1) {
+      return {
+        success: false,
+        error: '429 rate limit from upstream',
+      };
+    }
+
+    return {
+      success: true,
+      data: {
+        ok: true,
+      },
+    };
+  }
+}
+
+class FakeTransientMutationTool extends BaseTool {
+  readonly name = 'fake_transient_mutation_tool';
+  readonly description = 'Mutation tools should not auto-retry.';
+  readonly parameters = z.object({});
+  readonly isMutation = true;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'platform_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  calls = 0;
+
+  async execute(): Promise<ToolResult> {
+    this.calls += 1;
+    return {
+      success: false,
+      error: '429 rate limit from upstream',
+    };
   }
 }
 
@@ -819,6 +933,39 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
+  it('repairs truncated dynamic_export tool arguments before execution', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeDynamicExportTool());
+
+    const malformedArgs =
+      '{"format":"pdf","fileName":"Crown-Point-Elite30-Coach-Outreach-Framework.pdf","title":"Crown Point Bulldogs Elite 30 - Coach Outreach Framework","rows":[["Ngoc Son (2025)","G","D2 / D3 / NAIA / JUCO","Indiana Tech"],["Cooper Malaski","F","D1 mid-major / D2","Valparaiso"]]';
+
+    const result = await agent.callExecuteTool(
+      {
+        id: 'dynamic_export_1',
+        type: 'function',
+        function: {
+          name: 'dynamic_export',
+          arguments: malformedArgs,
+        },
+      },
+      registry,
+      'viewer-1',
+      { allowedToolNames: ['dynamic_export'] }
+    );
+
+    expect(JSON.parse(result)).toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({
+          fileName: 'Crown-Point-Elite30-Coach-Outreach-Framework.pdf',
+          rowCount: 2,
+        }),
+      })
+    );
+  });
+
   it('prefers draft team post copy over raw team identifiers in tool step labels', () => {
     const agent = new FakeAgent();
     const teamId = 'mC3D9qg5d9amvcO0otvi';
@@ -836,6 +983,17 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(label).toContain('Publishing team update: Big win tonight.');
     expect(label).toContain('Crown Point moves to 18-2');
     expect(label).not.toContain(teamId);
+  });
+
+  it('normalizes playbook labels without surfacing raw team-prefixed aliases', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('get_playbook', {
+      playbookId: 'mC3D9qg5d9amvcO0otvi_football_hudl-master-playbook',
+    });
+
+    expect(label).toBe('Get Playbook: Hudl Master Playbook');
+    expect(label).not.toContain('mC3D9qg5d9amvcO0otvi');
   });
 
   it('emits stable step ids and contextual labels for parallel tool calls', async () => {
@@ -1558,5 +1716,176 @@ describe('BaseAgent identifier scrubbing', () => {
     const evidenceTrace = (result.data?.['evidenceTrace'] ?? []) as Array<Record<string, unknown>>;
     expect(evidenceTrace.length).toBeGreaterThan(0);
     expect(evidenceTrace[0]?.['toolName']).toBe('fake_read_tool');
+  });
+
+  it('compresses middle exchanges with extraction-tier LLM summary under token pressure', async () => {
+    const agent = new FakeAgent();
+    const messages: LLMMessage[] = [
+      { role: 'system', content: 'system prompt' },
+      { role: 'user', content: 'run a complex workflow' },
+    ];
+
+    for (let i = 1; i <= 8; i++) {
+      messages.push({
+        role: 'assistant',
+        content: `calling tool ${i}`,
+        tool_calls: [
+          {
+            id: `call_${i}`,
+            type: 'function',
+            function: {
+              name: 'fake_read_tool',
+              arguments: JSON.stringify({ index: i }),
+            },
+          },
+        ],
+      });
+      messages.push({
+        role: 'tool',
+        tool_call_id: `call_${i}`,
+        content: JSON.stringify({
+          success: true,
+          data: { longText: 'x'.repeat(2400), step: i },
+        }),
+      });
+    }
+
+    const llm = {
+      complete: vi.fn().mockResolvedValue({
+        content: 'Work completed: gathered data, validated entries, and produced final artifacts.',
+      }),
+    };
+
+    await agent.callCompressMessageHistoryIfNeeded({
+      messages,
+      llm: llm as unknown as {
+        complete: (...args: unknown[]) => Promise<{ content: string | null }>;
+      },
+      context: createMockContext(),
+      iteration: 8,
+      promptBudgetTokens: 2_000,
+    });
+
+    expect(llm.complete).toHaveBeenCalledTimes(1);
+    const compressedMsg = messages.find(
+      (message) =>
+        message.role === 'assistant' &&
+        typeof message.content === 'string' &&
+        message.content.startsWith('[Context compressed]')
+    );
+    expect(compressedMsg).toBeDefined();
+    expect(messages.length).toBeLessThan(18);
+  });
+
+  it('falls back to deterministic compression summary when extraction model fails', async () => {
+    const agent = new FakeAgent();
+    const middleExchanges: LLMMessage[][] = [];
+
+    for (let i = 1; i <= 4; i++) {
+      middleExchanges.push([
+        {
+          role: 'assistant',
+          content: null,
+          tool_calls: [
+            {
+              id: `call_fail_${i}`,
+              type: 'function',
+              function: {
+                name: 'fake_read_tool',
+                arguments: JSON.stringify({ index: i }),
+              },
+            },
+          ],
+        },
+        {
+          role: 'tool',
+          tool_call_id: `call_fail_${i}`,
+          content: JSON.stringify({
+            success: i % 2 === 0,
+            data: i % 2 === 0 ? { ok: true, longText: 'y'.repeat(2200), step: i } : undefined,
+            error: i % 2 === 0 ? undefined : 'timeout',
+          }),
+        },
+      ]);
+    }
+
+    const llm = {
+      complete: vi.fn().mockRejectedValue(new Error('extraction model unavailable')),
+    };
+
+    const summary = await agent.callSummarizeMiddleExchangesWithLlm(
+      middleExchanges,
+      llm as unknown as { complete: (...args: unknown[]) => Promise<{ content: string | null }> },
+      createMockContext()
+    );
+
+    expect(summary).toContain('[Context compressed]');
+    expect(summary).toContain('fake_read_tool');
+  });
+
+  it('retries transient non-mutation tool failures and returns success', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const transientTool = new FakeTransientReadTool();
+    registry.register(transientTool);
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_retry_read',
+        type: 'function',
+        function: {
+          name: 'fake_transient_read_tool',
+          arguments: JSON.stringify({}),
+        },
+      },
+      registry,
+      'viewer-1',
+      {
+        operationId: 'op-tool-retry-read',
+        sessionId: 'session-tool-retry-read',
+        allowedToolNames: ['fake_transient_read_tool'],
+      }
+    );
+
+    expect(transientTool.calls).toBe(2);
+    expect(JSON.parse(observation)).toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({ ok: true }),
+      })
+    );
+  });
+
+  it('does not retry transient failures for mutation tools', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const mutationTool = new FakeTransientMutationTool();
+    registry.register(mutationTool);
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_retry_mutation',
+        type: 'function',
+        function: {
+          name: 'fake_transient_mutation_tool',
+          arguments: JSON.stringify({}),
+        },
+      },
+      registry,
+      'viewer-1',
+      {
+        operationId: 'op-tool-retry-mutation',
+        sessionId: 'session-tool-retry-mutation',
+        allowedToolNames: ['fake_transient_mutation_tool'],
+      }
+    );
+
+    expect(mutationTool.calls).toBe(1);
+    expect(JSON.parse(observation)).toEqual(
+      expect.objectContaining({
+        success: false,
+        error: expect.stringContaining('429'),
+      })
+    );
   });
 });

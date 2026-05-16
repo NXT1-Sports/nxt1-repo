@@ -8,62 +8,48 @@
 
 import { Router, type Request, type Response } from 'express';
 import { logger } from '../../../utils/logger.js';
+import { sendSlackAlert } from '../../../services/platform/alert.service.js';
 
 const router = Router();
 
-const SLACK_WEBHOOK_URL = process.env['SLACK_SENTRY_WEBHOOK_URL'] ?? '';
+function readString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
 
 router.post('/', async (req: Request, res: Response) => {
   try {
+    const body =
+      typeof req.body === 'object' && req.body !== null
+        ? (req.body as Record<string, unknown>)
+        : {};
+    const event =
+      typeof body['event'] === 'object' && body['event'] !== null
+        ? (body['event'] as Record<string, unknown>)
+        : {};
+
     // Determine context from Sentry Webhook Payload
-    const projectName = req.body.project_name || req.body.project || 'NXT1 Monorepo Web';
-    const url = req.body.url;
-    const event = req.body.event || {};
-    const title = event.title || req.body.message || 'Unknown Exception';
+    const projectName =
+      readString(body['project_name']) || readString(body['project']) || 'NXT1 Monorepo Web';
+    const url = readString(body['url']);
+    const title = readString(event['title']) || readString(body['message']) || 'Unknown Exception';
 
     // Fallback if environment is not set
-    const environment = event.environment || 'production';
+    const environment = readString(event['environment']) || 'production';
+    const culprit = readString(event['culprit']);
 
-    const slackMsg = {
-      blocks: [
-        {
-          type: 'header',
-          text: {
-            type: 'plain_text',
-            text: `🚨 Sentry Alert: ${projectName}`,
-            emoji: true,
-          },
-        },
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `*Issue:* <${url || '#'}|${title}>\n*Environment:* ${environment}`,
-          },
-        },
+    const delivered = await sendSlackAlert({
+      target: 'sentry',
+      severity: 'critical',
+      title: `Sentry Alert: ${projectName}`,
+      summary: `Issue: <${url || '#'}|${title}>`,
+      fields: [
+        { label: 'Environment', value: environment },
+        ...(culprit ? [{ label: 'Location', value: culprit }] : []),
       ],
-    };
-
-    // If Sentry sends culprit/stacktrace snippet, we can append it conditionally
-    if (event.culprit) {
-      slackMsg.blocks.push({
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `*Location:* \`${event.culprit}\``,
-        },
-      });
-    }
-
-    const response = await fetch(SLACK_WEBHOOK_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(slackMsg),
+      ...(url ? { linkText: 'Open in Sentry', linkUrl: String(url) } : {}),
     });
 
-    if (!response.ok) {
-      const respText = await response.text();
-      logger.error(`Slack webhook failed: ${response.status} ${respText}`);
+    if (!delivered) {
       res.status(500).send('Failed to post to Slack');
       return;
     }
@@ -72,6 +58,8 @@ router.post('/', async (req: Request, res: Response) => {
   } catch (error) {
     logger.error('Failed to process Sentry webhook', {
       error: error instanceof Error ? error.message : String(error),
+      contentType: req.headers['content-type'],
+      hasBody: req.body !== undefined,
     });
     res.status(500).send('Internal Error');
   }

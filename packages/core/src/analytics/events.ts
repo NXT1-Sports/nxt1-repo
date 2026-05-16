@@ -950,6 +950,10 @@ export const APP_EVENTS = {
   LIVE_VIEW_LAUNCHER_ACCOUNT_SELECTED: 'live_view_launcher_account_selected',
   /** User submitted a custom URL from launcher */
   LIVE_VIEW_LAUNCHER_URL_SUBMITTED: 'live_view_launcher_url_submitted',
+  /** User recovered and reconnected to a previous session */
+  LIVE_VIEW_SESSION_RECOVERED: 'live_view_session_recovered',
+  /** User discarded a stored session from recovery list */
+  LIVE_VIEW_SESSION_DISCARDED: 'live_view_session_discarded',
 
   // ============================================
   // WEB RESEARCH (Firecrawl Agent) EVENTS
@@ -974,6 +978,24 @@ export const APP_EVENTS = {
   GAMEPLAN_LIST_LOADED: 'gameplan_list_loaded',
   /** Game plan filter applied */
   GAMEPLAN_FILTER_APPLIED: 'gameplan_filter_applied',
+
+  // ============================================
+  // TEAM PLAYBOOK PLAY EVENTS
+  // ============================================
+  /** Play viewed (clicked in list) */
+  PLAY_VIEWED: 'play_viewed',
+  /** Play created via AI chat or form */
+  PLAY_CREATED: 'play_created',
+  /** Play updated */
+  PLAY_UPDATED: 'play_updated',
+  /** Play deleted */
+  PLAY_DELETED: 'play_deleted',
+  /** Playbook list loaded */
+  PLAYBOOK_LIST_LOADED: 'playbook_list_loaded',
+  /** Play created from Agent X chat startup flow */
+  AGENT_X_PLAY_CREATED: 'agent_x_play_created',
+  /** Play added to game plan reference */
+  AGENT_X_PLAY_LINKED: 'agent_x_play_linked',
 } as const;
 
 export type AppEventName = (typeof APP_EVENTS)[keyof typeof APP_EVENTS];

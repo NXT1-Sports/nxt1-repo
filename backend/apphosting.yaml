@@ -79,3 +79,7 @@ env:
     secret: CHART_MCP_API_TOKEN
     availability:
       - RUNTIME
+  - variable: SLACK_SENTRY_WEBHOOK_URL
+    secret: STAGING_SLACK_SENTRY_WEBHOOK_URL
+    availability:
+      - RUNTIME

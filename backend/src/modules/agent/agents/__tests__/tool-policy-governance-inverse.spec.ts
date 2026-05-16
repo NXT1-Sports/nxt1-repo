@@ -25,7 +25,7 @@ const WILDCARD_PATTERNS_MANUALLY_VALIDATED = new Set<string>([
   'read_live_view',
   'capture_live_view_screenshot',
   'extract_live_view_media',
-  'extract_live_view_playlist',
+  // 'extract_live_view_playlist', // DISABLED: Not yet stable
   'close_live_view',
 ]);
 
@@ -72,6 +72,9 @@ const DYNAMIC_GOOGLE_WORKSPACE_TOOLS = new Set<string>([
   'duplicate_slide',
   'delete_slide',
   'create_presentation_from_markdown',
+  // Live-view capabilities may be exposed via wildcard families without
+  // individual bootstrap registrations.
+  'capture_live_view_screenshot',
 ]);
 
 function walkTsFiles(rootDir: string): string[] {

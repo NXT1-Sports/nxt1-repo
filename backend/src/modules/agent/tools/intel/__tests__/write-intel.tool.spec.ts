@@ -22,8 +22,10 @@ vi.mock('../../../services/intel.service.js', () => ({
   },
 }));
 
-vi.mock('../../../../../config/feature-flags.js', () => ({
-  isTeamIntelEnabled: () => true,
+vi.mock('../../../../../config/feature-flags/index.js', () => ({
+  getFeatureFlagsService: () => ({
+    isEnabled: vi.fn().mockResolvedValue(true),
+  }),
 }));
 
 vi.mock('../../../../../utils/logger.js', () => ({

@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, extname, join, resolve, sep } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { brotliCompressSync, gzipSync } from 'node:zlib';
+import { createProxyMiddleware } from 'http-proxy-middleware';
 import bootstrap from './src/main.server';
 
 // Import the SSR_AUTH_TOKEN injection token from the dedicated tokens file
@@ -93,6 +94,32 @@ function extractAuthToken(req: Request): string | undefined {
 function isPublicMarketingRoute(req: Request): boolean {
   const normalizedPath = req.path.replace(/\/+$/, '') || '/';
   return normalizedPath === '/' || normalizedPath === '/agent-x' || normalizedPath === '/programs';
+}
+
+const STATIC_ASSET_EXTENSIONS = new Set([
+  '.js',
+  '.mjs',
+  '.css',
+  '.map',
+  '.json',
+  '.webmanifest',
+  '.wasm',
+  '.svg',
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.ico',
+  '.woff',
+  '.woff2',
+  '.ttf',
+  '.eot',
+]);
+
+function isStaticAssetRequest(req: Request): boolean {
+  const extension = extname(req.path).toLowerCase();
+  return extension.length > 0 && STATIC_ASSET_EXTENSIONS.has(extension);
 }
 
 function optimizePublicMarketingHtml(html: string): string {
@@ -259,12 +286,37 @@ export function createServer(): express.Express {
   });
 
   // ============================================
+  // BACKEND API PROXY (Sitemap, XML, and API routes)
+  // ============================================
+
+  // Proxy sitemap.xml and dynamic sitemaps to the backend API
+  server.use(
+    /^\/sitemap|^\/sitemaps/,
+    createProxyMiddleware({
+      target: process.env['BACKEND_URL'] || 'https://api.nxt1sports.com',
+      changeOrigin: true,
+      pathRewrite: (path: string) => path, // Keep path as-is
+      onError: (err: Error, req: Request, res: Response) => {
+        console.error('Sitemap proxy error:', err.message);
+        res.status(503).json({ error: 'Sitemap service unavailable' });
+      },
+    } as Parameters<typeof createProxyMiddleware>[0])
+  );
+
+  // ============================================
   // ANGULAR UNIVERSAL SSR
   // ============================================
 
   // All routes (except static files) go through Angular
   // Express 4 wildcard syntax - matches root / and all sub-paths
   server.get('*', (req: Request, res: Response, next: NextFunction) => {
+    // Never SSR-fallback missing hashed assets (JS/CSS/etc.), otherwise
+    // browsers receive HTML for module requests and throw MIME type errors.
+    if (isStaticAssetRequest(req)) {
+      res.status(404).type('text/plain; charset=utf-8').send('Not found');
+      return;
+    }
+
     const { protocol, originalUrl, baseUrl, headers } = req;
 
     // Construct the full URL

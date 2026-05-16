@@ -89,7 +89,7 @@ export interface PublicNavItem {
           <!-- Mobile hamburger button -->
           <button
             type="button"
-            class="mobile-hamburger-btn"
+            class="mobile-hamburger-btn md:hidden"
             [class.open]="mobileMenuOpen()"
             [attr.aria-expanded]="mobileMenuOpen()"
             aria-controls="mobile-menu"

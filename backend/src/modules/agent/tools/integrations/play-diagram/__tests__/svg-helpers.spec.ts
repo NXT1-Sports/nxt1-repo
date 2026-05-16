@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   renderDiagramSvg,
   renderLegend,
+  renderAnnotationStrip,
   renderPlayers,
   renderRoutes,
 } from '../shared/svg-helpers.js';
@@ -11,7 +12,7 @@ import type { DiagramLayout } from '../shared/diagram.types.js';
 // ─── Route rendering ──────────────────────────────────────────────────────────
 
 describe('renderRoutes — labels', () => {
-  it('renders route labels with readability halo and offset text', () => {
+  it('renders route paths without inline label boxes (labels moved to annotation strip)', () => {
     const svg = renderRoutes([
       {
         from: 'QB',
@@ -24,10 +25,12 @@ describe('renderRoutes — labels', () => {
       },
     ]);
 
-    expect(svg).toContain('stroke="white"');
-    expect(svg).toContain('paint-order="stroke"');
-    expect(svg).toContain('Drive');
-    expect(svg).toContain('marker-end="url(#arr)"');
+    // No floating label boxes on the field anymore
+    expect(svg).not.toContain('fill="rgba(244,249,255,0.93)"');
+    expect(svg).not.toContain('<rect x="');
+    // Route path still rendered
+    expect(svg).toContain('marker-end="url(#arr-go)"');
+    expect(svg).toContain('<path d="');
   });
 });
 
@@ -59,7 +62,7 @@ describe('renderRoutes — path vs polyline', () => {
     expect(svg).toMatch(/d="M 0,0 L 100,100"/);
   });
 
-  it('emits Cubic Bézier C commands for 3-point go routes', () => {
+  it('emits straight L segments for 3-point go routes by default', () => {
     const svg = renderRoutes([
       {
         from: 'WR',
@@ -71,7 +74,8 @@ describe('renderRoutes — path vs polyline', () => {
         ],
       },
     ]);
-    expect(svg).toContain(' C ');
+    expect(svg).not.toContain(' C ');
+    expect(svg).toContain('L 100,200');
   });
 
   it('emits straight L segments for block routes regardless of point count', () => {
@@ -121,6 +125,79 @@ describe('renderRoutes — path vs polyline', () => {
     ]);
     expect(svg).toContain(' C ');
   });
+
+  it('keeps fade routes smooth by default', () => {
+    const svg = renderRoutes([
+      {
+        from: 'WR',
+        type: 'fade',
+        points: [
+          [200, 300],
+          [220, 220],
+          [260, 160],
+        ],
+      },
+    ]);
+    expect(svg).toContain(' C ');
+  });
+
+  it('uses the dedicated drag marker for drag routes', () => {
+    const svg = renderRoutes([
+      {
+        from: 'Y',
+        type: 'drag',
+        points: [
+          [200, 300],
+          [170, 300],
+          [140, 300],
+        ],
+      },
+    ]);
+    expect(svg).toContain('marker-end="url(#arr-go)"');
+    expect(svg).not.toContain(' C ');
+  });
+
+  it('respects custom color field on routes', () => {
+    const svg = renderRoutes([
+      {
+        from: 'X',
+        type: 'go',
+        points: [
+          [60, 300],
+          [60, 150],
+        ],
+        color: '#00ff00', // Bright green
+      },
+      {
+        from: 'Z',
+        type: 'go',
+        points: [
+          [540, 300],
+          [540, 150],
+        ],
+        color: '#ff3333', // Bright red
+      },
+    ]);
+    // Custom colors should be used in the SVG
+    expect(svg).toContain('stroke="#00ff00"');
+    expect(svg).toContain('stroke="#ff3333"');
+  });
+
+  it('falls back to default color when no custom color specified', () => {
+    const svg = renderRoutes([
+      {
+        from: 'X',
+        type: 'go',
+        points: [
+          [60, 300],
+          [60, 150],
+        ],
+        // No color specified - should use default for 'go' type
+      },
+    ]);
+    // Should use default go route color (routePass/routeGo)
+    expect(svg).toContain('stroke="#f7b500"'); // Default yellow for 'go' type
+  });
 });
 
 // ─── Player shape rendering ───────────────────────────────────────────────────
@@ -159,6 +236,46 @@ describe('renderPlayers — shapes', () => {
     ]);
     expect(svgDiamond).toContain('<polygon');
     expect(svgDiamond).not.toContain('<rect');
+  });
+
+  it('normalizes suffixed slot labels for player display', () => {
+    const svg = renderPlayers([
+      { id: 'sl1', label: 'SL1', x: 180, y: 280, team: 'offense' },
+      { id: 'sl2', label: 'SL2', x: 220, y: 280, team: 'offense' },
+    ]);
+
+    expect(svg).toContain('>H<');
+    expect(svg).toContain('>Y<');
+    expect(svg).not.toContain('>SL1<');
+    expect(svg).not.toContain('>SL2<');
+  });
+});
+
+describe('renderAnnotationStrip', () => {
+  it('normalizes suffixed slot tokens in route annotations', () => {
+    const result = renderAnnotationStrip(
+      [{ from: 'SL1', label: 'Seam', type: 'go', points: [[0, 0], [10, 10]] }],
+      600,
+      440
+    );
+
+    expect(result.svg).toContain('H: Seam');
+    expect(result.svg).not.toContain('SL1: Seam');
+  });
+
+  it('adds enough strip height to avoid clipping the last row', () => {
+    const result = renderAnnotationStrip(
+      [
+        { from: 'X', label: 'One', type: 'go', points: [[0, 0], [10, 10]] },
+        { from: 'H', label: 'Two', type: 'go', points: [[0, 0], [10, 10]] },
+        { from: 'Y', label: 'Three', type: 'go', points: [[0, 0], [10, 10]] },
+        { from: 'Z', label: 'Four', type: 'go', points: [[0, 0], [10, 10]] },
+      ],
+      600,
+      440
+    );
+
+    expect(result.height).toBe(92);
   });
 });
 
@@ -266,22 +383,26 @@ describe('renderDiagramSvg — layer order', () => {
     zones: [{ id: 'z1', label: 'C2', x: 100, y: 80, width: 120, height: 60 }],
   };
 
-  it('draws players before routes before zones', () => {
+  it('draws routes before players before zones', () => {
     const svg = renderDiagramSvg(LAYOUT, '<g id="field"/>');
-    // Route <path> elements use `d="M x,y` (space after M). Defs marker paths
-    // use `d="M0,0` (no space) so this pattern uniquely identifies rendered routes.
-    const playerIdx = svg.indexOf('<circle');
-    const routeIdx = svg.indexOf('d="M ');
+    const routeIdx = svg.indexOf('class="route-layer"');
+    const playerIdx = svg.indexOf('class="player-layer"');
     const zoneIdx = svg.indexOf('zone-overlays');
+    expect(routeIdx).toBeGreaterThan(-1);
     expect(playerIdx).toBeGreaterThan(-1);
-    expect(routeIdx).toBeGreaterThan(playerIdx);
+    expect(routeIdx).toBeLessThan(playerIdx);
     expect(zoneIdx).toBeGreaterThan(routeIdx);
   });
 
-  it('renders the legend after the title bar', () => {
+  it('does not render legend by default', () => {
     const svg = renderDiagramSvg(LAYOUT, '<g id="field"/>');
+    expect(svg).not.toContain('>Go<');
+  });
+
+  it('renders legend when explicitly enabled', () => {
+    const svg = renderDiagramSvg(LAYOUT, '<g id="field"/>', { showLegend: true });
     const titleIdx = svg.indexOf(LAYOUT.title);
-    const legendIdx = svg.indexOf('Go'); // legend label
+    const legendIdx = svg.indexOf('>Go<');
     expect(legendIdx).toBeGreaterThan(titleIdx);
   });
 });

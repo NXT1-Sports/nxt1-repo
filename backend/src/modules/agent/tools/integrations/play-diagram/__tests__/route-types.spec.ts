@@ -7,7 +7,7 @@ describe('play diagram route types', () => {
     const defs = renderDefs();
 
     // Verify all route type markers exist
-    expect(defs).toContain('id="arr"'); // go (default)
+    expect(defs).toContain('id="arr-go"'); // go (default)
     expect(defs).toContain('id="arr-block"'); // block
     expect(defs).toContain('id="arr-screen"'); // screen
     expect(defs).toContain('id="arr-pick"'); // pick
@@ -17,7 +17,7 @@ describe('play diagram route types', () => {
     expect(defs).toContain('id="arr-fade"'); // fade
   });
 
-  it('renders screen routes with screen marker and thicker stroke', () => {
+  it('renders screen routes with screen marker and dashed compact stroke', () => {
     const routes: DiagramRoute[] = [
       {
         from: 'WR',
@@ -32,9 +32,10 @@ describe('play diagram route types', () => {
 
     const svg = renderRoutes(routes);
 
-    // Screen routes should use screen marker and have specific stroke width
+    // Screen routes should use screen marker with modern dashed styling
     expect(svg).toContain('marker-end="url(#arr-screen)"');
-    expect(svg).toContain('stroke-width="3"');
+    expect(svg).toContain('stroke-width="2.4"');
+    expect(svg).toContain('stroke-dasharray="7,4"');
   });
 
   it('renders pick routes with pick marker', () => {
@@ -53,10 +54,10 @@ describe('play diagram route types', () => {
     const svg = renderRoutes(routes);
 
     expect(svg).toContain('marker-end="url(#arr-pick)"');
-    expect(svg).toContain('stroke-width="2.8"');
+    expect(svg).toContain('stroke-width="3.2"');
   });
 
-  it('renders block routes with heavier stroke and block marker', () => {
+  it('renders block routes with heavier compact stroke and block marker', () => {
     const routes: DiagramRoute[] = [
       {
         from: 'OL',
@@ -72,7 +73,14 @@ describe('play diagram route types', () => {
     const svg = renderRoutes(routes);
 
     expect(svg).toContain('marker-end="url(#arr-block)"');
-    expect(svg).toContain('stroke-width="4"'); // Thickest
+    expect(svg).toContain('stroke-width="3.0"');
+    expect(svg).toContain('stroke="#444444"');
+  });
+
+  it('renders football-style T-head geometry for block marker', () => {
+    const defs = renderDefs();
+    expect(defs).toContain('id="arr-block"');
+    expect(defs).toContain('M4.5,1.2 L4.5,7.8 M1.4,3.5 L7.6,3.5');
   });
 
   it('renders cut routes with sharp angle marker', () => {
@@ -108,9 +116,9 @@ describe('play diagram route types', () => {
 
     const svg = renderRoutes(routes);
 
-    expect(svg).toContain('marker-end="url(#arr-drag)"');
-    expect(svg).toContain('stroke-dasharray="4,2"'); // Dashed pattern
-    expect(svg).toContain('stroke-width="2.2"');
+    // Drag now falls back to standard go route styling
+    expect(svg).toContain('marker-end="url(#arr-go)"');
+    expect(svg).toContain('stroke-width="2.5"');
   });
 
   it('renders space routes as thin dashed lines', () => {
@@ -128,10 +136,10 @@ describe('play diagram route types', () => {
 
     const svg = renderRoutes(routes);
 
-    expect(svg).toContain('marker-end="url(#arr-space)"');
-    expect(svg).toContain('stroke-dasharray="3,3"'); // Thinner dashed
-    expect(svg).toContain('stroke-width="1.8"'); // Thinnest
-    expect(svg).toContain('opacity="0.7"'); // More transparent
+    // Space now falls back to standard go route styling
+    expect(svg).toContain('marker-end="url(#arr-go)"');
+    expect(svg).toContain('stroke-width="2.5"');
+    expect(svg).toContain('opacity="0.95"');
   });
 
   it('renders fade routes with reduced opacity', () => {
@@ -149,8 +157,9 @@ describe('play diagram route types', () => {
 
     const svg = renderRoutes(routes);
 
-    expect(svg).toContain('marker-end="url(#arr-fade)"');
-    expect(svg).toContain('opacity="0.6"'); // Most transparent
+    // Fade now falls back to standard go route styling
+    expect(svg).toContain('marker-end="url(#arr-go)"');
+    expect(svg).toContain('opacity="0.95"');
   });
 
   it('renders go routes (default) with standard arrow and medium stroke', () => {
@@ -168,9 +177,9 @@ describe('play diagram route types', () => {
 
     const svg = renderRoutes(routes);
 
-    expect(svg).toContain('marker-end="url(#arr)"'); // Standard arrow
-    expect(svg).toContain('stroke-width="2.5"'); // Standard width
-    expect(svg).toContain('opacity="0.92"'); // Standard opacity
+    expect(svg).toContain('marker-end="url(#arr-go)"'); // Standard arrow
+    expect(svg).toContain('stroke-width="2.5"');
+    expect(svg).toContain('opacity="0.95"');
   });
 
   it('renders unknown type as default go route', () => {
@@ -189,7 +198,7 @@ describe('play diagram route types', () => {
     const svg = renderRoutes(routes);
 
     // Falls back to standard arrow
-    expect(svg).toContain('marker-end="url(#arr)"');
+    expect(svg).toContain('marker-end="url(#arr-go)"');
     expect(svg).toContain('stroke-width="2.5"');
   });
 
@@ -208,7 +217,7 @@ describe('play diagram route types', () => {
 
     const svg = renderRoutes(routes);
 
-    expect(svg).toContain('marker-end="url(#arr)"'); // Standard arrow
+    expect(svg).toContain('marker-end="url(#arr-go)"'); // Standard arrow
     expect(svg).toContain('stroke-width="2.5"');
   });
 
@@ -245,8 +254,11 @@ describe('play diagram route types', () => {
 
     const svg = renderRoutes(routes);
 
-    expect(svg).toContain('>Route1<');
-    expect(svg).toContain('>Route2<');
-    expect(svg).toContain('>Route3<');
+    // Labels are rendered in the annotation strip (below field), not inline on the route paths
+    expect(svg).not.toContain('>Route1<');
+    // Route paths are still rendered for all 3 routes
+    expect(svg).toContain('marker-end="url(#arr-screen)"');
+    expect(svg).toContain('marker-end="url(#arr-pick)"');
+    expect(svg).toContain('marker-end="url(#arr-go)"');
   });
 });

@@ -42,7 +42,7 @@ import {
   performanceMiddleware,
   testPerformance,
 } from '../../middleware/performance/performance.middleware.js';
-import { isTeamIntelEnabled } from '../../config/feature-flags.js';
+import { getFeatureFlagsService } from '../../config/feature-flags/index.js';
 import {
   getCacheService,
   CACHE_TTL,
@@ -1290,13 +1290,15 @@ router.get(
   '/:id/intel',
   optionalAuth,
   asyncHandler(async (req: Request, res: Response) => {
-    if (!isTeamIntelEnabled()) {
+    const db = req.firebase!.db;
+    const teamIntelEnabled = await getFeatureFlagsService(db).isEnabled('team.intel.enabled');
+
+    if (!teamIntelEnabled) {
       sendSuccess(res, null);
       return;
     }
 
     const { id } = req.params as { id: string };
-    const db = req.firebase!.db;
 
     const { IntelGenerationService } =
       await import('../../modules/agent/services/intel.service.js');
@@ -1315,7 +1317,10 @@ router.post(
   '/:id/intel/generate',
   appGuard,
   asyncHandler(async (req: Request, res: Response) => {
-    if (!isTeamIntelEnabled()) {
+    const db = req.firebase!.db;
+    const teamIntelEnabled = await getFeatureFlagsService(db).isEnabled('team.intel.enabled');
+
+    if (!teamIntelEnabled) {
       throw validationError([
         {
           field: 'feature',
@@ -1327,7 +1332,6 @@ router.post(
 
     const { id } = req.params as { id: string };
     const userId = req.user!.uid;
-    const db = req.firebase!.db;
 
     const teamAdapter = createTeamAdapter(db);
     let teamWithMembers: Awaited<ReturnType<typeof teamAdapter.getTeamWithMembers>>;
@@ -1382,7 +1386,10 @@ router.patch(
   '/:id/intel/section/:sectionId',
   appGuard,
   asyncHandler(async (req: Request, res: Response) => {
-    if (!isTeamIntelEnabled()) {
+    const db = req.firebase!.db;
+    const teamIntelEnabled = await getFeatureFlagsService(db).isEnabled('team.intel.enabled');
+
+    if (!teamIntelEnabled) {
       throw validationError([
         {
           field: 'feature',
@@ -1394,7 +1401,6 @@ router.patch(
 
     const { id, sectionId } = req.params as { id: string; sectionId: string };
     const userId = req.user!.uid;
-    const db = req.firebase!.db;
 
     if (!VALID_TEAM_SECTIONS.has(sectionId)) {
       throw validationError([

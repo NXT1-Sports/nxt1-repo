@@ -148,24 +148,43 @@ export class ExtractLiveViewPlaylistTool extends BaseTool {
         itemCount: result.items.length,
       });
 
-      const mediaArtifacts = result.items.map((item) =>
-        buildVideoWorkflowArtifact({
-          sourceUrl: item.url,
-          playableUrls: item.url ? [item.url] : [],
-          directMp4Urls: item.url && /\.mp4(?:$|[?#])/i.test(item.url) ? [item.url] : [],
-          hlsUrls: item.url && /\.m3u8(?:$|[?#])/i.test(item.url) ? [item.url] : [],
-          dashUrls: item.url && /\.mpd(?:$|[?#])/i.test(item.url) ? [item.url] : [],
-          recommendedHeaders,
-          sourceTypeHint: 'playlist',
-          rationale: item.url
-            ? `Playlist item ${item.index + 1} requires the same portability check as the parent playlist extraction.`
-            : 'Playlist item does not expose a direct media URL yet.',
-        })
-      );
-
       const playlistUrls = result.items
         .map((item) => item.url)
         .filter((value): value is string => typeof value === 'string' && value.length > 0);
+
+      if (playlistUrls.length === 0) {
+        return {
+          success: false,
+          error:
+            'Playlist rows were detected, but no clip URLs were extractable from this view. Load the target clip(s) in the player and retry, or run extract_live_view_media for the currently loaded clip.',
+          data: {
+            sessionId,
+            url: result.url,
+            title: result.title,
+            playlistTitle: result.playlistTitle,
+            itemCount: result.items.length,
+            items: result.items,
+            noExtractableClipUrls: true,
+          },
+        };
+      }
+
+      const mediaArtifacts = result.items
+        .filter((item) => typeof item.url === 'string' && item.url.length > 0)
+        .map((item) =>
+          buildVideoWorkflowArtifact({
+            sourceUrl: item.url,
+            playableUrls: item.url ? [item.url] : [],
+            directMp4Urls: item.url && /\.mp4(?:$|[?#])/i.test(item.url) ? [item.url] : [],
+            hlsUrls: item.url && /\.m3u8(?:$|[?#])/i.test(item.url) ? [item.url] : [],
+            dashUrls: item.url && /\.mpd(?:$|[?#])/i.test(item.url) ? [item.url] : [],
+            recommendedHeaders,
+            sourceTypeHint: 'playlist',
+            rationale: item.url
+              ? `Playlist item ${item.index + 1} requires the same portability check as the parent playlist extraction.`
+              : 'Playlist item does not expose a direct media URL yet.',
+          })
+        );
       const persistedMediaUrls = await this.persistPlaylistMedia(playlistUrls, context);
 
       return {

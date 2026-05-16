@@ -771,6 +771,10 @@ export const AGENT_X_OPERATION_CHAT_TEST_IDS = {
   RECURRING_ITEM: 'agent-op-chat-recurring-item',
   RECURRING_NEXT_SEND: 'agent-op-chat-recurring-next-send',
   BTN_RECURRING_CANCEL: 'agent-op-chat-btn-recurring-cancel',
+  HINT_DOCK: 'agent-op-chat-hint-dock',
+  HINT_ITEM: 'agent-op-chat-hint-item',
+  HINT_ACTION: 'agent-op-chat-hint-action',
+  HINT_CLOSE: 'agent-op-chat-hint-close',
 } as const;
 
 export const AGENT_X_CHAT_BUBBLE_ACTIONS_TEST_IDS = {
@@ -1201,6 +1205,12 @@ export const LIVE_VIEW_TEST_IDS = {
 export const LIVE_VIEW_LAUNCHER_TEST_IDS = {
   /** Root container for the live-view launcher panel */
   CONTAINER: 'live-view-launcher-container',
+  /** Section with recovered/stored sessions */
+  RECOVERY_SECTION: 'live-view-launcher-recovery-section',
+  /** Individual stored session tab/button (suffixed with -{sessionId}) */
+  RECOVERY_SESSION: 'live-view-launcher-recovery-session',
+  /** Button to dismiss/discard a stored session */
+  RECOVERY_SESSION_DISMISS: 'live-view-launcher-recovery-dismiss',
   /** Custom URL text input */
   URL_INPUT: 'live-view-launcher-url-input',
   /** Submit button for the custom URL */
@@ -1343,6 +1353,69 @@ export const GAMEPLAN_TEST_IDS = {
   DELETE_CANCEL_BUTTON: 'gameplan-delete-cancel-button',
 } as const;
 
+// ============================================
+// TEAM PLAYBOOK PLAY TEST IDS
+// ============================================
+export const PLAYBOOK_TEST_IDS = {
+  // Playbook list view
+  PLAYBOOK_LIST_CONTAINER: 'playbook-list-container',
+  PLAYBOOK_LIST_ITEM: 'playbook-list-item',
+  PLAYBOOK_LIST_EMPTY_STATE: 'playbook-empty-state',
+  PLAYBOOK_LIST_LOADING_SKELETON: 'playbook-loading-skeleton',
+  PLAYBOOK_CREATE_BUTTON: 'playbook-create-button',
+
+  // Play list view
+  PLAYS_CONTAINER: 'playbook-plays-container',
+  PLAYS_LIST: 'playbook-plays-list',
+  PLAYS_EMPTY_STATE: 'playbook-plays-empty-state',
+  PLAY_ITEM: 'playbook-play-item',
+  PLAY_ITEM_NAME: 'playbook-play-item-name',
+  PLAY_ITEM_FORMATION: 'playbook-play-item-formation',
+  PLAY_ITEM_PERSONNEL: 'playbook-play-item-personnel',
+
+  // Play actions
+  PLAY_ADD_BUTTON: 'playbook-play-add-button',
+  PLAY_EDIT_BUTTON: 'playbook-play-edit-button',
+  PLAY_DELETE_BUTTON: 'playbook-play-delete-button',
+  PLAY_VIEW_BUTTON: 'playbook-play-view-button',
+
+  // Play editor form
+  PLAY_EDITOR_FORM: 'playbook-play-editor-form',
+  PLAY_EDITOR_NAME_INPUT: 'playbook-play-editor-name-input',
+  PLAY_EDITOR_SERIES_INPUT: 'playbook-play-editor-series-input',
+  PLAY_EDITOR_CATEGORY_SELECT: 'playbook-play-editor-category-select',
+  PLAY_EDITOR_FORMATION_INPUT: 'playbook-play-editor-formation-input',
+  PLAY_EDITOR_PERSONNEL_INPUT: 'playbook-play-editor-personnel-input',
+  PLAY_EDITOR_OBJECTIVE_TEXTAREA: 'playbook-play-editor-objective-textarea',
+  PLAY_EDITOR_COACHING_POINTS_EDITOR: 'playbook-play-editor-coaching-points-editor',
+  PLAY_EDITOR_COMMON_BUSTS_EDITOR: 'playbook-play-editor-common-busts-editor',
+  PLAY_EDITOR_DRILL_PROGRESSION_EDITOR: 'playbook-play-editor-drill-progression-editor',
+  PLAY_EDITOR_CONCEPT_TAGS_INPUT: 'playbook-play-editor-concept-tags-input',
+  PLAY_EDITOR_INSTALL_STAGE_SELECT: 'playbook-play-editor-install-stage-select',
+  PLAY_EDITOR_DIAGRAM_UPLOADER: 'playbook-play-editor-diagram-uploader',
+  PLAY_EDITOR_VIDEO_UPLOADER: 'playbook-play-editor-video-uploader',
+  PLAY_EDITOR_SAVE_BUTTON: 'playbook-play-editor-save-button',
+  PLAY_EDITOR_CANCEL_BUTTON: 'playbook-play-editor-cancel-button',
+  PLAY_EDITOR_LOADING: 'playbook-play-editor-loading',
+  PLAY_EDITOR_ERROR: 'playbook-play-editor-error',
+
+  // Delete confirmation
+  PLAY_DELETE_CONFIRMATION: 'playbook-play-delete-confirmation',
+  PLAY_DELETE_CONFIRM_BUTTON: 'playbook-play-delete-confirm-button',
+  PLAY_DELETE_CANCEL_BUTTON: 'playbook-play-delete-cancel-button',
+
+  // Game plan tab
+  GAMEPLAN_TAB: 'playbook-gameplan-tab',
+  GAMEPLAN_CREATE_BUTTON: 'playbook-gameplan-create-button',
+  GAMEPLAN_LIST_CONTAINER: 'playbook-gameplan-list-container',
+  GAMEPLAN_LIST_ITEM: 'playbook-gameplan-list-item',
+  GAMEPLAN_EMPTY_STATE: 'playbook-gameplan-empty-state',
+
+  // AI chat triggers
+  AI_ADD_PLAY_TRIGGER: 'playbook-ai-add-play-trigger',
+  AI_CREATE_GAMEPLAN_TRIGGER: 'playbook-ai-create-gameplan-trigger',
+} as const;
+
 export const TEST_IDS = {
   AUTH: AUTH_TEST_IDS,
   AUTH_PAGE: AUTH_PAGE_TEST_IDS,
@@ -1379,6 +1452,7 @@ export const TEST_IDS = {
   TEAM_TIMELINE: TEAM_TIMELINE_TEST_IDS,
   HELP_CENTER: HELP_CENTER_TEST_IDS,
   GAMEPLAN: GAMEPLAN_TEST_IDS,
+  PLAYBOOK: PLAYBOOK_TEST_IDS,
 } as const;
 
 // Type exports for TypeScript

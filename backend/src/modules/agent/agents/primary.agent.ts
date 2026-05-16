@@ -60,7 +60,7 @@ import type { OnStreamEvent } from '../queue/event-writer.js';
 import type { AskUserToolContext } from '../tools/system/ask-user.tool.js';
 import type { SkillRegistry } from '../skills/skill-registry.js';
 import { getCachedAgentAppConfig } from '../config/agent-app-config.js';
-import { getRouterToolPolicy } from './tool-policy.js';
+import { getRouterToolPolicy, isToolAllowedByPatterns } from './tool-policy.js';
 import { getOperationMemoryService } from '../services/operation-memory.service.js';
 
 /**
@@ -76,6 +76,13 @@ const PRIMARY_SYSTEM_TOOLS: readonly string[] = [
   'execute_saved_plan',
   'plan_and_execute',
 ];
+
+const STRATEGY_ROUTER_FALLBACK_TOOLS = new Set([
+  'create_play_diagram',
+  'create_board_diagram',
+  'write_playbooks',
+  'save_gameplan',
+]);
 
 const PRIMARY_REASONING_CONTRACT = [
   '## Primary Reasoning Contract (2026)',
@@ -95,8 +102,8 @@ const PRIMARY_REASONING_CONTRACT = [
   '',
   '   CRITICAL — Delegating a creation/write task to a coordinator IS always safety_or_mutation, never simple_routing:',
   '   Any request where a coordinator will create, save, or permanently write an artifact MUST be classified as safety_or_mutation.',
-  '   This includes: "create a game plan", "build a playbook", "write a training program", "design plays", "make a scout report",',
-  '   "draft emails / send outreach", "create an export or PDF", "build a drill board", "generate a schedule".',
+  '   This includes: "create a game plan", "build a playbook", "write a training program", "build a training framework", "create a standard training framework", "design plays", "make a scout report",',
+  '   "draft emails / send outreach", "create an export or PDF", "build a drill board", "generate a schedule", "develop a training plan", "create a development program".',
   '   Reason: coordinators execute immediately on delegation — you are the last checkpoint before any persistent write happens.',
   '',
   '2) Before choosing the first tool, sketch the likely steps to finish the request and check whether any required step depends on coordinator-owned tools.',
@@ -105,7 +112,7 @@ const PRIMARY_REASONING_CONTRACT = [
   '   a) Identify the minimum required intake fields for the specific request type.',
   '      Game plan: opponent (confirmed name/ID) + date/week + focus scope + diagram preference.',
   '      Playbook: sport + team + play types + diagram preference.',
-  '      Training program: athlete or roster segment + duration + phase goal.',
+  '      Training program / Training framework: target teams or athletes + duration + phase goal + sports covered. Route to `performance_coordinator`.',
   '      Email/outreach: confirmed recipient(s) + goal/tone.',
   '      Export/PDF: audience + branding preference.',
   '      Play diagrams: sport + formation/concept + positions.',
@@ -145,7 +152,7 @@ const PRIMARY_REASONING_CONTRACT = [
   '    - `performance_coordinator` for film analysis, technique breakdowns, scouting, and player evaluation.',
   '    - `strategy_coordinator` for strategic interpretation, planning recommendations, and executive summaries from video.',
   '    - `brand_coordinator` for ALL creative/brand video work: analyzing highlight or promo video for best moments, visual style, energy, and brand consistency; social edits, thumbnails, branded reels, and storytelling assets. When a user says "analyze my highlight video", "which clips should I use", "review my promo", "check the style of this video", or provides video with intent to create social/brand content → always route to brand_coordinator.',
-  '10-live) Live-view film requests are coordinator-owned. If the user asks to watch, analyze, grade, report on, or summarize clips/plays/video from an already-open live-view page, delegate to `performance_coordinator` immediately. Do NOT call `interact_with_live_view` to scroll through clips or simulate watching. You may call `read_live_view` or `capture_live_view_screenshot` once for current page grounding, then delegate with that context. For "last N clips/plays", tell the coordinator to use `extract_live_view_playlist` with `selection: "last"` and `maxItems: N`.',
+  '10-live) Live-view film requests are coordinator-owned. If the user asks to watch, analyze, grade, report on, or summarize clips/plays/video from an already-open live-view page, delegate to `performance_coordinator` immediately. Do NOT call `interact_with_live_view` to scroll through clips or simulate watching. You may call `read_live_view` or `capture_live_view_screenshot` once for current page grounding, then delegate with that context. For "last N clips/plays" or bulk extraction: extract_live_view_playlist is currently DISABLED; coordinator will use interact_with_live_view + extract_live_view_media per clip.',
   '10i) NEVER call `generate_graphic` directly from router. ALL creative image/poster/thumbnail/social visual requests must be delegated to `brand_coordinator` via `delegate_to_coordinator`.',
   '10i-a) Brand color/logo source-of-truth rule (CRITICAL): for team/org graphic requests, resolve branding via `query_nxt1_data` snapshots in this order: `organization_profile_snapshot` first, then `team_profile_snapshot` only as fallback.',
   '10i-b) If organization primaryColor/secondaryColor exist, they override team colors. Do NOT present team colors as final when organization colors are available.',
@@ -161,6 +168,12 @@ const PRIMARY_REASONING_CONTRACT = [
   '      • "create an elite edit from the uploaded video" → delegate to brand_coordinator',
   '    - Do NOT ask clarification questions or call classify_media_url yourself. Brand_coordinator has the full External URL Ingestion pre-step and will handle source extraction autonomously.',
   '    - Pass the video source (URL or reference) in the handoff payload objective sentence.',
+  '10k) College questionnaire & web form routing rule (CRITICAL — ABSOLUTE):',
+  '    - You have live browser access. NEVER say you cannot access external links, URLs, or web pages.',
+  '    - You have form-fill capability. NEVER say you cannot fill out web forms, questionnaires, college applications, or portal forms.',
+  '    - When the user sends ANY URL to a college questionnaire, recruiting form, or school portal (JumpForward, NCSA, College Sports Recruits, BeRecruited, school .edu forms, etc.) with intent to fill it out ("fill this out", "complete this", "submit this for them") → IMMEDIATELY classify as simple_routing and delegate to `recruiting_coordinator` with the URL and the target athlete name in the handoff payload.',
+  '    - Do NOT ask clarifying questions. Do NOT apologize or disclaim. Do NOT say "I can help you prepare the information". Just route.',
+  '    - The recruiting_coordinator will open the URL via live browser, fill the form fields from athlete context, and confirm with the user before submitting.',
   '10a) URL ingestion routing rule (CRITICAL):',
   '    - When the user provides any external link and asks to extract, import, analyze, or post media, enforce DIRECT-FIRST acquisition.',
   '    - Delegate link/media ingestion to `data_coordinator` first so it can run `classify_media_url` and follow `nextStep` exactly.',
@@ -188,6 +201,13 @@ const PRIMARY_REASONING_CONTRACT = [
   '    - Brand_coordinator handles marketing graphics, social thumbnails, and branded visuals. Strategy_coordinator handles play diagrams, strategic visuals, and sports-specific tactical content.',
   '    - If your step summary or handoff mentions "diagrams for the playbook", "route diagrams", "play formations", or "coaching diagrams" → immediately correct to strategy_coordinator.',
   '    - This rule applies even when a play diagram URL already exists in context — `write_playbooks` and `save_gameplan` still run inside strategy_coordinator, not from the router.',
+  '    - Never call `list_playbooks` with empty args. Resolve and pass `teamId` first (from enriched context, prior tool data, or by asking a targeted clarification if missing).',
+  '    - For requests to locate or verify a specific play inside team playbooks (for example "do you have Guns Double Smash Fade?"), prefer `delegate_to_coordinator` with `strategy_coordinator` unless the teamId and playbook IDs are already explicit. Strategy_coordinator must then run `list_playbooks` and `get_playbook` to search the play entries before answering.',
+  '10d-iii) Training Framework & Program Routing Rule (CRITICAL):',
+  '    - Requests to "build a training framework", "create a training program", "develop a standard training plan", "design an off-season program", "create a development program", or any multi-sport / all-teams training structure → ALWAYS delegate to `performance_coordinator` via `delegate_to_coordinator`. This is a safety_or_mutation task — never answer inline.',
+  '    - Gather minimum intake before delegating: which teams or sports are covered + duration (weeks/months) + current phase (off-season, pre-season, in-season). Use task context and profile data to resolve as many fields as possible before asking.',
+  '    - After delegation, `performance_coordinator` owns artifact creation and MUST use `dynamic_export` to deliver the framework as a PDF. The chat message must be a 2-3 sentence summary with a PDF link — NOT a wall of Markdown tables.',
+  '    - NEVER build a training framework directly in the router chat response. If the model is tempted to paste structured tables in chat, stop and delegate to `performance_coordinator` instead.',
   '10e) Analytics event routing rule:',
   '    - Requests for raw analytics events, Agent X activity so far, outreach event history, engagement summaries, exported activity data, or spreadsheet/table views of activity should go to `data_coordinator`.',
   '    - Requests for interpretation, recommendations, strategic takeaways, or executive-style dashboard narratives from analytics should go to `strategy_coordinator`.',
@@ -418,6 +438,17 @@ export class PrimaryAgent extends BaseAgent {
       );
     }
 
+    if (STRATEGY_ROUTER_FALLBACK_TOOLS.has(toolCall.function.name)) {
+      return this.handleDirectStrategyArtifactFallback(
+        toolCall,
+        userId,
+        sessionContext?.operationId,
+        approvalGate,
+        onStreamEvent,
+        signal
+      );
+    }
+
     if (toolCall.function.name === 'interact_with_live_view') {
       const liveViewFilmFallback = await this.tryHandleLiveViewFilmInteractionFallback(
         toolCall,
@@ -529,7 +560,8 @@ export class PrimaryAgent extends BaseAgent {
         ? args['url'].trim()
         : undefined;
 
-    const coordinatorId = this.resolveVideoAnalysisCoordinator(`${ctx.enrichedIntent}\n${prompt}`);
+    const coordinatorId: Extract<AgentIdentifier, 'performance_coordinator'> =
+      'performance_coordinator';
     const goal = `Analyze the provided video and deliver ${coordinatorId.replace('_', ' ')} output for the user.`;
     const structuredPayload = {
       ...(url ? { url } : {}),
@@ -582,32 +614,6 @@ export class PrimaryAgent extends BaseAgent {
         streamed_char_count: result.streamedCharCount ?? 0,
       },
     });
-  }
-
-  private resolveVideoAnalysisCoordinator(
-    text: string
-  ): Extract<
-    AgentIdentifier,
-    'brand_coordinator' | 'performance_coordinator' | 'strategy_coordinator'
-  > {
-    const normalized = text.toLowerCase();
-    const brandSignals =
-      /brand|branding|creative|thumbnail|social|marketing|poster|promo|highlight reel|highlight video|highlights|storytelling|style|visual style|visual brand|production quality|best (clips?|moments?|parts?|cuts?)|which clips|reel|intro video|hype video|recap video|cinematic/.test(
-        normalized
-      );
-    if (brandSignals) {
-      return 'brand_coordinator';
-    }
-
-    const strategySignals =
-      /strategy|strategic|plan|roadmap|recommendation|executive|insight|summary|decision/.test(
-        normalized
-      );
-    if (strategySignals) {
-      return 'strategy_coordinator';
-    }
-
-    return 'performance_coordinator';
   }
 
   private async handleDirectGraphicGenerationFallback(
@@ -697,6 +703,94 @@ export class PrimaryAgent extends BaseAgent {
     });
   }
 
+  private async handleDirectStrategyArtifactFallback(
+    toolCall: LLMToolCall,
+    userId: string,
+    operationId: string | undefined,
+    approvalGate: ApprovalGateService | undefined,
+    onStreamEvent: OnStreamEvent | undefined,
+    signal: AbortSignal | undefined
+  ): Promise<string> {
+    const ctx = this.resolveDispatchContext(
+      operationId,
+      userId,
+      approvalGate,
+      onStreamEvent,
+      signal
+    );
+
+    if (!ctx) {
+      return JSON.stringify({
+        success: false,
+        error: 'Strategy delegation unavailable: missing per-run state.',
+      });
+    }
+
+    let args: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(toolCall.function.arguments) as unknown;
+      if (parsed && typeof parsed === 'object') {
+        args = parsed as Record<string, unknown>;
+      }
+    } catch {
+      args = {};
+    }
+
+    const coordinatorId: Extract<AgentIdentifier, 'strategy_coordinator'> = 'strategy_coordinator';
+    const goal =
+      'Handle this strategy artifact request end-to-end (diagram/playbook/game plan) and return final user-ready output.';
+
+    const structuredPayload = {
+      ...args,
+      source: `router_${toolCall.function.name}_fallback`,
+      originalToolName: toolCall.function.name,
+    };
+
+    onStreamEvent?.({
+      type: 'tool_result',
+      agentId: this.id,
+      stepId: toolCall.id,
+      toolName: 'delegate_to_coordinator',
+      stageType: 'tool',
+      toolSuccess: true,
+      toolResult: {
+        delegated: true,
+        coordinatorId,
+        reason: 'strategy_artifact_tool_router_fallback',
+      },
+      icon: this.resolveToolStepIcon('delegate_to_coordinator'),
+      message: 'Routing to specialist coordinator: Strategy Coordinator',
+    });
+
+    const result = await this.dispatcher.runCoordinator(
+      coordinatorId,
+      goal,
+      ctx,
+      structuredPayload
+    );
+
+    const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
+    const followUpRequired = !result.success && !userAlreadyReceivedResponse;
+    return JSON.stringify({
+      success: result.success,
+      data: {
+        dispatch_kind: result.dispatchKind ?? 'coordinator',
+        coordinator_id: coordinatorId,
+        user_already_received_response: userAlreadyReceivedResponse,
+        follow_up_required: followUpRequired,
+        follow_up_hint: followUpRequired
+          ? 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
+          : 'No follow-up needed because the coordinator already responded directly to the user.',
+        coordinator_observation: result.observation,
+        ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
+          ? { coordinator_artifacts: result.coordinatorArtifacts }
+          : {}),
+        streamed_delta_count: result.streamedDeltaCount ?? 0,
+        streamed_char_count: result.streamedCharCount ?? 0,
+      },
+    });
+  }
+
   private async tryHandleLiveViewFilmInteractionFallback(
     toolCall: LLMToolCall,
     registry: ToolRegistry,
@@ -729,7 +823,8 @@ export class PrimaryAgent extends BaseAgent {
     );
     if (!ctx) return null;
 
-    const coordinatorId = this.resolveVideoAnalysisCoordinator(`${ctx.enrichedIntent}\n${prompt}`);
+    const coordinatorId: Extract<AgentIdentifier, 'performance_coordinator'> =
+      'performance_coordinator';
     const liveViewContext = this.collectLatestLiveViewContext(currentMessages);
     const preInteractionScreenshot = await this.captureLiveViewCheckpoint(
       registry,
@@ -741,7 +836,7 @@ export class PrimaryAgent extends BaseAgent {
     );
     const goal =
       "Complete the user's live-view film request using real media extraction, not prompt-based page scrolling. " +
-      'For last/first/specific clips, use extract_live_view_playlist with a strict small-batch limit, then acquire playable video and analyze it.';
+      'Use interact_with_live_view to navigate to clips, then extract_live_view_media for each clip to acquire playable video and analyze it.';
     const structuredPayload = {
       source: 'router_live_view_film_interaction_fallback',
       originalLiveViewPrompt: prompt,
@@ -1267,9 +1362,14 @@ export class PrimaryAgent extends BaseAgent {
     registry: ToolRegistry,
     accessContext?: AgentToolAccessContext
   ): readonly AgentToolDefinition[] {
-    const allowed = new Set([...getRouterToolPolicy(), ...PRIMARY_SYSTEM_TOOLS]);
+    const routerPolicy = getRouterToolPolicy();
     return registry
       .getDefinitions('router', accessContext)
-      .filter((def) => def.category === 'system' || allowed.has(def.name));
+      .filter(
+        (def) =>
+          def.category === 'system' ||
+          PRIMARY_SYSTEM_TOOLS.includes(def.name) ||
+          isToolAllowedByPatterns(def.name, routerPolicy)
+      );
   }
 }

@@ -7,8 +7,8 @@
  * live-view browser infrastructure. Includes orchestration patterns for single-clip
  * analysis, bulk playlist extraction, and integration with film-breakdown taxonomies.
  *
- * This skill bridges live-view tools (open_live_view, extract_live_view_playlist,
- * extract_live_view_media, etc.) with structured analysis frameworks.
+This skill bridges live-view tools (open_live_view, extract_live_view_media, etc.) with structured analysis frameworks.
+NOTE: extract_live_view_playlist is currently disabled. Use extract_live_view_media for single clips.
  */
 
 import { BaseSkill, type SkillCategory } from '../base.skill.js';
@@ -35,18 +35,16 @@ while maintaining authentication state and media fidelity.
    - Returns session ID for subsequent operations
    - Use this first to reach film libraries, playlists, or specific clips
 
-2. **extract_live_view_playlist(maxItems?, selection?, playNumbers?)** — Batch-extract clip metadata
-   - Extracts titles, durations, thumbnails, and clip URLs from current page
-   - Handles virtualized/lazy-loaded playlists intelligently
-   - Returns ~20 clips max per call (bounded for efficiency)
-   - Selection options: 'visible', 'first' (first N), 'last' (last N)
-   - playNumbers: Extract specific play numbers (e.g., [1, 5, 12])
+2. **extract_live_view_playlist** — CURRENTLY DISABLED (not yet stable)
+   - For bulk playlist extraction, use extract_live_view_media repeatedly on individual clips
+   - Navigate to each clip using interact_with_live_view, then extract media
 
 3. **extract_live_view_media()** — Extract real media URLs from video player
    - Handles protected/signed Hudl streams (returns actual MP4 or HLS URLs)
    - Handles Wistia, YouTube, self-hosted players
    - Call this AFTER the clip is loaded/playing in live view
    - Essential for authenticated platforms where DOM shows unplayable source
+   - For multiple clips: call interact_with_live_view to navigate, then extract_live_view_media for each
 
 4. **navigate_live_view(url)** — Navigate active session to new URL
    - Keeps session alive (no re-authentication)
@@ -54,7 +52,7 @@ while maintaining authentication state and media fidelity.
 
 5. **interact_with_live_view(action, target)** — Click, type, scroll
    - Click play buttons, search, scroll through paginated lists
-   - Use sparingly — prefer extract_live_view_playlist when possible
+   - Use sparingly — for multiple clips, navigate with interact_with_live_view then use extract_live_view_media
 
 6. **read_live_view()** — Read page text content
    - Useful for verifying page state before extraction
@@ -66,17 +64,19 @@ while maintaining authentication state and media fidelity.
 
 ### Workflow Patterns
 
-#### Pattern A: Batch Extract from Playlist (Most Efficient)
+#### Pattern A: Sequential Clip Navigation (extract_live_view_playlist DISABLED)
 **Use When:** Coach has 5+ clips to analyze from same playlist
 **Steps:**
 1. open_live_view('https://hudl.com/...') → Opens coach's game film
-2. extract_live_view_playlist(maxItems=15, selection='first') → Get first 15 clips
-3. For each clip in returned batch:
-   - If clip has direct URL: Use for analysis immediately
-   - If clip is protected: Navigate to clip, extract_live_view_media() → Get real URL
+2. read_live_view() → Identify available clips and their order
+3. For each clip (max 5 per batch):
+   - interact_with_live_view(action='click', target='clip_N') → Load the clip
+   - extract_live_view_media() → Get real playable URL
+   - Store URL for batch analysis
 4. Pass URLs to downstream video analysis (e.g., VideoHighlightAnalysisWorkflow)
 
-**Benefits:** Minimal live-view interactions, batch processing, no manual clicking
+**Benefits:** Sequential, predictable, works with current tools
+**Note:** extract_live_view_playlist would be more efficient but is currently disabled
 
 #### Pattern B: Single Clip Deep Dive (Detailed Analysis)
 **Use When:** Coach wants to analyze one clip in detail with annotations/screenshots
@@ -90,38 +90,43 @@ while maintaining authentication state and media fidelity.
 
 **Benefits:** Rich context, human-interpretable output, visual annotations
 
-#### Pattern C: Search & Filter Before Batch (Goal-Oriented)
+#### Pattern C: Search & Filter, Then Sequential Extract (extract_live_view_playlist DISABLED)
 **Use When:** Coach needs specific clips (e.g., "all zone coverage plays" or "by play number")
 **Steps:**
 1. open_live_view(hudl_playlist)
 2. interact_with_live_view(action='search', query='zone coverage') OR
    interact_with_live_view(action='filter', criteria='play:1-10')
-3. read_live_view() → Verify filtered results
-4. extract_live_view_playlist(maxItems=10, playNumbers=[1,3,5,7,9])
+3. read_live_view() → Verify filtered results and identify target clips
+4. For each filtered clip (max 5 per batch):
+   - interact_with_live_view(action='click', target='play_N')
+   - extract_live_view_media() → Get media URL
 5. Batch process as in Pattern A
 
 **Benefits:** Targeted analysis, reduces noise, focuses on relevant plays
+**Note:** extract_live_view_playlist would make this single-step but is currently disabled
 
-#### Pattern D: Multi-Game Bulk Analysis (High Volume)
+#### Pattern D: Multi-Game Bulk Analysis (High Volume, extract_live_view_playlist DISABLED)
 **Use When:** Coordinator needs to process clips from multiple games/weeks
 **Steps:**
 1. Navigate to game list: open_live_view(hudl_team_library)
-2. For each game in library:
+2. For each game in library (max 5 clips per game):
    - navigate_live_view(game_url)
-   - extract_live_view_playlist(maxItems=20) → Get bulk clips
+   - read_live_view() → Identify available clips
+   - For first 5 clips: interact_with_live_view + extract_live_view_media for each
    - Collect all URLs
 3. Batch dispatch to video analysis workers
 4. Return aggregated insights (coverage patterns, personnel consistency)
 
-**Benefits:** Handles high volume without UI friction
+**Benefits:** Handles volume with available tools
+**Note:** For larger volumes, consider requesting re-enable of extract_live_view_playlist
 
 ### Platform-Specific Notes
 
 #### Hudl (Primary)
 - **Auth:** If user has connected Hudl account via NXT1 settings, session auto-authenticates
 - **Media URLs:** Hudl streams are protected; always use extract_live_view_media() after navigating to clip
-- **Playlist Structure:** Clips accessed via Play window (sidebar) or inline table; both supported by extract_live_view_playlist
-- **Best Practice:** Extract playlist first, then batch-extract media for clips that need it
+- **Playlist Structure:** Clips accessed via Play window (sidebar) or inline table; navigate with interact_with_live_view then extract_live_view_media
+- **Best Practice:** Read page structure first, then extract media for each selected clip sequentially
 
 #### Wistia (Video Host)
 - **Auth:** May require login; if user hasn't connected Wistia, direct them to account settings
@@ -143,11 +148,12 @@ while maintaining authentication state and media fidelity.
 After extracting clips, use **FilmBreakdownTaxonomySkill** to structure analysis:
 
 Workflow:
-1. extract_live_view_playlist() -> get clips
-2. For each clip:
-   a. extract_live_view_media() -> get media URL
-   b. apply FilmBreakdownTaxonomySkill to the media URL
-   c. return a structured breakdown with formations, coverage, and keys
+1. read_live_view() -> identify available clips
+2. For each clip (max 5):
+   a. interact_with_live_view(action='click') -> load clip
+   b. extract_live_view_media() -> get media URL
+   c. apply FilmBreakdownTaxonomySkill to the media URL
+   d. return a structured breakdown with formations, coverage, and keys
 3. Aggregate results for coaching debrief
 
 ### Quality Gates (Before Batch Processing)
@@ -155,12 +161,11 @@ Workflow:
 ✅ **Proceed if:**
 - [ ] Live-view session is active (open_live_view succeeded)
 - [ ] Clips are visible on page (read_live_view confirms content)
-- [ ] extract_live_view_playlist returned valid URLs
 - [ ] At least 1 clip successfully extracted media (test first)
 - [ ] Media URLs are not blob: references or signed-only (real URLs)
 
 ❌ **Stop and pivot if:**
-- [ ] extract_live_view_playlist returns empty (playlist not loaded, pagination issue, or platform changed)
+- [ ] Clips are not visible or page failed to load (use read_live_view to inspect)
 - [ ] Media extraction fails with auth error (user needs to re-connect account)
 - [ ] URLs are signed with <5 min expiry (will expire during batch processing; get fresh URLs)
 - [ ] Player is not actually playing (sometimes requires click before extraction works)
@@ -168,8 +173,8 @@ Workflow:
 
 ### Anti-Patterns (What NOT to Do)
 
-❌ **Do NOT manually click through 50 clips.**
-Use extract_live_view_playlist(maxItems=25) twice instead. Much faster.
+❌ **Do NOT expect extract_live_view_playlist to work.**
+It is currently disabled. Use interact_with_live_view + extract_live_view_media for each clip instead.
 
 ❌ **Do NOT assume clip URLs are real without testing.**
 Call extract_live_view_media() on first clip to confirm before batch processing.
@@ -188,7 +193,7 @@ Some platforms sign URLs with 15-min expiry. If extraction takes 2 hours, URLs w
 
 ### Output Format for Batch Extraction
 
-After extract_live_view_playlist, return:
+After navigating through clips and extracting media, return:
 
 PLATFORM: [Hudl / Wistia / YouTube / Other]
 PLAYLIST/GAME: [Title]
@@ -214,7 +219,7 @@ NEXT STEPS:
 
 | Problem | Cause | Solution |
 | --- | --- | --- |
-| extract_live_view_playlist returns empty | Playlist not loaded, pagination hidden, or page changed | Use read_live_view() to inspect page, then interact_with_live_view() to scroll/load if needed |
+| extract_live_view_media returns empty | Media not loaded on page or player state issue | Use read_live_view() to inspect page, click play button in live view, wait 2s, then try extract_live_view_media() again |
 | Media extraction fails with 401 | User's Hudl/platform auth expired | Redirect user to settings → Connected Accounts → Re-authenticate |
 | URLs are blob: references | Player hasn't started, or media extraction ran too early | Click play in live view first, wait 2s, then extract_live_view_media() again |
 | Signed URLs expired before batch processing | URLs have short TTL (e.g., 15 min) | Get fresh URLs closer to processing time, or use platform's batch API if available |

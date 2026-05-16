@@ -9,6 +9,7 @@
  */
 
 import { BaseSkill, type SkillCategory } from '../base.skill.js';
+import { extractGameAnalysisParams } from '@nxt1/core';
 
 export class FilmBreakdownTaxonomySkill extends BaseSkill {
   readonly name = 'film_breakdown_taxonomy';
@@ -18,9 +19,9 @@ export class FilmBreakdownTaxonomySkill extends BaseSkill {
   readonly category: SkillCategory = 'evaluation';
 
   getPromptContext(params?: Record<string, unknown>): string {
-    // Extract team context if provided
-    const team = (params as any)?.team;
-    const game = (params as any)?.game;
+    const gameAnalysisParams = extractGameAnalysisParams(params);
+    const team = gameAnalysisParams?.team;
+    const game = gameAnalysisParams?.game;
 
     const jerseyContext =
       team && (team.ownTeamColor || team.opponentTeamColor)

@@ -40,11 +40,9 @@ function sanitizeInfrastructureTerms(value: string): string {
       .replace(/\bFirebase\s+signed\s+URLs?\b/gi, (m) =>
         /urls?$/i.test(m) ? 'secure media links' : 'secure media link'
       )
-      // Raw firebasestorage / storage.googleapis.com URLs
-      .replace(
-        /https?:\/\/(?:storage|firebasestorage)\.googleapis\.com\/[^\s"')\]]+/gi,
-        '[media-url]'
-      )
+      // Keep raw storage URLs intact in user-visible text.
+      // Chunked streaming can split URLs across delta boundaries; replacing
+      // prefixes (e.g. with [media-url]) corrupts links into relative routes.
       // Apify — internal automation service; order matters (longest match first)
       .replace(/\bApify\s+MP4\s+acquisition\b/gi, 'video format conversion')
       .replace(/\bApify\s+downloader\b/gi, 'video converter')
