@@ -34,7 +34,7 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    include: ['src/**/*.{test,spec}.ts'],
+    include: ['src/**/*.{test,spec}.ts', 'src/**/__tests__/**/*.ts'],
     exclude: ['**/node_modules/**', '**/dist/**'],
     passWithNoTests: true,
     setupFiles: ['reflect-metadata', './src/test-setup.ts'],
