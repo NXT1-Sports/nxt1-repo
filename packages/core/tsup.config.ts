@@ -8,13 +8,31 @@ import { join } from 'node:path';
  * emits bare specifiers like `from './error.types'`.
  */
 async function fixEsmImports(dir: string): Promise<void> {
-  const entries = await readdir(dir, { withFileTypes: true });
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return;
+    }
+    throw error;
+  }
+
   for (const entry of entries) {
     const fullPath = join(dir, entry.name);
     if (entry.isDirectory()) {
       await fixEsmImports(fullPath);
     } else if (entry.name.endsWith('.js')) {
-      const content = await readFile(fullPath, 'utf-8');
+      let content: string;
+      try {
+        content = await readFile(fullPath, 'utf-8');
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          continue;
+        }
+        throw error;
+      }
+
       const fixed = content.replace(
         /((?:from|import)\s*['"])(\.\.?\/[^'"]+?)(['"])/g,
         (_match, prefix: string, path: string, suffix: string) => {
@@ -26,7 +44,14 @@ async function fixEsmImports(dir: string): Promise<void> {
         }
       );
       if (fixed !== content) {
-        await writeFile(fullPath, fixed, 'utf-8');
+        try {
+          await writeFile(fullPath, fixed, 'utf-8');
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            continue;
+          }
+          throw error;
+        }
       }
     }
   }

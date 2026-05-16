@@ -77,6 +77,13 @@ const PRIMARY_SYSTEM_TOOLS: readonly string[] = [
   'plan_and_execute',
 ];
 
+const STRATEGY_ROUTER_FALLBACK_TOOLS = new Set([
+  'create_play_diagram',
+  'create_board_diagram',
+  'write_playbooks',
+  'save_gameplan',
+]);
+
 const PRIMARY_REASONING_CONTRACT = [
   '## Primary Reasoning Contract (2026)',
   '',
@@ -431,6 +438,17 @@ export class PrimaryAgent extends BaseAgent {
       );
     }
 
+    if (STRATEGY_ROUTER_FALLBACK_TOOLS.has(toolCall.function.name)) {
+      return this.handleDirectStrategyArtifactFallback(
+        toolCall,
+        userId,
+        sessionContext?.operationId,
+        approvalGate,
+        onStreamEvent,
+        signal
+      );
+    }
+
     if (toolCall.function.name === 'interact_with_live_view') {
       const liveViewFilmFallback = await this.tryHandleLiveViewFilmInteractionFallback(
         toolCall,
@@ -654,6 +672,94 @@ export class PrimaryAgent extends BaseAgent {
       },
       icon: this.resolveToolStepIcon(toolCall.function.name),
       message: this.resolveToolInvocationLabel(toolCall.function.name, toolCall.function.arguments),
+    });
+
+    const result = await this.dispatcher.runCoordinator(
+      coordinatorId,
+      goal,
+      ctx,
+      structuredPayload
+    );
+
+    const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
+    const followUpRequired = !result.success && !userAlreadyReceivedResponse;
+    return JSON.stringify({
+      success: result.success,
+      data: {
+        dispatch_kind: result.dispatchKind ?? 'coordinator',
+        coordinator_id: coordinatorId,
+        user_already_received_response: userAlreadyReceivedResponse,
+        follow_up_required: followUpRequired,
+        follow_up_hint: followUpRequired
+          ? 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
+          : 'No follow-up needed because the coordinator already responded directly to the user.',
+        coordinator_observation: result.observation,
+        ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
+          ? { coordinator_artifacts: result.coordinatorArtifacts }
+          : {}),
+        streamed_delta_count: result.streamedDeltaCount ?? 0,
+        streamed_char_count: result.streamedCharCount ?? 0,
+      },
+    });
+  }
+
+  private async handleDirectStrategyArtifactFallback(
+    toolCall: LLMToolCall,
+    userId: string,
+    operationId: string | undefined,
+    approvalGate: ApprovalGateService | undefined,
+    onStreamEvent: OnStreamEvent | undefined,
+    signal: AbortSignal | undefined
+  ): Promise<string> {
+    const ctx = this.resolveDispatchContext(
+      operationId,
+      userId,
+      approvalGate,
+      onStreamEvent,
+      signal
+    );
+
+    if (!ctx) {
+      return JSON.stringify({
+        success: false,
+        error: 'Strategy delegation unavailable: missing per-run state.',
+      });
+    }
+
+    let args: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(toolCall.function.arguments) as unknown;
+      if (parsed && typeof parsed === 'object') {
+        args = parsed as Record<string, unknown>;
+      }
+    } catch {
+      args = {};
+    }
+
+    const coordinatorId: Extract<AgentIdentifier, 'strategy_coordinator'> = 'strategy_coordinator';
+    const goal =
+      'Handle this strategy artifact request end-to-end (diagram/playbook/game plan) and return final user-ready output.';
+
+    const structuredPayload = {
+      ...args,
+      source: `router_${toolCall.function.name}_fallback`,
+      originalToolName: toolCall.function.name,
+    };
+
+    onStreamEvent?.({
+      type: 'tool_result',
+      agentId: this.id,
+      stepId: toolCall.id,
+      toolName: 'delegate_to_coordinator',
+      stageType: 'tool',
+      toolSuccess: true,
+      toolResult: {
+        delegated: true,
+        coordinatorId,
+        reason: 'strategy_artifact_tool_router_fallback',
+      },
+      icon: this.resolveToolStepIcon('delegate_to_coordinator'),
+      message: 'Routing to specialist coordinator: Strategy Coordinator',
     });
 
     const result = await this.dispatcher.runCoordinator(

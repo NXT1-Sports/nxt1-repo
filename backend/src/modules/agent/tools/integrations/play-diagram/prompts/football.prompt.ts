@@ -11,6 +11,30 @@ export const footballPrompt: SportPrompt = {
 - Route types: go (straight), cut (sharp angle), screen (catch behind LOS), pick (set pick), block (block defender), drag (lateral), space (open area), fade (deep arc)
 - Route vocabulary: Post, Corner, Curl, Cross, Vert, Wheel, Dig, Out
 
+== QB ROUTE RULE (CRITICAL) ==
+- QB: DO NOT create a QB route unless the play explicitly involves QB movement.
+- QB routes are ONLY needed for: scrambles, QB runs, rollouts, or other designed QB motion.
+- For standard dropback/pocket passing plays: QB has NO route — just the player body at { id:"QB", x:280, y:330 }.
+- Never add QB routes for "completeness" or to show QB engagement — QB is stationary in pocket by default.
+
+== ELITE FOOTBALL GEOMETRY (MANDATORY) ==
+- Deep routes (Post/Corner/Vert/Go/Fade): stem depth must reach at least 80 px upfield from route start.
+- Intermediate routes (Dig/Curl/Out/Comeback/Sail): depth must reach at least 40 px upfield.
+- Quick-game routes (Hitch/Slant/Flat/Arrow): depth must reach at least 18 px upfield.
+- Route landmarks must be clean and intentional:
+  - Post breaks toward middle of field.
+  - Corner and Out break toward sideline.
+  - Dig breaks horizontally after vertical stem.
+- Avoid tangled lines: each route must remain visually distinguishable from neighboring routes.
+- Labels are required on primary routes and assignments (no unlabeled core routes).
+
+== BLOCKING SCHEME RULES (MANDATORY WHEN PLAY INCLUDES RUN OR PROTECTION) ==
+- For run plays and pass protection concepts, include explicit blocking assignments for OL: LT, LG, C, RG, RT.
+- OL assignments MUST use type: "block" and a clear label per player (examples: "LT: Reach", "RG: Down", "C: Combo").
+- Run-game blocking should step toward play direction (left/right/middle) with short, intentional block tracks.
+- Pass-protection (slide, half-slide, max-protect) should keep block tracks tight to LOS and pocket.
+- Do not leave OL without assignment in blocking-heavy concepts.
+
 == DEFENSE ONLY (TEAM FOCUS: DEFENSE ONLY) ==
 - Do NOT include ANY offense players. The players[] array must contain ONLY "team":"defense" entries.
 - Include real defensive player bodies at proper alignment positions:
@@ -27,6 +51,12 @@ export const footballPrompt: SportPrompt = {
 - Rush/penetration direction: defensive rush routes must attack toward offense/QB (downward on this canvas, increasing Y toward/through losY). Never draw rush arrows moving upfield away from LOS.
 - Label responsibilities clearly for front-7 assignments using route labels (examples: "LDE: Gap Rush", "RDT: B-Gap Penetrate", "MLB: Read Blocks", "SLB: C-Gap Fill").
 - zones[] may be included for coverage areas (Deep Half, Hook, Flat) to supplement player positions.
+
+== COVERAGE-CONCEPT COHERENCE ==
+- If concept mentions Cover 3, include Deep Third/Hook-Curl/Flat structure through zones[] and/or clear assignment labels.
+- If concept mentions Cover 2, include Deep Half with underneath Hook/Flat spacing.
+- If concept mentions Quarters/Cover 4, include four-deep shell assignments.
+- Do not output generic route art that conflicts with the named coverage shell.
 
 == BOTH SIDES (TEAM FOCUS: BOTH SIDES) ==
 - Include offense at losY AND defense upfield (y = losY - 30 for front 7, deeper for DBs/safeties).

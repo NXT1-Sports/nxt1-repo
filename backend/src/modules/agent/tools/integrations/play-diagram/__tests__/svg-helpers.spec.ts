@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   renderDiagramSvg,
   renderLegend,
+  renderAnnotationStrip,
   renderPlayers,
   renderRoutes,
 } from '../shared/svg-helpers.js';
@@ -155,6 +156,48 @@ describe('renderRoutes — path vs polyline', () => {
     expect(svg).toContain('marker-end="url(#arr-go)"');
     expect(svg).not.toContain(' C ');
   });
+
+  it('respects custom color field on routes', () => {
+    const svg = renderRoutes([
+      {
+        from: 'X',
+        type: 'go',
+        points: [
+          [60, 300],
+          [60, 150],
+        ],
+        color: '#00ff00', // Bright green
+      },
+      {
+        from: 'Z',
+        type: 'go',
+        points: [
+          [540, 300],
+          [540, 150],
+        ],
+        color: '#ff3333', // Bright red
+      },
+    ]);
+    // Custom colors should be used in the SVG
+    expect(svg).toContain('stroke="#00ff00"');
+    expect(svg).toContain('stroke="#ff3333"');
+  });
+
+  it('falls back to default color when no custom color specified', () => {
+    const svg = renderRoutes([
+      {
+        from: 'X',
+        type: 'go',
+        points: [
+          [60, 300],
+          [60, 150],
+        ],
+        // No color specified - should use default for 'go' type
+      },
+    ]);
+    // Should use default go route color (routePass/routeGo)
+    expect(svg).toContain('stroke="#f7b500"'); // Default yellow for 'go' type
+  });
 });
 
 // ─── Player shape rendering ───────────────────────────────────────────────────
@@ -193,6 +236,46 @@ describe('renderPlayers — shapes', () => {
     ]);
     expect(svgDiamond).toContain('<polygon');
     expect(svgDiamond).not.toContain('<rect');
+  });
+
+  it('normalizes suffixed slot labels for player display', () => {
+    const svg = renderPlayers([
+      { id: 'sl1', label: 'SL1', x: 180, y: 280, team: 'offense' },
+      { id: 'sl2', label: 'SL2', x: 220, y: 280, team: 'offense' },
+    ]);
+
+    expect(svg).toContain('>H<');
+    expect(svg).toContain('>Y<');
+    expect(svg).not.toContain('>SL1<');
+    expect(svg).not.toContain('>SL2<');
+  });
+});
+
+describe('renderAnnotationStrip', () => {
+  it('normalizes suffixed slot tokens in route annotations', () => {
+    const result = renderAnnotationStrip(
+      [{ from: 'SL1', label: 'Seam', type: 'go', points: [[0, 0], [10, 10]] }],
+      600,
+      440
+    );
+
+    expect(result.svg).toContain('H: Seam');
+    expect(result.svg).not.toContain('SL1: Seam');
+  });
+
+  it('adds enough strip height to avoid clipping the last row', () => {
+    const result = renderAnnotationStrip(
+      [
+        { from: 'X', label: 'One', type: 'go', points: [[0, 0], [10, 10]] },
+        { from: 'H', label: 'Two', type: 'go', points: [[0, 0], [10, 10]] },
+        { from: 'Y', label: 'Three', type: 'go', points: [[0, 0], [10, 10]] },
+        { from: 'Z', label: 'Four', type: 'go', points: [[0, 0], [10, 10]] },
+      ],
+      600,
+      440
+    );
+
+    expect(result.height).toBe(92);
   });
 });
 
@@ -311,10 +394,15 @@ describe('renderDiagramSvg — layer order', () => {
     expect(zoneIdx).toBeGreaterThan(routeIdx);
   });
 
-  it('renders the legend after the title bar', () => {
+  it('does not render legend by default', () => {
     const svg = renderDiagramSvg(LAYOUT, '<g id="field"/>');
+    expect(svg).not.toContain('>Go<');
+  });
+
+  it('renders legend when explicitly enabled', () => {
+    const svg = renderDiagramSvg(LAYOUT, '<g id="field"/>', { showLegend: true });
     const titleIdx = svg.indexOf(LAYOUT.title);
-    const legendIdx = svg.indexOf('Go'); // legend label
+    const legendIdx = svg.indexOf('>Go<');
     expect(legendIdx).toBeGreaterThan(titleIdx);
   });
 });

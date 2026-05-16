@@ -43,6 +43,8 @@ export {
   type SportCell,
   type Sport,
   type SportsMap,
+  type PlaybookSituationFilter,
+  type SportPlaybookConfig,
   SPORT_POSITIONS,
   POSITION_ABBREVIATIONS,
   POSITION_MAPPING_BY_SPORT,
@@ -68,6 +70,8 @@ export {
   getRequiredAthleticInfo,
   isValidSport,
   getAllSports,
+  SPORT_PLAYBOOK_CONFIG,
+  getSportPlaybookConfig,
 } from './sport.constants';
 
 // Location constants (states, countries)

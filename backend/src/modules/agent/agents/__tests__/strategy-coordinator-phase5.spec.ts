@@ -268,6 +268,14 @@ describe('Phase 5: Strategy Coordinator Diagram Tool Routing & Hardening', () =>
       // Verify router does not have create_board_diagram (should be strategy only)
       expect(policy).not.toContain('create_board_diagram');
     });
+
+    it('system prompt forbids auto-saving play mutations without explicit save/apply request', () => {
+      const prompt = agent.getSystemPrompt({ mode: 'default' });
+
+      expect(prompt).toContain('NEVER auto-save, auto-update, auto-add, or auto-overwrite plays/playbooks');
+      expect(prompt).toContain('A request to brainstorm, improve, compare, redraw, or revise is NOT permission to persist');
+      expect(prompt).toContain('still require a fresh explicit save/apply request');
+    });
   });
 
   // ─── COACH/ATHLETE USAGE SCENARIOS ──────────────────────────────────

@@ -18,6 +18,21 @@ const SOCCER_ALIASES = new Set([
   'soccer womens',
   "men's soccer",
   "women's soccer",
+  'field hockey',
+  'field_hockey',
+  'lacrosse',
+  'lacrosse_mens',
+  'lacrosse_womens',
+  'ice hockey',
+  'ice_hockey',
+  'ice_hockey_mens',
+  'ice_hockey_womens',
+]);
+
+const BASKETBALL_STYLE_ALIASES = new Set([
+  'volleyball',
+  'volleyball_mens',
+  'volleyball_womens',
 ]);
 
 export function normalizeSportId(value: string | undefined | null): NormalizedSport {
@@ -27,6 +42,7 @@ export function normalizeSportId(value: string | undefined | null): NormalizedSp
   if (raw === 'baseball') return 'baseball';
   if (raw === 'softball') return 'softball';
   if (BASKETBALL_ALIASES.has(raw)) return 'basketball';
+  if (BASKETBALL_STYLE_ALIASES.has(raw)) return 'basketball';
   if (SOCCER_ALIASES.has(raw)) return 'soccer';
 
   return 'football';

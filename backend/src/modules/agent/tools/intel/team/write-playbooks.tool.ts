@@ -111,6 +111,31 @@ const PlayEntrySchema = z
 
     /** The source platform's own internal ID for this play (e.g. Hudl card ID) */
     sourcePlayId: z.string().trim().min(1).optional(),
+
+    // ─── AI-NATIVE INSTALL LAYER ──────────────────────────────────────────────
+    /** Install stage: "install" (teaching), "rep" (repetition), "game-ready" */
+    installStage: z.enum(['install', 'rep', 'game-ready']).optional(),
+
+    /** Key coaching points for this play — teaching moments coaches emphasize */
+    coachingPoints: z.array(z.string().trim().min(1)).optional(),
+
+    /** Common breakdowns or mistakes to watch for during installation */
+    commonBusts: z.array(z.string().trim().min(1)).optional(),
+
+    /** Correction cues — short, callout-friendly phrases for live corrections */
+    correctionCues: z.array(z.string().trim().min(1)).optional(),
+
+    /** Drill progression — drills that build toward this play installation */
+    drillProgression: z.array(z.string().trim().min(1)).optional(),
+
+    // ─── AI-NATIVE SITUATION LAYER ────────────────────────────────────────────
+    /**
+     * Situational contexts where this play excels. Agent X uses these to recommend plays.
+     * Examples: "1st & 10", "1st & long", "2nd & short", "2nd & medium", "2nd & long",
+     * "3rd & short", "3rd & medium", "3rd & long", "red zone", "2-minute",
+     * "4th & short", "backed up", "empty", "goal line", "two-minute warning"
+     */
+    situations: z.array(z.string().trim().min(1)).optional(),
   })
   .passthrough();
 
@@ -194,6 +219,17 @@ function buildPlayEntry(raw: PlayEntry, now: string): Record<string, unknown> {
   if (raw.strengths?.length) entry['strengths'] = raw.strengths.map((s) => s.trim().toLowerCase());
   if (raw.tags?.length) entry['tags'] = raw.tags.map((t) => t.trim().toLowerCase());
   if (raw.sourcePlayId) entry['sourcePlayId'] = raw.sourcePlayId.trim();
+
+  // AI-native install layer
+  if (raw.installStage) entry['installStage'] = raw.installStage;
+  if (raw.coachingPoints?.length) entry['coachingPoints'] = raw.coachingPoints.map((p) => p.trim());
+  if (raw.commonBusts?.length) entry['commonBusts'] = raw.commonBusts.map((b) => b.trim());
+  if (raw.correctionCues?.length) entry['correctionCues'] = raw.correctionCues.map((c) => c.trim());
+  if (raw.drillProgression?.length)
+    entry['drillProgression'] = raw.drillProgression.map((d) => d.trim());
+
+  // AI-native situation layer
+  if (raw.situations?.length) entry['situations'] = raw.situations.map((s) => s.trim());
 
   return entry;
 }

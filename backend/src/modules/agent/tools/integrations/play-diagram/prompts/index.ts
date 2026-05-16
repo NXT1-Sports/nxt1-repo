@@ -31,7 +31,7 @@ OUTPUT SCHEMA:
   "fieldHeight": 440,
   "losY": number,
   "players": [{ "id": string, "label": string, "x": number, "y": number, "team": "offense"|"defense", "shape": "circle"|"square"|"diamond" }],
-  "routes": [{ "from": string, "points": [[x,y], ...], "label": string, "type": "go"|"cut"|"screen"|"pick"|"block"|"drag"|"space"|"fade", "curve": true|false }]
+  "routes": [{ "from": string, "points": [[x,y], ...], "label": string, "type": "go"|"cut"|"screen"|"pick"|"block"|"drag"|"space"|"fade", "curve": true|false, "color": "#00ff00"|"#0099ff"|"#ffdd00"|"#ff3333" }]
 }
 
 PLAYER SHAPE RULES — every player MUST have a "shape" field:
@@ -53,6 +53,14 @@ CURVE RULES — set "curve" on every route:
 - true  → routes with 3+ waypoints describing an arc, fade, post, or corner (visually smoothed)
 - false → straight-line assignments: go routes with 2 points, block assignments (sharp/linear)
 - When in doubt for skill positions, use true
+
+COLOR RULES (REQUIRED) — every route MUST include a "color" value from this set:
+- "color": "#00ff00" → bright GREEN (for GO routes, assignments, key plays)
+- "color": "#0099ff" → bright BLUE (for defensive reads, coverages, secondary assignments)
+- "color": "#ffdd00" → bright YELLOW (for quick game, tempo plays, hot routes)
+- "color": "#ff3333" → bright RED (for deep threats, critical assignments, red zone plays)
+- DISTRIBUTION RULE: avoid one-color outputs unless explicitly requested. Use at least 2 colors when there are 2+ routes, and 3+ colors when there are 4+ routes.
+- STRATEGIC USE: Assign colors to visually group related plays, distinguish threat levels, or highlight key read progressions.
 
 TEAM VISIBILITY RULES (CRITICAL — READ USER MESSAGE FOR TEAM FOCUS DIRECTIVE FIRST):
 - The user message will contain a "TEAM FOCUS:" directive. That directive overrides all defaults below.

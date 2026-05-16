@@ -71,6 +71,20 @@ export interface Sport {
 
 export type SportsMap = Record<string, Sport>;
 
+export interface PlaybookSituationFilter {
+  readonly key: string;
+  readonly label: string;
+  readonly options: readonly string[];
+}
+
+export interface SportPlaybookConfig {
+  readonly formationLabel: string;
+  readonly personnelLabel: string;
+  readonly situationFilters: readonly PlaybookSituationFilter[];
+  readonly defaultCategory: string;
+  readonly icon: string;
+}
+
 // ============================================
 // HELPERS
 // ============================================
@@ -157,6 +171,221 @@ export function formatSportDisplayName(sportName: string): string {
   }
 
   return toTitleCase(sportName);
+}
+
+const GENERIC_PLAYBOOK_CONFIG: SportPlaybookConfig = {
+  formationLabel: 'Formation',
+  personnelLabel: 'Personnel',
+  situationFilters: [{ key: 'situation', label: 'Situation', options: [] }],
+  defaultCategory: 'Base',
+  icon: 'clipboard',
+};
+
+export const SPORT_PLAYBOOK_CONFIG: Record<string, SportPlaybookConfig> = {
+  football: {
+    formationLabel: 'Formation',
+    personnelLabel: 'Personnel',
+    situationFilters: [
+      {
+        key: 'down_distance',
+        label: 'Down & Distance',
+        options: [
+          '1st & 10',
+          '1st & long',
+          '2nd & short',
+          '2nd & medium',
+          '2nd & long',
+          '3rd & short',
+          '3rd & medium',
+          '3rd & long',
+          '4th & short',
+        ],
+      },
+      {
+        key: 'field_position',
+        label: 'Field Position',
+        options: ['backed up', 'midfield', 'red zone', 'goal line'],
+      },
+      {
+        key: 'game_situation',
+        label: 'Game Situation',
+        options: ['2-minute', '4-minute', 'opening script', 'short yardage', 'empty'],
+      },
+    ],
+    defaultCategory: 'Concept',
+    icon: 'football',
+  },
+  basketball: {
+    formationLabel: 'Set',
+    personnelLabel: 'Lineup',
+    situationFilters: [
+      {
+        key: 'quarter',
+        label: 'Quarter',
+        options: ['Q1', 'Q2', 'Q3', 'Q4', 'OT'],
+      },
+      {
+        key: 'clock',
+        label: 'Clock',
+        options: ['early clock', 'half-court', 'ATO', 'late game'],
+      },
+      {
+        key: 'possession_type',
+        label: 'Possession Type',
+        options: ['BLOB', 'SLOB', 'transition', 'vs zone', 'vs man'],
+      },
+    ],
+    defaultCategory: 'Action',
+    icon: 'basketball',
+  },
+  soccer: {
+    formationLabel: 'Shape',
+    personnelLabel: 'Unit',
+    situationFilters: [
+      {
+        key: 'phase',
+        label: 'Phase',
+        options: ['build-up', 'final third', 'defensive block', 'transition'],
+      },
+      {
+        key: 'set_piece',
+        label: 'Set Piece',
+        options: ['corner', 'free kick', 'throw-in', 'penalty'],
+      },
+      {
+        key: 'field_zone',
+        label: 'Field Zone',
+        options: ['defensive third', 'middle third', 'attacking third', 'box'],
+      },
+    ],
+    defaultCategory: 'Pattern',
+    icon: 'soccer',
+  },
+  baseball: {
+    formationLabel: 'Defensive Alignment',
+    personnelLabel: 'Position Group',
+    situationFilters: [
+      {
+        key: 'inning',
+        label: 'Inning',
+        options: ['early innings', 'middle innings', 'late innings', 'extra innings'],
+      },
+      {
+        key: 'count',
+        label: 'Count',
+        options: ['0-0', 'hitter count', 'pitcher count', 'two strikes', 'full count'],
+      },
+      {
+        key: 'base_state',
+        label: 'Base State',
+        options: ['bases empty', 'runner on 1st', 'runner on 2nd', 'runners in scoring position', 'bases loaded'],
+      },
+    ],
+    defaultCategory: 'Situation',
+    icon: 'baseball',
+  },
+  softball: {
+    formationLabel: 'Defensive Alignment',
+    personnelLabel: 'Position Group',
+    situationFilters: [
+      {
+        key: 'inning',
+        label: 'Inning',
+        options: ['early innings', 'middle innings', 'late innings', 'extra innings'],
+      },
+      {
+        key: 'count',
+        label: 'Count',
+        options: ['0-0', 'hitter count', 'pitcher count', 'two strikes', 'full count'],
+      },
+      {
+        key: 'base_state',
+        label: 'Base State',
+        options: ['bases empty', 'runner on 1st', 'runner on 2nd', 'runners in scoring position', 'bases loaded'],
+      },
+    ],
+    defaultCategory: 'Situation',
+    icon: 'softball',
+  },
+  volleyball: {
+    formationLabel: 'Rotation',
+    personnelLabel: 'Unit',
+    situationFilters: [
+      {
+        key: 'set_phase',
+        label: 'Set Phase',
+        options: ['serve receive', 'transition', 'out-of-system', 'match point'],
+      },
+      {
+        key: 'serve_target',
+        label: 'Serve Target',
+        options: ['zone 1', 'zone 5', 'zone 6', 'short', 'deep'],
+      },
+    ],
+    defaultCategory: 'Scheme',
+    icon: 'volleyball',
+  },
+  lacrosse: {
+    formationLabel: 'Set',
+    personnelLabel: 'Unit',
+    situationFilters: [
+      {
+        key: 'phase',
+        label: 'Phase',
+        options: ['settled offense', 'ride/clear', 'transition', 'man-up', 'man-down'],
+      },
+      {
+        key: 'field_zone',
+        label: 'Field Zone',
+        options: ['restraining box', 'wing', 'crease', 'x'],
+      },
+    ],
+    defaultCategory: 'Package',
+    icon: 'lacrosse',
+  },
+  field_hockey: {
+    formationLabel: 'Shape',
+    personnelLabel: 'Unit',
+    situationFilters: [
+      {
+        key: 'phase',
+        label: 'Phase',
+        options: ['build-up', 'press', 'counter', 'circle entry'],
+      },
+      {
+        key: 'set_piece',
+        label: 'Set Piece',
+        options: ['penalty corner', 'free hit', 'sideline restart'],
+      },
+    ],
+    defaultCategory: 'Pattern',
+    icon: 'field-hockey',
+  },
+  ice_hockey: {
+    formationLabel: 'Setup',
+    personnelLabel: 'Line',
+    situationFilters: [
+      {
+        key: 'zone',
+        label: 'Zone',
+        options: ['offensive zone', 'neutral zone', 'defensive zone'],
+      },
+      {
+        key: 'game_state',
+        label: 'Game State',
+        options: ['5v5', 'power play', 'penalty kill', 'empty net'],
+      },
+    ],
+    defaultCategory: 'Structure',
+    icon: 'ice-hockey',
+  },
+  generic: GENERIC_PLAYBOOK_CONFIG,
+} as const;
+
+export function getSportPlaybookConfig(sport: string): SportPlaybookConfig {
+  const normalizedSport = normalizeBaseSportKey(sport || '');
+  if (!normalizedSport) return GENERIC_PLAYBOOK_CONFIG;
+  return SPORT_PLAYBOOK_CONFIG[normalizedSport] ?? GENERIC_PLAYBOOK_CONFIG;
 }
 
 // ============================================

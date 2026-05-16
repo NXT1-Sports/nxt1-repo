@@ -10,6 +10,7 @@
  */
 
 import { Router, type Request, type Response } from 'express';
+import { z } from 'zod';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { uploadRateLimit } from '../../middleware/rate-limit/rate-limit.middleware.js';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
@@ -44,6 +45,7 @@ import {
   queueService,
   agentUpload,
   getAuthUser,
+  llmService,
   getGenerationService,
   isLegacyFallbackPlaybook,
   contextBuilder,
@@ -2109,6 +2111,96 @@ function buildPlayIndexes(plays: Record<string, unknown>[]): Record<string, stri
   };
 }
 
+const callsheetAiOutputSchema = z.object({
+  plays: z.array(
+    z.object({
+      playName: z.string().min(1),
+      score: z.number().min(0).max(100),
+      reasoning: z.string().min(1),
+    })
+  ),
+});
+
+const installPlanOutputSchema = z.object({
+  updates: z.array(
+    z.object({
+      playIndex: z.number().int().min(0),
+      installStage: z.enum(['install', 'rep', 'game-ready']),
+      reasoning: z.string().min(1),
+    })
+  ),
+});
+
+function normalizeToken(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function splitSituationTerms(situation: string): string[] {
+  return situation
+    .split(/[|,]/g)
+    .map((part) =>
+      part
+        .replace(/^[^:]+:\s*/, '')
+        .trim()
+        .toLowerCase()
+    )
+    .filter((part) => part.length > 0);
+}
+
+function normalizePlayName(play: Record<string, unknown>, fallbackIndex: number): string {
+  const name = typeof play['name'] === 'string' ? play['name'].trim() : '';
+  if (name.length > 0) return name;
+  const title = typeof play['title'] === 'string' ? play['title'].trim() : '';
+  if (title.length > 0) return title;
+  return `Play ${fallbackIndex + 1}`;
+}
+
+function deterministicCallsheetRanking(
+  plays: readonly Record<string, unknown>[],
+  situation: string
+): Array<{ playName: string; score: number; reasoning: string }> {
+  const terms = splitSituationTerms(situation);
+
+  return plays
+    .map((play, index) => {
+      const playName = normalizePlayName(play, index);
+      const successRate =
+        typeof play['successRate'] === 'number' ? Math.max(0, Math.min(play['successRate'], 1)) : 0;
+      const situations = Array.isArray(play['situations'])
+        ? play['situations']
+            .filter((entry): entry is string => typeof entry === 'string')
+            .map((entry) => normalizeToken(entry))
+        : [];
+      const concepts = Array.isArray(play['conceptTags'])
+        ? play['conceptTags']
+            .filter((entry): entry is string => typeof entry === 'string')
+            .map((entry) => normalizeToken(entry))
+        : [];
+      const objective =
+        typeof play['objective'] === 'string' ? play['objective'].toLowerCase() : '';
+
+      const matches = terms.filter((term) => {
+        if (!term) return false;
+        return (
+          situations.includes(term) ||
+          situations.some((value) => value.includes(term)) ||
+          concepts.some((value) => value.includes(term)) ||
+          objective.includes(term)
+        );
+      });
+
+      const score = Math.max(0, Math.min(100, Math.round(successRate * 70 + matches.length * 15)));
+      const reasoning =
+        matches.length > 0
+          ? `Matched ${matches.length} situation signal(s): ${matches.join(', ')}.`
+          : 'Selected from baseline success and concept fit.';
+
+      return { playName, score, reasoning };
+    })
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 12);
+}
+
 /** Summarize a TeamPlaybooks doc for the list response. */
 function toPlaybookSummary(id: string, data: Record<string, unknown>): Record<string, unknown> {
   const plays = Array.isArray(data['plays']) ? (data['plays'] as unknown[]) : [];
@@ -2533,6 +2625,50 @@ router.post('/playbooks/:playbookId/plays', appGuard, async (req: Request, res: 
     const tags = titleCaseArr(body['tags']);
     if (tags.length) newPlay['tags'] = tags;
 
+    // AI-native install layer
+    if (
+      body['installStage'] === 'install' ||
+      body['installStage'] === 'rep' ||
+      body['installStage'] === 'game-ready'
+    ) {
+      newPlay['installStage'] = body['installStage'];
+    }
+    const coachingPoints = Array.isArray(body['coachingPoints'])
+      ? body['coachingPoints']
+          .filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+          .map((p) => p.trim())
+      : [];
+    if (coachingPoints.length) newPlay['coachingPoints'] = coachingPoints;
+
+    const commonBusts = Array.isArray(body['commonBusts'])
+      ? body['commonBusts']
+          .filter((b): b is string => typeof b === 'string' && b.trim().length > 0)
+          .map((b) => b.trim())
+      : [];
+    if (commonBusts.length) newPlay['commonBusts'] = commonBusts;
+
+    const correctionCues = Array.isArray(body['correctionCues'])
+      ? body['correctionCues']
+          .filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+          .map((c) => c.trim())
+      : [];
+    if (correctionCues.length) newPlay['correctionCues'] = correctionCues;
+
+    const drillProgression = Array.isArray(body['drillProgression'])
+      ? body['drillProgression']
+          .filter((d): d is string => typeof d === 'string' && d.trim().length > 0)
+          .map((d) => d.trim())
+      : [];
+    if (drillProgression.length) newPlay['drillProgression'] = drillProgression;
+
+    // AI-native situation layer
+    const situations = Array.isArray(body['situations'])
+      ? body['situations']
+          .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+          .map((s) => s.trim())
+      : [];
+    if (situations.length) newPlay['situations'] = situations;
+
     const plays: Record<string, unknown>[] = [
       ...((existing['plays'] as Record<string, unknown>[]) ?? []),
       newPlay,
@@ -2637,6 +2773,47 @@ router.patch(
         updated['conceptTags'] = titleCaseArr(body['conceptTags']);
       if (Array.isArray(body['tags'])) updated['tags'] = titleCaseArr(body['tags']);
 
+      // AI-native install layer
+      if (
+        body['installStage'] === 'install' ||
+        body['installStage'] === 'rep' ||
+        body['installStage'] === 'game-ready'
+      ) {
+        updated['installStage'] = body['installStage'];
+      }
+      if (Array.isArray(body['coachingPoints'])) {
+        const points = body['coachingPoints']
+          .filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
+          .map((p) => p.trim());
+        if (points.length) updated['coachingPoints'] = points;
+      }
+      if (Array.isArray(body['commonBusts'])) {
+        const busts = body['commonBusts']
+          .filter((b): b is string => typeof b === 'string' && b.trim().length > 0)
+          .map((b) => b.trim());
+        if (busts.length) updated['commonBusts'] = busts;
+      }
+      if (Array.isArray(body['correctionCues'])) {
+        const cues = body['correctionCues']
+          .filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
+          .map((c) => c.trim());
+        if (cues.length) updated['correctionCues'] = cues;
+      }
+      if (Array.isArray(body['drillProgression'])) {
+        const drills = body['drillProgression']
+          .filter((d): d is string => typeof d === 'string' && d.trim().length > 0)
+          .map((d) => d.trim());
+        if (drills.length) updated['drillProgression'] = drills;
+      }
+
+      // AI-native situation layer
+      if (Array.isArray(body['situations'])) {
+        const situs = body['situations']
+          .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
+          .map((s) => s.trim());
+        if (situs.length) updated['situations'] = situs;
+      }
+
       plays[idx] = updated;
       const now = new Date().toISOString();
       const indexes = buildPlayIndexes(plays);
@@ -2665,6 +2842,345 @@ router.patch(
         stack: error.stack,
       });
       res.status(500).json({ success: false, error: 'Failed to update play' });
+    }
+  }
+);
+
+// ─── POST /playbooks/:playbookId/callsheet-ai ───────────────────────────────
+router.post(
+  '/playbooks/:playbookId/callsheet-ai',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { playbookId } = req.params as { playbookId: string };
+      const body = req.body as Record<string, unknown>;
+      const teamId = normalizeString(body['teamId']);
+      const sport = normalizeString(body['sport']);
+      const situation = normalizeString(body['situation']);
+
+      if (!teamId) {
+        res.status(400).json({ success: false, error: 'teamId is required' });
+        return;
+      }
+      if (!sport) {
+        res.status(400).json({ success: false, error: 'sport is required' });
+        return;
+      }
+      if (!situation) {
+        res.status(400).json({ success: false, error: 'situation is required' });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const playbookRef = db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId);
+      const playbookDoc = await playbookRef.get();
+      if (!playbookDoc.exists) {
+        res.status(404).json({ success: false, error: 'Playbook not found' });
+        return;
+      }
+
+      const playbook = playbookDoc.data() as Record<string, unknown>;
+      const playbookTeamId = String(playbook['teamId'] ?? '');
+      if (playbookTeamId !== teamId) {
+        res.status(403).json({ success: false, error: 'Playbook does not belong to this team' });
+        return;
+      }
+
+      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(playbookTeamId).get();
+      const authorized = await canManageTeamMutationForUser(
+        db,
+        user.uid,
+        playbookTeamId,
+        teamDoc.data() ?? {}
+      );
+      if (!authorized) {
+        res.status(403).json({ success: false, error: 'Not authorized' });
+        return;
+      }
+
+      const plays = Array.isArray(playbook['plays'])
+        ? (playbook['plays'] as Record<string, unknown>[])
+        : [];
+      if (plays.length === 0) {
+        res.json({ success: true, data: { plays: [] } });
+        return;
+      }
+
+      let ranked = deterministicCallsheetRanking(plays, situation);
+
+      if (llmService) {
+        try {
+          const llmResult = await llmService.complete(
+            [
+              {
+                role: 'system',
+                content:
+                  'You are Agent X football/sport strategist. Return strict JSON only. Rank plays for the requested situation using objective, situations, and concept tags. Scores must be 0-100 with concise reasoning.',
+              },
+              {
+                role: 'user',
+                content: JSON.stringify({
+                  sport,
+                  situation,
+                  plays: plays.map((play, index) => ({
+                    playName: normalizePlayName(play, index),
+                    objective: typeof play['objective'] === 'string' ? play['objective'] : '',
+                    situations: Array.isArray(play['situations']) ? play['situations'] : [],
+                    conceptTags: Array.isArray(play['conceptTags']) ? play['conceptTags'] : [],
+                    successRate:
+                      typeof play['successRate'] === 'number' ? Number(play['successRate']) : null,
+                  })),
+                }),
+              },
+            ],
+            {
+              tier: 'task_automation',
+              temperature: 0.2,
+              maxTokens: 1500,
+              jsonMode: true,
+              outputSchema: {
+                name: 'callsheet_ai_rankings',
+                schema: callsheetAiOutputSchema,
+                strict: true,
+              },
+            }
+          );
+
+          const parsed = callsheetAiOutputSchema.parse(
+            llmResult.parsedOutput ??
+              (llmResult.content ? JSON.parse(llmResult.content) : { plays: [] })
+          );
+
+          const knownNames = new Set(plays.map((play, index) => normalizePlayName(play, index)));
+          const aiRanked = parsed.plays
+            .filter((entry) => knownNames.has(entry.playName))
+            .map((entry) => ({
+              playName: entry.playName,
+              score: Math.max(0, Math.min(100, Math.round(entry.score))),
+              reasoning: entry.reasoning.trim(),
+            }))
+            .sort((left, right) => right.score - left.score)
+            .slice(0, 12);
+
+          if (aiRanked.length > 0) {
+            ranked = aiRanked;
+          }
+        } catch (err) {
+          logger.warn('POST /playbooks/:id/callsheet-ai LLM fallback triggered', {
+            playbookId,
+            teamId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      res.json({ success: true, data: { plays: ranked } });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('POST /playbooks/:id/callsheet-ai failed', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to rank callsheet plays' });
+    }
+  }
+);
+
+// ─── POST /playbooks/:playbookId/generate-install-plan ─────────────────────
+router.post(
+  '/playbooks/:playbookId/generate-install-plan',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { playbookId } = req.params as { playbookId: string };
+      const body = req.body as Record<string, unknown>;
+      const teamId = normalizeString(body['teamId']);
+      const sport = normalizeString(body['sport']);
+
+      if (!teamId) {
+        res.status(400).json({ success: false, error: 'teamId is required' });
+        return;
+      }
+      if (!sport) {
+        res.status(400).json({ success: false, error: 'sport is required' });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const playbookRef = db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId);
+      const playbookDoc = await playbookRef.get();
+      if (!playbookDoc.exists) {
+        res.status(404).json({ success: false, error: 'Playbook not found' });
+        return;
+      }
+
+      const playbook = playbookDoc.data() as Record<string, unknown>;
+      const playbookTeamId = String(playbook['teamId'] ?? '');
+      if (playbookTeamId !== teamId) {
+        res.status(403).json({ success: false, error: 'Playbook does not belong to this team' });
+        return;
+      }
+
+      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(playbookTeamId).get();
+      const authorized = await canManageTeamMutationForUser(
+        db,
+        user.uid,
+        playbookTeamId,
+        teamDoc.data() ?? {}
+      );
+      if (!authorized) {
+        res.status(403).json({ success: false, error: 'Not authorized' });
+        return;
+      }
+
+      const plays = Array.isArray(playbook['plays'])
+        ? ([...(playbook['plays'] as Record<string, unknown>[])] as Record<string, unknown>[])
+        : [];
+      if (plays.length === 0) {
+        res.json({ success: true, data: { updates: [] } });
+        return;
+      }
+
+      let updates: Array<{
+        playIndex: number;
+        installStage: 'install' | 'rep' | 'game-ready';
+        reasoning: string;
+      }> = plays.map((play, index) => {
+        const complexity =
+          (Array.isArray(play['conceptTags']) ? play['conceptTags'].length : 0) +
+          (Array.isArray(play['situations']) ? play['situations'].length : 0) +
+          (typeof play['objective'] === 'string' && play['objective'].trim().length > 80 ? 1 : 0);
+
+        const installStage =
+          complexity >= 4 ? 'install' : complexity >= 2 ? 'rep' : ('game-ready' as const);
+
+        return {
+          playIndex: index,
+          installStage,
+          reasoning:
+            installStage === 'install'
+              ? 'Higher concept complexity; prioritize teaching reps first.'
+              : installStage === 'rep'
+                ? 'Moderate complexity; move through controlled repetition.'
+                : 'Lower complexity; ready for game-speed execution.',
+        };
+      });
+
+      if (llmService) {
+        try {
+          const llmResult = await llmService.complete(
+            [
+              {
+                role: 'system',
+                content:
+                  'You are Agent X install coordinator. Return strict JSON only. For each play, assign installStage as install, rep, or game-ready based on concept complexity and readiness.',
+              },
+              {
+                role: 'user',
+                content: JSON.stringify({
+                  sport,
+                  plays: plays.map((play, index) => ({
+                    playIndex: index,
+                    playName: normalizePlayName(play, index),
+                    objective: typeof play['objective'] === 'string' ? play['objective'] : '',
+                    conceptTags: Array.isArray(play['conceptTags']) ? play['conceptTags'] : [],
+                    coachingPoints: Array.isArray(play['coachingPoints'])
+                      ? play['coachingPoints']
+                      : [],
+                    situations: Array.isArray(play['situations']) ? play['situations'] : [],
+                    currentStage:
+                      play['installStage'] === 'install' ||
+                      play['installStage'] === 'rep' ||
+                      play['installStage'] === 'game-ready'
+                        ? play['installStage']
+                        : null,
+                  })),
+                }),
+              },
+            ],
+            {
+              tier: 'task_automation',
+              temperature: 0.1,
+              maxTokens: 1800,
+              jsonMode: true,
+              outputSchema: {
+                name: 'install_plan_updates',
+                schema: installPlanOutputSchema,
+                strict: true,
+              },
+            }
+          );
+
+          const parsed = installPlanOutputSchema.parse(
+            llmResult.parsedOutput ??
+              (llmResult.content ? JSON.parse(llmResult.content) : { updates: [] })
+          );
+
+          const aiUpdates = parsed.updates
+            .filter((entry) => entry.playIndex >= 0 && entry.playIndex < plays.length)
+            .map((entry) => ({
+              playIndex: entry.playIndex,
+              installStage: entry.installStage,
+              reasoning: entry.reasoning.trim(),
+            }));
+
+          if (aiUpdates.length > 0) {
+            updates = aiUpdates;
+          }
+        } catch (err) {
+          logger.warn('POST /playbooks/:id/generate-install-plan LLM fallback triggered', {
+            playbookId,
+            teamId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      for (const update of updates) {
+        const current = plays[update.playIndex] ?? {};
+        plays[update.playIndex] = {
+          ...current,
+          installStage: update.installStage,
+        };
+      }
+
+      const now = new Date().toISOString();
+      const indexes = buildPlayIndexes(plays);
+      await playbookRef.update({
+        plays,
+        playCount: plays.length,
+        ...indexes,
+        updatedAt: now,
+        updatedBy: user.uid,
+      });
+
+      try {
+        const cache = getCacheService();
+        await cache.del(`team:playbooks:${playbookTeamId}:${String(playbook['sport'] ?? '')}`);
+      } catch {
+        /* best effort */
+      }
+
+      res.json({ success: true, data: { updates } });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('POST /playbooks/:id/generate-install-plan failed', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to generate install plan' });
     }
   }
 );

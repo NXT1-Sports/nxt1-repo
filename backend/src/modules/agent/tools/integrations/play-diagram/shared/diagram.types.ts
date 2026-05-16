@@ -40,6 +40,12 @@ export interface DiagramRoute {
   label?: string;
   type?: DiagramRouteType;
   curve?: boolean;
+  color?: string; // Optional hex color (e.g., '#00ff00' for green). If omitted, defaults based on route type.
+  strokeDasharray?: string; // Optional stroke dasharray pattern for the route (e.g., '6,4' for dashed lines).
+  /**
+   * Optional opacity for the route (e.g., 0.7 for 70% visibility).
+   */
+  opacity?: number;
 }
 
 export interface DiagramLayout {

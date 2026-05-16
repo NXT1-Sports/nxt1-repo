@@ -13,7 +13,7 @@ const LEGEND_HEIGHT = 24;
 
 /**
  * Determines if legend/title bar should be rendered based on diagram kind.
- * For drills, legend/title is omitted for visual clarity.
+ * Default is off to keep the tactical canvas cleaner.
  */
 
 export interface RenderProfileOptions {
@@ -30,9 +30,9 @@ export interface RenderProfileOptions {
   teamFocus?: 'offense' | 'defense' | 'both';
 }
 
-export function shouldRenderLegend(kind?: string, opts?: RenderProfileOptions): boolean {
+export function shouldRenderLegend(_kind?: string, opts?: RenderProfileOptions): boolean {
   if (opts && typeof opts.showLegend === 'boolean') return opts.showLegend;
-  return kind !== 'sport_drill';
+  return false;
 }
 
 export function shouldRenderTitleBar(_kind?: string, opts?: RenderProfileOptions): boolean {
@@ -119,9 +119,9 @@ export function renderDefs(): string {
   <marker id="arr-go" markerWidth="6" markerHeight="6" refX="5.3" refY="3" orient="auto" markerUnits="userSpaceOnUse">
     <path d="M0,0 L6,3 L0,6 L1.3,3 z" fill="context-stroke"/>
   </marker>
-  <!-- Block/thick marker -->
-  <marker id="arr-block" markerWidth="6.5" markerHeight="6.5" refX="6" refY="3.25" orient="auto" markerUnits="userSpaceOnUse">
-    <path d="M0,0.8 L6.5,3.25 L0,5.7 Z" fill="context-stroke"/>
+  <!-- Football block marker: open T cap (classic clinic-board symbol) -->
+  <marker id="arr-block" markerWidth="9" markerHeight="9" refX="4.5" refY="4.5" orient="auto" markerUnits="userSpaceOnUse">
+    <path d="M4.5,1.2 L4.5,7.8 M1.4,3.5 L7.6,3.5" fill="none" stroke="context-stroke" stroke-width="1.6" stroke-linecap="round"/>
   </marker>
   <!-- Screen box marker -->
   <marker id="arr-screen" markerWidth="7" markerHeight="7" refX="6.4" refY="3.5" orient="auto" markerUnits="userSpaceOnUse">
@@ -153,13 +153,33 @@ export function renderDefs(): string {
 </defs>`;
 }
 
-function getRouteMarkerAndStyle(type?: DiagramRouteType): {
+function getRouteMarkerAndStyle(type?: DiagramRouteType, customColor?: string): {
   marker: string;
   strokeWidth: string;
   strokeDasharray?: string;
   opacity: string;
   color: string;
 } {
+  // Block assignments should stay football-standard gray for consistency.
+  if (type === 'block') {
+    return {
+      marker: 'url(#arr-block)',
+      strokeWidth: '3.0',
+      opacity: '0.90',
+      color: C.routeBlock,
+    };
+  }
+
+  // If custom color provided, use it (respects AI-selected colors)
+  if (customColor) {
+    return {
+      marker: 'url(#arr-go)',
+      strokeWidth: '2.5',
+      opacity: '0.95',
+      color: customColor,
+    };
+  }
+
   switch (type) {
     case 'screen':
       return {
@@ -171,13 +191,6 @@ function getRouteMarkerAndStyle(type?: DiagramRouteType): {
       };
     case 'pick':
       return { marker: 'url(#arr-pick)', strokeWidth: '3.2', opacity: '0.95', color: C.routePick };
-    case 'block':
-      return {
-        marker: 'url(#arr-block)',
-        strokeWidth: '3.0',
-        opacity: '0.90',
-        color: C.routeBlock,
-      };
     case 'cut':
       return { marker: 'url(#arr-cut)', strokeWidth: '2.5', opacity: '0.95', color: C.routeCut }; // Updated to use a distinct cut arrow style
 
@@ -232,6 +245,32 @@ function compactLabel(raw: string | undefined, maxChars: number): string {
   return `${normalized.slice(0, Math.max(1, maxChars - 3)).trimEnd()}...`;
 }
 
+function normalizePositionToken(raw: string | undefined): string {
+  const token = (raw ?? '').trim();
+  if (!token) return '';
+
+  const compact = token.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const slotMatch = compact.match(/^(SL|SLOTL|SR|SLOTR)(\d+)$/);
+  if (slotMatch) {
+    const [, base, rawIndex] = slotMatch;
+    const index = Number(rawIndex);
+    if (base === 'SL' || base === 'SLOTL') {
+      return index === 1 ? 'H' : index === 2 ? 'Y' : 'SLOT';
+    }
+    return index === 1 ? 'Y' : index === 2 ? 'H' : 'SLOT';
+  }
+
+  const upper = /^(1B|2B|3B)$/.test(compact) ? compact : compact.replace(/\d+$/, '');
+  const aliases: Record<string, string> = {
+    SL: 'H',
+    SLOTL: 'H',
+    SR: 'Y',
+    SLOTR: 'Y',
+  };
+
+  return aliases[upper] ?? upper;
+}
+
 // ─── Zone overlays ────────────────────────────────────────────────────────────
 
 export function renderZones(zones: DiagramZone[] = []): string {
@@ -275,7 +314,8 @@ export function renderRoutes(routes: DiagramRoute[]): string {
     if (route.points.length < 2) continue;
 
     const { marker, strokeWidth, strokeDasharray, opacity, color } = getRouteMarkerAndStyle(
-      route.type
+      route.type,
+      route.color // Pass custom color if provided by AI
     );
     const dasharray = strokeDasharray ? ` stroke-dasharray="${strokeDasharray}"` : '';
     const smooth = route.type !== 'block' && shouldSmoothRoute(route);
@@ -302,18 +342,19 @@ export function renderAnnotationStrip(
 ): { svg: string; height: number } {
   const labeled = routes
     .map((r) => ({
-      from: r.from,
+      from: normalizePositionToken(r.from),
       label: compactLabel(r.label, 18),
-      color: getRouteMarkerAndStyle(r.type).color,
+      color: r.color || getRouteMarkerAndStyle(r.type).color, // Use custom color if provided, else default
     }))
     .filter((r) => r.label.length > 0);
 
   if (labeled.length === 0) return { svg: '', height: 0 };
 
   const ROW_H = 18;
+  const PAD_Y = 10;
   const COLS = labeled.length > 5 ? 2 : 1;
   const perCol = Math.ceil(labeled.length / COLS);
-  const stripH = perCol * ROW_H + 10;
+  const stripH = perCol * ROW_H + PAD_Y * 2;
   const colW = width / COLS;
 
   const parts: string[] = [
@@ -324,11 +365,11 @@ export function renderAnnotationStrip(
     const col = Math.floor(i / perCol);
     const row = i % perCol;
     const x = col * colW + 12;
-    const y = offsetY + 9 + row * ROW_H;
+    const y = offsetY + PAD_Y + row * ROW_H + ROW_H / 2;
     // colored dot
     parts.push(
       `<circle cx="${x + 4}" cy="${y}" r="4" fill="${item.color}" opacity="0.9"/>`,
-      `<text x="${x + 12}" y="${y + 4}" fill="rgba(255,255,255,0.92)" font-size="9" font-family="Arial,sans-serif" font-weight="600">${escapeXml(item.from ? `${item.from}: ${item.label}` : item.label)}</text>`
+      `<text x="${x + 12}" y="${y}" dominant-baseline="middle" fill="rgba(255,255,255,0.92)" font-size="9" font-family="Arial,sans-serif" font-weight="600">${escapeXml(item.from ? `${item.from}: ${item.label}` : item.label)}</text>`
     );
   });
 
@@ -379,7 +420,7 @@ export function renderPlayers(players: DiagramPlayer[]): string {
       );
     }
 
-    const playerLabel = compactLabel(p.label, 9);
+    const playerLabel = compactLabel(normalizePositionToken(p.label), 9);
     parts.push(
       `<text x="${p.x}" y="${p.y + 4}" text-anchor="middle" fill="${text}" font-size="9" font-family="Arial,sans-serif" font-weight="700">${escapeXml(playerLabel)}</text>`
     );
@@ -478,7 +519,7 @@ export function renderTitleBar(title: string, width: number): string {
  *   3. Players                   — markers above lines for cleaner tactical readability
  *   4. Zone overlays             — semi-transparent coverage bubbles sit on top for clarity
  *   5. Title bar                 — always readable, renders over field content
- *   6. Legend bar                — compact key at bottom edge
+ *   6. Legend bar (optional)     — compact key at bottom edge when enabled
  */
 
 /**

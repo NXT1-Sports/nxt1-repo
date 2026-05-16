@@ -10,10 +10,11 @@
 import { Router, type Request, type Response } from 'express';
 import { cronGuard } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
-import { llmService } from './shared.js';
+import { llmService, queueService } from './shared.js';
 import { AgentLinkReconciliationService } from '../../modules/agent/services/agent-link-reconciliation.service.js';
 import { AgentEphemeralStateService } from '../../modules/agent/services/agent-ephemeral-state.service.js';
 import { getCloudflareAnalyticsSyncService } from '../../services/platform/cloudflare-analytics-sync.service.js';
+import { sendSlackAlert } from '../../services/platform/alert.service.js';
 
 const router = Router();
 
@@ -562,5 +563,94 @@ router.post(
     }
   }
 );
+
+// ─── POST /cron/queue-depth-check ────────────────────────────────────────────
+// Cloud Scheduler: every 5 minutes  (cron: */5 * * * *)
+// Checks BullMQ queue depth and dead-letter backlog; posts to Slack when
+// thresholds are exceeded so the team can react before jobs pile up.
+//
+// Thresholds:
+//   waiting > QUEUE_WAITING_ALERT_THRESHOLD  → possible worker crash / traffic spike
+//   failed  > QUEUE_FAILED_ALERT_THRESHOLD   → dead-letter backlog growing
+
+const QUEUE_WAITING_ALERT_THRESHOLD = 20;
+const QUEUE_FAILED_ALERT_THRESHOLD = 50;
+
+router.post('/cron/queue-depth-check', cronGuard, async (_req: Request, res: Response) => {
+  if (!queueService) {
+    res.status(503).json({ success: false, error: 'Queue service not initialized' });
+    return;
+  }
+
+  try {
+    const counts = await queueService.getCounts();
+    const waiting = counts['waiting'] ?? 0;
+    const active = counts['active'] ?? 0;
+    const failed = counts['failed'] ?? 0;
+    const delayed = counts['delayed'] ?? 0;
+
+    logger.info('CRON queue-depth-check', { waiting, active, failed, delayed });
+
+    const alerts: Promise<boolean>[] = [];
+
+    if (waiting > QUEUE_WAITING_ALERT_THRESHOLD) {
+      logger.warn('Queue depth exceeded threshold — sending Slack alert', {
+        waiting,
+        threshold: QUEUE_WAITING_ALERT_THRESHOLD,
+      });
+      alerts.push(
+        sendSlackAlert({
+          target: 'agent',
+          severity: 'critical',
+          title: 'Agent Queue Backlog Alert',
+          summary: `BullMQ waiting queue depth has exceeded the alert threshold. The worker may be down or traffic has spiked.`,
+          fields: [
+            { label: 'Waiting', value: String(waiting) },
+            { label: 'Active', value: String(active) },
+            { label: 'Delayed', value: String(delayed) },
+            { label: 'Threshold', value: String(QUEUE_WAITING_ALERT_THRESHOLD) },
+          ],
+          linkText: 'Queue Stats',
+          linkUrl: `${process.env['BACKEND_URL'] ?? ''}/api/v1/agent/queue-stats`,
+        })
+      );
+    }
+
+    if (failed > QUEUE_FAILED_ALERT_THRESHOLD) {
+      logger.warn('Dead-letter backlog exceeded threshold — sending Slack alert', {
+        failed,
+        threshold: QUEUE_FAILED_ALERT_THRESHOLD,
+      });
+      alerts.push(
+        sendSlackAlert({
+          target: 'agent',
+          severity: 'warning',
+          title: 'Agent Queue Dead-Letter Backlog Alert',
+          summary: `The failed job count has exceeded the alert threshold. Review and clear stale entries to keep Redis memory healthy.`,
+          fields: [
+            { label: 'Failed Jobs', value: String(failed) },
+            { label: 'Threshold', value: String(QUEUE_FAILED_ALERT_THRESHOLD) },
+          ],
+          linkText: 'Queue Stats',
+          linkUrl: `${process.env['BACKEND_URL'] ?? ''}/api/v1/agent/queue-stats`,
+        })
+      );
+    }
+
+    await Promise.allSettled(alerts);
+
+    res.json({
+      success: true,
+      data: {
+        counts: { waiting, active, failed, delayed },
+        alertsFired: alerts.length,
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('CRON queue-depth-check failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Queue depth check failed' });
+  }
+});
 
 export default router;

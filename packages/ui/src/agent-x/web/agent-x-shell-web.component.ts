@@ -990,7 +990,10 @@ function sortCoordinatorCategories(
               </p>
             </div>
             <div class="action-plan-panel__body">
-              <nxt1-agent-x-playbooks-panel [teamId]="resolvedActiveTeamId()" />
+              <nxt1-agent-x-playbooks-panel
+                [teamId]="resolvedActiveTeamId()"
+                [sport]="resolvedActiveSport()"
+              />
             </div>
           </aside>
         }
@@ -2235,6 +2238,10 @@ function sortCoordinatorCategories(
         border-left: 1px solid var(--agent-border);
         background: var(--agent-bg);
         animation: ap-slide-in 0.22s ease;
+      }
+
+      .agent-action-plan-column .agent-column-header {
+        padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
       }
 
       .agent-expanded-panel-column {
@@ -3826,8 +3833,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private static readonly DESKTOP_LEFT_PANEL_DEFAULT_WIDTH = 280;
   private static readonly DESKTOP_LEFT_PANEL_MIN_WIDTH = 220;
   private static readonly DESKTOP_ACTION_PLAN_DEFAULT_WIDTH = 320;
-  private static readonly DESKTOP_GAMEPLANS_DEFAULT_WIDTH = 620;
-  private static readonly DESKTOP_PLAYBOOKS_DEFAULT_WIDTH = 620;
+  private static readonly DESKTOP_GAMEPLANS_DEFAULT_WIDTH = 540;
+  private static readonly DESKTOP_PLAYBOOKS_DEFAULT_WIDTH = 540;
   private static readonly DESKTOP_ACTION_PLAN_MIN_WIDTH = 260;
   private static readonly DESKTOP_GAMEPLANS_MIN_WIDTH = 420;
   private static readonly DESKTOP_PLAYBOOKS_MIN_WIDTH = 420;
@@ -3953,12 +3960,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly actionPlanWidth = signal(
     AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH
   );
-  protected readonly gameplansWidth = signal(
-    AgentXShellWebComponent.DESKTOP_GAMEPLANS_DEFAULT_WIDTH
-  );
-  protected readonly playbooksWidth = signal(
-    AgentXShellWebComponent.DESKTOP_PLAYBOOKS_DEFAULT_WIDTH
-  );
+  protected readonly gameplansWidth = signal(this.getDefaultExpandedPanelWidth());
+  protected readonly playbooksWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly expandedPanelWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly activeDesktopResize = signal<AgentXDesktopResizeState | null>(null);
   protected readonly isDesktopPanelResizing = computed(() => this.activeDesktopResize() !== null);
@@ -4008,6 +4011,23 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     );
     const scopedTeamId = scopedTeamSource?.scopeId?.trim();
     return scopedTeamId && scopedTeamId.length > 0 ? scopedTeamId : null;
+  });
+  protected readonly resolvedActiveSport = computed(() => {
+    const user = this.user();
+    if (!user) return '';
+
+    const profileSport = user.selectedSports?.find(
+      (sport) => typeof sport === 'string' && sport.trim().length > 0
+    );
+    if (profileSport) {
+      return profileSport.trim();
+    }
+
+    const scopedSportSource = user.connectedSources?.find(
+      (source) => source.scopeType === 'sport' && typeof source.scopeId === 'string'
+    );
+    const scopedSport = scopedSportSource?.scopeId?.trim();
+    return scopedSport && scopedSport.length > 0 ? scopedSport : '';
   });
 
   // ── Expanded Side Panel (Firecrawl Live View / Media) ──────────────
@@ -4200,11 +4220,11 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         break;
       case 'gameplans':
         this.showGameplansModal.set(false);
-        this.gameplansWidth.set(AgentXShellWebComponent.DESKTOP_GAMEPLANS_DEFAULT_WIDTH);
+        this.gameplansWidth.set(this.getDefaultExpandedPanelWidth());
         break;
       case 'playbooks':
         this.showPlaybooksModal.set(false);
-        this.playbooksWidth.set(AgentXShellWebComponent.DESKTOP_PLAYBOOKS_DEFAULT_WIDTH);
+        this.playbooksWidth.set(this.getDefaultExpandedPanelWidth());
         break;
       case 'expanded-panel':
         this.closeExpandedSidePanel();
@@ -4261,8 +4281,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private resetDesktopPanelWidths(): void {
     this.leftRailWidth.set(AgentXShellWebComponent.DESKTOP_LEFT_PANEL_DEFAULT_WIDTH);
     this.actionPlanWidth.set(AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH);
-    this.gameplansWidth.set(AgentXShellWebComponent.DESKTOP_GAMEPLANS_DEFAULT_WIDTH);
-    this.playbooksWidth.set(AgentXShellWebComponent.DESKTOP_PLAYBOOKS_DEFAULT_WIDTH);
+    const syncedRightPanelDefault = this.getDefaultExpandedPanelWidth();
+    this.gameplansWidth.set(syncedRightPanelDefault);
+    this.playbooksWidth.set(syncedRightPanelDefault);
     this.expandedPanelWidth.set(this.getDefaultExpandedPanelWidth());
     this.clampDesktopPanelWidths();
   }
@@ -4305,10 +4326,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         this.actionPlanWidth.set(AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH);
         break;
       case 'gameplans':
-        this.gameplansWidth.set(AgentXShellWebComponent.DESKTOP_GAMEPLANS_DEFAULT_WIDTH);
+        this.gameplansWidth.set(this.getDefaultExpandedPanelWidth());
         break;
       case 'playbooks':
-        this.playbooksWidth.set(AgentXShellWebComponent.DESKTOP_PLAYBOOKS_DEFAULT_WIDTH);
+        this.playbooksWidth.set(this.getDefaultExpandedPanelWidth());
         break;
       case 'expanded-panel':
         this.expandedPanelWidth.set(this.getDefaultExpandedPanelWidth());
@@ -4993,7 +5014,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       }
       this.showActionPlanModal.set(false);
       this.showPlaybooksModal.set(false);
-      this.gameplansWidth.set(AgentXShellWebComponent.DESKTOP_GAMEPLANS_DEFAULT_WIDTH);
+      this.gameplansWidth.set(this.getDefaultExpandedPanelWidth());
     }
     this.showGameplansModal.set(newValue);
     this.logger.info('Game plans panel toggled', { shown: newValue });
@@ -5230,7 +5251,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
       this.showActionPlanModal.set(false);
       this.showGameplansModal.set(false);
-      this.playbooksWidth.set(AgentXShellWebComponent.DESKTOP_PLAYBOOKS_DEFAULT_WIDTH);
+      this.playbooksWidth.set(this.getDefaultExpandedPanelWidth());
       this.showPlaybooksModal.set(true);
       this.breadcrumb.trackStateChange('agent_x_shell:playbooks_opened', {});
       return;
@@ -5245,7 +5266,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     const wasOpen = this.showGameplansModal();
     this.showActionPlanModal.set(false);
     this.showPlaybooksModal.set(false);
-    this.gameplansWidth.set(AgentXShellWebComponent.DESKTOP_GAMEPLANS_DEFAULT_WIDTH);
+    this.gameplansWidth.set(this.getDefaultExpandedPanelWidth());
     this.showGameplansModal.set(true);
 
     if (!wasOpen) {

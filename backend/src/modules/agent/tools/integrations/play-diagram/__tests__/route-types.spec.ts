@@ -74,6 +74,13 @@ describe('play diagram route types', () => {
 
     expect(svg).toContain('marker-end="url(#arr-block)"');
     expect(svg).toContain('stroke-width="3.0"');
+    expect(svg).toContain('stroke="#444444"');
+  });
+
+  it('renders football-style T-head geometry for block marker', () => {
+    const defs = renderDefs();
+    expect(defs).toContain('id="arr-block"');
+    expect(defs).toContain('M4.5,1.2 L4.5,7.8 M1.4,3.5 L7.6,3.5');
   });
 
   it('renders cut routes with sharp angle marker', () => {

@@ -50,6 +50,7 @@ import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import { z } from 'zod';
 import { AGENT_MODEL_PRICING } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
+import { sendSlackAlert } from '../../../services/platform/alert.service.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -59,6 +60,9 @@ const RETRY_DELAY_MS = 750;
 const MODEL_CIRCUIT_BREAKER_FAILURE_THRESHOLD = 3;
 const MODEL_CIRCUIT_BREAKER_WINDOW_MS = 60_000;
 const MODEL_CIRCUIT_BREAKER_HALF_OPEN_SUCCESS_THRESHOLD = 1;
+
+/** Minimum interval between chain-exhaustion Slack alerts (5 minutes). */
+const CHAIN_EXHAUSTION_ALERT_COOLDOWN_MS = 5 * 60_000;
 
 /** Status codes that are safe to retry on. */
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
@@ -181,6 +185,11 @@ export class OpenRouterService {
     }
   >();
 
+  /** Timestamp of the last chain-exhaustion Slack alert (rate-limiting). */
+  private lastChainExhaustionAlertMs = 0;
+  /** True while the chain is fully exhausted — enables recovery alert. */
+  private chainExhaustionAlerted = false;
+
   constructor(options?: {
     onTelemetry?: LLMTelemetryCallback;
     hydrateAgentConfig?: () => Promise<void>;
@@ -253,6 +262,7 @@ export class OpenRouterService {
           chainPosition: `${i + 1}/${chain.length}`,
         });
         if (isLastModel) {
+          this.fireChainExhaustionAlert(options.tier ?? 'chat', chain);
           throw new AgentEngineError(
             'OPENROUTER_NO_MODELS_AVAILABLE',
             'All fallback models are currently unavailable due to repeated failures.'
@@ -312,6 +322,7 @@ export class OpenRouterService {
       }
     }
 
+    this.fireChainExhaustionAlert(options.tier ?? 'chat', chain);
     throw (
       lastError ??
       new AgentEngineError(
@@ -576,6 +587,7 @@ export class OpenRouterService {
           chainPosition: `${i + 1}/${chain.length}`,
         });
         if (isLastModel) {
+          this.fireChainExhaustionAlert(options.tier ?? 'chat', chain);
           throw new AgentEngineError(
             'OPENROUTER_NO_MODELS_AVAILABLE',
             'All fallback stream models are currently unavailable due to repeated failures.'
@@ -618,6 +630,7 @@ export class OpenRouterService {
       }
     }
 
+    this.fireChainExhaustionAlert(options.tier ?? 'chat', chain);
     throw (
       lastError ??
       new AgentEngineError(
@@ -1198,6 +1211,18 @@ export class OpenRouterService {
           probeInFlight: false,
         });
       }
+      // If the full chain was previously exhausted, send a recovery alert now
+      // that at least one model is responsive again.
+      if (this.chainExhaustionAlerted) {
+        this.chainExhaustionAlerted = false;
+        void sendSlackAlert({
+          target: 'agent',
+          severity: 'info',
+          title: 'OpenRouter Circuit Breaker Recovered',
+          summary: `Model "${model}" is responding again after the full fallback chain was exhausted. New requests will succeed.`,
+          fields: [{ label: 'Recovered Model', value: model }],
+        });
+      }
       return;
     }
 
@@ -1213,6 +1238,18 @@ export class OpenRouterService {
       halfOpenSuccesses: 0,
       probeInFlight: false,
     });
+
+    // Recovery alert after full-chain exhaustion
+    if (this.chainExhaustionAlerted) {
+      this.chainExhaustionAlerted = false;
+      void sendSlackAlert({
+        target: 'agent',
+        severity: 'info',
+        title: 'OpenRouter Circuit Breaker Recovered',
+        summary: `Model "${model}" is responding again after the full fallback chain was exhausted. New requests will succeed.`,
+        fields: [{ label: 'Recovered Model', value: model }],
+      });
+    }
   }
 
   private recordModelFailure(model: string): void {
@@ -1249,6 +1286,31 @@ export class OpenRouterService {
   private throwIfAborted(signal?: AbortSignal): void {
     if (!signal?.aborted) return;
     throw this.createAbortError();
+  }
+
+  /**
+   * Fires a Slack alert when the full OpenRouter fallback chain is exhausted.
+   * Rate-limited to once per CHAIN_EXHAUSTION_ALERT_COOLDOWN_MS to prevent spam.
+   */
+  private fireChainExhaustionAlert(tier: string, chain: readonly string[]): void {
+    const now = Date.now();
+    if (now - this.lastChainExhaustionAlertMs < CHAIN_EXHAUSTION_ALERT_COOLDOWN_MS) return;
+
+    this.lastChainExhaustionAlertMs = now;
+    this.chainExhaustionAlerted = true;
+
+    void sendSlackAlert({
+      target: 'agent',
+      severity: 'critical',
+      title: 'OpenRouter Full Fallback Chain Exhausted',
+      summary:
+        'All LLM models in the fallback chain have their circuit breakers open. Agent X cannot complete LLM requests until at least one model recovers.',
+      fields: [
+        { label: 'Tier', value: tier },
+        { label: 'Chain', value: chain.join(' → ') },
+        { label: 'Models Unavailable', value: String(chain.length) },
+      ],
+    });
   }
 
   private classifyErrorType(error: Error): string {

@@ -672,6 +672,80 @@ describe('PrimaryAgent delegation control flow', () => {
     agent.endRun('op-5');
   });
 
+  it('reroutes direct create_play_diagram tool calls to strategy_coordinator', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: {
+          compactMarkdown: 'Capabilities',
+          detailedMarkdown: 'Capabilities',
+        },
+      }),
+    } as unknown as CapabilityRegistry;
+
+    const dispatcher: PrimaryDispatcher = {
+      runCoordinator: vi.fn().mockResolvedValue({
+        success: true,
+        observation: '## strategy_coordinator dispatch result\n- play diagram created',
+      }),
+      runPlan: vi.fn(),
+    };
+
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const context = {
+      ...createMockContext(),
+      operationId: 'op-6',
+    };
+
+    agent.beginRun({
+      operationId: 'op-6',
+      userId: context.userId,
+      sessionContext: context,
+      enrichedIntent: 'Diagram 2x2 verticals vs cover 3',
+    });
+
+    const registry = new ConcreteToolRegistry();
+
+    const toolCall: LLMToolCall = {
+      id: 'call_direct_play_diagram',
+      type: 'function',
+      function: {
+        name: 'create_play_diagram',
+        arguments: JSON.stringify({
+          sport: 'football',
+          title: '2x2 Verticals vs Cover 3',
+        }),
+      },
+    };
+
+    const observation = await agent.callExecuteTool(
+      toolCall,
+      registry,
+      context.userId,
+      undefined,
+      undefined,
+      { operationId: 'op-6' },
+      [],
+      undefined,
+      undefined
+    );
+
+    expect(dispatcher.runCoordinator).toHaveBeenCalledWith(
+      'strategy_coordinator',
+      expect.stringContaining('strategy artifact request'),
+      expect.objectContaining({
+        operationId: 'op-6',
+      }),
+      expect.objectContaining({
+        source: 'router_create_play_diagram_fallback',
+        originalToolName: 'create_play_diagram',
+        sport: 'football',
+      })
+    );
+    expect(observation).toContain('strategy_coordinator');
+
+    agent.endRun('op-6');
+  });
+
   it('reroutes live-view clip scrolling to the film coordinator extraction workflow', async () => {
     const capabilities = {
       current: () => ({

@@ -37,6 +37,12 @@ export const C = {
   routeSpace: '#4caf50', // green for space routes
   routeGo: '#f7b500', // same as routePass
 
+  // Main colors for AI-selected route colors
+  colorGreen: '#00ff00', // bright green
+  colorBlue: '#0099ff', // bright blue
+  colorYellow: '#ffdd00', // bright yellow
+  colorRed: '#ff3333', // bright red
+
   zoneFill: 'rgba(0, 120, 255, 0.13)', // blue zone
   zoneStroke: 'rgba(0, 120, 255, 0.55)',
   zoneLabel: '#0057b7',

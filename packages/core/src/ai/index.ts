@@ -186,6 +186,17 @@ export {
   type DeleteTeamGamePlanResponse,
 } from './team-game-plan.api';
 
+export {
+  createPlaybookApi,
+  type PlaybookApi,
+  type PlayItem,
+  type CreatePlayRequest,
+  type CreatePlayResponse,
+  type UpdatePlayRequest,
+  type UpdatePlayResponse,
+  type DeletePlayResponse,
+} from './playbook.api';
+
 // Shared copy resolvers
 export {
   resolveAgentApprovalCopy,

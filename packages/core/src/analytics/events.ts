@@ -978,6 +978,24 @@ export const APP_EVENTS = {
   GAMEPLAN_LIST_LOADED: 'gameplan_list_loaded',
   /** Game plan filter applied */
   GAMEPLAN_FILTER_APPLIED: 'gameplan_filter_applied',
+
+  // ============================================
+  // TEAM PLAYBOOK PLAY EVENTS
+  // ============================================
+  /** Play viewed (clicked in list) */
+  PLAY_VIEWED: 'play_viewed',
+  /** Play created via AI chat or form */
+  PLAY_CREATED: 'play_created',
+  /** Play updated */
+  PLAY_UPDATED: 'play_updated',
+  /** Play deleted */
+  PLAY_DELETED: 'play_deleted',
+  /** Playbook list loaded */
+  PLAYBOOK_LIST_LOADED: 'playbook_list_loaded',
+  /** Play created from Agent X chat startup flow */
+  AGENT_X_PLAY_CREATED: 'agent_x_play_created',
+  /** Play added to game plan reference */
+  AGENT_X_PLAY_LINKED: 'agent_x_play_linked',
 } as const;
 
 export type AppEventName = (typeof APP_EVENTS)[keyof typeof APP_EVENTS];

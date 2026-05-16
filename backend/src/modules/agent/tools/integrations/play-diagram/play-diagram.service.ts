@@ -24,7 +24,10 @@ import {
   coerceRouteType,
   enhanceLayoutForConcept,
 } from './shared/layout-enhancement.js';
-import { validateLayoutForSport } from './shared/layout-validation.js';
+import {
+  evaluateLayoutQualityForSport,
+  validateLayoutForSport,
+} from './shared/layout-validation.js';
 import { layoutToMxGraphModel } from './shared/mxgraph.js';
 import { clampCoord, renderDiagramSvg } from './shared/svg-helpers.js';
 import type {
@@ -40,6 +43,7 @@ const LLM_TIMEOUT_MS = 60_000;
 const CANVAS_WIDTH = 600;
 const CANVAS_HEIGHT = 440;
 const MAX_LAYOUT_ATTEMPTS = 2;
+const HEX_COLOR_REGEX = /^#[0-9a-fA-F]{6}$/;
 
 function buildUserPrompt(input: CreatePlayDiagramInput, sport: NormalizedSport): string {
   const title = input.title ?? 'Play Diagram';
@@ -60,6 +64,12 @@ function sanitizeFileName(input: string): string {
   const replaced = lowered.replace(/[^a-z0-9._-]+/g, '-');
   const cleaned = replaced.replace(/-+/g, '-').replace(/^-|-$/g, '');
   return cleaned.length > 0 ? cleaned : 'play-diagram';
+}
+
+function coerceRouteColor(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  return HEX_COLOR_REGEX.test(trimmed) ? trimmed.toLowerCase() : undefined;
 }
 
 async function convertSvgToPng(svgString: string): Promise<Buffer> {
@@ -190,6 +200,7 @@ function parseLlmLayout(
         label: typeof route['label'] === 'string' ? route['label'] : undefined,
         type: coerceRouteType(route['type']),
         curve: typeof route['curve'] === 'boolean' ? route['curve'] : undefined,
+        color: coerceRouteColor(route['color']),
         points: (route['points'] as Array<[number, number]>).map(([x, y]) => [
           clampCoord(x, 5, fieldWidth - 5, 50),
           clampCoord(y, 5, fieldHeight - 5, 200),
@@ -217,6 +228,15 @@ function parseLlmLayout(
 export class PlayDiagramService {
   constructor(private readonly llm: OpenRouterService) {}
 
+  private summarizeQualityErrors(raw: string, maxItems = 3): string {
+    const items = raw
+      .split('\n')
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0)
+      .slice(0, maxItems);
+    return items.join('; ');
+  }
+
   private async generateLayoutWithRetry(
     input: CreatePlayDiagramInput,
     sport: NormalizedSport,
@@ -225,6 +245,7 @@ export class PlayDiagramService {
   ): Promise<DiagramLayout> {
     const renderer = getSportRenderer(sport);
     const systemPrompt = buildSystemPrompt(sport);
+    const conceptText = `${input.title ?? ''} ${input.description}`.trim();
 
     let previousError: string | null = null;
 
@@ -271,13 +292,62 @@ export class PlayDiagramService {
           renderer.defaultLosY,
           extendedSportsEnabled
         );
+        const enhancedLayout = enhanceLayoutForConcept(layout, conceptText);
+        const quality = evaluateLayoutQualityForSport(enhancedLayout, conceptText);
+        const qualityIssues = quality.findings
+          .filter((item) => item.severity === 'critical' || item.severity === 'major')
+          .map((item) => `${item.severity.toUpperCase()} ${item.code}: ${item.message}`);
+
+        if (quality.hasCritical) {
+          const message = this.summarizeQualityErrors(qualityIssues.join('\n'));
+          if (attempt >= MAX_LAYOUT_ATTEMPTS) {
+            throw new AgentEngineError(
+              'PLAY_DIAGRAM_LLM_INVALID_LAYOUT',
+              `Critical football quality checks failed after retries: ${message}`
+            );
+          }
+
+          previousError = `Critical quality checks failed. ${message}`;
+          logger.warn('[PlayDiagramService] Retrying critical quality failure', {
+            sport,
+            attempt,
+            score: quality.score,
+            findings: quality.findings,
+          });
+          continue;
+        }
+
+        if (quality.hasMajor && attempt < MAX_LAYOUT_ATTEMPTS) {
+          previousError = `Major quality checks failed. ${this.summarizeQualityErrors(qualityIssues.join('\n'))}`;
+          logger.warn('[PlayDiagramService] Retrying major quality failure', {
+            sport,
+            attempt,
+            score: quality.score,
+            findings: quality.findings,
+          });
+          continue;
+        }
+
+        if (quality.hasMajor) {
+          logger.warn('[PlayDiagramService] Persisting with unresolved major quality findings', {
+            sport,
+            attempt,
+            score: quality.score,
+            findings: quality.findings,
+          });
+        }
+
+        const minorCount = quality.findings.filter((item) => item.severity === 'minor').length;
         logger.info('[PlayDiagramService] Layout generation succeeded', {
           sport,
           attempt,
-          players: layout.players.length,
-          routes: layout.routes.length,
+          players: enhancedLayout.players.length,
+          routes: enhancedLayout.routes.length,
+          qualityScore: quality.score,
+          qualityMinorFindings: minorCount,
+          qualityMajorFindings: quality.findings.filter((item) => item.severity === 'major').length,
         });
-        return layout;
+        return enhancedLayout;
       } catch (error) {
         const code = getAgentEngineErrorCode(error);
         if (code !== 'PLAY_DIAGRAM_LLM_INVALID_LAYOUT' || attempt >= MAX_LAYOUT_ATTEMPTS) {
@@ -326,22 +396,28 @@ export class PlayDiagramService {
         extendedSportsEnabled,
         context
       );
-      const conceptText = `${input.title ?? ''} ${input.description}`.trim();
-      const enhancedLayout = enhanceLayoutForConcept(layout, conceptText);
+      const quality = evaluateLayoutQualityForSport(
+        layout,
+        `${input.title ?? ''} ${input.description}`.trim()
+      );
 
-      const resolvedRenderer = getSportRenderer(enhancedLayout.sport);
-      const fieldSvg = resolvedRenderer.renderField(enhancedLayout);
-      const svgString = renderDiagramSvg(enhancedLayout, fieldSvg);
+      const resolvedRenderer = getSportRenderer(layout.sport);
+      const fieldSvg = resolvedRenderer.renderField(layout);
+      const svgString = renderDiagramSvg(layout, fieldSvg);
       const pngBuffer = await convertSvgToPng(svgString);
       const { publicUrl, storagePath } = await uploadToStorage(pngBuffer, title, context);
 
-      const mxXml = layoutToMxGraphModel(enhancedLayout);
+      const mxXml = layoutToMxGraphModel(layout);
       const editUrl = await buildEditUrl(mxXml);
 
       logger.info('[PlayDiagramService] Generation complete', {
-        sport: enhancedLayout.sport,
+        sport: layout.sport,
         storagePath,
         imageBytes: pngBuffer.length,
+        qualityScore: quality.score,
+        qualityCriticalFindings: quality.findings.filter((item) => item.severity === 'critical').length,
+        qualityMajorFindings: quality.findings.filter((item) => item.severity === 'major').length,
+        qualityMinorFindings: quality.findings.filter((item) => item.severity === 'minor').length,
       });
 
       return {
