@@ -119,7 +119,7 @@ router.post(
   validateBody(IAPVerifyReceiptDto),
   async (req: Request, res: Response) => {
     const userId = req.user!.uid;
-    const { jwsTransaction } = req.body as IAPVerifyReceiptDto;
+    const { jwsTransaction, sandboxEnvironment, appAccountToken } = req.body as IAPVerifyReceiptDto;
     const db = req.firebase?.db;
 
     if (!db) {
@@ -127,7 +127,11 @@ router.post(
     }
 
     try {
-      const verifier = await buildVerifier(!!req.isStaging);
+      // Use explicit sandboxEnvironment flag from client when provided.
+      // This is required for TestFlight builds: they ship as production binaries
+      // but Apple issues Sandbox JWS tokens, which fail against PRODUCTION verifier.
+      const useSandbox = sandboxEnvironment !== undefined ? sandboxEnvironment : !!req.isStaging;
+      const verifier = await buildVerifier(useSandbox);
       const transaction = await verifier.verifyAndDecodeTransaction(jwsTransaction);
 
       const productId = transaction.productId;
@@ -194,12 +198,15 @@ router.post(
         source: 'apple_iap',
       });
 
-      // Persist the idempotency record after crediting
+      // Persist the idempotency record after crediting.
+      // Also store appAccountToken (a UUID passed from the client to StoreKit)
+      // so the webhook can look up userId when processing Apple REFUND notifications.
       await txnDocRef.set({
         userId,
         productId,
         amountCents,
         newBalance,
+        ...(appAccountToken ? { appAccountToken } : {}),
         processedAt: FieldValue.serverTimestamp(),
       });
 
@@ -292,24 +299,55 @@ router.post('/webhook', async (req: Request, res: Response) => {
       const amountCents = productId ? (WALLET_PRODUCTS[productId] ?? 0) : 0;
 
       if (amountCents > 0) {
-        // appAccountToken is the NXT1 userId set during StoreKit purchase initiation
-        const rawToken = transaction.appAccountToken;
-        if (!rawToken || typeof rawToken !== 'string' || !rawToken.trim()) {
-          logger.warn('[iap/webhook] REFUND missing valid appAccountToken — cannot attribute', {
-            productId,
-            amountCents,
-            transactionId: transaction.transactionId,
-          });
-        } else {
-          const userId = rawToken.trim();
-          await processWalletRefund(db, userId, amountCents).catch((err: unknown) => {
+        const transactionId = transaction.transactionId;
+        let refundUserId: string | null = null;
+
+        // Primary: look up userId from our processed transactions record using transactionId.
+        // This works for all purchases made after the appAccountToken fix was deployed.
+        if (transactionId) {
+          const txnDoc = await db.collection('IapProcessedTransactions').doc(transactionId).get();
+          refundUserId = (txnDoc.data()?.['userId'] as string | undefined) ?? null;
+        }
+
+        // Legacy fallback: old purchases (before appAccountToken fix) stored the raw
+        // Firebase UID directly as appAccountToken. Accept it only if it's NOT UUID format.
+        if (!refundUserId) {
+          const rawToken = transaction.appAccountToken;
+          if (rawToken && typeof rawToken === 'string' && rawToken.trim()) {
+            const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+              rawToken.trim()
+            );
+            if (!isUuid) {
+              // Legacy path: appAccountToken was the raw userId string
+              refundUserId = rawToken.trim();
+            }
+          }
+        }
+
+        if (refundUserId) {
+          await processWalletRefund(db, refundUserId, amountCents).catch((err: unknown) => {
             logger.error('[iap/webhook] Failed to process refund deduction', {
               error: err,
-              userId,
+              userId: refundUserId,
               amountCents,
             });
           });
-          logger.info('[iap/webhook] Refund processed', { userId, productId, amountCents });
+          logger.info('[iap/webhook] Refund processed', {
+            userId: refundUserId,
+            productId,
+            amountCents,
+            transactionId,
+          });
+        } else {
+          logger.warn(
+            '[iap/webhook] REFUND cannot attribute to user — no processed transaction record and no valid appAccountToken',
+            {
+              productId,
+              amountCents,
+              transactionId,
+              appAccountToken: transaction.appAccountToken,
+            }
+          );
         }
       }
     }
