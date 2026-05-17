@@ -131,6 +131,8 @@ export class AppComponent {
       currentUrl !== '/agent-x'
     ) {
       this.logger.debug('On specific route, respecting current navigation');
+      // Still mark complete so warm-start appUrlOpen events navigate directly from now on.
+      this.deepLink.markInitialNavigationComplete();
       return;
     }
 
@@ -140,7 +142,11 @@ export class AppComponent {
       this.logger.info('Not authenticated, navigating to auth');
       this.navController
         .navigateRoot(AUTH_ROUTES.ROOT)
-        .catch((err) => this.logger.error('Navigation to auth failed', err));
+        .then(() => this.deepLink.markInitialNavigationComplete())
+        .catch((err) => {
+          this.logger.error('Navigation to auth failed', err);
+          this.deepLink.markInitialNavigationComplete();
+        });
     } else if (!user.hasCompletedOnboarding) {
       if (user._legacyId) {
         // Legacy migrated user — show congratulations/welcome screen directly,
@@ -148,20 +154,47 @@ export class AppComponent {
         this.logger.info('Legacy user: navigating directly to congratulations');
         this.navController
           .navigateRoot('/auth/onboarding/congratulations')
-          .catch((err) => this.logger.error('Navigation to legacy congratulations failed', err));
+          .then(() => this.deepLink.markInitialNavigationComplete())
+          .catch((err) => {
+            this.logger.error('Navigation to legacy congratulations failed', err);
+            this.deepLink.markInitialNavigationComplete();
+          });
       } else {
         // Regular user who hasn't completed onboarding — full onboarding flow
         this.logger.info('Onboarding incomplete, navigating to onboarding');
         this.navController
           .navigateRoot(AUTH_REDIRECTS.ONBOARDING)
-          .catch((err) => this.logger.error('Navigation to onboarding failed', err));
+          .then(() => this.deepLink.markInitialNavigationComplete())
+          .catch((err) => {
+            this.logger.error('Navigation to onboarding failed', err);
+            this.deepLink.markInitialNavigationComplete();
+          });
       }
     } else {
       // Authenticated and onboarding complete - go to agent
       this.logger.info('Authenticated and onboarded, navigating to agent');
       this.navController
         .navigateRoot(AUTH_REDIRECTS.DEFAULT)
-        .catch((err) => this.logger.error('Navigation to home failed', err));
+        .then(() => {
+          // ── TIMING FIX ────────────────────────────────────────────────────────
+          // Delay 300 ms before marking navigation complete.
+          // The Capacitor-retained appUrlOpen event (cold-start Universal Link)
+          // is delivered asynchronously via the native bridge and can arrive
+          // AFTER this .then() fires.  While _initialNavigationComplete is still
+          // false the handler stores the URL as pending; processPendingDeepLink
+          // then picks it up correctly.  Without the delay the event arrives with
+          // _initialNavigationComplete=true → goes through handleDeepLink directly
+          // → navigateForward may fail because the Ionic outlet is still settling.
+          setTimeout(() => {
+            this.deepLink.markInitialNavigationComplete();
+            this.deepLink.processPendingDeepLink();
+          }, 300);
+          // ── END TIMING FIX ────────────────────────────────────────────────────
+        })
+        .catch((err) => {
+          this.logger.error('Navigation to home failed', err);
+          this.deepLink.markInitialNavigationComplete();
+        });
     }
   }
 
@@ -177,6 +210,23 @@ export class AppComponent {
 
       await this.ionicPlatform.ready();
       this.logger.debug('Platform ready');
+
+      // Initialize deep link handling FIRST — before the splash delay — so that the
+      // Capacitor-retained `appUrlOpen` event (cold-start Universal Link) is captured
+      // and stored as a pending deep link while _initialNavigationComplete is still false.
+      // If we wait until after nativeApp.initialize() (900 ms splash), the auth effect
+      // may have already fired, navigateRoot completed, and processPendingDeepLink()
+      // found nothing to process — causing the deep link to be silently dropped.
+      await this.deepLink.initialize();
+      this.logger.debug('Deep link service initialized');
+
+      // If auth initial navigation already completed before deepLink.initialize() ran
+      // (e.g. Firebase resolved from cache before afterNextRender fired), mark it now
+      // and process any launch URL that was captured by getLaunchUrl().
+      if (this.hasPerformedInitialNavigation) {
+        this.deepLink.markInitialNavigationComplete();
+        this.deepLink.processPendingDeepLink();
+      }
 
       // Initialize native app features (StatusBar, SplashScreen, lifecycle)
       // Keyboard handling is disabled - letting Ionic/system handle it natively
@@ -205,10 +255,6 @@ export class AppComponent {
       });
 
       this.logger.info('Native app initialized');
-
-      // Initialize deep link handling (Universal Links / App Links)
-      await this.deepLink.initialize();
-      this.logger.debug('Deep link service initialized');
 
       // Initialize push notification handling (foreground + background)
       await this.pushHandler.initialize();
