@@ -235,6 +235,9 @@ export const OPERATIONS_LOG_TEST_IDS = {
                     entry.status === 'awaiting_input' ||
                     entry.status === 'awaiting_approval'
                   "
+                  [class.log-entry--current]="
+                    !!entry.threadId && currentThreadId() === entry.threadId
+                  "
                 >
                   <button type="button" class="log-entry-main" (click)="onEntryTap(entry)">
                     @if (entry.status !== 'complete') {
@@ -327,6 +330,9 @@ export const OPERATIONS_LOG_TEST_IDS = {
                   entry.status === 'paused' ||
                   entry.status === 'awaiting_input' ||
                   entry.status === 'awaiting_approval'
+                "
+                [class.log-entry--current]="
+                  !!entry.threadId && currentThreadId() === entry.threadId
                 "
               >
                 <button type="button" class="log-entry-main" (click)="onEntryTap(entry)">
@@ -1066,6 +1072,12 @@ export const OPERATIONS_LOG_TEST_IDS = {
         opacity: 0.7;
       }
 
+      /* Current/selected: Left accent bar — shows which session is open */
+      .log-entry--current {
+        background: color-mix(in srgb, var(--log-primary) 6%, var(--log-surface));
+        box-shadow: inset 3px 0 0 color-mix(in srgb, var(--log-primary) 70%, transparent);
+      }
+
       /* ═══ SKELETON ═══ */
       .log-skeleton {
         display: flex;
@@ -1313,6 +1325,14 @@ export class AgentXOperationsLogComponent {
    */
   private readonly _confirmedTerminalStatuses = new Map<string, OperationLogStatus>();
 
+  /**
+   * Tracks threads where SSE has explicitly fired an `in-progress` event in
+   * this session. Used by silentRefresh() to distinguish a NEW run that just
+   * started (prefer live `in-progress`) from a stuck spinner where SSE missed
+   * the `done` event (prefer HTTP terminal status).
+   */
+  private readonly _liveInProgressThreads = new Set<string>();
+
   private getLiveEventKey(operationId: string | undefined, threadId: string | undefined): string {
     return operationId?.trim() || threadId?.trim() || '';
   }
@@ -1325,6 +1345,9 @@ export class AgentXOperationsLogComponent {
 
   /** Active enqueue hydration timers keyed by threadId. */
   private readonly _enqueueHydrationTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  /** ThreadId of the entry currently open in a chat sheet/panel. Drives the selected highlight. */
+  private readonly _selectedThreadId = signal<string | null>(null);
 
   protected readonly loading = computed(() => this._loading());
   protected readonly operations = computed(() => this._operations());
@@ -1339,6 +1362,9 @@ export class AgentXOperationsLogComponent {
   // ============================================
 
   /** Total number of operations. */
+  /** ThreadId of the entry currently open in a chat sheet/panel — drives the selected highlight. */
+  protected readonly currentThreadId = computed(() => this._selectedThreadId());
+
   protected readonly totalCount = computed(() => this._operations().length);
 
   /** Count of completed operations. */
@@ -1621,9 +1647,17 @@ export class AgentXOperationsLogComponent {
           if (liveEventKey) {
             this._confirmedTerminalStatuses.set(liveEventKey, effectiveStatus);
           }
+          // Clear live-run tracking when the operation reaches a terminal state.
+          this._liveInProgressThreads.delete(evt.threadId);
         } else {
           if (liveEventKey) {
             this._confirmedTerminalStatuses.delete(liveEventKey);
+          }
+          // Record that SSE has explicitly confirmed this thread is running so
+          // silentRefresh() knows to trust live `in-progress` over a stale HTTP
+          // `complete` (which may be the result of the previous run, not the new one).
+          if (effectiveStatus === 'in-progress') {
+            this._liveInProgressThreads.add(evt.threadId);
           }
         }
       });
@@ -1738,11 +1772,20 @@ export class AgentXOperationsLogComponent {
 
             let merged = entry;
 
+            // True when SSE has explicitly fired `in-progress` for this thread in
+            // the current session — meaning a new run is actively happening.
+            // This lets silentRefresh() prefer live `in-progress` over a stale HTTP
+            // `complete` (left over from the previous run) without breaking the
+            // "stuck spinner" protection (where SSE missed the `done` event and
+            // HTTP correctly shows the terminal state).
+            const sseConfirmedRunning =
+              !!entry.threadId && this._liveInProgressThreads.has(entry.threadId);
+
             // Merge live status (prefer more-advanced state)
             if (live) {
               const httpIsTerminal = terminalStates.has(entry.status);
               const liveIsTerminal = terminalStates.has(live);
-              if (!httpIsTerminal || liveIsTerminal) {
+              if (!httpIsTerminal || liveIsTerminal || sseConfirmedRunning) {
                 merged = { ...merged, status: live };
               }
             }
@@ -1754,10 +1797,11 @@ export class AgentXOperationsLogComponent {
 
             // Apply confirmed terminal status — prevents a stale HTTP `in-progress`
             // from overwriting a terminal status that SSE already delivered this session.
+            // Skip if SSE has confirmed a new run is currently active for this thread.
             const confirmedTerminal = this._confirmedTerminalStatuses.get(
               this.getLiveEventKey(entry.operationId, entry.threadId)
             );
-            if (confirmedTerminal && !terminalStates.has(merged.status)) {
+            if (confirmedTerminal && !terminalStates.has(merged.status) && !sseConfirmedRunning) {
               merged = { ...merged, status: confirmedTerminal };
             }
 
@@ -2350,6 +2394,7 @@ export class AgentXOperationsLogComponent {
 
     // In embedded mode (desktop rail), delegate to parent via output
     if (this.embedded()) {
+      this._selectedThreadId.set(entry.threadId ?? null);
       this.entryTap.emit(entry);
       return;
     }
@@ -2386,6 +2431,7 @@ export class AgentXOperationsLogComponent {
 
     // If the operation is linked to a persisted thread, open that exact conversation.
     if (entry.threadId) {
+      this._selectedThreadId.set(entry.threadId);
       const hasRecurringTasksHint = this.hasRecurringTaskForThread(entry.threadId);
       await this.bottomSheet.openSheet({
         component: AgentXOperationChatComponent,
@@ -2411,6 +2457,7 @@ export class AgentXOperationsLogComponent {
         backdropDismiss: true,
         cssClass: 'agent-x-operation-sheet',
       });
+      this._selectedThreadId.set(null);
       return;
     }
 

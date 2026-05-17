@@ -221,7 +221,6 @@ export class AgentChatRequestDto {
 
   @IsArray()
   @IsOptional()
-  @ArrayMaxSize(5)
   @ValidateNested({ each: true })
   @Type(() => ChatAttachmentDto)
   attachments?: ChatAttachmentDto[];
@@ -262,7 +261,6 @@ export class AgentChatRequestDto {
    */
   @IsArray()
   @IsOptional()
-  @ArrayMaxSize(5)
   @ValidateNested({ each: true })
   @Type(() => AttachmentStubDto)
   attachmentStubs?: AttachmentStubDto[];
@@ -302,7 +300,6 @@ export class AttachmentStubDto {
  */
 export class ResolvePendingAttachmentsDto {
   @IsArray()
-  @ArrayMaxSize(5)
   @ValidateNested({ each: true })
   @Type(() => ChatAttachmentDto)
   attachments!: ChatAttachmentDto[];
@@ -325,7 +322,6 @@ export class AgentEnqueueRequestDto {
 
   @IsArray()
   @IsOptional()
-  @ArrayMaxSize(5)
   @ValidateNested({ each: true })
   @Type(() => ChatAttachmentDto)
   attachments?: ChatAttachmentDto[];
