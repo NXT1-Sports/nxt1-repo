@@ -39,7 +39,7 @@
     "@azure/msal-angular": "^5.0.2",
     "@azure/msal-browser": "^5.0.2",
     "@capacitor-community/apple-sign-in": "^7.1.0",
-    "@capacitor-community/media": "^7.0.0",
+    "@capacitor-community/media": "^9.1.0",
     "@capacitor-firebase/authentication": "^8.0.1",
     "@capacitor-firebase/crashlytics": "^8.0.1",
     "@capacitor-firebase/messaging": "^8.1.0",
