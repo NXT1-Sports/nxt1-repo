@@ -5370,7 +5370,11 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     });
 
     this.coordinatorTap.emit(cat);
-    await ref.closed;
+    try {
+      await ref.closed;
+    } finally {
+      this.selectedCoordinatorLabel.set(null);
+    }
   }
 
   /**
@@ -5378,6 +5382,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    * overlay pre-populated with the user's message and any pending files.
    */
   public async onMobileSendMessage(): Promise<void> {
+    this.selectedCoordinatorLabel.set(null);
+
     const message = this.agentX.getUserMessage().trim();
     const servicePendingFiles = this.agentX.pendingFiles();
 

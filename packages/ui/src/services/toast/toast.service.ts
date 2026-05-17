@@ -205,6 +205,11 @@ export class NxtToastService {
         this.activeToastTimer = null;
       }
 
+      this.activeIonicToast.classList.add('nxt-toast--slide-away');
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 140);
+      });
+
       await this.activeIonicToast.dismiss();
       return;
     }
@@ -336,6 +341,8 @@ export class NxtToastService {
 
     await ionicToast.present();
 
+    this.setupTapToDismiss(ionicToast);
+
     if (toast.hapticFeedback) {
       this.provideHapticFeedback(toast.type);
     }
@@ -390,6 +397,8 @@ export class NxtToastService {
     if (this.activeDomToast !== toast && this.activeIonicToast !== toast) {
       return;
     }
+
+    this.destroyTapDismissListener();
 
     if (this.activeToastTimer) {
       clearTimeout(this.activeToastTimer);
@@ -477,12 +486,11 @@ export class NxtToastService {
   /**
    * Setup tap-to-dismiss for entire toast container
    */
-  private setupTapToDismiss(toastEl: HTMLElement): void {
-    const onTap = (event: MouseEvent) => {
+  private setupTapToDismiss(toastEl: HTMLElement | HTMLIonToastElement): void {
+    const onTap = (event: Event) => {
       if (this.isDismissing) return;
 
-      const target = event.target as HTMLElement | null;
-      if (target?.closest('button')) {
+      if (this.isToastActionTap(event)) {
         return;
       }
 
@@ -496,6 +504,29 @@ export class NxtToastService {
       toastEl.removeEventListener('click', onTap);
       this.tapDismissCleanup = null;
     };
+  }
+
+  private isToastActionTap(event: Event): boolean {
+    const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+
+    for (const node of path) {
+      if (!(node instanceof HTMLElement)) {
+        continue;
+      }
+
+      const tagName = node.tagName.toLowerCase();
+      if (
+        tagName === 'button' ||
+        tagName === 'ion-button' ||
+        node.classList.contains('toast-button') ||
+        node.getAttribute('role') === 'button'
+      ) {
+        return true;
+      }
+    }
+
+    const target = event.target;
+    return target instanceof HTMLElement && target.closest('button, ion-button') !== null;
   }
 
   /**

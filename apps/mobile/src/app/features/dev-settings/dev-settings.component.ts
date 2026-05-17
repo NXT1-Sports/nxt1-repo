@@ -954,7 +954,28 @@ export class DevSettingsComponent {
       duration: 2000,
       color,
       position: 'bottom',
+      cssClass: ['nxt-toast', `nxt-toast-${color === 'danger' ? 'error' : color}`],
     });
+
+    let isDismissing = false;
+    const onTap = (): void => {
+      if (isDismissing) {
+        return;
+      }
+
+      isDismissing = true;
+      toast.classList.add('nxt-toast--slide-away');
+
+      setTimeout(() => {
+        void toast.dismiss();
+      }, 140);
+    };
+
+    toast.addEventListener('click', onTap, { passive: true });
+    toast.onDidDismiss().then(() => {
+      toast.removeEventListener('click', onTap);
+    });
+
     await toast.present();
   }
 }

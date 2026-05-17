@@ -2181,21 +2181,25 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         label: cmd.label,
       },
     }));
-    await this.openOperationChat(
-      cat.id,
-      cat.label,
-      cat.icon,
-      'command',
-      quickActions,
-      cat.description,
-      '',
-      '',
-      null,
-      'processing',
-      null,
-      scheduledActions,
-      suggestedActions
-    );
+    try {
+      await this.openOperationChat(
+        cat.id,
+        cat.label,
+        cat.icon,
+        'command',
+        quickActions,
+        cat.description,
+        '',
+        '',
+        null,
+        'processing',
+        null,
+        scheduledActions,
+        suggestedActions
+      );
+    } finally {
+      this.selectedCoordinatorLabel.set(null);
+    }
   }
 
   /**
@@ -2348,6 +2352,9 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
    * with the user's message and any pending files.
    */
   protected async onSendMessage(): Promise<void> {
+    // Clear coordinator context — this is a fresh Agent X chat, not a coordinator session
+    this.selectedCoordinatorLabel.set(null);
+
     const message = this.agentX.getUserMessage().trim();
     const servicePendingFiles = this.agentX.pendingFiles();
 

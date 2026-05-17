@@ -36,6 +36,8 @@ export type HapticFeedbackType = HapticImpact | HapticNotification | 'selection'
 })
 export class HapticButtonDirective {
   private readonly haptics = inject(HapticsService);
+  private static readonly FORM_CONTROL_SELECTOR =
+    'input, textarea, select, ion-input, ion-textarea, ion-select, [contenteditable="true"]';
 
   /**
    * The type of haptic feedback to trigger
@@ -54,14 +56,33 @@ export class HapticButtonDirective {
    */
   @Input({ transform: booleanAttribute }) nxtHapticDisabled = false;
 
-  @HostListener('click')
-  @HostListener('touchstart')
-  onInteraction(): void {
+  @HostListener('click', ['$event'])
+  @HostListener('touchstart', ['$event'])
+  onInteraction(event: Event): void {
     if (this.nxtHapticDisabled || this.feedbackType === null) {
       return;
     }
 
+    // Do not fire button haptics when the interaction originates from nested
+    // text-entry controls (e.g., input inside a selectable card).
+    if (this.isFormControlInteraction(event)) {
+      return;
+    }
+
     this.triggerFeedback();
+  }
+
+  private isFormControlInteraction(event: Event): boolean {
+    const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+
+    for (const node of path) {
+      if (node instanceof Element && node.matches(HapticButtonDirective.FORM_CONTROL_SELECTOR)) {
+        return true;
+      }
+    }
+
+    const target = event.target;
+    return target instanceof Element && target.matches(HapticButtonDirective.FORM_CONTROL_SELECTOR);
   }
 
   private triggerFeedback(): void {

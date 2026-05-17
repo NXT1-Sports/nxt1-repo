@@ -99,6 +99,54 @@ describe('NxtToastService', () => {
     expect(document.querySelector('.nxt-toast-shell')).toBeNull();
   });
 
+  it('dismisses Ionic toasts on tap with slide-away class', async () => {
+    vi.useFakeTimers();
+
+    let clickHandler: ((event: Event) => void) | null = null;
+    const dismiss = vi.fn().mockResolvedValue(true);
+    const ionicToast = {
+      present: vi.fn().mockResolvedValue(undefined),
+      dismiss,
+      onDidDismiss: vi.fn(() => new Promise(() => undefined)),
+      addEventListener: vi.fn((eventName: string, handler: EventListenerOrEventListenerObject) => {
+        if (eventName === 'click' && typeof handler === 'function') {
+          clickHandler = handler;
+        }
+      }),
+      removeEventListener: vi.fn(),
+      classList: {
+        add: vi.fn(),
+      },
+    } as unknown as HTMLIonToastElement;
+
+    const create = vi.fn().mockResolvedValue(ionicToast);
+
+    const service = createToastService({
+      platform: {
+        isBrowser: () => true,
+        isNative: () => true,
+        isMobile: () => true,
+      },
+      toastController: { create },
+      useIonicToasts: true,
+    });
+
+    service.success('Tap to dismiss', { duration: 0 });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(clickHandler).not.toBeNull();
+    clickHandler?.(new MouseEvent('click'));
+
+    await vi.advanceTimersByTimeAsync(141);
+    await Promise.resolve();
+
+    expect(ionicToast.classList.add).toHaveBeenCalledWith('nxt-toast--slide-away');
+    expect(dismiss).toHaveBeenCalled();
+
+    vi.useRealTimers();
+  });
+
   it('falls back to DOM toast when Ionic toast presentation fails', async () => {
     const create = vi.fn().mockRejectedValue(new Error('overlay failed'));
 

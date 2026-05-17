@@ -297,15 +297,12 @@ export class AgentXVideoUploadService {
     const uploadedViaNative = await this._nativeFirebasePut(file, storagePath, onProgress);
     if (uploadedViaNative) return;
 
-    // ⚠️  Native Firebase path did not handle the upload (returned false).
-    // Falling through to the XHR path. On native Capacitor with CapacitorHttp enabled
-    // the XHR bridge serialises the File body as base64 (~1.37× the raw size) which
-    // can exceed the WKWebView bridge message limit for large files (>~10 MB).
-    // If you see "Network error during video upload" after this log, check the
-    // _nativeFirebasePut WARN logs above to identify why the native path was skipped.
-    this.logger.warn(
-      '[_xhrPutWithRetry] Native Firebase Storage path returned false; falling back to XHR upload. ' +
-        'Large files may fail on native Capacitor due to CapacitorHttp bridge size limits.',
+    // Native Firebase path did not handle the upload (returned false).
+    // Falling through to the XHR path. On web this is expected. On native
+    // Capacitor this may indicate plugin/config issues, and large files can
+    // fail due to CapacitorHttp bridge size limits.
+    this.logger.info(
+      '[_xhrPutWithRetry] Using XHR upload fallback after native Firebase path returned false.',
       {
         name: file.name,
         sizeBytes: file.size,
@@ -395,14 +392,31 @@ export class AgentXVideoUploadService {
       }
       firebaseStorageApi = maybeApi;
     } catch (importErr) {
-      this.logger.warn(
-        '[_nativeFirebasePut] Failed to import native Capacitor modules; falling back to XHR upload path',
-        {
-          error: importErr instanceof Error ? importErr.message : String(importErr),
-          name: file.name,
-          sizeBytes: file.size,
-        }
-      );
+      const importErrMessage = importErr instanceof Error ? importErr.message : String(importErr);
+      const isExpectedWebFallback =
+        /@capacitor-firebase\/storage/i.test(importErrMessage) ||
+        /Failed to resolve module specifier/i.test(importErrMessage) ||
+        /Cannot find module/i.test(importErrMessage);
+
+      if (isExpectedWebFallback) {
+        this.logger.info(
+          '[_nativeFirebasePut] Native Capacitor Firebase module not available in web build; using XHR upload path',
+          {
+            error: importErrMessage,
+            name: file.name,
+            sizeBytes: file.size,
+          }
+        );
+      } else {
+        this.logger.warn(
+          '[_nativeFirebasePut] Failed to import native Capacitor modules; falling back to XHR upload path',
+          {
+            error: importErrMessage,
+            name: file.name,
+            sizeBytes: file.size,
+          }
+        );
+      }
       return false;
     }
 
