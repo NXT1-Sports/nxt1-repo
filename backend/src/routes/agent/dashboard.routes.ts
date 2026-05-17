@@ -26,6 +26,7 @@ import type {
 } from '@nxt1/core';
 import { AGENT_X_MAX_VIDEO_FILE_SIZE } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
+import { getSignedUrlWithTimeout } from '../../utils/gcs-signed-url.js';
 import firebaseAdmin from '../../utils/firebase.js';
 import {
   getAgentAppConfig,
@@ -2011,18 +2012,22 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
     const readExpiresAtMs = Date.now() + AgentMediaLifecycleService.DEFAULT_SIGNED_URL_TTL_MS;
 
     const [uploadUrl, readUrl] = await Promise.all([
-      storageFile.getSignedUrl({
-        version: 'v4',
-        action: 'write',
-        expires: uploadExpiresAtMs,
-        contentType: mimeType,
-      }),
-      storageFile.getSignedUrl({
-        version: 'v4',
-        action: 'read',
-        expires: readExpiresAtMs,
-      }),
-    ]).then((entries) => entries.map(([url]) => url) as [string, string]);
+      getSignedUrlWithTimeout(() =>
+        storageFile.getSignedUrl({
+          version: 'v4',
+          action: 'write',
+          expires: uploadExpiresAtMs,
+          contentType: mimeType,
+        })
+      ).then(([url]) => url),
+      getSignedUrlWithTimeout(() =>
+        storageFile.getSignedUrl({
+          version: 'v4',
+          action: 'read',
+          expires: readExpiresAtMs,
+        })
+      ).then(([url]) => url),
+    ]);
 
     logger.info('Agent X video upload URL provisioned (firebase)', {
       userId: user.uid,
@@ -2046,10 +2051,20 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
     });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
+    const isTimeout = error.message.includes('timed out');
     logger.error('Agent X video upload provisioning failed', {
       error: error.message,
       stack: error.stack,
+      timedOut: isTimeout,
     });
+    if (isTimeout) {
+      res.status(503).json({
+        success: false,
+        error: 'Storage service temporarily unavailable. Please try again.',
+        code: 'STORAGE_TIMEOUT',
+      });
+      return;
+    }
     res.status(500).json({ success: false, error: 'Failed to provision video upload URL' });
   }
 });

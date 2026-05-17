@@ -13,6 +13,7 @@ import { Router, type Request, type Response } from 'express';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { type AgentThreadCategory, type AgentMessage, type AgentXAttachment } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
+import { getSignedUrlWithTimeout } from '../../utils/gcs-signed-url.js';
 import { chatService, isValidObjectId, VALID_THREAD_CATEGORIES } from './shared.js';
 import { getStorage } from 'firebase-admin/storage';
 import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
@@ -30,11 +31,9 @@ async function refreshStorageUrl(
   try {
     const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
     const storageFile = getStorage().bucket(bucketName).file(storagePath);
-    const [signedUrl] = await storageFile.getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires: expiresAt,
-    });
+    const [signedUrl] = await getSignedUrlWithTimeout(() =>
+      storageFile.getSignedUrl({ version: 'v4', action: 'read', expires: expiresAt })
+    );
 
     return {
       ...media,

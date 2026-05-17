@@ -1,3 +1,5 @@
+import { getSignedUrlWithTimeout } from '../../../../utils/gcs-signed-url.js';
+
 type StorageBucketRef = {
   name: string;
   file: (path: string) => unknown;
@@ -80,11 +82,10 @@ export class AgentMediaLifecycleService {
 
     const ttlMs = params.signedUrlTtlMs ?? this.DEFAULT_SIGNED_URL_TTL_MS;
     const expiresAt = Date.now() + ttlMs;
-    const [signedUrl] = await file.getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires: expiresAt,
-    });
+
+    const [signedUrl] = await getSignedUrlWithTimeout(() =>
+      file.getSignedUrl({ version: 'v4', action: 'read', expires: expiresAt })
+    );
 
     return { url: signedUrl, expiresAt };
   }
@@ -137,11 +138,9 @@ export class AgentMediaLifecycleService {
 
     const ttlMs = params.signedUrlTtlMs ?? this.DEFAULT_SIGNED_URL_TTL_MS;
     const expiresAt = Date.now() + ttlMs;
-    const [signedUrl] = await destFile.getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires: expiresAt,
-    });
+    const [signedUrl] = await getSignedUrlWithTimeout(() =>
+      destFile.getSignedUrl({ version: 'v4', action: 'read', expires: expiresAt })
+    );
 
     return {
       url: signedUrl,

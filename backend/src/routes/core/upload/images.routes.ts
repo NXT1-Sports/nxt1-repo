@@ -19,6 +19,7 @@ import {
   waitForExtensionThumbnails,
   buildThumbnailUrls,
 } from './shared.js';
+import { getSignedUrlWithTimeout } from '../../../utils/gcs-signed-url.js';
 import { RosterEntryService } from '../../../services/team/roster-entry.service.js';
 
 const router: RouterType = Router();
@@ -238,15 +239,17 @@ router.post(
     const file = bucket.file(storagePath);
 
     const expiresAt = Date.now() + 30 * 60 * 1000;
-    const [signedUrl] = await file.getSignedUrl({
-      version: 'v4',
-      action: 'write',
-      expires: expiresAt,
-      contentType: mimeType,
-      extensionHeaders: {
-        'x-goog-content-length-range': `0,${rules.maxSize}`,
-      },
-    });
+    const [signedUrl] = await getSignedUrlWithTimeout(() =>
+      file.getSignedUrl({
+        version: 'v4',
+        action: 'write',
+        expires: expiresAt,
+        contentType: mimeType,
+        extensionHeaders: {
+          'x-goog-content-length-range': `0,${rules.maxSize}`,
+        },
+      })
+    );
 
     logger.info('Generated highlight video upload URL', {
       userId,
@@ -455,12 +458,14 @@ router.post(
     const bucket = req.firebase?.storage?.bucket() || getStorage().bucket();
     const file = bucket.file(storagePath);
 
-    const [signedUrl] = await file.getSignedUrl({
-      version: 'v4',
-      action: 'write',
-      expires: Date.now() + 15 * 60 * 1000,
-      contentType: mimeType,
-    });
+    const [signedUrl] = await getSignedUrlWithTimeout(() =>
+      file.getSignedUrl({
+        version: 'v4',
+        action: 'write',
+        expires: Date.now() + 15 * 60 * 1000,
+        contentType: mimeType,
+      })
+    );
 
     const isExtensionPath = storagePath.includes('/profile/');
     const thumbnailPaths = isExtensionPath ? getExtensionThumbnailPaths(storagePath) : null;
