@@ -378,10 +378,13 @@ export class AgentXVideoUploadService {
     let firebaseStorageApi: NativeFirebaseStorageApi;
 
     try {
-      const firebaseStorageModuleName = '@capacitor-firebase/storage';
+      // String-literal imports are required for esbuild (Angular's build tool) to
+      // include the modules in the app bundle. A variable-based import() is NOT
+      // statically analysable by esbuild and the module would be absent at runtime,
+      // causing the native upload path to silently fail and fall through to XHR.
       const [filesystemLoadedMod, firebaseStorageLoadedMod] = await Promise.all([
         import('@capacitor/filesystem'),
-        import(/* @vite-ignore */ firebaseStorageModuleName),
+        import('@capacitor-firebase/storage'),
       ]);
       filesystemMod = filesystemLoadedMod;
 
@@ -396,7 +399,8 @@ export class AgentXVideoUploadService {
       const isExpectedWebFallback =
         /@capacitor-firebase\/storage/i.test(importErrMessage) ||
         /Failed to resolve module specifier/i.test(importErrMessage) ||
-        /Cannot find module/i.test(importErrMessage);
+        /Cannot find module/i.test(importErrMessage) ||
+        /FirebaseStorage API unavailable/i.test(importErrMessage);
 
       if (isExpectedWebFallback) {
         this.logger.info(

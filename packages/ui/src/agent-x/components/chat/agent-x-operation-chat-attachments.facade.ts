@@ -13,7 +13,6 @@ import { isPlatformBrowser } from '@angular/common';
 import {
   AGENT_X_ALLOWED_MIME_TYPES,
   AGENT_X_ENDPOINTS,
-  AGENT_X_MAX_ATTACHMENTS,
   AGENT_X_MAX_FILE_SIZE,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
   AGENT_X_RUNTIME_CONFIG,
@@ -719,15 +718,6 @@ export class AgentXOperationChatAttachmentsFacade {
           mimeType: file.type,
         });
         continue;
-      }
-
-      if (currentCount + nextPending.length >= AGENT_X_MAX_ATTACHMENTS) {
-        this.toast.error(`Maximum ${AGENT_X_MAX_ATTACHMENTS} attachments allowed`);
-        this.logger.warn('Rejected file because attachment limit was reached', {
-          contextId: host.contextId(),
-          fileName: file.name,
-        });
-        break;
       }
 
       if (!AGENT_X_ALLOWED_MIME_TYPES.includes(file.type)) {
