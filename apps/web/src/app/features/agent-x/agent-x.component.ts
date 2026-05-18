@@ -44,6 +44,7 @@ import { NxtAgentXLandingComponent } from '@nxt1/ui/agent-x/landing';
 import { ConnectedAccountsResyncService } from '@nxt1/ui/components/connected-sources/resync';
 import { NxtAgentXExecutionLayerSectionComponent } from '@nxt1/ui/components/agent-x-execution-layer-section';
 import { NxtAgentXWelcomeHeaderComponent } from '@nxt1/ui/components/agent-x-welcome-header';
+import { ActivityService } from '@nxt1/ui/activity';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
@@ -302,6 +303,7 @@ export class AgentXComponent {
   private readonly seo = inject(SeoService);
   private readonly route = inject(ActivatedRoute);
   private readonly injector = inject(Injector);
+  private readonly activityService = inject(ActivityService);
   private readonly transferState = inject(TransferState);
   private readonly transferredAuth = this.transferState.get<TransferredAuthState>(
     AUTH_TRANSFER_STATE_KEY,
@@ -349,6 +351,14 @@ export class AgentXComponent {
         { injector: this.injector }
       );
     });
+
+    effect(
+      () => {
+        const user = this.authFlowRef()?.user() ?? null;
+        this.activityService.startRealtimeForUser(user?.uid);
+      },
+      { injector: this.injector }
+    );
 
     effect(
       () => {

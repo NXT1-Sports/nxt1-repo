@@ -29,10 +29,12 @@
  * ```
  */
 
-import { Injectable, inject, signal, computed } from '@angular/core';
+import { DestroyRef, Injectable, inject, signal, computed } from '@angular/core';
 import {
   type ActivityItem,
+  type ActivityPriority,
   type ActivityTabId,
+  type ActivityType,
   type ActivityPagination,
   type ActivityFeedResponse,
   ACTIVITY_DEFAULT_TAB,
@@ -47,6 +49,100 @@ import { PERFORMANCE_ADAPTER } from '../services/performance';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
 import { ACTIVITY_API_ADAPTER } from './activity-api.service';
+import { FIRESTORE_ADAPTER } from '../agent-x/services/agent-x-operation-event.service';
+
+const ACTIVITY_REALTIME_LIMIT = 25;
+const VALID_ACTIVITY_TYPES = new Set<ActivityType>([
+  'like',
+  'mention',
+  'announcement',
+  'milestone',
+  'reminder',
+  'system',
+  'update',
+  'agent_task',
+]);
+const VALID_ACTIVITY_PRIORITIES = new Set<ActivityPriority>(['low', 'normal', 'high', 'urgent']);
+
+function readString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+}
+
+function readRecord(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
+}
+
+function readDateString(value: unknown): string | undefined {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return new Date(value).toISOString();
+  }
+
+  if (
+    value &&
+    typeof value === 'object' &&
+    typeof (value as { toDate?: unknown }).toDate === 'function'
+  ) {
+    return (value as { toDate: () => Date }).toDate().toISOString();
+  }
+
+  return undefined;
+}
+
+function normalizeRealtimeActivityItem(doc: Record<string, unknown>): ActivityItem | null {
+  const id = readString(doc['id']) ?? readString(doc['__id']);
+  const type = readString(doc['type']);
+  const title = readString(doc['title']);
+
+  if (!id || !type || !VALID_ACTIVITY_TYPES.has(type as ActivityType) || !title) {
+    return null;
+  }
+
+  const rawPriority = readString(doc['priority']);
+  const priority = VALID_ACTIVITY_PRIORITIES.has(rawPriority as ActivityPriority)
+    ? (rawPriority as ActivityPriority)
+    : 'normal';
+  const mediaUrl =
+    readString(doc['mediaUrl']) ?? readString(readRecord(doc['metadata'])?.['imageUrl']);
+  const rawMediaType = readString(doc['mediaType']);
+
+  return {
+    id,
+    type: type as ActivityType,
+    tab: 'alerts',
+    priority,
+    title,
+    body: readString(doc['body']),
+    timestamp: readDateString(doc['timestamp']) ?? new Date().toISOString(),
+    isRead: doc['isRead'] === true,
+    isArchived: doc['isArchived'] === true,
+    source: readRecord(doc['source']) as ActivityItem['source'],
+    action: readRecord(doc['action']) as ActivityItem['action'],
+    secondaryActions: Array.isArray(doc['secondaryActions'])
+      ? (doc['secondaryActions'] as ActivityItem['secondaryActions'])
+      : undefined,
+    deepLink: readString(doc['deepLink']),
+    expiresAt: readDateString(doc['expiresAt']),
+    mediaUrl,
+    mediaType: rawMediaType === 'video' ? 'video' : mediaUrl ? 'image' : undefined,
+    metadata: readRecord(doc['metadata']),
+  };
+}
+
+function compareActivityByTimestampDesc(a: ActivityItem, b: ActivityItem): number {
+  const aTime = Date.parse(a.timestamp) || 0;
+  const bTime = Date.parse(b.timestamp) || 0;
+  return bTime - aTime;
+}
 
 /**
  * Activity state management service.
@@ -55,12 +151,14 @@ import { ACTIVITY_API_ADAPTER } from './activity-api.service';
 @Injectable({ providedIn: 'root' })
 export class ActivityService {
   private readonly api = inject(ACTIVITY_API_ADAPTER);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly haptics = inject(HapticsService);
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('ActivityService');
   private readonly breadcrumbs = inject(NxtBreadcrumbService);
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly performance = inject(PERFORMANCE_ADAPTER, { optional: true });
+  private readonly firestoreAdapter = inject(FIRESTORE_ADAPTER, { optional: true });
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -79,6 +177,10 @@ export class ActivityService {
 
   /** Cached feed data — avoids skeleton flash when navigating back to /activity */
   private _cache: { items: ActivityItem[]; pagination: ActivityPagination | null } | null = null;
+
+  private realtimeUnsubscribe: (() => void) | null = null;
+  private realtimeUserId: string | null = null;
+  private hasRealtimeSnapshot = false;
 
   // ============================================
   // PUBLIC READONLY COMPUTED SIGNALS
@@ -127,6 +229,10 @@ export class ActivityService {
   readonly unreadItems = computed(() => {
     return this._items().filter((item) => !item.isRead);
   });
+
+  constructor() {
+    this.destroyRef.onDestroy(() => this.stopRealtimeListener());
+  }
 
   // ============================================
   // PUBLIC METHODS
@@ -418,6 +524,81 @@ export class ActivityService {
     this._error.set(null);
   }
 
+  /**
+   * Start a bounded real-time listener for the signed-in user's activity feed.
+   * Safe to call repeatedly; the existing listener is reused when the user id matches.
+   */
+  startRealtimeForUser(userId: string | null | undefined): void {
+    const normalizedUserId = userId?.trim();
+    if (!normalizedUserId) {
+      this.stopRealtimeListener();
+      return;
+    }
+
+    if (normalizedUserId.includes('/')) {
+      this.logger.warn('Refusing to start activity listener for invalid user id');
+      return;
+    }
+
+    if (this.realtimeUserId === normalizedUserId && this.realtimeUnsubscribe) {
+      return;
+    }
+
+    this.stopRealtimeListener();
+
+    if (!this.firestoreAdapter) {
+      this.logger.warn('No Firestore adapter provided; live activity updates unavailable');
+      return;
+    }
+
+    const collectionPath = `Users/${normalizedUserId}/activity`;
+    this.realtimeUserId = normalizedUserId;
+    this.hasRealtimeSnapshot = false;
+
+    try {
+      this.realtimeUnsubscribe = this.firestoreAdapter.onSnapshot(
+        collectionPath,
+        'timestamp',
+        (docs) => this.handleRealtimeSnapshot(docs),
+        (error) => {
+          this.logger.error('Activity live listener failed', error, { collectionPath });
+          void this.breadcrumbs.trackStateChange('activity_realtime_error', {
+            userId: normalizedUserId,
+          });
+        },
+        { direction: 'desc', limit: ACTIVITY_REALTIME_LIMIT }
+      );
+
+      this.logger.info('Activity live listener started', { userId: normalizedUserId });
+      void this.breadcrumbs.trackStateChange('activity_realtime_started', {
+        userId: normalizedUserId,
+      });
+      void this.refreshBadges();
+    } catch (err) {
+      this.realtimeUserId = null;
+      this.realtimeUnsubscribe = null;
+      this.logger.error('Failed to start activity live listener', err, { collectionPath });
+    }
+  }
+
+  /** Stop the active activity listener, if any. */
+  stopRealtimeListener(): void {
+    if (!this.realtimeUnsubscribe) {
+      this.realtimeUserId = null;
+      this.hasRealtimeSnapshot = false;
+      return;
+    }
+
+    try {
+      this.realtimeUnsubscribe();
+    } finally {
+      this.logger.info('Activity live listener stopped', { userId: this.realtimeUserId });
+      this.realtimeUnsubscribe = null;
+      this.realtimeUserId = null;
+      this.hasRealtimeSnapshot = false;
+    }
+  }
+
   // ============================================
   // REAL-TIME HELPERS (Push / Foreground Updates)
   // ============================================
@@ -444,6 +625,66 @@ export class ActivityService {
     }
 
     this.logger.debug('Prepended real-time activity item', { id: item.id });
+  }
+
+  private handleRealtimeSnapshot(docs: ReadonlyArray<Record<string, unknown>>): void {
+    const items = docs
+      .map((doc) => normalizeRealtimeActivityItem(doc))
+      .filter((item): item is ActivityItem => item !== null);
+
+    const shouldIncrementUnread = this.hasRealtimeSnapshot;
+    const result = this.mergeRealtimeItems(items, shouldIncrementUnread);
+    this.hasRealtimeSnapshot = true;
+
+    if (result.added > 0 || result.updated > 0 || result.removed > 0) {
+      this.logger.debug('Merged live activity snapshot', result);
+      void this.breadcrumbs.trackStateChange('activity_realtime_snapshot', result);
+    }
+  }
+
+  private mergeRealtimeItems(
+    incomingItems: readonly ActivityItem[],
+    incrementUnreadForNewItems: boolean
+  ): { added: number; updated: number; removed: number } {
+    const incomingById = new Map(incomingItems.map((item) => [item.id, item]));
+    const currentItems = this._items();
+    const currentIds = new Set(currentItems.map((item) => item.id));
+    let updated = 0;
+    let removed = 0;
+
+    const retainedItems = currentItems.flatMap((item) => {
+      const incoming = incomingById.get(item.id);
+      if (!incoming) {
+        return [item];
+      }
+
+      if (incoming.isArchived) {
+        removed += 1;
+        return [];
+      }
+
+      updated += 1;
+      return [incoming];
+    });
+
+    const newItems = incomingItems.filter((item) => !item.isArchived && !currentIds.has(item.id));
+    if (newItems.length === 0 && updated === 0 && removed === 0) {
+      return { added: 0, updated: 0, removed: 0 };
+    }
+
+    const nextItems = [...newItems, ...retainedItems].sort(compareActivityByTimestampDesc);
+    this._items.set(nextItems);
+    this._cache = null;
+
+    const addedUnread = newItems.filter((item) => !item.isRead).length;
+    if (incrementUnreadForNewItems && addedUnread > 0) {
+      this._badges.update((badges) => ({
+        ...badges,
+        alerts: (badges['alerts'] ?? 0) + addedUnread,
+      }));
+    }
+
+    return { added: newItems.length, updated, removed };
   }
 
   /**

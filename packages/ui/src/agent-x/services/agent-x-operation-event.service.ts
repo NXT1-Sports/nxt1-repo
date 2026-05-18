@@ -103,6 +103,13 @@ const LIFECYCLE_TO_LOG_STATUS: Readonly<
  *
  * Each app provides an implementation via the `FIRESTORE_ADAPTER` token.
  */
+export interface FirestoreQueryOptions {
+  /** Sort direction for the ordered field. Defaults to ascending. */
+  readonly direction?: 'asc' | 'desc';
+  /** Maximum number of documents to observe/fetch. */
+  readonly limit?: number;
+}
+
 export interface FirestoreAdapter {
   /**
    * Subscribe to a Firestore subcollection ordered by a field.
@@ -112,7 +119,8 @@ export interface FirestoreAdapter {
     collectionPath: string,
     orderByField: string,
     onNext: (docs: ReadonlyArray<Record<string, unknown>>) => void,
-    onError: (error: Error) => void
+    onError: (error: Error) => void,
+    options?: FirestoreQueryOptions
   ): () => void;
 
   /**
@@ -122,7 +130,8 @@ export interface FirestoreAdapter {
    */
   getDocs(
     collectionPath: string,
-    orderByField: string
+    orderByField: string,
+    options?: FirestoreQueryOptions
   ): Promise<ReadonlyArray<Record<string, unknown>>>;
 }
 

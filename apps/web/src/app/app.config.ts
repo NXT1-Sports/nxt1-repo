@@ -148,6 +148,19 @@ function normalizeFirestoreSnapshotValue(value: unknown): unknown {
   return value;
 }
 
+function normalizeFirestoreSnapshotDoc(id: string, value: unknown): Record<string, unknown> {
+  const data = normalizeFirestoreSnapshotValue(value) as Record<string, unknown>;
+  return {
+    ...data,
+    id: typeof data['id'] === 'string' ? data['id'] : id,
+    __id: id,
+  };
+}
+
+function isSupportedFirestoreCollectionPath(path: string): boolean {
+  return /^(AgentJobs\/[^/]+\/events|Users\/[^/]+\/activity)$/.test(path);
+}
+
 let firestoreRuntimePromise: Promise<
   typeof import('firebase/app') & typeof import('firebase/firestore')
 > | null = null;
@@ -313,9 +326,10 @@ export const appConfig: ApplicationConfig = {
           path: string,
           orderByField: string,
           onNext: (docs: ReadonlyArray<Record<string, unknown>>) => void,
-          onError: (error: Error) => void
+          onError: (error: Error) => void,
+          options?: { readonly direction?: 'asc' | 'desc'; readonly limit?: number }
         ) => {
-          if (!/^AgentJobs\/[^/]+\/events$/.test(path)) {
+          if (!isSupportedFirestoreCollectionPath(path)) {
             throw new Error(`Unsupported Firestore subscription path: ${path}`);
           }
 
@@ -325,15 +339,26 @@ export const appConfig: ApplicationConfig = {
           let disposed = false;
 
           void loadFirestoreRuntime()
-            .then(({ getApp, getFirestore, collection, query, orderBy, onSnapshot }) => {
+            .then(({ getApp, getFirestore, collection, query, orderBy, limit, onSnapshot }) => {
               const firestore = getFirestore(getApp());
               const ref = collection(firestore, path);
-              const snapshotQuery = query(ref, orderBy(orderByField));
+              const boundedLimit =
+                options?.limit === undefined
+                  ? null
+                  : Math.max(1, Math.min(100, Math.floor(options.limit)));
+              const snapshotQuery =
+                boundedLimit !== null
+                  ? query(
+                      ref,
+                      orderBy(orderByField, options?.direction ?? 'asc'),
+                      limit(boundedLimit)
+                    )
+                  : query(ref, orderBy(orderByField, options?.direction ?? 'asc'));
               const release = onSnapshot(
                 snapshotQuery,
                 (snap) => {
-                  const docs = snap.docs.map(
-                    (doc) => normalizeFirestoreSnapshotValue(doc.data()) as Record<string, unknown>
+                  const docs = snap.docs.map((doc) =>
+                    normalizeFirestoreSnapshotDoc(doc.id, doc.data())
                   );
                   ngZone.run(() => onNext(docs));
                 },
@@ -362,21 +387,27 @@ export const appConfig: ApplicationConfig = {
         },
         getDocs: async (
           path: string,
-          orderByField: string
+          orderByField: string,
+          options?: { readonly direction?: 'asc' | 'desc'; readonly limit?: number }
         ): Promise<ReadonlyArray<Record<string, unknown>>> => {
-          if (!/^AgentJobs\/[^/]+\/events$/.test(path)) {
+          if (!isSupportedFirestoreCollectionPath(path)) {
             throw new Error(`Unsupported Firestore query path: ${path}`);
           }
 
-          const { getApp, getFirestore, collection, query, orderBy, getDocs } =
+          const { getApp, getFirestore, collection, query, orderBy, limit, getDocs } =
             await loadFirestoreRuntime();
           const firestore = getFirestore(getApp());
           const ref = collection(firestore, path);
-          const snapshotQuery = query(ref, orderBy(orderByField));
+          const boundedLimit =
+            options?.limit === undefined
+              ? null
+              : Math.max(1, Math.min(100, Math.floor(options.limit)));
+          const snapshotQuery =
+            boundedLimit !== null
+              ? query(ref, orderBy(orderByField, options?.direction ?? 'asc'), limit(boundedLimit))
+              : query(ref, orderBy(orderByField, options?.direction ?? 'asc'));
           const snap = await getDocs(snapshotQuery);
-          return snap.docs.map(
-            (doc) => normalizeFirestoreSnapshotValue(doc.data()) as Record<string, unknown>
-          );
+          return snap.docs.map((doc) => normalizeFirestoreSnapshotDoc(doc.id, doc.data()));
         },
       }),
       deps: [NgZone],
