@@ -153,7 +153,10 @@ export function renderDefs(): string {
 </defs>`;
 }
 
-function getRouteMarkerAndStyle(type?: DiagramRouteType, customColor?: string): {
+function getRouteMarkerAndStyle(
+  type?: DiagramRouteType,
+  customColor?: string
+): {
   marker: string;
   strokeWidth: string;
   strokeDasharray?: string;

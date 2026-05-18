@@ -35,6 +35,7 @@ import {
 } from '@nxt1/core';
 import type { IntelGenerationService } from '../services/intel.service.js';
 import { logger } from '../../../utils/logger.js';
+import { runWithFirestoreEnvironment } from '../../../utils/firestore-environment-context.js';
 import type { BaseTool, ToolResult, ToolExecutionContext } from './base.tool.js';
 import { compactizeMarkdownUrls } from './favicon-registry.js';
 import {
@@ -540,7 +541,9 @@ export class ToolRegistry {
     if (isToolDisabled(normalizedName)) {
       return { success: false, error: `Tool is currently disabled: ${normalizedName}` };
     }
-    const result = normalizeToolResultForDisplay(await tool.execute(input, context));
+    const result = normalizeToolResultForDisplay(
+      await runWithFirestoreEnvironment(context?.environment, () => tool.execute(input, context))
+    );
 
     if (result.success && tool.isMutation) {
       await getAgentMutationPolicyService()

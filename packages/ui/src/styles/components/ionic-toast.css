@@ -20,6 +20,14 @@
 
 ion-toast.nxt-toast {
   font-family: var(--nxt1-fontFamily-brand);
+  transition:
+    transform var(--nxt1-duration-fast, 160ms) var(--nxt1-easing-inOut, ease-in-out),
+    opacity var(--nxt1-duration-fast, 160ms) var(--nxt1-easing-inOut, ease-in-out);
+}
+
+ion-toast.nxt-toast.nxt-toast--slide-away {
+  opacity: 0;
+  transform: translateY(0.75rem) scale(0.98);
 }
 
 /* Toast wrapper (shadow host) */

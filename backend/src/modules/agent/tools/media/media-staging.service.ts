@@ -6,6 +6,7 @@ import type { Storage } from 'firebase-admin/storage';
 import { storage as defaultStorage } from '../../../../utils/firebase.js';
 import { stagingStorage } from '../../../../utils/firebase-staging.js';
 import { logger } from '../../../../utils/logger.js';
+import { getSignedUrlWithTimeout } from '../../../../utils/gcs-signed-url.js';
 import type { ToolExecutionContext } from '../base.tool.js';
 import { validateUrl } from '../integrations/firecrawl/scraping/url-validator.js';
 
@@ -123,11 +124,9 @@ export class MediaStagingService {
     const sizeBytes = await this.streamToStorage(file, response, mimeType, request, mediaKind);
     const expiresInMinutes = this.resolveExpiryMinutes(request.expiresInMinutes);
     const expiresAtDate = new Date(Date.now() + expiresInMinutes * 60_000);
-    const [signedUrl] = await file.getSignedUrl({
-      action: 'read',
-      expires: expiresAtDate,
-      version: 'v4',
-    });
+    const [signedUrl] = await getSignedUrlWithTimeout(() =>
+      file.getSignedUrl({ action: 'read', expires: expiresAtDate, version: 'v4' })
+    );
 
     logger.info('[MediaStagingService] Staged media', {
       sourceHost: parsedSourceUrl.hostname,

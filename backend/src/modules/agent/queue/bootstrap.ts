@@ -213,10 +213,11 @@ import { VectorMemoryService } from '../memory/vector.service.js';
 import { SessionMemoryService } from '../memory/session.service.js';
 import { KnowledgeRetrievalService } from '../memory/knowledge-retrieval.service.js';
 import { AgentChatService } from '../services/agent-chat.service.js';
+import { getRuntimeEnvironment } from '../../../config/runtime-environment.js';
 import { getCacheService } from '../../../services/core/cache.service.js';
 import { db as appDb } from '../../../utils/firebase.js';
 import { stagingDb } from '../../../utils/firebase-staging.js';
-import { db } from '../../../utils/firebase.js';
+import { createEnvironmentScopedFirestore } from '../../../utils/firestore-environment-context.js';
 import { logger } from '../../../utils/logger.js';
 import {
   SkillRegistry,
@@ -335,8 +336,18 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     };
   }
   // ── 1. Core services ─────────────────────────────────────────────────
+  const runtimeEnvironment = getRuntimeEnvironment();
+  const runtimeFirestore = runtimeEnvironment === 'production' ? appDb : stagingDb;
+  const toolFirestore = createEnvironmentScopedFirestore(
+    {
+      production: appDb,
+      staging: stagingDb,
+    },
+    runtimeEnvironment
+  );
+
   const llm = new OpenRouterService({
-    firestore: appDb,
+    firestore: runtimeFirestore,
     onTelemetry: (record) => {
       // Accumulate cost per operationId so the billing module can deduct
       // the correct amount at job completion. Helicone handles all usage
@@ -402,7 +413,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new DispatchExtractionTool(llm));
   try {
     const liveViewService = new LiveViewSessionService();
-    toolRegistry.register(new OpenLiveViewTool(liveViewService, db));
+    toolRegistry.register(new OpenLiveViewTool(liveViewService, toolFirestore));
     toolRegistry.register(new NavigateLiveViewTool(liveViewService));
     toolRegistry.register(new InteractWithLiveViewTool(liveViewService));
     toolRegistry.register(new ReadLiveViewTool(liveViewService));
@@ -416,46 +427,56 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     logger.warn('LiveViewSessionService init failed — open_live_view tool disabled');
   }
 
-  toolRegistry.register(new WriteCoreIdentityTool(db));
-  toolRegistry.register(new WriteAwardsTool(db));
-  toolRegistry.register(new WriteCombineMetricsTool(db));
-  toolRegistry.register(new WriteRankingsTool(db));
-  toolRegistry.register(new WriteSeasonStatsTool(db));
-  toolRegistry.register(new WriteRecruitingActivityTool(db));
-  toolRegistry.register(new WriteCalendarEventsTool(db));
-  toolRegistry.register(new WriteScheduleTool(db));
-  toolRegistry.register(new WriteTeamStatsTool(db));
-  toolRegistry.register(new WritePlaybooksTool(db));
-  toolRegistry.register(new GetPlaybookTool(db));
-  toolRegistry.register(new ListPlaybooksTool(db));
-  toolRegistry.register(new UpdatePlaybookTool(db));
-  toolRegistry.register(new DeletePlaybookTool(db));
-  toolRegistry.register(new GetGameplanTool(db));
-  toolRegistry.register(new ListGameplansTool(db));
-  toolRegistry.register(new SaveGameplanTool(db));
-  toolRegistry.register(new UpdateGameplanTool(db));
-  toolRegistry.register(new DeleteGameplanTool(db));
-  toolRegistry.register(new WriteTeamNewsTool(db));
-  toolRegistry.register(new WriteTeamPostTool(db));
-  toolRegistry.register(new WriteRosterEntriesTool(db));
-  toolRegistry.register(new WriteAthleteVideosTool(db));
-  toolRegistry.register(new WriteAthleteImagesTool(db));
-  toolRegistry.register(new WriteIntelTool(db));
+  toolRegistry.register(new WriteCoreIdentityTool(toolFirestore));
+  toolRegistry.register(new WriteAwardsTool(toolFirestore));
+  toolRegistry.register(new WriteCombineMetricsTool(toolFirestore));
+  toolRegistry.register(new WriteRankingsTool(toolFirestore));
+  toolRegistry.register(new WriteSeasonStatsTool(toolFirestore));
+  toolRegistry.register(new WriteRecruitingActivityTool(toolFirestore));
+  toolRegistry.register(new WriteCalendarEventsTool(toolFirestore));
+  toolRegistry.register(new WriteScheduleTool(toolFirestore));
+  toolRegistry.register(new WriteTeamStatsTool(toolFirestore));
+  toolRegistry.register(new WritePlaybooksTool(toolFirestore));
+  toolRegistry.register(new GetPlaybookTool(toolFirestore));
+  toolRegistry.register(new ListPlaybooksTool(toolFirestore));
+  toolRegistry.register(new UpdatePlaybookTool(toolFirestore));
+  toolRegistry.register(new DeletePlaybookTool(toolFirestore));
+  toolRegistry.register(new GetGameplanTool(toolFirestore));
+  toolRegistry.register(new ListGameplansTool(toolFirestore));
+  toolRegistry.register(new SaveGameplanTool(toolFirestore));
+  toolRegistry.register(new UpdateGameplanTool(toolFirestore));
+  toolRegistry.register(new DeleteGameplanTool(toolFirestore));
+  toolRegistry.register(new WriteTeamNewsTool(toolFirestore));
+  toolRegistry.register(new WriteTeamPostTool(toolFirestore));
+  toolRegistry.register(new WriteRosterEntriesTool(toolFirestore));
+  toolRegistry.register(new WriteAthleteVideosTool(toolFirestore));
+  toolRegistry.register(new WriteAthleteImagesTool(toolFirestore));
+  toolRegistry.register(new WriteIntelTool(toolFirestore));
   // ── Update (patch) tools ─────────────────────────────────────────────
-  toolRegistry.register(new UpdateIntelTool(db));
-  toolRegistry.register(new UpdateCoreIdentityTool(db));
-  toolRegistry.register(new UpdateAthleteVideosTool(db));
-  toolRegistry.register(new UpdateTimelinePostTool(db));
-  toolRegistry.register(new UpdateTeamPostTool(db));
-  toolRegistry.register(new UpdateConnectedSourceTool(db));
+  toolRegistry.register(new UpdateIntelTool(toolFirestore));
+  toolRegistry.register(new UpdateCoreIdentityTool(toolFirestore));
+  toolRegistry.register(new UpdateAthleteVideosTool(toolFirestore));
+  toolRegistry.register(new UpdateTimelinePostTool(toolFirestore));
+  toolRegistry.register(new UpdateTeamPostTool(toolFirestore));
+  toolRegistry.register(new UpdateConnectedSourceTool(toolFirestore));
   // ── Delete tools ─────────────────────────────────────────────────────
-  toolRegistry.register(new DeleteCoreIdentityTool(db));
-  toolRegistry.register(new DeleteAthleteVideosTool(db));
-  toolRegistry.register(new DeleteTimelinePostTool(db));
-  toolRegistry.register(new DeleteTeamPostTool(db));
-  toolRegistry.register(new DeleteConnectedSourceTool(db));
-  toolRegistry.register(new SearchNxt1PlatformTool());
-  toolRegistry.register(new QueryNxt1PlatformDataTool());
+  toolRegistry.register(new DeleteCoreIdentityTool(toolFirestore));
+  toolRegistry.register(new DeleteAthleteVideosTool(toolFirestore));
+  toolRegistry.register(new DeleteTimelinePostTool(toolFirestore));
+  toolRegistry.register(new DeleteTeamPostTool(toolFirestore));
+  toolRegistry.register(new DeleteConnectedSourceTool(toolFirestore));
+  toolRegistry.register(
+    new SearchNxt1PlatformTool({
+      production: appDb,
+      staging: stagingDb,
+    })
+  );
+  toolRegistry.register(
+    new QueryNxt1PlatformDataTool({
+      production: appDb,
+      staging: stagingDb,
+    })
+  );
   toolRegistry.register(new TrackAnalyticsEventTool());
   toolRegistry.register(new GetAnalyticsSummaryTool());
   toolRegistry.register(new SearchCollegesTool());
@@ -497,14 +518,14 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new GetRecentSyncSummariesTool());
   toolRegistry.register(new SaveMemoryTool(vectorMemory));
   toolRegistry.register(new DeleteMemoryTool(vectorMemory));
-  toolRegistry.register(new WriteConnectedSourceTool(db));
+  toolRegistry.register(new WriteConnectedSourceTool(toolFirestore));
   toolRegistry.register(new AskUserTool());
-  toolRegistry.register(new WriteTimelinePostTool(db));
-  toolRegistry.register(new ScanTimelinePostsTool(db, llm, vectorMemory));
-  toolRegistry.register(new SendEmailTool(db));
-  toolRegistry.register(new BatchSendEmailTool(db));
-  toolRegistry.register(new SendEmailViaNxt1Tool(db));
-  toolRegistry.register(new BatchSendEmailViaNxt1Tool(db));
+  toolRegistry.register(new WriteTimelinePostTool(toolFirestore));
+  toolRegistry.register(new ScanTimelinePostsTool(toolFirestore, llm, vectorMemory));
+  toolRegistry.register(new SendEmailTool(toolFirestore));
+  toolRegistry.register(new BatchSendEmailTool(toolFirestore));
+  toolRegistry.register(new SendEmailViaNxt1Tool(toolFirestore));
+  toolRegistry.register(new BatchSendEmailViaNxt1Tool(toolFirestore));
   toolRegistry.register(new CreateSupportTicketTool());
 
   // ── 1b. Twitter/X & Instagram scraping (Apify-hosted actors) ─────────
@@ -772,8 +793,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   router.setPrimary(primaryAgent, primaryService);
 
   // ── 3. Queue infrastructure ──────────────────────────────────────────────────
-  const { getFirestore } = await import('firebase-admin/firestore');
-  const agentRunConfig = await getAgentRunConfig(getFirestore());
+  const agentRunConfig = await getAgentRunConfig(runtimeFirestore);
   const queueService = new AgentQueueService(undefined, {
     maxAttempts: agentRunConfig.maxJobAttempts,
     retryBackoffMs: agentRunConfig.retryBackoffMs,
@@ -783,11 +803,11 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   const agentChatService = new AgentChatService(queueService, sessionMemory);
 
   // ── 3a. Automation tools (require queueService + Firestore for durable metadata) ──
-  toolRegistry.register(new ScheduleRecurringTaskTool(queueService, db));
-  toolRegistry.register(new UpdateRecurringTaskTool(queueService, db));
-  toolRegistry.register(new ListRecurringTasksTool(queueService, db));
-  toolRegistry.register(new CancelRecurringTaskTool(queueService, db));
-  toolRegistry.register(new EnqueueHeavyTaskTool(queueService, db));
+  toolRegistry.register(new ScheduleRecurringTaskTool(queueService, toolFirestore));
+  toolRegistry.register(new UpdateRecurringTaskTool(queueService, toolFirestore));
+  toolRegistry.register(new ListRecurringTasksTool(queueService, toolFirestore));
+  toolRegistry.register(new CancelRecurringTaskTool(queueService, toolFirestore));
+  toolRegistry.register(new EnqueueHeavyTaskTool(queueService, toolFirestore));
 
   // ── 4. Create the Redis PubSub service (real-time SSE pipe) ───────────
   // Enables BullMQ workers to stream tokens/steps back to the Express SSE

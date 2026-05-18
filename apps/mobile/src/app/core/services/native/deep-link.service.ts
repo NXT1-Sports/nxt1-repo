@@ -24,6 +24,7 @@
 
 import { Injectable, inject, PLATFORM_ID, NgZone, signal, computed } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
+import { Router } from '@angular/router';
 import { NavController, Platform } from '@ionic/angular/standalone';
 import { NxtLoggingService, NxtBreadcrumbService } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
@@ -53,6 +54,7 @@ export class DeepLinkService {
   private readonly platformId = inject(PLATFORM_ID);
   private readonly platform = inject(Platform);
   private readonly navController = inject(NavController);
+  private readonly router = inject(Router);
   private readonly ngZone = inject(NgZone);
   private readonly breadcrumbs = inject(NxtBreadcrumbService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('DeepLinkService');
@@ -70,6 +72,14 @@ export class DeepLinkService {
   private _isInitialized = signal(false);
   private _lastDeepLink = signal<DeepLinkEvent | null>(null);
   private _pendingDeepLink = signal<string | null>(null);
+
+  /**
+   * Set to true after the auth-based initial navigation completes.
+   * Used by the appUrlOpen handler to decide:
+   *   - false → cold start, store URL as pending (avoids race with navigateRoot)
+   *   - true  → warm start, navigate directly
+   */
+  private _initialNavigationComplete = false;
 
   /** Whether deep link handling is initialized */
   readonly isInitialized = computed(() => this._isInitialized());
@@ -248,19 +258,39 @@ export class DeepLinkService {
           return;
         }
 
-        this.ngZone.run(() => {
-          this.logger.info('Deep link received', { url });
-          void this.breadcrumbs.trackUserAction('Deep link received', { url });
-          this.handleDeepLink(url);
+        // Wait for the platform to be fully ready before navigating.
+        // This prevents silent navigation failures caused by Ionic's view-transition
+        // still running when the app is brought to the foreground via a Universal Link.
+        void this.platform.ready().then(() => {
+          this.ngZone.run(() => {
+            this.logger.info('Deep link received', { url });
+            void this.breadcrumbs.trackUserAction('Deep link received', { url });
+
+            if (this._initialNavigationComplete) {
+              // Warm start — auth-based navigation already finished, navigate directly.
+              this.handleDeepLink(url);
+            } else {
+              // Cold start — initial auth navigation hasn't completed yet.
+              // Store as pending so it's processed after navigateRoot('/agent-x') settles,
+              // preventing the auth navigation from overriding this one.
+              this.logger.info('Cold start: storing appUrlOpen URL as pending', { url });
+              this.setPendingDeepLink(url);
+            }
+          });
         });
       });
 
-      // Check if app was launched with a URL
+      // Check if app was launched with a URL (cold start via Universal Link).
+      // Store as pending instead of navigating immediately — the auth-based initial
+      // navigation (handleInitialNavigation) will process it once complete, avoiding
+      // the race condition where auth navigation overwrites the deep link destination.
       const launchUrl = await App.getLaunchUrl();
       if (launchUrl?.url) {
         if (!launchUrl.url.includes('firebaseauth')) {
-          this.logger.info('App launched with URL', { url: launchUrl.url });
-          this.handleDeepLink(launchUrl.url);
+          this.logger.info('App cold-started with URL, storing as pending deep link', {
+            url: launchUrl.url,
+          });
+          this.setPendingDeepLink(launchUrl.url);
         }
       }
 
@@ -278,6 +308,16 @@ export class DeepLinkService {
    * Process an incoming deep link URL
    */
   handleDeepLink(url: string): void {
+    // Debounce: skip if the same URL was already navigated within 2 seconds.
+    // This prevents double-navigation on cold start when both the Capacitor
+    // retained `appUrlOpen` event AND the `getLaunchUrl()` fallback both fire
+    // for the same launch URL in rapid succession.
+    const lastEvent = this._lastDeepLink();
+    if (lastEvent && lastEvent.url === url && Date.now() - lastEvent.timestamp.getTime() < 2000) {
+      this.logger.debug('Skipping duplicate deep link within 2s', { url });
+      return;
+    }
+
     try {
       const parsed = this.parseDeepLink(url);
       const route = this.resolveRoute(parsed.path, parsed.params);
@@ -369,7 +409,12 @@ export class DeepLinkService {
   }
 
   /**
-   * Navigate to resolved route with params
+   * Navigate to resolved route with params.
+   *
+   * Uses navigateForward with animated:false so that:
+   * 1. No Ionic animation conflict when the app is being foregrounded via Universal Link.
+   * 2. The user's previous navigation stack is preserved (back button works).
+   * Falls back to router.navigateByUrl if NavController rejects.
    */
   private navigateToRoute(route: string, params: Record<string, string>): void {
     // Build route with params
@@ -390,12 +435,45 @@ export class DeepLinkService {
       finalRoute = `${finalRoute}?${queryString}`;
     }
 
-    void this.navController.navigateRoot(finalRoute);
+    this.logger.debug('Executing deep link navigation', { finalRoute });
+
+    // navigateForward with animated:false avoids Ionic view-transition conflicts
+    // that can silently swallow navigateRoot when the app is being foregrounded.
+    this.navController
+      .navigateForward(finalRoute, { animated: false })
+      .then((success) => {
+        if (!success) {
+          this.logger.warn('navigateForward returned false, retrying with router.navigateByUrl', {
+            finalRoute,
+          });
+          void this.router.navigateByUrl(finalRoute);
+        }
+      })
+      .catch((error) => {
+        this.logger.error('Deep link navigation failed, retrying with router.navigateByUrl', {
+          error,
+          finalRoute,
+        });
+        void this.router.navigateByUrl(finalRoute);
+      });
   }
 
   // ============================================
   // PENDING DEEP LINK (for auth flows)
   // ============================================
+
+  /**
+   * Signal to DeepLinkService that the initial auth-based navigation is complete.
+   * Must be called by AppComponent after every navigateRoot branch in
+   * handleInitialNavigation() so that subsequent appUrlOpen events (warm start)
+   * navigate directly instead of being stored as pending.
+   */
+  markInitialNavigationComplete(): void {
+    this._initialNavigationComplete = true;
+    this.logger.debug(
+      'Initial navigation marked complete — warm start deep links will navigate directly'
+    );
+  }
 
   /**
    * Store a pending deep link to process after auth

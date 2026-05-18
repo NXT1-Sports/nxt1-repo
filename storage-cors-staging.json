@@ -1,0 +1,20 @@
+[
+  {
+    "origin": [
+      "https://nxt-1-staging-v2.web.app",
+      "https://nxt1-repo--nxt-1-staging-v2.us-east4.hosted.app",
+      "http://localhost:4200",
+      "http://localhost:5000"
+    ],
+    "method": ["GET", "PUT", "POST", "DELETE", "HEAD", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "Content-Length",
+      "Access-Control-Allow-Origin",
+      "Authorization",
+      "x-goog-resumable",
+      "x-goog-meta-*"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

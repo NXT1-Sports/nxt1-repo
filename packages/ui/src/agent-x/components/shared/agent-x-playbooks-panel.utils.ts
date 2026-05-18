@@ -66,9 +66,7 @@ export function buildCallsheetSituationText(
     situationFilters.map((filter) => [filter.key, filter.label])
   );
 
-  return activeFilters
-    .map(([key, value]) => `${labelByKey.get(key) ?? key}: ${value}`)
-    .join(' | ');
+  return activeFilters.map(([key, value]) => `${labelByKey.get(key) ?? key}: ${value}`).join(' | ');
 }
 
 export function formatDateValue(value?: string): string {

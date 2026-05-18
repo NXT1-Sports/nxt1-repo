@@ -5,7 +5,7 @@ set -euo pipefail
 # Usage:
 #   ./scripts/configure-storage-cors.sh <bucket-name> [origin1 origin2 ...]
 # Example:
-#   ./scripts/configure-storage-cors.sh nxt-1-staging-v2.firebasestorage.app http://localhost:4200 https://staging.nxt1.com
+#   ./scripts/configure-storage-cors.sh nxt-1-staging-v2.firebasestorage.app http://localhost:4200 http://localhost:4300 https://staging.nxt1.com
 
 if [[ $# -lt 1 ]]; then
   echo "Usage: $0 <bucket-name> [origin1 origin2 ...]"
@@ -20,7 +20,9 @@ if [[ $# -gt 0 ]]; then
 else
   origins=(
     "http://localhost:4200"
+    "http://localhost:4300"
     "http://127.0.0.1:4200"
+    "http://127.0.0.1:4300"
   )
 fi
 

@@ -54,7 +54,6 @@ import {
   AGENT_X_MODES,
   AGENT_X_DEFAULT_MODE,
   AGENT_X_ALLOWED_MIME_TYPES,
-  AGENT_X_MAX_ATTACHMENTS,
   AGENT_X_MAX_FILE_SIZE,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
   AGENT_X_RUNTIME_CONFIG,
@@ -966,11 +965,6 @@ export class AgentXService {
     const current = this._pendingFiles();
 
     for (const file of files) {
-      if (current.length >= AGENT_X_MAX_ATTACHMENTS) {
-        this.toast.error(`Maximum ${AGENT_X_MAX_ATTACHMENTS} attachments allowed`);
-        break;
-      }
-
       if (!AGENT_X_ALLOWED_MIME_TYPES.includes(file.type)) {
         this.toast.error(`Unsupported file type: ${file.name}`);
         this.logger.warn('Rejected unsupported file type', { name: file.name, type: file.type });

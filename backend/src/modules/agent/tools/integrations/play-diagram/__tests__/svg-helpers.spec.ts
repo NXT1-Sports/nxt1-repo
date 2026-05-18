@@ -254,7 +254,17 @@ describe('renderPlayers — shapes', () => {
 describe('renderAnnotationStrip', () => {
   it('normalizes suffixed slot tokens in route annotations', () => {
     const result = renderAnnotationStrip(
-      [{ from: 'SL1', label: 'Seam', type: 'go', points: [[0, 0], [10, 10]] }],
+      [
+        {
+          from: 'SL1',
+          label: 'Seam',
+          type: 'go',
+          points: [
+            [0, 0],
+            [10, 10],
+          ],
+        },
+      ],
       600,
       440
     );
@@ -266,10 +276,42 @@ describe('renderAnnotationStrip', () => {
   it('adds enough strip height to avoid clipping the last row', () => {
     const result = renderAnnotationStrip(
       [
-        { from: 'X', label: 'One', type: 'go', points: [[0, 0], [10, 10]] },
-        { from: 'H', label: 'Two', type: 'go', points: [[0, 0], [10, 10]] },
-        { from: 'Y', label: 'Three', type: 'go', points: [[0, 0], [10, 10]] },
-        { from: 'Z', label: 'Four', type: 'go', points: [[0, 0], [10, 10]] },
+        {
+          from: 'X',
+          label: 'One',
+          type: 'go',
+          points: [
+            [0, 0],
+            [10, 10],
+          ],
+        },
+        {
+          from: 'H',
+          label: 'Two',
+          type: 'go',
+          points: [
+            [0, 0],
+            [10, 10],
+          ],
+        },
+        {
+          from: 'Y',
+          label: 'Three',
+          type: 'go',
+          points: [
+            [0, 0],
+            [10, 10],
+          ],
+        },
+        {
+          from: 'Z',
+          label: 'Four',
+          type: 'go',
+          points: [
+            [0, 0],
+            [10, 10],
+          ],
+        },
       ],
       600,
       440

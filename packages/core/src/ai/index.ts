@@ -129,7 +129,6 @@ export {
   AGENT_X_CACHE_TTL,
   // Attachment constants & helpers
   AGENT_X_ALLOWED_MIME_TYPES,
-  AGENT_X_MAX_ATTACHMENTS,
   AGENT_X_MAX_FILE_SIZE,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
   resolveAttachmentType,

@@ -146,11 +146,17 @@ export const passwordResetRateLimit = rateLimit({
 });
 
 /**
- * Upload rate limit - 20 uploads per 15 minutes
+ * Upload rate limit - 20 uploads per 15 minutes per user.
+ * Keys on authenticated userId when available, falls back to IP so
+ * shared/proxy IPs don't collapse all users into one bucket.
  */
 export const uploadRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 20, // Reasonable limit for file uploads
+  keyGenerator: (req: Request): string => {
+    const uid = (req as unknown as { user?: { uid?: string } }).user?.uid;
+    return uid ?? req.ip ?? 'anonymous';
+  },
   message: (req: Request): void => {
     logger.warn('[Rate Limit] Upload limit exceeded', {
       ip: req.ip,

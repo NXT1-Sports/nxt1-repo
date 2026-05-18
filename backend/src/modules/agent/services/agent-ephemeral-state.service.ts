@@ -11,6 +11,7 @@ import { AgentQueueService } from '../queue/queue.service.js';
 import { AgentMediaLifecycleService } from '../tools/media/agent-media-lifecycle.service.js';
 import { getRuntimeEnvironment } from '../../../config/runtime-environment.js';
 import { logger } from '../../../utils/logger.js';
+import { getSignedUrlWithTimeout } from '../../../utils/gcs-signed-url.js';
 
 const MEDIA_PROXY_TEMP_DIR = path.join(os.tmpdir(), 'nxt1-agent-media-proxy');
 const MEDIA_PROXY_UPLOAD_TTL_S = 15 * 60;
@@ -428,11 +429,9 @@ export class AgentEphemeralStateService {
     });
 
     const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
-    const [signedUrl] = await destinationFile.getSignedUrl({
-      version: 'v4',
-      action: 'read',
-      expires: expiresAt,
-    });
+    const [signedUrl] = await getSignedUrlWithTimeout(() =>
+      destinationFile.getSignedUrl({ version: 'v4', action: 'read', expires: expiresAt })
+    );
 
     return {
       url: signedUrl,

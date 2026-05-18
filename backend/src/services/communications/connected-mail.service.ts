@@ -27,6 +27,10 @@ import {
 import type { Firestore } from 'firebase-admin/firestore';
 import { db as defaultDb } from '../../utils/firebase.js';
 import { stagingDb } from '../../utils/firebase-staging.js';
+import {
+  getActiveFirestoreEnvironment,
+  isEnvironmentScopedFirestore,
+} from '../../utils/firestore-environment-context.js';
 import { logger } from '../../utils/logger.js';
 import { renderRichContentAsEmailHtml } from './rich-content-formatting.js';
 import {
@@ -73,7 +77,9 @@ interface SyncResult {
  * to `stagingDb` to decide which CLIENT_ID to use.
  */
 function resolveGoogleCredentials(db: Firestore): { clientId: string; clientSecret: string } {
-  const isStaging = db === stagingDb;
+  const isStaging = isEnvironmentScopedFirestore(db)
+    ? getActiveFirestoreEnvironment() === 'staging'
+    : db === stagingDb;
   const clientId = isStaging
     ? (process.env['STAGING_CLIENT_ID'] ?? process.env['CLIENT_ID'] ?? '')
     : (process.env['CLIENT_ID'] ?? '');

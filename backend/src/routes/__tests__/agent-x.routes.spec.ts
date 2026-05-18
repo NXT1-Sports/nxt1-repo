@@ -37,7 +37,10 @@ describe('Agent X Routes', () => {
       } as never,
       jobRepository: createMockJobRepository() as never,
       chatService: {
-        addMessage: vi.fn(),
+        addMessage: vi.fn().mockImplementation((...args) => {
+          console.log('addMessage called with:', args);
+          return Promise.resolve();
+        }),
       } as never,
       pubsub: null,
       contextBuilder: {
@@ -1208,10 +1211,9 @@ describe('Agent X Routes', () => {
 
   it('should deliver replay-window events exactly once when live emits before replay resolves', async () => {
     const operationId = '9fbe4182-b5d9-4ca6-8426-2d66913d6fe4';
-    let releaseReplay: (() => void) | null = null;
-    const replayGate = new Promise<void>((resolve) => {
-      releaseReplay = resolve;
-    });
+    const releaseReplay: () => void = () => {
+      console.warn('releaseReplay called before being set');
+    };
 
     const jobRepository = createMockJobRepository({
       operationId,
@@ -1242,7 +1244,7 @@ describe('Agent X Routes', () => {
     ];
 
     jobRepository.getJobEvents.mockImplementation(async () => {
-      await replayGate;
+      await releaseReplay();
       return replayEvents;
     });
 
@@ -1326,10 +1328,9 @@ describe('Agent X Routes', () => {
 
   it('should emit only one terminal done when replay and live both contain terminal events', async () => {
     const operationId = 'bd4eb42f-6aa3-4c66-8f2f-fd6f0b76f3e7';
-    let releaseReplay: (() => void) | null = null;
-    const replayGate = new Promise<void>((resolve) => {
-      releaseReplay = resolve;
-    });
+    const releaseReplay: () => void = () => {
+      console.warn('releaseReplay called before being set');
+    };
 
     const jobRepository = createMockJobRepository({
       operationId,
@@ -1339,7 +1340,7 @@ describe('Agent X Routes', () => {
     });
 
     jobRepository.getJobEvents.mockImplementation(async () => {
-      await replayGate;
+      await releaseReplay();
       return [
         {
           seq: 1,

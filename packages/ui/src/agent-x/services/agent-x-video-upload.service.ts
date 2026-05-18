@@ -72,6 +72,22 @@ interface VideoUploadOptions {
   readonly threadId?: string | null;
 }
 
+interface NativeFirebaseUploadEvent {
+  readonly progress?: number;
+  readonly completed?: boolean;
+}
+
+interface NativeFirebaseStorageApi {
+  uploadFile(
+    options: {
+      readonly path: string;
+      readonly uri: string;
+      readonly metadata?: { readonly contentType?: string };
+    },
+    callback: (event?: NativeFirebaseUploadEvent, error?: unknown) => void
+  ): Promise<string>;
+}
+
 // ============================================
 // SERVICE
 // ============================================
@@ -281,15 +297,12 @@ export class AgentXVideoUploadService {
     const uploadedViaNative = await this._nativeFirebasePut(file, storagePath, onProgress);
     if (uploadedViaNative) return;
 
-    // ⚠️  Native Firebase path did not handle the upload (returned false).
-    // Falling through to the XHR path. On native Capacitor with CapacitorHttp enabled
-    // the XHR bridge serialises the File body as base64 (~1.37× the raw size) which
-    // can exceed the WKWebView bridge message limit for large files (>~10 MB).
-    // If you see "Network error during video upload" after this log, check the
-    // _nativeFirebasePut WARN logs above to identify why the native path was skipped.
-    this.logger.warn(
-      '[_xhrPutWithRetry] Native Firebase Storage path returned false; falling back to XHR upload. ' +
-        'Large files may fail on native Capacitor due to CapacitorHttp bridge size limits.',
+    // Native Firebase path did not handle the upload (returned false).
+    // Falling through to the XHR path. On web this is expected. On native
+    // Capacitor this may indicate plugin/config issues, and large files can
+    // fail due to CapacitorHttp bridge size limits.
+    this.logger.info(
+      '[_xhrPutWithRetry] Using XHR upload fallback after native Firebase path returned false.',
       {
         name: file.name,
         sizeBytes: file.size,
@@ -362,27 +375,56 @@ export class AgentXVideoUploadService {
   ): Promise<boolean> {
     // Dynamic imports — present on native Capacitor (hoisted to root node_modules).
     let filesystemMod: typeof import('@capacitor/filesystem');
-    let firebaseStorageMod: typeof import('@capacitor-firebase/storage');
+    let firebaseStorageApi: NativeFirebaseStorageApi;
 
     try {
-      [filesystemMod, firebaseStorageMod] = await Promise.all([
+      // String-literal imports are required for esbuild (Angular's build tool) to
+      // include the modules in the app bundle. A variable-based import() is NOT
+      // statically analysable by esbuild and the module would be absent at runtime,
+      // causing the native upload path to silently fail and fall through to XHR.
+      const [filesystemLoadedMod, firebaseStorageLoadedMod] = await Promise.all([
         import('@capacitor/filesystem'),
         import('@capacitor-firebase/storage'),
       ]);
+      filesystemMod = filesystemLoadedMod;
+
+      const maybeApi = (firebaseStorageLoadedMod as { FirebaseStorage?: NativeFirebaseStorageApi })
+        .FirebaseStorage;
+      if (!maybeApi || typeof maybeApi.uploadFile !== 'function') {
+        throw new Error('FirebaseStorage API unavailable');
+      }
+      firebaseStorageApi = maybeApi;
     } catch (importErr) {
-      this.logger.warn(
-        '[_nativeFirebasePut] Failed to import native Capacitor modules; falling back to XHR upload path',
-        {
-          error: importErr instanceof Error ? importErr.message : String(importErr),
-          name: file.name,
-          sizeBytes: file.size,
-        }
-      );
+      const importErrMessage = importErr instanceof Error ? importErr.message : String(importErr);
+      const isExpectedWebFallback =
+        /@capacitor-firebase\/storage/i.test(importErrMessage) ||
+        /Failed to resolve module specifier/i.test(importErrMessage) ||
+        /Cannot find module/i.test(importErrMessage) ||
+        /FirebaseStorage API unavailable/i.test(importErrMessage);
+
+      if (isExpectedWebFallback) {
+        this.logger.info(
+          '[_nativeFirebasePut] Native Capacitor Firebase module not available in web build; using XHR upload path',
+          {
+            error: importErrMessage,
+            name: file.name,
+            sizeBytes: file.size,
+          }
+        );
+      } else {
+        this.logger.warn(
+          '[_nativeFirebasePut] Failed to import native Capacitor modules; falling back to XHR upload path',
+          {
+            error: importErrMessage,
+            name: file.name,
+            sizeBytes: file.size,
+          }
+        );
+      }
       return false;
     }
 
     const { Filesystem, Directory } = filesystemMod;
-    const { FirebaseStorage } = firebaseStorageMod;
 
     // ── Native environment probe ─────────────────────────────────────────────
     // On native Capacitor, `Filesystem.getUri()` returns a `file://` URI
@@ -488,38 +530,42 @@ export class AgentXVideoUploadService {
       onProgress(5);
 
       await new Promise<void>((resolve, reject) => {
-        FirebaseStorage.uploadFile(
-          {
-            path: storagePath,
-            uri: fileUri,
-            metadata: { contentType: file.type },
-          },
-          (event, error) => {
-            if (error) {
-              reject(error instanceof Error ? error : new Error(String(error)));
-              return;
-            }
-            if (event) {
-              if (typeof event.progress === 'number') {
-                // Map 0–1 Firebase progress to our 5–100 % range.
-                const percent = 5 + Math.round(event.progress * 95);
-                onProgress(Math.min(percent, event.completed ? 100 : 99));
+        firebaseStorageApi
+          .uploadFile(
+            {
+              path: storagePath,
+              uri: fileUri,
+              metadata: { contentType: file.type },
+            },
+            (event: NativeFirebaseUploadEvent | undefined, error: unknown) => {
+              if (error) {
+                reject(error instanceof Error ? error : new Error(String(error)));
+                return;
               }
-              if (event.completed) {
-                resolve();
+              if (event) {
+                if (typeof event.progress === 'number') {
+                  // Map 0–1 Firebase progress to our 5–100 % range.
+                  const percent = 5 + Math.round(event.progress * 95);
+                  onProgress(Math.min(percent, event.completed ? 100 : 99));
+                }
+                if (event.completed) {
+                  resolve();
+                }
               }
             }
-          }
-        ).catch((uploadSetupErr: unknown) => {
-          // uploadFile() returns a Promise<CallbackId>. If the native plugin rejects
-          // this Promise (e.g. plugin unavailable, bridge error) the rejection would
-          // otherwise be swallowed inside the Promise executor and cause a hang.
-          reject(
-            uploadSetupErr instanceof Error
-              ? uploadSetupErr
-              : new Error(`FirebaseStorage.uploadFile() setup rejected: ${String(uploadSetupErr)}`)
-          );
-        });
+          )
+          .catch((uploadSetupErr: unknown) => {
+            // uploadFile() returns a Promise<CallbackId>. If the native plugin rejects
+            // this Promise (e.g. plugin unavailable, bridge error) the rejection would
+            // otherwise be swallowed inside the Promise executor and cause a hang.
+            reject(
+              uploadSetupErr instanceof Error
+                ? uploadSetupErr
+                : new Error(
+                    `FirebaseStorage.uploadFile() setup rejected: ${String(uploadSetupErr)}`
+                  )
+            );
+          });
       });
 
       return true;

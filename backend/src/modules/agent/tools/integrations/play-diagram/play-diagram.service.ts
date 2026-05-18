@@ -415,7 +415,8 @@ export class PlayDiagramService {
         storagePath,
         imageBytes: pngBuffer.length,
         qualityScore: quality.score,
-        qualityCriticalFindings: quality.findings.filter((item) => item.severity === 'critical').length,
+        qualityCriticalFindings: quality.findings.filter((item) => item.severity === 'critical')
+          .length,
         qualityMajorFindings: quality.findings.filter((item) => item.severity === 'major').length,
         qualityMinorFindings: quality.findings.filter((item) => item.severity === 'minor').length,
       });

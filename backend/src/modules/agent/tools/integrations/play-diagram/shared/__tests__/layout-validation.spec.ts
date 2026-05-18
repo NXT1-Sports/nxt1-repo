@@ -24,9 +24,35 @@ function baseFootballLayout(): DiagramLayout {
       { id: 'MLB', label: 'MLB', x: 280, y: 265, team: 'defense', shape: 'circle' },
     ],
     routes: [
-      { from: 'X', label: 'Post', type: 'cut', points: [[70, 295], [70, 170], [160, 120]] },
-      { from: 'Z', label: 'Corner', type: 'cut', points: [[530, 295], [530, 175], [560, 120]] },
-      { from: 'DE1', label: 'Gap Rush', type: 'go', points: [[220, 295], [220, 322]] },
+      {
+        from: 'X',
+        label: 'Post',
+        type: 'cut',
+        points: [
+          [70, 295],
+          [70, 170],
+          [160, 120],
+        ],
+      },
+      {
+        from: 'Z',
+        label: 'Corner',
+        type: 'cut',
+        points: [
+          [530, 295],
+          [530, 175],
+          [560, 120],
+        ],
+      },
+      {
+        from: 'DE1',
+        label: 'Gap Rush',
+        type: 'go',
+        points: [
+          [220, 295],
+          [220, 322],
+        ],
+      },
     ],
     zones: [],
   };
@@ -37,34 +63,61 @@ describe('evaluateLayoutQualityForSport', () => {
     const layout = baseFootballLayout();
     layout.routes = [
       ...layout.routes,
-      { from: 'UNKNOWN', label: 'Ghost', type: 'go', points: [[10, 10], [20, 20]] },
+      {
+        from: 'UNKNOWN',
+        label: 'Ghost',
+        type: 'go',
+        points: [
+          [10, 10],
+          [20, 20],
+        ],
+      },
     ];
 
     const report = evaluateLayoutQualityForSport(layout, 'Cover 3');
 
     expect(report.hasCritical).toBe(true);
-    expect(report.findings.some((item) => item.code === 'diagram/routes/missing-source-player')).toBe(
-      true
-    );
+    expect(
+      report.findings.some((item) => item.code === 'diagram/routes/missing-source-player')
+    ).toBe(true);
   });
 
   it('flags critical when football rush points away from LOS', () => {
     const layout = baseFootballLayout();
     layout.routes = [
       ...layout.routes,
-      { from: 'MLB', label: 'Blitz', type: 'go', points: [[280, 265], [280, 210]] },
+      {
+        from: 'MLB',
+        label: 'Blitz',
+        type: 'go',
+        points: [
+          [280, 265],
+          [280, 210],
+        ],
+      },
     ];
 
     const report = evaluateLayoutQualityForSport(layout, 'blitz package');
 
     expect(report.hasCritical).toBe(true);
-    expect(report.findings.some((item) => item.code === 'football/rush/wrong-direction')).toBe(true);
+    expect(report.findings.some((item) => item.code === 'football/rush/wrong-direction')).toBe(
+      true
+    );
   });
 
   it('flags major for shallow intermediate routes', () => {
     const layout = baseFootballLayout();
     layout.routes = [
-      { from: 'X', label: 'Dig', type: 'cut', points: [[70, 295], [70, 274], [120, 274]] },
+      {
+        from: 'X',
+        label: 'Dig',
+        type: 'cut',
+        points: [
+          [70, 295],
+          [70, 274],
+          [120, 274],
+        ],
+      },
     ];
 
     const report = evaluateLayoutQualityForSport(layout, 'dig concept');
@@ -78,7 +131,16 @@ describe('evaluateLayoutQualityForSport', () => {
 
   it('flags minor for missing route labels', () => {
     const layout = baseFootballLayout();
-    layout.routes = [{ from: 'X', type: 'go', points: [[70, 295], [70, 150]] }];
+    layout.routes = [
+      {
+        from: 'X',
+        type: 'go',
+        points: [
+          [70, 295],
+          [70, 150],
+        ],
+      },
+    ];
 
     const report = evaluateLayoutQualityForSport(layout, 'vert concept');
 
@@ -130,11 +192,51 @@ describe('evaluateLayoutQualityForSport', () => {
     const layout = baseFootballLayout();
     layout.routes = [
       ...layout.routes,
-      { from: 'LT', label: 'LT: Reach', type: 'block', points: [[210, 300], [198, 282]] },
-      { from: 'LG', label: 'LG: Combo', type: 'block', points: [[245, 300], [236, 282]] },
-      { from: 'C', label: 'C: Drive', type: 'block', points: [[280, 300], [280, 282]] },
-      { from: 'RG', label: 'RG: Combo', type: 'block', points: [[315, 300], [324, 282]] },
-      { from: 'RT', label: 'RT: Reach', type: 'block', points: [[350, 300], [362, 282]] },
+      {
+        from: 'LT',
+        label: 'LT: Reach',
+        type: 'block',
+        points: [
+          [210, 300],
+          [198, 282],
+        ],
+      },
+      {
+        from: 'LG',
+        label: 'LG: Combo',
+        type: 'block',
+        points: [
+          [245, 300],
+          [236, 282],
+        ],
+      },
+      {
+        from: 'C',
+        label: 'C: Drive',
+        type: 'block',
+        points: [
+          [280, 300],
+          [280, 282],
+        ],
+      },
+      {
+        from: 'RG',
+        label: 'RG: Combo',
+        type: 'block',
+        points: [
+          [315, 300],
+          [324, 282],
+        ],
+      },
+      {
+        from: 'RT',
+        label: 'RT: Reach',
+        type: 'block',
+        points: [
+          [350, 300],
+          [362, 282],
+        ],
+      },
     ];
 
     const report = evaluateLayoutQualityForSport(layout, 'inside zone run blocking scheme');

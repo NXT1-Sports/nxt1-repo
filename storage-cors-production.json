@@ -1,0 +1,19 @@
+[
+  {
+    "origin": [
+      "https://nxt1sports.com",
+      "https://www.nxt1sports.com",
+      "https://api.nxt1sports.com"
+    ],
+    "method": ["GET", "PUT", "POST", "DELETE", "HEAD", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "Content-Length",
+      "Access-Control-Allow-Origin",
+      "Authorization",
+      "x-goog-resumable",
+      "x-goog-meta-*"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]

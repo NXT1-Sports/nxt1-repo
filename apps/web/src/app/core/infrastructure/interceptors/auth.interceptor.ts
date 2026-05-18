@@ -55,6 +55,19 @@ function isOptionalAuthTeamProfileEndpoint(apiPath: string): boolean {
   return /^\/teams\/by-(teamcode|slug|id)\//.test(apiPath);
 }
 
+function isOptionalAuthProfileReadEndpoint(req: HttpRequest<unknown>, apiPath: string): boolean {
+  if (req.method !== 'GET') {
+    return false;
+  }
+
+  if (!apiPath.startsWith('/auth/profile/')) {
+    return false;
+  }
+
+  // Own-profile endpoint must stay authenticated.
+  return apiPath !== '/auth/profile/me' && !apiPath.startsWith('/auth/profile/me?');
+}
+
 function getApiPath(url: string): string {
   const baseIndex = url.indexOf(environment.apiURL);
   return baseIndex !== -1 ? url.slice(baseIndex + environment.apiURL.length) : url;
@@ -113,7 +126,8 @@ export const authInterceptor: HttpInterceptorFn = (
   }
 
   const apiPath = getApiPath(req.url);
-  const isOptionalAuthEndpoint = isOptionalAuthTeamProfileEndpoint(apiPath);
+  const isOptionalAuthEndpoint =
+    isOptionalAuthTeamProfileEndpoint(apiPath) || isOptionalAuthProfileReadEndpoint(req, apiPath);
 
   // Skip public endpoints
   if (isPublicEndpoint(req.url) && !isOptionalAuthEndpoint) {

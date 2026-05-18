@@ -33,6 +33,8 @@ import { createHash } from 'node:crypto';
 import { logger } from '../../../utils/logger.js';
 import { getCacheService } from '../../../services/core/cache.service.js';
 import type { LLMCompletionResult } from './llm.types.js';
+import { storage as defaultStorage } from '../../../utils/firebase.js';
+import { stagingStorage } from '../../../utils/firebase-staging.js';
 
 // ─── MIME type map ───────────────────────────────────────────────────────────
 
@@ -72,6 +74,14 @@ const VIDEO_ANALYSIS_SYSTEM_PROMPT =
 
 /** Fallback when extension is unknown. */
 const DEFAULT_VIDEO_MIME = 'video/mp4';
+
+/**
+ * Matches any Firebase / GCS storage URL (signed or unsigned).
+ * Used to route Firebase Storage downloads through the Admin SDK instead of
+ * HTTP fetch, which requires a signed URL or public access.
+ */
+const FIREBASE_STORAGE_URL_PATTERN =
+  /^https?:\/\/(?:storage\.googleapis\.com|firebasestorage\.googleapis\.com)\//i;
 const DEFAULT_MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;
 const DEFAULT_FILE_ACTIVE_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_CONTEXT_CACHE_TTL_SECONDS = 6 * 60 * 60;
@@ -648,21 +658,10 @@ export class GeminiFilesService {
     });
 
     // ── Download ────────────────────────────────────────────────────────────
-    const response = await fetch(sourceUrl);
-    if (!response.ok) {
-      throw new Error(
-        `Failed to download video from ${sourceUrl}: HTTP ${response.status} ${response.statusText}`
-      );
-    }
-
-    const contentLength = Number(response.headers.get('content-length') ?? 0);
-    if (contentLength > 0 && contentLength > MAX_UPLOAD_BYTES) {
-      throw new Error(
-        `Video file is too large for Gemini Files API upload (${(contentLength / 1024 / 1024).toFixed(1)} MB > ${MAX_UPLOAD_BYTES / 1024 / 1024} MB limit).`
-      );
-    }
-
-    const videoBuffer = Buffer.from(await response.arrayBuffer());
+    // For Firebase / GCS Storage URLs: stream via Admin SDK (service-account
+    // credentials, no signed URL or IAM signing needed).  This fixes 403s
+    // caused by unsigned URLs or expired signed URLs passed from the LLM.
+    const videoBuffer = await this.downloadVideoBytes(sourceUrl);
 
     if (videoBuffer.byteLength > MAX_UPLOAD_BYTES) {
       throw new Error(
@@ -706,6 +705,102 @@ export class GeminiFilesService {
   }
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
+
+  /**
+   * Downloads video bytes from `sourceUrl`.
+   *
+   * Firebase / GCS Storage URLs are downloaded via the Firebase Admin SDK
+   * (service-account credentials, no signed URL required).  This fixes 403s
+   * when the URL is unsigned or the signed URL has expired / was stripped by
+   * the LLM during tool-call construction.
+   *
+   * All other URLs are downloaded via HTTP `fetch()`.
+   */
+  private async downloadVideoBytes(sourceUrl: string): Promise<Buffer> {
+    if (FIREBASE_STORAGE_URL_PATTERN.test(sourceUrl)) {
+      try {
+        return await this.downloadFromFirebaseStorage(sourceUrl);
+      } catch (adminErr) {
+        logger.warn('[GeminiFilesService] Admin SDK download failed, falling back to HTTP fetch', {
+          sourceUrl,
+          error: adminErr instanceof Error ? adminErr.message : String(adminErr),
+        });
+        // Fall through to HTTP fetch (will re-throw if URL is still inaccessible)
+      }
+    }
+
+    const response = await fetch(sourceUrl);
+    if (!response.ok) {
+      throw new Error(
+        `Failed to download video from ${sourceUrl}: HTTP ${response.status} ${response.statusText}`
+      );
+    }
+
+    const contentLength = Number(response.headers.get('content-length') ?? 0);
+    if (contentLength > 0 && contentLength > MAX_UPLOAD_BYTES) {
+      throw new Error(
+        `Video file is too large for Gemini Files API upload (${(contentLength / 1024 / 1024).toFixed(1)} MB > ${MAX_UPLOAD_BYTES / 1024 / 1024} MB limit).`
+      );
+    }
+
+    return Buffer.from(await response.arrayBuffer());
+  }
+
+  /**
+   * Parses bucket name and object path from a Firebase / GCS Storage URL.
+   * Supports both the `storage.googleapis.com/{bucket}/{path}` and
+   * `firebasestorage.googleapis.com/v0/b/{bucket}/o/{path}` formats.
+   */
+  private parseFirebaseStorageUrl(url: string): { bucketName: string; storagePath: string } | null {
+    try {
+      const parsed = new URL(url);
+      if (parsed.hostname === 'storage.googleapis.com') {
+        const pathWithoutLeadingSlash = parsed.pathname.slice(1);
+        const slashIdx = pathWithoutLeadingSlash.indexOf('/');
+        if (slashIdx === -1) return null;
+        return {
+          bucketName: pathWithoutLeadingSlash.slice(0, slashIdx),
+          storagePath: decodeURIComponent(pathWithoutLeadingSlash.slice(slashIdx + 1)),
+        };
+      }
+      if (parsed.hostname === 'firebasestorage.googleapis.com') {
+        const match = parsed.pathname.match(/^\/v0\/b\/([^/]+)\/o\/(.+)$/);
+        if (!match) return null;
+        return {
+          bucketName: match[1],
+          storagePath: decodeURIComponent(match[2]),
+        };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Downloads a file from Firebase / GCS Storage using the Admin SDK.
+   * The Admin SDK authenticates with the backend service account, so no
+   * signed URL or public access is required.
+   */
+  private async downloadFromFirebaseStorage(sourceUrl: string): Promise<Buffer> {
+    const parts = this.parseFirebaseStorageUrl(sourceUrl);
+    if (!parts) {
+      throw new Error(`Cannot parse Firebase Storage URL: ${sourceUrl}`);
+    }
+
+    const { bucketName, storagePath } = parts;
+    const isStaging = bucketName.toLowerCase().includes('staging');
+    const storageInstance = isStaging ? stagingStorage : defaultStorage;
+
+    logger.info('[GeminiFilesService] Downloading from Firebase Storage via Admin SDK', {
+      bucketName,
+      storagePath: storagePath.slice(0, 120),
+      isStaging,
+    });
+
+    const [buffer] = await storageInstance.bucket(bucketName).file(storagePath).download();
+    return buffer;
+  }
 
   private async waitForActive(fileName: string, sourceUrl: string): Promise<string> {
     const deadline = Date.now() + FILE_ACTIVE_TIMEOUT_MS;

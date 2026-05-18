@@ -69,6 +69,11 @@ type ProfileUiApi = {
 @Injectable({ providedIn: 'root' })
 export class ProfileService {
   private static readonly TEAM_THEME_SOURCE = 'profile-service';
+  private static readonly TEAM_THEME_SOURCES_TO_CLEAR = [
+    'profile-service',
+    'team-profile-service',
+    'team-shell',
+  ] as const;
 
   private readonly logger = inject(NxtLoggingService).child('ProfileService');
   private readonly toast = inject(NxtToastService);
@@ -911,17 +916,11 @@ export class ProfileService {
     this._isLoading.set(false);
     this._error.set(null);
 
-    // Apply organisation brand colors via the design token system.
-    // This sets --team-primary / --team-secondary on <html> so every
-    // component that references those tokens picks them up automatically
-    // without any per-component inline style hacks.
-    const school = data.user?.school;
-    if (school?.primaryColor) {
-      this.theme.applyOrgTheme(school.primaryColor, school.secondaryColor);
-      this.theme.activateTeamTheme(ProfileService.TEAM_THEME_SOURCE);
-    } else {
-      this.theme.clearOrgTheme();
-      this.theme.deactivateTeamTheme(ProfileService.TEAM_THEME_SOURCE);
+    // Profile pages should not auto-switch into team/org branding.
+    // Clear any lingering team-theme scope from previous routes.
+    this.theme.clearOrgTheme();
+    for (const source of ProfileService.TEAM_THEME_SOURCES_TO_CLEAR) {
+      this.theme.deactivateTeamTheme(source);
     }
   }
 
@@ -1215,6 +1214,8 @@ export class ProfileService {
     this._newsArticles.set([]);
     // Remove org brand colors so they don't bleed onto the next page.
     this.theme.clearOrgTheme();
-    this.theme.deactivateTeamTheme(ProfileService.TEAM_THEME_SOURCE);
+    for (const source of ProfileService.TEAM_THEME_SOURCES_TO_CLEAR) {
+      this.theme.deactivateTeamTheme(source);
+    }
   }
 }

@@ -1,4 +1,5 @@
 import { logger } from '../../../../utils/logger.js';
+import { getSignedUrlWithTimeout } from '../../../../utils/gcs-signed-url.js';
 import { CloudflareMcpBridgeService } from '../integrations/cloudflare-stream/cloudflare-mcp-bridge.service.js';
 import { MediaStagingService } from './media-staging.service.js';
 import type { ToolExecutionContext } from '../base.tool.js';
@@ -259,11 +260,13 @@ export class MediaTransportResolverService {
       const storageInstance = isStaging ? stagingStorage : defaultStorage;
 
       const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 hours
-      const [signedUrl] = await storageInstance.bucket(bucketName).file(storagePath).getSignedUrl({
-        action: 'read',
-        expires: expiresAt,
-        version: 'v4',
-      });
+      const [signedUrl] = await getSignedUrlWithTimeout(() =>
+        storageInstance.bucket(bucketName).file(storagePath).getSignedUrl({
+          action: 'read',
+          expires: expiresAt,
+          version: 'v4',
+        })
+      );
 
       logger.info('[MediaTransportResolver] Generated signed URL for own Firebase Storage file', {
         bucketName,

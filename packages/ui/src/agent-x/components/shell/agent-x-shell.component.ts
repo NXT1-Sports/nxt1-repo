@@ -1191,34 +1191,19 @@ function sortCoordinatorCategories(
       }
 
       .floating-coordinator-pill {
-        --coordinator-pill-accent: var(--agent-primary);
-        --coordinator-pill-text: var(--agent-text-primary);
-        --coordinator-pill-surface: color-mix(
-          in srgb,
-          var(--coordinator-pill-accent) 16%,
-          var(--agent-bg)
-        );
-        --coordinator-pill-border: color-mix(
-          in srgb,
-          var(--coordinator-pill-accent) 52%,
-          var(--agent-border)
-        );
         flex-shrink: 0;
         display: inline-flex;
         align-items: center;
         border: 1px solid var(--agent-border);
         border-radius: var(--nxt1-radius-full, 9999px);
         padding: 11px 16px;
-        background: var(--coordinator-pill-surface);
-        color: var(--coordinator-pill-text);
+        background: var(--agent-surface);
+        color: var(--agent-text-primary);
         font-size: 13px;
         font-weight: 600;
         line-height: 1;
         white-space: nowrap;
-        box-shadow:
-          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 24%, transparent),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 12%, white);
-        border-color: var(--coordinator-pill-border);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
         transition:
           border-color 0.15s ease,
           background 0.15s ease,
@@ -1227,11 +1212,9 @@ function sortCoordinatorCategories(
       }
 
       .floating-coordinator-pill:active {
-        border-color: color-mix(in srgb, var(--coordinator-pill-accent) 72%, white);
-        background: color-mix(in srgb, var(--coordinator-pill-accent) 22%, var(--agent-bg));
-        box-shadow:
-          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 28%, transparent),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, white);
+        border-color: var(--agent-primary);
+        background: var(--agent-primary-glow);
+        color: var(--agent-primary);
         transform: scale(0.98);
       }
 
@@ -1252,70 +1235,6 @@ function sortCoordinatorCategories(
 
       .floating-coordinators-empty::-webkit-scrollbar {
         display: none;
-      }
-
-      .floating-coordinator-pill[data-coordinator='coord-admin'] {
-        --coordinator-pill-accent: #3fa3ff;
-      }
-
-      .floating-coordinator-pill[data-coordinator='coord-brand'] {
-        --coordinator-pill-accent: #ff7a45;
-      }
-
-      .floating-coordinator-pill[data-coordinator='coord-strategy'] {
-        --coordinator-pill-accent: #9d7bff;
-      }
-
-      .floating-coordinator-pill[data-coordinator='coord-performance'] {
-        --coordinator-pill-accent: #41b8ff;
-      }
-
-      .floating-coordinator-pill[data-coordinator='coord-data'] {
-        --coordinator-pill-accent: #2fd39a;
-      }
-
-      .floating-coordinator-pill[data-coordinator='coord-recruiting'] {
-        --coordinator-pill-accent: #ccff00;
-      }
-
-      .floating-coordinator-pill[data-coordinator='coord-media'] {
-        --coordinator-pill-accent: #ff7a45;
-      }
-
-      .floating-coordinator-pill[data-coordinator='coord-scout'] {
-        --coordinator-pill-accent: #41b8ff;
-      }
-
-      .floating-coordinator-pill[data-coordinator='coord-academics'] {
-        --coordinator-pill-accent: #9d7bff;
-      }
-
-      .floating-coordinator-pill[data-coordinator='coord-roster'] {
-        --coordinator-pill-accent: #2fd39a;
-      }
-
-      .floating-coordinator-pill[data-coordinator='coord-scouting'] {
-        --coordinator-pill-accent: #3fa3ff;
-      }
-
-      .floating-coordinator-pill[data-coordinator='coord-team-media'] {
-        --coordinator-pill-accent: #ff5d8f;
-      }
-
-      .floating-coordinator-pill[data-coordinator='coord-prospect-search'] {
-        --coordinator-pill-accent: #ffd447;
-      }
-
-      .floating-coordinator-pill[data-coordinator='coord-evaluation'] {
-        --coordinator-pill-accent: #57d4ff;
-      }
-
-      .floating-coordinator-pill[data-coordinator='coord-outreach'] {
-        --coordinator-pill-accent: #ff9a3d;
-      }
-
-      .floating-coordinator-pill[data-coordinator='coord-compliance'] {
-        --coordinator-pill-accent: #44d6c2;
       }
 
       .action-cards-section {
@@ -2262,21 +2181,25 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         label: cmd.label,
       },
     }));
-    await this.openOperationChat(
-      cat.id,
-      cat.label,
-      cat.icon,
-      'command',
-      quickActions,
-      cat.description,
-      '',
-      '',
-      null,
-      'processing',
-      null,
-      scheduledActions,
-      suggestedActions
-    );
+    try {
+      await this.openOperationChat(
+        cat.id,
+        cat.label,
+        cat.icon,
+        'command',
+        quickActions,
+        cat.description,
+        '',
+        '',
+        null,
+        'processing',
+        null,
+        scheduledActions,
+        suggestedActions
+      );
+    } finally {
+      this.selectedCoordinatorLabel.set(null);
+    }
   }
 
   /**
@@ -2429,6 +2352,9 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
    * with the user's message and any pending files.
    */
   protected async onSendMessage(): Promise<void> {
+    // Clear coordinator context — this is a fresh Agent X chat, not a coordinator session
+    this.selectedCoordinatorLabel.set(null);
+
     const message = this.agentX.getUserMessage().trim();
     const servicePendingFiles = this.agentX.pendingFiles();
 
