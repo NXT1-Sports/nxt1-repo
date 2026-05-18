@@ -728,19 +728,32 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           email: userEmail,
         });
 
-        // ⏱️ DEBUG: Time the new-user detection (Firebase-first, backend fallback)
+        // ⏱️ DEBUG: Time the new-user detection (backend is the authoritative source)
         const __dbgUserCheckStart = performance.now();
         this.logger.info(`⏱️ [DEBUG] ${method}: checking if new backend user...`);
-        // Use Firebase's built-in isNewUser flag (zero network cost) when available.
-        // The native path constructs a partial UserCredential without additionalUserInfo,
-        // so we fall back to the backend check only in that case.
+        // Always verify new-user status via the backend (Firestore existence check).
+        //
+        // WHY: The @capacitor-firebase/authentication native plugin signs the user into
+        // the Firebase native SDK *before* the JS SDK syncs. When `auth.currentUser` is
+        // null after the native call, we fall back to `signInWithCredential()`. Firebase
+        // then reports `additionalInfo.isNewUser = false` because the account already
+        // exists (created by the native SDK), even though no Firestore record has been
+        // created yet. Trusting that flag caused the "must click twice" bug where the
+        // Firestore record was never created on the first attempt.
+        //
+        // Only skip the backend check when Firebase *explicitly* confirms isNewUser=true
+        // (e.g., Apple sign-in via signInWithCredential for a brand-new account), since
+        // that case is always correct and avoids a redundant round-trip.
+
+        // Re-wire token provider BEFORE any authenticated backend calls so the HTTP
+        // adapter uses the freshly-signed-in user's token (fixes logout → re-login).
+        this.ensureTokenProvider();
+
         const additionalInfo = getAdditionalUserInfo(result);
         const isNewUser =
-          additionalInfo !== null
-            ? (additionalInfo.isNewUser ?? false)
-            : await this.isNewBackendUser(result.user.uid);
+          additionalInfo?.isNewUser === true ? true : await this.isNewBackendUser(result.user.uid);
         this.logger.info(
-          `⏱️ [DEBUG] ${method}: isNewBackendUser check took ${(performance.now() - __dbgUserCheckStart).toFixed(0)}ms — isNewUser=${isNewUser} (source: ${additionalInfo !== null ? 'firebase' : 'backend'})`
+          `⏱️ [DEBUG] ${method}: isNewBackendUser check took ${(performance.now() - __dbgUserCheckStart).toFixed(0)}ms — isNewUser=${isNewUser} (source: ${additionalInfo?.isNewUser === true ? 'firebase(confirmed-new)' : 'backend'})`
         );
 
         // Track analytics
@@ -752,9 +765,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         );
         this.analytics.setUserId(result.user.uid);
 
-        // Re-wire token provider (fixes logout → login flow)
-        this.ensureTokenProvider();
-
         if (isNewUser) {
           this.logger.info(`${method} new user — creating backend profile`, {
             uid: result.user.uid,
@@ -762,7 +772,76 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           // ⏱️ DEBUG: Time create + sync for new user
           const __dbgCreateStart = performance.now();
           this.logger.info(`⏱️ [DEBUG] ${method}: creating new backend user...`);
-          await this.authApi.createUser({ uid: result.user.uid, email: userEmail! });
+          // Guard: email is required by the backend. If all extraction paths above
+          // returned null (can happen with some Google accounts on iOS), surface a
+          // clear error rather than sending an empty string that would fail validation.
+          if (!userEmail) {
+            try {
+              // Last-resort: force-refresh the token and re-read email from claims.
+              const tokenResult = await result.user.getIdToken(/* forceRefresh */ true);
+              const tokenDecoded = await result.user.getIdTokenResult();
+              userEmail =
+                (tokenDecoded.claims['email'] as string | undefined) ?? result.user.email ?? null;
+              this.logger.info(`${method} email resolved via token refresh`, {
+                found: !!userEmail,
+              });
+              // tokenResult is only used to trigger the refresh; suppress lint warning
+              void tokenResult;
+            } catch (tokenErr) {
+              this.logger.warn(`${method} token refresh for email failed`, { error: tokenErr });
+            }
+          }
+          if (!userEmail) {
+            throw new Error(
+              'Unable to retrieve email address for this account. Please try again or use a different sign-in method.'
+            );
+          }
+
+          try {
+            const createResult = await this.authApi.createUser({
+              uid: result.user.uid,
+              email: userEmail,
+            });
+            // createUser() in auth.api.ts catches all HTTP errors and returns
+            // { success: false } instead of throwing. We must check success here
+            // to avoid proceeding to syncUserProfile when the backend user was
+            // never created (the root cause of the "only creates auth, no Firestore
+            // record" bug on first-time Google sign-up).
+            if (!createResult.success) {
+              const errMsg =
+                'error' in createResult
+                  ? createResult.error.message
+                  : 'Failed to create user account';
+              this.logger.error(`${method} createUser returned failure`, {
+                uid: result.user.uid,
+                error: errMsg,
+              });
+              throw new Error(errMsg);
+            }
+          } catch (createError: unknown) {
+            // Detect "user already exists" — can arrive as:
+            //   a) plain Error with message from createUser()'s throw new Error(errMsg)
+            //   b) plain object with .status === 409 from CapacitorHttpAdapter (rare race)
+            const createErrMessage = (createError as Error)?.message ?? '';
+            const createStatus = (createError as { status?: number })?.status;
+            const isAlreadyExists =
+              createStatus === 409 ||
+              createErrMessage.toLowerCase().includes('already exists') ||
+              createErrMessage.toLowerCase().includes('identifier already exists');
+            if (isAlreadyExists) {
+              // The Firestore doc already exists (created by a concurrent request or a
+              // previous attempt that succeeded in the backend but not in the app).
+              // Treat this as an existing user: sync profile and navigate accordingly.
+              this.logger.info(
+                `${method} backend user already exists (409) — treating as existing user`,
+                { uid: result.user.uid }
+              );
+              await this.syncUserProfile(result.user.uid);
+              await this.navigatePostAuth();
+              return true;
+            }
+            throw createError;
+          }
           this.logger.info(
             `⏱️ [DEBUG] ${method}: createUser took ${(performance.now() - __dbgCreateStart).toFixed(0)}ms`
           );
@@ -878,7 +957,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    */
   private async isNewBackendUser(uid: string): Promise<boolean> {
     try {
-      await this.authApi.getUserProfile(uid);
+      // Always bypass cache: a stale 200 (15-min mobile cache or backend Redis cache)
+      // would incorrectly report the user as existing, skipping createUser and leaving
+      // the Firestore record uncreated. This is the authoritative existence check.
+      await this.authApi.getUserProfile(uid, { noCache: true });
       return false; // User exists
     } catch (error: unknown) {
       const apiError = error as { status?: number; message?: string | { message?: string } };
@@ -891,9 +973,15 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       if (apiError?.status === 404 || errorMessage?.includes('not found')) {
         return true; // User not found → new user
       }
-      // On unknown errors, assume existing user to avoid duplicate creation
-      this.logger.warn('Error checking user existence, assuming existing', { uid, error });
-      return false;
+      // On unknown errors (network failures, server errors), treat as a new user so
+      // that createUser() is attempted. If the Firestore doc already exists, createUser
+      // returns 409 which the caller handles gracefully. This is safer than silently
+      // skipping user creation and leaving the account in a broken state.
+      this.logger.warn('Error checking user existence, treating as new user to ensure creation', {
+        uid,
+        error,
+      });
+      return true;
     }
   }
 

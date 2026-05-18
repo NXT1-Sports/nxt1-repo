@@ -334,7 +334,10 @@ export class FirebaseAuthService implements OnDestroy {
             // ⏱️ DEBUG: Time the manual credential sign-in fallback
             const __dbgCredStart = performance.now();
             this.logger.info('⏱️ [DEBUG] Google: trying signInWithCredential fallback...');
-            const credential = GoogleAuthProvider.credential(nativeResult.idToken);
+            const credential = GoogleAuthProvider.credential(
+              nativeResult.idToken,
+              nativeResult.accessToken ?? null
+            );
             const result = await runInInjectionContext(this.injector, () =>
               signInWithCredential(this.auth, credential)
             );
@@ -701,9 +704,12 @@ export class FirebaseAuthService implements OnDestroy {
             hasAccessToken: !!nativeResult.accessToken,
             accessTokenLength: nativeResult.accessToken?.length,
           });
-          // For Google, we only need the idToken. accessToken is optional.
-          // The idToken must be from an OAuth client that's linked to this Firebase project
-          credential = GoogleAuthProvider.credential(nativeResult.idToken);
+          // Pass both idToken and accessToken when available for best credential completeness.
+          // This ensures user.email and other profile fields are populated from the Google account.
+          credential = GoogleAuthProvider.credential(
+            nativeResult.idToken,
+            nativeResult.accessToken ?? null
+          );
           this.logger.debug('Google credential created, calling signInWithCredential');
           break;
 

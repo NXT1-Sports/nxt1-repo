@@ -780,7 +780,11 @@ router.post(
       tokenFields: Record<string, unknown>,
       email: string | undefined
     ): Promise<void> => {
-      const MAX_RETRIES = 4;
+      // Increased from 4 → 6 retries (total ~31.5 s) to safely accommodate the race
+      // window where connect-gmail fires before /auth/create-user completes.
+      // Timeline: t=0, t=500ms, t=1.5s, t=3.5s, t=7.5s, t=15.5s, t=31.5s.
+      // createUser normally completes within 2 s so attempt 2 or 3 will succeed.
+      const MAX_RETRIES = 6;
       const BASE_DELAY_MS = 500;
       const userRef = db.collection('Users').doc(uid);
       const tokenRef = userRef.collection(OAUTH_TOKEN_SUBCOLLECTION).doc(GOOGLE_OAUTH_TOKEN_DOC_ID);
