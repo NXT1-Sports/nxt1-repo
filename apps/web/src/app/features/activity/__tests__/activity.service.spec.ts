@@ -23,6 +23,7 @@ import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { PERFORMANCE_ADAPTER } from '@nxt1/ui/services/performance';
 import { MessagesService } from '@nxt1/ui/messages';
+import { FIRESTORE_ADAPTER } from '@nxt1/ui/agent-x/tokens';
 import type { ActivityFeedResponse, ActivityItem } from '@nxt1/core';
 
 // ============================================
@@ -129,6 +130,11 @@ const createMessagesServiceMock = () => ({
   clearError: vi.fn(),
 });
 
+const createFirestoreAdapterMock = () => ({
+  onSnapshot: vi.fn(),
+  getDocs: vi.fn(),
+});
+
 // ============================================
 // TEST DATA
 // ============================================
@@ -185,6 +191,9 @@ describe('ActivityService', () => {
   let analyticsMock: ReturnType<typeof createAnalyticsMock>;
   let performanceMock: ReturnType<typeof createPerformanceMock>;
   let messagesServiceMock: ReturnType<typeof createMessagesServiceMock>;
+  let firestoreAdapterMock: ReturnType<typeof createFirestoreAdapterMock>;
+  let firestoreUnsubscribeMock: ReturnType<typeof vi.fn>;
+  let emitFirestoreSnapshot: (docs: ReadonlyArray<Record<string, unknown>>) => void;
 
   beforeAll(() => {
     try {
@@ -211,6 +220,19 @@ describe('ActivityService', () => {
     analyticsMock = createAnalyticsMock();
     performanceMock = createPerformanceMock();
     messagesServiceMock = createMessagesServiceMock();
+    firestoreAdapterMock = createFirestoreAdapterMock();
+    firestoreUnsubscribeMock = vi.fn();
+    emitFirestoreSnapshot = () => undefined;
+    firestoreAdapterMock.onSnapshot.mockImplementation(
+      (
+        _path: string,
+        _orderByField: string,
+        onNext: (docs: ReadonlyArray<Record<string, unknown>>) => void
+      ) => {
+        emitFirestoreSnapshot = onNext;
+        return firestoreUnsubscribeMock;
+      }
+    );
 
     TestBed.configureTestingModule({
       providers: [
@@ -223,6 +245,7 @@ describe('ActivityService', () => {
         { provide: ANALYTICS_ADAPTER, useValue: analyticsMock },
         { provide: PERFORMANCE_ADAPTER, useValue: performanceMock },
         { provide: MessagesService, useValue: messagesServiceMock },
+        { provide: FIRESTORE_ADAPTER, useValue: firestoreAdapterMock },
       ],
     });
 
@@ -491,6 +514,104 @@ describe('ActivityService', () => {
 
       // Should not throw, badges stay at default
       expect(service.badges()).toEqual({ alerts: 0 });
+    });
+  });
+
+  // ===========================================================================
+  // Real-time Firestore listener
+  // ===========================================================================
+
+  describe('startRealtimeForUser()', () => {
+    it('should subscribe to the signed-in user activity collection with a bounded query', () => {
+      service.startRealtimeForUser('user-123');
+
+      expect(firestoreAdapterMock.onSnapshot).toHaveBeenCalledWith(
+        'Users/user-123/activity',
+        'timestamp',
+        expect.any(Function),
+        expect.any(Function),
+        { direction: 'desc', limit: 25 }
+      );
+    });
+
+    it('should merge initial live docs without inflating unread badges', () => {
+      service.startRealtimeForUser('user-123');
+
+      emitFirestoreSnapshot([
+        {
+          __id: 'welcome-activity',
+          type: 'agent_task',
+          tab: 'alerts',
+          priority: 'high',
+          title: 'Your welcome graphic is ready',
+          body: 'Agent X finished your launch card.',
+          timestamp: '2026-05-18T12:00:00.000Z',
+          isRead: false,
+          isArchived: false,
+          mediaUrl: 'https://example.com/welcome.png',
+          mediaType: 'image',
+        },
+      ]);
+
+      expect(service.items()[0]).toMatchObject({
+        id: 'welcome-activity',
+        type: 'agent_task',
+        title: 'Your welcome graphic is ready',
+        mediaUrl: 'https://example.com/welcome.png',
+      });
+      expect(service.badges()).toEqual({ alerts: 0 });
+    });
+
+    it('should prepend later live docs and increment unread count immediately', () => {
+      service.startRealtimeForUser('user-123');
+
+      emitFirestoreSnapshot([
+        {
+          __id: 'old-activity',
+          type: 'system',
+          tab: 'alerts',
+          priority: 'normal',
+          title: 'Existing activity',
+          timestamp: '2026-05-18T11:00:00.000Z',
+          isRead: true,
+          isArchived: false,
+        },
+      ]);
+
+      emitFirestoreSnapshot([
+        {
+          __id: 'new-activity',
+          type: 'agent_task',
+          tab: 'alerts',
+          priority: 'high',
+          title: 'New Agent X result',
+          timestamp: '2026-05-18T12:00:00.000Z',
+          isRead: false,
+          isArchived: false,
+        },
+        {
+          __id: 'old-activity',
+          type: 'system',
+          tab: 'alerts',
+          priority: 'normal',
+          title: 'Existing activity',
+          timestamp: '2026-05-18T11:00:00.000Z',
+          isRead: true,
+          isArchived: false,
+        },
+      ]);
+
+      expect(service.items().map((item) => item.id)).toEqual(['new-activity', 'old-activity']);
+      expect(service.badges()).toEqual({ alerts: 1 });
+    });
+
+    it('should reuse an existing listener for the same user and unsubscribe when the user changes', () => {
+      service.startRealtimeForUser('user-123');
+      service.startRealtimeForUser('user-123');
+      service.startRealtimeForUser('user-456');
+
+      expect(firestoreAdapterMock.onSnapshot).toHaveBeenCalledTimes(2);
+      expect(firestoreUnsubscribeMock).toHaveBeenCalledTimes(1);
     });
   });
 

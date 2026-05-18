@@ -55,8 +55,13 @@ export class AuthApiService {
 
   /**
    * Get user profile by UID
+   * @param uid - User's Firebase UID
+   * @param options.noCache - When true, bypasses mobile HTTP cache and backend Redis cache
    */
-  async getUserProfile(uid: string): Promise<UserProfileResponse> {
+  async getUserProfile(uid: string, options?: { noCache?: boolean }): Promise<UserProfileResponse> {
+    if (options?.noCache) {
+      return this.api.getProfile(uid, { headers: { 'Cache-Control': 'no-cache' } });
+    }
     return this.api.getProfile(uid);
   }
 

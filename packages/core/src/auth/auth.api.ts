@@ -445,11 +445,19 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
         });
 
         // Return structured error response
+        // Preserve the actual error message from plain-object errors thrown by
+        // CapacitorHttpAdapter (e.g. {status: 409, message: 'already exists'})
+        // which are not Error instances.
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : ((error as { message?: string })?.message ?? 'Failed to create user');
+
         return {
           success: false,
           error: {
             code: 'NETWORK_ERROR',
-            message: error instanceof Error ? error.message : 'Failed to create user',
+            message: errorMessage,
             requestId: `client_${Date.now()}`,
             timestamp: Date.now(),
           },
@@ -786,8 +794,11 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
      * @param userId - User's ID
      * @returns User profile data
      */
-    async getProfile(userId: string): Promise<UserProfileResponse> {
-      return http.get(`${base}/auth/profile/${encodeURIComponent(userId)}`);
+    async getProfile(
+      userId: string,
+      config?: import('../api/http-adapter').HttpRequestConfig
+    ): Promise<UserProfileResponse> {
+      return http.get(`${base}/auth/profile/${encodeURIComponent(userId)}`, config);
     },
 
     /**
