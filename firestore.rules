@@ -118,6 +118,12 @@ service cloud.firestore {
         allow update: if isOwner(userId) && onlyUpdatesFields(['read', 'readAt']);
         allow delete: if isOwner(userId);
       }
+
+      // User activity feed - users can read their own feed; backend/Admin SDK writes entries.
+      match /activity/{activityId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
       
       // User recruiting data
       match /recruiting/{dataId} {

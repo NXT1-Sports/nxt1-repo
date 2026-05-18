@@ -15,6 +15,7 @@ audience workflows, and related marketing operations.
 backend/src/services/marketing/
 ├── email/                          # Email-specific marketing assets
 │   ├── campaigns/                  # Campaign orchestration logic
+│   │   ├── b2b/                    # B2B partner awareness campaigns
 │   │   └── legacy/                 # Legacy campaign implementations
 │   ├── templates/                  # HTML/email templates
 │   ├── providers/                  # Email provider adapters and registry
@@ -65,6 +66,13 @@ Brevo adapter env:
 - Shared email templates go under email/templates/
 - Never call provider SDK/API directly from routes or campaigns
 - Use the centralized outbound service for every marketing send path
+
+## Current Manual Campaigns
+
+- B2B partner brand awareness:
+  `npm run email:b2b-partner:dry-run --prefix backend`
+- Send B2B partner brand awareness:
+  `npm run email:b2b-partner:send --prefix backend`
 
 ## Scope for Future Growth
 

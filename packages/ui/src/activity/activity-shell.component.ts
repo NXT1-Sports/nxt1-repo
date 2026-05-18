@@ -209,7 +209,14 @@ export class ActivityShellComponent {
   constructor() {
     effect(() => {
       const user = this.user();
-      if (user && !this._hasLoadedInitialData) {
+      this.activity.startRealtimeForUser(user?.uid);
+
+      if (!user) {
+        this._hasLoadedInitialData = false;
+        return;
+      }
+
+      if (!this._hasLoadedInitialData) {
         this._hasLoadedInitialData = true;
         this.logger.debug('User authenticated, loading activity data');
         void this.activity.loadFeed(this.activity.activeTab());

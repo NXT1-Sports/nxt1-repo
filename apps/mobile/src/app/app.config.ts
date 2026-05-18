@@ -40,6 +40,7 @@ import {
   orderBy as firestoreOrderBy,
   onSnapshot as firestoreOnSnapshot,
   getDocs as firestoreGetDocs,
+  limit as firestoreLimit,
 } from '@angular/fire/firestore';
 import { Capacitor } from '@capacitor/core';
 
@@ -111,6 +112,19 @@ function normalizeFirestoreSnapshotValue(value: unknown): unknown {
   }
 
   return value;
+}
+
+function normalizeFirestoreSnapshotDoc(id: string, value: unknown): Record<string, unknown> {
+  const data = normalizeFirestoreSnapshotValue(value) as Record<string, unknown>;
+  return {
+    ...data,
+    id: typeof data['id'] === 'string' ? data['id'] : id,
+    __id: id,
+  };
+}
+
+function isSupportedFirestoreCollectionPath(path: string): boolean {
+  return /^(AgentJobs\/[^/]+\/events|Users\/[^/]+\/activity)$/.test(path);
 }
 
 /**
@@ -277,22 +291,30 @@ export const appConfig: ApplicationConfig = {
           path: string,
           orderByField: string,
           onNext: (docs: ReadonlyArray<Record<string, unknown>>) => void,
-          onError: (error: Error) => void
+          onError: (error: Error) => void,
+          options?: { readonly direction?: 'asc' | 'desc'; readonly limit?: number }
         ) => {
-          if (!/^AgentJobs\/[^/]+\/events$/.test(path)) {
+          if (!isSupportedFirestoreCollectionPath(path)) {
             throw new Error(`Unsupported Firestore subscription path: ${path}`);
           }
           return runInInjectionContext(injector, () => {
             const ref = collection(firestore, path);
-            const q = query(ref, firestoreOrderBy(orderByField));
+            const boundedLimit =
+              options?.limit === undefined
+                ? null
+                : Math.max(1, Math.min(100, Math.floor(options.limit)));
+            const q =
+              boundedLimit !== null
+                ? query(
+                    ref,
+                    firestoreOrderBy(orderByField, options?.direction ?? 'asc'),
+                    firestoreLimit(boundedLimit)
+                  )
+                : query(ref, firestoreOrderBy(orderByField, options?.direction ?? 'asc'));
             return firestoreOnSnapshot(
               q,
               (snap) => {
-                onNext(
-                  snap.docs.map(
-                    (d) => normalizeFirestoreSnapshotValue(d.data()) as Record<string, unknown>
-                  )
-                );
+                onNext(snap.docs.map((d) => normalizeFirestoreSnapshotDoc(d.id, d.data())));
               },
               onError
             );
@@ -300,18 +322,28 @@ export const appConfig: ApplicationConfig = {
         },
         getDocs: async (
           path: string,
-          orderByField: string
+          orderByField: string,
+          options?: { readonly direction?: 'asc' | 'desc'; readonly limit?: number }
         ): Promise<ReadonlyArray<Record<string, unknown>>> => {
-          if (!/^AgentJobs\/[^/]+\/events$/.test(path)) {
+          if (!isSupportedFirestoreCollectionPath(path)) {
             throw new Error(`Unsupported Firestore query path: ${path}`);
           }
           return runInInjectionContext(injector, async () => {
             const ref = collection(firestore, path);
-            const q = query(ref, firestoreOrderBy(orderByField));
+            const boundedLimit =
+              options?.limit === undefined
+                ? null
+                : Math.max(1, Math.min(100, Math.floor(options.limit)));
+            const q =
+              boundedLimit !== null
+                ? query(
+                    ref,
+                    firestoreOrderBy(orderByField, options?.direction ?? 'asc'),
+                    firestoreLimit(boundedLimit)
+                  )
+                : query(ref, firestoreOrderBy(orderByField, options?.direction ?? 'asc'));
             const snap = await firestoreGetDocs(q);
-            return snap.docs.map(
-              (d) => normalizeFirestoreSnapshotValue(d.data()) as Record<string, unknown>
-            );
+            return snap.docs.map((d) => normalizeFirestoreSnapshotDoc(d.id, d.data()));
           });
         },
       }),

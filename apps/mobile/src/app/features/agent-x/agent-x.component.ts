@@ -20,6 +20,7 @@ import {
   ChangeDetectionStrategy,
   inject,
   computed,
+  effect,
   OnInit,
   OnDestroy,
 } from '@angular/core';
@@ -29,6 +30,7 @@ import {
   AgentXShellComponent,
   AgentXService,
   ConnectedAccountsResyncService,
+  ActivityService,
   NxtSidenavService,
   NxtLoggingService,
   NxtToastService,
@@ -79,11 +81,18 @@ export class AgentXComponent implements OnInit, OnDestroy {
   private readonly toast = inject(NxtToastService);
   private readonly route = inject(ActivatedRoute);
   private readonly agentX = inject(AgentXService);
+  private readonly activityService = inject(ActivityService);
   private readonly editProfileApi = inject(EditProfileApiService);
   private readonly connectedAccountsResync = inject(ConnectedAccountsResyncService);
   private readonly nativeApp = inject(NativeAppService);
 
   private resumeSub?: Subscription;
+
+  constructor() {
+    effect(() => {
+      this.activityService.startRealtimeForUser(this.authFlow.user()?.uid);
+    });
+  }
 
   /**
    * Transform auth user to AgentXUser interface.
