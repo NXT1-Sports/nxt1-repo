@@ -50,10 +50,15 @@ pdfmake.addFonts({
 });
 
 // Restrict external URL access (security best practice — deny all external URLs)
-// setUrlAccessPolicy exists in pdfmake 0.3.x but is missing from @types/pdfmake
+// setUrlAccessPolicy and setLocalAccessPolicy exist in pdfmake 0.3.x but are missing from @types/pdfmake
 (
   pdfmake as unknown as { setUrlAccessPolicy: (fn: (url: string) => boolean) => void }
 ).setUrlAccessPolicy(() => false);
+
+// Restrict local file system access (deny all local paths — fonts are pre-registered via addFonts)
+(
+  pdfmake as unknown as { setLocalAccessPolicy: (fn: (path: string) => boolean) => void }
+).setLocalAccessPolicy(() => false);
 
 // ─── Public Types ──────────────────────────────────────────────────────────
 
