@@ -7,9 +7,11 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Firestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
 import { ToolRegistry } from '../tool-registry.js';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
+import { createEnvironmentScopedFirestore } from '../../../../utils/firestore-environment-context.js';
 import {
   DEFAULT_AGENT_APP_CONFIG,
   setCachedAgentAppConfig,
@@ -126,6 +128,34 @@ class ScoredTool extends BaseTool {
 
   async execute(): Promise<ToolResult> {
     return { success: true, data: { ok: true } };
+  }
+}
+
+class ScopedFirestoreTool extends BaseTool {
+  readonly name = 'scoped_firestore_tool';
+  readonly description = 'Reads from Firestore using the scoped environment binding.';
+  readonly parameters = z.object({});
+  readonly allowedAgents = ['*'] as const;
+  readonly isMutation = false;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'platform_tools' as const;
+
+  constructor(private readonly db: Firestore) {
+    super();
+  }
+
+  async execute(
+    _input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    const snapshot = await this.db
+      .collection('Users')
+      .doc(context?.userId ?? 'unknown')
+      .get();
+    return {
+      success: true,
+      data: snapshot.data(),
+    };
   }
 }
 
@@ -304,6 +334,39 @@ describe('ToolRegistry', () => {
       expect(result.markdown).toContain('[Hudl](https://hudl.com/video/abc123)');
       expect(result.markdown).toContain('[MaxPreps](https://www.maxpreps.com/athlete/abc)');
       expect(result.markdown).not.toContain('Watch film at https://hudl.com/video/abc123');
+    });
+
+    it('should scope Firestore-backed tools to the execution environment', async () => {
+      const productionGet = vi.fn(async () => ({ data: () => ({ environment: 'production' }) }));
+      const productionDoc = vi.fn(() => ({ get: productionGet }));
+      const productionCollection = vi.fn(() => ({ doc: productionDoc }));
+      const stagingGet = vi.fn(async () => ({ data: () => ({ environment: 'staging' }) }));
+      const stagingDoc = vi.fn(() => ({ get: stagingGet }));
+      const stagingCollection = vi.fn(() => ({ doc: stagingDoc }));
+
+      const scopedFirestore = createEnvironmentScopedFirestore({
+        production: { collection: productionCollection } as unknown as Firestore,
+        staging: { collection: stagingCollection } as unknown as Firestore,
+      });
+
+      registry.register(new ScopedFirestoreTool(scopedFirestore));
+
+      const result = await registry.execute(
+        'scoped_firestore_tool',
+        {},
+        {
+          userId: 'u-staging',
+          environment: 'staging',
+        }
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.data).toEqual({ environment: 'staging' });
+      expect(stagingCollection).toHaveBeenCalledWith('Users');
+      expect(stagingDoc).toHaveBeenCalledWith('u-staging');
+      expect(stagingGet).toHaveBeenCalledOnce();
+      expect(productionCollection).not.toHaveBeenCalled();
+      expect(productionGet).not.toHaveBeenCalled();
     });
   });
 
