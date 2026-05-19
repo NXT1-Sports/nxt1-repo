@@ -95,7 +95,10 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
             <div class="hover-line" [style.--hover-x.px]="hoverX()"></div>
             <div class="hover-tooltip" [style.--hover-x.px]="hoverX()">
               <div class="hover-tooltip-label">{{ hoverPoint()!.label }}</div>
-              <div class="hover-tooltip-value">{{ formatAmount(hoverPoint()!.amount) }}</div>
+              <div class="hover-tooltip-value">{{ formatAmount(hoverDailyAmount()) }}</div>
+              <!-- <div class="hover-tooltip-sublabel">
+                {{ formatAmount(hoverPoint()!.amount) }} cumulative
+              </div> -->
             </div>
           }
         </div>
@@ -292,6 +295,14 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
         line-height: var(--nxt1-lineHeight-tight);
       }
 
+      .hover-tooltip-sublabel {
+        font-size: var(--nxt1-fontSize-2xs);
+        color: var(--nxt1-color-text-tertiary);
+        line-height: var(--nxt1-lineHeight-tight);
+        margin-top: var(--nxt1-spacing-0-5);
+        font-family: var(--nxt1-fontFamily-mono);
+      }
+
       .grid-lines {
         position: absolute;
         inset: 0;
@@ -385,6 +396,23 @@ export class UsageChartComponent {
     return this.chartData()[index] ?? null;
   });
 
+  /**
+   * Daily amount for the hovered point.
+   * Uses backend-provided `dailyAmount` when available;
+   * falls back to cumulative delta (amount[i] - amount[i-1])
+   * for data returned before the backend deployed the new field.
+   */
+  protected readonly hoverDailyAmount = computed(() => {
+    const index = this.hoverIndex();
+    if (index === null) return 0;
+    const data = this.chartData();
+    const point = data[index];
+    if (!point) return 0;
+    if (point.dailyAmount != null) return point.dailyAmount;
+    const prev = index > 0 ? data[index - 1] : null;
+    return point.amount - (prev?.amount ?? 0);
+  });
+
   protected readonly periodLabel = computed(() => {
     const data = this.chartData();
     if (data.length === 0) return '';
@@ -447,7 +475,7 @@ export class UsageChartComponent {
     this.hoverIndex.set(null);
   }
 
-  protected formatAmount(cents: number): string {
-    return formatPrice(cents);
+  protected formatAmount(cents: number | undefined | null): string {
+    return formatPrice(cents ?? 0);
   }
 }

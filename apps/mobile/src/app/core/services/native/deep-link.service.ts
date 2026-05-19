@@ -194,10 +194,10 @@ export class DeepLinkService {
       extractParams: (m) => ({ code: m[1] }),
     },
 
-    // Home (default)
+    // Home (default) — /home is not a real mobile route, redirect to agent-x
     {
       pattern: /^\/home\/?$/,
-      route: '/home',
+      route: '/agent-x',
     },
 
     // Developer settings (hidden, deep-link only)
@@ -206,9 +206,10 @@ export class DeepLinkService {
       route: '/dev-settings',
     },
 
+    // Root path — redirect to agent-x
     {
       pattern: /^\/?$/,
-      route: '/home',
+      route: '/agent-x',
     },
   ];
 
@@ -337,8 +338,8 @@ export class DeepLinkService {
         this.navigateToRoute(route, parsed.params);
       } else {
         this.logger.warn('No route found for deep link', { path: parsed.path });
-        // Fall back to home
-        void this.navController.navigateRoot('/home');
+        // Fall back to agent-x (mobile has no /home route)
+        void this.navController.navigateRoot('/agent-x');
       }
     } catch (error) {
       this.logger.error('Error handling deep link', { url, error });

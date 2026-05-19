@@ -24,7 +24,7 @@ import {
   signal,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import { IonSpinner } from '@ionic/angular/standalone';
+import { IonSpinner, ModalController } from '@ionic/angular/standalone';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type {
   ConnectedSource,
@@ -597,6 +597,7 @@ export class ManageTeamShellComponent implements OnInit {
   private readonly connectedAccountsModal = inject(ConnectedAccountsModalService);
   private readonly membershipModal = inject(ManageTeamMembershipModalService);
   private readonly platformId = inject(PLATFORM_ID);
+  private readonly modalCtrl = inject(ModalController, { optional: true });
 
   @ViewChild('mediaFileInput') private readonly mediaFileInputRef?: ElementRef<HTMLInputElement>;
 
@@ -1286,17 +1287,43 @@ export class ManageTeamShellComponent implements OnInit {
     }
   }
 
-  onClose(saved: boolean): void {
+  /**
+   * True when running inside an Ionic modal (bottom sheet).
+   * When headless=true the shell is hosted by the web overlay wrapper
+   * which communicates via save/close outputs — Ionic dismiss must NOT be used.
+   */
+  private get isInsideIonicModal(): boolean {
+    return !!this.modalCtrl && !this.headless();
+  }
+
+  async onClose(saved: boolean): Promise<void> {
     const formData = this.service.formData();
     const shouldReportSaved = saved || this.membershipChanged();
-    this.close.emit({
+    const closeEvent: ManageTeamCloseEvent = {
       saved: shouldReportSaved,
       data: shouldReportSaved && formData ? formData : undefined,
-    });
+    };
     this.membershipChanged.set(false);
+
+    if (this.isInsideIonicModal) {
+      try {
+        await this.modalCtrl!.dismiss(closeEvent, shouldReportSaved ? 'save' : 'cancel');
+      } catch (err) {
+        this.logger.warn('Ionic dismiss failed, falling back to output', { err });
+        this.close.emit(closeEvent);
+      }
+      return;
+    }
+    this.close.emit(closeEvent);
   }
 
   async onSave(): Promise<void> {
+    // "Done" with no unsaved changes — just close
+    if (!this.service.hasUnsavedChanges()) {
+      await this.onClose(false);
+      return;
+    }
+
     const formData = this.service.formData();
     if (!formData) return;
 
@@ -1304,7 +1331,7 @@ export class ManageTeamShellComponent implements OnInit {
     if (success) {
       this.save.emit(formData);
       if (!this.headless()) {
-        this.onClose(true);
+        await this.onClose(true);
       }
     }
   }

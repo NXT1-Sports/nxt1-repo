@@ -34,12 +34,14 @@ export function formatDate(date: Date | string | number, format: DateFormat = 's
         month: 'long',
         day: 'numeric',
         weekday: 'long',
+        timeZone: 'America/New_York',
       });
     case 'medium':
       return d.toLocaleDateString('en-US', {
         year: 'numeric',
         month: 'long',
         day: 'numeric',
+        timeZone: 'America/New_York',
       });
     case 'short':
     default:
@@ -47,6 +49,7 @@ export function formatDate(date: Date | string | number, format: DateFormat = 's
         year: 'numeric',
         month: 'short',
         day: 'numeric',
+        timeZone: 'America/New_York',
       });
   }
 }

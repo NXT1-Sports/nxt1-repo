@@ -804,13 +804,27 @@ export async function ensureUserBillingState(
     activeTarget = personalTarget;
     await setActiveBillingTarget(db, userId, activeTarget);
   } else if (organizationTarget && activeTarget.ownerType === 'individual') {
-    activeTarget = buildPersonalBillingTarget(
-      userId,
-      organizationTarget.organizationId,
-      effectiveTeamId,
-      isExplicitPersonalBillingTarget(activeTarget) ? 'personal' : 'default',
-      isExplicitPersonalBillingTarget(activeTarget)
-    );
+    if (isExplicitPersonalBillingTarget(activeTarget)) {
+      // The user deliberately chose personal billing — preserve that preference
+      // but update the stored org/team references to match the current team.
+      activeTarget = buildPersonalBillingTarget(
+        userId,
+        organizationTarget.organizationId,
+        effectiveTeamId,
+        'personal',
+        true
+      );
+    } else {
+      // The stored target is still 'individual' but the user is now a member of
+      // an org-billed team.  Promote them to org billing so all AI spend goes
+      // against the team account, not their personal wallet.
+      // Use ownerId (required string) since ownerId === organizationId for org targets.
+      activeTarget = buildOrganizationBillingTarget(
+        organizationTarget.ownerId,
+        effectiveTeamId,
+        'organization'
+      );
+    }
     await setActiveBillingTarget(db, userId, activeTarget);
   }
 
@@ -1579,6 +1593,22 @@ export async function recordSpend(
 
   const ctx = await ensureUserBillingState(db, userId, teamId);
 
+  // ── Org billing — always checked first ──
+  // ensureUserBillingState now correctly routes org-team members to
+  // billingEntity === 'organization', so this guard prevents any personal
+  // wallet deduction (IAP or Stripe prepaid) for org-billed athletes.
+  if (ctx.billingEntity === 'organization') {
+    const organizationId = ctx.organizationId;
+    const effectiveTeamId = ctx.teamId ?? teamId;
+    if (organizationId) {
+      await deductOrgWallet(db, organizationId, userId, effectiveTeamId, costCents);
+    } else {
+      // No org wallet entity found — fall back to per-user spend tracking
+      await updateSpend(db, userId, costCents);
+    }
+    return;
+  }
+
   // ── Prepaid wallet (individual IAP or Stripe pre-paid wallet) ──
   // Both IAP and Stripe wallet users have a real walletBalanceCents balance that
   // must be decremented on each spend. walletBalanceCents > 0 is the determinant —
@@ -1591,19 +1621,6 @@ export async function recordSpend(
   // Stripe wallet: individual user who has pre-paid credits (walletBalanceCents > 0)
   if (ctx.billingEntity === 'individual' && (ctx.walletBalanceCents ?? 0) > 0) {
     await deductWallet(db, userId, costCents);
-    return;
-  }
-
-  if (ctx.billingEntity === 'organization') {
-    // Org billing: deduct from the org wallet and record per-user spend
-    const organizationId = ctx.organizationId;
-    const effectiveTeamId = ctx.teamId ?? teamId;
-    if (organizationId) {
-      await deductOrgWallet(db, organizationId, userId, effectiveTeamId, costCents);
-    } else {
-      // Fallback to spend increment if no wallet entity found
-      await updateSpend(db, userId, costCents);
-    }
     return;
   }
 

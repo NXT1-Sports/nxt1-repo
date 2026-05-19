@@ -34,6 +34,7 @@ import {
 import { getCacheService } from '../core/cache.service.js';
 import { notFoundError, conflictError } from '@nxt1/core/errors';
 import { logger } from '../../utils/logger.js';
+import { evictBillingResolutionCache } from '../../modules/billing/budget.service.js';
 
 // Helper to get cache
 const getCache = () => getCacheService();
@@ -1090,6 +1091,13 @@ export class RosterEntryService {
     entryId?: string
   ): Promise<void> {
     const cache = getCache();
+
+    // Evict the in-memory billing resolution cache so the next AI operation
+    // re-resolves the user's billing target from Firestore.  Without this,
+    // a freshly-joined athlete may be billed against their personal wallet for
+    // up to 5 minutes before the cache expires and the org target is found.
+    evictBillingResolutionCache(userId);
+
     if (!cache) return;
 
     await Promise.all([

@@ -118,8 +118,10 @@ export interface UsageChartDataPoint {
   readonly date: string;
   /** Display label (e.g. "Feb 1") */
   readonly label: string;
-  /** Cumulative usage in cents at this point */
+  /** Cumulative usage in cents at this point (running total from period start) */
   readonly amount: number;
+  /** Usage in cents for this specific day only */
+  readonly dailyAmount: number;
 }
 
 /** Included usage quota for a product category */

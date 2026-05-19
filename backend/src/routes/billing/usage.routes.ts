@@ -799,11 +799,13 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     const chartEnd = end < today ? end : today;
     while (current <= chartEnd) {
       const dateKey = toLocalDateKey(current);
-      cumulative += dailyUsage.get(dateKey) ?? 0;
+      const dailyAmount = dailyUsage.get(dateKey) ?? 0;
+      cumulative += dailyAmount;
       chartData.push({
         date: dateKey,
         label: current.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
         amount: cumulative,
+        dailyAmount,
       });
       current.setDate(current.getDate() + 1);
     }
@@ -1112,11 +1114,13 @@ router.get('/chart', appGuard, async (req: Request, res: Response) => {
     const chartEnd = end < today ? end : today;
     while (current <= chartEnd) {
       const dateKey = toLocalDateKey(current);
-      cumulative += dailyUsage.get(dateKey) ?? 0;
+      const dailyAmount = dailyUsage.get(dateKey) ?? 0;
+      cumulative += dailyAmount;
       chartData.push({
         date: dateKey,
         label: current.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
         amount: cumulative,
+        dailyAmount,
       });
       current.setDate(current.getDate() + 1);
     }

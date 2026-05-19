@@ -187,8 +187,21 @@ export async function executeBillingDeduction(
       resolvedTeamId && resolvedTeamId !== userId ? resolvedTeamId : undefined;
 
     // Step 4b: Deduct funds
-    if (iapHoldId) {
-      // Background job mode: capture the pre-authorized hold
+    if (iapHoldId && resolvedOrgId) {
+      // An IAP hold was pre-created but the resolved billing target is the org.
+      // This happens when the hold was created while the billing cache still had
+      // a stale 'individual' entry (e.g. athlete just joined a team).  Release
+      // the personal hold and charge the org wallet instead so the athlete is
+      // never double-billed across personal and team accounts.
+      await releaseWalletHold(db, iapHoldId).catch((e: unknown) => {
+        logger.warn('[billing] Failed to release IAP hold for org-billed user', {
+          holdId: iapHoldId,
+          error: e instanceof Error ? e.message : String(e),
+        });
+      });
+      await deductOrgWallet(db, resolvedOrgId, userId, effectiveTeamId, chargeAmountCents);
+    } else if (iapHoldId) {
+      // Background job mode (individual billing): capture the pre-authorised hold
       await captureWalletHold(db, iapHoldId, chargeAmountCents);
     } else if (resolvedOrgId) {
       // Org billing: debit the org wallet and mirror spend onto user/team trackers.
