@@ -198,4 +198,74 @@ describe('executeBillingDeduction', () => {
       'production'
     );
   });
+
+  it('releases an IAP hold and charges the org wallet when the resolved target is an org', async () => {
+    // Regression test: an athlete with personal IAP wallet credits joins an
+    // org-billed team.  The background worker may create an IAP hold before the
+    // billing-resolution cache is evicted (race window).  When executeBillingDeduction
+    // later resolves the org target, it must release the personal hold and charge
+    // the org wallet — never both.
+    const db = {} as Firestore;
+
+    mockResolveBillingTarget.mockResolvedValue({
+      type: 'organization',
+      billingUserId: 'org:org_789',
+      organizationId: 'org_789',
+      teamIds: ['team_abc'],
+      context: { teamId: 'team_abc' },
+    });
+
+    const { executeBillingDeduction } = await import('../usage-deduction.service.js');
+
+    await executeBillingDeduction({
+      db,
+      userId: 'user_iap_org',
+      operationId: 'op_iap_org',
+      iapHoldId: 'hold_personal_123',
+      knownCostUsd: 1.0,
+    });
+
+    // Personal hold must be released, never captured
+    expect(mockCaptureWalletHold).not.toHaveBeenCalled();
+    expect(mockReleaseWalletHold).toHaveBeenCalledWith(db, 'hold_personal_123');
+
+    // Org wallet must be charged
+    expect(mockDeductOrgWallet).toHaveBeenCalledWith(
+      db,
+      'org_789',
+      'user_iap_org',
+      'team_abc',
+      175
+    );
+
+    // Personal spend must NOT be recorded
+    expect(mockRecordSpend).not.toHaveBeenCalled();
+  });
+
+  it('captures IAP hold normally when billing target is individual (no org)', async () => {
+    const db = {} as Firestore;
+
+    mockResolveBillingTarget.mockResolvedValue({
+      type: 'individual',
+      billingUserId: 'user_iap_solo',
+      context: { teamId: undefined },
+      teamIds: [],
+    });
+
+    const { executeBillingDeduction } = await import('../usage-deduction.service.js');
+
+    await executeBillingDeduction({
+      db,
+      userId: 'user_iap_solo',
+      operationId: 'op_iap_solo',
+      iapHoldId: 'hold_solo_456',
+      knownCostUsd: 0.5,
+    });
+
+    // Hold should be captured against the personal wallet
+    expect(mockCaptureWalletHold).toHaveBeenCalledWith(db, 'hold_solo_456', 175);
+    expect(mockReleaseWalletHold).not.toHaveBeenCalled();
+    expect(mockDeductOrgWallet).not.toHaveBeenCalled();
+    expect(mockRecordSpend).not.toHaveBeenCalled();
+  });
 });

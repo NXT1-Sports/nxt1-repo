@@ -169,7 +169,7 @@ export function buildInviteShareText(source: InviteShareSource): string {
   if (source.inviteType === 'team') {
     const teamName = normalizeText(source.team?.name);
     const lead = teamName
-      ? `You've been invited to join ${teamName} on NXT1 — the sports intelligence platform built for athletes, coaches, and programs.`
+      ? `You've been invited to join ${teamName} — the sports intelligence platform built for athletes, coaches, and programs.`
       : "You've been invited to join our team on NXT1 — the sports intelligence platform built for athletes, coaches, and programs.";
     return appendIdentityLine(lead, buildInviteIdentityLine(source));
   }

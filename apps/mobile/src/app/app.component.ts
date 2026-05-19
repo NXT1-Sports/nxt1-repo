@@ -124,12 +124,7 @@ export class AppComponent {
     this.logger.debug('Handling initial navigation', { currentUrl, userId: user?.uid });
 
     // If already on a specific route (deep link), respect it
-    if (
-      currentUrl !== '/' &&
-      currentUrl !== '/auth' &&
-      currentUrl !== '/home' &&
-      currentUrl !== '/agent-x'
-    ) {
+    if (currentUrl !== '/' && currentUrl !== '/auth' && currentUrl !== '/agent-x') {
       this.logger.debug('On specific route, respecting current navigation');
       // Still mark complete so warm-start appUrlOpen events navigate directly from now on.
       this.deepLink.markInitialNavigationComplete();

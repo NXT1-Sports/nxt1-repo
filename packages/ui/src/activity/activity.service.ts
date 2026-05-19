@@ -125,8 +125,8 @@ function normalizeRealtimeActivityItem(doc: Record<string, unknown>): ActivityIt
     timestamp: readDateString(doc['timestamp']) ?? new Date().toISOString(),
     isRead: doc['isRead'] === true,
     isArchived: doc['isArchived'] === true,
-    source: readRecord(doc['source']) as ActivityItem['source'],
-    action: readRecord(doc['action']) as ActivityItem['action'],
+    source: readRecord(doc['source']) as unknown as ActivityItem['source'],
+    action: readRecord(doc['action']) as unknown as ActivityItem['action'],
     secondaryActions: Array.isArray(doc['secondaryActions'])
       ? (doc['secondaryActions'] as ActivityItem['secondaryActions'])
       : undefined,
@@ -180,7 +180,10 @@ export class ActivityService {
 
   private realtimeUnsubscribe: (() => void) | null = null;
   private realtimeUserId: string | null = null;
+  private realtimeTargetUserId: string | null = null;
   private hasRealtimeSnapshot = false;
+  private realtimeRetryCount = 0;
+  private realtimeRetryTimer: ReturnType<typeof setTimeout> | null = null;
 
   // ============================================
   // PUBLIC READONLY COMPUTED SIGNALS
@@ -531,6 +534,9 @@ export class ActivityService {
   startRealtimeForUser(userId: string | null | undefined): void {
     const normalizedUserId = userId?.trim();
     if (!normalizedUserId) {
+      // Explicit stop — reset retry state fully.
+      this.realtimeRetryCount = 0;
+      this.realtimeTargetUserId = null;
       this.stopRealtimeListener();
       return;
     }
@@ -544,7 +550,15 @@ export class ActivityService {
       return;
     }
 
+    // Reset retry count only when the target user changes (not on a self-retry).
+    // During a self-retry, realtimeTargetUserId still holds the previous userId,
+    // allowing us to distinguish a retry from a genuine user switch.
+    if (this.realtimeTargetUserId !== normalizedUserId) {
+      this.realtimeRetryCount = 0;
+    }
+
     this.stopRealtimeListener();
+    this.realtimeTargetUserId = normalizedUserId;
 
     if (!this.firestoreAdapter) {
       this.logger.warn('No Firestore adapter provided; live activity updates unavailable');
@@ -565,6 +579,29 @@ export class ActivityService {
           void this.breadcrumbs.trackStateChange('activity_realtime_error', {
             userId: normalizedUserId,
           });
+
+          // Clear stale listener state so a retry isn't blocked by the
+          // deduplication guard (realtimeUserId + realtimeUnsubscribe check).
+          this.realtimeUnsubscribe?.();
+          this.realtimeUnsubscribe = null;
+          this.realtimeUserId = null;
+
+          // Permission errors often occur during the brief window where Firebase
+          // Auth has authenticated the user but the token hasn't propagated to
+          // the Firestore connection yet. Retry with exponential back-off.
+          const MAX_RETRIES = 3;
+          if (this.isPermissionError(error) && this.realtimeRetryCount < MAX_RETRIES) {
+            const delayMs = Math.pow(2, this.realtimeRetryCount) * 2000; // 2s, 4s, 8s
+            this.realtimeRetryCount += 1;
+            this.logger.warn('Scheduling activity listener retry due to permission error', {
+              attempt: this.realtimeRetryCount,
+              delayMs,
+            });
+            this.realtimeRetryTimer = setTimeout(() => {
+              this.realtimeRetryTimer = null;
+              this.startRealtimeForUser(normalizedUserId);
+            }, delayMs);
+          }
         },
         { direction: 'desc', limit: ACTIVITY_REALTIME_LIMIT }
       );
@@ -583,6 +620,15 @@ export class ActivityService {
 
   /** Stop the active activity listener, if any. */
   stopRealtimeListener(): void {
+    if (this.realtimeRetryTimer !== null) {
+      clearTimeout(this.realtimeRetryTimer);
+      this.realtimeRetryTimer = null;
+      // Cancelling an in-flight retry timer counts as an explicit stop,
+      // so reset the retry counter so the next startRealtimeForUser call
+      // gets a full set of retries.
+      this.realtimeRetryCount = 0;
+    }
+
     if (!this.realtimeUnsubscribe) {
       this.realtimeUserId = null;
       this.hasRealtimeSnapshot = false;
@@ -635,11 +681,23 @@ export class ActivityService {
     const shouldIncrementUnread = this.hasRealtimeSnapshot;
     const result = this.mergeRealtimeItems(items, shouldIncrementUnread);
     this.hasRealtimeSnapshot = true;
+    // Listener is healthy — reset retry counter.
+    this.realtimeRetryCount = 0;
 
     if (result.added > 0 || result.updated > 0 || result.removed > 0) {
       this.logger.debug('Merged live activity snapshot', result);
       void this.breadcrumbs.trackStateChange('activity_realtime_snapshot', result);
     }
+  }
+
+  private isPermissionError(error: unknown): boolean {
+    if (error instanceof Error) {
+      return (
+        error.message.includes('Missing or insufficient permissions') ||
+        (error as { code?: string }).code === 'permission-denied'
+      );
+    }
+    return false;
   }
 
   private mergeRealtimeItems(

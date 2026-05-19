@@ -279,7 +279,7 @@ describe('share copy builders', () => {
         senderLocation: 'Austin, TX',
       })
     ).toBe(
-      "You've been invited to join Lincoln High Football on NXT1 — the sports intelligence platform built for athletes, coaches, and programs.\nLincoln High Football • Football • Austin, TX"
+      "You've been invited to join Lincoln High Football — the sports intelligence platform built for athletes, coaches, and programs.\nLincoln High Football • Football • Austin, TX"
     );
     expect(
       buildInviteUiCopy({
@@ -293,7 +293,7 @@ describe('share copy builders', () => {
       subtitle:
         'Send this invite to connect your players and staff directly to your team on NXT1 — one place for communication, schedules, and sports intelligence.',
       shareText:
-        "You've been invited to join Lincoln High Football on NXT1 — the sports intelligence platform built for athletes, coaches, and programs.\nLincoln High Football • Football • Austin, TX",
+        "You've been invited to join Lincoln High Football — the sports intelligence platform built for athletes, coaches, and programs.\nLincoln High Football • Football • Austin, TX",
       howItWorksText:
         'Share this link or QR code with your players and staff. Once they accept, they are connected directly to Lincoln High Football on NXT1.',
     });

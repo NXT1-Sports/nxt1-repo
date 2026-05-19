@@ -357,6 +357,37 @@ export class UsageService implements OnDestroy {
    */
   readonly effectiveBillingMode = computed<BillingMode>(() => this.billingMode());
 
+  /**
+   * Human-readable label for the currently active billing account.
+   * Used by the persistent billing-context indicator in the usage shell header.
+   *
+   * Examples:
+   *   "Personal Account" — individual / personal billing mode
+   *   "Team Account"     — org-billed team member (or admin on org billing)
+   */
+  readonly accountLabel = computed<string>(() => {
+    const ctx = this._billingContext();
+    if (!ctx) return '';
+    const isTeam =
+      (ctx.billingEntity === 'organization' || ctx.billingEntity === 'team') &&
+      ctx.billingMode !== 'personal';
+    // Use the org/team label from availableBudgetTargets if present
+    if (isTeam) {
+      const orgTarget = ctx.availableBudgetTargets?.find((t) => t.type === 'organization');
+      return orgTarget ? orgTarget.label : 'Team Account';
+    }
+    return 'Personal Account';
+  });
+
+  /**
+   * Visual variant for the account context badge.
+   * 'personal' → neutral/blue styling
+   * 'team'     → branded/purple styling
+   */
+  readonly accountLabelVariant = computed<'personal' | 'team'>(() =>
+    this.accountLabel() === 'Personal Account' ? 'personal' : 'team'
+  );
+
   /** Whether the current user should see billing actions in shared UI. */
   readonly canManageBilling = computed(
     () => this.isPersonal() || this.isOrgAdmin() || this.isTeamAdmin()
@@ -430,7 +461,9 @@ export class UsageService implements OnDestroy {
   readonly chartMaxValue = computed(() => {
     const data = this._chartData();
     if (data.length === 0) return 0;
-    const max = Math.max(...data.map((d) => d.amount));
+    const max = Math.max(
+      ...data.map((d, i) => d.dailyAmount ?? d.amount - (i > 0 ? (data[i - 1]?.amount ?? 0) : 0))
+    );
     if (max === 0) return 0;
     // Compute a "nice" ceiling scaled to the actual data magnitude
     // so small amounts (e.g. $2.07) don't get rounded up to $20.

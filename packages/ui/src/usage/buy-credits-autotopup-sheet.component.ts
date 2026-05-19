@@ -236,7 +236,7 @@ import {
           [attr.data-testid]="testIds.BUY_CREDITS_IAP_BTN"
           (click)="onBuyWithIap()"
         >
-          IAP Pay
+          Apple Pay
         </button>
       </div>
     } @else {
