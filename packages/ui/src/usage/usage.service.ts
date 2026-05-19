@@ -461,7 +461,9 @@ export class UsageService implements OnDestroy {
   readonly chartMaxValue = computed(() => {
     const data = this._chartData();
     if (data.length === 0) return 0;
-    const max = Math.max(...data.map((d) => d.amount));
+    const max = Math.max(
+      ...data.map((d, i) => d.dailyAmount ?? d.amount - (i > 0 ? (data[i - 1]?.amount ?? 0) : 0))
+    );
     if (max === 0) return 0;
     // Compute a "nice" ceiling scaled to the actual data magnitude
     // so small amounts (e.g. $2.07) don't get rounded up to $20.

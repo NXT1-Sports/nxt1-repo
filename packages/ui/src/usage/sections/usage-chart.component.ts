@@ -429,8 +429,9 @@ export class UsageChartComponent {
 
     return data
       .map((d, i) => {
+        const daily = d.dailyAmount ?? d.amount - (i > 0 ? (data[i - 1]?.amount ?? 0) : 0);
         const x = Math.round(i * step);
-        const y = Math.round(400 - (d.amount / max) * 380);
+        const y = Math.round(400 - (daily / max) * 380);
         return `${x},${y}`;
       })
       .join(' ');
