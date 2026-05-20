@@ -26,7 +26,6 @@ import { NxtLoggingService } from '../../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { PERFORMANCE_ADAPTER } from '../../services/performance';
-import { PlaybooksApiService } from './playbooks-api.service';
 import { AGENT_X_API_BASE_URL } from '../../agent-x/services/agent-x-job.service';
 
 /**
@@ -74,11 +73,14 @@ interface PlaybooksListResponse {
 @Injectable({ providedIn: 'root' })
 export class PlaybooksService {
   private readonly http = inject(HttpClient);
-  private readonly playbooksApi = inject(PlaybooksApiService);
   private readonly logger = inject(NxtLoggingService).child('PlaybooksService');
-  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true }) as AnalyticsAdapter | null;
+  private readonly analytics = inject(ANALYTICS_ADAPTER, {
+    optional: true,
+  }) as AnalyticsAdapter | null;
   private readonly breadcrumb = inject(NxtBreadcrumbService) as NxtBreadcrumbService;
-  private readonly performance = inject(PERFORMANCE_ADAPTER, { optional: true }) as PerformanceAdapter | null;
+  private readonly performance = inject(PERFORMANCE_ADAPTER, {
+    optional: true,
+  }) as PerformanceAdapter | null;
   private readonly agentXBaseUrl = `${inject(AGENT_X_API_BASE_URL)}/agent-x`;
 
   // ============================================
@@ -131,16 +133,17 @@ export class PlaybooksService {
     void this.breadcrumb.trackStateChange('playbooks loading', { teamId });
 
     try {
-      const response = await this.performance?.trace(
-        TRACE_NAMES.PLAYBOOK_LIST,
-        () => this.loadPlaybooksImpl(teamId),
-        {
-          attributes: { team_id: teamId },
-          onSuccess: async () => {
-            // Metrics tracked via analytics
-          },
-        }
-      ) ?? (await this.loadPlaybooksImpl(teamId));
+      const response =
+        (await this.performance?.trace(
+          TRACE_NAMES.PLAYBOOK_LIST,
+          () => this.loadPlaybooksImpl(teamId),
+          {
+            attributes: { team_id: teamId },
+            onSuccess: async () => {
+              // Metrics tracked via analytics
+            },
+          }
+        )) ?? (await this.loadPlaybooksImpl(teamId));
 
       this._playbooks.set(response);
       this.logger.info('Playbooks loaded', { teamId, count: response.length });
@@ -194,16 +197,17 @@ export class PlaybooksService {
         this.agentXBaseUrl
       );
 
-      const response = await this.performance?.trace(
-        TRACE_NAMES.GAMEPLAN_LIST,
-        () => gamePlanApi.listGamePlans({ teamId }),
-        {
-          attributes: { team_id: teamId },
-          onSuccess: async () => {
-            // Metrics tracked via analytics
-          },
-        }
-      ) ?? (await gamePlanApi.listGamePlans({ teamId }));
+      const response =
+        (await this.performance?.trace(
+          TRACE_NAMES.GAMEPLAN_LIST,
+          () => gamePlanApi.listGamePlans({ teamId }),
+          {
+            attributes: { team_id: teamId },
+            onSuccess: async () => {
+              // Metrics tracked via analytics
+            },
+          }
+        )) ?? (await gamePlanApi.listGamePlans({ teamId }));
 
       this._gamePlans.set([...response]);
       this.logger.info('Game plans loaded', { teamId, count: response.length });
@@ -253,27 +257,26 @@ export class PlaybooksService {
       const gamePlanApi = createTeamGamePlanApi(
         {
           get: <T>(url: string) => firstValueFrom(this.http.get<T>(url)),
-          post: <T>(url: string, body: unknown) =>
-            firstValueFrom(this.http.post<T>(url, body)),
-          put: <T>(url: string, body: unknown) =>
-            firstValueFrom(this.http.put<T>(url, body)),
+          post: <T>(url: string, body: unknown) => firstValueFrom(this.http.post<T>(url, body)),
+          put: <T>(url: string, body: unknown) => firstValueFrom(this.http.put<T>(url, body)),
           patch: <T>(url: string, body: unknown) => firstValueFrom(this.http.patch<T>(url, body)),
           delete: <T>(url: string) => firstValueFrom(this.http.delete<T>(url)),
         },
         this.agentXBaseUrl
       );
 
-      const gamePlan = await this.performance?.trace(
-        TRACE_NAMES.GAMEPLAN_CREATE,
-        () => gamePlanApi.createGamePlan(gamePlanData),
-        {
-          attributes: {
-            playbook_id: playbookId,
-            gameplan_title: gamePlanData.title,
-            sport: gamePlanData.sport,
-          },
-        }
-      ) ?? (await gamePlanApi.createGamePlan(gamePlanData));
+      const gamePlan =
+        (await this.performance?.trace(
+          TRACE_NAMES.GAMEPLAN_CREATE,
+          () => gamePlanApi.createGamePlan(gamePlanData),
+          {
+            attributes: {
+              playbook_id: playbookId,
+              gameplan_title: gamePlanData.title,
+              sport: gamePlanData.sport,
+            },
+          }
+        )) ?? (await gamePlanApi.createGamePlan(gamePlanData));
 
       // Add to local state
       this._gamePlans.update((plans) => [...plans, gamePlan]);

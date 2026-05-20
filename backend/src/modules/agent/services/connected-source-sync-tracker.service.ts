@@ -291,26 +291,40 @@ export function getConnectedSourceSyncTracker() {
               );
             });
 
+            const updated = [...sources];
+            const isSuccess = outcome === 'success';
+
             if (idx < 0) {
-              logger.warn('[ConnectedSourceSyncTracker] Entry not found in doc during flush', {
+              // Entry missing from doc — UPSERT it so the terminal status is
+              // always reflected. This happens when a tool registered a target
+              // via `track()` AFTER worker startup (so markPending didn't seed
+              // the row) but the doc itself exists.
+              logger.info('[ConnectedSourceSyncTracker] Upserting missing entry during flush', {
                 operationId,
+                outcome,
                 docType: entry.docType,
                 docId: entry.docId,
                 platform: entry.platform,
                 scopeId: entry.scopeId,
-                profileUrl: entry.profileUrl,
               });
-              return;
+              updated.push({
+                platform: entry.platform,
+                profileUrl: entry.profileUrl,
+                scopeId: entry.scopeId,
+                syncStatus: outcome,
+                connected: isSuccess,
+                lastSyncedAt: now,
+                connectionType: 'link',
+              });
+            } else {
+              updated[idx] = {
+                ...updated[idx],
+                syncStatus: outcome,
+                connected: isSuccess, // UI reads this boolean for display
+                lastSyncedAt: now,
+              };
             }
 
-            const updated = [...sources];
-            const isSuccess = outcome === 'success';
-            updated[idx] = {
-              ...updated[idx],
-              syncStatus: outcome,
-              connected: isSuccess, // UI reads this boolean for display
-              lastSyncedAt: now,
-            };
             tx.update(docRef, { connectedSources: updated });
 
             logger.debug('[ConnectedSourceSyncTracker] Flushed entry', {
@@ -321,6 +335,7 @@ export function getConnectedSourceSyncTracker() {
               docId: entry.docId,
               syncStatus: outcome,
               connected: isSuccess,
+              upserted: idx < 0,
             });
           });
         })

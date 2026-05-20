@@ -296,7 +296,10 @@ export async function sendMessage(
           recipientEmail,
           conversation.emailSubject ?? conversation.title,
           body,
-          db
+          db,
+          {
+            recipientName: recipient?.name,
+          }
         );
 
         if (result.externalMessageId) {

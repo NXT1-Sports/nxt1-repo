@@ -217,6 +217,9 @@ const DEFAULT_EXCLUDE_URLS: RegExp[] = [
   /\/admin\//,
   // Agent X — all endpoints are dynamic & user-specific, never cache
   /\/agent-x\//,
+  // Usage money totals must reflect the latest wallet ledger immediately.
+  /\/usage\/(?:dashboard|overview|chart|breakdown)(?:\/|\?|$)/,
+  /\/billing\/budget(?:\/|\?|$)/,
   // Messages real-time thread — individual messages are never cached
   /\/messages\/thread\//,
   // News / Pulse AI generation — always hits the backend

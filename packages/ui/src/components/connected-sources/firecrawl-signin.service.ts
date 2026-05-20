@@ -42,6 +42,7 @@ export interface FirecrawlSignInRequest {
 
 interface StartSessionResponse {
   readonly success: boolean;
+  readonly code?: string;
   readonly error?: string;
   readonly data?: {
     readonly sessionId: string;
@@ -50,6 +51,10 @@ interface StartSessionResponse {
     readonly profileName: string;
   };
 }
+
+const SIGN_IN_UNSUPPORTED_ERROR_CODE = 'SIGN_IN_UNSUPPORTED';
+const UNSUPPORTED_SIGN_IN_MESSAGE =
+  'Sign in for this platform is currently unsupported. We are working on it, check back soon.';
 
 interface CompleteSessionResponse {
   readonly success: boolean;
@@ -226,12 +231,23 @@ export class FirecrawlSignInService {
 
       if (!response.success || !response.data) {
         const errorMsg = response.error ?? 'Failed to start session';
-        this.logger.error('Backend rejected session start', undefined, {
-          platform,
-          error: errorMsg,
-        });
+        const unsupported = this.isUnsupportedSignInResponse(response.code, undefined, errorMsg);
 
-        if (errorMsg.includes('Another session')) {
+        if (unsupported) {
+          this.logger.warn('Backend reported unsupported Firecrawl sign-in platform', {
+            platform,
+            error: errorMsg,
+          });
+        } else {
+          this.logger.error('Backend rejected session start', undefined, {
+            platform,
+            error: errorMsg,
+          });
+        }
+
+        if (unsupported) {
+          this.toast.warning(errorMsg || UNSUPPORTED_SIGN_IN_MESSAGE);
+        } else if (errorMsg.includes('Another session')) {
           this.toast.warning(
             'Another sign-in session is active. Please wait a moment and try again.'
           );
@@ -249,20 +265,32 @@ export class FirecrawlSignInService {
       await trace?.putAttribute('success', 'true');
       return response.data;
     } catch (err: unknown) {
-      this.logger.error('Failed to start Firecrawl session', err, { platform });
-
-      // Extract error message from HTTP error response body when available
-      const httpError = err as { error?: { error?: string }; status?: number };
+      const httpError = err as { error?: { code?: string; error?: string }; status?: number };
       const serverMsg = httpError?.error?.error;
+      const unsupported = this.isUnsupportedSignInResponse(
+        httpError?.error?.code,
+        httpError?.status,
+        serverMsg
+      );
 
-      if (httpError?.status === 429 || serverMsg?.includes('Too many')) {
-        this.toast.warning('Too many active sessions. Please wait a moment and try again.');
-      } else if (httpError?.status === 409 || serverMsg?.includes('Another session')) {
-        this.toast.warning(
-          'Another sign-in session is active. Please wait a moment and try again.'
-        );
+      if (unsupported) {
+        this.logger.warn('Firecrawl sign-in unsupported for platform', {
+          platform,
+          error: serverMsg,
+        });
+        this.toast.warning(serverMsg ?? UNSUPPORTED_SIGN_IN_MESSAGE);
       } else {
-        this.toast.error(serverMsg ?? 'Unable to start sign-in session. Please try again.');
+        this.logger.error('Failed to start Firecrawl session', err, { platform });
+
+        if (httpError?.status === 429 || serverMsg?.includes('Too many')) {
+          this.toast.warning('Too many active sessions. Please wait a moment and try again.');
+        } else if (httpError?.status === 409 || serverMsg?.includes('Another session')) {
+          this.toast.warning(
+            'Another sign-in session is active. Please wait a moment and try again.'
+          );
+        } else {
+          this.toast.error(serverMsg ?? 'Unable to start sign-in session. Please try again.');
+        }
       }
       await trace?.putAttribute('success', 'false');
       return null;
@@ -403,5 +431,17 @@ export class FirecrawlSignInService {
 
   private supportsInteractiveSigninOnCurrentDevice(): boolean {
     return !this.shouldUseBottomSheet();
+  }
+
+  private isUnsupportedSignInResponse(
+    code: string | undefined,
+    status: number | undefined,
+    message: string | undefined
+  ): boolean {
+    return (
+      code === SIGN_IN_UNSUPPORTED_ERROR_CODE ||
+      status === 422 ||
+      /currently unsupported|working on it|do not support this site/i.test(message ?? '')
+    );
   }
 }

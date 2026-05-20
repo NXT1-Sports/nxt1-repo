@@ -406,27 +406,43 @@ export class OpenRouterService {
       };
     }
 
-    // Emit telemetry if a callback is registered
+    // Emit telemetry if a callback is registered.
+    // Treat empty-string operationId as missing — billing records keyed by an empty
+    // string are useless and create orphaned rows. If absent, log a warning so the
+    // upstream caller can be fixed and skip the telemetry callback entirely.
+    const operationId = (options.telemetryContext?.operationId ?? '').trim();
     logger.info('[OpenRouter] completeWithModel telemetry', {
-      operationId: options.telemetryContext?.operationId ?? '(none)',
+      operationId: operationId || '(none)',
       model: result.model,
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,
       costUsd: result.costUsd,
       hasCallback: !!this.telemetryCallback,
     });
-    this.telemetryCallback?.({
-      operationId: options.telemetryContext?.operationId ?? '',
-      userId: options.telemetryContext?.userId ?? '',
-      agentId: options.telemetryContext?.agentId ?? 'router',
-      model: result.model,
-      inputTokens: result.usage.inputTokens,
-      outputTokens: result.usage.outputTokens,
-      costUsd: result.costUsd,
-      latencyMs: result.latencyMs,
-      hadToolCall: result.toolCalls.length > 0,
-      timestamp: new Date().toISOString(),
-    });
+    if (!operationId) {
+      logger.warn(
+        '[OpenRouter] Billed completion missing operationId — skipping telemetry callback to avoid orphan billing record',
+        {
+          model: result.model,
+          costUsd: result.costUsd,
+          userId: options.telemetryContext?.userId ?? '(none)',
+          agentId: options.telemetryContext?.agentId ?? '(none)',
+        }
+      );
+    } else {
+      this.telemetryCallback?.({
+        operationId,
+        userId: options.telemetryContext?.userId ?? '',
+        agentId: options.telemetryContext?.agentId ?? 'router',
+        model: result.model,
+        inputTokens: result.usage.inputTokens,
+        outputTokens: result.usage.outputTokens,
+        costUsd: result.costUsd,
+        latencyMs: result.latencyMs,
+        hadToolCall: result.toolCalls.length > 0,
+        timestamp: new Date().toISOString(),
+      });
+    }
 
     return result;
   }

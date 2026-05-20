@@ -24,6 +24,7 @@
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
 import type { LLMContentPart, LLMMessage } from '../../llm/llm.types.js';
+import { MediaTransportResolverService } from './media-transport-resolver.service.js';
 import { logger } from '../../../../utils/logger.js';
 import { z } from 'zod';
 
@@ -81,7 +82,10 @@ export class AnalyzeImageTool extends BaseTool {
   readonly category = 'media' as const;
   readonly entityGroup = 'user_tools' as const;
 
-  constructor(private readonly llm: OpenRouterService) {
+  constructor(
+    private readonly llm: OpenRouterService,
+    private readonly transportResolver: MediaTransportResolverService = new MediaTransportResolverService()
+  ) {
     super();
   }
 
@@ -100,8 +104,28 @@ export class AnalyzeImageTool extends BaseTool {
       imageCount: imageUrls.length,
     });
 
+    // ── Resolve URLs (sign private GCS/Firebase URLs so providers can fetch) ─
+    const resolvedUrls = await Promise.all(
+      imageUrls.map(async (url) => {
+        try {
+          const result = await this.transportResolver.resolveProcessingUrl({
+            sourceUrl: url,
+            stageMediaKind: 'image',
+            executionContext: context,
+          });
+          return result.url;
+        } catch (err) {
+          logger.warn('[AnalyzeImageTool] URL resolution failed, using original', {
+            url: url.slice(0, 180),
+            error: err instanceof Error ? err.message : String(err),
+          });
+          return url;
+        }
+      })
+    );
+
     // ── Build multimodal message ────────────────────────────────────────────
-    const contentParts: LLMContentPart[] = imageUrls.map((url) => ({
+    const contentParts: LLMContentPart[] = resolvedUrls.map((url) => ({
       type: 'image_url' as const,
       image_url: { url, detail: 'auto' as const },
     }));
@@ -129,14 +153,16 @@ export class AnalyzeImageTool extends BaseTool {
         maxTokens: 2048,
         temperature: 0.2,
         signal: AbortSignal.timeout(VISION_TIMEOUT_MS),
-        telemetryContext: context?.userId
+        ...(context?.operationId && context.userId
           ? {
-              operationId: context.sessionId ?? '',
-              userId: context.userId,
-              agentId: 'data_coordinator',
-              feature: 'image-analysis',
+              telemetryContext: {
+                operationId: context.operationId,
+                userId: context.userId,
+                agentId: 'data_coordinator',
+                feature: 'image-analysis',
+              },
             }
-          : undefined,
+          : {}),
       });
 
       // ── Extract text response ─────────────────────────────────────────────

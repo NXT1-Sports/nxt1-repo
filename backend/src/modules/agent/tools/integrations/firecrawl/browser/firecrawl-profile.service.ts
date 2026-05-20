@@ -38,6 +38,13 @@ const LOGIN_PAGE_INDICATORS = [
   'verification code',
 ] as const;
 
+const FIRECRAWL_UNSUPPORTED_SITE_RE = /do not support this site|we do not support this site/i;
+
+export function isFirecrawlUnsupportedSiteError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return FIRECRAWL_UNSUPPORTED_SITE_RE.test(message);
+}
+
 export class FirecrawlProfileService {
   private readonly client: Firecrawl;
 
@@ -87,12 +94,28 @@ export class FirecrawlProfileService {
       isMobile,
     });
 
-    const scrapeResult = await this.client.scrape(loginUrl, {
-      profile: {
-        name: profileName,
-        saveChanges: true,
-      },
-    } as Record<string, unknown>);
+    let scrapeResult: Awaited<ReturnType<Firecrawl['scrape']>>;
+    try {
+      scrapeResult = await this.client.scrape(loginUrl, {
+        profile: {
+          name: profileName,
+          saveChanges: true,
+        },
+      } as Record<string, unknown>);
+    } catch (err) {
+      if (isFirecrawlUnsupportedSiteError(err)) {
+        throw new AgentEngineError(
+          'LIVE_VIEW_SIGN_IN_UNSUPPORTED',
+          'Sign in is currently unsupported for this platform. We are working on it, check back soon.',
+          {
+            cause: err,
+            metadata: { platform, loginUrl },
+          }
+        );
+      }
+
+      throw err;
+    }
 
     const sessionId = scrapeResult.metadata?.scrapeId;
     if (!sessionId) {

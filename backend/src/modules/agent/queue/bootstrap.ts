@@ -785,7 +785,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     agents: router.getRegisteredAgents(),
     planRepository: new AgentPlanRepository(appDb, stagingDb),
     resolveToolAccessContext: async (uid: string) => {
-      const userCtx = await contextBuilder.buildContext(uid);
+      const userCtx = await contextBuilder.buildContext(uid, runtimeFirestore);
       return router.getOrchestratorBundle().policyService.buildToolAccessContext(userCtx);
     },
   });

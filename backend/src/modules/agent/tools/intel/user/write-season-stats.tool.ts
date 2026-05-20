@@ -66,16 +66,28 @@ const SeasonStatsEntrySchema = z
   })
   .passthrough();
 
-const WriteSeasonStatsInputSchema = z.object({
-  userId: z.string().trim().min(1),
-  targetSport: z.string().trim().min(1),
-  source: z.string().trim().min(1),
-  sourceUrl: z.string().trim().min(1).optional(),
-  profileUrl: z.string().trim().min(1).optional(),
-  position: z.string().trim().min(1).optional(),
-  teamType: z.enum(['school', 'club', 'college']).optional(),
-  seasonStats: z.array(SeasonStatsEntrySchema).min(1).max(MAX_SEASONS),
-});
+const WriteSeasonStatsInputSchema = z
+  .object({
+    // userId is technically required, but the tool auto-injects it from the
+    // authenticated execution context when the LLM omits it. We keep it
+    // optional in the schema so a missing value produces a clear, actionable
+    // downstream error rather than a confusing Zod "expected string" message.
+    userId: z.string().trim().min(1).optional(),
+    targetSport: z.string().trim().min(1),
+    source: z.string().trim().min(1),
+    sourceUrl: z.string().trim().min(1).optional(),
+    profileUrl: z.string().trim().min(1).optional(),
+    position: z.string().trim().min(1).optional(),
+    teamType: z.enum(['school', 'club', 'college']).optional(),
+    // Canonical key is `seasonStats`. We also accept `seasons` as an alias for
+    // forward-compat and to absorb LLM key drift.
+    seasonStats: z.array(SeasonStatsEntrySchema).min(1).max(MAX_SEASONS).optional(),
+    seasons: z.array(SeasonStatsEntrySchema).min(1).max(MAX_SEASONS).optional(),
+  })
+  .refine((v) => Array.isArray(v.seasonStats) || Array.isArray(v.seasons), {
+    message: 'Either "seasonStats" or "seasons" (array of season entries) is required.',
+    path: ['seasonStats'],
+  });
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
@@ -85,15 +97,16 @@ export class WriteSeasonStatsTool extends BaseTool {
   readonly description =
     'Writes distilled season stats (game logs + flat stats) to the PlayerStats collection.\n\n' +
     'Call this after reading the "seasonStats" section via read_distilled_section.\n\n' +
+    'IMPORTANT: This is the ONLY tool that can write to PlayerStats. Do NOT use mutate_nxt1_data for PlayerStats writes.\n\n' +
     'Parameters:\n' +
-    '- userId (required): Firebase UID.\n' +
+    '- userId (required): Firebase UID of the athlete. Auto-injected from the authenticated context if omitted.\n' +
     '- targetSport (required): Sport key (e.g. "football").\n' +
     '- source (required): Platform slug (e.g. "maxpreps").\n' +
     '- sourceUrl (optional): The URL that was scraped to extract this data.\n' +
     '- profileUrl (optional): The athlete profile URL on the source platform.\n' +
     '- position (optional): Primary position (e.g. "QB") for PlayerStats docs.\n' +
     '- teamType (optional): "school" (default), "club", or "college".\n' +
-    '- seasonStats (required): Array of season stat objects, each with:\n' +
+    '- seasonStats (required): Array of season stat objects (alias "seasons" also accepted), each with:\n' +
     '  • season: Season label (e.g. "2024-2025").\n' +
     '  • category: Stat category (e.g. "Passing", "Rushing").\n' +
     '  • columns: Array of { key, label, abbreviation? } defining table columns.\n' +
@@ -119,17 +132,33 @@ export class WriteSeasonStatsTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const parsed = WriteSeasonStatsInputSchema.safeParse(input);
-    if (!parsed.success) return this.zodError(parsed.error);
-
-    const { userId, targetSport, source, position } = parsed.data;
-    const teamType = (parsed.data.teamType ?? 'school') as SupportedTeamType;
-    const sourceUrl = parsed.data.sourceUrl ?? parsed.data.profileUrl;
-    const seasonStats = parsed.data.seasonStats as Record<string, unknown>[];
-
     if (!context?.userId) {
       return { success: false, error: 'Authenticated tool context is required.' };
     }
+
+    // Auto-inject userId from the authenticated context when the LLM omits it.
+    // The context userId is the source of truth; tools should never require the
+    // LLM to remember and repeat it. Coordinators that act on another athlete's
+    // behalf must pass `userId` explicitly (access checks below enforce this).
+    const inputWithUser: Record<string, unknown> = {
+      ...input,
+      userId:
+        typeof input['userId'] === 'string' && input['userId'].trim().length > 0
+          ? input['userId']
+          : context.userId,
+    };
+
+    const parsed = WriteSeasonStatsInputSchema.safeParse(inputWithUser);
+    if (!parsed.success) return this.zodError(parsed.error);
+
+    const userId = parsed.data.userId as string;
+    const { targetSport, source, position } = parsed.data;
+    const teamType = (parsed.data.teamType ?? 'school') as SupportedTeamType;
+    const sourceUrl = parsed.data.sourceUrl ?? parsed.data.profileUrl;
+    const seasonStats = (parsed.data.seasonStats ?? parsed.data.seasons ?? []) as Record<
+      string,
+      unknown
+    >[];
 
     try {
       const accessGrant = await createProfileWriteAccessService(

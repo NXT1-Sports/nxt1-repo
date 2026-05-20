@@ -97,11 +97,17 @@ export class FirecrawlScrapeTool extends BaseTool {
     'rawHtml returns the full unmodified page HTML including all <script> tags, inline JS, and embedded data blobs. ' +
     'This is the only way to find video URLs, MP4 sources, player configs, and JS-rendered content on any page type — ' +
     'including articles, news sites, recruiting pages, and sports platforms. ' +
-    'FORMAT GUIDE: ' +
+    'FORMAT GUIDE (valid values only — anything else will be rejected): ' +
     '(1) rawHtml (DEFAULT) — always use this. Captures everything including embedded video/media data. ' +
-    '(2) markdown — only use when you explicitly need clean readable text and are certain no video/JS data is needed. ' +
-    '(3) json — structured data extraction with a schema. ' +
-    '(4) images — collect all image URLs from the page. ' +
+    '(2) markdown — clean readable text. Use when you only need narrative content. ' +
+    '(3) html — sanitized HTML. ' +
+    '(4) screenshot — page screenshot URL. ' +
+    '(5) links — extracted links only. ' +
+    '(6) summary — Firecrawl-generated summary. ' +
+    '(7) json — structured data extraction (requires jsonPrompt). ' +
+    '(8) branding — extracted brand assets. ' +
+    'IMAGE EXTRACTION: The tool ALWAYS auto-extracts image and video URLs from the page (regardless of format) ' +
+    'and returns them in the persistedMediaUrls array. There is NO separate "images" format — just use rawHtml or markdown. ' +
     'IMPORTANT — persistedMediaUrls: The tool automatically scans the FULL page content (before any truncation) for video and image URLs. ' +
     'Any found media is staged to Firebase Storage and returned in the persistedMediaUrls array. ' +
     'When persistedMediaUrls is non-empty, those are already staged, ready-to-use media assets. ' +
@@ -113,7 +119,7 @@ export class FirecrawlScrapeTool extends BaseTool {
   readonly parameters = z.object({
     url: z.string().trim().min(1),
     format: z
-      .enum(['markdown', 'html', 'rawHtml', 'json', 'branding', 'images', 'markdown+images'])
+      .enum(['markdown', 'html', 'rawHtml', 'screenshot', 'links', 'summary', 'json', 'branding'])
       .optional(),
     jsonPrompt: z.string().trim().min(1).optional(),
     onlyMainContent: z.boolean().optional(),
@@ -216,21 +222,50 @@ export class FirecrawlScrapeTool extends BaseTool {
     const routingBlock = checkMediaAcquisitionRouting('scrape_webpage', url);
     if (routingBlock) return routingBlock;
 
-    const format = this.str(input, 'format') ?? 'rawHtml';
+    const rawFormat = this.str(input, 'format') ?? 'rawHtml';
     const jsonPrompt = this.str(input, 'jsonPrompt');
     const onlyMainContent = input['onlyMainContent'] !== false;
     const mobile = input['mobile'] === true;
     const waitFor = typeof input['waitFor'] === 'number' ? input['waitFor'] : undefined;
 
-    // Build Firecrawl formats array — native 'images' format returns data.images: string[]
+    // Firecrawl MCP strictly accepts only these formats. Anything else (e.g. legacy 'images'
+    // or 'markdown+images') triggers a -32602 invalid params error and burns agent iterations
+    // in a retry loop. We normalize known-bad values to 'markdown' (image URLs are auto-extracted
+    // into persistedMediaUrls regardless of format) and reject unknown values with a clear hint.
+    const VALID_FIRECRAWL_FORMATS = new Set([
+      'markdown',
+      'html',
+      'rawHtml',
+      'screenshot',
+      'links',
+      'summary',
+      'json',
+      'branding',
+    ] as const);
+
+    let format: string = rawFormat;
+    if (rawFormat === 'images' || rawFormat === 'markdown+images') {
+      logger.warn('[FirecrawlScrape] Coerced legacy format → markdown', {
+        requested: rawFormat,
+        url,
+      });
+      format = 'markdown';
+    } else if (!VALID_FIRECRAWL_FORMATS.has(rawFormat as never)) {
+      return {
+        success: false,
+        error:
+          `Invalid format "${rawFormat}". Valid formats: ` +
+          `${[...VALID_FIRECRAWL_FORMATS].join(', ')}. ` +
+          `Note: image and video URLs are auto-extracted from any format into persistedMediaUrls — ` +
+          `use format "markdown" (or omit format) when you need media URLs.`,
+      };
+    }
+
+    // Build Firecrawl formats array.
     // rawHtml returns unmodified HTML as received from the page (includes <script> tags & JS blobs)
     // html returns a cleaned/sanitized HTML version
     let formats: string[];
-    if (format === 'images') {
-      formats = ['images'];
-    } else if (format === 'markdown+images') {
-      formats = ['markdown', 'images'];
-    } else if (format === 'json' && jsonPrompt) {
+    if (format === 'json' && jsonPrompt) {
       formats = [{ type: 'json', prompt: jsonPrompt } as unknown as string];
     } else {
       formats = [format];

@@ -217,6 +217,19 @@ export class WriteTeamPostTool extends BaseTool {
               context.userId,
               destinationPrefix
             );
+            if (promotedImages.length !== imageMediaUrls.length) {
+              logger.warn(
+                '[WriteTeamPostTool] Skipping video post because image promotion failed',
+                {
+                  teamId,
+                  actorUserId: context.userId,
+                  requested: imageMediaUrls.length,
+                  promoted: promotedImages.length,
+                }
+              );
+              skipped++;
+              continue;
+            }
           }
 
           // If CF already processed the video (common for short clips), write
@@ -309,6 +322,16 @@ export class WriteTeamPostTool extends BaseTool {
               context.userId,
               destinationPrefix
             );
+            if (promotedImages.length !== imageMediaUrls.length) {
+              logger.warn('[WriteTeamPostTool] Skipping post because image promotion failed', {
+                teamId,
+                actorUserId: context.userId,
+                requested: imageMediaUrls.length,
+                promoted: promotedImages.length,
+              });
+              skipped++;
+              continue;
+            }
           }
 
           batch.set(docRef, {

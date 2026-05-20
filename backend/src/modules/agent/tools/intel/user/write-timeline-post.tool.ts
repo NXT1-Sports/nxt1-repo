@@ -53,8 +53,6 @@ const VALIDATION = {
   CONTENT_MAX: POST_LIMITS.CONTENT_MAX,
 } as const;
 
-const CLOUDFLARE_REPAIR_FALLBACK_DELAYS_MS = [45_000, 180_000, 600_000] as const;
-
 type ValidPostType = (typeof VALID_POST_TYPES)[number];
 type ValidVisibility = (typeof VALID_VISIBILITY)[number];
 
@@ -268,6 +266,11 @@ export class WriteTimelinePostTool extends BaseTool {
             original: images.urls.length,
             promoted: promotedImages.length,
           });
+          return {
+            success: false,
+            error:
+              'Unable to prepare all images for permanent feed storage. Post was not created to avoid broken media. Please retry the media sync and post again.',
+          };
         }
       }
 
@@ -368,6 +371,16 @@ export class WriteTimelinePostTool extends BaseTool {
                     cloudflareStatus: 'inprogress',
                     readyToStream: false,
                     mediaUrl: null,
+                    ...(cfResult?.iframeUrl ? { iframeUrl: cfResult.iframeUrl } : {}),
+                    ...(cfResult?.hlsUrl ? { videoUrl: cfResult.hlsUrl } : {}),
+                    ...(cfResult?.iframeUrl
+                      ? {
+                          playback: {
+                            hlsUrl: cfResult.hlsUrl ?? undefined,
+                            iframeUrl: cfResult.iframeUrl,
+                          },
+                        }
+                      : {}),
                   };
             })()
           : {}),
@@ -416,7 +429,7 @@ export class WriteTimelinePostTool extends BaseTool {
           cloudflareVideoId,
         });
         await this.reconcileCloudflareVideoPost(docRef, cloudflareVideoId, userId);
-        this.scheduleCloudflareRepairFallback(docRef, cloudflareVideoId, userId);
+        this.startBackgroundVideoPoller(docRef, cloudflareVideoId, userId);
       }
 
       const postId = docRef.id;
@@ -780,6 +793,13 @@ export class WriteTimelinePostTool extends BaseTool {
 
       const normalized = normalizeCloudflareVideoForClient(videoId, result, customerCode);
       if (!normalized.readyToStream || !normalized.playback.iframeUrl) {
+        if (normalized.status === 'error') {
+          await docRef.update({
+            cloudflareStatus: 'error',
+            readyToStream: false,
+            updatedAt: Timestamp.now(),
+          });
+        }
         logger.info(
           '[WriteTimelinePostTool] Immediate Cloudflare reconcile found video not ready yet',
           {
@@ -817,6 +837,12 @@ export class WriteTimelinePostTool extends BaseTool {
           cloudflareVideoId: videoId,
         }
       );
+      const postSnap = await docRef.get();
+      const postData = postSnap.data() ?? {};
+      const visibility =
+        (postData['visibility'] as PostVisibility | undefined) ?? PostVisibility.PUBLIC;
+      const teamId = typeof postData['teamId'] === 'string' ? postData['teamId'] : undefined;
+      await this.invalidateFeedCaches(visibility, userId, teamId);
     } catch (err) {
       logger.warn('[WriteTimelinePostTool] Immediate Cloudflare reconcile failed', {
         userId,
@@ -826,22 +852,42 @@ export class WriteTimelinePostTool extends BaseTool {
     }
   }
 
-  private scheduleCloudflareRepairFallback(
+  private startBackgroundVideoPoller(
     docRef: FirebaseFirestore.DocumentReference,
     videoId: string,
     userId: string
   ): void {
-    for (const delayMs of CLOUDFLARE_REPAIR_FALLBACK_DELAYS_MS) {
-      setTimeout(() => {
-        void this.reconcileCloudflareVideoPost(docRef, videoId, userId);
-      }, delayMs);
-    }
+    const pollIntervalMs = 15_000;
+    const maxAttempts = 40;
+    let attempts = 0;
 
-    logger.info('[WriteTimelinePostTool] Scheduled Cloudflare repair fallback retries', {
+    const poll = async (): Promise<void> => {
+      attempts++;
+      await this.reconcileCloudflareVideoPost(docRef, videoId, userId);
+
+      const snapshot = await docRef.get();
+      if (!snapshot.exists) return;
+
+      const data = snapshot.data() ?? {};
+      if (data['readyToStream'] === true || data['cloudflareStatus'] === 'error') return;
+
+      if (attempts < maxAttempts) {
+        setTimeout(() => {
+          void poll();
+        }, pollIntervalMs);
+      }
+    };
+
+    setTimeout(() => {
+      void poll();
+    }, pollIntervalMs);
+
+    logger.info('[WriteTimelinePostTool] Started Cloudflare background video poller', {
       postId: docRef.id,
       userId,
       cloudflareVideoId: videoId,
-      delaysMs: [...CLOUDFLARE_REPAIR_FALLBACK_DELAYS_MS],
+      pollIntervalMs,
+      maxAttempts,
     });
   }
 }

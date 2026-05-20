@@ -161,6 +161,10 @@ function isSupportedFirestoreCollectionPath(path: string): boolean {
   return /^(AgentJobs\/[^/]+\/events|Users\/[^/]+\/activity)$/.test(path);
 }
 
+function isSupportedFirestoreDocumentPath(path: string): boolean {
+  return /^AgentJobs\/[^/]+$/.test(path);
+}
+
 let firestoreRuntimePromise: Promise<
   typeof import('firebase/app') & typeof import('firebase/firestore')
 > | null = null;
@@ -408,6 +412,16 @@ export const appConfig: ApplicationConfig = {
               : query(ref, orderBy(orderByField, options?.direction ?? 'asc'));
           const snap = await getDocs(snapshotQuery);
           return snap.docs.map((doc) => normalizeFirestoreSnapshotDoc(doc.id, doc.data()));
+        },
+        getDoc: async (path: string): Promise<Record<string, unknown> | null> => {
+          if (!isSupportedFirestoreDocumentPath(path)) {
+            throw new Error(`Unsupported Firestore document path: ${path}`);
+          }
+
+          const { getApp, getFirestore, doc, getDoc } = await loadFirestoreRuntime();
+          const firestore = getFirestore(getApp());
+          const snap = await getDoc(doc(firestore, path));
+          return snap.exists() ? normalizeFirestoreSnapshotDoc(snap.id, snap.data()) : null;
         },
       }),
       deps: [NgZone],

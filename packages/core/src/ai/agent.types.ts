@@ -570,6 +570,19 @@ export interface ModelRoutingConfig {
  */
 export type AgentJobOrigin = 'user' | 'system_cron' | 'database_event' | 'webhook' | 'agent_chain';
 
+/** Delivery policy overrides for completion notifications on a queued Agent X job. */
+export interface AgentJobNotificationPolicy {
+  /**
+   * When true, the worker may suppress a completion push if the user is actively
+   * watching the same operation over a live stream.
+   *
+   * Use this for direct interactive user-initiated turns to avoid redundant push.
+   * Background/system-triggered jobs should usually leave this false so the user
+   * still gets notified when work completes.
+   */
+  readonly suppressPushWhenActivelyViewing?: boolean;
+}
+
 /** A trigger event that can autonomously wake up an agent for a user. */
 export interface AgentTriggerEvent {
   readonly id: string;
@@ -770,6 +783,8 @@ export interface AgentJobPayload {
   readonly agent?: AgentIdentifier;
   /** Optional model routing hint. */
   readonly modelRouting?: ModelRoutingConfig;
+  /** Optional delivery policy overrides for completion notifications. */
+  readonly notificationPolicy?: AgentJobNotificationPolicy;
   /** Arbitrary context the frontend passed along. */
   readonly context?: Record<string, unknown>;
 }

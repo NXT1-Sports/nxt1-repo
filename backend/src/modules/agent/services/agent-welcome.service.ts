@@ -376,8 +376,12 @@ export async function enqueueWelcomeGraphic(
     sessionId: crypto.randomUUID(),
     origin: 'database_event',
     agent: 'brand_coordinator',
+    notificationPolicy: {
+      suppressPushWhenActivelyViewing: false,
+    },
     context: {
       origin: 'registration',
+      skipBilling: true,
       userId: input.userId,
       userRole: input.role,
       displayName: input.displayName,

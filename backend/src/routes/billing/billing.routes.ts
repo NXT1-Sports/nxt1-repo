@@ -36,6 +36,7 @@ import {
   getPersonalBillingSummary,
   hasConfiguredOrganizationBilling,
   expireStaleHolds,
+  UsageEventStatus,
 } from '../../modules/billing/index.js';
 import { UsageEventModel } from '../../models/analytics/usage-event.model.js';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
@@ -50,6 +51,13 @@ import {
 } from '../../dtos/billing.dto.js';
 
 const router = Router();
+
+router.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
 
 function getNormalizedBudgetIntervalQuery(value: unknown): BudgetIntervalDto | null {
   if (
@@ -172,6 +180,8 @@ router.post(
         stripePriceId: '', // Will be set by service
         jobId,
         metadata,
+        status: UsageEventStatus.SENT,
+        publish: false,
         ...(isDynamic
           ? {
               dynamicCostCents: dynamicCostCents as number,

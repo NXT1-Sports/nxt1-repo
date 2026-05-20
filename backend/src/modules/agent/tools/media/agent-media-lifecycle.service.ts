@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { getSignedUrlWithTimeout } from '../../../../utils/gcs-signed-url.js';
 
 type StorageBucketRef = {
@@ -18,6 +19,7 @@ export interface BuildStoragePathInput {
 
 export class AgentMediaLifecycleService {
   static readonly DEFAULT_SIGNED_URL_TTL_MS = 24 * 60 * 60 * 1000;
+  static readonly POST_MEDIA_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
   static resolveSubfolder(mimeType: string): AgentMediaSubfolder {
     if (mimeType.startsWith('video/')) return 'video';
@@ -178,6 +180,41 @@ export class AgentMediaLifecycleService {
     }
   }
 
+  static buildFirebaseDownloadUrl(bucketName: string, storagePath: string, token: string): string {
+    return (
+      `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/` +
+      `${encodeURIComponent(storagePath)}?alt=media&token=${token}`
+    );
+  }
+
+  private static async issueFirebaseDownloadUrl(params: {
+    readonly bucket: StorageBucketRef;
+    readonly storagePath: string;
+  }): Promise<string> {
+    const downloadToken = randomUUID();
+    const file = params.bucket.file(params.storagePath) as {
+      exists: () => Promise<[boolean]>;
+      setMetadata: (metadata: {
+        cacheControl?: string;
+        metadata?: Record<string, string>;
+      }) => Promise<unknown>;
+    };
+
+    const [exists] = await file.exists();
+    if (!exists) {
+      throw new Error('Promoted media object was not found in storage');
+    }
+
+    await file.setMetadata({
+      cacheControl: this.POST_MEDIA_CACHE_CONTROL,
+      metadata: {
+        firebaseStorageDownloadTokens: downloadToken,
+      },
+    });
+
+    return this.buildFirebaseDownloadUrl(params.bucket.name, params.storagePath, downloadToken);
+  }
+
   static async promoteSignedUrlsToDestination(params: {
     readonly bucket: StorageBucketRef;
     readonly signedUrls: readonly string[];
@@ -187,19 +224,37 @@ export class AgentMediaLifecycleService {
     if (params.signedUrls.length === 0) return [];
 
     const promotedUrls: string[] = [];
-    const threadPrefix = `Users/${params.userId}/threads/`;
+    const ownedPrefix = `Users/${params.userId}/`;
+    const threadPrefix = `${ownedPrefix}threads/`;
 
     for (const signedUrl of params.signedUrls) {
       try {
         const storagePath = this.extractStoragePathFromUrl(signedUrl);
-        if (!storagePath || !storagePath.startsWith(threadPrefix)) {
+
+        if (!storagePath) {
           promotedUrls.push(signedUrl);
+          continue;
+        }
+
+        if (!storagePath.startsWith(ownedPrefix)) {
+          promotedUrls.push(signedUrl);
+          continue;
+        }
+
+        const shouldPromoteToPost =
+          storagePath.startsWith(threadPrefix) || storagePath.includes('/tmp/');
+        if (!shouldPromoteToPost) {
+          promotedUrls.push(
+            await this.issueFirebaseDownloadUrl({
+              bucket: params.bucket,
+              storagePath,
+            })
+          );
           continue;
         }
 
         const fileName = storagePath.split('/').pop();
         if (!fileName) {
-          promotedUrls.push(signedUrl);
           continue;
         }
 
@@ -207,18 +262,17 @@ export class AgentMediaLifecycleService {
         const sourceFile = params.bucket.file(storagePath) as {
           copy: (destination: unknown) => Promise<unknown>;
         };
-        const destinationFile = params.bucket.file(destinationPath) as {
-          makePublic: () => Promise<unknown>;
-        };
+        const destinationFile = params.bucket.file(destinationPath);
 
         await sourceFile.copy(destinationFile);
-        await destinationFile.makePublic();
-
         promotedUrls.push(
-          `https://storage.googleapis.com/${params.bucket.name}/${destinationPath}`
+          await this.issueFirebaseDownloadUrl({
+            bucket: params.bucket,
+            storagePath: destinationPath,
+          })
         );
       } catch {
-        promotedUrls.push(signedUrl);
+        continue;
       }
     }
 

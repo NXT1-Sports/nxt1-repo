@@ -1430,6 +1430,7 @@ export class OnboardingProfileStepComponent {
       inputType: 'text',
       required: true,
       preferNative: 'native',
+      haptics: false,
     });
 
     if (result.confirmed && result.value.trim()) {
@@ -1452,6 +1453,7 @@ export class OnboardingProfileStepComponent {
       inputType: 'text',
       required: true,
       preferNative: 'native',
+      haptics: false,
     });
 
     if (result.confirmed && result.value.trim()) {
@@ -1472,6 +1474,7 @@ export class OnboardingProfileStepComponent {
         data: option.value,
       })),
       preferNative: 'native',
+      haptics: false,
     });
 
     if (result?.selected && typeof result.data === 'number') {
@@ -1493,6 +1496,7 @@ export class OnboardingProfileStepComponent {
         data: option.value,
       })),
       preferNative: 'native',
+      haptics: false,
     });
 
     if (result?.selected && result.data) {
@@ -1513,6 +1517,7 @@ export class OnboardingProfileStepComponent {
         data: option.value,
       })),
       preferNative: 'native',
+      haptics: false,
     });
 
     if (result?.selected && result.data) {
@@ -1535,6 +1540,7 @@ export class OnboardingProfileStepComponent {
       inputType: 'tel',
       required: false,
       preferNative: 'native',
+      haptics: false,
     });
 
     if (result.confirmed) {

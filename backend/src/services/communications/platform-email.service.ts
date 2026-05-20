@@ -158,7 +158,7 @@ export async function sendPlatformEmailOnBehalfOf(
     userId,
     trackingId,
     recipientEmailHash: hashRecipientEmail(to),
-    recipientName: options?.recipientName,
+    recipientName: options?.recipientName || to, // Fallback to email address
     recipientKind: options?.recipientKind,
     recipientOrgName: options?.recipientOrgName,
   });

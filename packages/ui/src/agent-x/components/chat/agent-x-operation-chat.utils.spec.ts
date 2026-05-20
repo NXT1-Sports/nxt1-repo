@@ -1,9 +1,24 @@
 import { describe, expect, it } from 'vitest';
 import {
+  buildOperationChatInputPlaceholder,
   buildCoordinatorActionPrompt,
   resolveCoordinatorActionId,
   resolveCoordinatorChipId,
 } from './agent-x-operation-chat.utils';
+
+describe('buildOperationChatInputPlaceholder', () => {
+  it('defaults command and operation sheets to Agent X', () => {
+    expect(buildOperationChatInputPlaceholder()).toBe('Message Agent X');
+    expect(buildOperationChatInputPlaceholder('')).toBe('Message Agent X');
+    expect(buildOperationChatInputPlaceholder('   ')).toBe('Message Agent X');
+  });
+
+  it('uses explicit coordinator recipients only when provided', () => {
+    expect(buildOperationChatInputPlaceholder('Recruiting Coordinator')).toBe(
+      'Message Recruiting Coordinator'
+    );
+  });
+});
 
 describe('resolveCoordinatorActionId', () => {
   it('recognizes backend coordinator ids used by the desktop dashboard', () => {

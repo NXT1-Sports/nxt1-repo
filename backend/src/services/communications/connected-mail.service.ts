@@ -821,7 +821,7 @@ export function buildTrackedEmailHtml(
     userId: options.userId,
     trackingId: options.trackingId,
     recipientEmailHash: hashRecipientEmail(options.to),
-    recipientName: options.recipientName,
+    recipientName: options.recipientName || options.to, // Fallback to email address
     recipientKind: options.recipientKind,
     recipientOrgName: options.recipientOrgName,
   });

@@ -740,6 +740,7 @@ export class OnboardingSportStepComponent {
         data: sport.name,
       })),
       preferNative: 'native',
+      haptics: false,
     });
 
     if (result?.selected && result.data) {
@@ -792,6 +793,7 @@ export class OnboardingSportStepComponent {
           };
         }),
         preferNative: 'native',
+        haptics: false,
       });
 
       if (!result?.selected || !result.data) {
@@ -828,6 +830,7 @@ export class OnboardingSportStepComponent {
         data: option.value,
       })),
       preferNative: 'native',
+      haptics: false,
     });
 
     if (result?.selected && result.data) {

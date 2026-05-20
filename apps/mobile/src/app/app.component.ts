@@ -237,9 +237,10 @@ export class AppComponent {
           this.logger.debug('Resumed');
           // Refresh network status when app resumes
           this.network.checkStatus();
-          // Re-register FCM token if user is authenticated
-          if (this.authFlow.isAuthenticated()) {
-            void this.fcmRegistration.registerToken();
+          // Refresh FCM only when permission is already granted. Resume must
+          // never open the native prompt before the onboarding completion CTA.
+          if (this.authFlow.user()?.hasCompletedOnboarding === true) {
+            void this.fcmRegistration.registerTokenIfPermissionGranted();
           }
         },
         onBackButton: () => {

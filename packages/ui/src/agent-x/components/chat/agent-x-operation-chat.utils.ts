@@ -50,6 +50,11 @@ export function resolveCoordinatorChipId(
   return `coord-${coordinatorId.slice(0, -COORDINATOR_ACTION_ID_SUFFIX.length).replace(/_/g, '-')}`;
 }
 
+export function buildOperationChatInputPlaceholder(inputRecipientLabel?: string): string {
+  const recipientLabel = inputRecipientLabel?.trim();
+  return recipientLabel ? `Message ${recipientLabel}` : 'Message Agent X';
+}
+
 function toSentence(value: string | undefined): string {
   const trimmed = value?.trim();
   if (!trimmed) {

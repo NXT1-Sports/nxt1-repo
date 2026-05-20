@@ -68,7 +68,6 @@ type ProfileUiApi = {
 
 @Injectable({ providedIn: 'root' })
 export class ProfileService {
-  private static readonly TEAM_THEME_SOURCE = 'profile-service';
   private static readonly TEAM_THEME_SOURCES_TO_CLEAR = [
     'profile-service',
     'team-profile-service',

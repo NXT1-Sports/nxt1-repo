@@ -8,7 +8,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { logger } from '../../utils/logger.js';
 import { getCacheService, CACHE_TTL } from '../../services/core/cache.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../services/profile/users.service.js';
-import { AGENT_CONTEXT_PREFIX } from '../../modules/agent/memory/context-builder.js';
+import { buildAgentContextCacheKey } from '../../modules/agent/memory/context-builder.js';
 import { createRosterEntryService } from '../../services/team/roster-entry.service.js';
 import { createOrganizationService } from '../../services/team/organization.service.js';
 import { createProfileHydrationService } from '../../services/profile/profile-hydration.service.js';
@@ -128,7 +128,7 @@ export async function invalidateProfileCaches(
   const keysToDelete: string[] = [
     buildProfileByIdCacheKey(userId),
     USER_CACHE_KEYS.USER_BY_ID(userId),
-    `${AGENT_CONTEXT_PREFIX}${userId}`,
+    buildAgentContextCacheKey(userId),
   ];
   if (unicode) {
     keysToDelete.push(buildProfileByUnicodeCacheKey(unicode));

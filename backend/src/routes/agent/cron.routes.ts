@@ -114,9 +114,18 @@ router.post('/cron/summarize-threads', cronGuard, async (_req: Request, res: Res
     const { MemorySummarizationService } =
       await import('../../modules/agent/memory/memory-summarization.service.js');
     const { VectorMemoryService } = await import('../../modules/agent/memory/vector.service.js');
+    const { getRuntimeEnvironment } = await import('../../config/runtime-environment.js');
+    const { db: appDb } = await import('../../utils/firebase.js');
+    const { stagingDb } = await import('../../utils/firebase-staging.js');
 
+    const runtimeFirestore = getRuntimeEnvironment() === 'production' ? appDb : stagingDb;
     const vectorMemory = new VectorMemoryService(llmService);
-    const summarizer = new MemorySummarizationService(llmService, vectorMemory);
+    const summarizer = new MemorySummarizationService(
+      llmService,
+      vectorMemory,
+      undefined,
+      runtimeFirestore
+    );
     const result = await summarizer.summarizeInactiveThreads();
 
     res.json({ success: true, data: result });

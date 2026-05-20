@@ -497,6 +497,7 @@ function isPinnedSigninPlatform(platformId: string): boolean {
           [initialExpanded]="isGroupExpanded(group.key)"
           [attr.data-testid]="testIds.GROUP"
           (sourceTap)="onSourceTap($event)"
+          (disconnectTap)="onSourceDisconnect($event)"
         />
       }
 
@@ -982,6 +983,12 @@ export class OnboardingLinkDropStepComponent {
     });
   }
 
+  private getRuntimePlatform(): 'web' | 'ios' | 'android' {
+    if (this.platform.isIOS()) return 'ios';
+    if (this.platform.isAndroid()) return 'android';
+    return 'web';
+  }
+
   /**
    * Mark a sign-in platform as connected (called by the parent after a successful backend call).
    */
@@ -1010,6 +1017,50 @@ export class OnboardingLinkDropStepComponent {
     this.activeSport.set(sport);
     this.logger.info('Sport filter changed', { sport });
     this.analytics?.trackEvent(APP_EVENTS.LINK_SOURCES_SPORT_FILTERED, { sport });
+  }
+
+  async onSourceDisconnect(event: ConnectedSourceTapEvent): Promise<void> {
+    if (this.disabled()) return;
+
+    const { source } = event;
+    if (!source.connected || source.locked || source.username) return;
+
+    const confirmed = await this.nxtModal.confirm({
+      title: `Disconnect ${source.label}?`,
+      message: `This will remove ${source.label} from your connected accounts.`,
+      confirmText: 'Disconnect',
+      cancelText: 'Cancel',
+      preferNative: 'native',
+    });
+
+    if (!confirmed) return;
+
+    const scopeType: PlatformScope = source.scopeType ?? 'global';
+    const key = connKey(source.platform, scopeType, source.scopeId);
+
+    this._connectedMap.update((map) => {
+      const next = { ...map };
+      delete next[key];
+      return next;
+    });
+
+    this.logger.info('Connected source disconnected from quick action', {
+      platform: source.platform,
+      connectionType: source.connectionType,
+      scopeType,
+      scopeId: source.scopeId,
+    });
+    this.analytics?.trackEvent(APP_EVENTS.PROFILE_EDITED, {
+      source: 'link-sources',
+      action: 'source-disconnected',
+      platform: this.getRuntimePlatform(),
+    });
+    this.breadcrumb.trackStateChange('link-sources source-disconnected', {
+      platform: source.platform,
+      scopeType,
+      scopeId: source.scopeId,
+    });
+    this.emitChange();
   }
 
   async onSourceTap(event: ConnectedSourceTapEvent): Promise<void> {

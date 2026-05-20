@@ -106,7 +106,7 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(definitions.some((definition) => definition.name === 'send_email')).toBe(false);
   });
 
-  it('injects the 2026 reasoning contract into system prompt', () => {
+  it('injects the 2026 operating contract into system prompt', () => {
     const capabilities = {
       current: () => ({
         rendered: {
@@ -124,7 +124,7 @@ describe('PrimaryAgent delegation control flow', () => {
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const prompt = agent.getSystemPrompt(createMockContext());
 
-    expect(prompt).toContain('Primary Reasoning Contract (2026)');
+    expect(prompt).toContain('Primary Operating Contract (2026)');
     expect(prompt).toContain('simple_routing');
     expect(prompt).toContain('numeric_or_aggregation');
     expect(prompt).toContain('sketch the likely steps to finish the request');
@@ -147,6 +147,29 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain('call `save_memory` immediately');
     expect(prompt).toContain('Router analytics rule');
     expect(prompt).toContain('call `track_analytics_event` once before the final response');
+  });
+
+  it('uses a fast non-reasoning model route for the primary front door', () => {
+    const capabilities = {
+      current: () => ({
+        rendered: {
+          compactMarkdown: 'Capabilities',
+          detailedMarkdown: 'Capabilities',
+        },
+      }),
+    } as unknown as CapabilityRegistry;
+
+    const dispatcher: PrimaryDispatcher = {
+      runCoordinator: vi.fn(),
+      runPlan: vi.fn(),
+    };
+
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const routing = agent.getModelRouting();
+
+    expect(routing.enableThinking).toBe(false);
+    expect(routing.modelOverride).toBe('~anthropic/claude-sonnet-latest');
+    expect(routing.temperature).toBe(0);
   });
 
   it('keeps heavy web-research tools out of the primary router policy', () => {
@@ -201,7 +224,7 @@ describe('PrimaryAgent delegation control flow', () => {
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const prompt = agent.getSystemPrompt(createMockContext());
 
-    expect(prompt).toContain('Primary Reasoning Contract (2026)');
+    expect(prompt).toContain('Primary Operating Contract (2026)');
     expect(prompt).not.toContain('## Operator Additions');
     expect(prompt).not.toContain('Primary operator note.');
     expect(prompt).not.toContain('Router policy note.');

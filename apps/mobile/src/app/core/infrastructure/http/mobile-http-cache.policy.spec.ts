@@ -36,6 +36,17 @@ describe('mobile-http-cache.policy', () => {
     expect(shouldUseMobileHttpCache('GET', '/api/v1/agent-x/jobs')).toBe(false);
   });
 
+  it('never caches live usage billing totals', () => {
+    expect(shouldUseMobileHttpCache('GET', '/api/v1/usage/dashboard')).toBe(false);
+    expect(shouldUseMobileHttpCache('GET', '/api/v1/usage/chart?timeframe=current-month')).toBe(
+      false
+    );
+    expect(shouldUseMobileHttpCache('GET', '/api/v1/usage/breakdown?timeframe=current-month')).toBe(
+      false
+    );
+    expect(shouldUseMobileHttpCache('GET', '/api/v1/billing/budget')).toBe(false);
+  });
+
   it('returns invalidation patterns for activity mutations', () => {
     expect(getMobileHttpCacheInvalidationPatterns('/api/v1/activity/archive/123')).toContain(
       '*activity*'

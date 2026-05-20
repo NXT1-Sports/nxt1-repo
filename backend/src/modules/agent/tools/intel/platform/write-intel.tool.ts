@@ -9,7 +9,10 @@
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
-import { IntelGenerationService } from '../../../services/intel.service.js';
+import {
+  IntelGenerationService,
+  type IntelTelemetryContext,
+} from '../../../services/intel.service.js';
 import { logger } from '../../../../../utils/logger.js';
 import { getFeatureFlagsService } from '../../../../../config/feature-flags/index.js';
 import { z } from 'zod';
@@ -83,6 +86,19 @@ export class WriteIntelTool extends BaseTool {
 
     const intelService = new IntelGenerationService();
 
+    // Telemetry context — threaded into IntelGenerationService so OpenRouter
+    // cost/latency are attributed to the originating user + operation instead
+    // of being recorded as orphan (`none`) billing rows.
+    const telemetry: IntelTelemetryContext | undefined =
+      context?.operationId && context?.userId
+        ? {
+            operationId: context.operationId,
+            userId: context.userId,
+            agentId: 'data_coordinator',
+            feature: 'intel.full_generation',
+          }
+        : undefined;
+
     try {
       if (entityType === 'athlete') {
         context?.emitStage?.('submitting_job', {
@@ -94,7 +110,7 @@ export class WriteIntelTool extends BaseTool {
           entityId,
         });
 
-        const report = await intelService.generateAthleteIntel(entityId, this.db);
+        const report = await intelService.generateAthleteIntel(entityId, this.db, telemetry);
         const reportId = (report as Record<string, unknown>)['id'] as string;
 
         logger.info('[WriteIntelTool] Athlete Intel generated and saved', {
@@ -122,7 +138,7 @@ export class WriteIntelTool extends BaseTool {
       });
       logger.info('[WriteIntelTool] Delegating to IntelGenerationService for team', { entityId });
 
-      const report = await intelService.generateTeamIntel(entityId, this.db);
+      const report = await intelService.generateTeamIntel(entityId, this.db, telemetry);
       const reportId = (report as Record<string, unknown>)['id'] as string;
 
       logger.info('[WriteIntelTool] Team Intel generated and saved', {

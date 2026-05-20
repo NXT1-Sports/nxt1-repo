@@ -39,6 +39,7 @@ function toUsageEvent(doc: UsageEventDocument): UsageEvent {
     id: (doc._id as Types.ObjectId).toString(),
     userId: doc.userId,
     ...(doc.teamId ? { teamId: doc.teamId } : {}),
+    ...(doc.organizationId ? { organizationId: doc.organizationId } : {}),
     feature: doc.feature as UsageEvent['feature'],
     quantity: doc.quantity,
     unitCostSnapshot: doc.unitCostSnapshot,
@@ -96,6 +97,7 @@ export async function recordUsageEvent(
   const unitCostSnapshot: number = isDynamic
     ? (input.dynamicCostCents as number)
     : input.unitCostSnapshot || getUnitCost(input.feature);
+  const status = input.status ?? UsageEventStatus.PENDING;
 
   const now = new Date();
 
@@ -103,6 +105,7 @@ export async function recordUsageEvent(
     const doc = await UsageEventModel.create({
       userId: input.userId,
       ...(input.teamId ? { teamId: input.teamId } : {}),
+      ...(input.organizationId ? { organizationId: input.organizationId } : {}),
       feature: input.feature,
       quantity: input.quantity,
       unitCostSnapshot,
@@ -113,7 +116,7 @@ export async function recordUsageEvent(
       currency: input.currency || 'usd',
       stripePriceId,
       idempotencyKey,
-      status: UsageEventStatus.PENDING,
+      status,
       retryCount: 0,
       metadata: input.metadata,
       createdAt: now,
@@ -129,16 +132,18 @@ export async function recordUsageEvent(
       quantity: input.quantity,
     });
 
-    // Publish to Pub/Sub for async processing
-    try {
-      await publishUsageEvent(eventId, environment);
-      logger.info('[recordUsageEvent] Published to Pub/Sub', { eventId });
-    } catch (pubsubError) {
-      logger.error('[recordUsageEvent] Failed to publish to Pub/Sub', {
-        error: pubsubError,
-        eventId,
-      });
-      // Don't fail the request — event is recorded and can be reconciled later
+    if (status === UsageEventStatus.PENDING && input.publish !== false) {
+      // Publish to Pub/Sub for async Stripe processing.
+      try {
+        await publishUsageEvent(eventId, environment);
+        logger.info('[recordUsageEvent] Published to Pub/Sub', { eventId });
+      } catch (pubsubError) {
+        logger.error('[recordUsageEvent] Failed to publish to Pub/Sub', {
+          error: pubsubError,
+          eventId,
+        });
+        // Don't fail the request — event is recorded and can be reconciled later
+      }
     }
 
     return eventId;
@@ -202,16 +207,16 @@ export async function updateUsageEventStatus(
  * Try to acquire lock on usage event for processing.
  * Prevents double processing from Pub/Sub retries.
  *
- * Uses atomic findOneAndUpdate — the filter requires `status: PENDING`,
- * so if another worker instance already picked this up the filter does
- * not match and null is returned.
+ * Uses atomic findOneAndUpdate — the filter allows `PENDING` and retryable
+ * `FAILED` events, but excludes `PROCESSING` so another worker instance cannot
+ * pick up the same event concurrently.
  *
  * @returns true if lock acquired, false otherwise
  */
 export async function tryAcquireEventLock(eventId: string): Promise<boolean> {
   try {
     const previous = await UsageEventModel.findOneAndUpdate(
-      { _id: eventId, status: UsageEventStatus.PENDING },
+      { _id: eventId, status: { $in: [UsageEventStatus.PENDING, UsageEventStatus.FAILED] } },
       { $set: { status: UsageEventStatus.PROCESSING, updatedAt: new Date() } },
       { new: false } // return OLD doc (null = filter didn't match = already locked)
     );

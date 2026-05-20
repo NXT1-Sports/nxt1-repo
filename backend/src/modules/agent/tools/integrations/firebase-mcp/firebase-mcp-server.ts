@@ -28,6 +28,27 @@ const SCOPE_SECRET_ENV = 'FIREBASE_MCP_SCOPE_SECRET';
 const FIREBASE_TARGET_ENV = 'FIREBASE_MCP_TARGET_APP';
 const MUTATIONS_ENABLED_ENV = 'FIREBASE_MCP_MUTATIONS_ENABLED';
 
+/**
+ * Maps collections that have dedicated higher-level write tools to the name of
+ * the recommended tool. Surfaced in policy-rejection errors so the agent
+ * self-corrects rather than retrying mutate_nxt1_data in a loop.
+ */
+const COLLECTION_RECOMMENDED_TOOL: Readonly<Record<string, string>> = {
+  PlayerStats: 'write_season_stats',
+  PlayerMetrics: 'write_player_metrics',
+  Awards: 'write_awards',
+  CombineMetrics: 'write_combine_metrics',
+  Rankings: 'write_rankings',
+  Recruiting: 'write_recruiting',
+  Intel: 'write_intel',
+};
+
+function recommendedToolHint(collection: string, operation: string): string {
+  const tool = COLLECTION_RECOMMENDED_TOOL[collection];
+  if (!tool) return '';
+  return ` Use the dedicated \`${tool}\` tool to ${operation} ${collection} documents.`;
+}
+
 function getScopeSecret(): string {
   const secret = process.env[SCOPE_SECRET_ENV];
   if (!secret) {
@@ -142,8 +163,9 @@ async function run(): Promise<void> {
                   },
                   operation: {
                     type: 'string',
-                    enum: ['update', 'delete'],
-                    description: 'The mutation operation to perform.',
+                    enum: ['update', 'delete', 'set'],
+                    description:
+                      'The mutation operation to perform. "set" upserts (only permitted for collections that opt in via mutation-policy).',
                   },
                   collection: {
                     type: 'string',
@@ -234,14 +256,17 @@ async function run(): Promise<void> {
         if (!policy) {
           return errorResult(
             `Collection "${collection}" is not in the mutation allow-list. ` +
-              `Allowed: ${ALLOWED_MUTATION_COLLECTIONS.join(', ')}.`
+              `Allowed: ${ALLOWED_MUTATION_COLLECTIONS.join(', ')}.` +
+              recommendedToolHint(collection, operation)
           );
         }
 
         // Operation gate
         if (!(policy.allowedOperations as readonly string[]).includes(operation)) {
           return errorResult(
-            `Operation "${operation}" is not allowed on collection "${collection}".`
+            `Operation "${operation}" is not allowed on collection "${collection}". ` +
+              `Allowed operations: ${policy.allowedOperations.join(', ') || '(none)'}.` +
+              recommendedToolHint(collection, operation)
           );
         }
 
@@ -375,8 +400,15 @@ async function run(): Promise<void> {
             ? docData['createdAt']
             : FieldValue.serverTimestamp();
           filteredPatch['updatedAt'] = FieldValue.serverTimestamp();
-          // Preserve identity fields from existing doc or patch
-          if (docData['teamId']) filteredPatch['teamId'] = docData['teamId'];
+          // Preserve identity/ownership fields from existing doc or patch so
+          // a future read can verify ownership. `docData` is the existing doc
+          // when present, otherwise the original patch.
+          for (const identityField of ['userId', 'teamId', 'organizationId', 'ownerId'] as const) {
+            const value = docData[identityField];
+            if (typeof value === 'string' && value.length > 0) {
+              filteredPatch[identityField] = value;
+            }
+          }
           await docRef.set(filteredPatch, { merge: true });
         } else {
           // update

@@ -11,6 +11,7 @@
  */
 
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
+import { randomUUID } from 'node:crypto';
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { appGuard, optionalAuth } from '../../middleware/auth/auth.middleware.js';
 import { validateBody, validateQuery } from '../../middleware/validation/validation.middleware.js';
@@ -1362,7 +1363,12 @@ router.post(
     const { IntelGenerationService } =
       await import('../../modules/agent/services/intel.service.js');
     const intelService = new IntelGenerationService();
-    const report = await intelService.generateTeamIntel(id, db);
+    const report = await intelService.generateTeamIntel(id, db, {
+      operationId: randomUUID(),
+      userId,
+      agentId: 'data_coordinator',
+      feature: 'intel.full_generation.http',
+    });
 
     logger.info('[Teams] Intel generated', { teamId: id, userId });
     res.json({
@@ -1441,7 +1447,13 @@ router.patch(
     const report = await intelService.updateTeamIntelSection(
       id,
       sectionId as Parameters<typeof intelService.updateTeamIntelSection>[1],
-      db
+      db,
+      {
+        operationId: randomUUID(),
+        userId,
+        agentId: 'data_coordinator',
+        feature: 'intel.section_update.http',
+      }
     );
 
     logger.info('[Teams] Intel section updated', { teamId: id, userId, sectionId });

@@ -20,6 +20,10 @@
  * // In app.component.ts — just inject to activate the effect
  * private readonly nativeBadge = inject(NativeBadgeService);
  * ```
+ *
+ * Automatic syncing is intentionally check-only: it never opens the native
+ * notification permission prompt. The explicit push registration flow owns that
+ * prompt after onboarding is complete.
  */
 
 import { Injectable, inject, effect, PLATFORM_ID } from '@angular/core';
@@ -57,6 +61,33 @@ export class NativeBadgeService {
   }
 
   /**
+   * Re-sync after the user has made a push notification permission choice.
+   * This method also stays prompt-free; FCM registration owns the OS prompt.
+   */
+  async syncAfterNotificationPermission(): Promise<void> {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    try {
+      await this.ionicPlatform.ready();
+
+      if (!this.ionicPlatform.is('capacitor')) return;
+
+      const { Badge } = await import('@capawesome/capacitor-badge');
+      const permResult = await Badge.checkPermissions();
+      this.permissionGranted = permResult.display === 'granted';
+
+      if (!this.permissionGranted) {
+        this.logger.debug('Badge permission not granted after push consent flow');
+        return;
+      }
+
+      await this.applyNativeBadge(this.badgeService.totalUnread());
+    } catch (error) {
+      this.logger.warn('Failed to sync native badge after notification permission', { error });
+    }
+  }
+
+  /**
    * Sync the badge count to the native app icon.
    * Skips redundant calls if the count hasn't changed.
    */
@@ -81,18 +112,14 @@ export class NativeBadgeService {
 
       const { Badge } = await import('@capawesome/capacitor-badge');
 
-      // Check permission once — cache the result for subsequent calls
-      if (this.permissionGranted === null) {
+      // Check permission once — cache the result for subsequent calls. Do not
+      // request here; automatic badge sync must never trigger the OS prompt.
+      if (this.permissionGranted !== true) {
         const permResult = await Badge.checkPermissions();
-        if (permResult.display === 'granted') {
-          this.permissionGranted = true;
-        } else {
-          const requestResult = await Badge.requestPermissions();
-          this.permissionGranted = requestResult.display === 'granted';
-        }
+        this.permissionGranted = permResult.display === 'granted';
 
         if (!this.permissionGranted) {
-          this.logger.info('Badge permission denied by user');
+          this.logger.debug('Badge permission not granted; skipping native badge sync');
           return;
         }
       }

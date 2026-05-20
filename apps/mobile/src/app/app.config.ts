@@ -40,6 +40,8 @@ import {
   orderBy as firestoreOrderBy,
   onSnapshot as firestoreOnSnapshot,
   getDocs as firestoreGetDocs,
+  getDoc as firestoreGetDoc,
+  doc as firestoreDoc,
   limit as firestoreLimit,
 } from '@angular/fire/firestore';
 import { Capacitor } from '@capacitor/core';
@@ -125,6 +127,10 @@ function normalizeFirestoreSnapshotDoc(id: string, value: unknown): Record<strin
 
 function isSupportedFirestoreCollectionPath(path: string): boolean {
   return /^(AgentJobs\/[^/]+\/events|Users\/[^/]+\/activity)$/.test(path);
+}
+
+function isSupportedFirestoreDocumentPath(path: string): boolean {
+  return /^AgentJobs\/[^/]+$/.test(path);
 }
 
 /**
@@ -344,6 +350,16 @@ export const appConfig: ApplicationConfig = {
                 : query(ref, firestoreOrderBy(orderByField, options?.direction ?? 'asc'));
             const snap = await firestoreGetDocs(q);
             return snap.docs.map((d) => normalizeFirestoreSnapshotDoc(d.id, d.data()));
+          });
+        },
+        getDoc: async (path: string): Promise<Record<string, unknown> | null> => {
+          if (!isSupportedFirestoreDocumentPath(path)) {
+            throw new Error(`Unsupported Firestore document path: ${path}`);
+          }
+          return runInInjectionContext(injector, async () => {
+            const ref = firestoreDoc(firestore, path);
+            const snap = await firestoreGetDoc(ref);
+            return snap.exists() ? normalizeFirestoreSnapshotDoc(snap.id, snap.data()) : null;
           });
         },
       }),

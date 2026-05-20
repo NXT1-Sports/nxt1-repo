@@ -2,14 +2,15 @@
  * @fileoverview FCM Token Registration Service
  * @module @nxt1/mobile/core
  *
- * Handles FCM token registration after user login.
+ * Handles FCM token registration after onboarding completion or an explicit
+ * settings opt-in.
  * Uses @capacitor-firebase/messaging to get a proper FCM token
  * (not the raw APNs token from @capacitor/push-notifications).
  * Calls Cloud Function to save token to FcmTokens/{userId} collection.
  *
  * Usage:
  * ```typescript
- * // In auth-flow.service.ts after successful login
+ * // After onboarding completion or when push is enabled in settings
  * await this.fcmRegistration.registerToken();
  * ```
  */
@@ -21,6 +22,7 @@ import { Auth } from '@angular/fire/auth';
 import { Functions, httpsCallable } from '@angular/fire/functions';
 import { NxtLoggingService } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
+import { NativeBadgeService } from './native-badge.service';
 
 interface RegisterTokenResponse {
   success: boolean;
@@ -32,6 +34,7 @@ export class FcmRegistrationService {
   private readonly ionicPlatform = inject(Platform);
   private readonly auth = inject(Auth);
   private readonly functions = inject(Functions);
+  private readonly nativeBadge = inject(NativeBadgeService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('FcmRegistrationService');
 
   /** Cached FCM token for current device (keyed by UID) */
@@ -42,9 +45,21 @@ export class FcmRegistrationService {
 
   /**
    * Request permission and register FCM token for the current user.
-   * Should be called after successful login.
+   * Should be called only from explicit user opt-in moments.
    */
   async registerToken(): Promise<void> {
+    await this.registerTokenInternal({ requestPermission: true });
+  }
+
+  /**
+   * Refresh/register the token only if notification permission is already granted.
+   * This is safe for app resume because it never opens the native permission prompt.
+   */
+  async registerTokenIfPermissionGranted(): Promise<void> {
+    await this.registerTokenInternal({ requestPermission: false });
+  }
+
+  private async registerTokenInternal(options: { requestPermission: boolean }): Promise<void> {
     if (!isPlatformBrowser(this.platformId)) {
       this.logger.debug('Not in browser, skipping FCM registration');
       return;
@@ -60,15 +75,21 @@ export class FcmRegistrationService {
     try {
       const { FirebaseMessaging } = await import('@capacitor-firebase/messaging');
 
-      // Request permission
-      const permissionResult = await FirebaseMessaging.requestPermissions();
+      const permissionResult = options.requestPermission
+        ? await FirebaseMessaging.requestPermissions()
+        : await FirebaseMessaging.checkPermissions();
 
       if (permissionResult.receive !== 'granted') {
-        this.logger.warn('Push notification permission denied');
+        if (options.requestPermission) {
+          this.logger.warn('Push notification permission denied');
+        } else {
+          this.logger.debug('Push notification permission not granted; skipping FCM refresh');
+        }
         return;
       }
 
       this.logger.debug('Push notification permission granted');
+      await this.nativeBadge.syncAfterNotificationPermission();
 
       // ── Fast path: reuse cached token if it belongs to the current user ──────
       const currentUid = this.auth.currentUser?.uid;

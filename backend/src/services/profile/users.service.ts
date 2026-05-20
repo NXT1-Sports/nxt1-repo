@@ -14,6 +14,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { getCacheService } from '../core/cache.service.js';
 import { logger } from '../../utils/logger.js';
 import { CACHE_CONFIG } from '@nxt1/core';
+import { getRuntimeEnvironment } from '../../config/runtime-environment.js';
 
 let defaultDb: FirebaseFirestore.Firestore | null = null;
 const getDefaultDb = (): FirebaseFirestore.Firestore => {
@@ -34,8 +35,9 @@ const CACHE_TTL_MS = CACHE_CONFIG.MEDIUM_TTL; // 15 minutes
 const CACHE_TTL = Math.floor(CACHE_TTL_MS / 1000); // Convert to seconds for Redis
 
 export const CACHE_KEYS = {
-  USER_BY_ID: (userId: string) => `users:${userId}`,
-  USERS_BATCH: (userIds: string[]) => `users:batch:${userIds.sort().join(',')}`,
+  USER_BY_ID: (userId: string) => `users:${getRuntimeEnvironment()}:${userId}`,
+  USERS_BATCH: (userIds: string[]) =>
+    `users:${getRuntimeEnvironment()}:batch:${userIds.sort().join(',')}`,
 };
 
 // ============================================

@@ -348,6 +348,7 @@ export class OnboardingRoleSelectionComponent {
         { text: 'Cancel', cancel: true },
       ],
       preferNative: 'native',
+      haptics: false,
     });
 
     if (result.selected && result.data) {

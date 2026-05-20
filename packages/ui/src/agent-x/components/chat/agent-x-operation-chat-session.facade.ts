@@ -27,10 +27,7 @@ import type {
   OperationMessage,
 } from './agent-x-operation-chat.models';
 import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-message.facade';
-import {
-  AgentXOperationChatTransportFacade,
-  type StreamTurnWatermark,
-} from './agent-x-operation-chat-transport.facade';
+import { AgentXOperationChatTransportFacade } from './agent-x-operation-chat-transport.facade';
 import { AgentXOperationChatAttachmentsFacade } from './agent-x-operation-chat-attachments.facade';
 
 type OperationStatus =
@@ -91,8 +88,6 @@ export interface AgentXOperationChatSessionFacadeHost {
   setActiveFirestoreSub(subscription: OperationEventSubscription | null): void;
   getShadowFirestoreSub(): OperationEventSubscription | null;
   setShadowFirestoreSub(subscription: OperationEventSubscription | null): void;
-  getStreamTurnWatermark(): StreamTurnWatermark | null;
-  setStreamTurnWatermark(watermark: StreamTurnWatermark | null): void;
   hasUserSent(): boolean;
   markUserMessageSent(): void;
   send(options?: {
@@ -128,6 +123,7 @@ export class AgentXOperationChatSessionFacade {
 
   private host: AgentXOperationChatSessionFacadeHost | null = null;
   private enqueueHeavySeenSinceLastCompletion = false;
+  private readonly storedEventReconcileStartedAt = new Map<string, number>();
 
   private normalizeMessageContent(value: string | undefined): string {
     return (value ?? '').replace(/\s+/g, ' ').trim();
@@ -1115,12 +1111,14 @@ export class AgentXOperationChatSessionFacade {
     const host = this.requireHost();
     const threadId = host.resolvedThreadId()?.trim() || host.threadId().trim();
     if (!threadId) return;
-    this.operationEventService.markEnqueueWaiting(threadId);
+    const operationId = host.getCurrentOperationId()?.trim() || null;
+    this.operationEventService.markEnqueueWaiting(threadId, Date.now(), operationId);
     this.operationEventService.emitOperationStatusUpdated(
       threadId,
       'in-progress',
       new Date().toISOString(),
-      'enqueue'
+      'enqueue',
+      operationId ?? undefined
     );
     host.setOperationStatus('processing');
   }
@@ -1138,6 +1136,14 @@ export class AgentXOperationChatSessionFacade {
 
     const normalizedLabel = step.label.trim().toLowerCase();
     return normalizedLabel.startsWith('queu') && normalizedLabel.includes('background operation');
+  }
+
+  private getEnqueueHeavyTaskOperationId(step: AgentXToolStep | null | undefined): string | null {
+    const metadata = step?.metadata as Record<string, unknown> | undefined;
+    const operationId = metadata?.['heavyTaskOperationId'];
+    return typeof operationId === 'string' && operationId.trim().length > 0
+      ? operationId.trim()
+      : null;
   }
 
   private clearEnqueueWaitingMessage(): void {
@@ -1236,10 +1242,200 @@ export class AgentXOperationChatSessionFacade {
     return null;
   }
 
+  async reconcileOperationFromStoredEvents(
+    explicitOperationId: string,
+    options: { source?: string; abortActiveStream?: boolean } = {}
+  ): Promise<void> {
+    const host = this.requireHost();
+    const operationId = explicitOperationId.trim();
+    if (!operationId) return;
+
+    const startedAt = Date.now();
+    const previousStartedAt = this.storedEventReconcileStartedAt.get(operationId) ?? 0;
+    if (startedAt - previousStartedAt < 1_500) return;
+    this.storedEventReconcileStartedAt.set(operationId, startedAt);
+
+    const threadId = host.resolvedThreadId()?.trim() || host.threadId().trim() || null;
+    const source = options.source ?? 'stored-event-reconcile';
+
+    this.messageFacade.flushPendingTypingDelta();
+
+    if (options.abortActiveStream) {
+      host.getActiveStream()?.abort();
+      host.setActiveStream(null);
+      if (threadId) {
+        this.streamRegistry.abort(threadId);
+      }
+    }
+
+    host.getShadowFirestoreSub()?.unsubscribe();
+    host.setShadowFirestoreSub(null);
+    host.getActiveFirestoreSub()?.unsubscribe();
+    host.setActiveFirestoreSub(null);
+    host.setCurrentOperationId(operationId);
+    host.loading.set(true);
+    host.setActivityPhase('reconnecting', 'Reconnecting...');
+
+    this.logger.info('Reconciling operation chat from stored event snapshot', {
+      operationId,
+      threadId,
+      source,
+      abortActiveStream: options.abortActiveStream === true,
+    });
+    this.breadcrumb.trackStateChange('operation-chat:stored-event-reconcile', {
+      operationId,
+      threadId,
+      source,
+    });
+
+    const stored = await this.operationEventService.getStoredEventState(operationId);
+    const replayContentSuffix = this.buildMediaContentSuffixFromReplayEvents(stored.media);
+    const content = stored.content + replayContentSuffix;
+    const holdEnqueueUntilDone = this.shouldHoldEnqueueUntilDone(operationId);
+    const storedHeavyTaskOperationId = stored.steps
+      .map((step) => this.getEnqueueHeavyTaskOperationId(step))
+      .find((candidate): candidate is string => !!candidate);
+
+    if (storedHeavyTaskOperationId) {
+      host.setCurrentOperationId(storedHeavyTaskOperationId);
+    }
+
+    if (stored.latestYieldState) {
+      host.applyYieldState({
+        yieldState: stored.latestYieldState,
+        source: 'stored-state-rehydrate',
+        operationId,
+      });
+    }
+
+    if (
+      !stored.isDone &&
+      (stored.latestLifecycleStatus === 'failed' || stored.latestLifecycleStatus === 'cancelled')
+    ) {
+      this.clearEnqueueWaitingMessage();
+      this.removeTransientRowsForOperation(operationId);
+      host.latestProgressLabel.set(null);
+      host.setActivityPhase(
+        stored.latestLifecycleStatus === 'failed' ? 'failed' : 'cancelled',
+        stored.latestLifecycleStatus === 'failed' ? 'Something went wrong. Please try again.' : null
+      );
+      host.setOperationStatus(stored.latestLifecycleStatus === 'failed' ? 'error' : 'cancelled');
+      this.operationEventService.emitOperationStatusUpdated(
+        threadId || operationId,
+        stored.latestLifecycleStatus === 'failed' ? 'error' : 'cancelled',
+        new Date().toISOString(),
+        'chat',
+        operationId
+      );
+      host.loading.set(false);
+      return;
+    }
+
+    if (stored.isDone) {
+      this.clearEnqueueWaitingMessage();
+      this.removeTransientRowsForOperation(operationId);
+      host.setOperationStatus(stored.doneSuccess === false ? 'error' : 'complete');
+      host.latestProgressLabel.set(null);
+      host.setActivityPhase(stored.doneSuccess === false ? 'failed' : 'completed');
+      this.operationEventService.emitOperationStatusUpdated(
+        threadId || operationId,
+        stored.doneSuccess === false ? 'error' : 'complete',
+        new Date().toISOString(),
+        'chat',
+        operationId
+      );
+
+      if (threadId) {
+        await this.loadThreadMessages(threadId);
+      } else if (
+        content.trim() ||
+        stored.parts.length ||
+        stored.cards.length ||
+        stored.steps.length
+      ) {
+        this.messageFacade.messages.update((messages) => [
+          ...messages,
+          {
+            id: host.uid(),
+            role: 'assistant',
+            content,
+            timestamp: new Date(),
+            isTyping: false,
+            operationId,
+            error: stored.doneSuccess === false,
+            steps: stored.steps.length > 0 ? [...stored.steps] : undefined,
+            parts: stored.parts.length > 0 ? [...stored.parts] : undefined,
+            cards: stored.cards.length > 0 ? [...stored.cards] : undefined,
+          },
+        ]);
+      }
+
+      host.loading.set(false);
+      this.transportFacade.emitResponseCompleteOnce('stored-event-reconcile-done');
+      return;
+    }
+
+    if (holdEnqueueUntilDone) {
+      this.removeTransientRowsForOperation(operationId);
+      this.upsertEnqueueWaitingMessage();
+      host.setActivityPhase(
+        'waiting_delta',
+        AgentXOperationChatSessionFacade.ENQUEUE_WAITING_MESSAGE_TEXT
+      );
+      host.loading.set(true);
+      this.subscribeToFirestoreJobEvents(operationId, stored.maxSeq, {
+        holdUntilDone: true,
+        threadIdForCompletionRefresh: threadId ?? undefined,
+      });
+      return;
+    }
+
+    this.messageFacade.messages.update((messages) => {
+      const filtered = messages.filter((message) => {
+        if (message.id === 'typing') return false;
+        if (message.role !== 'assistant' || message.operationId !== operationId) return true;
+        return !!message.yieldState || this.messageHasYieldCard(message);
+      });
+
+      return [
+        ...filtered,
+        {
+          id: 'typing',
+          role: 'assistant',
+          content,
+          timestamp: new Date(),
+          isTyping: !content,
+          operationId,
+          steps: stored.steps.length > 0 ? [...stored.steps] : undefined,
+          parts: stored.parts.length > 0 ? [...stored.parts] : undefined,
+          cards: stored.cards.length > 0 ? [...stored.cards] : undefined,
+        },
+      ];
+    });
+
+    const activeStep = [...stored.steps].reverse().find((step) => step.status === 'active');
+    if (activeStep) {
+      host.setActivityPhase('running_tool', activeStep.label || null);
+    } else {
+      host.setActivityPhase('waiting_delta');
+    }
+    host.loading.set(true);
+    this.subscribeToFirestoreJobEvents(operationId, stored.maxSeq);
+  }
+
+  private removeTransientRowsForOperation(operationId: string): void {
+    this.messageFacade.messages.update((messages) =>
+      messages.filter((message) => {
+        if (message.id === 'typing') return false;
+        if (message.role !== 'assistant' || message.operationId !== operationId) return true;
+        return !!message.yieldState || this.messageHasYieldCard(message);
+      })
+    );
+  }
+
   subscribeToFirestoreJobEvents(
     explicitOperationId?: string,
     startAfterSeq?: number,
-    deltaWatermark?: { optimisticChars: number; confirmedChars: number } | null,
     options?: { holdUntilDone?: boolean; threadIdForCompletionRefresh?: string }
   ): void {
     const host = this.requireHost();
@@ -1295,20 +1491,6 @@ export class AgentXOperationChatSessionFacade {
           onDelta: (text) => {
             if (holdUntilDone) return;
             host.markActivityPulse();
-            if (deltaWatermark) {
-              const start = deltaWatermark.confirmedChars;
-              deltaWatermark.confirmedChars += text.length;
-              if (deltaWatermark.confirmedChars <= deltaWatermark.optimisticChars) {
-                return;
-              }
-              const skipChars = Math.max(0, deltaWatermark.optimisticChars - start);
-              const tail = skipChars > 0 ? text.slice(skipChars) : text;
-              if (tail.length > 0) {
-                deltaWatermark.optimisticChars += tail.length;
-                this.messageFacade.queueTypingDelta(tail);
-              }
-              return;
-            }
             this.messageFacade.queueTypingDelta(text);
           },
           onStep: (step) => {
@@ -1316,6 +1498,10 @@ export class AgentXOperationChatSessionFacade {
             this.messageFacade.flushPendingTypingDelta();
             if (!step.label.trim()) return;
             if (this.isEnqueueHeavyTaskStep(step)) {
+              const heavyTaskOperationId = this.getEnqueueHeavyTaskOperationId(step);
+              if (heavyTaskOperationId) {
+                host.setCurrentOperationId(heavyTaskOperationId);
+              }
               this.markEnqueueHeavySeen();
             }
             if (step.status === 'active') {
@@ -1380,6 +1566,100 @@ export class AgentXOperationChatSessionFacade {
             host.latestProgressLabel.set(message);
             host.markActivityPulse(message);
           },
+          onOperation: (event) => {
+            if (!holdUntilDone) return;
+
+            const refreshThreadId =
+              options?.threadIdForCompletionRefresh?.trim() ||
+              event.threadId?.trim() ||
+              host.resolvedThreadId()?.trim() ||
+              host.threadId().trim();
+
+            if (event.status === 'complete') {
+              this.clearEnqueueWaitingMessage();
+              host.latestProgressLabel.set(null);
+              host.setActivityPhase('completed');
+              host.setOperationStatus('complete');
+              this.operationEventService.emitOperationStatusUpdated(
+                refreshThreadId || operationId,
+                'complete',
+                event.timestamp ?? new Date().toISOString(),
+                'chat',
+                operationId
+              );
+              host.loading.set(false);
+              host.getActiveFirestoreSub()?.unsubscribe();
+              host.setActiveFirestoreSub(null);
+              void this.haptics.notification('success');
+              this.transportFacade.emitResponseCompleteOnce('firestore-operation-complete-enqueue');
+
+              if (refreshThreadId) {
+                void this.loadThreadMessages(refreshThreadId);
+              }
+
+              this.logger.info('Background enqueue operation completed from lifecycle event', {
+                operationId,
+                refreshThreadId,
+              });
+              this.enqueueHeavySeenSinceLastCompletion = false;
+              return;
+            }
+
+            if (event.status === 'cancelled') {
+              this.clearEnqueueWaitingMessage();
+              host.latestProgressLabel.set(null);
+              host.setActivityPhase('cancelled');
+              host.setOperationStatus('cancelled');
+              this.operationEventService.emitOperationStatusUpdated(
+                refreshThreadId || operationId,
+                'cancelled',
+                event.timestamp ?? new Date().toISOString(),
+                'chat',
+                operationId
+              );
+              host.loading.set(false);
+              host.getActiveFirestoreSub()?.unsubscribe();
+              host.setActiveFirestoreSub(null);
+              this.transportFacade.emitResponseCompleteOnce(
+                'firestore-operation-cancelled-enqueue'
+              );
+              this.enqueueHeavySeenSinceLastCompletion = false;
+              return;
+            }
+
+            if (event.status === 'failed') {
+              const errorMessage = event.message || 'Something went wrong. Please try again.';
+              this.clearEnqueueWaitingMessage();
+              host.latestProgressLabel.set(null);
+              host.setActivityPhase('failed', errorMessage);
+              host.setOperationStatus('error');
+              this.messageFacade.pushMessage({
+                id: host.uid(),
+                role: 'assistant',
+                content: errorMessage,
+                timestamp: new Date(),
+                error: true,
+              });
+              this.operationEventService.emitOperationStatusUpdated(
+                refreshThreadId || operationId,
+                'error',
+                event.timestamp ?? new Date().toISOString(),
+                'chat',
+                operationId
+              );
+              host.loading.set(false);
+              host.getActiveFirestoreSub()?.unsubscribe();
+              host.setActiveFirestoreSub(null);
+              void this.haptics.notification('error');
+              this.transportFacade.emitResponseCompleteOnce('firestore-operation-error-enqueue');
+              this.logger.error(
+                'Background enqueue operation failed from lifecycle event',
+                new Error(errorMessage),
+                { operationId }
+              );
+              this.enqueueHeavySeenSinceLastCompletion = false;
+            }
+          },
           onDone: (event) => {
             if (holdUntilDone) {
               const refreshThreadId =
@@ -1394,12 +1674,13 @@ export class AgentXOperationChatSessionFacade {
               this.operationEventService.emitOperationStatusUpdated(
                 refreshThreadId || operationId,
                 'complete',
-                new Date().toISOString()
+                new Date().toISOString(),
+                'chat',
+                operationId
               );
               host.loading.set(false);
               host.getActiveFirestoreSub()?.unsubscribe();
               host.setActiveFirestoreSub(null);
-              host.setStreamTurnWatermark(null);
               void this.haptics.notification('success');
               this.transportFacade.emitResponseCompleteOnce('firestore-done-enqueue');
 
@@ -1436,7 +1717,6 @@ export class AgentXOperationChatSessionFacade {
               host.loading.set(true);
               host.getActiveFirestoreSub()?.unsubscribe();
               host.setActiveFirestoreSub(null);
-              host.setStreamTurnWatermark(null);
               this.transportFacade.emitResponseCompleteOnce('firestore-done-enqueue-waiting');
               this.logger.info('Background enqueue deferred to waiting card (Firestore)', {
                 operationId,
@@ -1455,7 +1735,6 @@ export class AgentXOperationChatSessionFacade {
             host.loading.set(false);
             host.getActiveFirestoreSub()?.unsubscribe();
             host.setActiveFirestoreSub(null);
-            host.setStreamTurnWatermark(null);
             void this.haptics.notification('success');
             this.transportFacade.emitResponseCompleteOnce('firestore-done');
             this.logger.info('Background job stream complete (Firestore)', { operationId });
@@ -1475,7 +1754,6 @@ export class AgentXOperationChatSessionFacade {
               host.loading.set(false);
               host.getActiveFirestoreSub()?.unsubscribe();
               host.setActiveFirestoreSub(null);
-              host.setStreamTurnWatermark(null);
               void this.haptics.notification('error');
               this.transportFacade.emitResponseCompleteOnce('firestore-error-enqueue');
               this.logger.error(
@@ -1500,7 +1778,6 @@ export class AgentXOperationChatSessionFacade {
             host.loading.set(false);
             host.getActiveFirestoreSub()?.unsubscribe();
             host.setActiveFirestoreSub(null);
-            host.setStreamTurnWatermark(null);
             this.enqueueHeavySeenSinceLastCompletion = false;
             void this.haptics.notification('error');
             this.logger.error('Background job stream error (Firestore)', new Error(error), {
@@ -1849,7 +2126,8 @@ export class AgentXOperationChatSessionFacade {
             threadId,
             'in-progress',
             new Date().toISOString(),
-            'enqueue'
+            'enqueue',
+            enqueueWaitingEntry.operationId ?? undefined
           );
         } else {
           this.operationEventService.clearEnqueueWaiting(threadId);
@@ -1982,83 +2260,103 @@ export class AgentXOperationChatSessionFacade {
         !host.activeYieldState() &&
         !hasPendingYieldInTimeline
       ) {
-        // ── Mongo-authoritative fast path ──────────────────────────────────
-        // If any canonical row carries assistant_final the operation has
-        // completed, regardless of what Firestore says for the stored
-        // operationId. This covers parent/child approval flows where the
-        // parent ends at awaiting_approval (no `done` in Firestore for it)
-        // but the child wrote assistant_final to MongoDB.
-        const currentContextOperationId = this.resolveFirestoreOperationId();
-        const hasMongoFinal = this.hasMongoFinalForOperation(
-          canonicalItems,
-          currentContextOperationId
-        );
-        if (hasMongoFinal) {
-          host.setOperationStatus('complete');
-          this.operationEventService.emitOperationStatusUpdated(
-            threadId,
-            'complete',
-            new Date().toISOString()
-          );
-          this.logger.info('Reconciled operation to complete from Mongo assistant_final', {
+        // ── Live-stream guard ────────────────────────────────────────────
+        // When the chat is re-entered while a stream is still in flight (e.g.
+        // user sent a second message, navigated away, came back), the registry
+        // owns authoritative state. Historical Mongo / Firestore rows describe
+        // a PRIOR operation in the same thread — emitting a global `complete`
+        // here would incorrectly flip the operations-log row to green while
+        // the live operation is still running. Skip reconciliation; the stream
+        // claim later in this method replays the in-progress state correctly.
+        const streamStillActive = this.streamRegistry.hasActiveStream(threadId);
+        if (streamStillActive) {
+          this.logger.info('Skipping rehydrate reconciliation — live stream active for thread', {
             threadId,
             contextId: host.contextId(),
           });
         } else {
-          // ── Firestore fallback: check stored lifecycle state ──────────────
-          let pendingYieldState: AgentYieldState | null = null;
-          let latestLifecycleStatus:
-            | 'queued'
-            | 'running'
-            | 'paused'
-            | 'awaiting_input'
-            | 'awaiting_approval'
-            | 'complete'
-            | 'failed'
-            | 'cancelled'
-            | null = null;
-
-          const operationId = this.resolveFirestoreOperationId();
-          if (operationId) {
-            const stored = await this.operationEventService.getStoredEventState(operationId);
-            pendingYieldState = stored.latestYieldState;
-            latestLifecycleStatus = stored.latestLifecycleStatus;
-          }
-
-          if (pendingYieldState) {
-            this.applyPendingYieldState(pendingYieldState, threadId, 'firestore-fallback');
-          } else if (latestLifecycleStatus) {
-            const reconciledStatus =
-              latestLifecycleStatus === 'queued' || latestLifecycleStatus === 'running'
-                ? 'processing'
-                : latestLifecycleStatus === 'failed'
-                  ? 'error'
-                  : latestLifecycleStatus === 'cancelled'
-                    ? 'complete'
-                    : latestLifecycleStatus;
-
-            host.setOperationStatus(reconciledStatus);
+          // ── Mongo-authoritative fast path ──────────────────────────────────
+          // If any canonical row carries assistant_final the operation has
+          // completed, regardless of what Firestore says for the stored
+          // operationId. This covers parent/child approval flows where the
+          // parent ends at awaiting_approval (no `done` in Firestore for it)
+          // but the child wrote assistant_final to MongoDB.
+          const currentContextOperationId = this.resolveFirestoreOperationId();
+          const hasMongoFinal = this.hasMongoFinalForOperation(
+            canonicalItems,
+            currentContextOperationId
+          );
+          if (hasMongoFinal) {
+            host.setOperationStatus('complete');
             this.operationEventService.emitOperationStatusUpdated(
               threadId,
-              latestLifecycleStatus,
-              new Date().toISOString()
+              'complete',
+              new Date().toISOString(),
+              'chat',
+              currentContextOperationId ?? undefined
             );
-
-            this.logger.info('Reconciled operation status from stored lifecycle state', {
+            this.logger.info('Reconciled operation to complete from Mongo assistant_final', {
               threadId,
               contextId: host.contextId(),
-              lifecycleStatus: latestLifecycleStatus,
-              reconciledStatus,
             });
           } else {
-            // No persisted lifecycle/yield evidence found yet. Keep processing so
-            // the upstream middle shimmer remains visible while waiting for more events.
-            this.logger.info('Keeping operation in processing while awaiting upstream events', {
-              threadId,
-              contextId: host.contextId(),
-            });
+            // ── Firestore fallback: check stored lifecycle state ──────────────
+            let pendingYieldState: AgentYieldState | null = null;
+            let latestLifecycleStatus:
+              | 'queued'
+              | 'running'
+              | 'paused'
+              | 'awaiting_input'
+              | 'awaiting_approval'
+              | 'complete'
+              | 'failed'
+              | 'cancelled'
+              | null = null;
+
+            const operationId = this.resolveFirestoreOperationId();
+            if (operationId) {
+              const stored = await this.operationEventService.getStoredEventState(operationId);
+              pendingYieldState = stored.latestYieldState;
+              latestLifecycleStatus = stored.latestLifecycleStatus;
+            }
+
+            if (pendingYieldState) {
+              this.applyPendingYieldState(pendingYieldState, threadId, 'firestore-fallback');
+            } else if (latestLifecycleStatus) {
+              const reconciledStatus =
+                latestLifecycleStatus === 'queued' || latestLifecycleStatus === 'running'
+                  ? 'processing'
+                  : latestLifecycleStatus === 'failed'
+                    ? 'error'
+                    : latestLifecycleStatus === 'cancelled'
+                      ? 'complete'
+                      : latestLifecycleStatus;
+
+              host.setOperationStatus(reconciledStatus);
+              this.operationEventService.emitOperationStatusUpdated(
+                threadId,
+                latestLifecycleStatus,
+                new Date().toISOString(),
+                'chat',
+                operationId ?? undefined
+              );
+
+              this.logger.info('Reconciled operation status from stored lifecycle state', {
+                threadId,
+                contextId: host.contextId(),
+                lifecycleStatus: latestLifecycleStatus,
+                reconciledStatus,
+              });
+            } else {
+              // No persisted lifecycle/yield evidence found yet. Keep processing so
+              // the upstream middle shimmer remains visible while waiting for more events.
+              this.logger.info('Keeping operation in processing while awaiting upstream events', {
+                threadId,
+                contextId: host.contextId(),
+              });
+            }
           }
-        }
+        } // end !streamStillActive branch
       }
 
       if (host.getOperationStatus() === 'complete') {
@@ -2263,6 +2561,10 @@ export class AgentXOperationChatSessionFacade {
         this.messageFacade.flushPendingTypingDelta();
         if (!step.label.trim()) return;
         if (this.isEnqueueHeavyTaskStep(step)) {
+          const heavyTaskOperationId = this.getEnqueueHeavyTaskOperationId(step);
+          if (heavyTaskOperationId) {
+            host.setCurrentOperationId(heavyTaskOperationId);
+          }
           this.markEnqueueHeavySeen();
         }
         // Mirror live transport phase logic so the shimmer/loader behavior on
@@ -2351,28 +2653,10 @@ export class AgentXOperationChatSessionFacade {
             'SSE claim listener error — connectivity issue detected, falling back to Firestore',
             { threadId, error, operationId: host.contextId() }
           );
-          // Build a delta watermark from the SSE content already accumulated in the
-          // typing bubble.  Without this, Firestore replays ALL historical delta events
-          // (startAfterSeq = -1) and appends them on top of the existing SSE text.
-          // That duplication can place a "### heading" mid-line (no preceding \n),
-          // causing marked to parse it as inline text instead of an ATX heading —
-          // the user sees raw "###" characters instead of a rendered heading.
-          //
-          // IMPORTANT: flush any pending RAF-batched delta BEFORE reading content.length.
-          // On iOS/Android, requestAnimationFrame is suspended while the app is
-          // backgrounded, so pendingTypingDelta may hold SSE chars that were queued
-          // but never written to message.content. Without this flush the watermark
-          // would be too small, Firestore would re-append those chars, and when the
-          // RAF fires on foreground return the same text lands twice — placing "###"
-          // mid-line so marked treats it as inline text rather than an ATX heading.
           this.messageFacade.flushPendingTypingDelta();
-          const sseTypingMsg = this.messageFacade.messages().find((m) => m.id === 'typing');
-          const sseAccumulatedLength = sseTypingMsg?.content?.length ?? 0;
-          const sseStreamWatermark =
-            sseAccumulatedLength > 0
-              ? { optimisticChars: sseAccumulatedLength, confirmedChars: 0 }
-              : null;
-          this.subscribeToFirestoreJobEvents(undefined, undefined, sseStreamWatermark);
+          void this.reconcileOperationFromStoredEvents(host.contextId(), {
+            source: 'stream-registry-connectivity-error',
+          });
           return;
         }
         this.messageFacade.replaceTyping({
@@ -2472,21 +2756,10 @@ export class AgentXOperationChatSessionFacade {
                   'operation-chat:stale-sse-error-firestore-fallback',
                   { operationId: host.contextId(), error: fresh.error }
                 );
-                // Same watermark protection as the live onError path: if the typing
-                // bubble already has SSE-accumulated content (possible when SSE died
-                // during the loadThreadMessages async gap), prevent Firestore full
-                // replay from appending duplicate text that would break heading
-                // detection (### mid-line → raw text instead of <h3>).
-                // Flush any pending RAF-batched delta first — same reasoning as the
-                // live onError path above (iOS backgrounding suspends RAF callbacks).
                 this.messageFacade.flushPendingTypingDelta();
-                const staleTypingMsg = this.messageFacade.messages().find((m) => m.id === 'typing');
-                const staleAccumulatedLength = staleTypingMsg?.content?.length ?? 0;
-                const staleStreamWatermark =
-                  staleAccumulatedLength > 0
-                    ? { optimisticChars: staleAccumulatedLength, confirmedChars: 0 }
-                    : null;
-                this.subscribeToFirestoreJobEvents(undefined, undefined, staleStreamWatermark);
+                void this.reconcileOperationFromStoredEvents(host.contextId(), {
+                  source: 'stream-registry-stale-connectivity-error',
+                });
                 return;
               }
               // Operation completed or errored while backgrounded — drop the stale
@@ -2681,6 +2954,12 @@ export class AgentXOperationChatSessionFacade {
         const stored = await this.operationEventService.getStoredEventState(operationId);
         const replayContentSuffix = this.buildMediaContentSuffixFromReplayEvents(stored.media);
         const holdEnqueueUntilDone = this.shouldHoldEnqueueUntilDone(operationId);
+        const storedHeavyTaskOperationId = stored.steps
+          .map((step) => this.getEnqueueHeavyTaskOperationId(step))
+          .find((candidate): candidate is string => !!candidate);
+        if (storedHeavyTaskOperationId) {
+          host.setCurrentOperationId(storedHeavyTaskOperationId);
+        }
 
         if (stored.latestYieldState) {
           host.applyYieldState({
@@ -2688,6 +2967,33 @@ export class AgentXOperationChatSessionFacade {
             source: 'stored-state-rehydrate',
             operationId,
           });
+        }
+
+        if (
+          !stored.isDone &&
+          (stored.latestLifecycleStatus === 'failed' ||
+            stored.latestLifecycleStatus === 'cancelled')
+        ) {
+          this.clearEnqueueWaitingMessage();
+          host.latestProgressLabel.set(null);
+          host.setActivityPhase(
+            stored.latestLifecycleStatus === 'failed' ? 'failed' : 'cancelled',
+            stored.latestLifecycleStatus === 'failed'
+              ? 'Something went wrong. Please try again.'
+              : null
+          );
+          host.setOperationStatus(
+            stored.latestLifecycleStatus === 'failed' ? 'error' : 'cancelled'
+          );
+          this.operationEventService.emitOperationStatusUpdated(
+            host.threadId().trim() || operationId,
+            stored.latestLifecycleStatus === 'failed' ? 'error' : 'cancelled',
+            new Date().toISOString(),
+            'chat',
+            operationId
+          );
+          host.loading.set(false);
+          return;
         }
 
         if (stored.isDone) {
@@ -2734,7 +3040,9 @@ export class AgentXOperationChatSessionFacade {
           this.operationEventService.emitOperationStatusUpdated(
             host.threadId().trim() || operationId,
             'complete',
-            new Date().toISOString()
+            new Date().toISOString(),
+            'chat',
+            operationId
           );
           return;
         }
@@ -2758,7 +3066,7 @@ export class AgentXOperationChatSessionFacade {
             AgentXOperationChatSessionFacade.ENQUEUE_WAITING_MESSAGE_TEXT
           );
           host.loading.set(true);
-          this.subscribeToFirestoreJobEvents(undefined, stored.maxSeq, undefined, {
+          this.subscribeToFirestoreJobEvents(undefined, stored.maxSeq, {
             holdUntilDone: true,
             threadIdForCompletionRefresh: threadId,
           });

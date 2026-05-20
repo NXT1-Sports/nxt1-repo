@@ -25,6 +25,20 @@ const PASSIVE_TOOL_PREFIXES = [
   'register-',
 ] as const;
 
+const SYSTEM_OR_ROUTING_TOOLS = new Set<string>([
+  'delegate-to-coordinator',
+  'delegate-task',
+  'create-plan',
+  'execute-saved-plan',
+  'plan-and-execute',
+  'whoami-capabilities',
+  'ask-user',
+]);
+
+function isSystemOrRoutingSlug(value: string): boolean {
+  return SYSTEM_OR_ROUTING_TOOLS.has(value);
+}
+
 function normalizeSlug(value: string): string {
   return value
     .trim()
@@ -53,42 +67,48 @@ function dedupeNormalized(values: readonly string[] | undefined): string[] {
   return normalized;
 }
 
-function selectRepresentativeTool(tools: readonly string[]): string | null {
-  if (tools.length === 0) {
-    return null;
-  }
+function isPassiveToolSlug(value: string): boolean {
+  return PASSIVE_TOOL_PREFIXES.some((prefix) => value.startsWith(prefix));
+}
 
-  for (let index = tools.length - 1; index >= 0; index -= 1) {
-    const tool = tools[index];
-    if (!PASSIVE_TOOL_PREFIXES.some((prefix) => tool.startsWith(prefix))) {
-      return tool;
+function isMeaningfulBillableToolSlug(value: string): boolean {
+  return !isSystemOrRoutingSlug(value) && !isPassiveToolSlug(value);
+}
+
+function selectBillableTools(tools: readonly string[]): string[] {
+  return tools.filter((tool) => isMeaningfulBillableToolSlug(tool));
+}
+
+export function resolveBillableFeatures(input: BillableFeatureResolutionInput): string[] {
+  const normalizedSuccessfulTools = dedupeNormalized(input.successfulTools);
+  if (input.successfulTools !== undefined) {
+    const successfulTools = selectBillableTools(normalizedSuccessfulTools);
+    if (successfulTools.length > 0) {
+      return successfulTools;
     }
   }
 
-  return null;
-}
-
-export function resolveBillableFeature(input: BillableFeatureResolutionInput): string {
-  const successfulTool = selectRepresentativeTool(dedupeNormalized(input.successfulTools));
-  if (successfulTool) {
-    return successfulTool;
-  }
-
-  const attemptedTool = selectRepresentativeTool(dedupeNormalized(input.agentTools));
-  if (attemptedTool) {
-    return attemptedTool;
+  if (input.successfulTools === undefined) {
+    const attemptedTools = selectBillableTools(dedupeNormalized(input.agentTools));
+    if (attemptedTools.length > 0) {
+      return attemptedTools;
+    }
   }
 
   const explicitFeature = typeof input.feature === 'string' ? normalizeSlug(input.feature) : '';
-  if (explicitFeature) {
-    return explicitFeature;
+  if (explicitFeature && !isSystemOrRoutingSlug(explicitFeature)) {
+    return [explicitFeature];
   }
 
   const coordinatorSlug =
     typeof input.coordinatorId === 'string' ? normalizeSlug(input.coordinatorId) : '';
   if (coordinatorSlug) {
-    return `${coordinatorSlug}-execution`;
+    return [`${coordinatorSlug}-execution`];
   }
 
-  return 'agent-execution';
+  return ['agent-execution'];
+}
+
+export function resolveBillableFeature(input: BillableFeatureResolutionInput): string {
+  return resolveBillableFeatures(input)[0] ?? 'agent-execution';
 }

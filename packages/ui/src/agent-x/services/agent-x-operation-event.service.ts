@@ -81,6 +81,11 @@ export interface OperationStatusUpdatedEvent {
   readonly parentOperationId?: string;
 }
 
+interface EnqueueWaitingEntry {
+  readonly queuedAt: number;
+  readonly operationId: string | null;
+}
+
 const LIFECYCLE_TO_LOG_STATUS: Readonly<
   Record<AgentXOperationLifecycleStatus, OperationLogStatus>
 > = {
@@ -133,6 +138,12 @@ export interface FirestoreAdapter {
     orderByField: string,
     options?: FirestoreQueryOptions
   ): Promise<ReadonlyArray<Record<string, unknown>>>;
+
+  /**
+   * One-time fetch of a Firestore document.
+   * Used as the durable AgentJobs parent-doc fallback when event replay is incomplete.
+   */
+  getDoc?(documentPath: string): Promise<Record<string, unknown> | null>;
 }
 
 /**
@@ -264,7 +275,7 @@ export class AgentXOperationEventService {
     }
   }
 
-  private readWaitingMap(): Record<string, { queuedAt: number }> {
+  private readWaitingMap(): Record<string, EnqueueWaitingEntry> {
     if (typeof window === 'undefined') return {};
     try {
       const raw = localStorage.getItem(AgentXOperationEventService.WAITING_THREADS_KEY);
@@ -272,12 +283,20 @@ export class AgentXOperationEventService {
       const parsed: unknown = JSON.parse(raw);
       if (!parsed || typeof parsed !== 'object') return {};
       const rec = parsed as Record<string, unknown>;
-      const upgraded: Record<string, { queuedAt: number }> = {};
+      const upgraded: Record<string, EnqueueWaitingEntry> = {};
       for (const [k, v] of Object.entries(rec)) {
         if (typeof v === 'number') {
-          upgraded[k] = { queuedAt: v };
+          upgraded[k] = { queuedAt: v, operationId: null };
         } else if (v && typeof v === 'object' && 'queuedAt' in v) {
-          upgraded[k] = v as { queuedAt: number };
+          const entry = v as { queuedAt?: unknown; operationId?: unknown };
+          if (typeof entry.queuedAt !== 'number') continue;
+          upgraded[k] = {
+            queuedAt: entry.queuedAt,
+            operationId:
+              typeof entry.operationId === 'string' && entry.operationId.trim().length > 0
+                ? entry.operationId.trim()
+                : null,
+          };
         }
       }
       return upgraded;
@@ -286,7 +305,7 @@ export class AgentXOperationEventService {
     }
   }
 
-  private writeWaitingMap(map: Record<string, { queuedAt: number }>): void {
+  private writeWaitingMap(map: Record<string, EnqueueWaitingEntry>): void {
     if (typeof window === 'undefined') return;
     try {
       localStorage.setItem(AgentXOperationEventService.WAITING_THREADS_KEY, JSON.stringify(map));
@@ -336,15 +355,24 @@ export class AgentXOperationEventService {
     this.logger.info('Enqueue cancelled state cleared — thread continued', { threadId });
   }
 
-  markEnqueueWaiting(threadId: string, queuedAt: number = Date.now()): void {
+  markEnqueueWaiting(
+    threadId: string,
+    queuedAt: number = Date.now(),
+    operationId: string | null = null
+  ): void {
     if (!threadId) return;
     const map = this.readWaitingMap();
-    map[threadId] = { queuedAt };
+    const normalizedOperationId = operationId?.trim() || null;
+    map[threadId] = { queuedAt, operationId: normalizedOperationId };
     this.writeWaitingMap(map);
-    this.logger.info('Enqueue waiting state marked', { threadId, queuedAt });
+    this.logger.info('Enqueue waiting state marked', {
+      threadId,
+      queuedAt,
+      operationId: normalizedOperationId,
+    });
   }
 
-  getEnqueueWaitingEntry(threadId: string): { queuedAt: number } | null {
+  getEnqueueWaitingEntry(threadId: string): EnqueueWaitingEntry | null {
     return this.readWaitingMap()[threadId] ?? null;
   }
 
@@ -355,6 +383,19 @@ export class AgentXOperationEventService {
     delete map[threadId];
     this.writeWaitingMap(map);
     this.logger.info('Enqueue waiting state cleared', { threadId });
+  }
+
+  private isTerminalLogStatus(status: OperationLogStatus): boolean {
+    return status === 'complete' || status === 'error' || status === 'cancelled';
+  }
+
+  private enqueueWaitingMatchesOperation(
+    entry: EnqueueWaitingEntry | null,
+    operationId: string | undefined
+  ): boolean {
+    if (!entry) return false;
+    if (!entry.operationId) return true;
+    return operationId?.trim() === entry.operationId;
   }
 
   /**
@@ -524,9 +565,17 @@ export class AgentXOperationEventService {
       status in LIFECYCLE_TO_LOG_STATUS
         ? LIFECYCLE_TO_LOG_STATUS[status as AgentXOperationLifecycleStatus]
         : (status as OperationLogStatus);
+    const normalizedOperationId = operationId?.trim() || undefined;
+    const waitingEntry = this.getEnqueueWaitingEntry(threadId);
+    if (
+      this.isTerminalLogStatus(normalizedStatus) &&
+      this.enqueueWaitingMatchesOperation(waitingEntry, normalizedOperationId)
+    ) {
+      this.clearEnqueueWaiting(threadId);
+    }
     this.logger.debug('Emitting operation status update', {
       threadId,
-      operationId,
+      operationId: normalizedOperationId,
       status: normalizedStatus,
     });
     // Run inside NgZone — same reason as emitTitleUpdated above.
@@ -536,7 +585,7 @@ export class AgentXOperationEventService {
         status: normalizedStatus,
         timestamp,
         source,
-        ...(operationId ? { operationId } : {}),
+        ...(normalizedOperationId ? { operationId: normalizedOperationId } : {}),
         ...(title ? { title } : {}),
       })
     );
@@ -585,6 +634,7 @@ export class AgentXOperationEventService {
     try {
       const docs = await this.firestoreAdapter.getDocs(`AgentJobs/${operationId}/events`, 'seq');
       if (docs.length === 0) {
+        const jobLifecycleStatus = await this.getStoredJobLifecycleStatus(operationId);
         return {
           content: '',
           parts: [],
@@ -592,9 +642,9 @@ export class AgentXOperationEventService {
           cards: [],
           media: [],
           latestYieldState: null,
-          latestLifecycleStatus: null,
-          isDone: false,
-          doneSuccess: false,
+          latestLifecycleStatus: jobLifecycleStatus,
+          isDone: jobLifecycleStatus === 'complete',
+          doneSuccess: jobLifecycleStatus === 'complete',
           maxSeq: -1,
         };
       }
@@ -823,6 +873,19 @@ export class AgentXOperationEventService {
         }
       }
 
+      const jobLifecycleStatus = await this.getStoredJobLifecycleStatus(operationId);
+      if (
+        jobLifecycleStatus &&
+        (this.isTerminalLifecycleStatus(jobLifecycleStatus) || !latestLifecycleStatus)
+      ) {
+        latestLifecycleStatus = jobLifecycleStatus;
+      }
+
+      if (!isDone && latestLifecycleStatus === 'complete') {
+        isDone = true;
+        doneSuccess = true;
+      }
+
       this.logger.debug('Reconstructed stored event state', {
         operationId,
         contentLength: content.length,
@@ -865,6 +928,54 @@ export class AgentXOperationEventService {
         maxSeq: -1,
       };
     }
+  }
+
+  private async getStoredJobLifecycleStatus(
+    operationId: string
+  ): Promise<AgentXOperationLifecycleStatus | null> {
+    if (!this.firestoreAdapter?.getDoc) return null;
+
+    try {
+      const doc = await this.firestoreAdapter.getDoc(`AgentJobs/${operationId}`);
+      if (!doc) return null;
+
+      const rawStatus = typeof doc['status'] === 'string' ? doc['status'] : null;
+      return this.mapStoredJobStatusToLifecycle(rawStatus);
+    } catch (error) {
+      this.logger.warn('Failed to read stored job parent status', {
+        operationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  private mapStoredJobStatusToLifecycle(
+    status: string | null
+  ): AgentXOperationLifecycleStatus | null {
+    switch (status) {
+      case 'queued':
+        return 'queued';
+      case 'thinking':
+      case 'acting':
+      case 'streaming_result':
+        return 'running';
+      case 'paused':
+      case 'awaiting_input':
+      case 'awaiting_approval':
+      case 'failed':
+      case 'cancelled':
+        return status;
+      case 'completed':
+      case 'complete':
+        return 'complete';
+      default:
+        return null;
+    }
+  }
+
+  private isTerminalLifecycleStatus(status: AgentXOperationLifecycleStatus): boolean {
+    return status === 'complete' || status === 'failed' || status === 'cancelled';
   }
 
   /**

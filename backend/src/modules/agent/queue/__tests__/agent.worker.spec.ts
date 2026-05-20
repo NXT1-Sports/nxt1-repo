@@ -11,6 +11,30 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { AgentJobPayload, AgentJobOrigin, AgentOperationResult } from '@nxt1/core';
 import { AgentYieldException } from '../../exceptions/agent-yield.exception.js';
 
+const mockExecuteBillingDeduction = vi.fn().mockResolvedValue({
+  charged: true,
+  rawCostUsd: 0,
+  chargeAmountCents: 0,
+});
+const mockLogAgentTaskCompletion = vi.fn().mockResolvedValue({
+  activityId: 'activity-1',
+  notificationId: 'notification-1',
+});
+const mockLogAgentTaskFailure = vi.fn().mockResolvedValue({
+  activityId: 'activity-failure-1',
+  notificationId: 'notification-failure-1',
+});
+
+vi.mock('../../billing/usage-deduction.service.js', () => ({
+  executeBillingDeduction: mockExecuteBillingDeduction,
+}));
+
+vi.mock('../../services/agent-activity.service.js', () => ({
+  logAgentTaskCompletion: mockLogAgentTaskCompletion,
+  logAgentTaskFailure: mockLogAgentTaskFailure,
+  deriveBodyFromResult: vi.fn().mockReturnValue('Drafted 5 recruiting emails'),
+}));
+
 // ─── Capture the processor callback ────────────────────────────────────────
 
 let capturedProcessor: ((job: unknown) => Promise<unknown>) | null = null;
@@ -149,6 +173,7 @@ describe('AgentWorker', () => {
     publish: vi.fn().mockResolvedValue(undefined),
     subscribe: vi.fn().mockResolvedValue(() => undefined),
     subscribeControl: vi.fn().mockResolvedValue(async () => undefined),
+    subscriberCount: vi.fn().mockResolvedValue(0),
   };
 
   const mockQueueService = {
@@ -172,6 +197,21 @@ describe('AgentWorker', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockExecuteBillingDeduction.mockResolvedValue({
+      charged: true,
+      rawCostUsd: 0,
+      chargeAmountCents: 0,
+    });
+    mockLogAgentTaskCompletion.mockResolvedValue({
+      activityId: 'activity-1',
+      notificationId: 'notification-1',
+    });
+    mockLogAgentTaskFailure.mockResolvedValue({
+      activityId: 'activity-failure-1',
+      notificationId: 'notification-failure-1',
+    });
+    mockJobRepo.getById.mockResolvedValue(null);
+    mockPubSub.subscriberCount.mockResolvedValue(0);
     capturedProcessor = null;
     // Instantiate worker — this captures the processor
     new AgentWorker(
@@ -450,6 +490,58 @@ describe('AgentWorker', () => {
         status: 'completed',
         outcomeCode: 'success_default',
         percent: 100,
+      })
+    );
+  });
+
+  it('should skip billing for platform-sponsored jobs', async () => {
+    const payload = makePayload({
+      origin: 'database_event' as AgentJobOrigin,
+      context: { skipBilling: true },
+    });
+    const job = makeMockJob(payload);
+
+    await capturedProcessor!(job);
+
+    expect(mockExecuteBillingDeduction).not.toHaveBeenCalled();
+  });
+
+  it('should suppress completion push for active user-viewed jobs by default', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload);
+
+    mockJobRepo.getById.mockResolvedValue({
+      viewerLastSeenAt: new Date().toISOString(),
+    });
+    mockPubSub.subscriberCount.mockResolvedValue(1);
+
+    await capturedProcessor!(job);
+
+    expect(mockLogAgentTaskCompletion).not.toHaveBeenCalled();
+  });
+
+  it('should still dispatch completion push for background jobs that disable active-viewer suppression', async () => {
+    const payload = makePayload({
+      origin: 'database_event' as AgentJobOrigin,
+      notificationPolicy: {
+        suppressPushWhenActivelyViewing: false,
+      },
+    });
+    const job = makeMockJob(payload);
+
+    mockJobRepo.getById.mockResolvedValue({
+      viewerLastSeenAt: new Date().toISOString(),
+    });
+    mockPubSub.subscriberCount.mockResolvedValue(1);
+
+    await capturedProcessor!(job);
+
+    expect(mockLogAgentTaskCompletion).toHaveBeenCalledTimes(1);
+    expect(mockLogAgentTaskCompletion).toHaveBeenCalledWith(
+      mockFirestore,
+      expect.objectContaining({
+        userId: payload.userId,
+        job: expect.objectContaining({ operationId: payload.operationId }),
       })
     );
   });

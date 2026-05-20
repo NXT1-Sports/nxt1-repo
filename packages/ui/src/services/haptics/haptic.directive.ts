@@ -36,6 +36,8 @@ export type HapticFeedbackType = HapticImpact | HapticNotification | 'selection'
 })
 export class HapticButtonDirective {
   private readonly haptics = inject(HapticsService);
+  private lastTouchStartAt = 0;
+  private readonly clickAfterTouchIgnoreMs = 700;
   private static readonly FORM_CONTROL_SELECTOR =
     'input, textarea, select, ion-input, ion-textarea, ion-select, [contenteditable="true"]';
 
@@ -56,9 +58,22 @@ export class HapticButtonDirective {
    */
   @Input({ transform: booleanAttribute }) nxtHapticDisabled = false;
 
-  @HostListener('click', ['$event'])
   @HostListener('touchstart', ['$event'])
-  onInteraction(event: Event): void {
+  onTouchStart(event: Event): void {
+    this.lastTouchStartAt = Date.now();
+    this.onInteraction(event);
+  }
+
+  @HostListener('click', ['$event'])
+  onClick(event: Event): void {
+    if (Date.now() - this.lastTouchStartAt < this.clickAfterTouchIgnoreMs) {
+      return;
+    }
+
+    this.onInteraction(event);
+  }
+
+  private onInteraction(event: Event): void {
     if (this.nxtHapticDisabled || this.feedbackType === null) {
       return;
     }

@@ -54,6 +54,7 @@ import {
   PaymentLogModel,
   type PaymentLogDocument,
 } from '../../models/billing/payment-log.model.js';
+import { resolveBillableFeatures } from '../../modules/billing/feature-resolution.service.js';
 
 /** Normalize PaymentLog status (Firestore: 'PAID'/'FAILED'/…) to TransactionStatus ('completed'/'failed'/…) */
 function normalizePaymentStatus(status: unknown): string {
@@ -79,7 +80,6 @@ function toISOString(val: unknown): string {
   if (!val) return new Date().toISOString();
   if (typeof val === 'string') return val;
   if (val instanceof Date) return val.toISOString();
-  // Firestore Timestamp
   const tsVal = val as Record<string, unknown>;
   if (typeof tsVal['toDate'] === 'function') return (tsVal['toDate'] as () => Date)().toISOString();
   return new Date().toISOString();
@@ -155,6 +155,13 @@ import type {
 
 const router = Router();
 
+router.use((_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
+
 // ============================================
 // HELPERS
 // ============================================
@@ -212,6 +219,141 @@ function formatPeriodLabel(start: Date, end: Date): string {
   return `${startStr} – ${endStr}`;
 }
 
+function getUsageEventCost(doc: UsageEventDocument): number {
+  return doc.unitCostSnapshot * doc.quantity;
+}
+
+function isCurrentMonthTimeframe(timeframe: string): boolean {
+  return timeframe === 'current-month' || timeframe.trim().length === 0;
+}
+
+function getAuthoritativeUsageTotalCents(
+  target: ResolvedBillingTarget,
+  timeframe: string,
+  eventTotalCents: number
+): number {
+  if (!isCurrentMonthTimeframe(timeframe)) {
+    return eventTotalCents;
+  }
+
+  const currentPeriodSpend = target.context.currentPeriodSpend;
+  return Number.isFinite(currentPeriodSpend) ? Math.max(0, currentPeriodSpend) : eventTotalCents;
+}
+
+function reconcileChartDataToAuthoritativeTotal(
+  chartData: UsageChartDataPoint[],
+  authoritativeTotalCents: number,
+  timeframe: string
+): UsageChartDataPoint[] {
+  if (!isCurrentMonthTimeframe(timeframe) || chartData.length === 0) {
+    return chartData;
+  }
+
+  const lastIndex = chartData.length - 1;
+  const lastPoint = chartData[lastIndex];
+  if (!lastPoint || lastPoint.amount === authoritativeTotalCents) {
+    return chartData;
+  }
+
+  chartData[lastIndex] = {
+    ...lastPoint,
+    amount: authoritativeTotalCents,
+  };
+
+  return chartData;
+}
+
+function createAdjustmentLineItem(deltaCents: number): UsageBreakdownLineItem {
+  const label = deltaCents >= 0 ? 'Recent wallet activity' : 'Billing adjustment';
+  return {
+    sku: label,
+    units: '1',
+    pricePerUnit: `$${(deltaCents / 100).toFixed(2)}`,
+    grossAmount: deltaCents,
+    billedAmount: deltaCents,
+  };
+}
+
+function createAdjustmentTeam(
+  target: ResolvedBillingTarget,
+  dateKey: string,
+  deltaCents: number
+): UsageBreakdownTeam {
+  const teamId = target.context.teamId ?? target.teamIds?.[0] ?? 'billing-adjustment';
+  const lineItem = createAdjustmentLineItem(deltaCents);
+  return {
+    teamId: `billing-adjustment:${dateKey}:${teamId}`,
+    teamName: 'Billing sync',
+    grossAmount: deltaCents,
+    billedAmount: deltaCents,
+    users: [
+      {
+        userId: `billing-adjustment:${target.billingUserId}`,
+        userName: 'Recent wallet activity',
+        grossAmount: deltaCents,
+        billedAmount: deltaCents,
+        lineItems: [lineItem],
+      },
+    ],
+  };
+}
+
+function applyBreakdownAdjustment(
+  row: UsageBreakdownRow,
+  target: ResolvedBillingTarget,
+  deltaCents: number
+): UsageBreakdownRow {
+  const hasTeams = row.teams && row.teams.length > 0;
+  return {
+    ...row,
+    grossAmount: row.grossAmount + deltaCents,
+    billedAmount: row.billedAmount + deltaCents,
+    lineItems: hasTeams ? row.lineItems : [...row.lineItems, createAdjustmentLineItem(deltaCents)],
+    teams: hasTeams
+      ? [...(row.teams ?? []), createAdjustmentTeam(target, row.date, deltaCents)]
+      : row.teams,
+  };
+}
+
+function reconcileBreakdownRowsToAuthoritativeTotal(
+  rows: UsageBreakdownRow[],
+  target: ResolvedBillingTarget,
+  authoritativeTotalCents: number,
+  timeframe: string
+): UsageBreakdownRow[] {
+  if (!isCurrentMonthTimeframe(timeframe)) {
+    return rows;
+  }
+
+  const eventTotalCents = rows.reduce((sum, row) => sum + row.billedAmount, 0);
+  const deltaCents = authoritativeTotalCents - eventTotalCents;
+  if (deltaCents === 0) {
+    return rows;
+  }
+
+  const todayKey = toLocalDateKey(new Date());
+  const todayIndex = rows.findIndex((row) => row.date === todayKey);
+
+  if (todayIndex >= 0) {
+    rows[todayIndex] = applyBreakdownAdjustment(rows[todayIndex]!, target, deltaCents);
+    return rows;
+  }
+
+  const adjustmentRow: UsageBreakdownRow = {
+    date: todayKey,
+    dateLabel: formatDateLabel(new Date(todayKey + 'T00:00:00')),
+    grossAmount: deltaCents,
+    billedAmount: deltaCents,
+    lineItems: target.type === 'organization' ? [] : [createAdjustmentLineItem(deltaCents)],
+    teams:
+      target.type === 'organization'
+        ? [createAdjustmentTeam(target, todayKey, deltaCents)]
+        : undefined,
+  };
+
+  return [adjustmentRow, ...rows].sort((left, right) => right.date.localeCompare(left.date));
+}
+
 /** Map UsageFeature enum to product category */
 function getFeatureCategory(feature: string): UsageProductCategory {
   const config = USAGE_PRODUCT_CONFIGS.find((p) => {
@@ -231,68 +373,156 @@ function getFeatureDisplayName(feature: string): string {
   return feature.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-const PASSIVE_USAGE_TOOL_PREFIXES = [
-  'get-',
-  'list-',
-  'read-',
-  'search-',
-  'query-',
-  'check-',
-  'track-',
-  'register-',
-] as const;
-
-function normalizeUsageToolSlug(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .replace(/-{2,}/g, '-');
+interface UsageEventLineItem {
+  readonly feature: string;
+  readonly cost: number;
+  readonly qty: number;
+  readonly subActions?: readonly string[];
 }
 
-function dedupeNormalizedUsageTools(values: readonly unknown[] | undefined): string[] {
-  if (!values || values.length === 0) {
-    return [];
+function readStringArrayMetadata(
+  meta: Record<string, unknown> | undefined,
+  key: string
+): string[] | undefined {
+  const value = meta?.[key];
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const strings = value.filter((entry): entry is string => typeof entry === 'string');
+  return strings.length > 0 ? strings : undefined;
+}
+
+function dedupeUsageFeatures(features: readonly string[] | undefined): string[] | undefined {
+  if (!features || features.length === 0) {
+    return undefined;
   }
 
   const seen = new Set<string>();
-  const normalized: string[] = [];
-
-  for (const value of values) {
-    if (typeof value !== 'string') continue;
-    const slug = normalizeUsageToolSlug(value);
-    if (!slug || seen.has(slug)) continue;
-    seen.add(slug);
-    normalized.push(slug);
-  }
-
-  return normalized;
-}
-
-function selectUsageRepresentativeTool(tools: readonly string[]): string | null {
-  for (let index = tools.length - 1; index >= 0; index -= 1) {
-    const tool = tools[index];
-    if (!PASSIVE_USAGE_TOOL_PREFIXES.some((prefix) => tool.startsWith(prefix))) {
-      return tool;
+  const deduped: string[] = [];
+  for (const feature of features) {
+    if (!seen.has(feature)) {
+      seen.add(feature);
+      deduped.push(feature);
     }
   }
 
-  return null;
+  return deduped.length > 0 ? deduped : undefined;
 }
 
-function getActivityUsageFeatureFromMetadata(
+function getNumberMetadata(
+  meta: Record<string, unknown> | undefined,
+  key: string
+): number | undefined {
+  const value = meta?.[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function getStringMetadata(
+  meta: Record<string, unknown> | undefined,
+  key: string
+): string | undefined {
+  const value = meta?.[key];
+  return typeof value === 'string' && value.length > 0 ? value : undefined;
+}
+
+function getLegacyItemizedOperationKey(
+  doc: UsageEventDocument,
+  dateKey: string,
   meta: Record<string, unknown> | undefined
 ): string | null {
-  const successful = selectUsageRepresentativeTool(
-    dedupeNormalizedUsageTools(meta?.['successfulTools'] as unknown[] | undefined)
-  );
-  if (successful) return successful;
+  const lineItemCount = getNumberMetadata(meta, 'billingLineItemCount');
+  const operationId = getStringMetadata(meta, 'operationId');
+  if (!lineItemCount || lineItemCount <= 1 || !operationId) {
+    return null;
+  }
 
-  const attempted = selectUsageRepresentativeTool(
-    dedupeNormalizedUsageTools(meta?.['agentTools'] as unknown[] | undefined)
+  return [dateKey, doc.organizationId ?? '', doc.teamId ?? '', doc.userId, operationId].join('::');
+}
+
+function getLegacyItemizedLineItem(
+  doc: UsageEventDocument,
+  meta: Record<string, unknown> | undefined
+): UsageEventLineItem {
+  const billableFeatures = dedupeUsageFeatures(readStringArrayMetadata(meta, 'billableFeatures'));
+  return {
+    feature:
+      getStringMetadata(meta, 'aggregateFeature') ??
+      getStringMetadata(meta, 'primaryFeature') ??
+      doc.feature,
+    cost: getNumberMetadata(meta, 'totalChargeAmountCents') ?? getUsageEventCost(doc),
+    qty: 1,
+    ...(billableFeatures ? { subActions: billableFeatures } : {}),
+  };
+}
+
+function getUsageFeaturesFromMetadata(
+  feature: string,
+  meta: Record<string, unknown> | undefined
+): string[] | null {
+  const explicitlyStoredFeatures = dedupeUsageFeatures(
+    readStringArrayMetadata(meta, 'billableFeatures') ?? readStringArrayMetadata(meta, 'subActions')
   );
-  return attempted;
+
+  if (explicitlyStoredFeatures) {
+    return explicitlyStoredFeatures.length === 1 &&
+      explicitlyStoredFeatures[0] === 'agent-execution'
+      ? null
+      : explicitlyStoredFeatures;
+  }
+
+  const successfulTools = readStringArrayMetadata(meta, 'successfulTools');
+  const agentTools = readStringArrayMetadata(meta, 'agentTools');
+  const coordinatorId = getStringMetadata(meta, 'coordinatorId');
+
+  const featureForResolution = feature === 'activity-usage' ? undefined : feature;
+  const resolvedFeatures = resolveBillableFeatures({
+    feature: featureForResolution,
+    coordinatorId,
+    agentTools,
+    successfulTools,
+  });
+
+  return resolvedFeatures.length === 1 && resolvedFeatures[0] === 'agent-execution'
+    ? null
+    : resolvedFeatures;
+}
+
+function getUsageEventLineItems(
+  doc: UsageEventDocument,
+  dateKey: string,
+  collapsedLegacyOperationKeys: Set<string>
+): UsageEventLineItem[] {
+  const cost = getUsageEventCost(doc);
+  const meta = doc.metadata as Record<string, unknown> | undefined;
+  const legacyItemizedOperationKey = getLegacyItemizedOperationKey(doc, dateKey, meta);
+
+  if (legacyItemizedOperationKey) {
+    if (collapsedLegacyOperationKeys.has(legacyItemizedOperationKey)) {
+      return [];
+    }
+
+    collapsedLegacyOperationKeys.add(legacyItemizedOperationKey);
+    return [getLegacyItemizedLineItem(doc, meta)];
+  }
+
+  const derivedFeatures = getUsageFeaturesFromMetadata(doc.feature, meta);
+  if (!derivedFeatures) {
+    return [{ feature: doc.feature, cost, qty: doc.quantity }];
+  }
+
+  if (derivedFeatures.length === 1 && doc.feature === 'activity-usage') {
+    return [{ feature: derivedFeatures[0] ?? doc.feature, cost, qty: doc.quantity }];
+  }
+
+  return [
+    {
+      feature: doc.feature,
+      cost,
+      qty: doc.quantity,
+      ...(derivedFeatures.length > 1 ? { subActions: derivedFeatures } : {}),
+    },
+  ];
 }
 
 function buildUsageBillingInfoFromStripeCustomer(
@@ -365,27 +595,18 @@ async function buildBreakdownRows(
   interface FeatureAgg {
     qty: number;
     cost: number;
+    subActions: Set<string>;
   }
 
   // Org path: day → teamId → userId → feature → FeatureAgg
   const orgDaily = new Map<string, Map<string, Map<string, Map<string, FeatureAgg>>>>();
   // Individual path: day → feature → FeatureAgg
   const indDaily = new Map<string, Map<string, FeatureAgg>>();
+  const collapsedLegacyOperationKeys = new Set<string>();
 
   for (const doc of eventsDocs) {
     const dateKey = toLocalDateKey(doc.createdAt);
-    let feature = doc.feature;
-    const cost = doc.unitCostSnapshot * doc.quantity;
-    const qty = doc.quantity;
-
-    // ── Autonomous agent billing: derive display tool from metadata ──
-    if (feature === 'activity-usage') {
-      const meta = doc.metadata as Record<string, unknown> | undefined;
-      const derivedFeature = getActivityUsageFeatureFromMetadata(meta);
-      if (derivedFeature) {
-        feature = derivedFeature;
-      }
-    }
+    const lineItems = getUsageEventLineItems(doc, dateKey, collapsedLegacyOperationKeys);
 
     if (isOrg) {
       const evTeamId = doc.teamId ?? 'unknown';
@@ -399,13 +620,41 @@ async function buildBreakdownRows(
       const userMap = teamMap.get(evTeamId)!;
       if (!userMap.has(evUserId)) userMap.set(evUserId, new Map());
       const featureMap = userMap.get(evUserId)!;
-      const existing = featureMap.get(feature) ?? { qty: 0, cost: 0 };
-      featureMap.set(feature, { qty: existing.qty + qty, cost: existing.cost + cost });
+
+      for (const lineItem of lineItems) {
+        const existing = featureMap.get(lineItem.feature) ?? {
+          qty: 0,
+          cost: 0,
+          subActions: new Set<string>(),
+        };
+        for (const subAction of lineItem.subActions ?? []) {
+          existing.subActions.add(subAction);
+        }
+        featureMap.set(lineItem.feature, {
+          qty: existing.qty + lineItem.qty,
+          cost: existing.cost + lineItem.cost,
+          subActions: existing.subActions,
+        });
+      }
     } else {
       if (!indDaily.has(dateKey)) indDaily.set(dateKey, new Map());
       const featureMap = indDaily.get(dateKey)!;
-      const existing = featureMap.get(feature) ?? { qty: 0, cost: 0 };
-      featureMap.set(feature, { qty: existing.qty + qty, cost: existing.cost + cost });
+
+      for (const lineItem of lineItems) {
+        const existing = featureMap.get(lineItem.feature) ?? {
+          qty: 0,
+          cost: 0,
+          subActions: new Set<string>(),
+        };
+        for (const subAction of lineItem.subActions ?? []) {
+          existing.subActions.add(subAction);
+        }
+        featureMap.set(lineItem.feature, {
+          qty: existing.qty + lineItem.qty,
+          cost: existing.cost + lineItem.cost,
+          subActions: existing.subActions,
+        });
+      }
     }
   }
 
@@ -442,10 +691,13 @@ async function buildBreakdownRows(
   // ── Helper: build flat line items from a feature map ────────────
   function buildLineItems(featureMap: Map<string, FeatureAgg>): UsageBreakdownLineItem[] {
     const items: UsageBreakdownLineItem[] = [];
-    for (const [feature, { qty, cost }] of featureMap) {
+    for (const [feature, { qty, cost, subActions }] of featureMap) {
       const unitCost = qty > 0 ? cost / qty : 0;
       items.push({
         sku: getFeatureDisplayName(feature),
+        ...(subActions.size > 0
+          ? { subActions: Array.from(subActions).map(getFeatureDisplayName) }
+          : {}),
         units: `${qty}`,
         pricePerUnit: `$${(unitCost / 100).toFixed(2)}`,
         grossAmount: cost,
@@ -540,16 +792,25 @@ async function buildBreakdownRows(
  * MongoDB's `$in` operator handles any number of values without chunking.
  */
 async function fetchOrgUsageEvents(
+  organizationId: string | undefined,
   teamIds: string[],
   startDate: Date,
   endDate: Date,
   orderDesc = true
 ): Promise<UsageEventDocument[]> {
-  if (teamIds.length === 0) return [];
+  if (teamIds.length === 0 && !organizationId) return [];
+
+  const scopeFilters: Record<string, unknown>[] = [];
+  if (teamIds.length > 0) {
+    scopeFilters.push({ teamId: { $in: teamIds } });
+  }
+  if (organizationId) {
+    scopeFilters.push({ organizationId });
+  }
 
   return fetchUsageEventBatches(
     {
-      teamId: { $in: teamIds },
+      $or: scopeFilters,
       createdAt: { $gte: startDate, $lte: endDate },
     },
     orderDesc
@@ -566,8 +827,14 @@ async function fetchUsageEvents(
   endDate: Date,
   orderDesc = true
 ): Promise<UsageEventDocument[]> {
-  if (target.type === 'organization' && target.teamIds && target.teamIds.length > 0) {
-    return fetchOrgUsageEvents(target.teamIds, startDate, endDate, orderDesc);
+  if (target.type === 'organization') {
+    return fetchOrgUsageEvents(
+      target.organizationId,
+      target.teamIds ?? [],
+      startDate,
+      endDate,
+      orderDesc
+    );
   }
 
   return fetchUsageEventBatches(
@@ -729,46 +996,26 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     // Aggregate usage by feature
     const featureUsage = new Map<string, number>();
     const dailyUsage = new Map<string, number>();
-    let totalUsageCents = 0;
+    const collapsedLegacyOperationKeys = new Set<string>();
+    let eventUsageCents = 0;
 
-    // For IAP wallet users, org billing contexts, and personal billing overrides,
-    // use the atomic counter (currentPeriodSpend) as the authoritative total.
-    // deductWallet() and recordOrgSpend() always increment the counter, while
-    // usage events may be missing for dynamic-cost features without Stripe price IDs.
-    // For personal billing overrides: currentPeriodSpend only counts charges deducted
-    // from the personal wallet — events from the prior org-billing period are excluded.
-    const isIapUser =
-      billingCtx.billingEntity === 'individual' && billingCtx.paymentProvider === 'iap';
-    const isPersonalOverride = billingCtx.billingMode === 'personal' && !!billingCtx.organizationId;
-    const isOrgBilling = billingCtx.billingEntity === 'organization';
+    for (const doc of eventsDocs) {
+      const dateKey = toLocalDateKey(doc.createdAt);
+      const lineItems = getUsageEventLineItems(doc, dateKey, collapsedLegacyOperationKeys);
+      const cost = lineItems.reduce((sum, lineItem) => sum + lineItem.cost, 0);
+      eventUsageCents += cost;
 
-    if (isIapUser || isPersonalOverride) {
-      // For IAP and personal-override users, currentPeriodSpend is the authoritative
-      // total for the ACTIVE mode. On billing-mode switch, the backend restores it
-      // from the preserved personal spend counter, so prior personal usage remains
-      // intact when the user switches away and later returns.
-      totalUsageCents = billingCtx.currentPeriodSpend ?? 0;
-    } else {
-      // Aggregate events for feature/daily breakdown (charts)
-      for (const doc of eventsDocs) {
-        const cost = doc.unitCostSnapshot * doc.quantity;
-        totalUsageCents += cost;
-
-        featureUsage.set(doc.feature, (featureUsage.get(doc.feature) ?? 0) + cost);
-
-        const dateKey = toLocalDateKey(doc.createdAt);
-        dailyUsage.set(dateKey, (dailyUsage.get(dateKey) ?? 0) + cost);
+      for (const lineItem of lineItems) {
+        featureUsage.set(
+          lineItem.feature,
+          (featureUsage.get(lineItem.feature) ?? 0) + lineItem.cost
+        );
       }
 
-      // For org billing, prefer the atomic counter as the authoritative total.
-      // Usage events may undercount when features lack a Stripe price mapping.
-      if (isOrgBilling) {
-        const authoritative = billingCtx.currentPeriodSpend ?? 0;
-        if (authoritative > totalUsageCents) {
-          totalUsageCents = authoritative;
-        }
-      }
+      dailyUsage.set(dateKey, (dailyUsage.get(dateKey) ?? 0) + cost);
     }
+
+    const totalUsageCents = getAuthoritativeUsageTotalCents(target, timeframe, eventUsageCents);
 
     const platformConfig = await getPlatformConfig(db);
 
@@ -839,8 +1086,15 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
         grossAmount,
       }));
 
+    reconcileChartDataToAuthoritativeTotal(chartData, totalUsageCents, timeframe);
+
     // Build breakdown rows (daily — org-aware with team/user names)
-    const breakdownRows = await buildBreakdownRows(db, eventsDocs, target);
+    const breakdownRows = reconcileBreakdownRowsToAuthoritativeTotal(
+      await buildBreakdownRows(db, eventsDocs, target),
+      target,
+      totalUsageCents,
+      timeframe
+    );
 
     // Payment history from the already-fetched paymentLogsSnap (parallelized above)
     const paymentLogDocs = paymentLogsSnap as PaymentLogDocument[];
@@ -1022,35 +1276,12 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
 
     const eventsDocs = await fetchUsageEvents(db, target, start, end, false);
 
-    // For IAP wallet users, personal billing overrides, and org billing contexts,
-    // use the atomic counter (currentPeriodSpend) as the authoritative total.
-    // Personal overrides: currentPeriodSpend only reflects personal wallet charges,
-    // correctly excluding spend that occurred while the user was on org billing.
-    const isIapUser =
-      billingCtx.billingEntity === 'individual' && billingCtx.paymentProvider === 'iap';
-    const isPersonalOverride = billingCtx.billingMode === 'personal' && !!billingCtx.organizationId;
-    const isOrgBilling = billingCtx.billingEntity === 'organization';
-
-    let totalUsageCents = 0;
-    if (isIapUser || isPersonalOverride) {
-      // currentPeriodSpend is the active-mode mirror restored from the preserved
-      // personal spend counter, so switching away and back keeps the last
-      // personal-wallet usage state intact.
-      totalUsageCents = billingCtx.currentPeriodSpend ?? 0;
-    } else {
-      for (const doc of eventsDocs) {
-        totalUsageCents += doc.unitCostSnapshot * doc.quantity;
-      }
-
-      // For org billing, prefer the atomic counter as the authoritative total.
-      // Usage events may undercount when features lack a Stripe price mapping.
-      if (isOrgBilling) {
-        const authoritative = billingCtx.currentPeriodSpend ?? 0;
-        if (authoritative > totalUsageCents) {
-          totalUsageCents = authoritative;
-        }
-      }
-    }
+    const eventUsageCents = eventsDocs.reduce((sum, doc) => sum + getUsageEventCost(doc), 0);
+    const totalUsageCents = getAuthoritativeUsageTotalCents(
+      target,
+      'current-month',
+      eventUsageCents
+    );
 
     const platformConfig = await getPlatformConfig(db);
 
@@ -1100,9 +1331,11 @@ router.get('/chart', appGuard, async (req: Request, res: Response) => {
     const eventsDocs = await fetchUsageEvents(db, target, start, end, false);
 
     const dailyUsage = new Map<string, number>();
+    let eventUsageCents = 0;
     for (const doc of eventsDocs) {
       const dateKey = toLocalDateKey(doc.createdAt);
-      const cost = doc.unitCostSnapshot * doc.quantity;
+      const cost = getUsageEventCost(doc);
+      eventUsageCents += cost;
       dailyUsage.set(dateKey, (dailyUsage.get(dateKey) ?? 0) + cost);
     }
 
@@ -1125,7 +1358,16 @@ router.get('/chart', appGuard, async (req: Request, res: Response) => {
       current.setDate(current.getDate() + 1);
     }
 
-    return res.json({ success: true, data: chartData });
+    const authoritativeTotalCents = getAuthoritativeUsageTotalCents(
+      target,
+      timeframe,
+      eventUsageCents
+    );
+
+    return res.json({
+      success: true,
+      data: reconcileChartDataToAuthoritativeTotal(chartData, authoritativeTotalCents, timeframe),
+    });
   } catch (error) {
     logger.error('[GET /chart] Failed to get chart data', { error });
     return res.status(500).json({
@@ -1153,7 +1395,18 @@ router.get('/breakdown', appGuard, async (req: Request, res: Response) => {
 
     const eventsDocs = await fetchUsageEvents(db, target, start, end, true);
 
-    const breakdownRows = await buildBreakdownRows(db, eventsDocs, target);
+    const eventUsageCents = eventsDocs.reduce((sum, doc) => sum + getUsageEventCost(doc), 0);
+    const authoritativeTotalCents = getAuthoritativeUsageTotalCents(
+      target,
+      timeframe,
+      eventUsageCents
+    );
+    const breakdownRows = reconcileBreakdownRowsToAuthoritativeTotal(
+      await buildBreakdownRows(db, eventsDocs, target),
+      target,
+      authoritativeTotalCents,
+      timeframe
+    );
 
     return res.json({ success: true, data: breakdownRows });
   } catch (error) {

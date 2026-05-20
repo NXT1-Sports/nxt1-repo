@@ -316,7 +316,7 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
                       <button
                         type="button"
                         class="nxt1-draft-add-btn"
-                        nxtHaptic="medium"
+                        nxtHaptic="light"
                         data-testid="draft-program-add"
                         (click)="confirmDraftProgram()"
                       >
@@ -562,7 +562,7 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
                       <button
                         type="button"
                         class="nxt1-draft-add-btn"
-                        nxtHaptic="medium"
+                        nxtHaptic="light"
                         data-testid="draft-program-add"
                         (click)="confirmDraftProgram()"
                       >
@@ -1704,6 +1704,7 @@ export class OnboardingTeamSelectionStepComponent {
         data: c.code,
       })),
       preferNative: 'native',
+      haptics: false,
     });
 
     if (result?.selected && result.data) {
@@ -1723,6 +1724,7 @@ export class OnboardingTeamSelectionStepComponent {
       inputType: 'text',
       required: false,
       preferNative: 'native',
+      haptics: false,
     });
 
     if (result.confirmed) {
@@ -1739,6 +1741,7 @@ export class OnboardingTeamSelectionStepComponent {
         data: s.abbreviation,
       })),
       preferNative: 'native',
+      haptics: false,
     });
 
     if (result?.selected && result.data) {
@@ -1757,6 +1760,7 @@ export class OnboardingTeamSelectionStepComponent {
       inputType: 'text',
       required: false,
       preferNative: 'native',
+      haptics: false,
     });
 
     if (result.confirmed) {

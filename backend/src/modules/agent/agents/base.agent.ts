@@ -702,11 +702,19 @@ export abstract class BaseAgent {
         );
         const selectedSkills = matched.slice(0, this.getSkillBudget());
         if (selectedSkills.length > 0) {
+          // Extract the [Request] segment from the enriched intent so knowledge
+          // retrieval embeds the actual user question, not the user-profile dump.
+          // Falls back to the full intent for downstream delegations that don't
+          // include a [Request] block.
+          const requestMatch = /\[Request\]\n([\s\S]+?)(?=\n\n\[|\s*$)/.exec(intent);
+          const knowledgeQuery = requestMatch?.[1]?.trim() || intent;
+          const knowledgeQueryEmbedding = requestMatch ? undefined : intentEmbedding;
+
           // Trigger retrieval for GlobalKnowledgeSkill before building prompt.
-          // Pass the already-computed intentEmbedding to skip a redundant embed call.
+          // Pass the already-computed intentEmbedding only when the query is unchanged.
           for (const m of selectedSkills) {
             if (m.skill instanceof GlobalKnowledgeSkill) {
-              await m.skill.retrieveForIntent(intent, intentEmbedding);
+              await m.skill.retrieveForIntent(knowledgeQuery, knowledgeQueryEmbedding);
             }
           }
           const skillContextParams = this.buildGameAnalysisParams(intent);
@@ -1339,6 +1347,7 @@ export abstract class BaseAgent {
 
       const llmOptions = {
         tier: routing.tier,
+        modelOverride: routing.modelOverride,
         maxTokens: routing.maxTokens,
         temperature: routing.temperature,
         tools: toolSchemas.length > 0 ? toolSchemas : undefined,
@@ -1369,7 +1378,7 @@ export abstract class BaseAgent {
             // fetch reader buffers chunks. Throwing here causes the OpenRouter
             // adapter to reject and propagate the AbortError up.
             this.throwIfAborted(context.signal);
-            if (delta.thinkingContent) {
+            if (routing.enableThinking && delta.thinkingContent) {
               onStreamEvent({
                 type: 'thinking',
                 agentId: this.id,
@@ -2146,6 +2155,16 @@ export abstract class BaseAgent {
         maxTokens: 40,
         temperature: 0.2,
         ...(context.signal ? { signal: context.signal } : {}),
+        ...(context.operationId
+          ? {
+              telemetryContext: {
+                operationId: context.operationId,
+                userId: context.userId,
+                agentId: this.id,
+                feature: 'agent.progress_commentary',
+              },
+            }
+          : {}),
       });
 
       const text = sanitizeAgentOutputText(commentary.content ?? '')

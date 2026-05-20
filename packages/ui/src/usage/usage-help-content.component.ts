@@ -32,7 +32,6 @@ import { NxtIconComponent } from '../components/icon';
     <div class="help-sheet">
       <nxt1-sheet-header
         title="How Billing Works"
-        closePosition="left"
         [centerTitle]="true"
         [showBorder]="true"
         (closeSheet)="closeHelp()"

@@ -78,6 +78,8 @@
 		     NSAllowsLocalNetworking allows HTTP to local IPs (192.168.x.x) for dev live-reload. -->
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
+		<key>NSAllowsArbitraryLoadsInWebContent</key>
+		<true/>
 	</dict>
 	<!-- Geolocation Permissions (Required for @capacitor/geolocation) -->
 	<key>NSLocationWhenInUseUsageDescription</key>

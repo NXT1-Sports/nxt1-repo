@@ -22,6 +22,7 @@ import {
 } from '@angular/core';
 import { NxtIconComponent, type IconName } from '../icon';
 import { NxtPlatformIconComponent } from '../platform-icon';
+import { LINK_SOURCES_TEST_IDS } from '@nxt1/core/testing';
 
 // ============================================
 // TYPES
@@ -136,11 +137,14 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
       @if (expanded()) {
         <div class="nxt1-list-group">
           @for (source of filteredSources(); track source.platform; let i = $index) {
-            <button
-              type="button"
+            <div
               class="nxt1-source-row"
-              [attr.data-testid]="'link-sources-source-row-' + source.platform"
-              (click)="sourceTap.emit({ source, index: i })"
+              [attr.data-testid]="testIds.SOURCE_ROW + '-' + source.platform"
+              role="button"
+              tabindex="0"
+              (click)="onSourceRowTap(source, i)"
+              (keydown.enter)="onSourceRowTap(source, i)"
+              (keydown.space)="onSourceRowTap(source, i); $event.preventDefault()"
             >
               <div class="nxt1-source-left">
                 <div
@@ -158,6 +162,17 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
               </div>
               <div class="nxt1-source-right">
                 @if (source.connected) {
+                  @if (showDisconnectAction(source)) {
+                    <button
+                      type="button"
+                      class="nxt1-source-disconnect"
+                      [attr.data-testid]="testIds.DISCONNECT_BUTTON + '-' + source.platform"
+                      [attr.aria-label]="'Disconnect ' + source.label"
+                      (click)="onDisconnectTap(source, i, $event)"
+                    >
+                      <nxt1-icon name="close" [size]="12" class="nxt1-source-disconnect-icon" />
+                    </button>
+                  }
                   <div class="nxt1-source-status">
                     <span class="nxt1-source-username">{{ source.username || 'Connected' }}</span>
                     @if (source.addedBy) {
@@ -172,7 +187,7 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
                   <nxt1-icon name="chevronForward" [size]="14" class="nxt1-source-chevron" />
                 }
               </div>
-            </button>
+            </div>
           }
         </div>
       }
@@ -283,9 +298,6 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
          SOURCE ROW
          ============================================ */
       .nxt1-source-row {
-        appearance: none;
-        -webkit-appearance: none;
-        border: none;
         background: transparent;
         display: flex;
         align-items: center;
@@ -298,10 +310,16 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
         -webkit-tap-highlight-color: transparent;
         text-align: left;
         transition: opacity var(--nxt1-duration-fast) var(--nxt1-easing-out);
+        outline: none;
       }
 
       .nxt1-source-row:not(:last-child) {
         border-bottom: 1px solid var(--nxt1-color-border-subtle);
+      }
+
+      .nxt1-source-row:focus-visible {
+        border-radius: var(--nxt1-borderRadius-md);
+        box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--nxt1-color-primary) 40%, transparent);
       }
 
       .nxt1-source-row:active {
@@ -374,6 +392,37 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
         color: var(--nxt1-color-text-tertiary);
       }
 
+      .nxt1-source-disconnect {
+        appearance: none;
+        -webkit-appearance: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        border: none;
+        border-radius: 9999px;
+        background: transparent;
+        color: var(--nxt1-color-text-tertiary);
+        cursor: pointer;
+        flex-shrink: 0;
+        transition:
+          background var(--nxt1-duration-fast) var(--nxt1-easing-out),
+          color var(--nxt1-duration-fast) var(--nxt1-easing-out);
+      }
+
+      .nxt1-source-disconnect:hover,
+      .nxt1-source-disconnect:focus-visible {
+        background: var(--nxt1-color-surface-200);
+        color: var(--nxt1-color-text-primary);
+        outline: none;
+      }
+
+      .nxt1-source-disconnect:active {
+        background: color-mix(in srgb, var(--nxt1-color-surface-200) 80%, transparent);
+      }
+
       .nxt1-source-favicon {
         display: block;
         border-radius: var(--nxt1-borderRadius-sm, 3px);
@@ -412,6 +461,8 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class NxtConnectedSourcesComponent {
+  protected readonly testIds = LINK_SOURCES_TEST_IDS;
+
   /** Section title. Defaults to "Connected accounts". */
   readonly title = input('Connected accounts');
 
@@ -432,6 +483,9 @@ export class NxtConnectedSourcesComponent {
 
   /** Emitted when a source row is tapped. */
   readonly sourceTap = output<ConnectedSourceTapEvent>();
+
+  /** Emitted when the connected-state disconnect control is tapped. */
+  readonly disconnectTap = output<ConnectedSourceTapEvent>();
 
   /** Emitted when the user switches the mode toggle. */
   readonly modeChange = output<ConnectionMode>();
@@ -464,5 +518,18 @@ export class NxtConnectedSourcesComponent {
   setMode(mode: ConnectionMode): void {
     this.activeMode.set(mode);
     this.modeChange.emit(mode);
+  }
+
+  protected onSourceRowTap(source: ConnectedSource, index: number): void {
+    this.sourceTap.emit({ source, index });
+  }
+
+  protected onDisconnectTap(source: ConnectedSource, index: number, event: Event): void {
+    event.stopPropagation();
+    this.disconnectTap.emit({ source, index });
+  }
+
+  protected showDisconnectAction(source: ConnectedSource): boolean {
+    return source.connected && !source.locked && !source.username;
   }
 }

@@ -118,4 +118,20 @@ describe('FirecrawlProfileService', () => {
 
     expect(mockStopInteraction).toHaveBeenCalledWith(TEST_SESSION_ID);
   });
+
+  it('maps Firecrawl unsupported-site failures to a sign-in unsupported error', async () => {
+    mockScrape.mockRejectedValueOnce(
+      new Error('We apologize for the inconvenience but we do not support this site.')
+    );
+
+    await expect(
+      service.startSignInSession(TEST_USER_ID, 'instagram_signin', 'https://www.instagram.com/')
+    ).rejects.toMatchObject({
+      code: 'LIVE_VIEW_SIGN_IN_UNSUPPORTED',
+      message:
+        'Sign in is currently unsupported for this platform. We are working on it, check back soon.',
+    });
+
+    expect(mockInteract).not.toHaveBeenCalled();
+  });
 });

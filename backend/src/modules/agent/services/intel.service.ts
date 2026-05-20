@@ -24,6 +24,7 @@ import { OpenRouterService } from '../llm/openrouter.service.js';
 import { resolveStructuredOutput } from '../llm/structured-output.js';
 import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import { getFeatureFlagsService } from '../../../config/feature-flags/index.js';
+import type { AgentIdentifier } from '@nxt1/core';
 import { z } from 'zod';
 
 // ─── Section Order Constants ─────────────────────────────────────────────────
@@ -63,6 +64,29 @@ const TEAM_SECTION_META: Readonly<Record<TeamSectionId, { title: string; icon: s
 };
 
 // ─── Shared Helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Telemetry context for Intel LLM calls — threaded into OpenRouter so cost
+ * and latency are attributed to the originating user / agent / operation
+ * instead of being recorded as orphan (`none`) billing rows.
+ *
+ * All three fields are required when an Intel call wants to participate in
+ * telemetry; if any is missing the service silently skips telemetry rather
+ * than emitting a misleading partial record.
+ */
+export interface IntelTelemetryContext {
+  readonly operationId: string;
+  readonly userId: string;
+  readonly agentId: AgentIdentifier;
+  readonly feature?: string;
+}
+
+/** Build a telemetryContext for `llm.complete()` only when fully populated. */
+function buildLlmTelemetry(telemetry?: IntelTelemetryContext): IntelTelemetryContext | undefined {
+  if (!telemetry) return undefined;
+  if (!telemetry.operationId || !telemetry.userId || !telemetry.agentId) return undefined;
+  return telemetry;
+}
 
 /** Compute staleAt timestamp 30 days from now. */
 function computeStaleAt(): string {
@@ -277,7 +301,8 @@ export class IntelGenerationService {
     userId: string,
     userData: Record<string, unknown>,
     raw: RawProfileData,
-    db: Firestore
+    db: Firestore,
+    telemetry?: IntelTelemetryContext
   ): Promise<AthleteIntelDraft> {
     const citations = this.buildCitations(raw.connectedSources);
 
@@ -340,6 +365,7 @@ export class IntelGenerationService {
           name: 'athlete_intel_report',
           schema: intelReportResponseSchema,
         },
+        ...(buildLlmTelemetry(telemetry) && { telemetryContext: buildLlmTelemetry(telemetry)! }),
       }
     );
 
@@ -383,7 +409,8 @@ export class IntelGenerationService {
     teamId: string,
     teamData: Record<string, unknown>,
     raw: RawTeamData,
-    db: Firestore
+    db: Firestore,
+    telemetry?: IntelTelemetryContext
   ): Promise<TeamIntelDraft> {
     const citations = this.buildCitations(
       (teamData['connectedSources'] as Record<string, unknown>[] | undefined) ?? []
@@ -433,6 +460,7 @@ export class IntelGenerationService {
           name: 'team_intel_report',
           schema: intelReportResponseSchema,
         },
+        ...(buildLlmTelemetry(telemetry) && { telemetryContext: buildLlmTelemetry(telemetry)! }),
       }
     );
 
@@ -573,7 +601,8 @@ export class IntelGenerationService {
 
   async generateAthleteIntel(
     userId: string,
-    dbOverride?: Firestore
+    dbOverride?: Firestore,
+    telemetry?: IntelTelemetryContext
   ): Promise<Record<string, unknown>> {
     const db = this.resolveDb(dbOverride);
     const userDoc = await db.collection('Users').doc(userId).get();
@@ -590,7 +619,7 @@ export class IntelGenerationService {
 
     let draft: AthleteIntelDraft;
     try {
-      draft = await this.generateAthleteIntelDraft(userId, userData, raw, db);
+      draft = await this.generateAthleteIntelDraft(userId, userData, raw, db, telemetry);
     } catch (err) {
       logger.error('[IntelGenerationService] LLM call failed for athlete', { userId, err });
       throw new AgentEngineError(
@@ -643,7 +672,8 @@ export class IntelGenerationService {
 
   async generateTeamIntel(
     teamId: string,
-    dbOverride?: Firestore
+    dbOverride?: Firestore,
+    telemetry?: IntelTelemetryContext
   ): Promise<Record<string, unknown>> {
     const db = this.resolveDb(dbOverride);
     await this.ensureTeamIntelEnabled(db);
@@ -662,7 +692,7 @@ export class IntelGenerationService {
 
     let draft: TeamIntelDraft;
     try {
-      draft = await this.generateTeamIntelDraft(teamId, teamData, raw, db);
+      draft = await this.generateTeamIntelDraft(teamId, teamData, raw, db, telemetry);
     } catch (err) {
       logger.error('[IntelGenerationService] LLM call failed for team', { teamId, err });
       throw new AgentEngineError(
@@ -1449,7 +1479,8 @@ Output this EXACT JSON structure with all 5 sections:
     userId: string,
     sectionId: AthleteSectionId,
     userData: Record<string, unknown>,
-    db: Firestore
+    db: Firestore,
+    telemetry?: IntelTelemetryContext
   ): Promise<AthleteIntelSectionDraft> {
     const sectionRaw = await this.gatherAthleteSectionData(userId, userData, sectionId, db);
     const sectionAvailability = this.computeAthleteSectionAvailability(
@@ -1498,6 +1529,7 @@ Output this EXACT JSON structure with all 5 sections:
           name: 'athlete_intel_section',
           schema: intelSectionSchema,
         },
+        ...(buildLlmTelemetry(telemetry) && { telemetryContext: buildLlmTelemetry(telemetry)! }),
       }
     );
 
@@ -1549,7 +1581,8 @@ Output this EXACT JSON structure with all 5 sections:
     teamId: string,
     sectionId: TeamSectionId,
     teamData: Record<string, unknown>,
-    db: Firestore
+    db: Firestore,
+    telemetry?: IntelTelemetryContext
   ): Promise<TeamIntelSectionDraft> {
     const sectionRaw = await this.gatherTeamSectionData(teamId, teamData, sectionId, db);
     const prompt = this.buildTeamSectionPrompt(sectionId, teamData, sectionRaw);
@@ -1579,6 +1612,7 @@ Output this EXACT JSON structure with all 5 sections:
           name: 'team_intel_section',
           schema: intelSectionSchema,
         },
+        ...(buildLlmTelemetry(telemetry) && { telemetryContext: buildLlmTelemetry(telemetry)! }),
       }
     );
 
@@ -1639,7 +1673,8 @@ Output this EXACT JSON structure with all 5 sections:
   async updateAthleteIntelSection(
     userId: string,
     sectionId: AthleteSectionId,
-    dbOverride?: Firestore
+    dbOverride?: Firestore,
+    telemetry?: IntelTelemetryContext
   ): Promise<Record<string, unknown>> {
     const db = this.resolveDb(dbOverride);
 
@@ -1675,7 +1710,13 @@ Output this EXACT JSON structure with all 5 sections:
 
     let draft: AthleteIntelSectionDraft;
     try {
-      draft = await this.generateAthleteIntelSectionDraft(userId, sectionId, userData, db);
+      draft = await this.generateAthleteIntelSectionDraft(
+        userId,
+        sectionId,
+        userData,
+        db,
+        telemetry
+      );
     } catch (err) {
       logger.error('[IntelGenerationService] Section LLM call failed for athlete', {
         userId,
@@ -1726,7 +1767,8 @@ Output this EXACT JSON structure with all 5 sections:
   async updateTeamIntelSection(
     teamId: string,
     sectionId: TeamSectionId,
-    dbOverride?: Firestore
+    dbOverride?: Firestore,
+    telemetry?: IntelTelemetryContext
   ): Promise<Record<string, unknown>> {
     const db = this.resolveDb(dbOverride);
     await this.ensureTeamIntelEnabled(db);
@@ -1763,7 +1805,7 @@ Output this EXACT JSON structure with all 5 sections:
 
     let draft: TeamIntelSectionDraft;
     try {
-      draft = await this.generateTeamIntelSectionDraft(teamId, sectionId, teamData, db);
+      draft = await this.generateTeamIntelSectionDraft(teamId, sectionId, teamData, db, telemetry);
     } catch (err) {
       logger.error('[IntelGenerationService] Section LLM call failed for team', {
         teamId,

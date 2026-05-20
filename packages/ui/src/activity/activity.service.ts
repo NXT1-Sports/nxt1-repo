@@ -29,8 +29,9 @@
  * ```
  */
 
-import { DestroyRef, Injectable, inject, signal, computed } from '@angular/core';
+import { DestroyRef, Injectable, inject, signal, computed, effect } from '@angular/core';
 import {
+  type ActivityAction,
   type ActivityItem,
   type ActivityPriority,
   type ActivityTabId,
@@ -46,6 +47,7 @@ import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../services/breadcrumb';
 import { ANALYTICS_ADAPTER } from '../services/analytics';
 import { PERFORMANCE_ADAPTER } from '../services/performance';
+import { GlobalBadgeService } from '../services/badge';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
 import { ACTIVITY_API_ADAPTER } from './activity-api.service';
@@ -98,6 +100,36 @@ function readDateString(value: unknown): string | undefined {
   return undefined;
 }
 
+function normalizeActivityAction(value: unknown): ActivityAction | undefined {
+  const record = readRecord(value);
+
+  if (!record) {
+    return undefined;
+  }
+
+  const id = readString(record['id']);
+  const label = readString(record['label']);
+
+  if (!id || !label) {
+    return undefined;
+  }
+
+  const variant = readString(record['variant']);
+  const normalizedVariant =
+    variant === 'primary' || variant === 'secondary' || variant === 'outline' || variant === 'text'
+      ? variant
+      : undefined;
+
+  return {
+    id,
+    label,
+    variant: normalizedVariant,
+    icon: readString(record['icon']),
+    route: readString(record['route']),
+    url: readString(record['url']),
+  };
+}
+
 function normalizeRealtimeActivityItem(doc: Record<string, unknown>): ActivityItem | null {
   const id = readString(doc['id']) ?? readString(doc['__id']);
   const type = readString(doc['type']);
@@ -125,10 +157,12 @@ function normalizeRealtimeActivityItem(doc: Record<string, unknown>): ActivityIt
     timestamp: readDateString(doc['timestamp']) ?? new Date().toISOString(),
     isRead: doc['isRead'] === true,
     isArchived: doc['isArchived'] === true,
-    source: readRecord(doc['source']) as unknown as ActivityItem['source'],
-    action: readRecord(doc['action']) as unknown as ActivityItem['action'],
+    source: readRecord(doc['source']) as ActivityItem['source'],
+    action: normalizeActivityAction(doc['action']),
     secondaryActions: Array.isArray(doc['secondaryActions'])
-      ? (doc['secondaryActions'] as ActivityItem['secondaryActions'])
+      ? doc['secondaryActions']
+          .map((action) => normalizeActivityAction(action))
+          .filter((action): action is ActivityAction => action !== undefined)
       : undefined,
     deepLink: readString(doc['deepLink']),
     expiresAt: readDateString(doc['expiresAt']),
@@ -159,6 +193,7 @@ export class ActivityService {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly performance = inject(PERFORMANCE_ADAPTER, { optional: true });
   private readonly firestoreAdapter = inject(FIRESTORE_ADAPTER, { optional: true });
+  private readonly globalBadges = inject(GlobalBadgeService);
 
   // ============================================
   // PRIVATE WRITEABLE SIGNALS
@@ -234,6 +269,10 @@ export class ActivityService {
   });
 
   constructor() {
+    effect(() => {
+      this.globalBadges.setActivityBadge(this.totalUnread());
+    });
+
     this.destroyRef.onDestroy(() => this.stopRealtimeListener());
   }
 

@@ -1191,10 +1191,12 @@ function sortCoordinatorCategories(
       }
 
       .floating-coordinator-pill {
+        --coordinator-pill-accent: var(--agent-primary);
         flex-shrink: 0;
         display: inline-flex;
         align-items: center;
-        border: 1px solid var(--agent-border);
+        border: 1px solid
+          color-mix(in srgb, var(--coordinator-pill-accent) 58%, var(--agent-border));
         border-radius: var(--nxt1-radius-full, 9999px);
         padding: 11px 16px;
         background: var(--agent-surface);
@@ -1203,7 +1205,10 @@ function sortCoordinatorCategories(
         font-weight: 600;
         line-height: 1;
         white-space: nowrap;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+        box-shadow:
+          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 20%, transparent),
+          0 2px 8px rgba(0, 0, 0, 0.12),
+          inset 0 1px 0 color-mix(in srgb, white 10%, transparent);
         transition:
           border-color 0.15s ease,
           background 0.15s ease,
@@ -1216,6 +1221,62 @@ function sortCoordinatorCategories(
         background: var(--agent-primary-glow);
         color: var(--agent-primary);
         transform: scale(0.98);
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-admin'] {
+        --coordinator-pill-accent: #3fa3ff;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-brand'] {
+        --coordinator-pill-accent: #ff7a45;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-strategy'] {
+        --coordinator-pill-accent: #9d7bff;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-performance'] {
+        --coordinator-pill-accent: #41b8ff;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-data'] {
+        --coordinator-pill-accent: #2fd39a;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-recruiting'] {
+        --coordinator-pill-accent: #ccff00;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-media'] {
+        --coordinator-pill-accent: #ff7a45;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-scout'] {
+        --coordinator-pill-accent: #41b8ff;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-academics'] {
+        --coordinator-pill-accent: #9d7bff;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-roster'] {
+        --coordinator-pill-accent: #2fd39a;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-scouting'] {
+        --coordinator-pill-accent: #3fa3ff;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-team-media'] {
+        --coordinator-pill-accent: #ff5d8f;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-prospect-search'] {
+        --coordinator-pill-accent: #ffd447;
+      }
+
+      .floating-coordinator-pill[data-coordinator='coord-evaluation'] {
+        --coordinator-pill-accent: #57d4ff;
       }
 
       .floating-coordinators-empty {
@@ -2195,7 +2256,8 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         'processing',
         null,
         scheduledActions,
-        suggestedActions
+        suggestedActions,
+        cat.label
       );
     } finally {
       this.selectedCoordinatorLabel.set(null);
@@ -2238,7 +2300,8 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       | 'awaiting_approval' = 'processing',
     errorMessage: string | null = null,
     scheduledActions: OperationQuickAction[] = [],
-    suggestedActions: OperationQuickAction[] = []
+    suggestedActions: OperationQuickAction[] = [],
+    inputRecipientLabel = ''
   ): Promise<void> {
     // Capture and transfer any pending attachments from the main input strip
     const servicePendingFiles = this.agentX.pendingFiles();
@@ -2255,6 +2318,12 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     }
 
     await this.refreshFirecrawlSignedInAccounts();
+
+    const resumeOperationId =
+      contextType === 'operation' &&
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(contextId)
+        ? contextId
+        : '';
 
     await this.bottomSheet.openSheet({
       component: AgentXOperationChatComponent,
@@ -2273,7 +2342,9 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         yieldState,
         operationStatus,
         errorMessage,
+        resumeOperationId,
         scheduledActions,
+        inputRecipientLabel,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

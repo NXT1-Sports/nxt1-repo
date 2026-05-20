@@ -91,6 +91,10 @@ describe('analytics.service rollup helpers', () => {
         subjectId: 'athlete-1',
         eventType: 'profile_viewed',
         actorUserId: 'viewer-1',
+        payload: expect.objectContaining({
+          viewerUserId: 'viewer-1',
+          viewerRole: 'coach',
+        }),
       })
     );
   });

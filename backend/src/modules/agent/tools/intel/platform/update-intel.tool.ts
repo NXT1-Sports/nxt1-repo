@@ -1,6 +1,10 @@
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
-import { IntelGenerationService } from '../../../services/intel.service.js';
+import {
+  IntelGenerationService,
+  type IntelTelemetryContext,
+} from '../../../services/intel.service.js';
+import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 import { logger } from '../../../../../utils/logger.js';
 import { getFeatureFlagsService } from '../../../../../config/feature-flags/index.js';
 import { z } from 'zod';
@@ -90,6 +94,19 @@ export class UpdateIntelTool extends BaseTool {
 
     const intelService = new IntelGenerationService();
 
+    // Telemetry context — threaded into IntelGenerationService so OpenRouter
+    // cost/latency are attributed to the originating user + operation instead
+    // of being recorded as orphan (`none`) billing rows.
+    const telemetry: IntelTelemetryContext | undefined =
+      context?.operationId && context?.userId
+        ? {
+            operationId: context.operationId,
+            userId: context.userId,
+            agentId: 'data_coordinator',
+            feature: 'intel.section_update',
+          }
+        : undefined;
+
     try {
       if (entityType === 'athlete') {
         context?.emitStage?.('submitting_job', {
@@ -100,12 +117,33 @@ export class UpdateIntelTool extends BaseTool {
         });
         logger.info('[UpdateIntelTool] Updating athlete Intel section', { entityId, sectionId });
 
-        const report = await intelService.updateAthleteIntelSection(
-          entityId,
-          sectionId as Parameters<IntelGenerationService['updateAthleteIntelSection']>[1],
-          this.db
-        );
-        const reportId = (report as Record<string, unknown>)['id'] as string;
+        let report: Record<string, unknown>;
+        try {
+          report = await intelService.updateAthleteIntelSection(
+            entityId,
+            sectionId as Parameters<IntelGenerationService['updateAthleteIntelSection']>[1],
+            this.db,
+            telemetry
+          );
+        } catch (err) {
+          if (err instanceof AgentEngineError && err.code === 'INTEL_REPORT_NOT_FOUND') {
+            logger.info(
+              '[UpdateIntelTool] No Intel report exists — auto-bootstrapping full athlete report before section update',
+              { entityId, sectionId }
+            );
+            await intelService.generateAthleteIntel(entityId, this.db, telemetry);
+            report = await intelService.updateAthleteIntelSection(
+              entityId,
+              sectionId as Parameters<IntelGenerationService['updateAthleteIntelSection']>[1],
+              this.db,
+              telemetry
+            );
+          } else {
+            throw err;
+          }
+        }
+
+        const reportId = report['id'] as string;
 
         logger.info('[UpdateIntelTool] Athlete Intel section updated', {
           userId: entityId,
@@ -141,12 +179,33 @@ export class UpdateIntelTool extends BaseTool {
       });
       logger.info('[UpdateIntelTool] Updating team Intel section', { entityId, sectionId });
 
-      const report = await intelService.updateTeamIntelSection(
-        entityId,
-        sectionId as Parameters<IntelGenerationService['updateTeamIntelSection']>[1],
-        this.db
-      );
-      const reportId = (report as Record<string, unknown>)['id'] as string;
+      let report: Record<string, unknown>;
+      try {
+        report = await intelService.updateTeamIntelSection(
+          entityId,
+          sectionId as Parameters<IntelGenerationService['updateTeamIntelSection']>[1],
+          this.db,
+          telemetry
+        );
+      } catch (err) {
+        if (err instanceof AgentEngineError && err.code === 'INTEL_REPORT_NOT_FOUND') {
+          logger.info(
+            '[UpdateIntelTool] No Intel report exists — auto-bootstrapping full team report before section update',
+            { entityId, sectionId }
+          );
+          await intelService.generateTeamIntel(entityId, this.db, telemetry);
+          report = await intelService.updateTeamIntelSection(
+            entityId,
+            sectionId as Parameters<IntelGenerationService['updateTeamIntelSection']>[1],
+            this.db,
+            telemetry
+          );
+        } else {
+          throw err;
+        }
+      }
+
+      const reportId = report['id'] as string;
 
       logger.info('[UpdateIntelTool] Team Intel section updated', {
         teamId: entityId,

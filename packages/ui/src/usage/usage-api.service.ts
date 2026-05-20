@@ -40,7 +40,13 @@ export class UsageApiService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = inject(USAGE_API_BASE_URL);
 
-  private readonly noCacheOptions = { headers: { 'X-No-Cache': '1' } };
+  private readonly noCacheOptions = {
+    headers: {
+      'X-No-Cache': '1',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      Pragma: 'no-cache',
+    },
+  };
 
   private readonly api = createUsageApi(
     {
@@ -94,6 +100,23 @@ export class UsageApiService {
     ]).then(() => void 0);
   }
   readonly getOverview: UsageApi['getOverview'] = this.api.getOverview;
+
+  async getOverviewFresh(): Promise<import('@nxt1/core').UsageOverview> {
+    const response = await firstValueFrom(
+      this.http.get<{
+        success: boolean;
+        data?: import('@nxt1/core').UsageOverview;
+        error?: string;
+      }>(`${this.baseUrl}/usage/overview`, this.noCacheOptions)
+    );
+
+    if (!response.success || !response.data) {
+      throw new Error(response.error ?? 'Failed to fetch usage overview');
+    }
+
+    return response.data;
+  }
+
   readonly getChartData: UsageApi['getChartData'] = this.api.getChartData;
   readonly getBreakdown: UsageApi['getBreakdown'] = this.api.getBreakdown;
   readonly getHistory: UsageApi['getHistory'] = this.api.getHistory;

@@ -8,6 +8,7 @@
  * - Happy path: user clicks "Sign In" → loading overlay → modal → "I'm Signed In" → success
  * - Loading overlay appears while backend spins up session
  * - Error state: backend returns 500 → user sees error toast
+ * - Unsupported state: backend returns 422 → user sees warning toast
  * - Cancel state: user closes modal → session is cleaned up
  * - 429 rate limit: too many sessions → user sees warning toast
  *
@@ -162,6 +163,32 @@ test.describe('Connected Accounts — Firecrawl Flow', () => {
       await expect(
         page.locator(':text("Unable to start sign-in session"), :text("Failed")')
       ).toBeVisible({ timeout: 10_000 });
+    });
+
+    test('should show unsupported warning when provider cannot launch sign-in', async ({
+      page,
+    }) => {
+      await page.route('**/agent-x/firecrawl/session/start', async (route) => {
+        await route.fulfill({
+          status: 422,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: false,
+            code: 'SIGN_IN_UNSUPPORTED',
+            error:
+              'Instagram sign-in is currently unsupported. We are working on it, check back soon.',
+          }),
+        });
+      });
+
+      const caPage = new ConnectedAccountsPage(page);
+      await caPage.goto();
+      await caPage.clickSignIn('Instagram');
+
+      await expect(page.locator(':text("currently unsupported")')).toBeVisible({
+        timeout: 10_000,
+      });
+      await expect(page.locator(':text("Failed to connect")')).toHaveCount(0);
     });
 
     test('should show rate-limit warning when start session returns 429', async ({ page }) => {

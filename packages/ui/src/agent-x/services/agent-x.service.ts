@@ -962,8 +962,6 @@ export class AgentXService {
    * Call before sendMessage().
    */
   addFiles(files: File[]): void {
-    const current = this._pendingFiles();
-
     for (const file of files) {
       if (!AGENT_X_ALLOWED_MIME_TYPES.includes(file.type)) {
         this.toast.error(`Unsupported file type: ${file.name}`);

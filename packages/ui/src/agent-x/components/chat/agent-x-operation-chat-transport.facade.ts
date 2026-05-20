@@ -44,7 +44,7 @@ import { IntelService } from '../../../intel/intel.service';
 import { ProfileGenerationStateService } from '../../../profile/profile-generation-state.service';
 import { ProfileService } from '../../../profile/profile.service';
 import { TeamProfileService } from '../../../team-profile/team-profile.service';
-import type { OperationMessage } from './agent-x-operation-chat.models';
+import type { OperationMessage, StreamTurnWatermark } from './agent-x-operation-chat.models';
 import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-message.facade';
 
 type OperationStatus =
@@ -55,11 +55,6 @@ type OperationStatus =
   | 'awaiting_input'
   | 'awaiting_approval'
   | null;
-
-export interface StreamTurnWatermark {
-  optimisticChars: number;
-  confirmedChars: number;
-}
 
 export interface BatchEmailRecipientStatus {
   readonly email: string;
@@ -123,11 +118,8 @@ export interface AgentXOperationChatTransportFacadeHost {
   ): void;
   markActivityPulse(label?: string | null): void;
   emitResponseComplete(): void;
-  subscribeToFirestoreJobEvents(
-    operationId: string,
-    startAfterSeq?: number,
-    initialWatermark?: StreamTurnWatermark | null
-  ): void;
+  subscribeToFirestoreJobEvents(operationId: string, startAfterSeq?: number): void;
+  reconcileOperationFromStoredEvents(operationId: string): void;
   /** Called when the enqueue_heavy_task tool completes — shows the waiting card and marks thread. */
   onEnqueueHeavyDone(): void;
   uid(): string;
@@ -380,7 +372,6 @@ export class AgentXOperationChatTransportFacade {
     host.setActiveStream(null);
 
     const streamingId = 'typing';
-    host.setStreamTurnWatermark({ optimisticChars: 0, confirmedChars: 0 });
 
     const pendingOperationId =
       request.resumeOperationId?.trim() ||
@@ -436,12 +427,7 @@ export class AgentXOperationChatTransportFacade {
                   this.operationEventService.subscribe(
                     event.operationId!,
                     {
-                      onDelta: (text) => {
-                        const watermark = host.getStreamTurnWatermark();
-                        if (watermark) {
-                          watermark.confirmedChars += text.length;
-                        }
-                      },
+                      onDelta: () => undefined,
                       onThinking: () => undefined,
                       onStep: () => undefined,
                       onCard: () => undefined,
@@ -463,11 +449,6 @@ export class AgentXOperationChatTransportFacade {
             if (threadId) this.streamRegistry.appendDelta(threadId, event.content);
             this.recordDeltaLatency(event.emittedAt);
             host.markActivityPulse();
-
-            const watermark = host.getStreamTurnWatermark();
-            if (watermark) {
-              watermark.optimisticChars += event.content.length;
-            }
 
             this.messageFacade.queueTypingDelta(event.content);
           },
@@ -796,7 +777,6 @@ export class AgentXOperationChatTransportFacade {
             host.loading.set(false);
             host.getShadowFirestoreSub()?.unsubscribe();
             host.setShadowFirestoreSub(null);
-            host.setStreamTurnWatermark(null);
 
             this.logger.info('SSE stream replaced by newer lease', {
               operationId: event.operationId,
@@ -845,7 +825,6 @@ export class AgentXOperationChatTransportFacade {
               });
               host.getShadowFirestoreSub()?.unsubscribe();
               host.setShadowFirestoreSub(null);
-              host.setStreamTurnWatermark(null);
               this.logger.info('Stream complete (enqueue heavy — waiting card shown)', {
                 threadId: event.threadId,
               });
@@ -905,7 +884,6 @@ export class AgentXOperationChatTransportFacade {
 
             host.getShadowFirestoreSub()?.unsubscribe();
             host.setShadowFirestoreSub(null);
-            host.setStreamTurnWatermark(null);
 
             this.logger.info('Stream complete', {
               model: event.model,
@@ -976,11 +954,7 @@ export class AgentXOperationChatTransportFacade {
               });
               host.loading.set(true);
               host.setActivityPhase('reconnecting', 'Reconnecting...');
-              host.subscribeToFirestoreJobEvents(
-                currentOperationId,
-                undefined,
-                host.getStreamTurnWatermark()
-              );
+              host.reconcileOperationFromStoredEvents(currentOperationId);
               host.getShadowFirestoreSub()?.unsubscribe();
               host.setShadowFirestoreSub(null);
               resolve();
@@ -997,7 +971,6 @@ export class AgentXOperationChatTransportFacade {
             });
             host.getShadowFirestoreSub()?.unsubscribe();
             host.setShadowFirestoreSub(null);
-            host.setStreamTurnWatermark(null);
 
             host.setActivityPhase('failed', event.error);
             this.messageFacade.replaceTyping({

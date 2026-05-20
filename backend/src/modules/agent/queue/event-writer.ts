@@ -331,7 +331,20 @@ export class DebouncedEventWriter {
 
     // Final pass: strip any storage URLs that may have arrived across
     // multiple delta chunks and were only detectable in the accumulated text.
-    const text = sanitizeStorageUrlsFromText(this.pendingDeltaText);
+    //
+    // CRITICAL: pass { normalizeWhitespace: false } so the persisted Firestore
+    // delta preserves exact byte fidelity with what SSE streamed live. The
+    // default whitespace normalization (\s{2,}/g → ' ' and .trim()) is correct
+    // for *finalized* assistant text, but on every 300ms flush boundary it
+    // would strip the leading/trailing whitespace of that chunk — and since
+    // adjacent flushes concatenate without re-introducing those spaces, the
+    // rehydrated content drops word boundaries ("HeadCoach", "byMaxPreps")
+    // and loses leading newlines before block-level markdown like "### 1.".
+    // Live SSE already preserves these via the per-delta sanitize at the
+    // top of bufferDelta(); the persisted copy must match.
+    const text = sanitizeStorageUrlsFromText(this.pendingDeltaText, {
+      normalizeWhitespace: false,
+    });
     if (text.length === 0) {
       this.pendingDeltaText = '';
       this.pendingDeltaAgentId = undefined;

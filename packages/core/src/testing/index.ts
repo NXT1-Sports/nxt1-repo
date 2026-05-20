@@ -470,6 +470,8 @@ export const LINK_SOURCES_TEST_IDS = {
   GROUP_HEADER: 'link-sources-group-header',
   /** Individual source row */
   SOURCE_ROW: 'link-sources-source-row',
+  /** Connected source disconnect button */
+  DISCONNECT_BUTTON: 'link-sources-disconnect-button',
   /** Add custom link button */
   ADD_CUSTOM_LINK_BUTTON: 'link-sources-add-custom-link-button',
   /** Empty state */

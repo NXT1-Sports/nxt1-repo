@@ -153,7 +153,7 @@ export class UsageService implements OnDestroy {
         this.ngZone.runOutsideAngular(() => {
           this._holdsPollingInterval = setInterval(() => {
             this.api
-              .getOverview()
+              .getOverviewFresh()
               .then((overview) => this._overview.set(overview))
               .catch((err: unknown) => this.logger.warn('Holds polling failed', { error: err }));
           }, 5000);
@@ -243,7 +243,7 @@ export class UsageService implements OnDestroy {
     this.ngZone.runOutsideAngular(() => {
       this._balancePollInterval = setInterval(() => {
         this.api
-          .getOverview()
+          .getOverviewFresh()
           .then((overview) => this._overview.set(overview))
           .catch((err: unknown) => this.logger.warn('Balance poll failed', { error: err }));
       }, 60_000);
@@ -619,7 +619,7 @@ export class UsageService implements OnDestroy {
     }
   }
 
-  async loadDashboard(forceFresh = false): Promise<void> {
+  async loadDashboard(forceFresh = true): Promise<void> {
     const requestId = ++this._dashboardLoadRequestId;
     const chartTimeframe = this._chartTimeframe();
     const breakdownTimeframe = this._breakdownTimeframe();
@@ -713,7 +713,7 @@ export class UsageService implements OnDestroy {
     const timeframe = this._chartTimeframe();
 
     try {
-      const chartData = await this.api.getChartData(timeframe);
+      const chartData = await this.api.getChartDataFresh(timeframe);
       if (requestId !== this._chartLoadRequestId) {
         return;
       }
@@ -734,7 +734,7 @@ export class UsageService implements OnDestroy {
     const timeframe = this._breakdownTimeframe();
 
     try {
-      const breakdownRows = await this.api.getBreakdown(timeframe);
+      const breakdownRows = await this.api.getBreakdownFresh(timeframe);
       if (requestId !== this._breakdownLoadRequestId) {
         return;
       }

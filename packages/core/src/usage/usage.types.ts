@@ -176,6 +176,8 @@ export interface UsageTopItem {
 export interface UsageBreakdownLineItem {
   /** SKU display name */
   readonly sku: string;
+  /** Agent actions included inside this billed operation */
+  readonly subActions?: readonly string[];
   /** Units consumed (e.g. "148 min", "384 requests") */
   readonly units: string;
   /** Price per unit formatted (e.g. "$0.006") */

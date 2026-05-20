@@ -22,6 +22,7 @@
 
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { VectorMemoryService } from './vector.service.js';
+import type { Firestore } from 'firebase-admin/firestore';
 import type { AgentMemoryCategory, AgentMemoryTarget, AgentUserContext } from '@nxt1/core';
 import { AgentThreadModel } from '../../../models/agent/agent-thread.model.js';
 import { AgentMessageModel } from '../../../models/agent/agent-message.model.js';
@@ -125,15 +126,18 @@ export class MemorySummarizationService {
   private readonly llm: OpenRouterService;
   private readonly vectorMemory: VectorMemoryService;
   private readonly contextBuilder: ContextBuilder;
+  private readonly defaultFirestore?: Firestore;
 
   constructor(
     llm: OpenRouterService,
     vectorMemory: VectorMemoryService,
-    contextBuilder: ContextBuilder = new ContextBuilder(vectorMemory)
+    contextBuilder: ContextBuilder = new ContextBuilder(vectorMemory),
+    defaultFirestore?: Firestore
   ) {
     this.llm = llm;
     this.vectorMemory = vectorMemory;
     this.contextBuilder = contextBuilder;
+    this.defaultFirestore = defaultFirestore;
   }
 
   /**
@@ -225,7 +229,7 @@ export class MemorySummarizationService {
 
     let context: AgentUserContext;
     try {
-      context = await this.contextBuilder.buildContext(userId);
+      context = await this.contextBuilder.buildContext(userId, this.defaultFirestore);
     } catch {
       context = { userId, role: 'athlete', displayName: 'Unknown User' };
     }

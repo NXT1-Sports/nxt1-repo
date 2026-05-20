@@ -61,6 +61,9 @@ export interface UsageEvent {
   /** Team context for the usage when the event is organization-scoped */
   teamId?: string;
 
+  /** Organization context for org-settled usage, including first-run onboarding. */
+  organizationId?: string;
+
   /** Feature that was used */
   feature: UsageFeature;
 
@@ -119,6 +122,7 @@ export interface UsageEvent {
 export interface CreateUsageEventInput {
   userId: string;
   teamId?: string;
+  organizationId?: string;
   feature: UsageFeature;
   quantity: number;
   unitCostSnapshot: number;
@@ -128,6 +132,10 @@ export interface CreateUsageEventInput {
   jobId?: string;
   /** Optional metadata */
   metadata?: UsageEventMetadata;
+  /** Optional initial processing status. Defaults to PENDING for Stripe processing. */
+  status?: UsageEventStatus;
+  /** Set false for audit-only events that were already settled via wallet/org debit. */
+  publish?: boolean;
 
   // ── Dynamic pricing fields (Phase 1 — AI token-based costs) ──
 

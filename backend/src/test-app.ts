@@ -9,6 +9,7 @@ import authRoutes from './routes/auth/index.js';
 import uploadRoutes from './routes/core/upload/index.js';
 import sitemapRoutes from './routes/core/sitemap.routes.js';
 import activityRoutes from './routes/feed/activity.routes.js';
+import postsRoutes from './routes/feed/posts.routes.js';
 import analyticsRoutes from './routes/analytics/index.js';
 import pulseRoutes from './routes/feed/pulse.routes.js';
 import inviteRoutes from './routes/core/invite.routes.js';
@@ -312,6 +313,7 @@ const routeConfigs = [
   ['/upload', uploadRoutes],
   ['/invite', inviteRoutes],
   ['/activity', activityRoutes],
+  ['/feed/posts', postsRoutes],
   ['/analytics', analyticsRoutes],
   ['/pulse', pulseRoutes],
   ['/settings', settingsRoutes],

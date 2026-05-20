@@ -569,35 +569,18 @@ export class ProfileGenerationStateService {
       'seq',
       (docs: ReadonlyArray<Record<string, unknown>>) => {
         const events = docs as unknown as readonly JobEvent[];
-        const doneEvent = [...events]
-          .reverse()
-          .find((event) => event.type === 'done' && typeof event.success === 'boolean');
+        const terminalResult = this.resolveTerminalResultFromEvents(events);
 
-        if (!doneEvent || this._jobId() !== jobId || !this._isGenerating()) {
-          return;
-        }
-
-        this.logger.info('Profile generation terminal state confirmed by backend events', {
-          jobId,
-          success: doneEvent.success,
-        });
-
-        if (!this.isPolling && this.activePollResolve === null) {
-          return;
-        }
-
-        if (doneEvent.success) {
-          this.setPhase('complete');
-          void this.delay(1200).then(() => {
-            this.finishGeneration('completed');
-            this.resolvePoll('completed');
+        if (!terminalResult) {
+          void this.readParentOperationStatus(jobId, this.firestoreAdapter).then((status) => {
+            if (status === 'completed' || status === 'failed') {
+              this.applyBackendTerminalResult(jobId, status, 'parent-doc');
+            }
           });
           return;
         }
 
-        this.setPhase('error');
-        this.finishGeneration('failed');
-        this.resolvePoll('failed');
+        this.applyBackendTerminalResult(jobId, terminalResult, 'events');
       },
       (error: Error) => {
         this.logger.warn('Backend profile generation terminal tracking failed', {
@@ -644,6 +627,56 @@ export class ProfileGenerationStateService {
     }
   }
 
+  private resolveTerminalResultFromEvents(
+    events: readonly JobEvent[]
+  ): 'completed' | 'failed' | null {
+    for (const event of [...events].reverse()) {
+      if (event.type === 'done' && typeof event.success === 'boolean') {
+        return event.success ? 'completed' : 'failed';
+      }
+
+      if (event.type !== 'operation') continue;
+      const status = (event as unknown as Record<string, unknown>)['status'];
+      if (status === 'complete' || status === 'completed') return 'completed';
+      if (status === 'failed' || status === 'cancelled') return 'failed';
+    }
+
+    return null;
+  }
+
+  private applyBackendTerminalResult(
+    jobId: string,
+    result: 'completed' | 'failed',
+    source: 'events' | 'parent-doc'
+  ): void {
+    if (this._jobId() !== jobId || !this._isGenerating()) {
+      return;
+    }
+
+    this.logger.info('Profile generation terminal state confirmed by backend', {
+      jobId,
+      result,
+      source,
+    });
+
+    if (!this.isPolling && this.activePollResolve === null) {
+      return;
+    }
+
+    if (result === 'completed') {
+      this.setPhase('complete');
+      void this.delay(1200).then(() => {
+        this.finishGeneration('completed');
+        this.resolvePoll('completed');
+      });
+      return;
+    }
+
+    this.setPhase('error');
+    this.finishGeneration('failed');
+    this.resolvePoll('failed');
+  }
+
   private readOperationStatus(
     jobId: string,
     firestoreAdapter: FirestoreAdapter | null
@@ -669,16 +702,16 @@ export class ProfileGenerationStateService {
         (docs: ReadonlyArray<Record<string, unknown>>) => {
           clearTimeout(timeout);
           const events = docs as unknown as readonly JobEvent[];
-          const doneEvent = [...events]
-            .reverse()
-            .find((event) => event.type === 'done' && typeof event.success === 'boolean');
+          const terminalResult = this.resolveTerminalResultFromEvents(events);
 
-          if (doneEvent) {
-            settle(doneEvent.success ? 'completed' : 'failed');
+          if (terminalResult) {
+            settle(terminalResult);
             return;
           }
 
-          settle(events.length > 0 ? 'processing' : 'pending');
+          void this.readParentOperationStatus(jobId, firestoreAdapter).then((status) => {
+            settle(status ?? (events.length > 0 ? 'processing' : 'pending'));
+          });
         },
         () => {
           clearTimeout(timeout);
@@ -686,6 +719,45 @@ export class ProfileGenerationStateService {
         }
       );
     });
+  }
+
+  private async readParentOperationStatus(
+    jobId: string,
+    firestoreAdapter: FirestoreAdapter | null
+  ): Promise<'completed' | 'failed' | 'processing' | 'pending' | null> {
+    if (!firestoreAdapter?.getDoc) return null;
+
+    try {
+      const doc = await firestoreAdapter.getDoc(`AgentJobs/${jobId}`);
+      const status = typeof doc?.['status'] === 'string' ? doc['status'] : null;
+
+      switch (status) {
+        case 'completed':
+        case 'complete':
+          return 'completed';
+        case 'failed':
+        case 'cancelled':
+          return 'failed';
+        case 'queued':
+          return 'pending';
+        case 'thinking':
+        case 'acting':
+        case 'streaming_result':
+        case 'running':
+        case 'paused':
+        case 'awaiting_input':
+        case 'awaiting_approval':
+          return 'processing';
+        default:
+          return null;
+      }
+    } catch (error) {
+      this.logger.warn('Failed to read parent AgentJobs status', {
+        jobId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
   }
 
   private finishGeneration(result: 'completed' | 'failed'): void {

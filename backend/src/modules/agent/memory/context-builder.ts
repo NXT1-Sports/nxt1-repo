@@ -72,6 +72,10 @@ import { resolveAppBaseUrl, toAbsoluteAppUrl } from '../../../utils/app-url.js';
 /** Cache key prefix for assembled agent context. Exported so callers can build/invalidate the same key without hardcoding. */
 export const AGENT_CONTEXT_PREFIX = 'agent:context:';
 
+/** Builds an env-scoped cache key for the assembled agent context. */
+export const buildAgentContextCacheKey = (userId: string): string =>
+  `${AGENT_CONTEXT_PREFIX}${getRuntimeEnvironment()}:${userId}`;
+
 /** TTL for the assembled context (same as profile: 15 min). */
 const AGENT_CONTEXT_TTL = CACHE_TTL.PROFILES;
 
@@ -196,7 +200,7 @@ export class ContextBuilder {
     userId: string,
     firestore?: FirebaseFirestore.Firestore
   ): Promise<AgentUserContext> {
-    const cacheKey = `${AGENT_CONTEXT_PREFIX}${userId}`;
+    const cacheKey = buildAgentContextCacheKey(userId);
     const db = firestore ?? getFirestore();
 
     try {
@@ -337,7 +341,7 @@ export class ContextBuilder {
   async invalidateContext(userId: string): Promise<void> {
     try {
       const cache = getCacheService();
-      await cache.del(`${AGENT_CONTEXT_PREFIX}${userId}`);
+      await cache.del(buildAgentContextCacheKey(userId));
       logger.info('[ContextBuilder] Context cache invalidated', { userId });
     } catch {
       logger.warn('[ContextBuilder] Failed to invalidate context cache', { userId });

@@ -13,8 +13,21 @@ import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { PLATFORM_REGISTRY } from '@nxt1/core/platforms';
 import { logger } from '../../utils/logger.js';
 import { getFirecrawlProfileService, PLATFORM_KEY_RE } from './shared.js';
+import { getAgentEngineErrorCode } from '../../modules/agent/exceptions/agent-engine.error.js';
+import { isFirecrawlUnsupportedSiteError } from '../../modules/agent/tools/integrations/firecrawl/browser/firecrawl-profile.service.js';
 
 const router = Router();
+
+const SIGN_IN_UNSUPPORTED_ERROR_CODE = 'SIGN_IN_UNSUPPORTED' as const;
+
+function getPlatformLabel(platform: unknown): string {
+  if (typeof platform !== 'string') return 'This platform';
+  return PLATFORM_REGISTRY.find((p) => p.platform === platform)?.label ?? 'This platform';
+}
+
+function buildUnsupportedSignInMessage(platform: unknown): string {
+  return `${getPlatformLabel(platform)} sign-in is currently unsupported. We are working on it, check back soon.`;
+}
 
 // ─── POST /firecrawl/session/start ────────────────────────────────────────
 
@@ -68,10 +81,20 @@ router.post('/firecrawl/session/start', appGuard, async (req: Request, res: Resp
     });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('[AgentX] Failed to start Firecrawl sign-in session', {
-      error: error.message,
-      stack: error.stack,
-    });
+    const errorCode = getAgentEngineErrorCode(error);
+
+    if (errorCode === 'LIVE_VIEW_SIGN_IN_UNSUPPORTED' || isFirecrawlUnsupportedSiteError(error)) {
+      logger.warn('[AgentX] Firecrawl sign-in unsupported for platform', {
+        platform: req.body?.platform,
+        error: error.message,
+      });
+      res.status(422).json({
+        success: false,
+        code: SIGN_IN_UNSUPPORTED_ERROR_CODE,
+        error: buildUnsupportedSignInMessage(req.body?.platform),
+      });
+      return;
+    }
 
     if (error.message.includes('409') || error.message.includes('conflict')) {
       res.status(409).json({
@@ -88,6 +111,11 @@ router.post('/firecrawl/session/start', appGuard, async (req: Request, res: Resp
       });
       return;
     }
+
+    logger.error('[AgentX] Failed to start Firecrawl sign-in session', {
+      error: error.message,
+      stack: error.stack,
+    });
 
     res.status(500).json({ success: false, error: 'Failed to start sign-in session' });
   }

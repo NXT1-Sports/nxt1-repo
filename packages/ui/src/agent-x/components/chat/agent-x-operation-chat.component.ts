@@ -45,6 +45,7 @@ import {
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Capacitor } from '@capacitor/core';
 import type {
   AgentXPlannerItem,
   AgentXMessagePart,
@@ -77,7 +78,10 @@ import { AgentXOperationChatRunControlFacade } from './agent-x-operation-chat-ru
 import { AgentXOperationChatSessionFacade } from './agent-x-operation-chat-session.facade';
 import { AgentXOperationChatTransportFacade } from './agent-x-operation-chat-transport.facade';
 import type { BatchEmailCampaignProgress } from './agent-x-operation-chat-transport.facade';
-import { resolveCoordinatorActionId } from './agent-x-operation-chat.utils';
+import {
+  buildOperationChatInputPlaceholder,
+  resolveCoordinatorActionId,
+} from './agent-x-operation-chat.utils';
 import { AgentXOperationChatYieldFacade } from './agent-x-operation-chat-yield.facade';
 import { AgentXOperationChatRecurringFacade } from './agent-x-operation-chat-recurring.facade';
 import { AgentXOperationChatRecurringTasksDockComponent } from './agent-x-operation-chat-recurring-tasks-dock.component';
@@ -110,6 +114,7 @@ import type {
   OperationMessage,
   PendingFile,
   MessageAttachment,
+  StreamTurnWatermark,
 } from './agent-x-operation-chat.models';
 
 export type { OperationQuickAction } from './agent-x-operation-chat.types';
@@ -118,6 +123,9 @@ const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
 const ACTIVITY_GAP_TIMEOUT_MS = AGENT_X_RUNTIME_CONFIG.clientRecovery.activityGapTimeoutMs;
 const TECHNICAL_PROGRESS_PATTERN =
   /(\blatency\b|\bp95\b|\bp99\b|\btokens?\b|\btps\b|\bthroughput\b|\bwatermark\b|\bseq\b|\bsse\b|\bfirestore\b|\bidempotency\b|\b\d+(?:\.\d+)?\s*ms\b)/i;
+const CONTEXT_READY_PROGRESS_PATTERN = /^context\s+(?:ready|loaded)\b[.!?]?/i;
+const SENDING_PROGRESS_PATTERN = /^sending\b[.!?]?/i;
+const RECONNECTING_PROGRESS_PATTERN = /^reconnecting\b[.!?]?/i;
 
 type ChatActivityPhase =
   | 'idle'
@@ -133,6 +141,21 @@ type ChatActivityPhase =
   | 'completed'
   | 'failed'
   | 'cancelled';
+
+const DEFAULT_SPORTY_ACTIVITY_LABELS = [
+  'Agent X is in your corner...',
+  'Standing by for the next play...',
+] as const;
+
+const SPORTY_ACTIVITY_LABELS: Partial<Record<ChatActivityPhase, readonly string[]>> = {
+  sending: ['Taking the field...', 'Getting the play in...'],
+  connected: ['Reading the play...', 'Checking the matchups...'],
+  streaming: ['Reading the play...', 'Working the game plan...'],
+  running_tool: ['Running the next rep...', 'Checking the tape...'],
+  waiting_delta: ['Setting up the next rep...', 'Building the next play...'],
+  reconnecting: ['Back in the game...', 'Rejoining the huddle...'],
+  idle: DEFAULT_SPORTY_ACTIVITY_LABELS,
+};
 
 type YieldStateSource =
   | 'input-binding'
@@ -1670,10 +1693,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * Reset to `null` at the start of every new turn and on every terminal
    * stream event (done, fatal error, stream-replaced).
    */
-  private _streamTurnWatermark: {
-    optimisticChars: number;
-    confirmedChars: number;
-  } | null = null;
+  private _streamTurnWatermark: StreamTurnWatermark | null = null;
 
   // ============================================
   // INPUTS (from componentProps)
@@ -1698,6 +1718,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Coordinator description shown as the welcome message. */
   @Input() contextDescription = '';
 
+  /** Explicit recipient label for the composer placeholder. */
+  @Input() inputRecipientLabel = '';
+
   /**
    * Pause a video element immediately after the first frame is decoded.
    * Used for thumbnail strip: `autoplay muted playsinline` forces iOS to decode
@@ -1708,13 +1731,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   }
 
   protected getInputPlaceholder(): string {
-    // For operations: always use generic placeholder
-    if (this.contextType === 'operation') return 'Message Agent X';
-
-    // For commands/coordinators: show coordinator name if available
-    const title = this.contextTitle.trim();
-    if (!title) return 'Message Agent X';
-    return `Message ${title}`;
+    return buildOperationChatInputPlaceholder(this.inputRecipientLabel);
   }
 
   /** When true, renders as a desktop-embedded panel instead of a dismissible sheet. */
@@ -1906,6 +1923,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Runtime label associated with current in-flight activity phase. */
   private readonly _activityLabel = signal<string | null>(null);
+
+  /** Rotates generic in-flight labels so long waits do not feel stuck. */
+  private readonly _activityLabelVariant = signal(0);
 
   /** Last timestamp at which a stream pulse (delta/step/progress) was observed. */
   private readonly _lastActivityPulseAt = signal(0);
@@ -2269,10 +2289,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       setShadowFirestoreSub: (subscription) => {
         this._shadowFirestoreSub = subscription;
       },
-      getStreamTurnWatermark: () => this._streamTurnWatermark,
-      setStreamTurnWatermark: (watermark) => {
-        this._streamTurnWatermark = watermark;
-      },
       hasUserSent: () => this.hasUserSent(),
       markUserMessageSent: () => {
         this.hasUserSent.set(true);
@@ -2348,12 +2364,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         this.markActivityPulse(label);
       },
       emitResponseComplete: () => this.responseComplete.emit(),
-      subscribeToFirestoreJobEvents: (operationId, startAfterSeq, initialWatermark) =>
-        this.sessionFacade.subscribeToFirestoreJobEvents(
-          operationId,
-          startAfterSeq,
-          initialWatermark
-        ),
+      subscribeToFirestoreJobEvents: (operationId: string, startAfterSeq?: number) =>
+        this.sessionFacade.subscribeToFirestoreJobEvents(operationId, startAfterSeq),
+      reconcileOperationFromStoredEvents: (operationId: string) => {
+        void this.sessionFacade.reconcileOperationFromStoredEvents(operationId);
+      },
       onEnqueueHeavyDone: () => {
         this.sessionFacade.handleEnqueueHeavyDone();
       },
@@ -2605,7 +2620,11 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Move the runtime activity machine to a new phase and keep timeout rules consistent. */
   private setActivityPhase(phase: ChatActivityPhase, label?: string | null): void {
+    const previousPhase = this._activityPhase();
     this._activityPhase.set(phase);
+    if (previousPhase !== phase) {
+      this._activityLabelVariant.update((value) => value + 1);
+    }
 
     if (label !== undefined) {
       this._activityLabel.set(this.toUserFacingThinkingLabel(label));
@@ -2626,6 +2645,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Register stream activity pulses (delta/progress/step updates) to prevent blank gaps. */
   private markActivityPulse(label?: string | null): void {
+    this._activityLabelVariant.update((value) => value + 1);
+
     if (label !== undefined) {
       const userLabel = this.toUserFacingThinkingLabel(label);
       if (userLabel) this._activityLabel.set(userLabel);
@@ -2674,14 +2695,12 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       }
 
       // While a tool is genuinely running, leave both phase and label
-      // alone. The phase default ("Running next step...") or the active
+      // alone. The phase default or the active
       // tool's own label ("Analyzing video...") is far more accurate than
       // the generic gap fallback, and tool calls can take 30-60s of silence.
       if (this._activityPhase() !== 'running_tool') {
         this._activityPhase.set('waiting_delta');
-        if (!this._activityLabel()) {
-          this._activityLabel.set('Working on next step...');
-        }
+        this._activityLabelVariant.update((value) => value + 1);
       }
 
       this.armActivityGapTimer();
@@ -2705,10 +2724,20 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     const withoutMetricParens = normalized
       .replace(/\((?:[^)]*(?:latency|p95|p99|tokens?|tps|throughput|ms)[^)]*)\)/gi, '')
       .replace(/\[(?:[^\]]*(?:latency|p95|p99|tokens?|tps|throughput|ms)[^\]]*)\]/gi, '')
+      .replace(/\s+([.,!?])/g, '$1')
       .trim();
 
     if (!withoutMetricParens) return null;
     if (TECHNICAL_PROGRESS_PATTERN.test(withoutMetricParens)) return null;
+    if (CONTEXT_READY_PROGRESS_PATTERN.test(withoutMetricParens)) {
+      return 'Game plan locked. Building your answer...';
+    }
+    if (SENDING_PROGRESS_PATTERN.test(withoutMetricParens)) {
+      return 'Taking the field...';
+    }
+    if (RECONNECTING_PROGRESS_PATTERN.test(withoutMetricParens)) {
+      return 'Back in the game...';
+    }
 
     return withoutMetricParens.length > 72
       ? `${withoutMetricParens.slice(0, 69).trimEnd()}...`
@@ -2716,21 +2745,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   }
 
   private defaultThinkingLabelForPhase(phase: ChatActivityPhase): string {
-    switch (phase) {
-      case 'sending':
-        return 'Kicking this off...';
-      case 'connected':
-      case 'streaming':
-        return 'Working on it...';
-      case 'running_tool':
-        return 'Running next step...';
-      case 'waiting_delta':
-        return 'Working on next step...';
-      case 'reconnecting':
-        return 'Reconnecting...';
-      default:
-        return 'Agent X is thinking...';
-    }
+    const labels = SPORTY_ACTIVITY_LABELS[phase] ?? DEFAULT_SPORTY_ACTIVITY_LABELS;
+    const index = this._activityLabelVariant() % labels.length;
+    return labels[index] ?? 'Agent X is in your corner...';
   }
 
   /** Bind shared keyboard offset behavior so operation chat matches shell exactly. */
@@ -2752,6 +2769,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   protected onInputFocus(): void {
     this.clearFocusScrollTimers();
     this.scrollToBottom({ behavior: 'auto' });
+
+    if (Capacitor.isNativePlatform()) {
+      return;
+    }
 
     // iOS keyboard and bottom-sheet reflow can settle a bit later; follow-up
     // scrolls keep the last assistant content above the floating input.

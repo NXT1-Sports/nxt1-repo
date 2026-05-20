@@ -7,6 +7,7 @@
  */
 
 import { Router, type Request, type Response } from 'express';
+import { randomUUID } from 'node:crypto';
 import { appGuard, optionalAuth } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
@@ -59,7 +60,12 @@ router.post(
     const { IntelGenerationService } =
       await import('../../modules/agent/services/intel.service.js');
     const intelService = new IntelGenerationService();
-    const report = await intelService.generateAthleteIntel(userId, db);
+    const report = await intelService.generateAthleteIntel(userId, db, {
+      operationId: randomUUID(),
+      userId: authUid,
+      agentId: 'data_coordinator',
+      feature: 'intel.full_generation.http',
+    });
 
     logger.info('[Profile] Intel generated', { userId });
     res.json({
@@ -109,7 +115,13 @@ router.patch(
     const report = await intelService.updateAthleteIntelSection(
       userId,
       sectionId as Parameters<typeof intelService.updateAthleteIntelSection>[1],
-      db
+      db,
+      {
+        operationId: randomUUID(),
+        userId: authUid,
+        agentId: 'data_coordinator',
+        feature: 'intel.section_update.http',
+      }
     );
 
     logger.info('[Profile] Intel section updated', { userId, sectionId });

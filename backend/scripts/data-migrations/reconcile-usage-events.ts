@@ -23,11 +23,11 @@ async function reconcileEnvironment(
     dryRun,
   });
 
-  const firestore = environment === 'staging' ? stagingDb : db;
+  void (environment === 'staging' ? stagingDb : db);
 
   try {
     // Get pending/failed events
-    const pendingEvents = await getPendingUsageEvents(firestore, 1000);
+    const pendingEvents = await getPendingUsageEvents(1000);
 
     logger.info(`[reconcileEnvironment] Found pending events`, {
       count: pendingEvents.length,
@@ -45,7 +45,7 @@ async function reconcileEnvironment(
     for (const event of pendingEvents) {
       try {
         // Skip events that are too recent (might still be processing)
-        const createdTime = event.createdAt?.toDate?.()?.getTime() || 0;
+        const createdTime = event.createdAt instanceof Date ? event.createdAt.getTime() : 0;
         const now = Date.now();
         const ageMinutes = (now - createdTime) / 1000 / 60;
 

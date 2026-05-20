@@ -132,6 +132,9 @@ export interface PromptConfig {
   /** Whether input is required (non-empty) */
   required?: boolean;
 
+  /** Whether opening/closing this prompt should trigger native haptics (default: true) */
+  haptics?: boolean;
+
   /**
    * Force a specific implementation:
    * - 'native': Use OS native dialog (mobile only)
@@ -193,6 +196,9 @@ export interface ActionSheetConfig {
 
   /** Header element for card-style (iOS) - web/Ionic only */
   presentingElement?: HTMLElement;
+
+  /** Whether opening/closing this action sheet should trigger native haptics (default: true) */
+  haptics?: boolean;
 
   /**
    * Force a specific implementation:

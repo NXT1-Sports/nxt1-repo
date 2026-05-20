@@ -93,6 +93,8 @@ const MOBILE_HTTP_CACHE_EXCLUDE_URLS: readonly RegExp[] = [
   /\/paypal\//,
   /\/admin\//,
   /\/agent-x\//,
+  /\/usage\/(?:dashboard|overview|chart|breakdown)(?:\/|\?|$)/,
+  /\/billing\/budget(?:\/|\?|$)/,
   /\/messages\/thread\//,
   /\/pulse\/generate/,
   /\/feed\/posts\/[^/]+\/(like|share|report|view)/,

@@ -128,10 +128,12 @@ export abstract class BaseTool {
     return {
       success: false,
       error: error.issues
-        .map((issue) =>
-          issue.path.length > 0 ? `${issue.path.join('.')}: ${issue.message}` : issue.message
-        )
-        .join(', '),
+        .map((issue) => {
+          const path =
+            issue.path.length > 0 ? issue.path.map((p) => String(p)).join('.') : '(root)';
+          return `${path}: ${issue.message}`;
+        })
+        .join('; '),
     };
   }
 }

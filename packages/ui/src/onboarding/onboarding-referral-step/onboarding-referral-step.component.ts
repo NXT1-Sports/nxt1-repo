@@ -846,6 +846,7 @@ export class OnboardingReferralStepComponent {
         data: option.type,
       })),
       preferNative: 'native',
+      haptics: false,
     });
 
     if (result?.selected && result.data) {

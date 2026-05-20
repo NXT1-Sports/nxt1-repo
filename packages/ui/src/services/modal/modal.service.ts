@@ -284,8 +284,11 @@ export class NxtModalService {
   // HAPTIC FEEDBACK
   // ============================================
 
-  private async triggerHaptic(type: 'open' | 'confirm' | 'cancel' | 'destructive'): Promise<void> {
-    if (!this.isNativeMobile()) return;
+  private async triggerHaptic(
+    type: 'open' | 'confirm' | 'cancel' | 'destructive',
+    enabled = true
+  ): Promise<void> {
+    if (!enabled || !this.isNativeMobile()) return;
 
     try {
       switch (type) {
@@ -492,7 +495,7 @@ export class NxtModalService {
   async prompt(config: PromptConfig): Promise<PromptResult> {
     if (!this.isBrowser()) return { confirmed: false, value: '' };
 
-    await this.triggerHaptic('open');
+    await this.triggerHaptic('open', config.haptics !== false);
 
     if (this.shouldUseNative(config.preferNative)) {
       return this.nativePrompt(config);
@@ -511,7 +514,7 @@ export class NxtModalService {
       cancelButtonTitle: config.cancelText ?? 'Cancel',
     });
 
-    await this.triggerHaptic(cancelled ? 'cancel' : 'confirm');
+    await this.triggerHaptic(cancelled ? 'cancel' : 'confirm', config.haptics !== false);
 
     // Handle required validation (native doesn't validate)
     if (!cancelled && config.required && !value.trim()) {
@@ -556,7 +559,7 @@ export class NxtModalService {
           role: 'cancel',
           cssClass: 'nxt-modal-cancel-btn',
           handler: () => {
-            this.triggerHaptic('cancel');
+            this.triggerHaptic('cancel', config.haptics !== false);
             resolvePromise({ confirmed: false, value: '' });
           },
         },
@@ -572,7 +575,7 @@ export class NxtModalService {
               return false; // Prevent dismissal
             }
 
-            this.triggerHaptic('confirm');
+            this.triggerHaptic('confirm', config.haptics !== false);
             resolvePromise({ confirmed: true, value });
             return true;
           },
@@ -637,7 +640,7 @@ export class NxtModalService {
       return { selected: false, index: -1, action: null };
     }
 
-    await this.triggerHaptic('open');
+    await this.triggerHaptic('open', config.haptics !== false);
 
     if (this.shouldUseNative(config.preferNative)) {
       return this.nativeActionSheet(config);
@@ -666,12 +669,15 @@ export class NxtModalService {
 
     if (selectedIndex === -1 || selectedIndex >= regularActions.length) {
       // Cancelled or invalid
-      await this.triggerHaptic('cancel');
+      await this.triggerHaptic('cancel', config.haptics !== false);
       return { selected: false, index: -1, action: null };
     }
 
     const selectedAction = regularActions[selectedIndex];
-    await this.triggerHaptic(selectedAction.destructive ? 'destructive' : 'confirm');
+    await this.triggerHaptic(
+      selectedAction.destructive ? 'destructive' : 'confirm',
+      config.haptics !== false
+    );
 
     return {
       selected: true,
@@ -705,10 +711,13 @@ export class NxtModalService {
         data: { index, action },
         handler: () => {
           if (action.cancel) {
-            this.triggerHaptic('cancel');
+            this.triggerHaptic('cancel', config.haptics !== false);
             resolvePromise({ selected: false, index: -1, action: null });
           } else {
-            this.triggerHaptic(action.destructive ? 'destructive' : 'confirm');
+            this.triggerHaptic(
+              action.destructive ? 'destructive' : 'confirm',
+              config.haptics !== false
+            );
             resolvePromise({
               selected: true,
               index,
@@ -761,7 +770,7 @@ export class NxtModalService {
           role: 'cancel',
           cssClass: 'nxt-modal-cancel-btn',
           handler: () => {
-            this.triggerHaptic('cancel');
+            this.triggerHaptic('cancel', config.haptics !== false);
             resolvePromise({ selected: false, index: -1, action: null });
           },
         },
@@ -778,7 +787,10 @@ export class NxtModalService {
             const idx = parseInt(selectedValue, 10);
             const action = regularActions[idx];
 
-            this.triggerHaptic(action.destructive ? 'destructive' : 'confirm');
+            this.triggerHaptic(
+              action.destructive ? 'destructive' : 'confirm',
+              config.haptics !== false
+            );
             resolvePromise({
               selected: true,
               index: idx,

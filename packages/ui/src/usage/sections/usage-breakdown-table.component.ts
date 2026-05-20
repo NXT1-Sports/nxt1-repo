@@ -11,7 +11,7 @@
 
 import { Component, ChangeDetectionStrategy, input, output, signal } from '@angular/core';
 import { NxtIconComponent } from '../../components/icon';
-import type { UsageBreakdownRow, UsageTimeframe } from '@nxt1/core';
+import type { UsageBreakdownLineItem, UsageBreakdownRow, UsageTimeframe } from '@nxt1/core';
 import { formatPrice, USAGE_TIMEFRAME_OPTIONS } from '@nxt1/core';
 import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 
@@ -148,7 +148,54 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
                             <tr class="sku-row">
                               <td colspan="3">
                                 <div class="sku-detail sku-detail--nested">
-                                  <span class="sku-col-name">{{ item.sku }}</span>
+                                  <span class="sku-col-name">
+                                    @if (hasSubActions(item)) {
+                                      <button
+                                        type="button"
+                                        class="sub-action-toggle"
+                                        [attr.aria-expanded]="
+                                          isSubActionsExpanded(
+                                            subActionKey(row.date, team.teamId, user.userId, $index)
+                                          )
+                                        "
+                                        (click)="
+                                          toggleSubActions(
+                                            $event,
+                                            subActionKey(
+                                              row.date,
+                                              team.teamId,
+                                              user.userId,
+                                              $index
+                                            ),
+                                            item
+                                          )
+                                        "
+                                      >
+                                        <nxt1-icon
+                                          [name]="
+                                            isSubActionsExpanded(
+                                              subActionKey(
+                                                row.date,
+                                                team.teamId,
+                                                user.userId,
+                                                $index
+                                              )
+                                            )
+                                              ? 'chevronDown'
+                                              : 'chevronForward'
+                                          "
+                                          className="expand-icon"
+                                          size="12"
+                                        />
+                                        <span class="sku-name">{{ item.sku }}</span>
+                                        <span class="sub-action-count">
+                                          {{ item.subActions?.length }} actions
+                                        </span>
+                                      </button>
+                                    } @else {
+                                      <span class="sku-name">{{ item.sku }}</span>
+                                    }
+                                  </span>
                                   <span class="sku-col">{{ item.units }}</span>
                                   <span class="sku-col">{{ item.pricePerUnit }}</span>
                                   <span class="sku-col">{{ formatAmount(item.grossAmount) }}</span>
@@ -158,6 +205,25 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
                                 </div>
                               </td>
                             </tr>
+                            @if (
+                              hasSubActions(item) &&
+                              isSubActionsExpanded(
+                                subActionKey(row.date, team.teamId, user.userId, $index)
+                              )
+                            ) {
+                              <tr class="sub-action-row">
+                                <td colspan="3">
+                                  <div class="sub-action-panel sub-action-panel--nested">
+                                    @for (action of item.subActions; track action) {
+                                      <div class="sub-action-item">
+                                        <span class="sub-action-name">{{ action }}</span>
+                                        <span class="sub-action-status">Included</span>
+                                      </div>
+                                    }
+                                  </div>
+                                </td>
+                              </tr>
+                            }
                           }
                         }
                       }
@@ -180,7 +246,44 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
                     <tr class="sku-row">
                       <td colspan="3">
                         <div class="sku-detail">
-                          <span class="sku-col-name">{{ item.sku }}</span>
+                          <span class="sku-col-name">
+                            @if (hasSubActions(item)) {
+                              <button
+                                type="button"
+                                class="sub-action-toggle"
+                                [attr.aria-expanded]="
+                                  isSubActionsExpanded(
+                                    subActionKey(row.date, 'individual', 'individual', $index)
+                                  )
+                                "
+                                (click)="
+                                  toggleSubActions(
+                                    $event,
+                                    subActionKey(row.date, 'individual', 'individual', $index),
+                                    item
+                                  )
+                                "
+                              >
+                                <nxt1-icon
+                                  [name]="
+                                    isSubActionsExpanded(
+                                      subActionKey(row.date, 'individual', 'individual', $index)
+                                    )
+                                      ? 'chevronDown'
+                                      : 'chevronForward'
+                                  "
+                                  className="expand-icon"
+                                  size="12"
+                                />
+                                <span class="sku-name">{{ item.sku }}</span>
+                                <span class="sub-action-count">
+                                  {{ item.subActions?.length }} actions
+                                </span>
+                              </button>
+                            } @else {
+                              <span class="sku-name">{{ item.sku }}</span>
+                            }
+                          </span>
                           <span class="sku-col">{{ item.units }}</span>
                           <span class="sku-col">{{ item.pricePerUnit }}</span>
                           <span class="sku-col">{{ formatAmount(item.grossAmount) }}</span>
@@ -188,6 +291,25 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
                         </div>
                       </td>
                     </tr>
+                    @if (
+                      hasSubActions(item) &&
+                      isSubActionsExpanded(
+                        subActionKey(row.date, 'individual', 'individual', $index)
+                      )
+                    ) {
+                      <tr class="sub-action-row">
+                        <td colspan="3">
+                          <div class="sub-action-panel">
+                            @for (action of item.subActions; track action) {
+                              <div class="sub-action-item">
+                                <span class="sub-action-name">{{ action }}</span>
+                                <span class="sub-action-status">Included</span>
+                              </div>
+                            }
+                          </div>
+                        </td>
+                      </tr>
+                    }
                   }
                 }
               }
@@ -272,7 +394,8 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
         background: var(--nxt1-color-surface-100);
         border: 1px solid var(--nxt1-color-border-subtle);
         border-radius: var(--nxt1-radius-lg, 12px);
-        overflow: hidden;
+        overflow-x: auto;
+        overflow-y: hidden;
       }
 
       .breakdown-table {
@@ -467,6 +590,84 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
         padding-right: var(--nxt1-spacing-2);
       }
 
+      .sku-detail .sku-col-name {
+        min-width: 0;
+      }
+
+      .sku-name {
+        overflow-wrap: anywhere;
+      }
+
+      .sub-action-toggle {
+        display: inline-grid;
+        grid-template-columns: auto minmax(0, auto) auto;
+        align-items: center;
+        gap: var(--nxt1-spacing-2);
+        max-width: 100%;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .sub-action-toggle:hover .sku-name,
+      .sub-action-toggle:focus-visible .sku-name {
+        color: var(--nxt1-color-primary);
+      }
+
+      .sub-action-toggle:focus-visible {
+        outline: 2px solid var(--nxt1-color-primary);
+        outline-offset: 3px;
+        border-radius: var(--nxt1-radius-sm, 6px);
+      }
+
+      .sub-action-count {
+        color: var(--nxt1-color-text-tertiary);
+        font-size: var(--nxt1-fontSize-xs);
+        white-space: nowrap;
+      }
+
+      .sub-action-row td {
+        padding: 0;
+        border-bottom: 1px solid var(--nxt1-color-border-subtle);
+      }
+
+      .sub-action-panel {
+        display: grid;
+        gap: 1px;
+        padding: 0 var(--nxt1-spacing-4) var(--nxt1-spacing-3) var(--nxt1-spacing-16, 64px);
+        background: var(--nxt1-color-surface-200);
+      }
+
+      .sub-action-panel--nested {
+        padding-left: var(--nxt1-spacing-24, 96px);
+      }
+
+      .sub-action-item {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: var(--nxt1-spacing-3);
+        padding: var(--nxt1-spacing-2) var(--nxt1-spacing-3);
+        background: var(--nxt1-color-surface-100);
+        color: var(--nxt1-color-text-secondary);
+        font-size: var(--nxt1-fontSize-sm);
+      }
+
+      .sub-action-name {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .sub-action-status {
+        color: var(--nxt1-color-text-tertiary);
+        font-size: var(--nxt1-fontSize-xs);
+        white-space: nowrap;
+      }
+
       .sku-col {
         text-align: center;
       }
@@ -476,14 +677,13 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
       }
 
       @media (max-width: 640px) {
-        .sku-header,
-        .sku-detail {
-          grid-template-columns: 1.5fr 1fr 1fr;
+        .breakdown-table {
+          min-width: 40rem;
         }
 
-        .sku-col:nth-child(2),
-        .sku-col:nth-child(3) {
-          display: none;
+        .sku-header,
+        .sku-detail {
+          min-width: 32rem;
         }
 
         .team-cell {
@@ -497,6 +697,14 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
         .sku-header--nested,
         .sku-detail--nested {
           padding-left: var(--nxt1-spacing-14, 56px);
+        }
+
+        .sub-action-panel {
+          padding-left: var(--nxt1-spacing-12, 48px);
+        }
+
+        .sub-action-panel--nested {
+          padding-left: var(--nxt1-spacing-16, 64px);
         }
       }
     `,
@@ -519,6 +727,36 @@ export class UsageBreakdownTableComponent {
   // ── Nested expansion state (org drill-down) ───────────────────
   private readonly expandedTeams = signal<Set<string>>(new Set());
   private readonly expandedUsers = signal<Set<string>>(new Set());
+  private readonly expandedSubActions = signal<Set<string>>(new Set());
+
+  protected hasSubActions(item: UsageBreakdownLineItem): boolean {
+    return (item.subActions?.length ?? 0) > 0;
+  }
+
+  protected subActionKey(date: string, teamId: string, userId: string, index: number): string {
+    return `${date}::${teamId}::${userId}::${index}`;
+  }
+
+  protected isSubActionsExpanded(key: string): boolean {
+    return this.expandedSubActions().has(key);
+  }
+
+  protected toggleSubActions(event: Event, key: string, item: UsageBreakdownLineItem): void {
+    event.stopPropagation();
+    if (!this.hasSubActions(item)) {
+      return;
+    }
+
+    this.expandedSubActions.update((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }
 
   protected isTeamExpanded(date: string, teamId: string): boolean {
     return this.expandedTeams().has(`${date}::${teamId}`);
@@ -541,6 +779,7 @@ export class UsageBreakdownTableComponent {
             });
           }
         }
+        this.collapseSubActionsWithPrefix(prefix);
       } else {
         next.add(key);
       }
@@ -556,8 +795,24 @@ export class UsageBreakdownTableComponent {
     const key = `${date}::${teamId}::${userId}`;
     this.expandedUsers.update((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      if (next.has(key)) {
+        next.delete(key);
+        this.collapseSubActionsWithPrefix(`${key}::`);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  }
+
+  private collapseSubActionsWithPrefix(prefix: string): void {
+    this.expandedSubActions.update((prev) => {
+      const next = new Set(prev);
+      for (const key of prev) {
+        if (key.startsWith(prefix)) {
+          next.delete(key);
+        }
+      }
       return next;
     });
   }

@@ -104,6 +104,15 @@ function isAgentIdentifier(value: unknown): value is AgentIdentifier {
   return typeof value === 'string' && AGENT_IDENTIFIER_SET.has(value as AgentIdentifier);
 }
 
+function shouldSuppressCompletionPushWhenActivelyViewing(payload: AgentJobPayload): boolean {
+  const explicitPolicy = payload.notificationPolicy?.suppressPushWhenActivelyViewing;
+  if (typeof explicitPolicy === 'boolean') {
+    return explicitPolicy;
+  }
+
+  return payload.origin === 'user';
+}
+
 const MAX_TIMEOUT_AUTO_CONTINUATIONS =
   AGENT_X_RUNTIME_CONFIG.operationQueue.maxTimeoutAutoContinuations;
 const PARENT_OPERATION_POLL_MS = AGENT_X_RUNTIME_CONFIG.operationQueue.parentOperationPollMs;
@@ -1097,7 +1106,13 @@ export class AgentWorker {
       await import('../memory/memory-summarization.service.js');
 
     const vectorMemory = new VectorMemoryService(this.llmService);
-    const summarizer = new MemorySummarizationService(this.llmService, vectorMemory);
+    const summarizerFirestore = await this.getActivityFirestore(job);
+    const summarizer = new MemorySummarizationService(
+      this.llmService,
+      vectorMemory,
+      undefined,
+      summarizerFirestore
+    );
     const memoriesCreated = await summarizer.processSingleThread(
       job.data.threadId,
       job.data.userId
@@ -2497,18 +2512,29 @@ export class AgentWorker {
       typeof (payloadContext as Record<string, unknown>)['organizationId'] === 'string'
         ? ((payloadContext as Record<string, unknown>)['organizationId'] as string)
         : undefined;
-    void executeBillingDeduction({
-      db: billingDb,
-      userId: payload.userId,
-      operationId: payload.operationId,
-      coordinatorId: payload.agent,
-      agentTools: invokedTools,
-      successfulTools,
-      environment: job.data.environment,
-      iapHoldId: iapHoldId ?? undefined,
-      organizationId: contextOrgId,
-      metadata: { agent: payload.agent, agentTools: invokedTools, successfulTools },
-    });
+    const skipBilling = (payloadContext as Record<string, unknown>)['skipBilling'] === true;
+
+    if (skipBilling) {
+      logger.info('[AgentWorker] Skipping billing deduction for platform-sponsored job', {
+        operationId: payload.operationId,
+        userId: payload.userId,
+        agent: payload.agent,
+        origin: payload.origin,
+      });
+    } else {
+      void executeBillingDeduction({
+        db: billingDb,
+        userId: payload.userId,
+        operationId: payload.operationId,
+        coordinatorId: payload.agent,
+        agentTools: invokedTools,
+        successfulTools,
+        environment: job.data.environment,
+        iapHoldId: iapHoldId ?? undefined,
+        organizationId: contextOrgId,
+        metadata: { agent: payload.agent, agentTools: invokedTools, successfulTools },
+      });
+    }
 
     // Dispatch activity feed item + push notification (fire-and-forget).
     // Skip push when the operation currently has an active live stream subscriber.
@@ -2561,11 +2587,15 @@ export class AgentWorker {
           typeof this.pubsub.subscriberCount === 'function'
             ? await this.pubsub.subscriberCount(payload.operationId)
             : 0;
-        if (activeSubscribers > 0 && hasRecentViewerHeartbeat) {
+        const suppressPushWhenActivelyViewing =
+          shouldSuppressCompletionPushWhenActivelyViewing(payload);
+
+        if (suppressPushWhenActivelyViewing && activeSubscribers > 0 && hasRecentViewerHeartbeat) {
           logger.info('Skipping completion push; active engaged viewer detected', {
             operationId: payload.operationId,
             subscriberCount: activeSubscribers,
             viewerLastSeenAt: viewerLastSeenAtRaw,
+            origin: payload.origin,
           });
         } else {
           await logAgentTaskCompletion(activityDb, {

@@ -229,7 +229,9 @@ export const OPERATIONS_LOG_TEST_IDS = {
                   [class.log-entry--unread]="isUnread(entry)"
                   [class.log-entry--error]="entry.status === 'error'"
                   [class.log-entry--cancelled]="entry.status === 'cancelled'"
-                  [class.log-entry--active]="entry.status === 'in-progress'"
+                  [class.log-entry--active]="
+                    entry.status === 'in-progress' && highlightActiveEntries()
+                  "
                   [class.log-entry--awaiting]="
                     entry.status === 'paused' ||
                     entry.status === 'awaiting_input' ||
@@ -245,7 +247,9 @@ export const OPERATIONS_LOG_TEST_IDS = {
                         class="log-entry-status"
                         [class.log-entry-status--error]="entry.status === 'error'"
                         [class.log-entry-status--cancelled]="entry.status === 'cancelled'"
-                        [class.log-entry-status--active]="entry.status === 'in-progress'"
+                        [class.log-entry-status--active]="
+                          entry.status === 'in-progress' && highlightActiveEntries()
+                        "
                         [class.log-entry-status--awaiting]="
                           entry.status === 'paused' ||
                           entry.status === 'awaiting_input' ||
@@ -260,7 +264,10 @@ export const OPERATIONS_LOG_TEST_IDS = {
                             <nxt1-icon name="close" [size]="14" />
                           }
                           @case ('in-progress') {
-                            <span class="log-entry-spinner">
+                            <span
+                              class="log-entry-spinner"
+                              [class.log-entry-spinner--alt]="animationResetKey() % 2 === 1"
+                            >
                               <nxt1-icon name="refresh" [size]="14" />
                             </span>
                           }
@@ -325,7 +332,9 @@ export const OPERATIONS_LOG_TEST_IDS = {
                 [class.log-entry--unread]="isUnread(entry)"
                 [class.log-entry--error]="entry.status === 'error'"
                 [class.log-entry--cancelled]="entry.status === 'cancelled'"
-                [class.log-entry--active]="entry.status === 'in-progress'"
+                [class.log-entry--active]="
+                  entry.status === 'in-progress' && highlightActiveEntries()
+                "
                 [class.log-entry--awaiting]="
                   entry.status === 'paused' ||
                   entry.status === 'awaiting_input' ||
@@ -342,7 +351,9 @@ export const OPERATIONS_LOG_TEST_IDS = {
                       class="log-entry-status"
                       [class.log-entry-status--error]="entry.status === 'error'"
                       [class.log-entry-status--cancelled]="entry.status === 'cancelled'"
-                      [class.log-entry-status--active]="entry.status === 'in-progress'"
+                      [class.log-entry-status--active]="
+                        entry.status === 'in-progress' && highlightActiveEntries()
+                      "
                       [class.log-entry-status--awaiting]="
                         entry.status === 'paused' ||
                         entry.status === 'awaiting_input' ||
@@ -357,7 +368,10 @@ export const OPERATIONS_LOG_TEST_IDS = {
                           <nxt1-icon name="close" [size]="14" />
                         }
                         @case ('in-progress') {
-                          <span class="log-entry-spinner">
+                          <span
+                            class="log-entry-spinner"
+                            [class.log-entry-spinner--alt]="animationResetKey() % 2 === 1"
+                          >
                             <nxt1-icon name="refresh" [size]="14" />
                           </span>
                         }
@@ -542,6 +556,15 @@ export const OPERATIONS_LOG_TEST_IDS = {
 
       /* ── Spin animation for active spinner ── */
       @keyframes log-spin {
+        from {
+          transform: rotate(0deg);
+        }
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      @keyframes log-spin-alt {
         from {
           transform: rotate(0deg);
         }
@@ -988,6 +1011,10 @@ export const OPERATIONS_LOG_TEST_IDS = {
         animation: log-spin 1.2s linear infinite;
       }
 
+      .log-entry-spinner--alt {
+        animation-name: log-spin-alt;
+      }
+
       .log-entry-meta {
         display: flex;
         align-items: center;
@@ -1072,10 +1099,12 @@ export const OPERATIONS_LOG_TEST_IDS = {
         opacity: 0.7;
       }
 
-      /* Current/selected: Left accent bar — shows which session is open */
+      /* Current/open session: border-only cue, no tinted card fill. */
       .log-entry--current {
-        background: color-mix(in srgb, var(--log-primary) 6%, var(--log-surface));
-        box-shadow: inset 3px 0 0 color-mix(in srgb, var(--log-primary) 70%, transparent);
+        border-color: color-mix(in srgb, var(--log-primary) 72%, var(--log-border));
+        background: var(--log-surface);
+        box-shadow: none;
+        animation: none;
       }
 
       /* ═══ SKELETON ═══ */
@@ -1270,6 +1299,15 @@ export class AgentXOperationsLogComponent {
   /** When true, hides the header/filters without delegating tap handling (sidebar use-case). */
   readonly hideHeader = input(false);
 
+  /** When false, tapping an embedded entry does not leave a persistent selected highlight. */
+  readonly selectEntryOnTap = input(true);
+
+  /** When false, in-progress entries keep the neutral card treatment and show only the spinner. */
+  readonly highlightActiveEntries = input(true);
+
+  /** Toggling this restarts spinner animation in WebKit surfaces that pause hidden menus. */
+  readonly animationResetKey = input(0);
+
   /** When false, day labels scroll away with the list instead of pinning to the top. */
   readonly stickyDayLabels = input(true);
 
@@ -1314,16 +1352,28 @@ export class AgentXOperationsLogComponent {
 
   /**
    * Terminal statuses confirmed via the `operationStatusUpdated$` stream
-   * during this session, keyed by operationId when available and threadId
-   * only for legacy/thread-only rows.
+   * during this session, keyed **strictly by `operationId`**.
    *
-   * Unlike the per-call `liveStatuses` snapshot inside `silentRefresh()`,
-   * this map persists for the lifetime of the component. It prevents a
-   * stale HTTP response (e.g. still showing `in-progress` for a thread
-   * that SSE already marked `complete`) from overwriting a terminal status
-   * that was correctly applied earlier in the same session.
+   * Strict keying is critical: a single thread can host multiple sequential
+   * operations (user sends msg 1 → complete → user sends msg 2 → in-progress).
+   * Keying by `threadId` (as a fallback) would let msg 1's terminal status
+   * mask msg 2's live in-progress state and incorrectly flip the row green
+   * on the next `silentRefresh()`. Events without an `operationId` are not
+   * cached here.
+   *
+   * Cleared per-thread when a new `in-progress` SSE event arrives for that
+   * thread — any prior operationId's terminal status is no longer relevant
+   * to the row's current display state (HTTP `/operations-log` returns only
+   * the newest job per thread).
    */
   private readonly _confirmedTerminalStatuses = new Map<string, OperationLogStatus>();
+
+  /**
+   * Reverse index: `threadId → Set<operationId>` for entries cached in
+   * `_confirmedTerminalStatuses`. Used to purge stale terminals when a new
+   * operation starts in the same thread.
+   */
+  private readonly _terminalOperationIdsByThread = new Map<string, Set<string>>();
 
   /**
    * Tracks threads where SSE has explicitly fired an `in-progress` event in
@@ -1333,8 +1383,24 @@ export class AgentXOperationsLogComponent {
    */
   private readonly _liveInProgressThreads = new Set<string>();
 
-  private getLiveEventKey(operationId: string | undefined, threadId: string | undefined): string {
-    return operationId?.trim() || threadId?.trim() || '';
+  private getLiveEventKey(operationId: string | undefined, _threadId: string | undefined): string {
+    // Strict operationId-only keying — see `_confirmedTerminalStatuses` doc
+    // for why falling back to threadId is unsafe across sequential operations.
+    return operationId?.trim() ?? '';
+  }
+
+  /**
+   * Purge any cached terminal statuses for prior operations of the given
+   * thread. Called when a fresh `in-progress` SSE event arrives so a stale
+   * msg-1 `complete` can't mask msg-2's live state.
+   */
+  private purgeTerminalsForThread(threadId: string): void {
+    const operationIds = this._terminalOperationIdsByThread.get(threadId);
+    if (!operationIds) return;
+    for (const opId of operationIds) {
+      this._confirmedTerminalStatuses.delete(opId);
+    }
+    this._terminalOperationIdsByThread.delete(threadId);
   }
 
   /**
@@ -1519,11 +1585,19 @@ export class AgentXOperationsLogComponent {
     this.operationEventService.operationStatusUpdated$
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((evt) => {
-        const enqueueWaitingActive = !!this.operationEventService.getEnqueueWaitingEntry(
-          evt.threadId
-        );
+        const enqueueWaitingEntry = this.operationEventService.getEnqueueWaitingEntry(evt.threadId);
+        const eventOperationId = evt.operationId?.trim() ?? '';
+        const terminalLogStatuses = new Set<OperationLogStatus>(['complete', 'error', 'cancelled']);
+        const enqueueWaitingActive = !!enqueueWaitingEntry;
+        const terminalEventMatchesWaitingOperation =
+          enqueueWaitingActive &&
+          terminalLogStatuses.has(evt.status) &&
+          (!enqueueWaitingEntry.operationId ||
+            enqueueWaitingEntry.operationId === eventOperationId);
         const effectiveStatus: OperationLogStatus =
-          enqueueWaitingActive && evt.status === 'complete' ? 'in-progress' : evt.status;
+          enqueueWaitingActive && evt.status === 'complete' && !terminalEventMatchesWaitingOperation
+            ? 'in-progress'
+            : evt.status;
 
         this.logger.info('Real-time operation status update', {
           threadId: evt.threadId,
@@ -1531,6 +1605,7 @@ export class AgentXOperationsLogComponent {
           status: effectiveStatus,
           rawStatus: evt.status,
           enqueueWaitingActive,
+          waitingOperationId: enqueueWaitingEntry?.operationId,
         });
         if (evt.source === 'enqueue' || enqueueWaitingActive) {
           this.scheduleEnqueueHydrationRefresh(evt.threadId);
@@ -1542,7 +1617,6 @@ export class AgentXOperationsLogComponent {
         });
         this._operations.update((ops) => {
           const eventThreadId = evt.threadId.trim();
-          const eventOperationId = evt.operationId?.trim() ?? '';
           const isChatEvent = evt.source === 'chat';
 
           const matchesEvent = (op: OperationLogEntry): boolean =>
@@ -1561,12 +1635,14 @@ export class AgentXOperationsLogComponent {
             const shouldUpdateOperationId =
               !!eventOperationId && prior.operationId !== eventOperationId;
             const shouldUpdateTitle = resolvedTitle !== prior.title;
+            const isStaleSameOperationRunningEvent =
+              terminalLogStatuses.has(prior.status) &&
+              effectiveStatus === 'in-progress' &&
+              !!eventOperationId &&
+              prior.operationId === eventOperationId;
+            const nextStatus = isStaleSameOperationRunningEvent ? prior.status : effectiveStatus;
 
-            if (
-              prior.status === effectiveStatus &&
-              !shouldUpdateOperationId &&
-              !shouldUpdateTitle
-            ) {
+            if (prior.status === nextStatus && !shouldUpdateOperationId && !shouldUpdateTitle) {
               return ops;
             }
 
@@ -1575,7 +1651,7 @@ export class AgentXOperationsLogComponent {
               matchesEvent(op)
                 ? {
                     ...op,
-                    status: effectiveStatus,
+                    status: nextStatus,
                     ...(shouldUpdateOperationId ? { operationId: eventOperationId } : {}),
                     ...(shouldUpdateTitle ? { title: resolvedTitle } : {}),
                   }
@@ -1641,23 +1717,31 @@ export class AgentXOperationsLogComponent {
 
         // Cache confirmed terminal statuses so silentRefresh() can re-apply
         // them when a stale HTTP response races with a just-fired `done` event.
-        const terminalLogStatuses = new Set<OperationLogStatus>(['complete', 'error', 'cancelled']);
         const liveEventKey = this.getLiveEventKey(evt.operationId, evt.threadId);
         if (terminalLogStatuses.has(effectiveStatus)) {
           if (liveEventKey) {
             this._confirmedTerminalStatuses.set(liveEventKey, effectiveStatus);
+            // Maintain the thread→operationIds reverse index for purges.
+            const existingOps =
+              this._terminalOperationIdsByThread.get(evt.threadId) ?? new Set<string>();
+            existingOps.add(liveEventKey);
+            this._terminalOperationIdsByThread.set(evt.threadId, existingOps);
           }
           // Clear live-run tracking when the operation reaches a terminal state.
           this._liveInProgressThreads.delete(evt.threadId);
         } else {
           if (liveEventKey) {
             this._confirmedTerminalStatuses.delete(liveEventKey);
+            this._terminalOperationIdsByThread.get(evt.threadId)?.delete(liveEventKey);
           }
           // Record that SSE has explicitly confirmed this thread is running so
           // silentRefresh() knows to trust live `in-progress` over a stale HTTP
           // `complete` (which may be the result of the previous run, not the new one).
           if (effectiveStatus === 'in-progress') {
             this._liveInProgressThreads.add(evt.threadId);
+            // Purge any prior-operation terminals for this thread — they
+            // belong to a previous run and must not mask the new live state.
+            this.purgeTerminalsForThread(evt.threadId);
           }
         }
       });
@@ -1780,12 +1864,22 @@ export class AgentXOperationsLogComponent {
             // HTTP correctly shows the terminal state).
             const sseConfirmedRunning =
               !!entry.threadId && this._liveInProgressThreads.has(entry.threadId);
+            const liveEntry = entry.threadId ? liveEntries.get(entry.threadId) : undefined;
+            const liveOperationId = liveEntry?.operationId?.trim() || '';
+            const httpOperationId = entry.operationId?.trim() || '';
+            const liveRepresentsDifferentOperation = httpOperationId
+              ? !!liveOperationId && liveOperationId !== httpOperationId
+              : true;
 
             // Merge live status (prefer more-advanced state)
             if (live) {
               const httpIsTerminal = terminalStates.has(entry.status);
               const liveIsTerminal = terminalStates.has(live);
-              if (!httpIsTerminal || liveIsTerminal || sseConfirmedRunning) {
+              if (
+                !httpIsTerminal ||
+                liveIsTerminal ||
+                (sseConfirmedRunning && liveRepresentsDifferentOperation)
+              ) {
                 merged = { ...merged, status: live };
               }
             }
@@ -2394,7 +2488,9 @@ export class AgentXOperationsLogComponent {
 
     // In embedded mode (desktop rail), delegate to parent via output
     if (this.embedded()) {
-      this._selectedThreadId.set(entry.threadId ?? null);
+      if (this.selectEntryOnTap()) {
+        this._selectedThreadId.set(entry.threadId ?? null);
+      }
       this.entryTap.emit(entry);
       return;
     }

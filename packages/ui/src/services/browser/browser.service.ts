@@ -278,7 +278,7 @@ export class NxtBrowserService {
 
   /**
    * Build a backend-tracked click URL when the app is running on the web.
-   * Native platforms fall back to the original destination until a public
+   * Native platforms fall back to the original destination until an HTTPS
    * tracking base URL is explicitly provided by the host app.
    */
   private buildTrackedUrl(options: OpenLinkOptions): string {
@@ -291,6 +291,10 @@ export class NxtBrowserService {
     const destinationUrl = extractTrackedDestinationUrl(options.url) ?? options.url;
 
     const configuredTrackingBaseUrl = this.trackingBaseUrl?.trim();
+    if (this.isNativePlatform && !/^https:\/\//i.test(configuredTrackingBaseUrl ?? '')) {
+      return destinationUrl;
+    }
+
     if (configuredTrackingBaseUrl) {
       return buildTrackedLinkUrl(configuredTrackingBaseUrl, destinationUrl, {
         source: options.source,

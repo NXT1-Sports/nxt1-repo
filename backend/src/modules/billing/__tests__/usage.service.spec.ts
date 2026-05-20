@@ -144,7 +144,10 @@ describe('Usage Service', () => {
 
       expect(result).toBe(true);
       expect(mockUsageEventModel.findOneAndUpdate).toHaveBeenCalledWith(
-        { _id: 'event123', status: UsageEventStatus.PENDING },
+        {
+          _id: 'event123',
+          status: { $in: [UsageEventStatus.PENDING, UsageEventStatus.FAILED] },
+        },
         expect.objectContaining({
           $set: expect.objectContaining({ status: UsageEventStatus.PROCESSING }),
         }),

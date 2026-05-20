@@ -112,6 +112,37 @@ function readTrackingDisplayName(value: unknown): string | null {
   return sanitized || null;
 }
 
+async function resolveUserDisplayName(
+  db: FirebaseFirestore.Firestore,
+  userId: string,
+  fallbackDisplayName?: string | null
+): Promise<string | null> {
+  const directFallback = readTrackingDisplayName(fallbackDisplayName);
+  if (directFallback) {
+    return directFallback;
+  }
+
+  try {
+    const userDoc = await db.collection('Users').doc(userId).get();
+    if (!userDoc.exists) {
+      return null;
+    }
+
+    const data = userDoc.data() ?? {};
+    const displayName = readTrackingDisplayName(data['displayName']);
+    if (displayName) {
+      return displayName;
+    }
+
+    const firstName = readTrackingDisplayName(data['firstName']);
+    const lastName = readTrackingDisplayName(data['lastName']);
+    const combinedName = [firstName, lastName].filter(Boolean).join(' ').trim();
+    return combinedName || null;
+  } catch {
+    return null;
+  }
+}
+
 const RECIPIENT_KIND_VALUES = new Set(['coach', 'college', 'person', 'organization', 'unknown']);
 
 function parseRecipientKind(value: unknown): string | null {
@@ -463,6 +494,7 @@ router.post('/profile-view', optionalAuth, async (req: Request, res: Response) =
   try {
     const db = req.firebase.db;
     const viewerUserId = req.user?.uid ?? null;
+    const viewerDisplayName = req.user?.displayName ?? null;
     const { viewedUserId } = req.body as { viewedUserId?: string };
 
     if (!viewedUserId || typeof viewedUserId !== 'string') {
@@ -482,7 +514,42 @@ router.post('/profile-view', optionalAuth, async (req: Request, res: Response) =
       return;
     }
 
+    const resolvedViewerName = viewerUserId
+      ? await resolveUserDisplayName(db, viewerUserId, viewerDisplayName)
+      : null;
+
     await recordProfileView(db, viewedUserId, viewerUserId);
+
+    const profileViewNotification: DispatchNotificationInput = {
+      userId: viewedUserId,
+      type: NOTIFICATION_TYPES.PROFILE_VIEW,
+      title: 'Profile viewed',
+      body: resolvedViewerName
+        ? `${resolvedViewerName} viewed your profile.`
+        : 'Someone viewed your profile.',
+      deepLink: '/activity',
+      data: {
+        entityId: viewedUserId,
+        viewerUserId: viewerUserId ?? '',
+        viewerName: resolvedViewerName ?? '',
+      },
+      metadata: {
+        viewerUserId,
+        viewerName: resolvedViewerName,
+        trackedBy: 'analytics/profile-view',
+      },
+      source: resolvedViewerName
+        ? {
+            userId: viewerUserId ?? undefined,
+            userName: resolvedViewerName,
+          }
+        : undefined,
+      idempotencyKey: `profile_view:${viewedUserId}:${viewerUserId ?? 'anonymous'}:${Math.floor(
+        Date.now() / (5 * 60 * 1000)
+      )}`,
+    };
+
+    await dispatch(db, profileViewNotification);
     res.json({ success: true, tracked: true });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));

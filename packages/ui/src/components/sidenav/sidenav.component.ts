@@ -532,7 +532,12 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
               </div>
             </div>
           </div>
-          <nxt1-agent-x-operations-log [embedded]="true" (entryTap)="onLogEntryTap($event)" />
+          <nxt1-agent-x-operations-log
+            [embedded]="true"
+            [selectEntryOnTap]="false"
+            [animationResetKey]="sessionsLogAnimationKey()"
+            (entryTap)="onLogEntryTap($event)"
+          />
         </div>
       </ion-content>
 
@@ -1519,6 +1524,9 @@ export class NxtSidenavComponent {
   /** Whether sport profiles dropdown is expanded */
   readonly sportsExpanded = signal(false);
 
+  /** Bumped whenever the menu opens so embedded Agent X spinners restart on mobile WebKit. */
+  readonly sessionsLogAnimationKey = signal(0);
+
   /** Active route for highlighting */
   private readonly activeRoute = signal<string>('');
 
@@ -1610,6 +1618,7 @@ export class NxtSidenavComponent {
   onMenuDidOpen(): void {
     this.sidenavService.setAnimating(false);
     this.sidenavService.setState(true);
+    this.sessionsLogAnimationKey.update((key) => key + 1);
 
     const event: SidenavToggleEvent = {
       isOpen: true,

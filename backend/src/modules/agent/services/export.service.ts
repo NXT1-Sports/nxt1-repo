@@ -38,14 +38,21 @@ type TDocumentDefinitions = Parameters<typeof pdfmakeModule.createPdf>[0];
 const _require = createRequire(import.meta.url);
 const pdfmakePkgDir = dirname(_require.resolve('pdfmake/package.json'));
 const fontsDir = resolve(pdfmakePkgDir, 'build/fonts/Roboto');
+const robotoFontPaths = {
+  normal: resolve(fontsDir, 'Roboto-Regular.ttf'),
+  bold: resolve(fontsDir, 'Roboto-Medium.ttf'),
+  italics: resolve(fontsDir, 'Roboto-Italic.ttf'),
+  bolditalics: resolve(fontsDir, 'Roboto-MediumItalic.ttf'),
+} as const;
+const allowedLocalFontPaths = new Set<string>(Object.values(robotoFontPaths));
 
 // Register fonts once at module load
 pdfmake.addFonts({
   Roboto: {
-    normal: resolve(fontsDir, 'Roboto-Regular.ttf'),
-    bold: resolve(fontsDir, 'Roboto-Medium.ttf'),
-    italics: resolve(fontsDir, 'Roboto-Italic.ttf'),
-    bolditalics: resolve(fontsDir, 'Roboto-MediumItalic.ttf'),
+    normal: robotoFontPaths.normal,
+    bold: robotoFontPaths.bold,
+    italics: robotoFontPaths.italics,
+    bolditalics: robotoFontPaths.bolditalics,
   },
 });
 
@@ -55,10 +62,10 @@ pdfmake.addFonts({
   pdfmake as unknown as { setUrlAccessPolicy: (fn: (url: string) => boolean) => void }
 ).setUrlAccessPolicy(() => false);
 
-// Restrict local file system access (deny all local paths — fonts are pre-registered via addFonts)
+// Restrict local file system access to the registered pdfmake font files only.
 (
   pdfmake as unknown as { setLocalAccessPolicy: (fn: (path: string) => boolean) => void }
-).setLocalAccessPolicy(() => false);
+).setLocalAccessPolicy((path) => allowedLocalFontPaths.has(resolve(path)));
 
 // ─── Public Types ──────────────────────────────────────────────────────────
 

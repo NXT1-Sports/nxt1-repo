@@ -702,7 +702,6 @@ export class AgentXOperationChatAttachmentsFacade {
     if (files.length === 0) return 0;
 
     const currentPending = this.pendingFiles();
-    const currentCount = currentPending.length;
     const knownFileSignatures = new Set(
       currentPending.map((pending) => this.fileSignature(pending.file))
     );

@@ -3,6 +3,7 @@ import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const safeTrackMock = vi.fn().mockResolvedValue(undefined);
+const userGetMock = vi.fn().mockResolvedValue({ exists: false, data: () => ({}) });
 const dispatchMock = vi
   .fn()
   .mockResolvedValue({ activityId: 'activity_1', notificationId: 'push_1' });
@@ -22,9 +23,25 @@ const { default: analyticsRoutes } = await import('../analytics/index.js');
 describe('Analytics tracker attribution', () => {
   const app = express();
 
+  app.use(express.json());
+
   app.use((req, _res, next) => {
+    if (req.get('x-test-auth') === 'viewer') {
+      req.user = {
+        uid: 'viewer_1',
+        displayName: 'Coach Carter',
+      } as never;
+    }
+
     req.firebase = {
-      db: { batch: vi.fn() } as never,
+      db: {
+        batch: vi.fn(),
+        collection: vi.fn(() => ({
+          doc: vi.fn(() => ({
+            get: userGetMock,
+          })),
+        })),
+      } as never,
       auth: {} as never,
       storage: {} as never,
     };
@@ -36,6 +53,8 @@ describe('Analytics tracker attribution', () => {
   beforeEach(() => {
     safeTrackMock.mockClear();
     dispatchMock.mockClear();
+    userGetMock.mockReset();
+    userGetMock.mockResolvedValue({ exists: false, data: () => ({}) });
   });
 
   it('tracks open events with hash-only recipient attribution', async () => {
@@ -135,6 +154,35 @@ describe('Analytics tracker attribution', () => {
         data: expect.objectContaining({
           destinationUrl: 'https://example.com/offer',
           normalizedUrl: 'https://example.com/offer',
+        }),
+      })
+    );
+  });
+
+  it('dispatches a profile-view activity item with the resolved viewer name', async () => {
+    userGetMock.mockResolvedValue({
+      exists: true,
+      data: () => ({
+        displayName: 'Coach Carter',
+      }),
+    });
+
+    const response = await request(app)
+      .post('/api/v1/analytics/profile-view')
+      .set('x-test-auth', 'viewer')
+      .send({ viewedUserId: 'athlete_1' });
+
+    expect(response.status).toBe(200);
+    expect(dispatchMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        userId: 'athlete_1',
+        type: 'profile_view',
+        deepLink: '/activity',
+        body: 'Coach Carter viewed your profile.',
+        source: expect.objectContaining({
+          userId: 'viewer_1',
+          userName: 'Coach Carter',
         }),
       })
     );

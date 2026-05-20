@@ -5,5 +5,5 @@
  * Centralized export point for all playbook-related services.
  */
 
-export { PlaybooksService } from './playbooks.service';
-export { PlaybooksApiService } from './playbooks-api.service';
+export { PlaybooksService } from './services/playbooks.service';
+export { PlaybooksApiService } from './services/playbooks-api.service';

@@ -84,8 +84,10 @@ const STRATEGY_ROUTER_FALLBACK_TOOLS = new Set([
   'save_gameplan',
 ]);
 
-const PRIMARY_REASONING_CONTRACT = [
-  '## Primary Reasoning Contract (2026)',
+const PRIMARY_AGENT_MODEL_OVERRIDE = '~anthropic/claude-sonnet-latest';
+
+const PRIMARY_OPERATING_CONTRACT = [
+  '## Primary Operating Contract (2026)',
   '',
   '⚠️  **CRITICAL OVERRIDE — DELETE-BY-POSITION PATTERN (EXECUTE FIRST)**:',
   'If the user request contains ANY of these keywords: "delete", "remove", "clear", "take off", "erase" + timeline/content targets (post, video, stats, stat, schedule, game, news, recruiting, offer, commitment, visit, camp, recent, last):',
@@ -302,9 +304,17 @@ export class PrimaryAgent extends BaseAgent {
   // ─── BaseAgent contract ─────────────────────────────────────────────────
 
   getModelRouting(): ModelRoutingConfig {
-    // Fast routing tier — no thinking. Primary handles streaming ReAct loop
-    // where thinking tokens disrupt chat flow. Deep reasoning lives in Planner.
-    return { ...MODEL_ROUTING_DEFAULTS['routing'], maxTokens: 4096, temperature: 0 };
+    // Fast front-door route — no extended thinking. Primary handles the
+    // streaming ReAct loop; deep reasoning lives in Planner. The model override
+    // prevents live routing config drift from putting Primary on a reasoning-first
+    // model such as o1.
+    return {
+      ...MODEL_ROUTING_DEFAULTS['routing'],
+      modelOverride: PRIMARY_AGENT_MODEL_OVERRIDE,
+      maxTokens: 4096,
+      temperature: 0,
+      enableThinking: false,
+    };
   }
 
   override getToolConcurrency(): number {
@@ -340,7 +350,7 @@ export class PrimaryAgent extends BaseAgent {
       ...(modeAddendum ? { modeAddendum } : {}),
     });
 
-    return `${prompt}\n\n${PRIMARY_REASONING_CONTRACT}`;
+    return `${prompt}\n\n${PRIMARY_OPERATING_CONTRACT}`;
   }
 
   override async execute(

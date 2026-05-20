@@ -51,6 +51,11 @@ export interface OperationMessage {
   readonly interruptedReason?: 'paused' | 'cancelled';
 }
 
+export interface StreamTurnWatermark {
+  optimisticChars: number;
+  confirmedChars: number;
+}
+
 export interface PendingUndoState {
   readonly messageId: string;
   readonly restoreTokenId: string;

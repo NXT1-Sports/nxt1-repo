@@ -26,6 +26,7 @@ export interface UsageEventDocument {
   _id: Types.ObjectId;
   userId: string;
   teamId?: string;
+  organizationId?: string;
   feature: string;
   quantity: number;
   unitCostSnapshot: number;
@@ -51,6 +52,7 @@ const UsageEventSchema = new Schema<UsageEventDocument>(
   {
     userId: { type: String, required: true, index: true },
     teamId: { type: String, index: true },
+    organizationId: { type: String, index: true },
     feature: {
       type: String,
       required: true,
@@ -103,6 +105,9 @@ UsageEventSchema.index({ status: 1, createdAt: 1 });
 
 // Org member drill-down: scoped per user+team queries with time range
 UsageEventSchema.index({ userId: 1, teamId: 1, createdAt: -1 });
+
+// Org-level audit rows can exist before onboarding resolves a canonical team scope.
+UsageEventSchema.index({ organizationId: 1, createdAt: -1 });
 
 // Helicone webhook reconciliation: match by nested metadata fields
 // (MongoDB uses collection scan for Mixed field queries — acceptable for low-volume webhook reconciliation)

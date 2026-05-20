@@ -162,6 +162,7 @@ interface AgentXDesktopSession {
   readonly contextIcon: string;
   readonly contextType: 'operation' | 'command';
   readonly contextDescription?: string;
+  readonly inputRecipientLabel?: string;
   readonly quickActions?: readonly OperationQuickAction[];
   readonly suggestedActions?: readonly OperationQuickAction[];
   readonly scheduledActions?: readonly OperationQuickAction[];
@@ -649,6 +650,7 @@ function sortCoordinatorCategories(
                 [contextIcon]="session.contextIcon"
                 [contextType]="session.contextType"
                 [contextDescription]="session.contextDescription ?? ''"
+                [inputRecipientLabel]="session.inputRecipientLabel ?? ''"
                 [quickActions]="session.quickActions ?? []"
                 [suggestedActions]="session.suggestedActions ?? []"
                 [scheduledActions]="session.scheduledActions ?? []"
@@ -3695,18 +3697,18 @@ function sortCoordinatorCategories(
         );
         --coordinator-pill-surface: color-mix(
           in srgb,
-          var(--coordinator-pill-accent) 18%,
+          var(--coordinator-pill-accent) 26%,
           var(--agent-glass-bg)
         );
         --coordinator-pill-border: color-mix(
           in srgb,
-          var(--coordinator-pill-accent) 54%,
+          var(--coordinator-pill-accent) 72%,
           var(--agent-border)
         );
         flex-shrink: 0;
         display: inline-flex;
         align-items: center;
-        border: 1px solid var(--agent-border);
+        border: 1px solid var(--coordinator-pill-border);
         border-radius: var(--nxt1-radius-full, 9999px);
         padding: 11px 16px;
         background: var(--coordinator-pill-surface);
@@ -3716,9 +3718,9 @@ function sortCoordinatorCategories(
         line-height: 1;
         white-space: nowrap;
         box-shadow:
+          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 20%, transparent),
           0 10px 24px var(--coordinator-pill-shadow),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 10%, white);
-        border-color: var(--coordinator-pill-border);
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, white);
         backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         -webkit-backdrop-filter: var(--nxt1-glass-backdrop, saturate(180%) blur(20px));
         transition:
@@ -3733,11 +3735,12 @@ function sortCoordinatorCategories(
       }
 
       .m-coordinator-pill:active {
-        border-color: color-mix(in srgb, var(--coordinator-pill-accent) 72%, white);
-        background: color-mix(in srgb, var(--coordinator-pill-accent) 28%, var(--agent-glass-bg));
+        border-color: color-mix(in srgb, var(--coordinator-pill-accent) 82%, white);
+        background: color-mix(in srgb, var(--coordinator-pill-accent) 34%, var(--agent-glass-bg));
         box-shadow:
+          0 0 0 1px color-mix(in srgb, var(--coordinator-pill-accent) 28%, transparent),
           0 12px 28px color-mix(in srgb, var(--coordinator-pill-accent) 26%, transparent),
-          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 14%, white);
+          inset 0 1px 0 color-mix(in srgb, var(--coordinator-pill-accent) 18%, white);
         transform: scale(0.98);
       }
 
@@ -3833,8 +3836,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private static readonly DESKTOP_LEFT_PANEL_DEFAULT_WIDTH = 280;
   private static readonly DESKTOP_LEFT_PANEL_MIN_WIDTH = 220;
   private static readonly DESKTOP_ACTION_PLAN_DEFAULT_WIDTH = 320;
-  private static readonly DESKTOP_GAMEPLANS_DEFAULT_WIDTH = 540;
-  private static readonly DESKTOP_PLAYBOOKS_DEFAULT_WIDTH = 540;
   private static readonly DESKTOP_ACTION_PLAN_MIN_WIDTH = 260;
   private static readonly DESKTOP_GAMEPLANS_MIN_WIDTH = 420;
   private static readonly DESKTOP_PLAYBOOKS_MIN_WIDTH = 420;
@@ -5360,6 +5361,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         contextIcon: cat.icon || 'sparkles',
         contextType: 'command',
         contextDescription: cat.description ?? '',
+        inputRecipientLabel: cat.label,
         quickActions: this.buildCoordinatorQuickActions(cat),
         scheduledActions: this.buildCoordinatorScheduledActions(cat),
       },
@@ -5492,6 +5494,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       contextIcon: coord.icon || 'sparkles',
       contextType: 'command',
       contextDescription: coord.description,
+      inputRecipientLabel: coord.label,
       suggestedActions: this.buildCoordinatorSuggestedActions(coord),
       quickActions: this.buildCoordinatorQuickActions(coord),
       scheduledActions: this.buildCoordinatorScheduledActions(coord),

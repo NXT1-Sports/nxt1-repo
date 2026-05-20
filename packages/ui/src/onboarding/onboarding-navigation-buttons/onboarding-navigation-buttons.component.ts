@@ -109,7 +109,7 @@ import { NxtPlatformService } from '../../services/platform';
           continueTestId || (isLastStep ? 'onboarding-complete' : 'onboarding-continue')
         "
         [attr.aria-busy]="loading"
-        [nxtHaptic]="isLastStep ? 'success' : 'medium'"
+        nxtHaptic="light"
       >
         @if (loading) {
           <div class="nxt1-spinner"></div>

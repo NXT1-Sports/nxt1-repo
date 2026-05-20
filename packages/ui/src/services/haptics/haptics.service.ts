@@ -199,8 +199,10 @@ export class HapticsService {
     if (!(await this.shouldRunHaptic())) return;
 
     try {
-      await this.hapticsPlugin!.selectionStart();
-      // Note: selectionEnd() should be called when selection completes
+      const haptics = this.hapticsPlugin!;
+      await haptics.selectionStart();
+      await haptics.selectionChanged();
+      await haptics.selectionEnd();
     } catch {
       // Haptic feedback failures are non-critical
     }

@@ -11,10 +11,10 @@
  * - **Direct debit** (sync routes): Immediate spend recording via recordSpend().
  */
 
-import type { Firestore } from 'firebase-admin/firestore';
+import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import { getAndClearJobCost } from '../agent/queue/job-cost-tracker.js';
 import { calculateChargeAmount } from './pricing.service.js';
-import { resolveBillableFeature } from './feature-resolution.service.js';
+import { resolveBillableFeatures } from './feature-resolution.service.js';
 import {
   recordSpend,
   deductOrgWallet,
@@ -22,8 +22,10 @@ import {
   releaseWalletHold,
   resolveBillingTarget,
 } from './budget.service.js';
-import { recordUsageEvent } from './usage.service.js';
+import { recordUsageEvent, UsageEventStatus } from './usage.service.js';
 import { logger } from '../../utils/logger.js';
+
+const BILLING_DEDUCTION_LOCK_COLLECTION = 'BillingDeductions';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -77,6 +79,91 @@ export interface BillingDeductionResult {
   chargeAmountCents: number;
 }
 
+function supportsFirestoreLock(db: Firestore): boolean {
+  const maybeDb = db as Partial<Pick<Firestore, 'collection' | 'runTransaction'>>;
+  return typeof maybeDb.collection === 'function' && typeof maybeDb.runTransaction === 'function';
+}
+
+interface BillingDeductionLockResult {
+  readonly acquired: boolean;
+  readonly existingStatus?: string;
+  readonly existingHoldId?: string;
+}
+
+async function acquireBillingDeductionLock(
+  db: Firestore,
+  operationId: string,
+  userId: string,
+  chargeAmountCents: number,
+  billableFeatures: readonly string[],
+  holdId?: string
+): Promise<BillingDeductionLockResult> {
+  if (!supportsFirestoreLock(db)) {
+    return { acquired: true };
+  }
+
+  const lockRef = db.collection(BILLING_DEDUCTION_LOCK_COLLECTION).doc(operationId);
+
+  return db.runTransaction(async (txn) => {
+    const snap = await txn.get(lockRef);
+    if (snap.exists) {
+      const data = snap.data();
+      const status = data?.['status'];
+      if (status === 'charged' || status === 'processing') {
+        return {
+          acquired: false,
+          existingStatus: typeof status === 'string' ? status : undefined,
+          existingHoldId: typeof data?.['holdId'] === 'string' ? data['holdId'] : undefined,
+        };
+      }
+    }
+
+    txn.set(
+      lockRef,
+      {
+        operationId,
+        userId,
+        status: 'processing',
+        chargeAmountCents,
+        billableFeatures: [...billableFeatures],
+        ...(holdId ? { holdId } : {}),
+        attemptCount: FieldValue.increment(1),
+        startedAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        createdAt: snap.exists
+          ? (snap.data()?.['createdAt'] ?? FieldValue.serverTimestamp())
+          : FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    return { acquired: true };
+  });
+}
+
+async function markBillingDeductionLock(
+  db: Firestore,
+  operationId: string,
+  status: 'charged' | 'failed',
+  metadata: Record<string, unknown>
+): Promise<void> {
+  if (!supportsFirestoreLock(db)) {
+    return;
+  }
+
+  await db
+    .collection(BILLING_DEDUCTION_LOCK_COLLECTION)
+    .doc(operationId)
+    .set(
+      {
+        status,
+        ...metadata,
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+}
+
 // ─── Core Function ──────────────────────────────────────────────────────────
 
 /**
@@ -112,14 +199,17 @@ export async function executeBillingDeduction(
   // scenarios (e.g. onboarding link scrape) where resolveBillingTarget may
   // not yet have the org billing docs ready.
   let resolvedOrgId: string | undefined = input.organizationId;
+  let deductionLockAcquired = false;
+  let moneyMoved = false;
 
   try {
-    const resolvedFeature = resolveBillableFeature({
+    const resolvedFeatures = resolveBillableFeatures({
       feature,
       coordinatorId,
       agentTools,
       successfulTools,
     });
+    const primaryFeature = resolvedFeatures[0] ?? 'agent-execution';
 
     // Step 1: Resolve raw cost
     let totalCostUsd: number;
@@ -134,7 +224,8 @@ export async function executeBillingDeduction(
     logger.info('[billing] Deduction pipeline start', {
       operationId,
       userId,
-      feature: resolvedFeature,
+      feature: primaryFeature,
+      billableFeatures: resolvedFeatures,
       coordinatorId,
       totalCostUsd,
       mode: iapHoldId ? 'hold-capture' : 'direct-debit',
@@ -153,19 +244,63 @@ export async function executeBillingDeduction(
       return { charged: false, rawCostUsd: 0, chargeAmountCents: 0 };
     }
 
-    // Step 3: Apply platform markup
-    const { chargeAmountCents } = await calculateChargeAmount(
+    // Step 3: Apply platform markup to the whole operation once. Tool-level
+    // cost is not available from provider telemetry, so tools are recorded as
+    // metadata for transparency instead of fake-priced ledger rows.
+    const chargeCalculation = await calculateChargeAmount(
       db,
       totalCostUsd,
-      resolvedFeature,
+      primaryFeature,
       coordinatorId
     );
+    const chargeAmountCents = chargeCalculation.chargeAmountCents;
 
     if (chargeAmountCents <= 0) {
       // Edge case: markup rounds to zero — release hold
       if (iapHoldId) {
         await releaseWalletHold(db, iapHoldId);
       }
+      return { charged: false, rawCostUsd: totalCostUsd, chargeAmountCents: 0 };
+    }
+
+    const deductionLockResult = await acquireBillingDeductionLock(
+      db,
+      operationId,
+      userId,
+      chargeAmountCents,
+      resolvedFeatures,
+      iapHoldId ?? undefined
+    );
+    deductionLockAcquired = deductionLockResult.acquired;
+
+    if (!deductionLockAcquired) {
+      logger.info('[billing] Deduction already processed or in progress — skipping wallet debit', {
+        operationId,
+        userId,
+        chargeAmountCents,
+        billableFeatures: resolvedFeatures,
+        existingStatus: deductionLockResult.existingStatus,
+      });
+
+      const canReleaseDuplicateHold =
+        iapHoldId &&
+        (deductionLockResult.existingStatus === 'charged' ||
+          (deductionLockResult.existingStatus === 'processing' &&
+            deductionLockResult.existingHoldId !== undefined &&
+            deductionLockResult.existingHoldId !== iapHoldId));
+
+      if (canReleaseDuplicateHold) {
+        await releaseWalletHold(db, iapHoldId).catch((releaseErr: unknown) => {
+          logger.warn('[billing] Failed to release duplicate hold after deduction skip', {
+            operationId,
+            holdId: iapHoldId,
+            existingHoldId: deductionLockResult.existingHoldId,
+            existingStatus: deductionLockResult.existingStatus,
+            error: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+          });
+        });
+      }
+
       return { charged: false, rawCostUsd: totalCostUsd, chargeAmountCents: 0 };
     }
 
@@ -210,11 +345,29 @@ export async function executeBillingDeduction(
       // Individual / IAP wallet billing
       await recordSpend(db, userId, chargeAmountCents, effectiveTeamId);
     }
+    moneyMoved = true;
+
+    await markBillingDeductionLock(db, operationId, 'charged', {
+      chargedAt: FieldValue.serverTimestamp(),
+      chargeAmountCents,
+      rawCostUsd: totalCostUsd,
+      primaryFeature,
+      billableFeatures: [...resolvedFeatures],
+      via: iapHoldId ? 'captureWalletHold' : resolvedOrgId ? 'deductOrgWallet' : 'recordSpend',
+    }).catch((lockErr: unknown) => {
+      logger.warn('[billing] Failed to mark deduction lock as charged after money movement', {
+        operationId,
+        userId,
+        error: lockErr instanceof Error ? lockErr.message : String(lockErr),
+      });
+    });
 
     const usageMetadata = {
       operationId,
       ...(coordinatorId ? { coordinatorId } : {}),
       ...metadata,
+      primaryFeature,
+      billableFeatures: [...resolvedFeatures],
       ...(metadata?.['agentTools'] === undefined && agentTools
         ? { agentTools: [...agentTools] }
         : {}),
@@ -223,44 +376,72 @@ export async function executeBillingDeduction(
         : {}),
     };
 
-    // Step 5: Write audit trail usage event
-    recordUsageEvent(
-      {
-        userId,
-        ...(effectiveTeamId ? { teamId: effectiveTeamId } : {}),
-        feature: resolvedFeature,
-        quantity: 1,
-        unitCostSnapshot: chargeAmountCents,
-        currency: 'usd',
-        stripePriceId: '',
-        jobId: operationId,
-        dynamicCostCents: chargeAmountCents,
-        rawProviderCostUsd: totalCostUsd,
-        metadata: usageMetadata,
-      },
-      environment ?? 'production'
-    ).catch((e: unknown) => {
+    // Step 5: Write one audit trail usage event for the actual operation.
+    try {
+      await recordUsageEvent(
+        {
+          userId,
+          ...(effectiveTeamId ? { teamId: effectiveTeamId } : {}),
+          ...(resolvedOrgId ? { organizationId: resolvedOrgId } : {}),
+          feature: primaryFeature,
+          quantity: 1,
+          unitCostSnapshot: chargeAmountCents,
+          currency: 'usd',
+          stripePriceId: '',
+          jobId: operationId,
+          dynamicCostCents: chargeAmountCents,
+          rawProviderCostUsd: totalCostUsd,
+          status: UsageEventStatus.SENT,
+          publish: false,
+          metadata: {
+            ...usageMetadata,
+            settlementPath: iapHoldId
+              ? 'wallet-hold-capture'
+              : resolvedOrgId
+                ? 'org-wallet-debit'
+                : 'wallet-or-spend-record',
+            alreadySettled: true,
+          },
+        },
+        environment ?? 'production'
+      );
+    } catch (usageEventErr) {
       logger.warn(
         '[billing] Failed to write usage event audit trail — spend was already recorded',
         {
           operationId,
-          error: e instanceof Error ? e.message : String(e),
+          feature: primaryFeature,
+          billableFeatures: resolvedFeatures,
+          error: usageEventErr instanceof Error ? usageEventErr.message : String(usageEventErr),
         }
       );
-    });
+    }
 
     logger.info('[billing] Deduction completed', {
       operationId,
       userId,
       rawCostUsd: totalCostUsd,
       chargeAmountCents,
-      feature: resolvedFeature,
+      feature: primaryFeature,
+      billableFeatures: resolvedFeatures,
       coordinatorId,
       via: iapHoldId ? 'captureWalletHold' : resolvedOrgId ? 'deductOrgWallet' : 'recordSpend',
     });
 
     return { charged: true, rawCostUsd: totalCostUsd, chargeAmountCents };
   } catch (billingErr) {
+    if (deductionLockAcquired && !moneyMoved) {
+      await markBillingDeductionLock(db, operationId, 'failed', {
+        failedAt: FieldValue.serverTimestamp(),
+        error: billingErr instanceof Error ? billingErr.message : String(billingErr),
+      }).catch((lockErr: unknown) => {
+        logger.warn('[billing] Failed to mark deduction lock as failed', {
+          operationId,
+          error: lockErr instanceof Error ? lockErr.message : String(lockErr),
+        });
+      });
+    }
+
     logger.warn('[billing] Deduction failed — operation result unaffected', {
       operationId,
       userId,
