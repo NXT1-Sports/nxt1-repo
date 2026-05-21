@@ -395,6 +395,10 @@ export class ContextBuilder {
       lines.push(`School: ${context.school}${loc ? `, ${loc}` : ''}`);
     }
 
+    if (context.timezone) {
+      lines.push(`Timezone: ${context.timezone}`);
+    }
+
     if (context.gpa || context.heightInches || context.weightLbs) {
       const parts: string[] = [];
       if (context.gpa) parts.push(`GPA: ${context.gpa}`);

@@ -69,80 +69,100 @@ export function extractMediaAttachmentsFromResultData(
     attachments.push({ url: normalized, name, type });
   };
 
-  // Scalar fields: imageUrl, videoUrl, outputUrl
-  addAttachment(
-    typeof resultData['imageUrl'] === 'string' ? resultData['imageUrl'] : undefined,
-    'image.jpg',
-    'image'
-  );
-  addAttachment(
-    typeof resultData['videoUrl'] === 'string' ? resultData['videoUrl'] : undefined,
-    'video.mp4',
-    'video'
-  );
-  addAttachment(
-    typeof resultData['outputUrl'] === 'string' ? resultData['outputUrl'] : undefined,
-    'video.mp4',
-    'video'
-  );
+  const collectFromRecord = (record: Record<string, unknown>): void => {
+    addAttachment(
+      typeof record['imageUrl'] === 'string' ? record['imageUrl'] : undefined,
+      'image.jpg',
+      'image'
+    );
+    addAttachment(
+      typeof record['videoUrl'] === 'string' ? record['videoUrl'] : undefined,
+      'video.mp4',
+      'video'
+    );
+    addAttachment(
+      typeof record['outputUrl'] === 'string' ? record['outputUrl'] : undefined,
+      'video.mp4',
+      'video'
+    );
 
-  // Array fields: imageUrls, videoUrls
-  if (Array.isArray(resultData['imageUrls'])) {
-    (resultData['imageUrls'] as unknown[]).forEach((url, idx) => {
-      addAttachment(typeof url === 'string' ? url : undefined, `image-${idx}.jpg`, 'image');
-    });
-  }
-  if (Array.isArray(resultData['videoUrls'])) {
-    (resultData['videoUrls'] as unknown[]).forEach((url, idx) => {
-      addAttachment(typeof url === 'string' ? url : undefined, `video-${idx}.mp4`, 'video');
-    });
-  }
+    if (Array.isArray(record['imageUrls'])) {
+      (record['imageUrls'] as unknown[]).forEach((url, idx) => {
+        addAttachment(typeof url === 'string' ? url : undefined, `image-${idx}.jpg`, 'image');
+      });
+    }
+    if (Array.isArray(record['videoUrls'])) {
+      (record['videoUrls'] as unknown[]).forEach((url, idx) => {
+        addAttachment(typeof url === 'string' ? url : undefined, `video-${idx}.mp4`, 'video');
+      });
+    }
 
-  // files[] array: map each item's url/name/mimeType
-  if (Array.isArray(resultData['files'])) {
-    (resultData['files'] as unknown[]).forEach((file, idx) => {
-      if (!file || typeof file !== 'object') return;
-      const obj = file as Record<string, unknown>;
-      const url =
-        typeof obj['url'] === 'string'
-          ? obj['url']
-          : typeof obj['downloadUrl'] === 'string'
-            ? obj['downloadUrl']
-            : undefined;
-      const name = typeof obj['name'] === 'string' ? obj['name'] : `file-${idx}`;
-      const mimeType = typeof obj['mimeType'] === 'string' ? obj['mimeType'] : '';
-      const type = mimeType.startsWith('image/')
+    if (Array.isArray(record['files'])) {
+      (record['files'] as unknown[]).forEach((file, idx) => {
+        if (!file || typeof file !== 'object') return;
+        const obj = file as Record<string, unknown>;
+        const url =
+          typeof obj['url'] === 'string'
+            ? obj['url']
+            : typeof obj['downloadUrl'] === 'string'
+              ? obj['downloadUrl']
+              : undefined;
+        const name = typeof obj['name'] === 'string' ? obj['name'] : `file-${idx}`;
+        const mimeType = typeof obj['mimeType'] === 'string' ? obj['mimeType'] : '';
+        const type = mimeType.startsWith('image/')
+          ? 'image'
+          : mimeType.startsWith('video/')
+            ? 'video'
+            : 'doc';
+        addAttachment(url, name, type);
+      });
+    }
+
+    if (typeof record['downloadUrl'] === 'string') {
+      const exportUrl = record['downloadUrl'] as string;
+      const exportName =
+        typeof record['fileName'] === 'string' ? (record['fileName'] as string) : 'export';
+      const mimeType = typeof record['mimeType'] === 'string' ? (record['mimeType'] as string) : '';
+      const exportType: 'image' | 'video' | 'doc' = mimeType.startsWith('image/')
         ? 'image'
         : mimeType.startsWith('video/')
           ? 'video'
           : 'doc';
-      addAttachment(url, name, type);
+      addAttachment(exportUrl, exportName, exportType);
+    }
+
+    if (Array.isArray(record['persistedMediaUrls'])) {
+      (record['persistedMediaUrls'] as unknown[]).forEach((url, idx) => {
+        if (typeof url !== 'string') return;
+        const type = url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? 'image' : 'video';
+        const name = type === 'image' ? `media-${idx}.jpg` : `media-${idx}.mp4`;
+        addAttachment(url, name, type);
+      });
+    }
+  };
+
+  const nestedRecords: Record<string, unknown>[] = [];
+  const queueNestedRecord = (value: unknown): void => {
+    if (value && typeof value === 'object') {
+      nestedRecords.push(value as Record<string, unknown>);
+    }
+  };
+
+  queueNestedRecord(resultData['coordinator_artifacts']);
+  queueNestedRecord(resultData['coordinatorArtifacts']);
+
+  if (Array.isArray(resultData['toolCallRecords'])) {
+    (resultData['toolCallRecords'] as unknown[]).forEach((record) => {
+      if (!record || typeof record !== 'object') return;
+      const recordObj = record as Record<string, unknown>;
+      queueNestedRecord(recordObj['output']);
     });
   }
 
-  // downloadUrl: generated export file (PDF, CSV) from DynamicExportTool
-  if (typeof resultData['downloadUrl'] === 'string') {
-    const exportUrl = resultData['downloadUrl'] as string;
-    const exportName =
-      typeof resultData['fileName'] === 'string' ? (resultData['fileName'] as string) : 'export';
-    const mimeType =
-      typeof resultData['mimeType'] === 'string' ? (resultData['mimeType'] as string) : '';
-    const exportType: 'image' | 'video' | 'doc' = mimeType.startsWith('image/')
-      ? 'image'
-      : mimeType.startsWith('video/')
-        ? 'video'
-        : 'doc';
-    addAttachment(exportUrl, exportName, exportType);
-  }
-
-  // persistedMediaUrls[] array: map each as media
-  if (Array.isArray(resultData['persistedMediaUrls'])) {
-    (resultData['persistedMediaUrls'] as unknown[]).forEach((url, idx) => {
-      if (typeof url !== 'string') return;
-      const type = url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? 'image' : 'video';
-      const name = type === 'image' ? `media-${idx}.jpg` : `media-${idx}.mp4`;
-      addAttachment(url, name, type);
-    });
+  // Top-level extraction first, then nested records from coordinator delegation outputs.
+  collectFromRecord(resultData);
+  for (const nested of nestedRecords) {
+    collectFromRecord(nested);
   }
 
   return attachments;

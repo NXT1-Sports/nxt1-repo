@@ -64,6 +64,12 @@ export interface UsageEvent {
   /** Organization context for org-settled usage, including first-run onboarding. */
   organizationId?: string;
 
+  /** Canonical billing owner type for this usage event. */
+  billedOwnerType?: 'individual' | 'organization';
+
+  /** Canonical billing owner id (`uid` or `org:{organizationId}`). */
+  billedOwnerId?: string;
+
   /** Feature that was used */
   feature: UsageFeature;
 
@@ -123,6 +129,8 @@ export interface CreateUsageEventInput {
   userId: string;
   teamId?: string;
   organizationId?: string;
+  billedOwnerType?: 'individual' | 'organization';
+  billedOwnerId?: string;
   feature: UsageFeature;
   quantity: number;
   unitCostSnapshot: number;

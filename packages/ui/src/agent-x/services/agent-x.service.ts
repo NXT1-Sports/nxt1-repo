@@ -486,7 +486,11 @@ export class AgentXService {
    * Set user context for AI personalization.
    */
   setUserContext(context: AgentXUserContext): void {
-    this._userContext.set(context);
+    const timezone = resolveCurrentTimeZone();
+    this._userContext.set({
+      ...context,
+      ...(context.timezone ? {} : { timezone }),
+    });
   }
 
   /**
@@ -2098,5 +2102,14 @@ export class AgentXService {
     ).catch((err) => {
       this.logger.warn('Failed to persist snooze to backend', { itemId, error: String(err) });
     });
+  }
+}
+
+function resolveCurrentTimeZone(): string | undefined {
+  try {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return timezone && timezone.trim().length > 0 ? timezone : undefined;
+  } catch {
+    return undefined;
   }
 }

@@ -27,6 +27,8 @@ export interface UsageEventDocument {
   userId: string;
   teamId?: string;
   organizationId?: string;
+  billedOwnerType?: 'individual' | 'organization';
+  billedOwnerId?: string;
   feature: string;
   quantity: number;
   unitCostSnapshot: number;
@@ -53,6 +55,8 @@ const UsageEventSchema = new Schema<UsageEventDocument>(
     userId: { type: String, required: true, index: true },
     teamId: { type: String, index: true },
     organizationId: { type: String, index: true },
+    billedOwnerType: { type: String, enum: ['individual', 'organization'], index: true },
+    billedOwnerId: { type: String, index: true },
     feature: {
       type: String,
       required: true,
@@ -108,6 +112,9 @@ UsageEventSchema.index({ userId: 1, teamId: 1, createdAt: -1 });
 
 // Org-level audit rows can exist before onboarding resolves a canonical team scope.
 UsageEventSchema.index({ organizationId: 1, createdAt: -1 });
+
+// Authoritative billing-mode ownership queries (org/personal split).
+UsageEventSchema.index({ billedOwnerType: 1, billedOwnerId: 1, createdAt: -1 });
 
 // Helicone webhook reconciliation: match by nested metadata fields
 // (MongoDB uses collection scan for Mixed field queries — acceptable for low-volume webhook reconciliation)

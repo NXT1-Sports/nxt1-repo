@@ -50,7 +50,7 @@ import { PERFORMANCE_ADAPTER } from '../services/performance';
 import { GlobalBadgeService } from '../services/badge';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
-import { ACTIVITY_API_ADAPTER } from './activity-api.service';
+import { ACTIVITY_API_ADAPTER, ACTIVITY_FIREBASE_CONTEXT } from './activity-api.service';
 import { FIRESTORE_ADAPTER } from '../agent-x/services/agent-x-operation-event.service';
 
 const ACTIVITY_REALTIME_LIMIT = 25;
@@ -193,6 +193,7 @@ export class ActivityService {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly performance = inject(PERFORMANCE_ADAPTER, { optional: true });
   private readonly firestoreAdapter = inject(FIRESTORE_ADAPTER, { optional: true });
+  private readonly firebaseContext = inject(ACTIVITY_FIREBASE_CONTEXT);
   private readonly globalBadges = inject(GlobalBadgeService);
 
   // ============================================
@@ -614,7 +615,18 @@ export class ActivityService {
         'timestamp',
         (docs) => this.handleRealtimeSnapshot(docs),
         (error) => {
-          this.logger.error('Activity live listener failed', error, { collectionPath });
+          const authUid = this.firebaseContext.getCurrentUserId();
+          const authReady = this.firebaseContext.isAuthReady();
+          const projectId = this.firebaseContext.getProjectId();
+
+          this.logger.error('Activity live listener failed', error, {
+            collectionPath,
+            listenerUserId: normalizedUserId,
+            authUid,
+            authReady,
+            projectId,
+            uidMatchesListener: authUid === normalizedUserId,
+          });
           void this.breadcrumbs.trackStateChange('activity_realtime_error', {
             userId: normalizedUserId,
           });

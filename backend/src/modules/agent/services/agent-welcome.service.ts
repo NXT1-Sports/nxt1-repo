@@ -87,17 +87,6 @@ function collectTeamColors(team: Record<string, unknown> | undefined): string[] 
   return modernColors.length > 0 ? modernColors : undefined;
 }
 
-function hasCompletedFirstSync(sources: readonly Record<string, unknown>[]): boolean {
-  return sources.some((source) => {
-    const syncStatus = asString(source['syncStatus']);
-    return syncStatus === 'success' || syncStatus === 'error' || source['lastSyncedAt'] != null;
-  });
-}
-
-function isWaitingForFirstSync(sources: readonly Record<string, unknown>[]): boolean {
-  return sources.length > 0 && !hasCompletedFirstSync(sources);
-}
-
 function resolveTeamDocId(userData: Record<string, unknown>): string | undefined {
   const teamCode = asRecord(userData['teamCode']);
   const legacyTeamId =
@@ -190,15 +179,6 @@ async function resolveWelcomeGraphicInput(
       return { status: 'skipped', reason: 'already_queued' };
     }
 
-    const relevantSources = (() => {
-      const teamSources = asRecordArray(teamData?.['connectedSources']);
-      if (teamSources.length > 0) return teamSources;
-      return asRecordArray(userData['connectedSources']);
-    })();
-    if (isWaitingForFirstSync(relevantSources)) {
-      return { status: 'skipped', reason: 'waiting_for_first_sync' };
-    }
-
     const teamLogoUrl =
       asString(organization.data?.['logoUrl']) ??
       asString(teamData?.['logoUrl']) ??
@@ -227,11 +207,6 @@ async function resolveWelcomeGraphicInput(
 
   if (userData['welcomeGraphicQueued'] === true) {
     return { status: 'skipped', reason: 'already_queued' };
-  }
-
-  const connectedSources = asRecordArray(userData['connectedSources']);
-  if (isWaitingForFirstSync(connectedSources)) {
-    return { status: 'skipped', reason: 'waiting_for_first_sync' };
   }
 
   const profileImgs = Array.isArray(userData['profileImgs'])

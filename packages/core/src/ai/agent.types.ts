@@ -1086,6 +1086,8 @@ export interface AgentUserContext {
   readonly school?: string;
   readonly city?: string;
   readonly state?: string;
+  /** User's IANA timezone, when known. */
+  readonly timezone?: string;
 
   // ── Recruiting Context ────────────────────────────────────────
   readonly recruitingStatus?: string;

@@ -2660,7 +2660,22 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       }
     }
 
-    return Array.from(attachmentSourcesMap.values());
+    return this.collapseAttachmentSourcesByPlatform(Array.from(attachmentSourcesMap.values()));
+  }
+
+  private collapseAttachmentSourcesByPlatform(
+    sources: readonly ConnectedAppSource[]
+  ): readonly ConnectedAppSource[] {
+    const byPlatform = new Map<string, ConnectedAppSource>();
+
+    for (const source of sources) {
+      const key = this.normalizeAttachmentPlatformKey(source.platform);
+      if (!byPlatform.has(key)) {
+        byPlatform.set(key, source);
+      }
+    }
+
+    return Array.from(byPlatform.values());
   }
 
   private async refreshFirecrawlSignedInAccounts(): Promise<void> {

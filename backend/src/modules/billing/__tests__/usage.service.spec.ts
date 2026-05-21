@@ -134,6 +134,23 @@ describe('Usage Service', () => {
       expect(eventId).toBe('existing-event-id');
       expect(mockUsageEventModel.findOne).toHaveBeenCalledOnce();
     });
+
+    it('persists billed owner identity when provided', async () => {
+      const billedInput: CreateUsageEventInput = {
+        ...input,
+        billedOwnerType: 'organization',
+        billedOwnerId: 'org:org-123',
+      };
+
+      await recordUsageEvent(billedInput, 'production');
+
+      expect(mockUsageEventModel.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          billedOwnerType: 'organization',
+          billedOwnerId: 'org:org-123',
+        })
+      );
+    });
   });
 
   describe('tryAcquireEventLock', () => {

@@ -30,14 +30,22 @@ export interface TeamWelcomePromptContext {
   readonly teamColors?: readonly string[];
 }
 
+function removeGenderTerms(value: string): string {
+  return value
+    .replace(/\b(men(?:'s)?|mens|women(?:'s)?|womens|boys?|girls?|male|female)\b/gi, '')
+    .replace(/[\s\-–—]{2,}/g, ' ')
+    .trim();
+}
+
 // ─── Prompt Builders ────────────────────────────────────────────────────────
 
 /**
  * Build the image generation prompt for an athlete welcome graphic.
  */
 export function buildAthleteWelcomePrompt(ctx: AthleteWelcomePromptContext): string {
-  const sportLabel = ctx.sport ?? 'sports';
-  const positionLabel = ctx.position ? ` — ${ctx.position}` : '';
+  const sportLabel = removeGenderTerms(ctx.sport ?? 'sports');
+  const cleanedPosition = ctx.position ? removeGenderTerms(ctx.position) : '';
+  const positionLabel = cleanedPosition ? ` — ${cleanedPosition}` : '';
 
   return [
     'Create a welcome graphic for a new athlete joining the platform.',
@@ -63,7 +71,7 @@ export function buildAthleteWelcomePrompt(ctx: AthleteWelcomePromptContext): str
  * Build the image generation prompt for a team welcome graphic.
  */
 export function buildTeamWelcomePrompt(ctx: TeamWelcomePromptContext): string {
-  const sportLabel = ctx.sport ?? 'sports';
+  const sportLabel = removeGenderTerms(ctx.sport ?? 'sports');
 
   return [
     'Create a welcome graphic for a new team joining the platform.',

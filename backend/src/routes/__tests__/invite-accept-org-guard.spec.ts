@@ -24,12 +24,16 @@ const {
   findOneMock,
   findOneAndUpdateMock,
   createRosterEntryMock,
+  dispatchMock,
 } = vi.hoisted(() => ({
   joinTeamMock: vi.fn(),
   getTeamCodeByCodeMock: vi.fn(),
   findOneMock: vi.fn().mockReturnValue({ lean: () => ({ exec: async () => null }) }),
   findOneAndUpdateMock: vi.fn().mockReturnValue({ lean: () => ({ exec: async () => null }) }),
   createRosterEntryMock: vi.fn().mockResolvedValue(undefined),
+  dispatchMock: vi
+    .fn()
+    .mockResolvedValue({ activityId: 'activity-id', notificationId: 'notif-id' }),
 }));
 
 vi.mock('../../services/team/team-code.service.js', () => ({
@@ -54,10 +58,16 @@ vi.mock('../../services/communications/team-join-notifications.js', () => ({
   notifyTeamJoined: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('../../services/communications/notification.service.js', () => ({
+  dispatch: dispatchMock,
+}));
+
 vi.mock('../../services/team/roster-entry.service.js', () => ({
-  RosterEntryService: vi.fn().mockImplementation(() => ({
-    createRosterEntry: createRosterEntryMock,
-  })),
+  RosterEntryService: vi.fn().mockImplementation(function RosterEntryServiceMock() {
+    return {
+      createRosterEntry: createRosterEntryMock,
+    };
+  }),
 }));
 
 vi.mock('../../services/core/cache.service.js', () => ({
@@ -186,9 +196,11 @@ describe('POST /invite/accept — org-ownership guard', () => {
     createRosterEntryMock.mockResolvedValue(undefined);
     // Re-setup the RosterEntryService constructor mock — clearAllMocks() clears
     // mockImplementation set inside vi.mock() factories.
-    vi.mocked(RosterEntryService).mockImplementation(() => ({
-      createRosterEntry: createRosterEntryMock,
-    }));
+    vi.mocked(RosterEntryService).mockImplementation(function RosterEntryServiceMock() {
+      return {
+        createRosterEntry: createRosterEntryMock,
+      };
+    });
   });
 
   /**
@@ -278,6 +290,18 @@ describe('POST /invite/accept — org-ownership guard', () => {
 
       // teamJoined should be falsy since the join was skipped
       expect(res.body.teamJoined).toBeFalsy();
+    });
+
+    it('does NOT dispatch a joiner notification', async () => {
+      const app = buildApp(seed);
+      await postAccept(app, {
+        code: `NXT-${TEAM_CODE}`,
+        teamCode: TEAM_CODE,
+        inviterUid: 'coach-uid',
+        isNewUser: false,
+      });
+
+      expect(dispatchMock).not.toHaveBeenCalled();
     });
   });
 
@@ -398,6 +422,24 @@ describe('POST /invite/accept — org-ownership guard', () => {
 
       expect(res.body.teamJoined).toBe('Real Team');
     });
+
+    it('dispatches a joiner notification (push + activity)', async () => {
+      const app = buildApp(seed);
+      await postAccept(app, {
+        code: `NXT-${TEAM_CODE}`,
+        teamCode: TEAM_CODE,
+        inviterUid: 'coach-uid',
+        isNewUser: false,
+      });
+
+      expect(dispatchMock).toHaveBeenCalledOnce();
+      expect(dispatchMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          userId: 'athlete-user-id',
+        })
+      );
+    });
   });
 
   /**
@@ -454,6 +496,24 @@ describe('POST /invite/accept — org-ownership guard', () => {
       });
 
       expect(joinTeamMock).toHaveBeenCalledOnce();
+    });
+
+    it('dispatches joiner notification when fallback join succeeds', async () => {
+      const app = buildApp(seed);
+      await postAccept(app, {
+        code: `NXT-${TEAM_CODE}`,
+        teamCode: TEAM_CODE,
+        inviterUid: 'coach-uid',
+        isNewUser: false,
+      });
+
+      expect(dispatchMock).toHaveBeenCalledOnce();
+      expect(dispatchMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          userId: 'athlete-user-id',
+        })
+      );
     });
   });
 });

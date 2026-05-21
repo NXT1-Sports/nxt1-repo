@@ -87,6 +87,10 @@ function normalizeTrackedLink(url: string | null | undefined): string | null {
   return extractTrackedDestinationUrl(url) ?? url;
 }
 
+function isOpenableHttpUrl(url: string | null | undefined): boolean {
+  return typeof url === 'string' && /^(https?:\/\/|www\.)/i.test(url.trim());
+}
+
 /**
  * Builds a static video thumbnail with a play-icon overlay.
  * No controls, no autoload — tapping opens the full media viewer.
@@ -117,9 +121,10 @@ function createNxtRenderer(): Renderer {
     const normalizedHref = normalizeTrackedLink(href);
 
     // Block javascript: protocol to prevent XSS
-    const safeHref = /^javascript:/i.test(normalizedHref ?? '')
-      ? '#'
-      : escapeAttr(normalizedHref ?? '');
+    const safeHref =
+      /^javascript:/i.test(normalizedHref ?? '') || !isOpenableHttpUrl(normalizedHref)
+        ? '#'
+        : escapeAttr(normalizedHref ?? '');
 
     const displayText = href && normalizedHref && text === href ? normalizedHref : text;
 
@@ -706,7 +711,13 @@ export class NxtMarkdownComponent {
 
         const anchor = target.closest('a[href]') as HTMLAnchorElement | null;
         const href = anchor?.getAttribute('href') ?? '';
-        if (!anchor || !/^(https?:\/\/|www\.)/i.test(href)) {
+        if (!anchor) {
+          return;
+        }
+
+        if (!isOpenableHttpUrl(href)) {
+          // Prevent empty/relative links from navigating the current app route.
+          e.preventDefault();
           return;
         }
 

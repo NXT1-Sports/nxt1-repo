@@ -188,9 +188,6 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
                                           size="12"
                                         />
                                         <span class="sku-name">{{ item.sku }}</span>
-                                        <span class="sub-action-count">
-                                          {{ item.subActions?.length }} actions
-                                        </span>
                                       </button>
                                     } @else {
                                       <span class="sku-name">{{ item.sku }}</span>
@@ -276,9 +273,6 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
                                   size="12"
                                 />
                                 <span class="sku-name">{{ item.sku }}</span>
-                                <span class="sub-action-count">
-                                  {{ item.subActions?.length }} actions
-                                </span>
                               </button>
                             } @else {
                               <span class="sku-name">{{ item.sku }}</span>
@@ -622,12 +616,6 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
         outline: 2px solid var(--nxt1-color-primary);
         outline-offset: 3px;
         border-radius: var(--nxt1-radius-sm, 6px);
-      }
-
-      .sub-action-count {
-        color: var(--nxt1-color-text-tertiary);
-        font-size: var(--nxt1-fontSize-xs);
-        white-space: nowrap;
       }
 
       .sub-action-row td {

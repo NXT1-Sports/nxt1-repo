@@ -378,11 +378,16 @@ export async function executeBillingDeduction(
 
     // Step 5: Write one audit trail usage event for the actual operation.
     try {
+      const billedOwnerType = resolvedOrgId ? 'organization' : 'individual';
+      const billedOwnerId = resolvedOrgId ? `org:${resolvedOrgId}` : userId;
+
       await recordUsageEvent(
         {
           userId,
           ...(effectiveTeamId ? { teamId: effectiveTeamId } : {}),
           ...(resolvedOrgId ? { organizationId: resolvedOrgId } : {}),
+          billedOwnerType,
+          billedOwnerId,
           feature: primaryFeature,
           quantity: 1,
           unitCostSnapshot: chargeAmountCents,

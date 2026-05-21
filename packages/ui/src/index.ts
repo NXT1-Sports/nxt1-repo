@@ -541,6 +541,7 @@ export {
   ActivityApiService,
   ACTIVITY_API_BASE_URL,
   ACTIVITY_API_ADAPTER,
+  ACTIVITY_FIREBASE_CONTEXT,
   // Components
   ActivityShellComponent,
   ActivityListComponent,

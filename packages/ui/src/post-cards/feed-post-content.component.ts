@@ -257,6 +257,7 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
         position: relative;
         height: var(--post-content-media-height);
         background: #000;
+        overflow: hidden;
       }
 
       .post-content__media-slide nxt1-image {
@@ -269,6 +270,10 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
       :host ::ng-deep .post-content__media-slide nxt1-image img {
         width: 100%;
         height: 100%;
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        object-position: center;
       }
 
       @media (max-width: 768px) {

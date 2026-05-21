@@ -368,11 +368,13 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
   });
 
   it('promotes persisted graphic URLs into image media and strips the raw URL from prose', () => {
+    const graphicUrl =
+      'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/users/demo/graphic.png';
     const content = [
       'Your Crown Point Football stat graphic is complete featuring:',
       '',
       'Graphic URL:',
-      'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/users/demo/graphic.png',
+      graphicUrl,
       '',
       'Want me to post this to your timeline or make any adjustments?',
     ].join('\n');
@@ -380,18 +382,25 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     const media = facade.collectMessageMedia(
       assistantMessage('final-graphic', 'assistant_final', {
         content,
+        attachments: [
+          {
+            id: 'att-graphic-1',
+            url: graphicUrl,
+            name: 'graphic.png',
+            mimeType: 'image/png',
+            type: 'image',
+            sizeBytes: 1024,
+          },
+        ],
       })
     );
     const displayContent = facade.stripDisplayedMediaUrlsFromContent(content, media);
 
-    expect(media.imageUrl).toBe(
-      'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/users/demo/graphic.png'
-    );
     expect(media.attachments).toEqual([
       {
-        url: 'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/users/demo/graphic.png',
+        url: graphicUrl,
         type: 'image',
-        name: 'media-image-1.jpg',
+        name: 'graphic.png',
       },
     ]);
     expect(displayContent).toContain(
@@ -473,6 +482,31 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
 
     expect(ids).toContain('tool-ask-1');
     expect(ids).toContain('partial-ask-1');
+  });
+
+  it('keeps last pre-yield tool_call when ask_user is pending as assistant_yield only', () => {
+    const items: readonly AgentMessage[] = [
+      assistantMessage('ask-pending-tool-1', 'assistant_tool_call', {
+        operationId: 'op-ask-pending',
+        content: 'Gathering options...',
+      }),
+      assistantMessage('ask-pending-tool-2', 'assistant_tool_call', {
+        operationId: 'op-ask-pending',
+        content: 'What is your top priority among these options?',
+      }),
+      assistantMessage('ask-pending-yield', 'assistant_yield', {
+        operationId: 'op-ask-pending',
+        content: 'top priority',
+        resultData: { yieldState: { reason: 'needs_input' } },
+      }),
+    ];
+
+    const canonical = facade.resolveCanonicalAssistantRows(items);
+    const ids = canonical.map((m) => m.id);
+
+    expect(ids).not.toContain('ask-pending-tool-1');
+    expect(ids).toContain('ask-pending-tool-2');
+    expect(ids).not.toContain('ask-pending-yield');
   });
 
   // ── Regression: Bug A ─────────────────────────────────────────────────────

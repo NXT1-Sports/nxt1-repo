@@ -298,6 +298,39 @@ describe('AgentWorker', () => {
     expect(mockChatService.generateThreadTitle).not.toHaveBeenCalled();
   });
 
+  it('persists delegated coordinator image artifacts as attachments', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-graphic-123' },
+      intent: 'Create a welcome graphic for me',
+    });
+    const job = makeMockJob(payload);
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'Image generated',
+      data: {
+        dispatch_kind: 'coordinator',
+        coordinator_artifacts: {
+          imageUrl: 'https://cdn.example.com/welcome-generated.jpg',
+        },
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-graphic-123',
+        role: 'assistant',
+        attachments: [
+          expect.objectContaining({
+            url: 'https://cdn.example.com/welcome-generated.jpg',
+            type: 'image',
+          }),
+        ],
+      })
+    );
+  });
+
   it('should append scheduled runs to the original thread before router execution', async () => {
     const payload = makePayload({
       origin: 'system_cron' as AgentJobOrigin,

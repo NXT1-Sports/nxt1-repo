@@ -816,6 +816,34 @@ describe('Agent X Routes', () => {
     );
   });
 
+  it('should classify billing gate denials correctly across budget and wallet contexts', () => {
+    const teamBudgetCode = chatRouteTestUtils.resolveBillingGateCode({
+      billingEntity: 'team',
+      reason:
+        'Team monthly budget of $50.00 reached. Ask your Athletic Director to increase the team allocation.',
+    });
+    expect(teamBudgetCode).toBe('BUDGET_EXCEEDED');
+
+    const orgBudgetCode = chatRouteTestUtils.resolveBillingGateCode({
+      billingEntity: 'organization',
+      reason: 'Monthly budget of $200.00 reached. Increase your organization budget to continue.',
+    });
+    expect(orgBudgetCode).toBe('BUDGET_EXCEEDED');
+
+    const orgWalletCode = chatRouteTestUtils.resolveBillingGateCode({
+      billingEntity: 'organization',
+      reason:
+        'Organization wallet balance of $0.00 (available) is insufficient. An admin can add funds in Settings → Usage.',
+    });
+    expect(orgWalletCode).toBe('WALLET_EMPTY');
+
+    const paymentMethodCode = chatRouteTestUtils.resolveBillingGateCode({
+      billingEntity: 'individual',
+      reason: 'No payment method found. Add a payment method to continue.',
+    });
+    expect(paymentMethodCode).toBe('NO_PAYMENT_METHOD');
+  });
+
   it('should block chat when wallet balance is positive but below the estimated gate cost', async () => {
     const now = new Date();
     const periodKey = now.toISOString().slice(0, 7);
@@ -904,6 +932,132 @@ describe('Agent X Routes', () => {
       payload: {
         reason: 'insufficient_funds',
         description: expect.stringContaining('Wallet balance of $0.21'),
+      },
+    });
+
+    expect(jobRepository.create).not.toHaveBeenCalled();
+    expect(queueService.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('should block chat on org hard-stop budget cap when resolved billing target is organization', async () => {
+    const now = new Date();
+    const periodKey = now.toISOString().slice(0, 7);
+    const timestamp = { seconds: Math.floor(now.getTime() / 1000), nanoseconds: 0 };
+    const periodStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)
+    ).toISOString();
+    const periodEnd = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999)
+    ).toISOString();
+
+    __seedMockFirestoreDocument('Users/test-user', {
+      activeBillingTarget: {
+        ownerId: 'org-1',
+        ownerType: 'organization',
+        organizationId: 'org-1',
+        source: 'organization',
+      },
+    });
+
+    __seedMockFirestoreDocument('Organizations/org-1', {
+      admins: [{ userId: 'test-user', role: 'director' }],
+      ownerId: 'test-user',
+    });
+
+    __seedMockFirestoreDocument('Wallets/org:org-1', {
+      balanceCents: 100_00,
+      pendingHoldsCents: 0,
+      iapLowBalanceNotified: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    __seedMockFirestoreDocument('BillingPreferences/org:org-1', {
+      hardStop: true,
+      paymentProvider: 'iap',
+      budgetInterval: 'monthly',
+      budgetAlertsEnabled: true,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    __seedMockFirestoreDocument(`PeriodLedgers/org:org-1:${periodKey}`, {
+      monthlyBudget: 0,
+      currentPeriodSpend: 0,
+      periodStart,
+      periodEnd,
+      notified50: false,
+      notified80: false,
+      notified100: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    __seedMockFirestoreDocument('OrganizationBudgets/org-1_organization_org-1_monthly', {
+      id: 'org-1_organization_org-1_monthly',
+      organizationId: 'org-1',
+      targetType: 'organization',
+      targetId: 'org-1',
+      budgetInterval: 'monthly',
+      budgetLimit: 100,
+      hardStop: true,
+      currentPeriodSpend: 100,
+      periodStart,
+      periodEnd,
+      notified50: false,
+      notified80: false,
+      notified100: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    const jobRepository = createMockJobRepository();
+    const chatService = {
+      addMessage: vi
+        .fn()
+        .mockResolvedValueOnce({ id: 'user-message-1' })
+        .mockResolvedValueOnce({ id: 'billing-assistant-message-1' }),
+      createThread: vi.fn().mockResolvedValue({ id: 'thread-123' }),
+      getThread: vi.fn().mockResolvedValue(null),
+      generateTitleFromPromptOnly: vi.fn().mockResolvedValue(null),
+    };
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+      isHealthy: vi.fn().mockResolvedValue(true),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn().mockResolvedValue({}),
+        compressToPrompt: vi.fn().mockReturnValue(''),
+        getRecentThreadHistory: vi.fn().mockResolvedValue(''),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/chat')
+      .set('Authorization', 'Bearer test-token')
+      .set('Accept', 'text/event-stream')
+      .send({ message: 'Can you run this task?', mode: 'recruiting' });
+
+    expect(response.status).toBe(200);
+    const events = parseSseEvents(response.text).filter((event) => event.event.length > 0);
+    expect(events.map((event) => event.event)).toEqual(['thread', 'delta', 'card', 'done']);
+    expect(events[2]?.data).toMatchObject({
+      type: 'billing-action',
+      payload: {
+        reason: 'limit_reached',
+        description: expect.stringContaining('budget of $1.00 reached'),
       },
     });
 

@@ -80,7 +80,7 @@ export class InviteModalComponent {
    * Type of invite: 'team', 'profile', or 'general'
    * Set via Ionic componentProps (regular property, not signal input)
    */
-  @Input() inviteType: InviteType = 'team';
+  @Input() inviteType: InviteType = 'general';
 
   /**
    * Team data when inviteType is 'team'
@@ -146,7 +146,7 @@ export class InviteBottomSheetService {
     const ref = this.overlay.open<InviteShellComponent, { dismissed: boolean }>({
       component: InviteShellComponent,
       inputs: {
-        inviteType: config.inviteType ?? 'team',
+        inviteType: config.inviteType ?? 'general',
         team: config.team ?? null,
         user: config.user ?? null,
         isModal: true,
@@ -167,7 +167,7 @@ export class InviteBottomSheetService {
     const result = await this.bottomSheet.openSheet<void>({
       component: InviteModalComponent,
       componentProps: {
-        inviteType: config.inviteType ?? 'team',
+        inviteType: config.inviteType ?? 'general',
         team: config.team ?? null,
         user: config.user ?? null,
       },

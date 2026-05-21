@@ -147,6 +147,11 @@ export class AgentXJobService {
 
     try {
       const appBaseUrl = resolveCurrentAgentXAppBaseUrl();
+      const timezone = resolveCurrentTimeZone();
+      const enrichedContext = {
+        ...(context ?? {}),
+        ...(timezone && !context?.['timezone'] ? { timezone } : {}),
+      };
       const enqueueHttp = () =>
         firstValueFrom(
           this.http.post<{
@@ -158,7 +163,7 @@ export class AgentXJobService {
             `${this.baseUrl}/enqueue`,
             {
               intent,
-              userContext: context,
+              userContext: enrichedContext,
             },
             {
               ...(appBaseUrl
@@ -174,12 +179,12 @@ export class AgentXJobService {
         {
           attributes: {
             [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent_x_jobs',
-            has_context: String(!!context && Object.keys(context).length > 0),
+            has_context: String(!!enrichedContext && Object.keys(enrichedContext).length > 0),
             entry_point: 'background_enqueue',
           },
           onSuccess: async (result, trace) => {
             await trace.putMetric('intent_length', intent.trim().length);
-            await trace.putMetric('context_keys', Object.keys(context ?? {}).length);
+            await trace.putMetric('context_keys', Object.keys(enrichedContext).length);
             await trace.putMetric('success', result.success ? 1 : 0);
           },
         }
@@ -448,5 +453,14 @@ export class AgentXJobService {
     });
 
     return result;
+  }
+}
+
+function resolveCurrentTimeZone(): string | undefined {
+  try {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return timezone && timezone.trim().length > 0 ? timezone : undefined;
+  } catch {
+    return undefined;
   }
 }

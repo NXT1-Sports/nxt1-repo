@@ -1099,14 +1099,6 @@ export const OPERATIONS_LOG_TEST_IDS = {
         opacity: 0.7;
       }
 
-      /* Current/open session: border-only cue, no tinted card fill. */
-      .log-entry--current {
-        border-color: color-mix(in srgb, var(--log-primary) 72%, var(--log-border));
-        background: var(--log-surface);
-        box-shadow: none;
-        animation: none;
-      }
-
       /* ═══ SKELETON ═══ */
       .log-skeleton {
         display: flex;

@@ -42,6 +42,7 @@ import {
   type TemplateRef,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
+import { type BudgetInterval } from '@nxt1/core';
 import {
   NxtSectionNavWebComponent,
   type SectionNavChangeEvent,
@@ -748,7 +749,8 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
     await this.haptics.impact('light');
     await this.openBudgetControlPanel(
       budget.targetScope === 'team' ? budget.targetId : undefined,
-      'current'
+      'current',
+      budget.budgetInterval
     );
   }
 
@@ -759,7 +761,8 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
 
   private async openBudgetControlPanel(
     teamId?: string,
-    budgetDraftMode: 'current' | 'new' = 'current'
+    budgetDraftMode: 'current' | 'new' = 'current',
+    budgetDraftInterval: BudgetInterval | null = null
   ): Promise<void> {
     const panel: AgentXControlPanelKind = 'budget';
     this.overlay.open({
@@ -769,6 +772,7 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
         presentation: 'modal',
         budgetTargetTeamId: teamId ?? null,
         budgetDraftMode,
+        budgetDraftInterval,
       },
       size: 'xl',
       backdropDismiss: true,

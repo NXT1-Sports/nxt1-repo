@@ -127,7 +127,9 @@ export async function logAgentTaskFailure(
  * 6. Empty string (caller falls back to generic copy)
  */
 export function deriveBodyFromResult(result: AgentOperationResult): string {
-  if (result.summary?.trim()) return result.summary.trim();
+  if (result.summary?.trim()) {
+    return sanitizeDerivedNotificationText(result.summary.trim());
+  }
 
   const data =
     typeof result.data === 'object' && result.data !== null
@@ -137,7 +139,7 @@ export function deriveBodyFromResult(result: AgentOperationResult): string {
 
   const response = data['response'];
   if (typeof response === 'string' && response.trim().length > 0) {
-    return response.trim();
+    return sanitizeDerivedNotificationText(response.trim());
   }
 
   const records = data['toolCallRecords'] as
@@ -159,12 +161,14 @@ export function deriveBodyFromResult(result: AgentOperationResult): string {
 
       const coordinatorObservation = output['coordinator_observation'];
       if (typeof coordinatorObservation === 'string' && coordinatorObservation.trim().length > 0) {
-        return coordinatorObservation.trim();
+        const cleaned = sanitizeDerivedNotificationText(coordinatorObservation.trim());
+        if (cleaned.length > 0) return cleaned;
       }
 
       const planObservation = output['plan_observation'];
       if (typeof planObservation === 'string' && planObservation.trim().length > 0) {
-        return planObservation.trim();
+        const cleaned = sanitizeDerivedNotificationText(planObservation.trim());
+        if (cleaned.length > 0) return cleaned;
       }
     }
   }
@@ -180,7 +184,9 @@ export function deriveBodyFromResult(result: AgentOperationResult): string {
       .slice(0, 3)
       .join(', ');
     const count = plan.tasks.length;
-    return `Completed ${count} task${count > 1 ? 's' : ''}: ${taskLabels}.`;
+    return sanitizeDerivedNotificationText(
+      `Completed ${count} task${count > 1 ? 's' : ''}: ${taskLabels}.`
+    );
   }
 
   // Delegation fallback path — toolCallRecords
@@ -195,8 +201,10 @@ export function deriveBodyFromResult(result: AgentOperationResult): string {
     ];
     if (successTools.length > 0) {
       return successTools.length === 1
-        ? `Completed: ${successTools[0]}.`
-        : `Completed ${successTools.length} steps: ${successTools.join(', ')}.`;
+        ? sanitizeDerivedNotificationText(`Completed: ${successTools[0]}.`)
+        : sanitizeDerivedNotificationText(
+            `Completed ${successTools.length} steps: ${successTools.join(', ')}.`
+          );
     }
   }
 
@@ -216,4 +224,22 @@ function stripMarkdown(text: string): string {
     .replace(/!?\[([^\]]+)\]\([^)]+\)/g, '$1')
     .replace(/<[^>]*>/g, '')
     .trim();
+}
+
+function sanitizeDerivedNotificationText(text: string): string {
+  if (!text) return '';
+
+  let cleaned = text.replace(/\s+/g, ' ').trim();
+
+  // Remove internal orchestration boilerplate that should never surface to users.
+  cleaned = cleaned.replace(/^[a-z_]+\s+dispatch\s+result\s*[-:]\s*/i, '');
+  cleaned = cleaned.replace(/^dispatch\s+result\s*[-:]\s*/i, '');
+  cleaned = cleaned.replace(/^✅\s*/, '');
+  cleaned = cleaned.replace(/^[a-z_]+\d+\s*:\s*/i, '');
+
+  if (/dispatch\s+result/i.test(cleaned) && /coordinator/i.test(cleaned)) {
+    return '';
+  }
+
+  return cleaned.trim();
 }

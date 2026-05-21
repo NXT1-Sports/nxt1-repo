@@ -94,7 +94,6 @@ import {
   AgentXActionCardComponent,
   type ActionCardOpenMediaEvent,
 } from '../cards/agent-x-action-card.component';
-import { AgentXEnqueueWaitingCardComponent } from '../cards/agent-x-enqueue-waiting-card.component';
 import type { BillingActionResolvedEvent } from '../cards/agent-x-billing-action-card.component';
 import type { ConnectAccountCardActionEvent } from '../cards/agent-x-connect-account-card.component';
 import type { AgentYieldState } from '@nxt1/core';
@@ -187,7 +186,6 @@ type YieldStateSource =
     AgentXOperationChatExecutionPlanComponent,
     AgentXMessageUndoComponent,
     AgentXActionCardComponent,
-    AgentXEnqueueWaitingCardComponent,
     AgentXOperationChatRecurringTasksDockComponent,
     AgentXOperationChatHintDockComponent,
   ],
@@ -237,33 +235,29 @@ type YieldStateSource =
               [class.msg-row--wide]="!!msg.yieldState"
             >
               @if (hasBubbleProse(msg) || (!approvalYieldForMessage(msg) && isAskUserYield(msg))) {
-                @if (msg.id === 'enqueue-waiting') {
-                  <nxt1-agent-x-enqueue-waiting-card [isStopped]="!!msg.interruptedReason" />
-                } @else {
-                  <nxt1-chat-bubble
-                    variant="agent-operation"
-                    [isOwn]="msg.role === 'user'"
-                    [content]="messageContentForBubble(msg)"
-                    [isStreaming]="msg.id === 'typing' && isActivityInFlight()"
-                    [typingLabel]="msg.id === 'typing' ? thinkingLabel() : 'Thinking...'"
-                    [isError]="!!msg.error"
-                    [isSystem]="msg.role === 'system'"
-                    [steps]="messageStepsForBubble(msg)"
-                    [cards]="messageCardsForBubble(msg)"
-                    [parts]="messagePartsForBubble(msg)"
-                    [externalCardState]="resolveExternalCardStateForMessage(msg, idx)"
-                    [externalResolvedText]="msg.yieldResolvedText ?? ''"
-                    (mediaRequested)="onBubbleMediaRequested($event)"
-                    (billingActionResolved)="onBillingActionResolved($event)"
-                    (connectAccountAction)="onConnectAccountAction($event)"
-                    (retryRequested)="runControlFacade.onRetryErrorMessage(msg)"
+                <nxt1-chat-bubble
+                  variant="agent-operation"
+                  [isOwn]="msg.role === 'user'"
+                  [content]="messageContentForBubble(msg)"
+                  [isStreaming]="msg.id === 'typing' && isActivityInFlight()"
+                  [typingLabel]="msg.id === 'typing' ? thinkingLabel() : 'Thinking...'"
+                  [isError]="!!msg.error"
+                  [isSystem]="msg.role === 'system'"
+                  [steps]="messageStepsForBubble(msg)"
+                  [cards]="messageCardsForBubble(msg)"
+                  [parts]="messagePartsForBubble(msg)"
+                  [externalCardState]="resolveExternalCardStateForMessage(msg, idx)"
+                  [externalResolvedText]="msg.yieldResolvedText ?? ''"
+                  (mediaRequested)="onBubbleMediaRequested($event)"
+                  (billingActionResolved)="onBillingActionResolved($event)"
+                  (connectAccountAction)="onConnectAccountAction($event)"
+                  (retryRequested)="runControlFacade.onRetryErrorMessage(msg)"
+                />
+                @if (msg.id === 'typing' && showThinking()) {
+                  <nxt1-agent-x-operation-chat-thinking
+                    class="msg-inline-thinking"
+                    [label]="thinkingLabel()"
                   />
-                  @if (msg.id === 'typing' && showThinking()) {
-                    <nxt1-agent-x-operation-chat-thinking
-                      class="msg-inline-thinking"
-                      [label]="thinkingLabel()"
-                    />
-                  }
                 }
               }
               @if (approvalYieldForMessage(msg); as approvalYield) {
@@ -401,13 +395,7 @@ type YieldStateSource =
                   }
                 </div>
               }
-              @if (
-                !msg.yieldState &&
-                msg.id !== 'typing' &&
-                msg.id !== 'enqueue-waiting' &&
-                msg.role !== 'system' &&
-                !msg.error
-              ) {
+              @if (!msg.yieldState && msg.id !== 'typing' && msg.role !== 'system' && !msg.error) {
                 <nxt1-agent-x-chat-bubble-actions
                   [alignEnd]="msg.role === 'user'"
                   (copy)="messageFacade.copyMessageContent(msg)"
@@ -2880,6 +2868,14 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    */
   protected messageContentForBubble(msg: OperationMessage): string {
     if (!this.isAskUserYield(msg)) return msg.content;
+    if (msg.yieldCardState === 'resolved') return '';
+    if ((msg.yieldResolvedText ?? '').trim().length > 0) return '';
+
+    const index = this.messages().findIndex((candidate) => candidate.id === msg.id);
+    if (index >= 0 && this.resolveExternalCardStateForMessage(msg, index) !== null) {
+      return '';
+    }
+
     return 'Waiting for your reply…';
   }
 
@@ -3091,7 +3087,16 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     // Persistent: derive resolved state from the message array — survives reloads.
     const msgs = this.messages();
     const hasUserReplyAfter = msgs.slice(idx + 1).some((m) => m.role === 'user');
-    return hasUserReplyAfter ? 'resolved' : null;
+    const operationId = typeof msg.operationId === 'string' ? msg.operationId : undefined;
+    const hasAssistantContinuationAfter = msgs
+      .slice(idx + 1)
+      .some(
+        (m) =>
+          m.role === 'assistant' &&
+          !m.yieldState &&
+          (operationId ? m.operationId === operationId : true)
+      );
+    return hasUserReplyAfter || hasAssistantContinuationAfter ? 'resolved' : null;
   }
 
   /** Resolve yield card resolved text from live message state or persisted card payload. */

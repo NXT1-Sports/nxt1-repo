@@ -38,7 +38,7 @@ import { AgentEphemeralStateService } from '../../modules/agent/services/agent-e
 import { logger } from '../../utils/logger.js';
 import {
   resolveBillingTarget,
-  checkBudgetFromContext,
+  checkBudgetForResolvedTarget,
   expireStaleHolds,
 } from '../../modules/billing/index.js';
 import { estimateChargeAmountSync } from '../../modules/billing/pricing.service.js';
@@ -64,6 +64,7 @@ import {
 } from './shared.js';
 import { resolveAppBaseUrl } from '../../utils/app-url.js';
 import { AgentMessageModel } from '../../models/agent/agent-message.model.js';
+import { buildOrganizationBudgetFollowUpCopy } from './billing-copy.js';
 
 const router = Router();
 
@@ -88,7 +89,10 @@ const ATTACHMENT_WAIT_TIMEOUT_MS: number =
 const ATTACHMENT_WAIT_PROGRESS_INTERVAL_MS = 4_000;
 const LIVE_BUFFER_MAX_EVENTS: number = AGENT_X_RUNTIME_CONFIG.operationStream.liveBufferMaxEvents;
 const PAUSE_YIELD_TTL_MS = 24 * 60 * 60 * 1000;
-const CHAT_BILLING_GATE_ESTIMATED_COST_USD = 0.1;
+// Chat budget/wallet admission uses a conservative estimate so hard-stop
+// budgets can block before execution when the user is close to the cap.
+// Keep this in sync with observed real-world per-turn costs.
+const CHAT_BILLING_GATE_ESTIMATED_COST_USD = 0.6;
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
 const AGENT_STREAM_EVENT_SCHEMA_VERSION = 2;
 
@@ -800,7 +804,8 @@ function writeSseHeaders(res: Response): void {
 
 function buildBillingGateState(
   code: 'WALLET_EMPTY' | 'NO_PAYMENT_METHOD' | 'BUDGET_EXCEEDED',
-  description: string
+  description: string,
+  userRole = 'athlete'
 ): {
   title: string;
   content: string;
@@ -821,9 +826,11 @@ function buildBillingGateState(
   }
 
   if (code === 'BUDGET_EXCEEDED') {
+    const orgFollowUpCopy = buildOrganizationBudgetFollowUpCopy(userRole);
+
     return {
       title: 'Budget Limit Reached',
-      content: `${description} Update your billing limits to continue this request.`,
+      content: `${description} ${orgFollowUpCopy}`,
       payload: {
         reason: 'limit_reached',
         description,
@@ -839,6 +846,28 @@ function buildBillingGateState(
       description,
     },
   };
+}
+
+function resolveBillingGateCode(params: {
+  billingEntity: 'individual' | 'team' | 'organization';
+  reason?: string;
+}): 'WALLET_EMPTY' | 'NO_PAYMENT_METHOD' | 'BUDGET_EXCEEDED' {
+  const reason = (params.reason ?? '').toLowerCase();
+
+  if (reason.includes('payment method')) {
+    return 'NO_PAYMENT_METHOD';
+  }
+
+  if (
+    params.billingEntity === 'team' ||
+    reason.includes('budget') ||
+    reason.includes('allocation') ||
+    reason.includes('hard stop')
+  ) {
+    return 'BUDGET_EXCEEDED';
+  }
+
+  return 'WALLET_EMPTY';
 }
 
 function streamBillingGateToSse(params: {
@@ -3796,6 +3825,7 @@ router.post(
         resumeOperationId,
         afterSeq,
         selectedAction,
+        userContext,
       } = req.body as AgentChatRequestDto;
       const normalizedSelectedAction = normalizeSelectedActionForPayload(selectedAction);
       const idempotencyKey = parseIdempotencyKey(req);
@@ -4030,20 +4060,40 @@ router.post(
         CHAT_BILLING_GATE_ESTIMATED_COST_USD
       );
 
+      const userRoleSnap = await db.collection('Users').doc(user.uid).get();
+      const userRole = String(userRoleSnap.data()?.['role'] ?? 'athlete');
+
       let chatTarget = await resolveBillingTarget(db, user.uid);
       let chatCtx = chatTarget.context;
-      let chatBudgetCheck = checkBudgetFromContext(chatCtx, estimatedGateCostCents);
+      let chatBudgetCheck = await checkBudgetForResolvedTarget(
+        db,
+        chatTarget,
+        estimatedGateCostCents
+      );
+      let billingCode = resolveBillingGateCode({
+        billingEntity: chatBudgetCheck.billingEntity,
+        reason: chatBudgetCheck.reason,
+      });
 
-      const isWalletContext =
-        chatCtx.billingEntity === 'individual' || chatCtx.billingEntity === 'organization';
-
-      if (!chatBudgetCheck.allowed && isWalletContext && (chatCtx.pendingHoldsCents ?? 0) > 0) {
+      if (
+        !chatBudgetCheck.allowed &&
+        billingCode === 'WALLET_EMPTY' &&
+        (chatCtx.pendingHoldsCents ?? 0) > 0
+      ) {
         try {
           const expiredCount = await expireStaleHolds(db);
           if (expiredCount > 0) {
             chatTarget = await resolveBillingTarget(db, user.uid);
             chatCtx = chatTarget.context;
-            chatBudgetCheck = checkBudgetFromContext(chatCtx, estimatedGateCostCents);
+            chatBudgetCheck = await checkBudgetForResolvedTarget(
+              db,
+              chatTarget,
+              estimatedGateCostCents
+            );
+            billingCode = resolveBillingGateCode({
+              billingEntity: chatBudgetCheck.billingEntity,
+              reason: chatBudgetCheck.reason,
+            });
           }
         } catch (err) {
           logger.warn('Failed to expire stale wallet holds before chat budget gate check', {
@@ -4057,7 +4107,7 @@ router.post(
       const pendingHoldsCents = chatCtx.pendingHoldsCents ?? 0;
       const bypassHoldGateWithPositiveWallet =
         !chatBudgetCheck.allowed &&
-        isWalletContext &&
+        billingCode === 'WALLET_EMPTY' &&
         pendingHoldsCents > 0 &&
         walletBalanceCents >= estimatedGateCostCents;
 
@@ -4075,10 +4125,9 @@ router.post(
       }
 
       if (!chatBudgetCheck.allowed && !bypassHoldGateWithPositiveWallet) {
-        const billingCode = isWalletContext ? 'WALLET_EMPTY' : 'BUDGET_EXCEEDED';
         const billingReason =
           chatBudgetCheck.reason ?? 'Billing is required to continue this request.';
-        const billingState = buildBillingGateState(billingCode, billingReason);
+        const billingState = buildBillingGateState(billingCode, billingReason, userRole);
         const acceptsEventStream =
           req.accepts(['text/event-stream', 'json']) === 'text/event-stream';
 
@@ -4400,6 +4449,7 @@ router.post(
         origin: 'user' as AgentJobOrigin,
         context: {
           appBaseUrl: resolveRequestAppBaseUrl(req),
+          ...(userContext ?? {}),
           ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(effectiveThreadId ? { threadId: effectiveThreadId } : {}),
           ...(mode ? { mode } : {}),
@@ -4530,6 +4580,7 @@ router.post(
 export default router;
 
 export const __agentChatRouteTestUtils = {
+  resolveBillingGateCode,
   clearActiveUserStreams(): void {
     activeUserStreams.clear();
     activeOperationStreams.clear();

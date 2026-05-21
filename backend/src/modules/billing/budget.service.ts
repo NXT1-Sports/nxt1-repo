@@ -1423,7 +1423,10 @@ export async function checkBudget(
       const projectedSpend = teamBudget.currentPeriodSpend + costCents;
       const percentUsed = Math.round((projectedSpend / teamBudget.budgetLimit) * 100);
 
-      if (projectedSpend > teamBudget.budgetLimit) {
+      if (
+        teamBudget.currentPeriodSpend >= teamBudget.budgetLimit ||
+        projectedSpend > teamBudget.budgetLimit
+      ) {
         return {
           allowed: false,
           reason:
@@ -1445,7 +1448,11 @@ export async function checkBudget(
       const projectedSpend = organizationBudget.currentPeriodSpend + costCents;
       const percentUsed = Math.round((projectedSpend / organizationBudget.budgetLimit) * 100);
 
-      if (organizationBudget.hardStop && projectedSpend > organizationBudget.budgetLimit) {
+      if (
+        organizationBudget.hardStop &&
+        (organizationBudget.currentPeriodSpend >= organizationBudget.budgetLimit ||
+          projectedSpend > organizationBudget.budgetLimit)
+      ) {
         const intervalLabel = getBudgetIntervalLabel(organizationBudget.budgetInterval);
         return {
           allowed: false,
@@ -1467,6 +1474,94 @@ export async function checkBudget(
   const masterCtx = orgCtx ?? ctx;
   const result = checkWalletBudget(masterCtx, costCents, 'organization');
   // Signal to the frontend that this roster member can switch to their personal wallet
+  if (!result.allowed) {
+    result.canSwitchToPersonal = true;
+  }
+  return result;
+}
+
+/**
+ * Check whether a resolved billing target can afford a new task.
+ *
+ * This keeps pre-admission gate checks aligned with downstream charging when
+ * callers already resolved the effective billing target via `resolveBillingTarget()`.
+ */
+export async function checkBudgetForResolvedTarget(
+  db: Firestore,
+  target: ResolvedBillingTarget,
+  costCents: number
+): Promise<BudgetCheckResult> {
+  const ctx = target.context;
+
+  if (target.type === 'individual') {
+    return checkWalletBudget(ctx, costCents, 'individual');
+  }
+
+  const orgId = target.organizationId ?? ctx.organizationId;
+  const effectiveTeamId = ctx.teamId ?? target.teamIds?.[0];
+
+  if (orgId) {
+    const { teamBudgets, organizationBudgets } = await getApplicableOrganizationBudgetDocuments(
+      db,
+      orgId,
+      effectiveTeamId
+    );
+
+    for (const teamBudget of teamBudgets) {
+      if (teamBudget.budgetLimit <= 0) {
+        continue;
+      }
+
+      const intervalLabel = getBudgetIntervalLabel(teamBudget.budgetInterval);
+      const projectedSpend = teamBudget.currentPeriodSpend + costCents;
+      const percentUsed = Math.round((projectedSpend / teamBudget.budgetLimit) * 100);
+
+      if (
+        teamBudget.currentPeriodSpend >= teamBudget.budgetLimit ||
+        projectedSpend > teamBudget.budgetLimit
+      ) {
+        return {
+          allowed: false,
+          reason:
+            `Team ${intervalLabel} budget of $${(teamBudget.budgetLimit / 100).toFixed(2)} reached. ` +
+            'Ask your Athletic Director to increase the team allocation.',
+          currentSpend: teamBudget.currentPeriodSpend,
+          budget: teamBudget.budgetLimit,
+          percentUsed,
+          billingEntity: 'organization',
+        };
+      }
+    }
+
+    for (const organizationBudget of organizationBudgets) {
+      if (organizationBudget.budgetLimit <= 0) {
+        continue;
+      }
+
+      const projectedSpend = organizationBudget.currentPeriodSpend + costCents;
+      const percentUsed = Math.round((projectedSpend / organizationBudget.budgetLimit) * 100);
+
+      if (
+        organizationBudget.hardStop &&
+        (organizationBudget.currentPeriodSpend >= organizationBudget.budgetLimit ||
+          projectedSpend > organizationBudget.budgetLimit)
+      ) {
+        const intervalLabel = getBudgetIntervalLabel(organizationBudget.budgetInterval);
+        return {
+          allowed: false,
+          reason:
+            `${intervalLabel[0]!.toUpperCase()}${intervalLabel.slice(1)} budget of $${(organizationBudget.budgetLimit / 100).toFixed(2)} reached. ` +
+            'Increase your organization budget to continue.',
+          currentSpend: organizationBudget.currentPeriodSpend,
+          budget: organizationBudget.budgetLimit,
+          percentUsed,
+          billingEntity: 'organization',
+        };
+      }
+    }
+  }
+
+  const result = checkWalletBudget(ctx, costCents, 'organization');
   if (!result.allowed) {
     result.canSwitchToPersonal = true;
   }
@@ -1874,11 +1969,13 @@ export async function deductOrgWallet(
 
   const orgAdminIds = await getOrganizationAdminIds(db, organizationId);
 
-  // Update team sub-allocation spend
+  // Keep org + team budget documents in sync with wallet deductions so
+  // budget gates and /usage budget rows reflect actual spend.
   const teamUpdate = teamId ? updateTeamAllocationSpend(db, teamId, costCents) : Promise.resolve();
+  const orgUpdate = updateOrgSpend(db, organizationId, costCents);
 
-  await Promise.all([teamUpdate]).catch((err: unknown) => {
-    logger.error('[deductOrgWallet] Failed to update per-user or team spend', {
+  await Promise.all([teamUpdate, orgUpdate]).catch((err: unknown) => {
+    logger.error('[deductOrgWallet] Failed to update organization or team budget spend', {
       error: err,
       organizationId,
       userId,
