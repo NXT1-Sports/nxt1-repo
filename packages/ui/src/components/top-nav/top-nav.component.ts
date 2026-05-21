@@ -1158,6 +1158,16 @@ export class NxtHeaderComponent implements OnDestroy {
   // ============================================
 
   constructor() {
+    // Initialize path immediately from router URL (SSR-safe, same as WebShellComponent pattern).
+    // Without this, _currentPath stays '/' until afterNextRender fires, creating a race condition
+    // with the 200ms _isInitialized delay: if NavigationEnd hasn't fired yet when _isInitialized
+    // becomes true, showSignInButton evaluates _currentPath='/' and incorrectly shows "Try NXT1"
+    // on profile pages (e.g. /profile/football/ezekiel-osborne/780388) for logged-out users.
+    const initialPath = this.router.url;
+    if (initialPath) {
+      this._currentPath.set(initialPath.split('?')[0].split('#')[0] || '/');
+    }
+
     // Listen to route changes after render (SSR-safe)
     afterNextRender(() => {
       this.setupRouteTracking();
