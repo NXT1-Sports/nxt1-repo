@@ -26,6 +26,7 @@ import { stringify } from 'csv-stringify/sync';
 import type { Content, TableCell } from 'pdfmake';
 import { resolve, dirname } from 'node:path';
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 
 // pdfmake 0.3.x is CJS — handle ESM interop (singleton API)
 const pdfmake =
@@ -38,34 +39,30 @@ type TDocumentDefinitions = Parameters<typeof pdfmakeModule.createPdf>[0];
 const _require = createRequire(import.meta.url);
 const pdfmakePkgDir = dirname(_require.resolve('pdfmake/package.json'));
 const fontsDir = resolve(pdfmakePkgDir, 'build/fonts/Roboto');
-const robotoFontPaths = {
-  normal: resolve(fontsDir, 'Roboto-Regular.ttf'),
-  bold: resolve(fontsDir, 'Roboto-Medium.ttf'),
-  italics: resolve(fontsDir, 'Roboto-Italic.ttf'),
-  bolditalics: resolve(fontsDir, 'Roboto-MediumItalic.ttf'),
+
+// Pre-load Roboto fonts as Buffers at module init — pdfmake accepts Buffer/ArrayBuffer in addFonts.
+// This eliminates per-request FS reads and prevents Windows file-lock / EACCES errors that occur
+// when font files are read on every PDF generation under concurrent load.
+const robotoFonts = {
+  normal: readFileSync(resolve(fontsDir, 'Roboto-Regular.ttf')),
+  bold: readFileSync(resolve(fontsDir, 'Roboto-Medium.ttf')),
+  italics: readFileSync(resolve(fontsDir, 'Roboto-Italic.ttf')),
+  bolditalics: readFileSync(resolve(fontsDir, 'Roboto-MediumItalic.ttf')),
 } as const;
-const allowedLocalFontPaths = new Set<string>(Object.values(robotoFontPaths));
 
-// Register fonts once at module load
-pdfmake.addFonts({
-  Roboto: {
-    normal: robotoFontPaths.normal,
-    bold: robotoFontPaths.bold,
-    italics: robotoFontPaths.italics,
-    bolditalics: robotoFontPaths.bolditalics,
-  },
-});
+// Register fonts once at module load (Buffers — no FS access during PDF generation)
+pdfmake.addFonts({ Roboto: robotoFonts });
 
-// Restrict external URL access (security best practice — deny all external URLs)
+// Deny all external URL access (security — images are pre-fetched as data URLs by the service)
 // setUrlAccessPolicy and setLocalAccessPolicy exist in pdfmake 0.3.x but are missing from @types/pdfmake
 (
   pdfmake as unknown as { setUrlAccessPolicy: (fn: (url: string) => boolean) => void }
 ).setUrlAccessPolicy(() => false);
 
-// Restrict local file system access to the registered pdfmake font files only.
+// Deny all local FS access — fonts are pre-loaded as Buffers, no file paths needed at generation time.
 (
   pdfmake as unknown as { setLocalAccessPolicy: (fn: (path: string) => boolean) => void }
-).setLocalAccessPolicy((path) => allowedLocalFontPaths.has(resolve(path)));
+).setLocalAccessPolicy(() => false);
 
 // ─── Public Types ──────────────────────────────────────────────────────────
 
