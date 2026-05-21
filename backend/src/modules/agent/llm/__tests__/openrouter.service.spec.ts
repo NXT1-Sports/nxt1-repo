@@ -688,6 +688,11 @@ describe('OpenRouterService', () => {
 
     await serviceWithTelemetry.complete([{ role: 'user', content: 'test' }], {
       tier: 'extraction',
+      telemetryContext: {
+        operationId: 'op-telemetry-1',
+        userId: 'user-123',
+        agentId: 'router',
+      },
     });
 
     expect(telemetrySpy).toHaveBeenCalledTimes(1);

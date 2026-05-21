@@ -164,10 +164,6 @@ export class AgentXOperationChatTransportFacade {
   private responseCompleteEmitted = false;
   private deltaLatencySamples: number[] = [];
   private destroyed = false;
-  // /** Set to true when enqueue_heavy_task tool step is detected during the current SSE turn. */
-  // private enqueueHeavySeen = false;
-  // /** Set once the enqueue waiting card has been rendered for the current turn. */
-  // private enqueueHeavyCardShown = false;
 
   constructor() {
     // Per-component facade: when the host component is destroyed, mark this
@@ -557,10 +553,6 @@ export class AgentXOperationChatTransportFacade {
               host.setCurrentOperationId(heavyTaskOperationId);
             }
 
-            if (isEnqueueHeavy && (event.status === 'active' || event.status === 'success')) {
-              // this.enqueueHeavySeen = true;
-            }
-
             if (event.stageType !== 'tool') return;
 
             const deltaToFlush = this.messageFacade.drainBufferedTypingDelta();
@@ -786,8 +778,6 @@ export class AgentXOperationChatTransportFacade {
             this.messageFacade.flushPendingTypingDelta();
             host.latestProgressLabel.set(null);
             host.batchEmailProgress.set(null);
-            // this.enqueueHeavySeen = false;
-            // this.enqueueHeavyCardShown = false;
             host.setActivityPhase('completed');
             const threadId = host.resolvedThreadId();
             const terminalOperationId =
@@ -958,8 +948,6 @@ export class AgentXOperationChatTransportFacade {
     }
     this.responseTurnId += 1;
     this.responseCompleteEmitted = false;
-    // this.enqueueHeavySeen = false;
-    // this.enqueueHeavyCardShown = false;
     host.latestProgressLabel.set(null);
     this.logger.debug('Response turn started', {
       turnId: this.responseTurnId,

@@ -77,7 +77,11 @@ describe('WriteIntelTool', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(mockGenerateAthleteIntel).toHaveBeenCalledWith('user_123', expect.anything());
+    expect(mockGenerateAthleteIntel).toHaveBeenCalledWith(
+      'user_123',
+      expect.any(Object),
+      undefined
+    );
     expect(mockGenerateTeamIntel).not.toHaveBeenCalled();
     expect((result.data as Record<string, unknown>)['reportId']).toBe('athlete_intel_001');
     expect((result.data as Record<string, unknown>)['entityType']).toBe('athlete');
@@ -90,7 +94,7 @@ describe('WriteIntelTool', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(mockGenerateTeamIntel).toHaveBeenCalledWith('team_456', expect.anything());
+    expect(mockGenerateTeamIntel).toHaveBeenCalledWith('team_456', expect.any(Object), undefined);
     expect(mockGenerateAthleteIntel).not.toHaveBeenCalled();
     expect((result.data as Record<string, unknown>)['reportId']).toBe('team_intel_001');
     expect((result.data as Record<string, unknown>)['entityType']).toBe('team');

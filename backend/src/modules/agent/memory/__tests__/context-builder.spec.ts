@@ -82,7 +82,7 @@ vi.mock('../../../../utils/logger.js', () => ({
 
 // ─── Import Under Test (after mocks) ───────────────────────────────────────
 
-const { ContextBuilder } = await import('../context-builder.js');
+const { ContextBuilder, buildAgentContextCacheKey } = await import('../context-builder.js');
 
 // ─── Test Data ──────────────────────────────────────────────────────────────
 
@@ -265,7 +265,7 @@ describe('ContextBuilder', () => {
       const result = await builder.buildContext('user-123');
 
       expect(result).toEqual(cachedContext);
-      expect(mockCacheGet).toHaveBeenCalledWith('agent:context:user-123');
+      expect(mockCacheGet).toHaveBeenCalledWith(buildAgentContextCacheKey('user-123'));
       // getUserById should NEVER be called on a cache hit
       expect(mockGetUserById).not.toHaveBeenCalled();
       // Should NOT write back to cache (already cached)
@@ -284,7 +284,7 @@ describe('ContextBuilder', () => {
 
       // Should cache the assembled context
       expect(mockCacheSet).toHaveBeenCalledWith(
-        'agent:context:user-123',
+        buildAgentContextCacheKey('user-123'),
         expect.objectContaining({ userId: 'user-123' }),
         { ttl: 900 }
       );
@@ -582,7 +582,7 @@ describe('ContextBuilder', () => {
 
       await builder.invalidateContext('user-123');
 
-      expect(mockCacheDel).toHaveBeenCalledWith('agent:context:user-123');
+      expect(mockCacheDel).toHaveBeenCalledWith(buildAgentContextCacheKey('user-123'));
     });
 
     it('should not throw if cache delete fails', async () => {
