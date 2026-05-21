@@ -153,19 +153,16 @@ platform :ios do
   # ============================================================================
   # APP STORE SUBMISSION
   # ============================================================================
-  desc "Submit to App Store (production only — binary already uploaded via upload_testflight)"
+  desc "Upload IPA to App Store Connect and submit for review"
   lane :submit_app_store do
     api_key = load_api_key
 
     upload_to_app_store(
       api_key: api_key,
+      ipa: "./build/NXT1-release.ipa",
       submit_for_review: true,
       automatic_release: false,
-      # Binary is already on App Store Connect — do NOT upload again.
-      # upload_testflight already pushed the IPA and waited for processing.
-      skip_binary_upload: true,
       # Skip metadata/screenshot update — manage these manually in App Store Connect.
-      # Avoids "could not find an editable version" when no draft version exists.
       skip_metadata: true,
       skip_screenshots: true,
       force: true,
