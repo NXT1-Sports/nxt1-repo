@@ -122,7 +122,7 @@ export class AgentXOperationChatSessionFacade {
   readonly initialMessageSent = signal(false);
 
   private host: AgentXOperationChatSessionFacadeHost | null = null;
-  private enqueueHeavySeenSinceLastCompletion = false;
+  // private enqueueHeavySeenSinceLastCompletion = false;
   private readonly storedEventReconcileStartedAt = new Map<string, number>();
 
   private normalizeMessageContent(value: string | undefined): string {
@@ -1121,14 +1121,14 @@ export class AgentXOperationChatSessionFacade {
     this.operationEventService.clearEnqueueCancelled(threadId);
   }
 
-  private markEnqueueHeavySeen(): void {
-    this.enqueueHeavySeenSinceLastCompletion = true;
-    this.clearCancelledEnqueueMarkerForActiveThread();
-  }
+  // private markEnqueueHeavySeen(): void {
+  //   this.enqueueHeavySeenSinceLastCompletion = true;
+  //   this.clearCancelledEnqueueMarkerForActiveThread();
+  // }
 
-  private consumeEnqueueHeavySeen(): boolean {
-    return false;
-  }
+  // private consumeEnqueueHeavySeen(): boolean {
+  //   return false;
+  // }
 
   private markThreadAsEnqueueWaiting(): void {
     const host = this.requireHost();
@@ -1525,7 +1525,7 @@ export class AgentXOperationChatSessionFacade {
               if (heavyTaskOperationId) {
                 host.setCurrentOperationId(heavyTaskOperationId);
               }
-              this.markEnqueueHeavySeen();
+              // this.markEnqueueHeavySeen();
             }
             if (step.status === 'active') {
               // Pass the step label so a stale generic gap label
@@ -1624,7 +1624,7 @@ export class AgentXOperationChatSessionFacade {
                 operationId,
                 refreshThreadId,
               });
-              this.enqueueHeavySeenSinceLastCompletion = false;
+              // this.enqueueHeavySeenSinceLastCompletion = false;
               return;
             }
 
@@ -1646,7 +1646,7 @@ export class AgentXOperationChatSessionFacade {
               this.transportFacade.emitResponseCompleteOnce(
                 'firestore-operation-cancelled-enqueue'
               );
-              this.enqueueHeavySeenSinceLastCompletion = false;
+              // this.enqueueHeavySeenSinceLastCompletion = false;
               return;
             }
 
@@ -1680,7 +1680,7 @@ export class AgentXOperationChatSessionFacade {
                 new Error(errorMessage),
                 { operationId }
               );
-              this.enqueueHeavySeenSinceLastCompletion = false;
+              // this.enqueueHeavySeenSinceLastCompletion = false;
             }
           },
           onDone: (event) => {
@@ -1715,7 +1715,7 @@ export class AgentXOperationChatSessionFacade {
                 operationId,
                 refreshThreadId,
               });
-              this.enqueueHeavySeenSinceLastCompletion = false;
+              // this.enqueueHeavySeenSinceLastCompletion = false;
               return;
             }
             this.messageFacade.flushPendingTypingDelta();
@@ -1759,7 +1759,7 @@ export class AgentXOperationChatSessionFacade {
                   operationId,
                 }
               );
-              this.enqueueHeavySeenSinceLastCompletion = false;
+              // this.enqueueHeavySeenSinceLastCompletion = false;
               return;
             }
             host.latestProgressLabel.set(null);
@@ -1774,7 +1774,7 @@ export class AgentXOperationChatSessionFacade {
             host.loading.set(false);
             host.getActiveFirestoreSub()?.unsubscribe();
             host.setActiveFirestoreSub(null);
-            this.enqueueHeavySeenSinceLastCompletion = false;
+            // this.enqueueHeavySeenSinceLastCompletion = false;
             void this.haptics.notification('error');
             this.logger.error('Background job stream error (Firestore)', new Error(error), {
               operationId,
@@ -2602,7 +2602,7 @@ export class AgentXOperationChatSessionFacade {
           if (heavyTaskOperationId) {
             host.setCurrentOperationId(heavyTaskOperationId);
           }
-          this.markEnqueueHeavySeen();
+          // this.markEnqueueHeavySeen();
         }
         // Mirror live transport phase logic so the shimmer/loader behavior on
         // session re-entry matches first-watch streaming.
@@ -2701,7 +2701,7 @@ export class AgentXOperationChatSessionFacade {
         });
         host.setActivityPhase('failed', error || null);
         host.loading.set(false);
-        this.enqueueHeavySeenSinceLastCompletion = false;
+        // this.enqueueHeavySeenSinceLastCompletion = false;
         void this.haptics.notification('error');
       },
     });

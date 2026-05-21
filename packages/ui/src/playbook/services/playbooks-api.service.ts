@@ -61,12 +61,9 @@ export class PlaybooksApiService implements PlaybookApi {
   private readonly api = createPlaybookApi(
     {
       get: <T>(url: string) => firstValueFrom(this.http.get<T>(url)),
-      post: <T>(url: string, body: unknown) =>
-        firstValueFrom(this.http.post<T>(url, body)),
-      put: <T>(url: string, body: unknown) =>
-        firstValueFrom(this.http.put<T>(url, body)),
-      patch: <T>(url: string, body: unknown) =>
-        firstValueFrom(this.http.patch<T>(url, body)),
+      post: <T>(url: string, body: unknown) => firstValueFrom(this.http.post<T>(url, body)),
+      put: <T>(url: string, body: unknown) => firstValueFrom(this.http.put<T>(url, body)),
+      patch: <T>(url: string, body: unknown) => firstValueFrom(this.http.patch<T>(url, body)),
       delete: <T>(url: string) => firstValueFrom(this.http.delete<T>(url)),
     },
     '/api/v1'
@@ -120,17 +117,19 @@ export class PlaybooksApiService implements PlaybookApi {
     playIndex: number,
     playData: UpdatePlayRequest
   ): Promise<PlayItem> {
-    return this.performance?.trace(
-      TRACE_NAMES.PLAYBOOK_PLAY_UPDATE,
-      () => this.updatePlayImpl(playbookId, playIndex, playData),
-      {
-        attributes: {
-          playbook_id: playbookId,
-          play_index: String(playIndex),
-          updated_fields: Object.keys(playData).join(','),
-        },
-      }
-    ) ?? (await this.updatePlayImpl(playbookId, playIndex, playData));
+    return (
+      this.performance?.trace(
+        TRACE_NAMES.PLAYBOOK_PLAY_UPDATE,
+        () => this.updatePlayImpl(playbookId, playIndex, playData),
+        {
+          attributes: {
+            playbook_id: playbookId,
+            play_index: String(playIndex),
+            updated_fields: Object.keys(playData).join(','),
+          },
+        }
+      ) ?? (await this.updatePlayImpl(playbookId, playIndex, playData))
+    );
   }
 
   /**
@@ -142,25 +141,24 @@ export class PlaybooksApiService implements PlaybookApi {
    * @throws Error if deletion fails
    */
   async deletePlay(playbookId: string, playIndex: number): Promise<void> {
-    return this.performance?.trace(
-      TRACE_NAMES.PLAYBOOK_PLAY_DELETE,
-      () => this.deletePlayImpl(playbookId, playIndex),
-      {
-        attributes: {
-          playbook_id: playbookId,
-          play_index: String(playIndex),
-        },
-      }
-    ) ?? (await this.deletePlayImpl(playbookId, playIndex));
+    return (
+      this.performance?.trace(
+        TRACE_NAMES.PLAYBOOK_PLAY_DELETE,
+        () => this.deletePlayImpl(playbookId, playIndex),
+        {
+          attributes: {
+            playbook_id: playbookId,
+            play_index: String(playIndex),
+          },
+        }
+      ) ?? (await this.deletePlayImpl(playbookId, playIndex))
+    );
   }
 
   /**
    * Internal implementation of play creation with logging and breadcrumbs
    */
-  private async createPlayImpl(
-    playbookId: string,
-    playData: CreatePlayRequest
-  ): Promise<PlayItem> {
+  private async createPlayImpl(playbookId: string, playData: CreatePlayRequest): Promise<PlayItem> {
     this.logger.info('Creating play', { playbookId, playName: playData.name });
     void this.breadcrumb.trackStateChange('playbook_plays', { state: 'creating' });
 
@@ -208,7 +206,11 @@ export class PlaybooksApiService implements PlaybookApi {
     playIndex: number,
     playData: UpdatePlayRequest
   ): Promise<PlayItem> {
-    this.logger.info('Updating play', { playbookId, playIndex, updatedFields: Object.keys(playData) });
+    this.logger.info('Updating play', {
+      playbookId,
+      playIndex,
+      updatedFields: Object.keys(playData),
+    });
     void this.breadcrumb.trackStateChange('playbook_plays', { state: 'updating' });
 
     try {
