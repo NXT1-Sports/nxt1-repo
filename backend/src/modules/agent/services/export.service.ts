@@ -40,26 +40,39 @@ const _require = createRequire(import.meta.url);
 const pdfmakePkgDir = dirname(_require.resolve('pdfmake/package.json'));
 const fontsDir = resolve(pdfmakePkgDir, 'build/fonts/Roboto');
 
-// Pre-load Roboto fonts as Buffers at module init — pdfmake accepts Buffer/ArrayBuffer in addFonts.
-// This eliminates per-request FS reads and prevents Windows file-lock / EACCES errors that occur
-// when font files are read on every PDF generation under concurrent load.
-const robotoFonts = {
-  normal: readFileSync(resolve(fontsDir, 'Roboto-Regular.ttf')),
-  bold: readFileSync(resolve(fontsDir, 'Roboto-Medium.ttf')),
-  italics: readFileSync(resolve(fontsDir, 'Roboto-Italic.ttf')),
-  bolditalics: readFileSync(resolve(fontsDir, 'Roboto-MediumItalic.ttf')),
-} as const;
+// Populate pdfmake VFS with base64-encoded font data at module init.
+// The singleton API (createPdf / getBuffer) is the browser-compatible API — it requires fonts to
+// be registered via the VFS (virtual file system), NOT as Buffer objects passed to addFonts().
+// Passing Buffers to addFonts() only works with the server PdfPrinter class; with the singleton
+// it silently falls back for 'normal' but fails to load bold/italic variants at render time.
+// Reading once here (readFileSync + base64) means zero FS access during PDF generation.
+(pdfmake as unknown as { vfs: Record<string, string> }).vfs = {
+  'Roboto-Regular.ttf': readFileSync(resolve(fontsDir, 'Roboto-Regular.ttf')).toString('base64'),
+  'Roboto-Medium.ttf': readFileSync(resolve(fontsDir, 'Roboto-Medium.ttf')).toString('base64'),
+  'Roboto-Italic.ttf': readFileSync(resolve(fontsDir, 'Roboto-Italic.ttf')).toString('base64'),
+  'Roboto-MediumItalic.ttf': readFileSync(resolve(fontsDir, 'Roboto-MediumItalic.ttf')).toString(
+    'base64'
+  ),
+};
 
-// Register fonts once at module load (Buffers — no FS access during PDF generation)
-pdfmake.addFonts({ Roboto: robotoFonts });
+// Map font family variants to VFS keys (plain filenames, not paths).
+// addFonts merges into pdfmake.fonts; with VFS loaded, pdfmake resolves each key from vfs memory.
+pdfmake.addFonts({
+  Roboto: {
+    normal: 'Roboto-Regular.ttf',
+    bold: 'Roboto-Medium.ttf',
+    italics: 'Roboto-Italic.ttf',
+    bolditalics: 'Roboto-MediumItalic.ttf',
+  },
+});
 
-// Deny all external URL access (security — images are pre-fetched as data URLs by the service)
+// Deny external URL access — images are pre-fetched as data URLs by loadPdfImages() before generation.
 // setUrlAccessPolicy and setLocalAccessPolicy exist in pdfmake 0.3.x but are missing from @types/pdfmake
 (
   pdfmake as unknown as { setUrlAccessPolicy: (fn: (url: string) => boolean) => void }
 ).setUrlAccessPolicy(() => false);
 
-// Deny all local FS access — fonts are pre-loaded as Buffers, no file paths needed at generation time.
+// Deny local FS access — all font data is in VFS memory; no file paths are needed at generation time.
 (
   pdfmake as unknown as { setLocalAccessPolicy: (fn: (path: string) => boolean) => void }
 ).setLocalAccessPolicy(() => false);
