@@ -478,11 +478,89 @@ export class NxtMediaService {
   }
 
   /**
+   * Save a video directly from a remote HTTPS URL to the device camera roll.
+   *
+   * On native iOS/Android, the @capacitor-community/media plugin fetches the
+   * video using its native downloader. This bypasses WKWebView cross-origin
+   * restrictions and does NOT require a prior download-to-cache step.
+   *
+   * Use this method whenever you already have an HTTPS video URL (e.g. Firebase
+   * Storage, Cloudflare Stream, Runway-generated videos).
+   */
+  async saveVideoFromUrl(url: string): Promise<SaveImageResult> {
+    if (!this.isBrowser || !isCapacitor()) {
+      return { success: false, error: 'Only available on native' };
+    }
+
+    // Log without the query-string to avoid leaking signed-URL tokens.
+    this.logger.info('Saving video from URL', { url: url.split('?')[0] });
+
+    try {
+      const { Filesystem, Directory } = await import('@capacitor/filesystem');
+
+      // The @capacitor-community/media iOS saveVideo implementation has a critical
+      // bug: when given an HTTPS URL, it calls `try! Data(contentsOf: url!)` which
+      // is a SYNCHRONOUS blocking download on the main thread. This causes iOS to
+      // immediately kill the app (watchdog timeout / force-try crash).
+      //
+      // Workaround: download the video to the app cache using Capacitor's async
+      // Filesystem.downloadFile() first, then pass the file:// URI to saveVideo().
+      // The iOS plugin skips the synchronous download branch when the path starts
+      // with "file://" and saves to the Photos library safely via PHPhotoLibrary.
+      //
+      // Also: the plugin uses `data.lastIndex(of: ".")!` (force-unwrap) to extract
+      // the file extension from the URL. For Firebase Storage / CDN signed URLs that
+      // have no extension in the path, this would crash. We derive a safe .mp4
+      // fallback from the URL path before the query string.
+      const urlPath = url.split('?')[0];
+      const rawExt = urlPath.includes('.') ? urlPath.substring(urlPath.lastIndexOf('.')) : '';
+      const safeExt = /^\.[a-z0-9]{2,4}$/i.test(rawExt) ? rawExt : '.mp4';
+      const fileName = `nxt1-video-${Date.now()}${safeExt}`;
+
+      // Download to cache directory (async — does not block the main thread)
+      const downloadResult = await Filesystem.downloadFile({
+        url,
+        path: fileName,
+        directory: Directory.Cache,
+      });
+
+      const filePath = downloadResult.path;
+      if (!filePath) {
+        return { success: false, error: 'Failed to download video' };
+      }
+
+      // Ensure path has the file:// scheme so the iOS plugin takes the safe branch
+      const fileUri = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
+
+      try {
+        const { MediaPlugin } = await this.loadMediaPlugin();
+        await MediaPlugin.saveVideo({ path: fileUri });
+      } finally {
+        // Clean up temp file whether save succeeded or failed
+        await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => {
+          /* noop */
+        });
+      }
+
+      await this.haptics.notification('success');
+      this.logger.info('Video saved to camera roll');
+      return { success: true, path: 'Photos' };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save video';
+      this.logger.error('saveVideoFromUrl error', err, { url: url.split('?')[0] });
+      return { success: false, error: message };
+    }
+  }
+
+  /**
    * Lazy load the @capacitor-community/media plugin.
    * This is optional — falls back gracefully if not installed.
    */
   private async loadMediaPlugin(): Promise<{
-    MediaPlugin: { savePhoto: (opts: { path: string; albumIdentifier?: string }) => Promise<void> };
+    MediaPlugin: {
+      savePhoto: (opts: { path: string; albumIdentifier?: string }) => Promise<void>;
+      saveVideo: (opts: { path: string; albumIdentifier?: string }) => Promise<void>;
+    };
   }> {
     // Dynamic import of optional peer dependency — caught at runtime if not installed
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

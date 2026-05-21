@@ -1366,13 +1366,17 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
 
   private async saveVideoItem(item: MediaViewerItem): Promise<void> {
     if (this.platform.isNative()) {
-      // Native: open share sheet so user can save to camera roll
-      const { Share } = await import('@capacitor/share');
-      await Share.share({
-        title: item.name ?? 'Video',
-        url: item.url,
-        dialogTitle: 'Save Video',
-      });
+      // Native iOS/Android: save directly to the camera roll via the Media plugin.
+      // This works for both standard videos and Runway-generated animated graphics.
+      // Uses the plugin's native downloader to fetch the HTTPS URL, bypassing
+      // WKWebView cross-origin restrictions — no cache write required.
+      const result = await this.mediaService.saveVideoFromUrl(item.url);
+      if (result.success) {
+        this.dismiss();
+        this.toast.success('Saved to camera roll!');
+      } else if (result.error && result.error !== 'Cancelled') {
+        this.toast.error(result.error ?? 'Failed to save');
+      }
     } else {
       // Web: Firebase Storage URLs are cross-origin so a bare <a download> is
       // ignored by the browser (it navigates instead). Fetch as blob first,
