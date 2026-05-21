@@ -597,7 +597,17 @@ export class SettingsShellComponent implements OnInit, AfterViewInit, OnDestroy 
     this.logger.debug('Connected accounts dismissed', {
       saved: result.saved,
       resync: result.resync,
+      oauthConnected: result.oauthConnected,
     });
+
+    // OAuth connect (Google / Microsoft) — backend already saved the token and the
+    // email-connection service already called profileService.load(). Emit a
+    // refreshUserProfile action so the parent re-fetches auth state and the
+    // connected email appears immediately in the Connected Accounts UI.
+    if (result.oauthConnected) {
+      this.action.emit({ itemId: 'connectedAccounts', action: 'refreshUserProfile' });
+      return;
+    }
 
     // Save link changes if any were made
     if (result.linkSources && result.updatedLinks) {

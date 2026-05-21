@@ -530,6 +530,6 @@ export class NxtConnectedSourcesComponent {
   }
 
   protected showDisconnectAction(source: ConnectedSource): boolean {
-    return source.connected && !source.locked && !source.username;
+    return source.connected && !source.locked;
   }
 }

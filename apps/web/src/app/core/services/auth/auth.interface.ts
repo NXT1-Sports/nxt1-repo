@@ -83,7 +83,7 @@ export interface FirebaseUserInfo {
     creationTime?: string;
     lastSignInTime?: string;
   };
-  providerData: Array<{ providerId: string }>;
+  providerData: Array<{ providerId: string; email?: string | null; displayName?: string | null }>;
   getIdToken(): Promise<string>;
 }
 

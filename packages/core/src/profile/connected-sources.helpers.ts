@@ -31,6 +31,8 @@ interface LinkSourceLike {
 interface ConnectedEmailLike {
   readonly provider: string;
   readonly isActive?: boolean;
+  /** The email address for the connected account — shown as username in the UI. */
+  readonly email?: string;
 }
 
 interface FirebaseProviderLike {
@@ -80,8 +82,6 @@ const GLOBAL_LINK_PLATFORMS = new Set(['twitter', 'instagram', 'tiktok', 'youtub
 
 type FirebaseProviderPlatform =
   (typeof FIREBASE_PROVIDER_PLATFORM_MAP)[keyof typeof FIREBASE_PROVIDER_PLATFORM_MAP];
-type ConnectedEmailProviderPlatform =
-  (typeof CONNECTED_EMAIL_PROVIDER_PLATFORM_MAP)[keyof typeof CONNECTED_EMAIL_PROVIDER_PLATFORM_MAP];
 
 /**
  * Maps connected link-source form entries to the `ConnectedSource` model
@@ -206,25 +206,25 @@ export function mapConnectedEmailsToLinkSources(
   existingPlatforms: readonly string[] = []
 ): LinkSourceLike[] {
   const existing = new Set(existingPlatforms);
+  const result: LinkSourceLike[] = [];
 
-  return emails
-    .filter((email) => email.isActive !== false)
-    .map(
-      (email) =>
-        CONNECTED_EMAIL_PROVIDER_PLATFORM_MAP[
-          email.provider as keyof typeof CONNECTED_EMAIL_PROVIDER_PLATFORM_MAP
-        ]
-    )
-    .filter(
-      (platform): platform is ConnectedEmailProviderPlatform =>
-        typeof platform === 'string' && !existing.has(platform)
-    )
-    .map((platform) => ({
+  for (const entry of emails) {
+    if (entry.isActive === false) continue;
+    const platform =
+      CONNECTED_EMAIL_PROVIDER_PLATFORM_MAP[
+        entry.provider as keyof typeof CONNECTED_EMAIL_PROVIDER_PLATFORM_MAP
+      ];
+    if (typeof platform !== 'string' || existing.has(platform)) continue;
+    result.push({
       platform,
       connected: true,
       connectionType: 'signin' as const,
       scopeType: 'global' as const,
-    }));
+      ...(entry.email ? { username: entry.email } : {}),
+    });
+  }
+
+  return result;
 }
 
 /**
@@ -251,10 +251,11 @@ export function buildLinkSourcesFormData(options: {
 }): LinkSourcesFormDataLike | null {
   const linkedSources = mapConnectedSourcesToLinkSources(options.connectedSources ?? []);
   const firebaseSigninLinks = mapFirebaseProvidersToLinkSources(options.firebaseProviders ?? []);
-  const emailSigninLinks = mapConnectedEmailsToLinkSources(
-    options.connectedEmails ?? [],
-    firebaseSigninLinks.map((link) => link.platform)
-  );
+  // Do NOT pass firebaseSigninLinks platforms as exclusions — connectedEmails entries carry
+  // the actual connected account email (e.g. sonngoc.dev@gmail.com) which may differ from
+  // the Firebase sign-in email (e.g. ngocsonxx98@gmail.com). mergeLinkSources will
+  // deduplicate by key, with connectedEmails (incoming) winning over firebaseSigninLinks.
+  const emailSigninLinks = mapConnectedEmailsToLinkSources(options.connectedEmails ?? []);
 
   const links = mergeLinkSources(
     mergeLinkSources(linkedSources, firebaseSigninLinks),

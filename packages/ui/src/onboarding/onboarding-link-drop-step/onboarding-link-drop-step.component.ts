@@ -1023,7 +1023,7 @@ export class OnboardingLinkDropStepComponent {
     if (this.disabled()) return;
 
     const { source } = event;
-    if (!source.connected || source.locked || source.username) return;
+    if (!source.connected || source.locked) return;
 
     const confirmed = await this.nxtModal.confirm({
       title: `Disconnect ${source.label}?`,

@@ -247,6 +247,12 @@ export class SettingsComponent {
 
     // Handle specific actions
     switch (event.action) {
+      case 'refreshUserProfile': {
+        this.logger.info('Refreshing user profile after OAuth connect');
+        await this.authService.refreshUserProfile();
+        break;
+      }
+
       case 'saveConnectedAccounts': {
         const user = this.authService.user();
         const data = (

@@ -22,6 +22,7 @@ import { Auth, GoogleAuthProvider, signInWithPopup } from '@angular/fire/auth';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import type { ILogger } from '@nxt1/core/logging';
+import { type OAuthConnectResult } from '@nxt1/ui/components/connected-sources';
 import {
   parseApiError,
   getErrorMessage,
@@ -88,12 +89,12 @@ export class WebEmailConnectionService {
    * This is a pure CONNECT flow — it only stores a refresh/access token for
    * Agent X to use later. It does NOT sign the user in to Firebase.
    *
-   * Returns `true` on success, `false` on failure (error is shown via toast internally).
+   * Returns `{ success: true, connectedEmail }` on success, `{ success: false }` on failure.
    */
   async connectForLinkedAccounts(
     platform: 'google' | 'microsoft',
     userId: string
-  ): Promise<boolean> {
+  ): Promise<OAuthConnectResult> {
     this.logger.info('Connecting linked account via OAuth popup', { platform, userId });
     try {
       if (platform === 'google') {
@@ -103,15 +104,28 @@ export class WebEmailConnectionService {
       }
       const providerName = platform === 'google' ? 'Gmail' : 'Microsoft';
       this.toast.success(`${providerName} account connected!`);
-      return true;
+      // authService.refreshUserProfile() was already called inside _connectGoogleOAuth.
+      // Read the connected email from the refreshed Firebase auth user.
+      const connectedEmail = this._getConnectedEmail(platform);
+      return { success: true, connectedEmail };
     } catch (error) {
       const providerName = platform === 'google' ? 'Google' : 'Microsoft';
       const msg = error instanceof Error ? error.message : JSON.stringify(error);
       this.logger.error(`Failed to connect ${providerName} linked account: ${msg}`, error);
       console.error(`[OAuth] ${providerName} connect error:`, error);
       this.toast.error(`Failed to connect ${providerName}: ${msg}`);
-      return false;
+      return { success: false };
     }
+  }
+
+  /**
+   * Read the connected email from the Firebase auth user's providerData.
+   * Called immediately after `authService.refreshUserProfile()` inside the OAuth flow.
+   */
+  private _getConnectedEmail(platform: 'google' | 'microsoft'): string | undefined {
+    const providerId = platform === 'google' ? 'google.com' : 'microsoft.com';
+    const providerData = this.auth.currentUser?.providerData ?? [];
+    return providerData.find((p) => p.providerId === providerId)?.email ?? undefined;
   }
 
   // ============================================

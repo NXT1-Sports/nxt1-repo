@@ -183,7 +183,11 @@ export class FirebaseAuthService implements OnDestroy {
         creationTime: fbUser.metadata?.creationTime,
         lastSignInTime: fbUser.metadata?.lastSignInTime,
       },
-      providerData: (fbUser.providerData ?? []).map((p) => ({ providerId: p.providerId })),
+      providerData: (fbUser.providerData ?? []).map((p) => ({
+        providerId: p.providerId,
+        email: p.email,
+        displayName: p.displayName,
+      })),
     };
   }
 

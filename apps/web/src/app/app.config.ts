@@ -478,7 +478,18 @@ export const appConfig: ApplicationConfig = {
     // is signed in with those providers (without every call-site doing it manually).
     {
       provide: CONNECTED_ACCOUNTS_FIREBASE_USER,
-      useFactory: (auth: IAuthService) => () => auth.firebaseUser()?.providerData ?? [],
+      useFactory: (auth: IAuthService) => () => {
+        const fbUser = auth.firebaseUser();
+        if (!fbUser) return [];
+        // Only use the email from providerData itself — do NOT fall back to fbUser.email
+        // for Microsoft because fbUser.email is the primary sign-in email (e.g. Google)
+        // and would incorrectly override the real Microsoft email stored in connectedEmails.
+        return fbUser.providerData.map((p) => ({
+          providerId: p.providerId,
+          email: p.email ?? null,
+          displayName: p.displayName,
+        }));
+      },
       deps: [AUTH_SERVICE],
     },
 
@@ -490,7 +501,7 @@ export const appConfig: ApplicationConfig = {
         (emailSvc: WebEmailConnectionService, auth: IAuthService) =>
         (platform: 'google' | 'microsoft') => {
           const userId = (auth as IAuthService).user?.()?.uid;
-          if (!userId) return Promise.resolve(false);
+          if (!userId) return Promise.resolve({ success: false });
           return emailSvc.connectForLinkedAccounts(platform, userId);
         },
       deps: [WebEmailConnectionService, AUTH_SERVICE],

@@ -30,7 +30,10 @@ import { LINK_SOURCES_TEST_IDS } from '@nxt1/core/testing';
 import type { LinkSourcesFormData, OnboardingUserType } from '@nxt1/core/api';
 import { OnboardingLinkDropStepComponent } from '../../onboarding/onboarding-link-drop-step';
 import { FirecrawlSignInService, type FirecrawlSignInRequest } from './firecrawl-signin.service';
-import { CONNECTED_ACCOUNTS_OAUTH_HANDLER } from './connected-accounts-modal.service';
+import {
+  CONNECTED_ACCOUNTS_OAUTH_HANDLER,
+  type OAuthConnectResult,
+} from './connected-accounts-modal.service';
 
 @Component({
   selector: 'nxt1-connected-accounts-sheet',
@@ -323,11 +326,39 @@ export class ConnectedAccountsSheetComponent implements OnInit {
       this.logger.warn('No CONNECTED_ACCOUNTS_OAUTH_HANDLER provided — cannot launch OAuth');
       return;
     }
-    const success = await this.oauthHandler(event.platform);
-    if (success) {
+
+    const raw = await this.oauthHandler(event.platform);
+
+    // Normalise: handler may return a plain boolean (old/web) or OAuthConnectResult (mobile)
+    const result: OAuthConnectResult =
+      typeof raw === 'boolean' ? { success: raw } : (raw as OAuthConnectResult);
+
+    if (result.success) {
+      // Update the link sources immediately so the UI reflects the connected state
+      // (with email if returned by the handler) before the sheet closes.
+      const currentData = this._latestLinkSources() ?? this._linkSourcesData();
+      const currentLinks = currentData?.links ?? [];
+      this._latestLinkSources.set({
+        links: [
+          ...currentLinks.filter((l) => l.platform !== event.platform),
+          {
+            platform: event.platform,
+            connected: true,
+            connectionType: 'signin' as const,
+            scopeType: (event.scopeType as 'global' | 'sport') ?? 'global',
+            scopeId: event.scopeId,
+            // Carry the email as the username so it renders as "Connected: user@gmail.com"
+            username: result.connectedEmail,
+          },
+        ],
+      });
       this._hasChanges.set(true);
-      // Dismiss the sheet — backend already saved the token, toast shown by the service
-      void this.modalCtrl.dismiss(null, 'oauth-connected');
+      this.logger.info('OAuth connected — sheet updated', {
+        platform: event.platform,
+        hasEmail: !!result.connectedEmail,
+      });
+      // Dismiss so the parent can trigger a profile refresh / cache invalidation.
+      void this.modalCtrl.dismiss({ platform: event.platform }, 'oauth-connected');
     }
   }
 

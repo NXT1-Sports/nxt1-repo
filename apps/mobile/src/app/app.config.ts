@@ -89,7 +89,10 @@ import { mobileAuthInterceptor } from './core/infrastructure/interceptors/auth.i
 import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
 
 import { SETTINGS_PERSISTENCE_ADAPTER, APP_VERSION } from '@nxt1/ui/settings';
-import { CONNECTED_ACCOUNTS_OAUTH_HANDLER } from '@nxt1/ui/components/connected-sources';
+import {
+  CONNECTED_ACCOUNTS_OAUTH_HANDLER,
+  CONNECTED_ACCOUNTS_FIREBASE_USER,
+} from '@nxt1/ui/components/connected-sources';
 import { BROWSER_TRACKING_BASE_URL } from '@nxt1/ui/services/browser';
 
 import { routes } from './app.routes';
@@ -405,6 +408,25 @@ export const appConfig: ApplicationConfig = {
     // App version — drives the version string shown in Settings footer
     { provide: APP_VERSION, useFactory: () => environment.appVersion },
 
+    // Firebase provider data for Connected Accounts sheet — enables email display for
+    // already-connected Google / Microsoft accounts without a new OAuth flow.
+    {
+      provide: CONNECTED_ACCOUNTS_FIREBASE_USER,
+      useFactory: (auth: Auth) => () => {
+        const user = auth.currentUser;
+        if (!user) return [];
+        // Only use the email from providerData itself — do NOT fall back to user.email
+        // for Microsoft because user.email is the primary sign-in email (e.g. Google)
+        // and would incorrectly override the real Microsoft email stored in connectedEmails.
+        return user.providerData.map((p) => ({
+          providerId: p.providerId,
+          email: p.email ?? null,
+          displayName: p.displayName,
+        }));
+      },
+      deps: [Auth],
+    },
+
     // OAuth handler for Connected Accounts sheet (settings context)
     // Launches Google/Microsoft account picker and saves tokens to oauthTokens subcollection.
     // Does NOT sign the user in — pure token acquisition via system browser.
@@ -414,7 +436,7 @@ export const appConfig: ApplicationConfig = {
         (emailSvc: MobileEmailConnectionService, auth: Auth) =>
         (platform: 'google' | 'microsoft') => {
           const uid = auth.currentUser?.uid;
-          if (!uid) return Promise.resolve(false);
+          if (!uid) return Promise.resolve({ success: false });
           return emailSvc.connectForLinkedAccounts(platform, uid);
         },
       deps: [MobileEmailConnectionService, Auth],

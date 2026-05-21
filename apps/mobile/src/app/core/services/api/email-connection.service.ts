@@ -22,6 +22,7 @@ import { Browser } from '@capacitor/browser';
 import { App } from '@capacitor/app';
 import { Capacitor } from '@capacitor/core';
 import { NxtLoggingService, NxtToastService, HapticsService } from '@nxt1/ui';
+import { type OAuthConnectResult } from '@nxt1/ui/components/connected-sources';
 import type { ILogger } from '@nxt1/core/logging';
 import {
   parseApiError,
@@ -95,12 +96,13 @@ export class MobileEmailConnectionService {
    * Does NOT call FirebaseAuthentication.signInWithGoogle and does NOT
    * change the user's current Firebase auth session.
    *
-   * Returns `true` on success, `false` on failure (error shown via toast).
+   * Returns `{ success: true, connectedEmail }` on success, `{ success: false }` on failure
+   * (error shown via toast).
    */
   async connectForLinkedAccounts(
     platform: 'google' | 'microsoft',
     userId: string
-  ): Promise<boolean> {
+  ): Promise<OAuthConnectResult> {
     this.logger.info('Connecting linked account via OAuth', { platform, userId });
     try {
       if (platform === 'google') {
@@ -108,15 +110,28 @@ export class MobileEmailConnectionService {
       } else {
         await this._connectMicrosoft(userId);
       }
-      return true;
+      // profileService.load() was called inside _connectGoogleOAuth / _connectMicrosoft.
+      // The profile should now contain the newly connected email.
+      const connectedEmail = this._getConnectedEmail(platform);
+      return { success: true, connectedEmail };
     } catch (error) {
       const providerName = platform === 'google' ? 'Google' : 'Microsoft';
       this.logger.error(`Failed to connect ${providerName} linked account`, error);
       if (!this._isUserCanceled(error) && !this._isAlreadyInProgress(error)) {
         this.toast.error(`Failed to connect ${providerName}. Please try again.`);
       }
-      return false;
+      return { success: false };
     }
+  }
+
+  /**
+   * Read the active connected email for a platform from the already-loaded profile.
+   * Called immediately after `profileService.load()` inside the OAuth flow.
+   */
+  private _getConnectedEmail(platform: 'google' | 'microsoft'): string | undefined {
+    const providerId = platform === 'google' ? 'gmail' : 'microsoft';
+    const user = this.profileService.user();
+    return user?.connectedEmails?.find((e) => e.provider === providerId && e.isActive)?.email;
   }
 
   // ============================================

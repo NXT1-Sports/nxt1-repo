@@ -304,7 +304,11 @@ export class ServerAuthService implements IAuthService, OnDestroy {
         creationTime: user.metadata.creationTime,
         lastSignInTime: user.metadata.lastSignInTime,
       },
-      providerData: user.providerData.map((p) => ({ providerId: p.providerId })),
+      providerData: user.providerData.map((p) => ({
+        providerId: p.providerId,
+        email: p.email,
+        displayName: p.displayName,
+      })),
       // On server, getIdToken returns the token we already have
       getIdToken: async () => this.authToken ?? '',
     };

@@ -554,6 +554,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               },
               providerData: (firebaseUser.providerData ?? []).map((provider) => ({
                 providerId: provider.providerId,
+                email: provider.email,
+                displayName: provider.displayName,
               })),
             });
 

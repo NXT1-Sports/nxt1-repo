@@ -259,6 +259,17 @@ export class DeepLinkService {
           return;
         }
 
+        // Skip OAuth callback URLs — handled by MobileEmailConnectionService's
+        // own App.addListener('appUrlOpen') listener via a short-lived promise.
+        // Routing these through DeepLinkService would navigate the user away from
+        // the Connected Accounts sheet before the OAuth promise resolves.
+        if (url.includes('/oauth/callback')) {
+          this.logger.debug('Skipping OAuth callback URL - handled by email-connection service', {
+            url: url.substring(0, 80),
+          });
+          return;
+        }
+
         // Wait for the platform to be fully ready before navigating.
         // This prevents silent navigation failures caused by Ionic's view-transition
         // still running when the app is brought to the foreground via a Universal Link.

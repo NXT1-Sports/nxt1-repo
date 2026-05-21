@@ -24,6 +24,7 @@ export {
   ConnectedAccountsModalService,
   CONNECTED_ACCOUNTS_FIREBASE_USER,
   CONNECTED_ACCOUNTS_OAUTH_HANDLER,
+  type OAuthConnectResult,
   type ConnectedAccountsModalOptions,
   type ConnectedAccountsModalResult,
 } from './connected-accounts-modal.service';

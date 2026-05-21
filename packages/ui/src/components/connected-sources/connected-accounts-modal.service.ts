@@ -66,16 +66,28 @@ import type { LinkSourcesFormData, OnboardingUserType } from '@nxt1/core/api';
  * }
  */
 export const CONNECTED_ACCOUNTS_FIREBASE_USER = new InjectionToken<
-  () => ReadonlyArray<{ readonly providerId: string }>
+  () => ReadonlyArray<{ readonly providerId: string; readonly email?: string | null }>
 >('CONNECTED_ACCOUNTS_FIREBASE_USER');
+
+/**
+ * Result returned by the CONNECTED_ACCOUNTS_OAUTH_HANDLER after a successful
+ * OAuth connection. Carries the connected email so the sheet can display it
+ * immediately without waiting for a full profile reload.
+ */
+export interface OAuthConnectResult {
+  readonly success: boolean;
+  /** The email address of the newly connected account, if available. */
+  readonly connectedEmail?: string;
+}
 
 /**
  * Optional DI token providing a handler that launches the real OAuth account-picker
  * (Google / Microsoft) when the user taps those platforms in the "Signed In" tab
  * from the settings context (where the component is opened via overlay, not a template).
  *
- * The factory receives the platform ID and returns a Promise<boolean> (true = success).
- * The component calls `markSigninConnected()` automatically when the handler resolves true.
+ * The factory receives the platform ID and returns a Promise<OAuthConnectResult>.
+ * The component updates `_latestLinkSources` with the connected email automatically
+ * when the handler resolves with `success: true`.
  *
  * @example
  * // In app.config.ts:
@@ -88,7 +100,7 @@ export const CONNECTED_ACCOUNTS_FIREBASE_USER = new InjectionToken<
  * }
  */
 export const CONNECTED_ACCOUNTS_OAUTH_HANDLER = new InjectionToken<
-  (platform: 'google' | 'microsoft') => Promise<boolean>
+  (platform: 'google' | 'microsoft') => Promise<OAuthConnectResult | boolean>
 >('CONNECTED_ACCOUNTS_OAUTH_HANDLER');
 
 /** Maps Firebase Auth provider IDs to the platform IDs used by connected accounts. */
@@ -114,6 +126,12 @@ export interface ConnectedAccountsModalOptions {
 export interface ConnectedAccountsModalResult {
   readonly saved: boolean;
   readonly resync?: boolean;
+  /**
+   * True when the user just completed a Google / Microsoft OAuth connect flow.
+   * The parent should call `authService.refreshUserProfile()` so the new
+   * `connectedEmails` entry is reflected in the UI without requiring navigation.
+   */
+  readonly oauthConnected?: boolean;
   readonly updatedLinks?: readonly {
     platform: string;
     url: string;
@@ -238,6 +256,13 @@ export class ConnectedAccountsModalService {
       };
     }
 
+    // OAuth connect completed (Google / Microsoft account-picker flow).
+    // The sheet already called profileService.load() before dismissing.
+    // Signal the parent to refresh so connected email appears in the UI.
+    if (result.role === 'oauth-connected') {
+      return { saved: false, oauthConnected: true };
+    }
+
     return { saved: false };
   }
 
@@ -345,15 +370,21 @@ export class ConnectedAccountsModalService {
       if (!platformId) continue;
 
       const existing = existingByPlatform.get(platformId);
+      const email = provider.email ?? undefined;
       if (existing) {
-        // Patch the existing entry — keep all other fields intact.
+        // Patch the existing entry — keep all other fields, mark as connected.
+        // IMPORTANT: prefer existing.username (from connectedEmails in Firestore) over
+        // the Firebase providerData email, because the Firebase sign-in email is the
+        // email used to log in to NXT1 (e.g. ngocsonxx98@gmail.com) which may differ
+        // from the account actually connected for email sending (e.g. sonngoc.dev@gmail.com).
         existingByPlatform.set(platformId, {
           ...existing,
           connected: true,
           connectionType: 'signin',
+          username: existing.username ?? email,
         });
       } else {
-        // Add a minimal connected entry so the modal shows the checkmark.
+        // Add a minimal connected entry so the modal shows the checkmark + email.
         existingByPlatform.set(platformId, {
           platform: platformId,
           connected: true,
@@ -361,7 +392,7 @@ export class ConnectedAccountsModalService {
           scopeType: 'global',
           scopeId: undefined,
           url: '',
-          username: undefined,
+          username: email,
         });
       }
     }

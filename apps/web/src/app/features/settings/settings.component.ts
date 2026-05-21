@@ -277,6 +277,12 @@ export class SettingsComponent implements OnInit {
         break;
       }
 
+      case 'refreshUserProfile': {
+        this.logger.info('Refreshing user profile after OAuth connect');
+        await this.authService.refreshUserProfile();
+        break;
+      }
+
       case 'saveConnectedAccounts': {
         const user = this.authService.user();
         if (!user) {
