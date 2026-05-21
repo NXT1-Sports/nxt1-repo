@@ -69,6 +69,14 @@ import {
   SaveGameplanTool,
   UpdateGameplanTool,
   DeleteGameplanTool,
+  ListFilmReviewsTool,
+  GetFilmReviewTool,
+  SaveFilmReviewTool,
+  UpdateFilmReviewTool,
+  DeleteFilmReviewTool,
+  AddFilmReviewAnnotationTool,
+  DeleteFilmReviewAnnotationTool,
+  RefreshFilmReviewAiTool,
   WriteTeamNewsTool,
   WriteTeamPostTool,
   WriteRosterEntriesTool,
@@ -446,6 +454,14 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new SaveGameplanTool(toolFirestore));
   toolRegistry.register(new UpdateGameplanTool(toolFirestore));
   toolRegistry.register(new DeleteGameplanTool(toolFirestore));
+  toolRegistry.register(new ListFilmReviewsTool(toolFirestore));
+  toolRegistry.register(new GetFilmReviewTool(toolFirestore));
+  toolRegistry.register(new SaveFilmReviewTool(toolFirestore));
+  toolRegistry.register(new UpdateFilmReviewTool(toolFirestore));
+  toolRegistry.register(new DeleteFilmReviewTool(toolFirestore));
+  toolRegistry.register(new AddFilmReviewAnnotationTool(toolFirestore));
+  toolRegistry.register(new DeleteFilmReviewAnnotationTool(toolFirestore));
+  toolRegistry.register(new RefreshFilmReviewAiTool(toolFirestore));
   toolRegistry.register(new WriteTeamNewsTool(toolFirestore));
   toolRegistry.register(new WriteTeamPostTool(toolFirestore));
   toolRegistry.register(new WriteRosterEntriesTool(toolFirestore));
@@ -697,7 +713,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   );
 
   toolRegistry.register(
-    new AnalyzeVideoTool(scraperService, llm, apifyMcpBridge, ffmpegBridge, geminiFiles)
+    new AnalyzeVideoTool(scraperService, llm, apifyMcpBridge, ffmpegBridge, geminiFiles, cfBridge)
   );
   toolRegistry.register(new AnalyzeImageTool(llm));
 

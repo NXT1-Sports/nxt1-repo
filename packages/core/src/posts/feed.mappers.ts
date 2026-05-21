@@ -113,6 +113,8 @@ function buildMediaFromProfilePost(post: ProfilePost): readonly FeedMedia[] {
       ...(isVideo && post.hlsUrl ? { hlsUrl: post.hlsUrl } : {}),
       ...(isVideo && post.dashUrl ? { dashUrl: post.dashUrl } : {}),
       ...(isVideo && cfStatus ? { processingStatus: cfStatus } : {}),
+      ...(isVideo && post.playlistId ? { playlistId: post.playlistId } : {}),
+      ...(isVideo && post.playlistName ? { playlistName: post.playlistName } : {}),
     },
   ];
 }
@@ -451,6 +453,8 @@ export function buildMediaFromTeamPost(post: TeamProfilePost): readonly FeedMedi
       hlsUrl: post.hlsUrl,
       cloudflareVideoId: post.cloudflareVideoId,
       processingStatus,
+      playlistId: post.playlistId,
+      playlistName: post.playlistName,
       duration: post.duration,
       altText: post.title ?? 'Team post media',
     },

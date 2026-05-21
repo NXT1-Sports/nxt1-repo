@@ -153,9 +153,16 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('recommend_learning_videos');
     expect(agent.getAvailableTools()).toContain('get_video_details');
     expect(agent.getAvailableTools()).toContain('call_apify_actor');
-    expect(agent.getAvailableTools()).not.toContain('stage_media');
+    expect(agent.getAvailableTools()).toContain('stage_media');
+    expect(agent.getAvailableTools()).toContain('list_film_reviews');
+    expect(agent.getAvailableTools()).toContain('get_film_review');
+    expect(agent.getAvailableTools()).toContain('save_film_review');
+    expect(agent.getAvailableTools()).toContain('update_film_review');
+    expect(agent.getAvailableTools()).toContain('add_film_review_annotation');
     expect(agent.getAvailableTools()).toContain('import_video');
+    expect(agent.getAvailableTools()).toContain('clip_video');
     expect(agent.getAvailableTools()).toContain('enable_download');
+    expect(agent.getAvailableTools()).toContain('write_athlete_videos');
   });
 
   it('exposes college database and workspace tooling to recruiting coordinator', () => {
@@ -187,6 +194,12 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('generate_chart_visualization');
     expect(agent.getAvailableTools()).toContain('create_play_diagram');
     expect(agent.getAvailableTools()).toContain('save_gameplan');
+    expect(agent.getAvailableTools()).toContain('list_film_reviews');
+    expect(agent.getAvailableTools()).toContain('get_film_review');
+    expect(agent.getAvailableTools()).toContain('save_film_review');
+    expect(agent.getAvailableTools()).toContain('update_film_review');
+    expect(agent.getAvailableTools()).toContain('delete_film_review');
+    expect(agent.getAvailableTools()).toContain('refresh_film_review_ai');
     expect(agent.getAvailableTools()).toContain('analyze_video');
     expect(agent.getAvailableTools()).toContain('recommend_learning_videos');
     expect(agent.getAvailableTools()).not.toContain('write_intel');
@@ -210,12 +223,15 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('recommend_learning_videos');
     expect(prompt).toContain('proactively include 3-5 recommended videos');
     expect(prompt).toContain('save_gameplan');
+    expect(prompt).toContain('save_film_review');
+    expect(prompt).toContain('update_film_review');
     expect(prompt).toContain('extract_live_view_media');
     // extract_live_view_playlist is currently DISABLED
     expect(prompt).toContain('Firecrawl can scroll virtualized Hudl rows');
     expect(prompt).toContain('skipMediaPersistence: true');
     // import_video reserved for persistent editing
     expect(prompt).toContain('import_video');
+    expect(prompt).toContain('timeRange');
     expect(prompt).toContain('batch up to 5');
   });
 
@@ -228,7 +244,9 @@ describe('Agent tool exposure regressions', () => {
     expect(performanceTools).toContain('extract_live_view_media');
     // extract_live_view_playlist is currently DISABLED
     expect(performanceTools).toContain('analyze_video');
-    expect(performanceTools).not.toContain('stage_media');
+    expect(performanceTools).toContain('stage_media');
+    expect(performanceTools).toContain('save_film_review');
+    expect(performanceTools).toContain('update_film_review');
 
     expect(strategyTools).toContain('open_live_view');
     expect(strategyTools).toContain('capture_live_view_screenshot');
@@ -236,6 +254,8 @@ describe('Agent tool exposure regressions', () => {
     // extract_live_view_playlist is currently DISABLED
     expect(strategyTools).toContain('analyze_video');
     expect(strategyTools).toContain('stage_media');
+    expect(strategyTools).toContain('save_film_review');
+    expect(strategyTools).toContain('update_film_review');
   });
 
   it('exposes Microsoft 365 system wrappers in effective policy for all coordinators', () => {

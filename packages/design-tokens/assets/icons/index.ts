@@ -50,6 +50,72 @@ export interface IconDefinition {
  * All icons use stroke rendering with customizable color.
  */
 export const UI_ICONS = {
+  /** Fast Rewind (triple left arrow) */
+  fastRewind: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2.1,
+    paths: [{ d: 'M19 6l-7 6 7 6' }, { d: 'M13 6l-7 6 7 6' }, { d: 'M7 6l-7 6 7 6' }],
+  },
+
+  /** Fast Forward (triple right arrow) */
+  fastForward: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2.1,
+    paths: [{ d: 'M7 6l7 6-7 6' }, { d: 'M13 6l7 6-7 6' }, { d: 'M19 6l7 6-7 6' }],
+  },
+
+  /** Forward (double right arrow) */
+  forward: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2.1,
+    paths: [{ d: 'M7 6l7 6-7 6' }, { d: 'M13 6l7 6-7 6' }],
+  },
+
+  /** Rewind (double left arrow) */
+  rewind: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2.1,
+    paths: [{ d: 'M13 6l-7 6 7 6' }, { d: 'M7 6l-7 6 7 6' }],
+  },
+  /** Pause icon (for video controls) */
+  pause: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [{ d: 'M6 4h4v16H6z' }, { d: 'M14 4h4v16h-4z' }],
+  },
+
+  /** Expand/Fullscreen icon (for video controls) */
+  expand: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M4 8V4h4' },
+      { d: 'M20 8V4h-4' },
+      { d: 'M4 16v4h4' },
+      { d: 'M20 16v4h-4' },
+      { d: 'M4 4l6 6' },
+      { d: 'M20 4l-6 6' },
+      { d: 'M4 20l6-6' },
+      { d: 'M20 20l-6-6' },
+    ],
+  },
+
+  /** Open in new window/tab icon */
+  openInNew: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6' },
+      { d: 'M15 3h6v6' },
+      { d: 'M10 14L21 3' },
+    ],
+  },
   /** Email/Mail icon */
   mail: {
     viewBox: '0 0 24 24',
@@ -232,6 +298,52 @@ export const UI_ICONS = {
     type: 'stroke' as const,
     strokeWidth: 2,
     paths: [{ d: 'M15 18l-6-6 6-6' }],
+  },
+
+  /** Skip Back 5s icon (circular arrow with 5, left) */
+  skipBack: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [{ d: 'M7 12l7-6v12l-7-6z' }, { d: 'M2 12l7-6v12l-7-6z' }, { d: 'M12 12l7-6v12l-7-6z' }],
+  },
+
+  /** Jump to start icon (for film controls) */
+  jumpToStart: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [{ d: 'M5 5h2v14H5z' }, { d: 'M19 6v12L9 12z' }],
+  },
+
+  /** Jump to end icon (for film controls) */
+  jumpToEnd: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [{ d: 'M17 5h2v14h-2z' }, { d: 'M5 6v12l10-6z' }],
+  },
+
+  /** Step backward one frame icon (for film controls) */
+  stepBackFrame: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [{ d: 'M7 5h2v14H7z' }, { d: 'M18 6v12l-8-6z' }],
+  },
+
+  /** Step forward one frame icon (for film controls) */
+  stepForwardFrame: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [{ d: 'M15 5h2v14h-2z' }, { d: 'M6 6v12l8-6z' }],
+  },
+
+  /** Skip Forward 5s icon (circular arrow with 5, right) */
+  skipForward: {
+    viewBox: '0 0 24 24',
+    type: 'fill' as const,
+    paths: [
+      { d: 'M17 12l-7-6v12l7-6z' },
+      { d: 'M22 12l-7-6v12l7-6z' },
+      { d: 'M12 12l7-6v12l-7-6z' },
+    ],
   },
 
   /** Home icon (outline) - for navigation/tab bars */
@@ -758,6 +870,17 @@ export const UI_ICONS = {
       { d: 'M12 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z' },
       { d: 'M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z' },
       { d: 'M18 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z' },
+    ],
+  },
+
+  /** Folder icon (outline) - for playlist and library groupings */
+  folder: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z' },
+      { d: 'M3 9h18' },
     ],
   },
 

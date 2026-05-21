@@ -716,6 +716,8 @@ export class ProfileService {
       dashUrl: mediaRecord?.['dashUrl'] as string | undefined,
       cloudflareVideoId: mediaRecord?.['cloudflareVideoId'] as string | undefined,
       cloudflareStatus: mediaRecord?.['processingStatus'] as string | undefined,
+      playlistId: mediaRecord?.['playlistId'] as string | undefined,
+      playlistName: mediaRecord?.['playlistName'] as string | undefined,
       createdAt: post.createdAt,
     };
   }

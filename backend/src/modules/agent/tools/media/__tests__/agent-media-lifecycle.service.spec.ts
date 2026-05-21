@@ -14,6 +14,24 @@ function createBucket(files: Record<string, MockFile>) {
   };
 }
 
+describe('AgentMediaLifecycleService.extractStoragePathFromUrl', () => {
+  it('recovers the storage path from a relative Firebase object URL', () => {
+    const storagePath = AgentMediaLifecycleService.extractStoragePathFromUrl(
+      '/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fexports%2Fgame-report.pdf?alt=media&token=abc123'
+    );
+
+    expect(storagePath).toBe('Users/user-1/threads/thread-1/exports/game-report.pdf');
+  });
+
+  it('accepts a bare storage path', () => {
+    const storagePath = AgentMediaLifecycleService.extractStoragePathFromUrl(
+      'Users/user-1/threads/thread-1/exports/game-report.pdf'
+    );
+
+    expect(storagePath).toBe('Users/user-1/threads/thread-1/exports/game-report.pdf');
+  });
+});
+
 describe('AgentMediaLifecycleService.promoteSignedUrlsToDestination', () => {
   it('copies thread-staged media and returns a Firebase download-token URL', async () => {
     const sourcePath = 'Users/user-1/threads/thread-1/tmp/image/123_image.jpg';

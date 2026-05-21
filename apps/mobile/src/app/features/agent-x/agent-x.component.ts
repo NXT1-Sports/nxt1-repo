@@ -42,6 +42,7 @@ import { EditProfileApiService } from '../../core/services/api/edit-profile-api.
 import { NativeAppService } from '../../core/services/native/native-app.service';
 import { Subscription } from 'rxjs';
 import { filter } from 'rxjs/operators';
+import { shouldStartActivityRealtimeListener } from './activity-realtime-auth-gate';
 
 @Component({
   selector: 'app-agent-x',
@@ -90,12 +91,22 @@ export class AgentXComponent implements OnInit, OnDestroy {
 
   constructor() {
     effect(() => {
-      const user = this.authFlow.user();
-      const firebaseUser = this.authFlow.firebaseUser();
       const isAuthInitialized = this.authFlow.isInitialized();
-      const listenerUserId = isAuthInitialized && firebaseUser ? user?.uid : null;
+      const appUserId = this.authFlow.user()?.uid?.trim() ?? null;
+      const firebaseUserId = this.authFlow.firebaseUser()?.uid?.trim() ?? null;
 
-      this.activityService.startRealtimeForUser(listenerUserId);
+      if (
+        !shouldStartActivityRealtimeListener({
+          isAuthInitialized,
+          appUserId,
+          firebaseUserId,
+        })
+      ) {
+        this.activityService.stopRealtimeListener();
+        return;
+      }
+
+      this.activityService.startRealtimeForUser(appUserId);
     });
   }
 

@@ -1,9 +1,10 @@
 /**
- * @fileoverview Agent X Video Upload Service — Firebase Storage Direct Upload
+ * @fileoverview Agent X Video Upload Service — Hybrid Firebase / Cloudflare Upload
  * @module @nxt1/ui/agent-x
  *
- * Uploads Agent X chat video attachments through the backend-controlled
- * provision → PUT pipeline backed by Firebase Storage signed URLs.
+ * Uploads Agent X chat video attachments through a size-aware transport:
+ * small clips use Firebase Storage signed URLs for instant AI access, while
+ * large game film uses Cloudflare Stream TUS for resumable chunked upload.
  *
  * Flow:
  *   1. POST /agent-x/upload/video  → { uploadUrl, readUrl, storagePath }
@@ -13,14 +14,22 @@
  * Progress is emitted via Observable<VideoUploadProgress> using XHR upload
  * progress events (fetch API does not expose upload progress).
  *
- * NOTE: Cloudflare Stream is still used for highlight POST uploads
- * (FileUploadService). This service handles Agent X chat video only.
+ * Large-file flow:
+ *   1. POST /upload/cloudflare/direct-url → { uploadUrl, cloudflareVideoId }
+ *   2. TUS upload chunks directly to Cloudflare Stream
+ *   3. POST /upload/cloudflare/finalize → playback/thumbnail metadata
  */
 
 import { Injectable, inject } from '@angular/core';
 import { Observable, Subject } from 'rxjs';
 import { AGENT_X_API_BASE_URL } from './agent-x-job.service';
-import { AGENT_X_ENDPOINTS, AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
+import {
+  AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT,
+  AGENT_X_ENDPOINTS,
+  AGENT_X_RUNTIME_CONFIG,
+  AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES,
+} from '@nxt1/core/ai';
+import { type FinalizedHighlightVideoUpload } from '@nxt1/core';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
@@ -32,7 +41,7 @@ import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
 // TYPES
 // ============================================
 
-/** Phases of a Firebase Storage direct video upload. */
+/** Phases of an Agent X video upload. */
 export type VideoUploadPhase = 'provisioning' | 'uploading' | 'complete' | 'error';
 
 /** Progress event emitted during a video upload. */
@@ -41,17 +50,21 @@ export interface VideoUploadProgress {
   /** Upload percentage 0–100. */
   readonly percent: number;
   /**
-   * Firebase Storage signed read URL. Present only when phase === 'complete'.
-   * Treated as isDirectlyPortable by MediaTransportResolver — no re-encoding wait.
+   * Playback/read URL. Firebase returns a signed read URL; Cloudflare returns a
+   * watch URL so the media viewer can render the Stream iframe and backend tools
+   * can resolve the downloadable MP4 via cloudflareVideoId.
    */
   readonly streamUrl?: string;
   /** Firebase Storage path (e.g. Users/{uid}/threads/{tid}/media/video/...). */
   readonly storagePath?: string;
-  /**
-   * @deprecated No longer populated — videos go directly to Firebase Storage.
-   * Retained as optional for backward compatibility with the facade's type checks.
-   */
+  /** Cloudflare Stream video ID for large uploads routed through TUS. */
   readonly cloudflareVideoId?: string;
+  /** Cloudflare Stream processing state for large uploads. */
+  readonly cloudflareStatus?: string;
+  /** True only once Cloudflare has generated playable manifests. */
+  readonly readyToStream?: boolean;
+  /** Optional poster image returned by Cloudflare Stream. */
+  readonly thumbnailUrl?: string;
   /** Error message. Present only when phase === 'error'. */
   readonly errorMessage?: string;
 }
@@ -65,6 +78,12 @@ interface VideoProvisionResponse {
     readonly storagePath: string;
     readonly expiresAt: string;
   };
+  readonly error?: string;
+}
+
+interface CloudflareFinalizeResponse {
+  readonly success: boolean;
+  readonly data?: FinalizedHighlightVideoUpload;
   readonly error?: string;
 }
 
@@ -100,13 +119,7 @@ export class AgentXVideoUploadService {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly performance = inject(PERFORMANCE_ADAPTER, { optional: true });
 
-  /**
-   * Upload a video file directly to Firebase Storage via a GCS signed URL.
-   *
-   * @param file  The browser File object (video/*).
-   * @param authToken  Firebase ID token for the provisioning request.
-   * @returns Observable that emits progress events and completes on success or error.
-   */
+  /** Upload a video file using the best transport for its size. */
   uploadVideo(
     file: File,
     authToken: string,
@@ -114,8 +127,12 @@ export class AgentXVideoUploadService {
   ): Observable<VideoUploadProgress> {
     const subject = new Subject<VideoUploadProgress>();
     const threadId = options?.threadId?.trim() ? options.threadId.trim() : null;
+    const uploadTask =
+      file.size >= AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES
+        ? this._doCloudflareTusUpload(file, authToken, subject, threadId)
+        : this._doFirebaseUpload(file, authToken, subject, threadId);
 
-    this._doUpload(file, authToken, subject, threadId).catch((err) => {
+    uploadTask.catch((err) => {
       const msg = err instanceof Error ? err.message : 'Video upload failed';
       this.logger.error('Unhandled video upload error', err, { name: file.name });
       subject.next({ phase: 'error', percent: 0, errorMessage: msg });
@@ -129,7 +146,7 @@ export class AgentXVideoUploadService {
   // PRIVATE
   // ---------------------------------------------------------------
 
-  private async _doUpload(
+  private async _doFirebaseUpload(
     file: File,
     authToken: string,
     subject: Subject<VideoUploadProgress>,
@@ -263,6 +280,272 @@ export class AgentXVideoUploadService {
       subject.next({ phase: 'error', percent: 0, errorMessage: msg });
       subject.complete();
     }
+  }
+
+  private async _doCloudflareTusUpload(
+    file: File,
+    authToken: string,
+    subject: Subject<VideoUploadProgress>,
+    threadId: string | null
+  ): Promise<void> {
+    this.logger.info('Provisioning Cloudflare Stream TUS upload for Agent X video', {
+      name: file.name,
+      sizeBytes: file.size,
+      mimeType: file.type,
+      thresholdBytes: AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES,
+    });
+    this.breadcrumb.trackStateChange('agent-x-video-upload:cloudflare-provisioning', {
+      name: file.name,
+      sizeBytes: file.size,
+    });
+    subject.next({ phase: 'provisioning', percent: 0 });
+
+    let cloudflareVideoId: string | null = null;
+
+    try {
+      await (this.performance?.trace(
+        TRACE_NAMES.VIDEO_UPLOAD,
+        () =>
+          this._tusUpload(file, authToken, threadId, {
+            onProgress: (percent) => {
+              subject.next({ phase: 'uploading', percent });
+            },
+            onProvisioned: (nextCloudflareVideoId) => {
+              cloudflareVideoId = nextCloudflareVideoId;
+              this.logger.info('Cloudflare Stream TUS upload provisioned', {
+                cloudflareVideoId: nextCloudflareVideoId,
+                name: file.name,
+                hasThreadId: !!threadId,
+              });
+              this.breadcrumb.trackStateChange('agent-x-video-upload:cloudflare-uploading', {
+                name: file.name,
+                cloudflareVideoId: nextCloudflareVideoId,
+              });
+              subject.next({ phase: 'uploading', percent: 0 });
+            },
+          }),
+        {
+          attributes: {
+            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent-x-video-upload',
+            [ATTRIBUTE_NAMES.CONTENT_TYPE]: file.type,
+          },
+        }
+      ) ??
+        this._tusUpload(file, authToken, threadId, {
+          onProgress: (percent) => {
+            subject.next({ phase: 'uploading', percent });
+          },
+          onProvisioned: (nextCloudflareVideoId) => {
+            cloudflareVideoId = nextCloudflareVideoId;
+            this.logger.info('Cloudflare Stream TUS upload provisioned', {
+              cloudflareVideoId: nextCloudflareVideoId,
+              name: file.name,
+              hasThreadId: !!threadId,
+            });
+            this.breadcrumb.trackStateChange('agent-x-video-upload:cloudflare-uploading', {
+              name: file.name,
+              cloudflareVideoId: nextCloudflareVideoId,
+            });
+            subject.next({ phase: 'uploading', percent: 0 });
+          },
+        }));
+
+      if (!cloudflareVideoId) {
+        throw new Error('Cloudflare upload did not return a video ID');
+      }
+
+      const finalized = await this._finalizeCloudflareUpload(cloudflareVideoId, authToken);
+      const streamUrl = `https://watch.cloudflarestream.com/${cloudflareVideoId}`;
+
+      this.logger.info('Video uploaded to Cloudflare Stream for Agent X', {
+        cloudflareVideoId,
+        name: file.name,
+        sizeBytes: file.size,
+        readyToStream: finalized.readyToStream,
+        status: finalized.status,
+      });
+      this.breadcrumb.trackStateChange('agent-x-video-upload:cloudflare-complete', {
+        name: file.name,
+        cloudflareVideoId,
+        readyToStream: finalized.readyToStream,
+      });
+      this.analytics?.trackEvent(APP_EVENTS.VIDEO_UPLOADED, {
+        source: 'agent-x-chat',
+        mimeType: file.type,
+        sizeBytes: file.size,
+        storageBackend: 'cloudflare',
+      });
+
+      subject.next({
+        phase: 'complete',
+        percent: 100,
+        streamUrl,
+        cloudflareVideoId,
+        cloudflareStatus: finalized.status,
+        readyToStream: finalized.readyToStream,
+        ...(finalized.thumbnailUrl ? { thumbnailUrl: finalized.thumbnailUrl } : {}),
+      });
+      subject.complete();
+    } catch (err) {
+      const msg = this._extractTusErrorMessage(err);
+      this.logger.error('Cloudflare Stream upload failed', err, {
+        name: file.name,
+        ...(cloudflareVideoId ? { cloudflareVideoId } : {}),
+        sizeBytes: file.size,
+        mimeType: file.type,
+      });
+      this.breadcrumb.trackStateChange('agent-x-video-upload:error', {
+        name: file.name,
+        phase: 'cloudflare-uploading',
+        ...(cloudflareVideoId ? { cloudflareVideoId } : {}),
+      });
+      subject.next({ phase: 'error', percent: 0, errorMessage: msg });
+      subject.complete();
+    }
+  }
+
+  private async _tusUpload(
+    file: File,
+    authToken: string,
+    threadId: string | null | undefined,
+    options: {
+      readonly onProgress: (percent: number) => void;
+      readonly onProvisioned: (cloudflareVideoId: string) => void;
+    }
+  ): Promise<void> {
+    const { Upload } = await import('tus-js-client');
+    const endpoint = `${this.baseUrl}${AGENT_X_ENDPOINTS.CLOUDFLARE_DIRECT_URL}`;
+    const backendOrigin = this._getOrigin(endpoint);
+
+    await new Promise<void>((resolve, reject) => {
+      let provisioned = false;
+      const upload = new Upload(file, {
+        endpoint,
+        metadata: {
+          filename: file.name,
+          filetype: file.type,
+          context: AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT,
+          ...(threadId ? { threadId } : {}),
+        },
+        storeFingerprintForResuming: false,
+        retryDelays: [0, 1_000, 3_000, 5_000, 10_000],
+        chunkSize: 8 * 1024 * 1024,
+        onBeforeRequest: (req) => {
+          if (this._getOrigin(req.getURL()) === backendOrigin) {
+            req.setHeader('Authorization', `Bearer ${authToken}`);
+          }
+        },
+        onAfterResponse: (req, res) => {
+          if (req.getMethod() !== 'POST' || provisioned) return;
+
+          const headerVideoId = res.getHeader('Stream-Media-Id')?.trim();
+          const urlVideoId = this._extractCloudflareVideoIdFromUrl(res.getHeader('Location'));
+          const cloudflareVideoId = headerVideoId || urlVideoId;
+
+          if (!cloudflareVideoId) {
+            throw new Error('Cloudflare upload endpoint did not return a video ID');
+          }
+
+          provisioned = true;
+          options.onProvisioned(cloudflareVideoId);
+        },
+        onError: (error) => reject(error),
+        onProgress: (bytesUploaded, bytesTotal) => {
+          const percent = bytesTotal > 0 ? Math.round((bytesUploaded / bytesTotal) * 100) : 0;
+          options.onProgress(Math.min(percent, 99));
+        },
+        onSuccess: () => {
+          options.onProgress(100);
+          resolve();
+        },
+      });
+
+      upload.start();
+    });
+  }
+
+  private _getOrigin(url: string): string | null {
+    try {
+      return new URL(url).origin;
+    } catch {
+      return null;
+    }
+  }
+
+  private _extractCloudflareVideoIdFromUrl(url: string | undefined): string | null {
+    if (!url) return null;
+
+    try {
+      const parsed = new URL(url);
+      const segments = parsed.pathname.split('/').filter(Boolean);
+      const candidate = segments.at(-1)?.trim();
+      return candidate || null;
+    } catch {
+      return null;
+    }
+  }
+
+  private _extractTusErrorMessage(err: unknown): string {
+    if (!err || typeof err !== 'object') {
+      return 'Cloudflare video upload failed';
+    }
+
+    const tusResponse = (
+      err as {
+        readonly originalResponse?: { getBody?: () => string; getStatus?: () => number };
+      }
+    ).originalResponse;
+
+    const responseBody = tusResponse?.getBody?.();
+    if (responseBody) {
+      try {
+        const parsed = JSON.parse(responseBody) as { error?: string };
+        if (parsed.error?.trim()) {
+          return parsed.error.trim();
+        }
+      } catch {
+        if (responseBody.trim()) {
+          return responseBody.trim();
+        }
+      }
+    }
+
+    if (err instanceof Error && err.message.trim()) {
+      return err.message;
+    }
+
+    const status = tusResponse?.getStatus?.();
+    if (typeof status === 'number') {
+      return `Cloudflare video upload failed with status ${status}`;
+    }
+
+    return 'Cloudflare video upload failed';
+  }
+
+  private async _finalizeCloudflareUpload(
+    cloudflareVideoId: string,
+    authToken: string
+  ): Promise<FinalizedHighlightVideoUpload> {
+    const response = await fetch(`${this.baseUrl}${AGENT_X_ENDPOINTS.CLOUDFLARE_FINALIZE}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ cloudflareVideoId }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => `HTTP ${response.status}`);
+      throw new Error(`Cloudflare finalize failed: ${errText}`);
+    }
+
+    const finalized = (await response.json()) as CloudflareFinalizeResponse;
+    if (!finalized.success || !finalized.data) {
+      throw new Error(finalized.error ?? 'Failed to finalize Cloudflare video upload');
+    }
+
+    return finalized.data;
   }
   /**
    * PUT the video to Firebase Storage, selecting the upload channel at runtime.

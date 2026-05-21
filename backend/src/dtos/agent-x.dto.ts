@@ -27,6 +27,7 @@ import {
   ValidateIf,
 } from 'class-validator';
 import { Type } from 'class-transformer';
+import { AGENT_X_MAX_VIDEO_FILE_SIZE } from '@nxt1/core';
 
 // ============================================
 // AGENT CHAT DTOs
@@ -121,14 +122,21 @@ export class ChatAttachmentDto {
 
   @IsNumber()
   @Min(1)
-  @Max(500 * 1024 * 1024) // 500 MB — videos upload via Cloudflare Stream
+  @Max(AGENT_X_MAX_VIDEO_FILE_SIZE)
   @IsOptional()
   sizeBytes?: number;
 
   /** Cloudflare Stream video ID — present only for video attachments uploaded via TUS. */
   @IsString()
+  @Length(8, 128)
+  @Matches(/^[a-zA-Z0-9_-]+$/)
   @IsOptional()
   cloudflareVideoId?: string;
+
+  /** Poster image for Cloudflare-backed video attachments. */
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @IsOptional()
+  thumbnailUrl?: string;
 
   /** Platform name for app attachments (e.g., 'Instagram', 'TikTok', 'YouTube'). */
   @IsString()
@@ -192,6 +200,172 @@ export class ConnectedSourceDto {
   scopeId?: string;
 }
 
+export class SelectedContextSourceDto {
+  @IsString()
+  @IsIn(['film_review', 'playbook', 'game_plan', 'agent_x', 'external'])
+  type!: 'film_review' | 'playbook' | 'game_plan' | 'agent_x' | 'external';
+
+  @IsString()
+  @IsOptional()
+  id?: string;
+
+  @IsString()
+  @IsOptional()
+  label?: string;
+}
+
+export class SelectedContextTimeRangeDto {
+  @IsNumber()
+  @Min(0)
+  startSec!: number;
+
+  @IsNumber()
+  @Min(0)
+  @IsOptional()
+  endSec?: number;
+}
+
+export class SelectedContextEntityRefDto {
+  @IsString()
+  @IsNotEmpty()
+  type!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  id!: string;
+
+  @IsString()
+  @IsOptional()
+  label?: string;
+}
+
+export class SelectedContextMediaDto {
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @IsOptional()
+  videoUrl?: string;
+
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @IsOptional()
+  imageUrl?: string;
+
+  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @IsOptional()
+  thumbnailUrl?: string;
+
+  @IsString()
+  @Length(8, 128)
+  @Matches(/^[a-zA-Z0-9_-]+$/)
+  @IsOptional()
+  cloudflareVideoId?: string;
+}
+
+export class SelectedContextAnnotationPointDto {
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  x!: number;
+
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  y!: number;
+}
+
+export class SelectedContextAnnotationBoundsDto {
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  minX!: number;
+
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  minY!: number;
+
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  maxX!: number;
+
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  maxY!: number;
+}
+
+export class SelectedContextAnnotationDto {
+  @IsString()
+  @IsIn(['freehand'])
+  kind!: 'freehand';
+
+  @ValidateNested()
+  @Type(() => SelectedContextAnnotationBoundsDto)
+  bounds!: SelectedContextAnnotationBoundsDto;
+
+  @IsInt()
+  @Min(1)
+  strokeCount!: number;
+
+  @IsArray()
+  @IsOptional()
+  @ArrayMaxSize(80)
+  @ValidateNested({ each: true })
+  @Type(() => SelectedContextAnnotationPointDto)
+  points?: SelectedContextAnnotationPointDto[];
+}
+
+export class SelectedContextDto {
+  @IsString()
+  @IsNotEmpty()
+  @Length(1, 120)
+  id!: string;
+
+  @IsString()
+  @IsIn(['film_play', 'playbook_item', 'game_plan_item', 'document', 'custom'])
+  kind!: 'film_play' | 'playbook_item' | 'game_plan_item' | 'document' | 'custom';
+
+  @IsString()
+  @IsNotEmpty()
+  @Length(1, 160)
+  title!: string;
+
+  @IsString()
+  @IsOptional()
+  @Length(0, 600)
+  summary?: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SelectedContextSourceDto)
+  source?: SelectedContextSourceDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SelectedContextTimeRangeDto)
+  timeRange?: SelectedContextTimeRangeDto;
+
+  @IsArray()
+  @IsOptional()
+  @ArrayMaxSize(20)
+  @ValidateNested({ each: true })
+  @Type(() => SelectedContextEntityRefDto)
+  entityRefs?: SelectedContextEntityRefDto[];
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SelectedContextMediaDto)
+  media?: SelectedContextMediaDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SelectedContextAnnotationDto)
+  annotation?: SelectedContextAnnotationDto;
+
+  @IsObject()
+  @IsOptional()
+  metadata?: Record<string, string | number | boolean | null>;
+}
+
 export class AgentChatRequestDto {
   @ValidateIf((o) => !o.resumeOperationId)
   @IsString()
@@ -236,6 +410,13 @@ export class AgentChatRequestDto {
   @ValidateNested({ each: true })
   @Type(() => ConnectedSourceDto)
   connectedSources?: ConnectedSourceDto[];
+
+  @IsArray()
+  @IsOptional()
+  @ArrayMaxSize(12)
+  @ValidateNested({ each: true })
+  @Type(() => SelectedContextDto)
+  selectedContexts?: SelectedContextDto[];
 
   /** Resume streaming for an in-progress heavy task (drop recovery). */
   @IsUUID('4')
@@ -285,7 +466,7 @@ export class AttachmentStubDto {
 
   @IsNumber()
   @Min(1)
-  @Max(500 * 1024 * 1024)
+  @Max(AGENT_X_MAX_VIDEO_FILE_SIZE)
   sizeBytes!: number;
 
   @IsIn(['image', 'video', 'pdf', 'csv', 'doc', 'app'])
@@ -332,6 +513,13 @@ export class AgentEnqueueRequestDto {
   @ValidateNested({ each: true })
   @Type(() => ConnectedSourceDto)
   connectedSources?: ConnectedSourceDto[];
+
+  @IsArray()
+  @IsOptional()
+  @ArrayMaxSize(12)
+  @ValidateNested({ each: true })
+  @Type(() => SelectedContextDto)
+  selectedContexts?: SelectedContextDto[];
 
   @IsOptional()
   @ValidateNested()

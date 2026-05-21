@@ -41,6 +41,8 @@ const TeamPostEntrySchema = z
     mediaUrls: z.array(z.string().trim().min(1)).optional(),
     title: z.string().trim().min(1).optional(),
     sportId: z.string().trim().min(1).optional(),
+    playlistId: z.string().trim().min(1).optional(),
+    playlistName: z.string().trim().min(1).optional(),
     isPinned: z.boolean().optional(),
   })
   .passthrough();
@@ -69,6 +71,7 @@ export class WriteTeamPostTool extends BaseTool {
     '  • mediaUrls (REQUIRED when posting video or image): Array of image/video URLs. When the user\'s message contains an [Attached video: name — URL] annotation, you MUST extract that URL and pass it here with type set to "video". Never omit this field when media is present.\n' +
     '  • title (optional): Post title.\n' +
     '  • sportId (optional): Sport this post is related to.\n' +
+    '  • playlistId / playlistName (optional): Library playlist grouping for video posts.\n' +
     '  • isPinned (optional): Pin post to top of timeline.';
 
   readonly parameters = WriteTeamPostInputSchema;
@@ -146,6 +149,8 @@ export class WriteTeamPostTool extends BaseTool {
 
         const content = this.str(p, 'content') ?? undefined;
         const title = this.str(p, 'title') ?? undefined;
+        const playlistId = this.str(p, 'playlistId') ?? undefined;
+        const playlistName = this.str(p, 'playlistName') ?? undefined;
         // Explicit sportId wins; fall back to team's sport so posts are always
         // visible on the team timeline's sport-filtered views.
         const resolvedSportId = (this.str(p, 'sportId') ?? teamSport)?.toLowerCase() ?? undefined;
@@ -250,6 +255,8 @@ export class WriteTeamPostTool extends BaseTool {
             content: content ?? '',
             ...(title ? { title } : {}),
             ...(resolvedSportId ? { sportId: resolvedSportId } : {}),
+            ...(playlistId ? { playlistId } : {}),
+            ...(playlistName ? { playlistName } : {}),
             isPinned,
             images: promotedImages,
             cloudflareVideoId,
@@ -341,6 +348,8 @@ export class WriteTeamPostTool extends BaseTool {
             content: content ?? '',
             ...(title ? { title } : {}),
             ...(resolvedSportId ? { sportId: resolvedSportId } : {}),
+            ...(isVideoPost && playlistId ? { playlistId } : {}),
+            ...(isVideoPost && playlistName ? { playlistName } : {}),
             isPinned,
             images: promotedImages,
             engagement: { likeCount: 0, commentCount: 0, shareCount: 0, viewCount: 0 },

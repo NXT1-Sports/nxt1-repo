@@ -423,6 +423,17 @@ export const TRACE_NAMES = {
   GAMEPLAN_UPDATE: 'gameplan_update',
   GAMEPLAN_DELETE: 'gameplan_delete',
 
+  // Team film review traces
+  FILM_REVIEW_LIST: 'film_review_list',
+  FILM_REVIEW_DETAIL: 'film_review_detail',
+  FILM_REVIEW_CREATE: 'film_review_create',
+  FILM_REVIEW_UPDATE: 'film_review_update',
+  FILM_REVIEW_DELETE: 'film_review_delete',
+  FILM_REVIEW_ANNOTATION_CREATE: 'film_review_annotation_create',
+  FILM_REVIEW_AI_REFRESH: 'film_review_ai_refresh',
+  FILM_REVIEW_TIMELINE_GENERATE: 'film_review_timeline_generate',
+  FILM_REVIEW_BREAKDOWN_IMPORT: 'film_review_breakdown_import',
+
   // Team playbook play traces
   PLAYBOOK_LIST: 'playbook_list',
   PLAYBOOK_PLAY_CREATE: 'playbook_play_create',

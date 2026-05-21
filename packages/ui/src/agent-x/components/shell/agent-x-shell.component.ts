@@ -103,6 +103,7 @@ export interface AgentXUser {
   readonly displayName?: string | null;
   readonly role?: string;
   readonly activeTeamId?: string | null;
+  readonly activeSport?: string | null;
   readonly selectedSports?: readonly string[];
   readonly connectedSources?: readonly {
     platform: string;
@@ -248,7 +249,10 @@ function sortCoordinatorCategories(
     }
 
     <!-- ═══ SCROLLABLE CONTENT ═══ -->
-    <ion-content [fullscreen]="true" class="agent-x-content">
+    <ion-content
+      [fullscreen]="true"
+      class="agent-x-content"
+    >
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
       <div class="agent-x-container">
@@ -359,6 +363,7 @@ function sortCoordinatorCategories(
                           [style.width.%]="actionPlanProgressPercent()"
                         ></div>
                       </div>
+
                     </div>
                     <p class="action-plan-meta">{{ actionPlanCompletionLabel() }}</p>
                   </div>
@@ -592,9 +597,10 @@ function sortCoordinatorCategories(
         [userMessage]="agentX.userMessage()"
         [isLoading]="agentX.isLoading()"
         [uploading]="agentX.uploading()"
-        [canSend]="agentX.canSend()"
+        [canSend]="composerCanSend()"
         [pendingFiles]="agentX.pendingFiles()"
         [pendingSources]="pendingConnectedSources()"
+        [pendingContexts]="agentX.pendingSelectedContexts()"
         [selectedTask]="agentX.selectedTask()?.title ?? null"
         [placeholder]="inputPlaceholder()"
         (messageChange)="onInputChange($event)"
@@ -604,6 +610,7 @@ function sortCoordinatorCategories(
         (openFile)="onOpenPendingFileViewer($event)"
         (removeFile)="agentX.removeFile($event)"
         (removeSource)="onRemovePendingSource($event)"
+        (removeContext)="agentX.removePendingSelectedContext($event)"
         (removeTask)="agentX.clearTask()"
       />
     </div>
@@ -1873,6 +1880,9 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
 
   /** Connected app sources staged from attachment sheet taps. */
   protected readonly pendingConnectedSources = signal<ConnectedAppSource[]>([]);
+  protected readonly composerCanSend = computed(
+    () => this.agentX.canSend() || this.pendingConnectedSources().length > 0
+  );
   private readonly selectedCoordinatorLabel = signal<string | null>(null);
   private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
 
@@ -2428,9 +2438,18 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
 
     const message = this.agentX.getUserMessage().trim();
     const servicePendingFiles = this.agentX.pendingFiles();
+    const initialConnectedSources = [...this.pendingConnectedSources()];
+    const pendingSelectedContexts = this.agentX.pendingSelectedContexts();
 
-    // Allow send if there's a message OR pending files
-    if (!message && servicePendingFiles.length === 0) return;
+    // Allow send if there's a message, staged files, selected contexts, or staged sources.
+    if (
+      !message &&
+      servicePendingFiles.length === 0 &&
+      initialConnectedSources.length === 0 &&
+      pendingSelectedContexts.length === 0
+    ) {
+      return;
+    }
 
     // Capture pending files and convert to operation-chat PendingFile shape
     const initialFiles = servicePendingFiles.map((f) => ({
@@ -2444,7 +2463,9 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     // Clear the shell input immediately (don't revoke URLs — operation-chat owns them now)
     this.agentX.setUserMessage('');
     this.agentX.clearTask();
-    this.agentX.takePendingFiles();
+    if (servicePendingFiles.length > 0) {
+      this.agentX.takePendingFiles();
+    }
     this.pendingConnectedSources.set([]);
     await this.haptics.impact('light');
 
@@ -2461,6 +2482,8 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
         connectedSources: this.getAttachmentConnectedSources(),
         initialMessage: message,
         initialFiles,
+        initialConnectedSources,
+        autoSendOnOpen: true,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

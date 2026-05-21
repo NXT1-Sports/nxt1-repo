@@ -650,6 +650,8 @@ async function fetchTeamPosts(teamId: string, db: Firestore): Promise<TeamProfil
           hlsUrl,
           cloudflareVideoId: data['cloudflareVideoId'] as string | undefined,
           processingStatus,
+          playlistId: data['playlistId'] as string | undefined,
+          playlistName: data['playlistName'] as string | undefined,
           externalLink: data['externalLink'] as string | undefined,
           shareCount: (data['shareCount'] as number) ?? 0,
           viewCount: data['viewCount'] as number | undefined,

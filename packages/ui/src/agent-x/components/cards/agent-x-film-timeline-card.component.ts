@@ -63,7 +63,7 @@ import type { AgentXRichCard, AgentXFilmTimelinePayload, AgentXFilmMarker } from
   styles: [
     `
       .film-card {
-        border: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.1));
+        border: 1px solid var(--nxt1-color-border-subtle);
         border-radius: 12px;
         overflow: hidden;
         margin-top: 8px;
@@ -74,22 +74,22 @@ import type { AgentXRichCard, AgentXFilmTimelinePayload, AgentXFilmMarker } from
         align-items: center;
         gap: 8px;
         padding: 10px 12px;
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
-        border-bottom: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-200);
+        border-bottom: 1px solid var(--nxt1-color-border-subtle);
       }
 
       .film-card__header-icon {
         width: 18px;
         height: 18px;
         flex-shrink: 0;
-        color: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-primary);
       }
 
       .film-card__header-title {
         flex: 1;
         font-size: 0.875rem;
         font-weight: 600;
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
       }
 
       .film-card__badge {
@@ -100,8 +100,8 @@ import type { AgentXRichCard, AgentXFilmTimelinePayload, AgentXFilmMarker } from
         height: 22px;
         padding: 0 6px;
         border-radius: 11px;
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.1));
-        color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+        background: var(--nxt1-color-surface-300);
+        color: var(--nxt1-color-text-secondary);
         font-size: 0.6875rem;
         font-weight: 700;
         font-variant-numeric: tabular-nums;
@@ -123,7 +123,7 @@ import type { AgentXRichCard, AgentXFilmTimelinePayload, AgentXFilmMarker } from
         width: 100%;
         padding: 10px 12px;
         border: none;
-        border-bottom: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.06));
+        border-bottom: 1px solid var(--nxt1-color-border-subtle);
         background: transparent;
         color: inherit;
         cursor: pointer;
@@ -136,11 +136,11 @@ import type { AgentXRichCard, AgentXFilmTimelinePayload, AgentXFilmMarker } from
       }
 
       .film-marker:hover {
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+        background: var(--nxt1-color-surface-200);
       }
 
       .film-marker:active {
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.08));
+        background: var(--nxt1-color-surface-300);
       }
 
       .film-marker__time {
@@ -149,14 +149,14 @@ import type { AgentXRichCard, AgentXFilmTimelinePayload, AgentXFilmMarker } from
         font-size: 0.8125rem;
         font-weight: 700;
         font-variant-numeric: tabular-nums;
-        color: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-primary);
         font-family: var(--nxt1-font-mono, ui-monospace, SFMono-Regular, monospace);
       }
 
       .film-marker__label {
         flex: 1;
         font-size: 0.8125rem;
-        color: var(--nxt1-color-text-primary, #ffffff);
+        color: var(--nxt1-color-text-primary);
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -173,18 +173,18 @@ import type { AgentXRichCard, AgentXFilmTimelinePayload, AgentXFilmMarker } from
       }
 
       .film-marker__sentiment--positive {
-        background: rgba(76, 217, 100, 0.15);
-        color: #4cd964;
+        background: var(--nxt1-color-successBg);
+        color: var(--nxt1-color-success);
       }
 
       .film-marker__sentiment--negative {
-        background: rgba(255, 59, 48, 0.15);
-        color: #ff3b30;
+        background: var(--nxt1-color-errorBg);
+        color: var(--nxt1-color-error);
       }
 
       .film-marker__sentiment--neutral {
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.1));
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
+        background: var(--nxt1-color-surface-300);
+        color: var(--nxt1-color-text-tertiary);
       }
 
       /* ── Scrollbar ── */
@@ -198,7 +198,7 @@ import type { AgentXRichCard, AgentXFilmTimelinePayload, AgentXFilmMarker } from
       }
 
       .film-card__list::-webkit-scrollbar-thumb {
-        background: var(--nxt1-color-surface-300, rgba(255, 255, 255, 0.1));
+        background: var(--nxt1-color-surface-300);
         border-radius: 2px;
       }
     `,

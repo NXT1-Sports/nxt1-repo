@@ -17,6 +17,7 @@
  */
 
 import type { AgentIdentifier, AgentJobOrigin, AgentToolCallRecord } from './agent.types';
+import type { AgentXSelectedContext } from './agent-x-context.types';
 import type { AgentXMessagePart, AgentXToolStep } from './agent-x.types';
 import type { AgentXAttachment } from './agent-x.types';
 import type { AgentXRichCard } from './agent-x.types';
@@ -155,6 +156,8 @@ export interface AgentMessage {
   readonly operationId?: string;
   /** File attachments (images, videos, docs) sent with this message. */
   readonly attachments?: readonly AgentXAttachment[];
+  /** User-selected context items confirmed for this specific turn. */
+  readonly selectedContexts?: readonly AgentXSelectedContext[];
   /** Rich card widgets rendered below a message (images, emails, graphics, etc.). */
   readonly cards?: readonly AgentXRichCard[];
   /** Structured result data the UI can render (graphics, emails, etc.). */

@@ -78,10 +78,20 @@ const PRIMARY_SYSTEM_TOOLS: readonly string[] = [
 ];
 
 const STRATEGY_ROUTER_FALLBACK_TOOLS = new Set([
+  'get_gameplan',
+  'list_gameplans',
   'create_play_diagram',
   'create_board_diagram',
   'write_playbooks',
   'save_gameplan',
+  'list_film_reviews',
+  'get_film_review',
+  'save_film_review',
+  'update_film_review',
+  'delete_film_review',
+  'add_film_review_annotation',
+  'delete_film_review_annotation',
+  'refresh_film_review_ai',
 ]);
 
 const PRIMARY_AGENT_MODEL_OVERRIDE = '~anthropic/claude-sonnet-latest';
@@ -196,13 +206,14 @@ const PRIMARY_OPERATING_CONTRACT = [
   '    - Use `delegate_to_coordinator` with `strategy_coordinator` for strategic or conceptual visuals such as recruiting pipelines, stage funnels, operating models, and planning dashboards.',
   '    - Use `delegate_to_coordinator` with `data_coordinator` when the chart should be built from imported, scraped, or normalized datasets.',
   '    - Only use `brand_coordinator` when the user explicitly wants a creative poster, social graphic, thumbnail, or image-first branded asset rather than a data/process chart.',
-  '10d-ii) Play Diagram Routing Rule (CRITICAL — NO EXCEPTIONS):',
-  '    - NEVER call `create_play_diagram`, `write_playbooks`, or `save_gameplan` directly from the router — these tools are NOT in the router tool policy and will be rejected.',
-  '    - Play diagrams, reusable playbook persistence, and matchup-specific game plan persistence are ALWAYS a strategy_coordinator responsibility — they are X-and-O route trees, coaching diagrams, and tactical strategy artifacts, not creative/marketing assets.',
+  '10d-ii) Play Diagram & Game Plan Routing Rule (CRITICAL — NO EXCEPTIONS):',
+  '    - NEVER call `create_play_diagram`, `write_playbooks`, `save_gameplan`, `list_gameplans`, `get_gameplan`, or film review tools (`list_film_reviews`, `get_film_review`, `save_film_review`, `update_film_review`, `delete_film_review`, annotations, AI refresh) directly from the router — these tools are coordinator-owned and are NOT in the router tool policy.',
+  '    - Play diagrams, reusable playbooks, matchup-specific game plans, and requests to fetch or review existing saved game plans are ALWAYS a strategy_coordinator responsibility — they are X-and-O route trees, coaching diagrams, tactical strategy artifacts, and game-planning context, not creative/marketing assets.',
   '    - When a user asks to "draw a play", "create play diagrams", "diagram routes", "design a playbook", "add plays to my playbook", "build a game plan", or requests multi-play playbook generation with diagrams → delegate to `strategy_coordinator` via `delegate_to_coordinator`, NOT brand_coordinator.',
+  '    - When a user asks to "show my game plans", "pull the game plan", "find the Duke game plan", "open the last game plan", or otherwise retrieve a saved game plan → delegate to `strategy_coordinator` via `delegate_to_coordinator`, not direct router tools.',
   '    - Brand_coordinator handles marketing graphics, social thumbnails, and branded visuals. Strategy_coordinator handles play diagrams, strategic visuals, and sports-specific tactical content.',
   '    - If your step summary or handoff mentions "diagrams for the playbook", "route diagrams", "play formations", or "coaching diagrams" → immediately correct to strategy_coordinator.',
-  '    - This rule applies even when a play diagram URL already exists in context — `write_playbooks` and `save_gameplan` still run inside strategy_coordinator, not from the router.',
+  '    - This rule applies even when a play diagram URL, game plan identifier, or film review identifier already exists in context — `write_playbooks`, `save_gameplan`, `list_gameplans`, `get_gameplan`, and film review tools still run inside a coordinator, not from the router.',
   '    - Never call `list_playbooks` with empty args. Resolve and pass `teamId` first (from enriched context, prior tool data, or by asking a targeted clarification if missing).',
   '    - For requests to locate or verify a specific play inside team playbooks (for example "do you have Guns Double Smash Fade?"), prefer `delegate_to_coordinator` with `strategy_coordinator` unless the teamId and playbook IDs are already explicit. Strategy_coordinator must then run `list_playbooks` and `get_playbook` to search the play entries before answering.',
   '10d-iii) Training Framework & Program Routing Rule (CRITICAL):',

@@ -42,6 +42,7 @@ export type MediaPlatform =
   | 'youtube'
   | 'tiktok'
   | 'hudl'
+  | 'cloudflare'
   | 'vimeo'
   | 'facebook'
   | 'linkedin'
@@ -96,6 +97,10 @@ const DIRECT_VIDEO = /\.(?:mp4|mov|avi|mkv|webm)(?:[?#]|$)/i;
  */
 const FIREBASE_GCS_STORAGE =
   /^https?:\/\/(?:storage\.googleapis\.com|firebasestorage\.googleapis\.com)\//i;
+
+/** Cloudflare Stream watch, customer delivery, and videodelivery hosts. */
+const CLOUDFLARE_STREAM_HOST =
+  /(?:^watch\.cloudflarestream\.com$|\.cloudflarestream\.com$|^videodelivery\.net$)/i;
 
 /** Direct image extensions */
 const DIRECT_IMAGE = /\.(?:jpg|jpeg|png|webp|gif|avif|svg)(?:[?#]|$)/i;
@@ -212,6 +217,19 @@ export class UrlClassifierService {
         strategy: 'firecrawl_scrape',
         correctiveExample: `scrape_webpage({ url: "${rawUrl}" }) — Note: this platform may have limited scrapeability`,
         isSocialBlocked: true,
+      };
+    }
+
+    // ── Cloudflare Stream ──────────────────────────────────────────────
+    if (CLOUDFLARE_STREAM_HOST.test(hostname)) {
+      const cloudflareVideoId = this.extractCloudflareVideoId(url);
+      const idArg = cloudflareVideoId ? `, cloudflareVideoId: "${cloudflareVideoId}"` : '';
+      return {
+        platform: 'cloudflare',
+        assetKind: 'video',
+        strategy: 'analyze_video_direct',
+        correctiveExample: `analyze_video({ url: "${rawUrl}"${idArg} })`,
+        isSocialBlocked: false,
       };
     }
 
@@ -379,6 +397,11 @@ export class UrlClassifierService {
     } catch {
       return 'username';
     }
+  }
+
+  private extractCloudflareVideoId(url: URL): string | null {
+    const firstPathSegment = url.pathname.split('/').filter(Boolean)[0];
+    return firstPathSegment && firstPathSegment.length > 0 ? firstPathSegment : null;
   }
 
   private webPage(rawUrl: string): UrlClassification {

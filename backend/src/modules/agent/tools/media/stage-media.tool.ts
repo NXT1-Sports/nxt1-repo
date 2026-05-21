@@ -38,6 +38,7 @@ const MediaArtifactSchema = z.object({
   playableUrls: z.array(z.string()),
   directMp4Urls: z.array(z.string()),
   manifestUrls: z.array(z.string()),
+  cloudflareVideoId: z.string().trim().min(1).optional(),
   stagingHeaders: z.record(z.string(), z.string()).optional(),
   rationale: z.string(),
 });
@@ -125,6 +126,7 @@ export class StageMediaTool extends BaseTool {
       const mediaArtifact: MediaWorkflowArtifact = buildPortableMediaArtifact({
         sourceUrl: staged.signedUrl,
         mediaKind: staged.mediaKind,
+        cloudflareVideoId: parsed.data.artifact?.cloudflareVideoId,
         rationale: 'The media has been prepared and is ready for direct downstream analysis.',
       });
 

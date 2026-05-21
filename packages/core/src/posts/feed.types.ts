@@ -114,6 +114,10 @@ export interface FeedMedia {
   readonly iframeUrl?: string;
   /** Processing state; absent means ready (legacy/non-CF posts) */
   readonly processingStatus?: FeedVideoProcessingStatus;
+  /** Optional playlist/group identifier for video library filtering */
+  readonly playlistId?: string;
+  /** Optional playlist/group display name for video library filtering */
+  readonly playlistName?: string;
 }
 
 /**

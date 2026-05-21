@@ -393,10 +393,14 @@ import type {
             </button>
           }
 
-          <!-- Sign In (unauthenticated state) -->
-          @if (showSignInButton()) {
-            <a class="nav-auth-btn nav-auth-btn--primary" routerLink="/auth" aria-label="Try NXT1">
-              Try NXT1
+          <!-- Auth CTA -->
+          @if (showAuthCtaButton()) {
+            <a
+              class="nav-auth-btn nav-auth-btn--primary"
+              routerLink="/auth"
+              [attr.aria-label]="authCtaLabel()"
+            >
+              {{ authCtaLabel() }}
             </a>
           }
 
@@ -1031,6 +1035,9 @@ export class NxtHeaderComponent implements OnDestroy {
   /** Internal active item tracking based on router */
   private readonly _activeItemId = signal<string | null>(null);
 
+  /** Current path for route-aware header actions */
+  private readonly _currentPath = signal('/');
+
   /** Internal flag to track if component has initialized (prevents flash during first render) */
   private readonly _isInitialized = signal(false);
 
@@ -1055,6 +1062,9 @@ export class NxtHeaderComponent implements OnDestroy {
 
   /** Whether to show search bar */
   readonly showSearch = computed(() => this.config().showSearch !== false);
+
+  /** Whether auth state indicates a logged-in user */
+  readonly isLoggedIn = computed(() => this.isAuthenticated() === true || this.user() !== null);
 
   /** Whether to show notifications (authenticated users only) */
   readonly showNotifications = computed(
@@ -1085,9 +1095,24 @@ export class NxtHeaderComponent implements OnDestroy {
    * 3. No user data is present
    * This prevents flash of sign-in button during auth state loading and SSR hydration.
    */
-  readonly showSignInButton = computed(
-    () => this._isInitialized() && this.isAuthenticated() === false && this.user() === null
+  readonly showSignInButton = computed(() => {
+    if (!this._isInitialized() || this.isAuthenticated() !== false || this.user() !== null) {
+      return false;
+    }
+
+    const path = this._currentPath();
+    return path !== '/profile' && !path.startsWith('/profile/');
+  });
+
+  /** Whether to show top-nav auth CTA (sign-in or open-app) */
+  readonly showAuthCtaButton = computed(
+    () =>
+      this.showSignInButton() ||
+      (this._isInitialized() && !this.showUserMenu() && this.isLoggedIn())
   );
+
+  /** Auth CTA label switches based on auth state */
+  readonly authCtaLabel = computed(() => (this.isLoggedIn() ? 'Open NXT1' : 'Try NXT1'));
 
   /** Whether to show compact layout (smaller desktops) */
   readonly isCompact = computed(() => this.platform.viewport().width < 1280);
@@ -1612,6 +1637,7 @@ export class NxtHeaderComponent implements OnDestroy {
    * Update active item based on current route
    */
   private updateActiveFromRoute(url: string): void {
+    this._currentPath.set(url.split('?')[0].split('#')[0] || '/');
     const item = findTopNavItemByRoute(this.items(), url);
     this._activeItemId.set(item?.id ?? null);
   }

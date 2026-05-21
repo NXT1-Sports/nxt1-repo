@@ -749,6 +749,10 @@ export const APP_EVENTS = {
   AGENT_X_PLAYBOOK_GENERATED: 'agent_x_playbook_generated',
   /** User sent a message in Agent X chat */
   AGENT_X_MESSAGE_SENT: 'agent_x_message_sent',
+  /** User switched Agent X operational mode */
+  AGENT_X_MODE_SWITCHED: 'agent_x_mode_switched',
+  /** User selected a quick task suggestion */
+  AGENT_X_QUICK_TASK_SELECTED: 'agent_x_quick_task_selected',
   /** User copied a persisted message in Agent X operation chat */
   AGENT_X_MESSAGE_COPIED: 'agent_x_message_copied',
   /** User opened the feedback modal for an assistant message */
@@ -794,6 +798,8 @@ export const APP_EVENTS = {
   AGENT_X_GOAL_HISTORY_VIEWED: 'agent_x_goal_history_viewed',
   /** Non-video attachments uploaded successfully for Agent X chat */
   AGENT_X_ATTACHMENTS_UPLOADED: 'agent_x_attachments_uploaded',
+  /** User staged one or more attachments in the Agent X composer */
+  AGENT_X_ATTACHMENTS_STAGED: 'agent_x_attachments_staged',
   /** Video attachment failed to upload to Cloudflare Stream */
   AGENT_X_VIDEO_UPLOAD_FAILED: 'agent_x_video_upload_failed',
   /** Auth token missing when user has staged files for Agent X chat */
@@ -978,6 +984,29 @@ export const APP_EVENTS = {
   GAMEPLAN_LIST_LOADED: 'gameplan_list_loaded',
   /** Game plan filter applied */
   GAMEPLAN_FILTER_APPLIED: 'gameplan_filter_applied',
+
+  // ============================================
+  // TEAM FILM REVIEW EVENTS
+  // ============================================
+  /** Film review list loaded */
+  FILM_REVIEW_LIST_LOADED: 'film_review_list_loaded',
+  /** Film review selected/opened */
+  FILM_REVIEW_OPENED: 'film_review_opened',
+  /** Film review created */
+  FILM_REVIEW_CREATED: 'film_review_created',
+  /** Film review updated */
+  FILM_REVIEW_UPDATED: 'film_review_updated',
+  /** Film review archived */
+  FILM_REVIEW_ARCHIVED: 'film_review_archived',
+  /** Annotation added in film review */
+  FILM_REVIEW_ANNOTATION_ADDED: 'film_review_annotation_added',
+  /** AI tags/summary refreshed */
+  FILM_REVIEW_AI_REFRESHED: 'film_review_ai_refreshed',
+  FILM_REVIEW_TIMELINE_GENERATE_INITIATED: 'film_review_timeline_generate_initiated',
+  FILM_REVIEW_TIMELINE_GENERATE_COMPLETE: 'film_review_timeline_generate_complete',
+  FILM_REVIEW_TIMELINE_GENERATE_ERROR: 'film_review_timeline_generate_error',
+  FILM_REVIEW_BREAKDOWN_IMPORTED: 'film_review_breakdown_imported',
+  FILM_REVIEW_PLAY_SKIPPED: 'film_review_play_skipped',
 
   // ============================================
   // TEAM PLAYBOOK PLAY EVENTS

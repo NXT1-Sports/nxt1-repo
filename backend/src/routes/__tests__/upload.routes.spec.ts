@@ -5,6 +5,11 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
+import {
+  AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT,
+  AGENT_X_MAX_VIDEO_FILE_SIZE,
+  FILE_UPLOAD_RULES,
+} from '@nxt1/core';
 import app, {
   __getMockFirestoreDocument,
   __resetMockFirestore,
@@ -16,6 +21,9 @@ import { RosterEntryService } from '../../services/team/roster-entry.service.js'
 // verifyIdToken in test-app.ts is reached instead of an early 401.
 const AUTH_HEADER = 'Bearer test-token';
 const VALID_TUS_METADATA = 'filename aGlnaGxpZ2h0Lm1wNA==,filetype dmlkZW8vbXA0,context ZmVlZA==';
+const VALID_AGENT_X_TUS_METADATA = `filename cmF3LWdhbWUtZmlsbS5tcDQ=,filetype dmlkZW8vbXA0,context ${Buffer.from(
+  AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT
+).toString('base64')}`;
 
 describe('Upload Routes', () => {
   beforeEach(() => {
@@ -164,6 +172,80 @@ describe('Upload Routes', () => {
       });
     });
 
+    it('POST /api/v1/upload/cloudflare/direct-url should keep regular Cloudflare uploads capped at the highlight limit', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+      const response = await request(app)
+        .post('/api/v1/upload/cloudflare/direct-url')
+        .set('Authorization', AUTH_HEADER)
+        .set('Tus-Resumable', '1.0.0')
+        .set('Upload-Length', String(FILE_UPLOAD_RULES['highlight-video'].maxSize + 1))
+        .set('Upload-Metadata', VALID_TUS_METADATA);
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('POST /api/v1/upload/cloudflare/direct-url should allow Agent X raw game film up to 8GB', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(null, {
+          status: 201,
+          headers: {
+            Location: 'https://upload.videodelivery.net/tus/agentx8gbvideo',
+          },
+        })
+      );
+
+      const response = await request(app)
+        .post('/api/v1/upload/cloudflare/direct-url')
+        .set('Authorization', AUTH_HEADER)
+        .set('Tus-Resumable', '1.0.0')
+        .set('Upload-Length', String(AGENT_X_MAX_VIDEO_FILE_SIZE))
+        .set('Upload-Metadata', VALID_AGENT_X_TUS_METADATA);
+
+      expect(response.status).toBe(201);
+      expect(fetchSpy).toHaveBeenCalledWith(
+        'https://api.cloudflare.com/client/v4/accounts/cf-account-123/stream?direct_user=true',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'Upload-Length': String(AGENT_X_MAX_VIDEO_FILE_SIZE),
+            'Upload-Metadata': expect.stringContaining('nxt1_context'),
+          }),
+        })
+      );
+      expect(response.body).toMatchObject({
+        success: true,
+        data: {
+          cloudflareVideoId: 'agentx8gbvideo',
+          maxSize: AGENT_X_MAX_VIDEO_FILE_SIZE,
+          maxDurationSeconds: 36_000,
+          metadata: {
+            userId: 'test-user',
+            context: AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT,
+            originalFileName: 'raw-game-film.mp4',
+            mimeType: 'video/mp4',
+          },
+        },
+      });
+    });
+
+    it('POST /api/v1/upload/cloudflare/direct-url should reject Agent X videos above 8GB', async () => {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+      const response = await request(app)
+        .post('/api/v1/upload/cloudflare/direct-url')
+        .set('Authorization', AUTH_HEADER)
+        .set('Tus-Resumable', '1.0.0')
+        .set('Upload-Length', String(AGENT_X_MAX_VIDEO_FILE_SIZE + 1))
+        .set('Upload-Metadata', VALID_AGENT_X_TUS_METADATA);
+
+      expect(response.status).toBe(400);
+      expect(response.body.success).toBe(false);
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
     it('POST /api/v1/upload/cloudflare/direct-url should surface upstream provisioning failures', async () => {
       vi.spyOn(globalThis, 'fetch').mockResolvedValue(
         new Response(
@@ -189,6 +271,41 @@ describe('Upload Routes', () => {
       expect(response.body).toEqual({
         success: false,
         error: 'Cloudflare direct upload provisioning failed: invalid upload request',
+      });
+    });
+
+    it('POST /api/v1/upload/cloudflare/direct-url should surface Cloudflare storage quota exhaustion as a non-retryable conflict', async () => {
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            success: false,
+            errors: [
+              {
+                message:
+                  'Storage capacity exceeded: You have exceeded your allocated storage quota. Delete videos or purchase more minutes to continue uploading content.',
+              },
+            ],
+          }),
+          {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      );
+
+      const response = await request(app)
+        .post('/api/v1/upload/cloudflare/direct-url')
+        .set('Authorization', AUTH_HEADER)
+        .set('Tus-Resumable', '1.0.0')
+        .set('Upload-Length', String(25 * 1024 * 1024))
+        .set('Upload-Metadata', VALID_TUS_METADATA);
+
+      expect(response.status).toBe(409);
+      expect(response.body).toEqual({
+        success: false,
+        error:
+          'Cloudflare Stream storage quota exceeded. Delete existing videos or increase the Cloudflare Stream plan before uploading more film.',
+        code: 'CLOUDFLARE_STREAM_STORAGE_QUOTA_EXCEEDED',
       });
     });
 

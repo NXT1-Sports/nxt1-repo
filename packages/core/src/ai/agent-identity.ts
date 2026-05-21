@@ -29,6 +29,40 @@ export interface AgentIdentitySnapshot {
   readonly modeAddendum?: string;
 }
 
+interface ExtractedMediaAttachment {
+  readonly url: string;
+  readonly name: string;
+  readonly type: 'image' | 'video' | 'doc' | 'app';
+  readonly mimeType?: string;
+  readonly storagePath?: string;
+  readonly sizeBytes?: number;
+  readonly thumbnailUrl?: string;
+  readonly cloudflareVideoId?: string;
+}
+
+function readNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function readNonNegativeNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function isAbsoluteHttpUrl(value: string | undefined): boolean {
+  return typeof value === 'string' && /^https?:\/\//i.test(value);
+}
+
+function resolvePreferredAttachmentUrl(file: Record<string, unknown>): string | undefined {
+  const directUrl = readNonEmptyString(file['url']);
+  const downloadUrl = readNonEmptyString(file['downloadUrl']);
+
+  if (isAbsoluteHttpUrl(downloadUrl)) return downloadUrl;
+  if (isAbsoluteHttpUrl(directUrl)) return directUrl;
+  return downloadUrl ?? directUrl;
+}
+
 // ─── Agent X Identity (the constant) ─────────────────────────────────────────
 
 /**
@@ -52,91 +86,131 @@ export interface AgentIdentitySnapshot {
  */
 export function extractMediaAttachmentsFromResultData(
   resultData: Record<string, unknown>
-): Array<{ url: string; name: string; type: 'image' | 'video' | 'doc' | 'app' }> {
-  const attachments: Array<{ url: string; name: string; type: 'image' | 'video' | 'doc' | 'app' }> =
-    [];
+): ExtractedMediaAttachment[] {
+  const attachments: ExtractedMediaAttachment[] = [];
   const seen = new Set<string>();
 
-  const addAttachment = (
-    url: string | undefined,
-    name: string,
-    type: 'image' | 'video' | 'doc' | 'app'
-  ): void => {
+  const addAttachment = (attachment: ExtractedMediaAttachment): void => {
+    const url = attachment.url;
     if (!url || typeof url !== 'string') return;
     const normalized = url.trim();
     if (!normalized || seen.has(normalized)) return;
     seen.add(normalized);
-    attachments.push({ url: normalized, name, type });
+    attachments.push({ ...attachment, url: normalized });
   };
 
   const collectFromRecord = (record: Record<string, unknown>): void => {
-    addAttachment(
-      typeof record['imageUrl'] === 'string' ? record['imageUrl'] : undefined,
-      'image.jpg',
-      'image'
-    );
-    addAttachment(
-      typeof record['videoUrl'] === 'string' ? record['videoUrl'] : undefined,
-      'video.mp4',
-      'video'
-    );
-    addAttachment(
-      typeof record['outputUrl'] === 'string' ? record['outputUrl'] : undefined,
-      'video.mp4',
-      'video'
-    );
+    // Scalar fields: imageUrl, videoUrl, outputUrl
+    if (typeof record['imageUrl'] === 'string') {
+      addAttachment({
+        url: record['imageUrl'],
+        name: 'image.jpg',
+        type: 'image',
+      });
+    }
+    if (typeof record['videoUrl'] === 'string') {
+      addAttachment({
+        url: record['videoUrl'],
+        name: 'video.mp4',
+        type: 'video',
+      });
+    }
+    if (typeof record['outputUrl'] === 'string') {
+      addAttachment({
+        url: record['outputUrl'],
+        name: 'video.mp4',
+        type: 'video',
+      });
+    }
 
+    // Array fields: imageUrls, videoUrls
     if (Array.isArray(record['imageUrls'])) {
       (record['imageUrls'] as unknown[]).forEach((url, idx) => {
-        addAttachment(typeof url === 'string' ? url : undefined, `image-${idx}.jpg`, 'image');
+        if (typeof url !== 'string') return;
+        addAttachment({
+          url,
+          name: `image-${idx}.jpg`,
+          type: 'image',
+        });
       });
     }
     if (Array.isArray(record['videoUrls'])) {
       (record['videoUrls'] as unknown[]).forEach((url, idx) => {
-        addAttachment(typeof url === 'string' ? url : undefined, `video-${idx}.mp4`, 'video');
+        if (typeof url !== 'string') return;
+        addAttachment({
+          url,
+          name: `video-${idx}.mp4`,
+          type: 'video',
+        });
       });
     }
 
+    // files[] array: map each item's url/name/mimeType
     if (Array.isArray(record['files'])) {
       (record['files'] as unknown[]).forEach((file, idx) => {
         if (!file || typeof file !== 'object') return;
         const obj = file as Record<string, unknown>;
-        const url =
-          typeof obj['url'] === 'string'
-            ? obj['url']
-            : typeof obj['downloadUrl'] === 'string'
-              ? obj['downloadUrl']
-              : undefined;
+        const url = resolvePreferredAttachmentUrl(obj);
         const name = typeof obj['name'] === 'string' ? obj['name'] : `file-${idx}`;
-        const mimeType = typeof obj['mimeType'] === 'string' ? obj['mimeType'] : '';
+        const mimeType = readNonEmptyString(obj['mimeType']) ?? '';
         const type = mimeType.startsWith('image/')
           ? 'image'
           : mimeType.startsWith('video/')
             ? 'video'
             : 'doc';
-        addAttachment(url, name, type);
+        if (!url) return;
+        addAttachment({
+          url,
+          name,
+          type,
+          ...(mimeType ? { mimeType } : {}),
+          ...(readNonEmptyString(obj['storagePath'])
+            ? { storagePath: readNonEmptyString(obj['storagePath']) }
+            : {}),
+          ...(readNonNegativeNumber(obj['sizeBytes']) !== undefined
+            ? { sizeBytes: readNonNegativeNumber(obj['sizeBytes']) }
+            : {}),
+          ...(readNonEmptyString(obj['thumbnailUrl'])
+            ? { thumbnailUrl: readNonEmptyString(obj['thumbnailUrl']) }
+            : {}),
+          ...(readNonEmptyString(obj['cloudflareVideoId'])
+            ? { cloudflareVideoId: readNonEmptyString(obj['cloudflareVideoId']) }
+            : {}),
+        });
       });
     }
 
+    // downloadUrl: generated export file (PDF, CSV) from DynamicExportTool
     if (typeof record['downloadUrl'] === 'string') {
-      const exportUrl = record['downloadUrl'] as string;
-      const exportName =
-        typeof record['fileName'] === 'string' ? (record['fileName'] as string) : 'export';
-      const mimeType = typeof record['mimeType'] === 'string' ? (record['mimeType'] as string) : '';
+      const exportUrl = record['downloadUrl'];
+      const exportName = typeof record['fileName'] === 'string' ? record['fileName'] : 'export';
+      const mimeType = readNonEmptyString(record['mimeType']) ?? '';
       const exportType: 'image' | 'video' | 'doc' = mimeType.startsWith('image/')
         ? 'image'
         : mimeType.startsWith('video/')
           ? 'video'
           : 'doc';
-      addAttachment(exportUrl, exportName, exportType);
+      addAttachment({
+        url: exportUrl,
+        name: exportName,
+        type: exportType,
+        ...(mimeType ? { mimeType } : {}),
+        ...(readNonEmptyString(record['storagePath'])
+          ? { storagePath: readNonEmptyString(record['storagePath']) }
+          : {}),
+        ...(readNonNegativeNumber(record['sizeBytes']) !== undefined
+          ? { sizeBytes: readNonNegativeNumber(record['sizeBytes']) }
+          : {}),
+      });
     }
 
+    // persistedMediaUrls[] array: map each as media
     if (Array.isArray(record['persistedMediaUrls'])) {
       (record['persistedMediaUrls'] as unknown[]).forEach((url, idx) => {
         if (typeof url !== 'string') return;
         const type = url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? 'image' : 'video';
         const name = type === 'image' ? `media-${idx}.jpg` : `media-${idx}.mp4`;
-        addAttachment(url, name, type);
+        addAttachment({ url, name, type });
       });
     }
   };
@@ -177,25 +251,52 @@ export interface SanitizeStorageUrlsOptions {
   readonly normalizeWhitespace?: boolean;
 }
 
+const STORAGE_DELIVERABLE_EXTENSION_RE =
+  /\.(?:jpg|jpeg|png|gif|webp|avif|bmp|svg|mp4|mov|m4v|webm|avi|mkv|pdf|csv|tsv|xls|xlsx|doc|docx|ppt|pptx|txt|json|zip)(?:$|[?#])/i;
+
+function shouldPreserveStorageUrl(urlValue: string): boolean {
+  try {
+    const parsed = new URL(urlValue);
+    const decodedPath = decodeURIComponent(parsed.pathname);
+
+    if (STORAGE_DELIVERABLE_EXTENSION_RE.test(decodedPath)) {
+      return true;
+    }
+
+    if (parsed.searchParams.get('alt') === 'media') {
+      return true;
+    }
+
+    if (
+      parsed.searchParams.has('token') ||
+      parsed.searchParams.has('X-Goog-Algorithm') ||
+      parsed.searchParams.has('X-Goog-Signature') ||
+      parsed.searchParams.has('X-Amz-Algorithm') ||
+      parsed.searchParams.has('X-Amz-Signature')
+    ) {
+      return true;
+    }
+
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function sanitizeStorageUrlsFromText(
   content: string,
   options: SanitizeStorageUrlsOptions = {}
 ): string {
   const { normalizeWhitespace = true } = options;
 
-  // Storage URL patterns to strip
-  const storagePatterns = [
-    /https:\/\/firebasestorage\.googleapis\.com\/[^\s)\]]+/gi,
-    /https:\/\/storage\.googleapis\.com\/[^\s)\]]+/gi,
-    /https:\/\/[^\s)\]]+\.s3(?:\.\w+-\w+-\d)?(?:\.amazonaws\.com)?\/[^\s)\]]+/gi,
-    /https:\/\/[^\s)\]]+\.cloudfront\.net\/[^\s)\]]+\.(?:jpg|jpeg|png|gif|mp4|mov|webm|pdf|csv|xlsx?|docx?)/gi,
-    /https:\/\/firebasestorage\.googleapis\.com\/[^\s)\]]+(\?[^\s)\]]*)?\btokentoken=/gi,
-  ];
+  // Strip only non-deliverable storage URLs. Real downloadable media/document
+  // links must remain intact so the assistant can hand off working outputs.
+  const storageUrlPattern =
+    /https:\/\/(?:firebasestorage\.googleapis\.com|storage\.googleapis\.com|[^\s)\]]+\.s3(?:\.\w+-\w+-\d)?(?:\.amazonaws\.com)?|[^\s)\]]+\.cloudfront\.net)\/[^\s)\]]+/gi;
 
-  let sanitized = content;
-  for (const pattern of storagePatterns) {
-    sanitized = sanitized.replace(pattern, '');
-  }
+  let sanitized = content.replace(storageUrlPattern, (match) =>
+    shouldPreserveStorageUrl(match) ? match : ''
+  );
 
   if (!normalizeWhitespace) {
     return sanitized;

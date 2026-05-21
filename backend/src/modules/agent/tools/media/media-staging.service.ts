@@ -14,6 +14,7 @@ const DEFAULT_SIGNED_URL_TTL_MINUTES = 60;
 const MAX_SIGNED_URL_TTL_MINUTES = 24 * 60;
 const DEFAULT_FETCH_TIMEOUT_MS = 180_000;
 const MAX_MEDIA_SIZE_BYTES = 512 * 1024 * 1024;
+const MIN_STAGED_VIDEO_BYTES = 16 * 1024;
 const DEFAULT_USER_AGENT = 'NXT1-AgentX/2026.1';
 
 const SAFE_HEADER_ALLOWLIST = new Set([
@@ -104,6 +105,7 @@ export class MediaStagingService {
 
     const mimeType = this.resolveMimeType(response.headers.get('content-type'), request);
     const mediaKind = this.resolveMediaKind(mimeType, request.mediaKind);
+    this.assertStageableResponse(mimeType, mediaKind);
     const fileName = this.resolveFileName(parsedSourceUrl, request.fileName, mimeType, mediaKind);
     const hash = createHash('sha256')
       .update(`${validatedUrl}:${Date.now()}:${randomUUID()}`)
@@ -122,6 +124,13 @@ export class MediaStagingService {
 
     const file = bucket.file(storagePath);
     const sizeBytes = await this.streamToStorage(file, response, mimeType, request, mediaKind);
+    if (mediaKind === 'video' && sizeBytes < MIN_STAGED_VIDEO_BYTES) {
+      await file.delete({ ignoreNotFound: true }).catch(() => undefined);
+      throw new Error(
+        `Staged video payload is too small (${sizeBytes} bytes). ` +
+          'Resolve the provider source to a downloadable video file before staging.'
+      );
+    }
     const expiresInMinutes = this.resolveExpiryMinutes(request.expiresInMinutes);
     const expiresAtDate = new Date(Date.now() + expiresInMinutes * 60_000);
     const [signedUrl] = await getSignedUrlWithTimeout(() =>
@@ -210,6 +219,23 @@ export class MediaStagingService {
     if (mimeType.startsWith('audio/')) return 'audio';
     if (mimeType === 'application/pdf' || mimeType === 'text/plain') return 'document';
     return 'other';
+  }
+
+  private assertStageableResponse(mimeType: string, mediaKind: StagedMediaKind): void {
+    if (mediaKind !== 'video') return;
+
+    if (
+      mimeType.startsWith('video/') ||
+      mimeType === 'application/octet-stream' ||
+      mimeType === 'application/vnd.apple.mpegurl'
+    ) {
+      return;
+    }
+
+    throw new Error(
+      `Cannot stage response as video because the source returned ${mimeType}. ` +
+        'Use the media classifier/provider-specific resolver to obtain real video bytes first.'
+    );
   }
 
   private resolveFileName(

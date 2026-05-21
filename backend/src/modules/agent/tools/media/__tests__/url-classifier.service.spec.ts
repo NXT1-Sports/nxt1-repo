@@ -72,6 +72,26 @@ describe('UrlClassifierService.classify()', () => {
     expect(result.strategy).toBe('analyze_video_direct');
   });
 
+  it('classifies a Cloudflare Stream watch URL as direct video analysis', () => {
+    const result = svc.classify(
+      'https://watch.cloudflarestream.com/8c72670e15519099333c03359dd39b98'
+    );
+    expect(result.platform).toBe('cloudflare');
+    expect(result.assetKind).toBe('video');
+    expect(result.strategy).toBe('analyze_video_direct');
+    expect(result.correctiveExample).toContain('cloudflareVideoId');
+    expect(result.isSocialBlocked).toBe(false);
+  });
+
+  it('classifies a Cloudflare customer delivery URL as direct video analysis', () => {
+    const result = svc.classify(
+      'https://customer-abc.cloudflarestream.com/8c72670e15519099333c03359dd39b98/manifest/video.m3u8'
+    );
+    expect(result.platform).toBe('cloudflare');
+    expect(result.assetKind).toBe('video');
+    expect(result.strategy).toBe('analyze_video_direct');
+  });
+
   // ── Direct media ─────────────────────────────────────────────────────────
 
   it('classifies a direct MP4 URL', () => {

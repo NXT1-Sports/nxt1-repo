@@ -11,8 +11,10 @@ import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import type { TeamGamePlanDoc } from '@nxt1/core';
+import type { AgentXSelectedContext, AgentXSelectedContextMetadataValue } from '@nxt1/core/ai';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
 import { NxtStateViewComponent } from '../../../components/state-view/state-view.component';
+import { AgentXContextDragDirective } from '../../directives/agent-x-context-drag.directive';
 import { AGENT_X_API_BASE_URL } from '../../services/agent-x-job.service';
 
 type GamePlanDetail = TeamGamePlanDoc;
@@ -31,6 +33,7 @@ type GamePlanSummary = Pick<
 type GamePlanMomentPriority = NonNullable<GamePlanDetail['priorities']>[number];
 type GamePlanBlock = NonNullable<GamePlanDetail['planBlocks']>[number];
 type GamePlanSection = NonNullable<GamePlanDetail['customSections']>[number];
+type GamePlanLinkedPlay = NonNullable<GamePlanDetail['linkedPlays']>[number];
 
 interface GameplansResponse {
   readonly success: boolean;
@@ -52,26 +55,13 @@ interface GamePlanDetailResponse {
 @Component({
   selector: 'nxt1-agent-x-gameplans-panel',
   standalone: true,
-  imports: [CommonModule, NxtIconComponent, NxtStateViewComponent],
+  imports: [CommonModule, NxtIconComponent, NxtStateViewComponent, AgentXContextDragDirective],
   template: `
     <div class="gameplans-panel">
       @if (showingDetail() && selectedPlan()) {
         <!-- DETAIL VIEW -->
         <div class="gameplan-detail">
-          <!-- Back Button + Header -->
-          <div class="detail-header">
-            <div
-              class="detail-back-link"
-              role="button"
-              tabindex="0"
-              (click)="clearSelection()"
-              (keydown.enter)="clearSelection()"
-              (keydown.space)="$event.preventDefault(); clearSelection()"
-              [attr.aria-label]="'Back to plans'"
-            >
-              <nxt1-icon name="chevronLeft" [size]="18"></nxt1-icon>
-              <span>Back</span>
-            </div>
+          <div class="detail-header detail-header--actions-only">
             <div class="detail-header-actions">
               <span class="detail-badge" [attr.data-status]="selectedPlan()!.status | lowercase">
                 {{ selectedPlan()!.status }}
@@ -87,9 +77,6 @@ interface GamePlanDetailResponse {
               </button>
             </div>
           </div>
-
-          <!-- Plan Title -->
-          <h2 class="detail-title">{{ selectedPlan()!.title }}</h2>
 
           <!-- Meta Information -->
           <div class="detail-meta">
@@ -271,7 +258,10 @@ interface GamePlanDetailResponse {
                 <h3 class="section-title">Moment Priorities</h3>
                 <div class="priority-list">
                   @for (priority of selectedPlan()!.priorities!; track priority.id) {
-                    <article class="priority-item">
+                    <article
+                      class="priority-item"
+                      [nxtAgentXContextDrag]="buildGamePlanPriorityDragContext(priority)"
+                    >
                       <div class="priority-item__head">
                         <h4 class="priority-item__title">{{ priority.title }}</h4>
                         <span class="sw-pill" [attr.data-level]="priority.level">{{
@@ -296,7 +286,10 @@ interface GamePlanDetailResponse {
                 <h3 class="section-title">Plan Blocks</h3>
                 <div class="priority-list">
                   @for (block of sortedPlanBlocks(selectedPlan()!.planBlocks!); track block.id) {
-                    <article class="priority-item">
+                    <article
+                      class="priority-item"
+                      [nxtAgentXContextDrag]="buildGamePlanBlockDragContext(block)"
+                    >
                       <div class="priority-item__head">
                         <h4 class="priority-item__title">{{ block.title }}</h4>
                         <span class="sw-pill">{{ block.domain | titlecase }}</span>
@@ -382,7 +375,10 @@ interface GamePlanDetailResponse {
                 <h3 class="section-title">Linked Plays</h3>
                 <div class="plays-list">
                   @for (play of selectedPlan()!.linkedPlays!; track play.playId ?? play.playName) {
-                    <article class="play-item">
+                    <article
+                      class="play-item"
+                      [nxtAgentXContextDrag]="buildGamePlanLinkedPlayDragContext(play)"
+                    >
                       <h4 class="priority-item__title">{{ play.playName }}</h4>
                       @if (play.usage) {
                         <p class="section-meta">Usage: {{ play.usage }}</p>
@@ -521,7 +517,11 @@ interface GamePlanDetailResponse {
         <!-- LIST VIEW -->
         <div class="gameplans-list">
           @for (plan of plans(); track plan.id) {
-            <article class="gameplan-card" (click)="selectPlan(plan.id)">
+            <article
+              class="gameplan-card"
+              [nxtAgentXContextDrag]="buildGamePlanSummaryDragContext(plan)"
+              (click)="selectPlan(plan.id)"
+            >
               <div class="gameplan-card__head">
                 <h3 class="gameplan-card__title">{{ plan.title }}</h3>
                 <span class="gameplan-card__badge" [attr.data-status]="plan.status | lowercase">
@@ -561,10 +561,19 @@ interface GamePlanDetailResponse {
         height: 100%;
         overflow-y: auto;
         overscroll-behavior: contain;
-        padding: var(--nxt1-spacing-4, 16px) var(--nxt1-spacing-5, 20px);
-        gap: var(--nxt1-spacing-4, 16px);
+        padding: 10px 12px 12px;
+        gap: var(--nxt1-spacing-3, 12px);
         scrollbar-width: thin;
         scrollbar-color: var(--agent-border, rgba(0, 0, 0, 0.08)) transparent;
+      }
+
+      .agent-x-context-drag-source:not(.agent-x-context-drag-source--disabled) {
+        cursor: grab;
+      }
+
+      .agent-x-context-drag-source--dragging {
+        cursor: grabbing;
+        opacity: 0.62;
       }
 
       /* ════════════════════════════════════════════
@@ -779,6 +788,10 @@ interface GamePlanDetailResponse {
         align-items: center;
         justify-content: space-between;
         gap: var(--nxt1-spacing-3, 12px);
+      }
+
+      .detail-header--actions-only {
+        justify-content: flex-end;
       }
 
       .detail-header-actions {
@@ -1226,6 +1239,19 @@ export class AgentXGameplansPanelComponent {
     this._detailPlan.set(null);
   }
 
+  public isDetailView(): boolean {
+    return this.showingDetail();
+  }
+
+  public getHeaderTitle(): string {
+    const plan = this.selectedPlan();
+    return plan?.title?.trim() || 'Game Plans';
+  }
+
+  public backToList(): void {
+    this.clearSelection();
+  }
+
   formatDate(value: unknown): string {
     if (value instanceof Date) {
       return this.formatDate(value.toISOString());
@@ -1266,6 +1292,154 @@ export class AgentXGameplansPanelComponent {
     return [...sections].sort(
       (a, b) => (a.order ?? Number.MAX_SAFE_INTEGER) - (b.order ?? Number.MAX_SAFE_INTEGER)
     );
+  }
+
+  buildGamePlanSummaryDragContext(plan: GamePlanSummary): AgentXSelectedContext {
+    return {
+      id: `game-plan:${plan.id}`,
+      kind: 'game_plan_item',
+      title: plan.title,
+      summary: plan.opponentName ? `Game plan vs ${plan.opponentName}` : `${plan.phase} game plan`,
+      source: {
+        type: 'game_plan',
+        id: plan.id,
+        label: plan.title,
+      },
+      entityRefs: [{ type: 'game_plan', id: plan.id, label: plan.title }],
+      metadata: this.compactContextMetadata({
+        itemType: 'game_plan',
+        teamId: plan.teamId,
+        sport: plan.sport,
+        phase: plan.phase,
+        status: plan.status,
+        opponentName: plan.opponentName,
+        gameDate: plan.gameDate,
+        updatedAt: plan.updatedAt,
+      }),
+    };
+  }
+
+  buildGamePlanPriorityDragContext(priority: GamePlanMomentPriority): AgentXSelectedContext {
+    const plan = this.selectedPlan();
+    const planTitle = plan?.title ?? 'Game Plan';
+
+    return {
+      id: `game-plan-priority:${plan?.id ?? 'active'}:${priority.id}`,
+      kind: 'game_plan_item',
+      title: priority.title,
+      summary: priority.objective,
+      source: {
+        type: 'game_plan',
+        ...(plan?.id ? { id: plan.id } : {}),
+        label: planTitle,
+      },
+      entityRefs: [
+        ...(plan?.id ? [{ type: 'game_plan', id: plan.id, label: planTitle }] : []),
+        { type: 'game_plan_priority', id: priority.id, label: priority.title },
+      ],
+      metadata: this.compactContextMetadata({
+        itemType: 'game_plan_priority',
+        teamId: plan?.teamId,
+        sport: plan?.sport,
+        domain: priority.domain,
+        moment: priority.moment,
+        level: priority.level,
+        successMetric: priority.successMetric,
+      }),
+    };
+  }
+
+  buildGamePlanBlockDragContext(block: GamePlanBlock): AgentXSelectedContext {
+    const plan = this.selectedPlan();
+    const planTitle = plan?.title ?? 'Game Plan';
+
+    return {
+      id: `game-plan-block:${plan?.id ?? 'active'}:${block.id}`,
+      kind: 'game_plan_item',
+      title: block.title,
+      summary: block.content,
+      source: {
+        type: 'game_plan',
+        ...(plan?.id ? { id: plan.id } : {}),
+        label: planTitle,
+      },
+      entityRefs: [
+        ...(plan?.id ? [{ type: 'game_plan', id: plan.id, label: planTitle }] : []),
+        { type: 'game_plan_block', id: block.id, label: block.title },
+      ],
+      metadata: this.compactContextMetadata({
+        itemType: 'game_plan_block',
+        teamId: plan?.teamId,
+        sport: plan?.sport,
+        domain: block.domain,
+        moment: block.moment,
+        order: block.order,
+      }),
+    };
+  }
+
+  buildGamePlanLinkedPlayDragContext(play: GamePlanLinkedPlay): AgentXSelectedContext {
+    const plan = this.selectedPlan();
+    const planTitle = plan?.title ?? 'Game Plan';
+    const playId = play.playId ?? play.playName;
+
+    return {
+      id: `game-plan-linked-play:${plan?.id ?? 'active'}:${playId}`,
+      kind: 'playbook_item',
+      title: play.playName,
+      ...(play.usage ? { summary: play.usage } : {}),
+      source: {
+        type: 'game_plan',
+        ...(plan?.id ? { id: plan.id } : {}),
+        label: planTitle,
+      },
+      entityRefs: [
+        ...(plan?.id ? [{ type: 'game_plan', id: plan.id, label: planTitle }] : []),
+        { type: 'playbook_play', id: playId, label: play.playName },
+      ],
+      media: {
+        ...(play.videoUrl ? { videoUrl: play.videoUrl } : {}),
+        ...(play.diagramUrl ? { imageUrl: play.diagramUrl } : {}),
+      },
+      metadata: this.compactContextMetadata({
+        itemType: 'game_plan_linked_play',
+        teamId: plan?.teamId,
+        sport: plan?.sport,
+        usage: play.usage,
+        installUrl: play.installUrl,
+        scoutingCutupUrl: play.scoutingCutupUrl,
+      }),
+    };
+  }
+
+  private compactContextMetadata(
+    metadata: Record<string, unknown>
+  ): Readonly<Record<string, AgentXSelectedContextMetadataValue>> {
+    return Object.fromEntries(
+      Object.entries(metadata).flatMap(([key, value]) => {
+        const normalized = this.toContextMetadataValue(value);
+        return normalized === undefined ? [] : [[key, normalized]];
+      })
+    ) as Readonly<Record<string, AgentXSelectedContextMetadataValue>>;
+  }
+
+  private toContextMetadataValue(value: unknown): AgentXSelectedContextMetadataValue | undefined {
+    if (value === undefined || value === null) return undefined;
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number') return Number.isFinite(value) ? value : undefined;
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      return trimmed.length > 0 ? trimmed : undefined;
+    }
+    if (value instanceof Date) return value.toISOString();
+    if (typeof value === 'object') {
+      const seconds = (value as { readonly seconds?: unknown }).seconds;
+      if (typeof seconds === 'number' && Number.isFinite(seconds)) {
+        return new Date(seconds * 1000).toISOString();
+      }
+    }
+
+    return undefined;
   }
 
   isImageUrl(url: string): boolean {

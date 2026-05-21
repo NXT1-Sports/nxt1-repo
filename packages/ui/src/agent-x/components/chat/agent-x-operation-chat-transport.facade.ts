@@ -18,6 +18,7 @@ import {
   type AgentXAttachmentStub,
   type AgentXChatRequest,
   type AgentXRichCard,
+  type AgentXSelectedContext,
   type AgentXSelectedAction,
   type AgentXStreamCardEvent,
   type AgentXStreamStepEvent,
@@ -185,6 +186,7 @@ export class AgentXOperationChatTransportFacade {
     selectedAction?: AgentXSelectedAction,
     idempotencyKey?: string,
     connectedSources?: readonly { platform: string; profileUrl: string; faviconUrl?: string }[],
+    selectedContexts?: readonly AgentXSelectedContext[],
     pendingAttachmentOptions?: {
       stubs: readonly AgentXAttachmentStub[];
       onWaitingForAttachments: (operationId: string) => Promise<void>;
@@ -207,6 +209,23 @@ export class AgentXOperationChatTransportFacade {
             platform,
             profileUrl,
             ...(source.faviconUrl ? { faviconUrl: source.faviconUrl } : {}),
+          },
+        ];
+      }) ?? [];
+    const sanitizedSelectedContexts =
+      selectedContexts?.flatMap((context) => {
+        const id = context.id.trim();
+        const title = context.title.trim();
+        if (!id || !title) {
+          return [];
+        }
+
+        return [
+          {
+            ...context,
+            id,
+            title,
+            ...(context.summary?.trim() ? { summary: context.summary.trim() } : {}),
           },
         ];
       }) ?? [];
@@ -261,6 +280,9 @@ export class AgentXOperationChatTransportFacade {
       ...(sanitizedConnectedSources.length > 0
         ? { connectedSources: sanitizedConnectedSources }
         : {}),
+      ...(sanitizedSelectedContexts.length > 0
+        ? { selectedContexts: sanitizedSelectedContexts }
+        : {}),
       ...(resolvedUserContext ? { userContext: resolvedUserContext } : {}),
     } satisfies AgentXChatRequest;
 
@@ -270,6 +292,7 @@ export class AgentXOperationChatTransportFacade {
       attachmentCount: attachments.length,
       attachmentTypes: attachments.map((attachment) => attachment.type),
       videoCount: attachments.filter((attachment) => attachment.type === 'video').length,
+      selectedContextCount: sanitizedSelectedContexts.length,
     });
 
     const authToken = await this.getAuthToken?.().catch(() => null);

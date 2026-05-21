@@ -13,6 +13,10 @@ import {
   type FileUploadMetadata,
   type FileUploadHttpAdapter,
 } from './file-upload.api';
+import {
+  AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT,
+  AGENT_X_MAX_VIDEO_FILE_SIZE,
+} from '../ai/agent-x.constants';
 import type { ApiResponse } from '../profile/profile.api';
 
 describe('File Upload API', () => {
@@ -416,6 +420,68 @@ describe('File Upload API', () => {
           25 * 1024 * 1024
         )
       ).rejects.toThrow('File type not allowed');
+
+      expect(mockHttp.post).not.toHaveBeenCalled();
+    });
+
+    it('should allow Agent X Cloudflare upload provisioning up to 8GB', async () => {
+      const mockSession: DirectVideoUploadSession = {
+        uploadUrl: 'https://upload.videodelivery.net/tus/agent-x-video',
+        cloudflareVideoId: 'agent-x-video',
+        uploadMethod: 'tus',
+        tusResumable: '1.0.0',
+        expiresAt: '2026-04-13T00:00:00.000Z',
+        maxSize: AGENT_X_MAX_VIDEO_FILE_SIZE,
+        maxDurationSeconds: 36000,
+        name: 'nxt1-agent-x-chat-user123-video',
+        metadata: {
+          userId: 'user123',
+          context: AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT,
+          environment: 'staging',
+          originalFileName: 'raw-game-film.mp4',
+          mimeType: 'video/mp4',
+        },
+      };
+
+      vi.mocked(mockHttp.post).mockResolvedValue({
+        success: true,
+        data: mockSession,
+      } as ApiResponse<DirectVideoUploadSession>);
+
+      const result = await api.provisionHighlightVideoUpload(
+        'user123',
+        'raw-game-film.mp4',
+        'video/mp4',
+        AGENT_X_MAX_VIDEO_FILE_SIZE,
+        { context: AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT }
+      );
+
+      expect(result).toEqual(mockSession);
+      expect(mockHttp.post).toHaveBeenCalledWith(
+        'https://api.test.com/v1/upload/cloudflare/direct-url',
+        undefined,
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            'Upload-Length': String(AGENT_X_MAX_VIDEO_FILE_SIZE),
+          }),
+        })
+      );
+      expect(
+        (vi.mocked(mockHttp.post).mock.calls[0]?.[2] as { headers: Record<string, string> })
+          .headers['Upload-Metadata']
+      ).toContain(`context ${Buffer.from(AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT).toString('base64')}`);
+    });
+
+    it('should reject Agent X Cloudflare upload provisioning above 8GB', async () => {
+      await expect(
+        api.provisionHighlightVideoUpload(
+          'user123',
+          'too-large.mp4',
+          'video/mp4',
+          AGENT_X_MAX_VIDEO_FILE_SIZE + 1,
+          { context: AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT }
+        )
+      ).rejects.toThrow('File must be smaller than 8 GB');
 
       expect(mockHttp.post).not.toHaveBeenCalled();
     });

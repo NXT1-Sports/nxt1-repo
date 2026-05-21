@@ -8,6 +8,7 @@ export interface AgentXHintDockItem {
   readonly title: string;
   readonly description: string;
   readonly actionLabel?: string;
+  readonly tone?: 'neutral' | 'brand';
 }
 
 @Component({
@@ -18,7 +19,11 @@ export interface AgentXHintDockItem {
     @if (hints.length > 0) {
       <div class="hint-dock" [attr.data-testid]="testIds.HINT_DOCK">
         @for (hint of hints; track hint.hintKey) {
-          <div class="hint-dock__item" [attr.data-testid]="testIds.HINT_ITEM">
+          <div
+            class="hint-dock__item"
+            [class.hint-dock__item--brand]="hint.tone === 'brand'"
+            [attr.data-testid]="testIds.HINT_ITEM"
+          >
             <div class="hint-dock__icon">
               <svg
                 width="16"
@@ -94,18 +99,40 @@ export interface AgentXHintDockItem {
       }
 
       .hint-dock__item {
+        --hint-accent: var(--nxt1-color-feedback-info, #3b82f6);
+        --hint-accent-soft: color-mix(in srgb, var(--hint-accent) 18%, var(--op-surface) 82%);
+        --hint-accent-muted: color-mix(in srgb, var(--hint-accent) 10%, var(--op-surface) 90%);
+        --hint-accent-border: color-mix(in srgb, var(--hint-accent) 42%, transparent);
+        --hint-accent-glow: color-mix(in srgb, var(--hint-accent) 18%, transparent);
         display: flex;
         align-items: flex-start;
         gap: 10px;
         padding: 10px 12px;
-        border: 1px solid color-mix(in srgb, var(--op-border) 70%, transparent);
+        border: 1px solid var(--hint-accent-border);
         border-radius: 12px;
-        background: linear-gradient(
-          135deg,
-          color-mix(in srgb, var(--op-surface) 95%, transparent),
-          color-mix(in srgb, var(--op-surface) 88%, transparent)
-        );
+        background: linear-gradient(135deg, var(--hint-accent-soft), var(--hint-accent-muted));
+        box-shadow: 0 10px 24px -18px var(--hint-accent-glow);
         animation: hint-slide-in 0.3s ease-out;
+      }
+
+      .hint-dock__item--brand {
+        --hint-accent: var(--nxt1-color-primary, #ccff00);
+        --hint-accent-soft: color-mix(
+          in srgb,
+          var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.2)) 72%,
+          var(--op-surface) 28%
+        );
+        --hint-accent-muted: color-mix(
+          in srgb,
+          var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1)) 78%,
+          var(--op-surface) 22%
+        );
+        --hint-accent-border: color-mix(
+          in srgb,
+          var(--nxt1-color-primary, #ccff00) 54%,
+          transparent
+        );
+        --hint-accent-glow: var(--nxt1-color-alpha-primary20, rgba(204, 255, 0, 0.2));
       }
 
       .hint-dock__icon {
@@ -115,8 +142,9 @@ export interface AgentXHintDockItem {
         width: 32px;
         height: 32px;
         border-radius: 8px;
-        background: color-mix(in srgb, #0d4d8b 10%, transparent);
-        color: #0d4d8b;
+        background: color-mix(in srgb, var(--hint-accent) 14%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hint-accent) 22%, transparent);
+        color: var(--hint-accent);
         flex-shrink: 0;
       }
 
@@ -141,10 +169,10 @@ export interface AgentXHintDockItem {
 
       .hint-dock__action {
         padding: 4px 10px;
-        border: 1px solid color-mix(in srgb, #0d4d8b 60%, transparent);
+        border: 1px solid color-mix(in srgb, var(--hint-accent) 62%, transparent);
         border-radius: 6px;
-        background: color-mix(in srgb, #0d4d8b 8%, transparent);
-        color: #0d4d8b;
+        background: color-mix(in srgb, var(--hint-accent) 10%, transparent);
+        color: var(--hint-accent);
         font-size: 0.7rem;
         font-weight: 600;
         cursor: pointer;
@@ -153,8 +181,8 @@ export interface AgentXHintDockItem {
       }
 
       .hint-dock__action:hover {
-        background: color-mix(in srgb, #0d4d8b 15%, transparent);
-        border-color: color-mix(in srgb, #0d4d8b 80%, transparent);
+        background: color-mix(in srgb, var(--hint-accent) 16%, transparent);
+        border-color: color-mix(in srgb, var(--hint-accent) 82%, transparent);
       }
 
       .hint-dock__close {

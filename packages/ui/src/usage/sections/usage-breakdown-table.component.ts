@@ -390,10 +390,12 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
         border-radius: var(--nxt1-radius-lg, 12px);
         overflow-x: auto;
         overflow-y: hidden;
+        -webkit-overflow-scrolling: touch;
       }
 
       .breakdown-table {
         width: 100%;
+        min-width: 720px;
         border-collapse: collapse;
       }
 
@@ -666,7 +668,7 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 
       @media (max-width: 640px) {
         .breakdown-table {
-          min-width: 40rem;
+          min-width: 760px;
         }
 
         .sku-header,

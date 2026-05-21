@@ -17,6 +17,7 @@ import type {
   AgentYieldState,
   OperationOutcomeCode,
 } from './agent.types';
+import type { AgentXSelectedContext } from './agent-x-context.types';
 
 // ============================================
 // ATTACHMENT TYPES
@@ -52,6 +53,12 @@ export interface AgentXAttachment {
    * and `generate_captions`.
    */
   readonly cloudflareVideoId?: string;
+  /** Cloudflare Stream processing state for TUS video uploads. */
+  readonly cloudflareStatus?: string;
+  /** True only after Cloudflare has generated playable manifests. */
+  readonly readyToStream?: boolean;
+  /** Optional poster/thumbnail URL for video attachments. */
+  readonly thumbnailUrl?: string;
   /** Connected-source platform label for app attachments. */
   readonly platform?: string;
   /** Connected-source profile/account URL for app attachments. */
@@ -367,6 +374,8 @@ export interface AgentXChatRequest {
   readonly afterSeq?: number;
   /** Optional structured quick-action selection resolved by the backend. */
   readonly selectedAction?: AgentXSelectedAction;
+  /** Optional structured contexts explicitly selected for this chat turn. */
+  readonly selectedContexts?: readonly AgentXSelectedContext[];
 }
 
 /** Which coordinator action surface originated the request. */

@@ -1673,6 +1673,11 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
               ).length || undefined,
         },
         {
+          id: 'videos',
+          label: 'Videos',
+          badge: this.profile.videoPosts().length || undefined,
+        },
+        {
           id: 'metrics',
           label: 'Metrics',
           badge:
@@ -1767,6 +1772,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
       'all-posts': 'all',
       pinned: 'pinned',
       media: 'media',
+      videos: 'videos',
       metrics: 'metrics',
       stats: 'stats',
       awards: 'awards',

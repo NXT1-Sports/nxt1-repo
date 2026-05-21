@@ -129,6 +129,7 @@ function resolveAgentXActiveTeamId(
     | {
         readonly activeSportIndex?: number | null;
         readonly sports?: ReadonlyArray<{
+          readonly sport?: string | null;
           readonly isPrimary?: boolean;
           readonly team?: {
             readonly teamId?: string | null;
@@ -159,6 +160,54 @@ function resolveAgentXActiveTeamId(
     resolvedTeam?.organizationId?.trim() ||
     resolvedTeam?.id?.trim() ||
     null
+  );
+}
+
+function resolveAgentXActiveSport(
+  user:
+    | {
+        readonly activeSportIndex?: number | null;
+        readonly sports?: ReadonlyArray<{
+          readonly sport?: string | null;
+          readonly isPrimary?: boolean;
+          readonly team?: {
+            readonly teamId?: string | null;
+            readonly organizationId?: string | null;
+            readonly id?: string | null;
+          } | null;
+        }> | null;
+        readonly selectedSports?: readonly string[] | null;
+        readonly connectedSources?: readonly {
+          readonly scopeType?: 'global' | 'sport' | 'team';
+          readonly scopeId?: string;
+        }[] | null;
+      }
+    | null
+    | undefined
+): string {
+  const sports = user?.sports ?? [];
+  const indexedSport =
+    typeof user?.activeSportIndex === 'number' && user.activeSportIndex >= 0
+      ? (sports[user.activeSportIndex] ?? null)
+      : null;
+  const primarySport = sports.find((sport) => sport.isPrimary) ?? null;
+  const teamSport = sports.find(
+    (sport) =>
+      typeof sport.sport === 'string' &&
+      sport.sport.trim().length > 0 &&
+      !!(sport.team?.teamId?.trim() || sport.team?.organizationId?.trim() || sport.team?.id?.trim())
+  );
+  const scopedSport = user?.connectedSources?.find(
+    (source) => source.scopeType === 'sport' && typeof source.scopeId === 'string'
+  )?.scopeId;
+
+  return (
+    indexedSport?.sport?.trim() ||
+    primarySport?.sport?.trim() ||
+    teamSport?.sport?.trim() ||
+    scopedSport?.trim() ||
+    user?.selectedSports?.find((sport) => typeof sport === 'string' && sport.trim().length > 0)?.trim() ||
+    ''
   );
 }
 
@@ -470,6 +519,7 @@ export class AgentXComponent {
         displayName: user.displayName,
         role: user.role,
         activeTeamId: resolveAgentXActiveTeamId(user),
+        activeSport: resolveAgentXActiveSport(user),
         selectedSports: user.sports?.map(({ sport }) => sport) ?? [],
         connectedSources: user.connectedSources ?? [],
         connectedEmails: user.connectedEmails ?? [],
@@ -497,6 +547,7 @@ export class AgentXComponent {
           }> | null;
         }
       ),
+      activeSport: resolveAgentXActiveSport(user),
       selectedSports: user.selectedSports ?? [],
       connectedSources: [],
       connectedEmails: (user.connectedEmails as AgentXUser['connectedEmails']) ?? [],

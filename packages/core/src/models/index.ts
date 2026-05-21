@@ -118,6 +118,30 @@ export {
   type TeamGamePlanDoc,
 } from './team/team-gameplan.model';
 
+// Team film review model (sport-agnostic, TeamFilmReviews collection)
+export {
+  type TeamFilmReviewStatus,
+  type TeamFilmReviewTimelineState,
+  type TeamFilmReviewPerspective,
+  type TeamFilmReviewTagCategory,
+  type TeamFilmReviewTimelineTag,
+  type TeamFilmReviewClip,
+  type TeamFilmReviewAnnotation,
+  type TeamFilmReviewPlayAnnotation,
+  type TeamFilmReviewPlayTagValue,
+  type TeamFilmReviewSportTagValueType,
+  type TeamFilmReviewSportTagColumnWidth,
+  type TeamFilmReviewSportTagDefinition,
+  type TeamFilmReviewSportTagSchemaKey,
+  type TeamFilmReviewPlaySegment,
+  type TeamFilmReviewBreakdownSource,
+  type TeamFilmReviewDoc,
+  TEAM_FILM_REVIEW_FALLBACK_PLAY_TAG_SCHEMA,
+  TEAM_FILM_REVIEW_SPORT_PLAY_TAG_SCHEMAS,
+  getTeamFilmReviewSportTagDefinitions,
+  resolveTeamFilmReviewSportTagSchemaKey,
+} from './team/team-film-review.model';
+
 // User model - Core types (use these)
 export {
   USER_SCHEMA_VERSION,

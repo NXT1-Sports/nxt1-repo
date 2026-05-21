@@ -8,7 +8,7 @@
  *
  * Features:
  * - CSS scroll-snap horizontal swipe (zero dependencies)
- * - Native <video> with controls
+ * - Shared branded custom video controls
  * - Cinematic black backdrop (forced dark regardless of theme)
  * - Counter indicator ("2 / 5")
  * - Close & Share top-bar actions
@@ -23,6 +23,7 @@ import {
   Component,
   ChangeDetectionStrategy,
   Input,
+  OnDestroy,
   OnInit,
   inject,
   signal,
@@ -43,13 +44,14 @@ import { NxtPlatformService } from '../../services/platform';
 import { NxtMediaService } from '../../services/media';
 import { NxtToastService } from '../../services/toast';
 import { NxtLoggingService } from '../../services/logging';
+import { NxtVideoControlsComponent } from '../video-controls';
 import type { MediaViewerItem } from './media-viewer.types';
 import type { MediaImageFormat } from '../../services/media';
 
 @Component({
   selector: 'nxt1-media-viewer-content',
   standalone: true,
-  imports: [],
+  imports: [NxtVideoControlsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
@@ -62,64 +64,104 @@ import type { MediaImageFormat } from '../../services/media';
     >
       <!-- Top bar -->
       <div class="top-bar">
-        @if (showShare && !platform.isNative()) {
-          <!-- Web: save/download button in top-left -->
+        <div class="top-bar-left">
+          @if (showShare && !platform.isNative()) {
+            <!-- Web: save/download button in top-left -->
+            <button
+              class="top-bar-btn save-btn"
+              [attr.data-testid]="testIds.SHARE_BUTTON"
+              (click)="saveCurrentItem()"
+              [disabled]="saving()"
+              aria-label="Save media"
+            >
+              @if (saving()) {
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" class="spin">
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-dasharray="31.4"
+                    stroke-dashoffset="10"
+                  />
+                </svg>
+              } @else {
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+              }
+            </button>
+          }
+        </div>
+
+        <div class="top-bar-center">
+          @if (showCounter && totalItems() > 1) {
+            <span class="counter" [attr.data-testid]="testIds.COUNTER">
+              {{ currentIndex() + 1 }} / {{ totalItems() }}
+            </span>
+          }
+        </div>
+
+        <div class="top-bar-actions">
+          @if (primaryAction && currentItem().type === 'video') {
+            <button
+              class="top-bar-btn promote-btn"
+              [attr.data-testid]="testIds.PRIMARY_ACTION_BUTTON"
+              (click)="onPrimaryAction()"
+              [disabled]="primaryActionBusy()"
+              [attr.aria-label]="primaryActionAriaLabel || 'Create film review'"
+            >
+              @if (primaryActionBusy()) {
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" class="spin">
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-dasharray="31.4"
+                    stroke-dashoffset="10"
+                  />
+                </svg>
+              } @else {
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M12 5v14m-7-7h14"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              }
+              <span>{{
+                primaryActionBusy() ? 'Creating...' : primaryActionLabel || 'Create'
+              }}</span>
+            </button>
+          }
+
           <button
-            class="top-bar-btn save-btn"
-            [attr.data-testid]="testIds.SHARE_BUTTON"
-            (click)="saveCurrentItem()"
-            [disabled]="saving()"
-            aria-label="Save media"
+            class="top-bar-btn close-btn"
+            [attr.data-testid]="testIds.CLOSE_BUTTON"
+            (click)="dismiss()"
+            aria-label="Close media viewer"
           >
-            @if (saving()) {
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" class="spin">
-                <circle
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-dasharray="31.4"
-                  stroke-dashoffset="10"
-                />
-              </svg>
-            } @else {
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                <path
-                  d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                />
-              </svg>
-            }
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <path
+                d="M18 6L6 18M6 6l12 12"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
           </button>
-        } @else {
-          <div class="top-bar-spacer"></div>
-        }
-
-        @if (showCounter && totalItems() > 1) {
-          <span class="counter" [attr.data-testid]="testIds.COUNTER">
-            {{ currentIndex() + 1 }} / {{ totalItems() }}
-          </span>
-        }
-
-        <button
-          class="top-bar-btn close-btn"
-          [attr.data-testid]="testIds.CLOSE_BUTTON"
-          (click)="dismiss()"
-          aria-label="Close media viewer"
-        >
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-            <path
-              d="M18 6L6 18M6 6l12 12"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-            />
-          </svg>
-        </button>
+        </div>
       </div>
 
       <!-- Media track (scroll-snap) -->
@@ -145,12 +187,19 @@ import type { MediaImageFormat } from '../../services/media';
               } @else {
                 <video
                   class="media-video"
+                  [attr.data-slide-index]="i"
                   [attr.data-testid]="testIds.VIDEO"
                   [src]="item.url"
                   [poster]="item.poster ?? ''"
-                  controls
                   playsinline
-                  preload="metadata"
+                  preload="auto"
+                  (loadedmetadata)="onViewerVideoLoaded(i, $event)"
+                  (timeupdate)="onViewerVideoTimeUpdate(i, $event)"
+                  (play)="onViewerVideoPlay(i)"
+                  (pause)="onViewerVideoPause(i)"
+                  (ended)="onViewerVideoPause(i)"
+                  (seeking)="onViewerVideoSeeking(i)"
+                  (seeked)="onViewerVideoSeeked(i, $event)"
                   (error)="onMediaError(i)"
                 ></video>
               }
@@ -254,6 +303,40 @@ import type { MediaImageFormat } from '../../services/media';
         }
       </div>
 
+      @if (showCustomVideoControls()) {
+        <div
+          class="video-controls-overlay"
+          [class.video-controls-overlay--with-caption]="!!currentItem().caption"
+          [class.video-controls-overlay--with-save-bar]="showMobileSaveBar()"
+        >
+          <nxt1-video-controls
+            [isPlaying]="videoIsPlaying()"
+            [currentTime]="videoCurrentTime()"
+            [duration]="videoDuration()"
+            [playbackRate]="videoPlaybackRate()"
+            [playbackRates]="videoPlaybackRates"
+            [showSpeedControls]="true"
+            [showFullscreen]="true"
+            [showOpenInNewWindow]="!platform.isNative()"
+            [showPlayNavigation]="true"
+            [disablePreviousNav]="currentIndex() <= 0"
+            [disableNextNav]="currentIndex() >= totalItems() - 1"
+            previousNavAriaLabel="Previous media"
+            nextNavAriaLabel="Next media"
+            (previousNav)="prev()"
+            (playPause)="togglePlayPauseForCurrent()"
+            (seekRelative)="seekRelativeForCurrent($event)"
+            (seekChange)="seekAbsoluteForCurrent($event)"
+            (seekStart)="onSeekStartForCurrent()"
+            (seekEnd)="onSeekEndForCurrent()"
+            (nextNav)="next()"
+            (playbackRateChange)="setPlaybackRateForCurrent($event)"
+            (fullscreenToggle)="toggleFullscreenForCurrent()"
+            (openInNewWindow)="openCurrentVideoInNewWindow()"
+          />
+        </div>
+      }
+
       <!-- Desktop nav arrows -->
       @if (totalItems() > 1) {
         @if (currentIndex() > 0) {
@@ -302,7 +385,7 @@ import type { MediaImageFormat } from '../../services/media';
       }
 
       <!-- Mobile: bottom save-to-camera-roll bar -->
-      @if (showShare && platform.isNative() && currentItem().type !== 'doc') {
+      @if (showMobileSaveBar()) {
         <div class="bottom-save-bar">
           <button
             class="save-btn-mobile"
@@ -378,6 +461,27 @@ import type { MediaImageFormat } from '../../services/media';
       pointer-events: auto;
     }
 
+    .top-bar-left,
+    .top-bar-center,
+    .top-bar-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .top-bar-left {
+      min-width: 40px;
+    }
+
+    .top-bar-center {
+      flex: 1;
+      justify-content: center;
+    }
+
+    .top-bar-actions {
+      justify-content: flex-end;
+    }
+
     .top-bar-spacer {
       width: 40px;
     }
@@ -405,6 +509,20 @@ import type { MediaImageFormat } from '../../services/media';
 
     .top-bar-btn:active {
       transform: scale(0.92);
+    }
+
+    .promote-btn {
+      width: auto;
+      min-width: 40px;
+      padding: 0 14px;
+      border-radius: 999px;
+      gap: 8px;
+    }
+
+    .promote-btn span {
+      font-size: 0.8125rem;
+      font-weight: 700;
+      white-space: nowrap;
     }
 
     .counter {
@@ -461,6 +579,31 @@ import type { MediaImageFormat } from '../../services/media';
       border: 0;
       border-radius: 8px;
       background: #000;
+    }
+
+    .video-controls-overlay {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 20;
+      display: flex;
+      flex-direction: column;
+      gap: var(--nxt1-spacing-1, 4px);
+      padding: var(--nxt1-spacing-1, 4px);
+      pointer-events: none;
+    }
+
+    .video-controls-overlay > * {
+      pointer-events: auto;
+    }
+
+    .video-controls-overlay--with-caption {
+      bottom: 56px;
+    }
+
+    .video-controls-overlay--with-save-bar {
+      bottom: calc(env(safe-area-inset-bottom, 0px) + 78px);
     }
 
     /* ── Error state ─────────────────────────────── */
@@ -534,6 +677,7 @@ import type { MediaImageFormat } from '../../services/media';
       font-size: 0.875rem;
       line-height: 1.4;
       text-align: center;
+      pointer-events: none;
     }
 
     /* ── Document preview slide ──────────────────── */
@@ -685,7 +829,7 @@ import type { MediaImageFormat } from '../../services/media';
     }
   `,
 })
-export class NxtMediaViewerContentComponent implements OnInit {
+export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   private readonly modalCtrl = inject(ModalController, { optional: true });
   private readonly platformId = inject(PLATFORM_ID);
   private readonly sanitizer = inject(DomSanitizer);
@@ -706,6 +850,9 @@ export class NxtMediaViewerContentComponent implements OnInit {
   @Input() showShare = true;
   @Input() showCounter = true;
   @Input() source = '';
+  @Input() primaryActionLabel?: string;
+  @Input() primaryActionAriaLabel?: string;
+  @Input() primaryAction?: (item: MediaViewerItem) => void | Promise<void>;
   /**
    * Set to true when opened via NxtOverlayService (Angular CDK, no Ionic modal).
    * Prevents modalCtrl.dismiss() from accidentally closing the topmost Ionic
@@ -716,11 +863,30 @@ export class NxtMediaViewerContentComponent implements OnInit {
   // ── Internal state ─────────────────────────────────────
   protected readonly currentIndex = signal(0);
   protected readonly loadErrors = signal<Record<number, boolean>>({});
+  protected readonly videoCurrentTime = signal(0);
+  protected readonly videoDuration = signal(0);
+  protected readonly videoIsPlaying = signal(false);
+  protected readonly videoPlaybackRate = signal(1);
+  protected readonly videoPlaybackRates = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
   private readonly _saving = signal(false);
+  protected readonly primaryActionBusy = signal(false);
   protected readonly saving = computed(() => this._saving());
+  private isScrubbingVideo = false;
+  private wasPlayingBeforeSeek = false;
+  private smoothProgressFrameId: number | null = null;
+  private pendingSeekFrameId: number | null = null;
+  private pendingSeekTime: number | null = null;
 
   protected readonly totalItems = computed(() => this.items.length);
   protected readonly currentItem = computed(() => this.items[this.currentIndex()] ?? null);
+  protected readonly showMobileSaveBar = computed(
+    () => this.showShare && this.platform.isNative() && this.currentItem()?.type !== 'doc'
+  );
+  protected readonly showCustomVideoControls = computed(() => {
+    const item = this.currentItem();
+    if (!item || item.type !== 'video') return false;
+    return this.resolveCloudflareEmbedUrl(item.url) === null;
+  });
 
   protected readonly testIds = TEST_IDS.MEDIA_VIEWER;
 
@@ -739,6 +905,7 @@ export class NxtMediaViewerContentComponent implements OnInit {
           this.scrollToIndex(clamped, false);
         }
         this.focusViewer();
+        this.syncCurrentVideoStateFromDom();
       });
     }
   }
@@ -747,6 +914,12 @@ export class NxtMediaViewerContentComponent implements OnInit {
     // Clamp initial index (inputs are available here)
     const clamped = Math.max(0, Math.min(this.initialIndex, this.items.length - 1));
     this.currentIndex.set(clamped);
+    this.resetCustomVideoState();
+  }
+
+  ngOnDestroy(): void {
+    this.stopSmoothProgressTracking();
+    this.cancelPendingVideoSeek();
   }
 
   // ── Navigation ─────────────────────────────────────────
@@ -766,6 +939,8 @@ export class NxtMediaViewerContentComponent implements OnInit {
   }
 
   onTrackScroll(): void {
+    if (this.isScrubbingVideo) return;
+
     const track = this.mediaTrack()?.nativeElement;
     if (!track) return;
 
@@ -778,8 +953,300 @@ export class NxtMediaViewerContentComponent implements OnInit {
     if (clamped !== this.currentIndex()) {
       this.pauseAllVideos();
       this.currentIndex.set(clamped);
+      this.resetCustomVideoState();
+      this.scheduleCurrentVideoStateSync();
       this.trackNavigation(clamped, 'swipe');
     }
+  }
+
+  protected onViewerVideoLoaded(index: number, event: Event): void {
+    if (!this.isCurrentVideoIndex(index)) return;
+    const video = event.target as HTMLVideoElement | null;
+    if (!video) return;
+    this.videoDuration.set(Number.isFinite(video.duration) ? video.duration : 0);
+    this.videoCurrentTime.set(video.currentTime || 0);
+    this.videoPlaybackRate.set(video.playbackRate || 1);
+    this.videoIsPlaying.set(!video.paused && !video.ended);
+
+    if (!video.paused && !video.ended) {
+      this.startSmoothProgressTracking();
+    }
+  }
+
+  protected onViewerVideoTimeUpdate(index: number, event: Event): void {
+    if (!this.isCurrentVideoIndex(index)) return;
+    if (this.isScrubbingVideo) return;
+    const video = event.target as HTMLVideoElement | null;
+    if (!video) return;
+    this.videoCurrentTime.set(video.currentTime || 0);
+    if (Number.isFinite(video.duration)) {
+      this.videoDuration.set(video.duration);
+    }
+
+    if (!video.paused && !video.ended) {
+      this.startSmoothProgressTracking();
+    }
+  }
+
+  protected onViewerVideoPlay(index: number): void {
+    if (!this.isCurrentVideoIndex(index)) return;
+    this.videoIsPlaying.set(true);
+
+    const video = this.getCurrentVideoElement();
+    if (video && !video.paused && !video.ended) {
+      this.startSmoothProgressTracking();
+    }
+  }
+
+  protected onViewerVideoPause(index: number): void {
+    if (!this.isCurrentVideoIndex(index)) return;
+    this.stopSmoothProgressTracking();
+    this.videoIsPlaying.set(false);
+    const video = this.getCurrentVideoElement();
+    this.videoCurrentTime.set(video?.currentTime || 0);
+  }
+
+  protected onViewerVideoSeeking(index: number): void {
+    if (!this.isCurrentVideoIndex(index)) return;
+    this.stopSmoothProgressTracking();
+    const video = this.getCurrentVideoElement();
+    this.videoCurrentTime.set(video?.currentTime || 0);
+  }
+
+  protected onViewerVideoSeeked(index: number, event: Event): void {
+    if (!this.isCurrentVideoIndex(index)) return;
+    const video = event.target as HTMLVideoElement | null;
+    if (!video) return;
+    this.videoCurrentTime.set(video.currentTime || 0);
+    this.videoIsPlaying.set(!video.paused && !video.ended);
+
+    if (!this.isScrubbingVideo && !video.paused && !video.ended) {
+      this.startSmoothProgressTracking();
+    }
+  }
+
+  protected async togglePlayPauseForCurrent(): Promise<void> {
+    const video = this.getCurrentVideoElement();
+    if (!video) return;
+
+    this.isScrubbingVideo = false;
+
+    if (video.paused) {
+      const duration = Number.isFinite(video.duration) ? video.duration : 0;
+      if (duration > 0 && video.currentTime >= duration - 0.05) {
+        video.currentTime = 0;
+      }
+
+      let played = false;
+      try {
+        await video.play();
+        played = true;
+      } catch {
+        if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+          await new Promise<void>((resolve) => {
+            const timeout = setTimeout(resolve, 500);
+            video.addEventListener(
+              'canplay',
+              () => {
+                clearTimeout(timeout);
+                resolve();
+              },
+              { once: true }
+            );
+          });
+        }
+
+        try {
+          await video.play();
+          played = true;
+        } catch {
+          played = false;
+        }
+      }
+
+      this.videoIsPlaying.set(played && !video.paused && !video.ended);
+      return;
+    }
+
+    video.pause();
+    this.videoIsPlaying.set(false);
+  }
+
+  protected seekRelativeForCurrent(deltaSeconds: number): void {
+    const video = this.getCurrentVideoElement();
+    if (!video) return;
+
+    const duration = Number.isFinite(video.duration) ? video.duration : Infinity;
+    const nextTime = Math.max(0, Math.min((video.currentTime || 0) + deltaSeconds, duration));
+    this.seekAbsoluteForCurrent(nextTime);
+  }
+
+  protected seekAbsoluteForCurrent(nextTime: number): void {
+    const video = this.getCurrentVideoElement();
+    if (!video || !Number.isFinite(nextTime)) return;
+
+    if (this.isScrubbingVideo) {
+      this.pendingSeekTime = nextTime;
+      if (this.pendingSeekFrameId === null && typeof requestAnimationFrame !== 'undefined') {
+        this.pendingSeekFrameId = requestAnimationFrame(() => {
+          this.pendingSeekFrameId = null;
+          if (this.pendingSeekTime !== null) {
+            this.seekVideoTo(video, this.pendingSeekTime);
+            this.pendingSeekTime = null;
+          }
+        });
+      } else if (typeof requestAnimationFrame === 'undefined') {
+        this.seekVideoTo(video, nextTime);
+        this.pendingSeekTime = null;
+      }
+      return;
+    }
+
+    this.seekVideoTo(video, nextTime);
+  }
+
+  protected onSeekStartForCurrent(): void {
+    const video = this.getCurrentVideoElement();
+    this.isScrubbingVideo = true;
+    this.stopSmoothProgressTracking();
+
+    if (video && !video.paused && !video.ended) {
+      this.wasPlayingBeforeSeek = true;
+      video.pause();
+    } else {
+      this.wasPlayingBeforeSeek = false;
+    }
+  }
+
+  protected onSeekEndForCurrent(): void {
+    const video = this.getCurrentVideoElement();
+    if (video) {
+      this.flushPendingVideoSeek(video);
+    }
+
+    this.isScrubbingVideo = false;
+    if (!video) {
+      this.wasPlayingBeforeSeek = false;
+      return;
+    }
+
+    this.videoCurrentTime.set(video.currentTime || 0);
+
+    if (this.wasPlayingBeforeSeek) {
+      this.wasPlayingBeforeSeek = false;
+      this.videoIsPlaying.set(true);
+      void this.playVideoWhenReady(video).then((played) => {
+        this.videoIsPlaying.set(played && !video.paused && !video.ended);
+        if (played && !video.paused && !video.ended) {
+          this.startSmoothProgressTracking();
+        }
+      });
+      return;
+    }
+
+    this.videoIsPlaying.set(!video.paused && !video.ended);
+
+    if (!video.paused && !video.ended) {
+      this.startSmoothProgressTracking();
+    }
+  }
+
+  private seekVideoTo(video: HTMLVideoElement, nextTime: number): void {
+    const duration = Number.isFinite(video.duration) ? video.duration : Infinity;
+    const target = Math.max(0, Math.min(nextTime, duration));
+
+    video.currentTime = target;
+    const committedTime = Number.isFinite(video.currentTime) ? video.currentTime : target;
+    this.videoCurrentTime.set(committedTime);
+
+    if (video.ended && duration > 0 && committedTime >= duration) {
+      video.currentTime = Math.max(0, duration - 0.1);
+    }
+  }
+
+  private flushPendingVideoSeek(video: HTMLVideoElement): void {
+    if (this.pendingSeekFrameId !== null && typeof cancelAnimationFrame !== 'undefined') {
+      cancelAnimationFrame(this.pendingSeekFrameId);
+    }
+
+    this.pendingSeekFrameId = null;
+    if (this.pendingSeekTime !== null) {
+      this.seekVideoTo(video, this.pendingSeekTime);
+      this.pendingSeekTime = null;
+    }
+  }
+
+  private cancelPendingVideoSeek(): void {
+    if (this.pendingSeekFrameId !== null && typeof cancelAnimationFrame !== 'undefined') {
+      cancelAnimationFrame(this.pendingSeekFrameId);
+    }
+
+    this.pendingSeekFrameId = null;
+    this.pendingSeekTime = null;
+  }
+
+  private async playVideoWhenReady(video: HTMLVideoElement): Promise<boolean> {
+    try {
+      await video.play();
+      return true;
+    } catch {
+      if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+        await new Promise<void>((resolve) => {
+          const timeout = setTimeout(resolve, 500);
+          video.addEventListener(
+            'canplay',
+            () => {
+              clearTimeout(timeout);
+              resolve();
+            },
+            { once: true }
+          );
+        });
+      }
+
+      try {
+        await video.play();
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  }
+
+  protected setPlaybackRateForCurrent(rate: number): void {
+    const video = this.getCurrentVideoElement();
+    if (!video || !Number.isFinite(rate) || rate <= 0) return;
+    const normalized = this.videoPlaybackRates.includes(
+      rate as (typeof this.videoPlaybackRates)[number]
+    )
+      ? rate
+      : 1;
+    video.playbackRate = normalized;
+    this.videoPlaybackRate.set(normalized);
+  }
+
+  protected toggleFullscreenForCurrent(): void {
+    const video = this.getCurrentVideoElement();
+    const target = video?.closest('.media-slide') as HTMLElement | null;
+    if (!target || typeof document === 'undefined') return;
+
+    if (!document.fullscreenElement) {
+      const requestFullscreen = target.requestFullscreen?.bind(target) as
+        | (() => Promise<void>)
+        | undefined;
+      if (requestFullscreen) {
+        void requestFullscreen().catch(() => undefined);
+      }
+      return;
+    }
+
+    void document.exitFullscreen?.().catch(() => undefined);
+  }
+
+  protected openCurrentVideoInNewWindow(): void {
+    const item = this.currentItem();
+    if (!item || item.type !== 'video' || typeof window === 'undefined') return;
+    window.open(item.url, '_blank', 'noopener,noreferrer');
   }
 
   // ── Actions ────────────────────────────────────────────
@@ -806,6 +1273,26 @@ export class NxtMediaViewerContentComponent implements OnInit {
     this.close.emit(data);
     if (!this.isOverlay) {
       this.modalCtrl?.dismiss(data, 'share').catch(() => undefined);
+    }
+  }
+
+  async onPrimaryAction(): Promise<void> {
+    const action = this.primaryAction;
+    const item = this.currentItem();
+    if (!action || !item || item.type !== 'video' || this.primaryActionBusy()) return;
+
+    this.primaryActionBusy.set(true);
+    try {
+      await action(item);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to complete media action';
+      this.logger.error('Media viewer primary action failed', err, {
+        type: item.type,
+        url: item.url,
+      });
+      this.toast.error(message);
+    } finally {
+      this.primaryActionBusy.set(false);
     }
   }
 
@@ -951,8 +1438,77 @@ export class NxtMediaViewerContentComponent implements OnInit {
   private navigateTo(index: number): void {
     this.pauseAllVideos();
     this.currentIndex.set(index);
+    this.resetCustomVideoState();
     this.scrollToIndex(index, true);
+    this.scheduleCurrentVideoStateSync();
     this.trackNavigation(index, 'arrow');
+  }
+
+  private isCurrentVideoIndex(index: number): boolean {
+    return index === this.currentIndex();
+  }
+
+  private getCurrentVideoElement(): HTMLVideoElement | null {
+    const track = this.mediaTrack()?.nativeElement;
+    if (!track) return null;
+
+    const byIndex = track.querySelector<HTMLVideoElement>(
+      `video.media-video[data-slide-index="${this.currentIndex()}"]`
+    );
+    if (byIndex) return byIndex;
+
+    const slides = Array.from(track.querySelectorAll<HTMLElement>('.media-slide'));
+    const slide = slides[this.currentIndex()];
+    if (!slide) return null;
+
+    return slide.querySelector<HTMLVideoElement>('video.media-video');
+  }
+
+  private scheduleCurrentVideoStateSync(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+    requestAnimationFrame(() => this.syncCurrentVideoStateFromDom());
+    setTimeout(() => this.syncCurrentVideoStateFromDom(), 220);
+  }
+
+  private syncCurrentVideoStateFromDom(): void {
+    const video = this.getCurrentVideoElement();
+    if (!video) {
+      this.stopSmoothProgressTracking();
+      this.resetCustomVideoState();
+      return;
+    }
+
+    if (!Number.isFinite(video.playbackRate) || video.playbackRate <= 0) {
+      video.playbackRate = 1;
+    }
+
+    this.videoDuration.set(Number.isFinite(video.duration) ? video.duration : 0);
+    this.videoCurrentTime.set(video.currentTime || 0);
+    this.videoPlaybackRate.set(video.playbackRate || 1);
+    this.videoIsPlaying.set(!video.paused && !video.ended);
+
+    if (!this.isScrubbingVideo && !video.paused && !video.ended) {
+      this.startSmoothProgressTracking();
+      return;
+    }
+
+    this.stopSmoothProgressTracking();
+  }
+
+  private resetCustomVideoState(): void {
+    this.stopSmoothProgressTracking();
+    this.cancelPendingVideoSeek();
+    this.videoCurrentTime.set(0);
+    this.videoDuration.set(0);
+    this.videoPlaybackRate.set(1);
+    this.videoIsPlaying.set(false);
+    this.isScrubbingVideo = false;
+    this.wasPlayingBeforeSeek = false;
+
+    const current = this.getCurrentVideoElement();
+    if (current) {
+      current.playbackRate = 1;
+    }
   }
 
   private trackNavigation(index: number, method: 'swipe' | 'arrow'): void {
@@ -965,12 +1521,49 @@ export class NxtMediaViewerContentComponent implements OnInit {
   }
 
   private pauseAllVideos(): void {
+    this.stopSmoothProgressTracking();
     const track = this.mediaTrack()?.nativeElement;
     if (!track) return;
 
     track.querySelectorAll('video').forEach((video) => {
       if (!video.paused) video.pause();
     });
+  }
+
+  private startSmoothProgressTracking(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+    if (typeof requestAnimationFrame === 'undefined') return;
+    if (this.smoothProgressFrameId !== null || this.isScrubbingVideo) return;
+
+    const step = (): void => {
+      const video = this.getCurrentVideoElement();
+      if (!video || this.isScrubbingVideo) {
+        this.stopSmoothProgressTracking();
+        return;
+      }
+
+      this.videoCurrentTime.set(video.currentTime || 0);
+      if (Number.isFinite(video.duration)) {
+        this.videoDuration.set(video.duration);
+      }
+
+      if (!video.paused && !video.ended) {
+        this.smoothProgressFrameId = requestAnimationFrame(step);
+        return;
+      }
+
+      this.stopSmoothProgressTracking();
+    };
+
+    this.smoothProgressFrameId = requestAnimationFrame(step);
+  }
+
+  private stopSmoothProgressTracking(): void {
+    if (this.smoothProgressFrameId === null) return;
+    if (typeof cancelAnimationFrame !== 'undefined') {
+      cancelAnimationFrame(this.smoothProgressFrameId);
+    }
+    this.smoothProgressFrameId = null;
   }
 
   private scrollToIndex(index: number, smooth: boolean): void {

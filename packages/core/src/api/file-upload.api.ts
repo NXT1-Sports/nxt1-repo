@@ -34,6 +34,10 @@
 
 import type { HttpAdapter } from './http-adapter';
 import type { ApiResponse } from '../profile/profile.api';
+import {
+  AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT,
+  AGENT_X_MAX_VIDEO_FILE_SIZE,
+} from '../ai/agent-x.constants';
 
 // ============================================
 // FILE UPLOAD TYPES
@@ -165,6 +169,8 @@ export interface PersistHighlightVideoPostRequest {
   sportId?: string;
   teamId?: string;
   organizationId?: string;
+  playlistId?: string;
+  playlistName?: string;
   visibility?: 'public' | 'team' | 'private';
   isPinned?: boolean;
 }
@@ -182,6 +188,8 @@ export interface PersistedHighlightVideoPost {
   thumbnailUrl: string | null;
   mediaUrl: string | null;
   duration: number | null;
+  playlistId: string | null;
+  playlistName: string | null;
   visibility: 'public' | 'team' | 'private';
   createdAt: string;
   updatedAt: string;
@@ -227,7 +235,7 @@ function encodeTusMetadataValue(value: string): string {
   return encoded;
 }
 
-function buildTusUploadMetadataHeader(metadata: Record<string, string>): string {
+export function buildTusUploadMetadataHeader(metadata: Record<string, string>): string {
   return Object.entries(metadata)
     .filter(([, value]) => value.length > 0)
     .map(([key, value]) => `${key} ${encodeTusMetadataValue(value)}`)
@@ -495,7 +503,16 @@ export function createFileUploadApi(http: FileUploadHttpAdapter, baseUrl: string
         category: 'highlight-video',
       };
 
-      const validationError = validateFileForUpload(metadata);
+      const isAgentXUpload = options?.context === AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT;
+      if (isAgentXUpload && size > AGENT_X_MAX_VIDEO_FILE_SIZE) {
+        throw new Error(`File must be smaller than ${formatFileSize(AGENT_X_MAX_VIDEO_FILE_SIZE)}`);
+      }
+
+      const validationError = validateFileForUpload(
+        isAgentXUpload
+          ? { ...metadata, size: Math.min(size, FILE_UPLOAD_RULES['highlight-video'].maxSize) }
+          : metadata
+      );
       if (validationError) {
         throw new Error(validationError.message);
       }

@@ -1,4 +1,5 @@
 export * from './delete-gameplan.tool.js';
+export * from './film-review.tools.js';
 export * from './delete-playbook.tool.js';
 export * from './delete-team-post.tool.js';
 export * from './get-gameplan.tool.js';

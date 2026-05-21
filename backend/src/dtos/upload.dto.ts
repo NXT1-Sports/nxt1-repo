@@ -19,6 +19,7 @@ import {
   ArrayMaxSize,
   Length,
 } from 'class-validator';
+import { AGENT_X_MAX_VIDEO_FILE_SIZE } from '@nxt1/core';
 
 // ============================================
 // UPLOAD DTOs
@@ -56,7 +57,7 @@ export class InitiateUploadDto {
 
   @IsInt()
   @Min(1)
-  @Max(5000000000) // 5GB max
+  @Max(AGENT_X_MAX_VIDEO_FILE_SIZE)
   fileSize!: number;
 
   @IsEnum(UploadPurpose)

@@ -42,6 +42,8 @@ const VideoEntrySchema = z
     videoId: z.string().trim().min(1).optional(),
     poster: z.string().trim().min(1).optional(),
     title: z.string().trim().min(1).optional(),
+    playlistId: z.string().trim().min(1).optional(),
+    playlistName: z.string().trim().min(1).optional(),
     visionSummary: z.string().trim().optional(),
   })
   .passthrough();
@@ -75,6 +77,7 @@ export class WriteAthleteVideosTool extends BaseTool {
     '  • provider (required): "youtube", "hudl", "vimeo", "twitter", or "other".\n' +
     '  • videoId (optional): Platform-specific video ID.\n' +
     '  • poster (optional): Thumbnail/poster image URL.\n' +
+    '  • playlistId / playlistName (optional): Library playlist grouping.\n' +
     '  • title (optional): Video title or description.';
 
   readonly parameters = WriteAthleteVideosInputSchema;
@@ -213,6 +216,8 @@ export class WriteAthleteVideosTool extends BaseTool {
         const videoId = this.str(v, 'videoId');
         const poster = this.str(v, 'poster');
         const title = this.str(v, 'title');
+        const playlistId = this.str(v, 'playlistId');
+        const playlistName = this.str(v, 'playlistName');
         const visionSummary = this.str(v, 'visionSummary');
         const trimmedSrc = src.trim();
 
@@ -249,6 +254,8 @@ export class WriteAthleteVideosTool extends BaseTool {
           record['thumbnailUrl'] = poster; // Frontend mapTimelineDoc reads this
         }
         if (title) record['title'] = title;
+        if (playlistId) record['playlistId'] = playlistId;
+        if (playlistName) record['playlistName'] = playlistName;
         if (visionSummary) record['visionSummary'] = visionSummary;
 
         const docRef = this.db.collection(POSTS_COLLECTION).doc();

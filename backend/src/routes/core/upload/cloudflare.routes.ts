@@ -3,7 +3,12 @@ import type { Request, Response, Router as RouterType } from 'express';
 import { asyncHandler } from '@nxt1/core/errors/express';
 import { fieldError, forbiddenError as _forbiddenError } from '@nxt1/core/errors';
 import { uploadRateLimit } from '../../../middleware/rate-limit/rate-limit.middleware.js';
-import { FILE_UPLOAD_RULES, formatFileSize } from '@nxt1/core';
+import {
+  AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT,
+  AGENT_X_MAX_VIDEO_FILE_SIZE,
+  FILE_UPLOAD_RULES,
+  formatFileSize,
+} from '@nxt1/core';
 import type { FileCategory } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
 import { getCacheService } from '../../../services/core/cache.service.js';
@@ -12,6 +17,7 @@ import { buildVideoSearchIndex } from '../../../utils/search-index.js';
 import { Timestamp } from 'firebase-admin/firestore';
 import { PostVisibility } from '@nxt1/core';
 import {
+  DEFAULT_CF_AGENT_X_VIDEO_MAX_DURATION_SECONDS,
   CLOUDFLARE_API_BASE_URL,
   DEFAULT_CF_VIDEO_MAX_DURATION_SECONDS,
   DEFAULT_CF_UPLOAD_EXPIRY_HOURS,
@@ -33,6 +39,32 @@ import {
 } from './shared.js';
 
 const router: RouterType = Router();
+
+function classifyCloudflareProvisioningFailure(details: string): {
+  readonly status: number;
+  readonly error: string;
+  readonly code?: string;
+} {
+  const normalized = details.toLowerCase();
+
+  if (
+    normalized.includes('storage capacity exceeded') ||
+    normalized.includes('allocated storage quota') ||
+    normalized.includes('purchase more minutes')
+  ) {
+    return {
+      status: 409,
+      error:
+        'Cloudflare Stream storage quota exceeded. Delete existing videos or increase the Cloudflare Stream plan before uploading more film.',
+      code: 'CLOUDFLARE_STREAM_STORAGE_QUOTA_EXCEEDED',
+    };
+  }
+
+  return {
+    status: 502,
+    error: `Cloudflare direct upload provisioning failed: ${details}`,
+  };
+}
 
 // ============================================
 // POST /cloudflare/direct-url
@@ -99,6 +131,10 @@ router.post(
     const category: FileCategory = 'highlight-video';
     const rules = FILE_UPLOAD_RULES[category];
     const allowedTypes = rules.allowedTypes as readonly string[];
+    const maxAllowedSize =
+      uploadContext === AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT
+        ? AGENT_X_MAX_VIDEO_FILE_SIZE
+        : rules.maxSize;
 
     if (!allowedTypes.includes(mimeType)) {
       throw fieldError(
@@ -108,18 +144,23 @@ router.post(
       );
     }
 
-    if (fileSize > rules.maxSize) {
+    if (fileSize > maxAllowedSize) {
       throw fieldError(
         'Upload-Length',
-        `File must be smaller than ${formatFileSize(rules.maxSize)}`,
+        `File must be smaller than ${formatFileSize(maxAllowedSize)}`,
         'maxSize'
       );
     }
 
     const parsedMaxDuration = requestedDuration ? Number(requestedDuration) : NaN;
+    const defaultMaxDurationSeconds =
+      uploadContext === AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT
+        ? DEFAULT_CF_AGENT_X_VIDEO_MAX_DURATION_SECONDS
+        : DEFAULT_CF_VIDEO_MAX_DURATION_SECONDS;
+
     const maxDurationSeconds = Number.isFinite(parsedMaxDuration)
       ? Math.min(Math.max(parsedMaxDuration, 1), 36_000)
-      : DEFAULT_CF_VIDEO_MAX_DURATION_SECONDS;
+      : defaultMaxDurationSeconds;
 
     // Use req.isStaging (set from the URL path by firebaseContext middleware)
     // NOT NODE_ENV — so that a single server instance handles both environments:
@@ -179,9 +220,12 @@ router.post(
         details,
       });
 
-      return res.status(502).json({
+      const classifiedFailure = classifyCloudflareProvisioningFailure(details);
+
+      return res.status(classifiedFailure.status).json({
         success: false,
-        error: `Cloudflare direct upload provisioning failed: ${details}`,
+        error: classifiedFailure.error,
+        ...(classifiedFailure.code ? { code: classifiedFailure.code } : {}),
       });
     }
 
@@ -220,7 +264,7 @@ router.post(
         uploadMethod: 'tus',
         tusResumable: '1.0.0',
         expiresAt,
-        maxSize: rules.maxSize,
+        maxSize: maxAllowedSize,
         maxDurationSeconds,
         name: videoName,
         metadata: {
@@ -354,6 +398,8 @@ router.post(
     const sportId = trimOptionalString(req.body?.['sportId'], 'sportId', 100);
     const teamId = trimOptionalString(req.body?.['teamId'], 'teamId', 100);
     const organizationId = trimOptionalString(req.body?.['organizationId'], 'organizationId', 100);
+    const playlistId = trimOptionalString(req.body?.['playlistId'], 'playlistId', 100);
+    const playlistName = trimOptionalString(req.body?.['playlistName'], 'playlistName', 200);
     const isPinned = parsePinnedFlag(req.body?.['isPinned']);
     const requestedVisibility = parsePostVisibility(req.body?.['visibility']);
 
@@ -397,7 +443,7 @@ router.post(
       title: resolvedTitle,
       description: resolvedContent,
       sport: sportId ?? (existingData['sportId'] as string | undefined),
-      tags,
+      tags: playlistName ? [...tags, playlistName] : tags,
     });
 
     const payload: Record<string, unknown> = {
@@ -443,6 +489,12 @@ router.post(
       ...((organizationId ?? existingData['organizationId'])
         ? { organizationId: organizationId ?? existingData['organizationId'] }
         : {}),
+      ...((playlistId ?? existingData['playlistId'])
+        ? { playlistId: playlistId ?? existingData['playlistId'] }
+        : {}),
+      ...((playlistName ?? existingData['playlistName'])
+        ? { playlistName: playlistName ?? existingData['playlistName'] }
+        : {}),
       ...((isPinned ?? existingData['isPinned'] !== undefined)
         ? { isPinned: isPinned ?? (existingData['isPinned'] as boolean) }
         : {}),
@@ -467,6 +519,12 @@ router.post(
       thumbnailUrl,
       mediaUrl,
       duration: finalized.durationSeconds,
+      playlistId:
+        playlistId ??
+        (typeof existingData['playlistId'] === 'string' ? existingData['playlistId'] : null),
+      playlistName:
+        playlistName ??
+        (typeof existingData['playlistName'] === 'string' ? existingData['playlistName'] : null),
       visibility: toVisibilityType(visibility),
       createdAt: createdAt.toDate().toISOString(),
       updatedAt: updatedAt.toDate().toISOString(),

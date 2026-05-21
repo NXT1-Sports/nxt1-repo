@@ -25,6 +25,7 @@ import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.to
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
 import type { ScraperService } from '../integrations/firecrawl/scraping/scraper.service.js';
 import type { ApifyMcpBridgeService } from '../integrations/apify/apify-mcp-bridge.service.js';
+import type { CloudflareMcpBridgeService } from '../integrations/cloudflare-stream/cloudflare-mcp-bridge.service.js';
 import type { FfmpegMcpBridgeService } from '../integrations/ffmpeg-mcp/ffmpeg-mcp-bridge.service.js';
 import type { GeminiFilesService } from '../../llm/gemini-files.service.js';
 import type { LLMContentPart, LLMMessage } from '../../llm/llm.types.js';
@@ -61,6 +62,13 @@ const FIREBASE_GCS_HOST_PATTERN =
   /^https?:\/\/(?:storage\.googleapis\.com|firebasestorage\.googleapis\.com)\//i;
 const OPENROUTER_FETCH_FAILURE_PATTERN =
   /cannot fetch content from the provided url|invalid_argument/i;
+const CLOUDFLARE_HOST_PATTERN =
+  /(watch\.cloudflarestream\.com|\.cloudflarestream\.com|videodelivery\.net)$/i;
+const CLOUDFLARE_VIDEO_ID_PATTERN = /^[a-zA-Z0-9_-]{8,128}$/;
+const DEFAULT_CLOUDFLARE_CLIP_PADDING_SEC = 2;
+const DEFAULT_CLOUDFLARE_CLIP_DELETION_MINUTES = 240;
+const DEFAULT_CLOUDFLARE_CLIP_WAIT_SECONDS = 300;
+const CLOUDFLARE_READY_POLL_INTERVAL_MS = 5_000;
 
 const MediaArtifactSchema = z.object({
   mediaKind: z.enum(['video', 'image', 'audio', 'document', 'other']),
@@ -97,9 +105,74 @@ const MediaArtifactSchema = z.object({
   playableUrls: z.array(z.string()),
   directMp4Urls: z.array(z.string()),
   manifestUrls: z.array(z.string()),
+  cloudflareVideoId: z.string().trim().min(1).optional(),
   stagingHeaders: z.record(z.string(), z.string()).optional(),
   rationale: z.string(),
 });
+
+const RequestedTimeRangeSchema = z
+  .object({
+    startSec: z.number().finite().min(0),
+    endSec: z.number().finite().min(0),
+  })
+  .refine((value) => value.endSec > value.startSec, {
+    message: 'endSec must be greater than startSec',
+    path: ['endSec'],
+  });
+
+const AnalyzeVideoInputSchema = z
+  .object({
+    url: z.string().trim().min(1).optional(),
+    cloudflareVideoId: z.string().trim().min(1).optional(),
+    prompt: z.string().trim().min(1),
+    artifact: MediaArtifactSchema.optional(),
+    timeRange: RequestedTimeRangeSchema.optional(),
+    startSec: z.number().finite().min(0).optional(),
+    endSec: z.number().finite().min(0).optional(),
+    clipPaddingSec: z.number().int().min(0).max(30).optional(),
+  })
+  .refine(
+    (value) => {
+      const hasStandaloneRange = value.startSec !== undefined || value.endSec !== undefined;
+      return !hasStandaloneRange || (value.startSec !== undefined && value.endSec !== undefined);
+    },
+    {
+      message: 'startSec and endSec must be provided together',
+      path: ['startSec'],
+    }
+  )
+  .refine(
+    (value) => {
+      if (value.startSec === undefined || value.endSec === undefined) {
+        return true;
+      }
+      return value.endSec > value.startSec;
+    },
+    {
+      message: 'endSec must be greater than startSec',
+      path: ['endSec'],
+    }
+  );
+
+type AnalyzeVideoInput = z.infer<typeof AnalyzeVideoInputSchema>;
+type RequestedTimeRange = z.infer<typeof RequestedTimeRangeSchema>;
+
+interface PreparedAnalysisInput {
+  readonly url: string;
+  readonly cloudflareVideoId?: string;
+  readonly clipApplied?: {
+    readonly sourceVideoId: string;
+    readonly clipVideoId: string;
+    readonly requestedStartSec: number;
+    readonly requestedEndSec: number;
+    readonly clipStartSec: number;
+    readonly clipEndSec: number;
+  };
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
 
@@ -113,26 +186,24 @@ export class AnalyzeVideoTool extends BaseTool {
     'technique assessment, play-by-play analysis, scouting reports from video, and any video-based coaching insights. ' +
     'Supports videos up to 2 hours long.';
 
-  readonly parameters = z.object({
-    url: z.string().trim().min(1).optional(),
-    prompt: z.string().trim().min(1),
-    artifact: MediaArtifactSchema.optional(),
-  });
+  readonly parameters = AnalyzeVideoInputSchema;
 
   readonly isMutation = false;
   readonly category = 'media' as const;
 
   readonly entityGroup = 'user_tools' as const;
-  private readonly mediaTransportResolver = new MediaTransportResolverService();
+  private readonly mediaTransportResolver: MediaTransportResolverService;
 
   constructor(
     private readonly scraper: ScraperService,
     private readonly llm: OpenRouterService,
     private readonly apifyBridge?: ApifyMcpBridgeService,
     private readonly ffmpegBridge?: FfmpegMcpBridgeService,
-    private readonly geminiFiles?: GeminiFilesService
+    private readonly geminiFiles?: GeminiFilesService,
+    private readonly cloudflareBridge?: CloudflareMcpBridgeService
   ) {
     super();
+    this.mediaTransportResolver = new MediaTransportResolverService(cloudflareBridge);
   }
 
   async execute(
@@ -146,6 +217,13 @@ export class AnalyzeVideoTool extends BaseTool {
 
     const prompt = parsed.data.prompt;
     const artifact = parsed.data.artifact as MediaWorkflowArtifact | undefined;
+    const requestedTimeRange = this.resolveRequestedTimeRange(parsed.data);
+    const clipPaddingSec = parsed.data.clipPaddingSec ?? DEFAULT_CLOUDFLARE_CLIP_PADDING_SEC;
+    const cloudflareVideoId = this.resolveCloudflareVideoId(
+      parsed.data.url,
+      artifact,
+      parsed.data.cloudflareVideoId
+    );
     const url = parsed.data.url ?? artifact?.portableUrl ?? artifact?.sourceUrl ?? null;
 
     // ── Input validation ───────────────────────────────────────────────
@@ -160,7 +238,21 @@ export class AnalyzeVideoTool extends BaseTool {
     const trimmedPrompt = prompt.trim();
 
     try {
-      const resolvedInput = await this.resolveAnalysisInput(trimmedUrl, artifact, context);
+      const preparedInput = await this.prepareAnalysisInput(
+        trimmedUrl,
+        artifact,
+        cloudflareVideoId,
+        requestedTimeRange,
+        clipPaddingSec,
+        context
+      );
+
+      const resolvedInput = await this.resolveAnalysisInput(
+        preparedInput.url,
+        artifact,
+        preparedInput.cloudflareVideoId,
+        context
+      );
 
       // ── Resolve video URLs ─────────────────────────────────────────
       context?.emitStage?.('fetching_data', {
@@ -218,8 +310,12 @@ export class AnalyzeVideoTool extends BaseTool {
           stagedUrls: [],
           mediaArtifact: buildPortableMediaArtifact({
             sourceUrl: finalVideoUrls[0] ?? resolvedInput.url,
+            ...(preparedInput.cloudflareVideoId
+              ? { cloudflareVideoId: preparedInput.cloudflareVideoId }
+              : {}),
             rationale: 'This media source was normalized into a portable analysis input.',
           }),
+          ...(preparedInput.clipApplied ? { clipApplied: preparedInput.clipApplied } : {}),
           model: analysis.result.model,
           usage: analysis.result.usage,
         },
@@ -231,14 +327,176 @@ export class AnalyzeVideoTool extends BaseTool {
     }
   }
 
+  private resolveRequestedTimeRange(input: AnalyzeVideoInput): RequestedTimeRange | undefined {
+    if (input.timeRange) {
+      return input.timeRange;
+    }
+
+    if (input.startSec === undefined || input.endSec === undefined) {
+      return undefined;
+    }
+
+    return {
+      startSec: input.startSec,
+      endSec: input.endSec,
+    };
+  }
+
+  private resolveCloudflareVideoId(
+    explicitUrl: string | undefined,
+    artifact: MediaWorkflowArtifact | undefined,
+    explicitVideoId: string | undefined
+  ): string | undefined {
+    const candidates = [
+      this.normalizeCloudflareVideoId(explicitVideoId),
+      this.normalizeCloudflareVideoId(artifact?.cloudflareVideoId),
+      explicitUrl ? this.extractCloudflareVideoId(explicitUrl) : undefined,
+      artifact?.portableUrl ? this.extractCloudflareVideoId(artifact.portableUrl) : undefined,
+      artifact?.sourceUrl ? this.extractCloudflareVideoId(artifact.sourceUrl) : undefined,
+    ];
+
+    return candidates.find((value): value is string => typeof value === 'string');
+  }
+
+  private normalizeCloudflareVideoId(videoId: string | undefined): string | undefined {
+    const trimmed = videoId?.trim();
+    return trimmed && CLOUDFLARE_VIDEO_ID_PATTERN.test(trimmed) ? trimmed : undefined;
+  }
+
+  private extractCloudflareVideoId(urlRaw: string): string | undefined {
+    try {
+      const parsed = new URL(urlRaw);
+      if (!CLOUDFLARE_HOST_PATTERN.test(parsed.hostname)) {
+        return undefined;
+      }
+
+      const firstPathSegment = parsed.pathname.split('/').filter(Boolean)[0];
+      return this.normalizeCloudflareVideoId(firstPathSegment);
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async prepareAnalysisInput(
+    url: string,
+    artifact: MediaWorkflowArtifact | undefined,
+    cloudflareVideoId: string | undefined,
+    requestedTimeRange: RequestedTimeRange | undefined,
+    clipPaddingSec: number,
+    context?: ToolExecutionContext
+  ): Promise<PreparedAnalysisInput> {
+    if (!requestedTimeRange || !cloudflareVideoId || !this.cloudflareBridge) {
+      return { url, ...(cloudflareVideoId ? { cloudflareVideoId } : {}) };
+    }
+
+    const clipStartSec = Math.max(0, requestedTimeRange.startSec - clipPaddingSec);
+    const clipEndSec = Math.max(clipStartSec + 1, requestedTimeRange.endSec + clipPaddingSec);
+
+    logger.info('[AnalyzeVideoTool] Creating bounded Cloudflare clip before analysis', {
+      sourceVideoId: cloudflareVideoId,
+      requestedStartSec: requestedTimeRange.startSec,
+      requestedEndSec: requestedTimeRange.endSec,
+      clipStartSec,
+      clipEndSec,
+    });
+    context?.emitStage?.('processing_media', {
+      icon: 'media',
+      videoId: cloudflareVideoId,
+      requestedStartSec: requestedTimeRange.startSec,
+      requestedEndSec: requestedTimeRange.endSec,
+      clipStartSec,
+      clipEndSec,
+      phase: 'clip_video',
+    });
+
+    const clip = await this.cloudflareBridge.clipVideo(
+      cloudflareVideoId,
+      clipStartSec,
+      clipEndSec,
+      undefined,
+      DEFAULT_CLOUDFLARE_CLIP_DELETION_MINUTES
+    );
+
+    await this.waitForCloudflareVideoReady(clip.uid, context);
+
+    const resolvedClip = await this.mediaTransportResolver.resolveProcessingUrl({
+      sourceUrl: `https://watch.cloudflarestream.com/${clip.uid}`,
+      cloudflareVideoId: clip.uid,
+      fallbackToFirebaseStaging: false,
+      stageMediaKind: artifact?.mediaKind ?? 'video',
+      executionContext: context,
+    });
+
+    if (resolvedClip.source !== 'cloudflare_download' && resolvedClip.source !== 'direct') {
+      throw new Error(
+        'Cloudflare clip render completed, but a downloadable MP4 is not ready yet. Please retry in a minute.'
+      );
+    }
+
+    return {
+      url: resolvedClip.url,
+      cloudflareVideoId: clip.uid,
+      clipApplied: {
+        sourceVideoId: cloudflareVideoId,
+        clipVideoId: clip.uid,
+        requestedStartSec: requestedTimeRange.startSec,
+        requestedEndSec: requestedTimeRange.endSec,
+        clipStartSec,
+        clipEndSec,
+      },
+    };
+  }
+
+  private async waitForCloudflareVideoReady(
+    videoId: string,
+    context?: ToolExecutionContext
+  ): Promise<void> {
+    if (!this.cloudflareBridge) {
+      return;
+    }
+
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < DEFAULT_CLOUDFLARE_CLIP_WAIT_SECONDS * 1_000) {
+      const video = await this.cloudflareBridge.getVideo(videoId);
+      const state = video.status?.state ?? 'unknown';
+      const percentComplete = video.status?.pctComplete ?? null;
+
+      context?.emitStage?.('checking_status', {
+        icon: 'media',
+        videoId,
+        processingState: state,
+        percentComplete,
+        phase: state === 'ready' ? 'ready' : 'processing_progress',
+      });
+
+      if (state === 'ready') {
+        return;
+      }
+
+      if (state === 'error') {
+        throw new Error(
+          video.status?.errorReasonText ?? 'Cloudflare clip processing failed before analysis.'
+        );
+      }
+
+      await sleep(CLOUDFLARE_READY_POLL_INTERVAL_MS);
+    }
+
+    throw new Error(
+      'Cloudflare clip processing is taking too long. Please retry the analysis in a minute.'
+    );
+  }
+
   private async resolveAnalysisInput(
     url: string,
     artifact: MediaWorkflowArtifact | undefined,
+    cloudflareVideoId?: string,
     context?: ToolExecutionContext
   ): Promise<{ readonly url: string; readonly headers?: Readonly<Record<string, string>> }> {
     if (!artifact) {
       const resolvedTransportInput = await this.mediaTransportResolver.resolveProcessingUrl({
         sourceUrl: url,
+        cloudflareVideoId,
         fallbackToFirebaseStaging: true,
         stageMediaKind: 'video',
         executionContext: context,
@@ -250,6 +508,13 @@ export class AnalyzeVideoTool extends BaseTool {
           cloudflareVideoId: resolvedTransportInput.cloudflareVideoId,
         });
         return { url: resolvedTransportInput.url };
+      }
+
+      if (resolvedTransportInput.cloudflareVideoId) {
+        throw new Error(
+          'Cloudflare Stream is still preparing a downloadable MP4 for this video. ' +
+            'Please retry the analysis in a minute; the backend has already requested the download render.'
+        );
       }
 
       if (HLS_MANIFEST_PATTERN.test(url) || DASH_MANIFEST_PATTERN.test(url)) {
@@ -275,6 +540,7 @@ export class AnalyzeVideoTool extends BaseTool {
     if (artifact.analysisReady && artifact.portableUrl) {
       const resolvedPortable = await this.mediaTransportResolver.resolveProcessingUrl({
         sourceUrl: artifact.portableUrl,
+        cloudflareVideoId,
         fallbackToFirebaseStaging: true,
         stageMediaKind: 'video',
         executionContext: context,
@@ -293,6 +559,7 @@ export class AnalyzeVideoTool extends BaseTool {
       if (this.isPortableAnalysisUrl(url)) {
         const resolvedPortableInput = await this.mediaTransportResolver.resolveProcessingUrl({
           sourceUrl: url,
+          cloudflareVideoId,
           fallbackToFirebaseStaging: true,
           stageMediaKind: 'video',
           executionContext: context,
@@ -309,6 +576,7 @@ export class AnalyzeVideoTool extends BaseTool {
       if (artifact.sourceType === 'cloudflare') {
         const resolvedForArtifact = await this.mediaTransportResolver.resolveProcessingUrl({
           sourceUrl: artifact.sourceUrl,
+          cloudflareVideoId,
           fallbackToFirebaseStaging: true,
           stageMediaKind: 'video',
           executionContext: context,
@@ -320,6 +588,13 @@ export class AnalyzeVideoTool extends BaseTool {
             cloudflareVideoId: resolvedForArtifact.cloudflareVideoId,
           });
           return { url: resolvedForArtifact.url };
+        }
+
+        if (resolvedForArtifact.cloudflareVideoId) {
+          throw new Error(
+            'Cloudflare Stream is still preparing a downloadable MP4 for this video. ' +
+              'Please retry the analysis in a minute; the backend has already requested the download render.'
+          );
         }
       }
 

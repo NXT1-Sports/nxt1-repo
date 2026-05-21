@@ -470,6 +470,12 @@ const SYNC_MEMORY_PROFILED_TOOLS = new Set([
   'write_rankings',
   'write_playbooks',
   'save_gameplan',
+  'save_film_review',
+  'update_film_review',
+  'delete_film_review',
+  'add_film_review_annotation',
+  'delete_film_review_annotation',
+  'refresh_film_review_ai',
   'write_team_stats',
 ]);
 
@@ -556,6 +562,36 @@ const MUTATION_ANALYTICS_PROFILES: Readonly<Record<string, MutationAnalyticsProf
     templateKey: 'mutation_delete_gameplan',
     templateBaseDomain: 'performance',
     tags: ['gameplan', 'strategy', 'coaching'],
+  },
+  save_film_review: {
+    templateKey: 'mutation_save_film_review',
+    templateBaseDomain: 'performance',
+    tags: ['film-review', 'video', 'coaching'],
+  },
+  update_film_review: {
+    templateKey: 'mutation_update_film_review',
+    templateBaseDomain: 'performance',
+    tags: ['film-review', 'video', 'coaching'],
+  },
+  delete_film_review: {
+    templateKey: 'mutation_delete_film_review',
+    templateBaseDomain: 'performance',
+    tags: ['film-review', 'video', 'coaching'],
+  },
+  add_film_review_annotation: {
+    templateKey: 'mutation_add_film_review_annotation',
+    templateBaseDomain: 'performance',
+    tags: ['film-review', 'annotation', 'coaching'],
+  },
+  delete_film_review_annotation: {
+    templateKey: 'mutation_delete_film_review_annotation',
+    templateBaseDomain: 'performance',
+    tags: ['film-review', 'annotation', 'coaching'],
+  },
+  refresh_film_review_ai: {
+    templateKey: 'mutation_refresh_film_review_ai',
+    templateBaseDomain: 'performance',
+    tags: ['film-review', 'ai', 'coaching'],
   },
   write_team_stats: {
     templateKey: 'mutation_write_team_stats',

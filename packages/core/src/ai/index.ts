@@ -8,6 +8,27 @@
 
 // Types
 export type {
+  AgentXSelectedContextKind,
+  AgentXSelectedContextSourceType,
+  AgentXSelectedContextSource,
+  AgentXSelectedContextTimeRange,
+  AgentXSelectedContextEntityRef,
+  AgentXSelectedContextMedia,
+  AgentXSelectedContextAnnotationPoint,
+  AgentXSelectedContextAnnotationBounds,
+  AgentXSelectedContextAnnotation,
+  AgentXSelectedContextMetadataValue,
+  AgentXSelectedContext,
+} from './agent-x-context.types';
+
+export {
+  AGENT_X_SELECTED_CONTEXT_DRAG_MIME,
+  isAgentXSelectedContext,
+  parseAgentXSelectedContextDragPayload,
+  serializeAgentXSelectedContextForDrag,
+} from './agent-x-context.types';
+
+export type {
   ChatRole,
   AgentXAttachmentType,
   AgentXAttachment,
@@ -129,8 +150,12 @@ export {
   AGENT_X_CACHE_TTL,
   // Attachment constants & helpers
   AGENT_X_ALLOWED_MIME_TYPES,
+  AGENT_X_MAX_ATTACHMENTS,
   AGENT_X_MAX_FILE_SIZE,
   AGENT_X_MAX_VIDEO_FILE_SIZE,
+  AGENT_X_FIREBASE_MAX_VIDEO_FILE_SIZE,
+  AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES,
+  AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT,
   resolveAttachmentType,
 } from './agent-x.constants';
 
@@ -195,6 +220,18 @@ export {
   type UpdatePlayResponse,
   type DeletePlayResponse,
 } from './playbook.api';
+
+export {
+  createTeamFilmReviewApi,
+  type TeamFilmReviewApi,
+  type ListTeamFilmReviewsRequest,
+  type ListTeamFilmReviewsResponse,
+  type CreateTeamFilmReviewRequest,
+  type UpdateTeamFilmReviewRequest,
+  type AddFilmReviewAnnotationRequest,
+  type RefreshFilmReviewAiResponse,
+  type ImportFilmReviewBreakdownResponse,
+} from './team-film-review.api';
 
 // Shared copy resolvers
 export {

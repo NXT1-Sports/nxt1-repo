@@ -10,7 +10,16 @@
  *
  * ⭐ WEB ONLY — SSR-safe ⭐
  */
-import { Component, ChangeDetectionStrategy, inject, input, output, computed } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  input,
+  output,
+  computed,
+  signal,
+  effect,
+} from '@angular/core';
 import {
   type TeamProfilePost,
   type FeedItem,
@@ -33,6 +42,7 @@ import {
   teamToFeedAuthor,
   feedPostToFeedItem,
 } from '@nxt1/core';
+import { TEAM_VIDEOS_TEST_IDS } from '@nxt1/core/testing';
 import { NxtIconComponent } from '../../components/icon';
 import { NxtActivityCardComponent } from '../../components/activity-card';
 import { FeedCardShellComponent } from '../../post-cards/feed-card-shell.component';
@@ -43,6 +53,15 @@ import { FeedMetricsCardComponent } from '../../post-cards/feed-metrics-card.com
 import { FeedAwardCardComponent } from '../../post-cards/feed-award-card.component';
 import { FeedNewsCardComponent } from '../../post-cards/feed-news-card.component';
 import { TeamProfileService } from '../team-profile.service';
+
+interface VideoPlaylistOption {
+  readonly id: string;
+  readonly label: string;
+  readonly count: number;
+}
+
+const ALL_VIDEO_PLAYLISTS_ID = 'all';
+const UNCATEGORIZED_VIDEO_PLAYLIST_ID = 'uncategorized';
 
 @Component({
   selector: 'nxt1-team-videos-web',
@@ -60,9 +79,26 @@ import { TeamProfileService } from '../team-profile.service';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (effectiveFeed().length > 0) {
-      <div class="team-videos-list" data-testid="team-videos-list">
-        @for (item of effectiveFeed(); track item.id; let idx = $index) {
+    @if (filteredFeed().length > 0) {
+      @if (showPlaylistDropdown()) {
+        <div class="playlist-filter" [attr.data-testid]="testIds.PLAYLIST_FILTER">
+          <label class="playlist-filter__label" for="team-video-playlist-select">Playlist</label>
+          <select
+            id="team-video-playlist-select"
+            class="playlist-filter__select"
+            [value]="activePlaylistId()"
+            [attr.data-testid]="testIds.PLAYLIST_SELECT"
+            (change)="setPlaylist($event)"
+          >
+            @for (playlist of playlistOptions(); track playlist.id) {
+              <option [value]="playlist.id">{{ playlist.label }} ({{ playlist.count }})</option>
+            }
+          </select>
+        </div>
+      }
+
+      <div class="team-videos-list" [attr.data-testid]="testIds.LIST">
+        @for (item of filteredFeed(); track item.id; let idx = $index) {
           <nxt1-feed-card-shell
             [item]="item"
             [hideAuthor]="true"
@@ -110,7 +146,7 @@ import { TeamProfileService } from '../team-profile.service';
         }
       </div>
     } @else {
-      <div class="madden-empty" data-testid="team-videos-empty">
+      <div class="madden-empty" [attr.data-testid]="testIds.EMPTY_STATE">
         <div class="madden-empty__icon" aria-hidden="true">
           <nxt1-icon name="videocam-outline" [size]="40" />
         </div>
@@ -120,7 +156,7 @@ import { TeamProfileService } from '../team-profile.service';
           <button
             type="button"
             class="madden-cta-btn"
-            data-testid="team-videos-add-btn"
+            [attr.data-testid]="testIds.EMPTY_CTA"
             (click)="manageTeam.emit()"
           >
             Add Video
@@ -139,6 +175,47 @@ import { TeamProfileService } from '../team-profile.service';
         display: flex;
         flex-direction: column;
         gap: 12px;
+      }
+
+      .playlist-filter {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+        padding: 10px 12px;
+        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        border-radius: 8px;
+        background: var(--m-surface-2, rgba(255, 255, 255, 0.04));
+      }
+
+      .playlist-filter__label {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--m-text-2, rgba(255, 255, 255, 0.62));
+        text-transform: uppercase;
+      }
+
+      .playlist-filter__select {
+        min-width: 180px;
+        max-width: 100%;
+        padding: 8px 32px 8px 10px;
+        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.14));
+        border-radius: 8px;
+        background: var(--m-surface, rgba(10, 13, 18, 0.96));
+        color: var(--m-text, #fff);
+        font: inherit;
+      }
+
+      @media (max-width: 520px) {
+        .playlist-filter {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .playlist-filter__select {
+          width: 100%;
+        }
       }
 
       .madden-empty {
@@ -197,6 +274,10 @@ import { TeamProfileService } from '../team-profile.service';
 })
 export class TeamVideosWebComponent {
   protected readonly teamProfile = inject(TeamProfileService);
+  protected readonly testIds = TEAM_VIDEOS_TEST_IDS;
+
+  private readonly _activePlaylistId = signal<string>(ALL_VIDEO_PLAYLISTS_ID);
+  protected readonly activePlaylistId = this._activePlaylistId.asReadonly();
 
   /** Active section from side nav: 'highlights' | 'all-videos' */
   readonly activeSection = input<string>('all-videos');
@@ -212,6 +293,16 @@ export class TeamVideosWebComponent {
 
   /** Emitted to open manage team modal */
   readonly manageTeam = output<void>();
+
+  constructor() {
+    effect(() => {
+      const options = this.playlistOptions();
+      const current = this._activePlaylistId();
+      if (!options.some((option) => option.id === current)) {
+        this._activePlaylistId.set(ALL_VIDEO_PLAYLISTS_ID);
+      }
+    });
+  }
 
   // ============================================
   // BRIDGE — Prefer polymorphicFeed; auto-convert service data if needed
@@ -233,9 +324,47 @@ export class TeamVideosWebComponent {
     return videos.map((p) => feedPostToFeedItem(teamPostToFeedPost(p, author)));
   });
 
+  protected readonly playlistOptions = computed<readonly VideoPlaylistOption[]>(() => {
+    const videos = this.effectiveFeed().filter((item) => this.isVideoFeedItem(item));
+    if (videos.length === 0) return [];
+
+    const groups = new Map<string, { label: string; count: number }>();
+    for (const video of videos) {
+      const playlist = this.resolvePlaylist(video);
+      const id = playlist?.id ?? UNCATEGORIZED_VIDEO_PLAYLIST_ID;
+      const label = playlist?.label ?? 'Uncategorized';
+      const existing = groups.get(id);
+      groups.set(id, { label, count: (existing?.count ?? 0) + 1 });
+    }
+
+    const grouped = Array.from(groups.entries())
+      .map(([id, value]) => ({ id, label: value.label, count: value.count }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+
+    return [{ id: ALL_VIDEO_PLAYLISTS_ID, label: 'All Videos', count: videos.length }, ...grouped];
+  });
+
+  protected readonly showPlaylistDropdown = computed(() => this.playlistOptions().length > 1);
+
+  protected readonly filteredFeed = computed<readonly FeedItem[]>(() => {
+    const feed = this.effectiveFeed();
+    const playlistId = this._activePlaylistId();
+    if (playlistId === ALL_VIDEO_PLAYLISTS_ID) return feed;
+
+    return feed.filter((item) => {
+      const playlist = this.resolvePlaylist(item);
+      return (playlist?.id ?? UNCATEGORIZED_VIDEO_PLAYLIST_ID) === playlistId;
+    });
+  });
+
+  protected setPlaylist(event: Event): void {
+    const select = event.target as HTMLSelectElement | null;
+    this._activePlaylistId.set(select?.value || ALL_VIDEO_PLAYLISTS_ID);
+  }
+
   /** Resolve polymorphic item click */
   protected handlePolyVideoClick(index: number): void {
-    const item = this.effectiveFeed()[index];
+    const item = this.filteredFeed()[index];
     if (item) this.itemClick.emit(item);
   }
 
@@ -301,6 +430,59 @@ export class TeamVideosWebComponent {
 
   protected asNews(item: FeedItem): FeedItemNews {
     return item as FeedItemNews;
+  }
+
+  private isVideoFeedItem(item: FeedItem): boolean {
+    return (
+      item.feedType === 'POST' &&
+      ((item as FeedItemPost).postType === 'video' ||
+        (item as FeedItemPost).media.some((media) => media.type === 'video'))
+    );
+  }
+
+  private resolvePlaylist(item: FeedItem): { id: string; label: string } | null {
+    if (item.feedType !== 'POST') return null;
+
+    const post = item as FeedItemPost;
+    const media = post.media.find((candidate) => candidate.type === 'video') ?? post.media[0];
+    const mediaRecord = media as unknown as Record<string, unknown> | undefined;
+    const postRecord = post as unknown as Record<string, unknown>;
+    const rawId = this.firstString(
+      mediaRecord?.['playlistId'],
+      postRecord['playlistId'],
+      mediaRecord?.['playlist'],
+      postRecord['playlist']
+    );
+    const rawLabel = this.firstString(
+      mediaRecord?.['playlistName'],
+      postRecord['playlistName'],
+      mediaRecord?.['playlistTitle'],
+      postRecord['playlistTitle']
+    );
+    const label = rawLabel ?? rawId;
+    if (!label) return null;
+
+    return {
+      id: this.normalizePlaylistId(rawId ?? label),
+      label,
+    };
+  }
+
+  private firstString(...values: readonly unknown[]): string | null {
+    for (const value of values) {
+      if (typeof value !== 'string') continue;
+      const trimmed = value.trim();
+      if (trimmed.length > 0) return trimmed;
+    }
+    return null;
+  }
+
+  private normalizePlaylistId(value: string): string {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
   }
 
   protected asFallbackContent(item: FeedItem): string | null {

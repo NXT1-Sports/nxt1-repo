@@ -65,6 +65,10 @@ import {
 import { resolveAppBaseUrl } from '../../utils/app-url.js';
 import { AgentMessageModel } from '../../models/agent/agent-message.model.js';
 import { buildOrganizationBudgetFollowUpCopy } from './billing-copy.js';
+import {
+  enrichIntentWithSelectedContexts,
+  normalizeSelectedContextsForPayload,
+} from './chat-context.helpers.js';
 
 const router = Router();
 
@@ -697,6 +701,7 @@ function buildAttachmentArrays(
     type?: string;
     sizeBytes?: number;
     cloudflareVideoId?: string;
+    thumbnailUrl?: string;
     platform?: string;
     profileUrl?: string;
     faviconUrl?: string;
@@ -737,6 +742,7 @@ function buildAttachmentArrays(
       mimeType: a.mimeType as string,
       type: a.type as AgentXAttachment['type'],
       sizeBytes: a.sizeBytes as number,
+      ...(a.thumbnailUrl ? { thumbnailUrl: a.thumbnailUrl } : {}),
     }));
 
   const videoAttachments: AgentXAttachment[] = rawAttachments
@@ -756,6 +762,7 @@ function buildAttachmentArrays(
       type: a.type as AgentXAttachment['type'],
       sizeBytes: a.sizeBytes as number,
       ...(a.cloudflareVideoId ? { cloudflareVideoId: a.cloudflareVideoId } : {}),
+      ...(a.thumbnailUrl ? { thumbnailUrl: a.thumbnailUrl } : {}),
     }));
 
   const connectedSourceAttachments: AgentXAttachment[] = rawConnectedSources.map((source) => ({
@@ -778,7 +785,12 @@ function buildAttachmentArrays(
   }
   if (videoAttachments.length > 0) {
     const videoRefs = videoAttachments
-      .map((v) => `[Attached video: ${v.name} — ${v.url}]`)
+      .map((v) => {
+        const cloudflareHint = v.cloudflareVideoId
+          ? ` | cloudflareVideoId: ${v.cloudflareVideoId}`
+          : '';
+        return `[Attached video: ${v.name} — ${v.url}${cloudflareHint}]`;
+      })
       .join('\n');
     enrichedText = `${enrichedText}\n\n${videoRefs}`;
   }
@@ -3549,9 +3561,17 @@ router.post(
         return;
       }
 
-      const { intent, userContext, threadId, selectedAction, attachments, connectedSources } =
-        req.body as AgentEnqueueRequestDto;
+      const {
+        intent,
+        userContext,
+        threadId,
+        selectedAction,
+        attachments,
+        connectedSources,
+        selectedContexts,
+      } = req.body as AgentEnqueueRequestDto;
       const normalizedSelectedAction = normalizeSelectedActionForPayload(selectedAction);
+      const normalizedSelectedContexts = normalizeSelectedContextsForPayload(selectedContexts);
       const db = req.firebase?.db;
       if (!db) {
         res.status(500).json({ success: false, error: 'Firestore unavailable' });
@@ -3563,10 +3583,21 @@ router.post(
       // ── Attachment processing (mirrors /chat) ─────────────────────────────
       const { fileAttachments, videoAttachments, connectedSourceAttachments, enrichedText } =
         buildAttachmentArrays(attachments ?? [], connectedSources ?? [], trimmedIntent);
+      const enrichedIntentText = enrichIntentWithSelectedContexts(
+        enrichedText,
+        normalizedSelectedContexts
+      );
+      const visibleIntentText =
+        trimmedIntent ||
+        (normalizedSelectedContexts.length === 1
+          ? normalizedSelectedContexts[0].title
+          : normalizedSelectedContexts.length > 1
+            ? `${normalizedSelectedContexts.length} attached contexts`
+            : trimmedIntent);
       const resolvedIntent = await resolveSelectedActionIntent({
         db,
         userId: user.uid,
-        fallbackIntent: trimmedIntent,
+        fallbackIntent: enrichedIntentText,
         selectedAction: normalizedSelectedAction,
       });
       stampAgentXLastActiveAt(db, user.uid);
@@ -3620,9 +3651,12 @@ router.post(
               threadId: resolvedThreadId,
               userId: user.uid,
               role: 'user',
-              content: enrichedText,
+              content: visibleIntentText,
               origin: 'user',
               ...(idempotencyKey ? { idempotencyKey } : {}),
+              ...(normalizedSelectedContexts.length > 0
+                ? { selectedContexts: normalizedSelectedContexts }
+                : {}),
               ...(fileAttachments.length > 0 ||
               videoAttachments.length > 0 ||
               connectedSourceAttachments.length > 0
@@ -3671,6 +3705,9 @@ router.post(
             ? { parentOperationId: concurrencyDecision.parentOperationId }
             : {}),
           ...(normalizedSelectedAction ? { selectedAction: normalizedSelectedAction } : {}),
+          ...(normalizedSelectedContexts.length > 0
+            ? { selectedContexts: normalizedSelectedContexts }
+            : {}),
           ...(fileAttachments.length > 0 ? { attachments: fileAttachments } : {}),
           ...(videoAttachments.length > 0 ? { videoAttachments } : {}),
           ...(connectedSourceTargets.length > 0
@@ -3822,12 +3859,14 @@ router.post(
         threadId,
         attachments,
         connectedSources,
+        selectedContexts,
         resumeOperationId,
         afterSeq,
         selectedAction,
         userContext,
       } = req.body as AgentChatRequestDto;
       const normalizedSelectedAction = normalizeSelectedActionForPayload(selectedAction);
+      const normalizedSelectedContexts = normalizeSelectedContextsForPayload(selectedContexts);
       const idempotencyKey = parseIdempotencyKey(req);
 
       if ((req.get(IDEMPOTENCY_KEY_HEADER) || req.get('idempotency-key')) && !idempotencyKey) {
@@ -3878,6 +3917,7 @@ router.post(
         attachmentCount: allAttachments.length,
         attachmentTypes: allAttachments.map((attachment) => attachment.type ?? 'unknown'),
         videoCount: allAttachments.filter((attachment) => attachment.type === 'video').length,
+        selectedContextCount: normalizedSelectedContexts.length,
       });
       const VIDEO_URL_HINT_PATTERN =
         /(?:storage\.googleapis\.com|firebasestorage\.googleapis\.com|\.(?:mp4|mov|m4v|webm|avi|mkv))(?:$|[?#/])/i;
@@ -3904,6 +3944,7 @@ router.post(
             url?: string;
             sizeBytes?: number;
             cloudflareVideoId?: string;
+            thumbnailUrl?: string;
           }) =>
             !isVideoAttachment(a) &&
             typeof a.url === 'string' &&
@@ -3929,6 +3970,7 @@ router.post(
               mimeType: a.mimeType as string,
               type: a.type as AgentXAttachment['type'],
               sizeBytes: a.sizeBytes as number,
+              ...(a.thumbnailUrl ? { thumbnailUrl: a.thumbnailUrl } : {}),
             }) as AgentXAttachment
         );
       const videoAttachments: AgentXAttachment[] = allAttachments
@@ -3939,6 +3981,7 @@ router.post(
             url?: string;
             sizeBytes?: number;
             cloudflareVideoId?: string;
+            thumbnailUrl?: string;
           }) =>
             isVideoAttachment(a) &&
             typeof a.url === 'string' &&
@@ -3956,6 +3999,7 @@ router.post(
               type: a.type as AgentXAttachment['type'],
               sizeBytes: a.sizeBytes as number,
               ...(a.cloudflareVideoId ? { cloudflareVideoId: a.cloudflareVideoId } : {}),
+              ...(a.thumbnailUrl ? { thumbnailUrl: a.thumbnailUrl } : {}),
             }) as AgentXAttachment
         );
 
@@ -3982,7 +4026,12 @@ router.post(
       }
       if (videoAttachments.length > 0) {
         const videoRefs = videoAttachments
-          .map((v) => `[Attached video: ${v.name} — ${v.url}]`)
+          .map((v) => {
+            const cloudflareHint = v.cloudflareVideoId
+              ? ` | cloudflareVideoId: ${v.cloudflareVideoId}`
+              : '';
+            return `[Attached video: ${v.name} — ${v.url}${cloudflareHint}]`;
+          })
           .join('\n');
         enrichedMessageText = `${enrichedMessageText}\n\n${videoRefs}`;
       }
@@ -3992,6 +4041,18 @@ router.post(
           .join('\n');
         enrichedMessageText = `${enrichedMessageText}\n\n${fileRefs}`;
       }
+
+      enrichedMessageText = enrichIntentWithSelectedContexts(
+        enrichedMessageText,
+        normalizedSelectedContexts
+      );
+      const visibleMessageText =
+        message.trim() ||
+        (normalizedSelectedContexts.length === 1
+          ? normalizedSelectedContexts[0].title
+          : normalizedSelectedContexts.length > 1
+            ? `${normalizedSelectedContexts.length} attached contexts`
+            : message.trim());
 
       if (!effectiveOperationId && threadId && chatService) {
         try {
@@ -4015,9 +4076,12 @@ router.post(
               threadId: effectiveThreadId,
               userId: user.uid,
               role: 'user',
-              content: enrichedMessageText,
+              content: visibleMessageText,
               origin: 'user',
               ...(idempotencyKey ? { idempotencyKey } : {}),
+              ...(normalizedSelectedContexts.length > 0
+                ? { selectedContexts: normalizedSelectedContexts }
+                : {}),
               ...(fileAttachments.length > 0 ||
               videoAttachments.length > 0 ||
               connectedSourceAttachments.length > 0
@@ -4386,6 +4450,7 @@ router.post(
             ...(stub.platform ? { platform: stub.platform } : {}),
             ...(stub.profileUrl ? { profileUrl: stub.profileUrl } : {}),
             ...(stub.faviconUrl ? { faviconUrl: stub.faviconUrl } : {}),
+            ...(stub.thumbnailUrl ? { thumbnailUrl: stub.thumbnailUrl } : {}),
             name: stub.name,
             mimeType: stub.mimeType,
             type: stub.type as AgentXAttachment['type'],
@@ -4393,7 +4458,10 @@ router.post(
           };
           if (isVideoAttachment(stub)) {
             videoAttachments.push(agentAttachment);
-            enrichedMessageText += `\n\n[Attached video: ${agentAttachment.name} — ${agentAttachment.url}]`;
+            const cloudflareHint = agentAttachment.cloudflareVideoId
+              ? ` | cloudflareVideoId: ${agentAttachment.cloudflareVideoId}`
+              : '';
+            enrichedMessageText += `\n\n[Attached video: ${agentAttachment.name} — ${agentAttachment.url}${cloudflareHint}]`;
           } else {
             fileAttachments.push(agentAttachment);
             enrichedMessageText += `\n\n[Attached file: ${agentAttachment.name} (${agentAttachment.mimeType}) — ${agentAttachment.url}]`;
@@ -4432,7 +4500,7 @@ router.post(
       const resolvedIntent = await resolveSelectedActionIntent({
         db,
         userId: user.uid,
-        fallbackIntent: trimmedMessage,
+        fallbackIntent: enrichedMessageText,
         selectedAction: normalizedSelectedAction,
       });
       stampAgentXLastActiveAt(db, user.uid);
@@ -4459,6 +4527,9 @@ router.post(
           ...(fileAttachments.length > 0 ? { attachments: fileAttachments } : {}),
           ...(videoAttachments.length > 0 ? { videoAttachments } : {}),
           ...(normalizedSelectedAction ? { selectedAction: normalizedSelectedAction } : {}),
+          ...(normalizedSelectedContexts.length > 0
+            ? { selectedContexts: normalizedSelectedContexts }
+            : {}),
         },
       };
 

@@ -72,11 +72,13 @@ import {
   AgentXOperationChatComponent,
   type OperationQuickAction,
 } from '../components/chat/agent-x-operation-chat.component';
+import type { PendingFile } from '../components/chat/agent-x-operation-chat.models';
 import {
   buildCoordinatorActionPrompt,
   resolveCoordinatorActionId,
   resolveCoordinatorChipId,
 } from '../components/chat/agent-x-operation-chat.utils';
+import type { AgentXPanelHintKind } from '../components/chat/agent-x-operation-chat-hint.facade';
 import { AgentXInputBarComponent } from '../components/inputs/agent-x-input-bar.component';
 import {
   AgentXControlPanelStateService,
@@ -107,6 +109,7 @@ import { getPlatformFaviconUrl, PLATFORM_FAVICON_DOMAINS } from '@nxt1/core/plat
 import type { ConnectedAppSource } from '../components/modals/agent-x-attachments-sheet.component';
 import { AgentXGameplansPanelComponent } from '../components/shared/agent-x-gameplans-panel.component';
 import { AgentXPlaybooksPanelComponent } from '../components/shared/agent-x-playbooks-panel.component';
+import { AgentXFilmReviewPanelComponent } from '../components/shared/agent-x-film-review-panel.component';
 import { ANALYTICS_ADAPTER } from '../../services/analytics';
 
 /**
@@ -133,6 +136,7 @@ export interface AgentXUser {
   readonly displayName?: string | null;
   readonly role?: string;
   readonly activeTeamId?: string | null;
+  readonly activeSport?: string | null;
   readonly selectedSports?: readonly string[];
   readonly connectedSources?: readonly {
     platform: string;
@@ -167,6 +171,9 @@ interface AgentXDesktopSession {
   readonly suggestedActions?: readonly OperationQuickAction[];
   readonly scheduledActions?: readonly OperationQuickAction[];
   readonly initialMessage?: string;
+  readonly initialFiles?: readonly PendingFile[];
+  readonly initialConnectedSources?: readonly ConnectedAppSource[];
+  readonly autoSendOnOpen?: boolean;
   readonly threadId?: string;
   readonly hasRecurringTasksHint?: boolean;
   readonly operationStatus?:
@@ -187,6 +194,7 @@ type AgentXDesktopResizablePanel =
   | 'action-plan'
   | 'gameplans'
   | 'playbooks'
+  | 'film-review'
   | 'expanded-panel';
 
 interface AgentXDesktopResizeState {
@@ -232,6 +240,7 @@ function sortCoordinatorCategories(
     LiveViewLauncherComponent,
     AgentXGameplansPanelComponent,
     AgentXPlaybooksPanelComponent,
+    AgentXFilmReviewPanelComponent,
   ],
   template: `
     <!-- Portal: center — Agent X title + centered nav pills -->
@@ -316,7 +325,7 @@ function sortCoordinatorCategories(
                   <circle cx="12" cy="12" r="10" stroke-opacity="0.25" />
                   <path d="M12 2a10 10 0 0 1 10 10" />
                 </svg>
-              } @else if (showPlaybooksModal()) {
+              } @else if (panelMenuSelection() === 'playbooks') {
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="14"
@@ -332,7 +341,30 @@ function sortCoordinatorCategories(
                   <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
                   <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
                 </svg>
-              } @else if (showGameplansModal()) {
+              } @else if (panelMenuSelection() === 'film-review') {
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="2" y="2" width="20" height="20" rx="2" />
+                  <path d="M7 2v20" />
+                  <path d="M17 2v20" />
+                  <path d="M2 7h5" />
+                  <path d="M2 12h5" />
+                  <path d="M2 17h5" />
+                  <path d="M17 7h5" />
+                  <path d="M17 12h5" />
+                  <path d="M17 17h5" />
+                </svg>
+              } @else if (panelMenuSelection() === 'gameplans') {
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
                   width="14"
@@ -348,6 +380,23 @@ function sortCoordinatorCategories(
                   <path d="M12 2l9 5v10l-9 5-9-5V7l9-5z" />
                   <path d="M12 12l6.5-3.75M12 12l-6.5-3.75M12 12v7.5" />
                   <path d="M5.5 8.25v5.5M18.5 8.25v5.5" />
+                </svg>
+              } @else if (panelMenuSelection() === 'live-view') {
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
+                  <line x1="8" y1="21" x2="16" y2="21" />
+                  <line x1="12" y1="17" x2="12" y2="21" />
                 </svg>
               } @else {
                 <svg
@@ -390,12 +439,12 @@ function sortCoordinatorCategories(
                 <button
                   type="button"
                   class="header-nav-dropdown-item"
-                  [class.header-nav-dropdown-item--active]="panelMenuSelection() === 'playbooks'"
+                  [class.header-nav-dropdown-item--active]="panelMenuSelection() === 'film-review'"
                   role="menuitemradio"
-                  [attr.aria-checked]="panelMenuSelection() === 'playbooks'"
-                  (click)="onSelectPanelMenuOption('playbooks', $event)"
+                  [attr.aria-checked]="panelMenuSelection() === 'film-review'"
+                  (click)="onSelectPanelMenuOption('film-review', $event)"
                 >
-                  <span>Playbooks</span>
+                  <span>Film Review</span>
                   <nxt1-icon
                     class="header-nav-dropdown-item-indicator"
                     name="checkmark"
@@ -403,22 +452,40 @@ function sortCoordinatorCategories(
                     aria-hidden="true"
                   />
                 </button>
-                <button
-                  type="button"
-                  class="header-nav-dropdown-item"
-                  [class.header-nav-dropdown-item--active]="panelMenuSelection() === 'gameplans'"
-                  role="menuitemradio"
-                  [attr.aria-checked]="panelMenuSelection() === 'gameplans'"
-                  (click)="onSelectPanelMenuOption('gameplans', $event)"
-                >
-                  <span>Game Plans</span>
-                  <nxt1-icon
-                    class="header-nav-dropdown-item-indicator"
-                    name="checkmark"
-                    [size]="14"
-                    aria-hidden="true"
-                  />
-                </button>
+                @if (user()?.role !== 'athlete') {
+                  <button
+                    type="button"
+                    class="header-nav-dropdown-item"
+                    [class.header-nav-dropdown-item--active]="panelMenuSelection() === 'playbooks'"
+                    role="menuitemradio"
+                    [attr.aria-checked]="panelMenuSelection() === 'playbooks'"
+                    (click)="onSelectPanelMenuOption('playbooks', $event)"
+                  >
+                    <span>Playbooks (Preview)</span>
+                    <nxt1-icon
+                      class="header-nav-dropdown-item-indicator"
+                      name="checkmark"
+                      [size]="14"
+                      aria-hidden="true"
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    class="header-nav-dropdown-item"
+                    [class.header-nav-dropdown-item--active]="panelMenuSelection() === 'gameplans'"
+                    role="menuitemradio"
+                    [attr.aria-checked]="panelMenuSelection() === 'gameplans'"
+                    (click)="onSelectPanelMenuOption('gameplans', $event)"
+                  >
+                    <span>Game Plans (Preview)</span>
+                    <nxt1-icon
+                      class="header-nav-dropdown-item-indicator"
+                      name="checkmark"
+                      [size]="14"
+                      aria-hidden="true"
+                    />
+                  </button>
+                }
                 @if (!platform.isMobile()) {
                   <button
                     type="button"
@@ -519,10 +586,12 @@ function sortCoordinatorCategories(
         showActionPlanModal() &&
         !expandedSidePanel() &&
         !showGameplansModal() &&
-        !showPlaybooksModal()
+        !showPlaybooksModal() &&
+        !showFilmReviewModal()
       "
       [class.agent-main--with-gameplans]="
-        (showGameplansModal() || showPlaybooksModal()) && !expandedSidePanel()
+        (showGameplansModal() || showPlaybooksModal() || showFilmReviewModal()) &&
+        !expandedSidePanel()
       "
       [class.agent-main--with-expanded-panel]="!!expandedSidePanel()"
       [class.agent-main--resizing]="isDesktopPanelResizing()"
@@ -655,9 +724,13 @@ function sortCoordinatorCategories(
                 [suggestedActions]="session.suggestedActions ?? []"
                 [scheduledActions]="session.scheduledActions ?? []"
                 [initialMessage]="session.initialMessage ?? ''"
+                [initialFiles]="session.initialFiles ?? []"
+                [initialConnectedSources]="session.initialConnectedSources ?? []"
+                [autoSendOnOpen]="session.autoSendOnOpen ?? false"
                 [threadId]="session.threadId ?? ''"
                 [hasRecurringTasksHint]="session.hasRecurringTasksHint ?? false"
                 [hasActiveLiveView]="expandedSidePanel()?.type === 'live-view'"
+                [activeContextPanel]="activeContextPanelHint()"
                 [resumeOperationId]="session.resumeOperationId ?? ''"
                 [yieldState]="session.yieldState ?? null"
                 [operationStatus]="session.operationStatus ?? null"
@@ -666,6 +739,7 @@ function sortCoordinatorCategories(
                 (responseComplete)="onResponseComplete()"
                 (coordinatorQuickActionSelected)="onEmbeddedCoordinatorQuickAction($event)"
                 (connectedAccountsSave)="connectedAccountsSave.emit($event)"
+                (filmReviewLibraryRequested)="openFilmReviewLibraryFromUpload()"
               />
             }
           </div>
@@ -678,6 +752,7 @@ function sortCoordinatorCategories(
           showActionPlanModal() &&
           !showGameplansModal() &&
           !showPlaybooksModal() &&
+          !showFilmReviewModal() &&
           !expandedSidePanel()
         ) {
           <aside class="agent-column agent-action-plan-column" aria-label="This Week's Game Plan">
@@ -934,7 +1009,10 @@ function sortCoordinatorCategories(
              GAME PLANS PANEL (right column, identical to Action Plan)
              ═══════════════════════════════════════════ -->
         @if (showGameplansModal() && !expandedSidePanel()) {
-          <aside class="agent-column agent-action-plan-column" aria-label="Game Plans">
+          <aside
+            class="agent-column agent-action-plan-column agent-gameplans-column"
+            aria-label="Game Plans"
+          >
             <div
               class="agent-resize-handle agent-resize-handle--left"
               [class.agent-resize-handle--active]="activeDesktopResize()?.panel === 'gameplans'"
@@ -946,7 +1024,22 @@ function sortCoordinatorCategories(
             ></div>
             <div class="agent-column-header">
               <div class="agent-column-header-row">
-                <h2 class="agent-column-title">Game Plans</h2>
+                @if (isGameplansDetailView()) {
+                  <div class="agent-column-inline-title-group">
+                    <button
+                      type="button"
+                      class="agent-column-back-btn"
+                      (click)="onGameplansHeaderBack()"
+                      aria-label="Back to game plans"
+                    >
+                      <nxt1-icon name="chevronLeft" [size]="14"></nxt1-icon>
+                      <span>Plans</span>
+                    </button>
+                    <h2 class="agent-column-title">{{ gameplansHeaderTitle() }}</h2>
+                  </div>
+                } @else {
+                  <h2 class="agent-column-title">Game Plans (Preview)</h2>
+                }
                 <button
                   type="button"
                   class="rail-close-btn"
@@ -956,7 +1049,9 @@ function sortCoordinatorCategories(
                   <nxt1-icon name="close" [size]="16"></nxt1-icon>
                 </button>
               </div>
-              <p class="agent-column-subtitle">Team strategy & playbooks</p>
+              @if (!isGameplansDetailView()) {
+                <p class="agent-column-subtitle">Team strategy & playbooks</p>
+              }
             </div>
             <div class="action-plan-panel__body">
               <nxt1-agent-x-gameplans-panel [teamId]="resolvedActiveTeamId()" />
@@ -965,7 +1060,10 @@ function sortCoordinatorCategories(
         }
 
         @if (showPlaybooksModal() && !expandedSidePanel()) {
-          <aside class="agent-column agent-action-plan-column" aria-label="Playbooks">
+          <aside
+            class="agent-column agent-action-plan-column agent-playbooks-column"
+            aria-label="Playbooks"
+          >
             <div
               class="agent-resize-handle agent-resize-handle--left"
               [class.agent-resize-handle--active]="activeDesktopResize()?.panel === 'playbooks'"
@@ -977,7 +1075,22 @@ function sortCoordinatorCategories(
             ></div>
             <div class="agent-column-header">
               <div class="agent-column-header-row">
-                <h2 class="agent-column-title">Playbooks</h2>
+                @if (isPlaybooksDetailView()) {
+                  <div class="agent-column-inline-title-group">
+                    <button
+                      type="button"
+                      class="agent-column-back-btn"
+                      (click)="onPlaybooksHeaderBack()"
+                      aria-label="Back to playbooks"
+                    >
+                      <nxt1-icon name="chevronLeft" [size]="14"></nxt1-icon>
+                      <span>Playbooks</span>
+                    </button>
+                    <h2 class="agent-column-title">{{ playbooksHeaderTitle() }}</h2>
+                  </div>
+                } @else {
+                  <h2 class="agent-column-title">Playbooks (Preview)</h2>
+                }
                 <button
                   type="button"
                   class="rail-close-btn"
@@ -987,12 +1100,70 @@ function sortCoordinatorCategories(
                   <nxt1-icon name="close" [size]="16"></nxt1-icon>
                 </button>
               </div>
-              <p class="agent-column-subtitle">
-                Team playbooks with full diagrams, install notes, and practice-ready detail
-              </p>
+              @if (!isPlaybooksDetailView()) {
+                <p class="agent-column-subtitle">
+                  Team playbooks with full diagrams, install notes, and practice-ready detail
+                </p>
+              }
             </div>
             <div class="action-plan-panel__body">
               <nxt1-agent-x-playbooks-panel
+                [teamId]="resolvedActiveTeamId()"
+                [sport]="resolvedActiveSport()"
+              />
+            </div>
+          </aside>
+        }
+
+        @if (showFilmReviewModal() && !expandedSidePanel()) {
+          <aside
+            class="agent-column agent-action-plan-column agent-film-review-column"
+            aria-label="Film Review"
+          >
+            <div
+              class="agent-resize-handle agent-resize-handle--left"
+              [class.agent-resize-handle--active]="activeDesktopResize()?.panel === 'film-review'"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize film review panel"
+              (mousedown)="startDesktopPanelResize('film-review', $event)"
+              (dblclick)="resetDesktopPanelWidth('film-review', $event)"
+            ></div>
+            <div class="agent-column-header">
+              <div class="agent-column-header-row">
+                @if (isFilmReviewInlineVideoView()) {
+                  <div class="agent-column-inline-title-group">
+                    <button
+                      type="button"
+                      class="agent-column-back-btn"
+                      (click)="onFilmReviewHeaderBack()"
+                      aria-label="Back to video library"
+                    >
+                      <nxt1-icon name="chevronLeft" [size]="14"></nxt1-icon>
+                      <span>Library</span>
+                    </button>
+                    <h2 class="agent-column-title">{{ filmReviewHeaderTitle() }}</h2>
+                  </div>
+                } @else {
+                  <h2 class="agent-column-title">Film Review</h2>
+                }
+                <button
+                  type="button"
+                  class="rail-close-btn"
+                  (click)="showFilmReviewModal.set(false)"
+                  aria-label="Close film review"
+                >
+                  <nxt1-icon name="close" [size]="16"></nxt1-icon>
+                </button>
+              </div>
+              @if (!isFilmReviewInlineVideoView()) {
+                <p class="agent-column-subtitle">
+                  Upload film, generate AI timelines, and review plays with coaching tools
+                </p>
+              }
+            </div>
+            <div class="action-plan-panel__body">
+              <nxt1-agent-x-film-review-panel
                 [teamId]="resolvedActiveTeamId()"
                 [sport]="resolvedActiveSport()"
               />
@@ -1511,14 +1682,16 @@ function sortCoordinatorCategories(
           [userMessage]="agentX.userMessage()"
           [isLoading]="agentX.isLoading()"
           [uploading]="agentX.uploading()"
-          [canSend]="agentX.canSend()"
+          [canSend]="mobileComposerCanSend()"
           [pendingFiles]="agentX.pendingFiles()"
           [pendingSources]="[]"
+          [pendingContexts]="agentX.pendingSelectedContexts()"
           [selectedTask]="agentX.selectedTask()?.title ?? null"
           [placeholder]="mobileInputPlaceholder()"
           (messageChange)="agentX.setUserMessage($event)"
           (send)="onMobileSendMessage()"
           (filesPasted)="onMobileFilesPasted($event)"
+          (removeContext)="agentX.removePendingSelectedContext($event)"
           (removeTask)="agentX.clearTask()"
           (toggleAttachments)="onToggleTasks()"
           (removeFile)="agentX.removeFile($event)"
@@ -1562,6 +1735,7 @@ function sortCoordinatorCategories(
       }
 
       .agent-main {
+        position: relative;
         display: grid;
         grid-template-columns: minmax(0, 1fr);
         flex: 1;
@@ -1696,6 +1870,52 @@ function sortCoordinatorCategories(
         display: flex;
         align-items: center;
         justify-content: space-between;
+      }
+
+      .agent-column-inline-title-group {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .agent-column-inline-title-group .agent-column-title {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .agent-column-back-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 28px;
+        padding: 0 10px;
+        border: 1px solid var(--agent-border);
+        border-radius: 999px;
+        background: transparent;
+        color: var(--agent-text-secondary);
+        font-size: 12px;
+        font-weight: 600;
+        font-family: inherit;
+        cursor: pointer;
+        transition:
+          border-color 0.15s ease,
+          color 0.15s ease,
+          background 0.15s ease;
+        flex-shrink: 0;
+      }
+
+      .agent-column-back-btn:hover {
+        border-color: var(--agent-primary);
+        background: var(--agent-surface-hover);
+        color: var(--agent-text-primary);
+      }
+
+      .agent-column-back-btn:focus-visible {
+        outline: 2px solid var(--agent-primary);
+        outline-offset: 2px;
       }
 
       .rail-close-btn {
@@ -2244,6 +2464,15 @@ function sortCoordinatorCategories(
 
       .agent-action-plan-column .agent-column-header {
         padding: var(--nxt1-spacing-3, 12px) var(--nxt1-spacing-4, 16px);
+      }
+
+      .agent-film-review-column .action-plan-panel__body {
+        padding: 10px 12px 12px;
+      }
+
+      .agent-gameplans-column .action-plan-panel__body,
+      .agent-playbooks-column .action-plan-panel__body {
+        padding: 10px 12px 12px;
       }
 
       .agent-expanded-panel-column {
@@ -3305,6 +3534,7 @@ function sortCoordinatorCategories(
 
       .agent-mobile {
         display: none;
+        position: relative;
       }
 
       @media (max-width: 1200px) {
@@ -3321,7 +3551,6 @@ function sortCoordinatorCategories(
           display: flex;
           flex-direction: column;
           min-height: 100%;
-          position: relative;
         }
       }
 
@@ -3836,9 +4065,13 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private static readonly DESKTOP_LEFT_PANEL_DEFAULT_WIDTH = 280;
   private static readonly DESKTOP_LEFT_PANEL_MIN_WIDTH = 220;
   private static readonly DESKTOP_ACTION_PLAN_DEFAULT_WIDTH = 320;
+  private static readonly DESKTOP_GAMEPLANS_DEFAULT_WIDTH = 640;
+  private static readonly DESKTOP_PLAYBOOKS_DEFAULT_WIDTH = 640;
+  private static readonly DESKTOP_FILM_REVIEW_DEFAULT_WIDTH = 720;
   private static readonly DESKTOP_ACTION_PLAN_MIN_WIDTH = 260;
-  private static readonly DESKTOP_GAMEPLANS_MIN_WIDTH = 420;
-  private static readonly DESKTOP_PLAYBOOKS_MIN_WIDTH = 420;
+  private static readonly DESKTOP_GAMEPLANS_MIN_WIDTH = 500;
+  private static readonly DESKTOP_PLAYBOOKS_MIN_WIDTH = 500;
+  private static readonly DESKTOP_FILM_REVIEW_MIN_WIDTH = 560;
   private static readonly DESKTOP_EXPANDED_PANEL_MIN_WIDTH = 400;
 
   protected readonly resolveCoordinatorChipId = resolveCoordinatorChipId;
@@ -3859,6 +4092,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly agentTitlePortal = viewChild<TemplateRef<unknown>>('agentTitlePortal');
   private readonly agentRightPortal = viewChild<TemplateRef<unknown>>('agentRightPortal');
   private readonly operationsLog = viewChild(AgentXOperationsLogComponent);
+  private readonly gameplansPanel = viewChild(AgentXGameplansPanelComponent);
+  private readonly playbooksPanel = viewChild(AgentXPlaybooksPanelComponent);
+  private readonly filmReviewPanel = viewChild(AgentXFilmReviewPanelComponent);
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
   private readonly operationEventService = inject(AgentXOperationEventService);
@@ -3866,6 +4102,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly platform = inject(NxtPlatformService);
   private readonly selectedCoordinatorLabel = signal<string | null>(null);
   private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
+  protected readonly mobileComposerCanSend = computed(() => this.agentX.canSend());
   private desktopSessionCounter = 0;
 
   // ============================================
@@ -3963,6 +4200,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   );
   protected readonly gameplansWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly playbooksWidth = signal(this.getDefaultExpandedPanelWidth());
+  protected readonly filmReviewWidth = signal(
+    AgentXShellWebComponent.DESKTOP_FILM_REVIEW_DEFAULT_WIDTH
+  );
   protected readonly expandedPanelWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly activeDesktopResize = signal<AgentXDesktopResizeState | null>(null);
   protected readonly isDesktopPanelResizing = computed(() => this.activeDesktopResize() !== null);
@@ -3971,33 +4211,85 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       ? this.expandedPanelWidth()
       : this.showPlaybooksModal()
         ? this.playbooksWidth()
-        : this.showGameplansModal()
-          ? this.gameplansWidth()
-          : this.actionPlanWidth()
+        : this.showFilmReviewModal()
+          ? this.filmReviewWidth()
+          : this.showGameplansModal()
+            ? this.gameplansWidth()
+            : this.actionPlanWidth()
   );
 
   /** Whether the Game Plans panel is visible (behind feature flag). Starts closed. */
   protected readonly showGameplansModal = signal(false);
   protected readonly showPlaybooksModal = signal(false);
+  protected readonly showFilmReviewModal = signal(false);
   protected readonly isPanelMenuOpen = signal(false);
-  protected readonly panelMenuSelection = computed<'live-view' | 'gameplans' | 'playbooks' | null>(
-    () => {
-      if (this.showPlaybooksModal()) return 'playbooks';
-      if (this.showGameplansModal()) return 'gameplans';
+  protected readonly panelMenuSelection = computed<
+    'live-view' | 'gameplans' | 'playbooks' | 'film-review' | null
+  >(() => {
+    if (this.showPlaybooksModal()) return 'playbooks';
+    if (this.showFilmReviewModal()) return 'film-review';
+    if (this.showGameplansModal()) return 'gameplans';
 
-      const expanded = this.expandedSidePanel();
-      if (expanded?.type === 'live-view' || expanded?.type === 'live-view-launcher') {
-        return 'live-view';
-      }
-
-      return null;
+    const expanded = this.expandedSidePanel();
+    if (expanded?.type === 'live-view' || expanded?.type === 'live-view-launcher') {
+      return 'live-view';
     }
+
+    return null;
+  });
+  protected readonly panelMenuLabel = computed(() => {
+    const selection = this.panelMenuSelection();
+    if (selection === 'playbooks') return 'Playbooks (Preview)';
+    if (selection === 'film-review') return 'Film Review';
+    if (selection === 'gameplans') return 'Game Plans (Preview)';
+    if (selection === 'live-view') return 'Live View (Preview)';
+    return 'Select Tool';
+  });
+  protected readonly activeContextPanelHint = computed<AgentXPanelHintKind | null>(() => {
+    const selection = this.panelMenuSelection();
+    return selection === 'gameplans' || selection === 'playbooks' || selection === 'film-review'
+      ? selection
+      : null;
+  });
+  protected readonly isGameplansDetailView = computed(
+    () => this.showGameplansModal() && !!this.gameplansPanel()?.isDetailView()
   );
-  protected readonly panelMenuLabel = computed(() =>
-    this.showPlaybooksModal() ? 'Playbooks' : this.showGameplansModal() ? 'Game Plans' : 'Live View'
+  protected readonly gameplansHeaderTitle = computed(() => {
+    const panel = this.gameplansPanel();
+    if (!panel || !panel.isDetailView()) {
+      return 'Game Plans (Preview)';
+    }
+
+    return panel.getHeaderTitle();
+  });
+  protected readonly isPlaybooksDetailView = computed(
+    () => this.showPlaybooksModal() && !!this.playbooksPanel()?.isDetailView()
   );
+  protected readonly playbooksHeaderTitle = computed(() => {
+    const panel = this.playbooksPanel();
+    if (!panel || !panel.isDetailView()) {
+      return 'Playbooks (Preview)';
+    }
+
+    return panel.getHeaderTitle();
+  });
+  protected readonly isFilmReviewInlineVideoView = computed(
+    () => this.showFilmReviewModal() && !!this.filmReviewPanel()?.isInlineVideoView()
+  );
+  protected readonly filmReviewHeaderTitle = computed(() => {
+    const panel = this.filmReviewPanel();
+    if (!panel || !panel.isInlineVideoView()) {
+      return 'Film Review';
+    }
+
+    return panel.getInlineHeaderTitle();
+  });
   protected readonly isPanelMenuActive = computed(
-    () => this.showPlaybooksModal() || this.showGameplansModal() || !!this.expandedSidePanel()
+    () =>
+      this.showPlaybooksModal() ||
+      this.showFilmReviewModal() ||
+      this.showGameplansModal() ||
+      !!this.expandedSidePanel()
   );
   protected readonly resolvedActiveTeamId = computed(() => {
     const user = this.user();
@@ -4017,6 +4309,19 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     const user = this.user();
     if (!user) return '';
 
+    const activeSport = user.activeSport?.trim();
+    if (activeSport) {
+      return activeSport;
+    }
+
+    const scopedSportSource = user.connectedSources?.find(
+      (source) => source.scopeType === 'sport' && typeof source.scopeId === 'string'
+    );
+    const scopedSport = scopedSportSource?.scopeId?.trim();
+    if (scopedSport && scopedSport.length > 0) {
+      return scopedSport;
+    }
+
     const profileSport = user.selectedSports?.find(
       (sport) => typeof sport === 'string' && sport.trim().length > 0
     );
@@ -4024,11 +4329,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       return profileSport.trim();
     }
 
-    const scopedSportSource = user.connectedSources?.find(
-      (source) => source.scopeType === 'sport' && typeof source.scopeId === 'string'
-    );
-    const scopedSport = scopedSportSource?.scopeId?.trim();
-    return scopedSport && scopedSport.length > 0 ? scopedSport : '';
+    return '';
   });
 
   // ── Expanded Side Panel (Firecrawl Live View / Media) ──────────────
@@ -4177,17 +4478,20 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       panel === 'action-plan' ||
       panel === 'gameplans' ||
       panel === 'playbooks' ||
+      panel === 'film-review' ||
       panel === 'expanded-panel'
         ? 0
         : this.expandedSidePanel()
           ? this.expandedPanelWidth()
           : this.showPlaybooksModal()
             ? this.playbooksWidth()
-            : this.showGameplansModal()
-              ? this.gameplansWidth()
-              : this.showActionPlanModal()
-                ? this.actionPlanWidth()
-                : 0;
+            : this.showFilmReviewModal()
+              ? this.filmReviewWidth()
+              : this.showGameplansModal()
+                ? this.gameplansWidth()
+                : this.showActionPlanModal()
+                  ? this.actionPlanWidth()
+                  : 0;
     const remainingWidth = Math.max(
       mainWidth - leftWidth - rightWidth - AgentXShellWebComponent.DESKTOP_CHAT_MIN_WIDTH,
       0
@@ -4202,6 +4506,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_GAMEPLANS_MIN_WIDTH);
       case 'playbooks':
         return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_PLAYBOOKS_MIN_WIDTH);
+      case 'film-review':
+        return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_FILM_REVIEW_MIN_WIDTH);
       case 'expanded-panel':
         return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_EXPANDED_PANEL_MIN_WIDTH);
       default:
@@ -4226,6 +4532,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       case 'playbooks':
         this.showPlaybooksModal.set(false);
         this.playbooksWidth.set(this.getDefaultExpandedPanelWidth());
+        break;
+      case 'film-review':
+        this.showFilmReviewModal.set(false);
+        this.filmReviewWidth.set(AgentXShellWebComponent.DESKTOP_FILM_REVIEW_DEFAULT_WIDTH);
         break;
       case 'expanded-panel':
         this.closeExpandedSidePanel();
@@ -4263,6 +4573,13 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         this.getDesktopPanelMaxWidth('playbooks')
       )
     );
+    this.filmReviewWidth.set(
+      this.clampWidth(
+        this.filmReviewWidth(),
+        AgentXShellWebComponent.DESKTOP_FILM_REVIEW_MIN_WIDTH,
+        this.getDesktopPanelMaxWidth('film-review')
+      )
+    );
     this.expandedPanelWidth.set(
       this.clampWidth(
         this.expandedPanelWidth(),
@@ -4285,6 +4602,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     const syncedRightPanelDefault = this.getDefaultExpandedPanelWidth();
     this.gameplansWidth.set(syncedRightPanelDefault);
     this.playbooksWidth.set(syncedRightPanelDefault);
+    this.filmReviewWidth.set(AgentXShellWebComponent.DESKTOP_FILM_REVIEW_DEFAULT_WIDTH);
     this.expandedPanelWidth.set(this.getDefaultExpandedPanelWidth());
     this.clampDesktopPanelWidths();
   }
@@ -4305,7 +4623,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
             ? this.gameplansWidth()
             : panel === 'playbooks'
               ? this.playbooksWidth()
-              : this.expandedPanelWidth();
+              : panel === 'film-review'
+                ? this.filmReviewWidth()
+                : this.expandedPanelWidth();
 
     this.activeDesktopResize.set({
       panel,
@@ -4331,6 +4651,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         break;
       case 'playbooks':
         this.playbooksWidth.set(this.getDefaultExpandedPanelWidth());
+        break;
+      case 'film-review':
+        this.filmReviewWidth.set(AgentXShellWebComponent.DESKTOP_FILM_REVIEW_DEFAULT_WIDTH);
         break;
       case 'expanded-panel':
         this.expandedPanelWidth.set(this.getDefaultExpandedPanelWidth());
@@ -4402,6 +4725,17 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
           nextWidth,
           AgentXShellWebComponent.DESKTOP_PLAYBOOKS_MIN_WIDTH,
           this.getDesktopPanelMaxWidth('playbooks')
+        )
+      );
+      return;
+    }
+
+    if (resizeState.panel === 'film-review') {
+      this.filmReviewWidth.set(
+        this.clampWidth(
+          nextWidth,
+          AgentXShellWebComponent.DESKTOP_FILM_REVIEW_MIN_WIDTH,
+          this.getDesktopPanelMaxWidth('film-review')
         )
       );
       return;
@@ -4948,13 +5282,27 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   protected async onSendMessage(): Promise<void> {
+    await this.filmReviewPanel()?.queueCurrentPlayContextForChat(false);
+
     const message = this.agentX.getUserMessage().trim();
-    if (!message) return;
+    const servicePendingFiles = this.agentX.pendingFiles();
+    const pendingSelectedContexts = this.agentX.pendingSelectedContexts();
+    const initialFiles = servicePendingFiles.map((f) => ({
+      id: crypto.randomUUID(),
+      file: f.file,
+      previewUrl: f.previewUrl,
+      isImage: f.type === 'image',
+      isVideo: f.type === 'video',
+    }));
+    if (!message && initialFiles.length === 0 && pendingSelectedContexts.length === 0) return;
     await this.refreshFirecrawlSignedInAccounts();
 
     // Clear the shell input immediately
     this.agentX.setUserMessage('');
     this.agentX.clearTask();
+    if (servicePendingFiles.length > 0) {
+      this.agentX.takePendingFiles();
+    }
 
     this.setDesktopSession({
       contextId: 'agent-x-chat',
@@ -4962,6 +5310,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       contextIcon: 'bolt',
       contextType: 'command',
       initialMessage: message,
+      initialFiles,
+      autoSendOnOpen: true,
       quickActions: this.commandQuickActions(),
     });
   }
@@ -4989,6 +5339,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.showActionPlanModal() &&
       !this.showGameplansModal() &&
       !this.showPlaybooksModal() &&
+      !this.showFilmReviewModal() &&
       !this.expandedSidePanel()
     ) {
       this.showActionPlanModal.set(false);
@@ -5000,6 +5351,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     }
     this.showPlaybooksModal.set(false);
     this.showGameplansModal.set(false);
+    this.showFilmReviewModal.set(false);
     this.actionPlanWidth.set(AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH);
     this.showActionPlanModal.set(true);
   }
@@ -5015,6 +5367,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       }
       this.showActionPlanModal.set(false);
       this.showPlaybooksModal.set(false);
+      this.showFilmReviewModal.set(false);
       this.gameplansWidth.set(this.getDefaultExpandedPanelWidth());
     }
     this.showGameplansModal.set(newValue);
@@ -5036,6 +5389,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     await this.haptics.impact('light');
     this.showPlaybooksModal.set(false);
     this.showGameplansModal.set(false);
+    this.showFilmReviewModal.set(false);
     this.actionPlanWidth.set(AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH);
     this.showActionPlanModal.set(true);
   }
@@ -5198,6 +5552,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
     this.showPlaybooksModal.set(false);
     this.showGameplansModal.set(false);
+    this.showFilmReviewModal.set(false);
 
     // Open the native launcher UI inside the panel instead of starting a session immediately
     this.openExpandedSidePanel({
@@ -5214,7 +5569,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   public async onSelectPanelMenuOption(
-    option: 'live-view' | 'gameplans' | 'playbooks',
+    option: 'live-view' | 'gameplans' | 'playbooks' | 'film-review',
     event: MouseEvent
   ): Promise<void> {
     event.stopPropagation();
@@ -5224,6 +5579,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       await this.haptics.impact('light');
       this.showPlaybooksModal.set(false);
       this.showGameplansModal.set(false);
+      this.showFilmReviewModal.set(false);
 
       const expanded = this.expandedSidePanel();
       const isLiveViewPanel =
@@ -5252,9 +5608,29 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
       this.showActionPlanModal.set(false);
       this.showGameplansModal.set(false);
+      this.showFilmReviewModal.set(false);
       this.playbooksWidth.set(this.getDefaultExpandedPanelWidth());
       this.showPlaybooksModal.set(true);
       this.breadcrumb.trackStateChange('agent_x_shell:playbooks_opened', {});
+      return;
+    }
+
+    if (option === 'film-review') {
+      await this.haptics.impact('light');
+
+      if (this.expandedSidePanel()) {
+        this.closeExpandedSidePanel();
+      }
+
+      this.showActionPlanModal.set(false);
+      this.showPlaybooksModal.set(false);
+      this.showGameplansModal.set(false);
+      this.filmReviewWidth.set(AgentXShellWebComponent.DESKTOP_FILM_REVIEW_DEFAULT_WIDTH);
+      this.showFilmReviewModal.set(true);
+      this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_OPENED, {
+        surface: 'agent_x_shell_menu',
+      });
+      this.breadcrumb.trackStateChange('agent_x_shell:film_review_opened', {});
       return;
     }
 
@@ -5265,8 +5641,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     }
 
     const wasOpen = this.showGameplansModal();
+
     this.showActionPlanModal.set(false);
     this.showPlaybooksModal.set(false);
+    this.showFilmReviewModal.set(false);
     this.gameplansWidth.set(this.getDefaultExpandedPanelWidth());
     this.showGameplansModal.set(true);
 
@@ -5277,6 +5655,37 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       });
       this.breadcrumb.trackStateChange('agent_x_shell:game_plans_opened', {});
     }
+  }
+
+  protected async openFilmReviewLibraryFromUpload(): Promise<void> {
+    await this.haptics.impact('light');
+
+    if (this.expandedSidePanel()) {
+      this.closeExpandedSidePanel();
+    }
+
+    this.isPanelMenuOpen.set(false);
+    this.showActionPlanModal.set(false);
+    this.showPlaybooksModal.set(false);
+    this.showGameplansModal.set(false);
+    this.filmReviewWidth.set(AgentXShellWebComponent.DESKTOP_FILM_REVIEW_DEFAULT_WIDTH);
+    this.showFilmReviewModal.set(true);
+    this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_OPENED, {
+      surface: 'agent_x_upload_auto_open',
+    });
+    this.breadcrumb.trackStateChange('agent_x_shell:film_review_opened_from_upload', {});
+  }
+
+  public onGameplansHeaderBack(): void {
+    this.gameplansPanel()?.backToList();
+  }
+
+  public onPlaybooksHeaderBack(): void {
+    this.playbooksPanel()?.backToList();
+  }
+
+  public onFilmReviewHeaderBack(): void {
+    this.filmReviewPanel()?.backToLibrary();
   }
 
   /** Called when the launcher emits a reconnect request for an existing session. */
@@ -5386,11 +5795,16 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   public async onMobileSendMessage(): Promise<void> {
     this.selectedCoordinatorLabel.set(null);
 
+    await this.filmReviewPanel()?.queueCurrentPlayContextForChat(false);
+
     const message = this.agentX.getUserMessage().trim();
     const servicePendingFiles = this.agentX.pendingFiles();
+    const pendingSelectedContexts = this.agentX.pendingSelectedContexts();
 
     // Allow send if there's a message OR pending files
-    if (!message && servicePendingFiles.length === 0) return;
+    if (!message && servicePendingFiles.length === 0 && pendingSelectedContexts.length === 0) {
+      return;
+    }
 
     // Capture pending files and convert to operation-chat PendingFile shape
     const initialFiles = servicePendingFiles.map((f) => ({
@@ -5403,7 +5817,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
     this.agentX.setUserMessage('');
     this.agentX.clearTask();
-    this.agentX.takePendingFiles();
+    if (servicePendingFiles.length > 0) {
+      this.agentX.takePendingFiles();
+    }
 
     await this.refreshFirecrawlSignedInAccounts();
 
@@ -5417,6 +5833,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         contextType: 'command',
         initialMessage: message,
         initialFiles,
+        autoSendOnOpen: true,
         connectedSources: this.getAttachmentConnectedSources(),
         quickActions: this.commandQuickActions(),
         user: this.user(),

@@ -5,13 +5,31 @@ import { type AgentXHintDockItem } from './agent-x-operation-chat-hint-dock.comp
  * @fileoverview Agent X Operation Chat Hint Facade
  * @module @nxt1/ui/agent-x
  *
- * Manages hint lifecycle, dismissal, and display logic.
- * Currently supports:
- * - LIVE_VIEW_DISMISS: Hint to dismiss the live view panel when user has had session open > N seconds
+ * Manages short-lived, first-open panel hints for the operation chat dock.
  */
 
-const LIVE_VIEW_HINT_MIN_DURATION_MS = 20_000; // Show hint after 20 seconds
-const LIVE_VIEW_HINT_AUTO_DISMISS_MS = 15_000; // Auto-dismiss after 15 seconds
+export type AgentXPanelHintKind = 'gameplans' | 'playbooks' | 'film-review';
+
+const PANEL_HINT_AUTO_DISMISS_MS = 8_000;
+
+const PANEL_HINTS: Record<AgentXPanelHintKind, Omit<AgentXHintDockItem, 'hintKey'>> = {
+  gameplans: {
+    icon: 'clipboard-list',
+    title: 'Game Plans',
+    description: 'Drag a game plan or tactical item into the composer to attach it as context.',
+  },
+  playbooks: {
+    icon: 'book-open',
+    title: 'Playbooks',
+    description: 'Drag plays, callsheets, or install cards into the composer to brief Agent X.',
+  },
+  'film-review': {
+    icon: 'film',
+    title: 'Film Review',
+    description: 'Drag clips or marked-up plays into the composer to include the review context.',
+    tone: 'brand',
+  },
+};
 
 @Injectable()
 export class AgentXOperationChatHintFacade {
@@ -19,17 +37,14 @@ export class AgentXOperationChatHintFacade {
 
   // ─── Signals ────────────────────────────────────────────────────────────────
   private readonly _dismissedHints = signal<Set<string>>(new Set());
-  private readonly _liveViewSessionStartTime = signal<number | null>(null);
-  private readonly _liveViewActive = signal(false);
-  private readonly _nowMs = signal(Date.now());
-  private readonly _hintShownTime = signal<number | null>(null);
+  private readonly _shownPanelHints = signal<Set<AgentXPanelHintKind>>(new Set());
+  private readonly _activePanelHint = signal<AgentXHintDockItem | null>(null);
 
-  private liveViewHintTimer: ReturnType<typeof setInterval> | null = null;
-  private liveViewHintAutoDismissTimer: ReturnType<typeof setTimeout> | null = null;
+  private panelHintAutoDismissTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     this.destroyRef.onDestroy(() => {
-      this.stopLiveViewHintTimer();
+      this.cancelPanelHintAutoDismiss();
     });
   }
 
@@ -37,38 +52,11 @@ export class AgentXOperationChatHintFacade {
 
   /**
    * All hints to display, filtered by dismissal state.
-   * Ordered: live view hints first.
    */
   readonly hints = computed((): readonly AgentXHintDockItem[] => {
     const dismissed = this._dismissedHints();
-    const hintList: AgentXHintDockItem[] = [];
-
-    // Live view hint: show after 20 seconds of active live view
-    if (
-      this._liveViewActive() &&
-      this._liveViewSessionStartTime() !== null &&
-      !dismissed.has('LIVE_VIEW_DISMISS')
-    ) {
-      const elapsed = this._nowMs() - (this._liveViewSessionStartTime() ?? 0);
-      if (elapsed >= LIVE_VIEW_HINT_MIN_DURATION_MS) {
-        // Track when hint was first shown so we can auto-dismiss
-        if (this._hintShownTime() === null) {
-          this._hintShownTime.set(this._nowMs());
-          this.scheduleHintAutoDismiss();
-        }
-
-        hintList.push({
-          hintKey: 'LIVE_VIEW_DISMISS',
-          icon: 'close-circle',
-          title: 'You can close the panel anytime',
-          description:
-            'Agent X will keep this browser session open and can continue analyzing the page for up to 1 hour.',
-          actionLabel: undefined,
-        });
-      }
-    }
-
-    return hintList;
+    const activeHint = this._activePanelHint();
+    return activeHint && !dismissed.has(activeHint.hintKey) ? [activeHint] : [];
   });
 
   /**
@@ -78,30 +66,28 @@ export class AgentXOperationChatHintFacade {
 
   // ─── Public API ──────────────────────────────────────────────────────────────
 
-  /**
-   * Mark the live view session as active and start timer for hint.
-   */
-  markLiveViewActive(startTime?: number): void {
-    this._liveViewActive.set(true);
-    this._liveViewSessionStartTime.set(startTime ?? Date.now());
-    this._nowMs.set(Date.now());
-    this.startLiveViewHintTimer();
+  showPanelHint(panel: AgentXPanelHintKind): void {
+    if (this._shownPanelHints().has(panel)) return;
+
+    const hintKey = this.panelHintKey(panel);
+    this._shownPanelHints.update((shown) => new Set([...shown, panel]));
+    this._activePanelHint.set({ hintKey, ...PANEL_HINTS[panel] });
+    this.schedulePanelHintAutoDismiss(hintKey);
   }
 
-  /**
-   * Mark the live view session as inactive (panel closed).
-   */
-  markLiveViewInactive(): void {
-    this._liveViewActive.set(false);
-    this._liveViewSessionStartTime.set(null);
-    this.stopLiveViewHintTimer();
-  }
+  markLiveViewActive(_startTime?: number): void {}
+
+  markLiveViewInactive(): void {}
 
   /**
    * Dismiss a hint permanently for this session.
    */
   dismissHint(hintKey: string): void {
     this._dismissedHints.update((dismissed) => new Set([...dismissed, hintKey]));
+    if (this._activePanelHint()?.hintKey === hintKey) {
+      this._activePanelHint.set(null);
+      this.cancelPanelHintAutoDismiss();
+    }
   }
 
   /**
@@ -109,40 +95,28 @@ export class AgentXOperationChatHintFacade {
    */
   resetHints(): void {
     this._dismissedHints.set(new Set());
-    this._liveViewActive.set(false);
-    this._liveViewSessionStartTime.set(null);
-    this._hintShownTime.set(null);
-    this.stopLiveViewHintTimer();
-    this.cancelHintAutoDismiss();
-    this._nowMs.set(Date.now());
+    this._shownPanelHints.set(new Set());
+    this._activePanelHint.set(null);
+    this.cancelPanelHintAutoDismiss();
   }
 
-  private startLiveViewHintTimer(): void {
-    if (this.liveViewHintTimer !== null) return;
-
-    // Keep hint timing reactive while live view is active.
-    this.liveViewHintTimer = setInterval(() => {
-      this._nowMs.set(Date.now());
-    }, 1_000);
+  private panelHintKey(panel: AgentXPanelHintKind): string {
+    return `PANEL_HINT:${panel}`;
   }
 
-  private stopLiveViewHintTimer(): void {
-    if (this.liveViewHintTimer === null) return;
-    clearInterval(this.liveViewHintTimer);
-    this.liveViewHintTimer = null;
+  private schedulePanelHintAutoDismiss(hintKey: string): void {
+    this.cancelPanelHintAutoDismiss();
+    this.panelHintAutoDismissTimer = setTimeout(() => {
+      if (this._activePanelHint()?.hintKey === hintKey) {
+        this._activePanelHint.set(null);
+      }
+      this.panelHintAutoDismissTimer = null;
+    }, PANEL_HINT_AUTO_DISMISS_MS);
   }
 
-  private scheduleHintAutoDismiss(): void {
-    this.cancelHintAutoDismiss();
-    this.liveViewHintAutoDismissTimer = setTimeout(() => {
-      this.dismissHint('LIVE_VIEW_DISMISS');
-      this.liveViewHintAutoDismissTimer = null;
-    }, LIVE_VIEW_HINT_AUTO_DISMISS_MS);
-  }
-
-  private cancelHintAutoDismiss(): void {
-    if (this.liveViewHintAutoDismissTimer === null) return;
-    clearTimeout(this.liveViewHintAutoDismissTimer);
-    this.liveViewHintAutoDismissTimer = null;
+  private cancelPanelHintAutoDismiss(): void {
+    if (this.panelHintAutoDismissTimer === null) return;
+    clearTimeout(this.panelHintAutoDismissTimer);
+    this.panelHintAutoDismissTimer = null;
   }
 }

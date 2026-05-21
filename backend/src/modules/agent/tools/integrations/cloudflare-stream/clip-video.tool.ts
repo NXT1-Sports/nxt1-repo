@@ -27,6 +27,7 @@ export class ClipVideoTool extends BaseTool {
   override readonly allowedAgents = [
     'brand_coordinator',
     'data_coordinator',
+    'performance_coordinator',
     'strategy_coordinator',
   ] as const;
 

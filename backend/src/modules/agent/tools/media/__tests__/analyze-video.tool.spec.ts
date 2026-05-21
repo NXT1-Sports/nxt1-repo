@@ -22,6 +22,10 @@ describe('AnalyzeVideoTool', () => {
     analyzeVideoFromUrl: vi.fn(),
     analyzeVideosFromUrls: vi.fn(),
   };
+  const cloudflareBridge = {
+    clipVideo: vi.fn(),
+    getVideo: vi.fn(),
+  };
 
   const context: ToolExecutionContext = {
     userId: 'user-123',
@@ -33,6 +37,83 @@ describe('AnalyzeVideoTool', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('clips bounded Cloudflare ranges before Gemini analysis', async () => {
+    const tool = new AnalyzeVideoTool(
+      scraper as never,
+      llm as never,
+      apify as never,
+      ffmpeg as never,
+      geminiFiles as never,
+      cloudflareBridge as never
+    );
+    const resolveProcessingUrl = vi.fn().mockResolvedValue({
+      url: 'https://customer.example.cloudflarestream.com/clip-456/downloads/default.mp4',
+      source: 'cloudflare_download',
+      cloudflareVideoId: 'clip-456',
+    });
+    (
+      tool as unknown as {
+        mediaTransportResolver: { resolveProcessingUrl: typeof resolveProcessingUrl };
+      }
+    ).mediaTransportResolver = { resolveProcessingUrl };
+
+    cloudflareBridge.clipVideo.mockResolvedValueOnce({ uid: 'clip-456' });
+    cloudflareBridge.getVideo.mockResolvedValueOnce({
+      uid: 'clip-456',
+      status: { state: 'ready', pctComplete: 100 },
+    });
+    geminiFiles.analyzeVideosFromUrls.mockResolvedValueOnce({
+      content: 'Bounded clip analysis',
+      toolCalls: [],
+      model: 'gemini-2.5-flash',
+      usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+      latencyMs: 1200,
+      costUsd: 0.001,
+      finishReason: 'STOP',
+    });
+
+    const result = await tool.execute(
+      {
+        url: 'https://watch.cloudflarestream.com/source-123',
+        cloudflareVideoId: 'source-123',
+        prompt: 'Analyze this play.',
+        timeRange: {
+          startSec: 15,
+          endSec: 22,
+        },
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    expect(cloudflareBridge.clipVideo).toHaveBeenCalledWith('source-123', 13, 24, undefined, 240);
+    expect(resolveProcessingUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceUrl: 'https://watch.cloudflarestream.com/clip-456',
+        cloudflareVideoId: 'clip-456',
+        fallbackToFirebaseStaging: false,
+      })
+    );
+    expect(geminiFiles.analyzeVideosFromUrls).toHaveBeenCalledWith(
+      ['https://customer.example.cloudflarestream.com/clip-456/downloads/default.mp4'],
+      'Analyze this play.',
+      4096,
+      expect.objectContaining({ userId: 'user-123', threadId: 'thread-456' })
+    );
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        clipApplied: {
+          sourceVideoId: 'source-123',
+          clipVideoId: 'clip-456',
+          requestedStartSec: 15,
+          requestedEndSec: 22,
+          clipStartSec: 13,
+          clipEndSec: 24,
+        },
+      })
+    );
   });
 
   it('uses Gemini Files API for public direct video files when configured', async () => {
@@ -343,6 +424,67 @@ describe('AnalyzeVideoTool', () => {
         }),
       ])
     );
+  });
+
+  it('passes cloudflareVideoId through transport resolution before Gemini analysis', async () => {
+    const tool = new AnalyzeVideoTool(
+      scraper as never,
+      llm as never,
+      apify as never,
+      ffmpeg as never,
+      geminiFiles as never
+    );
+    const resolveProcessingUrl = vi.fn().mockResolvedValue({
+      url: 'https://customer.example.cloudflarestream.com/8c72670e15519099333c03359dd39b98/downloads/default.mp4',
+      source: 'cloudflare_download',
+      cloudflareVideoId: '8c72670e15519099333c03359dd39b98',
+    });
+    (
+      tool as unknown as {
+        mediaTransportResolver: { resolveProcessingUrl: typeof resolveProcessingUrl };
+      }
+    ).mediaTransportResolver = { resolveProcessingUrl };
+
+    geminiFiles.analyzeVideosFromUrls.mockResolvedValueOnce({
+      content: 'Cloudflare-backed film analyzed through Gemini Files',
+      toolCalls: [],
+      model: 'gemini-2.5-flash',
+      usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+      latencyMs: 1200,
+      costUsd: 0.001,
+      finishReason: 'STOP',
+    });
+
+    const firebasePlaceholderUrl =
+      'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/user-123/threads/thread-456/media/staged/video/1779287684553-b1aa23127cb752e1-8c72670e15519099333c03359dd39b98.bin?X-Goog-Signature=signed';
+
+    const result = await tool.execute(
+      {
+        url: firebasePlaceholderUrl,
+        cloudflareVideoId: '8c72670e15519099333c03359dd39b98',
+        prompt: 'Analyze this clip.',
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    expect(resolveProcessingUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceUrl: firebasePlaceholderUrl,
+        cloudflareVideoId: '8c72670e15519099333c03359dd39b98',
+        fallbackToFirebaseStaging: true,
+        stageMediaKind: 'video',
+      })
+    );
+    expect(geminiFiles.analyzeVideosFromUrls).toHaveBeenCalledWith(
+      [
+        'https://customer.example.cloudflarestream.com/8c72670e15519099333c03359dd39b98/downloads/default.mp4',
+      ],
+      'Analyze this clip.',
+      4096,
+      expect.objectContaining({ userId: 'user-123', threadId: 'thread-456' })
+    );
+    expect(llm.complete).not.toHaveBeenCalled();
   });
 
   it('retries with FFmpeg-normalized MP4 when OpenRouter returns empty choices for signed Firebase/GCS URLs without extension', async () => {

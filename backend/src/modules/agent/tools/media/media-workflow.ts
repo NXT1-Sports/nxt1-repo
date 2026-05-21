@@ -36,6 +36,7 @@ export interface MediaWorkflowArtifact {
   readonly playableUrls: readonly string[];
   readonly directMp4Urls: readonly string[];
   readonly manifestUrls: readonly string[];
+  readonly cloudflareVideoId?: string;
   readonly stagingHeaders?: Readonly<Record<string, string>>;
   readonly rationale: string;
 }
@@ -45,7 +46,8 @@ const HLS_PATTERN = /\.m3u8(?:$|[?#])/i;
 const DASH_PATTERN = /\.mpd(?:$|[?#])/i;
 const YOUTUBE_PATTERN =
   /^https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([a-zA-Z0-9_-]{11})/i;
-const CLOUDFLARE_STREAM_PATTERN = /^https?:\/\/(?:watch\.)?cloudflarestream\.com\//i;
+const CLOUDFLARE_STREAM_PATTERN =
+  /^https?:\/\/(?:watch\.cloudflarestream\.com|[^/]+\.cloudflarestream\.com|videodelivery\.net)\//i;
 const FIREBASE_STORAGE_PATTERN =
   /^https?:\/\/(?:storage\.googleapis\.com|firebasestorage\.googleapis\.com)\//i;
 const AUTH_GATED_VIDEO_HOSTS = [/^(.+\.)?hudl\.com$/i];
@@ -57,6 +59,7 @@ export interface BuildVideoArtifactInput {
   readonly hlsUrls?: readonly string[];
   readonly dashUrls?: readonly string[];
   readonly recommendedHeaders?: Readonly<Record<string, string>>;
+  readonly cloudflareVideoId?: string;
   readonly sourceTypeHint?: MediaSourceType;
   readonly rationale?: string;
 }
@@ -86,6 +89,7 @@ export function buildVideoWorkflowArtifact(input: BuildVideoArtifactInput): Medi
       playableUrls: uniqueStrings([sourceUrl, ...playableUrls]),
       directMp4Urls,
       manifestUrls,
+      ...(input.cloudflareVideoId ? { cloudflareVideoId: input.cloudflareVideoId } : {}),
       stagingHeaders: undefined,
       rationale:
         input.rationale ?? 'YouTube links are natively portable for direct video analysis.',
@@ -108,6 +112,7 @@ export function buildVideoWorkflowArtifact(input: BuildVideoArtifactInput): Medi
       playableUrls: uniqueStrings([sourceUrl, ...playableUrls]),
       directMp4Urls: uniqueStrings([sourceUrl, ...directMp4Urls]),
       manifestUrls,
+      ...(input.cloudflareVideoId ? { cloudflareVideoId: input.cloudflareVideoId } : {}),
       stagingHeaders: undefined,
       rationale:
         input.rationale ??
@@ -131,6 +136,7 @@ export function buildVideoWorkflowArtifact(input: BuildVideoArtifactInput): Medi
         playableUrls,
         directMp4Urls,
         manifestUrls,
+        ...(input.cloudflareVideoId ? { cloudflareVideoId: input.cloudflareVideoId } : {}),
         ...(hasAuthHeaders ? { stagingHeaders: headers } : {}),
         rationale:
           input.rationale ??
@@ -151,6 +157,7 @@ export function buildVideoWorkflowArtifact(input: BuildVideoArtifactInput): Medi
       playableUrls,
       directMp4Urls,
       manifestUrls,
+      ...(input.cloudflareVideoId ? { cloudflareVideoId: input.cloudflareVideoId } : {}),
       stagingHeaders: undefined,
       rationale:
         input.rationale ??
@@ -170,6 +177,7 @@ export function buildVideoWorkflowArtifact(input: BuildVideoArtifactInput): Medi
       playableUrls,
       directMp4Urls,
       manifestUrls,
+      ...(input.cloudflareVideoId ? { cloudflareVideoId: input.cloudflareVideoId } : {}),
       ...(hasAuthHeaders ? { stagingHeaders: headers } : {}),
       rationale:
         input.rationale ??
@@ -189,6 +197,7 @@ export function buildVideoWorkflowArtifact(input: BuildVideoArtifactInput): Medi
       playableUrls,
       directMp4Urls,
       manifestUrls,
+      ...(input.cloudflareVideoId ? { cloudflareVideoId: input.cloudflareVideoId } : {}),
       ...(hasAuthHeaders ? { stagingHeaders: headers } : {}),
       rationale:
         input.rationale ??
@@ -208,6 +217,7 @@ export function buildVideoWorkflowArtifact(input: BuildVideoArtifactInput): Medi
       playableUrls,
       directMp4Urls,
       manifestUrls,
+      ...(input.cloudflareVideoId ? { cloudflareVideoId: input.cloudflareVideoId } : {}),
       ...(hasAuthHeaders ? { stagingHeaders: headers } : {}),
       rationale:
         input.rationale ??
@@ -228,6 +238,7 @@ export function buildVideoWorkflowArtifact(input: BuildVideoArtifactInput): Medi
     playableUrls,
     directMp4Urls,
     manifestUrls,
+    ...(input.cloudflareVideoId ? { cloudflareVideoId: input.cloudflareVideoId } : {}),
     ...(hasAuthHeaders ? { stagingHeaders: headers } : {}),
     rationale:
       input.rationale ??
@@ -238,6 +249,7 @@ export function buildVideoWorkflowArtifact(input: BuildVideoArtifactInput): Medi
 export function buildPortableMediaArtifact(params: {
   readonly sourceUrl: string;
   readonly mediaKind?: MediaWorkflowArtifact['mediaKind'];
+  readonly cloudflareVideoId?: string;
   readonly rationale?: string;
 }): MediaWorkflowArtifact {
   return {
@@ -265,6 +277,7 @@ export function buildPortableMediaArtifact(params: {
       HLS_PATTERN.test(params.sourceUrl) || DASH_PATTERN.test(params.sourceUrl)
         ? [params.sourceUrl]
         : [],
+    ...(params.cloudflareVideoId ? { cloudflareVideoId: params.cloudflareVideoId } : {}),
     rationale:
       params.rationale ?? 'This media source is already portable and ready for direct analysis.',
   };

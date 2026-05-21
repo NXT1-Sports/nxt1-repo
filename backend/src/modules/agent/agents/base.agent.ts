@@ -4622,6 +4622,9 @@ export abstract class BaseAgent {
     const playbookDescriptor = this.resolvePlaybookDescriptor(input['playbookId']);
     if (playbookDescriptor) return playbookDescriptor;
 
+    const filmReviewDescriptor = this.resolveFilmReviewDescriptor(input['filmReviewId']);
+    if (filmReviewDescriptor) return filmReviewDescriptor;
+
     const priorityKeys = [
       'actionSummary',
       'programName',
@@ -4725,6 +4728,7 @@ export abstract class BaseAgent {
       'parentOperationId',
       'parentThreadId',
       'sessionId',
+      'filmReviewId',
       'type',
       'status',
       'format',
@@ -4758,6 +4762,33 @@ export abstract class BaseAgent {
     }
 
     return this.formatToolInvocationValue(normalized.replace(/[-_]+/g, ' '));
+  }
+
+  private resolveFilmReviewDescriptor(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+
+    const normalized = value.trim();
+    if (!normalized) return null;
+
+    const parts = normalized
+      .split('_')
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+
+    if (parts.length < 3) return null;
+
+    const lastPart = parts.at(-1) ?? '';
+    const hasTechnicalSuffix = /^\d{10,}[a-z0-9-]*$/i.test(lastPart);
+    const descriptorParts = parts.slice(1, hasTechnicalSuffix ? -1 : undefined);
+    if (descriptorParts.length === 0) return null;
+
+    const humanized = descriptorParts.join(' ').replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!humanized) return null;
+
+    const collapsed = humanized.replace(/\s+/g, '');
+    if (/^[a-z0-9]{12,}$/i.test(collapsed)) return null;
+
+    return humanized.replace(/\b\w/g, (char) => char.toUpperCase());
   }
 
   private resolveDraftPostDescriptor(input: Record<string, unknown>): string | null {

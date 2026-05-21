@@ -53,6 +53,38 @@ Agent X operates on a strict 3-tier architecture that heavily enforces the
 - **Rule**: Views contain _zero_ state logic. They solely rely on Angular
   `effect()` listeners subscribing to the shared `AgentXService`.
 
+### 2.1 Memory Architecture (Canonical)
+
+Agent X uses three memory lanes that solve different problems. They are
+complementary and should not be merged.
+
+| Memory lane    | Primary purpose                                                                                     | Scope                                      | TTL / retention                  | Where it is used                                              |
+| -------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------ | -------------------------------- | ------------------------------------------------------------- |
+| Semantic cache | Reuse near-identical answers and skip full DAG execution when confidence is high                    | Shared cache (not user-private content)    | 24 hours                         | Checked at request bootstrap; written during finalization     |
+| Vector memory  | Store durable user/team/org facts (preferences, goals, constraints) for retrieval-augmented context | Scoped by target: user, team, organization | 90 days (default)                | Retrieved during context assembly and agent prompt enrichment |
+| Thread replay  | Reconstruct the exact, structurally-valid `LLMMessage[]` history for a thread                       | Per thread conversation truth              | Persistent thread history policy | Used for resume, continuation, and history rehydration        |
+
+Implementation map:
+
+- Semantic cache service:
+  `backend/src/modules/agent/memory/semantic-cache.service.ts`
+- Vector memory service: `backend/src/modules/agent/memory/vector.service.ts`
+- Thread replay service:
+  `backend/src/modules/agent/memory/thread-message-replay.service.ts`
+- Request bootstrap consumer:
+  `backend/src/modules/agent/orchestrator/agent-router-request-bootstrap.service.ts`
+- Finalization writer:
+  `backend/src/modules/agent/orchestrator/agent-router-finalization.service.ts`
+
+Operational rules:
+
+- Use semantic cache only for high-confidence intent reuse and never as a
+  substitute for long-term user memory.
+- Use vector memory for durable facts that should survive across sessions; avoid
+  storing transient turn-by-turn text there.
+- Use thread replay as the source of truth for conversation continuity; do not
+  reintroduce summary-string-only replay paths.
+
 ---
 
 ## 3. Cross-Surface State Management (The Queue Pattern)

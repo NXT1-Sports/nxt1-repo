@@ -68,7 +68,7 @@ class FakeDynamicExportTool extends BaseTool {
 
 class FakeAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'strategy_coordinator';
-  readonly name = 'Fake Agent';
+  readonly name: string = 'Fake Agent';
 
   getSystemPrompt(): string {
     return 'You are a test agent.';
@@ -199,7 +199,7 @@ class FakeSearchCollegeCoachesTool extends BaseTool {
   readonly description = 'Looks up coaching staff for a school.';
   readonly parameters = z.object({ schoolName: z.string() });
   readonly isMutation = false;
-  readonly category = 'search' as const;
+  readonly category = 'database' as const;
   readonly entityGroup = 'platform_tools' as const;
   override readonly allowedAgents = ['strategy_coordinator'] as const;
 
@@ -284,7 +284,7 @@ class FakeRunMicrosoftTool extends BaseTool {
   readonly description = 'Executes a Microsoft 365 MCP tool.';
   readonly parameters = z.object({
     toolName: z.string(),
-    arguments: z.record(z.unknown()).optional(),
+    arguments: z.record(z.string(), z.unknown()).optional(),
   });
   readonly isMutation = false;
   readonly category = 'automation' as const;
@@ -627,6 +627,16 @@ describe('BaseAgent identifier scrubbing', () => {
     });
 
     expect(label).toBe('Writing intelligence report');
+  });
+
+  it('normalizes film review labels without surfacing raw review ids', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('get_film_review', {
+      filmReviewId: '0ORPTNTxADr8wMmQkDrr_football_output_1779152454300f',
+    });
+
+    expect(label).toBe('Get Film Review');
   });
 
   it('keeps artifact URLs in compacted tool history summaries', () => {

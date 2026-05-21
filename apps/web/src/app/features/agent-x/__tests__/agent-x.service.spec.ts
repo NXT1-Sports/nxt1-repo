@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { of } from 'rxjs';
 
 import type { AgentMessage, ShellWeeklyPlaybookItem } from '@nxt1/core';
+import type { AgentXSelectedContext } from '@nxt1/core/ai';
 import { AgentXService } from '../../../../../../../packages/ui/src/agent-x/services/agent-x.service';
 import {
   AGENT_X_API_BASE_URL,
@@ -137,6 +138,54 @@ describe('AgentXService', () => {
     const ctx = createService();
     service = ctx.service;
     httpMock = ctx.httpMock;
+  });
+
+  it('allows send when a selected context is staged without text or files', () => {
+    const filmContext: AgentXSelectedContext = {
+      id: 'film-play:review-1:12',
+      kind: 'film_play',
+      title: 'Fourth Quarter @ 01:12',
+      source: {
+        type: 'film_review',
+        id: 'review-1',
+        label: 'State Championship Cutup',
+      },
+      timeRange: {
+        startSec: 72,
+        endSec: 78,
+      },
+    };
+
+    expect(service.canSend()).toBe(false);
+
+    service.queueSelectedContext(filmContext);
+
+    expect(service.pendingSelectedContexts()).toEqual([filmContext]);
+    expect(service.canSend()).toBe(true);
+  });
+
+  it('replaces an existing selected context when the same id is queued again', () => {
+    service.queueSelectedContext({
+      id: 'film-play:review-1:12',
+      kind: 'film_play',
+      title: 'Old title',
+    });
+
+    service.queueSelectedContext({
+      id: 'film-play:review-1:12',
+      kind: 'film_play',
+      title: 'Updated title',
+      summary: 'Updated summary',
+    });
+
+    expect(service.pendingSelectedContexts()).toEqual([
+      {
+        id: 'film-play:review-1:12',
+        kind: 'film_play',
+        title: 'Updated title',
+        summary: 'Updated summary',
+      },
+    ]);
   });
 
   it('drains every thread history page and preserves chronological order', async () => {

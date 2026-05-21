@@ -6,6 +6,7 @@ import type {
   AgentTask,
   AgentToolAccessContext,
   AgentToolDefinition,
+  AgentUserContext,
 } from '@nxt1/core';
 import { AgentRouterContextService } from '../agent-router-context.service.js';
 import { AgentRouterExecutionService } from '../agent-router-execution.service.js';
@@ -58,6 +59,68 @@ describe('Agent handoff and tool narrowing', () => {
     expect(taskIntent).not.toContain('[Request]');
     expect(taskIntent).not.toContain('Create, export, and send everything end to end');
     expect(taskIntent).not.toContain('[Current Task]');
+  });
+
+  it('adds request sport override when the user explicitly asks about a different sport', () => {
+    const contextService = new AgentRouterContextService(
+      {
+        compressToPrompt: () => 'Name: Multi Sport Athlete\nSport: basketball',
+      } as never,
+      undefined
+    );
+
+    const userContext: AgentUserContext = {
+      userId: 'user-1',
+      role: 'athlete',
+      displayName: 'Multi Sport Athlete',
+      sport: 'basketball',
+      sports: [
+        { sport: 'basketball', positions: ['PG'], isActive: true },
+        { sport: 'football', positions: ['QB'], isActive: false },
+      ],
+    };
+
+    const enriched = contextService.enrichIntentWithContext(
+      'Break down my football film from last game',
+      userContext
+    );
+
+    expect(enriched).toContain('[Resolved Sport Context]');
+    expect(enriched).toContain('Profile active sport: basketball');
+    expect(enriched).toContain('Request explicitly refers to: football');
+    expect(enriched).toContain('Use football as the primary sport context');
+  });
+
+  it('keeps the thread sport when the latest user turn does not restate it', () => {
+    const contextService = new AgentRouterContextService(
+      {
+        compressToPrompt: () => 'Name: Multi Sport Athlete\nSport: basketball',
+      } as never,
+      undefined
+    );
+
+    const userContext: AgentUserContext = {
+      userId: 'user-1',
+      role: 'athlete',
+      displayName: 'Multi Sport Athlete',
+      sport: 'basketball',
+      sports: [
+        { sport: 'basketball', positions: ['PG'], isActive: true },
+        { sport: 'football', positions: ['QB'], isActive: false },
+      ],
+    };
+
+    const enriched = contextService.enrichIntentWithContext(
+      'Now break down the coverages from that clip',
+      userContext,
+      undefined,
+      '\n<<<THREAD_HISTORY_START>>>\n[User]: Break down my football film from last game\n[Agent X]: Here are the first notes\n<<<THREAD_HISTORY_END>>>'
+    );
+
+    expect(enriched).toContain('[Resolved Sport Context]');
+    expect(enriched).toContain('Profile active sport: basketball');
+    expect(enriched).toContain('Active thread context refers to: football');
+    expect(enriched).toContain('Use football as the primary sport context');
   });
 
   it('keeps safety-buffer read tools while excluding low-score mutations', async () => {

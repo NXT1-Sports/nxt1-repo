@@ -41,6 +41,7 @@ function toAgentXAttachment(
     type: attachment.type as AgentXAttachment['type'],
     sizeBytes: attachment.sizeBytes as number,
     ...(attachment.cloudflareVideoId ? { cloudflareVideoId: attachment.cloudflareVideoId } : {}),
+    ...(attachment.thumbnailUrl ? { thumbnailUrl: attachment.thumbnailUrl } : {}),
   };
 }
 

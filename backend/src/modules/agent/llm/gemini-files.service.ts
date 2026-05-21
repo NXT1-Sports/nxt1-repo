@@ -35,6 +35,7 @@ import { getCacheService } from '../../../services/core/cache.service.js';
 import type { LLMCompletionResult } from './llm.types.js';
 import { storage as defaultStorage } from '../../../utils/firebase.js';
 import { stagingStorage } from '../../../utils/firebase-staging.js';
+import { validateUrl } from '../tools/integrations/firecrawl/scraping/url-validator.js';
 
 // ─── MIME type map ───────────────────────────────────────────────────────────
 
@@ -83,6 +84,7 @@ const DEFAULT_VIDEO_MIME = 'video/mp4';
 const FIREBASE_STORAGE_URL_PATTERN =
   /^https?:\/\/(?:storage\.googleapis\.com|firebasestorage\.googleapis\.com)\//i;
 const DEFAULT_MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024;
+const DEFAULT_MIN_VIDEO_UPLOAD_BYTES = 16 * 1024;
 const DEFAULT_FILE_ACTIVE_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_CONTEXT_CACHE_TTL_SECONDS = 6 * 60 * 60;
 const DEFAULT_CONTEXT_CACHE_META_TTL_SECONDS = 7 * 60 * 60;
@@ -105,6 +107,10 @@ function parsePositiveIntEnv(envName: string, fallback: number): number {
 const MAX_UPLOAD_BYTES = parsePositiveIntEnv(
   'AGENT_X_GEMINI_MAX_UPLOAD_BYTES',
   DEFAULT_MAX_UPLOAD_BYTES
+);
+const MIN_VIDEO_UPLOAD_BYTES = parsePositiveIntEnv(
+  'AGENT_X_GEMINI_MIN_VIDEO_UPLOAD_BYTES',
+  DEFAULT_MIN_VIDEO_UPLOAD_BYTES
 );
 const CONTEXT_CACHE_ENABLED =
   (process.env['AGENT_X_GEMINI_CONTEXT_CACHE_ENABLED'] ?? 'true').trim().toLowerCase() !== 'false';
@@ -255,7 +261,7 @@ export class GeminiFilesService {
 
     const uploads: GeminiUploadResult[] = [];
     for (const sourceUrl of sourceUrls) {
-      uploads.push(await this.uploadFromUrl(sourceUrl));
+      uploads.push(await this.uploadFromUrl(sourceUrl, options));
     }
 
     logger.info('[GeminiFilesService] Calling Gemini directly with Files API references', {
@@ -649,7 +655,10 @@ export class GeminiFilesService {
    *
    * Use `analyzeVideoFromUrl` for the full analysis workflow.
    */
-  async uploadFromUrl(sourceUrl: string): Promise<GeminiUploadResult> {
+  async uploadFromUrl(
+    sourceUrl: string,
+    options?: Pick<GeminiVideoAnalysisOptions, 'userId' | 'threadId'>
+  ): Promise<GeminiUploadResult> {
     const mimeType = this.mimeTypeFromUrl(sourceUrl);
 
     logger.info('[GeminiFilesService] Downloading video for Files API upload', {
@@ -661,13 +670,15 @@ export class GeminiFilesService {
     // For Firebase / GCS Storage URLs: stream via Admin SDK (service-account
     // credentials, no signed URL or IAM signing needed).  This fixes 403s
     // caused by unsigned URLs or expired signed URLs passed from the LLM.
-    const videoBuffer = await this.downloadVideoBytes(sourceUrl);
+    const videoBuffer = await this.downloadVideoBytes(sourceUrl, options);
 
     if (videoBuffer.byteLength > MAX_UPLOAD_BYTES) {
       throw new Error(
         `Video file is too large for Gemini Files API upload (${(videoBuffer.byteLength / 1024 / 1024).toFixed(1)} MB > ${MAX_UPLOAD_BYTES / 1024 / 1024} MB limit).`
       );
     }
+
+    this.assertValidVideoPayload(sourceUrl, mimeType, videoBuffer);
 
     logger.info('[GeminiFilesService] Uploading to Gemini Files API', {
       sourceUrl,
@@ -716,11 +727,21 @@ export class GeminiFilesService {
    *
    * All other URLs are downloaded via HTTP `fetch()`.
    */
-  private async downloadVideoBytes(sourceUrl: string): Promise<Buffer> {
+  private async downloadVideoBytes(
+    sourceUrl: string,
+    options?: Pick<GeminiVideoAnalysisOptions, 'userId' | 'threadId'>
+  ): Promise<Buffer> {
     if (FIREBASE_STORAGE_URL_PATTERN.test(sourceUrl)) {
       try {
-        return await this.downloadFromFirebaseStorage(sourceUrl);
+        return await this.downloadFromFirebaseStorage(sourceUrl, options);
       } catch (adminErr) {
+        if (
+          adminErr instanceof Error &&
+          (adminErr.message.includes('outside the requesting user scope') ||
+            adminErr.message.includes('outside the active thread scope'))
+        ) {
+          throw adminErr;
+        }
         logger.warn('[GeminiFilesService] Admin SDK download failed, falling back to HTTP fetch', {
           sourceUrl,
           error: adminErr instanceof Error ? adminErr.message : String(adminErr),
@@ -729,7 +750,8 @@ export class GeminiFilesService {
       }
     }
 
-    const response = await fetch(sourceUrl);
+    const validatedUrl = validateUrl(sourceUrl, { allowSocialMedia: true });
+    const response = await fetch(validatedUrl);
     if (!response.ok) {
       throw new Error(
         `Failed to download video from ${sourceUrl}: HTTP ${response.status} ${response.statusText}`
@@ -782,13 +804,17 @@ export class GeminiFilesService {
    * The Admin SDK authenticates with the backend service account, so no
    * signed URL or public access is required.
    */
-  private async downloadFromFirebaseStorage(sourceUrl: string): Promise<Buffer> {
+  private async downloadFromFirebaseStorage(
+    sourceUrl: string,
+    options?: Pick<GeminiVideoAnalysisOptions, 'userId' | 'threadId'>
+  ): Promise<Buffer> {
     const parts = this.parseFirebaseStorageUrl(sourceUrl);
     if (!parts) {
       throw new Error(`Cannot parse Firebase Storage URL: ${sourceUrl}`);
     }
 
     const { bucketName, storagePath } = parts;
+    this.assertAuthorizedStoragePath(storagePath, options);
     const isStaging = bucketName.toLowerCase().includes('staging');
     const storageInstance = isStaging ? stagingStorage : defaultStorage;
 
@@ -800,6 +826,26 @@ export class GeminiFilesService {
 
     const [buffer] = await storageInstance.bucket(bucketName).file(storagePath).download();
     return buffer;
+  }
+
+  private assertAuthorizedStoragePath(
+    storagePath: string,
+    options?: Pick<GeminiVideoAnalysisOptions, 'userId' | 'threadId'>
+  ): void {
+    if (!options?.userId) return;
+
+    const normalizedPath = storagePath.replace(/^\/+/, '');
+    const expectedUserPrefix = `Users/${options.userId}/`;
+    if (!normalizedPath.startsWith(expectedUserPrefix)) {
+      throw new Error('Firebase Storage media is outside the requesting user scope.');
+    }
+
+    if (options.threadId && normalizedPath.includes('/threads/')) {
+      const expectedThreadSegment = `/threads/${options.threadId}/`;
+      if (!normalizedPath.includes(expectedThreadSegment)) {
+        throw new Error('Firebase Storage media is outside the active thread scope.');
+      }
+    }
   }
 
   private async waitForActive(fileName: string, sourceUrl: string): Promise<string> {
@@ -838,5 +884,70 @@ export class GeminiFilesService {
     const pathname = url.split('?')[0] ?? url;
     const ext = pathname.split('.').pop()?.toLowerCase() ?? '';
     return EXTENSION_TO_MIME[ext] ?? DEFAULT_VIDEO_MIME;
+  }
+
+  private assertValidVideoPayload(sourceUrl: string, mimeType: string, buffer: Buffer): void {
+    if (buffer.byteLength < MIN_VIDEO_UPLOAD_BYTES) {
+      throw new Error(
+        `Downloaded video payload is too small for analysis (${buffer.byteLength} bytes). ` +
+          'This usually means the URL points to a metadata stub, placeholder, or provider error response instead of real video bytes.'
+      );
+    }
+
+    if (this.looksLikeTextPayload(buffer)) {
+      throw new Error(
+        'Downloaded video payload looks like text/HTML/JSON, not video bytes. ' +
+          'Resolve the provider video to a downloadable MP4 before analysis.'
+      );
+    }
+
+    const extension = this.extensionFromUrl(sourceUrl);
+    const isUnknownOrGenericContainer = extension === '' || extension === 'bin';
+    if (isUnknownOrGenericContainer && !this.hasKnownVideoSignature(buffer)) {
+      throw new Error(
+        `Downloaded payload from ${sourceUrl} does not have a recognized video container signature for ${mimeType}. ` +
+          'Resolve the original media source to a real MP4/MOV/WebM before analysis.'
+      );
+    }
+  }
+
+  private extensionFromUrl(url: string): string {
+    const pathname = url.split('?')[0] ?? url;
+    const lastSegment = pathname.split('/').pop() ?? '';
+    const dotIndex = lastSegment.lastIndexOf('.');
+    return dotIndex === -1 ? '' : lastSegment.slice(dotIndex + 1).toLowerCase();
+  }
+
+  private looksLikeTextPayload(buffer: Buffer): boolean {
+    const sample = buffer
+      .subarray(0, Math.min(buffer.byteLength, 512))
+      .toString('utf8')
+      .trimStart();
+    if (!sample) return false;
+    return (
+      sample.startsWith('<!DOCTYPE') ||
+      sample.startsWith('<html') ||
+      sample.startsWith('{') ||
+      sample.startsWith('[') ||
+      sample.startsWith('<?xml')
+    );
+  }
+
+  private hasKnownVideoSignature(buffer: Buffer): boolean {
+    if (buffer.byteLength < 12) return false;
+
+    const ascii4 = buffer.subarray(0, 4).toString('ascii');
+    const ascii8 = buffer.subarray(8, 12).toString('ascii');
+
+    if (buffer.subarray(4, 8).toString('ascii') === 'ftyp') return true;
+    if (buffer[0] === 0x1a && buffer[1] === 0x45 && buffer[2] === 0xdf && buffer[3] === 0xa3) {
+      return true;
+    }
+    if (ascii4 === 'RIFF' && ascii8 === 'AVI ') return true;
+    if (buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0x01 && buffer[3] === 0xba) {
+      return true;
+    }
+
+    return false;
   }
 }

@@ -498,6 +498,7 @@ export type ProfileTimelineFilterId =
   | 'all'
   | 'pinned'
   | 'media'
+  | 'videos'
   | 'metrics'
   | 'stats'
   | 'awards'
@@ -565,6 +566,10 @@ export interface ProfilePost {
   readonly cloudflareVideoId?: string;
   /** Cloudflare processing state — absent or 'ready' means playable */
   readonly cloudflareStatus?: string;
+  /** Optional playlist/group identifier for video library filtering */
+  readonly playlistId?: string;
+  /** Optional playlist/group display name for video library filtering */
+  readonly playlistName?: string;
   /** Created timestamp */
   readonly createdAt: string;
 }

@@ -85,7 +85,10 @@ import {
 import { AgentXOperationChatYieldFacade } from './agent-x-operation-chat-yield.facade';
 import { AgentXOperationChatRecurringFacade } from './agent-x-operation-chat-recurring.facade';
 import { AgentXOperationChatRecurringTasksDockComponent } from './agent-x-operation-chat-recurring-tasks-dock.component';
-import { AgentXOperationChatHintFacade } from './agent-x-operation-chat-hint.facade';
+import {
+  AgentXOperationChatHintFacade,
+  type AgentXPanelHintKind,
+} from './agent-x-operation-chat-hint.facade';
 import { AgentXOperationChatHintDockComponent } from './agent-x-operation-chat-hint-dock.component';
 import type { OperationEventSubscription } from '../../services/agent-x-operation-event.service';
 import { NxtPlatformIconComponent } from '../../../components/platform-icon/platform-icon.component';
@@ -195,6 +198,7 @@ type YieldStateSource =
       nxtDragDrop
       (dragStateChange)="attachmentsFacade.onDragStateChange($event)"
       (filesDropped)="attachmentsFacade.onFilesDropped($event)"
+      (selectedContextsDropped)="attachmentsFacade.addPendingSelectedContexts($event)"
       (click)="attachmentsFacade.onShellClick($event)"
     >
       @if (!embedded) {
@@ -358,6 +362,18 @@ type YieldStateSource =
                             att.platform || att.name
                           }}</span>
                         </a>
+                      } @else if (att.type === 'context') {
+                        <div class="msg-attachment__context">
+                          <div class="msg-attachment__context-icon">
+                            <nxt1-icon [name]="contextAttachmentIcon(att)" [size]="16" />
+                          </div>
+                          <div class="msg-attachment__context-info">
+                            <span class="msg-attachment__context-name">{{ att.name }}</span>
+                            <span class="msg-attachment__context-meta">{{
+                              att.contextSource || contextAttachmentLabel(att)
+                            }}</span>
+                          </div>
+                        </div>
                       } @else {
                         <div
                           class="msg-attachment__doc"
@@ -541,6 +557,7 @@ type YieldStateSource =
           [canSend]="canSend()"
           [pendingFiles]="promptInputPendingFiles()"
           [pendingSources]="pendingConnectedSources()"
+          [pendingContexts]="pendingSelectedContexts()"
           [selectedTask]="null"
           [placeholder]="getInputPlaceholder()"
           (messageChange)="inputValue.set($event)"
@@ -551,6 +568,7 @@ type YieldStateSource =
           (openFile)="attachmentsFacade.openPendingFileViewer($event)"
           (removeFile)="attachmentsFacade.removePendingFile($event)"
           (removeSource)="attachmentsFacade.removePendingConnectedSource($event)"
+          (removeContext)="attachmentsFacade.removePendingSelectedContext($event)"
           (focusInput)="onInputFocus()"
         ></nxt1-agent-x-input-bar>
 
@@ -653,9 +671,9 @@ type YieldStateSource =
                 />
               </svg>
             </div>
-            <h3 class="chat-drop-overlay__title">Drop files to attach</h3>
+            <h3 class="chat-drop-overlay__title">Drop to attach</h3>
             <p class="chat-drop-overlay__copy">
-              Images, videos, PDFs, docs, and spreadsheets are supported. Up to 5 files, 20 MB each.
+              Images, videos, PDFs, docs, spreadsheets, clips, plays, and game plans are supported.
             </p>
           </div>
         </div>
@@ -1256,6 +1274,10 @@ type YieldStateSource =
         width: 56px;
       }
 
+      .msg-attachment:has(.msg-attachment__context) {
+        height: auto;
+      }
+
       .msg-attachment__thumb {
         width: 100%;
         height: 100%;
@@ -1319,6 +1341,55 @@ type YieldStateSource =
         text-transform: uppercase;
         letter-spacing: 0.04em;
         line-height: 1.2;
+      }
+
+      .msg-attachment__context {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 150px;
+        max-width: 220px;
+        min-height: 56px;
+        padding: 8px 10px;
+        box-sizing: border-box;
+      }
+
+      .msg-attachment__context-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 30px;
+        height: 30px;
+        border-radius: 8px;
+        color: var(--op-accent, #ccff00);
+        background: color-mix(in srgb, var(--op-accent, #ccff00) 14%, transparent);
+        flex-shrink: 0;
+      }
+
+      .msg-attachment__context-info {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .msg-attachment__context-name,
+      .msg-attachment__context-meta {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .msg-attachment__context-name {
+        color: var(--op-text);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .msg-attachment__context-meta {
+        color: var(--op-text-secondary);
+        font-size: 10px;
+        text-transform: capitalize;
       }
 
       .msg-attachment--app {
@@ -1741,7 +1812,13 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   @Input() initialMessage = '';
 
   /** Optional initial files to seed into the pending files strip when opening. */
-  @Input() initialFiles: PendingFile[] = [];
+  @Input() initialFiles: readonly PendingFile[] = [];
+
+  /** Optional staged connected sources to seed into the composer when opening. */
+  @Input() initialConnectedSources: readonly ConnectedAppSource[] = [];
+
+  /** When true, auto-dispatches the initial composer payload after mount. */
+  @Input() autoSendOnOpen = false;
 
   /** Connected app sources used by the attachments bottom sheet. */
   @Input() connectedSources: readonly ConnectedAppSource[] = [];
@@ -1774,6 +1851,17 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   get hasActiveLiveView(): boolean {
     return this._hasActiveLiveView();
+  }
+
+  private readonly _activeContextPanel = signal<AgentXPanelHintKind | null>(null);
+
+  @Input()
+  set activeContextPanel(value: AgentXPanelHintKind | null) {
+    this._activeContextPanel.set(value);
+  }
+
+  get activeContextPanel(): AgentXPanelHintKind | null {
+    return this._activeContextPanel();
   }
 
   /**
@@ -1970,6 +2058,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Connected app sources staged from the attachments sheet — shown as chips in the input bar. */
   protected readonly pendingConnectedSources = this.attachmentsFacade.pendingConnectedSources;
+
+  /** Explicit user-selected contexts staged for this turn (film/playbook/game plan/etc.). */
+  protected readonly pendingSelectedContexts = this.attachmentsFacade.pendingSelectedContexts;
 
   /** Pending files converted to AgentXPendingFile shape for prompt-input component. */
   protected readonly promptInputPendingFiles = computed<readonly AgentXPendingFile[]>(() =>
@@ -2189,6 +2280,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Emitted when the user saves connected accounts from the connected accounts modal. */
   readonly connectedAccountsSave = output<AgentXConnectedAccountsSaveRequest>();
 
+  /** Emitted when attachments flow requests opening Film Review Library. */
+  readonly filmReviewLibraryRequested = output<void>();
+
   /** Whether this chat was opened to view a historical thread (suppresses generic welcome). */
   private readonly _isThreadMode = signal(false);
 
@@ -2236,6 +2330,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       resumeOperationId: () => this.resumeOperationId,
       initialMessage: () => this.initialMessage,
       initialFiles: () => this.initialFiles,
+      initialConnectedSources: () => this.initialConnectedSources,
+      autoSendOnOpen: () => this.autoSendOnOpen,
       errorMessage: () => this.errorMessage,
       threadMode: this._isThreadMode,
       inputValue: this.inputValue,
@@ -2373,6 +2469,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       clickDesktopAttachmentInput: () => {
         this.desktopAttachmentFileInput()?.nativeElement.click();
       },
+      openFilmReviewLibrary: () => {
+        this.filmReviewLibraryRequested.emit();
+      },
       emitConnectedAccountsSave: (request) => {
         this.connectedAccountsSave.emit(request);
       },
@@ -2491,6 +2590,13 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         this.hintFacade.markLiveViewActive();
       } else {
         this.hintFacade.markLiveViewInactive();
+      }
+    });
+
+    effect(() => {
+      const activePanel = this._activeContextPanel();
+      if (activePanel) {
+        this.hintFacade.showPanelHint(activePanel);
       }
     });
   }
@@ -2847,7 +2953,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   protected hasBubbleProse(msg: OperationMessage): boolean {
     if (msg.id === 'typing') return true;
-    if ((msg.content ?? '').trim().length > 0) return true;
+    if (this.visibleMessageContent(msg).length > 0) return true;
     if (this.messageAttachmentsForStrip(msg).length > 0) return true;
     if (this.messageStepsForBubble(msg).length > 0) return true;
     if (this.messageCardsForBubble(msg).length > 0) return true;
@@ -2867,7 +2973,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * regardless of legacy data shape.
    */
   protected messageContentForBubble(msg: OperationMessage): string {
-    if (!this.isAskUserYield(msg)) return msg.content;
+    if (!this.isAskUserYield(msg)) return this.visibleMessageContent(msg);
     if (msg.yieldCardState === 'resolved') return '';
     if ((msg.yieldResolvedText ?? '').trim().length > 0) return '';
 
@@ -2875,8 +2981,34 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (index >= 0 && this.resolveExternalCardStateForMessage(msg, index) !== null) {
       return '';
     }
-
     return 'Waiting for your reply…';
+  }
+
+  protected contextAttachmentIcon(att: MessageAttachment): string {
+    if (att.contextKind === 'film_play') return 'videocam';
+    if (att.contextKind === 'playbook_item') return 'documentText';
+    if (att.contextKind === 'game_plan_item') return 'analytics';
+    return 'analytics';
+  }
+
+  protected contextAttachmentLabel(att: MessageAttachment): string {
+    if (att.contextKind === 'film_play') return 'Film review';
+    if (att.contextKind === 'playbook_item') return 'Playbook';
+    if (att.contextKind === 'game_plan_item') return 'Game plan';
+    return 'Context';
+  }
+
+  private visibleMessageContent(msg: OperationMessage): string {
+    return this.stripSelectedContextPromptBlock(msg.content ?? '');
+  }
+
+  private stripSelectedContextPromptBlock(content: string): string {
+    return content
+      .replace(
+        /\s*\[Selected contexts \(confirmed by user for this turn\):[\s\S]*?\n\]\s*\[Instruction: prioritize these contexts while reasoning and cite their timestamps when relevant\.\]/g,
+        ''
+      )
+      .trim();
   }
 
   /**

@@ -76,6 +76,7 @@ type IntelSyncPlan =
     };
 
 const INTEL_SYNC_DISABLED_TOOLS = new Set(['write_intel', 'update_intel']);
+const NARROWED_ALLOWLIST_BYPASS_TOOLS = new Set(['classify_media_url']);
 
 function normalizeToolResultForDisplay(result: ToolResult): ToolResult {
   if (!result.success || typeof result.markdown !== 'string' || result.markdown.length === 0) {
@@ -110,6 +111,14 @@ const TOOL_ENTITY_GROUP_OVERRIDES: Readonly<Record<string, AgentToolEntityGroup>
   save_gameplan: 'team_tools',
   update_gameplan: 'team_tools',
   delete_gameplan: 'team_tools',
+  list_film_reviews: 'team_tools',
+  get_film_review: 'team_tools',
+  save_film_review: 'team_tools',
+  update_film_review: 'team_tools',
+  delete_film_review: 'team_tools',
+  add_film_review_annotation: 'team_tools',
+  delete_film_review_annotation: 'team_tools',
+  refresh_film_review_ai: 'team_tools',
   write_schedule: 'team_tools',
   write_calendar_events: 'team_tools',
 
@@ -517,6 +526,7 @@ export class ToolRegistry {
 
     if (
       context?.allowedToolNames?.length &&
+      !NARROWED_ALLOWLIST_BYPASS_TOOLS.has(normalizedName) &&
       !context.allowedToolNames.map(canonicalToolName).includes(normalizedName)
     ) {
       return {

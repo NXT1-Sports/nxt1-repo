@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentSessionContext, AgentUserContext } from '@nxt1/core';
+import { AgentRoutingOrchestratorService } from '../agent-routing-orchestrator.service.js';
 import { AgentRouterPolicyService } from '../agent-router-policy.service.js';
 
 function createUserContext(overrides: Partial<AgentUserContext> = {}): AgentUserContext {
@@ -114,6 +115,38 @@ describe('AgentRouterPolicyService', () => {
         statusNote: 'Reassigned from strategy_coordinator to performance_coordinator.',
       })
     );
+  });
+
+  it('delegates delegated-task rerouting to the routing orchestrator', async () => {
+    const orchestratorSpy = vi
+      .spyOn(AgentRoutingOrchestratorService.prototype, 'rerouteDelegatedTask')
+      .mockResolvedValue({
+        assignedAgent: 'recruiting_coordinator',
+        description: 'Route to recruiting',
+      });
+
+    const policy = new AgentRouterPolicyService({ execute: vi.fn() } as never);
+
+    const reroute = await policy.rerouteDelegatedTask(
+      'Route to recruiting',
+      'data_coordinator',
+      createSessionContext(),
+      { sourceId: 'source-2' }
+    );
+
+    expect(orchestratorSpy).toHaveBeenCalledOnce();
+    expect(orchestratorSpy).toHaveBeenCalledWith(
+      'Route to recruiting',
+      'data_coordinator',
+      expect.objectContaining({ sessionId: 'session-1' }),
+      { sourceId: 'source-2' }
+    );
+    expect(reroute).toEqual({
+      assignedAgent: 'recruiting_coordinator',
+      description: 'Route to recruiting',
+    });
+
+    orchestratorSpy.mockRestore();
   });
 
   it('uses planner fallback when deterministic routing cannot infer a different owner', async () => {

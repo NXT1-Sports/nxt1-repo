@@ -192,6 +192,13 @@ export const PROFILE_TIMELINE_FILTERS: readonly ProfileTimelineFilter[] = [
     emptyMessage: 'Share photos and videos to showcase your talent',
   },
   {
+    id: 'videos',
+    label: 'Videos',
+    icon: 'videocam',
+    emptyTitle: 'No videos yet',
+    emptyMessage: 'Highlights and game footage will appear here',
+  },
+  {
     id: 'metrics',
     label: 'Metrics',
     icon: 'body',

@@ -45,6 +45,7 @@
     "@sentry/angular": "^10.48.0",
     "cross-env": "^7.0.3",
     "firebase": "^12.9.0",
+    "hls.js": "^1.6.16",
     "http-proxy-middleware": "^3.0.0",
     "ionicons": "^8.0.0",
     "rxjs": "~7.8.0",

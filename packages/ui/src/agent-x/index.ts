@@ -37,6 +37,9 @@ export {
 export { LiveViewSessionService } from './services/live-view-session.service';
 export { LiveViewHistoryService } from './services/live-view-history.service';
 
+// Directives
+export { AgentXContextDragDirective } from './directives/agent-x-context-drag.directive';
+
 // Components
 export {
   AgentXShellComponent,

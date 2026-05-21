@@ -1373,9 +1373,8 @@ export class WebShellComponent {
   /** Mobile header configuration — route-aware (back arrow on profile pages) */
   readonly mobileHeaderConfig = computed<MobileHeaderConfig>(() => {
     const isLoggedIn = this.isAuthenticated();
-    const showSignIn = this.authFlow.isAuthReady() && !isLoggedIn;
-
     const onProfilePage = this._isOnProfilePage();
+    const showSignIn = this.authFlow.isAuthReady() && !isLoggedIn && !onProfilePage;
     const isOwnProfilePage = this._currentRoute() === '/profile';
     const onActivityPage = this._isOnActivityPage();
     const onTeamPage = this._isOnTeamPage();

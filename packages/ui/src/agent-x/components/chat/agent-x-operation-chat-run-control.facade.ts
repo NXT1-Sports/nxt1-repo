@@ -3,7 +3,12 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import type { AgentYieldState } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
-import type { AgentXAttachment, AgentXSelectedAction, AgentXToolStep } from '@nxt1/core/ai';
+import type {
+  AgentXAttachment,
+  AgentXSelectedAction,
+  AgentXSelectedContext,
+  AgentXToolStep,
+} from '@nxt1/core/ai';
 import { HapticsService } from '../../../services/haptics/haptics.service';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtLoggingService } from '../../../services/logging/logging.service';
@@ -271,9 +276,16 @@ export class AgentXOperationChatRunControlFacade {
     const text = (options?.text ?? composerValue).trim();
     const files = this.attachmentsFacade.pendingFiles();
     const pendingSources = this.attachmentsFacade.pendingConnectedSources();
+    const pendingSelectedContexts = this.attachmentsFacade.pendingSelectedContexts();
     const selectedAction = options?.selectedAction ?? host.getPendingSelectedAction();
 
-    if ((!text && files.length === 0 && pendingSources.length === 0) || host.loading()) {
+    if (
+      (!text &&
+        files.length === 0 &&
+        pendingSources.length === 0 &&
+        pendingSelectedContexts.length === 0) ||
+      host.loading()
+    ) {
       return;
     }
 
@@ -345,6 +357,11 @@ export class AgentXOperationChatRunControlFacade {
     let displayContent = text;
     if (!text && files.length > 0) {
       displayContent = `📎 ${files.length} file${files.length > 1 ? 's' : ''}`;
+    } else if (!text && pendingSelectedContexts.length > 0) {
+      displayContent =
+        pendingSelectedContexts.length === 1
+          ? pendingSelectedContexts[0].title
+          : `${pendingSelectedContexts.length} attached contexts`;
     }
 
     const fileDisplayAttachments: MessageAttachment[] = files.map((pendingFile) => ({
@@ -368,9 +385,14 @@ export class AgentXOperationChatRunControlFacade {
       faviconUrl: source.faviconUrl,
     }));
 
+    const selectedContextDisplayAttachments = pendingSelectedContexts.map((context) =>
+      this.toSelectedContextDisplayAttachment(context)
+    );
+
     const displayAttachments: MessageAttachment[] = [
       ...fileDisplayAttachments,
       ...sourceDisplayAttachments,
+      ...selectedContextDisplayAttachments,
     ];
 
     this.messageFacade.pushMessage({
@@ -393,6 +415,7 @@ export class AgentXOperationChatRunControlFacade {
 
     // Mirror regular chat UX: move staged files into the sent message row instantly.
     this.attachmentsFacade.pendingFiles.set([]);
+    this.attachmentsFacade.clearPendingSelectedContexts();
 
     try {
       let readyAttachments: AgentXAttachment[] = [];
@@ -432,6 +455,7 @@ export class AgentXOperationChatRunControlFacade {
                 : `${failedCount} attachments failed to upload. Fix them and retry before sending.`
             );
             this.attachmentsFacade.pendingFiles.set([...files]);
+            this.attachmentsFacade.addPendingSelectedContexts(pendingSelectedContexts);
             this.messageFacade.replaceTyping({
               id: host.uid(),
               role: 'assistant',
@@ -462,6 +486,7 @@ export class AgentXOperationChatRunControlFacade {
             `Session expired: ${files.length} attached file(s) cannot be sent. Please re-authenticate.`
           );
           this.attachmentsFacade.pendingFiles.set([...files]);
+          this.attachmentsFacade.addPendingSelectedContexts(pendingSelectedContexts);
           this.messageFacade.replaceTyping({
             id: host.uid(),
             role: 'assistant',
@@ -481,7 +506,8 @@ export class AgentXOperationChatRunControlFacade {
         readyAttachments,
         selectedAction ?? undefined,
         idempotencyKey,
-        pendingSources.length > 0 ? pendingSources : undefined
+        pendingSources.length > 0 ? pendingSources : undefined,
+        pendingSelectedContexts.length > 0 ? pendingSelectedContexts : undefined
       );
       await this.haptics.notification('success');
     } catch (error) {
@@ -489,6 +515,7 @@ export class AgentXOperationChatRunControlFacade {
       const message =
         error instanceof Error ? error.message : 'Something went wrong. Please try again.';
       host.setActivityPhase('failed', message);
+      this.attachmentsFacade.addPendingSelectedContexts(pendingSelectedContexts);
       await this.haptics.notification('error');
 
       const alreadyHasError = this.messageFacade
@@ -517,6 +544,45 @@ export class AgentXOperationChatRunControlFacade {
         host.loading.set(false);
       }
     }
+  }
+
+  private toSelectedContextDisplayAttachment(context: AgentXSelectedContext): MessageAttachment {
+    const videoUrl = context.media?.videoUrl?.trim();
+    const imageUrl = context.media?.imageUrl?.trim();
+    const thumbnailUrl = context.media?.thumbnailUrl?.trim();
+    const source = context.source?.label ?? context.source?.type;
+
+    if (videoUrl) {
+      return {
+        url: videoUrl,
+        type: 'video',
+        name: context.title,
+        ...(thumbnailUrl ? { thumbnailUrl } : {}),
+        contextKind: context.kind,
+        ...(source ? { contextSource: source } : {}),
+        ...(context.summary ? { contextSummary: context.summary } : {}),
+      };
+    }
+
+    if (imageUrl || thumbnailUrl) {
+      return {
+        url: imageUrl ?? thumbnailUrl ?? '',
+        type: 'image',
+        name: context.title,
+        contextKind: context.kind,
+        ...(source ? { contextSource: source } : {}),
+        ...(context.summary ? { contextSummary: context.summary } : {}),
+      };
+    }
+
+    return {
+      url: `context://${encodeURIComponent(context.id)}`,
+      type: 'context',
+      name: context.title,
+      contextKind: context.kind,
+      ...(source ? { contextSource: source } : {}),
+      ...(context.summary ? { contextSummary: context.summary } : {}),
+    };
   }
 
   async onRetryErrorMessage(errorMessage: OperationMessage): Promise<void> {

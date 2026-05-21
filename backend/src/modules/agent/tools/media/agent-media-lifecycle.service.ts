@@ -21,6 +21,14 @@ export class AgentMediaLifecycleService {
   static readonly DEFAULT_SIGNED_URL_TTL_MS = 24 * 60 * 60 * 1000;
   static readonly POST_MEDIA_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
+  private static extractStoragePathFromFirebaseObjectPath(pathname: string): string | null {
+    const objectIndex = pathname.indexOf('/o/');
+    if (objectIndex === -1) return null;
+
+    const encoded = pathname.slice(objectIndex + 3);
+    return encoded.length > 0 ? decodeURIComponent(encoded) : null;
+  }
+
   static resolveSubfolder(mimeType: string): AgentMediaSubfolder {
     if (mimeType.startsWith('video/')) return 'video';
     if (mimeType.startsWith('image/')) return 'image';
@@ -156,15 +164,26 @@ export class AgentMediaLifecycleService {
   }
 
   static extractStoragePathFromUrl(urlInput: string): string | null {
+    const normalizedInput = urlInput.trim();
+    if (!normalizedInput) return null;
+
+    const bareStoragePath = normalizedInput.replace(/^\/+/, '');
+    if (bareStoragePath.startsWith('Users/')) {
+      return bareStoragePath;
+    }
+
+    const relativePath = normalizedInput.split(/[?#]/, 1)[0] ?? normalizedInput;
+    const recoveredRelativePath = this.extractStoragePathFromFirebaseObjectPath(relativePath);
+    if (recoveredRelativePath) {
+      return recoveredRelativePath;
+    }
+
     try {
-      const url = new URL(urlInput);
+      const url = new URL(normalizedInput);
       const pathname = url.pathname;
 
-      const objectIndex = pathname.indexOf('/o/');
-      if (objectIndex !== -1) {
-        const encoded = pathname.slice(objectIndex + 3);
-        return decodeURIComponent(encoded);
-      }
+      const firebaseObjectPath = this.extractStoragePathFromFirebaseObjectPath(pathname);
+      if (firebaseObjectPath) return firebaseObjectPath;
 
       if (url.hostname === 'storage.googleapis.com') {
         const withoutLeadingSlash = pathname.slice(1);

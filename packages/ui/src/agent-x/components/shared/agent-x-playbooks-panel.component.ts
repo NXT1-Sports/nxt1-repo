@@ -5,6 +5,12 @@ import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { getSportPlaybookConfig } from '@nxt1/core';
+import {
+  AGENT_X_SELECTED_CONTEXT_DRAG_MIME,
+  serializeAgentXSelectedContextForDrag,
+  type AgentXSelectedContext,
+  type AgentXSelectedContextMetadataValue,
+} from '@nxt1/core/ai';
 import type { TeamGamePlanDoc } from '@nxt1/core';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
 import { NxtStateViewComponent } from '../../../components/state-view';
@@ -12,6 +18,7 @@ import { NxtMediaViewerService } from '../../../components/media-viewer';
 import { NxtLoggingService } from '../../../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../../../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../../../services/breadcrumb/breadcrumb.service';
+import { AgentXContextDragDirective } from '../../directives/agent-x-context-drag.directive';
 import { AgentXService } from '../../services/agent-x.service';
 import { AGENT_X_API_BASE_URL } from '../../services/agent-x-job.service';
 import { PlaybooksService } from '../../../playbook/services/playbooks.service';
@@ -50,7 +57,13 @@ import {
 @Component({
   selector: 'nxt1-agent-x-playbooks-panel',
   standalone: true,
-  imports: [CommonModule, FormsModule, NxtIconComponent, NxtStateViewComponent],
+  imports: [
+    CommonModule,
+    FormsModule,
+    NxtIconComponent,
+    NxtStateViewComponent,
+    AgentXContextDragDirective,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `<div class="playbooks-panel">
     <!-- ──────────────── DETAIL VIEW ──────────────── -->
@@ -252,7 +265,10 @@ import {
                 @if (filteredPlays().length) {
                   <div class="plays-list">
                     @for (play of filteredPlays(); track play.id || play.name || $index) {
-                      <article class="play-item">
+                      <article
+                        class="play-item"
+                        [nxtAgentXContextDrag]="buildPlaybookPlayDragContext(play, $index)"
+                      >
                         @if (deletingPlayIndex() === $index) {
                           <div class="delete-overlay">
                             <p class="delete-msg">
@@ -688,7 +704,10 @@ import {
                   } @else {
                     <div class="callsheet-plays">
                       @for (play of filteredCallsheetPlays(); track play.name) {
-                        <div class="callsheet-play-card">
+                        <div
+                          class="callsheet-play-card"
+                          [nxtAgentXContextDrag]="buildPlaybookPlayDragContext(play, $index)"
+                        >
                           <div class="play-rank">
                             <span class="rank-label">{{ $index + 1 }}</span>
                             <span class="rank-score"
@@ -768,7 +787,10 @@ import {
                 } @else {
                   <div class="game-plans-list">
                     @for (plan of gamePlans(); track plan.id) {
-                      <div class="game-plan-item">
+                      <div
+                        class="game-plan-item"
+                        [nxtAgentXContextDrag]="buildPlaybookGamePlanDragContext(plan)"
+                      >
                         <div class="plan-header">
                           <h4 class="plan-name">{{ plan.opponent }}</h4>
                           <span class="play-count">{{ plan.plays.length }} plays</span>
@@ -1008,6 +1030,7 @@ import {
                 type="button"
                 class="playbook-card"
                 role="listitem"
+                [nxtAgentXContextDrag]="buildPlaybookDragContext(playbook)"
                 (click)="selectPlaybook(playbook)"
                 [attr.aria-label]="'Open playbook ' + (playbook.title || playbook.name)"
               >
@@ -1060,6 +1083,15 @@ import {
         padding: var(--nxt1-spacing-3, 12px);
         color: var(--agent-text-primary, #1a1a1a);
         scrollbar-color: var(--agent-border, rgba(0, 0, 0, 0.08)) transparent;
+      }
+
+      .agent-x-context-drag-source:not(.agent-x-context-drag-source--disabled) {
+        cursor: grab;
+      }
+
+      .agent-x-context-drag-source--dragging {
+        cursor: grabbing;
+        opacity: 0.62;
       }
 
       /* ── List Header ── */
@@ -1184,6 +1216,10 @@ import {
         display: flex;
         justify-content: space-between;
         align-items: center;
+      }
+
+      .detail-header--actions-only {
+        justify-content: flex-end;
       }
 
       .detail-back-link {
@@ -2434,6 +2470,19 @@ export class AgentXPlaybooksPanelComponent {
     this.deletingPlayIndex.set(null);
   }
 
+  public isDetailView(): boolean {
+    return this.showingDetail();
+  }
+
+  public getHeaderTitle(): string {
+    const playbook = this.selectedPlaybook();
+    return (playbook?.title || playbook?.name || 'Playbooks').trim();
+  }
+
+  public backToList(): void {
+    this.clearSelection();
+  }
+
   protected reload(): void {
     this.clearSelection();
     void this.loadPlaybooks();
@@ -2820,14 +2869,144 @@ export class AgentXPlaybooksPanelComponent {
     return plays.findIndex((p) => p.name === play.name);
   }
 
+  protected buildPlaybookDragContext(playbook: PlaybookSummary): AgentXSelectedContext {
+    const title = playbook.title || playbook.name;
+
+    return {
+      id: `playbook:${playbook.id}`,
+      kind: 'playbook_item',
+      title,
+      summary: `${playbook.sport} playbook${playbook.season ? ` for ${playbook.season}` : ''}`,
+      source: {
+        type: 'playbook',
+        id: playbook.id,
+        label: title,
+      },
+      entityRefs: [{ type: 'playbook', id: playbook.id, label: title }],
+      metadata: this.compactContextMetadata({
+        itemType: 'playbook',
+        teamId: playbook.teamId,
+        sport: playbook.sport,
+        season: playbook.season,
+        playCount: playbook.playCount ?? null,
+        updatedAt: playbook.updatedAt,
+        createdAt: playbook.createdAt,
+      }),
+    };
+  }
+
+  protected buildPlaybookPlayDragContext(
+    play: PlaybookPlay,
+    fallbackIndex: number
+  ): AgentXSelectedContext {
+    const playbook = this.selectedPlaybook();
+    const playLabel = play.title || play.name || `Play ${fallbackIndex + 1}`;
+    const playId = play.id || play.name || String(fallbackIndex);
+    const entityRefs = [
+      ...(playbook?.id
+        ? [
+            {
+              type: 'playbook',
+              id: playbook.id,
+              label: playbook.title || playbook.name,
+            },
+          ]
+        : []),
+      { type: 'playbook_play', id: playId, label: playLabel },
+    ];
+
+    return {
+      id: `playbook-play:${playbook?.id ?? 'active'}:${playId}`,
+      kind: 'playbook_item',
+      title: playLabel,
+      ...(play.objective ? { summary: play.objective } : {}),
+      source: {
+        type: 'playbook',
+        ...(playbook?.id ? { id: playbook.id } : {}),
+        label: playbook?.title || playbook?.name || 'Playbook',
+      },
+      entityRefs,
+      media: {
+        ...(play.videoUrl ? { videoUrl: play.videoUrl } : {}),
+        ...(play.diagramUrl ? { imageUrl: play.diagramUrl } : {}),
+      },
+      metadata: this.compactContextMetadata({
+        itemType: 'playbook_play',
+        playbookId: playbook?.id,
+        teamId: playbook?.teamId,
+        sport: playbook?.sport,
+        series: play.series,
+        category: play.category,
+        formation: play.formation,
+        personnel: play.personnel,
+        downDistance: play.downDistance,
+        installStage: play.installStage,
+        installNotes: play.installNotes,
+        conceptTags: play.conceptTags?.join(', '),
+        tags: play.tags?.join(', '),
+        situations: play.situations?.join(', '),
+        successRate: play.successRate ?? null,
+        typicalGain: play.typicalGain ?? null,
+      }),
+    };
+  }
+
+  protected buildPlaybookGamePlanDragContext(plan: GamePlan): AgentXSelectedContext {
+    const playbook = this.selectedPlaybook();
+    const title = plan.title || `${plan.opponent} Game Plan`;
+
+    return {
+      id: `playbook-game-plan:${plan.id}`,
+      kind: 'game_plan_item',
+      title,
+      ...(plan.notes ? { summary: plan.notes } : {}),
+      source: {
+        type: 'game_plan',
+        id: plan.id,
+        label: title,
+      },
+      entityRefs: [
+        { type: 'game_plan', id: plan.id, label: title },
+        ...(playbook?.id
+          ? [{ type: 'playbook', id: playbook.id, label: playbook.title || playbook.name }]
+          : []),
+      ],
+      metadata: this.compactContextMetadata({
+        itemType: 'playbook_game_plan',
+        teamId: plan.teamId,
+        sport: plan.sport,
+        opponent: plan.opponent,
+        playCount: plan.plays.length,
+        plays: plan.plays.join(', '),
+        updatedAt: plan.updatedAt,
+        createdAt: plan.createdAt,
+      }),
+    };
+  }
+
+  private compactContextMetadata(
+    metadata: Record<string, AgentXSelectedContextMetadataValue | undefined>
+  ): Readonly<Record<string, AgentXSelectedContextMetadataValue>> {
+    return Object.fromEntries(
+      Object.entries(metadata).filter(([, value]) => {
+        if (value === undefined || value === null) return false;
+        return typeof value !== 'string' || value.trim().length > 0;
+      })
+    ) as Readonly<Record<string, AgentXSelectedContextMetadataValue>>;
+  }
+
   protected onInstallPlayDragStart(play: PlaybookPlay, event: DragEvent): void {
     const index = this.getPlayIndex(play);
     if (index < 0) return;
 
     this.draggingInstallPlayIndex.set(index);
     if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.effectAllowed = 'copyMove';
       event.dataTransfer.setData('text/plain', String(index));
+      event.dataTransfer.setData(
+        AGENT_X_SELECTED_CONTEXT_DRAG_MIME,
+        serializeAgentXSelectedContextForDrag(this.buildPlaybookPlayDragContext(play, index))
+      );
     }
   }
 

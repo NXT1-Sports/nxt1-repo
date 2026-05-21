@@ -19,6 +19,130 @@ const EMPTY_RETRIEVED_MEMORIES: AgentRetrievedMemories = {
 
 const MAX_TASK_HANDOFF_ARTIFACT_CHARS = 20_000;
 
+const SPORT_ALIAS_MAP = {
+  football: ['football', 'american football', 'flag football'],
+  basketball: ['basketball', 'hoops'],
+  baseball: ['baseball'],
+  softball: ['softball'],
+  soccer: ['soccer', 'futbol'],
+  lacrosse: ['lacrosse', 'lax'],
+  volleyball: ['volleyball', 'volley ball', 'vb'],
+  hockey: ['hockey', 'ice hockey'],
+  field_hockey: ['field hockey'],
+  wrestling: ['wrestling', 'wrestler'],
+  track: ['track', 'track and field'],
+  golf: ['golf'],
+  tennis: ['tennis'],
+  swimming: ['swimming', 'swim'],
+} as const satisfies Record<string, readonly string[]>;
+
+function normalizeSportLabel(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildSportAliases(sport: string): readonly string[] {
+  const normalized = normalizeSportLabel(sport);
+  if (!normalized) return [];
+
+  const directAliases = SPORT_ALIAS_MAP[normalized as keyof typeof SPORT_ALIAS_MAP];
+  if (directAliases) {
+    return directAliases;
+  }
+
+  const matchingAliases = (
+    Object.entries(SPORT_ALIAS_MAP) as ReadonlyArray<readonly [string, readonly string[]]>
+  ).find(([canonical, aliases]) => canonical === normalized || aliases.includes(normalized))?.[1];
+
+  return matchingAliases ?? [normalized];
+}
+
+function buildCandidateSports(userContext: AgentUserContext): Map<string, readonly string[]> {
+  const candidateSports = new Map<string, readonly string[]>();
+  const allContextSports = [
+    ...(userContext.sport ? [userContext.sport] : []),
+    ...(userContext.sports?.map((sport) => sport.sport) ?? []),
+  ];
+
+  for (const sport of allContextSports) {
+    const normalizedSport = normalizeSportLabel(sport);
+    if (!normalizedSport || candidateSports.has(normalizedSport)) continue;
+    candidateSports.set(normalizedSport, buildSportAliases(normalizedSport));
+  }
+
+  return candidateSports;
+}
+
+function detectSportInText(
+  text: string,
+  candidateSports: Map<string, readonly string[]>
+): string | null {
+  const normalizedText = normalizeSportLabel(text);
+  if (!normalizedText) return null;
+
+  for (const [canonicalSport, aliases] of candidateSports.entries()) {
+    for (const alias of aliases) {
+      const pattern = new RegExp(`(^|\\b)${escapeRegExp(alias)}(\\b|$)`, 'i');
+      if (pattern.test(normalizedText)) {
+        return canonicalSport;
+      }
+    }
+  }
+
+  return null;
+}
+
+function detectThreadSport(
+  threadHistory: string | undefined,
+  candidateSports: Map<string, readonly string[]>
+): string | null {
+  if (!threadHistory) return null;
+
+  const recentUserLines = threadHistory
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('[User]: '))
+    .reverse();
+
+  for (const line of recentUserLines) {
+    const detected = detectSportInText(line.slice('[User]: '.length), candidateSports);
+    if (detected) {
+      return detected;
+    }
+  }
+
+  return null;
+}
+
+function resolveSportContext(
+  intent: string,
+  userContext: AgentUserContext,
+  threadHistory?: string
+): { sport: string; source: 'request' | 'thread' } | null {
+  const candidateSports = buildCandidateSports(userContext);
+  if (candidateSports.size === 0) return null;
+
+  const requestSport = detectSportInText(intent, candidateSports);
+  if (requestSport) {
+    return { sport: requestSport, source: 'request' };
+  }
+
+  const threadSport = detectThreadSport(threadHistory, candidateSports);
+  if (threadSport) {
+    return { sport: threadSport, source: 'thread' };
+  }
+
+  return null;
+}
+
 function collectHttpUrls(value: unknown, sink: Set<string>): void {
   if (typeof value === 'string') {
     const match = value.match(/https?:\/\/\S+/g);
@@ -83,6 +207,22 @@ export class AgentRouterContextService {
       }
     );
     let enriched = `[User Profile]\n${contextStr}`;
+    const resolvedSportContext = resolveSportContext(intent, userContext, threadHistory);
+
+    if (
+      resolvedSportContext &&
+      normalizeSportLabel(userContext.sport ?? '') !== resolvedSportContext.sport
+    ) {
+      const contextLabel =
+        resolvedSportContext.source === 'thread'
+          ? 'Active thread context refers to'
+          : 'Request explicitly refers to';
+      enriched +=
+        `\n\n[Resolved Sport Context]\n` +
+        `- Profile active sport: ${userContext.sport ?? 'unknown'}\n` +
+        `- ${contextLabel}: ${resolvedSportContext.sport}\n` +
+        `- Use ${resolvedSportContext.sport} as the primary sport context for this thread/request and any targetSport/tool selections unless the user explicitly switches sports again.`;
+    }
 
     if (jobContext && Object.keys(jobContext).length > 0) {
       const {

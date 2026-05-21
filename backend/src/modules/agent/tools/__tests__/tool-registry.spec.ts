@@ -75,6 +75,31 @@ class ZodTool extends BaseTool {
   }
 }
 
+class SystemTool extends BaseTool {
+  constructor(readonly name: string) {
+    super();
+  }
+
+  readonly description = 'System tool for narrowed allowlist tests.';
+  readonly parameters = z.object({});
+  readonly allowedAgents = ['*'] as const;
+  readonly isMutation = false;
+  readonly category = 'system' as const;
+  readonly entityGroup = 'system_tools' as const;
+
+  readonly executeFn = vi.fn(async () => ({ success: true, data: { ok: true } }));
+
+  async execute(): Promise<ToolResult> {
+    return this.executeFn();
+  }
+}
+
+class ClassifyMediaUrlStubTool extends SystemTool {
+  constructor() {
+    super('classify_media_url');
+  }
+}
+
 class TeamTool extends BaseTool {
   readonly name = 'team_tool';
   readonly description = 'Team-scoped tool for tests.';
@@ -307,6 +332,37 @@ describe('ToolRegistry', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('Unknown tool: nonexistent');
+    });
+
+    it('should reject system tools outside a narrowed execution allowlist', async () => {
+      const systemTool = new SystemTool('unsafe_system_tool');
+      registry.register(systemTool);
+
+      const result = await registry.execute(
+        'unsafe_system_tool',
+        {},
+        { userId: 'u1', allowedToolNames: ['stub_tool'] }
+      );
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe(
+        'Tool is not allowed in this execution context: unsafe_system_tool'
+      );
+      expect(systemTool.executeFn).not.toHaveBeenCalled();
+    });
+
+    it('should allow classify_media_url as the only narrowed allowlist system bypass', async () => {
+      const classifyTool = new ClassifyMediaUrlStubTool();
+      registry.register(classifyTool);
+
+      const result = await registry.execute(
+        'classify_media_url',
+        {},
+        { userId: 'u1', allowedToolNames: ['analyze_video'] }
+      );
+
+      expect(result.success).toBe(true);
+      expect(classifyTool.executeFn).toHaveBeenCalledOnce();
     });
 
     it('should refuse execution when the tool is disabled by feature flags', async () => {

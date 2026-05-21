@@ -125,3 +125,30 @@ export async function canManageTeamMutationForUser(
     rosterRole: entry?.role,
   });
 }
+
+/**
+ * Read permission for team-scoped intel surfaces (e.g., Film Review list/detail).
+ *
+ * Rules:
+ * - Managers/admins/coaches always allowed.
+ * - Any user with active/pending roster membership on the team is allowed read access.
+ */
+export async function canReadTeamIntelForUser(
+  db: Firestore,
+  userId: string,
+  teamId: string,
+  teamData: Record<string, unknown>
+): Promise<boolean> {
+  if (
+    teamData['ownerId'] === userId ||
+    teamData['coachId'] === userId ||
+    teamData['createdBy'] === userId ||
+    extractTeamAdminIds(teamData).includes(userId)
+  ) {
+    return true;
+  }
+
+  const rosterService = new RosterEntryService(db);
+  const entry = await rosterService.getActiveOrPendingRosterEntry(userId, teamId);
+  return entry !== null;
+}

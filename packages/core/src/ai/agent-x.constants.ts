@@ -104,8 +104,20 @@ export const AGENT_X_ALLOWED_MIME_TYPES: readonly string[] = [
 /** Maximum single file size in bytes (20 MB) for non-video files. */
 export const AGENT_X_MAX_FILE_SIZE = 20 * 1024 * 1024;
 
-/** Maximum single video file size in bytes (2 GB) — videos upload directly to Firebase Storage. */
-export const AGENT_X_MAX_VIDEO_FILE_SIZE = 2 * 1024 * 1024 * 1024;
+/** Maximum number of attachments allowed per Agent X request. */
+export const AGENT_X_MAX_ATTACHMENTS = 20;
+
+/** Maximum single video file size in bytes (8 GB) across all Agent X video transports. */
+export const AGENT_X_MAX_VIDEO_FILE_SIZE = 8 * 1024 * 1024 * 1024;
+
+/** Maximum single video file size in bytes for Firebase direct PUT uploads. */
+export const AGENT_X_FIREBASE_MAX_VIDEO_FILE_SIZE = 2 * 1024 * 1024 * 1024;
+
+/** Video files at or above this size use Cloudflare Stream TUS instead of Firebase PUT. */
+export const AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES = 250 * 1024 * 1024;
+
+/** Cloudflare upload context used for Agent X chat video attachments. */
+export const AGENT_X_CLOUDFLARE_UPLOAD_CONTEXT = 'agent-x-chat' as const;
 
 /**
  * Resolve a MIME type to the high-level `AgentXAttachmentType`.
@@ -144,8 +156,10 @@ export const AGENT_X_ENDPOINTS = {
   RESUME_JOB: '/agent-x/resume-job',
   /** Upload file attachment for chat (images, docs, PDFs — non-video) */
   UPLOAD: '/agent-x/upload',
-  /** Provision a Cloudflare Stream TUS direct upload URL for video files (highlight posts only) */
+  /** Provision a Cloudflare Stream TUS direct upload URL for large videos */
   CLOUDFLARE_DIRECT_URL: '/upload/cloudflare/direct-url',
+  /** Finalize a completed Cloudflare Stream TUS upload and fetch playback metadata */
+  CLOUDFLARE_FINALIZE: '/upload/cloudflare/finalize',
   /** Provision a Firebase Storage signed upload URL for Agent X chat video attachments */
   VIDEO_UPLOAD_PROVISION: '/agent-x/upload/video',
   /** Upload a file to the temporary scratch folder (worker output, staged uploads, scraped assets) */

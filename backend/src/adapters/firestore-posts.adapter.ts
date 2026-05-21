@@ -50,6 +50,10 @@ export interface FirestorePostDoc {
   cloudflareStatus?: string;
   /** True once Cloudflare has finished transcoding */
   readyToStream?: boolean;
+  /** Optional playlist/group identifier for video library filtering */
+  playlistId?: string;
+  /** Optional playlist/group display name for video library filtering */
+  playlistName?: string;
   externalLinks?: string[];
   mentions?: string[];
   location?: string;
@@ -211,6 +215,8 @@ export function firestorePostToFeedPost(
       ...(hlsUrl ? { hlsUrl } : {}),
       ...(dashUrl ? { dashUrl } : {}),
       ...(processingStatus ? { processingStatus } : {}),
+      ...(doc.playlistId ? { playlistId: doc.playlistId } : {}),
+      ...(doc.playlistName ? { playlistName: doc.playlistName } : {}),
     });
   }
 

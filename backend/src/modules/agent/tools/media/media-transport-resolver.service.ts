@@ -14,6 +14,8 @@ const FIREBASE_STORAGE_PATTERN =
 const FIREBASE_SIGNED_PARAMS = new Set(['X-Goog-Signature', 'token']);
 const CLOUDFLARE_HOST_PATTERN =
   /(watch\.cloudflarestream\.com|\.cloudflarestream\.com|videodelivery\.net)$/i;
+const CLOUDFLARE_ID_PATTERN = /^[a-zA-Z0-9_-]{8,128}$/;
+const CLOUDFLARE_STAGED_FILENAME_PATTERN = /-([a-f0-9]{32})\.[a-z0-9]{1,10}$/i;
 
 export type ResolvedProcessingSource =
   | 'direct'
@@ -53,17 +55,33 @@ export class MediaTransportResolverService {
       return { url: input.sourceUrl, source: 'unchanged' };
     }
 
-    if (this.isDirectlyPortable(normalizedUrl)) {
-      return { url: normalizedUrl, source: 'direct' };
-    }
-
     // Legacy compatibility: only attempt Cloudflare download flow when a Cloudflare
     // video ID is explicitly provided or the source URL is a Cloudflare URL.
     const explicitCloudflareVideoId = this.normalizeVideoId(input.cloudflareVideoId);
     const extractedCloudflareVideoId = this.extractCloudflareVideoId(normalizedUrl);
     const cloudflareVideoId = explicitCloudflareVideoId ?? extractedCloudflareVideoId;
+
+    if (
+      FIREBASE_STORAGE_PATTERN.test(normalizedUrl) &&
+      !this.isAuthorizedFirebaseUrl(normalizedUrl, input.executionContext)
+    ) {
+      logger.warn('[MediaTransportResolver] Refused out-of-scope Firebase media URL', {
+        sourceUrl: normalizedUrl.slice(0, 180),
+        userId: input.executionContext?.userId,
+        threadId: input.executionContext?.threadId,
+      });
+      return {
+        url: normalizedUrl,
+        source: 'unchanged',
+        ...(cloudflareVideoId ? { cloudflareVideoId } : {}),
+      };
+    }
+
     const shouldTryCloudflare =
-      !!cloudflareVideoId && (!!explicitCloudflareVideoId || this.isCloudflareUrl(normalizedUrl));
+      !!cloudflareVideoId &&
+      (!!explicitCloudflareVideoId ||
+        this.isCloudflareUrl(normalizedUrl) ||
+        this.isCloudflareStagedPlaceholder(normalizedUrl));
 
     if (shouldTryCloudflare && this.cloudflareBridge) {
       const downloadUrl = await this.resolveCloudflareDownloadUrl(cloudflareVideoId);
@@ -76,13 +94,18 @@ export class MediaTransportResolverService {
       }
     }
 
+    if (this.isDirectlyPortable(normalizedUrl)) {
+      return {
+        url: normalizedUrl,
+        source: 'direct',
+        ...(cloudflareVideoId ? { cloudflareVideoId } : {}),
+      };
+    }
+
     // For files already in our own Firebase Storage bucket, generate a signed URL
     // directly — no download/re-upload needed.
     if (FIREBASE_STORAGE_PATTERN.test(normalizedUrl)) {
-      const signedUrl = await this.trySignOwnBucketUrl(
-        normalizedUrl,
-        input.executionContext?.environment
-      );
+      const signedUrl = await this.trySignOwnBucketUrl(normalizedUrl, input.executionContext);
       if (signedUrl) {
         return { url: signedUrl, source: 'direct' };
       }
@@ -147,18 +170,36 @@ export class MediaTransportResolverService {
 
   private normalizeVideoId(videoId: string | undefined): string | null {
     const trimmed = videoId?.trim();
-    return trimmed && trimmed.length > 0 ? trimmed : null;
+    return trimmed && CLOUDFLARE_ID_PATTERN.test(trimmed) ? trimmed : null;
   }
 
   private extractCloudflareVideoId(urlRaw: string): string | null {
     try {
       const parsed = new URL(urlRaw);
-      if (!CLOUDFLARE_HOST_PATTERN.test(parsed.hostname)) return null;
+      if (!CLOUDFLARE_HOST_PATTERN.test(parsed.hostname)) {
+        return this.extractCloudflareVideoIdFromStagedFilename(urlRaw);
+      }
       const firstPathSegment = parsed.pathname.split('/').filter(Boolean)[0];
-      return firstPathSegment && firstPathSegment.length > 0 ? firstPathSegment : null;
+      return this.normalizeVideoId(firstPathSegment);
     } catch {
-      return null;
+      return this.extractCloudflareVideoIdFromStagedFilename(urlRaw);
     }
+  }
+
+  private extractCloudflareVideoIdFromStagedFilename(urlRaw: string): string | null {
+    try {
+      const parsed = new URL(urlRaw);
+      const decodedPath = decodeURIComponent(parsed.pathname);
+      const match = decodedPath.match(CLOUDFLARE_STAGED_FILENAME_PATTERN);
+      return this.normalizeVideoId(match?.[1]);
+    } catch {
+      const match = urlRaw.match(CLOUDFLARE_STAGED_FILENAME_PATTERN);
+      return this.normalizeVideoId(match?.[1]);
+    }
+  }
+
+  private isCloudflareStagedPlaceholder(urlRaw: string): boolean {
+    return this.extractCloudflareVideoIdFromStagedFilename(urlRaw) !== null;
   }
 
   private async resolveCloudflareDownloadUrl(videoId: string): Promise<string | null> {
@@ -229,7 +270,7 @@ export class MediaTransportResolverService {
 
   private async trySignOwnBucketUrl(
     url: string,
-    environment?: ToolExecutionContext['environment']
+    executionContext?: ToolExecutionContext
   ): Promise<string | null> {
     try {
       const parsed = new URL(url);
@@ -256,7 +297,18 @@ export class MediaTransportResolverService {
 
       if (!bucketName || !storagePath) return null;
 
-      const isStaging = environment === 'staging' || bucketName.toLowerCase().includes('staging');
+      if (!this.isAuthorizedStoragePath(storagePath, executionContext)) {
+        logger.warn('[MediaTransportResolver] Refused to sign Firebase Storage URL out of scope', {
+          bucketName,
+          storagePath: storagePath.slice(0, 120),
+          userId: executionContext?.userId,
+          threadId: executionContext?.threadId,
+        });
+        return null;
+      }
+
+      const isStaging =
+        executionContext?.environment === 'staging' || bucketName.toLowerCase().includes('staging');
       const storageInstance = isStaging ? stagingStorage : defaultStorage;
 
       const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 hours
@@ -279,6 +331,52 @@ export class MediaTransportResolverService {
       logger.warn('[MediaTransportResolver] Failed to sign own Firebase Storage URL', {
         error: error instanceof Error ? error.message : String(error),
       });
+      return null;
+    }
+  }
+
+  private isAuthorizedStoragePath(
+    storagePath: string,
+    executionContext?: ToolExecutionContext
+  ): boolean {
+    if (!executionContext?.userId) return true;
+
+    const normalizedPath = storagePath.replace(/^\/+/, '');
+    if (!normalizedPath.startsWith(`Users/${executionContext.userId}/`)) {
+      return false;
+    }
+
+    if (executionContext.threadId && normalizedPath.includes('/threads/')) {
+      return normalizedPath.includes(`/threads/${executionContext.threadId}/`);
+    }
+
+    return true;
+  }
+
+  private isAuthorizedFirebaseUrl(url: string, executionContext?: ToolExecutionContext): boolean {
+    if (!executionContext?.userId) return true;
+
+    const storagePath = this.extractFirebaseStoragePath(url);
+    return storagePath ? this.isAuthorizedStoragePath(storagePath, executionContext) : false;
+  }
+
+  private extractFirebaseStoragePath(url: string): string | null {
+    try {
+      const parsed = new URL(url);
+      if (parsed.hostname === 'storage.googleapis.com') {
+        const pathWithoutLeadingSlash = parsed.pathname.slice(1);
+        const slashIdx = pathWithoutLeadingSlash.indexOf('/');
+        if (slashIdx === -1) return null;
+        return decodeURIComponent(pathWithoutLeadingSlash.slice(slashIdx + 1));
+      }
+
+      if (parsed.hostname === 'firebasestorage.googleapis.com') {
+        const match = parsed.pathname.match(/^\/v0\/b\/([^/]+)\/o\/(.+)$/);
+        return match ? decodeURIComponent(match[2]) : null;
+      }
+
+      return null;
+    } catch {
       return null;
     }
   }

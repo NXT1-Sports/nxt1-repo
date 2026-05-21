@@ -63,6 +63,15 @@ import { FeedMetricsCardComponent } from '../post-cards/feed-metrics-card.compon
 import { FeedAwardCardComponent } from '../post-cards/feed-award-card.component';
 import { FeedNewsCardComponent } from '../post-cards/feed-news-card.component';
 
+interface VideoPlaylistOption {
+  readonly id: string;
+  readonly label: string;
+  readonly count: number;
+}
+
+const ALL_VIDEO_PLAYLISTS_ID = 'all';
+const UNCATEGORIZED_VIDEO_PLAYLIST_ID = 'uncategorized';
+
 @Component({
   selector: 'nxt1-profile-timeline',
   standalone: true,
@@ -176,6 +185,25 @@ import { FeedNewsCardComponent } from '../post-cards/feed-news-card.component';
 
       <!-- Posts List — Polymorphic Smart Shell + Atomic Cards -->
       @else {
+        @if (showPlaylistDropdown()) {
+          <div class="playlist-filter" [attr.data-testid]="timelineTestIds.PLAYLIST_FILTER">
+            <label class="playlist-filter__label" for="profile-video-playlist-select">
+              Playlist
+            </label>
+            <select
+              id="profile-video-playlist-select"
+              class="playlist-filter__select"
+              [value]="activePlaylistId()"
+              [attr.data-testid]="timelineTestIds.PLAYLIST_SELECT"
+              (change)="setPlaylist($event)"
+            >
+              @for (playlist of playlistOptions(); track playlist.id) {
+                <option [value]="playlist.id">{{ playlist.label }} ({{ playlist.count }})</option>
+              }
+            </select>
+          </div>
+        }
+
         <div
           class="timeline-posts"
           role="tabpanel"
@@ -405,6 +433,47 @@ import { FeedNewsCardComponent } from '../post-cards/feed-news-card.component';
         gap: 12px;
       }
 
+      .playlist-filter {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+        padding: 10px 12px;
+        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.08));
+        border-radius: 8px;
+        background: var(--m-surface-2, rgba(255, 255, 255, 0.04));
+      }
+
+      .playlist-filter__label {
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--m-text-2, rgba(255, 255, 255, 0.62));
+        text-transform: uppercase;
+      }
+
+      .playlist-filter__select {
+        min-width: 180px;
+        max-width: 100%;
+        padding: 8px 32px 8px 10px;
+        border: 1px solid var(--m-border, rgba(255, 255, 255, 0.14));
+        border-radius: 8px;
+        background: var(--m-surface, rgba(10, 13, 18, 0.96));
+        color: var(--m-text, #fff);
+        font: inherit;
+      }
+
+      @media (max-width: 520px) {
+        .playlist-filter {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .playlist-filter__select {
+          width: 100%;
+        }
+      }
+
       /* SEO crawl anchor — invisible to users, readable by Google during SSR */
       .post-seo-link {
         position: absolute;
@@ -550,12 +619,23 @@ export class ProfileTimelineComponent {
   private readonly _activeFilter = signal<ProfileTimelineFilterId>(PROFILE_TIMELINE_DEFAULT_FILTER);
   protected readonly activeFilter = this._activeFilter.asReadonly();
 
+  private readonly _activePlaylistId = signal<string>(ALL_VIDEO_PLAYLISTS_ID);
+  protected readonly activePlaylistId = this._activePlaylistId.asReadonly();
+
   /** Sync external filter input to internal state */
   constructor() {
     effect(() => {
       const external = this.filter();
       if (external !== null) {
         this._activeFilter.set(external);
+      }
+    });
+
+    effect(() => {
+      const options = this.playlistOptions();
+      const current = this._activePlaylistId();
+      if (!options.some((option) => option.id === current)) {
+        this._activePlaylistId.set(ALL_VIDEO_PLAYLISTS_ID);
       }
     });
   }
@@ -629,8 +709,7 @@ export class ProfileTimelineComponent {
     return this.filteredPolyFeed().length === 0;
   });
 
-  /** Filtered FeedItems for the polymorphic path */
-  protected readonly filteredPolyFeed = computed<readonly FeedItem[]>(() => {
+  private readonly timelineFilteredFeed = computed<readonly FeedItem[]>(() => {
     const feed = this.effectiveFeed();
     const filter = this._activeFilter();
 
@@ -643,6 +722,8 @@ export class ProfileTimelineComponent {
         return feed.filter(
           (item) => item.feedType === 'POST' && (item as FeedItemPost).media.length > 0
         );
+      case 'videos':
+        return feed.filter((item) => this.isVideoFeedItem(item));
       case 'recruiting':
         return feed.filter((item) => item.feedType === 'OFFER' || item.feedType === 'COMMITMENT');
       case 'events':
@@ -666,6 +747,42 @@ export class ProfileTimelineComponent {
     }
   });
 
+  protected readonly playlistOptions = computed<readonly VideoPlaylistOption[]>(() => {
+    const videos = this.timelineFilteredFeed().filter((item) => this.isVideoFeedItem(item));
+    if (this._activeFilter() !== 'videos' || videos.length === 0) return [];
+
+    const groups = new Map<string, { label: string; count: number }>();
+    for (const video of videos) {
+      const playlist = this.resolvePlaylist(video);
+      const id = playlist?.id ?? UNCATEGORIZED_VIDEO_PLAYLIST_ID;
+      const label = playlist?.label ?? 'Uncategorized';
+      const existing = groups.get(id);
+      groups.set(id, { label, count: (existing?.count ?? 0) + 1 });
+    }
+
+    const grouped = Array.from(groups.entries())
+      .map(([id, value]) => ({ id, label: value.label, count: value.count }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+
+    return [{ id: ALL_VIDEO_PLAYLISTS_ID, label: 'All Videos', count: videos.length }, ...grouped];
+  });
+
+  protected readonly showPlaylistDropdown = computed(() => this.playlistOptions().length > 1);
+
+  /** Filtered FeedItems for the polymorphic path */
+  protected readonly filteredPolyFeed = computed<readonly FeedItem[]>(() => {
+    const feed = this.timelineFilteredFeed();
+    if (this._activeFilter() !== 'videos') return feed;
+
+    const playlistId = this._activePlaylistId();
+    if (playlistId === ALL_VIDEO_PLAYLISTS_ID) return feed;
+
+    return feed.filter((item) => {
+      const playlist = this.resolvePlaylist(item);
+      return (playlist?.id ?? UNCATEGORIZED_VIDEO_PLAYLIST_ID) === playlistId;
+    });
+  });
+
   // ============================================
   // FILTER ACTIONS
   // ============================================
@@ -674,6 +791,11 @@ export class ProfileTimelineComponent {
     if (this._activeFilter() === filterId) return;
     this._activeFilter.set(filterId);
     this.filterChange.emit(filterId);
+  }
+
+  protected setPlaylist(event: Event): void {
+    const select = event.target as HTMLSelectElement | null;
+    this._activePlaylistId.set(select?.value || ALL_VIDEO_PLAYLISTS_ID);
   }
 
   // ============================================
@@ -724,6 +846,8 @@ export class ProfileTimelineComponent {
       dashUrl: mediaRecord?.['dashUrl'] as string | undefined,
       cloudflareVideoId: mediaRecord?.['cloudflareVideoId'] as string | undefined,
       cloudflareStatus: mediaRecord?.['processingStatus'] as string | undefined,
+      playlistId: mediaRecord?.['playlistId'] as string | undefined,
+      playlistName: mediaRecord?.['playlistName'] as string | undefined,
       // Preserve rich post payload so detail overlays can render exactly what
       // the feed card rendered (multi-media carousel, tags, embeds, location).
       content: post.content,
@@ -949,6 +1073,59 @@ export class ProfileTimelineComponent {
 
   protected asNews(item: FeedItem): FeedItemNews {
     return item as FeedItemNews;
+  }
+
+  private isVideoFeedItem(item: FeedItem): boolean {
+    return (
+      item.feedType === 'POST' &&
+      ((item as FeedItemPost).postType === 'video' ||
+        (item as FeedItemPost).media.some((media) => media.type === 'video'))
+    );
+  }
+
+  private resolvePlaylist(item: FeedItem): { id: string; label: string } | null {
+    if (item.feedType !== 'POST') return null;
+
+    const post = item as FeedItemPost;
+    const media = post.media.find((candidate) => candidate.type === 'video') ?? post.media[0];
+    const mediaRecord = media as unknown as Record<string, unknown> | undefined;
+    const postRecord = post as unknown as Record<string, unknown>;
+    const rawId = this.firstString(
+      mediaRecord?.['playlistId'],
+      postRecord['playlistId'],
+      mediaRecord?.['playlist'],
+      postRecord['playlist']
+    );
+    const rawLabel = this.firstString(
+      mediaRecord?.['playlistName'],
+      postRecord['playlistName'],
+      mediaRecord?.['playlistTitle'],
+      postRecord['playlistTitle']
+    );
+    const label = rawLabel ?? rawId;
+    if (!label) return null;
+
+    return {
+      id: this.normalizePlaylistId(rawId ?? label),
+      label,
+    };
+  }
+
+  private firstString(...values: readonly unknown[]): string | null {
+    for (const value of values) {
+      if (typeof value !== 'string') continue;
+      const trimmed = value.trim();
+      if (trimmed.length > 0) return trimmed;
+    }
+    return null;
+  }
+
+  private normalizePlaylistId(value: string): string {
+    return value
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
   }
 
   protected asFallbackContent(item: FeedItem): string | null {

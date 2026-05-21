@@ -37,6 +37,7 @@ import {
   type AgentMessage,
   type AgentXAttachment,
   type AgentXMessage,
+  type AgentXSelectedContext,
   type AgentXQuickTask,
   type AgentXRichCard,
   type AgentXMode,
@@ -65,7 +66,7 @@ import { NxtToastService } from '../../services/toast/toast.service';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
-import { APP_EVENTS, USER_PROPERTIES } from '@nxt1/core/analytics';
+import { APP_EVENTS, EVENT_CATEGORIES, USER_PROPERTIES } from '@nxt1/core/analytics';
 import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
 import { PERFORMANCE_ADAPTER } from '../../services/performance/performance-adapter.token';
 import { AGENT_X_API_BASE_URL, AGENT_X_AUTH_TOKEN_FACTORY } from './agent-x-job.service';
@@ -143,6 +144,8 @@ export class AgentXService {
   private readonly _attachmentConnectedSources = signal<readonly ConnectedAppSource[]>([]);
   /** The MongoDB thread ID for the current conversation (persisted across messages). */
   private readonly _currentThreadId = signal<string | null>(null);
+  /** Context chips explicitly staged for the next chat send. */
+  private readonly _pendingSelectedContexts = signal<readonly AgentXSelectedContext[]>([]);
 
   /** Files staged for upload — shown as previews before the user sends the message. */
   private readonly _pendingFiles = signal<AgentXPendingFile[]>([]);
@@ -268,6 +271,9 @@ export class AgentXService {
   /** Filtered connected app sources for the attachment picker — shared across all Agent X surfaces. */
   readonly attachmentConnectedSources = computed(() => this._attachmentConnectedSources());
 
+  /** Context chips staged from film review, playbooks, and other feature surfaces. */
+  readonly pendingSelectedContexts = computed(() => this._pendingSelectedContexts());
+
   /** Whether conversation is empty */
   readonly isEmpty = computed(() => this._messages().length === 0);
 
@@ -277,7 +283,9 @@ export class AgentXService {
   /** Can send message (has text or files, and not loading) */
   readonly canSend = computed(
     () =>
-      (this._userMessage().trim().length > 0 || this._pendingFiles().length > 0) &&
+      (this._userMessage().trim().length > 0 ||
+        this._pendingFiles().length > 0 ||
+        this._pendingSelectedContexts().length > 0) &&
       !this._isLoading()
   );
 
@@ -474,7 +482,14 @@ export class AgentXService {
    * Change the operational mode.
    */
   setMode(mode: AgentXMode): void {
+    const previousMode = this._selectedMode();
+    if (previousMode === mode) return;
+
     this._selectedMode.set(mode);
+    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_MODE_SWITCHED, {
+      from: previousMode,
+      to: mode,
+    });
     this.logger.debug('Mode changed', { mode });
   }
 
@@ -502,6 +517,44 @@ export class AgentXService {
     this._attachmentConnectedSources.set(sources);
   }
 
+  /** Queue or replace a selected context chip for the next chat send. */
+  queueSelectedContext(context: AgentXSelectedContext): void {
+    const normalizedId = context.id.trim();
+    const normalizedTitle = context.title.trim();
+    if (!normalizedId || !normalizedTitle) {
+      return;
+    }
+
+    const normalizedContext: AgentXSelectedContext = {
+      ...context,
+      id: normalizedId,
+      title: normalizedTitle,
+      ...(context.summary?.trim() ? { summary: context.summary.trim() } : {}),
+    };
+
+    this._pendingSelectedContexts.update((current) => {
+      const next = current.filter((entry) => entry.id !== normalizedId);
+      return [...next, normalizedContext].slice(-12);
+    });
+  }
+
+  /** Queue multiple selected context chips from a shared drag/drop interaction. */
+  queueSelectedContexts(contexts: readonly AgentXSelectedContext[]): void {
+    for (const context of contexts) {
+      this.queueSelectedContext(context);
+    }
+  }
+
+  removePendingSelectedContext(index: number): void {
+    this._pendingSelectedContexts.update((current) =>
+      current.filter((_, currentIndex) => currentIndex !== index)
+    );
+  }
+
+  clearPendingSelectedContexts(): void {
+    this._pendingSelectedContexts.set([]);
+  }
+
   /**
    * Check if user has specific role.
    */
@@ -527,6 +580,12 @@ export class AgentXService {
     await this.haptics.impact('light');
     this._selectedTask.set(task);
     this._userMessage.set(task.prompt);
+    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_QUICK_TASK_SELECTED, {
+      taskId: task.id,
+      category: EVENT_CATEGORIES.AI,
+      taskCategory: task.category,
+      hasPrompt: task.prompt.trim().length > 0,
+    });
     this.logger.debug('Task selected', { taskId: task.id });
   }
 
@@ -966,6 +1025,13 @@ export class AgentXService {
    * Call before sendMessage().
    */
   addFiles(files: File[]): void {
+    let acceptedCount = 0;
+    let acceptedVideoCount = 0;
+    let acceptedImageCount = 0;
+    let acceptedDocumentCount = 0;
+    let acceptedOtherCount = 0;
+    let totalAcceptedBytes = 0;
+
     for (const file of files) {
       if (!AGENT_X_ALLOWED_MIME_TYPES.includes(file.type)) {
         this.toast.error(`Unsupported file type: ${file.name}`);
@@ -989,6 +1055,22 @@ export class AgentXService {
           type: resolveAttachmentType(file.type),
         };
         this._pendingFiles.update((list) => [...list, pending]);
+        acceptedCount += 1;
+        totalAcceptedBytes += file.size;
+        switch (pending.type) {
+          case 'video':
+            acceptedVideoCount += 1;
+            break;
+          case 'image':
+            acceptedImageCount += 1;
+            break;
+          case 'doc':
+            acceptedDocumentCount += 1;
+            break;
+          default:
+            acceptedOtherCount += 1;
+            break;
+        }
         continue;
       }
 
@@ -1000,6 +1082,9 @@ export class AgentXService {
           type: resolveAttachmentType(file.type),
         };
         this._pendingFiles.update((list) => [...list, pending]);
+        acceptedCount += 1;
+        acceptedVideoCount += 1;
+        totalAcceptedBytes += file.size;
         this.logger.debug('File staged (video thumbnail pending)', { name: file.name });
         void this.generateVideoThumbnail(file)
           .then((thumbnailDataUrl) => {
@@ -1022,8 +1107,28 @@ export class AgentXService {
           type: resolveAttachmentType(file.type),
         };
         this._pendingFiles.update((list) => [...list, pending]);
+        acceptedCount += 1;
+        totalAcceptedBytes += file.size;
+        if (pending.type === 'image') {
+          acceptedImageCount += 1;
+        } else if (pending.type === 'doc') {
+          acceptedDocumentCount += 1;
+        } else {
+          acceptedOtherCount += 1;
+        }
         this.logger.debug('File staged', { name: file.name, type: pending.type });
       }
+    }
+
+    if (acceptedCount > 0) {
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_ATTACHMENTS_STAGED, {
+        count: acceptedCount,
+        totalBytes: totalAcceptedBytes,
+        videoCount: acceptedVideoCount,
+        imageCount: acceptedImageCount,
+        documentCount: acceptedDocumentCount,
+        otherCount: acceptedOtherCount,
+      });
     }
   }
 
@@ -1136,6 +1241,7 @@ export class AgentXService {
     this._userMessage.set('');
     this._currentThreadId.set(null);
     this.clearPendingFiles();
+    this.clearPendingSelectedContexts();
     this.toast.success('Conversation cleared');
     this.logger.debug('Conversation cleared');
   }

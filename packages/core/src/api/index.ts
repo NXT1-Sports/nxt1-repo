@@ -86,6 +86,7 @@ export {
   type FileUploadHttpAdapter,
   type FileValidationError,
   FILE_UPLOAD_RULES,
+  buildTusUploadMetadataHeader,
   validateFileForUpload,
   formatFileSize,
   type FinalizedHighlightVideoUpload,

@@ -427,6 +427,7 @@ export {
 // UTILITY COMPONENTS
 // ============================================
 export { NxtRefreshContainerComponent, type RefreshEvent } from './refresh-container';
+export { NxtVideoControlsComponent } from './video-controls';
 // ============================================
 // TIMELINE (Shared vertical-timeline components)
 // ============================================

@@ -1,5 +1,10 @@
 import { Injector, runInInjectionContext } from '@angular/core';
 import { describe, expect, it, vi } from 'vitest';
+import {
+  AGENT_X_SELECTED_CONTEXT_DRAG_MIME,
+  serializeAgentXSelectedContextForDrag,
+  type AgentXSelectedContext,
+} from '@nxt1/core/ai';
 
 import { NxtDragDropDirective } from './drag-drop.directive';
 
@@ -59,6 +64,33 @@ describe('NxtDragDropDirective', () => {
     expect(dragStates).toEqual([]);
     expect(event.preventDefault).not.toHaveBeenCalled();
   });
+
+  it('emits selected contexts through the same drag state lifecycle', () => {
+    const directive = createDirective();
+    const dragStates: boolean[] = [];
+    const droppedContexts: AgentXSelectedContext[][] = [];
+    const context: AgentXSelectedContext = {
+      id: 'playbook-play:pb-1:mesh',
+      kind: 'playbook_item',
+      title: 'Mesh Concept',
+      source: { type: 'playbook', id: 'pb-1', label: 'Week 4' },
+    };
+
+    directive.dragStateChange.subscribe((active) => {
+      dragStates.push(active);
+    });
+    directive.selectedContextsDropped.subscribe((contexts) => {
+      droppedContexts.push(contexts);
+    });
+
+    directive.onDragEnter(createContextDragEvent(context));
+    const dropEvent = createContextDragEvent(context);
+    directive.onDrop(dropEvent);
+
+    expect(droppedContexts).toEqual([[context]]);
+    expect(dragStates).toEqual([true, false]);
+    expect(dropEvent.preventDefault).toHaveBeenCalledOnce();
+  });
 });
 
 function createDragEvent(types: string[], files: File[]): DragEvent {
@@ -67,7 +99,25 @@ function createDragEvent(types: string[], files: File[]): DragEvent {
       types,
       files,
       dropEffect: 'none',
+      getData: vi.fn(() => ''),
     } as DataTransfer,
+    preventDefault: vi.fn(),
+    stopPropagation: vi.fn(),
+  } as unknown as DragEvent;
+}
+
+function createContextDragEvent(context: AgentXSelectedContext): DragEvent {
+  return {
+    dataTransfer: {
+      types: [AGENT_X_SELECTED_CONTEXT_DRAG_MIME],
+      files: [],
+      dropEffect: 'none',
+      getData: vi.fn((type: string) =>
+        type === AGENT_X_SELECTED_CONTEXT_DRAG_MIME
+          ? serializeAgentXSelectedContextForDrag(context)
+          : ''
+      ),
+    } as unknown as DataTransfer,
     preventDefault: vi.fn(),
     stopPropagation: vi.fn(),
   } as unknown as DragEvent;

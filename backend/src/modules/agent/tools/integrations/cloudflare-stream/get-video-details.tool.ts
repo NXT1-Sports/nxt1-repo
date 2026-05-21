@@ -27,7 +27,7 @@ export class GetVideoDetailsTool extends BaseTool {
   readonly name = 'get_video_details';
   readonly description =
     'Get details about a video in Cloudflare Stream including processing status, duration, ' +
-    'dimensions, and streaming URLs. Set waitForReady=true to automatically poll until the ' +
+    'dimensions, streaming URLs, and current download render status/URLs when available. Set waitForReady=true to automatically poll until the ' +
     'video finishes processing (shows live progress). Without waitForReady, returns the ' +
     'current status immediately.';
 
@@ -36,6 +36,7 @@ export class GetVideoDetailsTool extends BaseTool {
   override readonly allowedAgents = [
     'brand_coordinator',
     'data_coordinator',
+    'performance_coordinator',
     'strategy_coordinator',
   ] as const;
 
@@ -155,6 +156,44 @@ export class GetVideoDetailsTool extends BaseTool {
         polled: shouldPoll,
       });
 
+      let downloads: {
+        readonly video: {
+          readonly status: string | null;
+          readonly url: string | null;
+          readonly percentComplete: number | null;
+        } | null;
+        readonly audio: {
+          readonly status: string | null;
+          readonly url: string | null;
+          readonly percentComplete: number | null;
+        } | null;
+      } | null = null;
+
+      try {
+        const links = await this.bridge.getDownloadLinks(videoId);
+        downloads = {
+          video: links.default
+            ? {
+                status: links.default.status ?? null,
+                url: links.default.url ?? null,
+                percentComplete: links.default.percentComplete ?? null,
+              }
+            : null,
+          audio: links.audio
+            ? {
+                status: links.audio.status ?? null,
+                url: links.audio.url ?? null,
+                percentComplete: links.audio.percentComplete ?? null,
+              }
+            : null,
+        };
+      } catch (downloadError) {
+        logger.warn('[GetVideoDetails] Download links unavailable', {
+          videoId,
+          error: downloadError instanceof Error ? downloadError.message : String(downloadError),
+        });
+      }
+
       return {
         success: true,
         data: {
@@ -171,6 +210,7 @@ export class GetVideoDetailsTool extends BaseTool {
           thumbnail: video.thumbnail ?? null,
           created: video.created ?? null,
           meta: video.meta ?? null,
+          downloads,
           scheduledDeletion: video.scheduledDeletion ?? null,
           clippedFromVideoUID: video.clippedFromVideoUID ?? null,
         },

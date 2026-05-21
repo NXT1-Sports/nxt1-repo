@@ -12,6 +12,9 @@ export interface MediaViewerItem {
   /** Absolute or relative URL of the media asset. */
   readonly url: string;
 
+  /** Optional Firebase Storage path for assets that can be re-signed. */
+  readonly storagePath?: string;
+
   /** Media type — determines which element is rendered. */
   readonly type: 'image' | 'video' | 'doc';
 
@@ -49,6 +52,15 @@ export interface MediaViewerConfig {
 
   /** Analytics source identifier (e.g. 'feed', 'profile', 'chat'). */
   readonly source?: string;
+
+  /** Optional label for a contextual action button. */
+  readonly primaryActionLabel?: string;
+
+  /** Accessible label for the contextual action button. */
+  readonly primaryActionAriaLabel?: string;
+
+  /** Optional contextual action for the active item. */
+  readonly primaryAction?: (item: MediaViewerItem) => void | Promise<void>;
 
   /**
    * Presentation mode override.

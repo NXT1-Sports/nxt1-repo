@@ -944,6 +944,8 @@ export const PROFILE_TIMELINE_TEST_IDS = {
   RETRY_BTN: 'profile-timeline-retry-btn',
   EMPTY: 'profile-timeline-empty',
   EMPTY_CTA: 'profile-timeline-empty-cta',
+  PLAYLIST_FILTER: 'profile-timeline-playlist-filter',
+  PLAYLIST_SELECT: 'profile-timeline-playlist-select',
   POSTS_PANEL: 'profile-timeline-posts',
   LOAD_MORE: 'profile-timeline-load-more',
   LOAD_MORE_BTN: 'profile-timeline-load-more-btn',
@@ -1154,6 +1156,8 @@ export const MEDIA_VIEWER_TEST_IDS = {
   CLOSE_BUTTON: 'media-viewer-close-button',
   /** Share button */
   SHARE_BUTTON: 'media-viewer-share-button',
+  /** Contextual primary action button */
+  PRIMARY_ACTION_BUTTON: 'media-viewer-primary-action-button',
   /** Horizontal scroll track holding all items */
   TRACK: 'media-viewer-track',
   /** Individual media slide (image or video) */
@@ -1255,6 +1259,23 @@ export const TEAM_TIMELINE_TEST_IDS = {
   LOAD_MORE: 'team-timeline-load-more',
   /** Load more button */
   LOAD_MORE_BTN: 'team-timeline-load-more-btn',
+} as const;
+
+// ============================================
+// TEAM VIDEOS TEST IDS
+// ============================================
+
+export const TEAM_VIDEOS_TEST_IDS = {
+  /** Video feed list container */
+  LIST: 'team-videos-list',
+  /** Playlist filter wrapper */
+  PLAYLIST_FILTER: 'team-videos-playlist-filter',
+  /** Playlist select control */
+  PLAYLIST_SELECT: 'team-videos-playlist-select',
+  /** Empty state */
+  EMPTY_STATE: 'team-videos-empty',
+  /** Empty state admin CTA */
+  EMPTY_CTA: 'team-videos-add-btn',
 } as const;
 
 // ============================================
@@ -1419,6 +1440,53 @@ export const PLAYBOOK_TEST_IDS = {
   AI_CREATE_GAMEPLAN_TRIGGER: 'playbook-ai-create-gameplan-trigger',
 } as const;
 
+// ============================================
+// TEAM FILM REVIEW TEST IDS
+// ============================================
+export const FILM_REVIEW_TEST_IDS = {
+  PANEL_CONTAINER: 'film-review-panel-container',
+  LIST_CONTAINER: 'film-review-list-container',
+  LIST_ITEM: 'film-review-list-item',
+  LIST_ITEM_MENU: 'film-review-list-item-menu',
+  PLAYLIST_FILTER: 'film-review-playlist-filter',
+  PLAYLIST_GROUP: 'film-review-playlist-group',
+  PLAYLIST_CREATE_BUTTON: 'film-review-playlist-create-button',
+  PLAYLIST_CREATE_INPUT: 'film-review-playlist-create-input',
+  PLAYLIST_CREATE_SAVE: 'film-review-playlist-create-save',
+  PLAYLIST_FOLDER: 'film-review-playlist-folder',
+  PLAYLIST_FOLDER_TOGGLE: 'film-review-playlist-folder-toggle',
+  PLAYLIST_FOLDER_MENU: 'film-review-playlist-folder-menu',
+  PLAYLIST_FOLDER_DROPZONE: 'film-review-playlist-folder-dropzone',
+  PLAYLIST_UNASSIGNED_FOLDER: 'film-review-playlist-unassigned-folder',
+  EMPTY_STATE: 'film-review-empty-state',
+  ERROR_STATE: 'film-review-error-state',
+  LOADING_SKELETON: 'film-review-loading-skeleton',
+  UPLOAD_INPUT: 'film-review-upload-input',
+  UPLOAD_BUTTON: 'film-review-upload-button',
+  DROPZONE: 'film-review-dropzone',
+  VIDEO_PLAYER: 'film-review-video-player',
+  TIMELINE_TAG: 'film-review-timeline-tag',
+  AI_SUMMARY: 'film-review-ai-summary',
+  INSIGHTS_LIST: 'film-review-insights-list',
+  CLIPS_LIST: 'film-review-clips-list',
+  ANNOTATIONS_LIST: 'film-review-annotations-list',
+  ANNOTATION_INPUT: 'film-review-annotation-input',
+  ANNOTATION_TIME_INPUT: 'film-review-annotation-time-input',
+  ANNOTATION_ADD_BUTTON: 'film-review-annotation-add-button',
+  AI_REFRESH_BUTTON: 'film-review-ai-refresh-button',
+  GENERATE_TIMELINE_BUTTON: 'film-review-generate-timeline-button',
+  BREAKDOWN_IMPORT_BUTTON: 'film-review-breakdown-import-button',
+  TIMELINE_GENERATING_SPINNER: 'film-review-timeline-generating-spinner',
+  TIMELINE_TAG_COLUMN: 'film-review-timeline-tag-column',
+  TIMELINE_TAG_VALUE: 'film-review-timeline-tag-value',
+  TIMELINE_PLAY_NAV_PREV: 'film-review-timeline-play-nav-prev',
+  TIMELINE_PLAY_NAV_NEXT: 'film-review-timeline-play-nav-next',
+  TIMELINE_PLAY_EDIT_BUTTON: 'film-review-timeline-play-edit-button',
+  TIMELINE_PLAY_EDIT_INPUT: 'film-review-timeline-play-edit-input',
+  TIMELINE_PLAY_EDIT_SAVE: 'film-review-timeline-play-edit-save',
+  TIMELINE_PLAY_EDIT_CANCEL: 'film-review-timeline-play-edit-cancel',
+} as const;
+
 export const TEST_IDS = {
   AUTH: AUTH_TEST_IDS,
   AUTH_PAGE: AUTH_PAGE_TEST_IDS,
@@ -1453,9 +1521,11 @@ export const TEST_IDS = {
   LIVE_VIEW: LIVE_VIEW_TEST_IDS,
   LIVE_VIEW_LAUNCHER: LIVE_VIEW_LAUNCHER_TEST_IDS,
   TEAM_TIMELINE: TEAM_TIMELINE_TEST_IDS,
+  TEAM_VIDEOS: TEAM_VIDEOS_TEST_IDS,
   HELP_CENTER: HELP_CENTER_TEST_IDS,
   GAMEPLAN: GAMEPLAN_TEST_IDS,
   PLAYBOOK: PLAYBOOK_TEST_IDS,
+  FILM_REVIEW: FILM_REVIEW_TEST_IDS,
 } as const;
 
 // Type exports for TypeScript

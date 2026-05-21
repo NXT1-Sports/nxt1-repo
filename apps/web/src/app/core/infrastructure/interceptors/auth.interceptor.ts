@@ -68,6 +68,10 @@ function isOptionalAuthProfileReadEndpoint(req: HttpRequest<unknown>, apiPath: s
   return apiPath !== '/auth/profile/me' && !apiPath.startsWith('/auth/profile/me?');
 }
 
+function isOptionalAuthAnalyticsEndpoint(req: HttpRequest<unknown>, apiPath: string): boolean {
+  return req.method === 'POST' && apiPath === '/analytics/profile-view';
+}
+
 function getApiPath(url: string): string {
   const baseIndex = url.indexOf(environment.apiURL);
   return baseIndex !== -1 ? url.slice(baseIndex + environment.apiURL.length) : url;
@@ -127,7 +131,9 @@ export const authInterceptor: HttpInterceptorFn = (
 
   const apiPath = getApiPath(req.url);
   const isOptionalAuthEndpoint =
-    isOptionalAuthTeamProfileEndpoint(apiPath) || isOptionalAuthProfileReadEndpoint(req, apiPath);
+    isOptionalAuthTeamProfileEndpoint(apiPath) ||
+    isOptionalAuthProfileReadEndpoint(req, apiPath) ||
+    isOptionalAuthAnalyticsEndpoint(req, apiPath);
 
   // Skip public endpoints
   if (isPublicEndpoint(req.url) && !isOptionalAuthEndpoint) {

@@ -21,6 +21,8 @@ const UpdateAthleteVideosInputSchema = z.object({
   src: z.string().trim().min(1).optional(),
   provider: z.string().trim().min(1).optional(),
   poster: z.string().trim().min(1).optional(),
+  playlistId: z.string().trim().min(1).optional(),
+  playlistName: z.string().trim().min(1).optional(),
 });
 
 export class UpdateAthleteVideosTool extends BaseTool {
@@ -72,6 +74,8 @@ export class UpdateAthleteVideosTool extends BaseTool {
     if (parsed.data.src !== undefined) patch['src'] = parsed.data.src;
     if (parsed.data.provider !== undefined) patch['provider'] = parsed.data.provider;
     if (parsed.data.poster !== undefined) patch['poster'] = parsed.data.poster;
+    if (parsed.data.playlistId !== undefined) patch['playlistId'] = parsed.data.playlistId;
+    if (parsed.data.playlistName !== undefined) patch['playlistName'] = parsed.data.playlistName;
 
     if (Object.keys(patch).length === 0)
       return { success: true, data: { postId, userId, message: 'No fields to update' } };

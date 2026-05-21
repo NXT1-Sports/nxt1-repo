@@ -72,6 +72,13 @@ export class AnalyzeImageTool extends BaseTool {
     '- Extracting visual evidence for intel reports: technique, physicality, body composition, uniform details\n' +
     '- Quality-gating images before saving to the athlete profile via write_athlete_images\n' +
     '- Identifying sport, position indicators, and recruiting photo suitability\n' +
+    '- Film review draw annotations — when a user draws on a play in the NXT1 film review panel (circles a\n' +
+    '  player, highlights a route, marks a formation), the panel attaches a flattened JPEG of the annotated\n' +
+    '  frame to the message (filename contains "-annotated-"). Call analyze_image on this snapshot FIRST to\n' +
+    '  identify the circled/highlighted subject and its region in the frame. Then call analyze_video with the\n' +
+    '  timeRange for motion context. Use this two-step flow whenever an annotated snapshot image is available\n' +
+    '  (attachment or imageUrl). If only drawing metadata exists (no image), rely on annotation bounds plus\n' +
+    '  timeRange in analyze_video and do not block waiting for a new upload.\n' +
     "\nFor athlete intel enrichment: call analyze_image on the athlete's profileImgs and recent image Posts " +
     '(cap at 5 images) before generating scouting assessments. Pass visionSummary output to write_athlete_images.\n' +
     '\nFor data verification: after scraping a profile and discovering images, call analyze_image to confirm ' +

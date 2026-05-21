@@ -632,7 +632,13 @@ export class ProfileComponent implements OnInit, OnDestroy {
     if (!isOwn) {
       this.http
         .post(`${environment.apiURL}/analytics/profile-view`, { viewedUserId: profile.id })
-        .pipe(first())
+        .pipe(
+          first(),
+          catchError((err) => {
+            this.logger.debug('Profile view analytics failed (non-blocking)', { err });
+            return of(null);
+          })
+        )
         .subscribe();
     }
 

@@ -133,6 +133,9 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain('delegate to `strategy_coordinator`');
     expect(prompt).toContain('NEVER call `generate_graphic` directly from router');
     expect(prompt).toContain('Live-view film requests are coordinator-owned');
+    expect(prompt).toContain(
+      'NEVER call `create_play_diagram`, `write_playbooks`, `save_gameplan`, `list_gameplans`, or `get_gameplan` directly from the router'
+    );
     expect(prompt).toContain('single objective sentence as the handoff payload');
     expect(prompt).toContain('Ask User Decision Matrix (CRITICAL)');
     expect(prompt).toContain('Do NOT call `ask_user` for data already present in task context');
@@ -767,6 +770,79 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(observation).toContain('strategy_coordinator');
 
     agent.endRun('op-6');
+  });
+
+  it('reroutes direct list_gameplans tool calls to strategy_coordinator', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: {
+          compactMarkdown: 'Capabilities',
+          detailedMarkdown: 'Capabilities',
+        },
+      }),
+    } as unknown as CapabilityRegistry;
+
+    const dispatcher: PrimaryDispatcher = {
+      runCoordinator: vi.fn().mockResolvedValue({
+        success: true,
+        observation: '## strategy_coordinator dispatch result\n- game plans listed',
+      }),
+      runPlan: vi.fn(),
+    };
+
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const context = {
+      ...createMockContext(),
+      operationId: 'op-6b',
+    };
+
+    agent.beginRun({
+      operationId: 'op-6b',
+      userId: context.userId,
+      sessionContext: context,
+      enrichedIntent: 'Show the Duke 3PT containment game plan',
+    });
+
+    const registry = new ConcreteToolRegistry();
+
+    const toolCall: LLMToolCall = {
+      id: 'call_direct_list_gameplans',
+      type: 'function',
+      function: {
+        name: 'list_gameplans',
+        arguments: JSON.stringify({
+          teamId: 'team-1',
+        }),
+      },
+    };
+
+    const observation = await agent.callExecuteTool(
+      toolCall,
+      registry,
+      context.userId,
+      undefined,
+      undefined,
+      { operationId: 'op-6b' },
+      [],
+      undefined,
+      undefined
+    );
+
+    expect(dispatcher.runCoordinator).toHaveBeenCalledWith(
+      'strategy_coordinator',
+      expect.stringContaining('strategy artifact request'),
+      expect.objectContaining({
+        operationId: 'op-6b',
+      }),
+      expect.objectContaining({
+        source: 'router_list_gameplans_fallback',
+        originalToolName: 'list_gameplans',
+        teamId: 'team-1',
+      })
+    );
+    expect(observation).toContain('strategy_coordinator');
+
+    agent.endRun('op-6b');
   });
 
   it('reroutes live-view clip scrolling to the film coordinator extraction workflow', async () => {

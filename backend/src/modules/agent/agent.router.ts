@@ -1006,7 +1006,7 @@ export class AgentRouter {
       operationId,
       stage: 'agent_thinking',
       status: 'running',
-      message: 'Context ready.',
+      message: 'Locked in.',
       metadata: {
         phase: 'context_ready',
         contextBuildMs: contextBuildDurationMs,

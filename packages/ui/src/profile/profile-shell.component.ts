@@ -717,6 +717,11 @@ export class ProfileShellComponent implements OnInit {
               ).length || undefined,
         },
         {
+          id: 'videos',
+          label: 'Videos',
+          badge: this.profile.videoPosts().length || undefined,
+        },
+        {
           id: 'metrics',
           label: 'Metrics',
           badge:
@@ -796,6 +801,7 @@ export class ProfileShellComponent implements OnInit {
       'all-posts': 'all',
       pinned: 'pinned',
       media: 'media',
+      videos: 'videos',
       metrics: 'metrics',
       stats: 'stats',
       awards: 'awards',

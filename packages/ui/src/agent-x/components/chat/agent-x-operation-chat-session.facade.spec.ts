@@ -22,7 +22,13 @@ type Canonicalizer = {
   collectMessageMedia(message: AgentMessage): {
     imageUrl?: string;
     videoUrl?: string;
-    attachments?: Array<{ url: string; type: 'image' | 'video' | 'doc' | 'app'; name: string }>;
+    attachments?: Array<{
+      url: string;
+      type: 'image' | 'video' | 'doc' | 'app' | 'context';
+      name: string;
+      contextKind?: string;
+      contextSource?: string;
+    }>;
   };
   stripDisplayedMediaUrlsFromContent(
     content: string,
@@ -78,6 +84,47 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     const canonical = facade.resolveCanonicalAssistantRows(items);
 
     expect(canonical.map((message) => message.id)).toEqual(['final-1']);
+  });
+
+  it('rehydrates selected contexts as message attachments on reload', () => {
+    const media = facade.collectMessageMedia({
+      id: 'user-ctx-1',
+      threadId: 'thread-1',
+      userId: 'user-1',
+      role: 'user',
+      content: 'Break this down',
+      origin: 'user',
+      createdAt: '2026-05-05T12:00:00.000Z',
+      selectedContexts: [
+        {
+          id: 'film-review:123',
+          kind: 'film_play',
+          title: 'Shotgun rollout @ 00:14',
+          summary: 'Film review clip',
+          source: {
+            type: 'film_review',
+            id: '123',
+            label: 'State semifinal vs Westview',
+          },
+          media: {
+            videoUrl: 'https://cdn.example.com/film.mp4',
+            thumbnailUrl: 'https://cdn.example.com/film.jpg',
+          },
+        },
+      ],
+    });
+
+    expect(media.attachments).toEqual([
+      {
+        url: 'https://cdn.example.com/film.mp4',
+        type: 'video',
+        name: 'Shotgun rollout @ 00:14',
+        thumbnailUrl: 'https://cdn.example.com/film.jpg',
+        contextKind: 'film_play',
+        contextSource: 'State semifinal vs Westview',
+        contextSummary: 'Film review clip',
+      },
+    ]);
   });
 
   it('keeps only the latest assistant_partial while a final row does not exist yet', () => {

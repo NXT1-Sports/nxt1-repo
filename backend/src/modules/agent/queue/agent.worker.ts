@@ -2700,22 +2700,39 @@ export class AgentWorker {
             : 0,
         });
 
+        const resolvePersistedAttachmentType = (
+          mimeType: string,
+          fallbackType: import('@nxt1/core').AgentXAttachment['type']
+        ): import('@nxt1/core').AgentXAttachment['type'] => {
+          if (mimeType === 'application/pdf') return 'pdf';
+          if (mimeType === 'text/csv') return 'csv';
+          return fallbackType;
+        };
+
         const attachmentsFromResultData: import('@nxt1/core').AgentXAttachment[] =
-          generatedAttachments.map((attachment) => ({
-            id: crypto.randomUUID(),
-            url: attachment.url,
-            name: attachment.name,
-            mimeType:
-              attachment.type === 'image'
+          generatedAttachments.map((attachment) => {
+            const mimeType =
+              attachment.mimeType ??
+              (attachment.type === 'image'
                 ? 'image/jpeg'
                 : attachment.type === 'video'
                   ? 'video/mp4'
-                  : attachment.type === 'doc'
-                    ? 'application/octet-stream'
-                    : 'application/octet-stream',
-            type: attachment.type,
-            sizeBytes: 0,
-          }));
+                  : 'application/octet-stream');
+
+            return {
+              id: crypto.randomUUID(),
+              url: attachment.url,
+              ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
+              name: attachment.name,
+              mimeType,
+              type: resolvePersistedAttachmentType(mimeType, attachment.type),
+              sizeBytes: attachment.sizeBytes ?? 0,
+              ...(attachment.thumbnailUrl ? { thumbnailUrl: attachment.thumbnailUrl } : {}),
+              ...(attachment.cloudflareVideoId
+                ? { cloudflareVideoId: attachment.cloudflareVideoId }
+                : {}),
+            };
+          });
 
         // Normalize persisted prose: remove model-emitted raw storage/diagrams.net URLs
         // and then append canonical links from structured tool result data.

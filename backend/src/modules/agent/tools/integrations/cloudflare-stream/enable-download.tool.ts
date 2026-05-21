@@ -27,6 +27,7 @@ export class EnableDownloadTool extends BaseTool {
   override readonly allowedAgents = [
     'brand_coordinator',
     'data_coordinator',
+    'performance_coordinator',
     'strategy_coordinator',
   ] as const;
 
@@ -150,7 +151,7 @@ export class EnableDownloadTool extends BaseTool {
           message: downloadUrl
             ? `Download ready! URL: ${downloadUrl}`
             : `Download rendering in progress (${percentComplete ?? 0}% complete). ` +
-              `Use get_video_details to poll for the download URL.`,
+              `Use get_video_details to check downloads.video status and URL.`,
         },
       };
     } catch (err) {

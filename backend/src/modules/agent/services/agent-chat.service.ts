@@ -608,6 +608,7 @@ export class AgentChatService {
     agentId?: AgentIdentifier;
     operationId?: string;
     attachments?: readonly AgentXAttachment[];
+    selectedContexts?: readonly import('@nxt1/core').AgentXSelectedContext[];
     cards?: readonly AgentXRichCard[];
     resultData?: Record<string, unknown>;
     toolCalls?: readonly AgentToolCallRecord[];
@@ -655,6 +656,7 @@ export class AgentChatService {
       agentId: params.agentId,
       operationId: params.operationId,
       attachments: params.attachments,
+      selectedContexts: params.selectedContexts,
       cards: normalizedCards,
       resultData: params.resultData,
       toolCalls: params.toolCalls,
@@ -1443,6 +1445,7 @@ export class AgentChatService {
       agentId: doc.agentId,
       operationId: doc.operationId,
       attachments,
+      selectedContexts: doc.selectedContexts,
       cards: doc.cards,
       resultData: doc.resultData,
       toolCalls: doc.toolCalls,

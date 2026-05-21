@@ -1,5 +1,6 @@
-import { Component, ChangeDetectionStrategy, signal, inject, input, output } from '@angular/core';
+import { Component, ChangeDetectionStrategy, signal, inject, input, output, computed } from '@angular/core';
 import { RouterLink, Router } from '@angular/router';
+import { AuthFlowService } from '../core/services/auth';
 
 export interface PublicNavItem {
   readonly id: string;
@@ -101,9 +102,13 @@ export interface PublicNavItem {
             <span class="hamburger-line"></span>
           </button>
 
-          <!-- "Try NXT1" button (desktop only) -->
-          <a class="nav-auth-btn nav-auth-btn--primary" routerLink="/auth" aria-label="Try NXT1">
-            Try NXT1
+          <!-- Auth CTA (desktop only) -->
+          <a
+            class="nav-auth-btn nav-auth-btn--primary"
+            routerLink="/auth"
+            [attr.aria-label]="authCtaLabel()"
+          >
+            {{ authCtaLabel() }}
           </a>
         </div>
       </div>
@@ -206,8 +211,14 @@ export interface PublicNavItem {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
+
 export class PublicMarketingHeaderComponent {
   private readonly router = inject(Router);
+  private readonly authFlow = inject(AuthFlowService);
+
+  /** Auth state: true if logged in, false if not */
+  readonly isLoggedIn = computed(() => this.authFlow.isAuthenticated());
+  readonly authCtaLabel = computed(() => (this.isLoggedIn() ? 'Open NXT1' : 'Try NXT1'));
 
   readonly items = input<readonly PublicNavItem[]>([]);
   readonly logoClick = output<void>();

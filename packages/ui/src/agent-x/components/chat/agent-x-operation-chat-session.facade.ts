@@ -9,6 +9,7 @@ import type {
   AgentXAskUserPayload,
   AgentXMessagePart,
   AgentXRichCard,
+  AgentXSelectedContext,
   AgentXStreamMediaEvent,
   AgentXToolStep,
 } from '@nxt1/core/ai';
@@ -47,6 +48,12 @@ export interface AgentXOperationChatSessionFacadeHost {
   readonly resumeOperationId: () => string;
   readonly initialMessage: () => string;
   readonly initialFiles: () => readonly PendingFile[];
+  readonly initialConnectedSources: () => readonly {
+    platform: string;
+    profileUrl: string;
+    faviconUrl?: string;
+  }[];
+  readonly autoSendOnOpen: () => boolean;
   readonly errorMessage: () => string | null;
   readonly threadMode: WritableSignal<boolean>;
   readonly inputValue: WritableSignal<string>;
@@ -287,7 +294,8 @@ export class AgentXOperationChatSessionFacade {
   private mapPersistedAttachment(attachment: AgentXAttachment): {
     url: string;
     name: string;
-    type: 'image' | 'video' | 'doc' | 'app';
+    type: 'image' | 'video' | 'doc' | 'app' | 'context';
+    storagePath?: string;
     platform?: string;
     faviconUrl?: string;
   } {
@@ -304,8 +312,52 @@ export class AgentXOperationChatSessionFacade {
       url: this.normalizeDetectedMediaUrl(attachment.url),
       name: attachment.name,
       type: mappedType,
+      ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
       ...(attachment.platform ? { platform: attachment.platform } : {}),
       ...(attachment.faviconUrl ? { faviconUrl: attachment.faviconUrl } : {}),
+    };
+  }
+
+  private mapSelectedContextAttachment(context: AgentXSelectedContext): MessageAttachment | null {
+    const id = context.id.trim();
+    const title = context.title.trim();
+    if (!id || !title) return null;
+
+    const videoUrl = context.media?.videoUrl?.trim();
+    const imageUrl = context.media?.imageUrl?.trim();
+    const thumbnailUrl = context.media?.thumbnailUrl?.trim();
+    const source = context.source?.label ?? context.source?.type;
+
+    if (videoUrl) {
+      return {
+        url: this.normalizeDetectedMediaUrl(videoUrl),
+        type: 'video',
+        name: title,
+        ...(thumbnailUrl ? { thumbnailUrl } : {}),
+        contextKind: context.kind,
+        ...(source ? { contextSource: source } : {}),
+        ...(context.summary ? { contextSummary: context.summary } : {}),
+      };
+    }
+
+    if (imageUrl || thumbnailUrl) {
+      return {
+        url: this.normalizeDetectedMediaUrl(imageUrl ?? thumbnailUrl ?? ''),
+        type: 'image',
+        name: title,
+        contextKind: context.kind,
+        ...(source ? { contextSource: source } : {}),
+        ...(context.summary ? { contextSummary: context.summary } : {}),
+      };
+    }
+
+    return {
+      url: `context://${encodeURIComponent(id)}`,
+      type: 'context',
+      name: title,
+      contextKind: context.kind,
+      ...(source ? { contextSource: source } : {}),
+      ...(context.summary ? { contextSummary: context.summary } : {}),
     };
   }
 
@@ -330,21 +382,116 @@ export class AgentXOperationChatSessionFacade {
         /\n\[Instruction: treat these as user-connected sources for this request; do not state they are missing\.\]/gs,
         ''
       )
+      .replace(
+        /\s*\[Selected contexts \(confirmed by user for this turn\):[\s\S]*?\n\]\s*\[Instruction: prioritize these contexts while reasoning and cite their timestamps when relevant\.\]/g,
+        ''
+      )
       .trim();
   }
 
   private collectMessageMedia(message: AgentMessage): {
+    imageUrl?: string;
+    videoUrl?: string;
     attachments?: OperationMessage['attachments'];
   } {
     // Unified attachment model: backend populates attachments[] at save time.
     // Frontend simply reads attachments directly — no content scanning, no waterfall.
-    const persistedAttachments = this.dedupeMessageAttachments(
-      (message.attachments ?? []).map((attachment) =>
+    const persistedAttachments = this.dedupeMessageAttachments([
+      ...(message.attachments ?? []).map((attachment) =>
         this.mapPersistedAttachment(attachment as AgentXAttachment)
-      )
-    );
+      ),
+      ...(message.selectedContexts ?? [])
+        .map((context) => this.mapSelectedContextAttachment(context))
+        .filter((attachment): attachment is NonNullable<typeof attachment> => attachment !== null),
+    ]);
 
-    return persistedAttachments.length > 0 ? { attachments: persistedAttachments } : {};
+    if (message.role === 'user') {
+      return persistedAttachments.length > 0 ? { attachments: persistedAttachments } : {};
+    }
+
+    const detectedAssistantMedia = this.collectDetectedAssistantMedia(message);
+    const attachments = this.dedupeMessageAttachments([
+      ...persistedAttachments,
+      ...detectedAssistantMedia.attachments,
+    ]);
+
+    return {
+      ...(detectedAssistantMedia.imageUrl ? { imageUrl: detectedAssistantMedia.imageUrl } : {}),
+      ...(detectedAssistantMedia.videoUrl ? { videoUrl: detectedAssistantMedia.videoUrl } : {}),
+      ...(attachments.length > 0 ? { attachments } : {}),
+    };
+  }
+
+  private collectDetectedAssistantMedia(message: AgentMessage): {
+    imageUrl?: string;
+    videoUrl?: string;
+    attachments: MessageAttachment[];
+  } {
+    const urls: string[] = [];
+    const seen = new Set<string>();
+    const addUrl = (candidate: unknown): void => {
+      if (typeof candidate !== 'string') return;
+      const trimmed = candidate.trim();
+      if (!trimmed) return;
+      const normalized = this.normalizeDetectedMediaUrl(trimmed);
+      if (!/^https?:\/\//i.test(normalized) || seen.has(normalized)) return;
+      seen.add(normalized);
+      urls.push(normalized);
+    };
+
+    const resultData = message.resultData ?? {};
+    addUrl(resultData['imageUrl']);
+    addUrl(resultData['videoUrl']);
+    addUrl(resultData['outputUrl']);
+
+    for (const key of ['persistedMediaUrls', 'mediaUrls', 'imageUrls', 'videoUrls'] as const) {
+      const value = resultData[key];
+      if (!Array.isArray(value)) continue;
+      for (const item of value) {
+        addUrl(item);
+      }
+    }
+
+    const urlPattern = /https?:\/\/[^\s)\]"'<>]+/gi;
+    for (const rawUrl of message.content.match(urlPattern) ?? []) {
+      addUrl(rawUrl);
+    }
+
+    let imageIndex = 0;
+    let videoIndex = 0;
+    let firstImageUrl: string | undefined;
+    let firstVideoUrl: string | undefined;
+    const attachments: MessageAttachment[] = [];
+
+    for (const url of urls) {
+      const mediaType = this.inferMediaTypeFromUrl(url);
+      if (mediaType === 'image') {
+        imageIndex += 1;
+        firstImageUrl ??= url;
+        attachments.push({
+          url,
+          type: 'image',
+          name: `media-image-${imageIndex}.jpg`,
+        });
+        continue;
+      }
+
+      if (mediaType === 'video') {
+        videoIndex += 1;
+        firstVideoUrl ??= url;
+        attachments.push({
+          url,
+          type: 'video',
+          name: `media-video-${videoIndex}.mp4`,
+        });
+      }
+    }
+
+    return {
+      ...(firstImageUrl ? { imageUrl: firstImageUrl } : {}),
+      ...(firstVideoUrl ? { videoUrl: firstVideoUrl } : {}),
+      attachments,
+    };
   }
 
   private stripDisplayedMediaUrlsFromContent(
@@ -991,6 +1138,10 @@ export class AgentXOperationChatSessionFacade {
       this.attachmentsFacade.pendingFiles.set([...host.initialFiles()]);
     }
 
+    if (host.initialConnectedSources().length > 0) {
+      this.attachmentsFacade.pendingConnectedSources.set([...host.initialConnectedSources()]);
+    }
+
     if (host.resumeOperationId().trim()) {
       void host.attachToResumedOperation({
         operationId: host.resumeOperationId().trim(),
@@ -1000,11 +1151,17 @@ export class AgentXOperationChatSessionFacade {
       return;
     }
 
-    if (host.initialMessage().trim() && !this.initialMessageSent()) {
+    const hasInitialComposerPayload =
+      host.initialMessage().trim().length > 0 ||
+      host.initialFiles().length > 0 ||
+      host.initialConnectedSources().length > 0 ||
+      this.attachmentsFacade.pendingSelectedContexts().length > 0;
+
+    if ((host.initialMessage().trim() || host.autoSendOnOpen()) && !this.initialMessageSent()) {
       this.initialMessageSent.set(true);
       setTimeout(() => {
         const initialMessage = host.initialMessage().trim();
-        if (!initialMessage) return;
+        if (!hasInitialComposerPayload) return;
         if (host.inputValue().trim().length > 0) {
           return;
         }

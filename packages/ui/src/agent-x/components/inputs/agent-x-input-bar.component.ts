@@ -20,6 +20,7 @@ import {
 } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Capacitor } from '@capacitor/core';
+import type { AgentXSelectedContext } from '@nxt1/core/ai';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
 import { NxtPlatformIconComponent } from '../../../components/platform-icon/platform-icon.component';
 import type { AgentXPendingFile } from '../../types/agent-x-pending-file';
@@ -52,7 +53,9 @@ interface PendingConnectedSource {
       }
 
       <!-- Attachment strip (optional) -->
-      @if (pendingFiles().length > 0 || pendingSources().length > 0) {
+      @if (
+        pendingFiles().length > 0 || pendingSources().length > 0 || pendingContexts().length > 0
+      ) {
         <div class="input-attachment-strip">
           @for (f of pendingFiles(); track $index) {
             <div class="input-attachment" [title]="f.file.name" (click)="openFile.emit($index)">
@@ -107,6 +110,48 @@ interface PendingConnectedSource {
                 class="input-attachment-remove"
                 (click)="removeSource.emit($index)"
                 aria-label="Remove app source"
+              >
+                <nxt1-icon name="close" [size]="10" className="input-attachment-remove-icon" />
+              </button>
+            </div>
+          }
+
+          @for (context of pendingContexts(); track context.id) {
+            <div class="input-attachment" [title]="context.title">
+              @if (contextPreviewUrl(context); as previewUrl) {
+                <img
+                  class="input-attachment-thumb"
+                  [class.input-attachment-thumb--video]="isContextVideo(context)"
+                  [src]="previewUrl"
+                  [alt]="context.title"
+                />
+                @if (isContextVideo(context)) {
+                  <div class="input-attachment-play-icon">
+                    <nxt1-icon name="playCircle" [size]="16" />
+                  </div>
+                }
+              } @else if (contextVideoUrl(context); as videoUrl) {
+                <video
+                  class="input-attachment-thumb input-attachment-thumb--video"
+                  [src]="videoUrl"
+                  preload="metadata"
+                  muted
+                  playsinline
+                ></video>
+                <div class="input-attachment-play-icon">
+                  <nxt1-icon name="playCircle" [size]="16" />
+                </div>
+              } @else {
+                <div class="input-attachment-icon">
+                  <nxt1-icon [name]="contextIconName(context)" [size]="18" />
+                </div>
+              }
+              <div class="input-attachment-source-badge">{{ context.title }}</div>
+              <button
+                type="button"
+                class="input-attachment-remove"
+                (click)="removeContext.emit($index)"
+                aria-label="Remove selected context"
               >
                 <nxt1-icon name="close" [size]="10" className="input-attachment-remove-icon" />
               </button>
@@ -392,6 +437,7 @@ interface PendingConnectedSource {
 
       /* ── Main input card ── */
       .input-card {
+        position: relative;
         background: var(--input-surface);
         border: 1px solid var(--input-border);
         border-radius: 28px;
@@ -631,6 +677,7 @@ export class AgentXInputBarComponent {
   readonly canSend = input(false);
   readonly pendingFiles = input<readonly AgentXPendingFile[]>([]);
   readonly pendingSources = input<readonly PendingConnectedSource[]>([]);
+  readonly pendingContexts = input<readonly AgentXSelectedContext[]>([]);
   /** String label of the currently selected task (null = none). */
   readonly selectedTask = input<string | null>(null);
 
@@ -643,6 +690,7 @@ export class AgentXInputBarComponent {
   readonly openFile = output<number>();
   readonly removeFile = output<number>();
   readonly removeSource = output<number>();
+  readonly removeContext = output<number>();
   readonly removeTask = output<void>();
   readonly focusInput = output<void>();
 
@@ -696,6 +744,25 @@ export class AgentXInputBarComponent {
     // Keep image paste in the attachment pipeline instead of inserting raw data into text.
     event.preventDefault();
     this.filesPasted.emit(pastedImages);
+  }
+
+  protected contextPreviewUrl(context: AgentXSelectedContext): string | null {
+    return context.media?.thumbnailUrl ?? context.media?.imageUrl ?? null;
+  }
+
+  protected contextVideoUrl(context: AgentXSelectedContext): string | null {
+    return context.media?.videoUrl ?? null;
+  }
+
+  protected isContextVideo(context: AgentXSelectedContext): boolean {
+    return !!context.media?.videoUrl;
+  }
+
+  protected contextIconName(context: AgentXSelectedContext): string {
+    if (context.source?.type === 'film_review') return 'videocam';
+    if (context.source?.type === 'playbook') return 'documentText';
+    if (context.source?.type === 'game_plan') return 'analytics';
+    return 'analytics';
   }
 
   protected onSwipeStart(event: TouchEvent): void {

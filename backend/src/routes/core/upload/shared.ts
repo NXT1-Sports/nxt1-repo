@@ -20,6 +20,7 @@ import { THUMBNAIL_SIZES, IMAGE_FORMATS } from '@nxt1/core/constants';
 
 export const CLOUDFLARE_API_BASE_URL = 'https://api.cloudflare.com/client/v4';
 export const DEFAULT_CF_VIDEO_MAX_DURATION_SECONDS = 10_800;
+export const DEFAULT_CF_AGENT_X_VIDEO_MAX_DURATION_SECONDS = 36_000;
 export const DEFAULT_CF_UPLOAD_EXPIRY_HOURS = 12;
 export const POSTS_COLLECTION = 'Posts';
 
@@ -60,6 +61,8 @@ export interface PersistedHighlightVideoPostResponse {
   readonly thumbnailUrl: string | null;
   readonly mediaUrl: string | null;
   readonly duration: number | null;
+  readonly playlistId: string | null;
+  readonly playlistName: string | null;
   readonly visibility: 'public' | 'team' | 'private';
   readonly createdAt: string;
   readonly updatedAt: string;
