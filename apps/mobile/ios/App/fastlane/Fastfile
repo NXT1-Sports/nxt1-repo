@@ -104,14 +104,24 @@ platform :ios do
   lane :release do
     sync_certs(type: "appstore")
     
-    # Get the latest build number from App Store Connect and increment
+    # Get the latest build number from App Store Connect and increment.
+    # main (staging) → +1   e.g. latest=6 → build 7
+    # production     → +2   e.g. latest=6 → build 8
+    #
+    # Both branches can start their builds concurrently and query TestFlight
+    # before the other's upload is processed.  Using +2 for production ensures
+    # it always lands above the staging build regardless of timing, preventing
+    # the "bundle version must be higher" rejection from App Store Connect.
     app_store_build_number = latest_testflight_build_number(
       app_identifier: APP_IDENTIFIER,
       api_key: load_api_key
     )
-    
+
+    increment = ENV["BUILD_PROFILE"] == "production" ? 2 : 1
+    UI.message("▶ BUILD_PROFILE=#{ENV['BUILD_PROFILE']} → incrementing build number by #{increment} (latest: #{app_store_build_number})")
+
     increment_build_number(
-      build_number: app_store_build_number + 1,
+      build_number: app_store_build_number + increment,
       xcodeproj: "App.xcodeproj"
     )
 
