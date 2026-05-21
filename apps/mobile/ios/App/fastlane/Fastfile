@@ -205,13 +205,19 @@ platform :ios do
 
     target_version = current_version
 
-    if live_version_string == current_version
-      # This version has been released — bump the patch and start a new series
-      parts          = current_version.split('.').map(&:to_i)
-      parts[-1]     += 1
-      target_version = parts.join('.')
-      increment_version_number(version_number: target_version, xcodeproj: "App.xcodeproj")
-      UI.message("▶ #{current_version} is LIVE → auto-bumped marketing version to #{target_version}")
+    if live_version_string
+      live_ver    = Gem::Version.new(live_version_string)
+      current_ver = Gem::Version.new(current_version)
+
+      if live_ver >= current_ver
+        # Live version is ahead of (or equal to) xcodeproj — xcodeproj was never
+        # updated after the last release. Bump one patch above whatever is live.
+        parts          = live_version_string.split('.').map(&:to_i)
+        parts[-1]     += 1
+        target_version = parts.join('.')
+        increment_version_number(version_number: target_version, xcodeproj: "App.xcodeproj")
+        UI.message("▶ App Store live (#{live_version_string}) >= xcodeproj (#{current_version}) → auto-bumped to #{target_version}")
+      end
     end
 
     # Determine the next build number for target_version
