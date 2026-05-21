@@ -89,13 +89,22 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
     // Handle push notifications toggle
     if (key === 'pushNotifications') {
       if (value === true) {
-        // Register FCM token when user enables push notifications
+        // Register (or re-register) FCM token when user enables push notifications.
+        // If permission was already granted this is a silent no-op when a valid token exists.
         void this.fcmRegistration.registerToken();
       } else {
         // Unregister FCM token when user disables push notifications
         void this.fcmRegistration.unregisterToken();
       }
       // Continue to persist preference to backend
+    }
+
+    // Handle marketing emails toggle — silently register FCM token if push permission is
+    // already granted. Does NOT prompt: opting into marketing emails must never trigger
+    // a push-permission dialog. If no token exists yet it will be registered; if one
+    // already exists the server deduplicates and returns early.
+    if (key === 'marketingEmails' && value === true) {
+      void this.fcmRegistration.registerTokenIfPermissionGranted();
     }
 
     // Handle analytics tracking toggle — enable/disable client-side event relay immediately

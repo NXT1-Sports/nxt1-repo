@@ -168,6 +168,12 @@ export class AppComponent {
     } else {
       // Authenticated and onboarding complete - go to agent
       this.logger.info('Authenticated and onboarded, navigating to agent');
+
+      // Refresh FCM token on cold start for already-onboarded users.
+      // On resume this is handled by the onResume callback in initializeApp().
+      // This call is safe: if permission isn't granted yet it returns silently.
+      void this.fcmRegistration.registerTokenIfPermissionGranted();
+
       this.navController
         .navigateRoot(AUTH_REDIRECTS.DEFAULT)
         .then(() => {
@@ -237,9 +243,12 @@ export class AppComponent {
           this.logger.debug('Resumed');
           // Refresh network status when app resumes
           this.network.checkStatus();
-          // Refresh FCM only when permission is already granted. Resume must
-          // never open the native prompt before the onboarding completion CTA.
-          if (this.authFlow.user()?.hasCompletedOnboarding === true) {
+          // Refresh FCM silently on every resume when the user is authenticated.
+          // Using `!== false` (not `=== true`) so users with hasCompletedOnboarding:
+          // undefined (e.g. legacy accounts) also get their token refreshed.
+          // registerTokenIfPermissionGranted() NEVER shows a native prompt — it is
+          // safe to call at any time for any authenticated user.
+          if (this.authFlow.user() && this.authFlow.user()?.hasCompletedOnboarding !== false) {
             void this.fcmRegistration.registerTokenIfPermissionGranted();
           }
         },

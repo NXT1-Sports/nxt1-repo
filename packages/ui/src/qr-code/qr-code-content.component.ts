@@ -325,21 +325,24 @@ export class NxtQrCodeContentComponent {
         errorCorrectionLevel: 'H' as const,
       });
 
-      const img = new Image();
-      img.onload = () => {
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          canvas.width = 240;
-          canvas.height = 240;
-          ctx.drawImage(img, 0, 0, 240, 240);
-          this.logger.info('QR code generated', { url: this.url });
-        }
-      };
-      img.onerror = () => {
-        this.logger.error('Failed to load QR code image');
-        this.error.set(true);
-      };
-      img.src = dataUrl;
+      await new Promise<void>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            canvas.width = 240;
+            canvas.height = 240;
+            ctx.drawImage(img, 0, 0, 240, 240);
+            this.logger.info('QR code generated', { url: this.url });
+          }
+          resolve();
+        };
+        img.onerror = () => {
+          this.logger.error('Failed to load QR code image');
+          reject(new Error('Failed to load QR code image'));
+        };
+        img.src = dataUrl;
+      });
     } catch (err) {
       this.logger.error('Failed to generate QR code', err);
       this.error.set(true);
@@ -379,7 +382,7 @@ export class NxtQrCodeContentComponent {
     if (!canvasRef?.nativeElement) return;
 
     try {
-      const dataUrl = canvasRef.nativeElement.toDataURL('image/png', 1.0);
+      const dataUrl = await this.buildCompositeImage(canvasRef.nativeElement);
       const link = document.createElement('a');
       link.download = `${this.displayName || 'nxt1'}-qr-code.png`;
       link.href = dataUrl;
@@ -391,5 +394,80 @@ export class NxtQrCodeContentComponent {
       this.logger.error('Failed to download QR code', err);
       this.toast.error('Failed to save QR code');
     }
+  }
+
+  /**
+   * Composites the QR code with white card background + NXT1 icon watermark,
+   * matching the on-screen preview exactly. @2× scale for crisp output.
+   */
+  private buildCompositeImage(qrCanvas: HTMLCanvasElement): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const SCALE = 2;
+      const SIZE = 280 * SCALE;
+      const PADDING = 20 * SCALE;
+      const RADIUS = 24 * SCALE;
+      const LOGO_BOX = 40 * SCALE;
+      const LOGO_SIZE = 24 * SCALE;
+      const QR_SIZE = SIZE - PADDING * 2;
+
+      const offscreen = document.createElement('canvas');
+      offscreen.width = SIZE;
+      offscreen.height = SIZE;
+      const ctx = offscreen.getContext('2d');
+      if (!ctx) {
+        reject(new Error('Could not get canvas context'));
+        return;
+      }
+
+      // ── White card background with rounded corners ──
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(0, 0, SIZE, SIZE, RADIUS);
+      } else {
+        ctx.rect(0, 0, SIZE, SIZE);
+      }
+      ctx.fill();
+
+      // ── QR code ──
+      ctx.drawImage(qrCanvas, PADDING, PADDING, QR_SIZE, QR_SIZE);
+
+      // ── NXT1 logo watermark ──
+      const center = SIZE / 2;
+      const logoImg = new Image();
+
+      const drawLogoBox = () => {
+        const boxX = center - LOGO_BOX / 2;
+        const boxY = center - LOGO_BOX / 2;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        if (typeof ctx.roundRect === 'function') {
+          ctx.roundRect(boxX, boxY, LOGO_BOX, LOGO_BOX, 8 * SCALE);
+        } else {
+          ctx.rect(boxX, boxY, LOGO_BOX, LOGO_BOX);
+        }
+        ctx.fill();
+      };
+
+      logoImg.onload = () => {
+        drawLogoBox();
+        ctx.drawImage(
+          logoImg,
+          center - LOGO_SIZE / 2,
+          center - LOGO_SIZE / 2,
+          LOGO_SIZE,
+          LOGO_SIZE
+        );
+        resolve(offscreen.toDataURL('image/png', 1.0));
+      };
+
+      logoImg.onerror = () => {
+        this.logger.warn('NXT1 icon not found for QR composite; saving without logo');
+        drawLogoBox();
+        resolve(offscreen.toDataURL('image/png', 1.0));
+      };
+
+      logoImg.src = 'assets/shared/logo/nxt1_icon.png';
+    });
   }
 }

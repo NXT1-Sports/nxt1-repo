@@ -239,17 +239,18 @@ export class NxtMediaService {
       directory: Directory.Cache,
     });
 
-    // Convert the file:// URI to a local HTTP URL that the Media plugin's native
-    // downloader (SDWebImageDownloader on iOS) can fetch. SDWebImageDownloader
-    // only supports HTTP/HTTPS — it cannot fetch file:// URIs directly.
-    // Capacitor.convertFileSrc() maps "file:///path" → "http://localhost/_capacitor_file_/path".
-    const { Capacitor } = await import('@capacitor/core');
-    const localHttpUrl = Capacitor.convertFileSrc(tempResult.uri);
+    // Pass the file:// URI directly to the Media plugin.
+    // Capacitor.convertFileSrc() converts file:// → https://localhost/_capacitor_file_/…
+    // which is a WKWebView-internal URL scheme — native SDWebImageDownloader cannot
+    // resolve it outside the WebView context, causing savePhoto to fail.
+    // The @capacitor-community/media plugin handles file:// URIs natively on both
+    // iOS (UIImage(contentsOfFile:)) and Android without any network request.
+    const fileUri = tempResult.uri;
 
     // Attempt to save to the photo gallery via the Media plugin
     try {
       const { MediaPlugin } = await this.loadMediaPlugin();
-      await MediaPlugin.savePhoto({ path: localHttpUrl });
+      await MediaPlugin.savePhoto({ path: fileUri });
 
       // Clean up temp file
       await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => {
@@ -258,7 +259,7 @@ export class NxtMediaService {
       return { success: true, path: 'Photos' };
     } catch (mediaErr) {
       this.logger.error('Failed to save image to camera roll', mediaErr, {
-        localHttpUrl,
+        fileUri,
       });
       // Clean up temp file even on failure
       await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => {
@@ -440,16 +441,15 @@ export class NxtMediaService {
 
     try {
       const { Filesystem, Directory } = await import('@capacitor/filesystem');
-      const { Capacitor } = await import('@capacitor/core');
 
-      // Convert file:// URI → local HTTP URL.
-      // SDWebImageDownloader (iOS) only handles HTTP/HTTPS, not file:// URIs.
-      // Capacitor.convertFileSrc maps "file:///path" → "http://localhost/_capacitor_file_/path".
-      const localHttpUrl = Capacitor.convertFileSrc(fileUri);
+      // Pass the file:// URI directly — same reason as saveToGallery:
+      // convertFileSrc() produces a WKWebView-internal URL that native code
+      // (SDWebImageDownloader) cannot resolve. The media plugin handles file://
+      // URIs natively on iOS (UIImage(contentsOfFile:)) and Android.
 
       try {
         const { MediaPlugin } = await this.loadMediaPlugin();
-        await MediaPlugin.savePhoto({ path: localHttpUrl });
+        await MediaPlugin.savePhoto({ path: fileUri });
         // Clean up — best effort
         await Filesystem.deleteFile({ path: fileUri, directory: Directory.Cache }).catch(
           (cleanupErr: unknown) => {
