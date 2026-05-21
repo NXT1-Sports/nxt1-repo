@@ -136,6 +136,17 @@ function buildCloudflareThumbnailUrl(cloudflareVideoId?: string): string | undef
   return `https://videodelivery.net/${cloudflareVideoId}/thumbnails/thumbnail.jpg`;
 }
 
+function isTemporaryStagingMediaUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const path = decodeURIComponent(parsed.pathname).toLowerCase();
+    return (path.includes('/threads/') && path.includes('/tmp/')) || path.includes('/uploads/tmp/');
+  } catch {
+    const normalized = url.toLowerCase();
+    return normalized.includes('/threads/') && normalized.includes('/tmp/');
+  }
+}
+
 /**
  * Convert Firestore post document to FeedPost
  */
@@ -144,14 +155,25 @@ export function firestorePostToFeedPost(
   doc: FirestorePostDoc,
   author: FeedAuthor
 ): FeedPost {
-  const media: FeedMedia[] = (doc.images || []).map((url, index) => ({
+  const stableImages = (doc.images || []).filter((url) => !isTemporaryStagingMediaUrl(url));
+  const isVideoPostType = doc.type === 'video' || doc.type === 'highlight';
+  const fallbackImageUrl =
+    !isVideoPostType &&
+    typeof doc.mediaUrl === 'string' &&
+    !isTemporaryStagingMediaUrl(doc.mediaUrl)
+      ? doc.mediaUrl
+      : null;
+  const imageUrls =
+    stableImages.length > 0 ? stableImages : fallbackImageUrl ? [fallbackImageUrl] : [];
+
+  const media: FeedMedia[] = imageUrls.map((url, index) => ({
     id: `${id}-image-${index}`,
     type: 'image' as const,
     url,
   }));
 
-  const iframeUrl = doc.playback?.iframeUrl ?? doc.mediaUrl ?? null;
-  const hlsUrl = doc.playback?.hlsUrl ?? doc.videoUrl ?? null;
+  const iframeUrl = isVideoPostType ? (doc.playback?.iframeUrl ?? doc.mediaUrl ?? null) : null;
+  const hlsUrl = isVideoPostType ? (doc.playback?.hlsUrl ?? doc.videoUrl ?? null) : null;
   const dashUrl = doc.playback?.dashUrl ?? null;
   const thumbnailUrl =
     doc.thumbnailUrl ?? doc.poster ?? buildCloudflareThumbnailUrl(doc.cloudflareVideoId);
@@ -159,7 +181,7 @@ export function firestorePostToFeedPost(
   // source URL in `videoUrl` is not iframe-playable and can render XML errors.
   // Treat only Cloudflare-backed video (cloudflareVideoId) or iframe URLs as
   // renderable in cards.
-  const hasRenderableVideo = !!(iframeUrl || doc.cloudflareVideoId);
+  const hasRenderableVideo = isVideoPostType && !!(iframeUrl || doc.cloudflareVideoId);
 
   // Determine Cloudflare processing status
   const cfStatus = doc.cloudflareStatus as FeedMedia['processingStatus'] | undefined;

@@ -966,19 +966,59 @@ export class MobileShellComponent implements OnInit, OnDestroy {
 
     // Build InviteTeam from the user's primary sport team data
     const teamInfo = primarySport?.team;
-    const team: InviteTeam | undefined =
-      teamInfo?.teamId && primarySport
-        ? {
-            id: teamInfo.teamId,
-            name: teamInfo.name ?? '',
-            sport: primarySport.sport,
-            logoUrl: teamInfo.logoUrl ?? teamInfo.logo ?? undefined,
-            memberCount: 0,
-          }
-        : undefined;
+    const orgMeta = (teamInfo ?? {}) as {
+      organizationId?: string;
+      isOrganizationClaimed?: boolean;
+      billingOwnerUid?: string;
+      billingOwnerId?: string;
+      activeAdminCount?: number;
+      adminCount?: number;
+      admins?: ReadonlyArray<{
+        userId?: string;
+        active?: boolean;
+        isActive?: boolean;
+        status?: string;
+      }>;
+    };
+    const organizationId = orgMeta.organizationId?.trim();
+    const hasBillingOwner = Boolean(
+      orgMeta.billingOwnerUid?.trim() || orgMeta.billingOwnerId?.trim()
+    );
+    const activeAdminCount = Math.max(orgMeta.activeAdminCount ?? 0, orgMeta.adminCount ?? 0);
+    const hasActiveAdmins =
+      activeAdminCount > 0 ||
+      (orgMeta.admins?.some((admin) => {
+        const status = admin.status?.toLowerCase();
+        const isActive = admin.active ?? admin.isActive;
+        return Boolean(
+          admin.userId?.trim() &&
+          isActive !== false &&
+          status !== 'inactive' &&
+          status !== 'disabled' &&
+          status !== 'suspended'
+        );
+      }) ??
+        false);
+    const organizationReadyForTeamInvite =
+      orgMeta.isOrganizationClaimed === true || hasBillingOwner || hasActiveAdmins;
+    const canUseTeamInvite =
+      Boolean(teamInfo?.teamId && primarySport) &&
+      (!organizationId || organizationReadyForTeamInvite);
+    const resolvedTeamId = canUseTeamInvite ? (teamInfo?.teamId ?? '') : '';
+    const resolvedSport = canUseTeamInvite ? (primarySport?.sport ?? '') : '';
+
+    const team: InviteTeam | undefined = canUseTeamInvite
+      ? {
+          id: resolvedTeamId,
+          name: teamInfo?.name ?? '',
+          sport: resolvedSport,
+          logoUrl: teamInfo?.logoUrl ?? teamInfo?.logo ?? undefined,
+          memberCount: 0,
+        }
+      : undefined;
 
     await this.inviteSheet.open({
-      inviteType: team ? 'team' : 'general',
+      inviteType: canUseTeamInvite ? 'team' : 'general',
       team,
       user: user
         ? {

@@ -122,7 +122,7 @@ export class AgentXOperationChatSessionFacade {
   readonly initialMessageSent = signal(false);
 
   private host: AgentXOperationChatSessionFacadeHost | null = null;
-  private enqueueHeavySeenSinceLastCompletion = false;
+  // private enqueueHeavySeenSinceLastCompletion = false;
   private readonly storedEventReconcileStartedAt = new Map<string, number>();
 
   private normalizeMessageContent(value: string | undefined): string {
@@ -792,6 +792,30 @@ export class AgentXOperationChatSessionFacade {
       }
     }
 
+    // ── Pass 2e: collapse tool_call rows for pending ask_user (needs_input) ops ─
+    // Some sessions persist ask_user as assistant_yield without an inline ask_user
+    // card on assistant_partial. In that shape, suppressing the entire input op
+    // hides all pre-yield context on reload. Keep the LAST assistant_tool_call so
+    // users still see the question/context message above the waiting affordance.
+    const pendingInputYieldToolCallSuppressedIds = new Set<string>();
+    {
+      const lastSeenToolCall = new Map<string, string>();
+      for (const item of items) {
+        if (
+          item.role === 'assistant' &&
+          item.semanticPhase === 'assistant_tool_call' &&
+          item.operationId &&
+          inputYieldedOpIds.has(item.operationId) &&
+          !answeredYieldOpIds.has(item.operationId) &&
+          !finalOperationIds.has(item.operationId)
+        ) {
+          const prev = lastSeenToolCall.get(item.operationId);
+          if (prev) pendingInputYieldToolCallSuppressedIds.add(prev);
+          lastSeenToolCall.set(item.operationId, item.id);
+        }
+      }
+    }
+
     // ── Pass 3: legacy rows (no semanticPhase) ───────────────────────────
     // Collect operationIds that appear on multiple untagged assistant rows.
     const legacyMultiMap = new Map<string, AgentMessage[]>();
@@ -857,10 +881,11 @@ export class AgentXOperationChatSessionFacade {
         return item.semanticPhase === 'assistant_final';
       }
 
-      // ask_user (needs_input) operations render as card-only interruptions.
-      // Suppress prior trajectory for input ops only (runs AFTER finalOperationIds
-      // so that a completed ask_user op keeps its final answer visible on reload).
-      // needs_approval operations keep their tool steps visible alongside the card.
+      // ask_user (needs_input) operations: keep one pre-yield tool_call row
+      // (latest) so thread reload retains the visible question/context prose,
+      // while still suppressing assistant_yield rows and intermediate trajectory.
+      // This runs AFTER finalOperationIds so completed ask_user ops still keep
+      // their final answer visible on reload.
       //
       // Exception: when the ask_user yield has been answered, restore the last
       // assistant_tool_call row so the pre-yield prose (question context and search
@@ -869,12 +894,11 @@ export class AgentXOperationChatSessionFacade {
       // 2-step ask_user pattern where the agent writes the full question as prose
       // BEFORE invoking the ask_user tool.
       if (item.operationId && inputYieldedOpIds.has(item.operationId)) {
-        if (
-          answeredYieldOpIds.has(item.operationId) &&
-          item.semanticPhase === 'assistant_tool_call' &&
-          !answeredInputYieldToolCallSuppressedIds.has(item.id)
-        ) {
-          return true;
+        if (item.semanticPhase === 'assistant_tool_call') {
+          if (answeredYieldOpIds.has(item.operationId)) {
+            return !answeredInputYieldToolCallSuppressedIds.has(item.id);
+          }
+          return !pendingInputYieldToolCallSuppressedIds.has(item.id);
         }
         return false;
       }
@@ -1044,10 +1068,11 @@ export class AgentXOperationChatSessionFacade {
 
   /**
    * Enqueue jobs use bare UUID operation ids. /chat sessions use chat-prefixed ids.
-   * Hold enqueue jobs until done so partial Firestore deltas never render as live chat.
+   * Enqueue-heavy flows now render like normal chat and do not hold output.
    */
   private shouldHoldEnqueueUntilDone(operationId: string | null | undefined): boolean {
-    return this.isFirestoreOperationId(operationId) && !this.isChatOperationId(operationId);
+    void operationId;
+    return false;
   }
 
   private upsertEnqueueWaitingMessage(): void {
@@ -1096,16 +1121,14 @@ export class AgentXOperationChatSessionFacade {
     this.operationEventService.clearEnqueueCancelled(threadId);
   }
 
-  private markEnqueueHeavySeen(): void {
-    this.enqueueHeavySeenSinceLastCompletion = true;
-    this.clearCancelledEnqueueMarkerForActiveThread();
-  }
+  // private markEnqueueHeavySeen(): void {
+  //   this.enqueueHeavySeenSinceLastCompletion = true;
+  //   this.clearCancelledEnqueueMarkerForActiveThread();
+  // }
 
-  private consumeEnqueueHeavySeen(): boolean {
-    const seen = this.enqueueHeavySeenSinceLastCompletion;
-    this.enqueueHeavySeenSinceLastCompletion = false;
-    return seen;
-  }
+  // private consumeEnqueueHeavySeen(): boolean {
+  //   return false;
+  // }
 
   private markThreadAsEnqueueWaiting(): void {
     const host = this.requireHost();
@@ -1502,7 +1525,7 @@ export class AgentXOperationChatSessionFacade {
               if (heavyTaskOperationId) {
                 host.setCurrentOperationId(heavyTaskOperationId);
               }
-              this.markEnqueueHeavySeen();
+              // this.markEnqueueHeavySeen();
             }
             if (step.status === 'active') {
               // Pass the step label so a stale generic gap label
@@ -1601,7 +1624,7 @@ export class AgentXOperationChatSessionFacade {
                 operationId,
                 refreshThreadId,
               });
-              this.enqueueHeavySeenSinceLastCompletion = false;
+              // this.enqueueHeavySeenSinceLastCompletion = false;
               return;
             }
 
@@ -1623,7 +1646,7 @@ export class AgentXOperationChatSessionFacade {
               this.transportFacade.emitResponseCompleteOnce(
                 'firestore-operation-cancelled-enqueue'
               );
-              this.enqueueHeavySeenSinceLastCompletion = false;
+              // this.enqueueHeavySeenSinceLastCompletion = false;
               return;
             }
 
@@ -1657,7 +1680,7 @@ export class AgentXOperationChatSessionFacade {
                 new Error(errorMessage),
                 { operationId }
               );
-              this.enqueueHeavySeenSinceLastCompletion = false;
+              // this.enqueueHeavySeenSinceLastCompletion = false;
             }
           },
           onDone: (event) => {
@@ -1692,38 +1715,11 @@ export class AgentXOperationChatSessionFacade {
                 operationId,
                 refreshThreadId,
               });
-              this.enqueueHeavySeenSinceLastCompletion = false;
+              // this.enqueueHeavySeenSinceLastCompletion = false;
               return;
             }
             this.messageFacade.flushPendingTypingDelta();
             host.latestProgressLabel.set(null);
-            const shouldDeferToEnqueueWaiting =
-              event.success !== false && this.consumeEnqueueHeavySeen();
-
-            if (shouldDeferToEnqueueWaiting) {
-              this.normalizeTypingAssistantMediaMarkdown();
-              this.messageFacade.finalizeStreamedAssistantMessage({
-                streamingId: 'typing',
-                messageId: event.messageId,
-                success: event.success,
-                source: 'firestore-done-enqueue-waiting',
-              });
-              this.markThreadAsEnqueueWaiting();
-              this.upsertEnqueueWaitingMessageNonBlocking();
-              host.setActivityPhase(
-                'waiting_delta',
-                AgentXOperationChatSessionFacade.ENQUEUE_WAITING_MESSAGE_TEXT
-              );
-              host.loading.set(true);
-              host.getActiveFirestoreSub()?.unsubscribe();
-              host.setActiveFirestoreSub(null);
-              this.transportFacade.emitResponseCompleteOnce('firestore-done-enqueue-waiting');
-              this.logger.info('Background enqueue deferred to waiting card (Firestore)', {
-                operationId,
-              });
-              return;
-            }
-
             host.setActivityPhase('completed');
             this.normalizeTypingAssistantMediaMarkdown();
             this.messageFacade.finalizeStreamedAssistantMessage({
@@ -1763,7 +1759,7 @@ export class AgentXOperationChatSessionFacade {
                   operationId,
                 }
               );
-              this.enqueueHeavySeenSinceLastCompletion = false;
+              // this.enqueueHeavySeenSinceLastCompletion = false;
               return;
             }
             host.latestProgressLabel.set(null);
@@ -1778,7 +1774,7 @@ export class AgentXOperationChatSessionFacade {
             host.loading.set(false);
             host.getActiveFirestoreSub()?.unsubscribe();
             host.setActiveFirestoreSub(null);
-            this.enqueueHeavySeenSinceLastCompletion = false;
+            // this.enqueueHeavySeenSinceLastCompletion = false;
             void this.haptics.notification('error');
             this.logger.error('Background job stream error (Firestore)', new Error(error), {
               operationId,
@@ -2040,11 +2036,52 @@ export class AgentXOperationChatSessionFacade {
       // resolveCanonicalAssistantRows suppresses the partial on next reload.
       const existingMessages = this.messageFacade.messages();
       const existingTyping = existingMessages.find((m) => m.id === 'typing');
+      const answeredYieldOperationIdsInPersisted = new Set(
+        reorderedMapped
+          .filter(
+            (message) =>
+              message.role === 'user' &&
+              typeof message.operationId === 'string' &&
+              message.operationId.trim().length > 0
+          )
+          .map((message) => message.operationId!.trim())
+      );
       const preservedInlineYieldRows = existingMessages.filter(
-        (message) =>
-          message.id !== 'typing' &&
-          !!message.yieldState &&
-          !reorderedMapped.some((persisted) => persisted.id === message.id)
+        (message, messageIndex, allExistingMessages) => {
+          if (message.id === 'typing') return false;
+          if (!message.yieldState) return false;
+          if (reorderedMapped.some((persisted) => persisted.id === message.id)) return false;
+
+          // Do not re-append stale ask_user rows that were already answered.
+          // Re-appending them after persisted history shifts their index and can
+          // make them appear pending again (showing "Waiting for your reply…"
+          // even though a user reply already exists in the timeline).
+          const operationId =
+            typeof message.operationId === 'string' ? message.operationId.trim() : '';
+          if (operationId && answeredYieldOperationIdsInPersisted.has(operationId)) return false;
+          if (
+            operationId &&
+            reorderedMapped.some(
+              (persisted) =>
+                typeof persisted.operationId === 'string' && persisted.operationId === operationId
+            )
+          ) {
+            return false;
+          }
+
+          // If this yield already had a user reply in the pre-rehydrate local
+          // timeline, treat it as answered and do not preserve it.
+          const hadLocalUserReplyAfter = allExistingMessages
+            .slice(messageIndex + 1)
+            .some((candidate) => candidate.role === 'user');
+          if (hadLocalUserReplyAfter) return false;
+
+          // Also skip explicit resolved rows.
+          if (message.yieldCardState === 'resolved') return false;
+          if ((message.yieldResolvedText ?? '').trim().length > 0) return false;
+
+          return true;
+        }
       );
       // Note: no need to merge in-memory yieldCardState onto reloaded rows.
       // resolveExternalCardStateForMessage() in the template derives 'resolved' from the
@@ -2565,7 +2602,7 @@ export class AgentXOperationChatSessionFacade {
           if (heavyTaskOperationId) {
             host.setCurrentOperationId(heavyTaskOperationId);
           }
-          this.markEnqueueHeavySeen();
+          // this.markEnqueueHeavySeen();
         }
         // Mirror live transport phase logic so the shimmer/loader behavior on
         // session re-entry matches first-watch streaming.
@@ -2627,10 +2664,6 @@ export class AgentXOperationChatSessionFacade {
             event != null && typeof event['success'] === 'boolean' ? event['success'] : undefined,
           source: 'stream-registry-done',
         });
-        if ((event == null || event['success'] !== false) && this.consumeEnqueueHeavySeen()) {
-          this.markThreadAsEnqueueWaiting();
-          this.upsertEnqueueWaitingMessageNonBlocking();
-        }
         host.setActivityPhase('completed');
         host.loading.set(false);
         void this.haptics.notification('success');
@@ -2668,7 +2701,7 @@ export class AgentXOperationChatSessionFacade {
         });
         host.setActivityPhase('failed', error || null);
         host.loading.set(false);
-        this.enqueueHeavySeenSinceLastCompletion = false;
+        // this.enqueueHeavySeenSinceLastCompletion = false;
         void this.haptics.notification('error');
       },
     });

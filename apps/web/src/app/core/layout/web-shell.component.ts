@@ -1590,6 +1590,17 @@ export class WebShellComponent {
           teamName?: string;
           logoUrl?: string;
           logo?: string;
+          isOrganizationClaimed?: boolean;
+          billingOwnerUid?: string;
+          billingOwnerId?: string;
+          activeAdminCount?: number;
+          adminCount?: number;
+          admins?: ReadonlyArray<{
+            userId?: string;
+            active?: boolean;
+            isActive?: boolean;
+            status?: string;
+          }>;
         };
       }>;
     } | null;
@@ -1600,21 +1611,45 @@ export class WebShellComponent {
     const teamId =
       teamInfo?.teamId?.trim() || teamInfo?.organizationId?.trim() || teamInfo?.id?.trim();
     const teamName = teamInfo?.name?.trim() || teamInfo?.teamName?.trim();
+    const organizationId = teamInfo?.organizationId?.trim();
+    const hasBillingOwner = Boolean(
+      teamInfo?.billingOwnerUid?.trim() || teamInfo?.billingOwnerId?.trim()
+    );
+    const activeAdminCount = Math.max(teamInfo?.activeAdminCount ?? 0, teamInfo?.adminCount ?? 0);
+    const hasActiveAdmins =
+      activeAdminCount > 0 ||
+      (teamInfo?.admins?.some((admin) => {
+        const status = admin.status?.toLowerCase();
+        const isActive = admin.active ?? admin.isActive;
+        return Boolean(
+          admin.userId?.trim() &&
+          isActive !== false &&
+          status !== 'inactive' &&
+          status !== 'disabled' &&
+          status !== 'suspended'
+        );
+      }) ??
+        false);
+    const organizationReadyForTeamInvite =
+      teamInfo?.isOrganizationClaimed === true || hasBillingOwner || hasActiveAdmins;
+    const canUseTeamInvite =
+      Boolean(teamId && teamName) && (!organizationId || organizationReadyForTeamInvite);
+    const resolvedTeamId = canUseTeamInvite ? (teamId ?? '') : '';
+    const resolvedTeamName = canUseTeamInvite ? (teamName ?? '') : '';
 
-    const team: InviteTeam | null =
-      teamId && teamName
-        ? {
-            id: teamId,
-            name: teamName,
-            sport: currentSport?.sport?.trim() ?? '',
-            logoUrl: teamInfo?.logoUrl ?? teamInfo?.logo ?? undefined,
-            memberCount: 0,
-          }
-        : null;
+    const team: InviteTeam | null = canUseTeamInvite
+      ? {
+          id: resolvedTeamId,
+          name: resolvedTeamName,
+          sport: currentSport?.sport?.trim() ?? '',
+          logoUrl: teamInfo?.logoUrl ?? teamInfo?.logo ?? undefined,
+          memberCount: 0,
+        }
+      : null;
 
     return {
       isModal: true,
-      inviteType: team ? 'team' : 'general',
+      inviteType: canUseTeamInvite ? 'team' : 'general',
       team,
       user: { role: authUser?.role ?? undefined },
     };

@@ -24,7 +24,7 @@ import { ROLE, RosterEntryStatus, UserRole } from '@nxt1/core/models';
 import { RosterEntryService } from '../../services/team/roster-entry.service.js';
 import { TeamMemberRole } from '../../dtos/teams.dto.js';
 import { logger } from '../../utils/logger.js';
-import { INVITE_UI_CONFIG } from '@nxt1/core';
+import { INVITE_UI_CONFIG, NOTIFICATION_TYPES } from '@nxt1/core';
 import type { InviteType, InviteChannel, InviteStatus } from '@nxt1/core';
 import { invalidateTeamProfileCache } from '../../services/core/cache.service.js';
 import {
@@ -32,6 +32,7 @@ import {
   getReferralRewardCents,
   NEW_USER_MAX_AGE_MINUTES,
 } from '../../modules/billing/index.js';
+import { dispatch } from '../../services/communications/notification.service.js';
 import { notifyTeamJoined } from '../../services/communications/team-join-notifications.js';
 import { resolveRosterPositions } from '../../services/team/roster-sport-profile.service.js';
 
@@ -1209,6 +1210,27 @@ router.post(
                   joinerUid: userId,
                 }
               )
+            );
+
+            // Notify the joiner as well so both push and /activity are populated.
+            // Dispatch writes the activity feed doc and the push queue doc atomically.
+            void dispatch(db, {
+              userId,
+              type: NOTIFICATION_TYPES.TEAM_JOIN_REQUEST,
+              title: joinedAsPending
+                ? `Request sent to join ${team.teamName ?? teamJoined ?? 'the team'}`
+                : `You joined ${team.teamName ?? teamJoined ?? 'your team'}`,
+              body: joinedAsPending
+                ? 'Your request is pending admin approval.'
+                : `Welcome to ${team.teamName ?? teamJoined ?? 'your team'}!`,
+              data: team.id ? { teamId: team.id } : undefined,
+              source: { teamName: team.teamName ?? teamJoined },
+            }).catch((err) =>
+              logger.error('[POST /invite/accept] Failed to dispatch joiner notification', {
+                error: err instanceof Error ? err.message : String(err),
+                teamId: team.id,
+                joinerUid: userId,
+              })
             );
           }
         } catch (teamErr) {

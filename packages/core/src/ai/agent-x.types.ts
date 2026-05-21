@@ -409,6 +409,8 @@ export interface AgentXUserContext {
   readonly gradYear?: number;
   /** User's state/region */
   readonly state?: string;
+  /** User's IANA timezone, when known. */
+  readonly timezone?: string;
 }
 
 // ============================================

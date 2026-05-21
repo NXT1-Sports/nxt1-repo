@@ -36,6 +36,7 @@ import {
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { IonContent } from '@ionic/angular/standalone';
+import { type BudgetInterval } from '@nxt1/core';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
 import { NxtIconComponent } from '../components/icon';
 import { NxtPageHeaderComponent } from '../components/page-header';
@@ -910,7 +911,8 @@ export class UsageShellComponent implements OnInit, OnDestroy {
     await this.haptics.impact('light');
     await this.openBudgetControlPanel(
       budget.targetScope === 'team' ? budget.targetId : undefined,
-      'current'
+      'current',
+      budget.budgetInterval
     );
   }
 
@@ -921,7 +923,8 @@ export class UsageShellComponent implements OnInit, OnDestroy {
 
   private async openBudgetControlPanel(
     teamId?: string,
-    budgetDraftMode: 'current' | 'new' = 'current'
+    budgetDraftMode: 'current' | 'new' = 'current',
+    budgetDraftInterval: BudgetInterval | null = null
   ): Promise<void> {
     await this.bottomSheet.openSheet({
       component: AgentXControlPanelComponent,
@@ -930,6 +933,7 @@ export class UsageShellComponent implements OnInit, OnDestroy {
         presentation: 'sheet',
         budgetTargetTeamId: teamId ?? null,
         budgetDraftMode,
+        budgetDraftInterval,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

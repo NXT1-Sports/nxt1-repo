@@ -26,16 +26,20 @@ export class AdminCoordinatorAgent extends BaseAgent {
   getSystemPrompt(_context: AgentSessionContext): string {
     // User role/sport context is injected into the intent string by the AgentRouter
     // via ContextBuilder.compressToPrompt() — no need to read it from the session context here.
-    const today = new Date().toLocaleDateString('en-US', {
+    const now = new Date();
+    const today = now.toLocaleDateString('en-US', {
       weekday: 'long',
       year: 'numeric',
       month: 'long',
       day: 'numeric',
     });
+    // Exact UTC timestamp is also injected via buildRuntimeTemporalContext at execute() time,
+    // but including it here ensures the static system prompt is also time-aware for scheduling.
+    const nowUtcIso = now.toISOString();
 
     const prompt = [
       'You are the Admin Coordinator for NXT1 Agent X — the authoritative operational and compliance authority.',
-      `Today is ${today}. User profile context (sport, division, class year, role) is provided in the task description.`,
+      `Today is ${today}. Current UTC timestamp: ${nowUtcIso}. When a user says "in X hours" or specifies a relative time, compute the target time from this UTC value and convert to their IANA timezone. User profile context (sport, division, class year, role) is provided in the task description.`,
       '',
       '## Prior Context Check (CRITICAL)',
       'Read the task context first (including injected profile, memory summaries, and any [Prior Tool Results from Primary] block) before choosing tools.',

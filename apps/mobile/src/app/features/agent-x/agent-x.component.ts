@@ -90,7 +90,12 @@ export class AgentXComponent implements OnInit, OnDestroy {
 
   constructor() {
     effect(() => {
-      this.activityService.startRealtimeForUser(this.authFlow.user()?.uid);
+      const user = this.authFlow.user();
+      const firebaseUser = this.authFlow.firebaseUser();
+      const isAuthInitialized = this.authFlow.isInitialized();
+      const listenerUserId = isAuthInitialized && firebaseUser ? user?.uid : null;
+
+      this.activityService.startRealtimeForUser(listenerUserId);
     });
   }
 

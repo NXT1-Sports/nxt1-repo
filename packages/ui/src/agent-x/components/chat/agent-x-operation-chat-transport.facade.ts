@@ -164,10 +164,10 @@ export class AgentXOperationChatTransportFacade {
   private responseCompleteEmitted = false;
   private deltaLatencySamples: number[] = [];
   private destroyed = false;
-  /** Set to true when enqueue_heavy_task tool step is detected during the current SSE turn. */
-  private enqueueHeavySeen = false;
-  /** Set once the enqueue waiting card has been rendered for the current turn. */
-  private enqueueHeavyCardShown = false;
+  // /** Set to true when enqueue_heavy_task tool step is detected during the current SSE turn. */
+  // private enqueueHeavySeen = false;
+  // /** Set once the enqueue waiting card has been rendered for the current turn. */
+  // private enqueueHeavyCardShown = false;
 
   constructor() {
     // Per-component facade: when the host component is destroyed, mark this
@@ -234,6 +234,17 @@ export class AgentXOperationChatTransportFacade {
         ? allMessages.filter((_message, index) => index !== lastUserIndex)
         : allMessages;
 
+    const storedUserContext = this.agentXService.userContext();
+    const browserTimezone = resolveCurrentTimeZone();
+    const resolvedUserContext: AgentXChatRequest['userContext'] = storedUserContext
+      ? {
+          ...storedUserContext,
+          ...(storedUserContext.timezone ? {} : { timezone: browserTimezone }),
+        }
+      : browserTimezone
+        ? { timezone: browserTimezone }
+        : undefined;
+
     const request = {
       message: userInput,
       history: historyMessages.slice(-20).map((message) => ({
@@ -254,6 +265,7 @@ export class AgentXOperationChatTransportFacade {
       ...(sanitizedConnectedSources.length > 0
         ? { connectedSources: sanitizedConnectedSources }
         : {}),
+      ...(resolvedUserContext ? { userContext: resolvedUserContext } : {}),
     } satisfies AgentXChatRequest;
 
     this.logger.info('Dispatching Agent X chat request', {
@@ -546,12 +558,7 @@ export class AgentXOperationChatTransportFacade {
             }
 
             if (isEnqueueHeavy && (event.status === 'active' || event.status === 'success')) {
-              this.enqueueHeavySeen = true;
-              if (event.status === 'success' && !this.enqueueHeavyCardShown) {
-                host.onEnqueueHeavyDone();
-                this.enqueueHeavyCardShown = true;
-                host.setActivityPhase('waiting_delta');
-              }
+              // this.enqueueHeavySeen = true;
             }
 
             if (event.stageType !== 'tool') return;
@@ -635,23 +642,6 @@ export class AgentXOperationChatTransportFacade {
                 source: 'sse-operation',
                 ...(event.operationId ? { operationId: event.operationId } : {}),
               });
-            }
-
-            const enqueuePending = this.enqueueHeavySeen || this.enqueueHeavyCardShown;
-
-            if (event.status === 'complete' && enqueuePending) {
-              // Enqueue-heavy turns finish the SSE stream before the background
-              // job completes; keep this thread in-progress until Firestore done.
-              host.setOperationStatus('processing');
-              host.setActivityPhase('waiting_delta', opMessage || null);
-              this.operationEventService.emitOperationStatusUpdated(
-                event.threadId,
-                'running',
-                event.timestamp,
-                'enqueue',
-                event.operationId
-              );
-              return;
             }
 
             if (event.status === 'complete') {
@@ -793,49 +783,11 @@ export class AgentXOperationChatTransportFacade {
           ...(onWaitingForAttachments ? { onWaitingForAttachments } : {}),
 
           onDone: (event) => {
-            // If the enqueue_heavy_task tool fired during this turn, show the waiting card
-            // instead of committing the streamed text as a permanent assistant message.
-            if (this.enqueueHeavySeen) {
-              this.enqueueHeavySeen = false;
-              host.latestProgressLabel.set(null);
-              host.batchEmailProgress.set(null);
-              host.setOperationStatus('processing');
-              host.setActivityPhase('waiting_delta');
-              const threadIdEnqueue = host.resolvedThreadId();
-              if (threadIdEnqueue) {
-                this.streamRegistry.markDone(
-                  threadIdEnqueue,
-                  {
-                    model: event.model,
-                    threadId: event.threadId,
-                    messageId: event.messageId,
-                    usage: event.usage,
-                  },
-                  event.operationId ?? pendingOperationId
-                );
-              }
-              // Fallback: if no step event rendered the card yet, render it now.
-              if (!this.enqueueHeavyCardShown) {
-                host.onEnqueueHeavyDone();
-                this.enqueueHeavyCardShown = true;
-              }
-              host.setActiveStream(null);
-              this.breadcrumb.trackStateChange('agent-x-operation-chat:enqueue-heavy-done', {
-                contextId: host.contextId(),
-              });
-              host.getShadowFirestoreSub()?.unsubscribe();
-              host.setShadowFirestoreSub(null);
-              this.logger.info('Stream complete (enqueue heavy — waiting card shown)', {
-                threadId: event.threadId,
-              });
-              this.agentXService.clearDropRecoveryOp();
-              resolve();
-              return;
-            }
-
             this.messageFacade.flushPendingTypingDelta();
             host.latestProgressLabel.set(null);
             host.batchEmailProgress.set(null);
+            // this.enqueueHeavySeen = false;
+            // this.enqueueHeavyCardShown = false;
             host.setActivityPhase('completed');
             const threadId = host.resolvedThreadId();
             const terminalOperationId =
@@ -1006,8 +958,8 @@ export class AgentXOperationChatTransportFacade {
     }
     this.responseTurnId += 1;
     this.responseCompleteEmitted = false;
-    this.enqueueHeavySeen = false;
-    this.enqueueHeavyCardShown = false;
+    // this.enqueueHeavySeen = false;
+    // this.enqueueHeavyCardShown = false;
     host.latestProgressLabel.set(null);
     this.logger.debug('Response turn started', {
       turnId: this.responseTurnId,
@@ -1086,5 +1038,15 @@ export class AgentXOperationChatTransportFacade {
 
     this.logger.warn('Skipped transport action before configure()', { action });
     return null;
+  }
+}
+
+/** Returns the browser's IANA timezone string, or undefined if unavailable. */
+function resolveCurrentTimeZone(): string | undefined {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return tz && tz.trim().length > 0 ? tz : undefined;
+  } catch {
+    return undefined;
   }
 }

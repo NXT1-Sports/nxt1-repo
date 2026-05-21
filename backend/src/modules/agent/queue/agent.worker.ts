@@ -2504,6 +2504,24 @@ export class AgentWorker {
     // Firestore document we just wrote via `markFailed`.
     await emitTerminalOperationEvent(operationFailed ? 'failed' : 'complete');
 
+    // Registration-origin jobs (welcome graphic onboarding path) should not wait
+    // for post-processing side effects (activity feed, notification dispatch,
+    // Mongo persistence) before notifying the UI that the operation is terminal.
+    // Emit an early `done` event so the chat spinner can resolve immediately.
+    const isRegistrationOrigin =
+      typeof (payloadContext as Record<string, unknown>)['origin'] === 'string' &&
+      ((payloadContext as Record<string, unknown>)['origin'] as string).trim().toLowerCase() ===
+        'registration';
+    if (isRegistrationOrigin && summary.trim().length > 0) {
+      eventWriter.emit({
+        type: 'delta',
+        agentId: finalAgentId,
+        text: `\n${summary}\n`,
+        noBatch: true,
+      });
+      await eventWriter.flush().catch(() => undefined);
+    }
+
     // Billing deduction: use centralized pipeline
     // Pass organizationId from job context as a fallback for onboarding
     // scrape jobs where the billing docs may not yet have been initialized
@@ -2871,8 +2889,9 @@ export class AgentWorker {
 
     eventWriter.emit({
       type: 'done',
-      success: !maxIterationsReached && !planFailed,
+      success: !operationFailed,
       message: doneMessageForEvent,
+      ...(operationFailed ? { error: failureMessage || terminalMessage } : {}),
       outcomeCode: terminalOutcomeCode,
       agentId: finalAgentId,
       messageId: persistedAssistantMessageId,

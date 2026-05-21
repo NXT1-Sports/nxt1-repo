@@ -354,8 +354,13 @@ export class AgentXComponent {
 
     effect(
       () => {
-        const user = this.authFlowRef()?.user() ?? null;
-        this.activityService.startRealtimeForUser(user?.uid);
+        const authFlow = this.authFlowRef();
+        const user = authFlow?.user() ?? null;
+        const firebaseUser = authFlow?.firebaseUser() ?? null;
+        const isAuthReady = authFlow?.isAuthReady() ?? false;
+        const listenerUserId = isAuthReady && firebaseUser ? user?.uid : null;
+
+        this.activityService.startRealtimeForUser(listenerUserId);
       },
       { injector: this.injector }
     );

@@ -61,10 +61,25 @@ Never infer sport, position, or athlete identity from filename, URL metadata, or
 - A clear, well-lit face shot is a high-quality headshot regardless of attire.
 - Flag blurry, heavily filtered, or group shots where the athlete is not the primary subject.
 
-### Reject Criteria (Drop the Image)
+### Reject Criteria (Drop the Image — Do NOT pass to write_athlete_images)
 - Clear sport mismatch: image unambiguously shows a different sport (e.g., swim cap/goggles for a football player).
 - Wrong subject: image clearly shows a different athlete (different name on jersey, different institution).
-- Non-athlete content: pure team logo, stadium exterior, graphic without any person visible.
+- Non-athlete content: any of the following → set aside, do NOT write:
+  - School or university logo / wordmark (e.g., Creighton Bluejays logo, UNC logo)
+  - Conference logo or governing body logo (e.g., ACC logo, NCHSAA logo)
+  - Social media platform icons or brand marks (e.g., Twitter/X logo, Instagram icon)
+  - Stadium exterior, court/field image without the athlete present
+  - Generic sport graphic (ball, trophy silhouette) with no athlete visible
+  - Any image where no person is the primary subject
+
+### Award & Achievement Graphics (Conditional Include)
+Award graphics (All-State, All-Conference, MVP, Player of the Year, national ranking graphics) are
+valid profile content — they document real achievements. However:
+- Set kind: "graphic"
+- MUST include a specific caption describing what the award is and who received it
+- Caption format: "[Athlete name] named to [Award Name] — [Season/Year]"
+- Example: "Kaharri Coleman named to 2025-26 NC Basketball All-State First Team"
+- Without a caption, the tool will reject the image — always provide one for graphics.
 
 ### Flag-Only Criteria (Include with Note)
 - Athlete's face partially obscured or back turned — still valid if sport context is correct.

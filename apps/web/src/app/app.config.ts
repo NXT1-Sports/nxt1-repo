@@ -83,7 +83,11 @@ import {
   CONNECTED_ACCOUNTS_FIREBASE_USER,
   CONNECTED_ACCOUNTS_OAUTH_HANDLER,
 } from '@nxt1/ui/components/connected-sources/tokens';
-import { ACTIVITY_API_BASE_URL, ACTIVITY_API_ADAPTER } from '@nxt1/ui/activity/tokens';
+import {
+  ACTIVITY_API_BASE_URL,
+  ACTIVITY_API_ADAPTER,
+  ACTIVITY_FIREBASE_CONTEXT,
+} from '@nxt1/ui/activity/tokens';
 import { INVITE_API_BASE_URL } from '@nxt1/ui/invite/tokens';
 import { USAGE_API_BASE_URL, STRIPE_PUBLISHABLE_KEY } from '@nxt1/ui/usage/tokens';
 import { BROWSER_TRACKING_BASE_URL } from '@nxt1/ui/services/browser';
@@ -105,7 +109,7 @@ import { ActivityApiService as WebActivityApiService } from './core/services/api
 // - Storage: NOT imported - file uploads go through backend API (security)
 // - Analytics/Performance: Lazy-loaded after LCP (see AppComponent)
 import { provideFirebaseApp, initializeApp } from '@angular/fire/app';
-import { provideAuth, getAuth } from '@angular/fire/auth';
+import { provideAuth, getAuth, Auth } from '@angular/fire/auth';
 import { providePerformance, getPerformance } from '@angular/fire/performance';
 
 // Auth service with injection token pattern
@@ -316,7 +320,11 @@ export const appConfig: ApplicationConfig = {
     provideAuth(() => getAuth()),
     // Provide Firebase Auth instance to the HTTP error interceptor so it can
     // attempt a token force-refresh on 401 before redirecting to /auth.
-    { provide: HTTP_ERROR_INTERCEPTOR_FIREBASE_AUTH, useFactory: () => getAuth() },
+    {
+      provide: HTTP_ERROR_INTERCEPTOR_FIREBASE_AUTH,
+      useFactory: (auth: Auth) => auth,
+      deps: [Auth],
+    },
     providePerformance(() => getPerformance()),
     // NOTE: Storage is NOT provided in browser bundle —
     // file uploads go through backend API for security
@@ -512,6 +520,17 @@ export const appConfig: ApplicationConfig = {
 
     // Activity API adapter — use the web-specific service with performance tracing
     { provide: ACTIVITY_API_ADAPTER, useExisting: WebActivityApiService },
+
+    // Activity realtime diagnostics context (auth/project visibility in permission errors)
+    {
+      provide: ACTIVITY_FIREBASE_CONTEXT,
+      useFactory: (auth: Auth) => ({
+        getCurrentUserId: () => auth.currentUser?.uid ?? null,
+        getProjectId: () => auth.app.options.projectId ?? null,
+        isAuthReady: () => auth.currentUser !== null,
+      }),
+      deps: [Auth],
+    },
 
     // Bridge @nxt1/ui ActivityService unread counts into shell badge state.
     provideBadgeBridge(),

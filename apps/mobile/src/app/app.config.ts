@@ -58,6 +58,7 @@ import {
   FIRESTORE_ADAPTER,
   ACTIVITY_API_BASE_URL,
   ACTIVITY_API_ADAPTER,
+  ACTIVITY_FIREBASE_CONTEXT,
   INVITE_API_BASE_URL,
   USAGE_API_BASE_URL,
   PERFORMANCE_ADAPTER,
@@ -374,6 +375,17 @@ export const appConfig: ApplicationConfig = {
 
     // Activity API adapter — use the mobile Capacitor adapter (auth headers, native SSL)
     { provide: ACTIVITY_API_ADAPTER, useExisting: MobileActivityApiService },
+
+    // Activity realtime diagnostics context (auth/project visibility in permission errors)
+    {
+      provide: ACTIVITY_FIREBASE_CONTEXT,
+      useFactory: (auth: Auth, firestore: Firestore) => ({
+        getCurrentUserId: () => auth.currentUser?.uid ?? null,
+        getProjectId: () => firestore.app.options.projectId ?? null,
+        isAuthReady: () => auth.currentUser !== null,
+      }),
+      deps: [Auth, Firestore],
+    },
 
     // Invite API base URL
     { provide: INVITE_API_BASE_URL, useFactory: () => environment.apiUrl },

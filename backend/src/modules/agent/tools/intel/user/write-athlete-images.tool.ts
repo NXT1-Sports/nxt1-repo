@@ -26,6 +26,8 @@ import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../../services/profile/u
 import { invalidateProfileCaches } from '../../../../../routes/profile/shared.js';
 import { logger } from '../../../../../utils/logger.js';
 import { resolveCreatedAt } from '../doc-date-utils.js';
+import { ScraperMediaService } from '../../integrations/social/scraper-media.service.js';
+import { AgentMediaLifecycleService } from '../../media/agent-media-lifecycle.service.js';
 import { PostVisibility } from '@nxt1/core';
 import { z } from 'zod';
 
@@ -67,6 +69,11 @@ const WriteAthleteImagesInputSchema = z.object({
 // ─── URL normalizer (images) ─────────────────────────────────────────────────
 
 function normalizeImageUrl(url: string): string {
+  const storagePath = AgentMediaLifecycleService.extractStoragePathFromUrl(url);
+  if (storagePath) {
+    return storagePath.toLowerCase();
+  }
+
   try {
     const parsed = new URL(url);
     // Strip CDN sizing params that vary but refer to the same image
@@ -80,10 +87,70 @@ function normalizeImageUrl(url: string): string {
     parsed.searchParams.delete('fit');
     parsed.searchParams.delete('format');
     parsed.searchParams.delete('auto');
+    parsed.searchParams.delete('token');
+    parsed.searchParams.delete('alt');
+    parsed.searchParams.delete('X-Goog-Algorithm');
+    parsed.searchParams.delete('X-Goog-Credential');
+    parsed.searchParams.delete('X-Goog-Date');
+    parsed.searchParams.delete('X-Goog-Expires');
+    parsed.searchParams.delete('X-Goog-SignedHeaders');
+    parsed.searchParams.delete('X-Goog-Signature');
+    parsed.searchParams.delete('GoogleAccessId');
+    parsed.searchParams.delete('Expires');
+    parsed.searchParams.delete('Signature');
     return parsed.toString().replace(/\/+$/, '').toLowerCase();
   } catch {
     return url.trim().toLowerCase();
   }
+}
+
+// ─── Quality gate ────────────────────────────────────────────────────────────
+
+/**
+ * Hard quality gate for incoming image entries.
+ *
+ * Rules (in priority order):
+ * 1. action_shot / headshot / team_photo — always allowed if they have a URL.
+ * 2. graphic / banner — MUST have a non-empty caption describing the achievement
+ *    or context. Captions like "Athlete image" or "image" (≤12 chars) are rejected
+ *    because they add no value. These kinds are typically award graphics; without a
+ *    human-written caption they appear as anonymous logos on the profile.
+ * 3. unknown — MUST have either alt text OR caption. Images with neither are
+ *    unclassified and have no context for viewers; skip them.
+ */
+function passesQualityGate(
+  kind: ImageKind,
+  alt: string | undefined,
+  caption: string | undefined
+): { ok: boolean; reason?: string } {
+  const hasAlt = typeof alt === 'string' && alt.trim().length > 3;
+  const hasCaption = typeof caption === 'string' && caption.trim().length > 12;
+
+  if (kind === 'action_shot' || kind === 'headshot' || kind === 'team_photo') {
+    return { ok: true };
+  }
+
+  if (kind === 'graphic' || kind === 'banner') {
+    if (!hasCaption) {
+      return {
+        ok: false,
+        reason:
+          `kind '${kind}' requires a descriptive caption (e.g. "Named to 2025-26 NC All-State First Team"). ` +
+          'Logos and award graphics without context are not persisted to the athlete profile.',
+      };
+    }
+    return { ok: true };
+  }
+
+  // kind === 'unknown'
+  if (!hasAlt && !hasCaption) {
+    return {
+      ok: false,
+      reason:
+        "kind 'unknown' with no alt text and no caption provides no context for viewers and is not persisted.",
+    };
+  }
+  return { ok: true };
 }
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
@@ -92,10 +159,21 @@ export class WriteAthleteImagesTool extends BaseTool {
   readonly name = 'write_athlete_images';
 
   readonly description =
-    'Writes athlete images (action shots, headshots, team photos, graphics) to the ' +
+    'Writes athlete images (action shots, headshots, team photos, and award graphics) to the ' +
     'Posts collection as image posts. Deduplicates by URL.\n\n' +
-    'Call this after collecting images via extract_page_images, scrape_twitter, or ' +
-    'scrape_instagram to persist them to the athlete profile.\n\n' +
+    'Call this ONLY after `analyze_image` has verified each image belongs to the athlete.\n\n' +
+    '**IMAGE SELECTION RULES (CRITICAL):**\n' +
+    '- ONLY write images where the athlete is the subject OR images that directly document their achievement.\n' +
+    '- NEVER write school logos, college logos, conference logos, or organization brand marks.\n' +
+    '- NEVER write stadium exteriors, court/field graphics, or generic sport imagery.\n' +
+    '- Award/achievement graphics (e.g. All-State, All-Conference, Player of the Year):\n' +
+    '  → ALLOWED but MUST include a caption explaining the achievement\n' +
+    '  → Example caption: "Named to 2025-26 NC Basketball All-State First Team"\n' +
+    '  → Without a caption, the image will be rejected by the tool.\n\n' +
+    '**KIND + CAPTION ENFORCEMENT (HARD RULES):**\n' +
+    '- action_shot / headshot / team_photo: accepted as long as athlete is present.\n' +
+    '- graphic / banner: MUST include a descriptive caption (>12 chars) — tool rejects without one.\n' +
+    '- unknown: MUST include either alt text or a caption — tool rejects with neither.\n\n' +
     'Parameters:\n' +
     '- userId (required): Firebase UID.\n' +
     '- targetSport (required): Sport key (e.g. "football").\n' +
@@ -103,11 +181,11 @@ export class WriteAthleteImagesTool extends BaseTool {
     '- sourceUrl (optional): The URL that was scraped to extract this data.\n' +
     '- images (required): Array of image objects:\n' +
     '  • url (required): Full URL of the image.\n' +
-    '  • kind (optional): "action_shot", "headshot", "team_photo", "graphic", "banner", or "unknown".\n' +
-    '  • alt (optional): Alt text / description.\n' +
-    '  • caption (optional): Caption for display.\n' +
-    "  • sourceUrl (optional): Page the image was found on.'\n" +
-    '  • visionSummary (optional): Full AI vision analysis text from analyze_image — persisted for profile enrichment and intel reports.';
+    '  • kind (required): "action_shot", "headshot", "team_photo", "graphic", "banner", or "unknown".\n' +
+    '  • alt (optional): Alt text / description from the source page.\n' +
+    '  • caption (required for graphic/banner): Human-readable caption shown on the post.\n' +
+    '  • sourceUrl (optional): Page the image was found on.\n' +
+    '  • visionSummary (required): Full AI vision analysis text from analyze_image.';
 
   readonly parameters = WriteAthleteImagesInputSchema;
 
@@ -227,12 +305,35 @@ export class WriteAthleteImagesTool extends BaseTool {
 
         const imageObj = image as Record<string, unknown>;
         const url = typeof imageObj['url'] === 'string' ? imageObj['url'].trim() : '';
+        const itemSourceUrl =
+          typeof imageObj['sourceUrl'] === 'string' ? imageObj['sourceUrl'] : sourceUrl;
         if (!url || url.length === 0) {
           skipped++;
           continue;
         }
 
-        const normalizedUrl = normalizeImageUrl(url);
+        const docRef = this.db.collection(POSTS_COLLECTION).doc();
+        const destinationPrefix = `Users/${userId}/posts/${docRef.id}`;
+        const promoted = await ScraperMediaService.promoteMedia(
+          [url],
+          context.userId,
+          destinationPrefix
+        );
+
+        const finalUrl = promoted[0];
+        if (!finalUrl) {
+          skipped++;
+          logger.warn('[WriteAthleteImages] Skipping image because promotion failed', {
+            userId,
+            actorUserId: context.userId,
+            source,
+            sourceUrl: itemSourceUrl,
+            url,
+          });
+          continue;
+        }
+
+        const normalizedUrl = normalizeImageUrl(finalUrl);
 
         // Dedup check
         if (existingKeys.has(normalizedUrl)) {
@@ -246,8 +347,19 @@ export class WriteAthleteImagesTool extends BaseTool {
           : 'unknown';
         const alt = typeof imageObj['alt'] === 'string' ? imageObj['alt'] : undefined;
         const caption = typeof imageObj['caption'] === 'string' ? imageObj['caption'] : undefined;
-        const itemSourceUrl =
-          typeof imageObj['sourceUrl'] === 'string' ? imageObj['sourceUrl'] : sourceUrl;
+
+        // Quality gate — reject low-value / context-free images before writing
+        const qualityCheck = passesQualityGate(kind, alt, caption);
+        if (!qualityCheck.ok) {
+          skipped++;
+          logger.info('[WriteAthleteImages] Skipped — failed quality gate', {
+            userId,
+            kind,
+            reason: qualityCheck.reason,
+            url: finalUrl.slice(0, 80),
+          });
+          continue;
+        }
         const visionSummary =
           typeof imageObj['visionSummary'] === 'string' ? imageObj['visionSummary'] : undefined;
 
@@ -260,8 +372,9 @@ export class WriteAthleteImagesTool extends BaseTool {
           ...(teamId ? { teamId } : {}),
           ...(organizationId ? { organizationId } : {}),
           // ── Image data (canonical) ───────────────────────────────
-          url,
-          mediaUrl: url, // Frontend mapTimelineDoc reads this
+          url: finalUrl,
+          images: [finalUrl],
+          mediaUrl: finalUrl, // Frontend mapTimelineDoc reads this
           type: 'image', // PostType
           visibility: PostVisibility.PUBLIC,
           platform: source,
@@ -281,7 +394,6 @@ export class WriteAthleteImagesTool extends BaseTool {
         if (itemSourceUrl) record['sourceUrl'] = itemSourceUrl;
         if (visionSummary) record['visionSummary'] = visionSummary;
 
-        const docRef = this.db.collection(POSTS_COLLECTION).doc();
         record['id'] = docRef.id;
         batch.set(docRef, record);
         written++;

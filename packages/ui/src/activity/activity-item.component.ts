@@ -549,7 +549,7 @@ export class ActivityItemComponent {
   /** Content of the body to render (uses raw markdown if available from Agent X) */
   protected readonly getBodyContent = computed(() => {
     const item = this.item();
-    return (item.metadata?.['resultSummary'] as string) || item.body || '';
+    return item.body || (item.metadata?.['resultSummary'] as string) || '';
   });
 
   /** Accent color used by the premium icon container */

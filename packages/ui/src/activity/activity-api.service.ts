@@ -49,6 +49,29 @@ export const ACTIVITY_API_ADAPTER = new InjectionToken<ActivityApi>('ACTIVITY_AP
   factory: () => inject(ActivityApiService),
 });
 
+export interface ActivityFirebaseDiagnosticsContext {
+  readonly getCurrentUserId: () => string | null;
+  readonly getProjectId: () => string | null;
+  readonly isAuthReady: () => boolean | null;
+}
+
+/**
+ * Optional runtime diagnostics for Firestore permission errors.
+ * Implemented by app shells (web/mobile) so shared services can log
+ * auth/project context without importing AngularFire directly.
+ */
+export const ACTIVITY_FIREBASE_CONTEXT = new InjectionToken<ActivityFirebaseDiagnosticsContext>(
+  'ACTIVITY_FIREBASE_CONTEXT',
+  {
+    providedIn: 'root',
+    factory: () => ({
+      getCurrentUserId: () => null,
+      getProjectId: () => null,
+      isAuthReady: () => null,
+    }),
+  }
+);
+
 /**
  * Activity API Service.
  * Angular adapter for the pure TypeScript Activity API.

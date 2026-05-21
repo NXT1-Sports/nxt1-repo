@@ -618,6 +618,17 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(label).toBe('Merging video clips');
   });
 
+  it('normalizes write intel labels without surfacing raw entity ids', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('write_intel', {
+      entityType: 'athlete',
+      entityId: 'T4jXcSaKvmY4kOUrP0ktJ6BDoeI3',
+    });
+
+    expect(label).toBe('Writing intelligence report');
+  });
+
   it('keeps artifact URLs in compacted tool history summaries', () => {
     const agent = new FakeAgent();
     const toolExchange = (

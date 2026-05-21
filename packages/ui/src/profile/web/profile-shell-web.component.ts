@@ -2383,20 +2383,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
       };
     }
 
-    const sportName = this.profile.activeSport()?.name?.trim();
-    if (sportName) {
-      return {
-        name: `${formatSportDisplayName(sportName)} Organization`,
-        type: 'other',
-        location: user.classYear ? `Class of ${user.classYear}` : undefined,
-      };
-    }
-
-    return {
-      name: 'Organization',
-      type: 'other',
-      location: user.classYear ? `Class of ${user.classYear}` : undefined,
-    };
+    return null;
   });
 
   protected teamTypeLabel(type?: ProfileTeamType): string {

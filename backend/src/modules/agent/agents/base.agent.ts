@@ -618,26 +618,78 @@ export abstract class BaseAgent {
     return undefined;
   }
 
+  private extractTimezoneFromIntent(intent: string): string | undefined {
+    const patterns = [
+      /(?:^|\n)\s*Timezone:\s*([^\n|]+)/i,
+      /(?:^|\n)\s*-\s*\*\*timezone\*\*:\s*([^\n]+)/i,
+      /(?:^|\n)\s*timezone:\s*([^\n|]+)/i,
+    ];
+
+    for (const pattern of patterns) {
+      const match = intent.match(pattern);
+      const value = match?.[1]?.trim();
+      if (value) return value;
+    }
+
+    return undefined;
+  }
+
+  private formatCurrentTimeForTimezone(now: Date, timezone: string): string | null {
+    try {
+      return new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZoneName: 'short',
+      }).format(now);
+    } catch {
+      return null;
+    }
+  }
+
   private buildRuntimeTemporalContext(intent: string): string {
     const now = new Date();
     const monthYear = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
     const currentDate = now.toISOString().slice(0, 10);
+    // Include the exact UTC timestamp so the LLM can compute relative times like
+    // "in 1 hour" or "at 3 PM" without hallucinating the current clock time.
+    const currentUtcIso = now.toISOString();
+    const timezone = this.extractTimezoneFromIntent(intent);
     const sport = this.extractSportFromIntent(intent);
 
+    const timezoneContext = timezone ? this.formatCurrentTimeForTimezone(now, timezone) : null;
+
+    const baseContext = timezoneContext
+      ? `Current Date & Time Context: It is ${timezoneContext}. ` +
+        `Current UTC timestamp: ${currentUtcIso}. ` +
+        `When a user says "in X hours/minutes" or "at [time]", compute the target ` +
+        `time relative to the local timezone value above and verify it against the UTC ` +
+        `timestamp before building any cron expression. ` +
+        `Never guess or infer the current time — use only these values.`
+      : `Current Date & Time Context: It is ${monthYear} (${currentDate}). ` +
+        `Current year: ${now.getFullYear()}. ` +
+        `Exact server UTC timestamp: ${currentUtcIso}. ` +
+        `When a user says "in X hours/minutes" or "at [time]", always compute the ` +
+        `target time relative to this UTC timestamp and convert it to the user's ` +
+        `requested IANA timezone before building any cron expression. ` +
+        `Never guess or infer the current time — use only this value.`;
+
     if (!sport) {
-      return `Current Date Context: It is ${monthYear} (${currentDate}). Current year: ${now.getFullYear()}.`;
+      return baseContext;
     }
 
     const season = resolveSeasonInfo(sport, now);
     if (!season) {
-      return (
-        `Current Date Context: It is ${monthYear} (${currentDate}). Current year: ${now.getFullYear()}. ` +
-        `Sport in context: ${sport}.`
-      );
+      return `${baseContext} Sport in context: ${sport}.`;
     }
 
     return (
-      `Current Date Context: It is ${monthYear} (${currentDate}). Current year: ${now.getFullYear()}. ` +
+      `${baseContext} ` +
       `For ${sport}, this is the ${season.phase} period. Focus areas: ${season.focus}.`
     );
   }
@@ -4486,7 +4538,8 @@ export abstract class BaseAgent {
     if (
       toolName === 'scrape_webpage' ||
       toolName === 'ffmpeg_trim_video' ||
-      toolName === 'ffmpeg_merge_videos'
+      toolName === 'ffmpeg_merge_videos' ||
+      toolName === 'write_intel'
     ) {
       return baseLabel;
     }

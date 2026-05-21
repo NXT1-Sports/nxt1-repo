@@ -794,12 +794,19 @@ async function buildBreakdownRows(
 async function fetchOrgUsageEvents(
   organizationId: string | undefined,
   teamIds: string[],
+  billingUserId: string,
   startDate: Date,
   endDate: Date,
   orderDesc = true
 ): Promise<UsageEventDocument[]> {
   if (teamIds.length === 0 && !organizationId) return [];
 
+  const billedOwnerFilter = {
+    billedOwnerType: 'organization',
+    billedOwnerId: billingUserId,
+  };
+
+  // Legacy fallback: pre-owner events are still identifiable by org settlement path.
   const scopeFilters: Record<string, unknown>[] = [];
   if (teamIds.length > 0) {
     scopeFilters.push({ teamId: { $in: teamIds } });
@@ -808,9 +815,31 @@ async function fetchOrgUsageEvents(
     scopeFilters.push({ organizationId });
   }
 
+  const legacyOrgFilter: Record<string, unknown> | null =
+    scopeFilters.length > 0
+      ? {
+          $and: [
+            { $or: scopeFilters },
+            {
+              $or: [
+                { 'metadata.settlementPath': 'org-wallet-debit' },
+                { 'metadata.billingEntity': 'organization' },
+              ],
+            },
+            {
+              $or: [
+                { billedOwnerType: { $exists: false } },
+                { billedOwnerType: null },
+                { billedOwnerType: '' },
+              ],
+            },
+          ],
+        }
+      : null;
+
   return fetchUsageEventBatches(
     {
-      $or: scopeFilters,
+      $or: legacyOrgFilter ? [billedOwnerFilter, legacyOrgFilter] : [billedOwnerFilter],
       createdAt: { $gte: startDate, $lte: endDate },
     },
     orderDesc
@@ -831,15 +860,42 @@ async function fetchUsageEvents(
     return fetchOrgUsageEvents(
       target.organizationId,
       target.teamIds ?? [],
+      target.billingUserId,
       startDate,
       endDate,
       orderDesc
     );
   }
 
+  const billedOwnerFilter = {
+    billedOwnerType: 'individual',
+    billedOwnerId: target.billingUserId,
+  };
+
+  // Legacy fallback: include rows for this user that are NOT org-settled.
+  const legacyPersonalFilter = {
+    $and: [
+      { userId: target.billingUserId },
+      {
+        $or: [
+          { 'metadata.settlementPath': { $exists: false } },
+          { 'metadata.settlementPath': null },
+          { 'metadata.settlementPath': { $ne: 'org-wallet-debit' } },
+        ],
+      },
+      {
+        $or: [
+          { billedOwnerType: { $exists: false } },
+          { billedOwnerType: null },
+          { billedOwnerType: '' },
+        ],
+      },
+    ],
+  };
+
   return fetchUsageEventBatches(
     {
-      userId: target.billingUserId,
+      $or: [billedOwnerFilter, legacyPersonalFilter],
       createdAt: { $gte: startDate, $lte: endDate },
     },
     orderDesc

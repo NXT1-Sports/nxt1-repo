@@ -1128,6 +1128,7 @@ export class AgentXControlPanelComponent implements OnInit {
   @Input() initialGoals: string[] = [];
   @Input() budgetTargetTeamId: string | null = null;
   @Input() budgetDraftMode: AgentXBudgetDraftMode = 'current';
+  @Input() budgetDraftInterval: BudgetInterval | null = null;
 
   readonly title = computed(() => {
     switch (this.panel) {
@@ -1462,7 +1463,7 @@ export class AgentXControlPanelComponent implements OnInit {
   }
 
   private applyBudgetDraft(targetId: string): void {
-    this.hydrateBudgetDraft(targetId, this.draftBudgetInterval());
+    this.hydrateBudgetDraft(targetId, this.budgetDraftInterval ?? this.draftBudgetInterval());
   }
 
   private hydrateBudgetDraft(targetId: string, interval: BudgetInterval): void {
