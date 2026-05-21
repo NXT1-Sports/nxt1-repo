@@ -1010,9 +1010,9 @@ export class MobileShellComponent implements OnInit, OnDestroy {
     const team: InviteTeam | undefined = canUseTeamInvite
       ? {
           id: resolvedTeamId,
-          name: teamInfo.name ?? '',
+          name: teamInfo?.name ?? '',
           sport: resolvedSport,
-          logoUrl: teamInfo.logoUrl ?? teamInfo.logo ?? undefined,
+          logoUrl: teamInfo?.logoUrl ?? teamInfo?.logo ?? undefined,
           memberCount: 0,
         }
       : undefined;
