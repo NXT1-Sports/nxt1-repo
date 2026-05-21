@@ -4065,8 +4065,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private static readonly DESKTOP_LEFT_PANEL_DEFAULT_WIDTH = 280;
   private static readonly DESKTOP_LEFT_PANEL_MIN_WIDTH = 220;
   private static readonly DESKTOP_ACTION_PLAN_DEFAULT_WIDTH = 320;
-  private static readonly DESKTOP_GAMEPLANS_DEFAULT_WIDTH = 640;
-  private static readonly DESKTOP_PLAYBOOKS_DEFAULT_WIDTH = 640;
   private static readonly DESKTOP_FILM_REVIEW_DEFAULT_WIDTH = 720;
   private static readonly DESKTOP_ACTION_PLAN_MIN_WIDTH = 260;
   private static readonly DESKTOP_GAMEPLANS_MIN_WIDTH = 500;

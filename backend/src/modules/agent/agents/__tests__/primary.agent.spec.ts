@@ -134,7 +134,7 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain('NEVER call `generate_graphic` directly from router');
     expect(prompt).toContain('Live-view film requests are coordinator-owned');
     expect(prompt).toContain(
-      'NEVER call `create_play_diagram`, `write_playbooks`, `save_gameplan`, `list_gameplans`, or `get_gameplan` directly from the router'
+      'NEVER call `create_play_diagram`, `write_playbooks`, `save_gameplan`, `list_gameplans`, `get_gameplan`, or film review tools'
     );
     expect(prompt).toContain('single objective sentence as the handoff payload');
     expect(prompt).toContain('Ask User Decision Matrix (CRITICAL)');

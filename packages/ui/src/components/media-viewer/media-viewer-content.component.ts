@@ -1037,7 +1037,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
         video.currentTime = 0;
       }
 
-      let played = false;
+      let played: boolean;
       try {
         await video.play();
         played = true;

@@ -655,7 +655,6 @@ export class AgentXOperationChatAttachmentsFacade {
   }
 
   openAttachmentViewer(attachments: readonly MessageAttachment[], index: number): void {
-    const host = this.requireHost();
     const mediaItems: MediaViewerItem[] = attachments.map((attachment) => {
       if (attachment.type === 'image' || attachment.type === 'video') {
         return {
@@ -675,9 +674,6 @@ export class AgentXOperationChatAttachmentsFacade {
     });
 
     if (!mediaItems.length) return;
-
-    const activeTeamId = this.resolveActiveTeamId();
-    const activeSport = this.resolveActiveSport();
 
     this.mediaViewer.open({
       items: mediaItems,

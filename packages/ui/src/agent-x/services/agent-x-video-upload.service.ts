@@ -478,7 +478,7 @@ export class AgentXVideoUploadService {
     try {
       const parsed = new URL(url);
       const segments = parsed.pathname.split('/').filter(Boolean);
-      const candidate = segments.at(-1)?.trim();
+      const candidate = segments.length > 0 ? segments[segments.length - 1]?.trim() : undefined;
       return candidate || null;
     } catch {
       return null;

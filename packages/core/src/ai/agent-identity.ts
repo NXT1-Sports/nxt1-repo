@@ -294,7 +294,7 @@ export function sanitizeStorageUrlsFromText(
   const storageUrlPattern =
     /https:\/\/(?:firebasestorage\.googleapis\.com|storage\.googleapis\.com|[^\s)\]]+\.s3(?:\.\w+-\w+-\d)?(?:\.amazonaws\.com)?|[^\s)\]]+\.cloudfront\.net)\/[^\s)\]]+/gi;
 
-  let sanitized = content.replace(storageUrlPattern, (match) =>
+  const sanitized = content.replace(storageUrlPattern, (match) =>
     shouldPreserveStorageUrl(match) ? match : ''
   );
 

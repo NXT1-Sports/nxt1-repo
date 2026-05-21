@@ -177,10 +177,12 @@ function resolveAgentXActiveSport(
           } | null;
         }> | null;
         readonly selectedSports?: readonly string[] | null;
-        readonly connectedSources?: readonly {
-          readonly scopeType?: 'global' | 'sport' | 'team';
-          readonly scopeId?: string;
-        }[] | null;
+        readonly connectedSources?:
+          | readonly {
+              readonly scopeType?: 'global' | 'sport' | 'team';
+              readonly scopeId?: string;
+            }[]
+          | null;
       }
     | null
     | undefined
@@ -206,7 +208,9 @@ function resolveAgentXActiveSport(
     primarySport?.sport?.trim() ||
     teamSport?.sport?.trim() ||
     scopedSport?.trim() ||
-    user?.selectedSports?.find((sport) => typeof sport === 'string' && sport.trim().length > 0)?.trim() ||
+    user?.selectedSports
+      ?.find((sport) => typeof sport === 'string' && sport.trim().length > 0)
+      ?.trim() ||
     ''
   );
 }

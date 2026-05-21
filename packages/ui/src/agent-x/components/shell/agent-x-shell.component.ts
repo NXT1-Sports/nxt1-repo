@@ -249,10 +249,7 @@ function sortCoordinatorCategories(
     }
 
     <!-- ═══ SCROLLABLE CONTENT ═══ -->
-    <ion-content
-      [fullscreen]="true"
-      class="agent-x-content"
-    >
+    <ion-content [fullscreen]="true" class="agent-x-content">
       <nxt-refresher (onRefresh)="handleRefresh($event)" (onTimeout)="handleRefreshTimeout()" />
 
       <div class="agent-x-container">
@@ -363,7 +360,6 @@ function sortCoordinatorCategories(
                           [style.width.%]="actionPlanProgressPercent()"
                         ></div>
                       </div>
-
                     </div>
                     <p class="action-plan-meta">{{ actionPlanCompletionLabel() }}</p>
                   </div>

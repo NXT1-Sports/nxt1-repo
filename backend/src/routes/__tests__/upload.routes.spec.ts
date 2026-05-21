@@ -560,6 +560,8 @@ describe('Upload Routes', () => {
           mediaUrl: 'https://customer-123.cloudflarestream.com/video-123/iframe',
           duration: 42,
           visibility: 'public',
+          playlistId: null,
+          playlistName: null,
           createdAt: '2026-04-13T00:00:00.000Z',
           updatedAt: expect.any(String),
           playback: {

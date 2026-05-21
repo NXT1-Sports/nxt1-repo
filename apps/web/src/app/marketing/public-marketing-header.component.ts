@@ -1,4 +1,12 @@
-import { Component, ChangeDetectionStrategy, signal, inject, input, output, computed } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  signal,
+  inject,
+  input,
+  output,
+  computed,
+} from '@angular/core';
 import { RouterLink, Router } from '@angular/router';
 import { AuthFlowService } from '../core/services/auth';
 
@@ -211,7 +219,6 @@ export interface PublicNavItem {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-
 export class PublicMarketingHeaderComponent {
   private readonly router = inject(Router);
   private readonly authFlow = inject(AuthFlowService);

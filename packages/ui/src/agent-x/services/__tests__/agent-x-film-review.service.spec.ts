@@ -236,25 +236,18 @@ describe('AgentXFilmReviewService', () => {
       expect(apiMock.skipToPlay).toHaveBeenCalledWith(reviewId, playSegment);
 
       // Verify analytics tracking
-      expect(analyticsMock.trackEvent).toHaveBeenCalledWith(
-        APP_EVENTS.FILM_REVIEW_PLAY_SKIPPED,
-        {
-          playNumber: 1,
-          playLabel: 'TD Pass',
-          startSec: 10,
-          endSec: 25,
-        }
-      );
+      expect(analyticsMock.trackEvent).toHaveBeenCalledWith(APP_EVENTS.FILM_REVIEW_PLAY_SKIPPED, {
+        playNumber: 1,
+        playLabel: 'TD Pass',
+        startSec: 10,
+        endSec: 25,
+      });
 
       // Verify breadcrumb tracking
-      expect(breadcrumbMock.trackStateChange).toHaveBeenCalledWith(
-        'film-review',
-        'play-skipped',
-        {
-          playNumber: 1,
-          playLabel: 'TD Pass',
-        }
-      );
+      expect(breadcrumbMock.trackStateChange).toHaveBeenCalledWith('film-review', 'play-skipped', {
+        playNumber: 1,
+        playLabel: 'TD Pass',
+      });
 
       // Verify logging
       expect(loggerMock.info).toHaveBeenCalledWith(
@@ -310,9 +303,7 @@ describe('AgentXFilmReviewService', () => {
       });
 
       // Call skipToPlay - should NOT throw
-      await expect(
-        service.skipToPlay(reviewId, playSegment)
-      ).resolves.not.toThrow();
+      await expect(service.skipToPlay(reviewId, playSegment)).resolves.not.toThrow();
 
       // Analytics error should be logged but not re-thrown
       expect(loggerMock.warn).toHaveBeenCalled();
@@ -368,9 +359,7 @@ describe('AgentXFilmReviewService', () => {
       expect(service.error()).toBeNull();
 
       // Mock API to throw
-      vi.mocked(apiMock.generateTimeline).mockRejectedValueOnce(
-        new Error(errorMessage)
-      );
+      vi.mocked(apiMock.generateTimeline).mockRejectedValueOnce(new Error(errorMessage));
 
       // Call generateTimeline
       await service.generateTimeline(reviewId).catch(() => {});
@@ -383,9 +372,7 @@ describe('AgentXFilmReviewService', () => {
       const reviewId = 'review-123';
 
       // First: set an error
-      vi.mocked(apiMock.generateTimeline).mockRejectedValueOnce(
-        new Error('First error')
-      );
+      vi.mocked(apiMock.generateTimeline).mockRejectedValueOnce(new Error('First error'));
 
       await service.generateTimeline(reviewId).catch(() => {});
       expect(service.error()).not.toBeNull();
@@ -459,9 +446,7 @@ describe('AgentXFilmReviewService', () => {
       expect(calls.length).toBeGreaterThan(0);
 
       // Verify first event is INITIATED
-      expect(calls[0][0]).toBe(
-        APP_EVENTS.FILM_REVIEW_TIMELINE_GENERATE_INITIATED
-      );
+      expect(calls[0][0]).toBe(APP_EVENTS.FILM_REVIEW_TIMELINE_GENERATE_INITIATED);
     });
 
     it('should update breadcrumb state changes', async () => {
