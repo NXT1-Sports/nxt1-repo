@@ -141,7 +141,7 @@
     "qrcode": "^1.5.4",
     "sharp": "^0.34.5",
     "tinyglobby": "^0.2.15",
-    "turbo": "^2.9.6"
+    "turbo": "^2.9.14"
   },
   "overrides": {
     "@capacitor/core": "^8.0.1",
