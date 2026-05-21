@@ -103,25 +103,17 @@ platform :ios do
   desc "Build release IPA for App Store"
   lane :release do
     sync_certs(type: "appstore")
-    
-    # Get the latest build number from App Store Connect and increment.
-    # main (staging) → +1   e.g. latest=6 → build 7
-    # production     → +2   e.g. latest=6 → build 8
-    #
-    # Both branches can start their builds concurrently and query TestFlight
-    # before the other's upload is processed.  Using +2 for production ensures
-    # it always lands above the staging build regardless of timing, preventing
-    # the "bundle version must be higher" rejection from App Store Connect.
-    app_store_build_number = latest_testflight_build_number(
-      app_identifier: APP_IDENTIFIER,
-      api_key: load_api_key
-    )
 
-    increment = ENV["BUILD_PROFILE"] == "production" ? 2 : 1
-    UI.message("▶ BUILD_PROFILE=#{ENV['BUILD_PROFILE']} → incrementing build number by #{increment} (latest: #{app_store_build_number})")
+    # auto_version decides the next marketing version and build number:
+    #   - If current xcodeproj version is already LIVE on the App Store
+    #     → bump patch (e.g. 5.0.5 → 5.0.6) and reset build to 1
+    #   - Otherwise → keep current version and increment build counter
+    result            = auto_version
+    marketing_version = result[:version]
+    build_number      = result[:build]
 
     increment_build_number(
-      build_number: app_store_build_number + increment,
+      build_number: build_number.to_s,
       xcodeproj: "App.xcodeproj"
     )
 
@@ -184,6 +176,61 @@ platform :ios do
   # ============================================================================
   # HELPERS
   # ============================================================================
+
+  # Automatically determines the next (version, build) pair:
+  #
+  #   1. Reads the current marketing version from App.xcodeproj.
+  #   2. Queries App Store Connect for the version currently LIVE on the App Store.
+  #   3a. If live version == xcodeproj version → the previous cycle is done.
+  #       Bumps the patch component (5.0.5 → 5.0.6), resets build to 1.
+  #   3b. Otherwise → still building for this version. Increments the highest
+  #       build number already uploaded to TestFlight for that version.
+  #
+  # The result is applied by the caller (release lane) via increment_build_number.
+  # increment_version_number is called here when a bump is needed.
+  private_lane :auto_version do
+    api_key         = load_api_key
+    current_version = get_version_number(xcodeproj: "App.xcodeproj", target: "App")
+
+    # Connect to App Store Connect and fetch the live version string
+    require 'spaceship'
+    Spaceship::ConnectAPI.token = Spaceship::ConnectAPI::Token.create(
+      key_id:    api_key[:key_id],
+      issuer_id: api_key[:issuer_id],
+      key:       api_key[:key]
+    )
+    app                 = Spaceship::ConnectAPI::App.find(APP_IDENTIFIER)
+    live_version_string = app.get_live_app_store_version&.version_string
+    UI.message("▶ App Store live version: #{live_version_string || '(none)'}  |  xcodeproj version: #{current_version}")
+
+    target_version = current_version
+
+    if live_version_string == current_version
+      # This version has been released — bump the patch and start a new series
+      parts          = current_version.split('.').map(&:to_i)
+      parts[-1]     += 1
+      target_version = parts.join('.')
+      increment_version_number(version_number: target_version, xcodeproj: "App.xcodeproj")
+      UI.message("▶ #{current_version} is LIVE → auto-bumped marketing version to #{target_version}")
+    end
+
+    # Determine the next build number for target_version
+    # (returns 0 when no build exists for that version yet)
+    latest_build = begin
+      latest_testflight_build_number(
+        app_identifier: APP_IDENTIFIER,
+        api_key:        api_key,
+        version:        target_version
+      )
+    rescue
+      0
+    end
+    next_build = latest_build.to_i + 1
+
+    UI.message("▶ Next build: #{target_version} (#{next_build})  [TestFlight latest for #{target_version}: #{latest_build}]")
+    { version: target_version, build: next_build }
+  end
+
   private_lane :load_api_key do
     app_store_connect_api_key(
       key_id: ENV["APP_STORE_CONNECT_API_KEY_ID"],
