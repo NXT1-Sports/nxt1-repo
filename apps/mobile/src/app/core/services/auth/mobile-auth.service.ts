@@ -122,7 +122,6 @@ export class MobileAuthService implements OnDestroy {
         // User signed in - sync with our state
         await this.syncFirebaseUser(firebaseUser);
       } else {
-        // User signed out
         await this.authManager.reset();
       }
     });
