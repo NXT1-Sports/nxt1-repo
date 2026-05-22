@@ -114,17 +114,17 @@ export const routes: Routes = [
         loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
       },
 
-      // Canonical shared post URLs from web route to profile on mobile.
-      // Mobile renders post details via overlay from profile/team contexts.
+      // Legacy two-segment post deep links (old URL format) — redirect to author profile.
       {
         path: 'post/:userUnicode/:postId',
         redirectTo: 'profile/:userUnicode',
       },
 
-      // Legacy one-segment post links fallback to Agent X instead of 404.
+      // Canonical post deep links: post/:postId — redirect to feed.
+      // Mobile has no standalone post page; SSR web handles the full post view.
       {
         path: 'post/:postId',
-        redirectTo: 'agent-x',
+        redirectTo: 'feed',
       },
 
       // Profile - User profiles (inside shell for swipe-back gesture)

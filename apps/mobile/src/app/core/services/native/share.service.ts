@@ -269,7 +269,6 @@ export class ShareService {
     const shareablePost: ShareablePost = {
       type: 'post',
       id: post.id,
-      userUnicode: post.userUnicode,
       slug: post.slug,
       title: buildPostShareTitle(post),
       description: buildPostShareDescription(post),
