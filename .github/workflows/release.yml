@@ -154,7 +154,7 @@ jobs:
       - name: Commit version bump
         run: |
           git add -A
-          git commit -m "chore(release): ${{ steps.version.outputs.tag }}"
+          git commit -m "chore(release): ${{ steps.version.outputs.tag }} [skip ci]"
           git push
 
       - name: Create GitHub Release
