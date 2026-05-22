@@ -268,6 +268,18 @@ app.use((_req, res, next) => {
   });
   next();
 });
+
+// Early health endpoint — registered before setupApplication() so Cloud Run's
+// startup probe gets a 200 immediately while MongoDB/Redis are still connecting.
+// Once setupApplication() runs, its /health handler (registered later in the stack)
+// will NOT override this one; Express uses first-match wins for app.get().
+// This early handler returns "starting" until the full handler is wired up.
+let _appReady = false;
+app.get('/health', (_req, res, next) => {
+  if (_appReady) return next(); // defer to the full handler registered by setupApplication()
+  res.status(200).json({ status: 'starting', timestamp: new Date().toISOString() });
+});
+
 async function setupApplication() {
   // ============================================================================
   // Global Middleware
@@ -527,6 +539,7 @@ async function initializeServices() {
 
     // 3. Setup application routes and middleware (requires Redis for rate limiting)
     await setupApplication();
+    _appReady = true; // Allow the full /health handler (registered in setupApplication()) to take over
 
     // 4. Ensure Pub/Sub topic exists for usage-based billing
     await ensureTopicExists().catch((err) => {
@@ -553,18 +566,28 @@ async function initializeServices() {
 let server: ReturnType<typeof app.listen> | null = null;
 let shutdownAgentFn: (() => Promise<void>) | null = null;
 
-initializeServices().then(() => {
-  server = app.listen(PORT, () => {
-    const env = process.env['NODE_ENV'] || 'development';
-    logger.info(`Backend server running on port ${PORT}`);
-    logger.info('========================================');
-    logger.info(`ENV:              ${env}`);
-    logger.info('========================================');
-    logger.info(`API Endpoints:`);
-    logger.info(`   Production: /api/v1/*`);
-    logger.info(`   Staging:    /api/v1/staging/*`);
-  });
+// Cloud Run requires the port to be open before the startup probe fires.
+// Start listening immediately; services (MongoDB, Redis, Agent) initialize
+// in the background. The /health endpoint returns 503 until MongoDB connects.
+server = app.listen(PORT, () => {
+  const env = process.env['NODE_ENV'] || 'development';
+  logger.info(`Backend server listening on port ${PORT} — services initializing...`);
+  logger.info('========================================');
+  logger.info(`ENV:              ${env}`);
+  logger.info('========================================');
+  logger.info(`API Endpoints:`);
+  logger.info(`   Production: /api/v1/*`);
+  logger.info(`   Staging:    /api/v1/staging/*`);
 });
+
+initializeServices()
+  .then(() => {
+    logger.info('✅ All services initialized — server fully ready');
+  })
+  .catch((error) => {
+    logger.error('❌ Fatal: service initialization failed — triggering restart', { error });
+    process.exit(1);
+  });
 // ============================================================================
 // Graceful Shutdown
 // ============================================================================
