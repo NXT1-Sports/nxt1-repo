@@ -3,7 +3,7 @@
  * @module @nxt1/web/features/post
  * @version 1.1.0
  *
- * SSR host route for `/post/:userUnicode/:postId`.
+ * SSR host route for `/post/:postId`.
  * - Server: emits canonical + OG/Twitter + structured data for share crawlers.
  * - Browser: opens shared post overlay and returns to previous route on close.
  */
@@ -130,26 +130,25 @@ export class PostComponent implements OnInit {
 
   ngOnInit(): void {
     const postId = this.route.snapshot.paramMap.get('postId') ?? '';
-    const userUnicode = this.route.snapshot.paramMap.get('userUnicode') ?? '';
 
-    this.breadcrumb.trackStateChange('post:route-init', { postId, userUnicode });
+    this.breadcrumb.trackStateChange('post:route-init', { postId });
 
-    this.applyFallbackSeo(postId, userUnicode);
+    this.applyFallbackSeo(postId);
 
     // Server-side enrichment for crawlers and social unfurling.
     if (!isPlatformBrowser(this.platformId)) {
-      void this.fetchAndApplySeo(postId, userUnicode);
+      void this.fetchAndApplySeo(postId);
     }
   }
 
-  private async fetchAndApplySeo(postId: string, userUnicode: string): Promise<void> {
+  private async fetchAndApplySeo(postId: string): Promise<void> {
     if (!postId) return;
 
     try {
       const response = await this.fetchPostById(postId);
       if (!response?.success || !response.data) {
-        this.logger.warn('SSR post SEO fetch returned no data', { postId, userUnicode });
-        this.applyFallbackSeo(postId, userUnicode);
+        this.logger.warn('SSR post SEO fetch returned no data', { postId });
+        this.applyFallbackSeo(postId);
         return;
       }
 
@@ -162,7 +161,6 @@ export class PostComponent implements OnInit {
 
       this.applyPostSeo({
         postId,
-        userUnicode,
         title: postTitle,
         description,
         imageUrl: post.thumbnailUrl ?? post.mediaUrl,
@@ -171,25 +169,22 @@ export class PostComponent implements OnInit {
         createdAt: post.createdAt,
       });
 
-      this.logger.info('SSR post SEO enriched', { postId, userUnicode, title: postTitle });
+      this.logger.info('SSR post SEO enriched', { postId, title: postTitle });
     } catch (err) {
       this.logger.warn('SSR post SEO fetch failed, using fallback', {
         postId,
-        userUnicode,
         reason: String(err),
       });
-      this.applyFallbackSeo(postId, userUnicode);
+      this.applyFallbackSeo(postId);
     }
   }
 
-  private applyFallbackSeo(postId: string, userUnicode: string): void {
+  private applyFallbackSeo(postId: string): void {
     const shortId = postId ? postId.slice(0, 8) : 'post';
-    const identity = userUnicode && userUnicode !== '_' ? userUnicode : 'athlete';
 
     this.applyPostSeo({
       postId,
-      userUnicode,
-      title: `Post ${shortId} by ${identity}`,
+      title: `Post ${shortId}`,
       description:
         'View this post on NXT1 Sports, the AI-powered sports intelligence platform for athletes, coaches, scouts, and teams.',
       type: 'post',
@@ -198,7 +193,6 @@ export class PostComponent implements OnInit {
 
   private applyPostSeo(input: {
     postId: string;
-    userUnicode: string;
     title: string;
     description: string;
     imageUrl?: string;
@@ -210,7 +204,6 @@ export class PostComponent implements OnInit {
       {
         type: 'post',
         id: input.postId,
-        userUnicode: input.userUnicode || undefined,
         title: input.title,
         description: input.description,
         imageUrl: input.imageUrl,
@@ -227,7 +220,6 @@ export class PostComponent implements OnInit {
 
   private async initPostOverlay(): Promise<void> {
     const postId = this.route.snapshot.paramMap.get('postId') ?? '';
-    const userUnicode = this.route.snapshot.paramMap.get('userUnicode') ?? '';
     const routeState = this.readRouteState();
 
     if (!postId) {
@@ -264,7 +256,6 @@ export class PostComponent implements OnInit {
       this.analytics?.trackEvent('post_viewed', {
         post_id: postId,
         post_type: post.type,
-        user_unicode: userUnicode,
       });
 
       this.isLoading.set(false);
@@ -286,7 +277,7 @@ export class PostComponent implements OnInit {
 
       await ref.closed;
     } catch (err) {
-      this.logger.error('Failed to load post for overlay', err, { postId, userUnicode });
+      this.logger.error('Failed to load post for overlay', err, { postId });
       this.isLoading.set(false);
     }
 
