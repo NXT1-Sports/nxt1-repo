@@ -413,8 +413,8 @@ export class SearchCollegesTool extends BaseTool {
       preMatch['state'] = { $regex: `^(${patterns.join('|')})$`, $options: 'i' };
     }
     if (name) {
-      // Use regex instead of $text so the tool remains functional when text indexes drift.
-      preMatch['name'] = { $regex: escapeRegex(name), $options: 'i' };
+      // buildCollegeNameFilter handles common abbreviations (e.g. TCU → Texas Christian).
+      preMatch['name'] = buildCollegeNameFilter(name);
     }
     if (maxGpa != null && maxGpa > 0) preMatch['averageGPA'] = { $lte: maxGpa };
     if (maxTuition != null && maxTuition > 0) preMatch['totalCost'] = { $lte: maxTuition };
@@ -813,6 +813,118 @@ export class SearchCollegesTool extends BaseTool {
  */
 function escapeRegex(str: string): string {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Maps common college abbreviations/nicknames to partial name patterns that
+ * match the stored college name in MongoDB.
+ */
+const COLLEGE_ABBREVIATION_MAP: Record<string, string[]> = {
+  // ACC
+  BC: ['Boston College'],
+  GT: ['Georgia Tech', 'Georgia Institute of Technology'],
+  NCSU: ['North Carolina State'],
+  PITT: ['University of Pittsburgh', 'Pittsburgh'],
+  UNC: ['North Carolina', 'Chapel Hill'],
+  UVA: ['University of Virginia'],
+  VT: ['Virginia Tech'],
+  WAKE: ['Wake Forest'],
+  // Big 12
+  BU: ['Baylor'],
+  ISU: ['Iowa State'],
+  KSU: ['Kansas State'],
+  KU: ['University of Kansas'],
+  OSU: ['Oklahoma State', 'Ohio State', 'Oregon State'],
+  OU: ['University of Oklahoma'],
+  TCU: ['Texas Christian'],
+  TTU: ['Texas Tech'],
+  WVU: ['West Virginia'],
+  // Big Ten
+  IU: ['Indiana University'],
+  MSU: ['Michigan State', 'Mississippi State', 'Missouri State', 'Montana State'],
+  NU: ['Northwestern', 'Nebraska'],
+  PSU: ['Penn State'],
+  PU: ['Purdue'],
+  UM: ['University of Michigan'],
+  UMD: ['University of Maryland'],
+  // SEC
+  AAMU: ['Alabama A&M'],
+  AU: ['Auburn University', 'Auburn'],
+  FAMU: ['Florida A&M'],
+  FSU: ['Florida State'],
+  LSU: ['Louisiana State'],
+  TAMU: ['Texas A&M'],
+  UF: ['University of Florida'],
+  UGA: ['University of Georgia'],
+  UK: ['University of Kentucky'],
+  UT: ['University of Tennessee', 'Tennessee'],
+  UTEP: ['Texas at El Paso', 'Texas El Paso'],
+  UTRGV: ['Texas Rio Grande Valley'],
+  UTSA: ['Texas at San Antonio', 'Texas San Antonio'],
+  UTA: ['Texas at Arlington', 'Texas Arlington'],
+  // Pac-12 / West
+  ASU: ['Arizona State'],
+  CU: ['University of Colorado', 'Colorado Boulder'],
+  UA: ['University of Arizona'],
+  UCLA: ['California, Los Angeles', 'California Los Angeles'],
+  USC: ['Southern California'],
+  UU: ['University of Utah'],
+  UW: ['University of Washington'],
+  WSU: ['Washington State'],
+  // Mountain West / WAC
+  BYU: ['Brigham Young'],
+  CSU: ['Colorado State'],
+  SDSU: ['San Diego State'],
+  SJSU: ['San Jose State'],
+  UNM: ['New Mexico'],
+  UNLV: ['Nevada Las Vegas'],
+  // American Athletic / Sun Belt / CUSA
+  ECU: ['East Carolina'],
+  FAU: ['Florida Atlantic'],
+  FIU: ['Florida International'],
+  ODU: ['Old Dominion'],
+  UAB: ['Alabama at Birmingham', 'Alabama Birmingham'],
+  UCF: ['Central Florida'],
+  UCONN: ['University of Connecticut', 'Connecticut'],
+  UMASS: ['University of Massachusetts', 'Massachusetts'],
+  USF: ['South Florida'],
+  // MAC
+  CMU: ['Central Michigan'],
+  EKU: ['Eastern Kentucky'],
+  EMU: ['Eastern Michigan'],
+  WKU: ['Western Kentucky'],
+  WMU: ['Western Michigan'],
+  // Independent / Misc
+  GMU: ['George Mason'],
+  MIT: ['Massachusetts Institute of Technology'],
+  NCAT: ['North Carolina A&T'],
+  SMU: ['Southern Methodist'],
+  TSU: ['Texas Southern'],
+  VCU: ['Virginia Commonwealth'],
+  // UC System
+  UCB: ['University of California Berkeley', 'California Berkeley'],
+  UCI: ['University of California Irvine', 'California Irvine'],
+  UCR: ['University of California Riverside', 'California Riverside'],
+  UCSD: ['University of California San Diego', 'California San Diego'],
+  UCSB: ['University of California Santa Barbara', 'California Santa Barbara'],
+};
+
+/**
+ * Builds a MongoDB name filter that handles common college abbreviations.
+ * e.g. "TCU" → /TCU|Texas Christian/i so it matches "Texas Christian University".
+ */
+function buildCollegeNameFilter(collegeName: string): Record<string, unknown> {
+  const trimmed = collegeName.trim();
+  const lookupKey = trimmed.toUpperCase().replace(/[-\s]+/g, '_');
+  const expansions =
+    COLLEGE_ABBREVIATION_MAP[lookupKey] ?? COLLEGE_ABBREVIATION_MAP[trimmed.toUpperCase()] ?? [];
+
+  if (expansions.length === 0) {
+    return { $regex: escapeRegex(trimmed), $options: 'i' };
+  }
+
+  const patterns = [escapeRegex(trimmed), ...expansions.map(escapeRegex)];
+  return { $regex: patterns.join('|'), $options: 'i' };
 }
 
 /**

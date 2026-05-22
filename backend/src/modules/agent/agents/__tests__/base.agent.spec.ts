@@ -639,6 +639,18 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(label).toBe('Get Film Review');
   });
 
+  it('normalizes update gameplan labels to a user-friendly descriptor', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('update_gameplan', {
+      gamePlanId: 'mC3D9qg5d9amvcO0otvi_basketball-mens_pregame_2026-05-28_westfield-warriors',
+      customSections:
+        '[{"id":"strengths-weaknesses","title":"Strengths & Weaknesses","content":"..."}]',
+    });
+
+    expect(label).toBe('Update Gameplan: Westfield Warriors (Pregame • 2026-05-28)');
+  });
+
   it('keeps artifact URLs in compacted tool history summaries', () => {
     const agent = new FakeAgent();
     const toolExchange = (

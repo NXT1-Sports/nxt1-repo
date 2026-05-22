@@ -125,46 +125,65 @@ export class PlaybooksService {
    * @param teamId Team ID to load playbooks for
    * @throws Error if loading fails
    */
-  async loadPlaybooks(teamId: string): Promise<void> {
+  async loadPlaybooks(teamId: string, sport?: string): Promise<void> {
     this._loading.set(true);
     this._error.set(null);
 
-    this.logger.info('Loading playbooks', { teamId });
-    void this.breadcrumb.trackStateChange('playbooks loading', { teamId });
+    const normalizedSport = sport?.trim().toLowerCase();
+
+    this.logger.info('Loading playbooks', { teamId, sport: normalizedSport });
+    void this.breadcrumb.trackStateChange('playbooks loading', {
+      teamId,
+      sport: normalizedSport ?? null,
+    });
 
     try {
       const response =
         (await this.performance?.trace(
           TRACE_NAMES.PLAYBOOK_LIST,
-          () => this.loadPlaybooksImpl(teamId),
+          () => this.loadPlaybooksImpl(teamId, normalizedSport),
           {
-            attributes: { team_id: teamId },
+            attributes: { team_id: teamId, sport: normalizedSport ?? 'all' },
             onSuccess: async () => {
               // Metrics tracked via analytics
             },
           }
-        )) ?? (await this.loadPlaybooksImpl(teamId));
+        )) ?? (await this.loadPlaybooksImpl(teamId, normalizedSport));
 
       this._playbooks.set(response);
-      this.logger.info('Playbooks loaded', { teamId, count: response.length });
+      this.logger.info('Playbooks loaded', {
+        teamId,
+        sport: normalizedSport,
+        count: response.length,
+      });
 
-      void this.breadcrumb.trackStateChange('playbooks loaded', { teamId, count: response.length });
+      void this.breadcrumb.trackStateChange('playbooks loaded', {
+        teamId,
+        sport: normalizedSport ?? null,
+        count: response.length,
+      });
 
       this.analytics?.trackEvent(APP_EVENTS.PLAYBOOK_LIST_LOADED, {
         team_id: teamId,
+        sport: normalizedSport ?? null,
         playbook_count: response.length,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load playbooks';
-      this.logger.error('Failed to load playbooks', err, { teamId });
+      this.logger.error('Failed to load playbooks', err, { teamId, sport: normalizedSport });
       this._error.set(message);
 
-      void this.breadcrumb.trackStateChange('playbooks error', { teamId, error: message });
+      void this.breadcrumb.trackStateChange('playbooks error', {
+        teamId,
+        sport: normalizedSport ?? null,
+        error: message,
+      });
 
       this.analytics?.trackEvent(APP_EVENTS.ERROR_OCCURRED, {
         feature: 'playbooks_load',
         error_message: message,
         team_id: teamId,
+        sport: normalizedSport ?? null,
       });
 
       throw err;
@@ -330,10 +349,13 @@ export class PlaybooksService {
   /**
    * Internal implementation: load playbooks
    */
-  private async loadPlaybooksImpl(teamId: string): Promise<PlaybookViewModel[]> {
+  private async loadPlaybooksImpl(teamId: string, sport?: string): Promise<PlaybookViewModel[]> {
+    const params: Record<string, string> = { teamId, limit: '16' };
+    if (sport) params['sport'] = sport;
+
     const response = await firstValueFrom(
       this.http.get<PlaybooksListResponse>(`${this.agentXBaseUrl}/playbooks`, {
-        params: { teamId, limit: '16' },
+        params,
       })
     );
 

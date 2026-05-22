@@ -194,6 +194,15 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('generate_chart_visualization');
     expect(agent.getAvailableTools()).toContain('create_play_diagram');
     expect(agent.getAvailableTools()).toContain('save_gameplan');
+    expect(agent.getAvailableTools()).toContain('write_callsheet');
+    expect(agent.getAvailableTools()).toContain('list_callsheets');
+    expect(agent.getAvailableTools()).toContain('get_callsheet');
+    expect(agent.getAvailableTools()).toContain('list_practice_scripts');
+    expect(agent.getAvailableTools()).toContain('get_practice_script');
+    expect(agent.getAvailableTools()).toContain('write_practice_script');
+    expect(agent.getAvailableTools()).toContain('update_practice_script');
+    expect(agent.getAvailableTools()).toContain('delete_practice_script');
+    expect(agent.getAvailableTools()).toContain('generate_practice_script');
     expect(agent.getAvailableTools()).toContain('list_film_reviews');
     expect(agent.getAvailableTools()).toContain('get_film_review');
     expect(agent.getAvailableTools()).toContain('save_film_review');
@@ -223,6 +232,14 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('recommend_learning_videos');
     expect(prompt).toContain('proactively include 3-5 recommended videos');
     expect(prompt).toContain('save_gameplan');
+    expect(prompt).toContain('write_callsheet');
+    expect(prompt).toContain('write_practice_script');
+    expect(prompt).toContain('generate_practice_script');
+    expect(prompt).toContain('list_practice_scripts');
+    expect(prompt).toContain(
+      'persist the script first with `write_practice_script`, then optionally generate a PDF or document export'
+    );
+    expect(prompt).toContain('A PDF or document export is optional follow-on delivery');
     expect(prompt).toContain('save_film_review');
     expect(prompt).toContain('update_film_review');
     expect(prompt).toContain('extract_live_view_media');

@@ -4622,6 +4622,9 @@ export abstract class BaseAgent {
     const playbookDescriptor = this.resolvePlaybookDescriptor(input['playbookId']);
     if (playbookDescriptor) return playbookDescriptor;
 
+    const gamePlanDescriptor = this.resolveGamePlanDescriptor(input['gamePlanId']);
+    if (gamePlanDescriptor) return gamePlanDescriptor;
+
     const filmReviewDescriptor = this.resolveFilmReviewDescriptor(input['filmReviewId']);
     if (filmReviewDescriptor) return filmReviewDescriptor;
 
@@ -4759,6 +4762,55 @@ export abstract class BaseAgent {
 
     if (/^[A-Za-z0-9]{12,}$/.test(normalized)) {
       return null;
+    }
+
+    return this.formatToolInvocationValue(normalized.replace(/[-_]+/g, ' '));
+  }
+
+  private resolveGamePlanDescriptor(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+
+    const normalized = value.trim();
+    if (!normalized) return null;
+
+    const parts = normalized
+      .split('_')
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+
+    // Common persisted format:
+    //   <opaque-id>_<sport-or-team>_<phase>_<YYYY-MM-DD>_<opponent-slug>
+    // We hide the opaque prefix and produce a user-facing descriptor.
+    if (parts.length >= 5) {
+      const phaseRaw = parts.at(-3) ?? '';
+      const dateRaw = parts.at(-2) ?? '';
+      const opponentRaw = parts.at(-1) ?? '';
+
+      const phase = phaseRaw
+        .replace(/[-_]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+
+      const opponent = opponentRaw
+        .replace(/[-_]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+
+      const hasDate = /^\d{4}-\d{2}-\d{2}$/.test(dateRaw);
+      const detailParts = [phase, hasDate ? dateRaw : null].filter(
+        (part): part is string => typeof part === 'string' && part.length > 0
+      );
+
+      if (opponent) {
+        return detailParts.length > 0 ? `${opponent} (${detailParts.join(' • ')})` : opponent;
+      }
+    }
+
+    // Fallback for non-standard IDs: never expose long opaque tokens.
+    if (/^[A-Za-z0-9_-]{14,}$/.test(normalized)) {
+      return 'Saved game plan';
     }
 
     return this.formatToolInvocationValue(normalized.replace(/[-_]+/g, ' '));

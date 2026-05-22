@@ -1,5 +1,6 @@
 import type { PlaybookSituationFilter, TeamGamePlanDoc } from '@nxt1/core';
 import type { GamePlan, PlaybookDetail, PlaybookPlay } from './agent-x-playbooks-panel.types';
+import type { PracticeScriptDetail, PracticeScriptPeriod } from './agent-x-playbooks-panel.types';
 
 export const INSTALL_STAGES = ['install', 'rep', 'game-ready'] as const;
 
@@ -134,4 +135,40 @@ export function getStageDisplayNameValue(stage: (typeof INSTALL_STAGES)[number])
   if (stage === 'install') return 'Teaching';
   if (stage === 'rep') return 'Repetition';
   return 'Game Ready';
+}
+
+export function normalizePracticeScriptPeriods(
+  periods: readonly PracticeScriptPeriod[] | undefined
+): PracticeScriptPeriod[] {
+  if (!periods?.length) return [];
+
+  return periods.map((period, index) => {
+    const reps = Number.isFinite(period.reps) ? Math.max(0, Math.round(period.reps)) : 0;
+    return {
+      id: period.id?.trim() || `period_${index + 1}`,
+      label: period.label?.trim() || `Period ${index + 1}`,
+      clock: period.clock?.trim() || '--:--',
+      reps,
+      callType: period.callType?.trim() || 'Team',
+      playName: period.playName?.trim() || 'Open Field',
+      coachingPoint: period.coachingPoint?.trim() || undefined,
+      notes: period.notes?.trim() || undefined,
+    };
+  });
+}
+
+export function computePracticeScriptTotals(script: PracticeScriptDetail | null): {
+  readonly periodCount: number;
+  readonly totalReps: number;
+} {
+  if (!script?.periods?.length) {
+    return { periodCount: 0, totalReps: 0 };
+  }
+
+  const normalized = normalizePracticeScriptPeriods(script.periods);
+  const totalReps = normalized.reduce((sum, period) => sum + period.reps, 0);
+  return {
+    periodCount: normalized.length,
+    totalReps,
+  };
 }

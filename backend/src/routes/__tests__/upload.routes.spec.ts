@@ -354,40 +354,60 @@ describe('Upload Routes', () => {
     it('POST /api/v1/upload/cloudflare/finalize should normalize the finalized video payload', async () => {
       vi.stubEnv('CLOUDFLARE_STREAM_CUSTOMER_CODE', 'customer-123');
 
-      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            success: true,
-            result: {
-              readyToStream: true,
-              duration: 42,
-              thumbnail:
-                'https://customer-123.cloudflarestream.com/video-123/thumbnails/thumbnail.jpg',
-              preview: 'https://customer-123.cloudflarestream.com/video-123/thumbnails/preview.jpg',
-              uploaded: '2026-04-13T00:00:00.000Z',
-              meta: {
-                name: 'nxt1-feed-test-user-video',
-                nxt1_user_id: 'test-user',
-                nxt1_context: 'feed',
-                nxt1_env: 'staging',
-                nxt1_file_name: 'highlight.mp4',
-                nxt1_mime_type: 'video/mp4',
+      const fetchSpy = vi
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              success: true,
+              result: {
+                readyToStream: true,
+                duration: 42,
+                thumbnail:
+                  'https://customer-123.cloudflarestream.com/video-123/thumbnails/thumbnail.jpg',
+                preview: 'https://customer-123.cloudflarestream.com/video-123/thumbnails/preview.jpg',
+                uploaded: '2026-04-13T00:00:00.000Z',
+                meta: {
+                  name: 'nxt1-feed-test-user-video',
+                  nxt1_user_id: 'test-user',
+                  nxt1_context: 'feed',
+                  nxt1_env: 'staging',
+                  nxt1_file_name: 'highlight.mp4',
+                  nxt1_mime_type: 'video/mp4',
+                },
+                status: {
+                  state: 'ready',
+                },
+                playback: {
+                  hls: 'https://customer-123.cloudflarestream.com/video-123/manifest/video.m3u8',
+                  dash: 'https://customer-123.cloudflarestream.com/video-123/manifest/video.mpd',
+                },
               },
-              status: {
-                state: 'ready',
-              },
-              playback: {
-                hls: 'https://customer-123.cloudflarestream.com/video-123/manifest/video.m3u8',
-                dash: 'https://customer-123.cloudflarestream.com/video-123/manifest/video.mpd',
-              },
-            },
-          }),
-          {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          }
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          )
         )
-      );
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              success: true,
+              result: {
+                default: {
+                  status: 'inprogress',
+                  url: null,
+                  percentComplete: 0,
+                },
+              },
+            }),
+            {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            }
+          )
+        );
 
       const response = await request(app)
         .post('/api/v1/upload/cloudflare/finalize')
@@ -427,6 +447,11 @@ describe('Upload Routes', () => {
             hlsUrl: 'https://customer-123.cloudflarestream.com/video-123/manifest/video.m3u8',
             dashUrl: 'https://customer-123.cloudflarestream.com/video-123/manifest/video.mpd',
             iframeUrl: 'https://customer-123.cloudflarestream.com/video-123/iframe',
+          },
+          download: {
+            status: 'inprogress',
+            url: null,
+            percentComplete: 0,
           },
         },
       });

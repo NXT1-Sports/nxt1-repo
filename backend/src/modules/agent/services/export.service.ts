@@ -26,6 +26,8 @@ import { stringify } from 'csv-stringify/sync';
 import type { Content, TableCell } from 'pdfmake';
 import { resolve, dirname } from 'node:path';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { realpathSync } from 'node:fs';
 
 // pdfmake 0.3.x is CJS — handle ESM interop (singleton API)
 const pdfmake =
@@ -44,7 +46,34 @@ const robotoFontPaths = {
   italics: resolve(fontsDir, 'Roboto-Italic.ttf'),
   bolditalics: resolve(fontsDir, 'Roboto-MediumItalic.ttf'),
 } as const;
-const allowedLocalFontPaths = new Set<string>(Object.values(robotoFontPaths));
+
+function normalizeLocalResourcePath(value: string): string {
+  const raw = value.trim();
+  if (!raw) return '';
+  if (raw.startsWith('file://')) {
+    try {
+      return resolve(fileURLToPath(raw));
+    } catch {
+      return '';
+    }
+  }
+  return resolve(raw);
+}
+
+function withCanonicalPathVariants(pathValue: string): string[] {
+  const normalized = normalizeLocalResourcePath(pathValue);
+  if (!normalized) return [];
+  try {
+    const canonical = realpathSync(normalized);
+    return canonical === normalized ? [normalized] : [normalized, canonical];
+  } catch {
+    return [normalized];
+  }
+}
+
+const allowedLocalFontPaths = new Set<string>(
+  Object.values(robotoFontPaths).flatMap((fontPath) => withCanonicalPathVariants(fontPath))
+);
 
 // Register fonts once at module load
 pdfmake.addFonts({
@@ -65,7 +94,17 @@ pdfmake.addFonts({
 // Restrict local file system access to the registered pdfmake font files only.
 (
   pdfmake as unknown as { setLocalAccessPolicy: (fn: (path: string) => boolean) => void }
-).setLocalAccessPolicy((path) => allowedLocalFontPaths.has(resolve(path)));
+).setLocalAccessPolicy((path) => {
+  const normalized = normalizeLocalResourcePath(path);
+  if (!normalized) return false;
+  if (allowedLocalFontPaths.has(normalized)) return true;
+
+  try {
+    return allowedLocalFontPaths.has(realpathSync(normalized));
+  } catch {
+    return false;
+  }
+});
 
 // ─── Public Types ──────────────────────────────────────────────────────────
 
@@ -379,7 +418,28 @@ export class ExportService {
       for (let blockIdx = 0; blockIdx < paragraphBlocks.length; blockIdx++) {
         const block = paragraphBlocks[blockIdx];
         if (block.text.length > 0) {
-          content.push({ text: block.text, style: 'sectionBody' });
+          const paragraphs = this.splitIntoParagraphs(block.text);
+          for (const paragraph of paragraphs) {
+            const heading = this.parseSectionHeading(paragraph);
+            if (heading) {
+              content.push({ text: heading, style: 'sectionTitle' });
+              continue;
+            }
+
+            const orderedListItems = this.extractOrderedListItems(paragraph);
+            if (orderedListItems) {
+              content.push({
+                ol: orderedListItems.map((item) => ({
+                  text: this.toPdfRichText(item),
+                  style: 'bullet',
+                })),
+                margin: [0, 0, 0, 8] as [number, number, number, number],
+              });
+              continue;
+            }
+
+            content.push({ text: this.toPdfRichText(paragraph), style: 'sectionBody' });
+          }
         }
         for (const imageUrl of block.imageUrls) {
           const dataUrl = imageMap.get(imageUrl);
@@ -400,28 +460,44 @@ export class ExportService {
 
     // Bullet points
     if (bulletBlocks.length > 0) {
-      const bulletText = bulletBlocks.map((block) => block.text).filter((text) => text.length > 0);
-      if (bulletText.length > 0) {
+      let groupedBullets: string[] = [];
+      const flushGroupedBullets = (): void => {
+        if (groupedBullets.length === 0) return;
         content.push({
-          ul: bulletText.map((bp) => ({
-            text: bp,
+          ul: groupedBullets.map((bp) => ({
+            text: this.toPdfRichText(bp),
             style: 'bullet',
           })),
           margin: [0, 8, 0, 8] as [number, number, number, number],
         });
-      }
+        groupedBullets = [];
+      };
 
-      for (const imageUrl of bulletBlocks.flatMap((block) => block.imageUrls)) {
-        const dataUrl = imageMap.get(imageUrl);
-        if (!dataUrl) continue;
-        renderedImageUrls.add(imageUrl);
-        content.push({
-          image: dataUrl,
-          fit: [450, 280],
-          alignment: 'center',
-          margin: [0, 0, 0, 8] as [number, number, number, number],
-        });
+      for (const block of bulletBlocks) {
+        if (block.text.length > 0) {
+          const heading = this.parseSectionHeading(block.text);
+          if (heading) {
+            flushGroupedBullets();
+            content.push({ text: heading, style: 'sectionTitle' });
+          } else {
+            groupedBullets.push(block.text);
+          }
+        }
+
+        for (const imageUrl of block.imageUrls) {
+          const dataUrl = imageMap.get(imageUrl);
+          if (!dataUrl) continue;
+          flushGroupedBullets();
+          renderedImageUrls.add(imageUrl);
+          content.push({
+            image: dataUrl,
+            fit: [450, 280],
+            alignment: 'center',
+            margin: [0, 0, 0, 8] as [number, number, number, number],
+          });
+        }
       }
+      flushGroupedBullets();
     }
 
     // Data table
@@ -546,28 +622,121 @@ export class ExportService {
   }
 
   private stripUrlsAndDiagramLabels(text: string): string {
-    const withoutUrls = text.replace(/https?:\/\/\S+/gi, '');
+    const normalizedEscapes = this.decodeEscapedText(text);
+    const withoutUrls = normalizedEscapes.replace(/https?:\/\/\S+/gi, '');
     const withoutLabels = withoutUrls.replace(/\bDIAGRAMS?:\s*/gi, '');
-    return this.normalizePdfText(withoutLabels.replace(/\s{2,}/g, ' ').trim());
+    return this.normalizePdfText(withoutLabels);
+  }
+
+  private decodeEscapedText(value: string): string {
+    return value
+      .replace(/\\r\\n/g, '\n')
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\n')
+      .replace(/\\t/g, ' ');
+  }
+
+  private splitIntoParagraphs(text: string): string[] {
+    return text
+      .split(/\n{2,}/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+  }
+
+  private parseSectionHeading(text: string): string | null {
+    const markdownHeading = text.match(/^#{1,3}\s+(.+)$/);
+    if (markdownHeading?.[1]) {
+      return this.normalizePdfText(markdownHeading[1]);
+    }
+
+    if (/^[A-Z][\w\s/-]{2,40}$/.test(text)) {
+      return this.normalizePdfText(text);
+    }
+
+    return null;
+  }
+
+  private toPdfRichText(text: string): string | Array<{ text: string; bold?: boolean }> {
+    const normalized = this.normalizePdfText(text);
+    if (!normalized) return '';
+    if (!/(\*\*|__)/.test(normalized)) return normalized;
+
+    const fragments: Array<{ text: string; bold?: boolean }> = [];
+    const pattern = /(\*\*|__)(.+?)\1/g;
+    let lastIndex = 0;
+    let match: RegExpExecArray | null = pattern.exec(normalized);
+
+    while (match) {
+      const fullMatch = match[0];
+      const content = match[2] ?? '';
+      const matchIndex = match.index;
+
+      if (matchIndex > lastIndex) {
+        fragments.push({ text: normalized.slice(lastIndex, matchIndex) });
+      }
+
+      if (content.trim().length > 0) {
+        fragments.push({ text: content, bold: true });
+      } else {
+        fragments.push({ text: fullMatch });
+      }
+
+      lastIndex = matchIndex + fullMatch.length;
+      match = pattern.exec(normalized);
+    }
+
+    if (lastIndex < normalized.length) {
+      fragments.push({ text: normalized.slice(lastIndex) });
+    }
+
+    if (fragments.length === 0) return normalized;
+    return fragments;
+  }
+
+  private extractOrderedListItems(text: string): string[] | null {
+    const normalized = this.normalizePdfText(text).replace(/\n+/g, ' ').trim();
+    if (!normalized.startsWith('1. ')) return null;
+
+    const pattern = /(\d+)\.\s([^]+?)(?=(?:\s\d+\.\s)|$)/g;
+    const matches = [...normalized.matchAll(pattern)];
+    if (matches.length < 2) return null;
+
+    const items: string[] = [];
+    for (let idx = 0; idx < matches.length; idx++) {
+      const match = matches[idx];
+      const expectedOrdinal = idx + 1;
+      const ordinal = Number(match[1]);
+      if (!Number.isFinite(ordinal) || ordinal !== expectedOrdinal) {
+        return null;
+      }
+
+      const itemText = this.normalizePdfText(match[2] ?? '').trim();
+      if (!itemText) continue;
+      items.push(itemText);
+    }
+
+    return items.length >= 2 ? items : null;
   }
 
   private normalizePdfText(value: string): string {
-    return (
-      value
-        .normalize('NFKC')
-        .replace(/\u00A0/g, ' ')
-        .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
-        .replace(/[\u2028\u2029]/g, '\n')
-        .replace(/[‐‑‒–—―]/g, '-')
-        .replace(/[""]/g, '"')
-        .replace(/['']/g, "'")
-        .replace(/[•◦▪▫●○◉◌]/g, '-')
-        .replace(/[\u2500-\u257F\u2580-\u259F]+/g, '-')
-        // eslint-disable-next-line no-control-regex
-        .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
-        .replace(/\s{2,}/g, ' ')
-        .trim()
-    );
+    const normalized = value
+      .normalize('NFKC')
+      .replace(/\u00A0/g, ' ')
+      .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
+      .replace(/[\u2028\u2029]/g, '\n')
+      .replace(/[‐‑‒–—―]/g, '-')
+      .replace(/[“”]/g, '"')
+      .replace(/[‘’]/g, "'")
+      .replace(/[•◦▪▫●○◉◌]/g, '-')
+      .replace(/[\u2500-\u257F\u2580-\u259F]+/g, '-')
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '');
+
+    const lines = normalized.split('\n').map((line) => line.replace(/[ \t]{2,}/g, ' ').trim());
+    while (lines.length > 0 && lines[0]?.length === 0) lines.shift();
+    while (lines.length > 0 && lines[lines.length - 1]?.length === 0) lines.pop();
+
+    return lines.join('\n').replace(/\n{3,}/g, '\n\n');
   }
 
   private isLikelyImageUrl(value: string): boolean {

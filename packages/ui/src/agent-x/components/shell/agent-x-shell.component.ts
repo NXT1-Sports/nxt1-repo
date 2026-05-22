@@ -487,13 +487,6 @@ function sortCoordinatorCategories(
                       <div class="card-secondary-actions">
                         <button
                           type="button"
-                          class="action-btn done-btn"
-                          (click)="onMarkDoneTask(task)"
-                        >
-                          ✓ Done
-                        </button>
-                        <button
-                          type="button"
                           class="action-btn snooze-btn"
                           (click)="onSnoozeTask(task)"
                         >
@@ -2370,6 +2363,11 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       return;
     }
 
+    const saved = await this.agentX.markPlaybookItemComplete(task.id);
+    if (saved) {
+      await this.haptics.notification('success');
+    }
+
     if (this.agentX.dashboardLoaded()) {
       const { intent, title } = this.agentX.preparePlaybookAction(task as ShellWeeklyPlaybookItem);
       // Open operation chat sheet with the intent as initialMessage so it
@@ -2404,16 +2402,6 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     }
 
     await this.onSetupGoals();
-  }
-
-  /**
-   * Mark a task as explicitly done — user already completed it outside the app.
-   */
-  protected async onMarkDoneTask(task: ShellWeeklyPlaybookItem): Promise<void> {
-    const saved = await this.agentX.markPlaybookItemComplete(task.id);
-    if (saved) {
-      await this.haptics.notification('success');
-    }
   }
 
   /**

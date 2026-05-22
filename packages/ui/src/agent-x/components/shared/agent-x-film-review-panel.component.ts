@@ -36,6 +36,7 @@ import {
 } from '@nxt1/core/ai';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
+import { NxtStateViewComponent } from '../../../components/state-view/state-view.component';
 import { NxtVideoControlsComponent } from '../../../components/video-controls';
 import { VIDEO_CONTROL_TOOLTIP_STYLES } from '../../../components/video-controls/video-control-tooltips.styles';
 import { NxtPlatformService } from '../../../services/platform';
@@ -88,6 +89,8 @@ type LocalFilmReviewPlaylistFolder = {
 
 const FILM_REVIEW_UNASSIGNED_PLAYLIST_ID = 'unassigned-film';
 const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
+const FILM_REVIEW_STARTER_PLAYLIST_NAMES = ['Self Scout Playlist', 'Opponent Play list'] as const;
+const FILM_REVIEW_PLAYLIST_STORAGE_PREFIX = 'agent-x-film-playlists';
 
 @Component({
   selector: 'nxt1-agent-x-film-review-panel',
@@ -96,6 +99,7 @@ const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
     CommonModule,
     FormsModule,
     NxtIconComponent,
+    NxtStateViewComponent,
     NxtVideoControlsComponent,
     AgentXContextDragDirective,
   ],
@@ -138,13 +142,18 @@ const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
           </div>
         </div>
       } @else if (error()) {
-        <div class="film-state film-state--error" [attr.data-testid]="testIds.ERROR_STATE">
-          <h3>Could not load film reviews</h3>
-          <p>{{ error() }}</p>
-        </div>
+        <nxt1-state-view
+          variant="error"
+          title="Could not load film reviews"
+          [message]="error() ?? 'Unable to load film reviews'"
+          actionLabel="Try Again"
+          actionIcon="refresh"
+          [attr.data-testid]="testIds.ERROR_STATE"
+          (action)="retryLoad()"
+        />
       } @else if (isEmpty()) {
         <div
-          class="film-state film-library"
+          class="film-library film-library--empty"
           [class.film-library--drag-active]="isLibraryDragActive()"
           [attr.data-testid]="testIds.EMPTY_STATE"
           (dragenter)="onLibraryDragEnter($event)"
@@ -152,29 +161,29 @@ const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
           (dragleave)="onLibraryDragLeave($event)"
           (drop)="onLibraryDrop($event)"
         >
-          <h3>No film sessions yet</h3>
-          <p>Upload a game video, then add a breakdown sheet to tag the timeline.</p>
-
-          <button
-            type="button"
-            class="film-library-upload-btn"
-            style="margin-top: 1.5rem;"
-            [disabled]="isUploadingLibraryVideo()"
-            [attr.data-testid]="testIds.UPLOAD_BUTTON"
-            (click)="onChooseVideosClick()"
-          >
-            @if (isUploadingLibraryVideo()) {
-              Uploading...
-            } @else {
-              Upload Film
-            }
-          </button>
+          <div class="playbooks-list-header">
+            <div>
+              <h3>Film Review</h3>
+              <p>No film sessions yet. Upload video to start film review.</p>
+            </div>
+            <div class="playbooks-list-header-actions">
+              <button
+                type="button"
+                class="btn-new"
+                [disabled]="isUploadingLibraryVideo()"
+                [attr.data-testid]="testIds.UPLOAD_BUTTON"
+                (click)="onChooseVideosClick()"
+              >
+                <nxt1-icon name="plus" [size]="14"></nxt1-icon>
+                New
+              </button>
+            </div>
+          </div>
 
           @if (isUploadingLibraryVideo()) {
             <div
-              class="film-library-upload-status"
+              class="film-library-upload-status film-library-upload-status--empty"
               aria-live="polite"
-              style="margin-top: 1rem; width: 100%; max-width: 400px; text-align: left;"
             >
               <div class="film-library-upload-status__row">
                 <span class="film-library-upload-status__label">
@@ -192,10 +201,44 @@ const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
                 ></div>
               </div>
             </div>
+          } @else {
+            <div class="playbooks-empty-state">
+              <nxt1-state-view
+                variant="empty"
+                icon="videocam"
+                title="No Film Sessions"
+                message="Import your game video directly. You can add a breakdown sheet after upload to auto-tag the timeline."
+              />
+
+              <div class="playbooks-empty-actions">
+                <button
+                  type="button"
+                  class="btn-empty-action btn-empty-action--primary"
+                  [disabled]="isUploadingLibraryVideo()"
+                  [attr.data-testid]="testIds.UPLOAD_BUTTON"
+                  (click)="onChooseVideosClick()"
+                >
+                  <svg
+                    class="btn-empty-action__icon"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    aria-hidden="true"
+                  >
+                    <path d="M23 7l-7 5 7 5V7z" />
+                    <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                  </svg>
+                  <span>{{ isUploadingLibraryVideo() ? 'Uploading...' : 'Import Video' }}</span>
+                </button>
+              </div>
+            </div>
           }
 
           @if (libraryUploadError(); as uploadError) {
-            <p class="film-error-message" style="margin-top: 1rem;">{{ uploadError }}</p>
+            <p class="film-error-message film-error-message--empty">{{ uploadError }}</p>
           }
         </div>
       } @else {
@@ -275,7 +318,7 @@ const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
               [class.film-library-dropzone--active]="isLibraryDragActive()"
               [attr.data-testid]="testIds.DROPZONE"
             >
-              <span class="film-library-dropzone__title">Drag videos or breakdown sheets here</span>
+              <span class="film-library-dropzone__title">Drag videos here</span>
               <span class="film-library-dropzone__meta">or click Upload Film</span>
             </div>
 
@@ -340,108 +383,113 @@ const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
                       <span class="film-playlist-folder__count">{{ folder.reviews.length }}</span>
                     </button>
 
-                    <button
-                      type="button"
-                      class="film-list-item__menu-btn film-playlist-folder__menu-btn"
-                      aria-label="Playlist options"
-                      [attr.aria-expanded]="isPlaylistFolderMenuOpen(folder.id)"
-                      aria-haspopup="menu"
-                      [attr.data-testid]="testIds.PLAYLIST_FOLDER_MENU"
-                      (click)="onOpenPlaylistFolderMenu($event, folder)"
-                    >
-                      <nxt1-icon name="moreHorizontal" [size]="18"></nxt1-icon>
-                    </button>
-                  </div>
+                    <div class="film-playlist-folder__menu-anchor">
+                      <button
+                        type="button"
+                        class="film-list-item__menu-btn film-playlist-folder__menu-btn"
+                        aria-label="Playlist options"
+                        [attr.aria-expanded]="isPlaylistFolderMenuOpen(folder.id)"
+                        aria-haspopup="menu"
+                        [attr.data-testid]="testIds.PLAYLIST_FOLDER_MENU"
+                        (click)="onOpenPlaylistFolderMenu($event, folder)"
+                      >
+                        <nxt1-icon name="moreHorizontal" [size]="18"></nxt1-icon>
+                      </button>
 
-                  @if (isPlaylistFolderMenuOpen(folder.id)) {
-                    <div class="film-list-item__menu-backdrop" (click)="onMenuBackdropTap()"></div>
-                    <div
-                      class="film-list-item__menu film-playlist-folder__menu"
-                      role="menu"
-                      aria-label="Playlist options"
-                      (click)="$event.stopPropagation()"
-                    >
-                      @if (isEditingPlaylistFolder(folder.id)) {
-                        <div class="film-list-item__menu-rename">
-                          <label
-                            class="film-list-item__menu-label"
-                            for="film-playlist-folder-rename-{{ folder.id }}"
-                          >
-                            Rename playlist
-                          </label>
-                          <input
-                            id="film-playlist-folder-rename-{{ folder.id }}"
-                            type="text"
-                            class="film-list-item__menu-input"
-                            maxlength="80"
-                            [value]="playlistFolderRenameDraft()"
-                            (input)="onPlaylistFolderRenameInput($any($event.target).value)"
-                            (keydown.enter)="onPlaylistFolderRenameConfirm(folder, $event)"
-                            (keydown.escape)="onPlaylistFolderRenameCancel($event)"
-                          />
-                          <div class="film-list-item__menu-actions">
-                            <button
-                              type="button"
-                              class="film-list-item__menu-action film-list-item__menu-action--primary"
-                              (click)="onPlaylistFolderRenameConfirm(folder, $event)"
-                            >
-                              Save
-                            </button>
+                      @if (isPlaylistFolderMenuOpen(folder.id)) {
+                        <div
+                          class="film-list-item__menu-backdrop"
+                          (click)="onMenuBackdropTap()"
+                        ></div>
+                        <div
+                          class="film-list-item__menu film-playlist-folder__menu"
+                          role="menu"
+                          aria-label="Playlist options"
+                          (click)="$event.stopPropagation()"
+                        >
+                          @if (isEditingPlaylistFolder(folder.id)) {
+                            <div class="film-list-item__menu-rename">
+                              <label
+                                class="film-list-item__menu-label"
+                                for="film-playlist-folder-rename-{{ folder.id }}"
+                              >
+                                Rename playlist
+                              </label>
+                              <input
+                                id="film-playlist-folder-rename-{{ folder.id }}"
+                                type="text"
+                                class="film-list-item__menu-input"
+                                maxlength="80"
+                                [value]="playlistFolderRenameDraft()"
+                                (input)="onPlaylistFolderRenameInput($any($event.target).value)"
+                                (keydown.enter)="onPlaylistFolderRenameConfirm(folder, $event)"
+                                (keydown.escape)="onPlaylistFolderRenameCancel($event)"
+                              />
+                              <div class="film-list-item__menu-actions">
+                                <button
+                                  type="button"
+                                  class="film-list-item__menu-action film-list-item__menu-action--primary"
+                                  (click)="onPlaylistFolderRenameConfirm(folder, $event)"
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  class="film-list-item__menu-action"
+                                  (click)="onPlaylistFolderRenameCancel($event)"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          } @else if (isDeletingPlaylistFolder(folder.id)) {
+                            <div class="film-list-item__menu-confirm">
+                              <p class="film-list-item__menu-confirm-text">
+                                @if (folder.reviews.length) {
+                                  Delete this playlist? Film will move to Unassigned Film.
+                                } @else {
+                                  Delete this empty playlist?
+                                }
+                              </p>
+                              <div class="film-list-item__menu-actions">
+                                <button
+                                  type="button"
+                                  class="film-list-item__menu-action film-list-item__menu-action--danger"
+                                  (click)="onPlaylistFolderDeleteConfirm(folder, $event)"
+                                >
+                                  Delete
+                                </button>
+                                <button
+                                  type="button"
+                                  class="film-list-item__menu-action"
+                                  (click)="onPlaylistFolderDeleteCancel($event)"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          } @else {
                             <button
                               type="button"
                               class="film-list-item__menu-action"
-                              (click)="onPlaylistFolderRenameCancel($event)"
+                              role="menuitem"
+                              (click)="onPlaylistFolderRenameStart(folder, $event)"
                             >
-                              Cancel
+                              Rename
                             </button>
-                          </div>
-                        </div>
-                      } @else if (isDeletingPlaylistFolder(folder.id)) {
-                        <div class="film-list-item__menu-confirm">
-                          <p class="film-list-item__menu-confirm-text">
-                            @if (folder.reviews.length) {
-                              Delete this playlist? Film will move to Unassigned Film.
-                            } @else {
-                              Delete this empty playlist?
-                            }
-                          </p>
-                          <div class="film-list-item__menu-actions">
                             <button
                               type="button"
                               class="film-list-item__menu-action film-list-item__menu-action--danger"
-                              (click)="onPlaylistFolderDeleteConfirm(folder, $event)"
+                              role="menuitem"
+                              (click)="onPlaylistFolderDeleteStart(folder, $event)"
                             >
-                              Delete
+                              Delete playlist
                             </button>
-                            <button
-                              type="button"
-                              class="film-list-item__menu-action"
-                              (click)="onPlaylistFolderDeleteCancel($event)"
-                            >
-                              Cancel
-                            </button>
-                          </div>
+                          }
                         </div>
-                      } @else {
-                        <button
-                          type="button"
-                          class="film-list-item__menu-action"
-                          role="menuitem"
-                          (click)="onPlaylistFolderRenameStart(folder, $event)"
-                        >
-                          Rename
-                        </button>
-                        <button
-                          type="button"
-                          class="film-list-item__menu-action film-list-item__menu-action--danger"
-                          role="menuitem"
-                          (click)="onPlaylistFolderDeleteStart(folder, $event)"
-                        >
-                          Delete playlist
-                        </button>
                       }
                     </div>
-                  }
+                  </div>
 
                   @if (isPlaylistFolderExpanded(folder.id)) {
                     <div
@@ -560,41 +608,6 @@ const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
                                     </button>
                                   </div>
                                 </div>
-                              } @else if (isEditingPlaylist(review.id)) {
-                                <div class="film-list-item__menu-rename">
-                                  <label
-                                    class="film-list-item__menu-label"
-                                    for="film-playlist-{{ review.id }}"
-                                  >
-                                    Playlist
-                                  </label>
-                                  <input
-                                    id="film-playlist-{{ review.id }}"
-                                    type="text"
-                                    class="film-list-item__menu-input"
-                                    maxlength="120"
-                                    [value]="playlistDraft()"
-                                    (input)="onPlaylistInput($any($event.target).value)"
-                                    (keydown.enter)="onPlaylistConfirm(review, $event)"
-                                    (keydown.escape)="onPlaylistCancel($event)"
-                                  />
-                                  <div class="film-list-item__menu-actions">
-                                    <button
-                                      type="button"
-                                      class="film-list-item__menu-action film-list-item__menu-action--primary"
-                                      (click)="onPlaylistConfirm(review, $event)"
-                                    >
-                                      Save
-                                    </button>
-                                    <button
-                                      type="button"
-                                      class="film-list-item__menu-action"
-                                      (click)="onPlaylistClear(review, $event)"
-                                    >
-                                      Clear
-                                    </button>
-                                  </div>
-                                </div>
                               } @else if (isDeleteConfirming(review.id)) {
                                 <div class="film-list-item__menu-confirm">
                                   <p class="film-list-item__menu-confirm-text">
@@ -629,34 +642,6 @@ const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
                                 <button
                                   type="button"
                                   class="film-list-item__menu-action"
-                                  role="menuitem"
-                                  (click)="onPlaylistEditStart(review, $event)"
-                                >
-                                  Playlist
-                                </button>
-                                @if (playlistFolders().length > 1) {
-                                  <div class="film-list-item__menu-section" role="group">
-                                    <span class="film-list-item__menu-label">Move to</span>
-                                    <!-- prettier-ignore -->
-                                    @for (targetFolder of playlistFolders(); track targetFolder.id) {
-                                      @if (targetFolder.id !== folder.id) {
-                                        <button
-                                          type="button"
-                                          class="film-list-item__menu-action"
-                                          role="menuitem"
-                                          (click)="
-                                            onMoveReviewToPlaylist(review, targetFolder, $event)
-                                          "
-                                        >
-                                          {{ targetFolder.name }}
-                                        </button>
-                                      }
-                                    }
-                                  </div>
-                                }
-                                <button
-                                  type="button"
-                                  class="film-list-item__menu-action film-list-item__menu-action--danger"
                                   role="menuitem"
                                   (click)="onDeleteStart(review, $event)"
                                 >
@@ -1389,6 +1374,123 @@ const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
         max-width: 100%;
       }
 
+      .film-library--empty {
+        align-content: start;
+      }
+
+      .playbooks-list-header {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        margin-bottom: 12px;
+        gap: 8px;
+      }
+
+      .playbooks-list-header h3 {
+        margin: 0;
+        font-size: 0.95rem;
+        letter-spacing: 0.01em;
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .playbooks-list-header p {
+        margin: 4px 0 0;
+        color: var(--nxt1-color-text-secondary);
+        font-size: 0.76rem;
+      }
+
+      .playbooks-list-header-actions {
+        display: inline-flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .btn-new {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 5px 12px;
+        border-radius: var(--nxt1-radius-sm, 8px);
+        border: 1px solid var(--nxt1-color-border-primary);
+        background: var(--nxt1-color-alpha-primary10);
+        color: var(--nxt1-color-text-primary);
+        font-size: 0.75rem;
+        font-weight: 600;
+        cursor: pointer;
+        white-space: nowrap;
+        flex-shrink: 0;
+      }
+
+      .btn-new:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--nxt1-color-alpha-primary10) 82%, transparent);
+      }
+
+      .btn-new:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .playbooks-empty-state {
+        display: grid;
+        justify-items: center;
+        gap: 14px;
+      }
+
+      .playbooks-empty-actions {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .btn-empty-action {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 40px;
+        padding: 0 14px;
+        border-radius: var(--nxt1-radius-sm, 8px);
+        border: 1px solid var(--nxt1-color-border-default);
+        background: transparent;
+        color: var(--nxt1-color-text-secondary);
+        font-size: 0.79rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition:
+          border-color 120ms ease,
+          background-color 120ms ease,
+          color 120ms ease,
+          transform 120ms ease;
+      }
+
+      .btn-empty-action:hover:not(:disabled) {
+        border-color: var(--nxt1-color-border-primary);
+        background: var(--nxt1-color-surface-200);
+        color: var(--nxt1-color-text-primary);
+        transform: translateY(-1px);
+      }
+
+      .btn-empty-action:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+        transform: none;
+      }
+
+      .btn-empty-action--primary {
+        border-color: var(--nxt1-color-border-primary);
+        background: var(--nxt1-color-alpha-primary10);
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .btn-empty-action__icon {
+        width: 18px;
+        height: 18px;
+        flex: 0 0 auto;
+      }
+
       .film-library--drag-active .film-library-dropzone {
         border-color: var(--nxt1-color-border-primary);
         background: var(--nxt1-color-alpha-primary10);
@@ -1475,6 +1577,12 @@ const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
         border-radius: 10px;
         padding: 8px 10px;
         background: var(--nxt1-color-surface-100);
+      }
+
+      .film-library-upload-status--empty {
+        margin-top: 2px;
+        width: 100%;
+        max-width: 460px;
       }
 
       .film-library-upload-status__row {
@@ -1626,6 +1734,18 @@ const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
         width: 100%;
         min-height: 38px;
         padding: 0 6px 0 0;
+        position: relative;
+        z-index: 6;
+        overflow: visible;
+      }
+
+      .film-playlist-folder__menu-anchor {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        min-height: 38px;
       }
 
       .film-playlist-folder__toggle {
@@ -1672,8 +1792,9 @@ const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
       }
 
       .film-playlist-folder__menu {
-        top: 38px;
-        right: 8px;
+        top: calc(100% + 2px);
+        right: 0;
+        z-index: 140;
       }
 
       .film-playlist-folder__menu-slot {
@@ -1707,6 +1828,7 @@ const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
         gap: 8px;
         padding: 0 8px 8px 12px;
         position: relative;
+        z-index: 1;
       }
 
       .film-playlist-folder__empty {
@@ -2452,6 +2574,10 @@ const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
         background: var(--nxt1-color-errorBg);
         border-radius: 6px;
         border-left: 3px solid var(--nxt1-color-error);
+      }
+
+      .film-error-message--empty {
+        margin-top: 2px;
       }
 
       .film-playbook {
@@ -3354,6 +3480,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const teamId = this.teamId?.trim();
     if (!teamId) return;
 
+    this.localPlaylistFolders.set(this.loadPersistedPlaylistFolders(teamId));
+
     this.isVideoView.set(false);
     this.currentPlayIndex.set(0);
     this.destroyHls();
@@ -3362,6 +3490,19 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.resetTimelinePlayEditing();
     void this.service.load(teamId, this.panelSport() || undefined);
   }
+
+  protected readonly retryLoad = (): void => {
+    const teamId = this.teamId?.trim();
+    if (!teamId) return;
+
+    this.isVideoView.set(false);
+    this.currentPlayIndex.set(0);
+    this.destroyHls();
+    this.nativeVideoSourceUrl = null;
+    this.cloudflareNativePlaybackFailed.set(false);
+    this.resetTimelinePlayEditing();
+    void this.service.load(teamId, this.panelSport() || undefined);
+  };
 
   protected onPlaylistCreateToggle(): void {
     this.isCreatingPlaylistFolder.update((current) => !current);
@@ -3392,7 +3533,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const id = this.buildPlaylistFolderId(name);
     const existingFolder = this.playlistFolders().find((folder) => folder.id === id) ?? null;
     if (!existingFolder) {
-      this.localPlaylistFolders.update((folders) => [...folders, { id, name }]);
+      this.updateLocalPlaylistFolders((folders) => [...folders, { id, name }]);
     }
 
     this.collapsedPlaylistFolderIds.update((current) => {
@@ -3483,7 +3624,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
           this.service.updateReviewPlaylist(review.id, nextId, nextName)
         )
       );
-      this.localPlaylistFolders.update((folders) => {
+      this.updateLocalPlaylistFolders((folders) => {
         const remaining = folders.filter((item) => item.id !== folder.id && item.id !== nextId);
         return [...remaining, { id: nextId, name: nextName }];
       });
@@ -3525,9 +3666,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       await Promise.all(
         folder.reviews.map((review) => this.service.updateReviewPlaylist(review.id, null, null))
       );
-      this.localPlaylistFolders.update((folders) =>
-        folders.filter((item) => item.id !== folder.id)
-      );
+      this.updateLocalPlaylistFolders((folders) => folders.filter((item) => item.id !== folder.id));
       this.collapsedPlaylistFolderIds.update((current) => {
         const next = new Set(current);
         next.delete(folder.id);
@@ -3900,6 +4039,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return;
     }
 
+    if (validVideos.length > 0) {
+      this.ensureStarterPlaylistFolders();
+    }
+
     this.libraryUploadError.set(null);
     this.isUploadingLibraryVideo.set(true);
     this.libraryVideoUploadPercent.set(0);
@@ -4134,8 +4277,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   protected getReviewMeta(review: FilmListReview): string {
-    const parts = [this.formatSportLabel(review.sport), this.resolvePlaylistName(review)];
-    return parts.filter((value): value is string => !!value && value.trim().length > 0).join(' • ');
+    return this.formatSportLabel(review.sport) ?? 'Film session';
   }
 
   protected getVideoThumbnailUrl(review: FilmListReview): string | null {
@@ -4281,6 +4423,110 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       .replace(/^-+|-+$/g, '')
       .slice(0, 72);
     return normalized ? `playlist-${normalized}` : `playlist-${Date.now()}`;
+  }
+
+  private ensureStarterPlaylistFolders(): void {
+    const existingFolderIds = new Set(
+      this.playlistFolders()
+        .filter((folder) => !folder.isUnassigned)
+        .map((folder) => folder.id)
+    );
+
+    const missingFolders = FILM_REVIEW_STARTER_PLAYLIST_NAMES.flatMap((name) => {
+      const id = this.buildPlaylistFolderId(name);
+      return existingFolderIds.has(id) ? [] : [{ id, name }];
+    });
+
+    if (missingFolders.length === 0) {
+      return;
+    }
+
+    this.updateLocalPlaylistFolders((folders) => [...folders, ...missingFolders]);
+  }
+
+  private updateLocalPlaylistFolders(
+    updater: (
+      folders: readonly LocalFilmReviewPlaylistFolder[]
+    ) => readonly LocalFilmReviewPlaylistFolder[]
+  ): void {
+    const normalized = this.normalizeLocalPlaylistFolders(updater(this.localPlaylistFolders()));
+    this.localPlaylistFolders.set(normalized);
+    this.persistLocalPlaylistFolders(normalized);
+  }
+
+  private normalizeLocalPlaylistFolders(
+    folders: readonly LocalFilmReviewPlaylistFolder[]
+  ): readonly LocalFilmReviewPlaylistFolder[] {
+    const unique = new Map<string, LocalFilmReviewPlaylistFolder>();
+    for (const folder of folders) {
+      const id = folder.id.trim();
+      const name = folder.name.trim();
+      if (!id || !name || id === FILM_REVIEW_UNASSIGNED_PLAYLIST_ID) {
+        continue;
+      }
+      unique.set(id, { id, name });
+    }
+    return [...unique.values()];
+  }
+
+  private loadPersistedPlaylistFolders(teamId: string): readonly LocalFilmReviewPlaylistFolder[] {
+    if (!this.platform.isBrowser()) {
+      return [];
+    }
+
+    try {
+      const raw = localStorage.getItem(this.getPlaylistStorageKey(teamId));
+      if (!raw) {
+        return [];
+      }
+
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+
+      const parsedFolders: LocalFilmReviewPlaylistFolder[] = [];
+      for (const item of parsed) {
+        if (!item || typeof item !== 'object') {
+          continue;
+        }
+        const id = typeof item.id === 'string' ? item.id : '';
+        const name = typeof item.name === 'string' ? item.name : '';
+        parsedFolders.push({ id, name });
+      }
+
+      return this.normalizeLocalPlaylistFolders(parsedFolders);
+    } catch {
+      return [];
+    }
+  }
+
+  private persistLocalPlaylistFolders(folders: readonly LocalFilmReviewPlaylistFolder[]): void {
+    if (!this.platform.isBrowser()) {
+      return;
+    }
+
+    const teamId = this.teamId?.trim();
+    if (!teamId) {
+      return;
+    }
+
+    const normalized = this.normalizeLocalPlaylistFolders(folders);
+
+    try {
+      if (normalized.length === 0) {
+        localStorage.removeItem(this.getPlaylistStorageKey(teamId));
+        return;
+      }
+
+      localStorage.setItem(this.getPlaylistStorageKey(teamId), JSON.stringify(normalized));
+    } catch {
+      // Ignore local persistence failures to avoid breaking core flow.
+    }
+  }
+
+  private getPlaylistStorageKey(teamId: string): string {
+    return `${FILM_REVIEW_PLAYLIST_STORAGE_PREFIX}:${teamId}`;
   }
 
   protected async onSelectReview(reviewId: string): Promise<void> {

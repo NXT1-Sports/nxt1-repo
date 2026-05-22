@@ -25,8 +25,7 @@ type TeamPlaybookDoc = {
 
 type PlaybookAlias = {
   readonly teamId: string;
-  readonly sport: string;
-  readonly name: string;
+  readonly query: string;
 };
 
 function normalizeToken(value: string | undefined): string {
@@ -46,12 +45,12 @@ function parsePlaybookAlias(playbookId: string): PlaybookAlias | null {
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
 
-  if (parts.length < 3) return null;
-  const [teamId, sport, ...nameParts] = parts;
-  const name = nameParts.join(' ').trim();
-  if (!teamId || !sport || !name) return null;
+  if (parts.length < 2) return null;
+  const [teamId, ...queryParts] = parts;
+  const query = queryParts.join(' ').trim();
+  if (!teamId || !query) return null;
 
-  return { teamId, sport, name };
+  return { teamId, query };
 }
 
 function tokens(value: string): string[] {
@@ -124,9 +123,8 @@ export class GetPlaybookTool extends BaseTool {
     const alias = parsePlaybookAlias(playbookId);
     if (!alias) return null;
 
-    const aliasSport = normalizeToken(alias.sport);
-    const aliasName = normalizeToken(alias.name);
-    const aliasNameNoSuffix = removePlaybookWord(aliasName);
+    const aliasQuery = normalizeToken(alias.query);
+    const aliasQueryNoSuffix = removePlaybookWord(aliasQuery);
     const teamSnap = await this.db
       .collection(PLAYBOOKS_COLLECTION)
       .where('teamId', '==', alias.teamId)
@@ -138,18 +136,15 @@ export class GetPlaybookTool extends BaseTool {
       .map(({ id, playbook }) => {
         const playbookName = normalizeToken(playbook.name ?? playbook.title);
         const playbookNameNoSuffix = removePlaybookWord(playbookName);
-        const playbookSport = normalizeToken(playbook.sport);
-        const exactName = playbookName === aliasName;
-        const normalizedName = playbookNameNoSuffix === aliasNameNoSuffix;
+        const exactName = playbookName === aliasQuery;
+        const normalizedName = playbookNameNoSuffix === aliasQueryNoSuffix;
         const fuzzyName =
-          playbookName.includes(aliasName) ||
-          aliasName.includes(playbookName) ||
-          playbookNameNoSuffix.includes(aliasNameNoSuffix) ||
-          aliasNameNoSuffix.includes(playbookNameNoSuffix);
-        const sportMatch = playbookSport === aliasSport;
+          playbookName.includes(aliasQuery) ||
+          aliasQuery.includes(playbookName) ||
+          playbookNameNoSuffix.includes(aliasQueryNoSuffix) ||
+          aliasQueryNoSuffix.includes(playbookNameNoSuffix);
 
         let score = 0;
-        if (sportMatch) score += 4;
         if (exactName) score += 8;
         else if (normalizedName) score += 6;
         else if (fuzzyName) score += 3;

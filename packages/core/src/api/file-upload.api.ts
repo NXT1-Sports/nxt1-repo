@@ -157,6 +157,11 @@ export interface FinalizedHighlightVideoUpload {
     dashUrl: string | null;
     iframeUrl: string | null;
   };
+  download: {
+    status: string;
+    url: string | null;
+    percentComplete: number | null;
+  };
 }
 
 /**

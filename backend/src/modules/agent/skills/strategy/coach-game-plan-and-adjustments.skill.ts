@@ -14,7 +14,7 @@ export class CoachGamePlanAndAdjustmentsSkill extends BaseSkill {
   readonly name = 'coach_game_plan_and_adjustments';
   readonly description =
     'Coach game planning, scripted opening sequences, in-game adjustment trees, timeout strategy, ' +
-    'halftime resets, matchup exploitation, and decision triggers by game state.';
+    'priority resets, matchup exploitation, and decision triggers by game state.';
   readonly category: SkillCategory = 'strategy';
 
   getPromptContext(params?: Record<string, unknown>): string {
@@ -73,7 +73,7 @@ ${teamContext}${gameContext}
 - **Adjustment**: specific tactical change (personnel, spacing, scheme, call family)
 - **Validation Window**: 2-4 possessions or defined sequence before next change
 
-### Halftime Reset
+### Priority Reset
 - Keep to 3 priorities max:
   - one offensive correction
   - one defensive correction

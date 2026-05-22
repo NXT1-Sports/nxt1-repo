@@ -212,5 +212,38 @@ describe('ExportService', () => {
       const header = result.subarray(0, 5).toString('ascii');
       expect(header).toBe('%PDF-');
     });
+
+    it('should handle escaped newlines and markdown-like bold content', async () => {
+      const result = await service.generatePdf(
+        pdfOpts({
+          includeTable: false,
+          columns: undefined,
+          rows: undefined,
+          bodyParagraphs: [
+            'Scouting Report: Line one\\n\\n**Offensive Identity**: Motion offense with pace.',
+          ],
+          bulletPoints: ['**Priority**: Control tempo', '## Adjustments'],
+        })
+      );
+      const header = result.subarray(0, 5).toString('ascii');
+      expect(header).toBe('%PDF-');
+      expect(result.length).toBeGreaterThan(100);
+    });
+
+    it('should render inline numbered paragraphs as readable ordered list content', async () => {
+      const result = await service.generatePdf(
+        pdfOpts({
+          includeTable: false,
+          columns: undefined,
+          rows: undefined,
+          bodyParagraphs: [
+            '1. Motion offense spacing. 2. Read-and-react pick-and-roll decisions. 3. Transition tempo control.',
+          ],
+        })
+      );
+      const header = result.subarray(0, 5).toString('ascii');
+      expect(header).toBe('%PDF-');
+      expect(result.length).toBeGreaterThan(100);
+    });
   });
 });

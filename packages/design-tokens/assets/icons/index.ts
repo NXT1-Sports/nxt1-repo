@@ -1474,6 +1474,19 @@ export const UI_ICONS = {
     ],
   },
 
+  /** Print preview icon - for print/export preview actions */
+  printPreview: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M6 9V4h12v5' },
+      { d: 'M6 18h12v2H6z' },
+      { d: 'M4 9h16a2 2 0 0 1 2 2v5H2v-5a2 2 0 0 1 2-2z' },
+      { d: 'M17 13h.01' },
+    ],
+  },
+
   /** Image/Photo icon - for image content */
   image: {
     viewBox: '0 0 24 24',
@@ -2200,6 +2213,8 @@ export const ALIAS_ICONS = {
   'bug-outline': UI_ICONS.alertCircle,
   'refresh-outline': UI_ICONS.refresh,
   'download-outline': UI_ICONS.download,
+  'print-outline': UI_ICONS.printPreview,
+  print: UI_ICONS.printPreview,
   'flash-outline': UI_ICONS.bolt,
   'repeat-outline': UI_ICONS.repeat,
 

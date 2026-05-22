@@ -677,6 +677,17 @@ function sortCoordinatorCategories(
 
         <section class="agent-column agent-chat-column" aria-label="Agent X Chat">
           <div class="agent-chat-unified">
+            <div class="chat-session-topbar">
+              <button
+                type="button"
+                class="chat-session-topbar__new-session"
+                aria-label="Start new session"
+                title="New session"
+                (click)="onNewSession()"
+              >
+                <nxt1-icon name="plus" [size]="16" />
+              </button>
+            </div>
             <!-- Briefing welcome block — only on default chat, hides after first message -->
             @if (showDesktopBriefing()) {
               <div class="chat-briefing">
@@ -929,13 +940,6 @@ function sortCoordinatorCategories(
                       <div class="card-secondary-actions">
                         <button
                           type="button"
-                          class="action-btn done-btn"
-                          (click)="onMarkDoneTask(task)"
-                        >
-                          ✓ Done
-                        </button>
-                        <button
-                          type="button"
                           class="action-btn snooze-btn"
                           (click)="onSnoozeTask(task)"
                         >
@@ -1054,7 +1058,10 @@ function sortCoordinatorCategories(
               }
             </div>
             <div class="action-plan-panel__body">
-              <nxt1-agent-x-gameplans-panel [teamId]="resolvedActiveTeamId()" />
+              <nxt1-agent-x-gameplans-panel
+                [teamId]="resolvedActiveTeamId()"
+                [sport]="resolvedActiveSport()"
+              />
             </div>
           </aside>
         }
@@ -1587,13 +1594,6 @@ function sortCoordinatorCategories(
                     <div class="card-secondary-actions">
                       <button
                         type="button"
-                        class="action-btn done-btn"
-                        (click)="onMarkDoneTask(task)"
-                      >
-                        ✓ Done
-                      </button>
-                      <button
-                        type="button"
                         class="action-btn snooze-btn"
                         (click)="onSnoozeTask(task)"
                       >
@@ -2069,6 +2069,46 @@ function sortCoordinatorCategories(
         width: min(100%, var(--agent-chat-max-width, 1040px));
         margin-left: auto;
         margin-right: auto;
+      }
+
+      .chat-session-topbar {
+        flex-shrink: 0;
+        display: flex;
+        justify-content: flex-end;
+        width: 100%;
+        max-width: calc(100% - 48px);
+        margin-left: auto;
+        margin-right: auto;
+        padding: 10px 0 0;
+        box-sizing: border-box;
+        background: transparent;
+      }
+
+      .chat-session-topbar__new-session {
+        width: 34px;
+        height: 34px;
+        border: 1px solid var(--agent-border);
+        border-radius: 10px;
+        background: transparent;
+        color: var(--agent-text-secondary);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition:
+          color 0.15s ease,
+          border-color 0.15s ease,
+          background-color 0.15s ease;
+      }
+
+      .chat-session-topbar__new-session:hover {
+        color: var(--agent-text-primary);
+        border-color: color-mix(in srgb, var(--agent-border) 70%, var(--agent-primary));
+        background: color-mix(in srgb, var(--agent-primary) 8%, transparent);
+      }
+
+      .chat-session-topbar__new-session:active {
+        transform: scale(0.96);
       }
 
       .chat-briefing {
@@ -4065,11 +4105,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private static readonly DESKTOP_LEFT_PANEL_DEFAULT_WIDTH = 280;
   private static readonly DESKTOP_LEFT_PANEL_MIN_WIDTH = 220;
   private static readonly DESKTOP_ACTION_PLAN_DEFAULT_WIDTH = 320;
-  private static readonly DESKTOP_FILM_REVIEW_DEFAULT_WIDTH = 720;
   private static readonly DESKTOP_ACTION_PLAN_MIN_WIDTH = 260;
   private static readonly DESKTOP_GAMEPLANS_MIN_WIDTH = 500;
   private static readonly DESKTOP_PLAYBOOKS_MIN_WIDTH = 500;
-  private static readonly DESKTOP_FILM_REVIEW_MIN_WIDTH = 560;
+  private static readonly DESKTOP_FILM_REVIEW_MIN_WIDTH = 400;
   private static readonly DESKTOP_EXPANDED_PANEL_MIN_WIDTH = 400;
 
   protected readonly resolveCoordinatorChipId = resolveCoordinatorChipId;
@@ -4198,9 +4237,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   );
   protected readonly gameplansWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly playbooksWidth = signal(this.getDefaultExpandedPanelWidth());
-  protected readonly filmReviewWidth = signal(
-    AgentXShellWebComponent.DESKTOP_FILM_REVIEW_DEFAULT_WIDTH
-  );
+  protected readonly filmReviewWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly expandedPanelWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly activeDesktopResize = signal<AgentXDesktopResizeState | null>(null);
   protected readonly isDesktopPanelResizing = computed(() => this.activeDesktopResize() !== null);
@@ -4533,7 +4570,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         break;
       case 'film-review':
         this.showFilmReviewModal.set(false);
-        this.filmReviewWidth.set(AgentXShellWebComponent.DESKTOP_FILM_REVIEW_DEFAULT_WIDTH);
+        this.filmReviewWidth.set(this.getDefaultExpandedPanelWidth());
         break;
       case 'expanded-panel':
         this.closeExpandedSidePanel();
@@ -4600,7 +4637,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     const syncedRightPanelDefault = this.getDefaultExpandedPanelWidth();
     this.gameplansWidth.set(syncedRightPanelDefault);
     this.playbooksWidth.set(syncedRightPanelDefault);
-    this.filmReviewWidth.set(AgentXShellWebComponent.DESKTOP_FILM_REVIEW_DEFAULT_WIDTH);
+    this.filmReviewWidth.set(syncedRightPanelDefault);
     this.expandedPanelWidth.set(this.getDefaultExpandedPanelWidth());
     this.clampDesktopPanelWidths();
   }
@@ -4651,7 +4688,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         this.playbooksWidth.set(this.getDefaultExpandedPanelWidth());
         break;
       case 'film-review':
-        this.filmReviewWidth.set(AgentXShellWebComponent.DESKTOP_FILM_REVIEW_DEFAULT_WIDTH);
+        this.filmReviewWidth.set(this.getDefaultExpandedPanelWidth());
         break;
       case 'expanded-panel':
         this.expandedPanelWidth.set(this.getDefaultExpandedPanelWidth());
@@ -5119,6 +5156,11 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       return;
     }
 
+    const saved = await this.agentX.markPlaybookItemComplete(task.id);
+    if (saved) {
+      await this.haptics.notification('success');
+    }
+
     if (this.agentX.dashboardLoaded()) {
       const { intent, title } = this.agentX.preparePlaybookAction(task);
       // Open a desktop session with initialMessage so the SSE chat loop
@@ -5266,17 +5308,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     await this.haptics.impact('light');
     this.agentX.snoozePlaybookItem(task.id);
     this.toast.success('Task snoozed');
-  }
-
-  /**
-   * Mark a task as explicitly done — user already completed it outside the app.
-   */
-  protected async onMarkDoneTask(task: ShellWeeklyPlaybookItem): Promise<void> {
-    const saved = await this.agentX.markPlaybookItemComplete(task.id);
-    if (saved) {
-      await this.haptics.notification('success');
-      this.toast.success('Task marked complete');
-    }
   }
 
   protected async onSendMessage(): Promise<void> {
@@ -5572,6 +5603,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   ): Promise<void> {
     event.stopPropagation();
     this.isPanelMenuOpen.set(false);
+    this.resetToDefaultDesktopSession();
 
     if (option === 'live-view') {
       await this.haptics.impact('light');
@@ -5623,7 +5655,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.showActionPlanModal.set(false);
       this.showPlaybooksModal.set(false);
       this.showGameplansModal.set(false);
-      this.filmReviewWidth.set(AgentXShellWebComponent.DESKTOP_FILM_REVIEW_DEFAULT_WIDTH);
+      this.filmReviewWidth.set(this.getDefaultExpandedPanelWidth());
       this.showFilmReviewModal.set(true);
       this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_OPENED, {
         surface: 'agent_x_shell_menu',
@@ -5666,7 +5698,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.showActionPlanModal.set(false);
     this.showPlaybooksModal.set(false);
     this.showGameplansModal.set(false);
-    this.filmReviewWidth.set(AgentXShellWebComponent.DESKTOP_FILM_REVIEW_DEFAULT_WIDTH);
+    this.filmReviewWidth.set(this.getDefaultExpandedPanelWidth());
     this.showFilmReviewModal.set(true);
     this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_OPENED, {
       surface: 'agent_x_upload_auto_open',
@@ -5878,6 +5910,19 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    */
   private launchChatFromStartupMessage(message: string): void {
     if (!message.trim()) return;
+
+    const servicePendingFiles = this.agentX.pendingFiles();
+    const initialFiles = servicePendingFiles.map((f) => ({
+      id: crypto.randomUUID(),
+      file: f.file,
+      previewUrl: f.previewUrl,
+      isImage: f.type === 'image',
+      isVideo: f.type === 'video',
+    }));
+    if (servicePendingFiles.length > 0) {
+      this.agentX.takePendingFiles();
+    }
+
     // setDesktopSession resets desktopChatActive → false for agent-x-chat context.
     // Override it immediately so the briefing greeting never flashes.
     this.setDesktopSession({
@@ -5886,6 +5931,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       contextIcon: 'bolt',
       contextType: 'command',
       initialMessage: message,
+      initialFiles,
+      autoSendOnOpen: true,
       quickActions: this.commandQuickActions(),
     });
     this.desktopChatActive.set(true);

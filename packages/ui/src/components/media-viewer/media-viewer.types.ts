@@ -32,6 +32,24 @@ export interface MediaViewerItem {
 
   /** File size in bytes — displayed as metadata on doc slides. */
   readonly size?: number;
+
+  /** Optional structured breakdown metadata shown in specialized viewer variants. */
+  readonly breakdown?: MediaViewerBreakdown;
+}
+
+/** Generic section in a structured breakdown panel. */
+export interface MediaViewerBreakdownSection {
+  readonly title: string;
+  readonly paragraphs?: readonly string[];
+  readonly bullets?: readonly string[];
+  readonly chips?: readonly string[];
+}
+
+/** Structured breakdown payload rendered by the playbook viewer variant. */
+export interface MediaViewerBreakdown {
+  readonly subtitle?: string;
+  readonly metaChips?: readonly string[];
+  readonly sections?: readonly MediaViewerBreakdownSection[];
 }
 
 // ─── Configuration ────────────────────────────────────────
@@ -69,6 +87,9 @@ export interface MediaViewerConfig {
    * - `bottom-sheet`: always use Ionic bottom sheet
    */
   readonly presentation?: 'auto' | 'overlay' | 'bottom-sheet';
+
+  /** Specialized layout variant for extending the shared modal. */
+  readonly variant?: 'default' | 'playbook-breakdown';
 }
 
 // ─── Result ───────────────────────────────────────────────
