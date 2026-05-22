@@ -117,7 +117,7 @@ import { AUTH_SERVICE, BrowserAuthService } from './core/services/auth';
 import { AuthFlowService, type IAuthService } from './core/services/auth';
 import { FileUploadService } from './core/services/web/file-upload.service';
 import { WebEmailConnectionService } from './core/services/web/email-connection.service';
-import { provideBadgeBridge } from './core/services';
+import { provideBadgeBridge, provideWebPush } from './core/services';
 
 // Settings persistence adapter (connects SettingsService → backend API)
 import { SETTINGS_PERSISTENCE_ADAPTER, APP_VERSION } from '@nxt1/ui/settings/tokens';
@@ -598,6 +598,14 @@ export const appConfig: ApplicationConfig = {
     // Global error handler - catches all unhandled errors
     // Handles chunk loading failures, tracks errors, provides recovery
     { provide: ErrorHandler, useClass: GlobalErrorHandler },
+
+    // ============================================
+    // WEB PUSH NOTIFICATIONS
+    // ============================================
+
+    // Initializes FCM token registration and foreground message handling
+    // once the user is authenticated. Without this, web push is never set up.
+    provideWebPush(),
 
     // ============================================
     // PWA SERVICE WORKER

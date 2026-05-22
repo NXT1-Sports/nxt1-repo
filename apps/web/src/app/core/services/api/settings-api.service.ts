@@ -105,16 +105,28 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
    * Uses PATCH /settings/preferences/:key with merging for nested fields.
    */
   async updatePreference(key: string, value: unknown): Promise<void> {
-    // Handle push notifications toggle — register or unregister FCM token
+    // Handle push notifications toggle
     if (key === 'pushNotifications') {
       if (value === true) {
+        // Request permission and register FCM token.
+        // If permission is already granted this silently ensures the token is registered.
         const webPush = await this.getWebPushService();
         await webPush.requestPermission();
-      } else {
-        const webPush = await this.getWebPushService();
-        await webPush.revokeToken();
       }
+      // When switching OFF we intentionally keep the FCM token in Firestore.
+      // Delivery is gated by the push:false preference in onNotificationCreatedV3,
+      // so no messages are sent. Keeping the token means turning push back ON
+      // requires no re-registration and causes no extra browser permission prompt.
       // Continue to persist preference to backend
+    }
+
+    // Handle marketing emails toggle — silently register FCM token if push permission is
+    // already granted. Does NOT prompt: opting into marketing emails must never trigger
+    // a push-permission dialog. If no token exists yet it will be registered; if one
+    // already exists the server deduplicates and returns early.
+    if (key === 'marketingEmails' && value === true) {
+      const webPush = await this.getWebPushService();
+      void webPush.initialize();
     }
 
     // Handle analytics tracking toggle — enable/disable client-side event relay immediately

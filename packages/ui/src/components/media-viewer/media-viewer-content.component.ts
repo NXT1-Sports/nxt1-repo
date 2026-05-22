@@ -1559,26 +1559,15 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     const baseName = item.name?.replace(/\.[^.]+$/, '') ?? this.deriveFileName(item);
 
     if (this.platform.isNative()) {
-      // On iOS native, browser fetch() to cross-origin URLs (e.g. Firebase Storage)
-      // fails with "Load failed" (NSURLError) because WKWebView blocks the request.
-      // Filesystem.downloadFile() uses native NSURLSession which has no such restriction.
-      const { Filesystem, Directory } = await import('@capacitor/filesystem');
-      const tempName = `nxt1_img_${Date.now()}.jpg`;
-      const downloaded = await Filesystem.downloadFile({
-        url: item.url,
-        path: tempName,
-        directory: Directory.Cache,
-      });
-
-      if (!downloaded.path) throw new Error('Download failed — no path returned');
-
-      const result = await this.mediaService.saveImageFromFileUri(downloaded.path, 'NXT1');
+      // On native iOS/Android, pass the HTTPS URL directly to the Media plugin.
+      // The plugin's native downloader (SDWebImageDownloader on iOS, Glide on Android)
+      // fetches via NSURLSession — no WKWebView cross-origin restriction, no
+      // intermediate cache file needed, and no share-sheet fallback.
+      const result = await this.mediaService.saveImageFromUrl(item.url);
 
       if (result.success) {
-        if (result.path === 'Photos') {
-          this.toast.success('Saved to camera roll!');
-        }
-        // Share sheet shown — no extra toast needed
+        this.dismiss();
+        this.toast.success('Saved to camera roll!');
       } else if (result.error && result.error !== 'Cancelled') {
         this.toast.error(result.error ?? 'Failed to save');
       }
@@ -1608,13 +1597,17 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
 
   private async saveVideoItem(item: MediaViewerItem): Promise<void> {
     if (this.platform.isNative()) {
-      // Native: open share sheet so user can save to camera roll
-      const { Share } = await import('@capacitor/share');
-      await Share.share({
-        title: item.name ?? 'Video',
-        url: item.url,
-        dialogTitle: 'Save Video',
-      });
+      // Native iOS/Android: save directly to the camera roll via the Media plugin.
+      // This works for both standard videos and Runway-generated animated graphics.
+      // Uses the plugin's native downloader to fetch the HTTPS URL, bypassing
+      // WKWebView cross-origin restrictions — no cache write required.
+      const result = await this.mediaService.saveVideoFromUrl(item.url);
+      if (result.success) {
+        this.dismiss();
+        this.toast.success('Saved to camera roll!');
+      } else if (result.error && result.error !== 'Cancelled') {
+        this.toast.error(result.error ?? 'Failed to save');
+      }
     } else {
       // Web: Firebase Storage URLs are cross-origin so a bare <a download> is
       // ignored by the browser (it navigates instead). Fetch as blob first,

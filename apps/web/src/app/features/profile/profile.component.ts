@@ -703,7 +703,9 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
         // Load intel eagerly alongside timeline so the intel tab renders instantly
         // (data or empty state) with no skeleton flash on tab switch.
-        void this.intelService.loadAthleteIntel(profile.id);
+        void this.intelService.loadAthleteIntel(profile.id).catch((err) => {
+          this.logger.warn('Intel preload failed (non-blocking)', { err, profileId: profile.id });
+        });
       });
 
     this.seo.updateForProfile(meta);

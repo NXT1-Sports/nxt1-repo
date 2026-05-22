@@ -194,6 +194,17 @@ export class GlobalErrorHandler implements ErrorHandler {
     this.zone.runOutsideAngular(() => {
       // Extract error details
       const errorDetails = this.extractErrorDetails(error);
+
+      // Ignore known non-actionable browser/runtime noise from in-app browsers
+      // and webviews where app-level remediation is not possible.
+      if (this.shouldIgnoreError(errorDetails)) {
+        this.logger.info('Ignoring known non-actionable runtime error', {
+          message: errorDetails.message,
+          url: errorDetails.url,
+        });
+        return;
+      }
+
       const severity = this.determineSeverity(error);
 
       // Log error
@@ -325,9 +336,35 @@ export class GlobalErrorHandler implements ErrorHandler {
       return (
         message.includes('loading chunk') ||
         message.includes('chunkloaderror') ||
-        message.includes('failed to fetch dynamically imported module')
+        message.includes('failed to fetch dynamically imported module') ||
+        message.includes('importing a module script failed') ||
+        message.includes('ng0750')
       );
     }
+    return false;
+  }
+
+  /**
+   * Known non-actionable browser/runtime noise that should not trigger
+   * user-facing alerts or crash reporting.
+   */
+  private shouldIgnoreError(details: ErrorDetails): boolean {
+    const message = details.message.toLowerCase();
+    const userAgent = (details.userAgent ?? '').toLowerCase();
+
+    if (
+      message.includes('illegal access') ||
+      message.includes('java object is gone') ||
+      message.includes('enabledidusertypeonkeyboardlogging') ||
+      message.includes('script error')
+    ) {
+      return true;
+    }
+
+    if (userAgent.includes('instagram') && message.includes('navigation_performance_logger')) {
+      return true;
+    }
+
     return false;
   }
 

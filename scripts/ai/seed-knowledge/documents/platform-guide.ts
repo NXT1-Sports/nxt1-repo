@@ -37,7 +37,7 @@ NXT1 is organized around a set of primary sections. The bottom tab bar on mobile
 
 **Team Profile** — Team pages showing roster, stats, media, and program information. Coaches and Directors manage their team from here. Athletes view the teams they belong to.
 
-**Activity (Notifications)** — Your notification feed. Incoming messages, team updates, Agent X operation completions, profile views, and platform alerts all appear here.
+**Activity (Notifications)** — Your notification feed. Team updates, Agent X operation completions, profile views, communication alerts, and platform alerts all appear here.
 
 **Add Sport / Team** — Quick action to add a new sport to your profile or join a new team via team code. Athletes can belong to multiple teams (e.g., a high school team and a club team simultaneously).
 

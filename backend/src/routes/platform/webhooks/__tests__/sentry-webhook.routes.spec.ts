@@ -18,7 +18,7 @@ function createApp() {
 
 describe('Sentry Webhook Routes', () => {
   beforeEach(() => {
-    vi.stubEnv('SLACK_SENTRY_WEBHOOK_URL', 'https://hooks.slack.test/services/T/B/X');
+    vi.stubEnv('SLACK_ALERT_WEBHOOK_URL', 'https://hooks.slack.test/services/T/B/X');
   });
 
   afterEach(() => {

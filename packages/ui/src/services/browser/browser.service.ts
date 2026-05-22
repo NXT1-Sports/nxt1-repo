@@ -159,6 +159,18 @@ export class NxtBrowserService {
   private isNativePlatform = false;
   private isInitialized = false;
 
+  constructor() {
+    // Eagerly kick off Capacitor module loading in browser environments so the
+    // dynamic imports (`@capacitor/browser` + `@capacitor/core`) are already
+    // resolved before the user's first link click.  Without this, the first
+    // call to `openLink()` would await those imports, introducing a 50–500 ms
+    // delay that pushes `window.open('_blank')` outside the browser's transient
+    // user-activation window and causes popup blockers to suppress the tab.
+    if (this.isBrowser) {
+      void this.initialize();
+    }
+  }
+
   // State management
   private readonly _state = signal<BrowserState>({
     isOpen: false,
@@ -385,25 +397,41 @@ export class NxtBrowserService {
     };
 
     try {
-      // Haptic feedback on open
-      if (this.config.enableHaptics) {
-        await this.haptics.impact('light');
-      }
-
-      // Log breadcrumb
-      if (this.config.enableBreadcrumbs) {
-        void this.breadcrumbs.trackUserAction('browser_open', {
-          url: sanitizedUrl,
-          domain: extractDomain(sanitizedUrl),
-        });
-      }
-
-      // Open browser
       if (this.isNativePlatform && this.browserPlugin) {
+        // Native path: haptics → SFSafariViewController / Chrome Custom Tab.
+        // Haptics first is fine here because `browserPlugin.open` is async anyway.
+        if (this.config.enableHaptics) {
+          await this.haptics.impact('light');
+        }
+
+        // Log breadcrumb
+        if (this.config.enableBreadcrumbs) {
+          void this.breadcrumbs.trackUserAction('browser_open', {
+            url: sanitizedUrl,
+            domain: extractDomain(sanitizedUrl),
+          });
+        }
+
         await this.browserPlugin.open(fullOptions);
       } else {
-        // Web fallback: open in new tab
+        // Web path: call window.open FIRST, before any further awaits, so it
+        // executes as close as possible to the originating user-gesture event.
+        // Browsers (especially Safari) may block window.open('_blank') if it is
+        // called after unrelated async work (haptics, breadcrumbs, etc.) because
+        // those await chains move the call outside the transient user-activation
+        // window.
         this.openInNewTab(sanitizedUrl);
+
+        // Non-blocking side-effects after the tab has already been opened.
+        if (this.config.enableHaptics) {
+          void this.haptics.impact('light');
+        }
+        if (this.config.enableBreadcrumbs) {
+          void this.breadcrumbs.trackUserAction('browser_open', {
+            url: sanitizedUrl,
+            domain: extractDomain(sanitizedUrl),
+          });
+        }
       }
 
       // Update state

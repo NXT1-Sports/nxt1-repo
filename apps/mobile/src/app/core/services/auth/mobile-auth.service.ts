@@ -115,14 +115,10 @@ export class MobileAuthService implements OnDestroy {
    */
   private setupFirebaseAuthListener(): void {
     if (!this.platform.isBrowser()) return;
-
-    // Use AngularFire's authState observable (created in injection context)
     this.authStateSubscription = this.authState$.subscribe(async (firebaseUser) => {
       if (firebaseUser) {
-        // User signed in - sync with our state
         await this.syncFirebaseUser(firebaseUser);
       } else {
-        // User signed out
         await this.authManager.reset();
       }
     });

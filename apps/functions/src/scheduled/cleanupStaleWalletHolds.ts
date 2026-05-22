@@ -15,6 +15,7 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { logger } from 'firebase-functions/v2';
+import { postBackendCronJson } from './utils/backendCronRequest';
 
 const CRON_SECRET = defineSecret('CRON_SECRET');
 const BACKEND_URL = defineString('BACKEND_URL');
@@ -30,33 +31,22 @@ export const cleanupStaleWalletHolds = onSchedule(
   async () => {
     logger.info('Starting stale wallet hold cleanup sweep');
 
-    const url = `${BACKEND_URL.value()}/api/v1/billing/cron/expire-stale-holds`;
-
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Cron-Secret': CRON_SECRET.value(),
-        },
+      const result = await postBackendCronJson<{ data?: { expiredCount: number } }>({
+        backendBaseUrl: BACKEND_URL.value(),
+        endpointPath: '/api/v1/billing/cron/expire-stale-holds',
+        cronSecret: CRON_SECRET.value(),
+        jobName: 'cleanupStaleWalletHolds',
+        timeoutMs: 20_000,
+        maxAttempts: 3,
       });
 
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        // Use warn (not error) so the scheduler wrapper doesn't create a
-        // duplicate Error Reporting group — the outer catch logs the single
-        // authoritative error entry.
-        logger.warn('Backend returned non-OK response', {
-          status: response.status,
-          body: body.slice(0, 500),
-        });
-        throw new Error(`Stale wallet hold cleanup: backend returned ${response.status}`);
+      if (!result) {
+        logger.warn('Stale wallet hold cleanup skipped due to transient backend outage');
+        return;
       }
 
-      const result = (await response.json()) as {
-        data?: { expiredCount: number };
-      };
-      logger.info('Stale wallet hold cleanup completed', { result: result.data });
+      logger.info('Stale wallet hold cleanup completed', { result: result.data.data });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       logger.error('Stale wallet hold cleanup failed', { error: error.message });

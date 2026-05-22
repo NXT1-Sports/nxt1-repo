@@ -131,7 +131,7 @@ export class NxtMediaService {
       let result: SaveImageResult;
 
       if (isCapacitor()) {
-        result = await this.saveToGallery(options.data, fullFileName, format, options.album);
+        result = await this.saveToGallery(options.data, fullFileName, format);
       } else {
         result = await this.saveViaDownload(options.data, fullFileName, format);
       }
@@ -147,6 +147,38 @@ export class NxtMediaService {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to save image';
       this.logger.error('Save image error', err, { fileName: fullFileName });
+      return { success: false, error: message };
+    }
+  }
+
+  /**
+   * Save an image directly from a remote HTTPS URL to the device camera roll.
+   *
+   * On native iOS/Android, the @capacitor-community/media plugin fetches the
+   * image using its own native downloader (SDWebImageDownloader on iOS, Glide
+   * on Android). This bypasses WKWebView cross-origin restrictions and does NOT
+   * require a prior download-to-cache step.
+   *
+   * Use this method whenever you already have an HTTPS image URL (e.g. Firebase
+   * Storage). It is simpler and more reliable than `saveImageFromFileUri()`.
+   */
+  async saveImageFromUrl(url: string): Promise<SaveImageResult> {
+    if (!this.isBrowser || !isCapacitor()) {
+      return { success: false, error: 'Only available on native' };
+    }
+
+    // Log without the query-string to avoid leaking signed-URL tokens.
+    this.logger.info('Saving image from URL', { url: url.split('?')[0] });
+
+    try {
+      const { MediaPlugin } = await this.loadMediaPlugin();
+      await MediaPlugin.savePhoto({ path: url });
+      await this.haptics.notification('success');
+      this.logger.info('Image saved to camera roll from URL');
+      return { success: true, path: 'Photos' };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save image';
+      this.logger.error('saveImageFromUrl error', err, { url: url.split('?')[0] });
       return { success: false, error: message };
     }
   }
@@ -194,8 +226,7 @@ export class NxtMediaService {
   private async saveToGallery(
     data: string | Blob,
     fileName: string,
-    format: MediaImageFormat,
-    album?: string
+    format: MediaImageFormat
   ): Promise<SaveImageResult> {
     const { Filesystem, Directory } = await import('@capacitor/filesystem');
 
@@ -208,13 +239,18 @@ export class NxtMediaService {
       directory: Directory.Cache,
     });
 
+    // Pass the file:// URI directly to the Media plugin.
+    // Capacitor.convertFileSrc() converts file:// → https://localhost/_capacitor_file_/…
+    // which is a WKWebView-internal URL scheme — native SDWebImageDownloader cannot
+    // resolve it outside the WebView context, causing savePhoto to fail.
+    // The @capacitor-community/media plugin handles file:// URIs natively on both
+    // iOS (UIImage(contentsOfFile:)) and Android without any network request.
+    const fileUri = tempResult.uri;
+
     // Attempt to save to the photo gallery via the Media plugin
     try {
       const { MediaPlugin } = await this.loadMediaPlugin();
-      await MediaPlugin.savePhoto({
-        path: tempResult.uri,
-        album: album ?? 'NXT1',
-      });
+      await MediaPlugin.savePhoto({ path: fileUri });
 
       // Clean up temp file
       await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => {
@@ -222,29 +258,15 @@ export class NxtMediaService {
       });
       return { success: true, path: 'Photos' };
     } catch (mediaErr) {
-      this.logger.warn('Media plugin unavailable, falling back to share sheet', {
-        error: mediaErr instanceof Error ? mediaErr.message : String(mediaErr),
-        path: tempResult.uri,
+      this.logger.error('Failed to save image to camera roll', mediaErr, {
+        fileUri,
       });
-
-      // Fallback: open native share sheet with the temp file so the user can
-      // tap "Save Image" to save it to their camera roll.
-      try {
-        const { Share } = await import('@capacitor/share');
-        await Share.share({
-          title: 'Save Image',
-          files: [tempResult.uri],
-          dialogTitle: 'Save to Camera Roll',
-        });
-        return { success: true, path: tempResult.uri };
-      } catch (shareErr) {
-        // User dismissed the share sheet — not an error
-        const message = shareErr instanceof Error ? shareErr.message : String(shareErr);
-        if (message.includes('cancel') || message.includes('dismissed')) {
-          return { success: false, error: 'Cancelled' };
-        }
-        return { success: false, error: 'Could not save image. Please try again.' };
-      }
+      // Clean up temp file even on failure
+      await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => {
+        /* noop */
+      });
+      const message = mediaErr instanceof Error ? mediaErr.message : 'Failed to save image';
+      return { success: false, error: message };
     }
   }
 
@@ -415,19 +437,23 @@ export class NxtMediaService {
       return { success: false, error: 'Only available on native' };
     }
 
-    this.logger.info('Saving image from file URI', { fileUri, album });
+    this.logger.info('Saving image from file URI', { album });
 
     try {
       const { Filesystem, Directory } = await import('@capacitor/filesystem');
 
+      // Pass the file:// URI directly — same reason as saveToGallery:
+      // convertFileSrc() produces a WKWebView-internal URL that native code
+      // (SDWebImageDownloader) cannot resolve. The media plugin handles file://
+      // URIs natively on iOS (UIImage(contentsOfFile:)) and Android.
+
       try {
         const { MediaPlugin } = await this.loadMediaPlugin();
-        await MediaPlugin.savePhoto({ path: fileUri, album: album ?? 'NXT1' });
+        await MediaPlugin.savePhoto({ path: fileUri });
         // Clean up — best effort
         await Filesystem.deleteFile({ path: fileUri, directory: Directory.Cache }).catch(
           (cleanupErr: unknown) => {
             this.logger.warn('Failed to clean up cached image file', {
-              fileUri,
               error: cleanupErr instanceof Error ? cleanupErr.message : String(cleanupErr),
             });
           }
@@ -436,32 +462,92 @@ export class NxtMediaService {
         this.logger.info('Image saved to camera roll from file URI');
         return { success: true, path: 'Photos' };
       } catch (mediaErr) {
-        this.logger.warn('Media plugin unavailable, falling back to share sheet', {
-          error: mediaErr instanceof Error ? mediaErr.message : String(mediaErr),
+        this.logger.error('Failed to save to camera roll from file URI', mediaErr);
+        // Clean up on failure too
+        await Filesystem.deleteFile({ path: fileUri, directory: Directory.Cache }).catch(() => {
+          /* noop */
         });
-
-        const { Share } = await import('@capacitor/share');
-        try {
-          await Share.share({
-            title: 'Save Image',
-            files: [fileUri],
-            dialogTitle: 'Save to Camera Roll',
-          });
-          return { success: true, path: fileUri };
-        } catch (shareErr) {
-          const message = shareErr instanceof Error ? shareErr.message : String(shareErr);
-          if (
-            message.toLowerCase().includes('cancel') ||
-            message.toLowerCase().includes('dismiss')
-          ) {
-            return { success: false, error: 'Cancelled' };
-          }
-          return { success: false, error: 'Could not save image. Please try again.' };
-        }
+        const message = mediaErr instanceof Error ? mediaErr.message : 'Failed to save image';
+        return { success: false, error: message };
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to save image';
-      this.logger.error('saveImageFromFileUri error', err, { fileUri });
+      this.logger.error('saveImageFromFileUri error', err);
+      return { success: false, error: message };
+    }
+  }
+
+  /**
+   * Save a video directly from a remote HTTPS URL to the device camera roll.
+   *
+   * On native iOS/Android, the @capacitor-community/media plugin fetches the
+   * video using its native downloader. This bypasses WKWebView cross-origin
+   * restrictions and does NOT require a prior download-to-cache step.
+   *
+   * Use this method whenever you already have an HTTPS video URL (e.g. Firebase
+   * Storage, Cloudflare Stream, Runway-generated videos).
+   */
+  async saveVideoFromUrl(url: string): Promise<SaveImageResult> {
+    if (!this.isBrowser || !isCapacitor()) {
+      return { success: false, error: 'Only available on native' };
+    }
+
+    // Log without the query-string to avoid leaking signed-URL tokens.
+    this.logger.info('Saving video from URL', { url: url.split('?')[0] });
+
+    try {
+      const { Filesystem, Directory } = await import('@capacitor/filesystem');
+
+      // The @capacitor-community/media iOS saveVideo implementation has a critical
+      // bug: when given an HTTPS URL, it calls `try! Data(contentsOf: url!)` which
+      // is a SYNCHRONOUS blocking download on the main thread. This causes iOS to
+      // immediately kill the app (watchdog timeout / force-try crash).
+      //
+      // Workaround: download the video to the app cache using Capacitor's async
+      // Filesystem.downloadFile() first, then pass the file:// URI to saveVideo().
+      // The iOS plugin skips the synchronous download branch when the path starts
+      // with "file://" and saves to the Photos library safely via PHPhotoLibrary.
+      //
+      // Also: the plugin uses `data.lastIndex(of: ".")!` (force-unwrap) to extract
+      // the file extension from the URL. For Firebase Storage / CDN signed URLs that
+      // have no extension in the path, this would crash. We derive a safe .mp4
+      // fallback from the URL path before the query string.
+      const urlPath = url.split('?')[0];
+      const rawExt = urlPath.includes('.') ? urlPath.substring(urlPath.lastIndexOf('.')) : '';
+      const safeExt = /^\.[a-z0-9]{2,4}$/i.test(rawExt) ? rawExt : '.mp4';
+      const fileName = `nxt1-video-${Date.now()}${safeExt}`;
+
+      // Download to cache directory (async — does not block the main thread)
+      const downloadResult = await Filesystem.downloadFile({
+        url,
+        path: fileName,
+        directory: Directory.Cache,
+      });
+
+      const filePath = downloadResult.path;
+      if (!filePath) {
+        return { success: false, error: 'Failed to download video' };
+      }
+
+      // Ensure path has the file:// scheme so the iOS plugin takes the safe branch
+      const fileUri = filePath.startsWith('file://') ? filePath : `file://${filePath}`;
+
+      try {
+        const { MediaPlugin } = await this.loadMediaPlugin();
+        await MediaPlugin.saveVideo({ path: fileUri });
+      } finally {
+        // Clean up temp file whether save succeeded or failed
+        await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => {
+          /* noop */
+        });
+      }
+
+      await this.haptics.notification('success');
+      this.logger.info('Video saved to camera roll');
+      return { success: true, path: 'Photos' };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to save video';
+      this.logger.error('saveVideoFromUrl error', err, { url: url.split('?')[0] });
       return { success: false, error: message };
     }
   }
@@ -471,11 +557,14 @@ export class NxtMediaService {
    * This is optional — falls back gracefully if not installed.
    */
   private async loadMediaPlugin(): Promise<{
-    MediaPlugin: { savePhoto: (opts: { path: string; album?: string }) => Promise<void> };
+    MediaPlugin: {
+      savePhoto: (opts: { path: string; albumIdentifier?: string }) => Promise<void>;
+      saveVideo: (opts: { path: string; albumIdentifier?: string }) => Promise<void>;
+    };
   }> {
     // Dynamic import of optional peer dependency — caught at runtime if not installed
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mod = await (Function('return import("@capacitor-community/media")')() as Promise<any>);
+    const mod = (await import('@capacitor-community/media' as string)) as any;
     const MediaPlugin = mod.Media ?? mod.default ?? mod;
     return { MediaPlugin };
   }

@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/ui",
-  "version": "2.34.4",
+  "version": "2.34.23",
   "description": "NXT1 UI - Shared Angular/Ionic components, services, and infrastructure for cross-platform applications (2026 APF)",
   "sideEffects": [
     "*.css"
@@ -63,6 +63,7 @@
     "@capacitor/dialog": "^6.0.0 || ^7.0.0 || ^8.0.0",
     "@capacitor/filesystem": "^6.0.0 || ^7.0.0 || ^8.0.0",
     "@capacitor/haptics": "^6.0.0 || ^7.0.0 || ^8.0.0",
+    "@capacitor-community/media": "^7.0.0",
     "@capacitor/status-bar": "^8.0.0",
     "@ionic/angular": "^8.0.0",
     "ionicons": "^7.0.0 || ^8.0.0",
@@ -70,6 +71,9 @@
     "tus-js-client": "^4.3.1"
   },
   "peerDependenciesMeta": {
+    "@capacitor-community/media": {
+      "optional": true
+    },
     "@capacitor-firebase/storage": {
       "optional": true
     },

@@ -8,7 +8,7 @@ scripts:
   buildCommand: >-
     cd .. &&
     npm ci --include=dev &&
-    npx turbo run build --filter=@nxt1/backend
+    npm --prefix backend run build
   runCommand: node dist/index.js
 
 runConfig:
@@ -74,7 +74,7 @@ env:
     secret: CHART_MCP_API_TOKEN
     availability:
       - RUNTIME
-  - variable: SLACK_SENTRY_WEBHOOK_URL
+  - variable: SLACK_ALERT_WEBHOOK_URL
     secret: SLACK_SENTRY_WEBHOOK_URL
     availability:
       - RUNTIME

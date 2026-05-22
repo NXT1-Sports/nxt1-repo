@@ -18,14 +18,8 @@ export interface SlackAlertInput {
   readonly linkUrl?: string;
 }
 
-function resolveSlackWebhook(target: AlertTarget): string {
-  const generic = process.env['SLACK_ALERT_WEBHOOK_URL'] ?? '';
-  const sentry = process.env['SLACK_SENTRY_WEBHOOK_URL'] ?? '';
-  const agent = process.env['SLACK_AGENT_ALERT_WEBHOOK_URL'] ?? '';
-
-  if (target === 'agent') return agent || generic || sentry;
-  if (target === 'sentry') return sentry || generic || agent;
-  return generic || agent || sentry;
+function resolveSlackWebhook(): string {
+  return process.env['SLACK_ALERT_WEBHOOK_URL'] ?? '';
 }
 
 function formatAlertBody(input: SlackAlertInput): string {
@@ -45,7 +39,7 @@ function formatAlertBody(input: SlackAlertInput): string {
 export async function sendSlackAlert(input: SlackAlertInput): Promise<boolean> {
   const target = input.target ?? 'default';
   const severity = input.severity ?? 'error';
-  const webhookUrl = resolveSlackWebhook(target);
+  const webhookUrl = resolveSlackWebhook();
 
   if (!webhookUrl) {
     logger.warn('Slack alert skipped: webhook URL not configured', {
