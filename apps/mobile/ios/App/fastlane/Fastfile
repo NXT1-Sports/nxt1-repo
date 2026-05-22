@@ -153,19 +153,38 @@ platform :ios do
   # ============================================================================
   # APP STORE SUBMISSION
   # ============================================================================
-  desc "Submit already-uploaded build to App Store for review"
+  desc "Submit already-uploaded build to App Store for review (production only)"
   lane :submit_app_store do
+    # Safety guard — this lane must only run on production builds.
+    unless ENV['BUILD_PROFILE'] == 'production'
+      UI.important("⚠️  submit_app_store skipped — BUILD_PROFILE is '#{ENV['BUILD_PROFILE']}', not 'production'")
+      next
+    end
+
     api_key = load_api_key
 
-    # The binary was already uploaded by upload_testflight.
-    # skip_binary_upload: true tells deliver to find the existing build
-    # in App Store Connect and submit it for review without re-uploading.
+    notes = changelog_from_git_commits(
+      commits_count: 10,
+      pretty: "- %s",
+      merge_commit_filtering: "exclude_merges"
+    )
+
+    # Deliver requires a metadata directory with release_notes.txt in order to
+    # set the mandatory 'whatsNew' field on the App Store version.
+    # We create a minimal temp dir so we only touch that one field.
+    meta_dir = "/tmp/nxt1_metadata/en-US"
+    require 'fileutils'
+    FileUtils.mkdir_p(meta_dir)
+    File.write("#{meta_dir}/release_notes.txt", notes)
+
+    # The binary was already uploaded by upload_testflight — skip_binary_upload
+    # prevents a duplicate-upload error from Apple (-19232).
     upload_to_app_store(
       api_key: api_key,
+      metadata_path: "/tmp/nxt1_metadata",
       submit_for_review: true,
       automatic_release: false,
       skip_binary_upload: true,
-      skip_metadata: true,
       skip_screenshots: true,
       force: true,
       precheck_include_in_app_purchases: false
