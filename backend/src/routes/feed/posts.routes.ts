@@ -14,6 +14,7 @@ import {
   type FirestorePostDoc,
   type UserProfile as PostsUserProfile,
 } from '../../adapters/firestore-posts.adapter.js';
+import { PostVisibility } from '@nxt1/core';
 
 const router = Router();
 const POSTS_COLLECTION = 'Posts';
@@ -23,18 +24,29 @@ function isFirestorePostDoc(value: unknown): value is FirestorePostDoc {
   if (!value || typeof value !== 'object') {
     return false;
   }
-
   const record = value as Record<string, unknown>;
-  return (
-    typeof record['userId'] === 'string' &&
-    typeof record['content'] === 'string' &&
-    typeof record['type'] === 'string' &&
-    typeof record['visibility'] === 'string' &&
-    record['createdAt'] !== undefined &&
-    record['updatedAt'] !== undefined &&
-    typeof record['stats'] === 'object' &&
-    record['stats'] !== null
-  );
+  // Only enforce fields that are truly required and non-nullable.
+  // content → may be absent on media-only / video posts (normalised to '' below)
+  // stats   → may be missing on older documents (normalised to defaults below)
+  // visibility → may be absent; treated as 'public' when missing
+  return typeof record['userId'] === 'string' && typeof record['type'] === 'string';
+}
+
+/**
+ * Fill in safe defaults for optional Firestore fields that older or
+ * media-only post documents may omit before passing to the adapter.
+ */
+function normalisePostDoc(raw: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...raw,
+    content: typeof raw['content'] === 'string' ? raw['content'] : '',
+    // Absent visibility defaults to PostVisibility.PUBLIC value
+    visibility: typeof raw['visibility'] === 'string' ? raw['visibility'] : PostVisibility.PUBLIC,
+    stats:
+      raw['stats'] !== null && typeof raw['stats'] === 'object'
+        ? raw['stats']
+        : { shares: 0, views: 0 },
+  };
 }
 
 router.get(
@@ -72,17 +84,17 @@ router.get(
 
     const rawPostData = postDoc.data() as Record<string, unknown>;
     if (!isFirestorePostDoc(rawPostData)) {
-      logger.warn('[posts] Invalid post document shape', { postId });
+      logger.warn('[posts] Post document missing required fields (userId/type)', { postId });
       res.status(500).json({ success: false, error: 'Post data is invalid' });
       return;
     }
 
-    const postData = rawPostData;
-    const visibility = postData['visibility'] as string | undefined;
+    const postData = normalisePostDoc(rawPostData) as unknown as FirestorePostDoc;
+    const visibility = postData.visibility;
     const requestingUid: string | null = feedReq.user?.uid ?? null;
-    const ownerId = postData['userId'] as string | undefined;
+    const ownerId = postData.userId;
 
-    if (visibility && visibility !== 'public') {
+    if (visibility && visibility !== PostVisibility.PUBLIC) {
       if (!requestingUid || requestingUid !== ownerId) {
         res.status(403).json({ success: false, error: 'Post is not public' });
         return;
@@ -129,7 +141,7 @@ router.get(
     const postDetail = {
       id: feedPost.id,
       type: feedPost.type,
-      title: (rawPostData['title'] as string | undefined) ?? undefined,
+      title: (rawPostData['title'] as string | undefined) ?? undefined, // rawPostData keeps extra fields not in FirestorePostDoc
       content: feedPost.content,
       body: feedPost.content ?? undefined,
       thumbnailUrl: videoMedia?.thumbnailUrl ?? imageMedia?.url ?? undefined,
@@ -138,7 +150,7 @@ router.get(
       hlsUrl: videoMedia?.hlsUrl ?? undefined,
       cloudflareVideoId: videoMedia?.cloudflareVideoId ?? undefined,
       processingStatus: videoMedia?.processingStatus ?? undefined,
-      externalLink: ((postData['externalLinks'] as string[] | undefined) ?? [])[0] ?? undefined,
+      externalLink: (postData.externalLinks ?? [])[0] ?? undefined,
       shareCount: feedPost.engagement.shareCount,
       viewCount: feedPost.engagement.viewCount,
       duration: videoMedia?.duration ?? undefined,
