@@ -149,6 +149,8 @@ export interface ConnectedAccountsModalResult {
     url?: string;
     connectionType?: string;
   }[];
+  /** Sign-in providers that were disconnected during this session. */
+  readonly disconnectedSignInProviders?: readonly string[];
 }
 
 @Injectable({ providedIn: 'root' })
@@ -216,6 +218,7 @@ export class ConnectedAccountsModalService {
         displayOrder: number;
       }[];
       linkSources?: LinkSourcesFormData;
+      disconnectedSignInProviders?: readonly string[];
     }>({
       component: ConnectedAccountsSheetComponent,
       ...SHEET_PRESETS.FULL,
@@ -253,6 +256,7 @@ export class ConnectedAccountsModalService {
         saved: true,
         updatedLinks: result.data.updatedLinks,
         linkSources: result.data.linkSources,
+        disconnectedSignInProviders: result.data.disconnectedSignInProviders,
       };
     }
 
@@ -323,6 +327,7 @@ export class ConnectedAccountsModalService {
           saved: true,
           updatedLinks: data.updatedLinks,
           linkSources: data.linkSources,
+          disconnectedSignInProviders: data.disconnectedSignInProviders,
         };
       }
 

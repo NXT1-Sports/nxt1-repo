@@ -732,6 +732,13 @@ export class OnboardingLinkDropStepComponent {
   readonly linkSourcesChange = output<LinkSourcesFormData>();
 
   /**
+   * Emitted immediately after the user confirms a platform disconnect, before the modal closes.
+   * The parent container (settings sheet / web modal) should use this to persist the change
+   * to the DB right away rather than waiting for the user to dismiss the overlay.
+   */
+  readonly saveNow = output<void>();
+
+  /**
    * Emitted when the user manually enters tokens for a sign-in platform (Google / Microsoft).
    * The parent container is responsible for calling the backend connect endpoint and then
    * calling `markSigninConnected()` on success.
@@ -1061,6 +1068,8 @@ export class OnboardingLinkDropStepComponent {
       scopeId: source.scopeId,
     });
     this.emitChange();
+    // Signal the parent to persist immediately rather than waiting for modal dismiss.
+    this.saveNow.emit();
   }
 
   async onSourceTap(event: ConnectedSourceTapEvent): Promise<void> {

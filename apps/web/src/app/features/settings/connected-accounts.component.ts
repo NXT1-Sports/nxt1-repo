@@ -128,8 +128,10 @@ export class ConnectedAccountsComponent implements OnInit {
     }
 
     const connectedSources = mapToConnectedSources(data.linkSources.links);
+    const disconnectedSignInProviders = data.disconnectedSignInProviders ?? [];
     const result = await this.editProfileApi.updateSection(user.uid, 'connected-sources', {
       connectedSources,
+      ...(disconnectedSignInProviders.length > 0 ? { disconnectedSignInProviders } : {}),
     });
 
     if (result.success) {

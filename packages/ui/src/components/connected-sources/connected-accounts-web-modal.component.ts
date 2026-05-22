@@ -60,6 +60,10 @@ export interface ConnectedAccountsModalCloseData {
     url?: string;
     connectionType?: string;
   }[];
+  /** Sign-in providers (google/microsoft/yahoo) that were connected at modal open but
+   * have been explicitly disconnected by the user during this session. Used by the
+   * save handler to set `connectedEmails[].isActive = false` for those providers. */
+  readonly disconnectedSignInProviders?: readonly string[];
 }
 
 @Component({
@@ -111,6 +115,7 @@ export interface ConnectedAccountsModalCloseData {
             [scope]="scope()"
             [useOAuth]="true"
             (linkSourcesChange)="onLinkSourcesChange($event)"
+            (saveNow)="onSaveNow()"
             (firecrawlSigninRequest)="onFirecrawlSignin($event)"
             (oauthSigninRequest)="onOAuthSigninRequest($event)"
           />
@@ -342,6 +347,17 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
     });
   }
 
+  /**
+   * Called when a platform is disconnected inside the link-drop step.
+   * Immediately closes the modal with the current save data so the
+   * change is persisted to the DB without requiring the user to close manually.
+   */
+  onSaveNow(): void {
+    if (!this._hasChanges()) return;
+    this.breadcrumb.trackStateChange('connected-accounts-modal:auto-saved-on-disconnect');
+    this.onClose();
+  }
+
   protected onClose(): void {
     if (this._hasChanges()) {
       const data = this.buildCloseData();
@@ -477,9 +493,25 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
       url?: string;
       connectionType?: string;
     }[];
+    readonly disconnectedSignInProviders: readonly string[];
   } {
     const linkSources = this._latestLinkSources() ?? this.linkSourcesData() ?? undefined;
     const connectedLinks = linkSources?.links.filter((link) => link.connected) ?? [];
+
+    // Compute which sign-in providers were connected at modal open but are no longer connected.
+    const originalSignIns = new Set<string>(
+      (this.linkSourcesData()?.links ?? [])
+        .filter((l) => l.connected && l.connectionType === 'signin')
+        .map((l) => l.platform)
+    );
+    const currentSignIns = new Set<string>(
+      (linkSources?.links ?? [])
+        .filter((l) => l.connected && l.connectionType === 'signin')
+        .map((l) => l.platform)
+    );
+    const disconnectedSignInProviders = Array.from(originalSignIns).filter(
+      (p) => !currentSignIns.has(p)
+    );
 
     return {
       updatedLinks: connectedLinks.map((link, index) => ({
@@ -499,6 +531,7 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
         url: link.url,
         connectionType: link.connectionType,
       })),
+      disconnectedSignInProviders,
     };
   }
 }

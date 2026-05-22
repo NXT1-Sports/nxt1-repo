@@ -177,7 +177,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
         min-height: 0;
         /* Cancel the shell__content padding so profile page sits
            flush against edges — full-bleed Madden Franchise layout. */
-        margin-top: calc(-1 * (var(--nxt1-spacing-4, 1rem) + 7px));
+        // margin-top: calc(-1 * (var(--nxt1-spacing-4, 1rem) + 7px));
         margin-inline: calc(-1 * var(--shell-content-padding-x, 0px));
       }
 
