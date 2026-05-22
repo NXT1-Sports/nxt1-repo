@@ -2583,22 +2583,30 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       this.recurringFacade.refreshForThread(resolvedId ?? (this.threadId.trim() || null));
     });
 
-    // Track live view status for hint facade
-    effect(() => {
-      const hasLiveView = this._hasActiveLiveView();
-      if (hasLiveView) {
-        this.hintFacade.markLiveViewActive();
-      } else {
-        this.hintFacade.markLiveViewInactive();
-      }
-    });
+    // Track live view status for hint facade.
+    // This effect invokes facade methods that may write signals.
+    effect(
+      () => {
+        const hasLiveView = this._hasActiveLiveView();
+        if (hasLiveView) {
+          this.hintFacade.markLiveViewActive();
+        } else {
+          this.hintFacade.markLiveViewInactive();
+        }
+      },
+      { allowSignalWrites: true }
+    );
 
-    effect(() => {
-      const activePanel = this._activeContextPanel();
-      if (activePanel) {
-        this.hintFacade.showPanelHint(activePanel);
-      }
-    });
+    // Panel hints are written to signal state in the hint facade.
+    effect(
+      () => {
+        const activePanel = this._activeContextPanel();
+        if (activePanel) {
+          this.hintFacade.showPanelHint(activePanel);
+        }
+      },
+      { allowSignalWrites: true }
+    );
   }
 
   private yieldSourcePriority(source: YieldStateSource): number {

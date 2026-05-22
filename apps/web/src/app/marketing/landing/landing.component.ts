@@ -141,7 +141,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
           />
         </section>
 
-        @defer (on idle; on viewport) {
+        @defer (on viewport) {
           <section aria-labelledby="digital-staff-heading">
             <h2 id="digital-staff-heading" class="sr-only">Digital Sports Staff</h2>
             <nxt1-digital-sports-staff-section />
@@ -176,7 +176,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
              ═══════════════════════════════════════════════════ -->
 
         <!-- Value Props + Ecosystem -->
-        @defer (on idle; on viewport) {
+        @defer (on viewport) {
           <section aria-labelledby="ecosystem-heading">
             <h2 id="ecosystem-heading" class="sr-only">The NXT1 Ecosystem</h2>
             <nxt1-ecosystem-map />
@@ -196,7 +196,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
         }
 
         <!-- FAQ Section -->
-        @defer (on idle; on viewport) {
+        @defer (on viewport) {
           <section aria-labelledby="faq-heading">
             <h2 id="faq-heading" class="sr-only">Frequently Asked Questions</h2>
             <nxt1-faq-section
@@ -211,7 +211,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
         }
 
         <!-- Final CTA -->
-        @defer (on idle; on viewport) {
+        @defer (on viewport) {
           <section aria-labelledby="landing-final-cta-title">
             <nxt1-cta-banner
               variant="conversion"
