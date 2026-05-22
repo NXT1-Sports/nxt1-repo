@@ -8,7 +8,7 @@ scripts:
   buildCommand: >-
     cd .. &&
     npm ci --include=dev &&
-    npx turbo run build --filter=@nxt1/backend
+    npm --prefix backend run build
   runCommand: node dist/index.js
 
 runConfig:
