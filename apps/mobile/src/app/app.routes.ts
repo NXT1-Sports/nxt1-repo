@@ -120,15 +120,6 @@ export const routes: Routes = [
         redirectTo: 'profile/:userUnicode',
       },
 
-      // Canonical post deep links: post/:postId
-      // Fetches post data to resolve the author's profile code, then opens the
-      // post detail overlay on the author's profile page.
-      {
-        path: 'post/:postId',
-        loadComponent: () =>
-          import('./features/post/post-deep-link.page').then((m) => m.PostDeepLinkPage),
-      },
-
       // Profile - User profiles (inside shell for swipe-back gesture)
       {
         path: 'profile',
