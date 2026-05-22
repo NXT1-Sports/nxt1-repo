@@ -4,6 +4,9 @@
 # For Turborepo monorepos, we bypass the automatic Angular adapter
 # which fails to parse JSON output due to Turborepo's prefixed logging
 
+runtimeConfig:
+  nodeVersion: 22
+
 # Point to the Angular app directory
 rootDirectory: apps/web
 
