@@ -17,6 +17,18 @@
     "target": "web",
     "public": "apps/web/dist/nxt1-web/browser",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "redirects": [
+      {
+        "source": "/sitemap.xml",
+        "destination": "https://api.nxt1sports.com/sitemap.xml",
+        "type": 301
+      },
+      {
+        "source": "/sitemaps/:path*",
+        "destination": "https://api.nxt1sports.com/sitemaps/:path",
+        "type": 301
+      }
+    ],
     "rewrites": [
       {
         "source": "**",

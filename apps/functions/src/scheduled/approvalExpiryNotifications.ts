@@ -16,6 +16,7 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { logger } from 'firebase-functions/v2';
+import { postBackendCronJson } from './utils/backendCronRequest';
 
 const CRON_SECRET = defineSecret('CRON_SECRET');
 const BACKEND_URL = defineString('BACKEND_URL');
@@ -36,29 +37,23 @@ export const approvalExpiryNotifications = onSchedule(
   async () => {
     logger.info('Starting approval expiry notification sweep');
 
-    const url = `${BACKEND_URL.value()}/api/v1/agent-x/cron/approval-expiry-notifications`;
-
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Cron-Secret': CRON_SECRET.value(),
-        },
+      const result = await postBackendCronJson<{ data?: { notified: number } }>({
+        backendBaseUrl: BACKEND_URL.value(),
+        endpointPath: '/api/v1/agent-x/cron/approval-expiry-notifications',
+        cronSecret: CRON_SECRET.value(),
+        jobName: 'approvalExpiryNotifications',
+        timeoutMs: 15_000,
+        maxAttempts: 2,
       });
 
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        logger.error('Approval expiry notifications backend call failed', {
-          status: response.status,
-          body: body.slice(0, 500),
-        });
-        throw new Error(`Backend returned ${response.status}`);
+      if (!result) {
+        logger.warn('Approval expiry notification sweep skipped due to transient backend outage');
+        return;
       }
 
-      const result = (await response.json()) as { data?: { notified: number } };
-      if ((result.data?.notified ?? 0) > 0) {
-        logger.info('Approval expiry notifications dispatched', { result: result.data });
+      if ((result.data.data?.notified ?? 0) > 0) {
+        logger.info('Approval expiry notifications dispatched', { result: result.data.data });
       }
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));

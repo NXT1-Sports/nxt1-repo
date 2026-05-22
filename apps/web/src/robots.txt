@@ -3,21 +3,16 @@
 # https://www.robotstxt.org/robotstxt.html
 # ============================================
 
-# Default: deny everything, then explicitly allow indexable routes
+# Primary crawler policy
 User-agent: *
-Disallow: /
+Allow: /
 
-# SEO-critical public pages (explicitly allowed)
-Allow: /$
-Allow: /profile/
-Allow: /help-center/
-Allow: /programs/
-Allow: /agent-x/
-Allow: /post/
-Allow: /terms
-Allow: /privacy
-
-# Deny-all + allow-list mode is active above, so extra Disallow rules are unnecessary.
+# Keep private/authenticated surfaces out of crawl budget
+Disallow: /auth/
+Disallow: /settings/
+Disallow: /messages/
+Disallow: /create-post/
+Disallow: /invite/
 
 # Allow Googlebot to render JS and CSS (required for Angular SSR)
 User-agent: Googlebot
@@ -41,8 +36,5 @@ Disallow: /
 User-agent: BLEXBot
 Disallow: /
 
-# Sitemaps
-Sitemap: https://nxt1sports.com/sitemap.xml
-
-# Preferred host
-Host: https://nxt1sports.com
+# Sitemap (direct XML endpoint, no redirect hop)
+Sitemap: https://api.nxt1sports.com/sitemap.xml
