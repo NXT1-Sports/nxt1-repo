@@ -28,6 +28,7 @@ import { Router } from '@angular/router';
 import { NavController, Platform } from '@ionic/angular/standalone';
 import { NxtLoggingService, NxtBreadcrumbService } from '@nxt1/ui';
 import type { ILogger } from '@nxt1/core/logging';
+import { CapacitorHttpAdapter } from '../../infrastructure';
 import { environment } from '../../../../environments/environment';
 
 /** Deep link event for tracking */
@@ -58,6 +59,7 @@ export class DeepLinkService {
   private readonly ngZone = inject(NgZone);
   private readonly breadcrumbs = inject(NxtBreadcrumbService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('DeepLinkService');
+  private readonly http = inject(CapacitorHttpAdapter);
   private readonly webBaseUrl = environment.webUrl.replace(/\/+$/, '');
   private readonly supportedCustomSchemes = [
     'nxt1://',
@@ -148,10 +150,11 @@ export class DeepLinkService {
     },
 
     // Canonical post deep links: post/:postId
-    // PostDeepLinkPage fetches author unicode and opens post overlay on their profile.
+    // DeepLinkService resolves the author unicode via API, then navigates directly
+    // to /profile/:unicode?postId=:id — no intermediate page needed.
     {
       pattern: /^\/post\/([a-zA-Z0-9_-]+)\/?$/,
-      route: '/post/:postId',
+      route: '__resolve_post__',
       extractParams: (m) => ({ postId: this.decodePathSegment(m[1]) }),
     },
 
@@ -357,7 +360,12 @@ export class DeepLinkService {
 
       this._lastDeepLink.set(event);
 
-      if (route) {
+      if (route === '__resolve_post__') {
+        // Post deep link: fetch author unicode from API, then navigate to profile.
+        const postId = parsed.params['postId'] ?? '';
+        this.logger.info('Resolving post deep link via API', { postId });
+        void this.resolvePostAndNavigate(postId);
+      } else if (route) {
         this.logger.info('Navigating to deep link route', { route, params: parsed.params });
         this.navigateToRoute(route, parsed.params);
       } else {
@@ -367,6 +375,40 @@ export class DeepLinkService {
       }
     } catch (error) {
       this.logger.error('Error handling deep link', { url, error });
+    }
+  }
+
+  /**
+   * Fetch the post from the API to resolve the author's profile unicode,
+   * then navigate to their profile with postId so ProfileComponent can
+   * auto-open the post overlay.
+   */
+  private async resolvePostAndNavigate(postId: string): Promise<void> {
+    if (!postId) {
+      void this.navController.navigateRoot('/agent-x', { animated: false });
+      return;
+    }
+
+    try {
+      const response = await this.http.get<{
+        success: boolean;
+        data?: { author?: { username?: string } };
+      }>(`${environment.apiUrl}/feed/posts/${encodeURIComponent(postId)}`);
+
+      const unicode = response?.data?.author?.username;
+      if (response?.success && unicode) {
+        this.logger.info('Post deep link resolved', { postId, unicode });
+        void this.navController.navigateForward(
+          `/profile/${encodeURIComponent(unicode)}?postId=${encodeURIComponent(postId)}`,
+          { animated: false }
+        );
+      } else {
+        this.logger.warn('Post deep link: could not resolve author', { postId });
+        void this.navController.navigateRoot('/agent-x', { animated: false });
+      }
+    } catch (err) {
+      this.logger.error('Post deep link API call failed', err, { postId });
+      void this.navController.navigateRoot('/agent-x', { animated: false });
     }
   }
 
