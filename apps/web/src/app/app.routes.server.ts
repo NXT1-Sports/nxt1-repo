@@ -58,7 +58,7 @@ export const serverRoutes: ServerRoute[] = [
 
   // Public post detail pages for social preview
   {
-    path: 'post/:userUnicode/:postId',
+    path: 'post/:postId',
     renderMode: RenderMode.Server,
   },
 

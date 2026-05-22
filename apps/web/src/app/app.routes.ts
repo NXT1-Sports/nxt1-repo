@@ -216,7 +216,7 @@ export const routes: Routes = [
       // In-browser: opens PostDetailOverlayComponent, navigates back on close.
       // SEO: serves Open Graph meta for social link previews.
       {
-        path: 'post/:userUnicode/:postId',
+        path: 'post/:postId',
         loadChildren: () => import('./features/post/post.routes'),
       },
     ],

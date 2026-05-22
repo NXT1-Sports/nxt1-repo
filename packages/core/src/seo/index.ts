@@ -386,7 +386,7 @@ export function buildShareUrl(content: ShareableContent, baseUrl: string = BASE_
     case 'highlight':
       return `${resolvedBaseUrl}/video/${identifier}`;
     case 'post':
-      return `${resolvedBaseUrl}/post/${identifier}`;
+      return `${resolvedBaseUrl}/post/${encodeURIComponent((content as ShareablePost).id)}`;
     case 'article':
       return `${resolvedBaseUrl}/explore/pulse/${content.id}`;
     default:
@@ -528,9 +528,7 @@ export function buildVideoSeoConfig(video: ShareableVideo): SeoConfig {
  */
 export function buildPostSeoConfig(post: ShareablePost, baseUrl: string = BASE_URL): SeoConfig {
   const resolvedBaseUrl = (baseUrl || BASE_URL).replace(/\/+$/, '');
-  const canonicalPath = post.userUnicode
-    ? `/post/${encodeURIComponent(post.userUnicode)}/${encodeURIComponent(post.id)}`
-    : `/post/${encodeURIComponent(post.id)}`;
+  const canonicalPath = `/post/${encodeURIComponent(post.id)}`;
   const canonicalUrl = `${resolvedBaseUrl}${canonicalPath}`;
   const postTitle = post.title || 'Post';
   const title = `${postTitle} | ${post.authorName} | NXT1 Sports`;
