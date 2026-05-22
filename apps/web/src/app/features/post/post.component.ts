@@ -285,10 +285,19 @@ export class PostComponent implements OnInit {
   }
 
   private navigateBack(): void {
-    if (isPlatformBrowser(this.platformId) && window.history.length > 1) {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    // Angular sets `navigationId` on window.history.state for every router
+    // navigation. A value > 1 means the router navigated here from within
+    // the app (safe to go back in history). A value of 1 (or missing) means
+    // this was the very first Angular navigation — i.e. a direct link opened
+    // in a new tab or from an external share — so we push the user to Agent X
+    // instead of calling location.back() which would exit the site.
+    const historyState = window.history.state as { navigationId?: number } | null;
+    if (historyState?.navigationId && historyState.navigationId > 1) {
       this.location.back();
     } else {
-      void this.router.navigate(['/']);
+      void this.router.navigate(['/agent-x']);
     }
   }
 

@@ -147,10 +147,11 @@ export class DeepLinkService {
       }),
     },
 
-    // Legacy one-segment post links: keep users in-app (avoid 404 route).
+    // Canonical post deep links: post/:postId
+    // PostDeepLinkPage fetches author unicode and opens post overlay on their profile.
     {
       pattern: /^\/post\/([a-zA-Z0-9_-]+)\/?$/,
-      route: '/agent-x',
+      route: '/post/:postId',
       extractParams: (m) => ({ postId: this.decodePathSegment(m[1]) }),
     },
 
