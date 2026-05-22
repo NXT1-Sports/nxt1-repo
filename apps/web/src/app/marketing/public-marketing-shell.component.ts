@@ -95,11 +95,15 @@ const PUBLIC_MARKETING_SCROLL_CLASS = 'nxt1-public-marketing-scroll';
         <router-outlet />
       </main>
 
-      <nxt1-app-download-bar
-        [visible]="downloadBarVisible()"
-        [bottomOffset]="16"
-        (dismissed)="dismissDownloadBar()"
-      ></nxt1-app-download-bar>
+      @defer (on timer(6s); on interaction) {
+        <nxt1-app-download-bar
+          [visible]="downloadBarVisible()"
+          [bottomOffset]="16"
+          (dismissed)="dismissDownloadBar()"
+        ></nxt1-app-download-bar>
+      } @placeholder {
+        <div aria-hidden="true"></div>
+      }
     </div>
   `,
   styles: [

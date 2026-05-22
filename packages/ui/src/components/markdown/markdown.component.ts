@@ -782,6 +782,8 @@ export class NxtMarkdownComponent {
     const raw = this.content();
     if (!raw) return '';
 
+    const isBrowserRuntime = typeof window !== 'undefined';
+
     // Always normalize markdown to close any incomplete tokens (unclosed fences,
     // trailing backticks). For live streaming this handles partial chunks; for
     // history messages this handles content that was persisted mid-stream when
@@ -793,43 +795,50 @@ export class NxtMarkdownComponent {
     // so they render as <img> instead of raw yellow link text.
     const source = preprocessStorageImageUrls(normalized);
 
-    // Parse Markdown → HTML string
-    const html = markedInstance.parse(source, { async: false }) as string;
-
-    // Browser + DOMPurify available → full sanitization with attribute preservation
-    if (this._dompurifyReady()) {
-      const DOMPurify = (globalThis as Record<string, unknown>)[
-        'DOMPurify'
-      ] as (typeof import('dompurify'))['default'];
-      const clean = DOMPurify.sanitize(html, {
-        ADD_ATTR: [
-          'target',
-          'rel',
-          'aria-label',
-          'src',
-          'alt',
-          'aria-hidden',
-          'loading',
-          'class',
-          'controls',
-          'playsinline',
-          'muted',
-          'preload',
-          'poster',
-          'data-md-video-src',
-          'role',
-          'tabindex',
-        ],
-        ADD_TAGS: ['button', 'video', 'source'],
-      });
-      return this.sanitizer.bypassSecurityTrustHtml(clean);
+    // On browser runtimes, wait for DOMPurify before injecting HTML to avoid
+    // sanitizer crashes on malformed/partial markdown in older WebViews.
+    if (isBrowserRuntime && !this._dompurifyReady()) {
+      return '';
     }
 
-    // Server or DOMPurify not yet loaded → return raw HTML string.
-    // Angular's built-in [innerHTML] sanitizer handles XSS automatically.
-    // Some custom attrs (target, aria-label) and <button> elements may be
-    // stripped on this initial render, but once DOMPurify loads the signal
-    // triggers re-evaluation with full fidelity.
-    return html;
+    try {
+      // Parse Markdown → HTML string
+      const html = markedInstance.parse(source, { async: false }) as string;
+
+      // Browser + DOMPurify available → full sanitization with attribute preservation
+      if (this._dompurifyReady()) {
+        const DOMPurify = (globalThis as Record<string, unknown>)[
+          'DOMPurify'
+        ] as (typeof import('dompurify'))['default'];
+        const clean = DOMPurify.sanitize(html, {
+          ADD_ATTR: [
+            'target',
+            'rel',
+            'aria-label',
+            'src',
+            'alt',
+            'aria-hidden',
+            'loading',
+            'class',
+            'controls',
+            'playsinline',
+            'muted',
+            'preload',
+            'poster',
+            'data-md-video-src',
+            'role',
+            'tabindex',
+          ],
+          ADD_TAGS: ['button', 'video', 'source'],
+        });
+        return this.sanitizer.bypassSecurityTrustHtml(clean);
+      }
+
+      // Server fallback: Angular's SSR sanitizer path will still protect output.
+      return html;
+    } catch {
+      // Fail closed on malformed markdown input.
+      return '';
+    }
   });
 }
