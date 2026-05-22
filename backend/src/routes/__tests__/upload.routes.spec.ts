@@ -365,7 +365,8 @@ describe('Upload Routes', () => {
                 duration: 42,
                 thumbnail:
                   'https://customer-123.cloudflarestream.com/video-123/thumbnails/thumbnail.jpg',
-                preview: 'https://customer-123.cloudflarestream.com/video-123/thumbnails/preview.jpg',
+                preview:
+                  'https://customer-123.cloudflarestream.com/video-123/thumbnails/preview.jpg',
                 uploaded: '2026-04-13T00:00:00.000Z',
                 meta: {
                   name: 'nxt1-feed-test-user-video',
