@@ -79,10 +79,7 @@ env:
     secret: CHART_MCP_API_TOKEN
     availability:
       - RUNTIME
-  # SLACK_SENTRY_WEBHOOK_URL is optional — code uses ?? '' fallback.
-  # Secret STAGING_SLACK_SENTRY_WEBHOOK_URL not provisioned in prod GCP project.
-  # Uncomment when the secret is created:
-  # - variable: SLACK_SENTRY_WEBHOOK_URL
-  #   secret: STAGING_SLACK_SENTRY_WEBHOOK_URL
-  #   availability:
-  #     - RUNTIME
+  - variable: SLACK_SENTRY_WEBHOOK_URL
+    secret: STAGING_SLACK_SENTRY_WEBHOOK_URL
+    availability:
+      - RUNTIME

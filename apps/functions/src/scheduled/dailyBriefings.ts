@@ -9,6 +9,7 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { logger } from 'firebase-functions/v2';
+import { postBackendCronJson } from './utils/backendCronRequest';
 
 const CRON_SECRET = defineSecret('CRON_SECRET');
 const BACKEND_URL = defineString('BACKEND_URL');
@@ -24,28 +25,22 @@ export const dailyBriefings = onSchedule(
   async () => {
     logger.info('Starting daily Agent X briefings run');
 
-    const url = `${BACKEND_URL.value()}/api/v1/agent-x/cron/daily-briefings`;
-
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-cron-secret': CRON_SECRET.value(),
-        },
+      const result = await postBackendCronJson<{ data?: unknown }>({
+        backendBaseUrl: BACKEND_URL.value(),
+        endpointPath: '/api/v1/agent-x/cron/daily-briefings',
+        cronSecret: CRON_SECRET.value(),
+        jobName: 'dailyBriefings',
+        timeoutMs: 45_000,
+        maxAttempts: 3,
       });
 
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        logger.error('Daily briefings backend call failed', {
-          status: response.status,
-          body: body.slice(0, 500),
-        });
-        throw new Error(`Backend returned ${response.status}`);
+      if (!result) {
+        logger.warn('Daily briefings run skipped due to transient backend outage');
+        return;
       }
 
-      const result = await response.json();
-      logger.info('Daily Agent X briefings completed', { result });
+      logger.info('Daily Agent X briefings completed', { result: result.data });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       logger.error('Daily Agent X briefings failed', { error: error.message });
