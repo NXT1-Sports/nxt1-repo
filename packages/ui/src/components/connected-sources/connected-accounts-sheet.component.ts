@@ -85,6 +85,7 @@ import {
           [scope]="_scope()"
           [useOAuth]="true"
           (linkSourcesChange)="onLinkSourcesChange($event)"
+          (saveNow)="onSaveNow()"
           (firecrawlSigninRequest)="onFirecrawlSignin($event)"
           (oauthSigninRequest)="onOAuthSigninRequest($event)"
         />
@@ -258,6 +259,20 @@ export class ConnectedAccountsSheetComponent implements OnInit {
     });
   }
 
+  /**
+   * Called when a platform is disconnected inside the link-drop step.
+   * Immediately dismisses the sheet with the current save data so the
+   * change is persisted to the DB without requiring the user to close manually.
+   */
+  onSaveNow(): void {
+    if (!this._hasChanges()) return;
+    const data = this.buildCloseData();
+    this.breadcrumb.trackStateChange('connected-accounts-sheet:auto-saved-on-disconnect', {
+      count: data.updatedLinks.length,
+    });
+    void this.modalCtrl.dismiss(data, 'save');
+  }
+
   dismiss(): void {
     if (this._hasChanges()) {
       const data = this.buildCloseData();
@@ -389,9 +404,25 @@ export class ConnectedAccountsSheetComponent implements OnInit {
       displayOrder: number;
     }[];
     readonly linkSources?: LinkSourcesFormData;
+    readonly disconnectedSignInProviders: readonly string[];
   } {
     const linkSources = this._latestLinkSources() ?? this._linkSourcesData() ?? undefined;
     const connectedLinks = linkSources?.links.filter((link) => link.connected) ?? [];
+
+    // Compute which sign-in providers were connected at sheet open but are no longer connected.
+    const originalSignIns = new Set<string>(
+      (this._linkSourcesData()?.links ?? [])
+        .filter((l) => l.connected && l.connectionType === 'signin')
+        .map((l) => l.platform)
+    );
+    const currentSignIns = new Set<string>(
+      (linkSources?.links ?? [])
+        .filter((l) => l.connected && l.connectionType === 'signin')
+        .map((l) => l.platform)
+    );
+    const disconnectedSignInProviders = Array.from(originalSignIns).filter(
+      (p) => !currentSignIns.has(p)
+    );
 
     return {
       sources: connectedLinks.map((link) => ({
@@ -411,6 +442,7 @@ export class ConnectedAccountsSheetComponent implements OnInit {
         displayOrder: index,
       })),
       linkSources,
+      disconnectedSignInProviders,
     };
   }
 }

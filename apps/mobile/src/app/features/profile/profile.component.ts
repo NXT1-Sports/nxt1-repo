@@ -36,7 +36,7 @@ import {
   DestroyRef,
   viewChild,
 } from '@angular/core';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { toSignal, toObservable, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { map, distinctUntilChanged, switchMap, tap, from, of, combineLatest, filter } from 'rxjs';
 import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
@@ -267,6 +267,7 @@ export class ProfileComponent {
   // ============================================
 
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   private readonly authService = inject(MobileAuthService);
   private readonly stateProfileService = inject(ProfileService);
   private readonly editProfileSheet = inject(EditProfileBottomSheetService);
@@ -446,6 +447,15 @@ export class ProfileComponent {
       };
     }
   });
+
+  /** postId captured from deep link query param (for /post/... redirects). */
+  private readonly deepLinkedPostId = toSignal(
+    this.route.queryParamMap.pipe(map((params) => params.get('postId') ?? '')),
+    { initialValue: '' }
+  );
+
+  /** Guards auto-open so timeline refreshes don't repeatedly reopen the same post. */
+  private readonly autoOpenedPostId = signal<string | null>(null);
 
   constructor() {
     this.destroyRef.onDestroy(() => {
@@ -676,6 +686,29 @@ export class ProfileComponent {
           }
         },
       });
+
+    // When a deep link redirects to /profile/:unicode?postId=:id, auto-open that post
+    // once timeline items are available, then clear query params to avoid repeated opens.
+    effect(() => {
+      const postId = this.deepLinkedPostId();
+      if (!postId) return;
+      if (this.autoOpenedPostId() === postId) return;
+      if (this.uiProfileService.timelineLoading()) return;
+
+      const matchingPost = this.uiProfileService.allPosts().find((post) => post.id === postId);
+      if (!matchingPost) return;
+
+      this.autoOpenedPostId.set(postId);
+      this.onPostClick(matchingPost);
+
+      // Remove postId from URL so normal profile refresh/navigation does not reopen.
+      void this.router.navigate([], {
+        relativeTo: this.route,
+        queryParams: { postId: null },
+        queryParamsHandling: 'merge',
+        replaceUrl: true,
+      });
+    });
   }
 
   // ============================================

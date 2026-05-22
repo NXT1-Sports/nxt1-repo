@@ -617,6 +617,7 @@ export class SettingsShellComponent implements OnInit, AfterViewInit, OnDestroy 
         data: {
           updatedLinks: result.updatedLinks,
           linkSources: result.linkSources,
+          disconnectedSignInProviders: result.disconnectedSignInProviders ?? [],
           // If resync was also requested, the parent will trigger it AFTER saving
           requestResync: result.resync === true,
           resyncSources: result.sources ?? [],

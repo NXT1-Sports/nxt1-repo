@@ -259,6 +259,7 @@ export class SettingsComponent {
           event as SettingsActionEvent & {
             data?: {
               linkSources?: LinkSourcesFormData;
+              disconnectedSignInProviders?: readonly string[];
               requestResync?: boolean;
               resyncSources?: readonly {
                 platform: string;
@@ -278,8 +279,10 @@ export class SettingsComponent {
         }
 
         const connectedSources = mapToConnectedSources(data.linkSources.links);
+        const disconnectedSignInProviders = data.disconnectedSignInProviders ?? [];
         const result = await this.editProfileApi.updateSection(user.uid, 'connected-sources', {
           connectedSources,
+          ...(disconnectedSignInProviders.length > 0 ? { disconnectedSignInProviders } : {}),
         });
 
         if (result.success) {

@@ -14,7 +14,14 @@ import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
 import { asyncHandler } from '@nxt1/core/errors/express';
 import { notFoundError, forbiddenError, fieldError } from '@nxt1/core/errors';
-import type { User, SportProfile, TeamType, UserRole, VerifiedMetric } from '@nxt1/core';
+import type {
+  User,
+  SportProfile,
+  TeamType,
+  UserRole,
+  VerifiedMetric,
+  ConnectedEmail,
+} from '@nxt1/core';
 import { formatFileSize, TEAM_TYPES, SPORT_POSITIONS, normalizeSportKey } from '@nxt1/core';
 import { mapToConnectedSources } from '@nxt1/core/profile';
 import { invalidateProfileCaches } from './shared.js';
@@ -835,6 +842,37 @@ router.put(
 
     // Map section data to Firestore updates
     const updates = sectionToFirestoreUpdate(typedSectionId, sectionData, user, sportIndex);
+
+    // For 'connected-sources', also handle sign-in connection deactivations.
+    // Frontend sends disconnectedSignInProviders[] when the user removes a Google/Microsoft
+    // sign-in connection. We set connectedEmails[x].isActive = false for those providers
+    // so the disconnected state persists across page refreshes.
+    if (
+      typedSectionId === 'connected-sources' &&
+      Array.isArray(sectionData?.['disconnectedSignInProviders']) &&
+      (sectionData['disconnectedSignInProviders'] as unknown[]).length > 0
+    ) {
+      const disconnectedProviders = (
+        sectionData['disconnectedSignInProviders'] as unknown[]
+      ).filter((p): p is string => typeof p === 'string');
+
+      if (disconnectedProviders.length > 0) {
+        const disconnectedSet = new Set(disconnectedProviders);
+        const existingEmails: ConnectedEmail[] = user.connectedEmails ?? [];
+        const updatedEmails = existingEmails.map((ce) =>
+          disconnectedSet.has(ce.provider) ? { ...ce, isActive: false } : ce
+        );
+        // Only write if something actually changed
+        const changed = updatedEmails.some((ce, i) => ce.isActive !== existingEmails[i]?.isActive);
+        if (changed) {
+          updates['connectedEmails'] = updatedEmails;
+          logger.info('[EditProfile] Deactivating sign-in connections', {
+            userId: uid,
+            disconnected: disconnectedProviders,
+          });
+        }
+      }
+    }
 
     logger.debug('[EditProfile] Firestore updates prepared', {
       sectionId,

@@ -135,11 +135,23 @@ export class DeepLinkService {
       }),
     },
 
-    // Post/Content
+    // Canonical post links from web share URLs.
+    // Mobile app has no standalone /post route, so route to owner profile and
+    // carry postId in query params for downstream handling.
+    {
+      pattern: /^\/post\/([^/]+)\/([^/]+)\/?$/,
+      route: '/profile/:unicode',
+      extractParams: (m) => ({
+        unicode: this.decodePathSegment(m[1]),
+        postId: this.decodePathSegment(m[2]),
+      }),
+    },
+
+    // Legacy one-segment post links: keep users in-app (avoid 404 route).
     {
       pattern: /^\/post\/([a-zA-Z0-9_-]+)\/?$/,
-      route: '/post',
-      extractParams: (m) => ({ postId: m[1] }),
+      route: '/agent-x',
+      extractParams: (m) => ({ postId: this.decodePathSegment(m[1]) }),
     },
 
     // Rankings

@@ -293,6 +293,7 @@ export class SettingsComponent implements OnInit {
           event as SettingsActionEvent & {
             data?: {
               linkSources?: LinkSourcesFormData;
+              disconnectedSignInProviders?: readonly string[];
               requestResync?: boolean;
               resyncSources?: readonly {
                 platform: string;
@@ -310,11 +311,14 @@ export class SettingsComponent implements OnInit {
           return;
         }
         const connectedSources = mapToConnectedSources(data.linkSources.links);
+        const disconnectedSignInProviders = data.disconnectedSignInProviders ?? [];
         this.logger.info('Saving connected accounts from settings', {
           count: connectedSources.length,
+          disconnectedSignIns: disconnectedSignInProviders.length,
         });
         const result = await this.editProfileApi.updateSection(user.uid, 'connected-sources', {
           connectedSources,
+          ...(disconnectedSignInProviders.length > 0 ? { disconnectedSignInProviders } : {}),
         });
         if (result.success) {
           // Re-sync the AppUser signal so the settings UI reflects the new links immediately
