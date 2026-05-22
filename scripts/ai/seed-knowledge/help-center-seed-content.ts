@@ -1212,7 +1212,7 @@ export const HELP_CENTER_AGENT_X_ARTICLES = [
     <strong>Long operations run in the background.</strong> You do not have to wait. Navigate away, close the app, come back later — Agent X keeps working.
   </li>
   <li>
-    <strong>Results are delivered to the right place.</strong> Completed operations appear in your Activity feed as a notification. Results are written to the relevant section of your profile, team, or messages.
+    <strong>Results are delivered to the right place.</strong> Completed operations appear in your Activity feed as a notification. Results are written to the relevant section of your profile, team workspace, or the Agent X chat thread where you started the request.
   </li>
 </ol>
 
@@ -1264,7 +1264,7 @@ export const HELP_CENTER_AGENT_X_ARTICLES = [
 <p>When an operation completes, two things happen:</p>
 <ol>
   <li>A notification arrives in your <strong>Activity</strong> feed telling you it is done.</li>
-  <li>The result is written to the correct destination — your profile Intel tab, your media library, your messages, or the chat thread where you issued the command.</li>
+  <li>The result is written to the correct destination — your profile Intel tab, your media library, or the Agent X chat thread where you issued the command.</li>
 </ol>
 
 <p>You can check the status of any active operation at any time by opening Agent X and scrolling to <strong>Active Operations</strong> on the command center. Each operation shows its current status, what coordinator is running, and an estimated time remaining for longer tasks.</p>
@@ -1375,7 +1375,7 @@ export const HELP_CENTER_AGENT_X_ARTICLES = [
 <p><strong>Athletes</strong> receive briefings focused on recruiting momentum and profile performance:</p>
 <ul>
   <li>Profile views from coaches and scouts in the past 24 hours</li>
-  <li>New recruiting interest or messages from programs</li>
+  <li>New recruiting interest, email replies, or communication events from programs</li>
   <li>Upcoming games, practices, or evaluation events on your schedule</li>
   <li>Agent X's recommended action for the day — often a quick command you can execute in one tap</li>
   <li>Alerts on time-sensitive recruiting windows (early signing period, camp registration deadlines, etc.)</li>
@@ -1738,7 +1738,7 @@ export const HELP_CENTER_GETTING_STARTED_ARTICLES = [
   <li><strong>Agent X</strong> — The primary interface. Where you interact with Agent X, review active background operations, receive your daily briefing, and execute quick commands. Accessible from the bottom navigation or by tapping the Agent X button anywhere in the app.</li>
   <li><strong>Profile</strong> — Your public-facing sports presence. Athletes have a three-tab profile: Intel (AI-authored intelligence report) · Timeline (activity feed) · Connect (recruiting contact). Coaches and Directors have program-facing profiles.</li>
   <li><strong>Team</strong> — Your team workspace. Roster, schedule, stats, staff, sponsors, and media — all managed from one place.</li>
-  <li><strong>Activity</strong> — Your notification feed. Operation completions, team updates, profile views, and incoming messages all arrive here.</li>
+  <li><strong>Activity</strong> — Your notification feed. Operation completions, team updates, profile views, and communication alerts all arrive here.</li>
   <li><strong>Sidenav</strong> — Full access to Billing &amp; Usage, Settings, Invite, and the Help Center. Swipe from the left or tap the menu icon.</li>
 </ul>
 

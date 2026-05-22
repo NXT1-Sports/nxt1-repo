@@ -18,6 +18,8 @@ describe('mobile share and deep-link hardening', () => {
   it('supports the canonical profile and team deep-link routes', () => {
     expect(deepLinkSource).toContain("route: '/profile/:sport/:name/:unicode'");
     expect(deepLinkSource).toContain("route: '/team/:slug/:teamCode'");
+    expect(deepLinkSource).toContain('pattern: /^\\/post\\/([^/]+)\\/([^/]+)\\/?$/');
+    expect(deepLinkSource).toContain("route: '/profile/:unicode'");
   });
 
   it('normalizes both current and legacy app URL schemes', () => {

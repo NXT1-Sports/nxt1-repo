@@ -47,6 +47,7 @@ export class FeedEngagementApiService implements FeedEngagementAdapter {
     await this.shareService.sharePost(
       {
         id: item.id,
+        userUnicode: item.author.profileCode,
         slug: item.id,
         authorName: item.author.displayName,
         authorAvatar: item.author.avatarUrl ?? '',

@@ -114,6 +114,19 @@ export const routes: Routes = [
         loadChildren: () => import('./features/team/team.routes').then((m) => m.TEAM_ROUTES),
       },
 
+      // Canonical shared post URLs from web route to profile on mobile.
+      // Mobile renders post details via overlay from profile/team contexts.
+      {
+        path: 'post/:userUnicode/:postId',
+        redirectTo: 'profile/:userUnicode',
+      },
+
+      // Legacy one-segment post links fallback to Agent X instead of 404.
+      {
+        path: 'post/:postId',
+        redirectTo: 'agent-x',
+      },
+
       // Profile - User profiles (inside shell for swipe-back gesture)
       {
         path: 'profile',

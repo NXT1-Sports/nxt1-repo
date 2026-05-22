@@ -24,7 +24,7 @@
 import pdfmakeModule from 'pdfmake';
 import { stringify } from 'csv-stringify/sync';
 import type { Content, TableCell } from 'pdfmake';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, normalize, basename } from 'node:path';
 import { createRequire } from 'node:module';
 import { readFileSync } from 'node:fs';
 
@@ -39,6 +39,15 @@ type TDocumentDefinitions = Parameters<typeof pdfmakeModule.createPdf>[0];
 const _require = createRequire(import.meta.url);
 const pdfmakePkgDir = dirname(_require.resolve('pdfmake/package.json'));
 const fontsDir = resolve(pdfmakePkgDir, 'build/fonts/Roboto');
+const allowedFontNames = new Set([
+  'Roboto-Regular.ttf',
+  'Roboto-Medium.ttf',
+  'Roboto-Italic.ttf',
+  'Roboto-MediumItalic.ttf',
+]);
+const allowedFontPaths = new Set(
+  [...allowedFontNames].map((name) => normalize(resolve(fontsDir, name)))
+);
 
 // Populate pdfmake VFS with base64-encoded font data at module init.
 // The singleton API (createPdf / getBuffer) is the browser-compatible API — it requires fonts to
@@ -59,10 +68,10 @@ const fontsDir = resolve(pdfmakePkgDir, 'build/fonts/Roboto');
 // addFonts merges into pdfmake.fonts; with VFS loaded, pdfmake resolves each key from vfs memory.
 pdfmake.addFonts({
   Roboto: {
-    normal: 'Roboto-Regular.ttf',
-    bold: 'Roboto-Medium.ttf',
-    italics: 'Roboto-Italic.ttf',
-    bolditalics: 'Roboto-MediumItalic.ttf',
+    normal: resolve(fontsDir, 'Roboto-Regular.ttf'),
+    bold: resolve(fontsDir, 'Roboto-Medium.ttf'),
+    italics: resolve(fontsDir, 'Roboto-Italic.ttf'),
+    bolditalics: resolve(fontsDir, 'Roboto-MediumItalic.ttf'),
   },
 });
 
@@ -72,10 +81,14 @@ pdfmake.addFonts({
   pdfmake as unknown as { setUrlAccessPolicy: (fn: (url: string) => boolean) => void }
 ).setUrlAccessPolicy(() => false);
 
-// Deny local FS access — all font data is in VFS memory; no file paths are needed at generation time.
+// Allowlist only bundled Roboto font files needed by pdfmake runtime fallback.
+// Deny all other local file access.
 (
   pdfmake as unknown as { setLocalAccessPolicy: (fn: (path: string) => boolean) => void }
-).setLocalAccessPolicy(() => false);
+).setLocalAccessPolicy((path: string) => {
+  const normalized = normalize(path);
+  return allowedFontPaths.has(normalized) || allowedFontNames.has(basename(normalized));
+});
 
 // ─── Public Types ──────────────────────────────────────────────────────────
 

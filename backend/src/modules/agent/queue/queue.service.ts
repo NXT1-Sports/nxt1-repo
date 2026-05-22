@@ -280,13 +280,12 @@ export class AgentQueueService {
 
   /**
    * Lightweight health probe for queue admission control.
-   * Returns true only when the underlying Redis connection can respond to PING.
+   * Returns true only when Redis-backed queue commands succeed.
    */
   async isHealthy(): Promise<boolean> {
     try {
-      const client = await this.queue.client;
-      const pong = await client.ping();
-      return pong === 'PONG';
+      await this.queue.getJobCounts('waiting');
+      return true;
     } catch {
       return false;
     }
