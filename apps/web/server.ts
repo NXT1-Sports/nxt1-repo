@@ -123,26 +123,27 @@ function isStaticAssetRequest(req: Request): boolean {
 }
 
 function optimizePublicMarketingHtml(html: string): string {
-  return html
-    .replace(/<link rel="modulepreload" href="[^"]+">/g, '')
-    .replace(
-      /<link rel="preload" href="styles-deferred\.css" as="style"[\s\S]*?<\/noscript>\s*/g,
-      ''
-    )
-    .replace(
-      /<script type="text\/javascript" id="ng-event-dispatch-contract">[\s\S]*?<\/script>\s*/g,
-      ''
-    )
-    .replace(/<script>window\.__jsaction_bootstrap[\s\S]*?<\/script>\s*/g, '')
-    .replace(/<script src="(?:polyfills|main)-[^"]+\.js" type="module"><\/script>\s*/g, '')
-    .replace(
-      /<link rel="preconnect" href="https:\/\/firebaseinstallations\.googleapis\.com"(?: crossorigin(?:="")?)?>\s*/g,
-      ''
-    )
-    .replace(
-      /<link rel="dns-prefetch" href="https:\/\/(firestore|identitytoolkit)\.googleapis\.com">\s*/g,
-      ''
-    );
+  return (
+    html
+      // Strip eager module preloads from SSR HTML so above-the-fold marketing pages
+      // only hydrate what they need on first paint.
+      .replace(/<link\b[^>]*rel=["']modulepreload["'][^>]*>\s*/gi, '')
+      .replace(
+        /<link\b[^>]*href=["']styles-deferred\.css["'][^>]*>\s*(?:<noscript>[\s\S]*?<\/noscript>)?\s*/gi,
+        ''
+      )
+      .replace(
+        /<script\b[^>]*id=["']ng-event-dispatch-contract["'][^>]*>[\s\S]*?<\/script>\s*/gi,
+        ''
+      )
+      .replace(/<script\b[^>]*>\s*window\.__jsaction_bootstrap[\s\S]*?<\/script>\s*/gi, '')
+      .replace(/<script\b[^>]*src=["'](?:polyfills|main)-[^"']+\.js["'][^>]*><\/script>\s*/gi, '')
+      .replace(
+        /<link\b[^>]*href=["']https:\/\/(?:storage\.googleapis\.com|firebaseinstallations\.googleapis\.com|firestore\.googleapis\.com|identitytoolkit\.googleapis\.com|fonts\.googleapis\.com|fonts\.gstatic\.com|a\.espncdn\.com|firebasestorage\.googleapis\.com|nxt1sports\.firebasestorage\.app)["'][^>]*>\s*/gi,
+        ''
+      )
+      .replace(/\n{3,}/g, '\n\n')
+  );
 }
 
 function getAcceptedEncoding(req: Request): 'br' | 'gzip' | null {
@@ -289,19 +290,24 @@ export function createServer(): express.Express {
   // BACKEND API PROXY (Sitemap, XML, and API routes)
   // ============================================
 
-  // Proxy sitemap.xml and dynamic sitemaps to the backend API
-  server.use(
-    /^\/sitemap|^\/sitemaps/,
-    createProxyMiddleware({
-      target: process.env['BACKEND_URL'] || 'https://api.nxt1sports.com',
-      changeOrigin: true,
-      pathRewrite: (path: string) => path, // Keep path as-is
-      onError: (err: Error, req: Request, res: Response) => {
-        console.error('Sitemap proxy error:', err.message);
-        res.status(503).json({ error: 'Sitemap service unavailable' });
-      },
-    } as Parameters<typeof createProxyMiddleware>[0])
-  );
+  // Proxy XML sitemap endpoints to backend before SSR so crawlers never receive HTML fallback.
+  const backendTarget = process.env['BACKEND_URL'] || 'https://api.nxt1sports.com';
+  const sitemapProxy = createProxyMiddleware({
+    target: backendTarget,
+    changeOrigin: true,
+    pathRewrite: (path: string) => path,
+    onError: (err: Error, _req: Request, res: Response) => {
+      console.error('Sitemap proxy error:', err.message);
+      res
+        .status(503)
+        .type('application/xml; charset=utf-8')
+        .send('<?xml version="1.0" encoding="UTF-8"?><error>Sitemap service unavailable</error>');
+    },
+  } as Parameters<typeof createProxyMiddleware>[0]);
+
+  server.get('/sitemap.xml', sitemapProxy);
+  server.get('/sitemaps/core.xml', sitemapProxy);
+  server.get('/sitemaps/profiles-:page.xml', sitemapProxy);
 
   // ============================================
   // ANGULAR UNIVERSAL SSR
@@ -309,7 +315,7 @@ export function createServer(): express.Express {
 
   // All routes (except static files) go through Angular
   // Express 4 wildcard syntax - matches root / and all sub-paths
-  server.get('*', (req: Request, res: Response, next: NextFunction) => {
+  server.get(/.*/, (req: Request, res: Response, next: NextFunction) => {
     // Never SSR-fallback missing hashed assets (JS/CSS/etc.), otherwise
     // browsers receive HTML for module requests and throw MIME type errors.
     if (isStaticAssetRequest(req)) {
