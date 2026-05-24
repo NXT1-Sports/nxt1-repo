@@ -1532,6 +1532,26 @@ export class AgentWorker {
             updatedAt: new Date().toISOString(),
           });
 
+          await repo
+            .markCompleted(payload.operationId, {
+              summary: billingGateMessage,
+              data: {
+                blockedByBilling: true,
+                reason: 'insufficient_funds',
+                currentBalanceCents:
+                  typeof holdResult.availableBalance === 'number'
+                    ? holdResult.availableBalance
+                    : undefined,
+                amountNeededCents: estimatedCents,
+              },
+            })
+            .catch((err: unknown) => {
+              logger.warn('Failed to persist billing-gated completion to Firestore', {
+                operationId: payload.operationId,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            });
+
           return {
             result: {
               summary: billingGateMessage,
