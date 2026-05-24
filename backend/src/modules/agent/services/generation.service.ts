@@ -702,7 +702,7 @@ export class AgentGenerationService {
           { role: 'user', content: prompt },
         ],
         {
-          tier: 'extraction',
+          tier: 'chat',
           maxTokens: 2400,
           temperature: 0.4,
           outputSchema: {

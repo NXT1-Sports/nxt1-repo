@@ -122,26 +122,6 @@ const REASON_DISPLAY: Record<AgentXBillingActionReason, BillingCardDisplay> = {
             {{ description() }}
           </p>
         }
-
-        <!-- Balance & Amount Needed (B2C only) -->
-        @if (showBalanceInfo()) {
-          <div class="billing-card__metrics">
-            @if (currentBalanceCents() !== null) {
-              <div class="metric" [attr.data-testid]="testIds.BALANCE_DISPLAY">
-                <span class="metric__label">Current balance</span>
-                <span class="metric__value">{{ formatCents(currentBalanceCents()!) }}</span>
-              </div>
-            }
-            @if (amountNeededCents() !== null) {
-              <div class="metric metric--needed" [attr.data-testid]="testIds.AMOUNT_NEEDED">
-                <span class="metric__label">Amount needed</span>
-                <span class="metric__value metric__value--accent">
-                  {{ formatCents(amountNeededCents()!) }}
-                </span>
-              </div>
-            }
-          </div>
-        }
       </div>
 
       <!-- Actions -->
@@ -226,41 +206,6 @@ const REASON_DISPLAY: Record<AgentXBillingActionReason, BillingCardDisplay> = {
         font-size: 0.8125rem;
         line-height: 1.5;
         color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
-      }
-
-      .billing-card__metrics {
-        display: flex;
-        gap: 16px;
-      }
-
-      .metric {
-        flex: 1;
-        padding: 8px 12px;
-        border-radius: 8px;
-        background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
-        border: 1px solid var(--nxt1-color-border, rgba(255, 255, 255, 0.06));
-      }
-
-      .metric__label {
-        display: block;
-        font-size: 0.6875rem;
-        font-weight: 500;
-        text-transform: uppercase;
-        letter-spacing: 0.04em;
-        color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.4));
-        margin-bottom: 4px;
-      }
-
-      .metric__value {
-        display: block;
-        font-size: 1.125rem;
-        font-weight: 700;
-        font-variant-numeric: tabular-nums;
-        color: var(--nxt1-color-text-primary, #ffffff);
-      }
-
-      .metric__value--accent {
-        color: var(--nxt1-color-warning, #fbbf24);
       }
 
       .billing-card__actions {
@@ -353,21 +298,6 @@ export class AgentXBillingActionCardComponent {
   /** Human-readable card description. */
   protected readonly description = computed<string | null>(() => {
     return this.payload().description ?? null;
-  });
-
-  /** Current balance (cents) — null if not provided. */
-  protected readonly currentBalanceCents = computed<number | null>(() => {
-    return this.payload().currentBalanceCents ?? null;
-  });
-
-  /** Amount needed (cents) — null if not provided. */
-  protected readonly amountNeededCents = computed<number | null>(() => {
-    return this.payload().amountNeededCents ?? null;
-  });
-
-  /** Whether to show the balance/amount metrics section. */
-  protected readonly showBalanceInfo = computed<boolean>(() => {
-    return this.currentBalanceCents() !== null || this.amountNeededCents() !== null;
   });
 
   /** Whether the user is on a personal (B2C) billing entity. */

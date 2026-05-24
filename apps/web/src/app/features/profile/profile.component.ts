@@ -177,8 +177,14 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
         min-height: 0;
         /* Cancel the shell__content padding so profile page sits
            flush against edges — full-bleed Madden Franchise layout. */
-        // margin-top: calc(-1 * (var(--nxt1-spacing-4, 1rem) + 7px));
+        margin-top: calc(-1 * var(--shell-content-padding-top, 0px));
         margin-inline: calc(-1 * var(--shell-content-padding-x, 0px));
+      }
+
+      @media (min-width: 769px) {
+        :host {
+          margin-top: calc(-1 * var(--shell-content-padding-top, 0px) + 14px);
+        }
       }
 
       /* Profile shell fills the entire visible area.
@@ -683,6 +689,18 @@ export class ProfileComponent implements OnInit, OnDestroy {
             })
           )
         : of({ success: false as const, data: [] }),
+      awards: this.apiProfileService.getProfileAwards(profile.id, sportId).pipe(
+        catchError((err) => {
+          this.logger.warn('Failed to load profile awards', { err });
+          return of({ success: false as const, data: [] });
+        })
+      ),
+      recruiting: this.apiProfileService.getProfileRecruiting(profile.id, sportId).pipe(
+        catchError((err) => {
+          this.logger.warn('Failed to load profile recruiting activity', { err });
+          return of({ success: false as const, data: [] });
+        })
+      ),
       timeline: this.apiProfileService.getProfileTimeline(profile.id).pipe(
         catchError((err) => {
           this.logger.warn('Failed to load timeline posts', { err });
@@ -691,10 +709,12 @@ export class ProfileComponent implements OnInit, OnDestroy {
       ),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(({ stats, gameLogs, metrics, timeline }) => {
+      .subscribe(({ stats, gameLogs, metrics, awards, recruiting, timeline }) => {
         if (stats.success) this.profileService.setAthleticStatsFromRaw(stats.data);
         if (gameLogs.success) this.profileService.setGameLogs(gameLogs.data);
         if (metrics.success) this.profileService.setMetricsFromRaw(metrics.data);
+        if (awards.success) this.profileService.setAwardsFromRaw(awards.data);
+        if (recruiting.success) this.profileService.setRecruitingActivities(recruiting.data);
         if (timeline.success)
           this.profileService.setPolymorphicTimeline(timeline.data, {
             hasMore: timeline.hasMore,

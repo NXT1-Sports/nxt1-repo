@@ -18,7 +18,7 @@ import {
   SecurityContext,
 } from '@angular/core';
 import { DomSanitizer, type SafeHtml, type SafeResourceUrl } from '@angular/platform-browser';
-import type { FeedItemPost, FeedAuthor } from '@nxt1/core';
+import type { FeedItemPost, FeedAuthor, FeedMedia } from '@nxt1/core';
 import { FEED_CARD_TEST_IDS } from '@nxt1/core/testing';
 import { NxtImageComponent } from '../components/image';
 import { NxtIconComponent } from '../components/icon';
@@ -48,8 +48,9 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
                   [src]="media.url"
                   [alt]="media.altText || data().title || 'Post image'"
                   fit="contain"
-                  [width]="800"
-                  [height]="600"
+                  [width]="getMediaWidth(media)"
+                  [height]="getMediaHeight(media)"
+                  [useNgOptimizedImage]="false"
                 />
               } @else if (media.type === 'video') {
                 @if (media.processingStatus && media.processingStatus !== 'ready') {
@@ -81,8 +82,9 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
                       [src]="media.thumbnailUrl"
                       [alt]="media.altText || 'Video thumbnail'"
                       fit="contain"
-                      [width]="800"
-                      [height]="600"
+                      [width]="getMediaWidth(media)"
+                      [height]="getMediaHeight(media)"
+                      [useNgOptimizedImage]="false"
                     />
                   } @else {
                     <div class="post-content__video-placeholder">
@@ -527,6 +529,9 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class FeedPostContentComponent {
+  private static readonly FALLBACK_MEDIA_WIDTH = 1200;
+  private static readonly FALLBACK_MEDIA_HEIGHT = 675;
+
   readonly data = input.required<FeedItemPost>();
   readonly mode = input<FeedPostContentMode>('full');
   readonly author = input<FeedAuthor>();
@@ -642,6 +647,18 @@ export class FeedPostContentComponent {
 
   protected getMediaIndex(mediaId: string): string {
     return mediaId;
+  }
+
+  protected getMediaWidth(media: FeedMedia): number {
+    return media.width && media.width > 0
+      ? media.width
+      : FeedPostContentComponent.FALLBACK_MEDIA_WIDTH;
+  }
+
+  protected getMediaHeight(media: FeedMedia): number {
+    return media.height && media.height > 0
+      ? media.height
+      : FeedPostContentComponent.FALLBACK_MEDIA_HEIGHT;
   }
 
   /**

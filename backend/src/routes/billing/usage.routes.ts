@@ -410,6 +410,27 @@ function dedupeUsageFeatures(features: readonly string[] | undefined): string[] 
   return deduped.length > 0 ? deduped : undefined;
 }
 
+function isExecutionFallbackFeature(feature: string): boolean {
+  const normalized = feature.trim().toLowerCase();
+  return normalized === 'agent-execution' || normalized.endsWith('-execution');
+}
+
+function stripExecutionFallbackFeatures(
+  features: readonly string[] | undefined
+): string[] | undefined {
+  if (!features || features.length === 0) {
+    return undefined;
+  }
+
+  const filtered = features.filter((feature) => !isExecutionFallbackFeature(feature));
+  if (filtered.length > 0) {
+    return filtered;
+  }
+
+  // Preserve explicit fallback labels only when they are the sole signal.
+  return [...features];
+}
+
 function getNumberMetadata(
   meta: Record<string, unknown> | undefined,
   key: string
@@ -444,15 +465,24 @@ function getLegacyItemizedLineItem(
   doc: UsageEventDocument,
   meta: Record<string, unknown> | undefined
 ): UsageEventLineItem {
-  const billableFeatures = dedupeUsageFeatures(readStringArrayMetadata(meta, 'billableFeatures'));
+  const billableFeatures = stripExecutionFallbackFeatures(
+    dedupeUsageFeatures(readStringArrayMetadata(meta, 'billableFeatures'))
+  );
+  const parentFeatureFromMetadata =
+    getStringMetadata(meta, 'aggregateFeature') ?? getStringMetadata(meta, 'primaryFeature');
+  const feature =
+    parentFeatureFromMetadata && isExecutionFallbackFeature(parentFeatureFromMetadata)
+      ? (billableFeatures?.[0] ?? doc.feature)
+      : (parentFeatureFromMetadata ?? doc.feature);
+
+  const subActions =
+    billableFeatures && billableFeatures.length > 1 ? billableFeatures.slice(1) : undefined;
+
   return {
-    feature:
-      getStringMetadata(meta, 'aggregateFeature') ??
-      getStringMetadata(meta, 'primaryFeature') ??
-      doc.feature,
+    feature,
     cost: getNumberMetadata(meta, 'totalChargeAmountCents') ?? getUsageEventCost(doc),
     qty: 1,
-    ...(billableFeatures ? { subActions: billableFeatures } : {}),
+    ...(subActions && subActions.length > 0 ? { subActions } : {}),
   };
 }
 
@@ -461,14 +491,17 @@ function getUsageFeaturesFromMetadata(
   meta: Record<string, unknown> | undefined
 ): string[] | null {
   const explicitlyStoredFeatures = dedupeUsageFeatures(
-    readStringArrayMetadata(meta, 'billableFeatures') ?? readStringArrayMetadata(meta, 'subActions')
+    readStringArrayMetadata(meta, 'toolTrail') ??
+      readStringArrayMetadata(meta, 'billableFeatures') ??
+      readStringArrayMetadata(meta, 'subActions')
   );
+  const sanitizedExplicitFeatures = stripExecutionFallbackFeatures(explicitlyStoredFeatures);
 
-  if (explicitlyStoredFeatures) {
-    return explicitlyStoredFeatures.length === 1 &&
-      explicitlyStoredFeatures[0] === 'agent-execution'
+  if (sanitizedExplicitFeatures) {
+    return sanitizedExplicitFeatures.length === 1 &&
+      sanitizedExplicitFeatures[0] === 'agent-execution'
       ? null
-      : explicitlyStoredFeatures;
+      : sanitizedExplicitFeatures;
   }
 
   const successfulTools = readStringArrayMetadata(meta, 'successfulTools');
@@ -482,10 +515,16 @@ function getUsageFeaturesFromMetadata(
     agentTools,
     successfulTools,
   });
+  const sanitizedResolvedFeatures = stripExecutionFallbackFeatures(resolvedFeatures);
 
-  return resolvedFeatures.length === 1 && resolvedFeatures[0] === 'agent-execution'
+  if (!sanitizedResolvedFeatures) {
+    return null;
+  }
+
+  return sanitizedResolvedFeatures.length === 1 &&
+    sanitizedResolvedFeatures[0] === 'agent-execution'
     ? null
-    : resolvedFeatures;
+    : sanitizedResolvedFeatures;
 }
 
 function getUsageEventLineItems(
@@ -495,7 +534,14 @@ function getUsageEventLineItems(
 ): UsageEventLineItem[] {
   const cost = getUsageEventCost(doc);
   const meta = doc.metadata as Record<string, unknown> | undefined;
+  const lineFeature = getStringMetadata(meta, 'lineFeature');
   const legacyItemizedOperationKey = getLegacyItemizedOperationKey(doc, dateKey, meta);
+
+  // New per-call ledger rows already carry explicit line-level feature metadata.
+  // Treat these rows as atomic billed lines and do not derive sub-actions.
+  if (lineFeature) {
+    return [{ feature: lineFeature, cost, qty: doc.quantity }];
+  }
 
   if (legacyItemizedOperationKey) {
     if (collapsedLegacyOperationKeys.has(legacyItemizedOperationKey)) {
@@ -515,14 +561,13 @@ function getUsageEventLineItems(
     return [{ feature: derivedFeatures[0] ?? doc.feature, cost, qty: doc.quantity }];
   }
 
-  return [
-    {
-      feature: doc.feature,
-      cost,
-      qty: doc.quantity,
-      ...(derivedFeatures.length > 1 ? { subActions: derivedFeatures } : {}),
-    },
-  ];
+  const resolvedFeature =
+    isExecutionFallbackFeature(doc.feature) && derivedFeatures.length > 0
+      ? (derivedFeatures[0] ?? doc.feature)
+      : doc.feature;
+
+  // Legacy rows without line metadata still render as a single billed line.
+  return [{ feature: resolvedFeature, cost, qty: doc.quantity }];
 }
 
 function buildUsageBillingInfoFromStripeCustomer(
@@ -595,7 +640,6 @@ async function buildBreakdownRows(
   interface FeatureAgg {
     qty: number;
     cost: number;
-    subActions: Set<string>;
   }
 
   // Org path: day → teamId → userId → feature → FeatureAgg
@@ -625,15 +669,10 @@ async function buildBreakdownRows(
         const existing = featureMap.get(lineItem.feature) ?? {
           qty: 0,
           cost: 0,
-          subActions: new Set<string>(),
         };
-        for (const subAction of lineItem.subActions ?? []) {
-          existing.subActions.add(subAction);
-        }
         featureMap.set(lineItem.feature, {
           qty: existing.qty + lineItem.qty,
           cost: existing.cost + lineItem.cost,
-          subActions: existing.subActions,
         });
       }
     } else {
@@ -644,15 +683,10 @@ async function buildBreakdownRows(
         const existing = featureMap.get(lineItem.feature) ?? {
           qty: 0,
           cost: 0,
-          subActions: new Set<string>(),
         };
-        for (const subAction of lineItem.subActions ?? []) {
-          existing.subActions.add(subAction);
-        }
         featureMap.set(lineItem.feature, {
           qty: existing.qty + lineItem.qty,
           cost: existing.cost + lineItem.cost,
-          subActions: existing.subActions,
         });
       }
     }
@@ -691,13 +725,10 @@ async function buildBreakdownRows(
   // ── Helper: build flat line items from a feature map ────────────
   function buildLineItems(featureMap: Map<string, FeatureAgg>): UsageBreakdownLineItem[] {
     const items: UsageBreakdownLineItem[] = [];
-    for (const [feature, { qty, cost, subActions }] of featureMap) {
+    for (const [feature, { qty, cost }] of featureMap.entries()) {
       const unitCost = qty > 0 ? cost / qty : 0;
       items.push({
         sku: getFeatureDisplayName(feature),
-        ...(subActions.size > 0
-          ? { subActions: Array.from(subActions).map(getFeatureDisplayName) }
-          : {}),
         units: `${qty}`,
         pricePerUnit: `$${(unitCost / 100).toFixed(2)}`,
         grossAmount: cost,

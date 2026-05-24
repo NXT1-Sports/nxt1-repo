@@ -49,10 +49,15 @@ const baseDistilledProfile = (scope: ResolvedMutationScope): DistilledProfile =>
 
 const TYPED_DELTA_ADAPTERS: Readonly<Record<string, TypedDeltaAdapter>> = {
   write_core_identity: {
-    adapterVersion: '1.0',
+    adapterVersion: '1.1',
     resolve: async (input, _context, scope) => {
-      const firstName = String(input['firstName'] ?? '').trim();
-      const lastName = String(input['lastName'] ?? '').trim();
+      const identity =
+        input['identity'] && typeof input['identity'] === 'object'
+          ? (input['identity'] as Record<string, unknown>)
+          : null;
+
+      const firstName = String(input['firstName'] ?? identity?.['firstName'] ?? '').trim();
+      const lastName = String(input['lastName'] ?? identity?.['lastName'] ?? '').trim();
       if (!firstName || !lastName) {
         return { error: true, reason: 'Missing required identity fields: firstName/lastName' };
       }
@@ -63,7 +68,7 @@ const TYPED_DELTA_ADAPTERS: Readonly<Record<string, TypedDeltaAdapter>> = {
           identity: {
             firstName,
             lastName,
-            school: String(input['school'] ?? '').trim() || undefined,
+            school: String(input['school'] ?? identity?.['school'] ?? '').trim() || undefined,
           },
         },
       };

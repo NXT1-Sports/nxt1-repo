@@ -12,9 +12,9 @@
  */
 
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
-import { getAndClearJobCost } from '../agent/queue/job-cost-tracker.js';
+import { getAndClearJobCostBreakdown } from '../agent/queue/job-cost-tracker.js';
 import { calculateChargeAmount } from './pricing.service.js';
-import { resolveBillableFeatures } from './feature-resolution.service.js';
+import { resolveBillableFeature, resolveBillableFeatures } from './feature-resolution.service.js';
 import {
   recordSpend,
   deductOrgWallet,
@@ -77,6 +77,74 @@ export interface BillingDeductionResult {
   rawCostUsd: number;
   /** Final charge after markup, in cents */
   chargeAmountCents: number;
+}
+
+interface BillingFeatureChargeLine {
+  readonly feature: string;
+  readonly rawCostUsd: number;
+  readonly chargeAmountCents: number;
+  readonly multiplier: number;
+  readonly overrideSource: 'coordinator' | 'feature' | 'default';
+}
+
+function splitRemainingAcrossFeatures(
+  remainingUsd: number,
+  features: readonly string[]
+): Map<string, number> {
+  const distribution = new Map<string, number>();
+  if (remainingUsd <= 0 || features.length === 0) {
+    return distribution;
+  }
+
+  const baseShare = remainingUsd / features.length;
+  for (let index = 0; index < features.length; index++) {
+    const feature = features[index]!;
+    const allocated =
+      index === features.length - 1 ? remainingUsd - baseShare * (features.length - 1) : baseShare;
+    distribution.set(feature, allocated);
+  }
+
+  return distribution;
+}
+
+function buildFeatureRawCostMap(params: {
+  totalCostUsd: number;
+  telemetryByFeatureUsd: Record<string, number>;
+  resolvedFeatures: readonly string[];
+  primaryFeature: string;
+}): { byFeatureUsd: Map<string, number>; usedFallbackSplit: boolean } {
+  const { totalCostUsd, telemetryByFeatureUsd, resolvedFeatures, primaryFeature } = params;
+  const byFeatureUsd = new Map<string, number>();
+  const targetFeatures = resolvedFeatures.length > 0 ? resolvedFeatures : [primaryFeature];
+
+  let attributedUsd = 0;
+  for (const [feature, costUsd] of Object.entries(telemetryByFeatureUsd)) {
+    if (!Number.isFinite(costUsd) || costUsd <= 0) continue;
+    if (targetFeatures.includes(feature)) {
+      byFeatureUsd.set(feature, (byFeatureUsd.get(feature) ?? 0) + costUsd);
+      attributedUsd += costUsd;
+    }
+  }
+
+  const unallocatedUsd = Math.max(0, totalCostUsd - attributedUsd);
+
+  if (byFeatureUsd.size === 0) {
+    const fallbackSplit = splitRemainingAcrossFeatures(totalCostUsd, targetFeatures);
+    return {
+      byFeatureUsd: fallbackSplit,
+      usedFallbackSplit: fallbackSplit.size > 1,
+    };
+  }
+
+  if (unallocatedUsd > 0) {
+    const splitTargets = Array.from(byFeatureUsd.keys());
+    const fallbackSplit = splitRemainingAcrossFeatures(unallocatedUsd, splitTargets);
+    for (const [feature, allocated] of fallbackSplit.entries()) {
+      byFeatureUsd.set(feature, (byFeatureUsd.get(feature) ?? 0) + allocated);
+    }
+  }
+
+  return { byFeatureUsd, usedFallbackSplit: false };
 }
 
 function supportsFirestoreLock(db: Firestore): boolean {
@@ -170,9 +238,9 @@ async function markBillingDeductionLock(
  * Execute the full billing deduction pipeline for any AI operation.
  *
  * 1. Retrieves accumulated LLM cost from the in-memory tracker (or uses `knownCostUsd`).
- * 2. Applies the platform markup via `calculateChargeAmount()`.
- * 3. Either captures a wallet hold or directly records spend.
- * 4. Writes an audit-trail usage event.
+ * 2. Builds feature-level cost slices and applies markup per slice.
+ * 3. Captures/debits the total cents once for wallet consistency.
+ * 4. Writes per-feature audit-trail usage events.
  *
  * Designed to be called in a fire-and-forget `void (async () => { ... })()` wrapper
  * OR awaited if the caller needs the result.  All errors are caught internally —
@@ -209,16 +277,25 @@ export async function executeBillingDeduction(
       agentTools,
       successfulTools,
     });
-    const primaryFeature = resolvedFeatures[0] ?? 'agent-execution';
+    const primaryFeature = resolveBillableFeature({
+      feature,
+      coordinatorId,
+      agentTools,
+      successfulTools,
+    });
 
     // Step 1: Resolve raw cost
     let totalCostUsd: number;
+    let telemetryByFeatureUsd: Record<string, number> = {};
     if (knownCostUsd != null && knownCostUsd > 0) {
       // Caller provided cost — still clear tracker to avoid stale entries
-      getAndClearJobCost(operationId);
+      getAndClearJobCostBreakdown(operationId);
       totalCostUsd = knownCostUsd;
+      telemetryByFeatureUsd = { [primaryFeature]: knownCostUsd };
     } else {
-      totalCostUsd = getAndClearJobCost(operationId);
+      const telemetryBreakdown = getAndClearJobCostBreakdown(operationId);
+      totalCostUsd = telemetryBreakdown.totalUsd;
+      telemetryByFeatureUsd = telemetryBreakdown.byFeatureUsd;
     }
 
     logger.info('[billing] Deduction pipeline start', {
@@ -244,16 +321,28 @@ export async function executeBillingDeduction(
       return { charged: false, rawCostUsd: 0, chargeAmountCents: 0 };
     }
 
-    // Step 3: Apply platform markup to the whole operation once. Tool-level
-    // cost is not available from provider telemetry, so tools are recorded as
-    // metadata for transparency instead of fake-priced ledger rows.
-    const chargeCalculation = await calculateChargeAmount(
-      db,
+    // Step 3: Apply markup per resolved feature/tool cost slice.
+    const costSlices = buildFeatureRawCostMap({
       totalCostUsd,
+      telemetryByFeatureUsd,
+      resolvedFeatures,
       primaryFeature,
-      coordinatorId
-    );
-    const chargeAmountCents = chargeCalculation.chargeAmountCents;
+    });
+    const chargeLines: BillingFeatureChargeLine[] = [];
+
+    for (const [featureKey, rawCostUsd] of costSlices.byFeatureUsd.entries()) {
+      if (rawCostUsd <= 0) continue;
+      const lineCharge = await calculateChargeAmount(db, rawCostUsd, featureKey, coordinatorId);
+      chargeLines.push({
+        feature: featureKey,
+        rawCostUsd,
+        chargeAmountCents: lineCharge.chargeAmountCents,
+        multiplier: lineCharge.multiplier,
+        overrideSource: lineCharge.overrideSource,
+      });
+    }
+
+    const chargeAmountCents = chargeLines.reduce((sum, line) => sum + line.chargeAmountCents, 0);
 
     if (chargeAmountCents <= 0) {
       // Edge case: markup rounds to zero — release hold
@@ -353,6 +442,13 @@ export async function executeBillingDeduction(
       rawCostUsd: totalCostUsd,
       primaryFeature,
       billableFeatures: [...resolvedFeatures],
+      chargeBreakdown: chargeLines.map((line) => ({
+        feature: line.feature,
+        rawCostUsd: line.rawCostUsd,
+        chargeAmountCents: line.chargeAmountCents,
+        ...(Number.isFinite(line.multiplier) ? { multiplier: line.multiplier } : {}),
+        ...(line.overrideSource ? { overrideSource: line.overrideSource } : {}),
+      })),
       via: iapHoldId ? 'captureWalletHold' : resolvedOrgId ? 'deductOrgWallet' : 'recordSpend',
     }).catch((lockErr: unknown) => {
       logger.warn('[billing] Failed to mark deduction lock as charged after money movement', {
@@ -368,48 +464,70 @@ export async function executeBillingDeduction(
       ...metadata,
       primaryFeature,
       billableFeatures: [...resolvedFeatures],
+      // Canonical trail used by usage breakdown routes to keep labels
+      // tool-first and avoid generic execution fallbacks.
+      toolTrail: [...resolvedFeatures],
+      ...(resolvedFeatures.length > 1 ? { subTools: resolvedFeatures.slice(1) } : {}),
       ...(metadata?.['agentTools'] === undefined && agentTools
         ? { agentTools: [...agentTools] }
         : {}),
       ...(metadata?.['successfulTools'] === undefined && successfulTools
         ? { successfulTools: [...successfulTools] }
         : {}),
+      chargeBreakdown: chargeLines.map((line) => ({
+        feature: line.feature,
+        rawCostUsd: line.rawCostUsd,
+        chargeAmountCents: line.chargeAmountCents,
+        ...(Number.isFinite(line.multiplier) ? { multiplier: line.multiplier } : {}),
+        ...(line.overrideSource ? { overrideSource: line.overrideSource } : {}),
+      })),
+      fallbackSplitApplied: costSlices.usedFallbackSplit,
     };
 
-    // Step 5: Write one audit trail usage event for the actual operation.
+    // Step 5: Write per-feature audit trail usage events.
     try {
       const billedOwnerType = resolvedOrgId ? 'organization' : 'individual';
       const billedOwnerId = resolvedOrgId ? `org:${resolvedOrgId}` : userId;
+      const usageLines = chargeLines.length > 0 ? chargeLines : [];
 
-      await recordUsageEvent(
-        {
-          userId,
-          ...(effectiveTeamId ? { teamId: effectiveTeamId } : {}),
-          ...(resolvedOrgId ? { organizationId: resolvedOrgId } : {}),
-          billedOwnerType,
-          billedOwnerId,
-          feature: primaryFeature,
-          quantity: 1,
-          unitCostSnapshot: chargeAmountCents,
-          currency: 'usd',
-          stripePriceId: '',
-          jobId: operationId,
-          dynamicCostCents: chargeAmountCents,
-          rawProviderCostUsd: totalCostUsd,
-          status: UsageEventStatus.SENT,
-          publish: false,
-          metadata: {
-            ...usageMetadata,
-            settlementPath: iapHoldId
-              ? 'wallet-hold-capture'
-              : resolvedOrgId
-                ? 'org-wallet-debit'
-                : 'wallet-or-spend-record',
-            alreadySettled: true,
+      for (let index = 0; index < usageLines.length; index++) {
+        const line = usageLines[index]!;
+        const usageJobId =
+          usageLines.length === 1 ? operationId : `${operationId}:${line.feature}:${index + 1}`;
+        await recordUsageEvent(
+          {
+            userId,
+            ...(effectiveTeamId ? { teamId: effectiveTeamId } : {}),
+            ...(resolvedOrgId ? { organizationId: resolvedOrgId } : {}),
+            billedOwnerType,
+            billedOwnerId,
+            feature: line.feature,
+            quantity: 1,
+            unitCostSnapshot: line.chargeAmountCents,
+            currency: 'usd',
+            stripePriceId: '',
+            jobId: usageJobId,
+            dynamicCostCents: line.chargeAmountCents,
+            rawProviderCostUsd: line.rawCostUsd,
+            status: UsageEventStatus.SENT,
+            publish: false,
+            metadata: {
+              ...usageMetadata,
+              primaryFeature,
+              lineFeature: line.feature,
+              lineIndex: index + 1,
+              lineCount: usageLines.length,
+              settlementPath: iapHoldId
+                ? 'wallet-hold-capture'
+                : resolvedOrgId
+                  ? 'org-wallet-debit'
+                  : 'wallet-or-spend-record',
+              alreadySettled: true,
+            },
           },
-        },
-        environment ?? 'production'
-      );
+          environment ?? 'production'
+        );
+      }
     } catch (usageEventErr) {
       logger.warn(
         '[billing] Failed to write usage event audit trail — spend was already recorded',
@@ -429,6 +547,7 @@ export async function executeBillingDeduction(
       chargeAmountCents,
       feature: primaryFeature,
       billableFeatures: resolvedFeatures,
+      chargeBreakdown: chargeLines,
       coordinatorId,
       via: iapHoldId ? 'captureWalletHold' : resolvedOrgId ? 'deductOrgWallet' : 'recordSpend',
     });
@@ -447,10 +566,17 @@ export async function executeBillingDeduction(
       });
     }
 
-    logger.warn('[billing] Deduction failed — operation result unaffected', {
+    const billingErrorMessage =
+      billingErr instanceof Error ? billingErr.message : String(billingErr);
+    const billingFailureCode = billingErrorMessage.toLowerCase().includes('insufficient')
+      ? 'insufficient_balance'
+      : 'charge_failed';
+
+    logger.warn('[billing] Charge collection failed after operation completion', {
       operationId,
       userId,
-      error: billingErr instanceof Error ? billingErr.message : String(billingErr),
+      billingFailureCode,
+      error: billingErrorMessage,
     });
 
     // Best-effort: release IAP hold to avoid permanently locked funds

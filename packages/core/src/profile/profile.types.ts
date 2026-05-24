@@ -496,9 +496,7 @@ export interface ProfileSeasonGameLog {
  */
 export type ProfileTimelineFilterId =
   | 'all'
-  | 'pinned'
   | 'media'
-  | 'videos'
   | 'metrics'
   | 'stats'
   | 'awards'

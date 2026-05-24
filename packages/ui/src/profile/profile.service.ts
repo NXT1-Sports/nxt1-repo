@@ -14,6 +14,7 @@ import { NxtThemeService } from '../services/theme';
 import {
   type ProfileTabId,
   type ProfilePageData,
+  type ProfileAward,
   type ProfilePost,
   type ProfileRecruitingActivity,
   type ProfileEvent,
@@ -28,6 +29,7 @@ import {
   type FeedPost,
   type FeedItemPost,
   type User,
+  type UserAward,
   type ScoutReport,
   type NewsArticle,
   PROFILE_DEFAULT_TAB,
@@ -131,6 +133,7 @@ export class ProfileService {
   private readonly _recruitingActivities = signal<readonly ProfileRecruitingActivity[] | null>(
     null
   );
+  private readonly _awardsOverride = signal<readonly ProfileAward[] | null>(null);
   private readonly _athleticStatsOverride = signal<readonly AthleticStatsCategory[] | null>(null);
   private readonly _metricsOverride = signal<readonly AthleticStatsCategory[] | null>(null);
 
@@ -364,7 +367,7 @@ export class ProfileService {
    * Shows all awards when no sport filter is set, or filters by sport when switching profiles
    */
   readonly awards = computed(() => {
-    const allAwards = this._profileData()?.user?.awards ?? [];
+    const allAwards = this._awardsOverride() ?? this._profileData()?.user?.awards ?? [];
     const sportFilter = this._activeSportFilter();
     const activeSport = this.activeSport();
     const filterSport = sportFilter || activeSport?.name?.toLowerCase();
@@ -405,16 +408,31 @@ export class ProfileService {
    * Filtered by active sport.
    */
   readonly events = computed(() => {
-    const allEvents = this._scheduleEvents() ?? this._profileData()?.events ?? [];
+    const baseEvents = this._scheduleEvents() ?? this._profileData()?.events ?? [];
+    const normalizedBaseEvents = baseEvents
+      .map((event) => this.normalizeProfileEvent(event))
+      .filter((event): event is ProfileEvent => event !== null);
+
+    const timelineEvents = this._polymorphicTimeline()
+      .map((item) => this.mapTimelineItemToProfileEvent(item))
+      .filter((event): event is ProfileEvent => event !== null);
+
+    const merged = [...normalizedBaseEvents];
+    const seenIds = new Set(merged.map((event) => event.id));
+    for (const event of timelineEvents) {
+      if (seenIds.has(event.id)) continue;
+      seenIds.add(event.id);
+      merged.push(event);
+    }
+
     const sportFilter = this._activeSportFilter();
-    const activeSport = this.activeSport();
-    const filterSport = sportFilter || activeSport?.name?.toLowerCase();
+    if (!sportFilter) return merged;
 
-    if (!filterSport) return allEvents;
-
-    return allEvents.filter((e) => {
-      const eventSport = (e as unknown as { sport?: string }).sport;
-      return eventSport?.toLowerCase() === filterSport;
+    return merged.filter((event) => {
+      const eventWithSport = event as unknown as { sport?: string; sportId?: string };
+      const eventSport = eventWithSport.sport ?? eventWithSport.sportId;
+      if (!eventSport) return true;
+      return eventSport.toLowerCase() === sportFilter;
     });
   });
 
@@ -654,6 +672,7 @@ export class ProfileService {
     this._scoutReports.set([]);
     this._scheduleEvents.set(null);
     this._recruitingActivities.set(null);
+    this._awardsOverride.set(null);
     this._athleticStatsOverride.set(null);
     this._metricsOverride.set(null);
     this._gameLogOverride.set(null);
@@ -813,6 +832,25 @@ export class ProfileService {
     this._recruitingActivities.set(activities);
   }
 
+  setAwardsFromRaw(awards: readonly UserAward[]): void {
+    this._awardsOverride.set(
+      awards
+        .filter((award) => typeof award?.title === 'string' && award.title.trim().length > 0)
+        .map((award, index) => ({
+          id:
+            (award as unknown as { id?: string }).id ??
+            `${award.title
+              .trim()
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')}-${index}`,
+          title: award.title,
+          issuer: award.issuer,
+          season: award.season,
+          sport: award.sport,
+        }))
+    );
+  }
+
   private mapVerifiedStatsToCategories(
     stats: readonly VerifiedStat[]
   ): readonly AthleticStatsCategory[] {
@@ -844,8 +882,34 @@ export class ProfileService {
     metrics: readonly VerifiedMetric[]
   ): readonly AthleticStatsCategory[] {
     const groups = new Map<string, AthleticStat[]>();
+    const latestByCategoryField = new Map<string, VerifiedMetric>();
+
+    const metricTimestamp = (metric: VerifiedMetric): number => {
+      const updated = metric.updatedAt ? new Date(metric.updatedAt).getTime() : Number.NaN;
+      if (!Number.isNaN(updated)) return updated;
+
+      const recorded = metric.dateRecorded ? new Date(metric.dateRecorded).getTime() : Number.NaN;
+      if (!Number.isNaN(recorded)) return recorded;
+
+      return 0;
+    };
 
     for (const metric of metrics) {
+      const normalizedCategory = (metric.category ?? 'general').trim().toLowerCase() || 'general';
+      const normalizedField = (metric.field || metric.label || metric.id || 'metric')
+        .trim()
+        .toLowerCase();
+      const dedupeKey = `${normalizedCategory}:${normalizedField}`;
+      const existing = latestByCategoryField.get(dedupeKey);
+
+      if (existing && metricTimestamp(existing) >= metricTimestamp(metric)) {
+        continue;
+      }
+
+      latestByCategoryField.set(dedupeKey, metric);
+    }
+
+    for (const metric of latestByCategoryField.values()) {
       const category = metric.category
         ? metric.category.charAt(0).toUpperCase() + metric.category.slice(1)
         : 'General';
@@ -1174,6 +1238,120 @@ export class ProfileService {
     }
   }
 
+  private normalizeProfileEvent(raw: unknown): ProfileEvent | null {
+    if (!raw || typeof raw !== 'object') return null;
+
+    const event = raw as Record<string, unknown>;
+    const id = String(event['id'] ?? '').trim();
+    const startDate = String(event['startDate'] ?? event['date'] ?? '').trim();
+
+    if (!id || !startDate) return null;
+
+    const type = this.normalizeEventType(event['type'] ?? event['eventType']);
+    const name =
+      String(event['name'] ?? event['title'] ?? event['eventTitle'] ?? '').trim() || 'Event';
+
+    return {
+      id,
+      type,
+      name,
+      description: this.readOptionalString(event['description']),
+      location: this.readOptionalString(event['location'] ?? event['venue']),
+      startDate,
+      endDate: this.readOptionalString(event['endDate']),
+      isAllDay: typeof event['isAllDay'] === 'boolean' ? event['isAllDay'] : undefined,
+      url: this.readOptionalString(event['url']),
+      opponent: this.readOptionalString(event['opponent']),
+      result: this.readOptionalString(event['result']),
+      logoUrl: this.readOptionalString(event['logoUrl'] ?? event['opponentLogoUrl']),
+      graphicUrl: this.readOptionalString(event['graphicUrl']),
+    };
+  }
+
+  private mapTimelineItemToProfileEvent(item: FeedItem): ProfileEvent | null {
+    if (item.feedType === 'VISIT') {
+      const visit = (item as unknown as { visitData?: Record<string, unknown> }).visitData;
+      if (!visit) return null;
+      const startDate = String(visit['visitDate'] ?? '').trim();
+      if (!startDate) return null;
+
+      return {
+        id: String((item as unknown as { referenceId?: string }).referenceId ?? item.id),
+        type: 'visit',
+        name: String(visit['collegeName'] ?? 'Visit').trim() || 'Visit',
+        location: this.readOptionalString(visit['location']),
+        startDate,
+        endDate: this.readOptionalString(visit['endDate']),
+        logoUrl: this.readOptionalString(visit['collegeLogoUrl']),
+        graphicUrl: this.readOptionalString(visit['graphicUrl']),
+      };
+    }
+
+    if (item.feedType === 'CAMP') {
+      const camp = (item as unknown as { campData?: Record<string, unknown> }).campData;
+      if (!camp) return null;
+      const startDate = String(camp['eventDate'] ?? '').trim();
+      if (!startDate) return null;
+
+      return {
+        id: String((item as unknown as { referenceId?: string }).referenceId ?? item.id),
+        type: this.normalizeEventType(camp['campType']),
+        name: String(camp['campName'] ?? 'Camp').trim() || 'Camp',
+        location: this.readOptionalString(camp['location']),
+        startDate,
+        result: this.readOptionalString(camp['result']),
+        logoUrl: this.readOptionalString(camp['logoUrl']),
+        graphicUrl: this.readOptionalString(camp['graphicUrl']),
+      };
+    }
+
+    if (item.feedType === 'EVENT') {
+      const eventData = (item as unknown as { eventData?: Record<string, unknown> }).eventData;
+      if (!eventData) return null;
+      const startDate = String(eventData['dateTime'] ?? '').trim();
+      if (!startDate) return null;
+
+      return {
+        id: String((item as unknown as { referenceId?: string }).referenceId ?? item.id),
+        type: 'other',
+        name: String(eventData['eventTitle'] ?? 'Event').trim() || 'Event',
+        location: this.readOptionalString(eventData['venue']),
+        startDate,
+        opponent: this.readOptionalString(eventData['opponent']),
+        result: this.readOptionalString(eventData['result']),
+        logoUrl: this.readOptionalString(eventData['opponentLogoUrl']),
+      };
+    }
+
+    return null;
+  }
+
+  private normalizeEventType(rawType: unknown): ProfileEvent['type'] {
+    const value = String(rawType ?? '')
+      .trim()
+      .toLowerCase();
+
+    if (
+      value === 'game' ||
+      value === 'camp' ||
+      value === 'combine' ||
+      value === 'showcase' ||
+      value === 'visit' ||
+      value === 'practice' ||
+      value === 'other'
+    ) {
+      return value;
+    }
+
+    return 'other';
+  }
+
+  private readOptionalString(value: unknown): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : undefined;
+  }
+
   /**
    * Enter edit mode for a specific section.
    */
@@ -1205,6 +1383,7 @@ export class ProfileService {
     this._isEditMode.set(false);
     this._editSection.set(null);
     this._activeSportIndex.set(0);
+    this._awardsOverride.set(null);
     this._athleticStatsOverride.set(null);
     this._metricsOverride.set(null);
     this._gameLogOverride.set(null);

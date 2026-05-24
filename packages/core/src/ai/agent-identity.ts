@@ -63,6 +63,95 @@ function resolvePreferredAttachmentUrl(file: Record<string, unknown>): string | 
   return downloadUrl ?? directUrl;
 }
 
+function collectFfmpegThumbnailUrls(resultData: Record<string, unknown>): string[] {
+  const urls: string[] = [];
+
+  const pushUrl = (value: unknown): void => {
+    const normalized = readNonEmptyString(value);
+    if (normalized && isAbsoluteHttpUrl(normalized)) {
+      urls.push(normalized);
+    }
+  };
+
+  pushUrl(resultData['thumbnailUrl']);
+
+  const records = Array.isArray(resultData['toolCallRecords'])
+    ? (resultData['toolCallRecords'] as unknown[])
+    : [];
+
+  for (const record of records) {
+    if (!record || typeof record !== 'object') continue;
+    const recordObj = record as Record<string, unknown>;
+    if (recordObj['toolName'] !== 'ffmpeg_generate_thumbnail') continue;
+    if (recordObj['status'] !== 'success') continue;
+
+    const output =
+      recordObj['output'] && typeof recordObj['output'] === 'object'
+        ? (recordObj['output'] as Record<string, unknown>)
+        : null;
+    if (!output) continue;
+
+    pushUrl(output['thumbnailUrl']);
+    pushUrl(output['imageUrl']);
+    pushUrl(output['outputUrl']);
+
+    const nestedResult =
+      output['result'] && typeof output['result'] === 'object'
+        ? (output['result'] as Record<string, unknown>)
+        : null;
+    if (nestedResult) {
+      pushUrl(nestedResult['thumbnailUrl']);
+      pushUrl(nestedResult['imageUrl']);
+      pushUrl(nestedResult['outputUrl']);
+    }
+  }
+
+  return urls;
+}
+
+function pairFfmpegThumbnailWithVideo(
+  attachments: readonly ExtractedMediaAttachment[],
+  thumbnailUrls: readonly string[]
+): ExtractedMediaAttachment[] {
+  if (thumbnailUrls.length === 0) return [...attachments];
+
+  const videoIndexes = attachments
+    .map((attachment, index) => ({ attachment, index }))
+    .filter((entry) => entry.attachment.type === 'video')
+    .map((entry) => entry.index);
+
+  if (videoIndexes.length === 0) return [...attachments];
+
+  const thumbnailSet = new Set(
+    thumbnailUrls.map((url) => url.trim()).filter((url) => url.length > 0)
+  );
+  if (thumbnailSet.size === 0) return [...attachments];
+
+  // Use the latest video attachment as the thumbnail target.
+  const targetVideoIndex = videoIndexes[videoIndexes.length - 1] ?? 0;
+  const thumbnailUrl = [...thumbnailSet][thumbnailSet.size - 1] ?? '';
+  if (!thumbnailUrl) return [...attachments];
+
+  const remapped = attachments.map((attachment, index) => {
+    if (index !== targetVideoIndex) return attachment;
+    return {
+      ...attachment,
+      ...(attachment.thumbnailUrl ? {} : { thumbnailUrl }),
+    };
+  });
+
+  // Remove standalone image attachments produced by ffmpeg_generate_thumbnail
+  // once they are promoted to the target video's thumbnailUrl.
+  return remapped.filter(
+    (attachment, index) =>
+      !(
+        index !== targetVideoIndex &&
+        attachment.type === 'image' &&
+        thumbnailSet.has(attachment.url.trim())
+      )
+  );
+}
+
 // ─── Agent X Identity (the constant) ─────────────────────────────────────────
 
 /**
@@ -239,7 +328,8 @@ export function extractMediaAttachmentsFromResultData(
     collectFromRecord(nested);
   }
 
-  return attachments;
+  const ffmpegThumbnailUrls = collectFfmpegThumbnailUrls(resultData);
+  return pairFfmpegThumbnailWithVideo(attachments, ffmpegThumbnailUrls);
 }
 
 /**

@@ -120,7 +120,7 @@ export async function normalizeProgramName(
     const llm = new OpenRouterService({ firestore });
 
     const result = await llm.prompt(SYSTEM_PROMPT, preNormalized, {
-      tier: 'extraction',
+      tier: 'chat',
       maxTokens: 100,
       temperature: 0,
     });

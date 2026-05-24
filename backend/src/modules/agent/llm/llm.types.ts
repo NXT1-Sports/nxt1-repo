@@ -19,9 +19,9 @@ import { isFeatureEnabledSync } from '../../../config/feature-flags/index.js';
 export const PROD_MODEL_CATALOGUE: Record<ModelTier, string> = {
   // ── Text Tiers ──────────────────────────────────────────────────────────
   routing: '~anthropic/claude-sonnet-latest',
-  extraction: 'anthropic/claude-opus-4.7',
+  extraction: 'anthropic/claude-haiku-4.5',
   data_heavy: 'x-ai/grok-4.3',
-  evaluator: 'anthropic/claude-opus-4.7',
+  evaluator: 'openai/gpt-chat-latest',
   compliance: 'openai/o1',
   copywriting: '~anthropic/claude-opus-latest',
   prompt_engineering: 'openai/o1',
@@ -90,17 +90,17 @@ export const PROD_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
     'anthropic/claude-opus-4.7',
     'openai/gpt-5.5-pro',
   ],
-  extraction: ['anthropic/claude-opus-4.7', 'openai/o1', 'openai/gpt-4o-mini'],
+  extraction: ['anthropic/claude-haiku-4.5', 'openai/gpt-4o-mini', 'openai/o1'],
   data_heavy: ['x-ai/grok-4.3', 'openai/o3-deep-research', 'openai/gpt-5.5-pro'],
-  evaluator: ['anthropic/claude-opus-4.7', 'openai/o1', 'anthropic/claude-sonnet-4'],
-  compliance: ['openai/o1', 'anthropic/claude-opus-4.7', 'openai/gpt-4o'],
+  evaluator: ['openai/gpt-chat-latest', 'openai/o1', 'anthropic/claude-sonnet-4'],
+  compliance: ['openai/o1', 'anthropic/claude-sonnet-4', 'openai/gpt-4o'],
   copywriting: ['~anthropic/claude-opus-latest', 'openai/gpt-5.5-pro', 'anthropic/claude-opus-4.5'],
-  prompt_engineering: ['openai/o1', 'anthropic/claude-opus-4.7', 'openai/gpt-4o'],
+  prompt_engineering: ['openai/o1', 'anthropic/claude-sonnet-4', 'openai/gpt-4o'],
   chat: ['openai/gpt-chat-latest', 'anthropic/claude-haiku-4.5', 'anthropic/claude-sonnet-4.5'],
   task_automation: [
     'openai/gpt-5.5-pro',
     'mistralai/mistral-medium-3-5',
-    'anthropic/claude-opus-4.7',
+    'anthropic/claude-sonnet-4',
   ],
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
@@ -396,6 +396,7 @@ export interface LLMTelemetryRecord {
   readonly operationId: string;
   readonly userId: string;
   readonly agentId: AgentIdentifier;
+  readonly feature?: string;
   readonly model: string;
   readonly inputTokens: number;
   readonly outputTokens: number;

@@ -143,7 +143,7 @@ const POLICIES: readonly MutationPolicy[] = [
   // ── Team-scoped collections ─────────────────────────────────────────────────
   {
     collection: 'Schedule',
-    allowedOperations: ['update', 'delete'],
+    allowedOperations: ['set', 'update', 'delete'],
     ownershipPath: '__schedule_owner',
     softDelete: false,
     allowedPatchFields: [
@@ -156,6 +156,10 @@ const POLICIES: readonly MutationPolicy[] = [
       'score',
       'notes',
       'gameType',
+      'scheduleType',
+      'status',
+      'sport',
+      'ownerType',
     ],
   },
   {
@@ -205,17 +209,25 @@ const POLICIES: readonly MutationPolicy[] = [
   },
   {
     collection: 'Events',
-    allowedOperations: ['update', 'delete'],
-    ownershipPath: '__team_owner',
+    allowedOperations: ['set', 'update', 'delete'],
+    ownershipPath: '__event_owner',
     softDelete: false,
     allowedPatchFields: [
       'title',
       'description',
+      'date',
       'startDate',
       'endDate',
       'location',
+      'venue',
+      'eventType',
+      'sport',
+      'status',
+      'source',
+      'verified',
       'type',
       'isPublic',
+      'ownerType',
     ],
   },
   {

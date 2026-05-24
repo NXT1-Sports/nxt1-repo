@@ -659,14 +659,15 @@ export class AnalyzeVideoTool extends BaseTool {
       temperature: 0.3,
       timeoutMs: 180_000,
       signal: AbortSignal.timeout(VIDEO_ANALYSIS_TIMEOUT_MS),
-      telemetryContext: context?.userId
-        ? {
-            operationId: context.sessionId ?? '',
-            userId: context.userId,
-            agentId: 'data_coordinator',
-            feature: 'video-analysis',
-          }
-        : undefined,
+      telemetryContext:
+        context?.userId && context.operationId
+          ? {
+              operationId: context.operationId,
+              userId: context.userId,
+              agentId: 'data_coordinator',
+              feature: 'video-analysis',
+            }
+          : undefined,
     });
   }
 
@@ -713,7 +714,7 @@ export class AnalyzeVideoTool extends BaseTool {
       // Register the Gemini direct-call cost into the job tracker so
       // executeBillingDeduction can apply the platform markup and charge the user.
       if (filesResult.costUsd > 0 && context?.operationId) {
-        addJobCost(context.operationId, filesResult.costUsd);
+        addJobCost(context.operationId, filesResult.costUsd, this.name);
       }
 
       if (filesApiUrls.length === videoUrls.length) {
@@ -801,7 +802,7 @@ export class AnalyzeVideoTool extends BaseTool {
           // Register the Gemini direct-call cost into the job tracker so
           // executeBillingDeduction can apply the platform markup and charge the user.
           if (result.costUsd > 0 && context?.operationId) {
-            addJobCost(context.operationId, result.costUsd);
+            addJobCost(context.operationId, result.costUsd, this.name);
           }
           return { result, analyzedVideoUrls: videoUrls };
         }

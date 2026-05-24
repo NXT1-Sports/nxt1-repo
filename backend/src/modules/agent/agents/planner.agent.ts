@@ -355,7 +355,7 @@ description: full execution intent for the coordinator — as detailed as needed
     }));
 
     const plan: AgentExecutionPlan = {
-      operationId: context.sessionId,
+      operationId: context.operationId ?? context.sessionId,
       tasks,
       createdAt: now,
     };

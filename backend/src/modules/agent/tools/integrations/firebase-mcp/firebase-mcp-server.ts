@@ -40,6 +40,8 @@ const COLLECTION_RECOMMENDED_TOOL: Readonly<Record<string, string>> = {
   CombineMetrics: 'write_combine_metrics',
   Rankings: 'write_rankings',
   Recruiting: 'write_recruiting',
+  Events: 'write_calendar_events',
+  TeamNews: 'write_team_news',
   Intel: 'write_intel',
 };
 
@@ -278,13 +280,70 @@ async function run(): Promise<void> {
         // is established via the teamId/organizationId field in the patch payload.
         let docData: Record<string, unknown>;
         if (!docSnap.exists) {
+          if (operation === 'delete') {
+            const alreadyDeletedResult = FirebaseMcpMutateResultSchema.parse({
+              collection,
+              documentId,
+              operation,
+              success: true,
+              message: `Delete no-op: ${collection}/${documentId} was already absent.`,
+            });
+            return serializeResult(alreadyDeletedResult);
+          }
+
           if (operation !== 'set') {
             return errorResult(`Document "${documentId}" not found in "${collection}".`);
           }
           // Use patch as the data source for ownership verification on create
           docData = (patch as Record<string, unknown>) ?? {};
+
+          // Athlete self-service default: when creating Events via mutate
+          // without an explicit userId, bind ownership to the authenticated user.
+          if (
+            collection === 'Events' &&
+            (typeof docData['userId'] !== 'string' || docData['userId'].length === 0)
+          ) {
+            docData['userId'] = scope.userId;
+          }
+
+          // Athlete self-service default for Schedule upserts when the caller
+          // uses a user-scoped schedule id and omits owner fields.
+          if (collection === 'Schedule') {
+            const hasOwnerType =
+              typeof docData['ownerType'] === 'string' && docData['ownerType'].length > 0;
+            const hasOwnerId =
+              typeof docData['ownerId'] === 'string' && docData['ownerId'].length > 0;
+            const patchUserId =
+              typeof docData['userId'] === 'string' && docData['userId'] === scope.userId;
+            const idLooksUserScoped = documentId.startsWith(`${scope.userId}_`);
+            if (!hasOwnerType && !hasOwnerId && (patchUserId || idLooksUserScoped)) {
+              docData['ownerType'] = 'user';
+              docData['ownerId'] = scope.userId;
+              docData['userId'] = scope.userId;
+            }
+          }
         } else {
           docData = docSnap.data() as Record<string, unknown>;
+
+          if (collection === 'Schedule' && operation === 'set') {
+            const hasOwnerType =
+              typeof docData['ownerType'] === 'string' && docData['ownerType'].length > 0;
+            const hasOwnerId =
+              typeof docData['ownerId'] === 'string' && docData['ownerId'].length > 0;
+            const existingUserId =
+              typeof docData['userId'] === 'string' ? (docData['userId'] as string) : undefined;
+            const idLooksUserScoped = documentId.startsWith(`${scope.userId}_`);
+
+            if (
+              !hasOwnerType &&
+              !hasOwnerId &&
+              (existingUserId === scope.userId || idLooksUserScoped)
+            ) {
+              docData['ownerType'] = 'user';
+              docData['ownerId'] = scope.userId;
+              docData['userId'] = scope.userId;
+            }
+          }
         }
 
         let isAuthorized = false;
@@ -340,19 +399,71 @@ async function run(): Promise<void> {
           const rawOwnerId =
             typeof docData['ownerId'] === 'string' ? docData['ownerId'] : undefined;
           if (!ownerType || !rawOwnerId) {
-            return errorResult(
-              `Document "${documentId}" has no ownerType/ownerId — cannot verify ownership.`
+            const legacyUserId =
+              typeof docData['userId'] === 'string' ? (docData['userId'] as string) : undefined;
+            const idLooksUserScoped = documentId.startsWith(`${scope.userId}_`);
+
+            if (legacyUserId === scope.userId || idLooksUserScoped) {
+              isAuthorized = true;
+              docData['ownerType'] = 'user';
+              docData['ownerId'] = scope.userId;
+              docData['userId'] = scope.userId;
+            } else {
+              return errorResult(
+                `Document "${documentId}" has no ownerType/ownerId — cannot verify ownership.`
+              );
+            }
+          }
+
+          if (!isAuthorized && ownerType === 'user') {
+            isAuthorized = rawOwnerId === scope.userId;
+          } else if (!isAuthorized) {
+            // team-owned schedule event — allow owner/admin/coach-style managers
+            const teamSnap = await firestore
+              .collection('Teams')
+              .doc(rawOwnerId as string)
+              .get();
+            if (!teamSnap.exists) {
+              return errorResult(`Team "${rawOwnerId}" not found — cannot verify ownership.`);
+            }
+            const teamData = teamSnap.data() as Record<string, unknown>;
+            isAuthorized = await canManageTeamMutationForUser(
+              firestore,
+              scope.userId,
+              rawOwnerId as string,
+              teamData
             );
           }
-          if (ownerType === 'user') {
-            isAuthorized = rawOwnerId === scope.userId;
+        } else if (policy.ownershipPath === '__event_owner') {
+          const directUserId =
+            typeof docData['userId'] === 'string' ? (docData['userId'] as string) : undefined;
+          if (directUserId && directUserId === scope.userId) {
+            isAuthorized = true;
           } else {
-            // team-owned schedule event — check Teams.ownerId
-            const teamSnap = await firestore.collection('Teams').doc(rawOwnerId).get();
-            const ownerId = teamSnap.exists
-              ? ((teamSnap.data() as Record<string, unknown>)['ownerId'] as string | undefined)
-              : undefined;
-            isAuthorized = !!ownerId && ownerId === scope.userId;
+            const ownerType =
+              typeof docData['ownerType'] === 'string' ? docData['ownerType'] : undefined;
+            const ownerId = typeof docData['ownerId'] === 'string' ? docData['ownerId'] : undefined;
+            const fallbackTeamId =
+              typeof docData['teamId'] === 'string' ? docData['teamId'] : undefined;
+            const teamId = ownerType === 'team' && ownerId ? ownerId : fallbackTeamId;
+
+            if (!teamId) {
+              return errorResult(
+                `Document "${documentId}" has no userId/team ownership fields — cannot verify ownership.`
+              );
+            }
+
+            const teamSnap = await firestore.collection('Teams').doc(teamId).get();
+            if (!teamSnap.exists) {
+              return errorResult(`Team "${teamId}" not found — cannot verify ownership.`);
+            }
+            const teamData = teamSnap.data() as Record<string, unknown>;
+            isAuthorized = await canManageTeamMutationForUser(
+              firestore,
+              scope.userId,
+              teamId,
+              teamData
+            );
           }
         } else {
           // Simple dot-path: only top-level field supported
@@ -403,7 +514,13 @@ async function run(): Promise<void> {
           // Preserve identity/ownership fields from existing doc or patch so
           // a future read can verify ownership. `docData` is the existing doc
           // when present, otherwise the original patch.
-          for (const identityField of ['userId', 'teamId', 'organizationId', 'ownerId'] as const) {
+          for (const identityField of [
+            'userId',
+            'teamId',
+            'organizationId',
+            'ownerId',
+            'ownerType',
+          ] as const) {
             const value = docData[identityField];
             if (typeof value === 'string' && value.length > 0) {
               filteredPatch[identityField] = value;

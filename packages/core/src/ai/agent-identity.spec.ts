@@ -83,4 +83,36 @@ describe('extractMediaAttachmentsFromResultData', () => {
       attachments.filter((item) => item.url === 'https://cdn.example.com/same.jpg')
     ).toHaveLength(1);
   });
+
+  it('pairs ffmpeg thumbnail output with the latest video and suppresses standalone thumbnail image', () => {
+    const attachments = extractMediaAttachmentsFromResultData({
+      videoUrl: 'https://cdn.example.com/final-reel.mp4',
+      toolCallRecords: [
+        {
+          toolName: 'ffmpeg_merge_videos',
+          status: 'success',
+          output: {
+            videoUrl: 'https://cdn.example.com/final-reel.mp4',
+          },
+        },
+        {
+          toolName: 'ffmpeg_generate_thumbnail',
+          status: 'success',
+          output: {
+            imageUrl: 'https://cdn.example.com/final-reel-thumb.jpg',
+            thumbnailUrl: 'https://cdn.example.com/final-reel-thumb.jpg',
+          },
+        },
+      ],
+    });
+
+    expect(attachments).toEqual([
+      {
+        url: 'https://cdn.example.com/final-reel.mp4',
+        name: 'video.mp4',
+        type: 'video',
+        thumbnailUrl: 'https://cdn.example.com/final-reel-thumb.jpg',
+      },
+    ]);
+  });
 });

@@ -40,8 +40,8 @@ import {
   resolveBillingTarget,
   checkBudgetForResolvedTarget,
   expireStaleHolds,
+  MIN_COST_CENTS,
 } from '../../modules/billing/index.js';
-import { estimateChargeAmountSync } from '../../modules/billing/pricing.service.js';
 import crypto from 'node:crypto';
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 
@@ -93,10 +93,9 @@ const ATTACHMENT_WAIT_TIMEOUT_MS: number =
 const ATTACHMENT_WAIT_PROGRESS_INTERVAL_MS = 4_000;
 const LIVE_BUFFER_MAX_EVENTS: number = AGENT_X_RUNTIME_CONFIG.operationStream.liveBufferMaxEvents;
 const PAUSE_YIELD_TTL_MS = 24 * 60 * 60 * 1000;
-// Chat budget/wallet admission uses a conservative estimate so hard-stop
-// budgets can block before execution when the user is close to the cap.
-// Keep this in sync with observed real-world per-turn costs.
-const CHAT_BILLING_GATE_ESTIMATED_COST_USD = 0.6;
+// Chat budget/wallet admission should allow true near-zero spend down.
+// Gate only on the minimum billable amount.
+const CHAT_BILLING_GATE_MIN_COST_CENTS = MIN_COST_CENTS;
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
 const AGENT_STREAM_EVENT_SCHEMA_VERSION = 2;
 
@@ -4120,9 +4119,7 @@ router.post(
         );
       }
 
-      const { chargeAmountCents: estimatedGateCostCents } = estimateChargeAmountSync(
-        CHAT_BILLING_GATE_ESTIMATED_COST_USD
-      );
+      const estimatedGateCostCents = CHAT_BILLING_GATE_MIN_COST_CENTS;
 
       const userRoleSnap = await db.collection('Users').doc(user.uid).get();
       const userRole = String(userRoleSnap.data()?.['role'] ?? 'athlete');

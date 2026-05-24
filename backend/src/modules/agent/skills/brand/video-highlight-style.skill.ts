@@ -56,6 +56,8 @@ Use concrete tool pipelines for production-grade outputs:
 - Use ffmpeg_add_text_overlay only for short lower-thirds/stat cards of 15 seconds or less. Use generate_graphic title cards for full-reel branding.
 
 3. **Polish and delivery**
+- **ALWAYS call ffmpeg_generate_thumbnail on the final merged video immediately after ffmpeg_merge_videos completes.** Use time="00:00:02" (2 seconds in) for the best action frame.
+- Treat this thumbnail as **video poster metadata** for the merged reel, not as a separate standalone deliverable. In normal highlight responses, return the final video only. Mention or link the thumbnail separately **only** when the user explicitly asks for a poster image/screenshot/frame export.
 - Do not send Hudl clips, game film, merged reels, uploaded videos, or FFmpeg outputs to Runway video-to-video. Runway is only for animating generated graphics/images or refining Runway-generated motion outputs.
 - Use runway_upscale_video only for Runway-generated outputs.
 - Use ffmpeg_burn_subtitles when captions are requested.

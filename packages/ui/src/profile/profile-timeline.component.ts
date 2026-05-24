@@ -3,7 +3,7 @@
  * @module @nxt1/ui/profile
  * @version 4.0.0
  *
- * Timeline content feed with sub-filters (All Posts, Pinned, Media).
+ * Timeline content feed with sub-filters (All Posts, Media).
  * Supports loading states, empty states, and infinite scroll.
  *
  * Uses polymorphic Smart Shell + atomic card rendering.
@@ -112,13 +112,6 @@ const UNCATEGORIZED_VIDEO_PLAYLIST_ID = 'uncategorized';
               >
                 <nxt1-icon [name]="filter.icon" [size]="14" />
                 <span>{{ filter.label }}</span>
-                @if (filter.id === 'pinned' && pinnedCount() > 0) {
-                  <span
-                    class="timeline-filter__badge"
-                    [attr.data-testid]="timelineTestIds.FILTER_BADGE"
-                    >{{ pinnedCount() }}</span
-                  >
-                }
                 @if (filter.id === 'recruiting' && filterBadgeCounts().recruiting > 0) {
                   <span
                     class="timeline-filter__badge"
@@ -226,8 +219,7 @@ const UNCATEGORIZED_VIDEO_PLAYLIST_ID = 'uncategorized';
               [showMenu]="showMenu()"
               (contentClick)="handlePolyPostClick(idx)"
               (menuClick)="handlePolyMenuClick(idx)"
-              (pinClick)="handlePolyPinClick($event)"
-              (deleteClick)="handlePolyDeleteClick(idx)"
+              (deleteClick)="handlePolyDeleteClick($event)"
             >
               @switch (item.feedType) {
                 @case ('POST') {
@@ -327,6 +319,7 @@ const UNCATEGORIZED_VIDEO_PLAYLIST_ID = 'uncategorized';
         border-bottom: 1px solid var(--timeline-border);
         background: var(--timeline-bg);
         overflow: hidden;
+        margin-bottom: 10px;
       }
 
       .timeline-filters__scroll {
@@ -577,7 +570,7 @@ export class ProfileTimelineComponent {
   readonly hasMore = input(false);
   readonly isOwnProfile = input(false);
   readonly showMenu = input(false);
-  /** Show the filter tabs (All Posts / Pinned / Media). Disable for news/videos sub-tabs. */
+  /** Show the filter tabs (All Posts / Media). Disable for news and other sub-tabs. */
   readonly showFilters = input(true);
   /** External filter override — when set, drives filtering from outside (e.g. web sidebar). */
   readonly filter = input<ProfileTimelineFilterId | null>(null);
@@ -645,13 +638,6 @@ export class ProfileTimelineComponent {
     return this.filters.find((f) => f.id === this._activeFilter()) ?? this.filters[0];
   });
 
-  /** Count of pinned posts (for badge on Pinned tab) */
-  protected readonly pinnedCount = computed(() => {
-    const feed = this.effectiveFeed();
-    if (feed.length > 0) return feed.filter((item) => item.isPinned).length;
-    return this.posts().filter((p) => p.isPinned).length;
-  });
-
   /** Badge counts for activity type filters */
   protected readonly filterBadgeCounts = computed(() => {
     const feed = this.effectiveFeed();
@@ -715,15 +701,13 @@ export class ProfileTimelineComponent {
 
     switch (filter) {
       case 'all':
-        return feed;
-      case 'pinned':
-        return feed.filter((item) => item.isPinned);
+        return feed.filter(
+          (item) => item.feedType !== 'STAT' && !this.isSpecializedSectionItem(item)
+        );
       case 'media':
         return feed.filter(
           (item) => item.feedType === 'POST' && (item as FeedItemPost).media.length > 0
         );
-      case 'videos':
-        return feed.filter((item) => this.isVideoFeedItem(item));
       case 'recruiting':
         return feed.filter((item) => item.feedType === 'OFFER' || item.feedType === 'COMMITMENT');
       case 'events':
@@ -743,28 +727,25 @@ export class ProfileTimelineComponent {
       case 'news':
         return feed.filter((item) => item.feedType === 'NEWS' || item.feedType === 'SCOUT_REPORT');
       default:
-        return feed;
+        return feed.filter(
+          (item) => item.feedType !== 'STAT' && !this.isSpecializedSectionItem(item)
+        );
     }
   });
 
+  private isSpecializedSectionItem(item: FeedItem): boolean {
+    return (
+      item.feedType === 'METRIC' ||
+      item.feedType === 'OFFER' ||
+      item.feedType === 'COMMITMENT' ||
+      item.feedType === 'VISIT' ||
+      item.feedType === 'CAMP' ||
+      item.feedType === 'EVENT'
+    );
+  }
+
   protected readonly playlistOptions = computed<readonly VideoPlaylistOption[]>(() => {
-    const videos = this.timelineFilteredFeed().filter((item) => this.isVideoFeedItem(item));
-    if (this._activeFilter() !== 'videos' || videos.length === 0) return [];
-
-    const groups = new Map<string, { label: string; count: number }>();
-    for (const video of videos) {
-      const playlist = this.resolvePlaylist(video);
-      const id = playlist?.id ?? UNCATEGORIZED_VIDEO_PLAYLIST_ID;
-      const label = playlist?.label ?? 'Uncategorized';
-      const existing = groups.get(id);
-      groups.set(id, { label, count: (existing?.count ?? 0) + 1 });
-    }
-
-    const grouped = Array.from(groups.entries())
-      .map(([id, value]) => ({ id, label: value.label, count: value.count }))
-      .sort((a, b) => a.label.localeCompare(b.label));
-
-    return [{ id: ALL_VIDEO_PLAYLISTS_ID, label: 'All Videos', count: videos.length }, ...grouped];
+    return [];
   });
 
   protected readonly showPlaylistDropdown = computed(() => this.playlistOptions().length > 1);
@@ -772,7 +753,7 @@ export class ProfileTimelineComponent {
   /** Filtered FeedItems for the polymorphic path */
   protected readonly filteredPolyFeed = computed<readonly FeedItem[]>(() => {
     const feed = this.timelineFilteredFeed();
-    if (this._activeFilter() !== 'videos') return feed;
+    if (this._activeFilter() !== 'media') return feed;
 
     const playlistId = this._activePlaylistId();
     if (playlistId === ALL_VIDEO_PLAYLISTS_ID) return feed;
@@ -997,10 +978,8 @@ export class ProfileTimelineComponent {
     if (post) this.pinClick.emit(post);
   }
 
-  protected handlePolyDeleteClick(index: number): void {
-    const item = this.filteredPolyFeed()[index];
-    if (!item) return;
-    const post = this.resolveProfilePost(item);
+  protected handlePolyDeleteClick(emittedItem: FeedItem): void {
+    const post = this.resolveProfilePost(emittedItem);
     if (post) this.deleteClick.emit(post);
   }
 

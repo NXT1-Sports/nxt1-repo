@@ -45,17 +45,30 @@ const VALID_SCHEDULE_TYPES = new Set(['game', 'scrimmage', 'practice', 'playoff'
 const ScheduleEventEntrySchema = z
   .object({
     scheduleType: z.string().trim().min(1).optional(),
+    type: z.string().trim().min(1).optional(),
     title: z.string().trim().min(1).optional(),
     date: z.string().trim().min(1).optional(),
     endDate: z.string().trim().min(1).optional(),
     location: z.string().trim().min(1).optional(),
     opponent: z.string().trim().min(1).optional(),
     isHome: z.boolean().optional(),
+    homeAway: z.enum(['home', 'away']).optional(),
     result: z.string().trim().min(1).optional(),
     outcome: z.enum(['win', 'loss', 'draw']).optional(),
-    status: z.enum(['upcoming', 'final', 'postponed', 'cancelled']).optional(),
+    status: z
+      .enum(['upcoming', 'scheduled', 'final', 'completed', 'postponed', 'cancelled'])
+      .optional(),
   })
   .passthrough();
+
+const ScheduleEventsArraySchema = z.preprocess((value) => {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
+}, z.array(ScheduleEventEntrySchema).min(1).max(MAX_EVENTS));
 
 const WriteScheduleInputSchema = z
   .object({
@@ -64,7 +77,7 @@ const WriteScheduleInputSchema = z
     targetSport: z.string().trim().min(1),
     source: z.string().trim().min(1),
     sourceUrl: z.string().trim().min(1).optional(),
-    events: z.array(ScheduleEventEntrySchema).min(1).max(MAX_EVENTS),
+    events: ScheduleEventsArraySchema,
   })
   .superRefine((value, ctx) => {
     if (!value.userId && !value.teamId) {
@@ -211,7 +224,7 @@ export class WriteScheduleTool extends BaseTool {
         }
         const e = event as Record<string, unknown>;
 
-        const scheduleType = this.str(e, 'scheduleType');
+        const scheduleType = this.str(e, 'scheduleType') ?? this.str(e, 'type');
         if (!scheduleType || !VALID_SCHEDULE_TYPES.has(scheduleType)) {
           skipped++;
           continue;
@@ -260,6 +273,10 @@ export class WriteScheduleTool extends BaseTool {
         // Boolean isHome
         if (typeof e['isHome'] === 'boolean') {
           record['isHome'] = e['isHome'];
+        } else {
+          const homeAway = this.str(e, 'homeAway');
+          if (homeAway === 'home') record['isHome'] = true;
+          if (homeAway === 'away') record['isHome'] = false;
         }
 
         // Build display title if none provided

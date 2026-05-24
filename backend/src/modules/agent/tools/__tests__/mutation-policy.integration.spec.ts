@@ -198,6 +198,27 @@ describe.skipIf(isUnsupportedLocalMongoRuntime)(
       expect(rows.every((r) => r.status === 'completed')).toBe(true);
     });
 
+    it('write_core_identity (nested identity payload) → 3 steps', async () => {
+      await service.apply({
+        toolName: 'write_core_identity',
+        input: {
+          userId: 'u_identity_nested',
+          identity: {
+            firstName: 'Jaylen',
+            lastName: 'Lowman',
+            school: 'Winter Springs High School',
+          },
+          sport: 'football',
+        },
+        context: { userId: 'u_identity_nested', operationId: 'op_identity_nested' },
+      });
+      const rows = await getOutboxRows('u_identity_nested');
+      printRows('write_core_identity_nested', rows, 3);
+      expect(rows).toHaveLength(3);
+      expect(rows.map((r) => r.step).sort()).toEqual(['analytics', 'memory', 'sync_delta']);
+      expect(rows.every((r) => r.status === 'completed')).toBe(true);
+    });
+
     it('write_season_stats → 3 steps', async () => {
       await service.apply({
         toolName: 'write_season_stats',

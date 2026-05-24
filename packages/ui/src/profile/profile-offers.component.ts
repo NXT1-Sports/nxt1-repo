@@ -72,7 +72,7 @@ import { NxtTimelineComponent } from '../components/timeline';
         [isLoading]="isLoading()"
         [isOwnProfile]="isOwnProfile()"
         [emptyState]="globalEmpty"
-        [emptyCta]="isOwnProfile() ? 'Add Recruiting Activity' : null"
+        [emptyCta]="null"
         [cardLayout]="cardLayout()"
         (itemClick)="onItemClick($event)"
         (emptyCtaClick)="addOfferClick.emit()"

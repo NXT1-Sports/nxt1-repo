@@ -81,6 +81,27 @@ const MESSAGE_ATTACHMENT_SYNC_RETRY_MS =
   AGENT_X_RUNTIME_CONFIG.attachmentTransport.messageSyncRetryMs;
 const PRE_SEND_BACKGROUND_UPLOAD_WAIT_MS =
   AGENT_X_RUNTIME_CONFIG.attachmentTransport.preSendBackgroundUploadWaitMs;
+const TEAM_FILM_REVIEW_MANAGER_ROLES = new Set([
+  'coach',
+  'director',
+  'admin',
+  'administrative',
+  'owner',
+  'head-coach',
+  'assistant-coach',
+  'staff',
+  'program-director',
+]);
+
+export function canAutoCreateTeamFilmReview(role: string | null | undefined): boolean {
+  if (!role) return false;
+
+  const normalizedRole = role
+    .trim()
+    .toLowerCase()
+    .replace(/[\s_]+/g, '-');
+  return TEAM_FILM_REVIEW_MANAGER_ROLES.has(normalizedRole);
+}
 
 @Injectable()
 export class AgentXOperationChatAttachmentsFacade {
@@ -662,7 +683,6 @@ export class AgentXOperationChatAttachmentsFacade {
           ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
           type: attachment.type,
           alt: attachment.name,
-          caption: attachment.name,
           ...(attachment.thumbnailUrl ? { poster: attachment.thumbnailUrl } : {}),
         };
       }
@@ -1227,14 +1247,16 @@ export class AgentXOperationChatAttachmentsFacade {
     const host = this.requireHost();
     const teamId = this.resolveActiveTeamId();
     const sport = this.resolveActiveSport();
+    const role = host.user()?.role ?? null;
 
-    if (!teamId || !sport || attachment.type !== 'video') {
+    if (!teamId || !sport || attachment.type !== 'video' || !canAutoCreateTeamFilmReview(role)) {
       this.logger.info(
-        'Skipping auto film-review creation after upload (missing team/sport or non-video)',
+        'Skipping auto film-review creation after upload (missing team/sport, non-video, or non-manager role)',
         {
           contextId: host.contextId(),
           teamId: teamId ?? null,
           sport: sport ?? null,
+          role,
           type: attachment.type,
         }
       );

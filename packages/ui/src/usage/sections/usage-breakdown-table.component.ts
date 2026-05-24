@@ -720,7 +720,9 @@ export class UsageBreakdownTableComponent {
   private readonly expandedSubActions = signal<Set<string>>(new Set());
 
   protected hasSubActions(item: UsageBreakdownLineItem): boolean {
-    return (item.subActions?.length ?? 0) > 0;
+    // Usage breakdown now renders each billed call as its own line item,
+    // so sub-action expansion is intentionally disabled.
+    return false;
   }
 
   protected subActionKey(date: string, teamId: string, userId: string, index: number): string {

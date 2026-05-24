@@ -75,7 +75,6 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
   template: `
     <article
       class="feed-shell"
-      [class.feed-shell--pinned]="item().isPinned"
       [class.feed-shell--compact]="compact()"
       [class.feed-shell--menu-open]="menuOpen()"
       role="article"
@@ -101,15 +100,6 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
             <span class="feed-shell__time">{{ timeAgo() }}</span>
           </div>
           <div class="feed-shell__meta-bar-right">
-            @if (item().isPinned) {
-              <div
-                class="feed-shell__pin-indicator"
-                [attr.data-testid]="testIds.SHELL_PINNED_BADGE"
-              >
-                <nxt1-icon name="pin" [size]="12" />
-                <span>Pinned</span>
-              </div>
-            }
             @if (canShowMenu()) {
               <div class="feed-shell__menu-wrap">
                 <button
@@ -123,18 +113,6 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
                 </button>
                 @if (menuOpen()) {
                   <div class="feed-shell__dropdown" role="menu" (click)="$event.stopPropagation()">
-                    @if (canPin()) {
-                      <button
-                        type="button"
-                        class="feed-shell__dropdown-item"
-                        role="menuitem"
-                        (click)="handlePinClick($event)"
-                      >
-                        <nxt1-icon name="pin" [size]="16" />
-                        <span>{{ item().isPinned ? 'Unpin' : 'Pin' }}</span>
-                      </button>
-                      <div class="feed-shell__dropdown-divider"></div>
-                    }
                     <button
                       type="button"
                       class="feed-shell__dropdown-item feed-shell__dropdown-item--danger"
@@ -185,12 +163,6 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
               <span>{{ typeBadgeLabel() }}</span>
             </div>
           }
-          @if (item().isPinned) {
-            <div class="feed-shell__pin-indicator" [attr.data-testid]="testIds.SHELL_PINNED_BADGE">
-              <nxt1-icon name="pin" [size]="12" />
-              <span>Pinned</span>
-            </div>
-          }
           @if (canShowMenu()) {
             <div class="feed-shell__menu-wrap">
               <button
@@ -204,18 +176,6 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
               </button>
               @if (menuOpen()) {
                 <div class="feed-shell__dropdown" role="menu" (click)="$event.stopPropagation()">
-                  @if (canPin()) {
-                    <button
-                      type="button"
-                      class="feed-shell__dropdown-item"
-                      role="menuitem"
-                      (click)="handlePinClick($event)"
-                    >
-                      <nxt1-icon name="pin" [size]="16" />
-                      <span>{{ item().isPinned ? 'Unpin' : 'Pin' }}</span>
-                    </button>
-                    <div class="feed-shell__dropdown-divider"></div>
-                  }
                   <button
                     type="button"
                     class="feed-shell__dropdown-item feed-shell__dropdown-item--danger"
@@ -510,17 +470,6 @@ const FEED_ITEM_TYPE_LABELS: Readonly<Record<FeedItemType, string>> = {
         color: var(--nxt1-color-error, #ff4c4c);
       }
 
-      /* Pinned indicator — inline with three-dots menu */
-      .feed-shell__pin-indicator {
-        display: inline-flex;
-        align-items: center;
-        gap: 4px;
-        font-size: 11px;
-        font-weight: 600;
-        color: var(--shell-primary);
-        flex-shrink: 0;
-      }
-
       /* Right-side wrapper in compact meta-bar */
       .feed-shell__meta-bar-right {
         display: flex;
@@ -637,7 +586,6 @@ export class FeedCardShellComponent {
   readonly contentClick = output<FeedItem>();
   readonly authorClick = output<FeedAuthor>();
   readonly menuClick = output<FeedItem>();
-  readonly pinClick = output<FeedItem>();
   readonly deleteClick = output<FeedItem>();
 
   // ============================================
@@ -669,9 +617,6 @@ export class FeedCardShellComponent {
   });
 
   protected readonly canShowMenu = computed(() => this.showMenu());
-
-  /** Pin is available for all owned feed items (metric groups included). */
-  protected readonly canPin = computed(() => this.showMenu());
 
   protected readonly typeBadgeLabel = computed(() => {
     return FEED_ITEM_TYPE_LABELS[this.item().feedType];
@@ -710,13 +655,6 @@ export class FeedCardShellComponent {
     await this.haptics.impact('light');
     this.menuOpen.update((v) => !v);
     this.menuClick.emit(this.item());
-  }
-
-  protected async handlePinClick(event: Event): Promise<void> {
-    event.stopPropagation();
-    await this.haptics.impact('light');
-    this.menuOpen.set(false);
-    this.pinClick.emit(this.item());
   }
 
   protected async handleDeleteClick(event: Event): Promise<void> {

@@ -48,6 +48,25 @@ function mapAward(award: UserAward, index: number): ProfileAward {
   };
 }
 
+/** Keep only valid award-shaped entries; reject contact-like objects. */
+function isRenderableAward(value: unknown): value is UserAward {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Record<string, unknown>;
+
+  if (typeof candidate['title'] !== 'string' || candidate['title'].trim().length === 0) {
+    return false;
+  }
+
+  const looksLikeContact =
+    'email' in candidate ||
+    'phone' in candidate ||
+    'firstName' in candidate ||
+    'lastName' in candidate ||
+    'contactType' in candidate;
+
+  return !looksLikeContact;
+}
+
 /** Map a User.connectedSources entry → ProfileConnectedSource (UI model). */
 function mapConnectedSource(
   src: NonNullable<User['connectedSources']>[number]
@@ -198,7 +217,7 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
 
   // ── Awards (from User.awards) ─────────────────────────────────────────────
   const awards: readonly ProfileAward[] | undefined = user.awards?.length
-    ? user.awards.map(mapAward)
+    ? user.awards.filter(isRenderableAward).map(mapAward)
     : undefined;
 
   // ── Contact (from User.contact) ───────────────────────────────────────────

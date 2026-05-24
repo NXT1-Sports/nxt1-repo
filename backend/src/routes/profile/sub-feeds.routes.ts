@@ -28,6 +28,52 @@ import { USERS_COLLECTION, PLAYER_STATS_COLLECTION, CACHE_TTL } from './shared.j
 
 const router = Router();
 
+function normalizeCollegeLogoUrl(value: unknown): string | undefined {
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) return undefined;
+
+  if (/^https?:\/\//i.test(raw)) {
+    return raw;
+  }
+
+  const defaultBucket =
+    process.env['STAGING_FIREBASE_STORAGE_BUCKET'] ?? process.env['FIREBASE_STORAGE_BUCKET'] ?? '';
+  if (!defaultBucket) {
+    return raw;
+  }
+
+  if (raw.startsWith('gs://')) {
+    const withoutScheme = raw.slice('gs://'.length);
+    const slashIndex = withoutScheme.indexOf('/');
+    if (slashIndex <= 0) {
+      return undefined;
+    }
+
+    const bucket = withoutScheme.slice(0, slashIndex).trim();
+    const objectPath = withoutScheme.slice(slashIndex + 1).trim();
+    if (!bucket || !objectPath) {
+      return undefined;
+    }
+
+    return `https://storage.googleapis.com/${bucket}/${objectPath
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/')}`;
+  }
+
+  const looksLikePath = raw.includes('/');
+  const objectPath = looksLikePath
+    ? raw
+    : raw.includes('.')
+      ? `Colleges/${raw}`
+      : `Colleges/${raw}.png`;
+
+  return `https://storage.googleapis.com/${defaultBucket}/${objectPath
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/')}`;
+}
+
 // ─── GET /:userId/timeline ────────────────────────────────────────────────────
 
 router.get(
@@ -216,6 +262,38 @@ router.get(
     const metrics = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     await cache.set(cacheKey, metrics, { ttl: CACHE_TTL.STATS });
     res.json({ success: true, data: metrics });
+  })
+);
+
+// ─── GET /:userId/news ────────────────────────────────────────────────────────
+
+router.get(
+  '/:userId/awards',
+  optionalAuth,
+  asyncHandler(async (req: Request, res: Response): Promise<void> => {
+    const { userId } = req.params as { userId: string };
+    const limit = Math.min(100, parseInt(String(req.query['limit'] ?? '50'), 10));
+    const sportId = req.query['sportId'] ? String(req.query['sportId']).toLowerCase() : null;
+
+    const cache = getCacheService();
+    const cacheKey = `profile:sub:awards:${userId}${sportId ? `:${sportId}` : ''}:${limit}`;
+    const hit = await cache.get<unknown[]>(cacheKey);
+    if (hit) {
+      markCacheHit(req, 'redis', cacheKey);
+      res.json({ success: true, data: hit });
+      return;
+    }
+
+    const db = req.firebase!.db;
+    let query = db.collection('Awards').where('userId', '==', userId) as FirebaseFirestore.Query;
+    if (sportId) query = query.where('sport', '==', sportId);
+    query = query.orderBy('createdAt', 'desc').limit(limit);
+
+    const snap = await query.get();
+    const awards = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+    await cache.set(cacheKey, awards, { ttl: CACHE_TTL.STATS });
+    res.json({ success: true, data: awards });
   })
 );
 
@@ -431,6 +509,7 @@ router.get(
         category: data['category'],
         collegeId: data['collegeId'],
         collegeName: data['collegeName'],
+        collegeLogoUrl: normalizeCollegeLogoUrl(data['collegeLogoUrl']),
         division: data['division'],
         conference: data['conference'],
         city: data['city'],
@@ -443,6 +522,7 @@ router.get(
         coachName: data['coachName'],
         coachTitle: data['coachTitle'],
         notes: data['notes'],
+        graphicUrl: data['graphicUrl'],
         source: data['source'],
         verified: data['verified'],
         createdAt: data['createdAt'],

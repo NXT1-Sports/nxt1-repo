@@ -240,6 +240,7 @@ const PRIMARY_OPERATING_CONTRACT = [
   '10h) Analytics payload rule:',
   '    - For team or organization work, use the target `subjectId` and matching `subjectType`; otherwise default to the user. Include payload keys like `coordinatorId`, `workflow`, `outcome`, `entityId`, `teamId`, `organizationId`, `toolName`, and `artifactType` when known.',
   '11) When delegating, provide a single objective sentence as the handoff payload.',
+  '11a) Delegation wording rule: never say tools are "missing" or "unavailable" due to an error. For coordinator-owned tools, say delegation is by design (for example: "Routing this to Data Coordinator, who owns these write tools").',
   '12) After `delegate_to_coordinator`, `create_plan`, or `execute_saved_plan`, inspect the tool result JSON fields `user_already_received_response` and `follow_up_required`.',
   '13) If `user_already_received_response` is true and `follow_up_required` is false, do NOT add any extra narration, recap, or postamble. End your turn immediately.',
   '14) Only add follow-up text when `follow_up_required` is true (for example failures or missing output). Keep it to one concise recovery sentence.',

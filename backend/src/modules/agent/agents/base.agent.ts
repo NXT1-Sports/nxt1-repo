@@ -1397,6 +1397,9 @@ export abstract class BaseAgent {
         iteration: iteration + 1,
       });
 
+      const latestToolHint = recentToolNames[recentToolNames.length - 1];
+      const telemetryFeatureHint = latestToolHint ?? `${this.id}-orchestration`;
+
       const llmOptions = {
         tier: routing.tier,
         modelOverride: routing.modelOverride,
@@ -1414,6 +1417,7 @@ export abstract class BaseAgent {
             operationId: context.operationId,
             userId: context.userId,
             agentId: this.id,
+            feature: telemetryFeatureHint,
           },
         }),
         // Propagate the SSE abort signal so client disconnects cancel in-flight LLM calls
@@ -1738,13 +1742,16 @@ export abstract class BaseAgent {
         }
       }
 
-      // 2. Capture session context once \u2014 shared read-only across all workers.
+      const effectiveExecutionAllowlist = Array.from(
+        new Set([...allowedToolNames, ...getEffectiveAgentToolPolicy(this.id)])
+      );
+
       const sessionCtxForTools: ToolSessionContext = {
         sessionId: context.sessionId,
         threadId: context.threadId,
         operationId: context.operationId,
         ...(context.appBaseUrl ? { appBaseUrl: context.appBaseUrl } : {}),
-        allowedToolNames,
+        allowedToolNames: effectiveExecutionAllowlist,
         allowedEntityGroups,
       };
 
@@ -2638,7 +2645,7 @@ export abstract class BaseAgent {
           },
         ],
         {
-          tier: 'extraction',
+          tier: 'chat',
           maxTokens: 420,
           temperature: 0.1,
           ...(context.signal ? { signal: context.signal } : {}),
@@ -2648,6 +2655,7 @@ export abstract class BaseAgent {
                   operationId: context.operationId,
                   userId: context.userId,
                   agentId: this.id,
+                  feature: `${this.id}-context-compression`,
                 },
               }
             : {}),
@@ -3015,19 +3023,21 @@ export abstract class BaseAgent {
 
     // Re-check permissions: ensure the LLM isn't calling a tool outside its allowlist.
     // System-category tools (e.g. delegate_task) bypass the allowlist.
-    const allowedToolNames =
-      sessionContext?.allowedToolNames ?? getEffectiveAgentToolPolicy(this.id);
+    const policyAllowedToolNames = getEffectiveAgentToolPolicy(this.id);
+    const allowedToolNames = sessionContext?.allowedToolNames ?? policyAllowedToolNames;
     const tool = registry.get(toolName);
     const isSystemTool = tool?.category === 'system';
     const bypassPermissions =
       sessionContext?.bypassPermissionForTool?.toolName === toolName &&
       sessionContext?.bypassPermissionForTool?.toolCallId === toolCall.id;
-    if (
+    const blockedBySessionAllowlist =
       !isSystemTool &&
       !bypassPermissions &&
       allowedToolNames.length > 0 &&
-      !allowedToolNames.includes(toolName)
-    ) {
+      !allowedToolNames.includes(toolName);
+    const blockedByPolicy = !isToolAllowedByPatterns(toolName, policyAllowedToolNames);
+
+    if (!isSystemTool && !bypassPermissions && blockedBySessionAllowlist && blockedByPolicy) {
       if (EMAIL_SEND_TOOL_NAMES.has(toolName)) {
         return JSON.stringify({
           success: false,
@@ -3048,6 +3058,17 @@ export abstract class BaseAgent {
       return JSON.stringify({
         error: `Tool "${toolName}" is not allowed for agent "${this.id}".`,
         errorCode: 'AGENT_TOOL_NOT_ALLOWED',
+      });
+    }
+
+    // Narrowed session allowlists can omit tools that are still valid per the
+    // agent's canonical policy. Fall back to policy in this case to prevent
+    // false permission loops.
+    if (!isSystemTool && !bypassPermissions && blockedBySessionAllowlist && !blockedByPolicy) {
+      logger.warn(`[${this.id}] Allowlist mismatch resolved via policy fallback`, {
+        agentId: this.id,
+        tool: toolName,
+        sessionAllowedCount: allowedToolNames.length,
       });
     }
 
@@ -4647,8 +4668,13 @@ export abstract class BaseAgent {
       if (candidate) return candidate;
     }
 
-    // Suppress technical IDs (like videoId, operationId, etc.) from user-facing progress labels
+    // Suppress technical IDs from user-facing progress labels.
     for (const [key, value] of Object.entries(input)) {
+      // Identifier-style keys should never appear in step labels.
+      if (/^id$/i.test(key) || /id$/i.test(key)) {
+        continue;
+      }
+
       // Hide any field that looks like a technical ID or code
       if (!this.isMeaningfulInvocationKey(key)) continue;
       if (/id$/i.test(key) && typeof value === 'string' && /^[a-f0-9]{8,}$/.test(value)) {
@@ -4657,6 +4683,14 @@ export abstract class BaseAgent {
       }
       if (/code$/i.test(key) && typeof value === 'string' && /^[A-Z0-9]{6,}$/.test(value)) {
         // Looks like a code, skip
+        continue;
+      }
+      if (
+        typeof value === 'string' &&
+        /^[A-Za-z0-9_-]{12,}$/.test(value.trim()) &&
+        !value.includes(' ')
+      ) {
+        // Token-like identifiers (e.g. Firestore doc IDs) should not become labels.
         continue;
       }
       const candidate = this.formatToolInvocationValue(value);
@@ -4716,6 +4750,7 @@ export abstract class BaseAgent {
       'agentId',
       'actorId',
       'teamId',
+      'postId',
       'teamCode',
       'coordinator',
       'coordinatorId',

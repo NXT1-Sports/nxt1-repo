@@ -15,14 +15,6 @@ import {
 import { NxtIconComponent } from '../../components/icon';
 import { ProfileService } from '../profile.service';
 
-interface StatsComparisonItem {
-  readonly label: string;
-  readonly playerDisplay: string;
-  readonly averageDisplay: string;
-  readonly playerPercent: number;
-  readonly averagePercent: number;
-}
-
 @Component({
   selector: 'nxt1-profile-stats',
   standalone: true,
@@ -249,59 +241,6 @@ interface StatsComparisonItem {
                 </tbody>
               </table>
             </div>
-          }
-
-          <!-- ═══ Top Stats Comparison Bars ═══ -->
-          @if (statsComparisonItems().length > 0) {
-            <section class="stats-compare" aria-labelledby="stats-compare-heading">
-              <header class="stats-compare__header">
-                <h3 id="stats-compare-heading" class="stats-compare__title">Top Stats</h3>
-                <div class="stats-compare__legend" role="list" aria-label="Comparison legend">
-                  <span class="stats-compare__legend-item" role="listitem">
-                    <span
-                      class="stats-compare__dot stats-compare__dot--player"
-                      aria-hidden="true"
-                    ></span>
-                    <span>{{ profile.user()?.firstName || 'Athlete' }}</span>
-                  </span>
-                  <span class="stats-compare__legend-item" role="listitem">
-                    <span
-                      class="stats-compare__dot stats-compare__dot--average"
-                      aria-hidden="true"
-                    ></span>
-                    <span>National Average</span>
-                  </span>
-                </div>
-              </header>
-
-              <div class="stats-compare__grid" role="list" aria-label="Top stats comparison">
-                @for (item of statsComparisonItems(); track item.label) {
-                  <article class="stats-compare__item" role="listitem">
-                    <div class="stats-compare__values">
-                      <span class="stats-compare__value stats-compare__value--player">{{
-                        item.playerDisplay
-                      }}</span>
-                      <span class="stats-compare__value stats-compare__value--average">{{
-                        item.averageDisplay
-                      }}</span>
-                    </div>
-
-                    <div class="stats-compare__bar-zone" aria-hidden="true">
-                      <div
-                        class="stats-compare__bar stats-compare__bar--player"
-                        [style.height.%]="item.playerPercent"
-                      ></div>
-                      <div
-                        class="stats-compare__bar stats-compare__bar--average"
-                        [style.height.%]="item.averagePercent"
-                      ></div>
-                    </div>
-
-                    <span class="stats-compare__label">{{ item.label }}</span>
-                  </article>
-                }
-              </div>
-            </section>
           }
         }
       }
@@ -986,31 +925,6 @@ export class ProfileStatsComponent {
     return cats[idx] ?? cats[0] ?? null;
   });
 
-  protected readonly statsComparisonItems = computed<readonly StatsComparisonItem[]>(() => {
-    const category = this.activeStatCategory();
-    if (!category?.stats?.length) return [];
-
-    const comparisonSource = category.stats.slice(0, 4);
-    const parsedValues = comparisonSource.map((stat) => this.parseNumericStatValue(stat.value));
-    const maxValue = Math.max(...parsedValues.filter((value) => value > 0), 1);
-
-    return comparisonSource.map((stat, index) => {
-      const playerNumeric = Math.max(0, this.parseNumericStatValue(stat.value));
-      const averageNumeric = Math.max(
-        0,
-        this.resolveComparisonAverage(stat, playerNumeric, maxValue, index, comparisonSource.length)
-      );
-
-      return {
-        label: stat.label,
-        playerDisplay: `${stat.value}${stat.unit ?? ''}`,
-        averageDisplay: this.formatComparisonAverage(stat, averageNumeric),
-        playerPercent: this.toBarPercent(playerNumeric, maxValue),
-        averagePercent: this.toBarPercent(averageNumeric, maxValue),
-      };
-    });
-  });
-
   protected onStatCategoryChange(idx: number): void {
     this._activeStatCategoryIdx.set(idx);
   }
@@ -1338,52 +1252,6 @@ export class ProfileStatsComponent {
       verified: catLogs.every((l) => l.verified),
       verifiedBy: catLogs[0].verifiedBy,
     };
-  }
-
-  private resolveComparisonAverage(
-    stat: AthleticStat,
-    playerNumeric: number,
-    maxValue: number,
-    index: number,
-    total: number
-  ): number {
-    const extendedStat = stat as AthleticStat & {
-      readonly nationalAverage?: string | number;
-      readonly nationalAvg?: string | number;
-      readonly average?: string | number;
-      readonly avg?: string | number;
-      readonly benchmark?: string | number;
-    };
-
-    const explicitAverage =
-      extendedStat.nationalAverage ??
-      extendedStat.nationalAvg ??
-      extendedStat.average ??
-      extendedStat.avg ??
-      extendedStat.benchmark;
-
-    const parsedExplicit = this.parseNumericStatValue(explicitAverage);
-    if (parsedExplicit > 0) return parsedExplicit;
-
-    if (playerNumeric <= 0) return 0;
-
-    const rankFactor = total > 1 ? index / (total - 1) : 0;
-    const maxRelativeFloor = maxValue * (0.014 + rankFactor * 0.01);
-    const valueBased = playerNumeric * 0.02;
-
-    return Math.max(0, Math.min(playerNumeric, Math.max(maxRelativeFloor, valueBased)));
-  }
-
-  private formatComparisonAverage(stat: AthleticStat, value: number): string {
-    const hasDecimal = stat.value.includes('.');
-    const rounded = hasDecimal ? Math.round(value * 10) / 10 : Math.round(value);
-    return `${rounded}${stat.unit ?? ''}`;
-  }
-
-  private toBarPercent(value: number, maxValue: number): number {
-    if (value <= 0 || maxValue <= 0) return 0;
-    const rawPercent = (value / maxValue) * 100;
-    return Math.max(3, Math.min(100, rawPercent));
   }
 
   private normalizeTeamType(type?: string): string {

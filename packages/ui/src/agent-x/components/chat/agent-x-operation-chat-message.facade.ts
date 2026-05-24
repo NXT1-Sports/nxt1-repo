@@ -186,6 +186,30 @@ export class AgentXOperationChatMessageFacade {
             : message
         )
       );
+
+      // Rehydrate the persisted assistant row immediately so final attachments
+      // (video + thumbnailUrl poster) render without requiring app reload.
+      const resolvedThreadId =
+        (typeof params.threadId === 'string' && params.threadId.trim().length > 0
+          ? params.threadId.trim()
+          : null) ??
+        host.resolvedThreadId() ??
+        (host.threadId().trim() || null);
+
+      if (resolvedThreadId) {
+        void host.loadThreadMessages(resolvedThreadId).catch((error) => {
+          this.logger.error(
+            'Failed to reload thread after persisted assistant message ID swap',
+            error,
+            {
+              source: params.source,
+              contextId: host.contextId(),
+              threadId: resolvedThreadId,
+              messageId: persistedMessageId,
+            }
+          );
+        });
+      }
       return;
     }
 

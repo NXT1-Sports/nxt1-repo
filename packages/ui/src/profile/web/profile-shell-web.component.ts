@@ -103,9 +103,14 @@ import { IntelService } from '../../intel/intel.service';
 import { ProfileMobileHeroComponent } from '../components/profile-mobile-hero.component';
 import { ProfileVerificationBannerComponent } from '../components/profile-verification-banner.component';
 import { ProfileContactComponent } from '../components/profile-contact.component';
+import { ProfileOverviewComponent } from '../components/profile-overview.component';
+import { ProfileMetricsComponent } from '../components/profile-metrics.component';
+import { ProfileStatsComponent } from '../components/profile-stats.component';
 import { ProfileGenerationBannerComponent } from '../profile-generation-banner.component';
 import { ProfileGenerationStateService } from '../profile-generation-state.service';
 import { ProfileScheduleComponent } from '../components/profile-schedule.component';
+import { ProfileOffersComponent } from '../profile-offers.component';
+import { ProfileEventsComponent } from '../profile-events.component';
 import type { ProfileShellUser } from '../profile-shell.component';
 
 const TEAM_TYPE_LABELS: Readonly<Record<ProfileTeamType, string>> = {
@@ -146,9 +151,14 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
     AthleteIntelComponent,
     ProfileMobileHeroComponent,
     ProfileVerificationBannerComponent,
+    ProfileOverviewComponent,
+    ProfileMetricsComponent,
+    ProfileStatsComponent,
     ProfileContactComponent,
     ProfileGenerationBannerComponent,
     ProfileScheduleComponent,
+    ProfileOffersComponent,
+    ProfileEventsComponent,
   ],
   template: `
     <!-- Portal: center — Profile name + subtitle teleported into top nav -->
@@ -277,6 +287,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
             <div class="madden-split-left">
               <!-- Mobile hero: profile summary -->
               <nxt1-profile-mobile-hero
+                class="madden-mobile-hero"
                 [isOwnProfile]="isOwnProfile()"
                 (messageClick)="menuClick.emit()"
               />
@@ -353,6 +364,44 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
                       @if (activeSideTab() === 'schedule') {
                         <!-- Schedule Board: rich game/practice grid view -->
                         <nxt1-profile-schedule [activeSideTab]="activeSideTab()" />
+                      } @else if (activeSideTab() === 'metrics') {
+                        <nxt1-profile-metrics [activeSideTab]="activeSideTab()" />
+                      } @else if (activeSideTab() === 'stats') {
+                        <nxt1-profile-stats />
+                      } @else if (activeSideTab() === 'awards') {
+                        <nxt1-profile-overview
+                          [activeSideTab]="'awards'"
+                          (editProfileClick)="editProfileClick.emit()"
+                          (teamClick)="onTeamClick($event)"
+                          (addAwardClick)="onAddUpdate()"
+                        />
+                      } @else if (activeSideTab() === 'recruiting') {
+                        <nxt1-profile-offers
+                          [offers]="profile.recruitingActivity()"
+                          [committedOffers]="profile.committedOffers()"
+                          [activeOffers]="profile.activeOffers()"
+                          [interestOffers]="profile.interestOffers()"
+                          [isLoading]="profile.timelineLoading()"
+                          [isOwnProfile]="profile.isOwnProfile()"
+                          [activeSection]="'timeline'"
+                          (offerClick)="onOfferClick($event)"
+                          (addOfferClick)="onAddUpdate()"
+                          (addCommitmentClick)="onAddUpdate()"
+                        />
+                      } @else if (activeSideTab() === 'events') {
+                        <nxt1-profile-events
+                          [events]="profile.nonGameEvents()"
+                          [visitEvents]="profile.visitEvents()"
+                          [campEvents]="profile.campEvents()"
+                          [generalEvents]="profile.generalEvents()"
+                          [isLoading]="profile.timelineLoading()"
+                          [isOwnProfile]="profile.isOwnProfile()"
+                          [activeSection]="'timeline'"
+                          [emptyCta]="null"
+                          (eventClick)="onEventClick($event)"
+                          (addEventClick)="onAddUpdate()"
+                          (emptyCtaClick)="onAddUpdate()"
+                        />
                       } @else {
                         <nxt1-profile-timeline
                           [posts]="profile.filteredPosts()"
@@ -635,6 +684,10 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         max-width: calc(100% - 380px);
         overflow: hidden;
         padding-left: 4px;
+      }
+
+      .madden-mobile-hero {
+        margin-top: 12px;
       }
       .madden-split-right {
         flex-shrink: 0;
@@ -1259,10 +1312,14 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
         }
       }
       @media (max-width: 768px) {
+        .madden-mobile-hero {
+          margin-top: 0;
+        }
+
         .madden-top-tabs {
           padding-left: 8px;
           margin-top: 4px;
-          margin-bottom: 12px;
+          margin-bottom: 6px;
         }
         .madden-top-tabs ::ng-deep .option-scroller--scrollable.option-scroller--md {
           --scroller-padding: 8px;
@@ -1328,6 +1385,10 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
           order: 0;
           width: calc(100% - 24px);
           margin-inline: 12px;
+          margin-top: 8px;
+          position: static;
+          top: auto;
+          align-self: auto;
         }
         .madden-content-scroll {
           order: 2;
@@ -1651,12 +1712,19 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
         {
           id: 'all-posts',
           label: 'All Posts',
-          badge: this.profile.polymorphicTimeline().length || undefined,
-        },
-        {
-          id: 'pinned',
-          label: 'Pinned',
-          badge: this.profile.polymorphicTimeline().filter((i) => i.isPinned).length || undefined,
+          badge:
+            this.profile
+              .polymorphicTimeline()
+              .filter(
+                (item) =>
+                  item.feedType !== 'STAT' &&
+                  item.feedType !== 'METRIC' &&
+                  item.feedType !== 'OFFER' &&
+                  item.feedType !== 'COMMITMENT' &&
+                  item.feedType !== 'VISIT' &&
+                  item.feedType !== 'CAMP' &&
+                  item.feedType !== 'EVENT'
+              ).length || undefined,
         },
         {
           id: 'media',
@@ -1671,11 +1739,6 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
                   !!post.thumbnailUrl ||
                   !!post.mediaUrl
               ).length || undefined,
-        },
-        {
-          id: 'videos',
-          label: 'Videos',
-          badge: this.profile.videoPosts().length || undefined,
         },
         {
           id: 'metrics',
@@ -1703,9 +1766,13 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
           label: 'Recruiting',
           badge:
             this.profile
-              .polymorphicTimeline()
-              .filter((i) => i.feedType === 'OFFER' || i.feedType === 'COMMITMENT').length ||
-            undefined,
+              .recruitingActivity()
+              .filter(
+                (activity) =>
+                  activity.category === 'offer' ||
+                  activity.category === 'commitment' ||
+                  activity.category === 'interest'
+              ).length || undefined,
         },
         {
           id: 'schedule',
@@ -1723,13 +1790,6 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
               .filter(
                 (i) => i.feedType === 'EVENT' || i.feedType === 'VISIT' || i.feedType === 'CAMP'
               ).length || undefined,
-        },
-        {
-          id: 'news',
-          label: 'News',
-          badge:
-            this.profile.polymorphicTimeline().filter((i) => i.feedType === 'NEWS').length ||
-            undefined,
         },
       ],
       connect: [
@@ -1770,13 +1830,10 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
     const sideTab = this.activeSideTab();
     const map: Record<string, ProfileTimelineFilterId> = {
       'all-posts': 'all',
-      pinned: 'pinned',
       media: 'media',
-      videos: 'videos',
       metrics: 'metrics',
       stats: 'stats',
       awards: 'awards',
-      news: 'news',
       recruiting: 'recruiting',
       // 'schedule' is handled by nxt1-profile-schedule board, timeline shows 'all' as fallback
       schedule: 'all',
@@ -2033,10 +2090,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
     let message: string;
     switch (activeTab) {
       case 'all-posts':
-        message = `I'd like to add a general update. Please help me figure out whether this belongs in Posts, PlayerStats, Schedule, Recruiting, or News based on what I'm sharing. If this is photos or highlight video, save it in Posts with the post type set to image or video. If the right section is not obvious, ask me a quick follow-up before saving anything.`;
-        break;
-      case 'pinned':
-        message = `I need to create an important featured update that should stay at the top of my profile. Please help me write it, then save it to the Posts collection with isPinned set to true.`;
+        message = `I'd like to add a general update. Please help me figure out whether this belongs in Posts, PlayerStats, Schedule, or Recruiting based on what I'm sharing. If this is photos or highlight video, save it in Posts with the post type set to image or video. If the right section is not obvious, ask me a quick follow-up before saving anything.`;
         break;
       case 'stats':
         message = `I want to update my season stats and recent performances. Please guide me through the latest numbers, then save that data to the PlayerStats collection.`;
@@ -2046,9 +2100,6 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
         break;
       case 'recruiting':
         message = `I have new recruiting activity to add, including college interest and outreach updates. Please help me put it together, then save it to the Recruiting collection.`;
-        break;
-      case 'news':
-        message = `I'd like to share a news update or announcement. Please help me write it clearly, then publish it to the News collection.`;
         break;
       case 'media':
         message = `I want to add new photos or highlight videos. Please help me prepare the update, then save it to the Posts collection and make sure the post type is set correctly as image or video.`;

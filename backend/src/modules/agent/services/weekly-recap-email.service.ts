@@ -15,10 +15,11 @@
  */
 
 import type { Firestore } from 'firebase-admin/firestore';
-import type { AgentWeeklyRecap } from '@nxt1/core';
+import type { AgentIdentifier, AgentWeeklyRecap } from '@nxt1/core';
 import { OpenRouterService } from '../llm/openrouter.service.js';
 import { resolveStructuredOutput } from '../llm/structured-output.js';
 import { sendPlatformEmail } from '../../../services/communications/platform-email.service.js';
+import { buildMarketingEmailShell } from '../../../services/marketing/email/templates/marketing-email-shell.js';
 import { dispatchAgentPush } from './agent-push-adapter.service.js';
 import { logger } from '../../../utils/logger.js';
 import { z } from 'zod';
@@ -221,7 +222,12 @@ export async function generateEmailContent(
   agentResultSummary: string,
   history: AgentWeeklyRecap[],
   db: Firestore,
-  goalProgress?: GoalProgressSummary
+  goalProgress?: GoalProgressSummary,
+  telemetry?: {
+    readonly operationId: string;
+    readonly userId: string;
+    readonly agentId?: AgentIdentifier;
+  }
 ): Promise<RecapEmailContent> {
   const llm = new OpenRouterService({ firestore: db });
   const weekLabel = getWeekLabel();
@@ -283,6 +289,16 @@ Keep the tone professional yet energetic. Be specific — reference sports conte
         name: 'weekly_recap_email',
         schema: recapEmailContentSchema,
       },
+      ...(telemetry
+        ? {
+            telemetryContext: {
+              operationId: telemetry.operationId,
+              userId: telemetry.userId,
+              agentId: telemetry.agentId ?? 'strategy_coordinator',
+              feature: 'weekly-recap-email',
+            },
+          }
+        : {}),
     });
 
     const parsed = resolveStructuredOutput(
@@ -355,108 +371,51 @@ export function buildEmailHtml(params: {
     ctaUrl,
   } = params;
 
-  const listItems = (items: string[]): string =>
-    items
+  const roleLabel = role.charAt(0).toUpperCase() + role.slice(1);
+
+  const renderBulletSection = (title: string, items: string[]): string => {
+    const rows = items
       .map(
         (item) =>
-          `<li style="margin: 0 0 10px 0; padding-left: 8px; color: #e2e8f0; font-size: 15px; line-height: 1.6;">${escapeHtml(item)}</li>`
+          `<li style="margin:0 0 10px 0;font-size:17px;line-height:1.6;color:#1f2937;">${escapeHtml(item)}</li>`
       )
       .join('');
 
-  const sectionTitle = (title: string): string =>
-    `<h3 style="margin: 24px 0 12px 0; font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #00d4ff;">${title}</h3>`;
+    return [
+      `<h2 style="margin:0 0 10px 0;font-size:30px;line-height:1.2;color:#111827;font-weight:800;">${escapeHtml(title)}</h2>`,
+      `<ul style="margin:0 0 8px 0;padding:0 0 0 22px;color:#1f2937;">${rows}</ul>`,
+    ].join('');
+  };
 
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Your Week ${weekNumber} Agent X Recap</title>
-</head>
-<body style="margin: 0; padding: 0; background-color: #0a0e1a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #0a0e1a;">
-    <tr>
-      <td align="center" style="padding: 24px 16px;">
-        <table width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%;">
-
-          <!-- Header -->
-          <tr>
-            <td style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border-radius: 16px 16px 0 0; padding: 40px 40px 32px; border-bottom: 2px solid #00d4ff;">
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td>
-                    <p style="margin: 0 0 4px 0; font-size: 12px; color: #64748b; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px;">Agent X Weekly Recap #${recapNumber}</p>
-                    <h1 style="margin: 0 0 8px 0; font-size: 28px; font-weight: 800; color: #f8fafc; line-height: 1.2;">Your Week at a Glance</h1>
-                    <p style="margin: 0; font-size: 13px; color: #64748b;">Week ${weekNumber} · ${escapeHtml(role.charAt(0).toUpperCase() + role.slice(1))}</p>
-                  </td>
-                  <td width="80" valign="top" align="right">
-                    <div style="width: 56px; height: 56px; background: linear-gradient(135deg, #00d4ff, #7c3aed); border-radius: 14px; display: flex; align-items: center; justify-content: center; text-align: center; line-height: 56px; font-size: 28px;">⚡</div>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- Body -->
-          <tr>
-            <td style="background-color: #111827; padding: 36px 40px;">
-
-              <!-- Greeting -->
-              <p style="margin: 0 0 20px 0; font-size: 17px; color: #f8fafc; line-height: 1.6;">Hey ${escapeHtml(userName)},</p>
-              <p style="margin: 0 0 28px 0; font-size: 15px; color: #94a3b8; line-height: 1.7;">${escapeHtml(introParagraph)}</p>
-
-              <!-- Completed Actions -->
-              ${sectionTitle('✅ What Agent X Did This Week')}
-              <ul style="margin: 0 0 8px 0; padding: 0 0 0 20px;">
-                ${listItems(completedActions)}
-              </ul>
-
-              <!-- Results -->
-              ${sectionTitle('📊 Key Results')}
-              <ul style="margin: 0 0 8px 0; padding: 0 0 0 20px;">
-                ${listItems(resultsHighlights)}
-              </ul>
-
-              <!-- Next Steps -->
-              ${sectionTitle('🚀 Recommended Next Steps')}
-              <ul style="margin: 0 0 32px 0; padding: 0 0 0 20px;">
-                ${listItems(nextSteps)}
-              </ul>
-
-              <!-- CTA -->
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td align="center">
-                    <a href="${ctaUrl}"
-                      style="display: inline-block; padding: 14px 40px; background: linear-gradient(135deg, #00d4ff, #7c3aed); color: #ffffff; font-size: 16px; font-weight: 700; text-decoration: none; border-radius: 10px; letter-spacing: 0.5px;">
-                      ${escapeHtml(ctaText)} →
-                    </a>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td style="background-color: #0f172a; border-radius: 0 0 16px 16px; padding: 24px 40px; border-top: 1px solid #1e293b;">
-              <p style="margin: 0 0 8px 0; font-size: 12px; color: #475569; text-align: center;">
-                You're receiving this because you have Agent X autonomous mode enabled.
-              </p>
-              <p style="margin: 0; font-size: 12px; color: #475569; text-align: center;">
-                <a href="${APP_URL}/settings/notifications" style="color: #00d4ff; text-decoration: none;">Manage email preferences</a>
-                &nbsp;·&nbsp;
-                <a href="${APP_URL}" style="color: #00d4ff; text-decoration: none;">NXT1 Sports</a>
-              </p>
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
-</body>
-</html>`;
+  return buildMarketingEmailShell({
+    preheader: `Your Agent X weekly recap for week ${weekNumber} is ready.`,
+    eyebrow: `Agent X Weekly Recap #${recapNumber}`,
+    title: 'Your Week at a Glance',
+    subtitle: `Week ${weekNumber} · ${roleLabel}`,
+    introHtml: `
+      <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hey ${escapeHtml(userName)},</p>
+      <p style="margin:0;font-size:19px;line-height:1.65;color:#1f2937;">${escapeHtml(introParagraph)}</p>
+    `,
+    sectionsHtml: [
+      renderBulletSection('What Agent X Did This Week', completedActions),
+      renderBulletSection('Key Results', resultsHighlights),
+      renderBulletSection('Recommended Next Steps', nextSteps),
+    ],
+    ctaButtons: [
+      {
+        label: ctaText,
+        href: ctaUrl,
+      },
+    ],
+    footerHtml: `
+      <p style="margin:0;font-size:12px;line-height:1.5;color:#b7c5d5;">You're receiving this because you have Agent X autonomous mode enabled.</p>
+      <p style="margin:8px 0 0 0;font-size:12px;line-height:1.5;color:#8ea0b4;">
+        <a href="${APP_URL}/settings/notifications" style="color:#ccff00;text-decoration:none;">Manage email preferences</a>
+        &nbsp;·&nbsp;
+        <a href="${APP_URL}" style="color:#ccff00;text-decoration:none;">NXT1 Sports</a>
+      </p>
+    `,
+  });
 }
 
 function escapeHtml(text: string): string {
@@ -530,7 +489,13 @@ export async function processRecapForUser(
       agentResultSummary,
       history,
       db,
-      goalProgress
+      goalProgress,
+      jobId
+        ? {
+            operationId: jobId,
+            userId: uid,
+          }
+        : undefined
     );
 
     // ── 6. Build HTML ────────────────────────────────────────────────────────

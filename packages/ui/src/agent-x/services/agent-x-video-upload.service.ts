@@ -107,6 +107,10 @@ interface NativeFirebaseStorageApi {
   ): Promise<string>;
 }
 
+export function shouldUseCloudflareUpload(fileSize: number): boolean {
+  return fileSize >= AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES;
+}
+
 // ============================================
 // SERVICE
 // ============================================
@@ -127,10 +131,9 @@ export class AgentXVideoUploadService {
   ): Observable<VideoUploadProgress> {
     const subject = new Subject<VideoUploadProgress>();
     const threadId = options?.threadId?.trim() ? options.threadId.trim() : null;
-    const uploadTask =
-      file.size >= AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES
-        ? this._doCloudflareTusUpload(file, authToken, subject, threadId)
-        : this._doFirebaseUpload(file, authToken, subject, threadId);
+    const uploadTask = shouldUseCloudflareUpload(file.size)
+      ? this._doCloudflareTusUpload(file, authToken, subject, threadId)
+      : this._doFirebaseUpload(file, authToken, subject, threadId);
 
     uploadTask.catch((err) => {
       const msg = err instanceof Error ? err.message : 'Video upload failed';
