@@ -1054,14 +1054,6 @@ export class ProfileTimelineComponent {
     return item as FeedItemNews;
   }
 
-  private isVideoFeedItem(item: FeedItem): boolean {
-    return (
-      item.feedType === 'POST' &&
-      ((item as FeedItemPost).postType === 'video' ||
-        (item as FeedItemPost).media.some((media) => media.type === 'video'))
-    );
-  }
-
   private resolvePlaylist(item: FeedItem): { id: string; label: string } | null {
     if (item.feedType !== 'POST') return null;
 

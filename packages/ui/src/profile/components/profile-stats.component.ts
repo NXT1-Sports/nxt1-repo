@@ -6,12 +6,7 @@
  * Displays game log tables, career/season stats, and top stats comparison bars.
  */
 import { Component, ChangeDetectionStrategy, inject, computed, signal } from '@angular/core';
-import {
-  type AthleticStat,
-  type GameLogEntry,
-  type GameLogSeasonTotals,
-  type ProfileSeasonGameLog,
-} from '@nxt1/core';
+import { type GameLogEntry, type GameLogSeasonTotals, type ProfileSeasonGameLog } from '@nxt1/core';
 import { NxtIconComponent } from '../../components/icon';
 import { ProfileService } from '../profile.service';
 
