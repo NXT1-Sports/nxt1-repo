@@ -159,6 +159,10 @@ export interface TeamGamePlanDoc {
   readonly linkedPlays?: readonly TeamGamePlanPlayReference[];
   readonly tags?: readonly string[];
   readonly linkedPlaybookIds?: readonly string[];
+  /**
+   * Optional freeform scouting report for this game plan (AI or coach generated)
+   */
+  readonly scoutingReport?: string;
   readonly source: string;
   readonly sourceUrl?: string;
   readonly schemaVersion: number;

@@ -1399,6 +1399,10 @@ export const PLAYBOOK_TEST_IDS = {
 
   // Play actions
   PLAY_ADD_BUTTON: 'playbook-play-add-button',
+  PLAYBOOK_EXPORT_CURRENT_BUTTON: 'playbook-export-current-button',
+  PLAYBOOK_EXPORT_FULL_BUTTON: 'playbook-export-full-button',
+  PLAYBOOK_PRINT_PREVIEW_BUTTON: 'playbook-print-preview-button',
+  PLAYBOOK_EXPORT_ERROR: 'playbook-export-error',
   PLAY_EDIT_BUTTON: 'playbook-play-edit-button',
   PLAY_DELETE_BUTTON: 'playbook-play-delete-button',
   PLAY_VIEW_BUTTON: 'playbook-play-view-button',
@@ -1434,6 +1438,20 @@ export const PLAYBOOK_TEST_IDS = {
   GAMEPLAN_LIST_CONTAINER: 'playbook-gameplan-list-container',
   GAMEPLAN_LIST_ITEM: 'playbook-gameplan-list-item',
   GAMEPLAN_EMPTY_STATE: 'playbook-gameplan-empty-state',
+
+  // Callsheet tab
+  CALLSHEET_LIST_CONTAINER: 'playbook-callsheet-list-container',
+  CALLSHEET_LIST_ITEM: 'playbook-callsheet-list-item',
+  CALLSHEET_EMPTY_STATE: 'playbook-callsheet-empty-state',
+  CALLSHEET_CREATE_BUTTON: 'playbook-callsheet-create-button',
+  CALLSHEET_SITUATIONAL_FINDER_BUTTON: 'playbook-callsheet-situational-finder-button',
+
+  // Practice script tab
+  PRACTICE_SCRIPT_LIST_CONTAINER: 'playbook-practice-script-list-container',
+  PRACTICE_SCRIPT_LIST_ITEM: 'playbook-practice-script-list-item',
+  PRACTICE_SCRIPT_EMPTY_STATE: 'playbook-practice-script-empty-state',
+  PRACTICE_SCRIPT_CREATE_BUTTON: 'playbook-practice-script-create-button',
+  PRACTICE_SCRIPT_GENERATE_BUTTON: 'playbook-practice-script-generate-button',
 
   // AI chat triggers
   AI_ADD_PLAY_TRIGGER: 'playbook-ai-add-play-trigger',
@@ -1479,8 +1497,10 @@ export const FILM_REVIEW_TEST_IDS = {
   TIMELINE_GENERATING_SPINNER: 'film-review-timeline-generating-spinner',
   TIMELINE_TAG_COLUMN: 'film-review-timeline-tag-column',
   TIMELINE_TAG_VALUE: 'film-review-timeline-tag-value',
+  TIMELINE_COLUMN_REORDER_HANDLE: 'film-review-timeline-column-reorder-handle',
   TIMELINE_PLAY_NAV_PREV: 'film-review-timeline-play-nav-prev',
   TIMELINE_PLAY_NAV_NEXT: 'film-review-timeline-play-nav-next',
+  TIMELINE_PLAY_REORDER_HANDLE: 'film-review-timeline-play-reorder-handle',
   TIMELINE_PLAY_EDIT_BUTTON: 'film-review-timeline-play-edit-button',
   TIMELINE_PLAY_EDIT_INPUT: 'film-review-timeline-play-edit-input',
   TIMELINE_PLAY_EDIT_SAVE: 'film-review-timeline-play-edit-save',

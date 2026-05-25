@@ -110,7 +110,7 @@ export class AgentQueueService {
    * @returns The BullMQ job ID (same as operationId for easy lookup).
    */
   async enqueuePlaybookGeneration(
-    input: { operationId: string; userId: string },
+    input: { operationId: string; userId: string; skipBilling?: boolean },
     environment: 'staging' | 'production' = 'production'
   ): Promise<string> {
     const jobData: PlaybookGenerationQueueJobData = {
@@ -119,6 +119,7 @@ export class AgentQueueService {
       userId: input.userId,
       enqueuedAt: new Date().toISOString(),
       environment,
+      ...(input.skipBilling ? { skipBilling: true } : {}),
     };
 
     const job = await this.queue.add(input.operationId, jobData, {

@@ -23,6 +23,12 @@ import { getCacheService } from '../../../../../services/core/cache.service.js';
 import { canManageTeamMutationForUser } from '../../../../../services/team/team-intel-permissions.js';
 import { logger } from '../../../../../utils/logger.js';
 import { resolveCreatedAt } from '../doc-date-utils.js';
+import {
+  buildPlayIndexes,
+  createPlayKey,
+  ensurePlayId,
+  sanitizePlayBreakdown,
+} from './playbook-play.utils.js';
 import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -90,6 +96,9 @@ const PlayEntrySchema = z
     /** Natural language summary of the play concept */
     description: z.string().trim().min(1).optional(),
 
+    /** Rich breakdown of reads, assignments, and concept mechanics */
+    playBreakdown: z.string().trim().min(1).optional(),
+
     /** URL of an embedded play diagram image (Hudl diagram, Canva export, etc.) */
     diagramUrl: z.string().url().optional(),
 
@@ -111,6 +120,9 @@ const PlayEntrySchema = z
 
     /** The source platform's own internal ID for this play (e.g. Hudl card ID) */
     sourcePlayId: z.string().trim().min(1).optional(),
+
+    /** Stable ID used for per-play atomic mutations */
+    playId: z.string().trim().min(1).optional(),
 
     // ─── AI-NATIVE INSTALL LAYER ──────────────────────────────────────────────
     /** Install stage: "install" (teaching), "rep" (repetition), "game-ready" */
@@ -212,6 +224,8 @@ function buildPlayEntry(raw: PlayEntry, now: string): Record<string, unknown> {
     }));
   }
   if (raw.description) entry['description'] = raw.description.trim();
+  const playBreakdown = sanitizePlayBreakdown(raw.playBreakdown);
+  if (playBreakdown) entry['playBreakdown'] = playBreakdown;
   if (raw.diagramUrl) entry['diagramUrl'] = raw.diagramUrl;
   if (raw.videoRefs?.length) entry['videoRefs'] = raw.videoRefs;
   if (typeof raw.successRate === 'number') entry['successRate'] = raw.successRate;
@@ -219,6 +233,7 @@ function buildPlayEntry(raw: PlayEntry, now: string): Record<string, unknown> {
   if (raw.strengths?.length) entry['strengths'] = raw.strengths.map((s) => s.trim().toLowerCase());
   if (raw.tags?.length) entry['tags'] = raw.tags.map((t) => t.trim().toLowerCase());
   if (raw.sourcePlayId) entry['sourcePlayId'] = raw.sourcePlayId.trim();
+  if (raw.playId) entry['playId'] = raw.playId.trim();
 
   // AI-native install layer
   if (raw.installStage) entry['installStage'] = raw.installStage;
@@ -369,16 +384,15 @@ export class WritePlaybooksTool extends BaseTool {
 
       // Build merge map keyed on playKey (series:name slug)
       const mergeMap = new Map<string, Record<string, unknown>>();
-      for (const existing of existingPlays) {
-        const series = typeof existing['series'] === 'string' ? existing['series'] : '';
-        const name = typeof existing['name'] === 'string' ? existing['name'] : '';
-        const key = `${slugify(series)}:${slugify(name)}`;
+      for (let index = 0; index < existingPlays.length; index += 1) {
+        const existing = existingPlays[index] as Record<string, unknown>;
+        const key = createPlayKey(existing);
+        ensurePlayId(existing, `${docId}:${index}:${key}`);
         mergeMap.set(key, existing);
       }
-      for (const incoming of validPlays) {
-        const series = typeof incoming['series'] === 'string' ? incoming['series'] : '';
-        const name = typeof incoming['name'] === 'string' ? incoming['name'] : '';
-        const key = `${slugify(series)}:${slugify(name)}`;
+      for (let index = 0; index < validPlays.length; index += 1) {
+        const incoming = validPlays[index] as Record<string, unknown>;
+        const key = createPlayKey(incoming);
         // Preserve createdAt from existing if it exists
         const existing = mergeMap.get(key);
         if (existing?.['createdAt']) {
@@ -386,25 +400,19 @@ export class WritePlaybooksTool extends BaseTool {
         } else {
           incoming['createdAt'] = now;
         }
+        if (existing?.['playId']) {
+          incoming['playId'] = existing['playId'];
+        }
+        ensurePlayId(incoming, `${docId}:incoming:${index}:${key}`);
         mergeMap.set(key, incoming);
       }
 
-      const mergedPlays = Array.from(mergeMap.values());
+      const mergedPlays = Array.from(mergeMap.values()).map((play, index) => {
+        ensurePlayId(play, `${docId}:merged:${index}:${createPlayKey(play)}`);
+        return play;
+      });
 
-      // ── Build aggregate concept index for fast querying ───────────────
-      const allConceptTags = new Set<string>();
-      const allFormations = new Set<string>();
-      const allPersonnel = new Set<string>();
-      const allCategories = new Set<string>();
-
-      for (const play of mergedPlays) {
-        if (Array.isArray(play['conceptTags'])) {
-          for (const t of play['conceptTags']) allConceptTags.add(String(t));
-        }
-        if (typeof play['formation'] === 'string') allFormations.add(play['formation'] as string);
-        if (typeof play['personnel'] === 'string') allPersonnel.add(play['personnel'] as string);
-        if (typeof play['category'] === 'string') allCategories.add(play['category'] as string);
-      }
+      const indexes = buildPlayIndexes(mergedPlays);
 
       const docData: Record<string, unknown> = {
         id: docId,
@@ -414,10 +422,7 @@ export class WritePlaybooksTool extends BaseTool {
         plays: mergedPlays,
         playCount: mergedPlays.length,
         // Aggregate indexes — allow Agent X to quickly filter without scanning every play
-        conceptTagIndex: Array.from(allConceptTags).sort(),
-        formationIndex: Array.from(allFormations).sort(),
-        personnelIndex: Array.from(allPersonnel).sort(),
-        categoryIndex: Array.from(allCategories).sort(),
+        ...indexes,
         source,
         verified: false,
         extractedAt: now,
@@ -463,8 +468,8 @@ export class WritePlaybooksTool extends BaseTool {
           written: validPlays.length,
           total: mergedPlays.length,
           skipped,
-          conceptTagIndex: Array.from(allConceptTags).sort(),
-          formationIndex: Array.from(allFormations).sort(),
+          conceptTagIndex: indexes['conceptTagIndex'],
+          formationIndex: indexes['formationIndex'],
           message: `Wrote ${validPlays.length} play(s) to "${playbookName}" for team "${teamId}" (${normalizedSport}). Total plays in book: ${mergedPlays.length}${skipped > 0 ? `. Skipped ${skipped} invalid entries.` : ''}.`,
         },
       };

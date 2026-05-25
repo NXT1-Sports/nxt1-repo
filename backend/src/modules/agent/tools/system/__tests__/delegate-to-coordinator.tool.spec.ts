@@ -13,6 +13,10 @@ describe('DelegateToCoordinatorTool', () => {
     expect(tool.category).toBe('system');
     expect(tool.isMutation).toBe(false);
     expect(tool.allowedAgents).toEqual(['router']);
+    expect(tool.description).toContain('Do NOT use data_coordinator for strategy artifacts');
+    expect(tool.description).toContain(
+      'callsheets, practice script matrices, playbooks, game plans'
+    );
   });
 
   it('throws DelegateToCoordinatorException for valid input', async () => {

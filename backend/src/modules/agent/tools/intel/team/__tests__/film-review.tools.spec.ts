@@ -8,6 +8,16 @@ const { mockCacheDel, mockCanManageTeamMutationForUser, mockCanReadTeamIntelForU
   })
 );
 
+vi.mock('firebase-admin/storage', () => ({
+  getStorage: () => ({
+    bucket: () => ({
+      file: () => ({
+        delete: vi.fn().mockResolvedValue(undefined),
+      }),
+    }),
+  }),
+}));
+
 vi.mock('../../../../../../services/core/cache.service.js', () => ({
   getCacheService: () => ({
     del: mockCacheDel,
@@ -56,10 +66,12 @@ function createDb(options: {
   readonly teamDoc?: { readonly exists: boolean; readonly data: () => unknown };
   readonly set?: ReturnType<typeof vi.fn>;
   readonly update?: ReturnType<typeof vi.fn>;
+  readonly deleteDoc?: ReturnType<typeof vi.fn>;
   readonly whereDocs?: readonly { readonly data: () => unknown }[];
 }) {
   const set = options.set ?? vi.fn().mockResolvedValue(undefined);
   const update = options.update ?? vi.fn().mockResolvedValue(undefined);
+  const deleteDoc = options.deleteDoc ?? vi.fn().mockResolvedValue(undefined);
   const filmReviewDoc =
     options.filmReviewDoc ?? ({ exists: false, data: () => undefined } as const);
   const teamDoc = options.teamDoc ?? { exists: true, data: () => ({ ownerId: 'coach-1' }) };
@@ -81,6 +93,7 @@ function createDb(options: {
             get: vi.fn().mockResolvedValue(filmReviewDoc),
             set,
             update,
+            delete: deleteDoc,
           }),
           where: vi.fn().mockReturnValue({
             limit: vi.fn().mockReturnValue({
@@ -94,7 +107,7 @@ function createDb(options: {
     }),
   };
 
-  return { db, set, update };
+  return { db, set, update, deleteDoc };
 }
 
 describe('film review Agent X tools', () => {
@@ -222,8 +235,40 @@ describe('film review Agent X tools', () => {
     });
   });
 
-  it('archives film reviews instead of hard deleting them', async () => {
+  it('resets timeline when sport changes even if timeline rows are provided in payload', async () => {
     const { db, update } = createDb({
+      filmReviewDoc: {
+        exists: true,
+        data: () => ({
+          ...baseReview,
+          timeline: [{ id: 'old-play', number: 1, label: 'Old', startSec: 0, endSec: 10 }],
+        }),
+      },
+    });
+
+    const tool = new UpdateFilmReviewTool(db as never);
+    const result = await tool.execute(
+      {
+        filmReviewId: 'fr-1',
+        sport: 'basketball',
+        timeline: [{ label: 'Fast break', startSec: 2, endSec: 9 }],
+      },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update.mock.calls[0]?.[0]).toMatchObject({
+      sport: 'basketball',
+      timeline: [],
+      timelineState: 'idle',
+      timelineGeneratedAt: null,
+      timelineError: null,
+    });
+  });
+
+  it('hard deletes film reviews from the collection', async () => {
+    const { db, update, deleteDoc } = createDb({
       filmReviewDoc: { exists: true, data: () => baseReview },
     });
 
@@ -234,13 +279,8 @@ describe('film review Agent X tools', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        status: 'archived',
-        archivedBy: 'coach-1',
-        archivedReason: 'Duplicate upload',
-      })
-    );
+    expect(deleteDoc).toHaveBeenCalledTimes(1);
+    expect(update).not.toHaveBeenCalled();
   });
 
   it('adds timestamped annotations for review owners', async () => {

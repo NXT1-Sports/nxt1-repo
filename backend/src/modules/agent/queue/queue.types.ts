@@ -116,6 +116,8 @@ export interface PlaybookGenerationQueueJobData {
   readonly enqueuedAt: string;
   /** Which Firestore the job document lives in — used by the worker to write back to the correct DB. */
   readonly environment: 'staging' | 'production';
+  /** Platform-sponsored recovery jobs must not deduct user credits. */
+  readonly skipBilling?: boolean;
 }
 
 /** Union of all BullMQ payloads handled by the agent queue worker. */

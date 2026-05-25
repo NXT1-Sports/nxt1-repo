@@ -49,6 +49,13 @@ export interface CloudflareVideoFinalizeResponse {
     readonly dashUrl: string | null;
     readonly iframeUrl: string | null;
   };
+  readonly download: CloudflareVideoDownloadStatus;
+}
+
+export interface CloudflareVideoDownloadStatus {
+  readonly status: string;
+  readonly url: string | null;
+  readonly percentComplete: number | null;
 }
 
 export interface PersistedHighlightVideoPostResponse {
@@ -449,10 +456,54 @@ export function buildCloudflarePlaybackUrls(
   };
 }
 
+function normalizeCloudflareDownloadStatusValue(
+  payload: Record<string, unknown> | undefined
+): CloudflareVideoDownloadStatus {
+  const statusRaw = typeof payload?.['status'] === 'string' ? payload['status'] : 'unknown';
+  const normalizedStatus = statusRaw.trim().length > 0 ? statusRaw : 'unknown';
+  const url = typeof payload?.['url'] === 'string' ? payload['url'] : null;
+  const percentCompleteRaw = payload?.['percentComplete'];
+  const percentComplete =
+    typeof percentCompleteRaw === 'number'
+      ? percentCompleteRaw
+      : Number.isFinite(Number(percentCompleteRaw))
+        ? Number(percentCompleteRaw)
+        : null;
+
+  return {
+    status: normalizedStatus,
+    url,
+    percentComplete,
+  };
+}
+
+export function normalizeCloudflareDownloadStatus(payload: unknown): CloudflareVideoDownloadStatus {
+  if (!payload || typeof payload !== 'object') {
+    return {
+      status: 'unknown',
+      url: null,
+      percentComplete: null,
+    };
+  }
+
+  const typedPayload = payload as Record<string, unknown>;
+  const defaultDownload =
+    typedPayload['default'] && typeof typedPayload['default'] === 'object'
+      ? (typedPayload['default'] as Record<string, unknown>)
+      : undefined;
+
+  if (defaultDownload) {
+    return normalizeCloudflareDownloadStatusValue(defaultDownload);
+  }
+
+  return normalizeCloudflareDownloadStatusValue(typedPayload);
+}
+
 export function normalizeCloudflareVideoForClient(
   videoId: string,
   payload: Record<string, unknown>,
-  customerCode: string | undefined
+  customerCode: string | undefined,
+  downloadPayload?: unknown
 ): CloudflareVideoFinalizeResponse {
   const meta = ((payload['meta'] as Record<string, unknown> | undefined) ?? {}) as Record<
     string,
@@ -491,7 +542,95 @@ export function normalizeCloudflareVideoForClient(
       hls: typeof playback['hls'] === 'string' ? playback['hls'] : undefined,
       dash: typeof playback['dash'] === 'string' ? playback['dash'] : undefined,
     }),
+    download: normalizeCloudflareDownloadStatus(downloadPayload),
   };
+}
+
+export async function fetchCloudflareDownloadStatus(
+  cloudflareVideoId: string,
+  accountId: string,
+  apiToken: string
+): Promise<CloudflareVideoDownloadStatus> {
+  const response = await fetch(
+    `${CLOUDFLARE_API_BASE_URL}/accounts/${accountId}/stream/${cloudflareVideoId}/downloads`,
+    {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+
+  let responseBody: Record<string, unknown> | null;
+  try {
+    responseBody = (await response.json()) as Record<string, unknown>;
+  } catch {
+    responseBody = null;
+  }
+
+  if (!response.ok || responseBody?.['success'] === false) {
+    const errors = Array.isArray(responseBody?.['errors'])
+      ? (responseBody?.['errors'] as Array<Record<string, unknown>>)
+      : [];
+    const errorMessage =
+      typeof errors[0]?.['message'] === 'string'
+        ? (errors[0]['message'] as string)
+        : `status ${response.status}`;
+
+    throw new Error(`Cloudflare download status fetch failed: ${errorMessage}`);
+  }
+
+  const payload =
+    responseBody && typeof responseBody['result'] === 'object' && responseBody['result'] !== null
+      ? (responseBody['result'] as Record<string, unknown>)
+      : null;
+
+  return normalizeCloudflareDownloadStatus(payload);
+}
+
+export async function requestCloudflareVideoDownloadRender(
+  cloudflareVideoId: string,
+  accountId: string,
+  apiToken: string
+): Promise<CloudflareVideoDownloadStatus> {
+  const response = await fetch(
+    `${CLOUDFLARE_API_BASE_URL}/accounts/${accountId}/stream/${cloudflareVideoId}/downloads`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    }
+  );
+
+  let responseBody: Record<string, unknown> | null;
+  try {
+    responseBody = (await response.json()) as Record<string, unknown>;
+  } catch {
+    responseBody = null;
+  }
+
+  if (!response.ok || responseBody?.['success'] === false) {
+    const errors = Array.isArray(responseBody?.['errors'])
+      ? (responseBody?.['errors'] as Array<Record<string, unknown>>)
+      : [];
+    const errorMessage =
+      typeof errors[0]?.['message'] === 'string'
+        ? (errors[0]['message'] as string)
+        : `status ${response.status}`;
+
+    throw new Error(`Cloudflare download render request failed: ${errorMessage}`);
+  }
+
+  const payload =
+    responseBody && typeof responseBody['result'] === 'object' && responseBody['result'] !== null
+      ? (responseBody['result'] as Record<string, unknown>)
+      : null;
+
+  return normalizeCloudflareDownloadStatus(payload);
 }
 
 export function getCloudflareHighlightPostId(cloudflareVideoId: string): string {

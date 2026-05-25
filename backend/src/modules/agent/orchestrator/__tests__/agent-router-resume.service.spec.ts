@@ -124,4 +124,52 @@ describe('AgentRouterResumeService', () => {
     expect(toolRegistry.match).toHaveBeenCalled();
     expect(result.summary).toBe('Resumed successfully');
   });
+
+  it('resumes router yields through Primary with per-run dispatch state', async () => {
+    const primary = {
+      id: 'router',
+      beginRun: vi.fn(),
+      endRun: vi.fn(),
+      resumeExecution: vi.fn().mockResolvedValue({
+        summary: 'Primary resumed',
+        data: { ok: true },
+      }),
+    } as never;
+    const service = new AgentRouterResumeService(
+      llm,
+      toolRegistry,
+      contextBuilder,
+      routerContext,
+      telemetry,
+      buildToolAccessContext,
+      undefined,
+      undefined,
+      () => primary
+    );
+
+    const routerYieldState = {
+      ...makeYieldState(),
+      agentId: 'router',
+    } as never;
+
+    const result = await service.runResumed({
+      job: makeJob(),
+      yieldState: routerYieldState,
+      planner,
+      agents: new Map(),
+      firestore: makeFirestore('awaiting_input'),
+    });
+
+    expect(primary.beginRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: 'op-1',
+        userId: 'user-1',
+        enrichedIntent: 'Resume recruiting workflow',
+      })
+    );
+    expect(primary.resumeExecution).toHaveBeenCalledTimes(1);
+    expect(primary.endRun).toHaveBeenCalledWith('op-1');
+    expect(toolRegistry.match).not.toHaveBeenCalled();
+    expect(result.summary).toBe('Primary resumed');
+  });
 });

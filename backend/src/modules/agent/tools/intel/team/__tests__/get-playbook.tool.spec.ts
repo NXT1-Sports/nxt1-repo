@@ -101,4 +101,58 @@ describe('GetPlaybookTool', () => {
     expect(data.playbook.id).toBe('pb-real-id');
     expect(data.playbook.name).toBe('Main Playbook');
   });
+
+  it('resolves alias IDs when sport keys include underscores', async () => {
+    const db = {
+      collection: vi.fn().mockImplementation((name: string) => {
+        if (name === 'TeamPlaybooks') {
+          return {
+            doc: vi.fn().mockReturnValue({
+              get: vi.fn().mockResolvedValue({ exists: false }),
+            }),
+            where: vi.fn().mockReturnValue({
+              limit: vi.fn().mockReturnValue({
+                get: vi.fn().mockResolvedValue({
+                  docs: [
+                    {
+                      id: 'pb-boys-id',
+                      data: () => ({
+                        teamId: 'team-1',
+                        sport: 'basketball_boys',
+                        name: 'Varsity Main Playbook',
+                        updatedAt: '2026-05-14T00:00:00.000Z',
+                      }),
+                    },
+                  ],
+                }),
+              }),
+            }),
+          };
+        }
+
+        if (name === 'Teams') {
+          return {
+            doc: vi.fn().mockReturnValue({
+              get: vi
+                .fn()
+                .mockResolvedValue({ exists: true, data: () => ({ ownerId: 'coach-1' }) }),
+            }),
+          };
+        }
+
+        throw new Error(`Unexpected collection ${name}`);
+      }),
+    };
+
+    const tool = new GetPlaybookTool(db as never);
+    const result = await tool.execute(
+      { playbookId: 'team-1_basketball_boys_Varsity Main Playbook' },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { playbook: { id: string; sport: string } };
+    expect(data.playbook.id).toBe('pb-boys-id');
+    expect(data.playbook.sport).toBe('basketball_boys');
+  });
 });

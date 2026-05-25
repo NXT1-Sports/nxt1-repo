@@ -35,6 +35,7 @@ export interface PlayItem {
   readonly personnel?: string;
   readonly downDistance?: string;
   readonly objective?: string;
+  readonly playBreakdown?: string;
   readonly installNotes?: string;
   readonly diagramUrl?: string;
   readonly videoUrl?: string;

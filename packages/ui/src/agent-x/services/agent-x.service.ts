@@ -2072,11 +2072,6 @@ export class AgentXService {
       actionLabel: item.actionLabel,
     });
 
-    // Update the item status to in-progress immediately
-    this._weeklyPlaybook.update((items) =>
-      items.map((i) => (i.id === item.id ? { ...i, status: 'in-progress' as const } : i))
-    );
-
     this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_ACTION_EXECUTED, {
       itemId: item.id,
       actionLabel: item.actionLabel,

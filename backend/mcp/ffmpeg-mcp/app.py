@@ -76,6 +76,20 @@ def _is_gcs_url(url: str) -> bool:
         return False
 
 
+def _has_url_query_param(url: str, names: set[str]) -> bool:
+    try:
+        from urllib.parse import parse_qs, urlparse
+        params = parse_qs(urlparse(url).query, keep_blank_values=True)
+        return any(name in params for name in names)
+    except Exception:
+        return False
+
+
+def _is_pre_authorized_gcs_url(url: str) -> bool:
+    """Firebase token URLs and V4 signed URLs must be fetched as-is."""
+    return _has_url_query_param(url, {"token", "X-Goog-Signature"})
+
+
 def _gcs_auth_token() -> str | None:
     """
     Obtain an access token via Application Default Credentials.
@@ -150,10 +164,9 @@ def _download_url(url: str) -> str:
     try:
         headers: dict[str, str] = {"User-Agent": "Mozilla/5.0 (compatible; ffmpeg-mcp/1.0)"}
 
-        # Firebase Storage and GCS URLs require a bearer token.
-        # We use ADC (the service-account bound to the Cloud Run container);
-        # this avoids passing signed URLs through the entire tool call chain.
-        if _is_gcs_url(url):
+        # Unsigned Firebase Storage and GCS URLs require a bearer token. Already
+        # tokenized Firebase URLs and V4 signed URLs must be fetched as-is.
+        if _is_gcs_url(url) and not _is_pre_authorized_gcs_url(url):
             token = _gcs_auth_token()
             if token:
                 headers["Authorization"] = f"Bearer {token}"

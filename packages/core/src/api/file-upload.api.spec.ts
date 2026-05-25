@@ -508,6 +508,11 @@ describe('File Upload API', () => {
           dashUrl: 'https://videodelivery.net/video-123/manifest/video.mpd',
           iframeUrl: 'https://videodelivery.net/video-123/iframe',
         },
+        download: {
+          status: 'inprogress',
+          url: null,
+          percentComplete: 0,
+        },
       };
 
       vi.mocked(mockHttp.post).mockResolvedValue({

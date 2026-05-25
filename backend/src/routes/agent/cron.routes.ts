@@ -13,6 +13,8 @@ import { logger } from '../../utils/logger.js';
 import { llmService, queueService } from './shared.js';
 import { AgentLinkReconciliationService } from '../../modules/agent/services/agent-link-reconciliation.service.js';
 import { AgentEphemeralStateService } from '../../modules/agent/services/agent-ephemeral-state.service.js';
+import { AgentJobAutoResolverService } from '../../modules/agent/services/agent-job-auto-resolver.service.js';
+import { AgentJobRepository } from '../../modules/agent/queue/job.repository.js';
 import { getCloudflareAnalyticsSyncService } from '../../services/platform/cloudflare-analytics-sync.service.js';
 import { sendSlackAlert } from '../../services/platform/alert.service.js';
 
@@ -272,32 +274,21 @@ router.post('/cron/cleanup-stale-jobs', cronGuard, async (req: Request, res: Res
       return;
     }
 
-    // Process updates in transaction chunks (max 500 writes per transaction)
     let updated = 0;
     let failed = 0;
     const docs = snapshot.docs;
+    const jobRepository = new AgentJobRepository(db);
 
-    for (let i = 0; i < docs.length; i += 50) {
-      const chunk = docs.slice(i, i + 50);
-
+    for (const doc of docs) {
       try {
-        await db.runTransaction(async (txn) => {
-          for (const doc of chunk) {
-            txn.update(doc.ref, {
-              status: 'failed',
-              error: 'Job timed out — no activity for over 100 minutes',
-              updatedAt: new Date().toISOString(),
-            });
-          }
+        await jobRepository.markFailed(doc.id, 'Job timed out — no activity for over 100 minutes');
+        updated += 1;
+      } catch (markErr) {
+        logger.error('Failed to mark stale job as failed', {
+          operationId: doc.id,
+          error: markErr instanceof Error ? markErr.message : String(markErr),
         });
-        updated += chunk.length;
-      } catch (txnErr) {
-        logger.error('Failed to mark stale jobs as failed (transaction chunk)', {
-          chunkSize: chunk.length,
-          chunkIndex: i,
-          error: txnErr instanceof Error ? txnErr.message : String(txnErr),
-        });
-        failed += chunk.length;
+        failed += 1;
       }
     }
 
@@ -319,6 +310,43 @@ router.post('/cron/cleanup-stale-jobs', cronGuard, async (req: Request, res: Res
       stack: error.stack,
     });
     res.status(500).json({ success: false, error: 'Stale job cleanup failed' });
+  }
+});
+
+// ─── POST /cron/resolve-failed-jobs ───────────────────────────────────────
+// Replays retryable failed Agent X jobs as no-charge recovery jobs.
+
+router.post('/cron/resolve-failed-jobs', cronGuard, async (req: Request, res: Response) => {
+  try {
+    if (!queueService) {
+      res.status(503).json({ success: false, error: 'Queue service not initialized' });
+      return;
+    }
+
+    const db = (
+      req as typeof req & { firebase?: { db: import('firebase-admin').firestore.Firestore } }
+    ).firebase?.db;
+    if (!db) {
+      logger.warn('Firestore context not attached to request');
+      res.status(503).json({ success: false, error: 'Firestore not available' });
+      return;
+    }
+
+    const { getRuntimeEnvironment } = await import('../../config/runtime-environment.js');
+    const environment = getRuntimeEnvironment() === 'production' ? 'production' : 'staging';
+    const jobRepository = new AgentJobRepository(db);
+    const resolver = new AgentJobAutoResolverService(db, queueService, jobRepository);
+    const result = await resolver.resolveFailedJobs({ environment });
+
+    logger.info('CRON resolve-failed-jobs completed', { result });
+    res.json({ success: true, data: result });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('CRON resolve-failed-jobs failed', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed job resolver failed' });
   }
 });
 

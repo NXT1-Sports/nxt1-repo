@@ -6,6 +6,7 @@
  */
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import { getStorage } from 'firebase-admin/storage';
 import { z } from 'zod';
 import {
   type TeamFilmReviewAnnotation,
@@ -31,6 +32,7 @@ import { resolveCreatedAt } from '../doc-date-utils.js';
 
 const TEAM_FILM_REVIEWS_COLLECTION = 'TeamFilmReviews';
 const TEAMS_COLLECTION = 'Teams';
+const CLOUDFLARE_API_BASE_URL = 'https://api.cloudflare.com/client/v4';
 const DEFAULT_SOURCE = 'agent_x';
 const MAX_TAGS = 50;
 const MAX_INSIGHTS = 50;
@@ -781,7 +783,7 @@ export class UpdateFilmReviewTool extends FilmReviewToolBase {
       if (updates.source) updateData['source'] = updates.source.trim();
       if (updates.sourceUrl) updateData['sourceUrl'] = updates.sourceUrl.trim();
 
-      if (nextSport && nextSport !== existing.sport && !updates.timeline) {
+      if (nextSport && nextSport !== existing.sport) {
         updateData['timeline'] = [];
         updateData['timelineState'] = 'idle';
         updateData['timelineGeneratedAt'] = null;
@@ -837,7 +839,7 @@ export class UpdateFilmReviewTool extends FilmReviewToolBase {
 export class DeleteFilmReviewTool extends FilmReviewToolBase {
   readonly name = 'delete_film_review';
   readonly description =
-    'Archive a team film review (soft-delete). Preserves the review, timeline, and annotations for audit and recovery.';
+    'Hard-delete a team film review and remove linked media from Cloudflare Stream and Firebase Storage.';
   readonly parameters = ArchiveFilmReviewInputSchema;
   override readonly allowedAgents = ['strategy_coordinator', 'performance_coordinator'] as const;
   readonly isMutation = true;
@@ -863,32 +865,117 @@ export class DeleteFilmReviewTool extends FilmReviewToolBase {
 
       const filmReview = doc.data() as TeamFilmReviewDoc;
       if (!(await this.canManageReview(userId, filmReview))) {
-        return { success: false, error: 'Not authorized to archive this film review.' };
+        return { success: false, error: 'Not authorized to delete this film review.' };
       }
 
       const now = new Date().toISOString();
-      await docRef.update({
-        status: 'archived',
-        updatedBy: userId,
-        updatedAt: now,
-        archivedAt: now,
-        archivedBy: userId,
-        ...(reason ? { archivedReason: reason.trim() } : {}),
-      });
+
+      const failures: string[] = [];
+      const cloudflareVideoId = filmReview.cloudflareVideoId?.trim();
+      const storagePath = filmReview.storagePath?.trim();
+
+      if (cloudflareVideoId) {
+        const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
+        const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
+        if (!accountId || !apiToken) {
+          failures.push(
+            'Cloudflare deletion is not configured (missing CLOUDFLARE_ACCOUNT_ID/API_TOKEN).'
+          );
+        } else {
+          try {
+            const response = await fetch(
+              `${CLOUDFLARE_API_BASE_URL}/accounts/${accountId}/stream/${cloudflareVideoId}`,
+              {
+                method: 'DELETE',
+                headers: {
+                  Authorization: `Bearer ${apiToken}`,
+                  'Content-Type': 'application/json',
+                },
+              }
+            );
+
+            if (!(response.ok || response.status === 404)) {
+              let details = `HTTP ${response.status}`;
+              try {
+                const payload = (await response.json()) as {
+                  errors?: Array<{ message?: string }>;
+                  messages?: Array<{ message?: string }>;
+                };
+                const message = payload.errors?.[0]?.message ?? payload.messages?.[0]?.message;
+                if (message) details = message;
+              } catch {
+                // keep fallback
+              }
+              failures.push(`Cloudflare deletion failed for ${cloudflareVideoId}: ${details}`);
+            }
+          } catch (error) {
+            failures.push(
+              error instanceof Error
+                ? `Cloudflare deletion failed for ${cloudflareVideoId}: ${error.message}`
+                : `Cloudflare deletion failed for ${cloudflareVideoId}`
+            );
+          }
+        }
+      }
+
+      if (storagePath) {
+        try {
+          const file = getStorage().bucket().file(storagePath) as {
+            delete: (options?: { ignoreNotFound?: boolean }) => Promise<unknown>;
+          };
+          await file.delete({ ignoreNotFound: true });
+        } catch (error) {
+          failures.push(
+            error instanceof Error
+              ? `Firebase deletion failed for ${storagePath}: ${error.message}`
+              : `Firebase deletion failed for ${storagePath}`
+          );
+        }
+      }
+
+      if (failures.length > 0) {
+        logger.error('[DeleteFilmReviewTool] Media cleanup failed', {
+          filmReviewId,
+          teamId: filmReview.teamId,
+          userId,
+          failures,
+          ...(reason ? { reason: reason.trim() } : {}),
+        });
+        return {
+          success: false,
+          error:
+            'Failed to fully delete film review media assets. Film review was not removed from the library.',
+          data: {
+            failures,
+          },
+        };
+      }
+
+      await docRef.delete();
       await invalidateFilmReviewCaches(filmReview.teamId, filmReview.sport);
+
+      logger.info('[DeleteFilmReviewTool] Film review hard deleted', {
+        filmReviewId,
+        teamId: filmReview.teamId,
+        userId,
+        deletedAt: now,
+        cloudflareDeleted: !!cloudflareVideoId,
+        firebaseDeleted: !!storagePath,
+        ...(reason ? { reason: reason.trim() } : {}),
+      });
 
       return {
         success: true,
-        markdown: `Archived film review **${filmReview.title}**.`,
+        markdown: `Deleted film review **${filmReview.title}** and linked media assets.`,
         data: {
           filmReview: {
             id: filmReviewId,
             teamId: filmReview.teamId,
             sport: filmReview.sport,
             title: filmReview.title,
-            status: 'archived',
+            deleted: true,
           },
-          message: `Archived film review "${filmReview.title}".`,
+          message: `Deleted film review "${filmReview.title}".`,
         },
       };
     } catch (error) {

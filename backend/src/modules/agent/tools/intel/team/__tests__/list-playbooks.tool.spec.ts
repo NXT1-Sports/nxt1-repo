@@ -56,4 +56,64 @@ describe('ListPlaybooksTool', () => {
     const data = result.data as { playbooks: Array<{ id: string }> };
     expect(data.playbooks[0]?.id).toBe('pb-doc-1');
   });
+
+  it('filters playbooks by normalized sport when provided', async () => {
+    const db = {
+      collection: vi.fn().mockImplementation((name: string) => {
+        if (name === 'Teams') {
+          return {
+            doc: vi.fn().mockReturnValue({
+              get: vi
+                .fn()
+                .mockResolvedValue({ exists: true, data: () => ({ ownerId: 'coach-1' }) }),
+            }),
+          };
+        }
+
+        if (name === 'TeamPlaybooks') {
+          return {
+            where: vi.fn().mockReturnValue({
+              limit: vi.fn().mockReturnValue({
+                get: vi.fn().mockResolvedValue({
+                  docs: [
+                    {
+                      id: 'pb-football',
+                      data: () => ({
+                        teamId: 'team-1',
+                        sport: 'football',
+                        name: 'Football Main',
+                        updatedAt: '2026-05-15T00:00:00.000Z',
+                      }),
+                    },
+                    {
+                      id: 'pb-basketball',
+                      data: () => ({
+                        teamId: 'team-1',
+                        sport: 'basketball',
+                        name: 'Basketball Main',
+                        updatedAt: '2026-05-14T00:00:00.000Z',
+                      }),
+                    },
+                  ],
+                }),
+              }),
+            }),
+          };
+        }
+
+        throw new Error(`Unexpected collection ${name}`);
+      }),
+    };
+
+    const tool = new ListPlaybooksTool(db as never);
+    const result = await tool.execute(
+      { teamId: 'team-1', sport: 'FootBall' },
+      { userId: 'coach-1' }
+    );
+
+    expect(result.success).toBe(true);
+    const data = result.data as { playbooks: Array<{ id: string; sport: string }> };
+    expect(data.playbooks).toHaveLength(1);
+    expect(data.playbooks[0]).toMatchObject({ id: 'pb-football', sport: 'football' });
+  });
 });

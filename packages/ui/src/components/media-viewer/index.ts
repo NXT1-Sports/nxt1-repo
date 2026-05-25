@@ -5,4 +5,10 @@
 
 export { NxtMediaViewerService } from './media-viewer.service';
 export { NxtMediaViewerContentComponent } from './media-viewer-content.component';
-export type { MediaViewerItem, MediaViewerConfig, MediaViewerResult } from './media-viewer.types';
+export type {
+  MediaViewerItem,
+  MediaViewerConfig,
+  MediaViewerResult,
+  MediaViewerBreakdown,
+  MediaViewerBreakdownSection,
+} from './media-viewer.types';

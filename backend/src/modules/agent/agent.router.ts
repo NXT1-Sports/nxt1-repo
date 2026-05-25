@@ -115,7 +115,8 @@ export class AgentRouter {
       this.telemetryService,
       (userContext) => this.policyService.buildToolAccessContext(userContext),
       skillRegistry,
-      sessionMemory
+      sessionMemory,
+      () => this.primaryAgent
     );
   }
 

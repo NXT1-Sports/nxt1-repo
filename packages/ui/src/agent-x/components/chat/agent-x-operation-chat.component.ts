@@ -2265,6 +2265,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Tracks whether the user has sent at least one message. */
   private readonly hasUserSent = signal(false);
+  /** Ensures the delayed leave-thread hint is armed only once per chat session. */
+  private firstUserRunHintArmed = false;
 
   /** Emitted when the user sends their first message (briefing should hide). */
   readonly userMessageSent = output<void>();
@@ -2602,6 +2604,20 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
         if (activePanel) {
           this.hintFacade.showPanelHint(activePanel);
         }
+      },
+      { allowSignalWrites: true }
+    );
+
+    // First user run hint lifecycle writes facade signal state.
+    effect(
+      () => {
+        const hasUserSent = this.hasUserSent();
+        if (hasUserSent && !this.firstUserRunHintArmed) {
+          this.firstUserRunHintArmed = true;
+          this.hintFacade.armFirstUserRunHint();
+        }
+
+        this.hintFacade.setFirstUserRunActive(this.isInFlightPhase(this._activityPhase()));
       },
       { allowSignalWrites: true }
     );

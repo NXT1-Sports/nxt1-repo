@@ -172,7 +172,7 @@ export function createTeamFilmReviewApi(http: HttpAdapter, baseUrl: string) {
         `${endpoint}/${encodeURIComponent(reviewId)}`
       );
       if (!response.success) {
-        throw new Error(response.error ?? 'Failed to archive film review');
+        throw new Error(response.error ?? 'Failed to delete film review');
       }
     },
 

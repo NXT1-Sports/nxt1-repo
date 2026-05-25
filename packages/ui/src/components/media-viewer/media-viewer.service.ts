@@ -123,6 +123,10 @@ export class NxtMediaViewerService {
       (this.platform.isBrowser() && this.platform.viewport().width < 768);
     const panelClass = ['nxt1-media-viewer-overlay'];
 
+    if (config.variant === 'playbook-breakdown') {
+      panelClass.push('nxt1-media-viewer-overlay--playbook');
+    }
+
     if (isAgentXAttachmentSource && isCompactMobileContext) {
       panelClass.push('nxt1-media-viewer-overlay--compact-mobile');
     }
@@ -138,6 +142,7 @@ export class NxtMediaViewerService {
         showShare: config.showShare ?? true,
         showCounter: config.showCounter,
         source: config.source ?? '',
+        variant: config.variant ?? 'default',
         primaryActionLabel: config.primaryActionLabel,
         primaryActionAriaLabel: config.primaryActionAriaLabel,
         primaryAction: config.primaryAction,
@@ -189,6 +194,7 @@ export class NxtMediaViewerService {
         showShare: config.showShare ?? true,
         showCounter: config.showCounter,
         source: config.source ?? '',
+        variant: config.variant ?? 'default',
         primaryActionLabel: config.primaryActionLabel,
         primaryActionAriaLabel: config.primaryActionAriaLabel,
         primaryAction: config.primaryAction,
