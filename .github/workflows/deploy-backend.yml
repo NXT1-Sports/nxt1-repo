@@ -90,6 +90,27 @@ jobs:
           command -v pm2 > /dev/null 2>&1 || npm install -g pm2
           echo "pm2: $(pm2 -v)"
 
+          echo 'Sync backend env flags...'
+          ENV_FILE="backend/.env"
+          touch "$ENV_FILE"
+          upsert_env_var() {
+            local key="$1"
+            local value="$2"
+            if grep -q "^${key}=" "$ENV_FILE"; then
+              sed -i "s|^${key}=.*|${key}='${value}'|" "$ENV_FILE"
+            else
+              printf "%s='%s'\n" "$key" "$value" >> "$ENV_FILE"
+            fi
+          }
+          upsert_env_var \
+            "AGENT_JOB_CUSTOMER_RECOVERY_EMAILS_ENABLED" \
+            "true"
+          upsert_env_var \
+            "AGENT_JOB_RESOLUTION_EMAILS_ENABLED" \
+            "true"
+          echo 'AGENT_JOB_CUSTOMER_RECOVERY_EMAILS_ENABLED=true'
+          echo 'AGENT_JOB_RESOLUTION_EMAILS_ENABLED=true'
+
           echo 'Clear stale Turbo cache, @nxt1/core dist, and backend dist...'
           rm -rf packages/core/.turbo packages/core/dist .turbo backend/dist
 
