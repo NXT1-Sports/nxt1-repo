@@ -1,5 +1,5 @@
 import { ChangeDetectionStrategy, Component, Input, computed, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { CommonModule, DOCUMENT } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
@@ -28,6 +28,7 @@ import {
   EMPTY_EDIT_PLAYBOOK,
   EMPTY_NEW_PLAYBOOK,
   EMPTY_PLAY_FORM,
+  EMPTY_PRACTICE_SCRIPT_EDIT_FORM,
   parseTags,
   toTitleCase,
   type CallsheetAiResponse,
@@ -48,15 +49,15 @@ import {
   type PlaybookSummary,
   type PlaybookPdfExportResponse,
   type PlayForm,
-  type PracticeScriptAiResponse,
   type PracticeScriptDetail,
   type PracticeScriptDetailResponse,
+  type PracticeScriptEditForm,
+  type PracticeScriptPeriod,
   type PracticeScriptsResponse,
   type PracticeScriptSummary,
   type UploadAttachmentResponse,
 } from './agent-x-playbooks-panel.types';
 import {
-  computePracticeScriptTotals,
   INSTALL_STAGES,
   buildCallsheetSituationText,
   buildFilteredCallsheetPlays,
@@ -96,22 +97,29 @@ import {
           </button>
           <button
             type="button"
-            class="detail-action-btn detail-action-btn--ghost detail-action-btn--icon"
-            [attr.data-testid]="testIds.PLAYBOOK_PRINT_PREVIEW_BUTTON"
-            title="Print Preview"
-            aria-label="Print Preview"
+            class="detail-action-btn detail-action-btn--secondary"
+            [attr.data-testid]="testIds.PLAYBOOK_EXPORT_CURRENT_BUTTON"
             [disabled]="exportingPdf()"
+            (click)="exportPlaybookPdf('current')"
+          >
+            {{ exportingPdf() ? 'Exporting…' : 'Export Current Tab' }}
+          </button>
+          <button
+            type="button"
+            class="detail-action-btn detail-action-btn--secondary"
             (click)="openPrintPreview()"
           >
-            <nxt1-icon name="printPreview" [size]="14"></nxt1-icon>
+            Print Preview
+          </button>
+          <button type="button" class="btn-close" aria-label="Close" (click)="clearSelection()">
+            ×
           </button>
           @if (!editingMeta()) {
             <button
               type="button"
-              class="detail-action-btn detail-action-btn--ghost detail-action-btn--icon"
+              class="icon-btn icon-btn--sm detail-header__edit"
               title="Edit playbook"
               aria-label="Edit playbook"
-              [disabled]="exportingPdf()"
               (click)="startEditMeta()"
             >
               <nxt1-icon name="pencil" [size]="14"></nxt1-icon>
@@ -258,7 +266,7 @@ import {
                     >
                       <option value="">All</option>
                       @for (tag of selectedPlaybook()!.personnelIndex || []; track tag) {
-                        <option [value]="tag">{{ tag }}</option>
+                        <option [value]="tag">{{ tag | titlecase }}</option>
                       }
                     </select>
                   </label>
@@ -272,7 +280,7 @@ import {
                     >
                       <option value="">All</option>
                       @for (tag of selectedPlaybook()!.categoryIndex || []; track tag) {
-                        <option [value]="tag">{{ tag }}</option>
+                        <option [value]="tag">{{ tag | titlecase }}</option>
                       }
                     </select>
                   </label>
@@ -286,7 +294,7 @@ import {
                     >
                       <option value="">All</option>
                       @for (tag of selectedPlaybook()!.conceptTagIndex || []; track tag) {
-                        <option [value]="tag">{{ tag }}</option>
+                        <option [value]="tag">{{ tag | titlecase }}</option>
                       }
                     </select>
                   </label>
@@ -692,15 +700,6 @@ import {
               <div class="tab-section">
                 <div class="section-header">
                   <h3 class="section-title">Callsheets</h3>
-                  <button
-                    type="button"
-                    class="detail-action-btn"
-                    [attr.data-testid]="testIds.PLAYBOOK_EXPORT_CURRENT_BUTTON"
-                    [disabled]="exportingPdf()"
-                    (click)="exportPlaybookPdf('current')"
-                  >
-                    {{ exportingPdf() ? 'Exporting…' : 'Export PDF' }}
-                  </button>
                 </div>
                 <p class="section-meta">
                   Build, save, and manage weekly callsheets. Use Create Callsheet or Situational
@@ -760,357 +759,494 @@ import {
                         <article
                           class="callsheet-saved-card"
                           [class.callsheet-saved-card--active]="selectedCallsheetId() === sheet.id"
+                          [class.callsheet-saved-card--menu-open]="isCallsheetMenuOpen(sheet.id)"
                           [attr.data-testid]="testIds.CALLSHEET_LIST_ITEM"
                           [nxtAgentXContextDrag]="buildCallsheetDragContext(sheet)"
                         >
-                          <span class="callsheet-saved-card__title">{{ sheet.title }}</span>
-                          <span class="callsheet-saved-card__meta">{{
-                            sheet.situation || 'all situations'
-                          }}</span>
+                          <div class="callsheet-saved-card__top">
+                            <div class="callsheet-saved-card__copy">
+                              <span class="callsheet-saved-card__title">{{ sheet.title }}</span>
+                              <span class="callsheet-saved-card__meta">
+                                {{ sheet.situation || 'all situations' }}
+                              </span>
+                            </div>
+                            <div class="callsheet-saved-card__actions">
+                              <div class="callsheet-saved-card__menu-anchor">
+                                <button
+                                  type="button"
+                                  class="film-list-item__menu-btn callsheet-saved-card__menu-btn"
+                                  aria-label="Callsheet actions"
+                                  [attr.aria-expanded]="isCallsheetMenuOpen(sheet.id)"
+                                  aria-haspopup="menu"
+                                  (click)="onOpenCallsheetMenu($event, sheet.id)"
+                                >
+                                  <nxt1-icon name="moreHorizontal" [size]="18"></nxt1-icon>
+                                </button>
+
+                                @if (isCallsheetMenuOpen(sheet.id)) {
+                                  <div
+                                    class="film-list-item__menu-backdrop"
+                                    (click)="closeCallsheetMenu()"
+                                  ></div>
+                                  <div
+                                    class="film-list-item__menu callsheet-saved-card__menu"
+                                    role="menu"
+                                    aria-label="Callsheet actions"
+                                    (click)="$event.stopPropagation()"
+                                  >
+                                    <button
+                                      type="button"
+                                      class="film-list-item__menu-action"
+                                      role="menuitem"
+                                      (click)="toggleCallsheetFromMenu(sheet.id, $event)"
+                                    >
+                                      <nxt1-icon name="eye" [size]="16"></nxt1-icon>
+                                      {{ selectedCallsheetId() === sheet.id ? 'Close' : 'Open' }}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      class="film-list-item__menu-action"
+                                      role="menuitem"
+                                      [disabled]="exportingPdf()"
+                                      (click)="exportCallsheetFromMenu(sheet.id, $event)"
+                                    >
+                                      <nxt1-icon name="download" [size]="16"></nxt1-icon>
+                                      {{ exportingPdf() ? 'Exporting…' : 'Export' }}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      class="film-list-item__menu-action film-list-item__menu-action--danger"
+                                      role="menuitem"
+                                      [disabled]="deletingCallsheetId() === sheet.id"
+                                      (click)="deleteSavedCallsheet(sheet.id, $event)"
+                                    >
+                                      <nxt1-icon name="trash" [size]="16"></nxt1-icon>
+                                      {{
+                                        deletingCallsheetId() === sheet.id ? 'Deleting…' : 'Delete'
+                                      }}
+                                    </button>
+                                  </div>
+                                }
+                              </div>
+                            </div>
+                          </div>
                           <span class="callsheet-saved-card__meta"
                             >{{ sheet.playCount }} plays •
                             {{ formatDate(sheet.updatedAt || sheet.createdAt) }}</span
                           >
-                          <div class="callsheet-saved-card__actions">
-                            <button
-                              type="button"
-                              class="detail-action-btn detail-action-btn--secondary"
-                              (click)="toggleCallsheet(sheet.id)"
-                            >
-                              {{ selectedCallsheetId() === sheet.id ? 'Close' : 'Open' }}
-                            </button>
-                            <button
-                              type="button"
-                              class="detail-action-btn"
-                              [disabled]="exportingPdf()"
-                              (click)="exportSavedCallsheet(sheet.id)"
-                            >
-                              {{ exportingPdf() ? 'Exporting…' : 'Export' }}
-                            </button>
-                          </div>
+
+                          @if (selectedCallsheetId() === sheet.id) {
+                            <div class="callsheet-saved-card__detail">
+                              @if (selectedCallsheetDetailLoading()) {
+                                <p class="section-meta">Loading callsheet details...</p>
+                              } @else if (
+                                selectedCallsheetDetail() &&
+                                selectedCallsheetDetail()!.id === sheet.id
+                              ) {
+                                @if (selectedCallsheetDetail()!.notes) {
+                                  <div class="callsheet-detail-card__section">
+                                    <span class="callsheet-detail-card__label">Notes</span>
+                                    <p class="callsheet-detail-card__notes">
+                                      {{ selectedCallsheetDetail()!.notes }}
+                                    </p>
+                                  </div>
+                                }
+
+                                @if ((selectedCallsheetDetail()!.plays?.length || 0) > 0) {
+                                  <div class="callsheet-detail-card__section">
+                                    <div class="callsheet-detail-card__groups-header">
+                                      <span class="callsheet-detail-card__label">Call Groups</span>
+                                      <div class="callsheet-detail-card__groups-actions">
+                                        <button
+                                          type="button"
+                                          class="detail-action-btn detail-action-btn--secondary"
+                                          (click)="addCallsheetGroup()"
+                                        >
+                                          Add Group
+                                        </button>
+                                        @if (hasUnsavedCallsheetGroupChanges()) {
+                                          <button
+                                            type="button"
+                                            class="detail-action-btn"
+                                            [disabled]="callsheetGroupsSaving()"
+                                            (click)="saveCallsheetGroups()"
+                                          >
+                                            {{ callsheetGroupsSaving() ? 'Saving…' : 'Save' }}
+                                          </button>
+                                        }
+                                      </div>
+                                    </div>
+
+                                    <div class="callsheet-detail-card__groups">
+                                      @for (group of selectedCallsheetGroups(); track group.id) {
+                                        <section
+                                          class="callsheet-group-card"
+                                          [class.callsheet-group-card--dragging]="
+                                            draggingCallsheetGroupId() === group.id
+                                          "
+                                          [class.callsheet-group-card--drop-before]="
+                                            callsheetGroupDropIndicator()?.groupId === group.id &&
+                                            callsheetGroupDropIndicator()?.placement === 'before'
+                                          "
+                                          [class.callsheet-group-card--drop-after]="
+                                            callsheetGroupDropIndicator()?.groupId === group.id &&
+                                            callsheetGroupDropIndicator()?.placement === 'after'
+                                          "
+                                          [class.callsheet-group-card--menu-open]="
+                                            isCallsheetGroupMenuOpen(group.id)
+                                          "
+                                          (dragover)="onCallsheetGroupDragOver(group.id, $event)"
+                                          (dragleave)="onCallsheetGroupDragLeave(group.id, $event)"
+                                          (drop)="onCallsheetGroupDrop(group.id, $event)"
+                                        >
+                                          <div
+                                            class="callsheet-group-card__header"
+                                            draggable="true"
+                                            (dragstart)="
+                                              onCallsheetGroupDragStart(group.id, $event)
+                                            "
+                                            (dragend)="onCallsheetGroupDragEnd()"
+                                          >
+                                            <button
+                                              type="button"
+                                              class="callsheet-group-card__toggle"
+                                              [attr.aria-expanded]="
+                                                isCallsheetGroupExpanded(group.id)
+                                              "
+                                              (click)="
+                                                toggleCallsheetGroupExpansion(group.id, $event)
+                                              "
+                                            >
+                                              <span
+                                                class="callsheet-group-card__chevron"
+                                                aria-hidden="true"
+                                              >
+                                                @if (isCallsheetGroupExpanded(group.id)) {
+                                                  <nxt1-icon
+                                                    name="chevronDown"
+                                                    [size]="16"
+                                                  ></nxt1-icon>
+                                                } @else {
+                                                  <nxt1-icon
+                                                    name="chevronRight"
+                                                    [size]="16"
+                                                  ></nxt1-icon>
+                                                }
+                                              </span>
+                                              <nxt1-icon
+                                                name="folder"
+                                                [size]="14"
+                                                class="callsheet-group-card__icon"
+                                              ></nxt1-icon>
+                                              <span class="callsheet-group-card__name">{{
+                                                group.name
+                                              }}</span>
+                                              <span class="callsheet-group-card__count"
+                                                >{{ group.plays.length }} calls</span
+                                              >
+                                            </button>
+
+                                            <div class="callsheet-group-card__menu-anchor">
+                                              <button
+                                                type="button"
+                                                class="film-list-item__menu-btn callsheet-group-card__menu-btn"
+                                                aria-label="Group options"
+                                                draggable="false"
+                                                [attr.aria-expanded]="
+                                                  isCallsheetGroupMenuOpen(group.id)
+                                                "
+                                                aria-haspopup="menu"
+                                                (dragstart)="$event.preventDefault()"
+                                                (click)="onOpenCallsheetGroupMenu($event, group)"
+                                              >
+                                                <nxt1-icon
+                                                  name="moreHorizontal"
+                                                  [size]="18"
+                                                ></nxt1-icon>
+                                              </button>
+
+                                              @if (isCallsheetGroupMenuOpen(group.id)) {
+                                                <div
+                                                  class="film-list-item__menu-backdrop"
+                                                  (click)="closeCallsheetGroupMenu()"
+                                                ></div>
+                                                <div
+                                                  class="film-list-item__menu callsheet-group-card__menu"
+                                                  role="menu"
+                                                  aria-label="Group options"
+                                                  (click)="$event.stopPropagation()"
+                                                >
+                                                  @if (isEditingCallsheetGroup(group.id)) {
+                                                    <div class="film-list-item__menu-rename">
+                                                      <label
+                                                        class="film-list-item__menu-label"
+                                                        for="callsheet-group-rename-{{ group.id }}"
+                                                      >
+                                                        Rename group
+                                                      </label>
+                                                      <input
+                                                        id="callsheet-group-rename-{{ group.id }}"
+                                                        type="text"
+                                                        class="film-list-item__menu-input"
+                                                        maxlength="80"
+                                                        [value]="callsheetGroupMenuRenameDraft()"
+                                                        (input)="
+                                                          onCallsheetGroupRenameInput(
+                                                            $any($event.target).value
+                                                          )
+                                                        "
+                                                        (keydown.enter)="
+                                                          onCallsheetGroupRenameConfirm(
+                                                            group,
+                                                            $event
+                                                          )
+                                                        "
+                                                        (keydown.escape)="
+                                                          onCallsheetGroupRenameCancel($event)
+                                                        "
+                                                      />
+                                                      <div class="film-list-item__menu-actions">
+                                                        <button
+                                                          type="button"
+                                                          class="film-list-item__menu-action film-list-item__menu-action--primary"
+                                                          (click)="
+                                                            onCallsheetGroupRenameConfirm(
+                                                              group,
+                                                              $event
+                                                            )
+                                                          "
+                                                        >
+                                                          Save
+                                                        </button>
+                                                        <button
+                                                          type="button"
+                                                          class="film-list-item__menu-action"
+                                                          (click)="
+                                                            onCallsheetGroupRenameCancel($event)
+                                                          "
+                                                        >
+                                                          Cancel
+                                                        </button>
+                                                      </div>
+                                                    </div>
+                                                  } @else if (isDeletingCallsheetGroup(group.id)) {
+                                                    <div class="film-list-item__menu-confirm">
+                                                      <p class="film-list-item__menu-confirm-text">
+                                                        @if (group.plays.length) {
+                                                          Delete this group? Calls will move to
+                                                          another group.
+                                                        } @else {
+                                                          Delete this empty group?
+                                                        }
+                                                      </p>
+                                                      <div class="film-list-item__menu-actions">
+                                                        <button
+                                                          type="button"
+                                                          class="film-list-item__menu-action film-list-item__menu-action--danger"
+                                                          (click)="
+                                                            onCallsheetGroupDeleteConfirm(
+                                                              group,
+                                                              $event
+                                                            )
+                                                          "
+                                                        >
+                                                          Delete
+                                                        </button>
+                                                        <button
+                                                          type="button"
+                                                          class="film-list-item__menu-action"
+                                                          (click)="
+                                                            onCallsheetGroupDeleteCancel($event)
+                                                          "
+                                                        >
+                                                          Cancel
+                                                        </button>
+                                                      </div>
+                                                    </div>
+                                                  } @else {
+                                                    <button
+                                                      type="button"
+                                                      class="film-list-item__menu-action"
+                                                      role="menuitem"
+                                                      (click)="
+                                                        onCallsheetGroupRenameStart(group, $event)
+                                                      "
+                                                    >
+                                                      <nxt1-icon
+                                                        name="pencil"
+                                                        [size]="16"
+                                                      ></nxt1-icon>
+                                                      Rename
+                                                    </button>
+                                                    @if (selectedCallsheetGroups().length > 1) {
+                                                      <button
+                                                        type="button"
+                                                        class="film-list-item__menu-action film-list-item__menu-action--danger"
+                                                        role="menuitem"
+                                                        (click)="
+                                                          onCallsheetGroupDeleteStart(group, $event)
+                                                        "
+                                                      >
+                                                        <nxt1-icon
+                                                          name="trash"
+                                                          [size]="16"
+                                                        ></nxt1-icon>
+                                                        Delete group
+                                                      </button>
+                                                    }
+                                                  }
+                                                </div>
+                                              }
+                                            </div>
+                                          </div>
+
+                                          @if (isCallsheetGroupExpanded(group.id)) {
+                                            <div class="callsheet-detail-card__plays">
+                                              @if (group.plays.length === 0) {
+                                                <div class="callsheet-group-card__empty">
+                                                  <p class="callsheet-group-card__empty-text">
+                                                    No calls in this group yet.
+                                                  </p>
+                                                  <div class="callsheet-group-card__empty-actions">
+                                                    <select
+                                                      class="callsheet-detail-card__group-select"
+                                                      [value]="callsheetGroupAddPlayDraft(group.id)"
+                                                      (change)="
+                                                        setCallsheetGroupAddPlayDraft(
+                                                          group.id,
+                                                          $event
+                                                        )
+                                                      "
+                                                    >
+                                                      <option value="">Select play</option>
+                                                      @for (
+                                                        playName of getCallsheetGroupAvailablePlayNames(
+                                                          group.id
+                                                        );
+                                                        track playName
+                                                      ) {
+                                                        <option [value]="playName">
+                                                          {{ playName }}
+                                                        </option>
+                                                      }
+                                                    </select>
+                                                    <button
+                                                      type="button"
+                                                      class="detail-action-btn detail-action-btn--secondary"
+                                                      [disabled]="
+                                                        !callsheetGroupAddPlayDraft(group.id)
+                                                      "
+                                                      (click)="addPlayToCallsheetGroup(group.id)"
+                                                    >
+                                                      Add Play
+                                                    </button>
+                                                  </div>
+                                                </div>
+                                              } @else {
+                                                @for (play of group.plays; track play.playName) {
+                                                  <div class="callsheet-detail-card__play-row">
+                                                    <div class="callsheet-detail-card__play-copy">
+                                                      <p class="callsheet-detail-card__play-title">
+                                                        {{ play.playName }}
+                                                      </p>
+                                                      <p
+                                                        class="callsheet-detail-card__play-reasoning"
+                                                      >
+                                                        {{ play.reasoning }}
+                                                      </p>
+                                                    </div>
+                                                    <div
+                                                      class="callsheet-detail-card__play-controls"
+                                                      [class.callsheet-detail-card__play-controls--confirm]="
+                                                        callsheetPendingRemovalPlayName() ===
+                                                        play.playName
+                                                      "
+                                                    >
+                                                      @if (
+                                                        callsheetPendingRemovalPlayName() ===
+                                                        play.playName
+                                                      ) {
+                                                        <button
+                                                          type="button"
+                                                          class="callsheet-detail-card__remove-confirm-btn"
+                                                          [disabled]="callsheetGroupsSaving()"
+                                                          (click)="
+                                                            confirmRemovePlayFromCallsheet(
+                                                              play.playName
+                                                            )
+                                                          "
+                                                        >
+                                                          {{
+                                                            callsheetGroupsSaving()
+                                                              ? 'Removing…'
+                                                              : 'Remove'
+                                                          }}
+                                                        </button>
+                                                        <button
+                                                          type="button"
+                                                          class="callsheet-detail-card__remove-cancel-btn"
+                                                          [disabled]="callsheetGroupsSaving()"
+                                                          (click)="cancelRemovePlayFromCallsheet()"
+                                                        >
+                                                          Keep
+                                                        </button>
+                                                      } @else {
+                                                        <select
+                                                          class="callsheet-detail-card__group-select"
+                                                          [value]="group.id"
+                                                          (change)="
+                                                            moveCallsheetPlayToGroup(
+                                                              play.playName,
+                                                              $event
+                                                            )
+                                                          "
+                                                        >
+                                                          @for (
+                                                            groupOption of callsheetGroupDraft();
+                                                            track groupOption.id
+                                                          ) {
+                                                            <option [value]="groupOption.id">
+                                                              {{ groupOption.name }}
+                                                            </option>
+                                                          }
+                                                        </select>
+                                                        <button
+                                                          type="button"
+                                                          class="callsheet-detail-card__remove-play-btn"
+                                                          aria-label="Remove play from callsheet"
+                                                          title="Remove play"
+                                                          [disabled]="callsheetGroupsSaving()"
+                                                          (click)="
+                                                            requestRemovePlayFromCallsheet(
+                                                              play.playName
+                                                            )
+                                                          "
+                                                        >
+                                                          <nxt1-icon
+                                                            name="trash"
+                                                            [size]="12"
+                                                          ></nxt1-icon>
+                                                        </button>
+                                                      }
+                                                    </div>
+                                                  </div>
+                                                }
+                                              }
+                                            </div>
+                                          }
+                                        </section>
+                                      }
+                                    </div>
+                                  </div>
+                                }
+                              }
+                            </div>
+                          }
                         </article>
                       }
                     </div>
                   }
                 </div>
-
-                @if (selectedCallsheetDetailLoading()) {
-                  <p class="section-meta">Loading callsheet details...</p>
-                } @else if (selectedCallsheetDetail()) {
-                  <div
-                    class="callsheet-detail-card"
-                    [nxtAgentXContextDrag]="buildCallsheetDragContext(selectedCallsheetDetail()!)"
-                  >
-                    <div class="callsheet-detail-card__header">
-                      <div>
-                        <h4 class="section-subtitle">{{ selectedCallsheetDetail()!.title }}</h4>
-                        <p class="section-meta">
-                          {{ selectedCallsheetDetail()!.situation || 'all situations' }}
-                        </p>
-                      </div>
-                      <p class="section-meta">
-                        {{ selectedCallsheetDetail()!.plays?.length || 0 }} saved calls •
-                        {{
-                          formatDate(
-                            selectedCallsheetDetail()!.updatedAt ||
-                              selectedCallsheetDetail()!.createdAt
-                          )
-                        }}
-                      </p>
-                    </div>
-
-                    @if (selectedCallsheetDetail()!.notes) {
-                      <div class="callsheet-detail-card__section">
-                        <span class="callsheet-detail-card__label">Notes</span>
-                        <p class="callsheet-detail-card__notes">
-                          {{ selectedCallsheetDetail()!.notes }}
-                        </p>
-                      </div>
-                    }
-
-                    @if ((selectedCallsheetDetail()!.plays?.length || 0) > 0) {
-                      <div class="callsheet-detail-card__section">
-                        <div class="callsheet-detail-card__groups-header">
-                          <span class="callsheet-detail-card__label">Call Groups</span>
-                          <div class="callsheet-detail-card__groups-actions">
-                            <button
-                              type="button"
-                              class="detail-action-btn detail-action-btn--secondary"
-                              (click)="addCallsheetGroup()"
-                            >
-                              Add Group
-                            </button>
-                            <button
-                              type="button"
-                              class="detail-action-btn"
-                              [disabled]="callsheetGroupsSaving()"
-                              (click)="saveCallsheetGroups()"
-                            >
-                              {{ callsheetGroupsSaving() ? 'Saving…' : 'Save Groups' }}
-                            </button>
-                          </div>
-                        </div>
-
-                        <div class="callsheet-detail-card__groups">
-                          @for (group of selectedCallsheetGroups(); track group.id) {
-                            <section
-                              class="callsheet-group-card"
-                              [class.callsheet-group-card--menu-open]="
-                                isCallsheetGroupMenuOpen(group.id)
-                              "
-                            >
-                              <div class="callsheet-group-card__header">
-                                <button
-                                  type="button"
-                                  class="callsheet-group-card__toggle"
-                                  [attr.aria-expanded]="isCallsheetGroupExpanded(group.id)"
-                                  (click)="toggleCallsheetGroupExpansion(group.id, $event)"
-                                >
-                                  <span class="callsheet-group-card__chevron" aria-hidden="true">
-                                    @if (isCallsheetGroupExpanded(group.id)) {
-                                      <nxt1-icon name="chevronDown" [size]="16"></nxt1-icon>
-                                    } @else {
-                                      <nxt1-icon name="chevronRight" [size]="16"></nxt1-icon>
-                                    }
-                                  </span>
-                                  <nxt1-icon
-                                    name="folder"
-                                    [size]="14"
-                                    class="callsheet-group-card__icon"
-                                  ></nxt1-icon>
-                                  <span class="callsheet-group-card__name">{{ group.name }}</span>
-                                  <span class="callsheet-group-card__count"
-                                    >{{ group.plays.length }} calls</span
-                                  >
-                                </button>
-
-                                <div class="callsheet-group-card__menu-anchor">
-                                  <button
-                                    type="button"
-                                    class="film-list-item__menu-btn callsheet-group-card__menu-btn"
-                                    aria-label="Group options"
-                                    [attr.aria-expanded]="isCallsheetGroupMenuOpen(group.id)"
-                                    aria-haspopup="menu"
-                                    (click)="onOpenCallsheetGroupMenu($event, group)"
-                                  >
-                                    <nxt1-icon name="moreHorizontal" [size]="18"></nxt1-icon>
-                                  </button>
-
-                                  @if (isCallsheetGroupMenuOpen(group.id)) {
-                                    <div
-                                      class="film-list-item__menu-backdrop"
-                                      (click)="closeCallsheetGroupMenu()"
-                                    ></div>
-                                    <div
-                                      class="film-list-item__menu callsheet-group-card__menu"
-                                      role="menu"
-                                      aria-label="Group options"
-                                      (click)="$event.stopPropagation()"
-                                    >
-                                      @if (isEditingCallsheetGroup(group.id)) {
-                                        <div class="film-list-item__menu-rename">
-                                          <label
-                                            class="film-list-item__menu-label"
-                                            for="callsheet-group-rename-{{ group.id }}"
-                                          >
-                                            Rename group
-                                          </label>
-                                          <input
-                                            id="callsheet-group-rename-{{ group.id }}"
-                                            type="text"
-                                            class="film-list-item__menu-input"
-                                            maxlength="80"
-                                            [value]="callsheetGroupMenuRenameDraft()"
-                                            (input)="
-                                              onCallsheetGroupRenameInput($any($event.target).value)
-                                            "
-                                            (keydown.enter)="
-                                              onCallsheetGroupRenameConfirm(group, $event)
-                                            "
-                                            (keydown.escape)="onCallsheetGroupRenameCancel($event)"
-                                          />
-                                          <div class="film-list-item__menu-actions">
-                                            <button
-                                              type="button"
-                                              class="film-list-item__menu-action film-list-item__menu-action--primary"
-                                              (click)="onCallsheetGroupRenameConfirm(group, $event)"
-                                            >
-                                              Save
-                                            </button>
-                                            <button
-                                              type="button"
-                                              class="film-list-item__menu-action"
-                                              (click)="onCallsheetGroupRenameCancel($event)"
-                                            >
-                                              Cancel
-                                            </button>
-                                          </div>
-                                        </div>
-                                      } @else if (isDeletingCallsheetGroup(group.id)) {
-                                        <div class="film-list-item__menu-confirm">
-                                          <p class="film-list-item__menu-confirm-text">
-                                            @if (group.plays.length) {
-                                              Delete this group? Calls will move to another group.
-                                            } @else {
-                                              Delete this empty group?
-                                            }
-                                          </p>
-                                          <div class="film-list-item__menu-actions">
-                                            <button
-                                              type="button"
-                                              class="film-list-item__menu-action film-list-item__menu-action--danger"
-                                              (click)="onCallsheetGroupDeleteConfirm(group, $event)"
-                                            >
-                                              Delete
-                                            </button>
-                                            <button
-                                              type="button"
-                                              class="film-list-item__menu-action"
-                                              (click)="onCallsheetGroupDeleteCancel($event)"
-                                            >
-                                              Cancel
-                                            </button>
-                                          </div>
-                                        </div>
-                                      } @else {
-                                        <button
-                                          type="button"
-                                          class="film-list-item__menu-action"
-                                          role="menuitem"
-                                          (click)="onCallsheetGroupRenameStart(group, $event)"
-                                        >
-                                          Rename
-                                        </button>
-                                        @if (selectedCallsheetGroups().length > 1) {
-                                          <button
-                                            type="button"
-                                            class="film-list-item__menu-action film-list-item__menu-action--danger"
-                                            role="menuitem"
-                                            (click)="onCallsheetGroupDeleteStart(group, $event)"
-                                          >
-                                            Delete group
-                                          </button>
-                                        }
-                                      }
-                                    </div>
-                                  }
-                                </div>
-                              </div>
-
-                              @if (isCallsheetGroupExpanded(group.id)) {
-                                <div class="callsheet-detail-card__plays">
-                                  @if (group.plays.length === 0) {
-                                    <div class="callsheet-group-card__empty">
-                                      <p class="callsheet-group-card__empty-text">
-                                        No calls in this group yet.
-                                      </p>
-                                      <div class="callsheet-group-card__empty-actions">
-                                        <select
-                                          class="callsheet-detail-card__group-select"
-                                          [value]="callsheetGroupAddPlayDraft(group.id)"
-                                          (change)="setCallsheetGroupAddPlayDraft(group.id, $event)"
-                                        >
-                                          <option value="">Select play</option>
-                                          @for (
-                                            playName of getCallsheetGroupAvailablePlayNames(
-                                              group.id
-                                            );
-                                            track playName
-                                          ) {
-                                            <option [value]="playName">{{ playName }}</option>
-                                          }
-                                        </select>
-                                        <button
-                                          type="button"
-                                          class="detail-action-btn detail-action-btn--secondary"
-                                          [disabled]="!callsheetGroupAddPlayDraft(group.id)"
-                                          (click)="addPlayToCallsheetGroup(group.id)"
-                                        >
-                                          Add Play
-                                        </button>
-                                      </div>
-                                    </div>
-                                  } @else {
-                                    @for (play of group.plays; track play.playName) {
-                                      <div class="callsheet-detail-card__play-row">
-                                        <div class="callsheet-detail-card__play-copy">
-                                          <p class="callsheet-detail-card__play-title">
-                                            {{ play.playName }}
-                                          </p>
-                                          <p class="callsheet-detail-card__play-reasoning">
-                                            {{ play.reasoning }}
-                                          </p>
-                                        </div>
-                                        <div
-                                          class="callsheet-detail-card__play-controls"
-                                          [class.callsheet-detail-card__play-controls--confirm]="
-                                            callsheetPendingRemovalPlayName() === play.playName
-                                          "
-                                        >
-                                          @if (
-                                            callsheetPendingRemovalPlayName() === play.playName
-                                          ) {
-                                            <button
-                                              type="button"
-                                              class="callsheet-detail-card__remove-confirm-btn"
-                                              [disabled]="callsheetGroupsSaving()"
-                                              (click)="
-                                                confirmRemovePlayFromCallsheet(play.playName)
-                                              "
-                                            >
-                                              {{ callsheetGroupsSaving() ? 'Removing…' : 'Remove' }}
-                                            </button>
-                                            <button
-                                              type="button"
-                                              class="callsheet-detail-card__remove-cancel-btn"
-                                              [disabled]="callsheetGroupsSaving()"
-                                              (click)="cancelRemovePlayFromCallsheet()"
-                                            >
-                                              Keep
-                                            </button>
-                                          } @else {
-                                            <select
-                                              class="callsheet-detail-card__group-select"
-                                              [value]="group.id"
-                                              (change)="
-                                                moveCallsheetPlayToGroup(play.playName, $event)
-                                              "
-                                            >
-                                              @for (
-                                                groupOption of callsheetGroupDraft();
-                                                track groupOption.id
-                                              ) {
-                                                <option [value]="groupOption.id">
-                                                  {{ groupOption.name }}
-                                                </option>
-                                              }
-                                            </select>
-                                            <button
-                                              type="button"
-                                              class="callsheet-detail-card__remove-play-btn"
-                                              aria-label="Remove play from callsheet"
-                                              title="Remove play"
-                                              [disabled]="callsheetGroupsSaving()"
-                                              (click)="
-                                                requestRemovePlayFromCallsheet(play.playName)
-                                              "
-                                            >
-                                              <nxt1-icon name="trash" [size]="12"></nxt1-icon>
-                                            </button>
-                                          }
-                                        </div>
-                                      </div>
-                                    }
-                                  }
-                                </div>
-                              }
-                            </section>
-                          }
-                        </div>
-                      </div>
-                    }
-                  </div>
-                }
               </div>
             </div>
           }
@@ -1121,15 +1257,6 @@ import {
               <div class="tab-section">
                 <div class="section-header">
                   <h3 class="section-title">Practice Scripts</h3>
-                  <button
-                    type="button"
-                    class="detail-action-btn"
-                    [attr.data-testid]="testIds.PLAYBOOK_EXPORT_CURRENT_BUTTON"
-                    [disabled]="exportingPdf()"
-                    (click)="exportPlaybookPdf('current')"
-                  >
-                    {{ exportingPdf() ? 'Exporting…' : 'Export PDF' }}
-                  </button>
                 </div>
 
                 <p class="section-meta">
@@ -1156,16 +1283,7 @@ import {
                       <path [attr.d]="agentXLogoPath" />
                       <polygon [attr.points]="agentXLogoPolygon" />
                     </svg>
-                    Create In Chat
-                  </button>
-                  <button
-                    type="button"
-                    class="detail-action-btn detail-action-btn--secondary"
-                    [attr.data-testid]="testIds.PRACTICE_SCRIPT_GENERATE_BUTTON"
-                    [disabled]="generatingPracticeScript()"
-                    (click)="generatePracticeScriptDraft()"
-                  >
-                    {{ generatingPracticeScript() ? 'Generating…' : 'Auto-Generate Script' }}
+                    Create Script
                   </button>
                 </div>
 
@@ -1181,9 +1299,7 @@ import {
                       [attr.data-testid]="testIds.PRACTICE_SCRIPT_EMPTY_STATE"
                     >
                       <p class="empty-title">No practice scripts yet</p>
-                      <p class="section-meta">
-                        Generate an AI draft or build one in chat, then save it for export.
-                      </p>
+                      <p class="section-meta">Build one in chat, then save it for export.</p>
                     </div>
                   } @else {
                     <div class="callsheet-saved-grid">
@@ -1193,127 +1309,510 @@ import {
                           [class.callsheet-saved-card--active]="
                             selectedPracticeScriptId() === script.id
                           "
+                          [class.callsheet-saved-card--menu-open]="
+                            isPracticeScriptMenuOpen(script.id)
+                          "
                           [attr.data-testid]="testIds.PRACTICE_SCRIPT_LIST_ITEM"
+                          [nxtAgentXContextDrag]="buildPracticeScriptDragContext(script)"
+                          [nxtAgentXContextDragDisabled]="editingPracticeScriptId() === script.id"
                         >
-                          <span class="callsheet-saved-card__title">{{ script.title }}</span>
-                          <span class="callsheet-saved-card__meta"
-                            >{{ script.focus }} • {{ script.tempo }}</span
-                          >
+                          <div class="callsheet-saved-card__top">
+                            <div class="callsheet-saved-card__copy">
+                              <span class="callsheet-saved-card__title">{{ script.title }}</span>
+                              <span class="callsheet-saved-card__meta"
+                                >{{ script.focus }} • {{ script.tempo }}</span
+                              >
+                            </div>
+                            <div class="callsheet-saved-card__actions">
+                              <button
+                                type="button"
+                                class="icon-btn icon-btn--sm"
+                                title="Edit practice script"
+                                aria-label="Edit practice script"
+                                [disabled]="savingPracticeScript()"
+                                (click)="startEditPracticeScript(script.id, $event)"
+                              >
+                                <nxt1-icon name="pencil" [size]="12"></nxt1-icon>
+                              </button>
+                              <button
+                                type="button"
+                                class="icon-btn icon-btn--sm"
+                                title="Move practice script up"
+                                aria-label="Move practice script up"
+                                [disabled]="
+                                  isPracticeScriptFirst(script.id) || savingPracticeScriptOrder()
+                                "
+                                (click)="movePracticeScriptInList(script.id, -1, $event)"
+                              >
+                                <nxt1-icon name="arrowUp" [size]="12"></nxt1-icon>
+                              </button>
+                              <button
+                                type="button"
+                                class="icon-btn icon-btn--sm"
+                                title="Move practice script down"
+                                aria-label="Move practice script down"
+                                [disabled]="
+                                  isPracticeScriptLast(script.id) || savingPracticeScriptOrder()
+                                "
+                                (click)="movePracticeScriptInList(script.id, 1, $event)"
+                              >
+                                <nxt1-icon name="arrowDown" [size]="12"></nxt1-icon>
+                              </button>
+                              <div class="callsheet-saved-card__menu-anchor">
+                                <button
+                                  type="button"
+                                  class="film-list-item__menu-btn callsheet-saved-card__menu-btn"
+                                  aria-label="Practice script actions"
+                                  [attr.aria-expanded]="isPracticeScriptMenuOpen(script.id)"
+                                  aria-haspopup="menu"
+                                  (click)="onOpenPracticeScriptMenu($event, script.id)"
+                                >
+                                  <nxt1-icon name="moreHorizontal" [size]="18"></nxt1-icon>
+                                </button>
+
+                                @if (isPracticeScriptMenuOpen(script.id)) {
+                                  <div
+                                    class="film-list-item__menu-backdrop"
+                                    (click)="closePracticeScriptMenu()"
+                                  ></div>
+                                  <div
+                                    class="film-list-item__menu callsheet-saved-card__menu"
+                                    role="menu"
+                                    aria-label="Practice script actions"
+                                    (click)="$event.stopPropagation()"
+                                  >
+                                    <button
+                                      type="button"
+                                      class="film-list-item__menu-action"
+                                      role="menuitem"
+                                      (click)="togglePracticeScriptFromMenu(script.id, $event)"
+                                    >
+                                      <nxt1-icon name="eye" [size]="16"></nxt1-icon>
+                                      {{
+                                        selectedPracticeScriptId() === script.id ? 'Close' : 'Open'
+                                      }}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      class="film-list-item__menu-action"
+                                      role="menuitem"
+                                      [disabled]="savingPracticeScript()"
+                                      (click)="startEditPracticeScriptFromMenu(script.id, $event)"
+                                    >
+                                      <nxt1-icon name="pencil" [size]="16"></nxt1-icon>
+                                      Edit
+                                    </button>
+                                    <button
+                                      type="button"
+                                      class="film-list-item__menu-action"
+                                      role="menuitem"
+                                      [disabled]="exportingPdf()"
+                                      (click)="exportPracticeScriptFromMenu(script.id, $event)"
+                                    >
+                                      <nxt1-icon name="download" [size]="16"></nxt1-icon>
+                                      {{ exportingPdf() ? 'Exporting…' : 'Export' }}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      class="film-list-item__menu-action film-list-item__menu-action--danger"
+                                      role="menuitem"
+                                      [disabled]="deletingPracticeScriptId() === script.id"
+                                      (click)="deletePracticeScriptFromMenu(script.id, $event)"
+                                    >
+                                      <nxt1-icon name="trash" [size]="16"></nxt1-icon>
+                                      {{
+                                        deletingPracticeScriptId() === script.id
+                                          ? 'Deleting…'
+                                          : 'Delete'
+                                      }}
+                                    </button>
+                                  </div>
+                                }
+                              </div>
+                            </div>
+                          </div>
                           <span class="callsheet-saved-card__meta"
                             >{{ script.totalPeriods }} periods • {{ script.totalReps }} reps</span
                           >
-                          <div class="callsheet-saved-card__actions">
-                            <button
-                              type="button"
-                              class="detail-action-btn detail-action-btn--secondary"
-                              (click)="togglePracticeScript(script.id)"
-                            >
-                              {{ selectedPracticeScriptId() === script.id ? 'Close' : 'Open' }}
-                            </button>
-                            <button
-                              type="button"
-                              class="detail-action-btn"
-                              [disabled]="exportingPdf()"
-                              (click)="exportSavedPracticeScript(script.id)"
-                            >
-                              {{ exportingPdf() ? 'Exporting…' : 'Export' }}
-                            </button>
-                            <button
-                              type="button"
-                              class="detail-action-btn detail-action-btn--ghost"
-                              [disabled]="deletingPracticeScriptId() === script.id"
-                              (click)="deletePracticeScript(script.id)"
-                            >
-                              {{
-                                deletingPracticeScriptId() === script.id ? 'Deleting…' : 'Delete'
-                              }}
-                            </button>
-                          </div>
+
+                          @if (selectedPracticeScriptId() === script.id) {
+                            <div class="callsheet-saved-card__detail">
+                              @if (selectedPracticeScriptDetailLoading()) {
+                                <p class="section-meta">Loading script details...</p>
+                              } @else if (
+                                selectedPracticeScriptDetail() &&
+                                selectedPracticeScriptDetail()!.id === script.id
+                              ) {
+                                @if (editingPracticeScriptId() === script.id) {
+                                  <div class="play-edit-form practice-script-edit-form">
+                                    <div class="form-row">
+                                      <div class="form-field">
+                                        <label class="form-label">Title *</label>
+                                        <input
+                                          class="form-input"
+                                          [value]="practiceScriptEditForm().title"
+                                          (input)="patchPracticeScriptEditForm('title', $event)"
+                                        />
+                                      </div>
+                                      <div class="form-field">
+                                        <label class="form-label">Focus</label>
+                                        <input
+                                          class="form-input"
+                                          [value]="practiceScriptEditForm().focus"
+                                          (input)="patchPracticeScriptEditForm('focus', $event)"
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div class="form-row">
+                                      <div class="form-field">
+                                        <label class="form-label">Tempo</label>
+                                        <input
+                                          class="form-input"
+                                          [value]="practiceScriptEditForm().tempo"
+                                          (input)="patchPracticeScriptEditForm('tempo', $event)"
+                                        />
+                                      </div>
+                                      <div class="form-field">
+                                        <label class="form-label">Date</label>
+                                        <input
+                                          class="form-input"
+                                          type="date"
+                                          [value]="practiceScriptEditForm().scriptDate"
+                                          (input)="
+                                            patchPracticeScriptEditForm('scriptDate', $event)
+                                          "
+                                        />
+                                      </div>
+                                      <div class="form-field">
+                                        <label class="form-label">Opponent</label>
+                                        <input
+                                          class="form-input"
+                                          [value]="practiceScriptEditForm().opponent"
+                                          (input)="patchPracticeScriptEditForm('opponent', $event)"
+                                        />
+                                      </div>
+                                    </div>
+
+                                    <div class="form-field">
+                                      <label class="form-label">Objectives</label>
+                                      <textarea
+                                        class="form-input"
+                                        rows="3"
+                                        placeholder="One objective per line"
+                                        [value]="practiceScriptEditForm().objectives"
+                                        (input)="patchPracticeScriptEditForm('objectives', $event)"
+                                      ></textarea>
+                                    </div>
+
+                                    <div class="callsheet-detail-card__section">
+                                      <div class="callsheet-detail-card__groups-header">
+                                        <span class="callsheet-detail-card__label"
+                                          >Script Matrix</span
+                                        >
+                                        <button
+                                          type="button"
+                                          class="detail-action-btn detail-action-btn--secondary"
+                                          (click)="addPracticeScriptPeriodToForm()"
+                                        >
+                                          Add Period
+                                        </button>
+                                      </div>
+                                      <div class="practice-script-table-wrap">
+                                        <table
+                                          class="practice-script-table practice-script-table--editing"
+                                        >
+                                          <thead>
+                                            <tr>
+                                              <th>#</th>
+                                              <th>Period</th>
+                                              <th>Clock</th>
+                                              <th>Reps</th>
+                                              <th>Call Type</th>
+                                              <th>Play Call</th>
+                                              <th>Coaching Point</th>
+                                              <th>Notes</th>
+                                              <th>Order</th>
+                                            </tr>
+                                          </thead>
+                                          <tbody>
+                                            @for (
+                                              period of practiceScriptEditForm().periods;
+                                              track period.id;
+                                              let periodIndex = $index
+                                            ) {
+                                              <tr>
+                                                <td>{{ periodIndex + 1 }}</td>
+                                                <td>
+                                                  <input
+                                                    class="form-input practice-script-cell-input"
+                                                    aria-label="Period label"
+                                                    [value]="period.label"
+                                                    (input)="
+                                                      patchPracticeScriptPeriod(
+                                                        periodIndex,
+                                                        'label',
+                                                        $event
+                                                      )
+                                                    "
+                                                  />
+                                                </td>
+                                                <td>
+                                                  <input
+                                                    class="form-input practice-script-cell-input"
+                                                    aria-label="Period clock"
+                                                    [value]="period.clock"
+                                                    (input)="
+                                                      patchPracticeScriptPeriod(
+                                                        periodIndex,
+                                                        'clock',
+                                                        $event
+                                                      )
+                                                    "
+                                                  />
+                                                </td>
+                                                <td>
+                                                  <input
+                                                    class="form-input practice-script-cell-input practice-script-cell-input--number"
+                                                    type="number"
+                                                    min="0"
+                                                    aria-label="Period reps"
+                                                    [value]="period.reps"
+                                                    (input)="
+                                                      patchPracticeScriptPeriod(
+                                                        periodIndex,
+                                                        'reps',
+                                                        $event
+                                                      )
+                                                    "
+                                                  />
+                                                </td>
+                                                <td>
+                                                  <input
+                                                    class="form-input practice-script-cell-input"
+                                                    aria-label="Call type"
+                                                    [value]="period.callType"
+                                                    (input)="
+                                                      patchPracticeScriptPeriod(
+                                                        periodIndex,
+                                                        'callType',
+                                                        $event
+                                                      )
+                                                    "
+                                                  />
+                                                </td>
+                                                <td>
+                                                  <input
+                                                    class="form-input practice-script-cell-input"
+                                                    aria-label="Play call"
+                                                    [value]="period.playName"
+                                                    (input)="
+                                                      patchPracticeScriptPeriod(
+                                                        periodIndex,
+                                                        'playName',
+                                                        $event
+                                                      )
+                                                    "
+                                                  />
+                                                </td>
+                                                <td>
+                                                  <input
+                                                    class="form-input practice-script-cell-input"
+                                                    aria-label="Coaching point"
+                                                    [value]="period.coachingPoint || ''"
+                                                    (input)="
+                                                      patchPracticeScriptPeriod(
+                                                        periodIndex,
+                                                        'coachingPoint',
+                                                        $event
+                                                      )
+                                                    "
+                                                  />
+                                                </td>
+                                                <td>
+                                                  <input
+                                                    class="form-input practice-script-cell-input"
+                                                    aria-label="Period notes"
+                                                    [value]="period.notes || ''"
+                                                    (input)="
+                                                      patchPracticeScriptPeriod(
+                                                        periodIndex,
+                                                        'notes',
+                                                        $event
+                                                      )
+                                                    "
+                                                  />
+                                                </td>
+                                                <td>
+                                                  <div class="practice-script-period-actions">
+                                                    <button
+                                                      type="button"
+                                                      class="icon-btn icon-btn--sm"
+                                                      aria-label="Move period up"
+                                                      [disabled]="periodIndex === 0"
+                                                      (click)="
+                                                        movePracticeScriptPeriodInForm(
+                                                          periodIndex,
+                                                          -1,
+                                                          $event
+                                                        )
+                                                      "
+                                                    >
+                                                      <nxt1-icon
+                                                        name="arrowUp"
+                                                        [size]="12"
+                                                      ></nxt1-icon>
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      class="icon-btn icon-btn--sm"
+                                                      aria-label="Move period down"
+                                                      [disabled]="
+                                                        periodIndex ===
+                                                        practiceScriptEditForm().periods.length - 1
+                                                      "
+                                                      (click)="
+                                                        movePracticeScriptPeriodInForm(
+                                                          periodIndex,
+                                                          1,
+                                                          $event
+                                                        )
+                                                      "
+                                                    >
+                                                      <nxt1-icon
+                                                        name="arrowDown"
+                                                        [size]="12"
+                                                      ></nxt1-icon>
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      class="icon-btn icon-btn--sm icon-btn--danger"
+                                                      aria-label="Remove period"
+                                                      [disabled]="
+                                                        practiceScriptEditForm().periods.length <= 1
+                                                      "
+                                                      (click)="
+                                                        removePracticeScriptPeriodFromForm(
+                                                          periodIndex,
+                                                          $event
+                                                        )
+                                                      "
+                                                    >
+                                                      <nxt1-icon
+                                                        name="trash"
+                                                        [size]="12"
+                                                      ></nxt1-icon>
+                                                    </button>
+                                                  </div>
+                                                </td>
+                                              </tr>
+                                            }
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </div>
+
+                                    <div class="form-field">
+                                      <label class="form-label">Coach Notes</label>
+                                      <textarea
+                                        class="form-input"
+                                        rows="3"
+                                        [value]="practiceScriptEditForm().notes"
+                                        (input)="patchPracticeScriptEditForm('notes', $event)"
+                                      ></textarea>
+                                    </div>
+
+                                    <div class="form-actions">
+                                      <button
+                                        type="button"
+                                        class="btn-cancel"
+                                        [disabled]="savingPracticeScript()"
+                                        (click)="cancelEditPracticeScript()"
+                                      >
+                                        Cancel
+                                      </button>
+                                      <button
+                                        type="button"
+                                        class="btn-save"
+                                        [disabled]="!canSavePracticeScriptEdit()"
+                                        (click)="savePracticeScriptEdit(script.id)"
+                                      >
+                                        {{ savingPracticeScript() ? 'Saving…' : 'Save Script' }}
+                                      </button>
+                                    </div>
+                                  </div>
+                                } @else {
+                                  @if (
+                                    (selectedPracticeScriptDetail()!.objectives?.length || 0) > 0
+                                  ) {
+                                    <div class="callsheet-detail-card__section">
+                                      <span class="callsheet-detail-card__label">Objectives</span>
+                                      <div class="chip-list">
+                                        @for (
+                                          objective of selectedPracticeScriptDetail()!.objectives ||
+                                            [];
+                                          track objective
+                                        ) {
+                                          <span class="chip chip--soft">{{ objective }}</span>
+                                        }
+                                      </div>
+                                    </div>
+                                  }
+
+                                  <div class="callsheet-detail-card__section">
+                                    <span class="callsheet-detail-card__label">Script Matrix</span>
+                                    <div class="practice-script-table-wrap">
+                                      <table class="practice-script-table">
+                                        <thead>
+                                          <tr>
+                                            <th>#</th>
+                                            <th>Period</th>
+                                            <th>Clock</th>
+                                            <th>Reps</th>
+                                            <th>Call Type</th>
+                                            <th>Play Call</th>
+                                            <th>Coaching Point</th>
+                                          </tr>
+                                        </thead>
+                                        <tbody>
+                                          @for (
+                                            period of selectedPracticeScriptDetail()!.periods || [];
+                                            track period.id
+                                          ) {
+                                            <tr>
+                                              <td>{{ $index + 1 }}</td>
+                                              <td>{{ period.label }}</td>
+                                              <td>{{ period.clock }}</td>
+                                              <td>{{ period.reps }}</td>
+                                              <td>{{ period.callType }}</td>
+                                              <td>{{ period.playName }}</td>
+                                              <td>
+                                                {{ period.coachingPoint || period.notes || '—' }}
+                                              </td>
+                                            </tr>
+                                          }
+                                        </tbody>
+                                      </table>
+                                    </div>
+                                  </div>
+
+                                  @if (selectedPracticeScriptDetail()!.notes) {
+                                    <div class="callsheet-detail-card__section">
+                                      <span class="callsheet-detail-card__label">Coach Notes</span>
+                                      <p class="callsheet-detail-card__notes">
+                                        {{ selectedPracticeScriptDetail()!.notes }}
+                                      </p>
+                                    </div>
+                                  }
+                                }
+                              }
+                            </div>
+                          }
                         </article>
                       }
                     </div>
                   }
                 </div>
-
-                @if (selectedPracticeScriptDetailLoading()) {
-                  <p class="section-meta">Loading script details...</p>
-                } @else if (selectedPracticeScriptDetail()) {
-                  <div class="callsheet-detail-card">
-                    <div class="callsheet-detail-card__header">
-                      <div>
-                        <h4 class="section-subtitle">
-                          {{ selectedPracticeScriptDetail()!.title }}
-                        </h4>
-                        <p class="section-meta">
-                          {{ selectedPracticeScriptDetail()!.focus }} •
-                          {{ selectedPracticeScriptDetail()!.tempo }}
-                        </p>
-                      </div>
-                      <p class="section-meta">
-                        {{ practiceScriptTotals().periodCount }} periods •
-                        {{ practiceScriptTotals().totalReps }} reps total
-                      </p>
-                    </div>
-
-                    @if ((selectedPracticeScriptDetail()!.objectives?.length || 0) > 0) {
-                      <div class="callsheet-detail-card__section">
-                        <span class="callsheet-detail-card__label">Objectives</span>
-                        <div class="chip-list">
-                          @for (
-                            objective of selectedPracticeScriptDetail()!.objectives || [];
-                            track objective
-                          ) {
-                            <span class="chip chip--soft">{{ objective }}</span>
-                          }
-                        </div>
-                      </div>
-                    }
-
-                    <div class="callsheet-detail-card__section">
-                      <span class="callsheet-detail-card__label">Script Matrix</span>
-                      <div class="practice-script-table-wrap">
-                        <table class="practice-script-table">
-                          <thead>
-                            <tr>
-                              <th>#</th>
-                              <th>Period</th>
-                              <th>Clock</th>
-                              <th>Reps</th>
-                              <th>Call Type</th>
-                              <th>Play Call</th>
-                              <th>Coaching Point</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            @for (
-                              period of selectedPracticeScriptDetail()!.periods || [];
-                              track period.id
-                            ) {
-                              <tr>
-                                <td>{{ $index + 1 }}</td>
-                                <td>{{ period.label }}</td>
-                                <td>{{ period.clock }}</td>
-                                <td>{{ period.reps }}</td>
-                                <td>{{ period.callType }}</td>
-                                <td>{{ period.playName }}</td>
-                                <td>{{ period.coachingPoint || period.notes || '—' }}</td>
-                              </tr>
-                            }
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-
-                    @if (selectedPracticeScriptDetail()!.notes) {
-                      <div class="callsheet-detail-card__section">
-                        <span class="callsheet-detail-card__label">Coach Notes</span>
-                        <p class="callsheet-detail-card__notes">
-                          {{ selectedPracticeScriptDetail()!.notes }}
-                        </p>
-                      </div>
-                    }
-                  </div>
-                }
               </div>
             </div>
           }
@@ -2183,6 +2682,15 @@ import {
         border-color: var(--agent-primary, #ccff00);
         color: var(--agent-text-primary, #1a1a1a);
       }
+      .icon-btn:disabled {
+        cursor: not-allowed;
+        opacity: 0.45;
+      }
+      .icon-btn:disabled:hover {
+        border-color: var(--agent-border, rgba(0, 0, 0, 0.08));
+        color: var(--agent-text-secondary, rgba(0, 0, 0, 0.7));
+        background: var(--agent-surface, rgba(0, 0, 0, 0.03));
+      }
       .icon-btn--sm {
         width: 24px;
         height: 24px;
@@ -2484,6 +2992,31 @@ import {
         color: var(--agent-text-secondary, rgba(0, 0, 0, 0.7));
       }
 
+      .practice-script-edit-form {
+        gap: 10px;
+      }
+
+      .practice-script-table--editing {
+        min-width: 1080px;
+      }
+
+      .practice-script-cell-input {
+        min-height: 30px;
+        padding: 5px 7px;
+        font-size: 0.72rem;
+      }
+
+      .practice-script-cell-input--number {
+        width: 72px;
+      }
+
+      .practice-script-period-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
+      }
+
       /* ── Install Plans Tab ── */
       .install-stages {
         display: grid;
@@ -2665,9 +3198,33 @@ import {
         padding: 10px;
         display: grid;
         gap: 8px;
+        overflow: visible;
+        position: relative;
         transition:
           border-color 140ms ease,
           background 140ms ease;
+      }
+
+      .callsheet-saved-card--menu-open {
+        z-index: 90;
+      }
+
+      .callsheet-saved-card__top {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .callsheet-saved-card__copy {
+        display: grid;
+        gap: 4px;
+        min-width: 0;
+      }
+
+      .callsheet-saved-card__top .callsheet-saved-card__actions {
+        margin-left: auto;
+        flex-shrink: 0;
       }
 
       .callsheet-saved-card:hover {
@@ -2694,6 +3251,40 @@ import {
         display: flex;
         gap: 8px;
         justify-content: flex-end;
+      }
+
+      .callsheet-saved-card__menu-anchor {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        min-height: 32px;
+      }
+
+      .film-list-item__menu-btn.callsheet-saved-card__menu-btn {
+        width: 32px;
+        height: 32px;
+        min-width: 32px;
+        min-height: 32px;
+        position: static;
+        top: auto;
+        right: auto;
+        transform: none;
+      }
+
+      .callsheet-saved-card .film-list-item__menu.callsheet-saved-card__menu {
+        top: calc(100% + 6px);
+        right: 0;
+        z-index: 140;
+      }
+
+      .callsheet-saved-card__detail {
+        margin-top: 4px;
+        padding-top: 10px;
+        border-top: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.1));
+        display: grid;
+        gap: 12px;
       }
 
       .callsheet-detail-card {
@@ -2776,6 +3367,18 @@ import {
           background 0.18s ease;
       }
 
+      .callsheet-group-card--dragging {
+        opacity: 0.64;
+      }
+
+      .callsheet-group-card--drop-before {
+        box-shadow: inset 0 2px 0 var(--nxt1-color-primary, #ccff00);
+      }
+
+      .callsheet-group-card--drop-after {
+        box-shadow: inset 0 -2px 0 var(--nxt1-color-primary, #ccff00);
+      }
+
       .callsheet-group-card--menu-open {
         z-index: 80;
       }
@@ -2791,6 +3394,11 @@ import {
         position: relative;
         z-index: 6;
         overflow: visible;
+        cursor: grab;
+      }
+
+      .callsheet-group-card__header:active {
+        cursor: grabbing;
       }
 
       .callsheet-group-card__toggle {
@@ -2859,11 +3467,181 @@ import {
         min-height: 38px;
       }
 
+      .film-list-item__menu-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 32px;
+        height: 32px;
+        border: none;
+        border-radius: 50%;
+        background: transparent;
+        padding: 0;
+        color: var(--log-text-secondary, var(--nxt1-color-text-secondary));
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease;
+      }
+
+      .film-list-item__menu-btn:active {
+        background: color-mix(
+          in srgb,
+          var(--log-text-primary, var(--nxt1-color-text-primary)) 10%,
+          transparent
+        );
+      }
+
+      .film-list-item__menu-btn[aria-expanded='true'] {
+        background: color-mix(
+          in srgb,
+          var(--log-text-primary, var(--nxt1-color-text-primary)) 8%,
+          transparent
+        );
+        color: var(--log-primary, var(--nxt1-color-primary));
+      }
+
+      .film-list-item__menu-btn:hover,
+      .film-list-item__menu-btn:focus-visible {
+        background: color-mix(
+          in srgb,
+          var(--log-text-primary, var(--nxt1-color-text-primary)) 8%,
+          transparent
+        );
+        color: var(--log-primary, var(--nxt1-color-primary));
+        outline: none;
+      }
+
+      .film-list-item__menu-backdrop {
+        position: fixed;
+        inset: 0;
+        background: transparent;
+        border: 0;
+        margin: 0;
+        padding: 0;
+        z-index: 2;
+      }
+
+      .film-list-item__menu {
+        position: absolute;
+        top: calc(100% + 6px);
+        right: 0;
+        min-width: var(--nxt1-spacing-52, 13rem);
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        padding: var(--nxt1-spacing-1, 4px);
+        border-radius: var(--nxt1-ui-radius-lg, 12px);
+        border: 1px solid var(--nxt1-color-border-default);
+        background: var(--nxt1-color-surface-100);
+        box-shadow: var(--nxt1-navigation-dropdown);
+        z-index: 100;
+        overflow: hidden;
+      }
+
+      .film-list-item__menu-action {
+        display: flex;
+        align-items: center;
+        justify-content: flex-start;
+        gap: var(--nxt1-spacing-3, 0.75rem);
+        width: 100%;
+        border: 0;
+        background: transparent;
+        color: var(--nxt1-nav-text);
+        text-align: left;
+        border-radius: var(--nxt1-ui-radius-default, 8px);
+        padding: var(--nxt1-spacing-2, 0.5rem) var(--nxt1-spacing-3, 0.75rem);
+        font-size: var(--nxt1-fontSize-sm, 0.875rem);
+        font-weight: var(--nxt1-fontWeight-medium, 500);
+        line-height: 1.25;
+        cursor: pointer;
+        transition: background-color var(--nxt1-nav-transition-fast, 0.15s ease);
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      .film-list-item__menu-action:hover,
+      .film-list-item__menu-action:focus-visible,
+      .film-list-item__menu-action:active {
+        background: var(--nxt1-nav-hover-bg);
+        outline: none;
+      }
+
+      .film-list-item__menu-action:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+
+      .film-list-item__menu-action--danger {
+        color: var(--nxt1-color-error, #ff4c4c);
+      }
+
+      .film-list-item__menu-action--primary {
+        color: var(--log-primary, var(--nxt1-color-primary));
+      }
+
+      .film-list-item__menu-rename,
+      .film-list-item__menu-confirm {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+
+      .film-list-item__menu-label {
+        display: block;
+        padding: 2px 4px 0;
+        color: var(--log-text-secondary, var(--nxt1-color-text-secondary));
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .film-list-item__menu-input {
+        width: 100%;
+        border-radius: var(--nxt1-radius-md, 10px);
+        border: 1px solid var(--log-border, var(--nxt1-color-border-default));
+        background: var(--log-surface, var(--nxt1-color-surface-100));
+        color: var(--log-text-primary, var(--nxt1-color-text-primary));
+        padding: 8px 10px;
+        font-size: 12px;
+        font-weight: 500;
+        font-family: inherit;
+        outline: none;
+      }
+
+      .film-list-item__menu-input:focus {
+        border-color: color-mix(
+          in srgb,
+          var(--log-primary, var(--nxt1-color-primary)) 65%,
+          var(--log-border, var(--nxt1-color-border-default))
+        );
+        box-shadow: 0 0 0 2px
+          color-mix(in srgb, var(--log-primary, var(--nxt1-color-primary)) 15%, transparent);
+      }
+
+      .film-list-item__menu-actions {
+        display: flex;
+        gap: 4px;
+      }
+
+      .film-list-item__menu-actions .film-list-item__menu-action {
+        justify-content: center;
+      }
+
+      .film-list-item__menu-confirm-text {
+        margin: 0;
+        padding: 2px 4px;
+        color: var(--nxt1-nav-text);
+        font-size: 13px;
+        font-weight: 600;
+        line-height: 1.4;
+      }
+
       .film-list-item__menu-btn.callsheet-group-card__menu-btn {
-        width: 28px;
-        height: 28px;
-        min-width: 28px;
-        min-height: 28px;
+        width: 32px;
+        height: 32px;
+        min-width: 32px;
+        min-height: 32px;
         position: static;
         top: auto;
         right: auto;
@@ -2875,7 +3653,7 @@ import {
       }
 
       .callsheet-group-card .film-list-item__menu.callsheet-group-card__menu {
-        top: calc(100% + 2px);
+        top: calc(100% + 6px);
         right: 0;
         z-index: 140;
       }
@@ -3518,6 +4296,7 @@ export class AgentXPlaybooksPanelComponent {
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly mediaViewer = inject(NxtMediaViewerService);
   private readonly playbooksService = inject(PlaybooksService);
+  private readonly document = inject(DOCUMENT);
   private readonly baseUrl = `${inject(AGENT_X_API_BASE_URL)}/agent-x`;
   protected readonly testIds = TEST_IDS.PLAYBOOK;
   readonly agentXLogoPath = AGENT_X_LOGO_PATH;
@@ -3577,9 +4356,16 @@ export class AgentXPlaybooksPanelComponent {
   protected readonly selectedCallsheetId = signal<string | null>(null);
   protected readonly selectedCallsheetDetail = signal<CallsheetDetail | null>(null);
   protected readonly selectedCallsheetDetailLoading = signal(false);
+  protected readonly activeCallsheetMenuId = signal<string | null>(null);
+  protected readonly deletingCallsheetId = signal<string | null>(null);
   protected readonly callsheetGroupDraft = signal<readonly CallsheetGroup[]>([]);
   protected readonly callsheetGroupAddPlayDrafts = signal<Readonly<Record<string, string>>>({});
   protected readonly callsheetGroupsSaving = signal(false);
+  protected readonly draggingCallsheetGroupId = signal<string | null>(null);
+  protected readonly callsheetGroupDropIndicator = signal<{
+    groupId: string;
+    placement: 'before' | 'after';
+  } | null>(null);
   protected readonly callsheetPendingRemovalPlayName = signal<string | null>(null);
   protected readonly collapsedCallsheetGroupIds = signal<ReadonlySet<string>>(new Set());
   protected readonly activeCallsheetGroupMenuId = signal<string | null>(null);
@@ -3599,6 +4385,18 @@ export class AgentXPlaybooksPanelComponent {
         .filter((play): play is (typeof plays)[number] => play !== null),
     }));
   });
+  protected readonly hasUnsavedCallsheetGroupChanges = computed(() => {
+    const detail = this.selectedCallsheetDetail();
+    if (!detail) return false;
+
+    const savedGroups = this.normalizeCallsheetGroupsForUi(detail.groups, detail.plays ?? []);
+    const draftGroups = this.normalizeCallsheetGroupsForUi(
+      this.callsheetGroupDraft(),
+      detail.plays ?? []
+    );
+
+    return !this.areCallsheetGroupsEqual(savedGroups, draftGroups);
+  });
   protected readonly installPlanReasonings = signal<Map<string, string>>(new Map());
   private readonly installNotesFormatCache = new Map<string, readonly string[]>();
 
@@ -3608,11 +4406,14 @@ export class AgentXPlaybooksPanelComponent {
   protected readonly selectedPracticeScriptId = signal<string | null>(null);
   protected readonly selectedPracticeScriptDetail = signal<PracticeScriptDetail | null>(null);
   protected readonly selectedPracticeScriptDetailLoading = signal(false);
-  protected readonly generatingPracticeScript = signal(false);
+  protected readonly activePracticeScriptMenuId = signal<string | null>(null);
   protected readonly deletingPracticeScriptId = signal<string | null>(null);
-  protected readonly practiceScriptTotals = computed(() =>
-    computePracticeScriptTotals(this.selectedPracticeScriptDetail())
-  );
+  protected readonly editingPracticeScriptId = signal<string | null>(null);
+  protected readonly practiceScriptEditForm = signal<PracticeScriptEditForm>({
+    ...EMPTY_PRACTICE_SCRIPT_EDIT_FORM,
+  });
+  protected readonly savingPracticeScript = signal(false);
+  protected readonly savingPracticeScriptOrder = signal(false);
 
   // ── Game Plans: Opponent-specific play lists ───────────────────────────────────
   protected readonly gamePlans = signal<GamePlan[]>([]);
@@ -3678,9 +4479,13 @@ export class AgentXPlaybooksPanelComponent {
     this.selectedCallsheetId.set(null);
     this.selectedCallsheetDetail.set(null);
     this.selectedCallsheetDetailLoading.set(false);
+    this.activeCallsheetMenuId.set(null);
+    this.deletingCallsheetId.set(null);
     this.callsheetGroupDraft.set([]);
     this.callsheetGroupAddPlayDrafts.set({});
     this.callsheetGroupsSaving.set(false);
+    this.draggingCallsheetGroupId.set(null);
+    this.callsheetGroupDropIndicator.set(null);
     this.callsheetPendingRemovalPlayName.set(null);
     this.collapsedCallsheetGroupIds.set(new Set());
     this.activeCallsheetGroupMenuId.set(null);
@@ -3689,8 +4494,12 @@ export class AgentXPlaybooksPanelComponent {
     this.selectedPracticeScriptId.set(null);
     this.selectedPracticeScriptDetail.set(null);
     this.selectedPracticeScriptDetailLoading.set(false);
-    this.generatingPracticeScript.set(false);
+    this.activePracticeScriptMenuId.set(null);
     this.deletingPracticeScriptId.set(null);
+    this.editingPracticeScriptId.set(null);
+    this.practiceScriptEditForm.set({ ...EMPTY_PRACTICE_SCRIPT_EDIT_FORM });
+    this.savingPracticeScript.set(false);
+    this.savingPracticeScriptOrder.set(false);
     this.installPlanReasonings.set(new Map());
     this.gamePlans.set([]);
     this.gamePlansLoading.set(false);
@@ -3756,6 +4565,7 @@ export class AgentXPlaybooksPanelComponent {
             mode,
             activeTab: this.activePlaybookTab(),
             callsheetFilters: this.callsheetFilters(),
+            callsheetId: this.selectedCallsheetId() ?? undefined,
             practiceScriptId: this.selectedPracticeScriptId() ?? undefined,
           }
         )
@@ -3809,17 +4619,694 @@ export class AgentXPlaybooksPanelComponent {
   }
 
   protected openPrintPreview(): void {
+    const playbook = this.selectedPlaybook();
+    if (!playbook) return;
+
+    const plays = this.hasActivePlayFilters() ? this.filteredPlays() : (playbook.plays ?? []);
+
     this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_ACTION_EXECUTED, {
       action: 'playbook_print_preview_opened',
-      playbookId: this.selectedPlaybook()?.id,
-      teamId: this.selectedPlaybook()?.teamId,
-      sport: this.selectedPlaybook()?.sport,
+      playbookId: playbook.id,
+      teamId: playbook.teamId,
+      sport: playbook.sport,
       activeTab: this.activePlaybookTab(),
+      playCount: plays.length,
     });
 
-    if (typeof window !== 'undefined') {
-      window.print();
+    this.printPlaybookPacket(playbook, plays);
+  }
+
+  private printPlaybookPacket(playbook: PlaybookDetail, plays: readonly PlaybookPlay[]): void {
+    const hostWindow = this.document.defaultView;
+    if (!hostWindow?.document?.body) return;
+
+    const iframe = this.document.createElement('iframe');
+    iframe.title = 'NXT1 Playbook Print Preview';
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '1px';
+    iframe.style.height = '1px';
+    iframe.style.border = '0';
+    iframe.style.opacity = '0';
+    iframe.style.pointerEvents = 'none';
+
+    const removeIframe = (): void => {
+      if (iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe);
+      }
+    };
+
+    iframe.onload = () => {
+      const printWindow = iframe.contentWindow;
+      if (!printWindow) {
+        removeIframe();
+        return;
+      }
+
+      let cleanedUp = false;
+      const cleanup = (): void => {
+        if (cleanedUp) return;
+        cleanedUp = true;
+        removeIframe();
+      };
+
+      printWindow.addEventListener('afterprint', cleanup, { once: true });
+      hostWindow.setTimeout(cleanup, 60_000);
+      hostWindow.setTimeout(() => {
+        printWindow.focus();
+        printWindow.print();
+      }, 250);
+    };
+
+    hostWindow.document.body.appendChild(iframe);
+
+    const printDocument = iframe.contentDocument ?? iframe.contentWindow?.document;
+    if (!printDocument) {
+      removeIframe();
+      this.logger.error(
+        'Unable to create playbook print preview document',
+        new Error('No iframe document'),
+        {
+          playbookId: playbook.id,
+        }
+      );
+      return;
     }
+
+    printDocument.open();
+    printDocument.write(this.buildPlaybookPrintHtml(playbook, plays));
+    printDocument.close();
+  }
+
+  private buildPlaybookPrintHtml(playbook: PlaybookDetail, plays: readonly PlaybookPlay[]): string {
+    const title = (playbook.title || playbook.name || 'Playbook').trim();
+    const generatedAt = new Date().toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+    const selectedCallsheet = this.selectedCallsheetDetail();
+    const selectedPracticeScript = this.selectedPracticeScriptDetail();
+    const metaItems = [
+      { label: 'Sport', value: playbook.sport ? toTitleCase(playbook.sport) : 'Team' },
+      { label: 'Season', value: playbook.season ?? 'Current' },
+      { label: 'Inventory', value: `${plays.length} ${plays.length === 1 ? 'play' : 'plays'}` },
+      { label: 'Updated', value: this.formatDate(playbook.updatedAt || playbook.createdAt) },
+    ];
+    const filterLabel = this.hasActivePlayFilters()
+      ? '<span class="print-pill">Filtered</span>'
+      : '';
+    const installBoardHtml = this.buildPrintInstallBoard(plays);
+    const callsheetHtml = this.buildPrintCallsheetSection(selectedCallsheet);
+    const practiceScriptHtml = this.buildPrintPracticeScriptSection(selectedPracticeScript);
+    const playsHtml =
+      plays.length > 0
+        ? plays.map((play, index) => this.buildPrintPlayCard(play, index)).join('')
+        : '<section class="empty-state">No plays are available for this coach packet.</section>';
+
+    return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>${this.escapePrintText(title)} | NXT1 Playbook</title>
+    <style>${this.buildPlaybookPrintStyles()}</style>
+  </head>
+  <body>
+    <main class="packet">
+      <header class="packet-header">
+        <div>
+          <p class="eyebrow">NXT1 Coach Packet</p>
+          <h1>${this.escapePrintText(title)}</h1>
+        </div>
+        <div class="header-aside">
+          ${filterLabel}
+          <span>Generated ${this.escapePrintText(generatedAt)}</span>
+        </div>
+      </header>
+      <section class="meta-grid">
+        ${metaItems
+          .map(
+            (item) =>
+              `<span><strong>${this.escapePrintText(item.label)}</strong>${this.escapePrintText(item.value)}</span>`
+          )
+          .join('')}
+      </section>
+      ${installBoardHtml}
+      ${callsheetHtml}
+      ${practiceScriptHtml}
+      <section class="packet-section packet-section--plays">
+        <div class="section-heading">
+          <p class="eyebrow">Play Cards</p>
+          <h2>Staff Detail Sheets</h2>
+        </div>
+      </section>
+      <section class="plays-section" aria-label="Printable plays">
+        ${playsHtml}
+      </section>
+    </main>
+  </body>
+</html>`;
+  }
+
+  private buildPrintInstallBoard(plays: readonly PlaybookPlay[]): string {
+    if (!plays.length) return '';
+
+    const stageCards = INSTALL_STAGES.map((stage) => {
+      const stagePlays = plays.filter((play) => (play.installStage ?? 'install') === stage);
+      const playList = stagePlays
+        .slice(0, 8)
+        .map(
+          (play) => `<li>${this.escapePrintText(play.title || play.name || 'Untitled Play')}</li>`
+        )
+        .join('');
+      const overflow =
+        stagePlays.length > 8 ? `<li class="muted">+${stagePlays.length - 8} more</li>` : '';
+
+      return `<article class="install-summary-card">
+        <span>${this.escapePrintText(getStageDisplayNameValue(stage))}</span>
+        <strong>${stagePlays.length}</strong>
+        <ul>${playList || '<li class="muted">No plays assigned</li>'}${overflow}</ul>
+      </article>`;
+    }).join('');
+
+    return `<section class="packet-section">
+      <div class="section-heading">
+        <p class="eyebrow">Install Board</p>
+        <h2>Teaching Progression</h2>
+      </div>
+      <div class="install-summary-grid">${stageCards}</div>
+    </section>`;
+  }
+
+  private buildPrintCallsheetSection(callsheet: CallsheetDetail | null): string {
+    const generatedRows =
+      this.activePlaybookTab() === 'callsheet'
+        ? this.filteredCallsheetPlays()
+            .map((play, index) => {
+              const playName = (play.title || play.name || `Play ${index + 1}`).trim();
+              const aiRanking = this.callsheetAiRankings().get(playName);
+              return {
+                playName,
+                score: aiRanking?.score ?? Math.round((play.successRate ?? 0) * 100),
+                reasoning:
+                  aiRanking?.reasoning ??
+                  'Selected from current situation filters and baseline playbook fit.',
+              };
+            })
+            .filter((play) => play.playName.length > 0)
+        : [];
+    const callsheetPlays = callsheet?.plays?.length ? callsheet.plays : generatedRows;
+    if (!callsheetPlays.length) return '';
+
+    const playByName = new Map(callsheetPlays.map((play) => [play.playName, play] as const));
+    const groups = callsheet?.groups?.length
+      ? callsheet.groups
+      : [
+          {
+            id: 'print-primary',
+            name: callsheet?.title ?? 'Call Menu',
+            playNames: callsheetPlays.map((play) => play.playName),
+          },
+        ];
+    const rows = groups
+      .flatMap((group) =>
+        group.playNames
+          .map((playName) => ({ groupName: group.name, play: playByName.get(playName) }))
+          .filter(
+            (
+              row
+            ): row is {
+              groupName: string;
+              play: { playName: string; score: number; reasoning: string };
+            } => Boolean(row.play)
+          )
+      )
+      .map(
+        (row) => `<tr>
+          <td>${this.escapePrintText(row.groupName)}</td>
+          <td>${this.escapePrintText(row.play.playName)}</td>
+          <td>${this.escapePrintText(`${Math.round(row.play.score)}/100`)}</td>
+          <td>${this.escapePrintText(row.play.reasoning)}</td>
+        </tr>`
+      )
+      .join('');
+
+    return `<section class="packet-section">
+      <div class="section-heading section-heading--split">
+        <div>
+          <p class="eyebrow">Callsheet</p>
+          <h2>${this.escapePrintText(callsheet?.title ?? 'Situational Menu')}</h2>
+        </div>
+        <span>${this.escapePrintText(callsheet?.situation ?? this.getCallsheetSituationText())}</span>
+      </div>
+      ${callsheet?.notes ? `<p class="packet-note">${this.escapePrintText(callsheet.notes)}</p>` : ''}
+      <table class="print-table print-table--callsheet">
+        <thead><tr><th>Group</th><th>Call</th><th>Grade</th><th>Why</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </section>`;
+  }
+
+  private buildPrintPracticeScriptSection(script: PracticeScriptDetail | null): string {
+    const periods = script?.periods ?? [];
+    if (!script || !periods.length) return '';
+
+    const rows = periods
+      .map(
+        (period, index) => `<tr>
+          <td>${index + 1}</td>
+          <td>${this.escapePrintText(period.label)}</td>
+          <td>${this.escapePrintText(period.clock)}</td>
+          <td>${this.escapePrintText(period.reps)}</td>
+          <td>${this.escapePrintText(period.callType)}</td>
+          <td>${this.escapePrintText(period.playName)}</td>
+          <td>${this.escapePrintText(period.coachingPoint || period.notes || '')}</td>
+        </tr>`
+      )
+      .join('');
+
+    const objectives = (script.objectives ?? [])
+      .map((objective) => `<span>${this.escapePrintText(objective)}</span>`)
+      .join('');
+
+    return `<section class="packet-section">
+      <div class="section-heading section-heading--split">
+        <div>
+          <p class="eyebrow">Practice Script</p>
+          <h2>${this.escapePrintText(script.title)}</h2>
+        </div>
+        <span>${this.escapePrintText(script.focus)} • ${this.escapePrintText(script.tempo)}</span>
+      </div>
+      ${objectives ? `<div class="mini-chip-row mini-chip-row--objectives">${objectives}</div>` : ''}
+      <table class="print-table print-table--script">
+        <thead><tr><th>#</th><th>Period</th><th>Clock</th><th>Reps</th><th>Type</th><th>Call</th><th>Coaching Point</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${script.notes ? `<p class="packet-note">${this.escapePrintText(script.notes)}</p>` : ''}
+    </section>`;
+  }
+
+  private buildPrintPlayCard(play: PlaybookPlay, index: number): string {
+    const title = (play.title || play.name || `Play ${index + 1}`).trim();
+    const breakdown = this.buildPlayBreakdown(play);
+    const diagram = this.buildPrintDiagram(play, title);
+    const metaChips = breakdown.metaChips
+      .map((chip) => `<span class="chip">${this.escapePrintText(chip)}</span>`)
+      .join('');
+    const sections = breakdown.sections.map((section) => this.buildPrintSection(section)).join('');
+    const cardClass = diagram
+      ? 'play-card play-card--with-diagram'
+      : 'play-card play-card--text-only';
+
+    return `<article class="${cardClass}">
+      <div class="play-card-header">
+        <span class="play-number">${String(index + 1).padStart(2, '0')}</span>
+        <div>
+          <h2>${this.escapePrintText(title)}</h2>
+          ${breakdown.subtitle ? `<p>${this.escapePrintText(breakdown.subtitle)}</p>` : ''}
+        </div>
+      </div>
+      ${metaChips ? `<div class="chip-row">${metaChips}</div>` : ''}
+      <div class="play-body">
+        ${diagram ?? ''}
+        <div class="play-sections">${sections || '<p class="muted">No coaching notes yet.</p>'}</div>
+      </div>
+    </article>`;
+  }
+
+  private buildPrintSection(section: {
+    title: string;
+    paragraphs?: string[];
+    bullets?: string[];
+    chips?: string[];
+  }): string {
+    const paragraphs = (section.paragraphs ?? [])
+      .filter((item) => item.trim().length > 0)
+      .map((item) => `<p>${this.escapePrintText(item)}</p>`)
+      .join('');
+    const bullets = (section.bullets ?? [])
+      .filter((item) => item.trim().length > 0)
+      .map((item) => `<li>${this.escapePrintText(item)}</li>`)
+      .join('');
+    const chips = (section.chips ?? [])
+      .filter((item) => item.trim().length > 0)
+      .map((item) => `<span>${this.escapePrintText(item)}</span>`)
+      .join('');
+
+    return `<section class="print-section">
+      <h3>${this.escapePrintText(section.title)}</h3>
+      ${paragraphs}
+      ${bullets ? `<ul>${bullets}</ul>` : ''}
+      ${chips ? `<div class="mini-chip-row">${chips}</div>` : ''}
+    </section>`;
+  }
+
+  private buildPrintDiagram(play: PlaybookPlay, title: string): string | null {
+    const diagramUrl = play.diagramUrl?.trim();
+    if (!diagramUrl) {
+      return null;
+    }
+
+    if (!this.isImageUrl(diagramUrl)) {
+      return `<div class="diagram diagram-link">
+        <strong>Diagram Resource</strong>
+        <span>${this.escapePrintText(diagramUrl)}</span>
+      </div>`;
+    }
+
+    return `<figure class="diagram">
+      <img src="${this.escapePrintAttribute(diagramUrl)}" alt="${this.escapePrintAttribute(title)} diagram" />
+      <figcaption>${this.escapePrintText(title)} diagram</figcaption>
+    </figure>`;
+  }
+
+  private buildPlaybookPrintStyles(): string {
+    return `@page { size: letter; margin: 0.36in; }
+* { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+body {
+  color: #111827;
+  background: #ffffff;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  line-height: 1.4;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.packet { max-width: 8in; margin: 0 auto; }
+.packet-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 0 0 10px;
+  border-bottom: 2.5px solid #111827;
+}
+.eyebrow {
+  margin: 0 0 4px;
+  color: #4b5563;
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+h1 { margin: 0; font-size: 25px; line-height: 1.04; letter-spacing: 0; }
+.header-aside {
+  display: grid;
+  justify-items: end;
+  gap: 5px;
+  color: #4b5563;
+  font-size: 10px;
+  font-weight: 700;
+  text-align: right;
+  white-space: nowrap;
+}
+.print-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid #111827;
+  border-radius: 999px;
+  color: #111827;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 9px 0 10px;
+}
+.meta-grid span {
+  display: grid;
+  gap: 2px;
+  min-height: 38px;
+  padding: 7px 8px;
+  border: 1px solid #cbd5e1;
+  border-radius: 4px;
+  background: #f8fafc;
+  font-size: 10px;
+  font-weight: 850;
+}
+.meta-grid strong {
+  color: #64748b;
+  font-size: 7.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.packet-section {
+  margin: 12px 0;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.packet-section--plays { margin-bottom: 7px; }
+.section-heading {
+  margin-bottom: 7px;
+  padding-bottom: 5px;
+  border-bottom: 1px solid #cbd5e1;
+}
+.section-heading--split {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+.section-heading h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 14px;
+  line-height: 1.1;
+}
+.section-heading > span,
+.section-heading--split > span {
+  color: #475569;
+  font-size: 9px;
+  font-weight: 800;
+  text-align: right;
+}
+.install-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 7px;
+}
+.install-summary-card {
+  min-height: 92px;
+  padding: 8px;
+  border: 1px solid #cbd5e1;
+  border-top: 4px solid #111827;
+  border-radius: 5px;
+  background: #f8fafc;
+}
+.install-summary-card span {
+  display: block;
+  color: #475569;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.install-summary-card strong {
+  display: block;
+  margin: 3px 0;
+  color: #111827;
+  font-size: 20px;
+  line-height: 1;
+}
+.install-summary-card ul {
+  margin: 0;
+  padding-left: 13px;
+}
+.install-summary-card li {
+  font-size: 8.5px;
+  line-height: 1.25;
+}
+.packet-note {
+  margin: 0 0 7px;
+  padding: 7px 8px;
+  border-left: 3px solid #111827;
+  background: #f8fafc;
+  color: #1f2937;
+  font-size: 9.5px;
+  font-weight: 650;
+}
+.print-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  border: 1px solid #111827;
+  font-size: 8.6px;
+}
+.print-table th {
+  padding: 5px 5px;
+  background: #111827;
+  color: #ffffff;
+  font-size: 7.5px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+}
+.print-table td {
+  padding: 5px;
+  border-top: 1px solid #d1d5db;
+  color: #111827;
+  line-height: 1.25;
+  vertical-align: top;
+  word-break: break-word;
+}
+.print-table tbody tr:nth-child(even) td { background: #f8fafc; }
+.print-table--callsheet th:nth-child(1), .print-table--callsheet td:nth-child(1) { width: 18%; }
+.print-table--callsheet th:nth-child(2), .print-table--callsheet td:nth-child(2) { width: 24%; }
+.print-table--callsheet th:nth-child(3), .print-table--callsheet td:nth-child(3) { width: 10%; text-align: center; }
+.print-table--script th:nth-child(1), .print-table--script td:nth-child(1) { width: 5%; text-align: center; }
+.print-table--script th:nth-child(2), .print-table--script td:nth-child(2) { width: 14%; }
+.print-table--script th:nth-child(3), .print-table--script td:nth-child(3) { width: 9%; }
+.print-table--script th:nth-child(4), .print-table--script td:nth-child(4) { width: 7%; text-align: center; }
+.print-table--script th:nth-child(5), .print-table--script td:nth-child(5) { width: 12%; }
+.print-table--script th:nth-child(6), .print-table--script td:nth-child(6) { width: 18%; }
+.mini-chip-row--objectives { margin: 0 0 7px; }
+.plays-section { display: grid; gap: 12px; }
+.play-card {
+  border: 1px solid #111827;
+  border-radius: 6px;
+  padding: 10px;
+  background: #ffffff;
+  break-inside: auto;
+  page-break-inside: auto;
+}
+.play-card + .play-card {
+  margin-top: 4px;
+}
+.play-card-header {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+.play-number {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  background: #111827;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 900;
+}
+.play-card h2 { margin: 0; font-size: 15px; line-height: 1.12; letter-spacing: 0; }
+.play-card-header p { margin: 3px 0 0; color: #4b5563; font-size: 10px; font-weight: 700; }
+.chip-row, .mini-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 7px;
+}
+.chip, .mini-chip-row span {
+  display: inline-flex;
+  align-items: center;
+  min-height: 17px;
+  padding: 1px 6px;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #111827;
+  font-size: 9px;
+  font-weight: 800;
+}
+.play-body {
+  display: grid;
+  gap: 10px;
+  margin-top: 9px;
+}
+.play-card--with-diagram .play-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+.play-card--text-only .play-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+.diagram {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: 4px;
+  min-height: 150px;
+  max-height: 245px;
+  margin: 0;
+  border: 1px solid #d1d5db;
+  border-radius: 5px;
+  background: #f9fafb;
+  overflow: hidden;
+  break-inside: avoid;
+  page-break-inside: avoid;
+  justify-self: center;
+  width: min(100%, 5.8in);
+}
+.diagram img { display: block; width: 100%; max-height: 220px; object-fit: contain; }
+.diagram figcaption, .diagram span { padding: 0 8px 6px; color: #4b5563; font-size: 9px; font-weight: 700; word-break: break-word; }
+.diagram-link { padding: 10px; align-items: start; justify-items: start; }
+.diagram-link strong { font-size: 10px; }
+.play-sections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  align-content: start;
+}
+.play-card--with-diagram .play-sections {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.print-section {
+  break-inside: avoid;
+  page-break-inside: avoid;
+  padding-top: 1px;
+}
+h3 {
+  margin: 0 0 2px;
+  color: #111827;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.print-section p, .muted { margin: 0; color: #1f2937; font-size: 10px; }
+ul { margin: 0; padding-left: 14px; }
+li { margin: 0; color: #1f2937; font-size: 10px; }
+li + li { margin-top: 2px; }
+.empty-state {
+  border: 1px dashed #9ca3af;
+  border-radius: 6px;
+  padding: 24px;
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+@media (max-width: 720px) {
+  .packet-header, .play-body { display: grid; grid-template-columns: 1fr; }
+  .header-aside { justify-items: start; text-align: left; }
+  .meta-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .install-summary-grid { grid-template-columns: 1fr; }
+  .section-heading--split { display: grid; }
+  .section-heading--split > span { text-align: left; }
+  .play-sections { grid-template-columns: 1fr; }
+}`;
+  }
+
+  private escapePrintText(value: unknown): string {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  private escapePrintAttribute(value: unknown): string {
+    return this.escapePrintText(value).replace(/`/g, '&#96;');
   }
 
   protected selectPlaybook(playbook: PlaybookSummary): void {
@@ -3838,8 +5325,12 @@ export class AgentXPlaybooksPanelComponent {
     this.selectedPracticeScriptId.set(null);
     this.selectedPracticeScriptDetail.set(null);
     this.selectedPracticeScriptDetailLoading.set(false);
-    this.generatingPracticeScript.set(false);
+    this.activePracticeScriptMenuId.set(null);
     this.deletingPracticeScriptId.set(null);
+    this.editingPracticeScriptId.set(null);
+    this.practiceScriptEditForm.set({ ...EMPTY_PRACTICE_SCRIPT_EDIT_FORM });
+    this.savingPracticeScript.set(false);
+    this.savingPracticeScriptOrder.set(false);
     this.installPlanReasonings.set(new Map());
     void this.loadPlaybookDetail(playbook.id);
   }
@@ -3986,74 +5477,12 @@ export class AgentXPlaybooksPanelComponent {
     this.agentX.queueStartupMessage(prompt);
   }
 
-  protected async generatePracticeScriptDraft(): Promise<void> {
-    const playbook = this.selectedPlaybook();
-    if (!playbook?.id || !playbook.teamId || this.generatingPracticeScript()) return;
-
-    this.generatingPracticeScript.set(true);
-    this.error.set(null);
-
-    try {
-      const generated = await firstValueFrom(
-        this.http.post<PracticeScriptAiResponse>(
-          `${this.baseUrl}/playbooks/${playbook.id}/practice-script-ai`,
-          {
-            teamId: playbook.teamId,
-            sport: this.activeSport() || playbook.sport,
-            focus: 'Weekly install and situational execution',
-          }
-        )
-      );
-
-      if (!generated.success || !generated.data) {
-        throw new Error(generated.error ?? 'Unable to generate practice script');
-      }
-
-      const saved = await firstValueFrom(
-        this.http.post<MutationResponse>(
-          `${this.baseUrl}/playbooks/${playbook.id}/practice-scripts`,
-          {
-            teamId: playbook.teamId,
-            title: generated.data.title,
-            focus: generated.data.focus,
-            tempo: generated.data.tempo,
-            objectives: generated.data.objectives,
-            periods: normalizePracticeScriptPeriods(generated.data.periods),
-            notes: generated.data.notes ?? '',
-            source: 'agent_x_ai',
-          }
-        )
-      );
-
-      if (!saved.success) {
-        throw new Error(saved.error ?? 'Unable to save generated practice script');
-      }
-
-      await this.loadPracticeScriptsForSelectedPlaybook();
-      const latest = this.practiceScripts()[0];
-      if (latest?.id) {
-        this.selectedPracticeScriptId.set(latest.id);
-        await this.loadSelectedPracticeScriptDetail(latest.id);
-      }
-
-      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_ACTION_EXECUTED, {
-        action: 'practice_script_generated_and_saved',
-        teamId: playbook.teamId,
-        playbookId: playbook.id,
-        sport: playbook.sport,
-      });
-    } catch (err) {
-      this.error.set(err instanceof Error ? err.message : 'Unable to generate practice script');
-    } finally {
-      this.generatingPracticeScript.set(false);
-    }
-  }
-
   protected togglePracticeScript(scriptId: string): void {
     if (this.selectedPracticeScriptId() === scriptId) {
       this.selectedPracticeScriptId.set(null);
       this.selectedPracticeScriptDetail.set(null);
       this.selectedPracticeScriptDetailLoading.set(false);
+      this.activePracticeScriptMenuId.set(null);
       return;
     }
 
@@ -4064,6 +5493,7 @@ export class AgentXPlaybooksPanelComponent {
   protected async exportSavedPracticeScript(scriptId: string): Promise<void> {
     if (this.exportingPdf()) return;
 
+    this.activePlaybookTab.set('play-script');
     this.selectedPracticeScriptId.set(scriptId);
     await this.loadSelectedPracticeScriptDetail(scriptId);
     await this.exportPlaybookPdf('current');
@@ -4088,6 +5518,11 @@ export class AgentXPlaybooksPanelComponent {
         this.selectedPracticeScriptDetailLoading.set(false);
       }
 
+      if (this.editingPracticeScriptId() === scriptId) {
+        this.cancelEditPracticeScript();
+      }
+
+      this.closePracticeScriptMenu();
       await this.loadPracticeScriptsForSelectedPlaybook();
     } catch {
       this.error.set('Unable to delete practice script right now. Please try again.');
@@ -4096,9 +5531,347 @@ export class AgentXPlaybooksPanelComponent {
     }
   }
 
+  protected isPracticeScriptMenuOpen(scriptId: string): boolean {
+    return this.activePracticeScriptMenuId() === scriptId;
+  }
+
+  protected onOpenPracticeScriptMenu(event: Event, scriptId: string): void {
+    event.stopPropagation();
+    event.preventDefault();
+
+    if (this.activePracticeScriptMenuId() === scriptId) {
+      this.closePracticeScriptMenu();
+      return;
+    }
+
+    this.closeCallsheetMenu();
+    this.closeCallsheetGroupMenu();
+    this.activePracticeScriptMenuId.set(scriptId);
+  }
+
+  protected closePracticeScriptMenu(): void {
+    this.activePracticeScriptMenuId.set(null);
+  }
+
+  protected togglePracticeScriptFromMenu(scriptId: string, event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this.closePracticeScriptMenu();
+    this.togglePracticeScript(scriptId);
+  }
+
+  protected async exportPracticeScriptFromMenu(scriptId: string, event: Event): Promise<void> {
+    event.stopPropagation();
+    event.preventDefault();
+    this.closePracticeScriptMenu();
+    await this.exportSavedPracticeScript(scriptId);
+  }
+
+  protected async deletePracticeScriptFromMenu(scriptId: string, event: Event): Promise<void> {
+    event.stopPropagation();
+    event.preventDefault();
+    await this.deletePracticeScript(scriptId);
+  }
+
+  protected isPracticeScriptFirst(scriptId: string): boolean {
+    return this.practiceScripts().findIndex((script) => script.id === scriptId) <= 0;
+  }
+
+  protected isPracticeScriptLast(scriptId: string): boolean {
+    const scripts = this.practiceScripts();
+    return scripts.findIndex((script) => script.id === scriptId) === scripts.length - 1;
+  }
+
+  protected async movePracticeScriptInList(
+    scriptId: string,
+    direction: -1 | 1,
+    event: Event
+  ): Promise<void> {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const playbook = this.selectedPlaybook();
+    const currentScripts = [...this.practiceScripts()];
+    const currentIndex = currentScripts.findIndex((script) => script.id === scriptId);
+    const nextIndex = currentIndex + direction;
+    if (
+      !playbook?.id ||
+      !playbook.teamId ||
+      this.savingPracticeScriptOrder() ||
+      currentIndex < 0 ||
+      nextIndex < 0 ||
+      nextIndex >= currentScripts.length
+    ) {
+      return;
+    }
+
+    const nextScripts = [...currentScripts];
+    [nextScripts[currentIndex], nextScripts[nextIndex]] = [
+      nextScripts[nextIndex],
+      nextScripts[currentIndex],
+    ];
+    const orderedScripts = nextScripts.map((script, index) => ({ ...script, displayOrder: index }));
+
+    this.savingPracticeScriptOrder.set(true);
+    this.practiceScripts.set(orderedScripts);
+    try {
+      await Promise.all(
+        orderedScripts.map((script, index) =>
+          firstValueFrom(
+            this.http.patch<MutationResponse>(
+              `${this.baseUrl}/playbooks/${playbook.id}/practice-scripts/${script.id}`,
+              {
+                teamId: playbook.teamId,
+                displayOrder: index,
+              }
+            )
+          )
+        )
+      );
+
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_ACTION_EXECUTED, {
+        action: 'practice_script_reordered',
+        teamId: playbook.teamId,
+        playbookId: playbook.id,
+        sport: playbook.sport,
+      });
+    } catch {
+      this.practiceScripts.set(currentScripts);
+      this.error.set('Unable to reorder practice scripts right now. Please try again.');
+    } finally {
+      this.savingPracticeScriptOrder.set(false);
+    }
+  }
+
+  protected async startEditPracticeScript(scriptId: string, event: Event): Promise<void> {
+    event.stopPropagation();
+    event.preventDefault();
+    this.closePracticeScriptMenu();
+
+    if (this.selectedPracticeScriptId() !== scriptId) {
+      this.selectedPracticeScriptId.set(scriptId);
+    }
+
+    if (this.selectedPracticeScriptDetail()?.id !== scriptId) {
+      await this.loadSelectedPracticeScriptDetail(scriptId);
+    }
+
+    const detail = this.selectedPracticeScriptDetail();
+    if (!detail || detail.id !== scriptId) return;
+
+    this.editingPracticeScriptId.set(scriptId);
+    this.practiceScriptEditForm.set(this.createPracticeScriptEditForm(detail));
+  }
+
+  protected async startEditPracticeScriptFromMenu(scriptId: string, event: Event): Promise<void> {
+    await this.startEditPracticeScript(scriptId, event);
+  }
+
+  protected cancelEditPracticeScript(): void {
+    this.editingPracticeScriptId.set(null);
+    this.practiceScriptEditForm.set({ ...EMPTY_PRACTICE_SCRIPT_EDIT_FORM });
+  }
+
+  protected patchPracticeScriptEditForm(field: keyof PracticeScriptEditForm, event: Event): void {
+    const target = event.target as HTMLInputElement | HTMLTextAreaElement | null;
+    const value = target?.value ?? '';
+    this.practiceScriptEditForm.update((form) => ({ ...form, [field]: value }));
+  }
+
+  protected patchPracticeScriptPeriod(
+    index: number,
+    field: keyof PracticeScriptPeriod,
+    event: Event
+  ): void {
+    const target = event.target as HTMLInputElement | HTMLTextAreaElement | null;
+    const value = target?.value ?? '';
+    this.practiceScriptEditForm.update((form) => {
+      const periods = form.periods.map((period, periodIndex) => {
+        if (periodIndex !== index) return period;
+        if (field === 'reps') {
+          const reps = Number(value);
+          return { ...period, reps: Number.isFinite(reps) ? Math.max(0, Math.round(reps)) : 0 };
+        }
+        return { ...period, [field]: value };
+      });
+      return { ...form, periods };
+    });
+  }
+
+  protected addPracticeScriptPeriodToForm(): void {
+    this.practiceScriptEditForm.update((form) => {
+      const nextIndex = form.periods.length + 1;
+      const period: PracticeScriptPeriod = {
+        id: `period_${Date.now()}_${nextIndex}`,
+        label: `Period ${nextIndex}`,
+        clock: '--:--',
+        reps: 0,
+        callType: 'Team',
+        playName: 'Open Field',
+      };
+      return { ...form, periods: [...form.periods, period] };
+    });
+  }
+
+  protected movePracticeScriptPeriodInForm(index: number, direction: -1 | 1, event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this.practiceScriptEditForm.update((form) => {
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= form.periods.length) return form;
+
+      const periods = [...form.periods];
+      [periods[index], periods[nextIndex]] = [periods[nextIndex], periods[index]];
+      return { ...form, periods };
+    });
+  }
+
+  protected removePracticeScriptPeriodFromForm(index: number, event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this.practiceScriptEditForm.update((form) => {
+      if (form.periods.length <= 1) return form;
+      return { ...form, periods: form.periods.filter((_, periodIndex) => periodIndex !== index) };
+    });
+  }
+
+  protected canSavePracticeScriptEdit(): boolean {
+    const form = this.practiceScriptEditForm();
+    return !this.savingPracticeScript() && form.title.trim().length > 0 && form.periods.length > 0;
+  }
+
+  protected async savePracticeScriptEdit(scriptId: string): Promise<void> {
+    const playbook = this.selectedPlaybook();
+    const detail = this.selectedPracticeScriptDetail();
+    const form = this.practiceScriptEditForm();
+    if (!playbook?.id || !playbook.teamId || !detail || detail.id !== scriptId) return;
+    if (!this.canSavePracticeScriptEdit()) return;
+
+    const periods = normalizePracticeScriptPeriods(form.periods);
+    const objectives = this.parseLineList(form.objectives);
+    const payload = {
+      teamId: playbook.teamId,
+      title: form.title.trim(),
+      focus: form.focus.trim(),
+      tempo: form.tempo.trim(),
+      scriptDate: form.scriptDate.trim(),
+      opponent: form.opponent.trim(),
+      objectives,
+      periods,
+      notes: form.notes.trim(),
+    };
+
+    this.savingPracticeScript.set(true);
+    try {
+      const response = await firstValueFrom(
+        this.http.patch<MutationResponse>(
+          `${this.baseUrl}/playbooks/${playbook.id}/practice-scripts/${scriptId}`,
+          payload
+        )
+      );
+      const updatedAt =
+        typeof response.data?.['updatedAt'] === 'string'
+          ? response.data['updatedAt']
+          : new Date().toISOString();
+      const totalReps = periods.reduce((sum, period) => sum + period.reps, 0);
+      const nextDetail: PracticeScriptDetail = {
+        ...detail,
+        title: payload.title,
+        focus: payload.focus,
+        tempo: payload.tempo,
+        scriptDate: payload.scriptDate || undefined,
+        opponent: payload.opponent || undefined,
+        objectives,
+        periods,
+        notes: payload.notes,
+        totalPeriods: periods.length,
+        totalReps,
+        updatedAt,
+      };
+
+      this.selectedPracticeScriptDetail.set(nextDetail);
+      this.practiceScripts.update((scripts) =>
+        scripts.map((script) =>
+          script.id === scriptId
+            ? {
+                ...script,
+                title: nextDetail.title,
+                focus: nextDetail.focus,
+                tempo: nextDetail.tempo,
+                scriptDate: nextDetail.scriptDate,
+                opponent: nextDetail.opponent,
+                totalPeriods: nextDetail.totalPeriods,
+                totalReps: nextDetail.totalReps,
+                updatedAt,
+              }
+            : script
+        )
+      );
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_ACTION_EXECUTED, {
+        action: 'practice_script_updated',
+        teamId: playbook.teamId,
+        playbookId: playbook.id,
+        sport: playbook.sport,
+      });
+      this.cancelEditPracticeScript();
+    } catch {
+      this.error.set('Unable to save practice script right now. Please try again.');
+    } finally {
+      this.savingPracticeScript.set(false);
+    }
+  }
+
+  private createPracticeScriptEditForm(detail: PracticeScriptDetail): PracticeScriptEditForm {
+    return {
+      title: detail.title,
+      focus: detail.focus,
+      tempo: detail.tempo,
+      scriptDate: detail.scriptDate ?? '',
+      opponent: detail.opponent ?? '',
+      objectives: (detail.objectives ?? []).join('\n'),
+      notes: detail.notes ?? '',
+      periods: normalizePracticeScriptPeriods(detail.periods),
+    };
+  }
+
   protected selectCallsheet(callsheetId: string): void {
     this.selectedCallsheetId.set(callsheetId);
     void this.loadSelectedCallsheetDetail(callsheetId);
+  }
+
+  protected isCallsheetMenuOpen(callsheetId: string): boolean {
+    return this.activeCallsheetMenuId() === callsheetId;
+  }
+
+  protected onOpenCallsheetMenu(event: Event, callsheetId: string): void {
+    event.stopPropagation();
+    event.preventDefault();
+
+    if (this.activeCallsheetMenuId() === callsheetId) {
+      this.closeCallsheetMenu();
+      return;
+    }
+
+    this.closeCallsheetGroupMenu();
+    this.activeCallsheetMenuId.set(callsheetId);
+  }
+
+  protected closeCallsheetMenu(): void {
+    this.activeCallsheetMenuId.set(null);
+  }
+
+  protected toggleCallsheetFromMenu(callsheetId: string, event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this.closeCallsheetMenu();
+    this.toggleCallsheet(callsheetId);
+  }
+
+  protected async exportCallsheetFromMenu(callsheetId: string, event: Event): Promise<void> {
+    event.stopPropagation();
+    event.preventDefault();
+    this.closeCallsheetMenu();
+    await this.exportSavedCallsheet(callsheetId);
   }
 
   protected toggleCallsheet(callsheetId: string): void {
@@ -4106,9 +5879,13 @@ export class AgentXPlaybooksPanelComponent {
       this.selectedCallsheetId.set(null);
       this.selectedCallsheetDetail.set(null);
       this.selectedCallsheetDetailLoading.set(false);
+      this.activeCallsheetMenuId.set(null);
+      this.deletingCallsheetId.set(null);
       this.callsheetGroupDraft.set([]);
       this.callsheetGroupAddPlayDrafts.set({});
       this.callsheetGroupsSaving.set(false);
+      this.draggingCallsheetGroupId.set(null);
+      this.callsheetGroupDropIndicator.set(null);
       this.callsheetPendingRemovalPlayName.set(null);
       this.collapsedCallsheetGroupIds.set(new Set());
       this.activeCallsheetGroupMenuId.set(null);
@@ -4121,9 +5898,55 @@ export class AgentXPlaybooksPanelComponent {
   protected async exportSavedCallsheet(callsheetId: string): Promise<void> {
     if (this.exportingPdf()) return;
 
+    this.activePlaybookTab.set('callsheet');
     this.selectedCallsheetId.set(callsheetId);
     await this.loadSelectedCallsheetDetail(callsheetId);
     await this.exportPlaybookPdf('current');
+  }
+
+  protected async deleteSavedCallsheet(callsheetId: string, event?: Event): Promise<void> {
+    event?.stopPropagation();
+    event?.preventDefault();
+
+    const playbook = this.selectedPlaybook();
+    if (!playbook?.id || !playbook.teamId || this.deletingCallsheetId()) return;
+
+    this.deletingCallsheetId.set(callsheetId);
+    try {
+      await firstValueFrom(
+        this.http.delete<MutationResponse>(
+          `${this.baseUrl}/playbooks/${playbook.id}/callsheets/${callsheetId}`,
+          { params: { teamId: playbook.teamId } }
+        )
+      );
+
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_ACTION_EXECUTED, {
+        action: 'callsheet_deleted',
+        teamId: playbook.teamId,
+        playbookId: playbook.id,
+        sport: playbook.sport,
+      });
+
+      if (this.selectedCallsheetId() === callsheetId) {
+        this.selectedCallsheetId.set(null);
+        this.selectedCallsheetDetail.set(null);
+        this.selectedCallsheetDetailLoading.set(false);
+        this.callsheetGroupDraft.set([]);
+        this.callsheetGroupAddPlayDrafts.set({});
+        this.callsheetGroupsSaving.set(false);
+        this.draggingCallsheetGroupId.set(null);
+        this.callsheetGroupDropIndicator.set(null);
+        this.callsheetPendingRemovalPlayName.set(null);
+        this.collapsedCallsheetGroupIds.set(new Set());
+      }
+
+      this.closeCallsheetMenu();
+      await this.loadCallsheetsForSelectedPlaybook();
+    } catch {
+      this.error.set('Unable to delete callsheet right now. Please try again.');
+    } finally {
+      this.deletingCallsheetId.set(null);
+    }
   }
 
   protected addCallsheetGroup(): void {
@@ -4138,7 +5961,7 @@ export class AgentXPlaybooksPanelComponent {
       name: `Group ${nextIndex}`,
       playNames: [],
     };
-    this.callsheetGroupDraft.set([...groups, nextGroup]);
+    this.callsheetGroupDraft.set([nextGroup, ...groups]);
     this.collapsedCallsheetGroupIds.update((collapsed) => {
       const next = new Set(collapsed);
       next.delete(nextGroup.id);
@@ -4204,6 +6027,71 @@ export class AgentXPlaybooksPanelComponent {
 
   protected isCallsheetGroupExpanded(groupId: string): boolean {
     return !this.collapsedCallsheetGroupIds().has(groupId);
+  }
+
+  protected onCallsheetGroupDragStart(groupId: string, event: DragEvent): void {
+    if (this.callsheetGroupsSaving()) {
+      event.preventDefault();
+      return;
+    }
+
+    this.draggingCallsheetGroupId.set(groupId);
+    this.callsheetGroupDropIndicator.set(null);
+    this.closeCallsheetGroupMenu();
+
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', groupId);
+    }
+  }
+
+  protected onCallsheetGroupDragEnd(): void {
+    this.draggingCallsheetGroupId.set(null);
+    this.callsheetGroupDropIndicator.set(null);
+  }
+
+  protected onCallsheetGroupDragOver(groupId: string, event: DragEvent): void {
+    const draggingGroupId = this.draggingCallsheetGroupId();
+    if (!draggingGroupId || draggingGroupId === groupId) return;
+
+    event.preventDefault();
+    const placement = this.resolveCallsheetGroupDropPlacement(event);
+    this.callsheetGroupDropIndicator.set({
+      groupId,
+      placement,
+    });
+    this.reorderCallsheetGroups(draggingGroupId, groupId, placement);
+
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+  }
+
+  protected onCallsheetGroupDragLeave(groupId: string, event: DragEvent): void {
+    const currentTarget = event.currentTarget as HTMLElement | null;
+    const relatedTarget = event.relatedTarget as Node | null;
+    if (currentTarget?.contains(relatedTarget)) return;
+
+    const indicator = this.callsheetGroupDropIndicator();
+    if (indicator?.groupId === groupId) {
+      this.callsheetGroupDropIndicator.set(null);
+    }
+  }
+
+  protected onCallsheetGroupDrop(groupId: string, event: DragEvent): void {
+    event.preventDefault();
+
+    const draggedGroupId =
+      event.dataTransfer?.getData('text/plain').trim() || this.draggingCallsheetGroupId();
+    const placement =
+      this.callsheetGroupDropIndicator()?.groupId === groupId
+        ? this.callsheetGroupDropIndicator()!.placement
+        : this.resolveCallsheetGroupDropPlacement(event);
+
+    if (draggedGroupId && draggedGroupId !== groupId) {
+      this.reorderCallsheetGroups(draggedGroupId, groupId, placement);
+    }
+
+    this.draggingCallsheetGroupId.set(null);
+    this.callsheetGroupDropIndicator.set(null);
   }
 
   protected toggleCallsheetGroupExpansion(groupId: string, event: Event): void {
@@ -4355,6 +6243,30 @@ export class AgentXPlaybooksPanelComponent {
     });
   }
 
+  protected reorderCallsheetGroups(
+    sourceGroupId: string,
+    targetGroupId: string,
+    placement: 'before' | 'after'
+  ): void {
+    const detail = this.selectedCallsheetDetail();
+    if (!detail) return;
+
+    const groups = this.normalizeCallsheetGroupsForUi(
+      this.callsheetGroupDraft(),
+      detail.plays ?? []
+    );
+    const sourceIndex = groups.findIndex((group) => group.id === sourceGroupId);
+    if (sourceIndex < 0) return;
+
+    const [sourceGroup] = groups.splice(sourceIndex, 1);
+    const targetIndex = groups.findIndex((group) => group.id === targetGroupId);
+    if (!sourceGroup || targetIndex < 0) return;
+
+    const insertIndex = placement === 'after' ? targetIndex + 1 : targetIndex;
+    groups.splice(insertIndex, 0, sourceGroup);
+    this.callsheetGroupDraft.set(groups);
+  }
+
   protected moveCallsheetPlayToGroup(playName: string, event: Event): void {
     const target = event.target as HTMLSelectElement | null;
     const destinationGroupId = target?.value ?? '';
@@ -4418,7 +6330,10 @@ export class AgentXPlaybooksPanelComponent {
       });
 
       await this.loadSelectedCallsheetDetail(detail.id);
-      await this.loadCallsheetsForSelectedPlaybook();
+      await this.loadCallsheetsForSelectedPlaybook({
+        silent: true,
+        preserveSelection: true,
+      });
       this.selectedCallsheetId.set(detail.id);
       this.callsheetPendingRemovalPlayName.set(null);
     } catch {
@@ -4431,7 +6346,15 @@ export class AgentXPlaybooksPanelComponent {
   protected async saveCallsheetGroups(): Promise<void> {
     const playbook = this.selectedPlaybook();
     const detail = this.selectedCallsheetDetail();
-    if (!playbook?.id || !playbook.teamId || !detail?.id || this.callsheetGroupsSaving()) return;
+    if (
+      !playbook?.id ||
+      !playbook.teamId ||
+      !detail?.id ||
+      this.callsheetGroupsSaving() ||
+      !this.hasUnsavedCallsheetGroupChanges()
+    ) {
+      return;
+    }
 
     const groups = this.normalizeCallsheetGroupsForUi(this.callsheetGroupDraft(), detail.plays);
     this.callsheetGroupsSaving.set(true);
@@ -4455,7 +6378,10 @@ export class AgentXPlaybooksPanelComponent {
       });
 
       await this.loadSelectedCallsheetDetail(detail.id);
-      await this.loadCallsheetsForSelectedPlaybook();
+      await this.loadCallsheetsForSelectedPlaybook({
+        silent: true,
+        preserveSelection: true,
+      });
       this.selectedCallsheetId.set(detail.id);
     } catch {
       this.error.set('Unable to save callsheet groups right now. Please try again.');
@@ -4599,6 +6525,15 @@ export class AgentXPlaybooksPanelComponent {
     this.deletingPlaybookId.set(null);
   }
   protected async deletePlaybook(playbookId: string): Promise<void> {
+    const previousPlaybooks = this.playbooks();
+    const deletingSelected = this.selectedPlaybook()?.id === playbookId;
+
+    // Optimistically remove only the deleted playbook to avoid UI list collapse.
+    this.playbooks.update((items) => items.filter((playbook) => playbook.id !== playbookId));
+    if (deletingSelected) {
+      this.clearSelection();
+    }
+
     this.saving.set(true);
     try {
       await firstValueFrom(
@@ -4607,7 +6542,8 @@ export class AgentXPlaybooksPanelComponent {
       this.deletingPlaybookId.set(null);
       await this.loadPlaybooks();
     } catch {
-      /* noop */
+      // Roll back optimistic update on failure.
+      this.playbooks.set(previousPlaybooks);
     } finally {
       this.saving.set(false);
     }
@@ -5059,6 +6995,64 @@ export class AgentXPlaybooksPanelComponent {
     };
   }
 
+  protected buildPracticeScriptDragContext(
+    script: PracticeScriptSummary | PracticeScriptDetail
+  ): AgentXSelectedContext {
+    const playbook = this.selectedPlaybook();
+    const title = script.title.trim();
+    const summaryParts = [
+      script.focus?.trim() || undefined,
+      script.tempo?.trim() || undefined,
+      `${script.totalPeriods ?? 0} periods`,
+      `${script.totalReps ?? 0} reps`,
+      script.opponent?.trim() ? `vs ${script.opponent.trim()}` : undefined,
+      script.archived ? 'archived' : undefined,
+    ].filter((part): part is string => typeof part === 'string' && part.trim().length > 0);
+
+    return {
+      id: `practice-script:${script.id}`,
+      kind: 'playbook_item',
+      title,
+      ...(summaryParts.length > 0 ? { summary: summaryParts.join(' • ') } : {}),
+      source: {
+        type: 'playbook',
+        ...(playbook?.id ? { id: playbook.id } : {}),
+        label: playbook?.title || playbook?.name || 'Playbook',
+      },
+      entityRefs: [
+        ...(playbook?.id
+          ? [{ type: 'playbook', id: playbook.id, label: playbook.title || playbook.name }]
+          : []),
+        { type: 'practice_script', id: script.id, label: title },
+      ],
+      metadata: this.compactContextMetadata({
+        itemType: 'practice_script',
+        teamId: script.teamId,
+        playbookId: script.playbookId,
+        sport: script.sport,
+        focus: script.focus,
+        tempo: script.tempo,
+        scriptDate: script.scriptDate,
+        opponent: script.opponent,
+        totalPeriods: script.totalPeriods,
+        totalReps: script.totalReps,
+        objectiveCount:
+          'objectives' in script && Array.isArray(script.objectives)
+            ? script.objectives.length
+            : undefined,
+        periodCount:
+          'periods' in script && Array.isArray(script.periods) ? script.periods.length : undefined,
+        periodLabels:
+          'periods' in script && Array.isArray(script.periods)
+            ? script.periods.map((period) => period.label).join(', ')
+            : undefined,
+        archived: script.archived ?? false,
+        updatedAt: script.updatedAt,
+        createdAt: script.createdAt,
+      }),
+    };
+  }
+
   private compactContextMetadata(
     metadata: Record<string, AgentXSelectedContextMetadataValue | undefined>
   ): Readonly<Record<string, AgentXSelectedContextMetadataValue>> {
@@ -5228,6 +7222,33 @@ export class AgentXPlaybooksPanelComponent {
     }
 
     return groups;
+  }
+
+  private resolveCallsheetGroupDropPlacement(event: DragEvent): 'before' | 'after' {
+    const currentTarget = event.currentTarget as HTMLElement | null;
+    if (!currentTarget) return 'after';
+
+    const bounds = currentTarget.getBoundingClientRect();
+    const midpoint = bounds.top + bounds.height / 2;
+    return event.clientY < midpoint ? 'before' : 'after';
+  }
+
+  private areCallsheetGroupsEqual(
+    leftGroups: readonly CallsheetGroup[],
+    rightGroups: readonly CallsheetGroup[]
+  ): boolean {
+    if (leftGroups.length !== rightGroups.length) return false;
+
+    return leftGroups.every((leftGroup, index) => {
+      const rightGroup = rightGroups[index];
+      if (!rightGroup) return false;
+      if (leftGroup.id !== rightGroup.id || leftGroup.name !== rightGroup.name) return false;
+      if (leftGroup.playNames.length !== rightGroup.playNames.length) return false;
+
+      return leftGroup.playNames.every(
+        (playName, playIndex) => playName === rightGroup.playNames[playIndex]
+      );
+    });
   }
 
   // ── Game Plan Methods ────────────────────────────────────────────────────────
@@ -5554,7 +7575,7 @@ export class AgentXPlaybooksPanelComponent {
     metaChips: string[];
     sections: Array<{ title: string; paragraphs?: string[]; bullets?: string[]; chips?: string[] }>;
   } {
-    const subtitle = [play.series, play.category, play.formation]
+    const subtitle = [play.series, play.category ? toTitleCase(play.category) : '', play.formation]
       .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
       .join(' • ');
 
@@ -5692,7 +7713,7 @@ export class AgentXPlaybooksPanelComponent {
       this.playbooks.set(this.playbooksService.playbooks());
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : 'Unable to load playbooks.');
-      this.playbooks.set([]);
+      // Preserve current list so a transient reload failure does not blank the panel.
     } finally {
       this.loading.set(false);
     }
@@ -5741,8 +7762,15 @@ export class AgentXPlaybooksPanelComponent {
     }
   }
 
-  private async loadCallsheetsForSelectedPlaybook(): Promise<void> {
+  private async loadCallsheetsForSelectedPlaybook(options?: {
+    readonly silent?: boolean;
+    readonly preserveSelection?: boolean;
+  }): Promise<void> {
     const playbook = this.selectedPlaybook();
+    const preserveSelection = options?.preserveSelection ?? true;
+    const previousSelectedCallsheetId = this.selectedCallsheetId();
+    const previousCallsheets = this.callsheets();
+    const shouldShowLoading = !(options?.silent ?? false);
     if (!playbook?.id || !playbook.teamId) {
       this.callsheets.set([]);
       this.callsheetsLoading.set(false);
@@ -5758,7 +7786,9 @@ export class AgentXPlaybooksPanelComponent {
       return;
     }
 
-    this.callsheetsLoading.set(true);
+    if (shouldShowLoading) {
+      this.callsheetsLoading.set(true);
+    }
     try {
       const response = await firstValueFrom(
         this.http.get<CallsheetsResponse>(`${this.baseUrl}/playbooks/${playbook.id}/callsheets`, {
@@ -5774,29 +7804,55 @@ export class AgentXPlaybooksPanelComponent {
       }
 
       const callsheets = [...(response.data?.callsheets ?? [])];
+      const nextSelectedCallsheetId = preserveSelection
+        ? previousSelectedCallsheetId &&
+          callsheets.some((callsheet) => callsheet.id === previousSelectedCallsheetId)
+          ? previousSelectedCallsheetId
+          : null
+        : null;
+
       this.callsheets.set(callsheets);
-      this.selectedCallsheetId.set(null);
-      this.selectedCallsheetDetail.set(null);
-      this.selectedCallsheetDetailLoading.set(false);
-      this.callsheetGroupDraft.set([]);
-      this.callsheetGroupAddPlayDrafts.set({});
-      this.callsheetGroupsSaving.set(false);
-      this.callsheetPendingRemovalPlayName.set(null);
-      this.collapsedCallsheetGroupIds.set(new Set());
+      this.selectedCallsheetId.set(nextSelectedCallsheetId);
+
+      if (!nextSelectedCallsheetId) {
+        this.selectedCallsheetDetail.set(null);
+        this.selectedCallsheetDetailLoading.set(false);
+      }
+
+      this.activeCallsheetMenuId.set(null);
+      this.deletingCallsheetId.set(null);
+
+      if (!nextSelectedCallsheetId) {
+        this.callsheetGroupDraft.set([]);
+        this.callsheetGroupAddPlayDrafts.set({});
+        this.callsheetGroupsSaving.set(false);
+        this.draggingCallsheetGroupId.set(null);
+        this.callsheetGroupDropIndicator.set(null);
+        this.callsheetPendingRemovalPlayName.set(null);
+        this.collapsedCallsheetGroupIds.set(new Set());
+      }
+
       this.activeCallsheetGroupMenuId.set(null);
     } catch (err) {
-      this.callsheets.set([]);
-      this.selectedCallsheetId.set(null);
-      this.selectedCallsheetDetail.set(null);
-      this.callsheetGroupDraft.set([]);
-      this.callsheetGroupAddPlayDrafts.set({});
-      this.callsheetGroupsSaving.set(false);
-      this.callsheetPendingRemovalPlayName.set(null);
-      this.collapsedCallsheetGroupIds.set(new Set());
+      this.callsheets.set(previousCallsheets);
+      if (!preserveSelection) {
+        this.selectedCallsheetId.set(null);
+        this.selectedCallsheetDetail.set(null);
+        this.callsheetGroupDraft.set([]);
+        this.callsheetGroupAddPlayDrafts.set({});
+        this.callsheetGroupsSaving.set(false);
+        this.callsheetPendingRemovalPlayName.set(null);
+        this.collapsedCallsheetGroupIds.set(new Set());
+      }
+
+      this.activeCallsheetMenuId.set(null);
+      this.deletingCallsheetId.set(null);
       this.activeCallsheetGroupMenuId.set(null);
       this.error.set(err instanceof Error ? err.message : 'Unable to load callsheets.');
     } finally {
-      this.callsheetsLoading.set(false);
+      if (shouldShowLoading) {
+        this.callsheetsLoading.set(false);
+      }
     }
   }
 
@@ -5841,14 +7897,20 @@ export class AgentXPlaybooksPanelComponent {
         });
       }
 
-      this.selectedCallsheetDetail.set(detail);
-      this.callsheetGroupDraft.set(
-        this.normalizeCallsheetGroupsForUi(detail.groups, detail.plays ?? [])
+      const normalizedGroups = this.normalizeCallsheetGroupsForUi(
+        detail.groups,
+        detail.plays ?? []
       );
+
+      this.selectedCallsheetDetail.set(detail);
+      this.callsheetGroupDraft.set(normalizedGroups);
       this.callsheetGroupAddPlayDrafts.set({});
       this.callsheetGroupsSaving.set(false);
+      this.draggingCallsheetGroupId.set(null);
+      this.callsheetGroupDropIndicator.set(null);
       this.callsheetPendingRemovalPlayName.set(null);
-      this.collapsedCallsheetGroupIds.set(new Set());
+      // Default to collapsed groups each time a callsheet detail is opened/refreshed.
+      this.collapsedCallsheetGroupIds.set(new Set(normalizedGroups.map((group) => group.id)));
       this.activeCallsheetGroupMenuId.set(null);
       this.callsheetFilters.set({ ...(detail.filters ?? {}) });
       this.callsheetAiRankings.set(rankingMap);
@@ -5857,6 +7919,8 @@ export class AgentXPlaybooksPanelComponent {
       this.callsheetGroupDraft.set([]);
       this.callsheetGroupAddPlayDrafts.set({});
       this.callsheetGroupsSaving.set(false);
+      this.draggingCallsheetGroupId.set(null);
+      this.callsheetGroupDropIndicator.set(null);
       this.callsheetPendingRemovalPlayName.set(null);
       this.collapsedCallsheetGroupIds.set(new Set());
       this.activeCallsheetGroupMenuId.set(null);
@@ -5866,18 +7930,28 @@ export class AgentXPlaybooksPanelComponent {
     }
   }
 
-  private async loadPracticeScriptsForSelectedPlaybook(): Promise<void> {
+  private async loadPracticeScriptsForSelectedPlaybook(options?: {
+    readonly silent?: boolean;
+    readonly preserveSelection?: boolean;
+  }): Promise<void> {
     const playbook = this.selectedPlaybook();
+    const preserveSelection = options?.preserveSelection ?? true;
+    const previousSelectedScriptId = this.selectedPracticeScriptId();
+    const previousScripts = this.practiceScripts();
+    const shouldShowLoading = !(options?.silent ?? false);
     if (!playbook?.id || !playbook.teamId) {
       this.practiceScripts.set([]);
       this.practiceScriptsLoading.set(false);
       this.selectedPracticeScriptId.set(null);
       this.selectedPracticeScriptDetail.set(null);
       this.selectedPracticeScriptDetailLoading.set(false);
+      this.cancelEditPracticeScript();
       return;
     }
 
-    this.practiceScriptsLoading.set(true);
+    if (shouldShowLoading) {
+      this.practiceScriptsLoading.set(true);
+    }
     try {
       const response = await firstValueFrom(
         this.http.get<PracticeScriptsResponse>(
@@ -5895,18 +7969,39 @@ export class AgentXPlaybooksPanelComponent {
         throw new Error(response.error ?? 'Unable to load practice scripts.');
       }
 
-      this.practiceScripts.set([...(response.data?.scripts ?? [])]);
-      this.selectedPracticeScriptId.set(null);
-      this.selectedPracticeScriptDetail.set(null);
-      this.selectedPracticeScriptDetailLoading.set(false);
+      const scripts = [...(response.data?.scripts ?? [])];
+      const nextSelectedScriptId = preserveSelection
+        ? previousSelectedScriptId &&
+          scripts.some((script) => script.id === previousSelectedScriptId)
+          ? previousSelectedScriptId
+          : null
+        : null;
+
+      this.practiceScripts.set(scripts);
+      this.selectedPracticeScriptId.set(nextSelectedScriptId);
+
+      if (!nextSelectedScriptId) {
+        this.selectedPracticeScriptDetail.set(null);
+        this.selectedPracticeScriptDetailLoading.set(false);
+        this.cancelEditPracticeScript();
+      }
+
+      this.activePracticeScriptMenuId.set(null);
     } catch (err) {
-      this.practiceScripts.set([]);
-      this.selectedPracticeScriptId.set(null);
-      this.selectedPracticeScriptDetail.set(null);
-      this.selectedPracticeScriptDetailLoading.set(false);
+      this.practiceScripts.set(previousScripts);
+      if (!preserveSelection) {
+        this.selectedPracticeScriptId.set(null);
+        this.selectedPracticeScriptDetail.set(null);
+        this.selectedPracticeScriptDetailLoading.set(false);
+        this.cancelEditPracticeScript();
+      }
+
+      this.activePracticeScriptMenuId.set(null);
       this.error.set(err instanceof Error ? err.message : 'Unable to load practice scripts.');
     } finally {
-      this.practiceScriptsLoading.set(false);
+      if (shouldShowLoading) {
+        this.practiceScriptsLoading.set(false);
+      }
     }
   }
 

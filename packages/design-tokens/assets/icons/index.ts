@@ -245,6 +245,14 @@ export const UI_ICONS = {
     paths: [{ d: 'M12 19V5' }, { d: 'M5 12l7-7 7 7' }],
   },
 
+  /** Arrow down icon (stroke) - for reorder controls */
+  arrowDown: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M12 5v14' }, { d: 'M19 12l-7 7-7-7' }],
+  },
+
   /** Arrow right icon */
   arrowRight: {
     viewBox: '0 0 24 24',
@@ -2170,6 +2178,7 @@ export const ALIAS_ICONS = {
   // ---- Navigation / Arrows ----
   'arrow-back-outline': UI_ICONS.chevronLeft,
   'arrow-up-outline': UI_ICONS.arrowUp,
+  'arrow-down-outline': UI_ICONS.arrowDown,
   'trending-up': UI_ICONS.trendingUp,
   'trending-down': UI_ICONS.trendingDown,
   'trending-up-outline': UI_ICONS.trendingUp,

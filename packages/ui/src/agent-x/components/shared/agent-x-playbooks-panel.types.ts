@@ -218,6 +218,7 @@ export interface PracticeScriptSummary {
   readonly opponent?: string;
   readonly totalPeriods: number;
   readonly totalReps: number;
+  readonly displayOrder?: number;
   readonly archived?: boolean;
   readonly updatedAt?: string;
   readonly createdAt?: string;
@@ -230,6 +231,17 @@ export interface PracticeScriptDetail extends PracticeScriptSummary {
   readonly source?: string;
   readonly updatedBy?: string;
   readonly createdBy?: string;
+}
+
+export interface PracticeScriptEditForm {
+  title: string;
+  focus: string;
+  tempo: string;
+  scriptDate: string;
+  opponent: string;
+  objectives: string;
+  notes: string;
+  periods: readonly PracticeScriptPeriod[];
 }
 
 export interface PracticeScriptsResponse {
@@ -322,6 +334,17 @@ export const EMPTY_PLAY_FORM: PlayForm = {
   correctionCues: '',
   drillProgression: '',
   situations: '',
+};
+
+export const EMPTY_PRACTICE_SCRIPT_EDIT_FORM: PracticeScriptEditForm = {
+  title: '',
+  focus: '',
+  tempo: '',
+  scriptDate: '',
+  opponent: '',
+  objectives: '',
+  notes: '',
+  periods: [],
 };
 
 export function toTitleCase(str: string): string {

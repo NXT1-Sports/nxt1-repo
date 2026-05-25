@@ -9,6 +9,7 @@ import type {
 } from '@nxt1/core';
 import type { BaseAgent } from '../agents/base.agent.js';
 import type { PlannerAgent } from '../agents/planner.agent.js';
+import { PrimaryAgent } from '../agents/primary.agent.js';
 import { isAgentYield } from '../exceptions/agent-yield.exception.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { ContextBuilder } from '../memory/context-builder.js';
@@ -38,7 +39,8 @@ export class AgentRouterResumeService {
       userContext: AgentUserContext
     ) => AgentToolAccessContext,
     private readonly skillRegistry?: SkillRegistry,
-    private readonly sessionMemory?: SessionMemoryService
+    private readonly sessionMemory?: SessionMemoryService,
+    private readonly getPrimaryAgent?: () => PrimaryAgent | undefined
   ) {}
 
   async runResumed(payload: {
@@ -77,7 +79,9 @@ export class AgentRouterResumeService {
       }
     );
 
-    const agent = yieldState.agentId === 'router' ? planner : agents.get(yieldState.agentId);
+    const primaryAgent = yieldState.agentId === 'router' ? this.getPrimaryAgent?.() : undefined;
+    const agent =
+      primaryAgent ?? (yieldState.agentId === 'router' ? planner : agents.get(yieldState.agentId));
     if (!agent) {
       this.telemetry.emitUpdate(
         onUpdate,
@@ -117,7 +121,7 @@ export class AgentRouterResumeService {
       try {
         resumeSessionContext = await this.sessionMemory.getOrCreate(userId, resumeThreadId);
       } catch {
-        // Non-critical — continue without history
+        // Non-critical — continue without history.
       }
     }
 
@@ -145,7 +149,7 @@ export class AgentRouterResumeService {
     try {
       resumeActiveThreadsSummary = await this.contextBuilder.getActiveThreadsSummary(userId, 8);
     } catch {
-      // Non-critical — continue without it
+      // Non-critical — continue without it.
     }
 
     const enrichedIntent = this.routerContext.enrichIntentWithContext(
@@ -192,31 +196,53 @@ export class AgentRouterResumeService {
 
     try {
       const toolAccessContext = this.buildToolAccessContext(userContext);
-      let toolDefs = this.toolRegistry.getDefinitions(agent.id, toolAccessContext);
+      const isPrimaryResume = Boolean(primaryAgent);
+      let toolDefs = isPrimaryResume
+        ? PrimaryAgent.buildPrimaryToolDefinitions(this.toolRegistry, toolAccessContext)
+        : this.toolRegistry.getDefinitions(agent.id, toolAccessContext);
 
-      try {
-        const intentEmbedding = await this.llm.embed(enrichedIntent);
-        toolDefs = await this.toolRegistry.match(
-          intentEmbedding,
-          (text) => this.llm.embed(text),
-          agent.id,
-          toolAccessContext
-        );
-      } catch {
-        // Ignore embedding failures during resume and pass all possible tools.
+      if (!isPrimaryResume) {
+        try {
+          const intentEmbedding = await this.llm.embed(enrichedIntent);
+          toolDefs = await this.toolRegistry.match(
+            intentEmbedding,
+            (text) => this.llm.embed(text),
+            agent.id,
+            toolAccessContext
+          );
+        } catch {
+          // Ignore embedding failures during resume and pass all possible tools.
+        }
       }
 
-      const result = await agent.resumeExecution(
-        yieldState,
-        context,
-        toolDefs,
-        this.llm,
-        this.toolRegistry,
-        this.skillRegistry,
-        onStreamEvent,
-        approvalGate,
-        approvalId
-      );
+      if (primaryAgent) {
+        primaryAgent.beginRun({
+          operationId,
+          userId,
+          sessionContext: context,
+          enrichedIntent,
+          ...(approvalGate ? { approvalGate } : {}),
+          ...(onStreamEvent ? { onStreamEvent } : {}),
+          ...(signal ? { signal } : {}),
+        });
+      }
+
+      let result: AgentOperationResult;
+      try {
+        result = await agent.resumeExecution(
+          yieldState,
+          context,
+          toolDefs,
+          this.llm,
+          this.toolRegistry,
+          this.skillRegistry,
+          onStreamEvent,
+          approvalGate,
+          approvalId
+        );
+      } finally {
+        primaryAgent?.endRun(operationId);
+      }
 
       this.telemetry.emitUpdate(onUpdate, operationId, 'completed', result.summary, undefined, {
         agentId: yieldState.agentId,

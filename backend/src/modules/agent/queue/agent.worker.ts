@@ -1220,14 +1220,22 @@ export class AgentWorker {
         });
       });
 
-      void executeBillingDeduction({
-        db: billingDb,
-        userId,
-        operationId,
-        feature: 'playbook-generation',
-        coordinatorId: 'strategy_coordinator',
-        environment: job.data.environment,
-      });
+      if (job.data.skipBilling === true) {
+        logger.info('[AgentWorker] Skipping billing deduction for recovered playbook job', {
+          operationId,
+          userId,
+          kind: job.data.kind,
+        });
+      } else {
+        void executeBillingDeduction({
+          db: billingDb,
+          userId,
+          operationId,
+          feature: 'playbook-generation',
+          coordinatorId: 'strategy_coordinator',
+          environment: job.data.environment,
+        });
+      }
 
       return {
         result: operationResult,
@@ -1386,6 +1394,7 @@ export class AgentWorker {
     // Hoist billing db so it's available across the full job lifecycle
     const billingDb = await this.getActivityFirestore(job);
     const feature = typeof payload.agent === 'string' ? payload.agent : 'agent';
+    const skipBilling = (payloadContext as Record<string, unknown>)['skipBilling'] === true;
 
     // ── IAP hold: show "Processing" amount in usage overview ─────────────
     // For prepaid wallet users, create a hold at job start so the UI can display
@@ -1393,9 +1402,10 @@ export class AgentWorker {
     let iapHoldId: string | null = null;
     const billingCtxForHold = await getBillingState(billingDb, payload.userId);
     if (
-      (billingCtxForHold?.paymentProvider === 'iap' &&
+      !skipBilling &&
+      ((billingCtxForHold?.paymentProvider === 'iap' &&
         billingCtxForHold.billingEntity === 'individual') ||
-      (billingCtxForHold?.billingEntity === 'organization' && billingCtxForHold?.hardStop)
+        (billingCtxForHold?.billingEntity === 'organization' && billingCtxForHold?.hardStop))
     ) {
       const { chargeAmountCents: estimatedCents } = estimateChargeAmountSync(0.1);
       const holdResult = await createWalletHold(
@@ -2530,8 +2540,6 @@ export class AgentWorker {
       typeof (payloadContext as Record<string, unknown>)['organizationId'] === 'string'
         ? ((payloadContext as Record<string, unknown>)['organizationId'] as string)
         : undefined;
-    const skipBilling = (payloadContext as Record<string, unknown>)['skipBilling'] === true;
-
     if (skipBilling) {
       logger.info('[AgentWorker] Skipping billing deduction for platform-sponsored job', {
         operationId: payload.operationId,

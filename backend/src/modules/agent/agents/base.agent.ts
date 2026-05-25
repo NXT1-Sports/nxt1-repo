@@ -1664,6 +1664,21 @@ export abstract class BaseAgent {
         };
       }
 
+      const askUserToolCall = result.toolCalls.find(
+        (toolCall) => toolCall.function.name === 'ask_user'
+      );
+      const toolCallsForIteration = askUserToolCall ? [askUserToolCall] : result.toolCalls;
+      if (askUserToolCall && result.toolCalls.length > 1) {
+        logger.warn(`[${this.id}] Dropping sibling tool calls from ask_user yield turn`, {
+          agentId: this.id,
+          operationId: context.operationId,
+          keptToolCallId: askUserToolCall.id,
+          droppedTools: result.toolCalls
+            .filter((toolCall) => toolCall.id !== askUserToolCall.id)
+            .map((toolCall) => toolCall.function.name),
+        });
+      }
+
       // Append the assistant message with its tool calls to the conversation
       const assistantMsgWithToolCalls: LLMMessage = {
         role: 'assistant',
@@ -1671,7 +1686,7 @@ export abstract class BaseAgent {
           typeof result.content === 'string'
             ? sanitizeAgentOutputText(result.content)
             : result.content,
-        tool_calls: result.toolCalls,
+        tool_calls: toolCallsForIteration,
       };
       messages.push(assistantMsgWithToolCalls);
 
@@ -1696,7 +1711,7 @@ export abstract class BaseAgent {
       logger.info(`[${this.id}] Tool calls requested`, {
         agentId: this.id,
         iteration: iteration + 1,
-        tools: result.toolCalls.map((t) => t.function.name),
+        tools: toolCallsForIteration.map((t) => t.function.name),
       });
 
       // ── Tool execution (sequential by default, concurrent when opted-in) ──
@@ -1706,7 +1721,7 @@ export abstract class BaseAgent {
       // tool_call to have a matching tool response message with the same id.
       const toolConcurrency = Math.max(
         1,
-        Math.min(this.getToolConcurrency(), result.toolCalls.length)
+        Math.min(this.getToolConcurrency(), toolCallsForIteration.length)
       );
       const runConcurrent = toolConcurrency > 1;
 
@@ -1716,7 +1731,7 @@ export abstract class BaseAgent {
       //    starts \u2014 this keeps the visual stream in strict order (one step
       //    spinning at a time) and avoids the "ugly" all-at-once flash.
       if (runConcurrent) {
-        for (const toolCall of result.toolCalls) {
+        for (const toolCall of toolCallsForIteration) {
           this.throwIfAborted(context.signal);
           logger.info(`[${this.id}] Executing tool: ${toolCall.function.name}`, {
             agentId: this.id,
@@ -1754,7 +1769,7 @@ export abstract class BaseAgent {
       //    alongside data tools in the same LLM response.
       const yieldCtxSnapshot = { agentId: this.id, messages };
       const toolBatchResults = await parallelBatch(
-        result.toolCalls,
+        toolCallsForIteration,
         async (toolCall) => {
           const startedAtMs = Date.now();
 
@@ -1814,10 +1829,10 @@ export abstract class BaseAgent {
       let pendingThrow: unknown = undefined;
       let iterationCompletedToolCalls = 0;
       let iterationToolDurationMs = 0;
-      for (let ti = 0; ti < result.toolCalls.length; ti++) {
+      for (let ti = 0; ti < toolCallsForIteration.length; ti++) {
         this.throwIfAborted(context.signal);
 
-        const toolCall = result.toolCalls[ti];
+        const toolCall = toolCallsForIteration[ti];
         const br = toolBatchResults[ti];
 
         if (br.status === 'rejected') {
@@ -2025,7 +2040,7 @@ export abstract class BaseAgent {
         'execute_saved_plan',
         'plan_and_execute',
       ]);
-      const shouldExitAfterDelegation = result.toolCalls.some((tc) => {
+      const shouldExitAfterDelegation = toolCallsForIteration.some((tc) => {
         if (!DELEGATION_TOOLS.has(tc.function.name)) return false;
         const toolMsg = [...messages]
           .reverse()

@@ -5,7 +5,9 @@ import { BaseAgent } from '../base.agent.js';
 import { ToolRegistry } from '../../tools/tool-registry.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../tools/base.tool.js';
 import { AgentDelegationException } from '../../exceptions/agent-delegation.exception.js';
+import { AgentYieldException } from '../../exceptions/agent-yield.exception.js';
 import type { LLMMessage, LLMToolCall } from '../../llm/llm.types.js';
+import { AskUserTool } from '../../tools/system/ask-user.tool.js';
 import {
   resetOperationMemoryServiceForTests,
   getOperationMemoryService,
@@ -1176,6 +1178,67 @@ describe('BaseAgent identifier scrubbing', () => {
         }),
       ])
     );
+  });
+
+  it('treats ask_user as an exclusive yield tool when sibling tools are co-emitted', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new AskUserTool());
+    registry.register(new FakeDelegateTaskTool());
+
+    const llm = {
+      completeStream: vi.fn().mockResolvedValue({
+        content: 'I need one detail before routing this.',
+        toolCalls: [
+          {
+            id: 'call_ask_user',
+            type: 'function',
+            function: {
+              name: 'ask_user',
+              arguments: JSON.stringify({ question: 'Practice defaults?' }),
+            },
+          },
+          {
+            id: 'call_delegate',
+            type: 'function',
+            function: {
+              name: 'delegate_task',
+              arguments: JSON.stringify({ forwarding_intent: 'Build the script' }),
+            },
+          },
+        ],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'tool_calls',
+      }),
+    };
+
+    let yielded: AgentYieldException | undefined;
+    try {
+      await agent.execute(
+        'Build a practice script',
+        createMockContext(),
+        [],
+        llm as never,
+        registry,
+        undefined,
+        () => undefined
+      );
+    } catch (err) {
+      if (err instanceof AgentYieldException) yielded = err;
+      else throw err;
+    }
+
+    expect(yielded).toBeDefined();
+    const assistantWithToolCalls = yielded?.payload.messages.find(
+      (message) => message.role === 'assistant' && (message.tool_calls?.length ?? 0) > 0
+    );
+
+    expect(assistantWithToolCalls?.tool_calls?.map((toolCall) => toolCall.function.name)).toEqual([
+      'ask_user',
+    ]);
   });
 
   it('blocks brand coordinator media delegation and returns an actionable error', async () => {

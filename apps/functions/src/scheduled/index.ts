@@ -21,6 +21,7 @@ export { scanTimelinePosts } from './scanTimelinePosts';
 export { approvalExpiryNotifications } from './approvalExpiryNotifications';
 export { cleanupThreadMedia } from './cleanupThreadMedia';
 export { cleanupStaleAgentJobs } from './cleanupStaleAgentJobs';
+export { resolveFailedAgentJobs } from './resolveFailedAgentJobs';
 export { reconcileAgentJobThreadLinks } from './reconcileAgentJobThreadLinks';
 export { cleanupStaleWalletHolds } from './cleanupStaleWalletHolds';
 export { weeklyHelpCenterRefresh } from './weeklyHelpCenterRefresh';

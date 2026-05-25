@@ -4929,6 +4929,7 @@ function toPracticeScriptSummary(
 ): Record<string, unknown> {
   const periods = normalizePracticeScriptPeriods(data['periods']);
   const totalReps = periods.reduce((sum, period) => sum + period.reps, 0);
+  const displayOrder = Number(data['displayOrder']);
 
   return {
     id,
@@ -4942,6 +4943,7 @@ function toPracticeScriptSummary(
     opponent: normalizeString(data['opponent']),
     totalPeriods: periods.length,
     totalReps,
+    displayOrder: Number.isFinite(displayOrder) ? displayOrder : undefined,
     archived: data['archived'] === true,
     updatedAt: normalizeString(data['updatedAt']),
     createdAt: normalizeString(data['createdAt']),
@@ -5132,6 +5134,7 @@ const playbookPdfExportBodySchema = z.object({
   mode: z.enum(['current', 'full']).default('current'),
   activeTab: playbookExportTabSchema.default('plays'),
   callsheetFilters: z.record(z.string(), z.string()).optional(),
+  callsheetId: z.string().trim().optional(),
   practiceScriptId: z.string().trim().optional(),
 });
 
@@ -5304,29 +5307,101 @@ function buildPdfSection(heading: string, ...paragraphs: readonly string[]): str
   return normalized.length > 0 ? [`## ${heading}`, ...normalized] : [];
 }
 
+type PracticeScriptPdfInput = {
+  readonly title: string;
+  readonly focus: string;
+  readonly tempo: string;
+  readonly scriptDate?: string;
+  readonly opponent?: string;
+  readonly objectives: readonly string[];
+  readonly periods: readonly {
+    readonly label: string;
+    readonly clock: string;
+    readonly reps: number;
+    readonly callType: string;
+    readonly playName: string;
+    readonly coachingPoint?: string;
+    readonly notes?: string;
+  }[];
+  readonly notes?: string;
+};
+
+type CallsheetPdfInput = {
+  readonly title: string;
+  readonly situation: string;
+  readonly notes?: string;
+  readonly plays: readonly {
+    readonly playName: string;
+    readonly score: number;
+    readonly reasoning: string;
+  }[];
+  readonly groups: readonly { readonly name: string; readonly playNames: readonly string[] }[];
+};
+
+function buildCallsheetRows(
+  callsheet: CallsheetPdfInput | null,
+  fallbackRankings: readonly {
+    readonly playName: string;
+    readonly score: number;
+    readonly reasoning: string;
+  }[]
+): ExportRow[] {
+  const sourcePlays = callsheet?.plays?.length ? callsheet.plays : fallbackRankings;
+  const playByName = new Map(sourcePlays.map((play) => [play.playName, play] as const));
+  const groupedRows = (callsheet?.groups ?? []).flatMap((group) =>
+    group.playNames
+      .map((playName) => playByName.get(playName))
+      .filter(
+        (
+          play
+        ): play is {
+          readonly playName: string;
+          readonly score: number;
+          readonly reasoning: string;
+        } => Boolean(play)
+      )
+      .map((play) => [group.name, play.playName, `${play.score}/100`, play.reasoning] as ExportRow)
+  );
+
+  if (groupedRows.length > 0) return groupedRows;
+
+  return sourcePlays.map((play, index) => [
+    index < 6 ? 'Primary Menu' : 'Change-Up Menu',
+    play.playName,
+    `${play.score}/100`,
+    play.reasoning,
+  ]);
+}
+
+function buildPlayInventoryRows(plays: readonly Record<string, unknown>[]): ExportRow[] {
+  return plays.map((play, index) => [
+    safeExportText(play['name']) || safeExportText(play['title']) || `Play ${index + 1}`,
+    safeExportText(play['series']),
+    safeExportText(play['formation']),
+    safeExportText(play['personnel']),
+    formatExportLabel(safeExportText(play['category'])),
+    formatExportLabel(safeExportText(play['installStage'], 'install')),
+  ]);
+}
+
+function buildPlayInventoryColumns(): ExportColumn[] {
+  return [
+    { key: 'name', label: 'Play', width: 112 },
+    { key: 'series', label: 'Series', width: 70 },
+    { key: 'formation', label: 'Formation', width: 82 },
+    { key: 'personnel', label: 'Personnel', width: 70 },
+    { key: 'category', label: 'Category', width: 70 },
+    { key: 'installStage', label: 'Stage', width: 58 },
+  ];
+}
+
 function buildPlaybookPdfPayload(
   playbook: Record<string, unknown>,
   mode: 'current' | 'full',
   activeTab: z.infer<typeof playbookExportTabSchema>,
   callsheetFilters: Record<string, string> | undefined,
-  practiceScript: {
-    readonly title: string;
-    readonly focus: string;
-    readonly tempo: string;
-    readonly scriptDate?: string;
-    readonly opponent?: string;
-    readonly objectives: readonly string[];
-    readonly periods: readonly {
-      readonly label: string;
-      readonly clock: string;
-      readonly reps: number;
-      readonly callType: string;
-      readonly playName: string;
-      readonly coachingPoint?: string;
-      readonly notes?: string;
-    }[];
-    readonly notes?: string;
-  } | null,
+  callsheet: CallsheetPdfInput | null,
+  practiceScript: PracticeScriptPdfInput | null,
   gamePlans: readonly {
     readonly title: string;
     readonly opponent: string;
@@ -5357,39 +5432,23 @@ function buildPlaybookPdfPayload(
     .filter((url) => url.length > 0)
     .slice(0, 24);
 
-  const playRows: ExportRow[] = plays.map((play, index) => [
-    safeExportText(play['name']) || safeExportText(play['title']) || `Play ${index + 1}`,
-    safeExportText(play['series']),
-    safeExportText(play['formation']),
-    safeExportText(play['personnel']),
-    safeExportText(play['category']),
-    safeExportText(play['installStage'], 'install'),
-  ]);
-
-  const playColumns: ExportColumn[] = [
-    { key: 'name', label: 'Play' },
-    { key: 'series', label: 'Series' },
-    { key: 'formation', label: 'Formation' },
-    { key: 'personnel', label: 'Personnel' },
-    { key: 'category', label: 'Category' },
-    { key: 'installStage', label: 'Install Stage' },
-  ];
+  const playRows = buildPlayInventoryRows(plays);
+  const playColumns = buildPlayInventoryColumns();
 
   const callsheetSituation = resolvePlaybookSituationText(callsheetFilters);
   const callsheetRankings = deterministicCallsheetRanking(plays, callsheetSituation);
   const scriptPeriods = practiceScript?.periods ?? [];
   const scriptTotalReps = scriptPeriods.reduce((sum, period) => sum + period.reps, 0);
 
-  const callsheetRows: ExportRow[] = callsheetRankings.map((entry) => [
-    entry.playName,
-    entry.score,
-    entry.reasoning,
-  ]);
+  const callsheetRows = buildCallsheetRows(callsheet, callsheetRankings);
+  const callsheetTitle = callsheet?.title ?? 'AI Callsheet';
+  const effectiveCallsheetSituation = callsheet?.situation ?? callsheetSituation;
 
   const callsheetColumns: ExportColumn[] = [
-    { key: 'playName', label: 'Play' },
-    { key: 'score', label: 'AI Score' },
-    { key: 'reasoning', label: 'Reasoning' },
+    { key: 'group', label: 'Group', width: 82 },
+    { key: 'playName', label: 'Call', width: 120 },
+    { key: 'score', label: 'Grade', width: 46 },
+    { key: 'reasoning', label: 'Why It Belongs', width: '*' },
   ];
 
   if (mode === 'full') {
@@ -5400,14 +5459,14 @@ function buildPlaybookPdfPayload(
       const coachingPoint = safeExportStringArray(play['coachingPoints'])[0];
       const drill = safeExportStringArray(play['drillProgression'])[0];
       return [
-        `**Install:** ${playName} — ${installStage.toUpperCase()}`,
+        `**Install:** ${playName} - ${formatExportLabel(installStage)}`,
         coachingPoint ? `**Coaching Point:** ${coachingPoint}` : '',
         drill ? `**Drill Progression:** ${drill}` : '',
       ].filter((line) => line.length > 0);
     });
 
-    const callsheetBullets = callsheetRankings.slice(0, 10).map((entry, index) => {
-      return `**Callsheet ${index + 1}:** ${entry.playName} (${entry.score}/100) — ${entry.reasoning}`;
+    const callsheetBullets = callsheetRows.slice(0, 18).map((row) => {
+      return `**${row[0]}:** ${row[1]} (${row[2]}) - ${row[3]}`;
     });
 
     const practiceBullets = scriptPeriods.slice(0, 20).map((period, index) => {
@@ -5437,7 +5496,10 @@ function buildPlaybookPdfPayload(
           'Install Plan',
           `Progression summary across ${plays.length} plays with emphasis on sequencing, coaching points, and drill flow.`
         ),
-        ...buildPdfSection('AI Callsheet', `Recommended situation: ${callsheetSituation}.`),
+        ...buildPdfSection(
+          'Callsheet',
+          `${callsheetTitle} organized for ${effectiveCallsheetSituation}. ${callsheet?.notes ?? ''}`
+        ),
         ...buildPdfSection(
           'Practice Script Notes',
           practiceScript
@@ -5466,10 +5528,11 @@ function buildPlaybookPdfPayload(
   if (activeTab === 'install') {
     const installRows: ExportRow[] = plays.map((play, index) => [
       safeExportText(play['name']) || safeExportText(play['title']) || `Play ${index + 1}`,
-      safeExportText(play['installStage'], 'install'),
-      safeExportStringArray(play['coachingPoints']).join(' | '),
-      safeExportStringArray(play['commonBusts']).join(' | '),
-      safeExportStringArray(play['drillProgression']).join(' | '),
+      formatExportLabel(safeExportText(play['installStage'], 'install')),
+      safeExportText(play['formation']),
+      safeExportText(play['personnel']),
+      formatExportLabel(safeExportText(play['category'])),
+      safeExportText(play['series']),
     ]);
 
     return {
@@ -5482,25 +5545,26 @@ function buildPlaybookPdfPayload(
         ),
       ],
       columns: [
-        { key: 'name', label: 'Play' },
-        { key: 'installStage', label: 'Stage' },
-        { key: 'coachingPoints', label: 'Coaching Points' },
-        { key: 'commonBusts', label: 'Common Busts' },
-        { key: 'drillProgression', label: 'Drill Progression' },
+        { key: 'name', label: 'Play', width: 128 },
+        { key: 'installStage', label: 'Stage', width: 66 },
+        { key: 'formation', label: 'Formation', width: 88 },
+        { key: 'personnel', label: 'Personnel', width: 78 },
+        { key: 'category', label: 'Category', width: 76 },
+        { key: 'series', label: 'Series', width: '*' },
       ],
       rows: installRows,
-      imageUrls,
     };
   }
 
   if (activeTab === 'callsheet') {
     return {
-      title: `${playbookName} - AI Callsheet`,
-      description: `${headerDescription} • Situation: ${callsheetSituation}`,
+      title: `${playbookName} - ${callsheetTitle}`,
+      description: `${headerDescription} • Situation: ${effectiveCallsheetSituation}`,
       bodyParagraphs: [
         ...buildPdfSection(
           'Callsheet Overview',
-          `This callsheet prioritizes the highest-leverage concepts for ${callsheetSituation}.`
+          `${callsheetTitle} prioritizes the highest-leverage calls for ${effectiveCallsheetSituation}.`,
+          callsheet?.notes ?? ''
         ),
       ],
       columns: callsheetColumns,
@@ -5534,16 +5598,15 @@ function buildPlaybookPdfPayload(
         ...buildPdfSection('Coach Notes', practiceScript?.notes ?? ''),
       ],
       columns: [
-        { key: 'slot', label: '#' },
-        { key: 'label', label: 'Period' },
-        { key: 'clock', label: 'Clock' },
-        { key: 'reps', label: 'Reps' },
-        { key: 'callType', label: 'Call Type' },
-        { key: 'playName', label: 'Play Call' },
-        { key: 'coachingPoint', label: 'Coaching Point' },
-        { key: 'notes', label: 'Notes' },
+        { key: 'slot', label: '#', width: 24 },
+        { key: 'label', label: 'Period', width: 70 },
+        { key: 'clock', label: 'Clock', width: 46 },
+        { key: 'reps', label: 'Reps', width: 34 },
+        { key: 'callType', label: 'Type', width: 60 },
+        { key: 'playName', label: 'Call', width: 96 },
+        { key: 'coachingPoint', label: 'Coaching Point', width: '*' },
       ],
-      rows: scriptRows,
+      rows: scriptRows.map((row) => row.slice(0, 7)),
       imageUrls,
     };
   }
@@ -7258,6 +7321,15 @@ router.get(
         .map((doc: FirestoreDocLike) => ({ id: doc.id, ...doc.data() }))
         .filter((doc: Record<string, unknown>) => includeArchived || doc['archived'] !== true)
         .sort((left: Record<string, unknown>, right: Record<string, unknown>) => {
+          const leftOrder = Number(left['displayOrder']);
+          const rightOrder = Number(right['displayOrder']);
+          const hasLeftOrder = Number.isFinite(leftOrder);
+          const hasRightOrder = Number.isFinite(rightOrder);
+          if (hasLeftOrder && hasRightOrder && leftOrder !== rightOrder) {
+            return leftOrder - rightOrder;
+          }
+          if (hasLeftOrder !== hasRightOrder) return hasLeftOrder ? -1 : 1;
+
           const l = normalizeString(left['updatedAt']) ?? normalizeString(left['createdAt']) ?? '';
           const r =
             normalizeString(right['updatedAt']) ?? normalizeString(right['createdAt']) ?? '';
@@ -7416,6 +7488,9 @@ router.post(
         periods,
         notes: normalizeString(body['notes']) ?? '',
         source: normalizeString(body['source']) ?? 'coach_manual',
+        displayOrder: Number.isFinite(Number(body['displayOrder']))
+          ? Number(body['displayOrder'])
+          : -Date.now(),
         archived: false,
         createdAt: now,
         createdBy: user.uid,
@@ -7497,6 +7572,9 @@ router.patch(
       if (typeof body['opponent'] === 'string') updates['opponent'] = body['opponent'].trim();
       if (typeof body['notes'] === 'string') updates['notes'] = body['notes'].trim();
       if (typeof body['archived'] === 'boolean') updates['archived'] = body['archived'];
+      if (typeof body['displayOrder'] === 'number' && Number.isFinite(body['displayOrder'])) {
+        updates['displayOrder'] = body['displayOrder'];
+      }
       if (Array.isArray(body['objectives']))
         updates['objectives'] = safeExportStringArray(body['objectives']);
       if (Array.isArray(body['periods']))
@@ -7741,7 +7819,8 @@ router.post('/playbooks/:playbookId/export-pdf', appGuard, async (req: Request, 
     }
 
     const { playbookId } = req.params as { playbookId: string };
-    const { teamId, mode, activeTab, callsheetFilters, practiceScriptId } = parsedBody.data;
+    const { teamId, mode, activeTab, callsheetFilters, callsheetId, practiceScriptId } =
+      parsedBody.data;
     const { db } = req.firebase!;
 
     const playbookDoc = await db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId).get();
@@ -7797,24 +7876,31 @@ router.post('/playbooks/:playbookId/export-pdf', appGuard, async (req: Request, 
         .map((doc) => mapGamePlanDocToExportSummary(doc));
     }
 
-    let practiceScript: {
-      readonly title: string;
-      readonly focus: string;
-      readonly tempo: string;
-      readonly scriptDate?: string;
-      readonly opponent?: string;
-      readonly objectives: readonly string[];
-      readonly periods: readonly {
-        readonly label: string;
-        readonly clock: string;
-        readonly reps: number;
-        readonly callType: string;
-        readonly playName: string;
-        readonly coachingPoint?: string;
-        readonly notes?: string;
-      }[];
-      readonly notes?: string;
-    } | null = null;
+    let callsheet: CallsheetPdfInput | null = null;
+
+    if ((mode === 'full' || activeTab === 'callsheet') && callsheetId) {
+      const callsheetDoc = await db.collection(TEAM_CALLSHEETS_COLLECTION).doc(callsheetId).get();
+
+      if (callsheetDoc.exists) {
+        const callsheetData = (callsheetDoc.data() ?? {}) as Record<string, unknown>;
+        const callsheetPlays = normalizeCallsheetPlays(callsheetData['plays']);
+        if (
+          normalizeString(callsheetData['teamId']) === teamId &&
+          normalizeString(callsheetData['playbookId']) === playbookId &&
+          callsheetData['archived'] !== true
+        ) {
+          callsheet = {
+            title: normalizeString(callsheetData['title']) ?? 'Saved Callsheet',
+            situation: normalizeString(callsheetData['situation']) ?? 'all situations',
+            notes: normalizeString(callsheetData['notes']) ?? undefined,
+            plays: callsheetPlays,
+            groups: normalizeCallsheetGroups(callsheetData['groups'], callsheetPlays),
+          };
+        }
+      }
+    }
+
+    let practiceScript: PracticeScriptPdfInput | null = null;
 
     if ((mode === 'full' || activeTab === 'play-script') && practiceScriptId) {
       const practiceScriptDoc = await db
@@ -7848,6 +7934,7 @@ router.post('/playbooks/:playbookId/export-pdf', appGuard, async (req: Request, 
       mode,
       activeTab,
       callsheetFilters,
+      callsheet,
       practiceScript,
       gamePlans
     );
@@ -7862,6 +7949,8 @@ router.post('/playbooks/:playbookId/export-pdf', appGuard, async (req: Request, 
       includeTable: !!(payload.columns?.length && payload.rows?.length),
       theme: 'light',
       ...branding,
+      brandPrimaryColor: branding.brandPrimaryColor ?? '#111827',
+      footerText: `${branding.organizationName ?? 'NXT1'} Coach Packet - Generated by NXT1`,
     });
 
     const safeBase = sanitizeExportFileBase(
@@ -7901,6 +7990,8 @@ router.post('/playbooks/:playbookId/export-pdf', appGuard, async (req: Request, 
       teamId: playbookTeamId,
       mode,
       activeTab,
+      callsheetId: callsheetId ?? null,
+      practiceScriptId: practiceScriptId ?? null,
       sizeBytes: pdfBuffer.length,
       userId: user.uid,
     });
