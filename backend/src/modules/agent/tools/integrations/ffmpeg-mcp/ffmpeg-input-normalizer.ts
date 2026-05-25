@@ -4,22 +4,10 @@ interface NormalizeFfmpegToolInputOptions {
   readonly coerceStringFields?: readonly string[];
 }
 
-/**
- * Extract a plain URL from a markdown link/image token if the LLM passes
- * `[View Video](https://…)` or `![Generated Image](https://…)` instead of
- * the raw URL. Returns the original value unchanged when it is not wrapped.
- */
-function extractUrlFromMarkdown(value: string): string {
-  const trimmed = value.trim();
-  // Matches both `[text](url)` and `![text](url)` (image links).
-  const match = /^!?\[[^\]]*\]\((.+)\)$/.exec(trimmed);
-  return match ? match[1].trim() : trimmed;
-}
-
 function toStringArray(value: unknown): string[] | null {
   if (Array.isArray(value)) {
     const normalized = value
-      .map((entry) => (typeof entry === 'string' ? extractUrlFromMarkdown(entry.trim()) : ''))
+      .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
       .filter((entry) => entry.length > 0);
     return normalized.length > 0 ? normalized : null;
   }
@@ -33,7 +21,7 @@ function toStringArray(value: unknown): string[] | null {
         const parsed = JSON.parse(trimmed) as unknown;
         if (Array.isArray(parsed)) {
           const normalized = parsed
-            .map((entry) => (typeof entry === 'string' ? extractUrlFromMarkdown(entry.trim()) : ''))
+            .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
             .filter((entry) => entry.length > 0);
           return normalized.length > 0 ? normalized : null;
         }
@@ -44,7 +32,7 @@ function toStringArray(value: unknown): string[] | null {
 
     const normalized = trimmed
       .split(',')
-      .map((entry) => extractUrlFromMarkdown(entry.trim()))
+      .map((entry) => entry.trim())
       .filter((entry) => entry.length > 0);
     return normalized.length > 0 ? normalized : null;
   }
@@ -66,26 +54,14 @@ export function normalizeFfmpegToolInput(
 ): Record<string, unknown> {
   const normalized: Record<string, unknown> = { ...input };
 
-  // Strip markdown link wrappers from path/URL fields — the LLM sometimes passes
-  // `[View Video](https://…)` instead of the raw URL when it reads back a video
-  // that was rendered as a markdown link in the conversation history.
-  if (typeof normalized['inputPath'] === 'string') {
-    normalized['inputPath'] = extractUrlFromMarkdown(normalized['inputPath']);
-  }
-
   if (typeof normalized['inputPath'] !== 'string' && typeof normalized['inputUrl'] === 'string') {
-    normalized['inputPath'] = extractUrlFromMarkdown(normalized['inputUrl']);
+    normalized['inputPath'] = normalized['inputUrl'];
   }
 
   if (!Array.isArray(normalized['inputPaths'])) {
     const inputPaths =
       toStringArray(normalized['inputPaths']) ?? toStringArray(normalized['inputUrls']);
     if (inputPaths) normalized['inputPaths'] = inputPaths;
-  } else {
-    // inputPaths is already an array — still strip any markdown link wrappers.
-    normalized['inputPaths'] = (normalized['inputPaths'] as unknown[]).map((entry) =>
-      typeof entry === 'string' ? extractUrlFromMarkdown(entry.trim()) : entry
-    );
   }
 
   if (
