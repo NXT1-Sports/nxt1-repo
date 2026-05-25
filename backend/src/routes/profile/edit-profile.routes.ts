@@ -857,16 +857,24 @@ router.put(
       ).filter((p): p is string => typeof p === 'string');
 
       if (disconnectedProviders.length > 0) {
-        const disconnectedSet = new Set(disconnectedProviders);
-        const existingEmails: ConnectedEmail[] = user.connectedEmails ?? [];
-        const updatedEmails = existingEmails.map((ce) =>
-          disconnectedSet.has(ce.provider) ? { ...ce, isActive: false } : ce
+        // Normalize platform names → provider names used in connectedEmails.
+        // The frontend sends platform names (e.g. 'google') but connectedEmails
+        // stores provider names (e.g. 'gmail'). Map them before comparing.
+        const PLATFORM_TO_PROVIDER: Record<string, string> = {
+          google: 'gmail',
+          microsoft: 'microsoft',
+        };
+        const normalizedDisconnectedSet = new Set(
+          disconnectedProviders.map((p) => PLATFORM_TO_PROVIDER[p] ?? p)
         );
-        // Only write if something actually changed
-        const changed = updatedEmails.some((ce, i) => ce.isActive !== existingEmails[i]?.isActive);
-        if (changed) {
+        const existingEmails: ConnectedEmail[] = user.connectedEmails ?? [];
+        const updatedEmails = existingEmails.filter(
+          (ce) => !normalizedDisconnectedSet.has(ce.provider)
+        );
+        // Only write if something was actually removed
+        if (updatedEmails.length < existingEmails.length) {
           updates['connectedEmails'] = updatedEmails;
-          logger.info('[EditProfile] Deactivating sign-in connections', {
+          logger.info('[EditProfile] Removing sign-in connections', {
             userId: uid,
             disconnected: disconnectedProviders,
           });
