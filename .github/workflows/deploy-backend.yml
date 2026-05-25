@@ -68,45 +68,48 @@ jobs:
           ssh -i ~/.ssh/deploy_key \
             -o StrictHostKeyChecking=no \
             ${{ env.SSH_USER }}@${{ env.SSH_HOST }} << 'ENDSSH'
-            echo "${{ secrets.SUDO_PASS }}" | sudo -S bash -c "
-              set -e
-              cd ${{ env.REPO_PATH }}
+            set -euo pipefail
+            cat > /tmp/nxt1-backend-deploy.sh <<'ROOTSCRIPT'
+            set -euo pipefail
+            cd ${{ env.REPO_PATH }}
 
-              echo 'git stash...'
-              git stash
+            echo 'git stash...'
+            git stash
 
-              echo 'git pull...'
-              git pull
+            echo 'git pull...'
+            git pull
 
-              # Ensure Node.js 22 is available (install via nvm if needed)
-              export NVM_DIR=\"/root/.nvm\"
-              if [ ! -s \"\$NVM_DIR/nvm.sh\" ]; then
-                echo 'Installing nvm...'
-                curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-              fi
-              source \"\$NVM_DIR/nvm.sh\"
-              nvm install 22
-              nvm use 22
-              echo \"Node: \$(node -v), npm: \$(npm -v)\"
+            # Ensure Node.js 22 is available (install via nvm if needed)
+            export NVM_DIR="/root/.nvm"
+            if [ ! -s "$NVM_DIR/nvm.sh" ]; then
+              echo 'Installing nvm...'
+              curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+            fi
+            source "$NVM_DIR/nvm.sh"
+            nvm install 22
+            nvm use 22
+            echo "Node: $(node -v), npm: $(npm -v)"
 
-              # Ensure pm2 is installed under this Node version
-              command -v pm2 > /dev/null 2>&1 || npm install -g pm2
-              echo "pm2: $(pm2 -v)"
+            # Ensure pm2 is installed under this Node version
+            command -v pm2 > /dev/null 2>&1 || npm install -g pm2
+            echo "pm2: $(pm2 -v)"
 
-              echo 'Clear stale Turbo cache, @nxt1/core dist, and backend dist...'
-              rm -rf packages/core/.turbo packages/core/dist .turbo backend/dist
+            echo 'Clear stale Turbo cache, @nxt1/core dist, and backend dist...'
+            rm -rf packages/core/.turbo packages/core/dist .turbo backend/dist
 
-              echo 'npm ci (clean install from package-lock.json)...'
-              npm ci
+            echo 'npm ci (clean install from package-lock.json)...'
+            npm ci
 
-              echo 'npm run build (backend + shared packages only)...'
-              npx turbo run build --filter=@nxt1/backend --filter=@nxt1/core --filter=@nxt1/cache
+            echo 'npm run build (backend + shared packages only)...'
+            npx turbo run build --filter=@nxt1/backend --filter=@nxt1/core --filter=@nxt1/cache
 
-              echo 'pm2 reload...'
-              pm2 reload 1 --update-env
-              echo 'Deploy done!'
-              pm2 list
-            "
+            echo 'pm2 reload...'
+            pm2 reload 1 --update-env
+            echo 'Deploy done!'
+            pm2 list
+            ROOTSCRIPT
+            echo "${{ secrets.SUDO_PASS }}" | sudo -S bash /tmp/nxt1-backend-deploy.sh
+            rm -f /tmp/nxt1-backend-deploy.sh
           ENDSSH
 
       - name: Notify success
