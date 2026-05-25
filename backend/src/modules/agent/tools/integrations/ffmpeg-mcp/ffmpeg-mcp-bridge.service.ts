@@ -14,6 +14,9 @@ import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { BaseMcpClientService, type McpToolCallResult } from '../base-mcp-client.service.js';
 import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 import { logger } from '../../../../../utils/logger.js';
+import { storage as defaultStorage } from '../../../../../utils/firebase.js';
+import { stagingStorage } from '../../../../../utils/firebase-staging.js';
+import { getSignedUrlWithTimeout } from '../../../../../utils/gcs-signed-url.js';
 import { MediaStagingService } from '../../media/media-staging.service.js';
 import { MediaTransportResolverService } from '../../media/media-transport-resolver.service.js';
 import type { ToolExecutionContext } from '../../base.tool.js';
@@ -228,8 +231,16 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
       );
     }
 
-    // Keep FFmpeg outputs under the standard Users/{userId}/threads/{threadId}
-    // storage hierarchy for consistency with all other staged media.
+    // Fast path: If the MCP server returned a raw (non-signed) GCS URL, sign it
+    // in-place using service-account credentials — no re-download / re-upload needed.
+    if (context && parsed.data.outputUrl) {
+      const signed = await this.trySignGcsUrl(parsed.data.outputUrl, toolName, context);
+      if (signed) {
+        return { ...parsed.data, outputUrl: signed };
+      }
+    }
+
+    // Legacy path: Move outputs at /agent-x/ffmpeg/ to the thread-scoped hierarchy.
     if (context && parsed.data.outputUrl && this.shouldRestageOutputUrl(parsed.data.outputUrl)) {
       const staged = await this.stageOutputFromPublicUrl(parsed.data.outputUrl, toolName, context);
       if (staged) {
@@ -296,6 +307,65 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
       ...args,
       output_path: threadScopedOutputPath,
     };
+  }
+
+  /**
+   * If the MCP server wrote the output to a GCS path in our Firebase Storage bucket
+   * and returned a raw (non-signed) GCS URL, sign it with the service-account so
+   * the frontend can access it. Avoids re-downloading and re-uploading the file.
+   * Returns null when the URL is not a recognisable in-bucket GCS URL or is already signed.
+   */
+  private async trySignGcsUrl(
+    outputUrl: string,
+    toolName: string,
+    context: ToolExecutionContext
+  ): Promise<string | null> {
+    const trimmed = outputUrl.trim();
+
+    // Skip already-signed URLs (they contain the X-Goog-Signature query parameter)
+    if (/[?&]x-goog-signature=/i.test(trimmed)) return null;
+
+    // Only handle plain storage.googleapis.com URLs
+    const gcsMatch = /^https:\/\/storage\.googleapis\.com\/([^/?#]+)\/(.+?)(?:\?.*)?$/i.exec(
+      trimmed
+    );
+    if (!gcsMatch) return null;
+
+    const bucketName = gcsMatch[1];
+    const filePath = decodeURIComponent(gcsMatch[2]);
+
+    try {
+      const storageInstance =
+        context.environment === 'staging'
+          ? stagingStorage
+          : context.environment === 'production'
+            ? defaultStorage
+            : process.env['NODE_ENV'] === 'staging'
+              ? stagingStorage
+              : defaultStorage;
+
+      const bucket = storageInstance.bucket(bucketName);
+      const file = bucket.file(filePath);
+      const expiresAt = new Date(Date.now() + 60 * 60_000); // 60-minute TTL
+
+      const [signedUrl] = await getSignedUrlWithTimeout(() =>
+        file.getSignedUrl({ action: 'read', expires: expiresAt, version: 'v4' })
+      );
+
+      logger.info('[FfmpegMCP] Signed GCS URL for ffmpeg output', {
+        toolName,
+        bucketName,
+        storagePath: filePath,
+      });
+
+      return signedUrl;
+    } catch (err) {
+      logger.warn('[FfmpegMCP] Could not sign GCS URL, will attempt re-staging', {
+        toolName,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return null;
+    }
   }
 
   private shouldRestageOutputUrl(outputUrl: string): boolean {
