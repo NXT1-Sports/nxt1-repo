@@ -12,12 +12,18 @@ export interface AgentJobFailureAlertInput {
   readonly failedAt?: Date;
 }
 
+const DEFAULT_ALERT_RECIPIENTS = ['john@nxt1sports.com', 'nxt1@nxt1sports.com'] as const;
+
 function resolveAlertRecipient(): string {
-  return (
-    process.env['AGENT_JOB_FAILURE_ALERT_EMAIL']?.trim() ||
-    process.env['SUPPORT_EMAIL']?.trim() ||
-    'john@nxt1sports.com'
-  );
+  const configuredRecipients = [
+    process.env['AGENT_JOB_FAILURE_ALERT_EMAIL'],
+    process.env['SUPPORT_EMAIL'],
+  ]
+    .flatMap((value) => (value ?? '').split(','))
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+
+  return [...new Set([...configuredRecipients, ...DEFAULT_ALERT_RECIPIENTS])].join(', ');
 }
 
 function resolveSupportReplyTo(): string {
