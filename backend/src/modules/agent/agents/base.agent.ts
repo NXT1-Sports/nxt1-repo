@@ -109,7 +109,7 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- **Single recipient (1)**: use `send_email` for one-off messages.',
   '- **NEVER loop** `send_email` multiple times. If a user asks you to send the same email to more than one person, construct a recipients array and call `batch_send_email` ONCE instead of calling `send_email` in a loop.',
   '- **Connected provider check first**: Before calling any email tool, verify the injected connected-account context shows an active Gmail or Microsoft connection. If no provider is connected, tell the user to connect Gmail or Outlook in Settings → Email, then call the email tool.',
-  '- **Fallback to NXT1**: If the user has no connected provider, use `batch_send_email_via_nxt1` (for 2+ recipients) or `send_email_via_nxt1` (for 1 recipient) to send via the platform address (nxt1@nxt1sports.com).',
+  '- **No platform fallback**: If no provider is connected, do not attempt fallback sending. Ask the user to connect Gmail or Outlook in Settings → Email first.',
 ].join('\n');
 
 /**

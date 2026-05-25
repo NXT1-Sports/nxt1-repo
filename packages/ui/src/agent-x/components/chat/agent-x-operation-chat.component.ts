@@ -98,7 +98,6 @@ import {
   type ActionCardOpenMediaEvent,
 } from '../cards/agent-x-action-card.component';
 import type { BillingActionResolvedEvent } from '../cards/agent-x-billing-action-card.component';
-import type { ConnectAccountCardActionEvent } from '../cards/agent-x-connect-account-card.component';
 import type { AgentYieldState } from '@nxt1/core';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import type { AgentXPendingFile } from '../../types/agent-x-pending-file';
@@ -254,7 +253,6 @@ type YieldStateSource =
                   [externalResolvedText]="msg.yieldResolvedText ?? ''"
                   (mediaRequested)="onBubbleMediaRequested($event)"
                   (billingActionResolved)="onBillingActionResolved($event)"
-                  (connectAccountAction)="onConnectAccountAction($event)"
                   (retryRequested)="runControlFacade.onRetryErrorMessage(msg)"
                 />
                 @if (msg.id === 'typing' && showThinking()) {
@@ -3326,16 +3324,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (event.completed && !this.embedded) {
       await this.dismiss();
     }
-  }
-
-  /** Handle connect-account card actions (connect flow is handled inside card component). */
-  protected async onConnectAccountAction(event: ConnectAccountCardActionEvent): Promise<void> {
-    if (event.action !== 'send-via-nxt1') return;
-
-    await this.runControlFacade.send({
-      text: 'Send via NXT1 email instead',
-      preserveDraft: true,
-    });
   }
 
   /** Remove dismissed pause-yield rows and legacy approval resolution artifacts from the timeline. */

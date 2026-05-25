@@ -8,7 +8,7 @@ import { HapticsService } from '../../../services/haptics';
 import { NxtLoggingService } from '../../../services/logging';
 
 export interface ConnectAccountCardActionEvent {
-  readonly action: 'connect-account' | 'send-via-nxt1';
+  readonly action: 'connect-account';
   readonly pendingTool?: string;
 }
 
@@ -27,15 +27,6 @@ export interface ConnectAccountCardActionEvent {
         >
           {{ connectLabel() }}
         </button>
-        @if (hasFallbackAction()) {
-          <button
-            type="button"
-            class="connect-card__btn connect-card__btn--secondary"
-            (click)="onSendViaNxt1()"
-          >
-            {{ fallbackLabel() }}
-          </button>
-        }
       </div>
     </div>
   `,
@@ -114,15 +105,6 @@ export class AgentXConnectAccountCardComponent {
     () => this.payload().connectLabel ?? 'Connect Gmail or Outlook'
   );
 
-  protected readonly fallbackLabel = computed(
-    () => this.payload().fallbackLabel ?? 'Send via NXT1 instead'
-  );
-
-  protected readonly hasFallbackAction = computed(() => {
-    const label = this.payload().fallbackLabel;
-    return typeof label === 'string' && label.trim().length > 0;
-  });
-
   protected async onConnect(): Promise<void> {
     await this.haptics.impact('light');
     this.breadcrumb.trackUserAction('agent-x-connect-account-card-connect');
@@ -140,18 +122,5 @@ export class AgentXConnectAccountCardComponent {
     } catch (error) {
       this.logger.error('Failed to open connected accounts modal from card action', error);
     }
-  }
-
-  protected async onSendViaNxt1(): Promise<void> {
-    await this.haptics.impact('light');
-    this.breadcrumb.trackUserAction('agent-x-connect-account-card-send-via-nxt1');
-    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_ACTION_CARD_EXECUTED, {
-      action: 'send-via-nxt1',
-      pendingTool: this.payload().pendingTool ?? undefined,
-    });
-    this.actionSelected.emit({
-      action: 'send-via-nxt1',
-      pendingTool: this.payload().pendingTool,
-    });
   }
 }
