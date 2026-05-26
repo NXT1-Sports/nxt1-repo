@@ -191,6 +191,8 @@ export async function dispatch(
     status: 'pending',
     createdAt: now,
     expiresAt: Timestamp.fromMillis(Date.now() + NOTIFICATION_TTL_MS),
+    ...(input.campaign ? { campaign: input.campaign } : {}),
+    ...(input.deliveryPolicy ? { deliveryPolicy: input.deliveryPolicy } : {}),
   });
 
   await batch.commit();

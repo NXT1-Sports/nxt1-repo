@@ -41,6 +41,7 @@ import {
   checkBudgetForResolvedTarget,
   expireStaleHolds,
   MIN_COST_CENTS,
+  estimateChargeAmountSync,
 } from '../../modules/billing/index.js';
 import crypto from 'node:crypto';
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
@@ -93,11 +94,46 @@ const ATTACHMENT_WAIT_TIMEOUT_MS: number =
 const ATTACHMENT_WAIT_PROGRESS_INTERVAL_MS = 4_000;
 const LIVE_BUFFER_MAX_EVENTS: number = AGENT_X_RUNTIME_CONFIG.operationStream.liveBufferMaxEvents;
 const PAUSE_YIELD_TTL_MS = 24 * 60 * 60 * 1000;
-// Chat budget/wallet admission should allow true near-zero spend down.
-// Gate only on the minimum billable amount.
-const CHAT_BILLING_GATE_MIN_COST_CENTS = MIN_COST_CENTS;
+const CHAT_BILLING_GATE_STANDARD_COST_CENTS = Math.max(
+  MIN_COST_CENTS,
+  estimateChargeAmountSync(0.1).chargeAmountCents
+);
+const CHAT_BILLING_GATE_MEDIA_COST_CENTS = (() => {
+  const parsed = Number.parseInt(process.env['AGENT_X_MEDIA_BILLING_GATE_COST_CENTS'] ?? '600', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 600;
+})();
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
 const AGENT_STREAM_EVENT_SCHEMA_VERSION = 2;
+
+function estimateChatBillingGateCostCents(input: {
+  readonly message?: string;
+  readonly mode?: string;
+  readonly selectedAction?: unknown;
+  readonly attachments?: readonly unknown[];
+}): number {
+  const selectedActionText = (() => {
+    try {
+      return JSON.stringify(input.selectedAction ?? '');
+    } catch {
+      return '';
+    }
+  })();
+  const text = `${input.message ?? ''} ${input.mode ?? ''} ${selectedActionText}`.toLowerCase();
+  const hasAttachment = (input.attachments?.length ?? 0) > 0;
+  const isMediaIntent =
+    /\b(video|videos|highlight|highlights|reel|clips?|film|hudl|runway|ffmpeg|merge|combine|intro|opener|motion\s+graphic|thumbnail|poster|graphic)\b/i.test(
+      text
+    ) &&
+    /\b(create|make|generate|edit|build|produce|merge|combine|cut|trim|add|turn|post)\b/i.test(
+      text
+    );
+
+  if (isMediaIntent || (hasAttachment && /\b(video|reel|clip|film|edit|merge)\b/i.test(text))) {
+    return Math.max(CHAT_BILLING_GATE_STANDARD_COST_CENTS, CHAT_BILLING_GATE_MEDIA_COST_CENTS);
+  }
+
+  return CHAT_BILLING_GATE_STANDARD_COST_CENTS;
+}
 
 interface ActiveUserStreamLease {
   readonly streamId: string;
@@ -4119,7 +4155,12 @@ router.post(
         );
       }
 
-      const estimatedGateCostCents = CHAT_BILLING_GATE_MIN_COST_CENTS;
+      const estimatedGateCostCents = estimateChatBillingGateCostCents({
+        message,
+        mode,
+        selectedAction,
+        attachments,
+      });
 
       const userRoleSnap = await db.collection('Users').doc(user.uid).get();
       const userRole = String(userRoleSnap.data()?.['role'] ?? 'athlete');

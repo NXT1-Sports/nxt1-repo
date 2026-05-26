@@ -23,6 +23,7 @@ import {
   type Gender,
   type Theme,
 } from '../../constants/user.constants';
+import type { NotificationCategory } from '../../constants/notification.constants';
 
 // Import all sub-types
 import type {
@@ -57,11 +58,35 @@ export type { TeamCode } from '../team/team-code.model';
 // ============================================
 
 /** Notification preferences */
+export interface NotificationCategoryChannelPreferences {
+  push?: boolean;
+  email?: boolean;
+  sms?: boolean;
+}
+
+export interface NotificationQuietHours {
+  enabled: boolean;
+  startHour: number;
+  endHour: number;
+  timezone: string;
+}
+
+export interface NotificationCadenceCaps {
+  maxPushesPerDay?: number;
+  minIntervalMinutes?: number;
+  maxMarketingPushesPerDay?: number;
+}
+
 export interface NotificationPreferences {
   push: boolean;
   email: boolean;
   sms?: boolean;
   marketing?: boolean;
+  categoryPreferences?: Partial<
+    Record<NotificationCategory, NotificationCategoryChannelPreferences>
+  >;
+  quietHours?: NotificationQuietHours;
+  cadenceCaps?: NotificationCadenceCaps;
 }
 
 /** User preferences and settings */

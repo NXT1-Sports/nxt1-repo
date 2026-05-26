@@ -761,6 +761,93 @@ describe('AgentRouter', () => {
     });
   });
 
+  describe('primary team handoff safeguards', () => {
+    it('fills in missing teamCode on coordinator dispatch from active team context', async () => {
+      const executionService = {
+        executePlan: vi.fn().mockResolvedValue({
+          taskResults: new Map([
+            [
+              'data_coordinator_1',
+              {
+                summary: 'Roster sync queued.',
+              },
+            ],
+          ]),
+          mutableTasks: [
+            {
+              id: 'data_coordinator_1',
+              status: 'completed',
+              description: 'Write the team roster',
+            },
+          ],
+        }),
+      };
+
+      const service = new AgentRouterPrimaryService({
+        executionService: executionService as never,
+        contextService: {
+          buildTaskIntent: vi.fn().mockReturnValue('Objective: write the team roster'),
+        } as never,
+        policyService: {
+          rerouteDelegatedTask: vi.fn(),
+        } as never,
+        planningService: {} as never,
+        planner: {} as never,
+        agents: new Map(),
+        resolveUserContext: async () =>
+          ({
+            userId: 'coach-1',
+            displayName: 'Coach Test',
+            role: 'coach',
+            teamId: 'team-1',
+            teamCode: 'TEAM123',
+          }) as AgentUserContext,
+        resolveToolAccessContext: async () => ({
+          userId: 'coach-1',
+          role: 'coach',
+          teamId: 'team-1',
+          allowedEntityGroups: ['platform_tools', 'system_tools', 'team_tools', 'user_tools'],
+        }),
+        planRepository: {} as never,
+      });
+
+      await service.runCoordinator(
+        'data_coordinator',
+        'Write the team roster from the latest source.',
+        {
+          operationId: 'op-team-handoff',
+          userId: 'coach-1',
+          enrichedIntent: 'Write the team roster from the latest source.',
+          sessionContext: {
+            sessionId: 'session-1',
+            userId: 'coach-1',
+            operationId: 'op-team-handoff',
+            conversationHistory: [],
+            createdAt: new Date().toISOString(),
+            lastActiveAt: new Date().toISOString(),
+          },
+        },
+        { sourceUrl: 'https://www.maxpreps.com/roster' }
+      );
+
+      expect(executionService.executePlan).toHaveBeenCalledWith(
+        expect.objectContaining({
+          plan: {
+            tasks: [
+              expect.objectContaining({
+                structuredPayload: expect.objectContaining({
+                  sourceUrl: 'https://www.maxpreps.com/roster',
+                  teamId: 'team-1',
+                  teamCode: 'TEAM123',
+                }),
+              }),
+            ],
+          },
+        })
+      );
+    });
+  });
+
   describe('context enrichment', () => {
     it('should keep capability snapshot aligned with policy-filtered tool exposure', async () => {
       const router = new AgentRouter(llm, toolRegistry, contextBuilder);

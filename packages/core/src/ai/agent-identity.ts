@@ -183,17 +183,59 @@ export function extractMediaAttachmentsFromResultData(
     const url = attachment.url;
     if (!url || typeof url !== 'string') return;
     const normalized = url.trim();
-    if (!normalized || seen.has(normalized)) return;
+    if (!normalized || !isAbsoluteHttpUrl(normalized) || seen.has(normalized)) return;
     seen.add(normalized);
     attachments.push({ ...attachment, url: normalized });
   };
 
+  const inferTypeFromUrl = (value: string): 'image' | 'video' | 'doc' => {
+    const lower = value.toLowerCase();
+    if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:[?#]|$)/i.test(lower)) return 'image';
+    if (/\.(mp4|mov|m4v|webm|avi|mkv)(?:[?#]|$)/i.test(lower)) return 'video';
+    return 'doc';
+  };
+
+  const inferTypeFromMime = (mimeType: string | undefined): 'image' | 'video' | 'doc' => {
+    const normalized = (mimeType ?? '').toLowerCase();
+    if (normalized.startsWith('image/')) return 'image';
+    if (normalized.startsWith('video/')) return 'video';
+    return 'doc';
+  };
+
   const collectFromRecord = (record: Record<string, unknown>): void => {
-    // Scalar fields: imageUrl, videoUrl, outputUrl
+    // Scalar fields: image/video/document outputs commonly emitted by tools.
     if (typeof record['imageUrl'] === 'string') {
       addAttachment({
         url: record['imageUrl'],
         name: 'image.jpg',
+        type: 'image',
+      });
+    }
+    if (typeof record['diagramUrl'] === 'string') {
+      addAttachment({
+        url: record['diagramUrl'],
+        name: 'diagram.png',
+        type: 'image',
+      });
+    }
+    if (typeof record['chartUrl'] === 'string') {
+      addAttachment({
+        url: record['chartUrl'],
+        name: 'chart.png',
+        type: 'image',
+      });
+    }
+    if (typeof record['sourceImageUrl'] === 'string') {
+      addAttachment({
+        url: record['sourceImageUrl'],
+        name: 'image.jpg',
+        type: 'image',
+      });
+    }
+    if (typeof record['thumbnailUrl'] === 'string') {
+      addAttachment({
+        url: record['thumbnailUrl'],
+        name: 'thumbnail.jpg',
         type: 'image',
       });
     }
@@ -205,14 +247,30 @@ export function extractMediaAttachmentsFromResultData(
       });
     }
     if (typeof record['outputUrl'] === 'string') {
+      const outputUrl = record['outputUrl'];
       addAttachment({
-        url: record['outputUrl'],
-        name: 'video.mp4',
-        type: 'video',
+        url: outputUrl,
+        name: inferTypeFromUrl(outputUrl) === 'image' ? 'image.jpg' : 'video.mp4',
+        type: inferTypeFromUrl(outputUrl),
+      });
+    }
+    if (typeof record['pdfUrl'] === 'string') {
+      addAttachment({
+        url: record['pdfUrl'],
+        name: 'export.pdf',
+        type: 'doc',
+        mimeType: 'application/pdf',
+      });
+    }
+    if (typeof record['exportUrl'] === 'string') {
+      addAttachment({
+        url: record['exportUrl'],
+        name: 'export',
+        type: inferTypeFromUrl(record['exportUrl']),
       });
     }
 
-    // Array fields: imageUrls, videoUrls
+    // Array fields: imageUrls, videoUrls, mediaUrls
     if (Array.isArray(record['imageUrls'])) {
       (record['imageUrls'] as unknown[]).forEach((url, idx) => {
         if (typeof url !== 'string') return;
@@ -233,39 +291,69 @@ export function extractMediaAttachmentsFromResultData(
         });
       });
     }
-
-    // files[] array: map each item's url/name/mimeType
-    if (Array.isArray(record['files'])) {
-      (record['files'] as unknown[]).forEach((file, idx) => {
-        if (!file || typeof file !== 'object') return;
-        const obj = file as Record<string, unknown>;
-        const url = resolvePreferredAttachmentUrl(obj);
-        const name = typeof obj['name'] === 'string' ? obj['name'] : `file-${idx}`;
-        const mimeType = readNonEmptyString(obj['mimeType']) ?? '';
-        const type = mimeType.startsWith('image/')
-          ? 'image'
-          : mimeType.startsWith('video/')
-            ? 'video'
-            : 'doc';
-        if (!url) return;
+    if (Array.isArray(record['mediaUrls'])) {
+      (record['mediaUrls'] as unknown[]).forEach((url, idx) => {
+        if (typeof url !== 'string') return;
+        const inferred = inferTypeFromUrl(url);
         addAttachment({
           url,
-          name,
-          type,
-          ...(mimeType ? { mimeType } : {}),
-          ...(readNonEmptyString(obj['storagePath'])
-            ? { storagePath: readNonEmptyString(obj['storagePath']) }
-            : {}),
-          ...(readNonNegativeNumber(obj['sizeBytes']) !== undefined
-            ? { sizeBytes: readNonNegativeNumber(obj['sizeBytes']) }
-            : {}),
-          ...(readNonEmptyString(obj['thumbnailUrl'])
-            ? { thumbnailUrl: readNonEmptyString(obj['thumbnailUrl']) }
-            : {}),
-          ...(readNonEmptyString(obj['cloudflareVideoId'])
-            ? { cloudflareVideoId: readNonEmptyString(obj['cloudflareVideoId']) }
-            : {}),
+          name: `${inferred}-${idx}.${inferred === 'image' ? 'jpg' : inferred === 'video' ? 'mp4' : 'bin'}`,
+          type: inferred,
         });
+      });
+    }
+
+    const collectFileLikeAttachment = (file: unknown, idx: number): void => {
+      if (!file || typeof file !== 'object') return;
+      const obj = file as Record<string, unknown>;
+      const url = resolvePreferredAttachmentUrl(obj);
+      const name = typeof obj['name'] === 'string' ? obj['name'] : `file-${idx}`;
+      const mimeType = readNonEmptyString(obj['mimeType']) ?? '';
+      const declaredType = readNonEmptyString(obj['type']);
+      const type =
+        declaredType === 'image' || declaredType === 'video' || declaredType === 'doc'
+          ? declaredType
+          : inferTypeFromMime(mimeType);
+      if (!url) return;
+      addAttachment({
+        url,
+        name,
+        type,
+        ...(mimeType ? { mimeType } : {}),
+        ...(readNonEmptyString(obj['storagePath'])
+          ? { storagePath: readNonEmptyString(obj['storagePath']) }
+          : {}),
+        ...(readNonNegativeNumber(obj['sizeBytes']) !== undefined
+          ? { sizeBytes: readNonNegativeNumber(obj['sizeBytes']) }
+          : {}),
+        ...(readNonEmptyString(obj['thumbnailUrl'])
+          ? { thumbnailUrl: readNonEmptyString(obj['thumbnailUrl']) }
+          : {}),
+        ...(readNonEmptyString(obj['cloudflareVideoId'])
+          ? { cloudflareVideoId: readNonEmptyString(obj['cloudflareVideoId']) }
+          : {}),
+      });
+    };
+
+    // files[] and attachments[] arrays: map each item's url/name/mimeType
+    if (Array.isArray(record['files'])) {
+      (record['files'] as unknown[]).forEach((file, idx) => {
+        collectFileLikeAttachment(file, idx);
+      });
+    }
+    if (Array.isArray(record['attachments'])) {
+      (record['attachments'] as unknown[]).forEach((file, idx) => {
+        collectFileLikeAttachment(file, idx);
+      });
+    }
+
+    // mediaArtifact / mediaArtifacts structured outputs from media tools
+    if (record['mediaArtifact'] && typeof record['mediaArtifact'] === 'object') {
+      collectFileLikeAttachment(record['mediaArtifact'], 0);
+    }
+    if (Array.isArray(record['mediaArtifacts'])) {
+      (record['mediaArtifacts'] as unknown[]).forEach((artifact, idx) => {
+        collectFileLikeAttachment(artifact, idx);
       });
     }
 
@@ -304,28 +392,36 @@ export function extractMediaAttachmentsFromResultData(
     }
   };
 
-  const nestedRecords: Record<string, unknown>[] = [];
-  const queueNestedRecord = (value: unknown): void => {
-    if (value && typeof value === 'object') {
-      nestedRecords.push(value as Record<string, unknown>);
+  const visitedRecords = new WeakSet<object>();
+  const walkRecords = (value: unknown): void => {
+    if (!value || typeof value !== 'object') return;
+
+    if (Array.isArray(value)) {
+      for (const entry of value) {
+        walkRecords(entry);
+      }
+      return;
+    }
+
+    if (visitedRecords.has(value)) return;
+    visitedRecords.add(value);
+
+    const record = value as Record<string, unknown>;
+    collectFromRecord(record);
+
+    for (const nestedValue of Object.values(record)) {
+      if (!nestedValue || typeof nestedValue !== 'object') continue;
+      walkRecords(nestedValue);
     }
   };
 
-  queueNestedRecord(resultData['coordinator_artifacts']);
-  queueNestedRecord(resultData['coordinatorArtifacts']);
+  // Recursively traverse all nested records so coordinator artifacts and tool outputs
+  // always surface attachments on the final assistant message.
+  walkRecords(resultData);
 
-  if (Array.isArray(resultData['toolCallRecords'])) {
-    (resultData['toolCallRecords'] as unknown[]).forEach((record) => {
-      if (!record || typeof record !== 'object') return;
-      const recordObj = record as Record<string, unknown>;
-      queueNestedRecord(recordObj['output']);
-    });
-  }
-
-  // Top-level extraction first, then nested records from coordinator delegation outputs.
-  collectFromRecord(resultData);
-  for (const nested of nestedRecords) {
-    collectFromRecord(nested);
+  // Keep ffmpeg thumbnail pairing behavior after recursive extraction.
+  if (attachments.length === 0) {
+    return attachments;
   }
 
   const ffmpegThumbnailUrls = collectFfmpegThumbnailUrls(resultData);

@@ -84,6 +84,70 @@ describe('extractMediaAttachmentsFromResultData', () => {
     ).toHaveLength(1);
   });
 
+  it('extracts nested diagram URLs from coordinator artifacts payloads', () => {
+    const attachments = extractMediaAttachmentsFromResultData({
+      coordinatorArtifacts: {
+        plays: [
+          {
+            name: 'Seam Levels',
+            diagramUrl: 'https://cdn.example.com/diagram-1.png',
+          },
+          {
+            name: 'Flood 3 Levels',
+            diagramUrl: 'https://cdn.example.com/diagram-2.png',
+          },
+        ],
+      },
+    });
+
+    expect(attachments).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          url: 'https://cdn.example.com/diagram-1.png',
+          type: 'image',
+        }),
+        expect.objectContaining({
+          url: 'https://cdn.example.com/diagram-2.png',
+          type: 'image',
+        }),
+      ])
+    );
+  });
+
+  it('extracts mediaArtifact and attachments arrays from nested tool outputs', () => {
+    const attachments = extractMediaAttachmentsFromResultData({
+      toolCallRecords: [
+        {
+          toolName: 'create_play_diagram',
+          status: 'success',
+          output: {
+            mediaArtifact: {
+              url: 'https://cdn.example.com/play-diagram.png',
+              type: 'image',
+              mimeType: 'image/png',
+              name: 'play-diagram.png',
+            },
+            attachments: [
+              {
+                url: 'https://cdn.example.com/play-diagram.png',
+                type: 'image',
+                mimeType: 'image/png',
+                name: 'play-diagram.png',
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    expect(attachments).toEqual([
+      expect.objectContaining({
+        url: 'https://cdn.example.com/play-diagram.png',
+        type: 'image',
+      }),
+    ]);
+  });
+
   it('pairs ffmpeg thumbnail output with the latest video and suppresses standalone thumbnail image', () => {
     const attachments = extractMediaAttachmentsFromResultData({
       videoUrl: 'https://cdn.example.com/final-reel.mp4',

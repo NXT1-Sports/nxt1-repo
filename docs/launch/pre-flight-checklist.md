@@ -19,7 +19,7 @@ a severe outage on Day 1.
 
 - [ ] **Webhooks Configured:** Go to the Stripe Developer Dashboard and point
       the webhook to your production Cloud Run URL (e.g.,
-      `https://api.nxt1.app/api/webhooks/stripe`).
+      `https://api.nxt1sports.com/api/v1/webhook`).
 - [ ] **Pricing IDs Sync:** Verify the Stripe Price IDs in your backend
       constants perfectly match your _LIVE_ Stripe Dashboard (Test Mode IDs will
       crash all live purchases).

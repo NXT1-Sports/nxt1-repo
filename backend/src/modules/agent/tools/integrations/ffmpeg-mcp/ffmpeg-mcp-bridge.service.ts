@@ -50,6 +50,16 @@ function readPositiveIntegerEnv(name: string, fallback: number): number {
 const DEFAULT_TIMEOUT_MS = readPositiveIntegerEnv('FFMPEG_MCP_DEFAULT_TIMEOUT_MS', 60_000);
 const LONG_RUNNING_TIMEOUT_MS = readPositiveIntegerEnv('FFMPEG_MCP_LONG_TIMEOUT_MS', 180_000);
 const REENCODE_TIMEOUT_MS = readPositiveIntegerEnv('FFMPEG_MCP_REENCODE_TIMEOUT_MS', 300_000);
+const MERGE_TIMEOUT_MS = readPositiveIntegerEnv('FFMPEG_MCP_MERGE_TIMEOUT_MS', 900_000);
+
+function compactToolArgs(args: Record<string, unknown>): Record<string, unknown> {
+  const compacted: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(args)) {
+    if (value === undefined || value === null || value === '') continue;
+    compacted[key] = value;
+  }
+  return compacted;
+}
 
 /**
  * Unwrap the `{ result: "<json-string>" }` envelope that some MCP server
@@ -149,6 +159,7 @@ function extractErrorMessage(result: McpToolCallResult): string {
 export class FfmpegMcpBridgeService extends BaseMcpClientService {
   readonly serverName = 'ffmpeg-mcp';
   private static readonly TOKEN_HEADER = 'x-ffmpeg-mcp-token';
+  private static executionQueue: Promise<void> = Promise.resolve();
 
   private readonly baseUrl: string;
   private readonly apiToken: string | null;
@@ -194,9 +205,15 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
     timeoutMs = DEFAULT_TIMEOUT_MS,
     context?: ToolExecutionContext
   ): Promise<FfmpegOperationResult> {
-    const argsWithThreadScopedOutputPath = this.withThreadScopedOutputPath(args, context, toolName);
+    const argsWithThreadScopedOutputPath = this.withThreadScopedOutputPath(
+      compactToolArgs(args),
+      context,
+      toolName
+    );
     const resolvedArgs = await this.resolveOperationArgs(argsWithThreadScopedOutputPath, context);
-    const result = await this.executeTool(toolName, resolvedArgs, { timeoutMs });
+    const result = await this.executeSerialized(toolName, () =>
+      this.executeTool(toolName, compactToolArgs(resolvedArgs), { timeoutMs })
+    );
 
     if (result.isError) {
       const message = extractErrorMessage(result);
@@ -253,6 +270,23 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
     }
 
     return parsed.data;
+  }
+
+  private async executeSerialized<T>(toolName: string, operation: () => Promise<T>): Promise<T> {
+    const previous = FfmpegMcpBridgeService.executionQueue;
+    let release!: () => void;
+    FfmpegMcpBridgeService.executionQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+
+    await previous.catch(() => undefined);
+
+    logger.info('[FfmpegMCP] Executing serialized operation', { toolName });
+    try {
+      return await operation();
+    } finally {
+      release();
+    }
   }
 
   private withThreadScopedOutputPath(
@@ -486,7 +520,7 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
         output_path: input.outputPath ?? 'merged.mp4',
         method: input.method,
       },
-      LONG_RUNNING_TIMEOUT_MS,
+      MERGE_TIMEOUT_MS,
       context
     );
   }
@@ -584,6 +618,7 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
         audio_bitrate: input.audioBitrate,
         preset: input.preset,
         crf: input.crf,
+        add_silent_audio: input.addSilentAudio === true ? true : undefined,
         extra_args: input.extraArgs,
       },
       REENCODE_TIMEOUT_MS,

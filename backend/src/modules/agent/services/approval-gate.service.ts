@@ -43,6 +43,7 @@ import type {
 } from '@nxt1/core';
 import { AGENT_APPROVAL_POLICIES, resolveAgentApprovalCopy } from '@nxt1/core';
 import { dispatchAgentPush } from './agent-push-adapter.service.js';
+import { resolveMicrosoft365ToolMetadata } from '../tools/integrations/microsoft-365/shared.js';
 import { logger } from '../../../utils/logger.js';
 
 /** Firestore collection for approval request documents. */
@@ -58,6 +59,86 @@ export interface ApprovalRequirement {
   readonly policy: AgentApprovalPolicy;
   readonly reasonCode: AgentApprovalReasonCode;
   readonly actionSummary: string;
+}
+
+const MICROSOFT_365_MAIL_APPROVAL_POLICY: AgentApprovalPolicy = {
+  toolName: 'run_microsoft_365_tool',
+  requiresApproval: true,
+  autoApproveOnExpiry: false,
+  expiryMs: 86_400_000,
+  riskLevel: 'high',
+  sessionTrustGroup: 'email',
+};
+
+function resolveMicrosoft365MailApprovalRequirement(
+  toolInput: Record<string, unknown>
+): ApprovalRequirement | null {
+  const nestedToolName =
+    typeof toolInput['toolName'] === 'string' ? toolInput['toolName'].trim() : '';
+  if (!nestedToolName) return null;
+
+  const metadata = resolveMicrosoft365ToolMetadata(nestedToolName);
+  if (!metadata || metadata.service !== 'mail' || !metadata.isMutation) {
+    return null;
+  }
+
+  const args =
+    toolInput['arguments'] &&
+    typeof toolInput['arguments'] === 'object' &&
+    !Array.isArray(toolInput['arguments'])
+      ? (toolInput['arguments'] as Record<string, unknown>)
+      : {};
+
+  const recipients = [
+    args['to'],
+    args['toEmail'],
+    args['recipient'],
+    args['recipients'],
+    args['message'],
+  ]
+    .flatMap((value) => {
+      if (typeof value === 'string' && value.trim()) return [value.trim()];
+      if (Array.isArray(value)) {
+        return value.filter(
+          (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+        );
+      }
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        const record = value as Record<string, unknown>;
+        return [record['emailAddress'], record['address'], record['toEmail']].filter(
+          (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+        );
+      }
+      return [] as string[];
+    })
+    .slice(0, 3);
+
+  const subjectCandidates = [
+    args['subject'],
+    args['title'],
+    args['message'] && typeof args['message'] === 'object' && !Array.isArray(args['message'])
+      ? (args['message'] as Record<string, unknown>)['subject']
+      : null,
+  ];
+  const subject = subjectCandidates.find(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0
+  );
+
+  const actionSummaryBase =
+    recipients.length > 1
+      ? `Send ${recipients.length} Outlook emails`
+      : recipients.length === 1
+        ? `Send an Outlook email to ${recipients[0]}`
+        : 'Send an Outlook email';
+
+  return {
+    policy: MICROSOFT_365_MAIL_APPROVAL_POLICY,
+    reasonCode: 'send_email',
+    actionSummary:
+      subject && subject.trim().length > 0
+        ? `${actionSummaryBase} with subject "${subject.trim()}".`
+        : `${actionSummaryBase}.`,
+  };
 }
 
 export class ApprovalGateService {
@@ -247,6 +328,13 @@ export class ApprovalGateService {
     toolName: string,
     toolInput: Record<string, unknown>
   ): ApprovalRequirement | null {
+    if (toolName === 'run_microsoft_365_tool') {
+      const microsoftMailRequirement = resolveMicrosoft365MailApprovalRequirement(toolInput);
+      if (microsoftMailRequirement) {
+        return microsoftMailRequirement;
+      }
+    }
+
     const staticPolicy = this.getApprovalPolicy(toolName);
     if (staticPolicy) {
       const copy = resolveAgentApprovalCopy({

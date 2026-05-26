@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/backend",
-  "version": "1.37.5",
+  "version": "1.39.0",
   "description": "NXT1 Backend API Server",
   "private": true,
   "type": "module",
@@ -78,6 +78,8 @@
     "email:setup-brevo-migration": "node scripts/email/setup-brevo-migration-campaign.mjs",
     "email:b2b-partner:dry-run": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/email/send-b2b-partner-brand-awareness.ts",
     "email:b2b-partner:send": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/email/send-b2b-partner-brand-awareness.ts --commit",
+    "email:support:test": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/email/send-support-test-email.ts",
+    "email:support:test:send": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/email/send-support-test-email.ts --commit",
     "email:legacy:gmail:dry-run": "node scripts/email/send-legacy-users-gmail.mjs",
     "email:legacy:gmail:send": "node scripts/email/send-legacy-users-gmail.mjs --commit",
     "email:legacy:gmail:resume": "node scripts/email/send-legacy-users-gmail.mjs --commit --resume"

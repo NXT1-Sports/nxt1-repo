@@ -1,9 +1,9 @@
 # =============================================================================
-# NXT1 Backend — Auto Deploy via SSH
+# NXT1 Backend - Auto Deploy via SSH
 # =============================================================================
-# Trigger: push to main → deploy production
+# Trigger: push to main -> deploy production
 #
-# ── One-time setup: generate a passphrase-free CI deploy key ───────────────
+# -- One-time setup: generate a passphrase-free CI deploy key --
 #   Run on your LOCAL machine:
 #     ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/nxt1-ci -N ""
 #     # -N "" = no passphrase (required for CI)
@@ -14,12 +14,14 @@
 #
 #   Add the private key to GitHub Secrets:
 #     cat ~/.ssh/nxt1-ci | pbcopy
-#     → GitHub repo → Settings → Secrets and variables → Actions
-#     → New repository secret → Name: SSH_PRIVATE_KEY → paste
+#     -> GitHub repo -> Settings -> Secrets and variables -> Actions
+#     -> New repository secret -> Name: SSH_PRIVATE_KEY -> paste
 #
-# ── Required Secrets ──────────────────────────────────────────────────
-#   SSH_PRIVATE_KEY  — Contents of ~/.ssh/nxt1-ci (passphrase-free)
-#   SUDO_PASS        — sudo password for ngocsonxx98
+# -- Required Secrets -------------------------------------------------
+#   SSH_PRIVATE_KEY  - Contents of ~/.ssh/nxt1-ci (passphrase-free)
+#   SUDO_PASS        - sudo password for ngocsonxx98
+#   SLACK_NEW_ATHLETES_WEBHOOK_URL - Dedicated signup alerts for athlete signups
+#   SLACK_NEW_TEAMS_WEBHOOK_URL    - Dedicated signup alerts for team/staff signups
 # =============================================================================
 
 name: Deploy Backend
@@ -55,7 +57,7 @@ jobs:
 
     steps:
       - name: Setup SSH key
-        # Write the key directly — no third-party action needed, no passphrase issues
+        # Write the key directly - no third-party action needed, no passphrase issues
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
@@ -65,54 +67,100 @@ jobs:
       - name: Deploy via SSH
         # Use sudo -S to pass the password non-interactively
         run: |
+          cat > /tmp/nxt1-backend-deploy.sh <<'ROOTSCRIPT'
+          set -euo pipefail
+          cd ${{ env.REPO_PATH }}
+
+          echo 'git stash...'
+          git stash
+
+          echo 'git pull...'
+          git pull
+
+          # Ensure Node.js 22 is available (install via nvm if needed)
+          export NVM_DIR="/root/.nvm"
+          if [ ! -s "$NVM_DIR/nvm.sh" ]; then
+            echo 'Installing nvm...'
+            curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
+          fi
+          source "$NVM_DIR/nvm.sh"
+          nvm install 22
+          nvm use 22
+          echo "Node: $(node -v), npm: $(npm -v)"
+
+          # Ensure pm2 is installed under this Node version
+          command -v pm2 > /dev/null 2>&1 || npm install -g pm2
+          echo "pm2: $(pm2 -v)"
+
+          echo 'Sync backend env flags...'
+          ENV_FILE="backend/.env"
+          touch "$ENV_FILE"
+          upsert_env_var() {
+            local key="$1"
+            local value="$2"
+            if grep -q "^${key}=" "$ENV_FILE"; then
+              sed -i "s|^${key}=.*|${key}='${value}'|" "$ENV_FILE"
+            else
+              printf "%s='%s'\n" "$key" "$value" >> "$ENV_FILE"
+            fi
+          }
+          upsert_optional_env_var() {
+            local key="$1"
+            local value="$2"
+            if [ -n "$value" ]; then
+              upsert_env_var "$key" "$value"
+              echo "${key}=configured"
+            else
+              echo "${key}=unchanged (secret not provided)"
+            fi
+          }
+          upsert_env_var \
+            "AGENT_JOB_CUSTOMER_RECOVERY_EMAILS_ENABLED" \
+            "true"
+          upsert_env_var \
+            "AGENT_JOB_RESOLUTION_EMAILS_ENABLED" \
+            "true"
+          upsert_optional_env_var \
+            "SLACK_NEW_ATHLETES_WEBHOOK_URL" \
+            "${{ secrets['SLACK_NEW_ATHLETES_WEBHOOK_URL'] }}"
+          upsert_optional_env_var \
+            "SLACK_NEW_TEAMS_WEBHOOK_URL" \
+            "${{ secrets['SLACK_NEW_TEAMS_WEBHOOK_URL'] }}"
+          echo 'AGENT_JOB_CUSTOMER_RECOVERY_EMAILS_ENABLED=true'
+          echo 'AGENT_JOB_RESOLUTION_EMAILS_ENABLED=true'
+
+          echo 'Clear stale Turbo cache, @nxt1/core dist, and backend dist...'
+          rm -rf packages/core/.turbo packages/core/dist .turbo backend/dist
+
+          echo 'npm ci (clean install from package-lock.json)...'
+          npm ci
+
+          echo 'npm run build (backend + shared packages only)...'
+          npx turbo run build --filter=@nxt1/backend --filter=@nxt1/core --filter=@nxt1/cache
+
+          echo 'pm2 reload...'
+          pm2 reload 1 --update-env
+          echo 'Deploy done!'
+          pm2 list
+          ROOTSCRIPT
+
+          scp -i ~/.ssh/deploy_key \
+            -o StrictHostKeyChecking=no \
+            /tmp/nxt1-backend-deploy.sh \
+            ${{ env.SSH_USER }}@${{ env.SSH_HOST }}:/tmp/nxt1-backend-deploy.sh
+
           ssh -i ~/.ssh/deploy_key \
             -o StrictHostKeyChecking=no \
             ${{ env.SSH_USER }}@${{ env.SSH_HOST }} << 'ENDSSH'
-            echo "${{ secrets.SUDO_PASS }}" | sudo -S bash -c "
-              set -e
-              cd ${{ env.REPO_PATH }}
-
-              echo 'git stash...'
-              git stash
-
-              echo 'git pull...'
-              git pull
-
-              # Ensure Node.js 22 is available (install via nvm if needed)
-              export NVM_DIR=\"/root/.nvm\"
-              if [ ! -s \"\$NVM_DIR/nvm.sh\" ]; then
-                echo 'Installing nvm...'
-                curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
-              fi
-              source \"\$NVM_DIR/nvm.sh\"
-              nvm install 22
-              nvm use 22
-              echo \"Node: \$(node -v), npm: \$(npm -v)\"
-
-              # Ensure pm2 is installed under this Node version
-              command -v pm2 > /dev/null 2>&1 || npm install -g pm2
-              echo "pm2: $(pm2 -v)"
-
-              echo 'Clear stale Turbo cache, @nxt1/core dist, and backend dist...'
-              rm -rf packages/core/.turbo packages/core/dist .turbo backend/dist
-
-              echo 'npm ci (clean install from package-lock.json)...'
-              npm ci
-
-              echo 'npm run build (backend + shared packages only)...'
-              npx turbo run build --filter=@nxt1/backend --filter=@nxt1/core --filter=@nxt1/cache
-
-              echo 'pm2 reload...'
-              pm2 reload 1 --update-env
-              echo 'Deploy done!'
-              pm2 list
-            "
+            set -euo pipefail
+            echo "${{ secrets.SUDO_PASS }}" | sudo -S bash /tmp/nxt1-backend-deploy.sh
+            rm -f /tmp/nxt1-backend-deploy.sh
           ENDSSH
 
       - name: Notify success
         if: success()
-        run: echo "✅ Deploy succeeded! Commit ${{ github.sha }}"
+        run: echo "Deploy succeeded. Commit ${{ github.sha }}"
 
       - name: Notify failure
         if: failure()
-        run: echo "❌ Deploy FAILED! See logs at ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        run: echo "Deploy FAILED. See logs at ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

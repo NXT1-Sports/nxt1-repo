@@ -139,6 +139,7 @@ describe('chat-context.helpers', () => {
           ],
         },
         metadata: {
+          currentTimeSec: 74.25,
           annotationSnapshotAttached: true,
           annotationSnapshotAttachmentName: 'fourth-quarter-annotated-7200.jpg',
         },
@@ -152,7 +153,9 @@ describe('chat-context.helpers', () => {
     );
     expect(enriched).toContain('Boundary throw with drawn route');
     expect(enriched).toContain('User drawing annotation: freehand, 2 stroke(s)');
-    expect(enriched).toContain('normalized bounds x=0.1-0.5, y=0.2-0.7');
+    expect(enriched).toContain('video-frame normalized bounds x=0.1-0.5, y=0.2-0.7');
+    expect(enriched).toContain('Marked-frame timestamp: 74.25s');
+    expect(enriched).toContain('use this exact timestamp when generating fallback still frames');
     expect(enriched).toContain(
       'flattened annotated frame image attachment named "fourth-quarter-annotated-7200.jpg"'
     );

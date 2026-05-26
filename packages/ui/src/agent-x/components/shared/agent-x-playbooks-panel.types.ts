@@ -25,6 +25,7 @@ export interface PlaybookPlay {
   readonly personnel?: string;
   readonly downDistance?: string;
   readonly objective?: string;
+  readonly playBreakdown?: string;
   readonly installNotes?: string;
   readonly tags?: readonly string[];
   readonly conceptTags?: readonly string[];
@@ -104,7 +105,6 @@ export interface UploadAttachmentResponse {
 
 export interface NewPlaybookForm {
   name: string;
-  sport: string;
   season: string;
 }
 
@@ -121,6 +121,7 @@ export interface PlayForm {
   formation: string;
   personnel: string;
   objective: string;
+  playBreakdown: string;
   installNotes: string;
   conceptTags: string;
   diagramUrl: string;
@@ -146,6 +147,133 @@ export interface CallsheetAiResponse {
   readonly error?: string;
 }
 
+export interface CallsheetSummary {
+  readonly id: string;
+  readonly teamId: string;
+  readonly playbookId: string;
+  readonly sport: string;
+  readonly title: string;
+  readonly situation: string;
+  readonly playCount: number;
+  readonly groupCount?: number;
+  readonly topPlayName?: string | null;
+  readonly archived?: boolean;
+  readonly updatedAt?: string;
+  readonly createdAt?: string;
+}
+
+export interface CallsheetGroup {
+  readonly id: string;
+  readonly name: string;
+  readonly playNames: readonly string[];
+}
+
+export interface CallsheetDetail extends CallsheetSummary {
+  readonly filters?: Readonly<Record<string, string>>;
+  readonly notes?: string;
+  readonly plays?: readonly CallsheetAiPlayRanking[];
+  readonly groups?: readonly CallsheetGroup[];
+  readonly source?: string;
+  readonly updatedBy?: string;
+  readonly createdBy?: string;
+}
+
+export interface CallsheetsResponse {
+  readonly success: boolean;
+  readonly data?: {
+    readonly callsheets: readonly CallsheetSummary[];
+    readonly count: number;
+  };
+  readonly error?: string;
+}
+
+export interface CallsheetDetailResponse {
+  readonly success: boolean;
+  readonly data?: {
+    readonly callsheet: CallsheetDetail;
+  };
+  readonly error?: string;
+}
+
+export interface PracticeScriptPeriod {
+  readonly id: string;
+  readonly label: string;
+  readonly clock: string;
+  readonly reps: number;
+  readonly callType: string;
+  readonly playName: string;
+  readonly coachingPoint?: string;
+  readonly notes?: string;
+}
+
+export interface PracticeScriptSummary {
+  readonly id: string;
+  readonly teamId: string;
+  readonly playbookId: string;
+  readonly sport: string;
+  readonly title: string;
+  readonly focus: string;
+  readonly tempo: string;
+  readonly scriptDate?: string;
+  readonly opponent?: string;
+  readonly totalPeriods: number;
+  readonly totalReps: number;
+  readonly displayOrder?: number;
+  readonly archived?: boolean;
+  readonly updatedAt?: string;
+  readonly createdAt?: string;
+}
+
+export interface PracticeScriptDetail extends PracticeScriptSummary {
+  readonly objectives?: readonly string[];
+  readonly periods?: readonly PracticeScriptPeriod[];
+  readonly notes?: string;
+  readonly source?: string;
+  readonly updatedBy?: string;
+  readonly createdBy?: string;
+}
+
+export interface PracticeScriptEditForm {
+  title: string;
+  focus: string;
+  tempo: string;
+  scriptDate: string;
+  opponent: string;
+  objectives: string;
+  notes: string;
+  periods: readonly PracticeScriptPeriod[];
+}
+
+export interface PracticeScriptsResponse {
+  readonly success: boolean;
+  readonly data?: {
+    readonly scripts: readonly PracticeScriptSummary[];
+    readonly count: number;
+  };
+  readonly error?: string;
+}
+
+export interface PracticeScriptDetailResponse {
+  readonly success: boolean;
+  readonly data?: {
+    readonly script: PracticeScriptDetail;
+  };
+  readonly error?: string;
+}
+
+export interface PracticeScriptAiResponse {
+  readonly success: boolean;
+  readonly data?: {
+    readonly title: string;
+    readonly focus: string;
+    readonly tempo: string;
+    readonly objectives: readonly string[];
+    readonly periods: readonly PracticeScriptPeriod[];
+    readonly notes?: string;
+  };
+  readonly error?: string;
+}
+
 export interface InstallPlanUpdate {
   readonly playIndex: number;
   readonly installStage: 'install' | 'rep' | 'game-ready';
@@ -156,6 +284,21 @@ export interface GenerateInstallPlanResponse {
   readonly success: boolean;
   readonly data?: {
     readonly updates: readonly InstallPlanUpdate[];
+  };
+  readonly error?: string;
+}
+
+export interface PlaybookPdfExportResponse {
+  readonly success: boolean;
+  readonly data?: {
+    readonly downloadUrl: string;
+    readonly storagePath?: string;
+    readonly fileName?: string;
+    readonly mimeType?: string;
+    readonly format?: 'pdf';
+    readonly sizeBytes?: number;
+    readonly rowCount?: number;
+    readonly columnCount?: number;
   };
   readonly error?: string;
 }
@@ -172,7 +315,7 @@ export interface GamePlan {
   readonly createdAt?: string;
 }
 
-export const EMPTY_NEW_PLAYBOOK: NewPlaybookForm = { name: '', sport: '', season: '' };
+export const EMPTY_NEW_PLAYBOOK: NewPlaybookForm = { name: '', season: '' };
 export const EMPTY_EDIT_PLAYBOOK: EditPlaybookForm = { name: '', season: '', source: '' };
 export const EMPTY_PLAY_FORM: PlayForm = {
   name: '',
@@ -181,6 +324,7 @@ export const EMPTY_PLAY_FORM: PlayForm = {
   formation: '',
   personnel: '',
   objective: '',
+  playBreakdown: '',
   installNotes: '',
   conceptTags: '',
   diagramUrl: '',
@@ -190,6 +334,17 @@ export const EMPTY_PLAY_FORM: PlayForm = {
   correctionCues: '',
   drillProgression: '',
   situations: '',
+};
+
+export const EMPTY_PRACTICE_SCRIPT_EDIT_FORM: PracticeScriptEditForm = {
+  title: '',
+  focus: '',
+  tempo: '',
+  scriptDate: '',
+  opponent: '',
+  objectives: '',
+  notes: '',
+  periods: [],
 };
 
 export function toTitleCase(str: string): string {

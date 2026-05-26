@@ -111,9 +111,18 @@ export {
   type TeamGamePlanPhase,
   type TeamGamePlanPerspective,
   type TeamGamePlanPriorityKind,
+  type TeamGamePlanDomain,
+  type TeamGamePlanMoment,
+  type TeamGamePlanPriorityLevel,
+  type TeamGamePlanEvidenceType,
   type TeamGamePlanAdjustmentTrigger,
   type TeamGamePlanPriority,
   type TeamGamePlanSection,
+  type TeamGamePlanUrl,
+  type TeamGamePlanUrlProvider,
+  type TeamGamePlanStrengthWeaknessItem,
+  type TeamGamePlanMomentPriority,
+  type TeamGamePlanBlock,
   type TeamGamePlanPlayReference,
   type TeamGamePlanDoc,
 } from './team/team-gameplan.model';
@@ -122,6 +131,7 @@ export {
 export {
   type TeamFilmReviewStatus,
   type TeamFilmReviewTimelineState,
+  type TeamFilmReviewDownloadPrewarmStatus,
   type TeamFilmReviewPerspective,
   type TeamFilmReviewTagCategory,
   type TeamFilmReviewTimelineTag,
@@ -135,6 +145,7 @@ export {
   type TeamFilmReviewSportTagSchemaKey,
   type TeamFilmReviewPlaySegment,
   type TeamFilmReviewBreakdownSource,
+  type TeamFilmReviewDownloadPrewarm,
   type TeamFilmReviewDoc,
   TEAM_FILM_REVIEW_FALLBACK_PLAY_TAG_SCHEMA,
   TEAM_FILM_REVIEW_SPORT_PLAY_TAG_SCHEMAS,
@@ -200,6 +211,9 @@ export {
   type CoachData,
   type DirectorData,
   // Preferences & Settings
+  type NotificationCategoryChannelPreferences,
+  type NotificationQuietHours,
+  type NotificationCadenceCaps,
   type NotificationPreferences,
   type UserPreferences,
   // Utility types
@@ -376,6 +390,8 @@ export {
   type MarkNotificationsReadRequest,
   type RegisterPushTokenRequest,
   type UpdateNotificationSettingsRequest,
+  type NotificationCampaignMetadata,
+  type NotificationDeliveryPolicy,
   type DispatchNotificationInput,
 } from './content/notification.model';
 

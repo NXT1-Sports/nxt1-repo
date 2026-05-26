@@ -48,6 +48,35 @@ function coerceFieldToString(target: Record<string, unknown>, fieldName: string)
   }
 }
 
+function normalizeBooleanAlias(target: Record<string, unknown>, canonical: string): void {
+  const aliases = [canonical, canonical.replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`)];
+  for (const alias of aliases) {
+    const value = target[alias];
+    if (value === undefined || value === null) continue;
+    target[canonical] = value;
+    return;
+  }
+}
+
+function normalizeNumberAlias(target: Record<string, unknown>, canonical: string): void {
+  const aliases = [canonical, canonical.replace(/[A-Z]/g, (char) => `_${char.toLowerCase()}`)];
+  for (const alias of aliases) {
+    const value = target[alias];
+    if (value === undefined || value === null || value === '') continue;
+    if (typeof value === 'number') {
+      target[canonical] = value;
+      return;
+    }
+    if (typeof value === 'string') {
+      const parsed = Number(value.trim());
+      if (Number.isFinite(parsed)) {
+        target[canonical] = parsed;
+        return;
+      }
+    }
+  }
+}
+
 export function normalizeFfmpegToolInput(
   input: Record<string, unknown>,
   options: NormalizeFfmpegToolInputOptions = {}
@@ -74,6 +103,16 @@ export function normalizeFfmpegToolInput(
   if (typeof normalized['time'] !== 'string' && normalized['timestamp'] !== undefined) {
     normalized['time'] = normalized['timestamp'];
   }
+
+  if (
+    typeof normalized['extraArgs'] !== 'string' &&
+    typeof normalized['customFlags'] === 'string'
+  ) {
+    normalized['extraArgs'] = normalized['customFlags'];
+  }
+
+  normalizeBooleanAlias(normalized, 'addSilentAudio');
+  normalizeNumberAlias(normalized, 'maxIntroSeconds');
 
   if (options.mapOutputFormatToOutputPath && typeof normalized['outputPath'] !== 'string') {
     const outputFormat = normalized['outputFormat'];

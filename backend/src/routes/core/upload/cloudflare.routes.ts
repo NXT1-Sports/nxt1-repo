@@ -30,6 +30,7 @@ import {
   buildCloudflareVideoName,
   extractCloudflareVideoId,
   fetchCloudflareFinalizedVideo,
+  requestCloudflareVideoDownloadRender,
   getCloudflareHighlightPostId,
   trimOptionalString,
   parsePinnedFlag,
@@ -317,6 +318,24 @@ router.post(
         apiToken,
         customerCode
       );
+
+      try {
+        const downloadPrewarm = await requestCloudflareVideoDownloadRender(
+          cloudflareVideoId,
+          accountId,
+          apiToken
+        );
+        finalized = {
+          ...finalized,
+          download: downloadPrewarm,
+        };
+      } catch (error) {
+        logger.warn('Cloudflare download prewarm request failed during finalize', {
+          userId,
+          cloudflareVideoId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     } catch (error) {
       if (error && typeof error === 'object' && 'statusCode' in error) {
         throw error;

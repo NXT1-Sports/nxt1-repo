@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { buildLinkedAccountScrapeObjective } from '../agent-scrape.service.js';
 
 interface LinkedAccount {
   readonly platform: string;
@@ -12,6 +13,21 @@ function buildSingleJobIntent(accounts: readonly LinkedAccount[]): string {
 }
 
 describe('Agent Scrape Pipeline — Onboarding Single-Job Behavior', () => {
+  it('keeps team scrape objectives scoped to team data and identifiable recruiting writes', () => {
+    const objective = buildLinkedAccountScrapeObjective('coach');
+
+    expect(objective).toContain('recruiting records for identifiable prospects');
+    expect(objective).toContain('write a team-linked recruiting record');
+    expect(objective).not.toContain('context only');
+  });
+
+  it('keeps athlete scrape objectives focused on athlete recruiting data', () => {
+    const objective = buildLinkedAccountScrapeObjective('athlete');
+
+    expect(objective).toContain('offers');
+    expect(objective).not.toContain('context only');
+  });
+
   it('keeps all linked accounts in one intent payload', () => {
     const accounts: LinkedAccount[] = [
       { platform: 'maxpreps', profileUrl: 'https://www.maxpreps.com/al/hoover/' },

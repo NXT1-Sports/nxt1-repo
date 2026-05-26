@@ -771,6 +771,12 @@ export const APP_EVENTS = {
   AGENT_X_FILES_DROPPED: 'agent_x_files_dropped',
   /** User executed a playbook action */
   AGENT_X_PLAYBOOK_ACTION_EXECUTED: 'agent_x_playbook_action_executed',
+  /** User initiated a playbook PDF export */
+  AGENT_X_PLAYBOOK_EXPORT_REQUESTED: 'agent_x_playbook_export_requested',
+  /** Playbook PDF export completed successfully */
+  AGENT_X_PLAYBOOK_EXPORT_SUCCEEDED: 'agent_x_playbook_export_succeeded',
+  /** Playbook PDF export failed */
+  AGENT_X_PLAYBOOK_EXPORT_FAILED: 'agent_x_playbook_export_failed',
   AGENT_X_ACTION_CARD_EXECUTED: 'agent_x_action_card_executed',
   /** User opened the operations activity log */
   AGENT_X_OPERATIONS_LOG_VIEWED: 'agent_x_operations_log_viewed',

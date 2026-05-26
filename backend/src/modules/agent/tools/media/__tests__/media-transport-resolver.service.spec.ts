@@ -1,9 +1,49 @@
 import { describe, expect, it, vi } from 'vitest';
 
+const storageMocks = vi.hoisted(() => {
+  const productionFile = { getSignedUrl: vi.fn() };
+  const stagingFile = { getSignedUrl: vi.fn() };
+  const productionBucket = { file: vi.fn(() => productionFile) };
+  const stagingBucket = { file: vi.fn(() => stagingFile) };
+
+  return {
+    productionFile,
+    stagingFile,
+    productionBucket,
+    stagingBucket,
+    defaultStorage: { bucket: vi.fn(() => productionBucket) },
+    stagingStorage: { bucket: vi.fn(() => stagingBucket) },
+    getSignedUrlWithTimeout: vi.fn((getSignedUrlFn: () => Promise<[string]>) => getSignedUrlFn()),
+  };
+});
+
+vi.mock('../../../../../utils/firebase.js', () => ({
+  storage: storageMocks.defaultStorage,
+}));
+
+vi.mock('../../../../../utils/firebase-staging.js', () => ({
+  stagingStorage: storageMocks.stagingStorage,
+}));
+
+vi.mock('../../../../../utils/gcs-signed-url.js', () => ({
+  getSignedUrlWithTimeout: storageMocks.getSignedUrlWithTimeout,
+}));
+
 import { MediaTransportResolverService } from '../media-transport-resolver.service.js';
+
+const resetStorageMocks = (): void => {
+  storageMocks.productionFile.getSignedUrl.mockReset();
+  storageMocks.stagingFile.getSignedUrl.mockReset();
+  storageMocks.productionBucket.file.mockClear();
+  storageMocks.stagingBucket.file.mockClear();
+  storageMocks.defaultStorage.bucket.mockClear();
+  storageMocks.stagingStorage.bucket.mockClear();
+  storageMocks.getSignedUrlWithTimeout.mockClear();
+};
 
 describe('MediaTransportResolverService', () => {
   it('keeps directly portable MP4 URLs unchanged', async () => {
+    resetStorageMocks();
     const cloudflareBridge = {
       getDownloadLinks: vi.fn(),
       enableDownload: vi.fn(),
@@ -23,7 +63,69 @@ describe('MediaTransportResolverService', () => {
     expect(cloudflareBridge.enableDownload).not.toHaveBeenCalled();
   });
 
+  it('signs unsigned staging Firebase MP4 URLs before processing', async () => {
+    resetStorageMocks();
+    storageMocks.stagingFile.getSignedUrl.mockResolvedValue(['https://signed.example/staging.mp4']);
+    const cloudflareBridge = {
+      getDownloadLinks: vi.fn(),
+      enableDownload: vi.fn(),
+    };
+
+    const service = new MediaTransportResolverService(cloudflareBridge as never);
+
+    const result = await service.resolveProcessingUrl({
+      sourceUrl:
+        'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/user-123/threads/thread-456/media/staged/video/runway-output.mp4',
+      executionContext: {
+        userId: 'user-123',
+        threadId: 'thread-456',
+        environment: 'staging',
+      },
+    });
+
+    expect(result).toEqual({
+      url: 'https://signed.example/staging.mp4',
+      source: 'direct',
+    });
+    expect(storageMocks.stagingStorage.bucket).toHaveBeenCalledWith(
+      'nxt-1-staging-v2.firebasestorage.app'
+    );
+    expect(storageMocks.stagingBucket.file).toHaveBeenCalledWith(
+      'Users/user-123/threads/thread-456/media/staged/video/runway-output.mp4'
+    );
+    expect(storageMocks.defaultStorage.bucket).not.toHaveBeenCalled();
+  });
+
+  it('rejects production Firebase bucket URLs in staging contexts', async () => {
+    resetStorageMocks();
+    const cloudflareBridge = {
+      getDownloadLinks: vi.fn(),
+      enableDownload: vi.fn(),
+    };
+
+    const service = new MediaTransportResolverService(cloudflareBridge as never);
+    const sourceUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-123/threads/thread-456/media/runway-output.mp4';
+
+    const result = await service.resolveProcessingUrl({
+      sourceUrl,
+      executionContext: {
+        userId: 'user-123',
+        threadId: 'thread-456',
+        environment: 'staging',
+      },
+    });
+
+    expect(result).toEqual({
+      url: sourceUrl,
+      source: 'unchanged',
+    });
+    expect(storageMocks.stagingStorage.bucket).not.toHaveBeenCalled();
+    expect(storageMocks.defaultStorage.bucket).not.toHaveBeenCalled();
+  });
+
   it('resolves an explicit Cloudflare video ID before trusting a signed Firebase placeholder URL', async () => {
+    resetStorageMocks();
     const cloudflareBridge = {
       getDownloadLinks: vi.fn().mockResolvedValue({
         default: {
@@ -51,6 +153,7 @@ describe('MediaTransportResolverService', () => {
   });
 
   it('recovers a Cloudflare Stream ID embedded in a staged placeholder filename', async () => {
+    resetStorageMocks();
     const cloudflareBridge = {
       getDownloadLinks: vi.fn().mockResolvedValue({
         default: {
@@ -79,6 +182,7 @@ describe('MediaTransportResolverService', () => {
   });
 
   it('does not resolve Cloudflare IDs from Firebase placeholders outside the user/thread scope', async () => {
+    resetStorageMocks();
     const cloudflareBridge = {
       getDownloadLinks: vi.fn(),
       enableDownload: vi.fn(),
@@ -106,6 +210,7 @@ describe('MediaTransportResolverService', () => {
   });
 
   it('resolves Cloudflare watch URLs to downloadable MP4 links', async () => {
+    resetStorageMocks();
     const cloudflareBridge = {
       getDownloadLinks: vi.fn().mockResolvedValue({
         default: {
@@ -132,6 +237,7 @@ describe('MediaTransportResolverService', () => {
   });
 
   it('returns unchanged URL when Cloudflare download cannot be resolved and staging context is absent', async () => {
+    resetStorageMocks();
     const cloudflareBridge = {
       getDownloadLinks: vi.fn().mockRejectedValue(new Error('not ready')),
       enableDownload: vi.fn().mockRejectedValue(new Error('failed')),

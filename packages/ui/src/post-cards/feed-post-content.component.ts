@@ -66,8 +66,8 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
                       <span>{{ getVideoStatusMessage(media.processingStatus) }}</span>
                     </div>
                   </div>
-                } @else if (activeVideoSlide() === getMediaIndex(media.id)) {
-                  <!-- Active: render the Cloudflare Stream iframe player -->
+                } @else if (shouldRenderVideoPlayer(media)) {
+                  <!-- Render player immediately for Cloudflare; tap-to-play for non-Cloudflare -->
                   <iframe
                     class="post-content__video-iframe"
                     [src]="getSafeIframeUrl(media.iframeUrl || media.url)"
@@ -645,6 +645,12 @@ export class FeedPostContentComponent {
     this.activeVideoSlide.set(mediaId);
   }
 
+  protected shouldRenderVideoPlayer(media: FeedMedia): boolean {
+    return (
+      this.isCloudflareVideo(media) || this.activeVideoSlide() === this.getMediaIndex(media.id)
+    );
+  }
+
   protected getMediaIndex(mediaId: string): string {
     return mediaId;
   }
@@ -659,6 +665,13 @@ export class FeedPostContentComponent {
     return media.height && media.height > 0
       ? media.height
       : FeedPostContentComponent.FALLBACK_MEDIA_HEIGHT;
+  }
+
+  protected isCloudflareVideo(media: FeedMedia): boolean {
+    if (media.cloudflareVideoId) return true;
+
+    const source = media.iframeUrl ?? media.url ?? media.thumbnailUrl ?? '';
+    return /cloudflarestream\.com|videodelivery\.net/i.test(source);
   }
 
   /**

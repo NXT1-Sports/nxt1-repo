@@ -1,5 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('firebase-admin/storage', () => ({
+  getStorage: () => ({
+    bucket: () => ({
+      name: 'nxt1-test-bucket',
+      file: () => ({
+        exists: vi.fn().mockResolvedValue([false]),
+        download: vi.fn().mockResolvedValue([Buffer.from('')]),
+        save: vi.fn().mockResolvedValue(undefined),
+        makePublic: vi.fn().mockResolvedValue(undefined),
+      }),
+    }),
+  }),
+}));
+
+vi.mock('node:fs/promises', () => ({
+  readFile: vi.fn().mockRejectedValue(new Error('not found')),
+}));
+
 import { GenerateGraphicTool } from '../generate-graphic.tool.js';
 
 describe('GenerateGraphicTool', () => {
@@ -115,5 +133,37 @@ describe('GenerateGraphicTool', () => {
     expect(result.success).toBe(false);
     expect(result.error).toContain('Unrecognized key');
     expect(llm.generateImage).not.toHaveBeenCalled();
+  });
+
+  it('returns producer-facing notification copy for completed welcome graphics', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+
+    llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['WELCOME'] } });
+    llm.generateImage.mockResolvedValue({
+      imageBase64:
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAAAAgAB4iG8MwAAAABJRU5ErkJggg==',
+      mimeType: 'image/png',
+      model: 'cheap-image-model',
+      latencyMs: 1800,
+      costUsd: 0.01,
+      textContent: ['WELCOME'],
+    });
+
+    const result = await tool.execute({
+      graphicType: 'athlete',
+      textRequirements: ['WELCOME'],
+      dimensions: '1080x1080',
+      styleDescription: 'Premium, modern',
+      userId: 'user-1',
+      athleteInfo: {
+        name: 'Jordan Smith',
+      },
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toMatchObject({
+      notificationTitle: 'Your welcome graphic is ready',
+      response: 'Your welcome graphic is ready in Agent X.',
+    });
   });
 });

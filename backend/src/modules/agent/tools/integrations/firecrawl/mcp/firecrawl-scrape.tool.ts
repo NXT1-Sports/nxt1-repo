@@ -112,6 +112,7 @@ export class FirecrawlScrapeTool extends BaseTool {
     'Any found media is staged to Firebase Storage and returned in the persistedMediaUrls array. ' +
     'When persistedMediaUrls is non-empty, those are already staged, ready-to-use media assets. ' +
     'For video team posts, pass the video URL from persistedMediaUrls directly to write_team_post (mediaUrls: [url]) or write_athlete_videos. ' +
+    'Do NOT pass video poster/thumbnail/cover/preview images to write_athlete_images; keep them only as poster/thumbnail metadata on the video post. ' +
     'Do NOT search the content field for media URLs — persistedMediaUrls is the authoritative extracted media list. ' +
     'For discovering URLs on a site first, use map_website instead. ' +
     'For searching the web without a specific URL, use search_web instead.';
@@ -302,7 +303,7 @@ export class FirecrawlScrapeTool extends BaseTool {
           persistedMediaUrls,
           _hint:
             persistedMediaUrls.length > 0
-              ? `${persistedMediaUrls.length} media asset(s) were automatically extracted from the full page and staged. Use these URLs directly for write_team_post (mediaUrls: [url]), write_athlete_videos, or write_athlete_images — no need to parse the content for media URLs.`
+              ? `${persistedMediaUrls.length} media asset(s) were automatically extracted from the full page and staged. Use video URLs for write_team_post (mediaUrls: [url]) or write_athlete_videos. Use image URLs for write_athlete_images only after verifying they are real profile/action images, not video poster, thumbnail, cover, or preview frames.`
               : 'No media assets were found on this page.',
         },
       };

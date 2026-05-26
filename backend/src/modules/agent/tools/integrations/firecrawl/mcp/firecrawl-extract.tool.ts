@@ -250,6 +250,10 @@ export class FirecrawlExtractTool extends BaseTool {
           urlCount: validUrls.length,
           extraction: output,
           persistedMediaUrls,
+          _hint:
+            persistedMediaUrls.length > 0
+              ? `${persistedMediaUrls.length} media asset(s) were staged. Route video URLs to write_athlete_videos or write_team_post. Route image URLs to write_athlete_images only after verifying they are real profile/action images, not video poster, thumbnail, cover, or preview frames.`
+              : 'No media assets were found in the extraction output.',
         },
       };
     } catch (err) {

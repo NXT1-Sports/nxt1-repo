@@ -158,6 +158,10 @@ export class GetApifyActorOutputTool extends BaseTool {
           limit,
           output,
           persistedMediaUrls,
+          note:
+            persistedMediaUrls.length > 0
+              ? `${persistedMediaUrls.length} media file(s) saved to CDN. Route video URLs to write_athlete_videos or write_team_post. Route image URLs to write_athlete_images only after verifying they are real profile/action images, not video poster, thumbnail, cover, or preview frames.`
+              : undefined,
         },
       };
     } catch (err) {

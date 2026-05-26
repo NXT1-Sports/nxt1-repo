@@ -115,7 +115,8 @@ export class AgentRouter {
       this.telemetryService,
       (userContext) => this.policyService.buildToolAccessContext(userContext),
       skillRegistry,
-      sessionMemory
+      sessionMemory,
+      () => this.primaryAgent
     );
   }
 
@@ -422,6 +423,11 @@ export class AgentRouter {
           url: string;
           mimeType: string;
           name: string;
+          storagePath?: string;
+          cloudflareVideoId?: string;
+          cloudflareStatus?: string;
+          readyToStream?: boolean;
+          thumbnailUrl?: string;
         }[])
       : undefined;
 
@@ -779,6 +785,11 @@ export class AgentRouter {
       readonly url: string;
       readonly mimeType: string;
       readonly name: string;
+      readonly storagePath?: string;
+      readonly cloudflareVideoId?: string;
+      readonly cloudflareStatus?: string;
+      readonly readyToStream?: boolean;
+      readonly thumbnailUrl?: string;
     }[],
     conversationHistory?: readonly AgentSessionMessage[]
   ): AgentSessionContext {

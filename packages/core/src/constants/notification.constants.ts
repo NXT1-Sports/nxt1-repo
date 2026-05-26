@@ -103,6 +103,7 @@ export const NOTIFICATION_TYPES = {
   ORG_WALLET_REFILLED: 'org_wallet_refilled',
 
   // Marketing
+  MARKETING_CAMPAIGN: 'marketing_campaign',
   FEATURE_ANNOUNCEMENT: 'feature_announcement',
   WEEKLY_DIGEST: 'weekly_digest',
   SPECIAL_OFFER: 'special_offer',
@@ -195,6 +196,7 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   org_wallet_refilled: 'billing',
 
   // Marketing
+  marketing_campaign: 'marketing',
   feature_announcement: 'marketing',
   weekly_digest: 'marketing',
   special_offer: 'marketing',
@@ -222,6 +224,12 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: Record<
   billing: { push: true, email: true, sms: false },
   marketing: { push: false, email: false, sms: false },
 };
+
+export const DEFAULT_NOTIFICATION_CADENCE_CAPS = {
+  maxPushesPerDay: 6,
+  minIntervalMinutes: 120,
+  maxMarketingPushesPerDay: 2,
+} as const;
 
 // ============================================
 // FIRESTORE COLLECTION NAMES
@@ -301,6 +309,7 @@ export const NOTIFICATION_TYPE_TAB: Record<NotificationType, ActivityTabId> = {
   org_wallet_refilled: 'alerts',
 
   // Marketing → alerts
+  marketing_campaign: 'alerts',
   feature_announcement: 'alerts',
   weekly_digest: 'alerts',
   special_offer: 'alerts',
@@ -366,6 +375,7 @@ export const NOTIFICATION_DEEP_LINKS: Partial<Record<NotificationType, string>> 
   org_wallet_refilled: '/usage?section=overview',
 
   // Marketing
+  marketing_campaign: '/activity?tab=alerts',
   feature_announcement: '/activity?tab=alerts',
   weekly_digest: '/agent-x',
   special_offer: '/activity?tab=alerts',

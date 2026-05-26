@@ -379,6 +379,89 @@ describe('PrimaryAgent delegation control flow', () => {
     agent.endRun('op-1');
   });
 
+  it('routes accidental router FFmpeg calls to the brand coordinator', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: {
+          compactMarkdown: 'Capabilities',
+          detailedMarkdown: 'Capabilities',
+        },
+      }),
+    } as unknown as CapabilityRegistry;
+
+    const dispatcher: PrimaryDispatcher = {
+      runCoordinator: vi.fn().mockResolvedValue({
+        success: true,
+        observation: 'Brand coordinator completed the media step.',
+      }),
+      runPlan: vi.fn(),
+    };
+
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const context = createMockContext();
+    agent.beginRun({
+      operationId: 'op-brand-media-fallback',
+      userId: context.userId,
+      sessionContext: context,
+      enrichedIntent: 'Create a Marvel villain highlight reel.',
+    });
+
+    const registry = new ConcreteToolRegistry();
+    const events: Array<Record<string, unknown>> = [];
+    const toolCall: LLMToolCall = {
+      id: 'call_ffmpeg_convert',
+      type: 'function',
+      function: {
+        name: 'ffmpeg_convert_video',
+        arguments: JSON.stringify({
+          inputPath: 'https://storage.example.com/intro.mp4',
+          outputPath: 'intro-with-audio.mp4',
+          addSilentAudio: true,
+        }),
+      },
+    };
+
+    const observation = await agent.callExecuteTool(
+      toolCall,
+      registry,
+      context.userId,
+      undefined,
+      undefined,
+      { operationId: 'op-brand-media-fallback' },
+      [],
+      undefined,
+      (event) => events.push(event as unknown as Record<string, unknown>)
+    );
+
+    expect(dispatcher.runCoordinator).toHaveBeenCalledWith(
+      'brand_coordinator',
+      expect.stringContaining('creative media processing step'),
+      expect.any(Object),
+      expect.objectContaining({
+        inputPath: 'https://storage.example.com/intro.mp4',
+        outputPath: 'intro-with-audio.mp4',
+        addSilentAudio: true,
+        originalToolName: 'ffmpeg_convert_video',
+        source: 'router_brand_media_tool_fallback',
+      })
+    );
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolName: 'ffmpeg_convert_video',
+          toolSuccess: true,
+          toolResult: {
+            delegated: true,
+            coordinatorId: 'brand_coordinator',
+          },
+        }),
+      ])
+    );
+    expect(observation).toContain('Brand coordinator completed the media step.');
+
+    agent.endRun('op-brand-media-fallback');
+  });
+
   it('emits terminal tool_result before plan_and_execute dispatch finishes', async () => {
     const capabilities = {
       current: () => ({
@@ -684,12 +767,13 @@ describe('PrimaryAgent delegation control flow', () => {
 
     expect(dispatcher.runCoordinator).toHaveBeenCalledWith(
       'brand_coordinator',
-      expect.stringContaining('Create the requested branded visual asset'),
+      expect.stringContaining('creative media processing step'),
       expect.objectContaining({
         operationId: 'op-5',
       }),
       expect.objectContaining({
-        source: 'router_generate_graphic_fallback',
+        source: 'router_brand_media_tool_fallback',
+        originalToolName: 'generate_graphic',
         graphicType: 'commitment',
       })
     );
@@ -843,6 +927,80 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(observation).toContain('strategy_coordinator');
 
     agent.endRun('op-6b');
+  });
+
+  it('reroutes direct update_gameplan tool calls to strategy_coordinator', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: {
+          compactMarkdown: 'Capabilities',
+          detailedMarkdown: 'Capabilities',
+        },
+      }),
+    } as unknown as CapabilityRegistry;
+
+    const dispatcher: PrimaryDispatcher = {
+      runCoordinator: vi.fn().mockResolvedValue({
+        success: true,
+        observation: '## strategy_coordinator dispatch result\n- game plan updated',
+      }),
+      runPlan: vi.fn(),
+    };
+
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const context = {
+      ...createMockContext(),
+      operationId: 'op-6c',
+    };
+
+    agent.beginRun({
+      operationId: 'op-6c',
+      userId: context.userId,
+      sessionContext: context,
+      enrichedIntent: 'Update the game plan strengths section',
+    });
+
+    const registry = new ConcreteToolRegistry();
+
+    const toolCall: LLMToolCall = {
+      id: 'call_direct_update_gameplan',
+      type: 'function',
+      function: {
+        name: 'update_gameplan',
+        arguments: JSON.stringify({
+          gamePlanId: 'gp_123',
+          customSections: [{ id: 'strengths', title: 'Strengths', content: 'Updated' }],
+        }),
+      },
+    };
+
+    const observation = await agent.callExecuteTool(
+      toolCall,
+      registry,
+      context.userId,
+      undefined,
+      undefined,
+      { operationId: 'op-6c' },
+      [],
+      undefined,
+      undefined
+    );
+
+    expect(dispatcher.runCoordinator).toHaveBeenCalledWith(
+      'strategy_coordinator',
+      expect.stringContaining('strategy artifact request'),
+      expect.objectContaining({
+        operationId: 'op-6c',
+      }),
+      expect.objectContaining({
+        source: 'router_update_gameplan_fallback',
+        originalToolName: 'update_gameplan',
+        gamePlanId: 'gp_123',
+      })
+    );
+    expect(observation).toContain('strategy_coordinator');
+
+    agent.endRun('op-6c');
   });
 
   it('reroutes live-view clip scrolling to the film coordinator extraction workflow', async () => {

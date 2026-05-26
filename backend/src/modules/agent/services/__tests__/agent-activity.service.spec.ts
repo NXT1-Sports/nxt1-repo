@@ -75,6 +75,66 @@ describe('logAgentTaskCompletion', () => {
       })
     );
   });
+
+  it('uses clean generic body copy when the result only has orchestration task labels', async () => {
+    await logAgentTaskCompletion({} as never, {
+      userId: 'user-123',
+      job: {
+        operationId: 'op-123',
+        sessionId: 'session-123',
+        intent: 'Sync our team profile',
+        userId: 'user-123',
+        origin: 'user',
+      } as never,
+      threadTitle: 'Team Profile Account Sync',
+      result: {
+        data: {
+          plan: {
+            tasks: [
+              { displayLabel: 'scrape and index profile' },
+              { displayLabel: 'read distilled section' },
+              { displayLabel: 'write core identity' },
+            ],
+          },
+        },
+      } as never,
+    });
+
+    expect(dispatchMock).toHaveBeenCalledWith(
+      {} as never,
+      expect.objectContaining({
+        title: 'Team Profile Account Sync',
+        body: 'Open Agent X to review it.',
+      })
+    );
+  });
+
+  it('uses producer-provided notification titles when the top-level result title is missing', async () => {
+    await logAgentTaskCompletion({} as never, {
+      userId: 'user-123',
+      job: {
+        operationId: 'op-123',
+        sessionId: 'session-123',
+        intent: 'Create a welcome graphic for me',
+        userId: 'user-123',
+        origin: 'database_event',
+      } as never,
+      result: {
+        data: {
+          notificationTitle: 'Your welcome graphic is ready',
+          response: 'Your welcome graphic is ready in Agent X.',
+        },
+      } as never,
+    });
+
+    expect(dispatchMock).toHaveBeenCalledWith(
+      {} as never,
+      expect.objectContaining({
+        title: 'Your welcome graphic is ready',
+        body: 'Your welcome graphic is ready in Agent X.',
+      })
+    );
+  });
 });
 
 describe('deriveBodyFromResult', () => {
@@ -115,5 +175,40 @@ describe('deriveBodyFromResult', () => {
     expect(body).toBe(
       'I generated three route concepts and saved them into your playbook with diagram links.'
     );
+  });
+
+  it('returns an empty string when only plan task labels are available', () => {
+    const body = deriveBodyFromResult({
+      data: {
+        plan: {
+          tasks: [
+            { displayLabel: 'scrape and index profile' },
+            { displayLabel: 'read distilled section' },
+            { displayLabel: 'write core identity' },
+          ],
+        },
+      },
+    } as never);
+
+    expect(body).toBe('');
+  });
+
+  it('returns an empty string when only successful tool names are available', () => {
+    const body = deriveBodyFromResult({
+      data: {
+        toolCallRecords: [
+          {
+            toolName: 'enqueue_sync_profiles',
+            status: 'success',
+          },
+          {
+            toolName: 'write_core_identity',
+            status: 'success',
+          },
+        ],
+      },
+    } as never);
+
+    expect(body).toBe('');
   });
 });

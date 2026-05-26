@@ -109,7 +109,7 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- **Single recipient (1)**: use `send_email` for one-off messages.',
   '- **NEVER loop** `send_email` multiple times. If a user asks you to send the same email to more than one person, construct a recipients array and call `batch_send_email` ONCE instead of calling `send_email` in a loop.',
   '- **Connected provider check first**: Before calling any email tool, verify the injected connected-account context shows an active Gmail or Microsoft connection. If no provider is connected, tell the user to connect Gmail or Outlook in Settings → Email, then call the email tool.',
-  '- **Fallback to NXT1**: If the user has no connected provider, use `batch_send_email_via_nxt1` (for 2+ recipients) or `send_email_via_nxt1` (for 1 recipient) to send via the platform address (nxt1@nxt1sports.com).',
+  '- **No platform fallback**: If no provider is connected, do not attempt fallback sending. Ask the user to connect Gmail or Outlook in Settings → Email first.',
 ].join('\n');
 
 /**
@@ -825,8 +825,17 @@ export abstract class BaseAgent {
     if (context.videoAttachments?.length) {
       const videoRefs = context.videoAttachments
         .map((v) => {
-          const idPart = v.cloudflareVideoId ? ` | cloudflareVideoId: ${v.cloudflareVideoId}` : '';
-          return `[Attached video: ${v.name} — ${v.url}${idPart}]`;
+          const metadata = [
+            v.storagePath ? `storagePath: ${v.storagePath}` : null,
+            v.cloudflareVideoId ? `cloudflareVideoId: ${v.cloudflareVideoId}` : null,
+            v.cloudflareStatus ? `cloudflareStatus: ${v.cloudflareStatus}` : null,
+            typeof v.readyToStream === 'boolean'
+              ? `readyToStream: ${String(v.readyToStream)}`
+              : null,
+            v.thumbnailUrl ? `thumbnailUrl: ${v.thumbnailUrl}` : null,
+          ].filter((part): part is string => typeof part === 'string');
+          const metadataPart = metadata.length > 0 ? ` | ${metadata.join(' | ')}` : '';
+          return `[Attached video: ${v.name} — ${v.url}${metadataPart}]`;
         })
         .join('\n');
       intentText = `${intent}\n\n${videoRefs}`;
@@ -836,6 +845,18 @@ export abstract class BaseAgent {
     const imageAttachments = (context.attachments ?? []).filter((a) =>
       a.mimeType.startsWith('image/')
     );
+
+    if (imageAttachments.length > 0) {
+      const imageRefs = imageAttachments
+        .map((attachment, index) => {
+          const name = attachment.name?.trim() || `image-${index + 1}`;
+          const annotatedFlag = /-annotated-/i.test(name) ? ' | annotatedFrame: true' : '';
+          return `[Attached image: ${name} — ${attachment.url} | mimeType: ${attachment.mimeType}${annotatedFlag}]`;
+        })
+        .join('\n');
+      intentText = `${intentText}\n\n${imageRefs}\nUse attached image URLs when calling image-analysis tools.`;
+    }
+
     const imageAttachmentUrls = await this.resolveImageAttachmentUrls(
       imageAttachments,
       context.signal
@@ -1668,6 +1689,21 @@ export abstract class BaseAgent {
         };
       }
 
+      const askUserToolCall = result.toolCalls.find(
+        (toolCall) => toolCall.function.name === 'ask_user'
+      );
+      const toolCallsForIteration = askUserToolCall ? [askUserToolCall] : result.toolCalls;
+      if (askUserToolCall && result.toolCalls.length > 1) {
+        logger.warn(`[${this.id}] Dropping sibling tool calls from ask_user yield turn`, {
+          agentId: this.id,
+          operationId: context.operationId,
+          keptToolCallId: askUserToolCall.id,
+          droppedTools: result.toolCalls
+            .filter((toolCall) => toolCall.id !== askUserToolCall.id)
+            .map((toolCall) => toolCall.function.name),
+        });
+      }
+
       // Append the assistant message with its tool calls to the conversation
       const assistantMsgWithToolCalls: LLMMessage = {
         role: 'assistant',
@@ -1675,7 +1711,7 @@ export abstract class BaseAgent {
           typeof result.content === 'string'
             ? sanitizeAgentOutputText(result.content)
             : result.content,
-        tool_calls: result.toolCalls,
+        tool_calls: toolCallsForIteration,
       };
       messages.push(assistantMsgWithToolCalls);
 
@@ -1700,7 +1736,7 @@ export abstract class BaseAgent {
       logger.info(`[${this.id}] Tool calls requested`, {
         agentId: this.id,
         iteration: iteration + 1,
-        tools: result.toolCalls.map((t) => t.function.name),
+        tools: toolCallsForIteration.map((t) => t.function.name),
       });
 
       // ── Tool execution (sequential by default, concurrent when opted-in) ──
@@ -1710,7 +1746,7 @@ export abstract class BaseAgent {
       // tool_call to have a matching tool response message with the same id.
       const toolConcurrency = Math.max(
         1,
-        Math.min(this.getToolConcurrency(), result.toolCalls.length)
+        Math.min(this.getToolConcurrency(), toolCallsForIteration.length)
       );
       const runConcurrent = toolConcurrency > 1;
 
@@ -1720,7 +1756,7 @@ export abstract class BaseAgent {
       //    starts \u2014 this keeps the visual stream in strict order (one step
       //    spinning at a time) and avoids the "ugly" all-at-once flash.
       if (runConcurrent) {
-        for (const toolCall of result.toolCalls) {
+        for (const toolCall of toolCallsForIteration) {
           this.throwIfAborted(context.signal);
           logger.info(`[${this.id}] Executing tool: ${toolCall.function.name}`, {
             agentId: this.id,
@@ -1761,7 +1797,7 @@ export abstract class BaseAgent {
       //    alongside data tools in the same LLM response.
       const yieldCtxSnapshot = { agentId: this.id, messages };
       const toolBatchResults = await parallelBatch(
-        result.toolCalls,
+        toolCallsForIteration,
         async (toolCall) => {
           const startedAtMs = Date.now();
 
@@ -1821,10 +1857,10 @@ export abstract class BaseAgent {
       let pendingThrow: unknown = undefined;
       let iterationCompletedToolCalls = 0;
       let iterationToolDurationMs = 0;
-      for (let ti = 0; ti < result.toolCalls.length; ti++) {
+      for (let ti = 0; ti < toolCallsForIteration.length; ti++) {
         this.throwIfAborted(context.signal);
 
-        const toolCall = result.toolCalls[ti];
+        const toolCall = toolCallsForIteration[ti];
         const br = toolBatchResults[ti];
 
         if (br.status === 'rejected') {
@@ -2032,7 +2068,7 @@ export abstract class BaseAgent {
         'execute_saved_plan',
         'plan_and_execute',
       ]);
-      const shouldExitAfterDelegation = result.toolCalls.some((tc) => {
+      const shouldExitAfterDelegation = toolCallsForIteration.some((tc) => {
         if (!DELEGATION_TOOLS.has(tc.function.name)) return false;
         const toolMsg = [...messages]
           .reverse()
@@ -2816,15 +2852,16 @@ export abstract class BaseAgent {
         }
       }
 
+      const sanitized = candidate.replace(/,\s*$/u, '').trimEnd();
       if (inString) {
-        return null;
+        const closeString = escaped ? '\\\\"' : '"';
+        return `${sanitized}${closeString}${stack.reverse().join('')}`;
       }
 
       if (stack.length === 0) {
         return candidate;
       }
 
-      const sanitized = candidate.replace(/,\s*$/u, '').trimEnd();
       return `${sanitized}${stack.reverse().join('')}`;
     };
 
@@ -3761,7 +3798,11 @@ export abstract class BaseAgent {
     type MediaCandidate = {
       name: string;
       url: string;
+      storagePath?: string;
       cloudflareVideoId?: string;
+      cloudflareStatus?: string;
+      readyToStream?: boolean;
+      thumbnailUrl?: string;
       type: 'video' | 'file';
     };
     const candidates: MediaCandidate[] = [];
@@ -3797,13 +3838,36 @@ export abstract class BaseAgent {
           .replace(/\s*\([^)]+\)\s*$/, '');
         const rest = raw.slice(dashIdx + 3).trim();
 
-        const pipeIdx = rest.indexOf(' | cloudflareVideoId: ');
-        const url = (pipeIdx !== -1 ? rest.slice(0, pipeIdx) : rest).trim();
-        const cloudflareVideoId =
-          pipeIdx !== -1 ? rest.slice(pipeIdx + ' | cloudflareVideoId: '.length).trim() : undefined;
+        const [urlPart, ...metadataParts] = rest.split(' | ');
+        const url = urlPart.trim();
+        const metadata = new Map<string, string>();
+        for (const metadataPart of metadataParts) {
+          const separatorIdx = metadataPart.indexOf(': ');
+          if (separatorIdx === -1) continue;
+          metadata.set(
+            metadataPart.slice(0, separatorIdx).trim(),
+            metadataPart.slice(separatorIdx + 2).trim()
+          );
+        }
+        const storagePath = metadata.get('storagePath');
+        const cloudflareVideoId = metadata.get('cloudflareVideoId');
+        const cloudflareStatus = metadata.get('cloudflareStatus');
+        const readyToStreamValue = metadata.get('readyToStream');
+        const readyToStream =
+          readyToStreamValue === 'true' ? true : readyToStreamValue === 'false' ? false : undefined;
+        const thumbnailUrl = metadata.get('thumbnailUrl');
 
         if (url) {
-          candidates.push({ name, url, cloudflareVideoId, type: attachType });
+          candidates.push({
+            name,
+            url,
+            ...(storagePath ? { storagePath } : {}),
+            ...(cloudflareVideoId ? { cloudflareVideoId } : {}),
+            ...(cloudflareStatus ? { cloudflareStatus } : {}),
+            ...(readyToStream !== undefined ? { readyToStream } : {}),
+            ...(thumbnailUrl ? { thumbnailUrl } : {}),
+            type: attachType,
+          });
         }
       }
     }
@@ -3820,9 +3884,16 @@ export abstract class BaseAgent {
       'vision analysis for images). Do NOT ask the user to re-upload.',
       '',
       ...recent.map((c, idx) => {
-        const idNote = c.cloudflareVideoId ? ` | cloudflareVideoId: ${c.cloudflareVideoId}` : '';
+        const metadata = [
+          c.storagePath ? `storagePath: ${c.storagePath}` : null,
+          c.cloudflareVideoId ? `cloudflareVideoId: ${c.cloudflareVideoId}` : null,
+          c.cloudflareStatus ? `cloudflareStatus: ${c.cloudflareStatus}` : null,
+          typeof c.readyToStream === 'boolean' ? `readyToStream: ${String(c.readyToStream)}` : null,
+          c.thumbnailUrl ? `thumbnailUrl: ${c.thumbnailUrl}` : null,
+        ].filter((part): part is string => typeof part === 'string');
+        const metadataNote = metadata.length > 0 ? ` | ${metadata.join(' | ')}` : '';
         const typeLabel = c.type === 'video' ? '[Video]' : '[File]';
-        return `${idx + 1}. ${typeLabel} "${c.name}" — ${c.url}${idNote}`;
+        return `${idx + 1}. ${typeLabel} "${c.name}" — ${c.url}${metadataNote}`;
       }),
     ];
 
@@ -3877,10 +3948,8 @@ export abstract class BaseAgent {
       return toolCall;
     }
 
-    let input: Record<string, unknown>;
-    try {
-      input = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
-    } catch {
+    const input = this.parseToolCallInput(toolCall.function.arguments);
+    if (!input) {
       return toolCall;
     }
 
@@ -4643,6 +4712,9 @@ export abstract class BaseAgent {
     const playbookDescriptor = this.resolvePlaybookDescriptor(input['playbookId']);
     if (playbookDescriptor) return playbookDescriptor;
 
+    const gamePlanDescriptor = this.resolveGamePlanDescriptor(input['gamePlanId']);
+    if (gamePlanDescriptor) return gamePlanDescriptor;
+
     const filmReviewDescriptor = this.resolveFilmReviewDescriptor(input['filmReviewId']);
     if (filmReviewDescriptor) return filmReviewDescriptor;
 
@@ -4794,6 +4866,55 @@ export abstract class BaseAgent {
 
     if (/^[A-Za-z0-9]{12,}$/.test(normalized)) {
       return null;
+    }
+
+    return this.formatToolInvocationValue(normalized.replace(/[-_]+/g, ' '));
+  }
+
+  private resolveGamePlanDescriptor(value: unknown): string | null {
+    if (typeof value !== 'string') return null;
+
+    const normalized = value.trim();
+    if (!normalized) return null;
+
+    const parts = normalized
+      .split('_')
+      .map((part) => part.trim())
+      .filter((part) => part.length > 0);
+
+    // Common persisted format:
+    //   <opaque-id>_<sport-or-team>_<phase>_<YYYY-MM-DD>_<opponent-slug>
+    // We hide the opaque prefix and produce a user-facing descriptor.
+    if (parts.length >= 5) {
+      const phaseRaw = parts.at(-3) ?? '';
+      const dateRaw = parts.at(-2) ?? '';
+      const opponentRaw = parts.at(-1) ?? '';
+
+      const phase = phaseRaw
+        .replace(/[-_]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+
+      const opponent = opponentRaw
+        .replace(/[-_]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/\b\w/g, (char) => char.toUpperCase());
+
+      const hasDate = /^\d{4}-\d{2}-\d{2}$/.test(dateRaw);
+      const detailParts = [phase, hasDate ? dateRaw : null].filter(
+        (part): part is string => typeof part === 'string' && part.length > 0
+      );
+
+      if (opponent) {
+        return detailParts.length > 0 ? `${opponent} (${detailParts.join(' • ')})` : opponent;
+      }
+    }
+
+    // Fallback for non-standard IDs: never expose long opaque tokens.
+    if (/^[A-Za-z0-9_-]{14,}$/.test(normalized)) {
+      return 'Saved game plan';
     }
 
     return this.formatToolInvocationValue(normalized.replace(/[-_]+/g, ' '));

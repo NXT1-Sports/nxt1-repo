@@ -31,9 +31,22 @@ import { z } from 'zod';
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const MAX_IMAGES_PER_REQUEST = 10;
+const MAX_IMAGE_DATA_URL_BYTES = 8 * 1024 * 1024;
+const IMAGE_FETCH_TIMEOUT_MS = 45_000;
 
 /** Vision requests are fast — cap at 60 s to avoid hanging the agent loop. */
 const VISION_TIMEOUT_MS = 60_000;
+
+interface PreparedVisionImage {
+  readonly originalUrl: string;
+  readonly providerUrl: string;
+  readonly source: 'data_url' | 'remote_url';
+}
+
+interface SkippedVisionImage {
+  readonly url: string;
+  readonly reason: string;
+}
 
 // ─── Input Schema ────────────────────────────────────────────────────────────
 
@@ -77,8 +90,10 @@ export class AnalyzeImageTool extends BaseTool {
     '  frame to the message (filename contains "-annotated-"). Call analyze_image on this snapshot FIRST to\n' +
     '  identify the circled/highlighted subject and its region in the frame. Then call analyze_video with the\n' +
     '  timeRange for motion context. Use this two-step flow whenever an annotated snapshot image is available\n' +
-    '  (attachment or imageUrl). If only drawing metadata exists (no image), rely on annotation bounds plus\n' +
-    '  timeRange in analyze_video and do not block waiting for a new upload.\n' +
+    '  (attachment or imageUrl). If only drawing metadata exists (no image), generate a still frame first via\n' +
+    '  ffmpeg_generate_thumbnail at currentTimeSec/marked-frame timestamp when available and pass cropBounds\n' +
+    '  from the video-frame normalized annotation bounds. Then call analyze_image on the returned cropImageUrl/imageUrl\n' +
+    '  before using analyze_video for motion.\n' +
     "\nFor athlete intel enrichment: call analyze_image on the athlete's profileImgs and recent image Posts " +
     '(cap at 5 images) before generating scouting assessments. Pass visionSummary output to write_athlete_images.\n' +
     '\nFor data verification: after scraping a profile and discovering images, call analyze_image to confirm ' +
@@ -111,30 +126,43 @@ export class AnalyzeImageTool extends BaseTool {
       imageCount: imageUrls.length,
     });
 
-    // ── Resolve URLs (sign private GCS/Firebase URLs so providers can fetch) ─
-    const resolvedUrls = await Promise.all(
+    // ── Resolve + inline images. Providers regularly fail to fetch long signed
+    // Firebase/GCS URLs, so the backend downloads the image once and sends a
+    // data URL to the vision model whenever possible.
+    const preparedResults = await Promise.all(
       imageUrls.map(async (url) => {
         try {
-          const result = await this.transportResolver.resolveProcessingUrl({
-            sourceUrl: url,
-            stageMediaKind: 'image',
-            executionContext: context,
-          });
-          return result.url;
+          return await this.prepareVisionImage(url, context);
         } catch (err) {
-          logger.warn('[AnalyzeImageTool] URL resolution failed, using original', {
+          const reason = err instanceof Error ? err.message : String(err);
+          logger.warn('[AnalyzeImageTool] Image preparation failed, skipping image', {
             url: url.slice(0, 180),
-            error: err instanceof Error ? err.message : String(err),
+            error: reason,
           });
-          return url;
+          return { url, reason } satisfies SkippedVisionImage;
         }
       })
     );
 
+    const preparedImages = preparedResults.filter(
+      (result): result is PreparedVisionImage => 'providerUrl' in result
+    );
+    const skippedImages = preparedResults.filter(
+      (result): result is SkippedVisionImage => 'reason' in result
+    );
+
+    if (preparedImages.length === 0) {
+      return {
+        success: false,
+        error:
+          'I could not access any of the image URLs for vision analysis. Please provide a downloadable JPG, PNG, or WebP image.',
+      };
+    }
+
     // ── Build multimodal message ────────────────────────────────────────────
-    const contentParts: LLMContentPart[] = resolvedUrls.map((url) => ({
+    const contentParts: LLMContentPart[] = preparedImages.map((image) => ({
       type: 'image_url' as const,
-      image_url: { url, detail: 'auto' as const },
+      image_url: { url: image.providerUrl, detail: 'auto' as const },
     }));
     contentParts.push({ type: 'text', text: prompt });
 
@@ -176,7 +204,8 @@ export class AnalyzeImageTool extends BaseTool {
       const analysisText = typeof result.content === 'string' ? result.content : '';
 
       logger.info('[AnalyzeImageTool] Image analysis complete', {
-        imageCount: imageUrls.length,
+        imageCount: preparedImages.length,
+        skippedImageCount: skippedImages.length,
         responseLength: analysisText.length,
       });
 
@@ -184,10 +213,11 @@ export class AnalyzeImageTool extends BaseTool {
         success: true,
         data: {
           analysis: analysisText,
-          imageCount: imageUrls.length,
+          imageCount: preparedImages.length,
           imageUrls,
+          skippedImages,
         },
-        markdown: `## Image Analysis (${imageUrls.length} image${imageUrls.length === 1 ? '' : 's'})\n\n${analysisText}`,
+        markdown: `## Image Analysis (${preparedImages.length} image${preparedImages.length === 1 ? '' : 's'})\n\n${analysisText}`,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Image analysis failed';
@@ -197,5 +227,70 @@ export class AnalyzeImageTool extends BaseTool {
       });
       return { success: false, error: message };
     }
+  }
+
+  private async prepareVisionImage(
+    sourceUrl: string,
+    context?: ToolExecutionContext
+  ): Promise<PreparedVisionImage> {
+    const resolved = await this.transportResolver.resolveProcessingUrl({
+      sourceUrl,
+      fallbackToFirebaseStaging: true,
+      stageMediaKind: 'image',
+      executionContext: context,
+    });
+
+    const providerUrl = await this.toImageDataUrl(resolved.url);
+    return {
+      originalUrl: sourceUrl,
+      providerUrl,
+      source: 'data_url',
+    };
+  }
+
+  private async toImageDataUrl(url: string): Promise<string> {
+    const response = await fetch(url, {
+      headers: {
+        Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        'User-Agent': 'NXT1-AgentX/2026.1',
+      },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Image fetch failed with status ${response.status}`);
+    }
+
+    const contentLength = Number.parseInt(response.headers.get('content-length') ?? '0', 10);
+    if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_DATA_URL_BYTES) {
+      throw new Error(`Image is too large for vision analysis (${contentLength} bytes)`);
+    }
+
+    const mimeType = this.resolveImageMimeType(response.headers.get('content-type'), url);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.byteLength > MAX_IMAGE_DATA_URL_BYTES) {
+      throw new Error(`Image is too large for vision analysis (${bytes.byteLength} bytes)`);
+    }
+
+    return `data:${mimeType};base64,${bytes.toString('base64')}`;
+  }
+
+  private resolveImageMimeType(contentType: string | null, url: string): string {
+    const normalized = contentType?.split(';')[0]?.trim().toLowerCase() ?? '';
+    if (normalized.startsWith('image/')) return normalized;
+
+    const path = (() => {
+      try {
+        return new URL(url).pathname.toLowerCase();
+      } catch {
+        return url.toLowerCase();
+      }
+    })();
+
+    if (path.endsWith('.png')) return 'image/png';
+    if (path.endsWith('.webp')) return 'image/webp';
+    if (path.endsWith('.gif')) return 'image/gif';
+    return 'image/jpeg';
   }
 }

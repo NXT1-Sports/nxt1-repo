@@ -243,6 +243,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
    * The shell itself reads from uiProfileService (real ProfilePageData).
    */
   private readonly fetchedProfile = signal<User | null>(null);
+  private readonly refreshNonce = signal(0);
   private readonly destroyRef = inject(DestroyRef);
   protected readonly ctaAvatars = CTA_AVATARS;
 
@@ -351,16 +352,18 @@ export class ProfileComponent implements OnInit, OnDestroy {
     mode: 'me' | 'unicode' | 'userid' | 'invalid';
     param: string;
     uid: string | undefined;
+    refreshNonce: number;
   } | null>(() => {
     const mode = this.routeMode();
     const param = this.routeParam();
     const uid = this.authService.user()?.uid;
+    const refreshNonce = this.refreshNonce();
     // For own profile: block until Firebase auth state is resolved
     if (mode === 'me' && !this.authService.isInitialized()) return null;
     // Don't emit if uid is still missing after init — the unauthenticated
     // effect below will handle that case directly without an API call.
     if (mode === 'me' && !uid) return null;
-    return { mode, param, uid };
+    return { mode, param, uid, refreshNonce };
   });
 
   /**
@@ -543,9 +546,16 @@ export class ProfileComponent implements OnInit, OnDestroy {
             mode: 'me' | 'unicode' | 'userid' | 'invalid';
             param: string;
             uid: string | undefined;
+            refreshNonce: number;
           } => source !== null
         ),
-        distinctUntilChanged((a, b) => a.mode === b.mode && a.param === b.param && a.uid === b.uid),
+        distinctUntilChanged(
+          (a, b) =>
+            a.mode === b.mode &&
+            a.param === b.param &&
+            a.uid === b.uid &&
+            a.refreshNonce === b.refreshNonce
+        ),
         tap(() => this.profileService.startLoading()),
         switchMap(({ mode, param, uid: _uid }) => {
           if (mode === 'me') {
@@ -1289,6 +1299,14 @@ export class ProfileComponent implements OnInit, OnDestroy {
   protected onGenerationDismissed(reason: 'completed' | 'skipped'): void {
     this.logger.info('Profile generation overlay dismissed', { reason });
 
+    if (reason === 'skipped' && this.generation.phase() === 'error') {
+      if (isPlatformBrowser(this.platformId)) {
+        sessionStorage.removeItem('nxt1:profile-generation-job');
+      }
+      this.logger.info('Skipping profile reload because generation ended in error');
+      return;
+    }
+
     // If the user skipped, the backend job may still be running.
     // Store the jobId so we can check for completion on next profile visit.
     if (reason === 'skipped') {
@@ -1313,10 +1331,7 @@ export class ProfileComponent implements OnInit, OnDestroy {
    */
   private reloadProfile(): void {
     this.profileService.startLoading();
-    const profilePath = this.routeMode() === 'me' ? '/profile' : this.canonicalProfilePath();
-    void this.router.navigateByUrl(profilePath ?? this.router.url.split('?')[0], {
-      replaceUrl: true,
-    });
+    this.refreshNonce.update((value) => value + 1);
   }
 
   /**

@@ -1,6 +1,6 @@
 import { logger } from '../../utils/logger.js';
 
-export type AlertTarget = 'agent' | 'sentry' | 'default';
+export type AlertTarget = 'agent' | 'sentry' | 'signup_athlete' | 'signup_team' | 'default';
 export type AlertSeverity = 'info' | 'warning' | 'error' | 'critical';
 
 export interface AlertField {
@@ -19,7 +19,32 @@ export interface SlackAlertInput {
 }
 
 function resolveSlackWebhook(): string {
-  return process.env['SLACK_ALERT_WEBHOOK_URL'] ?? '';
+  return process.env['SLACK_ALERT_WEBHOOK_URL']?.trim() ?? '';
+}
+
+function resolveTargetWebhook(target: AlertTarget): string {
+  const specificWebhook =
+    (
+      {
+        agent: process.env['SLACK_AGENT_ALERT_WEBHOOK_URL'],
+        sentry: process.env['SLACK_SENTRY_ALERT_WEBHOOK_URL'],
+        signup_athlete: process.env['SLACK_NEW_ATHLETES_WEBHOOK_URL'],
+        signup_team: process.env['SLACK_NEW_TEAMS_WEBHOOK_URL'],
+        default: process.env['SLACK_ALERT_WEBHOOK_URL'],
+      } as const
+    )[target] ?? '';
+
+  const resolvedSpecificWebhook = specificWebhook.trim();
+
+  if (resolvedSpecificWebhook) {
+    return resolvedSpecificWebhook;
+  }
+
+  if (target === 'signup_athlete' || target === 'signup_team') {
+    return '';
+  }
+
+  return resolveSlackWebhook();
 }
 
 function formatAlertBody(input: SlackAlertInput): string {
@@ -39,7 +64,7 @@ function formatAlertBody(input: SlackAlertInput): string {
 export async function sendSlackAlert(input: SlackAlertInput): Promise<boolean> {
   const target = input.target ?? 'default';
   const severity = input.severity ?? 'error';
-  const webhookUrl = resolveSlackWebhook();
+  const webhookUrl = resolveTargetWebhook(target);
 
   if (!webhookUrl) {
     logger.warn('Slack alert skipped: webhook URL not configured', {

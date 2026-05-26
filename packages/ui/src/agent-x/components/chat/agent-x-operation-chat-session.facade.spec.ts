@@ -462,6 +462,8 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
 
   it('keeps user-uploaded video as a single attachment without promoting assistant media fields', () => {
     const uploadedVideoUrl = 'https://cdn.example.com/uploads/highlight.mp4';
+    const thumbnailUrl = 'https://cdn.example.com/uploads/highlight-thumb.jpg';
+    const storagePath = 'Users/user-1/threads/thread-1/media/video/highlight.mp4';
     const userMessage: AgentMessage = {
       id: 'user-upload-1',
       threadId: 'thread-1',
@@ -474,10 +476,12 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
         {
           id: 'att-video-1',
           url: uploadedVideoUrl,
+          storagePath,
           name: 'highlight.mp4',
           mimeType: 'video/mp4',
           type: 'video',
           sizeBytes: 4096,
+          thumbnailUrl,
         },
       ],
       resultData: {
@@ -492,8 +496,10 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(media.attachments).toEqual([
       {
         url: uploadedVideoUrl,
+        storagePath,
         type: 'video',
         name: 'highlight.mp4',
+        thumbnailUrl,
       },
     ]);
   });

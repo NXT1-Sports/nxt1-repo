@@ -60,10 +60,24 @@ import {
   WriteScheduleTool,
   WriteTeamStatsTool,
   WritePlaybooksTool,
+  WriteCallsheetTool,
+  ListCallsheetsTool,
+  GetCallsheetTool,
+  UpdateCallsheetTool,
+  DeleteCallsheetTool,
+  ListPracticeScriptsTool,
+  GetPracticeScriptTool,
+  WritePracticeScriptTool,
+  UpdatePracticeScriptTool,
+  DeletePracticeScriptTool,
+  GeneratePracticeScriptTool,
   GetPlaybookTool,
   ListPlaybooksTool,
   UpdatePlaybookTool,
   DeletePlaybookTool,
+  AddPlayToPlaybookTool,
+  UpdatePlayInPlaybookTool,
+  DeletePlayFromPlaybookTool,
   GetGameplanTool,
   ListGameplansTool,
   SaveGameplanTool,
@@ -445,10 +459,24 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new WriteScheduleTool(toolFirestore));
   toolRegistry.register(new WriteTeamStatsTool(toolFirestore));
   toolRegistry.register(new WritePlaybooksTool(toolFirestore));
+  toolRegistry.register(new WriteCallsheetTool(toolFirestore));
+  toolRegistry.register(new ListCallsheetsTool(toolFirestore));
+  toolRegistry.register(new GetCallsheetTool(toolFirestore));
+  toolRegistry.register(new UpdateCallsheetTool(toolFirestore));
+  toolRegistry.register(new DeleteCallsheetTool(toolFirestore));
+  toolRegistry.register(new ListPracticeScriptsTool(toolFirestore));
+  toolRegistry.register(new GetPracticeScriptTool(toolFirestore));
+  toolRegistry.register(new WritePracticeScriptTool(toolFirestore));
+  toolRegistry.register(new UpdatePracticeScriptTool(toolFirestore));
+  toolRegistry.register(new DeletePracticeScriptTool(toolFirestore));
+  toolRegistry.register(new GeneratePracticeScriptTool(llm, toolFirestore));
   toolRegistry.register(new GetPlaybookTool(toolFirestore));
   toolRegistry.register(new ListPlaybooksTool(toolFirestore));
   toolRegistry.register(new UpdatePlaybookTool(toolFirestore));
   toolRegistry.register(new DeletePlaybookTool(toolFirestore));
+  toolRegistry.register(new AddPlayToPlaybookTool(toolFirestore));
+  toolRegistry.register(new UpdatePlayInPlaybookTool(toolFirestore));
+  toolRegistry.register(new DeletePlayFromPlaybookTool(toolFirestore));
   toolRegistry.register(new GetGameplanTool(toolFirestore));
   toolRegistry.register(new ListGameplansTool(toolFirestore));
   toolRegistry.register(new SaveGameplanTool(toolFirestore));
@@ -800,6 +828,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     ...router.getOrchestratorBundle(),
     agents: router.getRegisteredAgents(),
     planRepository: new AgentPlanRepository(appDb, stagingDb),
+    resolveUserContext: async (uid: string) => contextBuilder.buildContext(uid, runtimeFirestore),
     resolveToolAccessContext: async (uid: string) => {
       const userCtx = await contextBuilder.buildContext(uid, runtimeFirestore);
       return router.getOrchestratorBundle().policyService.buildToolAccessContext(userCtx);

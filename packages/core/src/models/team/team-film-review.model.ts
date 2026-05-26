@@ -15,6 +15,13 @@ export type TeamFilmReviewStatus = 'draft' | 'processing' | 'ready' | 'archived'
 
 export type TeamFilmReviewTimelineState = 'idle' | 'generating' | 'ready' | 'error';
 
+export type TeamFilmReviewDownloadPrewarmStatus =
+  | 'queued'
+  | 'processing'
+  | 'ready'
+  | 'error'
+  | 'unknown';
+
 export type TeamFilmReviewPerspective = 'own_team' | 'opponent' | 'neutral';
 
 export type TeamFilmReviewTagCategory =
@@ -447,6 +454,22 @@ export interface TeamFilmReviewBreakdownSource {
   readonly importedAt: PortableTimestamp;
 }
 
+export interface TeamFilmReviewDownloadPrewarm {
+  readonly requestedAt?: PortableTimestamp;
+  readonly lastCheckedAt?: PortableTimestamp;
+  readonly status: TeamFilmReviewDownloadPrewarmStatus;
+  readonly percentComplete?: number;
+  readonly mp4Url?: string;
+  readonly lastError?: string;
+}
+
+export interface TeamFilmReviewTimelineProgress {
+  readonly processedWindowCount: number;
+  readonly totalWindowCount: number;
+  readonly playCount: number;
+  readonly updatedAt: PortableTimestamp;
+}
+
 export interface TeamFilmReviewDoc {
   readonly id: string;
   readonly teamId: string;
@@ -488,4 +511,8 @@ export interface TeamFilmReviewDoc {
   readonly timelineGeneratedAt?: PortableTimestamp;
   /** Error message if timeline generation failed */
   readonly timelineError?: string;
+  /** Windowed AI generation progress for long full-game timeline jobs */
+  readonly timelineProgress?: TeamFilmReviewTimelineProgress | null;
+  /** Upload-time Cloudflare MP4 prewarm state for low-latency analysis */
+  readonly downloadPrewarm?: TeamFilmReviewDownloadPrewarm;
 }

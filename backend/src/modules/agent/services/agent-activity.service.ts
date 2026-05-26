@@ -41,9 +41,10 @@ export async function logAgentTaskCompletion(
 ): Promise<DispatchResult> {
   const { userId, job, result, threadTitle } = input;
   const derivedSummary = stripMarkdown(deriveBodyFromResult(result));
+  const derivedTitle = stripMarkdown(deriveTitleFromResult(result));
   const notificationCopy = resolveAgentSuccessNotificationCopy({
     threadTitle: threadTitle?.trim() || undefined,
-    title: stripMarkdown(result.title ?? ''),
+    title: derivedTitle,
     summary: derivedSummary,
   });
   const threadId = job.context?.['threadId'] as string | undefined;
@@ -122,9 +123,7 @@ export async function logAgentTaskFailure(
  * 1. result.summary — the LLM's direct response (most common path)
  * 2. result.data.response — explicit agent response from orchestration data
  * 3. coordinator/plan observations from successful tool records
- * 4. Multi-task plan: "Completed N tasks: label1, label2, label3."
- * 5. Tool call records fallback: "Completed N steps: tool a, tool b."
- * 6. Empty string (caller falls back to generic copy)
+ * 4. Empty string (caller falls back to generic copy)
  */
 export function deriveBodyFromResult(result: AgentOperationResult): string {
   if (result.summary?.trim()) {
@@ -173,42 +172,21 @@ export function deriveBodyFromResult(result: AgentOperationResult): string {
     }
   }
 
-  // Multi-task orchestration path — plan with named tasks
-  const plan = data['plan'] as
-    | { tasks?: Array<{ displayLabel?: string; description?: string }> }
-    | undefined;
-  if (plan?.tasks && plan.tasks.length > 0) {
-    const taskLabels = plan.tasks
-      .map((t) => t.displayLabel ?? t.description)
-      .filter((label): label is string => Boolean(label))
-      .slice(0, 3)
-      .join(', ');
-    const count = plan.tasks.length;
-    return sanitizeDerivedNotificationText(
-      `Completed ${count} task${count > 1 ? 's' : ''}: ${taskLabels}.`
-    );
-  }
-
-  // Delegation fallback path — toolCallRecords
-  if (records && records.length > 0) {
-    const successTools = [
-      ...new Set(
-        records
-          .filter((r) => r.status === 'success')
-          .map((r) => r.toolName?.replace(/_/g, ' '))
-          .filter((name): name is string => Boolean(name))
-      ),
-    ];
-    if (successTools.length > 0) {
-      return successTools.length === 1
-        ? sanitizeDerivedNotificationText(`Completed: ${successTools[0]}.`)
-        : sanitizeDerivedNotificationText(
-            `Completed ${successTools.length} steps: ${successTools.join(', ')}.`
-          );
-    }
-  }
-
   return '';
+}
+
+function deriveTitleFromResult(result: AgentOperationResult): string {
+  if (result.title?.trim()) {
+    return result.title.trim();
+  }
+
+  const data =
+    typeof result.data === 'object' && result.data !== null
+      ? (result.data as Record<string, unknown>)
+      : undefined;
+
+  const notificationTitle = data?.['notificationTitle'];
+  return typeof notificationTitle === 'string' ? notificationTitle.trim() : '';
 }
 
 function stripMarkdown(text: string): string {

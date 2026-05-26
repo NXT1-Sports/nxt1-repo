@@ -91,7 +91,7 @@ Each file in `src/routes/` defines an Express router mounted on the app.
 | sitemap      | `/api/sitemap`      | SEO sitemap generation           |
 | upload       | `/api/upload`       | File uploads (images, video)     |
 | usage        | `/api/usage`        | Usage tracking & limits          |
-| webhook      | `/api/webhook`      | External webhooks (Stripe, etc.) |
+| webhook      | `/api/v1/webhook`   | External webhooks (Stripe, etc.) |
 
 Route tests live in `src/routes/__tests__/` (16 spec files).
 

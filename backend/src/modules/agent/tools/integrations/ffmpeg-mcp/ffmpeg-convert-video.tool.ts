@@ -6,7 +6,9 @@ import { ConvertVideoInputSchema } from './schemas.js';
 
 export class FfmpegConvertVideoTool extends BaseTool {
   readonly name = 'ffmpeg_convert_video';
-  readonly description = 'Convert a video to another format, codec, bitrate, or quality profile.';
+  readonly description =
+    'Convert a video to another format, codec, bitrate, or quality profile. ' +
+    'Do not use this as a routine prerequisite before ffmpeg_merge_videos; merge already normalizes audio/video and adds silent audio when needed.';
   readonly parameters = ConvertVideoInputSchema;
 
   readonly isMutation = true;

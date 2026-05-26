@@ -11,6 +11,7 @@
 
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
+import { createHash, randomUUID } from 'node:crypto';
 import { getStorage } from 'firebase-admin/storage';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { uploadRateLimit } from '../../middleware/rate-limit/rate-limit.middleware.js';
@@ -24,6 +25,9 @@ import type {
   OperationLogEntry,
   CompletedGoalRecord,
   TeamGamePlanDoc,
+  TeamGamePlanEvidenceType,
+  TeamGamePlanPriorityLevel,
+  TeamGamePlanStrengthWeaknessItem,
   TeamFilmReviewDoc,
   TeamFilmReviewPerspective,
   TeamFilmReviewPlayAnnotation,
@@ -31,6 +35,8 @@ import type {
   TeamFilmReviewPlayTagValue,
   TeamFilmReviewSportTagSchemaKey,
   TeamFilmReviewStatus,
+  TeamFilmReviewDownloadPrewarm,
+  TeamFilmReviewDownloadPrewarmStatus,
   TeamFilmReviewSportTagDefinition,
   TeamFilmReviewTimelineTag,
   TeamFilmReviewAnnotation,
@@ -70,14 +76,27 @@ import {
   contextBuilder,
 } from './shared.js';
 import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
-import { GeminiFilesService } from '../../modules/agent/llm/gemini-files.service.js';
+import {
+  GeminiFilesService,
+  type GeminiVideoAnalysisOptions,
+} from '../../modules/agent/llm/gemini-files.service.js';
 import {
   canManageTeamMutationForUser,
   canReadTeamIntelForUser,
 } from '../../services/team/team-intel-permissions.js';
+import {
+  ExportService,
+  type ExportColumn,
+  type ExportRow,
+} from '../../modules/agent/services/export.service.js';
 import { parseHudlBreakdownBuffer } from '../../services/team/hudl-breakdown-import.service.js';
 import { getCacheService } from '../../services/core/cache.service.js';
-import { fetchCloudflareFinalizedVideo } from '../core/upload/shared.js';
+import {
+  fetchCloudflareFinalizedVideo,
+  fetchCloudflareDownloadStatus,
+  requestCloudflareVideoDownloadRender,
+  CLOUDFLARE_API_BASE_URL,
+} from '../core/upload/shared.js';
 
 type AuthenticatedRequest = Request & {
   user?: {
@@ -112,11 +131,39 @@ type FilmReviewFirestore = {
   };
 };
 
+type FilmReviewTimelineProgressUpdate = {
+  readonly processedWindowCount: number;
+  readonly totalWindows: number;
+  readonly playCount: number;
+  readonly timeline: readonly TeamFilmReviewPlaySegment[];
+};
+
+type FilmReviewTimelineGenerationOptions = {
+  readonly operationId: string;
+  readonly userId: string;
+  readonly filmReviewId: string;
+  readonly onWindowComplete?: (update: FilmReviewTimelineProgressUpdate) => Promise<void>;
+};
+
+type FirestoreReadDocSnapshot = {
+  exists: boolean;
+  data(): Record<string, unknown> | undefined;
+};
+
+type FirestoreReadDb = {
+  collection(name: string): {
+    doc(id: string): {
+      get(): Promise<FirestoreReadDocSnapshot>;
+    };
+  };
+};
+
 const router = Router();
 const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
 const TEAM_GAMEPLANS_COLLECTION = 'TeamGamePlans' as const;
 const TEAM_FILM_REVIEWS_COLLECTION = 'TeamFilmReviews' as const;
 const TEAMS_COLLECTION = 'Teams' as const;
+const MAX_STRENGTH_WEAKNESS_ITEMS = 50;
 const MB = 1024 * 1024;
 
 function resolveFilmReviewBreakdownProvider(
@@ -132,6 +179,10 @@ const GB = 1024 * MB;
 const VIDEO_UPLOAD_URL_TTL_MS_SMALL = 30 * 60 * 1000;
 const VIDEO_UPLOAD_URL_TTL_MS_MEDIUM = 60 * 60 * 1000;
 const VIDEO_UPLOAD_URL_TTL_MS_LARGE = 120 * 60 * 1000;
+const CONFIGURED_TIMELINE_WINDOW_CONCURRENCY = parsePositiveIntEnv(
+  process.env['AGENT_X_TIMELINE_WINDOW_CONCURRENCY']
+);
+const TIMELINE_WINDOW_CONCURRENCY = Math.min(CONFIGURED_TIMELINE_WINDOW_CONCURRENCY ?? 3, 4);
 const MAX_FILM_REVIEW_ANNOTATION_STROKES = 24;
 const MAX_FILM_REVIEW_ANNOTATION_POINTS = 1200;
 const MAX_FILM_REVIEW_COMPACT_POINTS = 120;
@@ -143,6 +194,115 @@ function formatSizeLabel(bytes: number): string {
     return `${Number.isInteger(value) ? value.toFixed(0) : value.toFixed(1)} GB`;
   }
   return `${Math.round(bytes / MB)} MB`;
+}
+
+type FilmReviewDeleteFailure = {
+  readonly target: 'cloudflare' | 'firebase';
+  readonly message: string;
+};
+
+type FirebaseBucketLike = {
+  readonly name: string;
+  file(path: string): {
+    delete(options?: { ignoreNotFound?: boolean }): Promise<unknown>;
+  };
+};
+
+async function deleteCloudflareFilmReviewVideo(
+  cloudflareVideoId: string,
+  metadata: {
+    readonly filmReviewId: string;
+    readonly teamId: string;
+    readonly userId: string;
+  }
+): Promise<FilmReviewDeleteFailure | null> {
+  const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
+  const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
+
+  if (!accountId || !apiToken) {
+    return {
+      target: 'cloudflare',
+      message: 'Cloudflare deletion is not configured (missing CLOUDFLARE_ACCOUNT_ID/API_TOKEN).',
+    };
+  }
+
+  try {
+    const response = await fetch(
+      `${CLOUDFLARE_API_BASE_URL}/accounts/${accountId}/stream/${cloudflareVideoId}`,
+      {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${apiToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (response.ok || response.status === 404) {
+      logger.info('Film review Cloudflare Stream asset deleted', {
+        ...metadata,
+        cloudflareVideoId,
+        status: response.status,
+      });
+      return null;
+    }
+
+    let details = `HTTP ${response.status}`;
+    try {
+      const payload = (await response.json()) as {
+        errors?: Array<{ message?: string }>;
+        messages?: Array<{ message?: string }>;
+      };
+      const msg = payload.errors?.[0]?.message ?? payload.messages?.[0]?.message;
+      if (msg) details = msg;
+    } catch {
+      // ignore JSON parsing errors and fall back to status
+    }
+
+    return {
+      target: 'cloudflare',
+      message: `Cloudflare deletion failed for ${cloudflareVideoId}: ${details}`,
+    };
+  } catch (error) {
+    return {
+      target: 'cloudflare',
+      message:
+        error instanceof Error
+          ? `Cloudflare deletion failed for ${cloudflareVideoId}: ${error.message}`
+          : `Cloudflare deletion failed for ${cloudflareVideoId}`,
+    };
+  }
+}
+
+async function deleteFirebaseFilmReviewVideo(
+  bucket: FirebaseBucketLike,
+  storagePath: string,
+  metadata: {
+    readonly filmReviewId: string;
+    readonly teamId: string;
+    readonly userId: string;
+  }
+): Promise<FilmReviewDeleteFailure | null> {
+  try {
+    const file = bucket.file(storagePath) as {
+      delete: (options?: { ignoreNotFound?: boolean }) => Promise<unknown>;
+    };
+    await file.delete({ ignoreNotFound: true });
+    logger.info('Film review Firebase Storage asset deleted', {
+      ...metadata,
+      storagePath,
+      bucket: bucket.name,
+    });
+    return null;
+  } catch (error) {
+    return {
+      target: 'firebase',
+      message:
+        error instanceof Error
+          ? `Firebase deletion failed for ${storagePath}: ${error.message}`
+          : `Firebase deletion failed for ${storagePath}`,
+    };
+  }
 }
 
 function parsePositiveIntEnv(input: string | undefined): number | null {
@@ -171,6 +331,155 @@ function normalizeString(input: unknown): string | undefined {
   if (typeof input !== 'string') return undefined;
   const value = input.trim();
   return value.length > 0 ? value : undefined;
+}
+
+function normalizeImpactLevel(input: unknown): TeamGamePlanPriorityLevel {
+  const value = normalizeString(input)?.toLowerCase();
+  if (value === 'must_win' || value === 'must win') return 'must_win';
+  if (value === 'high') return 'high';
+  if (value === 'medium' || value === 'med') return 'medium';
+  return 'medium';
+}
+
+function normalizeStrengthWeaknessSide(input: unknown): 'own' | 'opponent' {
+  const value = normalizeString(input)?.toLowerCase();
+  if (value === 'opponent' || value === 'their' || value === 'them') return 'opponent';
+  return 'own';
+}
+
+function normalizeStrengthWeaknessType(input: unknown): 'strength' | 'weakness' {
+  const value = normalizeString(input)?.toLowerCase();
+  if (value === 'weakness' || value === 'risk' || value === 'liability') return 'weakness';
+  return 'strength';
+}
+
+function inferTypeFromLabel(label: string | undefined): 'strength' | 'weakness' | undefined {
+  const value = normalizeString(label)?.toLowerCase();
+  if (!value) return undefined;
+  if (
+    value.includes('weakness') ||
+    value.includes('risk') ||
+    value.includes('concern') ||
+    value.includes('liability')
+  ) {
+    return 'weakness';
+  }
+  if (value.includes('strength') || value.includes('advantage')) {
+    return 'strength';
+  }
+  return undefined;
+}
+
+function inferSideFromLabel(label: string | undefined): 'own' | 'opponent' | undefined {
+  const value = normalizeString(label)?.toLowerCase();
+  if (!value) return undefined;
+  if (
+    value.includes('opponent') ||
+    value.includes('their ') ||
+    value.startsWith('their') ||
+    value.includes('test opponent')
+  ) {
+    return 'opponent';
+  }
+  if (value.includes('our ') || value.startsWith('our') || value.includes('own')) {
+    return 'own';
+  }
+  return undefined;
+}
+
+function normalizeEvidenceType(input: unknown): TeamGamePlanEvidenceType {
+  const value = normalizeString(input)?.toLowerCase();
+  if (value === 'video' || value === 'diagram' || value === 'stat') return value;
+  return 'note';
+}
+
+function slugifyLabel(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function deriveStrengthWeaknessLabel(actionPlan: string | undefined): string | undefined {
+  if (!actionPlan) return undefined;
+  const value = actionPlan.replace(/\s+/g, ' ').trim();
+  return value.length > 0 ? value.slice(0, 120) : undefined;
+}
+
+function normalizeStrengthsWeaknesses(
+  input: unknown
+): readonly TeamGamePlanStrengthWeaknessItem[] | undefined {
+  if (!Array.isArray(input) || input.length === 0) return undefined;
+
+  const normalized: TeamGamePlanStrengthWeaknessItem[] = [];
+
+  for (const [index, candidate] of input.entries()) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    const record = candidate as Record<string, unknown>;
+
+    const explicitLabel = normalizeString(record['label'] ?? record['title'] ?? record['name']);
+    const side =
+      inferSideFromLabel(explicitLabel) ??
+      normalizeStrengthWeaknessSide(record['side'] ?? record['team'] ?? record['perspectiveTeam']);
+    const type =
+      inferTypeFromLabel(explicitLabel) ??
+      normalizeStrengthWeaknessType(record['type'] ?? record['kind'] ?? record['category']);
+    const actionPlan = normalizeString(
+      record['actionPlan'] ??
+        record['plan'] ??
+        record['recommendation'] ??
+        record['content'] ??
+        record['objective'] ??
+        record['analysis'] ??
+        record['note']
+    );
+    const label = explicitLabel ?? deriveStrengthWeaknessLabel(actionPlan);
+
+    if (!label) continue;
+
+    const evidenceObj =
+      record['evidence'] && typeof record['evidence'] === 'object'
+        ? (record['evidence'] as Record<string, unknown>)
+        : undefined;
+    const evidenceNote = normalizeString(evidenceObj?.['note'] ?? record['evidenceNote']);
+    const evidenceUrl = normalizeString(evidenceObj?.['url'] ?? record['evidenceUrl']);
+    const rawTags = Array.isArray(record['tags'])
+      ? (record['tags'] as unknown[])
+      : Array.isArray(record['keywords'])
+        ? (record['keywords'] as unknown[])
+        : undefined;
+    const tags = rawTags?.map((tag) => String(tag).trim()).filter((tag) => tag.length > 0);
+
+    const id =
+      normalizeString(record['id']) ??
+      `${side}-${type}-${slugifyLabel(label).slice(0, 48)}-${String(index + 1).padStart(2, '0')}`;
+
+    normalized.push({
+      id,
+      side,
+      type,
+      label,
+      impactLevel: normalizeImpactLevel(
+        record['impactLevel'] ?? record['level'] ?? record['impact'] ?? record['priority']
+      ),
+      ...(actionPlan ? { actionPlan } : {}),
+      ...(evidenceNote || evidenceUrl
+        ? {
+            evidence: {
+              type: normalizeEvidenceType(evidenceObj?.['type'] ?? record['evidenceType']),
+              ...(evidenceNote ? { note: evidenceNote } : {}),
+              ...(evidenceUrl ? { url: evidenceUrl } : {}),
+            },
+          }
+        : {}),
+      ...(tags && tags.length > 0 ? { tags } : {}),
+    });
+
+    if (normalized.length >= MAX_STRENGTH_WEAKNESS_ITEMS) break;
+  }
+
+  return normalized.length > 0 ? normalized : undefined;
 }
 
 function normalizeBoolean(input: unknown): boolean | undefined {
@@ -240,6 +549,7 @@ function toFilmReviewSummary(item: TeamFilmReviewDoc): Record<string, unknown> {
     timeline: item.timeline,
     timelineGeneratedAt: item.timelineGeneratedAt,
     timelineError: item.timelineError,
+    downloadPrewarm: item.downloadPrewarm,
     updatedAt: item.updatedAt,
     createdAt: item.createdAt,
   };
@@ -275,10 +585,43 @@ async function resolveFilmReviewVideoUrl(
 
 function shouldRefreshFilmReviewCloudflareState(review: TeamFilmReviewDoc): boolean {
   if (!review.cloudflareVideoId?.trim()) return false;
-  if (review.readyToStream === true) return false;
 
-  const status = review.cloudflareStatus?.trim().toLowerCase();
-  return status !== 'ready';
+  const streamReady = review.readyToStream === true;
+  const cloudflareStatus = review.cloudflareStatus?.trim().toLowerCase();
+  const downloadStatus = review.downloadPrewarm?.status?.trim().toLowerCase();
+  const hasDownloadUrl = !!review.downloadPrewarm?.mp4Url?.trim();
+
+  const streamNeedsRefresh = !streamReady || cloudflareStatus !== 'ready';
+  const downloadNeedsRefresh = !hasDownloadUrl || downloadStatus !== 'ready';
+
+  return streamNeedsRefresh || downloadNeedsRefresh;
+}
+
+function toDownloadPrewarmStatus(status: string): TeamFilmReviewDownloadPrewarmStatus {
+  const normalized = status.trim().toLowerCase();
+  if (normalized === 'ready') return 'ready';
+  if (normalized === 'error') return 'error';
+  if (normalized === 'queued' || normalized === 'pending') return 'queued';
+  if (normalized === 'inprogress' || normalized === 'processing') return 'processing';
+  return 'unknown';
+}
+
+function normalizeDownloadPrewarm(
+  status: string,
+  now: string,
+  percentComplete: number | null,
+  mp4Url: string | null,
+  requestedAt?: TeamFilmReviewDownloadPrewarm['requestedAt'],
+  lastError?: string
+): TeamFilmReviewDownloadPrewarm {
+  return {
+    status: toDownloadPrewarmStatus(status),
+    ...(requestedAt ? { requestedAt } : {}),
+    lastCheckedAt: now,
+    ...(typeof percentComplete === 'number' ? { percentComplete } : {}),
+    ...(mp4Url ? { mp4Url } : {}),
+    ...(lastError ? { lastError } : {}),
+  };
 }
 
 async function refreshFilmReviewCloudflareState(
@@ -299,12 +642,48 @@ async function refreshFilmReviewCloudflareState(
       apiToken,
       process.env['CLOUDFLARE_STREAM_CUSTOMER_CODE']
     );
+    const now = new Date().toISOString();
+    let downloadStatus = review.downloadPrewarm;
+    try {
+      let cloudflareDownload = await fetchCloudflareDownloadStatus(
+        review.cloudflareVideoId,
+        accountId,
+        apiToken
+      );
+
+      if (!cloudflareDownload.url && cloudflareDownload.status !== 'ready') {
+        cloudflareDownload = await requestCloudflareVideoDownloadRender(
+          review.cloudflareVideoId,
+          accountId,
+          apiToken
+        );
+      }
+
+      downloadStatus = normalizeDownloadPrewarm(
+        cloudflareDownload.status,
+        now,
+        cloudflareDownload.percentComplete,
+        cloudflareDownload.url,
+        review.downloadPrewarm?.requestedAt ?? now
+      );
+    } catch (downloadError) {
+      downloadStatus = normalizeDownloadPrewarm(
+        review.downloadPrewarm?.status ?? 'error',
+        now,
+        review.downloadPrewarm?.percentComplete ?? null,
+        review.downloadPrewarm?.mp4Url ?? null,
+        review.downloadPrewarm?.requestedAt,
+        downloadError instanceof Error ? downloadError.message : String(downloadError)
+      );
+    }
+
     const nextStatus: TeamFilmReviewStatus = finalized.readyToStream ? 'ready' : 'processing';
     const updatePayload: Record<string, unknown> = {
       status: nextStatus,
       cloudflareStatus: finalized.status,
       readyToStream: finalized.readyToStream,
-      updatedAt: new Date().toISOString(),
+      downloadPrewarm: downloadStatus,
+      updatedAt: now,
     };
 
     if (finalized.thumbnailUrl) updatePayload['thumbnailUrl'] = finalized.thumbnailUrl;
@@ -318,6 +697,7 @@ async function refreshFilmReviewCloudflareState(
       status: nextStatus,
       cloudflareStatus: finalized.status,
       readyToStream: finalized.readyToStream,
+      downloadPrewarm: downloadStatus,
       ...(finalized.thumbnailUrl ? { thumbnailUrl: finalized.thumbnailUrl } : {}),
       ...(finalized.durationSeconds !== null ? { durationSec: finalized.durationSeconds } : {}),
       updatedAt: updatePayload['updatedAt'] as string,
@@ -895,7 +1275,8 @@ async function analyzeTimelineWindowWithRetry(
   chunkEndSec: number,
   operationId: string,
   windowIndex: number,
-  totalWindows: number
+  totalWindows: number,
+  analysisOptions: GeminiVideoAnalysisOptions
 ): Promise<readonly TeamFilmReviewPlaySegment[]> {
   const basePrompt = buildTimelineAnalysisPrompt(
     durationSec,
@@ -914,6 +1295,7 @@ async function analyzeTimelineWindowWithRetry(
       prompts[attempt]!,
       4096,
       {
+        ...analysisOptions,
         operationId: `${operationId}:timeline:${windowIndex + 1}/${totalWindows}:attempt:${attempt + 1}`,
       }
     );
@@ -955,6 +1337,17 @@ async function analyzeTimelineWindowWithRetry(
   }
 
   return [];
+}
+
+function buildFilmReviewTimelineCacheOptions(
+  userId: string,
+  filmReviewId: string
+): GeminiVideoAnalysisOptions {
+  return {
+    userId,
+    contextCacheScopeId: `film-review:${filmReviewId}`,
+    enableContextCache: true,
+  };
 }
 
 function mergeTimelineSegments(
@@ -1060,10 +1453,32 @@ function computeTimelineWindows(
   return windows;
 }
 
+async function runTimelineWindowsWithConcurrency(
+  windows: readonly { startSec: number; endSec: number }[],
+  concurrency: number,
+  worker: (window: { startSec: number; endSec: number }, index: number) => Promise<void>
+): Promise<void> {
+  let nextWindowIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), windows.length);
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextWindowIndex < windows.length) {
+        const windowIndex = nextWindowIndex;
+        nextWindowIndex += 1;
+
+        const window = windows[windowIndex];
+        if (!window) continue;
+        await worker(window, windowIndex);
+      }
+    })
+  );
+}
+
 async function buildAiFilmReviewTimeline(
   review: TeamFilmReviewDoc,
   sourceVideoUrl: string,
-  operationId: string
+  options: FilmReviewTimelineGenerationOptions
 ): Promise<readonly TeamFilmReviewPlaySegment[]> {
   if (!GeminiFilesService.isConfigured()) {
     throw new Error('Gemini timeline generation is not configured (missing GEMINI_API_KEY).');
@@ -1078,11 +1493,23 @@ async function buildAiFilmReviewTimeline(
   }
   const windows = computeTimelineWindows(durationSec);
   const collectedSegments: TeamFilmReviewPlaySegment[] = [];
+  let completedWindowCount = 0;
+  const analysisOptions = buildFilmReviewTimelineCacheOptions(options.userId, options.filmReviewId);
 
-  for (let index = 0; index < windows.length; index++) {
-    const window = windows[index];
-    if (!window) continue;
+  logger.info('Starting Gemini film review timeline generation', {
+    operationId: options.operationId,
+    filmReviewId: options.filmReviewId,
+    userId: options.userId,
+    durationSec,
+    windows: windows.length,
+    concurrency: TIMELINE_WINDOW_CONCURRENCY,
+    contextCacheScopeId: analysisOptions.contextCacheScopeId,
+  });
 
+  const analyzeWindow = async (
+    window: { startSec: number; endSec: number },
+    index: number
+  ): Promise<void> => {
     const parsedWindowSegments = await analyzeTimelineWindowWithRetry(
       geminiFiles,
       sourceVideoUrl,
@@ -1090,18 +1517,51 @@ async function buildAiFilmReviewTimeline(
       durationSec,
       window.startSec,
       window.endSec,
-      operationId,
+      options.operationId,
       index,
-      windows.length
+      windows.length,
+      analysisOptions
     );
 
     collectedSegments.push(...parsedWindowSegments);
+    completedWindowCount += 1;
+
+    const partialTimeline = mergeTimelineSegments(collectedSegments, durationSec);
+    if (partialTimeline.length > 0 && options.onWindowComplete) {
+      try {
+        await options.onWindowComplete({
+          processedWindowCount: completedWindowCount,
+          totalWindows: windows.length,
+          playCount: partialTimeline.length,
+          timeline: partialTimeline,
+        });
+      } catch (err) {
+        logger.warn('Failed to persist film review timeline partial progress; continuing job', {
+          operationId: options.operationId,
+          filmReviewId: options.filmReviewId,
+          windowIndex: index + 1,
+          processedWindowCount: completedWindowCount,
+          totalWindows: windows.length,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  };
+
+  const firstWindow = windows[0];
+  if (firstWindow) {
+    await analyzeWindow(firstWindow, 0);
+    await runTimelineWindowsWithConcurrency(
+      windows.slice(1),
+      TIMELINE_WINDOW_CONCURRENCY,
+      (window, relativeIndex) => analyzeWindow(window, relativeIndex + 1)
+    );
   }
 
   const merged = mergeTimelineSegments(collectedSegments, durationSec);
   if (merged.length === 0) {
     logger.warn('Gemini timeline generation produced no valid play segments; applying fallback.', {
-      operationId,
+      operationId: options.operationId,
       filmReviewId: review.id,
       durationSec,
       windows: windows.length,
@@ -1638,6 +2098,78 @@ router.get('/gameplans', appGuard, async (req: Request, res: Response) => {
 
 // ─── GET /gameplans/:gamePlanId ────────────────────────────────────────
 
+router.get('/gameplans/:gamePlanId/export.pdf', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const gamePlanIdParam = req.params['gamePlanId'];
+    const gamePlanId = Array.isArray(gamePlanIdParam) ? gamePlanIdParam[0] : gamePlanIdParam;
+
+    if (!gamePlanId) {
+      res.status(400).json({ success: false, error: 'gamePlanId is required' });
+      return;
+    }
+
+    const gamePlanDoc = await db.collection(TEAM_GAMEPLANS_COLLECTION).doc(gamePlanId).get();
+    if (!gamePlanDoc.exists) {
+      res.status(404).json({ success: false, error: 'Game plan not found' });
+      return;
+    }
+
+    const gamePlan = gamePlanDoc.data() as TeamGamePlanDoc;
+    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(gamePlan.teamId).get();
+    const canManageTeam = teamDoc.exists
+      ? await canManageTeamMutationForUser(db, user.uid, gamePlan.teamId, teamDoc.data() ?? {})
+      : false;
+    const isOwner = gamePlan.createdBy === user.uid || gamePlan.updatedBy === user.uid;
+
+    if (!canManageTeam && !isOwner) {
+      res.status(403).json({ success: false, error: 'Forbidden' });
+      return;
+    }
+
+    const exportService = new ExportService();
+    const payload = buildGamePlanPdfPayload(gamePlan);
+    const branding = await resolveExportBranding(
+      db as unknown as FirestoreReadDb,
+      (teamDoc.data() ?? {}) as Record<string, unknown>
+    );
+    const pdfBuffer = await exportService.generatePdf({
+      ...payload,
+      includeTable: !!(payload.columns?.length && payload.rows?.length),
+      theme: 'light',
+      ...branding,
+    });
+
+    const safeBase = sanitizeExportFileBase(payload.title || gamePlan.title || 'game-plan');
+    const fileName = `${safeBase}.pdf`;
+
+    logger.info('GET /gameplans/:gamePlanId/export.pdf', {
+      gamePlanId,
+      teamId: gamePlan.teamId,
+      userId: user.uid,
+      sizeBytes: pdfBuffer.length,
+    });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Cache-Control', 'private, no-store, max-age=0');
+    res.status(200).send(pdfBuffer);
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('GET /gameplans/:gamePlanId/export.pdf failed', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to export game plan PDF' });
+  }
+});
+
 router.get('/gameplans/:gamePlanId', appGuard, async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
@@ -1740,6 +2272,16 @@ router.post('/gameplans', appGuard, async (req: Request, res: Response) => {
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')}`;
 
+    const strengthsWeaknesses = normalizeStrengthsWeaknesses(payload['strengthsWeaknesses']);
+    if (Array.isArray(payload['strengthsWeaknesses']) && !strengthsWeaknesses) {
+      res.status(400).json({
+        success: false,
+        error:
+          'strengthsWeaknesses must include at least one valid item with label (or title/name) and team context.',
+      });
+      return;
+    }
+
     const gamePlanData = {
       id: docId,
       teamId,
@@ -1748,8 +2290,16 @@ router.post('/gameplans', appGuard, async (req: Request, res: Response) => {
       phase: phase as unknown,
       status: status as unknown,
       ...(payload['season'] ? { season: String(payload['season']).trim() } : {}),
+      ...(payload['division'] ? { division: String(payload['division']).trim() } : {}),
       ...(payload['opponentName'] ? { opponentName: String(payload['opponentName']).trim() } : {}),
       ...(payload['gameDate'] ? { gameDate: String(payload['gameDate']).trim() } : {}),
+      ...(payload['perspectiveTeam']
+        ? { perspectiveTeam: String(payload['perspectiveTeam']).trim() }
+        : {}),
+      ...(payload['ownTeamColor'] ? { ownTeamColor: String(payload['ownTeamColor']).trim() } : {}),
+      ...(payload['opponentTeamColor']
+        ? { opponentTeamColor: String(payload['opponentTeamColor']).trim() }
+        : {}),
       ...(payload['identityFocus']
         ? { identityFocus: String(payload['identityFocus']).trim() }
         : {}),
@@ -1769,8 +2319,9 @@ router.post('/gameplans', appGuard, async (req: Request, res: Response) => {
               .filter((v) => v.length > 0),
           }
         : {}),
-      ...(Array.isArray(payload['strengthsWeaknesses'])
-        ? { strengthsWeaknesses: payload['strengthsWeaknesses'] as unknown }
+      ...(strengthsWeaknesses ? { strengthsWeaknesses } : {}),
+      ...(payload['scoutingReport']
+        ? { scoutingReport: String(payload['scoutingReport']).trim() }
         : {}),
       ...(Array.isArray(payload['priorities'])
         ? { priorities: payload['priorities'] as unknown }
@@ -1793,6 +2344,13 @@ router.post('/gameplans', appGuard, async (req: Request, res: Response) => {
       ...(Array.isArray(payload['tags'])
         ? {
             tags: (payload['tags'] as unknown[])
+              .map((v) => String(v).trim())
+              .filter((v) => v.length > 0),
+          }
+        : {}),
+      ...(Array.isArray(payload['linkedPlaybookIds'])
+        ? {
+            linkedPlaybookIds: (payload['linkedPlaybookIds'] as unknown[])
               .map((v) => String(v).trim())
               .filter((v) => v.length > 0),
           }
@@ -1898,6 +2456,15 @@ router.put('/gameplans/:gamePlanId', appGuard, async (req: Request, res: Respons
       updateData['gameDate'] = payload['gameDate'].trim();
     if (typeof payload['opponentName'] === 'string')
       updateData['opponentName'] = payload['opponentName'].trim();
+    if (typeof payload['season'] === 'string') updateData['season'] = payload['season'].trim();
+    if (typeof payload['division'] === 'string')
+      updateData['division'] = payload['division'].trim();
+    if (typeof payload['perspectiveTeam'] === 'string')
+      updateData['perspectiveTeam'] = payload['perspectiveTeam'].trim();
+    if (typeof payload['ownTeamColor'] === 'string')
+      updateData['ownTeamColor'] = payload['ownTeamColor'].trim();
+    if (typeof payload['opponentTeamColor'] === 'string')
+      updateData['opponentTeamColor'] = payload['opponentTeamColor'].trim();
     if (typeof payload['identityFocus'] === 'string')
       updateData['identityFocus'] = payload['identityFocus'].trim();
     if (typeof payload['primaryAttackPlan'] === 'string')
@@ -1910,8 +2477,20 @@ router.put('/gameplans/:gamePlanId', appGuard, async (req: Request, res: Respons
       updateData['openingScript'] = (payload['openingScript'] as unknown[])
         .map((v) => String(v).trim())
         .filter((v) => v.length > 0);
-    if (Array.isArray(payload['strengthsWeaknesses']))
-      updateData['strengthsWeaknesses'] = payload['strengthsWeaknesses'];
+    if (Array.isArray(payload['strengthsWeaknesses'])) {
+      const strengthsWeaknesses = normalizeStrengthsWeaknesses(payload['strengthsWeaknesses']);
+      if (!strengthsWeaknesses) {
+        res.status(400).json({
+          success: false,
+          error:
+            'strengthsWeaknesses must include at least one valid item with label (or title/name) and team context.',
+        });
+        return;
+      }
+      updateData['strengthsWeaknesses'] = strengthsWeaknesses;
+    }
+    if (typeof payload['scoutingReport'] === 'string')
+      updateData['scoutingReport'] = payload['scoutingReport'].trim();
     if (Array.isArray(payload['priorities'])) updateData['priorities'] = payload['priorities'];
     if (Array.isArray(payload['planBlocks'])) updateData['planBlocks'] = payload['planBlocks'];
     if (Array.isArray(payload['adjustmentTriggers']))
@@ -1921,6 +2500,11 @@ router.put('/gameplans/:gamePlanId', appGuard, async (req: Request, res: Respons
     if (Array.isArray(payload['customSections']))
       updateData['customSections'] = payload['customSections'];
     if (Array.isArray(payload['linkedPlays'])) updateData['linkedPlays'] = payload['linkedPlays'];
+    if (Array.isArray(payload['linkedPlaybookIds'])) {
+      updateData['linkedPlaybookIds'] = (payload['linkedPlaybookIds'] as unknown[])
+        .map((v) => String(v).trim())
+        .filter((v) => v.length > 0);
+    }
     if (Array.isArray(payload['tags']))
       updateData['tags'] = (payload['tags'] as unknown[])
         .map((v) => String(v).trim())
@@ -2254,6 +2838,52 @@ router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
       .replace(/^-+|-+$/g, '')
       .slice(0, 48);
     const docId = `${teamId}_${sport}_${slug || 'film'}_${Date.now()}`;
+    let initialDownloadPrewarm: TeamFilmReviewDownloadPrewarm | undefined = cloudflareVideoId
+      ? {
+          status: 'queued',
+          requestedAt: now,
+          lastCheckedAt: now,
+        }
+      : undefined;
+
+    if (cloudflareVideoId) {
+      const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
+      const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
+
+      if (accountId && apiToken) {
+        try {
+          const prewarm = await requestCloudflareVideoDownloadRender(
+            cloudflareVideoId,
+            accountId,
+            apiToken
+          );
+          initialDownloadPrewarm = {
+            status: toDownloadPrewarmStatus(prewarm.status),
+            requestedAt: initialDownloadPrewarm?.requestedAt ?? now,
+            lastCheckedAt: now,
+            ...(prewarm.percentComplete !== null
+              ? { percentComplete: prewarm.percentComplete }
+              : {}),
+            ...(prewarm.url ? { mp4Url: prewarm.url } : {}),
+          };
+        } catch (error) {
+          initialDownloadPrewarm = {
+            status: 'error',
+            requestedAt: initialDownloadPrewarm?.requestedAt ?? now,
+            lastCheckedAt: now,
+            lastError:
+              error instanceof Error ? error.message : 'Cloudflare download prewarm failed',
+          };
+          logger.warn('Failed to kick off Cloudflare download prewarm for film review', {
+            teamId,
+            cloudflareVideoId,
+            error:
+              error instanceof Error ? error.message : 'Cloudflare download prewarm request failed',
+          });
+        }
+      }
+    }
+
     const initialStatus: TeamFilmReviewStatus =
       cloudflareVideoId && readyToStream !== true ? 'processing' : 'ready';
 
@@ -2308,6 +2938,7 @@ router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
       ...(parseSeconds(payload['durationSec']) !== null
         ? { durationSec: parseSeconds(payload['durationSec']) as number }
         : {}),
+      ...(initialDownloadPrewarm ? { downloadPrewarm: initialDownloadPrewarm } : {}),
       ...aiSeed,
       clips: [],
       annotations: [],
@@ -2702,19 +3333,70 @@ router.delete('/film-reviews/:filmReviewId', appGuard, async (req: Request, res:
     }
 
     const now = new Date().toISOString();
-    await docRef.update({
-      status: 'archived',
-      updatedBy: user.uid,
-      updatedAt: now,
-      archivedAt: now,
-      archivedBy: user.uid,
+    const deleteMetadata = {
+      filmReviewId,
+      teamId: filmReview.teamId,
+      userId: user.uid,
+    } as const;
+
+    const failures: FilmReviewDeleteFailure[] = [];
+    const cloudflareVideoId = filmReview.cloudflareVideoId?.trim();
+    const storagePath = filmReview.storagePath?.trim();
+
+    if (cloudflareVideoId) {
+      const failure = await deleteCloudflareFilmReviewVideo(cloudflareVideoId, deleteMetadata);
+      if (failure) failures.push(failure);
+    }
+
+    if (storagePath) {
+      const failure = await deleteFirebaseFilmReviewVideo(
+        req.firebase.storage.bucket(),
+        storagePath,
+        deleteMetadata
+      );
+      if (failure) failures.push(failure);
+    }
+
+    if (failures.length > 0) {
+      logger.error('Failed to delete one or more film review media assets', {
+        ...deleteMetadata,
+        failures,
+      });
+      res.status(502).json({
+        success: false,
+        error:
+          'Failed to fully delete film review media assets. Nothing was removed from the library.',
+        data: {
+          failures,
+        },
+      });
+      return;
+    }
+
+    await docRef.delete();
+
+    try {
+      const cache = getCacheService();
+      await Promise.all([
+        cache.del(`intel:team:${filmReview.teamId}`),
+        cache.del(`team:film_reviews:${filmReview.teamId}:${filmReview.sport}`),
+      ]);
+    } catch {
+      // best effort
+    }
+
+    logger.info('Film review hard deleted', {
+      ...deleteMetadata,
+      deletedAt: now,
+      cloudflareDeleted: !!cloudflareVideoId,
+      firebaseDeleted: !!storagePath,
     });
 
-    res.json({ success: true, data: { message: `Film review archived: ${filmReview.title}` } });
+    res.json({ success: true, data: { message: `Film review deleted: ${filmReview.title}` } });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('Failed to archive film review', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Failed to archive film review' });
+    logger.error('Failed to delete film review', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to delete film review' });
   }
 });
 
@@ -3015,6 +3697,7 @@ router.post(
       await docRef.update({
         timelineState: 'generating',
         timelineError: null,
+        timelineProgress: null,
         ...(durationForGeneration !== null && durationForGeneration > 0
           ? { durationSec: durationForGeneration }
           : {}),
@@ -3032,26 +3715,53 @@ router.post(
       setTimeout(async () => {
         try {
           const sourceVideoUrl = await resolveFilmReviewVideoUrl(existing, storageBucket);
-          const timeline = await buildAiFilmReviewTimeline(
-            reviewForGeneration,
-            sourceVideoUrl,
-            filmReviewId
-          );
+          const timeline = await buildAiFilmReviewTimeline(reviewForGeneration, sourceVideoUrl, {
+            operationId: filmReviewId,
+            userId: user.uid,
+            filmReviewId,
+            onWindowComplete: async (progress) => {
+              const now = new Date().toISOString();
+              await docRef.update({
+                timeline: progress.timeline,
+                timelineState: 'generating',
+                timelineProgress: {
+                  processedWindowCount: progress.processedWindowCount,
+                  totalWindowCount: progress.totalWindows,
+                  playCount: progress.playCount,
+                  updatedAt: now,
+                },
+                timelineError: null,
+                updatedBy: user.uid,
+                updatedAt: now,
+              });
+            },
+          });
           const generationSource = 'gemini_files_api';
+          const now = new Date().toISOString();
+          const totalWindowCount = computeTimelineWindows(
+            Math.floor(reviewForGeneration.durationSec ?? 0)
+          ).length;
 
           await docRef.update({
             timeline,
             timelineState: 'ready',
-            timelineGeneratedAt: new Date().toISOString(),
+            timelineGeneratedAt: now,
+            timelineProgress: {
+              processedWindowCount: totalWindowCount,
+              totalWindowCount,
+              playCount: timeline.length,
+              updatedAt: now,
+            },
             timelineError: null,
             updatedBy: user.uid,
-            updatedAt: new Date().toISOString(),
+            updatedAt: now,
           });
 
           logger.info('Film review timeline generated successfully', {
             filmReviewId,
             playCount: timeline.length,
             generationSource,
+            userId: user.uid,
           });
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err));
@@ -3063,11 +3773,12 @@ router.post(
           await docRef.update({
             timelineState: 'error',
             timelineError: error.message,
+            timelineProgress: null,
             updatedBy: user.uid,
             updatedAt: new Date().toISOString(),
           });
         }
-      }, 2000); // Simulate processing delay
+      }, 0);
 
       res.json({
         success: true,
@@ -4075,13 +4786,16 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
 // GET    /playbooks/:id          — get full playbook detail
 // POST   /playbooks              — create a new playbook
 // PATCH  /playbooks/:id          — update playbook metadata
-// DELETE /playbooks/:id          — hard-delete a playbook
+// DELETE /playbooks/:id          — archive a playbook (soft-delete)
 // POST   /playbooks/:id/plays    — append a play
 // PATCH  /playbooks/:id/plays/:i — update play by index
 // DELETE /playbooks/:id/plays/:i — remove play by index
+// POST   /playbooks/:id/export-pdf — export current tab/full packet to PDF
 // ═══════════════════════════════════════════════════════════════════════════
 
 const TEAM_PLAYBOOKS_COLLECTION = 'TeamPlaybooks';
+const TEAM_CALLSHEETS_COLLECTION = 'TeamCallsheets';
+const TEAM_PRACTICE_SCRIPTS_COLLECTION = 'TeamPracticeScripts';
 
 /** Title-case every word in a string. */
 function titleCaseStr(s: string): string {
@@ -4134,6 +4848,26 @@ const callsheetAiOutputSchema = z.object({
       reasoning: z.string().min(1),
     })
   ),
+});
+
+const practiceScriptPeriodSchema = z.object({
+  id: z.string().trim().optional(),
+  label: z.string().trim().min(1),
+  clock: z.string().trim().min(1),
+  reps: z.number().int().min(0).max(99),
+  callType: z.string().trim().min(1),
+  playName: z.string().trim().min(1),
+  coachingPoint: z.string().trim().optional(),
+  notes: z.string().trim().optional(),
+});
+
+const practiceScriptAiOutputSchema = z.object({
+  title: z.string().trim().min(1),
+  focus: z.string().trim().min(1),
+  tempo: z.string().trim().min(1),
+  objectives: z.array(z.string().trim().min(1)).max(10).default([]),
+  periods: z.array(practiceScriptPeriodSchema).min(6).max(48),
+  notes: z.string().trim().optional(),
 });
 
 const installPlanOutputSchema = z.object({
@@ -4239,6 +4973,1019 @@ function toPlaybookSummary(id: string, data: Record<string, unknown>): Record<st
   };
 }
 
+function toCallsheetSummary(id: string, data: Record<string, unknown>): Record<string, unknown> {
+  const plays = Array.isArray(data['plays']) ? (data['plays'] as unknown[]) : [];
+  const groups = Array.isArray(data['groups']) ? (data['groups'] as unknown[]) : [];
+  const topPlay =
+    plays.find((entry) => {
+      if (!entry || typeof entry !== 'object') return false;
+      const candidate = entry as Record<string, unknown>;
+      const name = normalizeString(candidate['playName']) ?? normalizeString(candidate['name']);
+      return Boolean(name);
+    }) ?? null;
+
+  return {
+    id,
+    teamId: normalizeString(data['teamId']),
+    playbookId: normalizeString(data['playbookId']),
+    sport: normalizeString(data['sport']),
+    title: normalizeString(data['title']) ?? 'Untitled Callsheet',
+    situation: normalizeString(data['situation']) ?? 'all situations',
+    playCount: plays.length,
+    groupCount: groups.length,
+    topPlayName:
+      topPlay && typeof topPlay === 'object'
+        ? (normalizeString((topPlay as Record<string, unknown>)['playName']) ??
+          normalizeString((topPlay as Record<string, unknown>)['name']))
+        : null,
+    archived: data['archived'] === true,
+    updatedAt: normalizeString(data['updatedAt']),
+    createdAt: normalizeString(data['createdAt']),
+  };
+}
+
+function normalizePracticeScriptPeriods(value: unknown): Array<{
+  id: string;
+  label: string;
+  clock: string;
+  reps: number;
+  callType: string;
+  playName: string;
+  coachingPoint?: string;
+  notes?: string;
+}> {
+  if (!Array.isArray(value)) return [];
+
+  const normalized: Array<{
+    id: string;
+    label: string;
+    clock: string;
+    reps: number;
+    callType: string;
+    playName: string;
+    coachingPoint?: string;
+    notes?: string;
+  }> = [];
+
+  value.forEach((entry, index) => {
+    if (!entry || typeof entry !== 'object') return;
+    const candidate = entry as Record<string, unknown>;
+    const label = normalizeString(candidate['label']) ?? '';
+    const clock = normalizeString(candidate['clock']) ?? '';
+    const playName = normalizeString(candidate['playName']) ?? '';
+    const callType = normalizeString(candidate['callType']) ?? 'Team';
+    const repsRaw = Number(candidate['reps']);
+
+    if (!label || !clock || !playName) return;
+
+    normalized.push({
+      id: normalizeString(candidate['id']) ?? `period_${index + 1}`,
+      label,
+      clock,
+      reps: Number.isFinite(repsRaw) ? Math.max(0, Math.min(99, Math.round(repsRaw))) : 0,
+      callType,
+      playName,
+      coachingPoint: normalizeString(candidate['coachingPoint']) ?? undefined,
+      notes: normalizeString(candidate['notes']) ?? undefined,
+    });
+  });
+
+  return normalized;
+}
+
+function toPracticeScriptSummary(
+  id: string,
+  data: Record<string, unknown>
+): Record<string, unknown> {
+  const periods = normalizePracticeScriptPeriods(data['periods']);
+  const totalReps = periods.reduce((sum, period) => sum + period.reps, 0);
+  const displayOrder = Number(data['displayOrder']);
+
+  return {
+    id,
+    teamId: normalizeString(data['teamId']),
+    playbookId: normalizeString(data['playbookId']),
+    sport: normalizeString(data['sport']),
+    title: normalizeString(data['title']) ?? 'Practice Script',
+    focus: normalizeString(data['focus']) ?? 'Weekly install',
+    tempo: normalizeString(data['tempo']) ?? 'Game Tempo',
+    scriptDate: normalizeString(data['scriptDate']),
+    opponent: normalizeString(data['opponent']),
+    totalPeriods: periods.length,
+    totalReps,
+    displayOrder: Number.isFinite(displayOrder) ? displayOrder : undefined,
+    archived: data['archived'] === true,
+    updatedAt: normalizeString(data['updatedAt']),
+    createdAt: normalizeString(data['createdAt']),
+  };
+}
+
+function buildFallbackPracticeScript(
+  playbook: Record<string, unknown>,
+  focus: string
+): {
+  title: string;
+  focus: string;
+  tempo: string;
+  objectives: string[];
+  periods: Array<{
+    id: string;
+    label: string;
+    clock: string;
+    reps: number;
+    callType: string;
+    playName: string;
+    coachingPoint?: string;
+    notes?: string;
+  }>;
+  notes: string;
+} {
+  const plays = Array.isArray(playbook['plays'])
+    ? (playbook['plays'] as Record<string, unknown>[])
+    : [];
+  const selected = plays.slice(0, 12);
+  const title = `${safeExportText(playbook['name'], 'Practice')} Script`;
+  const normalizedFocus = focus.trim() || 'Weekly install and execution';
+
+  const periods = selected.map((play, index) => {
+    const playName = normalizePlayName(play, index);
+    const coachingPoint = Array.isArray(play['coachingPoints'])
+      ? normalizeString(play['coachingPoints'][0])
+      : undefined;
+    return {
+      id: `period_${index + 1}`,
+      label: `Period ${index + 1}`,
+      clock: `${String(7 + (index % 4)).padStart(2, '0')}:00`,
+      reps: index < 4 ? 6 : 4,
+      callType: index < 4 ? 'Install' : index < 8 ? 'Team' : 'Situational',
+      playName,
+      coachingPoint: coachingPoint ?? 'Execute fundamentals with tempo and communication.',
+      notes: index % 3 === 0 ? 'Coach script emphasis and substitutions.' : undefined,
+    };
+  });
+
+  return {
+    title,
+    focus: normalizedFocus,
+    tempo: 'Game Tempo',
+    objectives: [
+      'Script high-leverage reps for core calls.',
+      'Reinforce communication and assignment integrity.',
+      'Finish with situational execution under pressure.',
+    ],
+    periods:
+      periods.length > 0
+        ? periods
+        : [
+            {
+              id: 'period_1',
+              label: 'Period 1',
+              clock: '10:00',
+              reps: 8,
+              callType: 'Install',
+              playName: 'Base Install',
+              coachingPoint: 'Set baseline alignments and communication.',
+            },
+          ],
+    notes:
+      'Coach script generated from current playbook inventory. Adjust personnel and tempo per practice calendar.',
+  };
+}
+
+function normalizeCallsheetPlays(
+  value: unknown
+): Array<{ playName: string; score: number; reasoning: string }> {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const candidate = entry as Record<string, unknown>;
+      const playName =
+        normalizeString(candidate['playName']) ?? normalizeString(candidate['name']) ?? '';
+      if (!playName) return null;
+      const scoreRaw = Number(candidate['score']);
+      const score = Number.isFinite(scoreRaw)
+        ? Math.max(0, Math.min(100, Math.round(scoreRaw)))
+        : 0;
+      const reasoning =
+        normalizeString(candidate['reasoning']) ??
+        'Selected from baseline success and concept fit.';
+      return {
+        playName,
+        score,
+        reasoning,
+      };
+    })
+    .filter((entry): entry is { playName: string; score: number; reasoning: string } =>
+      Boolean(entry)
+    );
+}
+
+function normalizeCallsheetGroups(
+  value: unknown,
+  plays: readonly { playName: string; score: number; reasoning: string }[]
+): Array<{ id: string; name: string; playNames: string[]; order: number }> {
+  const playNames = plays
+    .map((play) => normalizeString(play.playName) ?? '')
+    .filter((playName) => playName.length > 0);
+  const validPlayNames = new Set(playNames);
+  const groupsSource = Array.isArray(value) ? value : [];
+
+  const normalizedGroups = groupsSource
+    .map((entry, index) => {
+      if (!entry || typeof entry !== 'object') return null;
+      const candidate = entry as Record<string, unknown>;
+      const groupId = normalizeString(candidate['id']) ?? `group_${index + 1}`;
+      const groupName = normalizeString(candidate['name']) ?? `Group ${index + 1}`;
+      const rawPlayNames = Array.isArray(candidate['playNames']) ? candidate['playNames'] : [];
+      const groupPlayNames = Array.from(
+        new Set(
+          rawPlayNames
+            .map((playName) => normalizeString(playName) ?? '')
+            .filter((playName) => playName.length > 0 && validPlayNames.has(playName))
+        )
+      );
+
+      return {
+        id: groupId,
+        name: groupName,
+        playNames: groupPlayNames,
+        order: index,
+      };
+    })
+    .filter((entry): entry is { id: string; name: string; playNames: string[]; order: number } =>
+      Boolean(entry)
+    );
+
+  if (normalizedGroups.length === 0) {
+    if (playNames.length === 0) return [];
+    return [
+      {
+        id: 'group_1',
+        name: 'Starter',
+        playNames,
+        order: 0,
+      },
+    ];
+  }
+
+  const assigned = new Set<string>();
+  for (const group of normalizedGroups) {
+    for (const playName of group.playNames) {
+      assigned.add(playName);
+    }
+  }
+
+  const unassigned = playNames.filter((playName) => !assigned.has(playName));
+  if (unassigned.length > 0) {
+    normalizedGroups.push({
+      id: `group_${normalizedGroups.length + 1}`,
+      name: 'Other Calls',
+      playNames: unassigned,
+      order: normalizedGroups.length,
+    });
+  }
+
+  return normalizedGroups;
+}
+
+const playbookExportTabSchema = z.enum([
+  'plays',
+  'install',
+  'callsheet',
+  'play-script',
+  'opponent',
+]);
+
+const playbookPdfExportBodySchema = z.object({
+  teamId: z.string().trim().min(1),
+  sport: z.string().trim().optional(),
+  mode: z.enum(['current', 'full']).default('current'),
+  activeTab: playbookExportTabSchema.default('plays'),
+  callsheetFilters: z.record(z.string(), z.string()).optional(),
+  callsheetId: z.string().trim().optional(),
+  practiceScriptId: z.string().trim().optional(),
+});
+
+function safeExportText(value: unknown, fallback = ''): string {
+  if (typeof value !== 'string') return fallback;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : fallback;
+}
+
+function safeExportStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+function formatExportLabel(value: string): string {
+  const normalized = safeExportText(value);
+  if (!normalized) return '';
+
+  const capitalizeToken = (token: string): string => {
+    if (!token) return token;
+    if (/^[A-Z0-9]{2,}$/.test(token)) return token;
+    return token.charAt(0).toUpperCase() + token.slice(1).toLowerCase();
+  };
+
+  return normalized
+    .split(/\s+/)
+    .map((word) =>
+      word
+        .split('-')
+        .map((token) => capitalizeToken(token))
+        .join('-')
+    )
+    .join(' ');
+}
+
+function sanitizeExportFileBase(value: string): string {
+  const cleaned = value
+    .replace(/[^\w\s\-().]/g, '')
+    .replace(/\.{2,}/g, '.')
+    .trim();
+  return cleaned.length > 0 ? cleaned : 'playbook-export';
+}
+
+function resolvePlaybookSituationText(filters: Record<string, string> | undefined): string {
+  if (!filters) return 'all situations';
+  const entries = Object.entries(filters)
+    .map(([key, value]) => [key.trim(), value.trim()] as const)
+    .filter(([, value]) => value.length > 0);
+  if (entries.length === 0) return 'all situations';
+  return entries.map(([key, value]) => `${key}: ${value}`).join(' | ');
+}
+
+function mapGamePlanDocToExportSummary(doc: Record<string, unknown>): {
+  readonly title: string;
+  readonly opponent: string;
+  readonly notes: string;
+  readonly plays: readonly string[];
+} {
+  const title =
+    safeExportText(doc['title']) || safeExportText(doc['opponentName']) || 'Untitled game plan';
+  const opponent = safeExportText(doc['opponentName'], title);
+  const linkedPlays = Array.isArray(doc['linkedPlays']) ? doc['linkedPlays'] : [];
+  const plays = linkedPlays
+    .map((entry) => {
+      if (!entry || typeof entry !== 'object') return '';
+      return safeExportText((entry as Record<string, unknown>)['playName']);
+    })
+    .filter((entry) => entry.length > 0);
+
+  let notes = '';
+  if (typeof doc['specialSituations'] === 'string') {
+    notes = doc['specialSituations'].trim();
+  }
+  if (!notes && Array.isArray(doc['customSections']) && doc['customSections'].length > 0) {
+    const section = doc['customSections'][0];
+    if (section && typeof section === 'object') {
+      notes = safeExportText((section as Record<string, unknown>)['content']);
+    }
+  }
+
+  return {
+    title,
+    opponent,
+    notes,
+    plays,
+  };
+}
+
+function resolveTeamBranding(teamData: Record<string, unknown>): {
+  readonly organizationName?: string;
+  readonly logoUrl?: string;
+  readonly brandPrimaryColor?: string;
+} {
+  const organizationName =
+    safeExportText(teamData['name']) || safeExportText(teamData['displayName']) || undefined;
+  const logoUrl =
+    safeExportText(teamData['logoUrl']) || safeExportText(teamData['logo']) || undefined;
+
+  let brandPrimaryColor = safeExportText(teamData['primaryColor']);
+  if (!brandPrimaryColor && teamData['colors'] && typeof teamData['colors'] === 'object') {
+    const colors = teamData['colors'] as Record<string, unknown>;
+    brandPrimaryColor = safeExportText(colors['primary']);
+  }
+  if (!brandPrimaryColor && Array.isArray(teamData['colors'])) {
+    brandPrimaryColor = safeExportText(teamData['colors'][0]);
+  }
+
+  return {
+    ...(organizationName ? { organizationName } : {}),
+    ...(logoUrl ? { logoUrl } : {}),
+    ...(brandPrimaryColor ? { brandPrimaryColor } : {}),
+  };
+}
+
+function resolveOrganizationIdFromTeamData(teamData: Record<string, unknown>): string | null {
+  const directId =
+    safeExportText(teamData['organizationId']) ||
+    safeExportText(teamData['organizationID']) ||
+    safeExportText(teamData['orgId']);
+  if (directId) return directId;
+
+  const organizationValue = teamData['organization'];
+  if (organizationValue && typeof organizationValue === 'object') {
+    const organization = organizationValue as Record<string, unknown>;
+    const nestedId =
+      safeExportText(organization['id']) ||
+      safeExportText(organization['organizationId']) ||
+      safeExportText(organization['orgId']);
+    if (nestedId) return nestedId;
+  }
+
+  return null;
+}
+
+async function resolveExportBranding(
+  db: FirestoreReadDb,
+  teamData: Record<string, unknown>
+): Promise<{
+  readonly organizationName?: string;
+  readonly logoUrl?: string;
+  readonly brandPrimaryColor?: string;
+}> {
+  const teamBranding = resolveTeamBranding(teamData);
+  const organizationId = resolveOrganizationIdFromTeamData(teamData);
+  if (!organizationId) return teamBranding;
+
+  try {
+    const organizationSnap = await db.collection('Organizations').doc(organizationId).get();
+    if (!organizationSnap.exists) return teamBranding;
+
+    const organizationData = (organizationSnap.data() ?? {}) as Record<string, unknown>;
+    const orgBranding = resolveTeamBranding(organizationData);
+    return {
+      organizationName: orgBranding.organizationName ?? teamBranding.organizationName,
+      logoUrl: orgBranding.logoUrl ?? teamBranding.logoUrl,
+      brandPrimaryColor: orgBranding.brandPrimaryColor ?? teamBranding.brandPrimaryColor,
+    };
+  } catch {
+    return teamBranding;
+  }
+}
+
+function buildPdfSection(heading: string, ...paragraphs: readonly string[]): string[] {
+  const normalized = paragraphs
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph.length > 0);
+  return normalized.length > 0 ? [`## ${heading}`, ...normalized] : [];
+}
+
+type PracticeScriptPdfInput = {
+  readonly title: string;
+  readonly focus: string;
+  readonly tempo: string;
+  readonly scriptDate?: string;
+  readonly opponent?: string;
+  readonly objectives: readonly string[];
+  readonly periods: readonly {
+    readonly label: string;
+    readonly clock: string;
+    readonly reps: number;
+    readonly callType: string;
+    readonly playName: string;
+    readonly coachingPoint?: string;
+    readonly notes?: string;
+  }[];
+  readonly notes?: string;
+};
+
+type CallsheetPdfInput = {
+  readonly title: string;
+  readonly situation: string;
+  readonly notes?: string;
+  readonly plays: readonly {
+    readonly playName: string;
+    readonly score: number;
+    readonly reasoning: string;
+  }[];
+  readonly groups: readonly { readonly name: string; readonly playNames: readonly string[] }[];
+};
+
+function buildCallsheetRows(
+  callsheet: CallsheetPdfInput | null,
+  fallbackRankings: readonly {
+    readonly playName: string;
+    readonly score: number;
+    readonly reasoning: string;
+  }[]
+): ExportRow[] {
+  const sourcePlays = callsheet?.plays?.length ? callsheet.plays : fallbackRankings;
+  const playByName = new Map(sourcePlays.map((play) => [play.playName, play] as const));
+  const groupedRows = (callsheet?.groups ?? []).flatMap((group) =>
+    group.playNames
+      .map((playName) => playByName.get(playName))
+      .filter(
+        (
+          play
+        ): play is {
+          readonly playName: string;
+          readonly score: number;
+          readonly reasoning: string;
+        } => Boolean(play)
+      )
+      .map((play) => [group.name, play.playName, `${play.score}/100`, play.reasoning] as ExportRow)
+  );
+
+  if (groupedRows.length > 0) return groupedRows;
+
+  return sourcePlays.map((play, index) => [
+    index < 6 ? 'Primary Menu' : 'Change-Up Menu',
+    play.playName,
+    `${play.score}/100`,
+    play.reasoning,
+  ]);
+}
+
+function buildPlayInventoryRows(plays: readonly Record<string, unknown>[]): ExportRow[] {
+  return plays.map((play, index) => [
+    safeExportText(play['name']) || safeExportText(play['title']) || `Play ${index + 1}`,
+    safeExportText(play['series']),
+    safeExportText(play['formation']),
+    safeExportText(play['personnel']),
+    formatExportLabel(safeExportText(play['category'])),
+    formatExportLabel(safeExportText(play['installStage'], 'install')),
+  ]);
+}
+
+function buildPlayInventoryColumns(): ExportColumn[] {
+  return [
+    { key: 'name', label: 'Play', width: 112 },
+    { key: 'series', label: 'Series', width: 70 },
+    { key: 'formation', label: 'Formation', width: 82 },
+    { key: 'personnel', label: 'Personnel', width: 70 },
+    { key: 'category', label: 'Category', width: 70 },
+    { key: 'installStage', label: 'Stage', width: 58 },
+  ];
+}
+
+function buildPlaybookPdfPayload(
+  playbook: Record<string, unknown>,
+  mode: 'current' | 'full',
+  activeTab: z.infer<typeof playbookExportTabSchema>,
+  callsheetFilters: Record<string, string> | undefined,
+  callsheet: CallsheetPdfInput | null,
+  practiceScript: PracticeScriptPdfInput | null,
+  gamePlans: readonly {
+    readonly title: string;
+    readonly opponent: string;
+    readonly notes: string;
+    readonly plays: readonly string[];
+  }[]
+): {
+  readonly title: string;
+  readonly description: string;
+  readonly columns?: readonly ExportColumn[];
+  readonly rows?: readonly ExportRow[];
+  readonly bodyParagraphs?: readonly string[];
+  readonly bulletPoints?: readonly string[];
+  readonly imageUrls?: readonly string[];
+} {
+  const playbookName =
+    safeExportText(playbook['title']) || safeExportText(playbook['name']) || 'Playbook';
+  const sport = safeExportText(playbook['sport'], 'sport');
+  const formattedSport = formatExportLabel(sport);
+  const season = safeExportText(playbook['season']);
+  const plays = Array.isArray(playbook['plays'])
+    ? (playbook['plays'] as Record<string, unknown>[])
+    : [];
+
+  const headerDescription = `${formattedSport}${season ? ` • ${season}` : ''} • ${plays.length} plays`;
+  const imageUrls = plays
+    .map((play) => safeExportText(play['diagramUrl']))
+    .filter((url) => url.length > 0)
+    .slice(0, 24);
+
+  const playRows = buildPlayInventoryRows(plays);
+  const playColumns = buildPlayInventoryColumns();
+
+  const callsheetSituation = resolvePlaybookSituationText(callsheetFilters);
+  const callsheetRankings = deterministicCallsheetRanking(plays, callsheetSituation);
+  const scriptPeriods = practiceScript?.periods ?? [];
+  const scriptTotalReps = scriptPeriods.reduce((sum, period) => sum + period.reps, 0);
+
+  const callsheetRows = buildCallsheetRows(callsheet, callsheetRankings);
+  const callsheetTitle = callsheet?.title ?? 'AI Callsheet';
+  const effectiveCallsheetSituation = callsheet?.situation ?? callsheetSituation;
+
+  const callsheetColumns: ExportColumn[] = [
+    { key: 'group', label: 'Group', width: 82 },
+    { key: 'playName', label: 'Call', width: 120 },
+    { key: 'score', label: 'Grade', width: 46 },
+    { key: 'reasoning', label: 'Why It Belongs', width: '*' },
+  ];
+
+  if (mode === 'full') {
+    const installBulletPoints = plays.flatMap((play, index) => {
+      const playName =
+        safeExportText(play['name']) || safeExportText(play['title']) || `Play ${index + 1}`;
+      const installStage = safeExportText(play['installStage'], 'install');
+      const coachingPoint = safeExportStringArray(play['coachingPoints'])[0];
+      const drill = safeExportStringArray(play['drillProgression'])[0];
+      return [
+        `**Install:** ${playName} - ${formatExportLabel(installStage)}`,
+        coachingPoint ? `**Coaching Point:** ${coachingPoint}` : '',
+        drill ? `**Drill Progression:** ${drill}` : '',
+      ].filter((line) => line.length > 0);
+    });
+
+    const callsheetBullets = callsheetRows.slice(0, 18).map((row) => {
+      return `**${row[0]}:** ${row[1]} (${row[2]}) - ${row[3]}`;
+    });
+
+    const practiceBullets = scriptPeriods.slice(0, 20).map((period, index) => {
+      return `**Script ${index + 1}:** ${period.label} | ${period.clock} | ${period.callType} | ${period.playName}`;
+    });
+
+    const gamePlanBullets = gamePlans.flatMap((plan) => {
+      const lines = [`**Game Plan:** ${plan.title} vs ${plan.opponent}`];
+      if (plan.plays.length > 0) {
+        lines.push(`**Assigned Plays:** ${plan.plays.join(', ')}`);
+      }
+      if (plan.notes) {
+        lines.push(`**Notes:** ${plan.notes}`);
+      }
+      return lines;
+    });
+
+    return {
+      title: `${playbookName} - Full Packet`,
+      description: headerDescription,
+      bodyParagraphs: [
+        ...buildPdfSection(
+          'Overview',
+          `${playbookName} has been formatted as a complete coaching packet for sideline, meeting-room, and install use.`
+        ),
+        ...buildPdfSection(
+          'Install Plan',
+          `Progression summary across ${plays.length} plays with emphasis on sequencing, coaching points, and drill flow.`
+        ),
+        ...buildPdfSection(
+          'Callsheet',
+          `${callsheetTitle} organized for ${effectiveCallsheetSituation}. ${callsheet?.notes ?? ''}`
+        ),
+        ...buildPdfSection(
+          'Practice Script Notes',
+          practiceScript
+            ? `${practiceScript.title} • ${scriptPeriods.length} periods • ${scriptTotalReps} total reps.`
+            : 'No saved practice script selected for this packet.'
+        ),
+        ...buildPdfSection(
+          'Opponent Planning',
+          gamePlans.length > 0
+            ? `Loaded ${gamePlans.length} active opponent game plan(s) for inclusion in this packet.`
+            : 'No active opponent game plans were found for this team and sport.'
+        ),
+      ],
+      columns: playColumns,
+      rows: playRows,
+      bulletPoints: [
+        ...installBulletPoints,
+        ...callsheetBullets,
+        ...practiceBullets,
+        ...gamePlanBullets,
+      ],
+      imageUrls,
+    };
+  }
+
+  if (activeTab === 'install') {
+    const installRows: ExportRow[] = plays.map((play, index) => [
+      safeExportText(play['name']) || safeExportText(play['title']) || `Play ${index + 1}`,
+      formatExportLabel(safeExportText(play['installStage'], 'install')),
+      safeExportText(play['formation']),
+      safeExportText(play['personnel']),
+      formatExportLabel(safeExportText(play['category'])),
+      safeExportText(play['series']),
+    ]);
+
+    return {
+      title: `${playbookName} - Install Plan`,
+      description: headerDescription,
+      bodyParagraphs: [
+        ...buildPdfSection(
+          'Install Plan Overview',
+          `${playbookName} install sequencing for ${formattedSport}${season ? ` • ${season}` : ''}.`
+        ),
+      ],
+      columns: [
+        { key: 'name', label: 'Play', width: 128 },
+        { key: 'installStage', label: 'Stage', width: 66 },
+        { key: 'formation', label: 'Formation', width: 88 },
+        { key: 'personnel', label: 'Personnel', width: 78 },
+        { key: 'category', label: 'Category', width: 76 },
+        { key: 'series', label: 'Series', width: '*' },
+      ],
+      rows: installRows,
+    };
+  }
+
+  if (activeTab === 'callsheet') {
+    return {
+      title: `${playbookName} - ${callsheetTitle}`,
+      description: `${headerDescription} • Situation: ${effectiveCallsheetSituation}`,
+      bodyParagraphs: [
+        ...buildPdfSection(
+          'Callsheet Overview',
+          `${callsheetTitle} prioritizes the highest-leverage calls for ${effectiveCallsheetSituation}.`,
+          callsheet?.notes ?? ''
+        ),
+      ],
+      columns: callsheetColumns,
+      rows: callsheetRows,
+    };
+  }
+
+  if (activeTab === 'play-script') {
+    const scriptRows: ExportRow[] = scriptPeriods.map((period, index) => [
+      index + 1,
+      period.label,
+      period.clock,
+      period.reps,
+      period.callType,
+      period.playName,
+      period.coachingPoint ?? '',
+      period.notes ?? '',
+    ]);
+
+    return {
+      title: `${playbookName} - Practice Script Callsheet`,
+      description: headerDescription,
+      bodyParagraphs: [
+        ...buildPdfSection(
+          'Practice Script Overview',
+          practiceScript
+            ? `${practiceScript.title} • Focus: ${practiceScript.focus} • Tempo: ${practiceScript.tempo}${practiceScript.scriptDate ? ` • Date: ${practiceScript.scriptDate}` : ''}${practiceScript.opponent ? ` • Opponent: ${practiceScript.opponent}` : ''}`
+            : 'No saved script selected. Build or generate a script in the Practice Scripts tab before exporting.'
+        ),
+        ...buildPdfSection('Script Objectives', ...(practiceScript?.objectives ?? [])),
+        ...buildPdfSection('Coach Notes', practiceScript?.notes ?? ''),
+      ],
+      columns: [
+        { key: 'slot', label: '#', width: 24 },
+        { key: 'label', label: 'Period', width: 70 },
+        { key: 'clock', label: 'Clock', width: 46 },
+        { key: 'reps', label: 'Reps', width: 34 },
+        { key: 'callType', label: 'Type', width: 60 },
+        { key: 'playName', label: 'Call', width: 96 },
+        { key: 'coachingPoint', label: 'Coaching Point', width: '*' },
+      ],
+      rows: scriptRows.map((row) => row.slice(0, 7)),
+      imageUrls,
+    };
+  }
+
+  if (activeTab === 'opponent') {
+    const gamePlanRows: ExportRow[] = gamePlans.map((plan) => [
+      plan.title,
+      plan.opponent,
+      plan.plays.join(', '),
+      plan.notes,
+    ]);
+    return {
+      title: `${playbookName} - Game Plans`,
+      description: `${headerDescription} • ${gamePlans.length} active plan(s)`,
+      bodyParagraphs: [
+        ...buildPdfSection(
+          'Opponent Planning Overview',
+          `This packet summarizes the current opponent-specific plans linked to ${playbookName}.`
+        ),
+      ],
+      columns: [
+        { key: 'title', label: 'Plan' },
+        { key: 'opponent', label: 'Opponent' },
+        { key: 'plays', label: 'Assigned Plays' },
+        { key: 'notes', label: 'Notes' },
+      ],
+      rows: gamePlanRows,
+    };
+  }
+
+  return {
+    title: `${playbookName} - Plays`,
+    description: headerDescription,
+    bodyParagraphs: [
+      ...buildPdfSection(
+        'Playbook Overview',
+        `${playbookName} organized for staff review, install planning, and gameday reference.`
+      ),
+    ],
+    columns: playColumns,
+    rows: playRows,
+    imageUrls,
+  };
+}
+
+function buildGamePlanPdfPayload(gamePlan: TeamGamePlanDoc): {
+  readonly title: string;
+  readonly description: string;
+  readonly columns?: readonly ExportColumn[];
+  readonly rows?: readonly ExportRow[];
+  readonly bodyParagraphs?: readonly string[];
+  readonly bulletPoints?: readonly string[];
+  readonly imageUrls?: readonly string[];
+} {
+  const gamePlanData = gamePlan as unknown as Record<string, unknown>;
+  const title =
+    safeExportText(gamePlanData['title']) ||
+    safeExportText(gamePlanData['opponentName']) ||
+    'Game Plan';
+
+  const sport = safeExportText(gamePlanData['sport']);
+  const formattedSport = formatExportLabel(sport);
+  const phase = safeExportText(gamePlanData['phase']);
+  const formattedPhase = formatExportLabel(phase);
+  const status = safeExportText(gamePlanData['status']);
+  const formattedStatus = formatExportLabel(status);
+  const gameDate = safeExportText(gamePlanData['gameDate']);
+  const season = safeExportText(gamePlanData['season']);
+
+  const descriptionParts = [formattedSport, season, formattedPhase, formattedStatus, gameDate]
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  const description = descriptionParts.length > 0 ? descriptionParts.join(' • ') : 'Team game plan';
+
+  const bodyParagraphs: string[] = [
+    ...buildPdfSection(
+      'Game Plan Overview',
+      `${title} has been formatted as a polished staff-ready scouting and strategy document.`
+    ),
+  ];
+  const scoutingReport = safeExportText(gamePlanData['scoutingReport']);
+  bodyParagraphs.push(...buildPdfSection('Scouting Report', scoutingReport));
+
+  const identityFocus = safeExportText(gamePlanData['identityFocus']);
+  bodyParagraphs.push(...buildPdfSection('Identity Focus', identityFocus));
+
+  const primaryAttackPlan = safeExportText(gamePlanData['primaryAttackPlan']);
+  bodyParagraphs.push(...buildPdfSection('Primary Attack Plan', primaryAttackPlan));
+
+  const defensivePriorities = safeExportText(gamePlanData['defensivePriorities']);
+  bodyParagraphs.push(...buildPdfSection('Defensive Priorities', defensivePriorities));
+
+  const specialSituations = safeExportText(gamePlanData['specialSituations']);
+  bodyParagraphs.push(...buildPdfSection('Special Situations', specialSituations));
+
+  const bulletPoints: string[] = [];
+
+  const sectionBullets = {
+    priorities: [] as string[],
+    planBlocks: [] as string[],
+    halftime: [] as string[],
+    adjustmentTriggers: [] as string[],
+  };
+  const priorities = Array.isArray(gamePlanData['priorities'])
+    ? (gamePlanData['priorities'] as unknown[])
+    : [];
+  for (const entry of priorities) {
+    if (!entry || typeof entry !== 'object') continue;
+    const priority = entry as Record<string, unknown>;
+    const label = safeExportText(priority['title']) || safeExportText(priority['label']);
+    const rationale =
+      safeExportText(priority['objective']) ||
+      safeExportText(priority['content']) ||
+      safeExportText(priority['rationale']) ||
+      safeExportText(priority['notes']);
+    if (label && rationale) sectionBullets.priorities.push(`**Priority:** ${label} — ${rationale}`);
+    else if (label) sectionBullets.priorities.push(`**Priority:** ${label}`);
+  }
+
+  const planBlocks = Array.isArray(gamePlanData['planBlocks'])
+    ? (gamePlanData['planBlocks'] as unknown[])
+    : [];
+  for (const entry of planBlocks) {
+    if (!entry || typeof entry !== 'object') continue;
+    const block = entry as Record<string, unknown>;
+    const label = safeExportText(block['title']) || safeExportText(block['label']);
+    const focus =
+      safeExportText(block['content']) ||
+      safeExportText(block['objective']) ||
+      safeExportText(block['focus']);
+    if (label && focus) sectionBullets.planBlocks.push(`**Plan Block:** ${label} — ${focus}`);
+    else if (label) sectionBullets.planBlocks.push(`**Plan Block:** ${label}`);
+  }
+
+  const halftimePriorities = Array.isArray(gamePlanData['halftimePriorities'])
+    ? (gamePlanData['halftimePriorities'] as unknown[])
+    : [];
+  for (const entry of halftimePriorities) {
+    if (typeof entry === 'string') {
+      const line = entry.trim();
+      if (line) sectionBullets.halftime.push(`**Halftime:** ${line}`);
+      continue;
+    }
+    if (!entry || typeof entry !== 'object') continue;
+    const halftime = entry as Record<string, unknown>;
+    const label = safeExportText(halftime['label']) || safeExportText(halftime['title']);
+    const content = safeExportText(halftime['content']) || safeExportText(halftime['objective']);
+    if (label && content) sectionBullets.halftime.push(`**Halftime:** ${label} — ${content}`);
+    else if (label) sectionBullets.halftime.push(`**Halftime:** ${label}`);
+    else if (content) sectionBullets.halftime.push(`**Halftime:** ${content}`);
+  }
+
+  const adjustmentTriggers = Array.isArray(gamePlanData['adjustmentTriggers'])
+    ? (gamePlanData['adjustmentTriggers'] as unknown[])
+    : [];
+  for (const entry of adjustmentTriggers) {
+    if (!entry || typeof entry !== 'object') continue;
+    const trigger = entry as Record<string, unknown>;
+    const condition =
+      safeExportText(trigger['trigger']) ||
+      safeExportText(trigger['when']) ||
+      safeExportText(trigger['condition']);
+    const action = safeExportText(trigger['adjustment']) || safeExportText(trigger['response']);
+    const diagnosis = safeExportText(trigger['diagnosis']);
+    const expectedOutcome = safeExportText(trigger['expectedOutcome']);
+
+    if (condition && action) {
+      sectionBullets.adjustmentTriggers.push(`**Adjustment Trigger:** ${condition} -> ${action}`);
+    } else if (condition) {
+      sectionBullets.adjustmentTriggers.push(`**Adjustment Trigger:** ${condition}`);
+    }
+    if (diagnosis) {
+      sectionBullets.adjustmentTriggers.push(`**Diagnosis:** ${diagnosis}`);
+    }
+    if (expectedOutcome) {
+      sectionBullets.adjustmentTriggers.push(`**Expected Outcome:** ${expectedOutcome}`);
+    }
+  }
+
+  if (sectionBullets.priorities.length > 0) {
+    bulletPoints.push('## Strategic Priorities', ...sectionBullets.priorities);
+  }
+  if (sectionBullets.planBlocks.length > 0) {
+    bulletPoints.push('## Plan Blocks', ...sectionBullets.planBlocks);
+  }
+  if (sectionBullets.halftime.length > 0) {
+    bulletPoints.push('## Halftime Priorities', ...sectionBullets.halftime);
+  }
+  if (sectionBullets.adjustmentTriggers.length > 0) {
+    bulletPoints.push('## Adjustment Triggers', ...sectionBullets.adjustmentTriggers);
+  }
+
+  const customSections = Array.isArray(gamePlanData['customSections'])
+    ? (gamePlanData['customSections'] as unknown[])
+    : [];
+  for (const entry of customSections) {
+    if (!entry || typeof entry !== 'object') continue;
+    const section = entry as Record<string, unknown>;
+    const heading =
+      safeExportText(section['title']) ||
+      safeExportText(section['heading']) ||
+      safeExportText(section['key']);
+    const content = safeExportText(section['content']);
+    bodyParagraphs.push(...buildPdfSection(heading || 'Additional Notes', content));
+  }
+
+  const linkedPlays = Array.isArray(gamePlanData['linkedPlays'])
+    ? (gamePlanData['linkedPlays'] as unknown[])
+    : [];
+  const linkedPlayRows: ExportRow[] = [];
+  const imageUrls: string[] = [];
+
+  for (const entry of linkedPlays) {
+    if (!entry || typeof entry !== 'object') continue;
+    const play = entry as Record<string, unknown>;
+    const playName = safeExportText(play['playName']) || safeExportText(play['title']) || 'Play';
+    const usage = safeExportText(play['usage']);
+    const formation = safeExportText(play['formation']);
+    const personnel = safeExportText(play['personnel']);
+    const situation = safeExportText(play['situation']);
+    const notes = safeExportText(play['notes']) || safeExportText(play['reason']);
+    linkedPlayRows.push([playName, usage, formation, personnel, situation, notes]);
+
+    const diagramUrl = safeExportText(play['diagramUrl']);
+    if (diagramUrl) imageUrls.push(diagramUrl);
+  }
+
+  return {
+    title,
+    description,
+    ...(bodyParagraphs.length > 0 ? { bodyParagraphs } : {}),
+    ...(bulletPoints.length > 0 ? { bulletPoints } : {}),
+    ...(linkedPlayRows.length > 0
+      ? {
+          columns: [
+            { key: 'playName', label: 'Play' },
+            { key: 'usage', label: 'Usage' },
+            { key: 'formation', label: 'Formation' },
+            { key: 'personnel', label: 'Personnel' },
+            { key: 'situation', label: 'Situation' },
+            { key: 'notes', label: 'Notes' },
+          ] as const,
+          rows: linkedPlayRows,
+        }
+      : {}),
+    ...(imageUrls.length > 0 ? { imageUrls: [...new Set(imageUrls)].slice(0, 24) } : {}),
+  };
+}
+
 // ─── GET /playbooks ──────────────────────────────────────────────────────────
 router.get('/playbooks', appGuard, async (req: Request, res: Response) => {
   try {
@@ -4254,6 +6001,7 @@ router.get('/playbooks', appGuard, async (req: Request, res: Response) => {
       return;
     }
 
+    const sport = normalizeString(req.query['sport'])?.toLowerCase();
     const limit = Math.min(parseInt(String(req.query['limit'] ?? '25'), 10) || 25, 100);
     const includeArchived = req.query['includeArchived'] === 'true';
 
@@ -4286,6 +6034,10 @@ router.get('/playbooks', appGuard, async (req: Request, res: Response) => {
     const playbooks = snap.docs
       .map((doc: FirestoreDocLike) => ({ id: doc.id, ...doc.data() }))
       .filter((p: Record<string, unknown>) => includeArchived || p['archived'] !== true)
+      .filter((p: Record<string, unknown>) => {
+        if (!sport) return true;
+        return String(p['sport'] ?? '').toLowerCase() === sport;
+      })
       .sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
         const left = String(a['updatedAt'] ?? a['createdAt'] ?? '');
         const right = String(b['updatedAt'] ?? b['createdAt'] ?? '');
@@ -4294,7 +6046,7 @@ router.get('/playbooks', appGuard, async (req: Request, res: Response) => {
       .slice(0, limit)
       .map((p: Record<string, unknown>) => toPlaybookSummary(String(p['id']), p));
 
-    logger.info('GET /playbooks', { userId: user.uid, teamId, count: playbooks.length });
+    logger.info('GET /playbooks', { userId: user.uid, teamId, sport, count: playbooks.length });
     res.json({ success: true, data: { playbooks, count: playbooks.length } });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
@@ -4403,7 +6155,12 @@ router.post('/playbooks', appGuard, async (req: Request, res: Response) => {
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '_')
       .slice(0, 40);
-    const docId = `${teamId}_${normalizedSport}_${slug}_${Date.now()}`;
+    const docId = `${teamId}_${normalizedSport}_${slug}`;
+    const docRef = db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(docId);
+    const existingDoc = await docRef.get();
+    const existingData = existingDoc.exists
+      ? ((existingDoc.data() ?? {}) as Record<string, unknown>)
+      : null;
 
     const payload: Record<string, unknown> = {
       id: docId,
@@ -4417,9 +6174,17 @@ router.post('/playbooks', appGuard, async (req: Request, res: Response) => {
       personnelIndex: [],
       categoryIndex: [],
       archived: false,
-      createdAt: now,
+      createdAt:
+        typeof existingData?.['createdAt'] === 'string' &&
+        existingData['createdAt'].trim().length > 0
+          ? existingData['createdAt']
+          : now,
       updatedAt: now,
-      createdBy: user.uid,
+      createdBy:
+        typeof existingData?.['createdBy'] === 'string' &&
+        existingData['createdBy'].trim().length > 0
+          ? existingData['createdBy']
+          : user.uid,
       updatedBy: user.uid,
     };
 
@@ -4430,16 +6195,17 @@ router.post('/playbooks', appGuard, async (req: Request, res: Response) => {
     if (typeof source === 'string' && source.trim()) payload['source'] = source.trim();
     if (typeof sourceUrl === 'string' && sourceUrl.trim()) payload['sourceUrl'] = sourceUrl.trim();
 
-    await db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(docId).set(payload);
+    await docRef.set(payload, { merge: true });
 
-    logger.info('POST /playbooks — created', {
+    logger.info('POST /playbooks — upserted', {
       teamId,
       sport: normalizedSport,
       name,
       docId,
       createdBy: user.uid,
+      existed: existingDoc.exists,
     });
-    res.status(201).json({ success: true, data: { playbook: payload } });
+    res.status(existingDoc.exists ? 200 : 201).json({ success: true, data: { playbook: payload } });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('POST /playbooks failed', { error: error.message, stack: error.stack });
@@ -4552,7 +6318,14 @@ router.delete('/playbooks/:playbookId', appGuard, async (req: Request, res: Resp
       return;
     }
 
-    await docRef.delete();
+    const now = new Date().toISOString();
+    await docRef.update({
+      archived: true,
+      updatedBy: user.uid,
+      updatedAt: now,
+      archivedAt: now,
+      archivedBy: user.uid,
+    });
 
     try {
       const cache = getCacheService();
@@ -4567,9 +6340,9 @@ router.delete('/playbooks/:playbookId', appGuard, async (req: Request, res: Resp
     logger.info('DELETE /playbooks/:id', {
       playbookId,
       teamId: playbookTeamId,
-      deletedBy: user.uid,
+      archivedBy: user.uid,
     });
-    res.json({ success: true });
+    res.json({ success: true, data: { archived: true } });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('DELETE /playbooks/:id failed', { error: error.message, stack: error.stack });
@@ -4626,6 +6399,7 @@ router.post('/playbooks/:playbookId/plays', appGuard, async (req: Request, res: 
       'personnel',
       'downDistance',
       'objective',
+      'playBreakdown',
       'installNotes',
       'diagramUrl',
       'videoUrl',
@@ -4777,6 +6551,7 @@ router.patch(
         'personnel',
         'downDistance',
         'objective',
+        'playBreakdown',
         'installNotes',
         'diagramUrl',
         'videoUrl',
@@ -4800,25 +6575,25 @@ router.patch(
         const points = body['coachingPoints']
           .filter((p): p is string => typeof p === 'string' && p.trim().length > 0)
           .map((p) => p.trim());
-        if (points.length) updated['coachingPoints'] = points;
+        updated['coachingPoints'] = points;
       }
       if (Array.isArray(body['commonBusts'])) {
         const busts = body['commonBusts']
           .filter((b): b is string => typeof b === 'string' && b.trim().length > 0)
           .map((b) => b.trim());
-        if (busts.length) updated['commonBusts'] = busts;
+        updated['commonBusts'] = busts;
       }
       if (Array.isArray(body['correctionCues'])) {
         const cues = body['correctionCues']
           .filter((c): c is string => typeof c === 'string' && c.trim().length > 0)
           .map((c) => c.trim());
-        if (cues.length) updated['correctionCues'] = cues;
+        updated['correctionCues'] = cues;
       }
       if (Array.isArray(body['drillProgression'])) {
         const drills = body['drillProgression']
           .filter((d): d is string => typeof d === 'string' && d.trim().length > 0)
           .map((d) => d.trim());
-        if (drills.length) updated['drillProgression'] = drills;
+        updated['drillProgression'] = drills;
       }
 
       // AI-native situation layer
@@ -4826,7 +6601,7 @@ router.patch(
         const situs = body['situations']
           .filter((s): s is string => typeof s === 'string' && s.trim().length > 0)
           .map((s) => s.trim());
-        if (situs.length) updated['situations'] = situs;
+        updated['situations'] = situs;
       }
 
       plays[idx] = updated;
@@ -4857,6 +6632,424 @@ router.patch(
         stack: error.stack,
       });
       res.status(500).json({ success: false, error: 'Failed to update play' });
+    }
+  }
+);
+
+// ─── CALLSHEETS CRUD (persisted callsheet workspace) ───────────────────────
+
+router.get('/playbooks/:playbookId/callsheets', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { playbookId } = req.params as { playbookId: string };
+    const teamId = typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : null;
+    if (!teamId) {
+      res.status(400).json({ success: false, error: 'teamId is required' });
+      return;
+    }
+
+    const limit = Math.min(parseInt(String(req.query['limit'] ?? '30'), 10) || 30, 100);
+    const includeArchived = req.query['includeArchived'] === 'true';
+
+    const { db } = req.firebase!;
+
+    const playbookDoc = await db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId).get();
+    if (!playbookDoc.exists) {
+      res.status(404).json({ success: false, error: 'Playbook not found' });
+      return;
+    }
+
+    const playbookData = (playbookDoc.data() ?? {}) as Record<string, unknown>;
+    const playbookTeamId = normalizeString(playbookData['teamId']) ?? '';
+    if (!playbookTeamId || playbookTeamId !== teamId) {
+      res.status(403).json({ success: false, error: 'Playbook does not belong to this team' });
+      return;
+    }
+
+    const teamDoc = await db.collection('Teams').doc(teamId).get();
+    const authorized = await canManageTeamMutationForUser(
+      db,
+      user.uid,
+      teamId,
+      teamDoc.data() ?? {}
+    );
+    if (!authorized) {
+      res.status(403).json({ success: false, error: 'Not authorized' });
+      return;
+    }
+
+    const snap = await db
+      .collection(TEAM_CALLSHEETS_COLLECTION)
+      .where('teamId', '==', teamId)
+      .where('playbookId', '==', playbookId)
+      .limit(limit * 4)
+      .get();
+
+    const callsheets = snap.docs
+      .map((doc: FirestoreDocLike) => ({ id: doc.id, ...doc.data() }))
+      .filter((doc: Record<string, unknown>) => includeArchived || doc['archived'] !== true)
+      .sort((left: Record<string, unknown>, right: Record<string, unknown>) => {
+        const l = normalizeString(left['updatedAt']) ?? normalizeString(left['createdAt']) ?? '';
+        const r = normalizeString(right['updatedAt']) ?? normalizeString(right['createdAt']) ?? '';
+        return l > r ? -1 : 1;
+      })
+      .slice(0, limit)
+      .map((doc: Record<string, unknown>) => toCallsheetSummary(String(doc['id'] ?? ''), doc));
+
+    res.json({ success: true, data: { callsheets, count: callsheets.length } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('GET /playbooks/:id/callsheets failed', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to load callsheets' });
+  }
+});
+
+router.get(
+  '/playbooks/:playbookId/callsheets/:callsheetId',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { playbookId, callsheetId } = req.params as { playbookId: string; callsheetId: string };
+      const teamId = typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : null;
+      if (!teamId) {
+        res.status(400).json({ success: false, error: 'teamId is required' });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const callsheetDoc = await db.collection(TEAM_CALLSHEETS_COLLECTION).doc(callsheetId).get();
+      if (!callsheetDoc.exists) {
+        res.status(404).json({ success: false, error: 'Callsheet not found' });
+        return;
+      }
+
+      const callsheet = (callsheetDoc.data() ?? {}) as Record<string, unknown>;
+      if (normalizeString(callsheet['teamId']) !== teamId) {
+        res.status(403).json({ success: false, error: 'Callsheet does not belong to this team' });
+        return;
+      }
+      if (normalizeString(callsheet['playbookId']) !== playbookId) {
+        res
+          .status(403)
+          .json({ success: false, error: 'Callsheet does not belong to this playbook' });
+        return;
+      }
+
+      const teamDoc = await db.collection('Teams').doc(teamId).get();
+      const authorized = await canManageTeamMutationForUser(
+        db,
+        user.uid,
+        teamId,
+        teamDoc.data() ?? {}
+      );
+      if (!authorized) {
+        res.status(403).json({ success: false, error: 'Not authorized' });
+        return;
+      }
+
+      const plays = normalizeCallsheetPlays(callsheet['plays']);
+      const groups = normalizeCallsheetGroups(callsheet['groups'], plays);
+
+      res.json({
+        success: true,
+        data: {
+          callsheet: {
+            id: callsheetDoc.id,
+            ...callsheet,
+            plays,
+            groups,
+          },
+        },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('GET /playbooks/:id/callsheets/:callsheetId failed', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to load callsheet' });
+    }
+  }
+);
+
+router.post('/playbooks/:playbookId/callsheets', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { playbookId } = req.params as { playbookId: string };
+    const body = req.body as Record<string, unknown>;
+    const teamId = normalizeString(body['teamId']);
+    if (!teamId) {
+      res.status(400).json({ success: false, error: 'teamId is required' });
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const playbookDoc = await db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId).get();
+    if (!playbookDoc.exists) {
+      res.status(404).json({ success: false, error: 'Playbook not found' });
+      return;
+    }
+
+    const playbook = (playbookDoc.data() ?? {}) as Record<string, unknown>;
+    const playbookTeamId = normalizeString(playbook['teamId']) ?? '';
+    if (!playbookTeamId || playbookTeamId !== teamId) {
+      res.status(403).json({ success: false, error: 'Playbook does not belong to this team' });
+      return;
+    }
+
+    const teamDoc = await db.collection('Teams').doc(teamId).get();
+    const authorized = await canManageTeamMutationForUser(
+      db,
+      user.uid,
+      teamId,
+      teamDoc.data() ?? {}
+    );
+    if (!authorized) {
+      res.status(403).json({ success: false, error: 'Not authorized' });
+      return;
+    }
+
+    const sport = normalizeString(body['sport']) ?? normalizeString(playbook['sport']) ?? '';
+    const situation =
+      normalizeString(body['situation']) ??
+      resolvePlaybookSituationText(
+        typeof body['filters'] === 'object' && body['filters']
+          ? (body['filters'] as Record<string, string>)
+          : undefined
+      );
+    const plays = normalizeCallsheetPlays(body['plays']);
+    const fallbackPlays = Array.isArray(playbook['plays'])
+      ? deterministicCallsheetRanking(
+          playbook['plays'] as Record<string, unknown>[],
+          situation || 'all situations'
+        )
+      : [];
+    const effectivePlays = plays.length > 0 ? plays : fallbackPlays;
+    const groups = normalizeCallsheetGroups(body['groups'], effectivePlays);
+
+    const title =
+      normalizeString(body['title']) ??
+      `Callsheet ${new Date().toLocaleDateString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+      })}`;
+
+    const now = new Date().toISOString();
+    const slugSeed = `${title}-${now}`
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 64);
+    const docId = `${playbookId}_${slugSeed || 'callsheet'}`;
+
+    const payload: Record<string, unknown> = {
+      id: docId,
+      teamId,
+      playbookId,
+      sport,
+      title,
+      situation: situation || 'all situations',
+      filters:
+        typeof body['filters'] === 'object' && body['filters']
+          ? (body['filters'] as Record<string, unknown>)
+          : {},
+      plays: effectivePlays,
+      groups,
+      notes: normalizeString(body['notes']) ?? '',
+      source: normalizeString(body['source']) ?? 'agent_x',
+      archived: false,
+      createdAt: now,
+      createdBy: user.uid,
+      updatedAt: now,
+      updatedBy: user.uid,
+    };
+
+    await db.collection(TEAM_CALLSHEETS_COLLECTION).doc(docId).set(payload);
+    res.status(201).json({ success: true, data: { callsheet: payload } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('POST /playbooks/:id/callsheets failed', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to create callsheet' });
+  }
+});
+
+router.patch(
+  '/playbooks/:playbookId/callsheets/:callsheetId',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { playbookId, callsheetId } = req.params as { playbookId: string; callsheetId: string };
+      const body = req.body as Record<string, unknown>;
+      const teamId = normalizeString(body['teamId']);
+      if (!teamId) {
+        res.status(400).json({ success: false, error: 'teamId is required' });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const docRef = db.collection(TEAM_CALLSHEETS_COLLECTION).doc(callsheetId);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        res.status(404).json({ success: false, error: 'Callsheet not found' });
+        return;
+      }
+
+      const existing = (doc.data() ?? {}) as Record<string, unknown>;
+      if (normalizeString(existing['teamId']) !== teamId) {
+        res.status(403).json({ success: false, error: 'Callsheet does not belong to this team' });
+        return;
+      }
+      if (normalizeString(existing['playbookId']) !== playbookId) {
+        res
+          .status(403)
+          .json({ success: false, error: 'Callsheet does not belong to this playbook' });
+        return;
+      }
+
+      const teamDoc = await db.collection('Teams').doc(teamId).get();
+      const authorized = await canManageTeamMutationForUser(
+        db,
+        user.uid,
+        teamId,
+        teamDoc.data() ?? {}
+      );
+      if (!authorized) {
+        res.status(403).json({ success: false, error: 'Not authorized' });
+        return;
+      }
+
+      const updates: Record<string, unknown> = {
+        updatedAt: new Date().toISOString(),
+        updatedBy: user.uid,
+      };
+      if (typeof body['title'] === 'string') updates['title'] = body['title'].trim();
+      if (typeof body['situation'] === 'string') updates['situation'] = body['situation'].trim();
+      if (typeof body['notes'] === 'string') updates['notes'] = body['notes'].trim();
+      if (typeof body['archived'] === 'boolean') updates['archived'] = body['archived'];
+      if (typeof body['filters'] === 'object' && body['filters'])
+        updates['filters'] = body['filters'];
+
+      if (Array.isArray(body['plays'])) {
+        updates['plays'] = normalizeCallsheetPlays(body['plays']);
+      }
+
+      const effectivePlays = Array.isArray(updates['plays'])
+        ? (updates['plays'] as Array<{ playName: string; score: number; reasoning: string }>)
+        : normalizeCallsheetPlays(existing['plays']);
+
+      if (Array.isArray(body['groups'])) {
+        updates['groups'] = normalizeCallsheetGroups(body['groups'], effectivePlays);
+      } else if (Array.isArray(body['plays'])) {
+        updates['groups'] = normalizeCallsheetGroups(existing['groups'], effectivePlays);
+      }
+
+      await docRef.update(updates);
+      res.json({ success: true, data: { id: callsheetId, ...updates } });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('PATCH /playbooks/:id/callsheets/:callsheetId failed', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to update callsheet' });
+    }
+  }
+);
+
+router.delete(
+  '/playbooks/:playbookId/callsheets/:callsheetId',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { playbookId, callsheetId } = req.params as { playbookId: string; callsheetId: string };
+      const teamId = typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : '';
+      if (!teamId) {
+        res.status(400).json({ success: false, error: 'teamId is required' });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const docRef = db.collection(TEAM_CALLSHEETS_COLLECTION).doc(callsheetId);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        res.status(404).json({ success: false, error: 'Callsheet not found' });
+        return;
+      }
+
+      const existing = (doc.data() ?? {}) as Record<string, unknown>;
+      if (normalizeString(existing['teamId']) !== teamId) {
+        res.status(403).json({ success: false, error: 'Callsheet does not belong to this team' });
+        return;
+      }
+      if (normalizeString(existing['playbookId']) !== playbookId) {
+        res
+          .status(403)
+          .json({ success: false, error: 'Callsheet does not belong to this playbook' });
+        return;
+      }
+
+      const teamDoc = await db.collection('Teams').doc(teamId).get();
+      const authorized = await canManageTeamMutationForUser(
+        db,
+        user.uid,
+        teamId,
+        teamDoc.data() ?? {}
+      );
+      if (!authorized) {
+        res.status(403).json({ success: false, error: 'Not authorized' });
+        return;
+      }
+
+      await docRef.update({
+        archived: true,
+        archivedAt: new Date().toISOString(),
+        archivedBy: user.uid,
+        updatedAt: new Date().toISOString(),
+        updatedBy: user.uid,
+      });
+      res.json({ success: true, data: { archived: true } });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('DELETE /playbooks/:id/callsheets/:callsheetId failed', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to delete callsheet' });
     }
   }
 );
@@ -5200,6 +7393,762 @@ router.post(
   }
 );
 
+// ─── PRACTICE SCRIPTS CRUD + AI ─────────────────────────────────────────────
+router.get(
+  '/playbooks/:playbookId/practice-scripts',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { playbookId } = req.params as { playbookId: string };
+      const teamId = typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : null;
+      if (!teamId) {
+        res.status(400).json({ success: false, error: 'teamId is required' });
+        return;
+      }
+
+      const limit = Math.min(parseInt(String(req.query['limit'] ?? '30'), 10) || 30, 100);
+      const includeArchived = req.query['includeArchived'] === 'true';
+
+      const { db } = req.firebase!;
+      const playbookDoc = await db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId).get();
+      if (!playbookDoc.exists) {
+        res.status(404).json({ success: false, error: 'Playbook not found' });
+        return;
+      }
+
+      const playbookData = (playbookDoc.data() ?? {}) as Record<string, unknown>;
+      if ((normalizeString(playbookData['teamId']) ?? '') !== teamId) {
+        res.status(403).json({ success: false, error: 'Playbook does not belong to this team' });
+        return;
+      }
+
+      const teamDoc = await db.collection('Teams').doc(teamId).get();
+      const authorized = await canManageTeamMutationForUser(
+        db,
+        user.uid,
+        teamId,
+        teamDoc.data() ?? {}
+      );
+      if (!authorized) {
+        res.status(403).json({ success: false, error: 'Not authorized' });
+        return;
+      }
+
+      const snap = await db
+        .collection(TEAM_PRACTICE_SCRIPTS_COLLECTION)
+        .where('teamId', '==', teamId)
+        .where('playbookId', '==', playbookId)
+        .limit(limit * 4)
+        .get();
+
+      const scripts = snap.docs
+        .map((doc: FirestoreDocLike) => ({ id: doc.id, ...doc.data() }))
+        .filter((doc: Record<string, unknown>) => includeArchived || doc['archived'] !== true)
+        .sort((left: Record<string, unknown>, right: Record<string, unknown>) => {
+          const leftOrder = Number(left['displayOrder']);
+          const rightOrder = Number(right['displayOrder']);
+          const hasLeftOrder = Number.isFinite(leftOrder);
+          const hasRightOrder = Number.isFinite(rightOrder);
+          if (hasLeftOrder && hasRightOrder && leftOrder !== rightOrder) {
+            return leftOrder - rightOrder;
+          }
+          if (hasLeftOrder !== hasRightOrder) return hasLeftOrder ? -1 : 1;
+
+          const l = normalizeString(left['updatedAt']) ?? normalizeString(left['createdAt']) ?? '';
+          const r =
+            normalizeString(right['updatedAt']) ?? normalizeString(right['createdAt']) ?? '';
+          return l > r ? -1 : 1;
+        })
+        .slice(0, limit)
+        .map((doc: Record<string, unknown>) =>
+          toPracticeScriptSummary(String(doc['id'] ?? ''), doc)
+        );
+
+      res.json({ success: true, data: { scripts, count: scripts.length } });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('GET /playbooks/:id/practice-scripts failed', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to load practice scripts' });
+    }
+  }
+);
+
+router.get(
+  '/playbooks/:playbookId/practice-scripts/:scriptId',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { playbookId, scriptId } = req.params as { playbookId: string; scriptId: string };
+      const teamId = typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : null;
+      if (!teamId) {
+        res.status(400).json({ success: false, error: 'teamId is required' });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const doc = await db.collection(TEAM_PRACTICE_SCRIPTS_COLLECTION).doc(scriptId).get();
+      if (!doc.exists) {
+        res.status(404).json({ success: false, error: 'Practice script not found' });
+        return;
+      }
+
+      const script = (doc.data() ?? {}) as Record<string, unknown>;
+      if ((normalizeString(script['teamId']) ?? '') !== teamId) {
+        res.status(403).json({ success: false, error: 'Script does not belong to this team' });
+        return;
+      }
+      if ((normalizeString(script['playbookId']) ?? '') !== playbookId) {
+        res.status(403).json({ success: false, error: 'Script does not belong to this playbook' });
+        return;
+      }
+
+      const teamDoc = await db.collection('Teams').doc(teamId).get();
+      const authorized = await canManageTeamMutationForUser(
+        db,
+        user.uid,
+        teamId,
+        teamDoc.data() ?? {}
+      );
+      if (!authorized) {
+        res.status(403).json({ success: false, error: 'Not authorized' });
+        return;
+      }
+
+      const periods = normalizePracticeScriptPeriods(script['periods']);
+      const summary = toPracticeScriptSummary(doc.id, script);
+      res.json({ success: true, data: { script: { ...summary, ...script, periods } } });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('GET /playbooks/:id/practice-scripts/:scriptId failed', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to load practice script' });
+    }
+  }
+);
+
+router.post(
+  '/playbooks/:playbookId/practice-scripts',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { playbookId } = req.params as { playbookId: string };
+      const body = req.body as Record<string, unknown>;
+      const teamId = normalizeString(body['teamId']);
+      if (!teamId) {
+        res.status(400).json({ success: false, error: 'teamId is required' });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const playbookDoc = await db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId).get();
+      if (!playbookDoc.exists) {
+        res.status(404).json({ success: false, error: 'Playbook not found' });
+        return;
+      }
+
+      const playbook = (playbookDoc.data() ?? {}) as Record<string, unknown>;
+      if ((normalizeString(playbook['teamId']) ?? '') !== teamId) {
+        res.status(403).json({ success: false, error: 'Playbook does not belong to this team' });
+        return;
+      }
+
+      const teamDoc = await db.collection('Teams').doc(teamId).get();
+      const authorized = await canManageTeamMutationForUser(
+        db,
+        user.uid,
+        teamId,
+        teamDoc.data() ?? {}
+      );
+      if (!authorized) {
+        res.status(403).json({ success: false, error: 'Not authorized' });
+        return;
+      }
+
+      const title = normalizeString(body['title']) ?? 'Practice Script';
+      const focus = normalizeString(body['focus']) ?? 'Weekly install and execution';
+      const tempo = normalizeString(body['tempo']) ?? 'Game Tempo';
+      const periods = normalizePracticeScriptPeriods(body['periods']);
+      if (periods.length === 0) {
+        res.status(400).json({ success: false, error: 'At least one script period is required' });
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const slugSeed = `${title}-${now}`
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .slice(0, 64);
+      const docId = `${playbookId}_${slugSeed || 'practice-script'}`;
+
+      const payload: Record<string, unknown> = {
+        id: docId,
+        teamId,
+        playbookId,
+        sport: normalizeString(playbook['sport']) ?? '',
+        title,
+        focus,
+        tempo,
+        scriptDate: normalizeString(body['scriptDate']) ?? undefined,
+        opponent: normalizeString(body['opponent']) ?? undefined,
+        objectives: safeExportStringArray(body['objectives']),
+        periods,
+        notes: normalizeString(body['notes']) ?? '',
+        source: normalizeString(body['source']) ?? 'coach_manual',
+        displayOrder: Number.isFinite(Number(body['displayOrder']))
+          ? Number(body['displayOrder'])
+          : -Date.now(),
+        archived: false,
+        createdAt: now,
+        createdBy: user.uid,
+        updatedAt: now,
+        updatedBy: user.uid,
+      };
+
+      await db.collection(TEAM_PRACTICE_SCRIPTS_COLLECTION).doc(docId).set(payload);
+      res.status(201).json({ success: true, data: { script: payload } });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('POST /playbooks/:id/practice-scripts failed', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to create practice script' });
+    }
+  }
+);
+
+router.patch(
+  '/playbooks/:playbookId/practice-scripts/:scriptId',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { playbookId, scriptId } = req.params as { playbookId: string; scriptId: string };
+      const body = req.body as Record<string, unknown>;
+      const teamId = normalizeString(body['teamId']);
+      if (!teamId) {
+        res.status(400).json({ success: false, error: 'teamId is required' });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const docRef = db.collection(TEAM_PRACTICE_SCRIPTS_COLLECTION).doc(scriptId);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        res.status(404).json({ success: false, error: 'Practice script not found' });
+        return;
+      }
+
+      const existing = (doc.data() ?? {}) as Record<string, unknown>;
+      if ((normalizeString(existing['teamId']) ?? '') !== teamId) {
+        res.status(403).json({ success: false, error: 'Script does not belong to this team' });
+        return;
+      }
+      if ((normalizeString(existing['playbookId']) ?? '') !== playbookId) {
+        res.status(403).json({ success: false, error: 'Script does not belong to this playbook' });
+        return;
+      }
+
+      const teamDoc = await db.collection('Teams').doc(teamId).get();
+      const authorized = await canManageTeamMutationForUser(
+        db,
+        user.uid,
+        teamId,
+        teamDoc.data() ?? {}
+      );
+      if (!authorized) {
+        res.status(403).json({ success: false, error: 'Not authorized' });
+        return;
+      }
+
+      const updates: Record<string, unknown> = {
+        updatedAt: new Date().toISOString(),
+        updatedBy: user.uid,
+      };
+
+      if (typeof body['title'] === 'string') updates['title'] = body['title'].trim();
+      if (typeof body['focus'] === 'string') updates['focus'] = body['focus'].trim();
+      if (typeof body['tempo'] === 'string') updates['tempo'] = body['tempo'].trim();
+      if (typeof body['scriptDate'] === 'string') updates['scriptDate'] = body['scriptDate'].trim();
+      if (typeof body['opponent'] === 'string') updates['opponent'] = body['opponent'].trim();
+      if (typeof body['notes'] === 'string') updates['notes'] = body['notes'].trim();
+      if (typeof body['archived'] === 'boolean') updates['archived'] = body['archived'];
+      if (typeof body['displayOrder'] === 'number' && Number.isFinite(body['displayOrder'])) {
+        updates['displayOrder'] = body['displayOrder'];
+      }
+      if (Array.isArray(body['objectives']))
+        updates['objectives'] = safeExportStringArray(body['objectives']);
+      if (Array.isArray(body['periods']))
+        updates['periods'] = normalizePracticeScriptPeriods(body['periods']);
+
+      await docRef.update(updates);
+      res.json({ success: true, data: { id: scriptId, ...updates } });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('PATCH /playbooks/:id/practice-scripts/:scriptId failed', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to update practice script' });
+    }
+  }
+);
+
+router.delete(
+  '/playbooks/:playbookId/practice-scripts/:scriptId',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { playbookId, scriptId } = req.params as { playbookId: string; scriptId: string };
+      const teamId = typeof req.query['teamId'] === 'string' ? req.query['teamId'].trim() : '';
+      if (!teamId) {
+        res.status(400).json({ success: false, error: 'teamId is required' });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const docRef = db.collection(TEAM_PRACTICE_SCRIPTS_COLLECTION).doc(scriptId);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        res.status(404).json({ success: false, error: 'Practice script not found' });
+        return;
+      }
+
+      const existing = (doc.data() ?? {}) as Record<string, unknown>;
+      if ((normalizeString(existing['teamId']) ?? '') !== teamId) {
+        res.status(403).json({ success: false, error: 'Script does not belong to this team' });
+        return;
+      }
+      if ((normalizeString(existing['playbookId']) ?? '') !== playbookId) {
+        res.status(403).json({ success: false, error: 'Script does not belong to this playbook' });
+        return;
+      }
+
+      const teamDoc = await db.collection('Teams').doc(teamId).get();
+      const authorized = await canManageTeamMutationForUser(
+        db,
+        user.uid,
+        teamId,
+        teamDoc.data() ?? {}
+      );
+      if (!authorized) {
+        res.status(403).json({ success: false, error: 'Not authorized' });
+        return;
+      }
+
+      await docRef.update({
+        archived: true,
+        archivedAt: new Date().toISOString(),
+        archivedBy: user.uid,
+        updatedAt: new Date().toISOString(),
+        updatedBy: user.uid,
+      });
+
+      res.json({ success: true, data: { archived: true } });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('DELETE /playbooks/:id/practice-scripts/:scriptId failed', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to delete practice script' });
+    }
+  }
+);
+
+router.post(
+  '/playbooks/:playbookId/practice-script-ai',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { playbookId } = req.params as { playbookId: string };
+      const body = req.body as Record<string, unknown>;
+      const teamId = normalizeString(body['teamId']);
+      const sport = normalizeString(body['sport']);
+      const focus = normalizeString(body['focus']) ?? 'Weekly install and execution';
+
+      if (!teamId) {
+        res.status(400).json({ success: false, error: 'teamId is required' });
+        return;
+      }
+      if (!sport) {
+        res.status(400).json({ success: false, error: 'sport is required' });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const playbookRef = db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId);
+      const playbookDoc = await playbookRef.get();
+      if (!playbookDoc.exists) {
+        res.status(404).json({ success: false, error: 'Playbook not found' });
+        return;
+      }
+
+      const playbook = playbookDoc.data() as Record<string, unknown>;
+      const playbookTeamId = normalizeString(playbook['teamId']) ?? '';
+      if (playbookTeamId !== teamId) {
+        res.status(403).json({ success: false, error: 'Playbook does not belong to this team' });
+        return;
+      }
+
+      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(playbookTeamId).get();
+      const authorized = await canManageTeamMutationForUser(
+        db,
+        user.uid,
+        playbookTeamId,
+        teamDoc.data() ?? {}
+      );
+      if (!authorized) {
+        res.status(403).json({ success: false, error: 'Not authorized' });
+        return;
+      }
+
+      let draft = buildFallbackPracticeScript(playbook, focus);
+
+      if (llmService) {
+        try {
+          const llmResult = await llmService.complete(
+            [
+              {
+                role: 'system',
+                content:
+                  'You are Agent X elite practice planner. Return strict JSON only. Build a coach-grade practice script matrix with objective periods, rep counts, and concise coaching points.',
+              },
+              {
+                role: 'user',
+                content: JSON.stringify({
+                  sport,
+                  focus,
+                  playbookName: normalizeString(playbook['name']) ?? 'Playbook',
+                  plays: Array.isArray(playbook['plays'])
+                    ? (playbook['plays'] as Record<string, unknown>[])
+                        .slice(0, 25)
+                        .map((play, index) => ({
+                          playName: normalizePlayName(play, index),
+                          installStage:
+                            play['installStage'] === 'install' ||
+                            play['installStage'] === 'rep' ||
+                            play['installStage'] === 'game-ready'
+                              ? play['installStage']
+                              : null,
+                          situations: Array.isArray(play['situations']) ? play['situations'] : [],
+                          coachingPoints: Array.isArray(play['coachingPoints'])
+                            ? play['coachingPoints']
+                            : [],
+                        }))
+                    : [],
+                }),
+              },
+            ],
+            {
+              tier: 'task_automation',
+              temperature: 0.2,
+              maxTokens: 2200,
+              jsonMode: true,
+              outputSchema: {
+                name: 'practice_script_plan',
+                schema: practiceScriptAiOutputSchema,
+                strict: true,
+              },
+            }
+          );
+
+          const parsed = practiceScriptAiOutputSchema.parse(
+            llmResult.parsedOutput ??
+              (llmResult.content
+                ? JSON.parse(llmResult.content)
+                : buildFallbackPracticeScript(playbook, focus))
+          );
+
+          draft = {
+            title: parsed.title,
+            focus: parsed.focus,
+            tempo: parsed.tempo,
+            objectives: parsed.objectives,
+            periods: normalizePracticeScriptPeriods(parsed.periods),
+            notes: parsed.notes ?? '',
+          };
+        } catch (err) {
+          logger.warn('POST /playbooks/:id/practice-script-ai LLM fallback triggered', {
+            playbookId,
+            teamId,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+
+      res.json({ success: true, data: draft });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('POST /playbooks/:id/practice-script-ai failed', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to generate practice script' });
+    }
+  }
+);
+
+// ─── POST /playbooks/:playbookId/export-pdf ───────────────────────────────
+router.post('/playbooks/:playbookId/export-pdf', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const parsedBody = playbookPdfExportBodySchema.safeParse(req.body ?? {});
+    if (!parsedBody.success) {
+      res.status(400).json({
+        success: false,
+        error: parsedBody.error.issues[0]?.message ?? 'Invalid export request payload',
+      });
+      return;
+    }
+
+    const { playbookId } = req.params as { playbookId: string };
+    const { teamId, mode, activeTab, callsheetFilters, callsheetId, practiceScriptId } =
+      parsedBody.data;
+    const { db } = req.firebase!;
+
+    const playbookDoc = await db.collection(TEAM_PLAYBOOKS_COLLECTION).doc(playbookId).get();
+    if (!playbookDoc.exists) {
+      res.status(404).json({ success: false, error: 'Playbook not found' });
+      return;
+    }
+
+    const playbook = playbookDoc.data() as Record<string, unknown>;
+    const playbookTeamId = String(playbook['teamId'] ?? '');
+    if (!playbookTeamId || playbookTeamId !== teamId) {
+      res.status(403).json({ success: false, error: 'Playbook does not belong to this team' });
+      return;
+    }
+
+    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(playbookTeamId).get();
+    if (!teamDoc.exists) {
+      res.status(404).json({ success: false, error: 'Team not found' });
+      return;
+    }
+
+    const authorized = await canManageTeamMutationForUser(
+      db,
+      user.uid,
+      playbookTeamId,
+      teamDoc.data() ?? {}
+    );
+    if (!authorized) {
+      res.status(403).json({ success: false, error: 'Not authorized' });
+      return;
+    }
+
+    const shouldLoadGamePlans = mode === 'full' || activeTab === 'opponent';
+    let gamePlans: Array<{
+      readonly title: string;
+      readonly opponent: string;
+      readonly notes: string;
+      readonly plays: readonly string[];
+    }> = [];
+
+    if (shouldLoadGamePlans) {
+      const playbookSport = safeExportText(playbook['sport']);
+      const gamePlanSnap = await db
+        .collection(TEAM_GAMEPLANS_COLLECTION)
+        .where('teamId', '==', playbookTeamId)
+        .where('sport', '==', playbookSport)
+        .limit(100)
+        .get();
+
+      gamePlans = gamePlanSnap.docs
+        .map((doc: FirestoreDocLike) => doc.data())
+        .filter((doc) => doc['status'] !== 'archived')
+        .map((doc) => mapGamePlanDocToExportSummary(doc));
+    }
+
+    let callsheet: CallsheetPdfInput | null = null;
+
+    if ((mode === 'full' || activeTab === 'callsheet') && callsheetId) {
+      const callsheetDoc = await db.collection(TEAM_CALLSHEETS_COLLECTION).doc(callsheetId).get();
+
+      if (callsheetDoc.exists) {
+        const callsheetData = (callsheetDoc.data() ?? {}) as Record<string, unknown>;
+        const callsheetPlays = normalizeCallsheetPlays(callsheetData['plays']);
+        if (
+          normalizeString(callsheetData['teamId']) === teamId &&
+          normalizeString(callsheetData['playbookId']) === playbookId &&
+          callsheetData['archived'] !== true
+        ) {
+          callsheet = {
+            title: normalizeString(callsheetData['title']) ?? 'Saved Callsheet',
+            situation: normalizeString(callsheetData['situation']) ?? 'all situations',
+            notes: normalizeString(callsheetData['notes']) ?? undefined,
+            plays: callsheetPlays,
+            groups: normalizeCallsheetGroups(callsheetData['groups'], callsheetPlays),
+          };
+        }
+      }
+    }
+
+    let practiceScript: PracticeScriptPdfInput | null = null;
+
+    if ((mode === 'full' || activeTab === 'play-script') && practiceScriptId) {
+      const practiceScriptDoc = await db
+        .collection(TEAM_PRACTICE_SCRIPTS_COLLECTION)
+        .doc(practiceScriptId)
+        .get();
+
+      if (practiceScriptDoc.exists) {
+        const scriptData = (practiceScriptDoc.data() ?? {}) as Record<string, unknown>;
+        if (
+          normalizeString(scriptData['teamId']) === teamId &&
+          normalizeString(scriptData['playbookId']) === playbookId &&
+          scriptData['archived'] !== true
+        ) {
+          practiceScript = {
+            title: normalizeString(scriptData['title']) ?? 'Practice Script',
+            focus: normalizeString(scriptData['focus']) ?? 'Weekly install and execution',
+            tempo: normalizeString(scriptData['tempo']) ?? 'Game Tempo',
+            scriptDate: normalizeString(scriptData['scriptDate']) ?? undefined,
+            opponent: normalizeString(scriptData['opponent']) ?? undefined,
+            objectives: safeExportStringArray(scriptData['objectives']),
+            periods: normalizePracticeScriptPeriods(scriptData['periods']),
+            notes: normalizeString(scriptData['notes']) ?? undefined,
+          };
+        }
+      }
+    }
+
+    const payload = buildPlaybookPdfPayload(
+      playbook,
+      mode,
+      activeTab,
+      callsheetFilters,
+      callsheet,
+      practiceScript,
+      gamePlans
+    );
+    const exportService = new ExportService();
+    const branding = await resolveExportBranding(
+      db as unknown as FirestoreReadDb,
+      (teamDoc.data() ?? {}) as Record<string, unknown>
+    );
+
+    const pdfBuffer = await exportService.generatePdf({
+      ...payload,
+      includeTable: !!(payload.columns?.length && payload.rows?.length),
+      theme: 'light',
+      ...branding,
+      brandPrimaryColor: branding.brandPrimaryColor ?? '#111827',
+      footerText: `${branding.organizationName ?? 'NXT1'} Coach Packet - Generated by NXT1`,
+    });
+
+    const safeBase = sanitizeExportFileBase(
+      payload.title || `${safeExportText(playbook['name']) || 'playbook'}-export`
+    );
+    const fileName = `${safeBase}.pdf`;
+    const hash = createHash('md5').update(pdfBuffer).digest('hex').slice(0, 8);
+    const timestamp = Date.now();
+    const storagePath = `Users/${user.uid}/agent-x/playbooks/exports/${timestamp}-${hash}.pdf`;
+    const downloadToken = randomUUID();
+
+    const bucket = req.firebase?.storage?.bucket() ?? getStorage().bucket();
+    const file = bucket.file(storagePath);
+    await file.save(pdfBuffer, {
+      contentType: 'application/pdf',
+      metadata: {
+        cacheControl: 'public, max-age=31536000, immutable',
+        contentDisposition: `attachment; filename="${fileName}"`,
+        metadata: {
+          firebaseStorageDownloadTokens: downloadToken,
+        },
+      },
+    });
+
+    const [exists] = await file.exists();
+    if (!exists) {
+      res.status(500).json({ success: false, error: 'Export upload verification failed' });
+      return;
+    }
+
+    const downloadUrl =
+      `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/` +
+      `${encodeURIComponent(storagePath)}?alt=media&token=${downloadToken}`;
+
+    logger.info('POST /playbooks/:id/export-pdf', {
+      playbookId,
+      teamId: playbookTeamId,
+      mode,
+      activeTab,
+      callsheetId: callsheetId ?? null,
+      practiceScriptId: practiceScriptId ?? null,
+      sizeBytes: pdfBuffer.length,
+      userId: user.uid,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        downloadUrl,
+        storagePath,
+        fileName,
+        mimeType: 'application/pdf',
+        format: 'pdf',
+        sizeBytes: pdfBuffer.length,
+        rowCount: payload.rows?.length ?? 0,
+        columnCount: payload.columns?.length ?? 0,
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('POST /playbooks/:id/export-pdf failed', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to export playbook PDF' });
+  }
+});
+
 // ─── DELETE /playbooks/:playbookId/plays/:playIndex ──────────────────────────
 router.delete(
   '/playbooks/:playbookId/plays/:playIndex',
@@ -5288,6 +8237,7 @@ export const __dashboardFilmReviewTimelineTestUtils = {
   parseAiTimelineSeconds,
   parseAiTimelineResponse,
   buildFallbackTimelineSegments,
+  buildFilmReviewTimelineCacheOptions,
 } as const;
 
 export default router;

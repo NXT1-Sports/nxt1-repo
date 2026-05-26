@@ -90,6 +90,28 @@ import { runWithMongoEnvironmentScope } from '../../../middleware/mongo/mongo-sc
 import { sendSlackAlert } from '../../../services/platform/alert.service.js';
 import crypto from 'node:crypto';
 
+const AGENT_X_STANDARD_HOLD_COST_CENTS = estimateChargeAmountSync(0.1).chargeAmountCents;
+const AGENT_X_MEDIA_HOLD_COST_CENTS = (() => {
+  const parsed = Number.parseInt(process.env['AGENT_X_MEDIA_BILLING_GATE_COST_CENTS'] ?? '600', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 600;
+})();
+
+function estimateAgentXHoldCostCents(payload: AgentJobPayload): number {
+  const text =
+    `${payload.intent ?? ''} ${payload.displayIntent ?? ''} ${payload.agent ?? ''}`.toLowerCase();
+  const isMediaIntent =
+    /\b(video|videos|highlight|highlights|reel|clips?|film|hudl|runway|ffmpeg|merge|combine|intro|opener|motion\s+graphic|thumbnail|poster|graphic)\b/i.test(
+      text
+    ) &&
+    /\b(create|make|generate|edit|build|produce|merge|combine|cut|trim|add|turn|post)\b/i.test(
+      text
+    );
+
+  return isMediaIntent
+    ? Math.max(AGENT_X_STANDARD_HOLD_COST_CENTS, AGENT_X_MEDIA_HOLD_COST_CENTS)
+    : AGENT_X_STANDARD_HOLD_COST_CENTS;
+}
+
 const AGENT_IDENTIFIER_SET = new Set<AgentIdentifier>([
   'router',
   'admin_coordinator',
@@ -1250,14 +1272,22 @@ export class AgentWorker {
         });
       });
 
-      void executeBillingDeduction({
-        db: billingDb,
-        userId,
-        operationId,
-        feature: 'playbook-generation',
-        coordinatorId: 'strategy_coordinator',
-        environment: job.data.environment,
-      });
+      if (job.data.skipBilling === true) {
+        logger.info('[AgentWorker] Skipping billing deduction for recovered playbook job', {
+          operationId,
+          userId,
+          kind: job.data.kind,
+        });
+      } else {
+        void executeBillingDeduction({
+          db: billingDb,
+          userId,
+          operationId,
+          feature: 'playbook-generation',
+          coordinatorId: 'strategy_coordinator',
+          environment: job.data.environment,
+        });
+      }
 
       return {
         result: operationResult,
@@ -1416,17 +1446,21 @@ export class AgentWorker {
     // Hoist billing db so it's available across the full job lifecycle
     const billingDb = await this.getActivityFirestore(job);
     const feature = typeof payload.agent === 'string' ? payload.agent : 'agent';
+    const skipBilling = (payloadContext as Record<string, unknown>)['skipBilling'] === true;
 
     // ── IAP hold: show "Processing" amount in usage overview ─────────────
     // For prepaid wallet users, create a hold at job start so the UI can display
     // the estimated in-flight cost under "Processing". Released or captured at end.
     let iapHoldId: string | null = null;
     const billingCtxForHold = await getBillingState(billingDb, payload.userId);
+    const hasPrepaidWalletBalance = (billingCtxForHold?.walletBalanceCents ?? 0) > 0;
     if (
-      (billingCtxForHold?.billingEntity === 'individual' && billingCtxForHold?.hardStop) ||
-      (billingCtxForHold?.billingEntity === 'organization' && billingCtxForHold?.hardStop)
+      !skipBilling &&
+      ((billingCtxForHold?.billingEntity === 'individual' &&
+        (billingCtxForHold.paymentProvider === 'iap' || hasPrepaidWalletBalance)) ||
+        (billingCtxForHold?.billingEntity === 'organization' && billingCtxForHold?.hardStop))
     ) {
-      const { chargeAmountCents: estimatedCents } = estimateChargeAmountSync(0.1);
+      const estimatedCents = estimateAgentXHoldCostCents(payload);
       const holdResult = await createWalletHold(
         billingDb,
         payload.userId,
@@ -2711,8 +2745,6 @@ export class AgentWorker {
       typeof (payloadContext as Record<string, unknown>)['organizationId'] === 'string'
         ? ((payloadContext as Record<string, unknown>)['organizationId'] as string)
         : undefined;
-    const skipBilling = (payloadContext as Record<string, unknown>)['skipBilling'] === true;
-
     if (skipBilling) {
       logger.info('[AgentWorker] Skipping billing deduction for platform-sponsored job', {
         operationId: payload.operationId,

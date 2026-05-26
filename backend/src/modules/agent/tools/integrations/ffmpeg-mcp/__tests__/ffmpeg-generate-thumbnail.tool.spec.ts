@@ -40,4 +40,41 @@ describe('FfmpegGenerateThumbnailTool', () => {
     expect((result.data as Record<string, unknown>)['imageUrl']).toBe('/tmp/thumb.jpg');
     expect((result.data as Record<string, unknown>)['thumbnailUrl']).toBe('/tmp/thumb.jpg');
   });
+
+  it('accepts normalized crop bounds for selected-area thumbnails', async () => {
+    bridge.generateThumbnail.mockResolvedValue({
+      success: true,
+      output_path: '/tmp/thumb.jpg',
+    });
+
+    const result = await tool.execute(
+      {
+        inputPath: '/tmp/input.mp4',
+        time: 8,
+        cropBounds: {
+          minX: 0.25,
+          minY: 0.3,
+          maxX: 0.55,
+          maxY: 0.72,
+        },
+      },
+      TEST_CONTEXT
+    );
+
+    expect(result.success).toBe(true);
+    expect(bridge.generateThumbnail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputPath: '/tmp/input.mp4',
+        time: '8',
+        cropBounds: {
+          minX: 0.25,
+          minY: 0.3,
+          maxX: 0.55,
+          maxY: 0.72,
+        },
+      }),
+      TEST_CONTEXT
+    );
+    expect((result.data as Record<string, unknown>)['imageUrl']).toBe('/tmp/thumb.jpg');
+  });
 });

@@ -32,9 +32,6 @@ import { ProfileService } from '../profile.service';
               This athlete hasn't recorded any stats yet.
             }
           </p>
-          @if (profile.isOwnProfile()) {
-            <button type="button" class="madden-cta-btn" (click)="onAddStats()">Add Stats</button>
-          }
         </div>
       } @else {
         <!-- ═══ Category Tabs (Passing / Rushing / etc.) ═══ -->
@@ -1134,10 +1131,6 @@ export class ProfileStatsComponent {
       this._gameLogSortKey.set(key);
       this._gameLogSortDir.set(key === 'date' ? 'asc' : 'desc');
     }
-  }
-
-  protected onAddStats(): void {
-    // Placeholder — shell handles this
   }
 
   private parseNumericStatValue(raw: string | number | null | undefined): number {

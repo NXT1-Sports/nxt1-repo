@@ -22,6 +22,20 @@ import {
   normalizeSportKey,
   isTeamRole,
 } from '@nxt1/core';
+import type {
+  SignupDripHistoryEntry,
+  SignupDripPaymentState,
+  SignupDripRoleTrack,
+  SignupDripStepKey,
+  SignupDripSuppressionReason,
+} from '../../services/marketing/lifecycle/signup-drip.service.js';
+import type {
+  PushDripHistoryEntry as RolePushDripHistoryEntry,
+  PushDripPaymentState as RolePushDripPaymentState,
+  PushDripRoleTrack as RolePushDripRoleTrack,
+  PushDripStepKey as RolePushDripStepKey,
+  PushDripSuppressionReason as RolePushDripSuppressionReason,
+} from '../../services/marketing/lifecycle/push-drip.service.js';
 
 // ── Re-export for consumers that import from this file ───────────────────────
 export type { UserRole, SportProfile, Location, UserContact, ConnectedEmail };
@@ -103,6 +117,59 @@ export interface UserV2Document {
 
   // User preferences (notifications, tracking, theme, etc.)
   preferences?: Record<string, unknown>;
+
+  lifecycle?: {
+    signup?: {
+      completedSlackAlertSentAt?: PortableTimestamp;
+      welcomeEmailSentAt?: PortableTimestamp;
+      drip?: {
+        campaignKey?: string;
+        enrolledAt?: PortableTimestamp;
+        roleTrack?: SignupDripRoleTrack;
+        paymentState?: SignupDripPaymentState;
+        currentStepKey?: SignupDripStepKey;
+        lastSentStepKey?: SignupDripStepKey;
+        lastSentAt?: PortableTimestamp;
+        nextEligibleAt?: PortableTimestamp;
+        completedAt?: PortableTimestamp;
+        pausedAt?: PortableTimestamp;
+        suppressionReason?: SignupDripSuppressionReason;
+        history?: Array<
+          Omit<SignupDripHistoryEntry, 'sentAt'> & {
+            sentAt: PortableTimestamp;
+          }
+        >;
+      };
+    };
+    push?: {
+      drip?: {
+        campaignKey?: string;
+        enrolledAt?: PortableTimestamp;
+        roleTrack?: RolePushDripRoleTrack;
+        paymentState?: RolePushDripPaymentState;
+        currentStepKey?: RolePushDripStepKey;
+        lastSentStepKey?: RolePushDripStepKey;
+        lastSentAt?: PortableTimestamp;
+        nextEligibleAt?: PortableTimestamp;
+        completedAt?: PortableTimestamp;
+        pausedAt?: PortableTimestamp;
+        suppressionReason?: RolePushDripSuppressionReason;
+        history?: Array<
+          Omit<RolePushDripHistoryEntry, 'sentAt'> & {
+            sentAt: PortableTimestamp;
+          }
+        >;
+      };
+      delivery?: {
+        dayKey?: string;
+        dailyCount?: number;
+        marketingDayKey?: string;
+        marketingDailyCount?: number;
+        lastSentAt?: PortableTimestamp;
+        lastMarketingSentAt?: PortableTimestamp;
+      };
+    };
+  };
 
   // Timestamps
   createdAt: PortableTimestamp;

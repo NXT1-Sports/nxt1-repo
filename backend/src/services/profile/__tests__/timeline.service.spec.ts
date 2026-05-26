@@ -406,6 +406,43 @@ describe('TimelineService', () => {
     }
   });
 
+  it('includes team-linked recruiting docs on the athlete timeline when userId is linked', async () => {
+    const db = createMockDb({
+      Posts: [],
+      Events: [],
+      PlayerStats: [],
+      PlayerMetrics: [],
+      Rankings: [],
+      Recruiting: [
+        {
+          id: 'team-offer-linked-athlete',
+          data: () => ({
+            userId: 'athlete-1',
+            teamId: 'team-1',
+            ownerType: 'team',
+            category: 'offer',
+            collegeName: 'Notre Dame',
+            sport: 'football',
+            date: '2026-04-11T12:00:00.000Z',
+          }),
+        },
+      ],
+    });
+
+    const service = new TimelineService(db as never);
+    const result = await service.getProfileTimeline('athlete-1', author, {
+      limit: 10,
+      sportId: 'football',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0]?.feedType).toBe('OFFER');
+    if (result.data[0]?.feedType === 'OFFER') {
+      expect(result.data[0].offerData.collegeName).toBe('Notre Dame');
+    }
+  });
+
   it('uses canonical roster userId for team recruiting fan-out with legacy playerId fallback', async () => {
     const db = createMockDb({
       Teams: [
@@ -486,5 +523,75 @@ describe('TimelineService', () => {
         .filter((item) => item.feedType === 'OFFER')
         .map((item) => (item.feedType === 'OFFER' ? item.offerData.collegeName : null))
     ).toEqual(['UConn']);
+  });
+
+  it('prefers direct team-linked recruiting docs before legacy roster fan-out', async () => {
+    const db = createMockDb({
+      Teams: [
+        {
+          id: 'team-1',
+          data: () => ({
+            teamCode: 'TEAM01',
+            teamName: 'Argyle Eagles',
+            teamType: 'high-school',
+            sport: 'football',
+            isActive: true,
+            createdAt: '2026-04-01T12:00:00.000Z',
+            updatedAt: '2026-04-01T12:00:00.000Z',
+          }),
+        },
+      ],
+      Posts: [],
+      Schedule: [],
+      TeamStats: [],
+      News: [],
+      RosterEntries: [
+        {
+          id: 'roster-1',
+          data: () => ({
+            teamId: 'team-1',
+            userId: 'athlete-canonical',
+            status: 'active',
+          }),
+        },
+      ],
+      Recruiting: [
+        {
+          id: 'team-offer-direct',
+          data: () => ({
+            teamId: 'team-1',
+            ownerType: 'team',
+            category: 'offer',
+            collegeName: 'Ohio State',
+            sport: 'football',
+            date: '2026-04-12T12:00:00.000Z',
+          }),
+        },
+        {
+          id: 'athlete-offer-legacy',
+          data: () => ({
+            userId: 'athlete-canonical',
+            ownerType: 'user',
+            category: 'offer',
+            collegeName: 'Michigan',
+            sport: 'football',
+            date: '2026-04-11T12:00:00.000Z',
+          }),
+        },
+      ],
+    });
+
+    const service = new TimelineService(db as never);
+    const result = await service.getTeamTimeline('TEAM01', {
+      limit: 10,
+      filter: 'recruiting',
+      sportId: 'football',
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data).toHaveLength(2);
+    expect(
+      result.data.map((item) => (item.feedType === 'OFFER' ? item.offerData.collegeName : null))
+    ).toEqual(['Ohio State', 'Michigan']);
   });
 });

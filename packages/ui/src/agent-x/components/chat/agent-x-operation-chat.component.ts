@@ -73,7 +73,10 @@ import { AgentXOperationChatThinkingComponent } from './agent-x-operation-chat-t
 import { AgentXOperationChatExecutionPlanComponent } from './agent-x-operation-chat-execution-plan.component';
 import { AgentXMessageUndoComponent } from './agent-x-message-undo.component';
 import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-message.facade';
-import { AgentXOperationChatAttachmentsFacade } from './agent-x-operation-chat-attachments.facade';
+import {
+  AgentXOperationChatAttachmentsFacade,
+  type VideoUploadBatchProgressState,
+} from './agent-x-operation-chat-attachments.facade';
 import { AgentXOperationChatRunControlFacade } from './agent-x-operation-chat-run-control.facade';
 import { AgentXOperationChatSessionFacade } from './agent-x-operation-chat-session.facade';
 import { AgentXOperationChatTransportFacade } from './agent-x-operation-chat-transport.facade';
@@ -98,7 +101,6 @@ import {
   type ActionCardOpenMediaEvent,
 } from '../cards/agent-x-action-card.component';
 import type { BillingActionResolvedEvent } from '../cards/agent-x-billing-action-card.component';
-import type { ConnectAccountCardActionEvent } from '../cards/agent-x-connect-account-card.component';
 import type { AgentYieldState } from '@nxt1/core';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
 import type { AgentXPendingFile } from '../../types/agent-x-pending-file';
@@ -254,13 +256,15 @@ type YieldStateSource =
                   [externalResolvedText]="msg.yieldResolvedText ?? ''"
                   (mediaRequested)="onBubbleMediaRequested($event)"
                   (billingActionResolved)="onBillingActionResolved($event)"
-                  (connectAccountAction)="onConnectAccountAction($event)"
                   (retryRequested)="runControlFacade.onRetryErrorMessage(msg)"
                 />
                 @if (msg.id === 'typing' && showThinking()) {
                   <nxt1-agent-x-operation-chat-thinking
                     class="msg-inline-thinking"
+                    [class.msg-inline-thinking--upload]="_videoUploadPercent() !== null"
                     [label]="thinkingLabel()"
+                    [detail]="videoUploadDetail()"
+                    [progressPercent]="_videoUploadPercent()"
                   />
                 }
               }
@@ -1223,6 +1227,11 @@ type YieldStateSource =
         margin-left: -24px;
       }
 
+      .msg-inline-thinking--upload {
+        margin-left: 0;
+        max-width: min(100%, 296px);
+      }
+
       .msg-assistant ::ng-deep nxt1-chat-bubble {
         background: var(--op-surface);
         border: 1px solid var(--op-border);
@@ -1955,12 +1964,43 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    */
   protected readonly _videoUploadPercent = signal<number | null>(null);
 
-  /** Human-readable upload phase label ('Uploading video… 42%'). */
+  /** Queue-aware video upload state used to render smooth multi-file progress. */
+  protected readonly _videoUploadBatch = signal<VideoUploadBatchProgressState | null>(null);
+
+  /** Human-readable upload phase label for the inline upload status card. */
   protected readonly _videoUploadLabel = computed(() => {
-    const pct = this._videoUploadPercent();
-    if (pct === null) return null;
-    if (pct === 0) return 'Preparing video…';
-    return `Uploading video… ${pct}%`;
+    const uploadBatch = this._videoUploadBatch();
+    if (!uploadBatch) return null;
+
+    if (uploadBatch.totalFiles <= 1) {
+      if (uploadBatch.overallPercent === 0) return 'Preparing video…';
+      return 'Uploading video…';
+    }
+
+    if (uploadBatch.overallPercent === 0 && uploadBatch.completedFiles === 0) {
+      return `Preparing ${uploadBatch.totalFiles} videos…`;
+    }
+
+    return `Uploading ${uploadBatch.totalFiles} videos…`;
+  });
+
+  /** Secondary upload detail for file name / batch completion counts. */
+  protected readonly videoUploadDetail = computed(() => {
+    const uploadBatch = this._videoUploadBatch();
+    if (!uploadBatch) return null;
+
+    if (uploadBatch.totalFiles <= 1) {
+      return uploadBatch.currentFileName;
+    }
+
+    const completionText = `${uploadBatch.completedFiles} of ${uploadBatch.totalFiles} uploaded`;
+    if (uploadBatch.failedFiles > 0) {
+      return `${completionText} • ${uploadBatch.failedFiles} failed`;
+    }
+    if (uploadBatch.activeFiles > 1) {
+      return `${completionText} • ${uploadBatch.activeFiles} in progress`;
+    }
+    return completionText;
   });
 
   /** Most recent backend progress commentary message (stage/subphase/metric). */
@@ -2267,6 +2307,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Tracks whether the user has sent at least one message. */
   private readonly hasUserSent = signal(false);
+  /** Ensures the delayed leave-thread hint is armed only once per chat session. */
+  private firstUserRunHintArmed = false;
 
   /** Emitted when the user sends their first message (briefing should hide). */
   readonly userMessageSent = output<void>();
@@ -2469,6 +2511,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       clickDesktopAttachmentInput: () => {
         this.desktopAttachmentFileInput()?.nativeElement.click();
       },
+      videoUploadBatch: this._videoUploadBatch,
       openFilmReviewLibrary: () => {
         this.filmReviewLibraryRequested.emit();
       },
@@ -2607,6 +2650,20 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       },
       { allowSignalWrites: true }
     );
+
+    // First user run hint lifecycle writes facade signal state.
+    effect(
+      () => {
+        const hasUserSent = this.hasUserSent();
+        if (hasUserSent && !this.firstUserRunHintArmed) {
+          this.firstUserRunHintArmed = true;
+          this.hintFacade.armFirstUserRunHint();
+        }
+
+        this.hintFacade.setFirstUserRunActive(this.isInFlightPhase(this._activityPhase()));
+      },
+      { allowSignalWrites: true }
+    );
   }
 
   private yieldSourcePriority(source: YieldStateSource): number {
@@ -2640,9 +2697,14 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     yieldState: AgentYieldState,
     explicitOperationId?: string
   ): string {
+    const toolInputOperationId =
+      yieldState.pendingToolCall?.toolInput &&
+      typeof yieldState.pendingToolCall.toolInput['operationId'] === 'string'
+        ? yieldState.pendingToolCall.toolInput['operationId'].trim()
+        : undefined;
     const candidates = [
       explicitOperationId?.trim(),
-      this.yieldFacade.resolveYieldOperationId(yieldState)?.trim(),
+      toolInputOperationId,
       this._currentOperationId?.trim(),
       this.resumeOperationId?.trim(),
       this.sessionFacade.resolveFirestoreOperationId()?.trim(),
@@ -2742,6 +2804,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (phase === 'completed' || phase === 'failed' || phase === 'cancelled') {
       this._activityLabel.set(null);
       this._videoUploadPercent.set(null);
+      this._videoUploadBatch.set(null);
     }
   }
 
@@ -3326,16 +3389,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (event.completed && !this.embedded) {
       await this.dismiss();
     }
-  }
-
-  /** Handle connect-account card actions (connect flow is handled inside card component). */
-  protected async onConnectAccountAction(event: ConnectAccountCardActionEvent): Promise<void> {
-    if (event.action !== 'send-via-nxt1') return;
-
-    await this.runControlFacade.send({
-      text: 'Send via NXT1 email instead',
-      preserveDraft: true,
-    });
   }
 
   /** Remove dismissed pause-yield rows and legacy approval resolution artifacts from the timeline. */

@@ -56,6 +56,7 @@ export interface AgentXOperationChatAttachmentsFacadeHost {
   readonly embedded: () => boolean;
   readonly resolvedThreadId: WritableSignal<string | null>;
   readonly videoUploadPercent: WritableSignal<number | null>;
+  readonly videoUploadBatch: WritableSignal<VideoUploadBatchProgressState | null>;
   readonly user: () => AgentXUser | null;
   resolveActiveThreadId(): string | null;
   clickDesktopAttachmentInput(): void;
@@ -65,6 +66,63 @@ export interface AgentXOperationChatAttachmentsFacadeHost {
 }
 
 type BackgroundUploadStatus = 'queued' | 'uploading' | 'complete' | 'failed';
+
+interface VideoUploadBatchEntry {
+  readonly pendingId: string;
+  readonly fileName: string;
+  readonly status: BackgroundUploadStatus;
+  readonly percent: number;
+}
+
+export interface VideoUploadBatchProgressState {
+  readonly totalFiles: number;
+  readonly completedFiles: number;
+  readonly failedFiles: number;
+  readonly activeFiles: number;
+  readonly currentFileName: string | null;
+  readonly overallPercent: number;
+}
+
+export function buildVideoUploadBatchProgressState(
+  entries: readonly Pick<VideoUploadBatchEntry, 'fileName' | 'status' | 'percent'>[]
+): VideoUploadBatchProgressState | null {
+  if (entries.length === 0) {
+    return null;
+  }
+
+  const normalizedEntries = entries.map((entry) => ({
+    ...entry,
+    percent: Math.max(0, Math.min(100, Math.round(entry.percent))),
+  }));
+
+  const completedFiles = normalizedEntries.filter((entry) => entry.status === 'complete').length;
+  const failedFiles = normalizedEntries.filter((entry) => entry.status === 'failed').length;
+  const activeEntries = normalizedEntries.filter((entry) => entry.status === 'uploading');
+  const queuedEntries = normalizedEntries.filter((entry) => entry.status === 'queued');
+  const currentEntry =
+    activeEntries[0] ?? queuedEntries[0] ?? normalizedEntries[normalizedEntries.length - 1] ?? null;
+
+  const overallPercent = Math.round(
+    normalizedEntries.reduce((sum, entry) => {
+      if (entry.status === 'complete' || entry.status === 'failed') {
+        return sum + 100;
+      }
+      if (entry.status === 'queued') {
+        return sum;
+      }
+      return sum + entry.percent;
+    }, 0) / normalizedEntries.length
+  );
+
+  return {
+    totalFiles: normalizedEntries.length,
+    completedFiles,
+    failedFiles,
+    activeFiles: activeEntries.length,
+    currentFileName: currentEntry?.fileName ?? null,
+    overallPercent,
+  };
+}
 
 interface BackgroundUploadRecord {
   readonly pendingId: string;
@@ -81,6 +139,7 @@ const MESSAGE_ATTACHMENT_SYNC_RETRY_MS =
   AGENT_X_RUNTIME_CONFIG.attachmentTransport.messageSyncRetryMs;
 const PRE_SEND_BACKGROUND_UPLOAD_WAIT_MS =
   AGENT_X_RUNTIME_CONFIG.attachmentTransport.preSendBackgroundUploadWaitMs;
+const VIDEO_UPLOAD_PROGRESS_SETTLE_MS = 420;
 const TEAM_FILM_REVIEW_MANAGER_ROLES = new Set([
   'coach',
   'director',
@@ -131,11 +190,79 @@ export class AgentXOperationChatAttachmentsFacade {
 
   private host: AgentXOperationChatAttachmentsFacadeHost | null = null;
   private readonly backgroundUploads = new Map<string, BackgroundUploadRecord>();
+  private readonly videoUploadBatchEntries = new Map<string, VideoUploadBatchEntry>();
   private readonly backgroundUploadQueue: Array<() => Promise<void>> = [];
   private activeBackgroundUploads = 0;
+  private videoUploadBatchClearTimer: ReturnType<typeof setTimeout> | null = null;
 
   configure(host: AgentXOperationChatAttachmentsFacadeHost): void {
     this.host = host;
+  }
+
+  private setVideoUploadBatchEntry(
+    pendingId: string,
+    fileName: string,
+    status: BackgroundUploadStatus,
+    percent: number
+  ): void {
+    this.cancelVideoUploadBatchClear();
+    this.videoUploadBatchEntries.set(pendingId, {
+      pendingId,
+      fileName,
+      status,
+      percent: Math.max(0, Math.min(100, Math.round(percent))),
+    });
+    this.publishVideoUploadBatchState();
+  }
+
+  private removeVideoUploadBatchEntry(pendingId: string): void {
+    if (!this.videoUploadBatchEntries.delete(pendingId)) {
+      return;
+    }
+    this.publishVideoUploadBatchState();
+  }
+
+  private publishVideoUploadBatchState(): void {
+    const host = this.host;
+    if (!host) {
+      return;
+    }
+
+    const state = buildVideoUploadBatchProgressState([...this.videoUploadBatchEntries.values()]);
+    if (!state) {
+      host.videoUploadBatch.set(null);
+      host.videoUploadPercent.set(null);
+      return;
+    }
+
+    host.videoUploadBatch.set(state);
+    host.videoUploadPercent.set(state.overallPercent);
+
+    const hasInFlightUploads = state.completedFiles + state.failedFiles < state.totalFiles;
+    if (!hasInFlightUploads) {
+      this.scheduleVideoUploadBatchClear();
+    }
+  }
+
+  private scheduleVideoUploadBatchClear(): void {
+    if (this.videoUploadBatchClearTimer !== null) {
+      return;
+    }
+
+    this.videoUploadBatchClearTimer = setTimeout(() => {
+      this.videoUploadBatchClearTimer = null;
+      this.videoUploadBatchEntries.clear();
+      this.publishVideoUploadBatchState();
+    }, VIDEO_UPLOAD_PROGRESS_SETTLE_MS);
+  }
+
+  private cancelVideoUploadBatchClear(): void {
+    if (this.videoUploadBatchClearTimer === null) {
+      return;
+    }
+
+    clearTimeout(this.videoUploadBatchClearTimer);
+    this.videoUploadBatchClearTimer = null;
   }
 
   removePendingFile(index: number): void {
@@ -451,8 +578,12 @@ export class AgentXOperationChatAttachmentsFacade {
     }
 
     for (const pending of videoFiles) {
+      this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'queued', 0);
+    }
+
+    for (const pending of videoFiles) {
       try {
-        host.videoUploadPercent.set(0);
+        this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'uploading', 0);
         const threadId = host.resolveActiveThreadId();
         const videoResult = await new Promise<{
           url: string;
@@ -462,29 +593,35 @@ export class AgentXOperationChatAttachmentsFacade {
           readyToStream?: boolean;
           thumbnailUrl?: string;
         }>((resolve, reject) => {
-          this.videoUploadService.uploadVideo(pending.file, authToken, { threadId }).subscribe({
-            next: (progress) => {
-              if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
-                host.videoUploadPercent.set(progress.percent);
-              }
-              if (progress.phase === 'complete' && progress.streamUrl) {
-                host.videoUploadPercent.set(100);
-                resolve({
-                  url: progress.streamUrl,
-                  storagePath: progress.storagePath,
-                  cloudflareVideoId: progress.cloudflareVideoId,
-                  cloudflareStatus: progress.cloudflareStatus,
-                  readyToStream: progress.readyToStream,
-                  thumbnailUrl: progress.thumbnailUrl,
-                });
-              } else if (progress.phase === 'error') {
-                reject(new Error(progress.errorMessage ?? 'Video upload failed'));
-              }
-            },
-            error: (error) => reject(error),
-          });
+          this.videoUploadService
+            .uploadVideo(pending.file, authToken, { threadId, transport: 'firebase' })
+            .subscribe({
+              next: (progress) => {
+                if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
+                  this.setVideoUploadBatchEntry(
+                    pending.id,
+                    pending.file.name,
+                    'uploading',
+                    progress.percent
+                  );
+                }
+                if (progress.phase === 'complete' && progress.streamUrl) {
+                  this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'complete', 100);
+                  resolve({
+                    url: progress.streamUrl,
+                    storagePath: progress.storagePath,
+                    cloudflareVideoId: progress.cloudflareVideoId,
+                    cloudflareStatus: progress.cloudflareStatus,
+                    readyToStream: progress.readyToStream,
+                    thumbnailUrl: progress.thumbnailUrl,
+                  });
+                } else if (progress.phase === 'error') {
+                  reject(new Error(progress.errorMessage ?? 'Video upload failed'));
+                }
+              },
+              error: (error) => reject(error),
+            });
         });
-        host.videoUploadPercent.set(null);
 
         uploaded.push({
           id: pending.id,
@@ -506,7 +643,7 @@ export class AgentXOperationChatAttachmentsFacade {
           sizeBytes: pending.file.size,
         });
       } catch (error) {
-        host.videoUploadPercent.set(null);
+        this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'failed', 100);
         const errorMessage = error instanceof Error ? error.message : String(error);
         this.logger.error('Video upload failed', error, {
           contextId: host.contextId(),
@@ -1044,6 +1181,9 @@ export class AgentXOperationChatAttachmentsFacade {
         removed: false,
       };
       this.backgroundUploads.set(pending.id, record);
+      if (pending.isVideo) {
+        this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'queued', 0);
+      }
     }
 
     if (!record.started) {
@@ -1056,6 +1196,9 @@ export class AgentXOperationChatAttachmentsFacade {
         }
 
         activeRecord.status = 'uploading';
+        if (pending.isVideo) {
+          this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'uploading', 0);
+        }
         const attachment = await this.uploadPendingFile(pending, authToken);
         activeRecord.attachment = attachment;
         activeRecord.status = attachment ? 'complete' : 'failed';
@@ -1184,7 +1327,7 @@ export class AgentXOperationChatAttachmentsFacade {
     );
 
     try {
-      host.videoUploadPercent.set(0);
+      this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'uploading', 0);
       const result = await new Promise<{
         streamUrl: string;
         storagePath?: string;
@@ -1193,27 +1336,34 @@ export class AgentXOperationChatAttachmentsFacade {
         readyToStream?: boolean;
         thumbnailUrl?: string;
       }>((resolve, reject) => {
-        this.videoUploadService.uploadVideo(pending.file, authToken, { threadId }).subscribe({
-          next: (progress) => {
-            if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
-              host.videoUploadPercent.set(progress.percent);
-            }
-            if (progress.phase === 'complete' && progress.streamUrl) {
-              host.videoUploadPercent.set(100);
-              resolve({
-                streamUrl: progress.streamUrl,
-                storagePath: progress.storagePath,
-                cloudflareVideoId: progress.cloudflareVideoId,
-                cloudflareStatus: progress.cloudflareStatus,
-                readyToStream: progress.readyToStream,
-                thumbnailUrl: progress.thumbnailUrl,
-              });
-            } else if (progress.phase === 'error') {
-              reject(new Error(progress.errorMessage ?? 'Video upload failed'));
-            }
-          },
-          error: (error) => reject(error),
-        });
+        this.videoUploadService
+          .uploadVideo(pending.file, authToken, { threadId, transport: 'firebase' })
+          .subscribe({
+            next: (progress) => {
+              if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
+                this.setVideoUploadBatchEntry(
+                  pending.id,
+                  pending.file.name,
+                  'uploading',
+                  progress.percent
+                );
+              }
+              if (progress.phase === 'complete' && progress.streamUrl) {
+                this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'complete', 100);
+                resolve({
+                  streamUrl: progress.streamUrl,
+                  storagePath: progress.storagePath,
+                  cloudflareVideoId: progress.cloudflareVideoId,
+                  cloudflareStatus: progress.cloudflareStatus,
+                  readyToStream: progress.readyToStream,
+                  thumbnailUrl: progress.thumbnailUrl,
+                });
+              } else if (progress.phase === 'error') {
+                reject(new Error(progress.errorMessage ?? 'Video upload failed'));
+              }
+            },
+            error: (error) => reject(error),
+          });
       });
 
       const attachment: AgentXAttachment = {
@@ -1233,13 +1383,12 @@ export class AgentXOperationChatAttachmentsFacade {
       await this.autoCreateFilmReviewFromUploadedVideo(attachment);
       return attachment;
     } catch (error) {
+      this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'failed', 100);
       this.logger.error('Background video upload failed', error, {
         contextId: host.contextId(),
         fileName: pending.file.name,
       });
       return null;
-    } finally {
-      host.videoUploadPercent.set(null);
     }
   }
 
@@ -1294,7 +1443,6 @@ export class AgentXOperationChatAttachmentsFacade {
         teamId,
         sport,
       });
-      host.openFilmReviewLibrary();
     } catch (err) {
       this.logger.error('Auto film-review creation after upload failed', err, {
         contextId: host.contextId(),
@@ -1397,10 +1545,12 @@ export class AgentXOperationChatAttachmentsFacade {
   private discardPendingUpload(pendingId: string): void {
     const record = this.backgroundUploads.get(pendingId);
     if (!record) {
+      this.removeVideoUploadBatchEntry(pendingId);
       return;
     }
     record.removed = true;
     this.backgroundUploads.delete(pendingId);
+    this.removeVideoUploadBatchEntry(pendingId);
   }
 
   getFileColor(filename: string, alpha: number): string {

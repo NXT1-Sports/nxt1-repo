@@ -68,6 +68,29 @@ describe('FfmpegMergeVideosTool', () => {
     );
   });
 
+  it('accepts max_intro_seconds aliases for branded intro clamps', async () => {
+    bridge.mergeVideos.mockResolvedValue({
+      success: true,
+      output_path: '/tmp/merged.mp4',
+    });
+
+    const result = await tool.execute(
+      {
+        inputPaths: ['/tmp/runway-intro.mp4', '/tmp/highlight.mp4'],
+        max_intro_seconds: '4',
+      },
+      TEST_CONTEXT
+    );
+
+    expect(result.success).toBe(true);
+    expect(bridge.mergeVideos).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxIntroSeconds: 4,
+      }),
+      TEST_CONTEXT
+    );
+  });
+
   it('returns an actionable error when only one merge input is provided', async () => {
     const result = await tool.execute(
       {

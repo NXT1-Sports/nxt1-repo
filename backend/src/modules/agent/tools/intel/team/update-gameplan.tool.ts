@@ -8,7 +8,12 @@
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { z } from 'zod';
-import type { TeamGamePlanDoc } from '@nxt1/core';
+import type {
+  TeamGamePlanDoc,
+  TeamGamePlanEvidenceType,
+  TeamGamePlanPriorityLevel,
+  TeamGamePlanStrengthWeaknessItem,
+} from '@nxt1/core';
 import { logger } from '../../../../../utils/logger.js';
 import { getCacheService } from '../../../../../services/core/cache.service.js';
 import { canManageTeamMutationForUser } from '../../../../../services/team/team-intel-permissions.js';
@@ -16,7 +21,179 @@ import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base
 
 const TEAM_GAMEPLANS_COLLECTION = 'TeamGamePlans';
 const TEAMS_COLLECTION = 'Teams';
+const MAX_STRENGTH_WEAKNESS_ITEMS = 50;
 const MAX_TAGS = 20;
+
+function normalizeText(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim();
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeStringArray(values?: readonly string[]): readonly string[] | undefined {
+  if (!values || values.length === 0) return undefined;
+  const normalized = Array.from(
+    new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))
+  );
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeImpactLevel(value: unknown): TeamGamePlanPriorityLevel {
+  const normalized = normalizeText(value)?.toLowerCase();
+  if (normalized === 'must_win' || normalized === 'must win') return 'must_win';
+  if (normalized === 'high') return 'high';
+  if (normalized === 'medium' || normalized === 'med') return 'medium';
+  return 'medium';
+}
+
+function normalizeSide(value: unknown): 'own' | 'opponent' {
+  const normalized = normalizeText(value)?.toLowerCase();
+  if (normalized === 'opponent' || normalized === 'their' || normalized === 'them') {
+    return 'opponent';
+  }
+  return 'own';
+}
+
+function normalizeStrengthWeaknessType(value: unknown): 'strength' | 'weakness' {
+  const normalized = normalizeText(value)?.toLowerCase();
+  if (normalized === 'weakness' || normalized === 'risk' || normalized === 'liability') {
+    return 'weakness';
+  }
+  return 'strength';
+}
+
+function inferTypeFromLabel(label: string | undefined): 'strength' | 'weakness' | undefined {
+  const normalized = normalizeText(label)?.toLowerCase();
+  if (!normalized) return undefined;
+  if (
+    normalized.includes('weakness') ||
+    normalized.includes('risk') ||
+    normalized.includes('concern') ||
+    normalized.includes('liability')
+  ) {
+    return 'weakness';
+  }
+  if (normalized.includes('strength') || normalized.includes('advantage')) {
+    return 'strength';
+  }
+  return undefined;
+}
+
+function inferSideFromLabel(label: string | undefined): 'own' | 'opponent' | undefined {
+  const normalized = normalizeText(label)?.toLowerCase();
+  if (!normalized) return undefined;
+  if (
+    normalized.includes('opponent') ||
+    normalized.includes('their ') ||
+    normalized.startsWith('their') ||
+    normalized.includes('test opponent')
+  ) {
+    return 'opponent';
+  }
+  if (normalized.includes('our ') || normalized.startsWith('our') || normalized.includes('own')) {
+    return 'own';
+  }
+  return undefined;
+}
+
+function normalizeEvidenceType(value: unknown): TeamGamePlanEvidenceType {
+  const normalized = normalizeText(value)?.toLowerCase();
+  if (normalized === 'video' || normalized === 'diagram' || normalized === 'stat') {
+    return normalized;
+  }
+  return 'note';
+}
+
+function slugify(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function deriveLabelFromActionPlan(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const singleLine = value.replace(/\s+/g, ' ').trim();
+  if (singleLine.length === 0) return undefined;
+  return singleLine.slice(0, 120);
+}
+
+function normalizeStrengthsWeaknesses(
+  entries?: readonly unknown[]
+): readonly TeamGamePlanStrengthWeaknessItem[] | undefined {
+  if (!entries || entries.length === 0) return undefined;
+
+  const normalized: TeamGamePlanStrengthWeaknessItem[] = [];
+
+  for (const [index, candidate] of entries.entries()) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    const record = candidate as Record<string, unknown>;
+
+    const explicitLabel = normalizeText(record['label'] ?? record['title'] ?? record['name']);
+    const side =
+      inferSideFromLabel(explicitLabel) ??
+      normalizeSide(record['side'] ?? record['team'] ?? record['perspectiveTeam']);
+    const type =
+      inferTypeFromLabel(explicitLabel) ??
+      normalizeStrengthWeaknessType(record['type'] ?? record['kind'] ?? record['category']);
+    const actionPlan = normalizeText(
+      record['actionPlan'] ??
+        record['plan'] ??
+        record['recommendation'] ??
+        record['content'] ??
+        record['objective'] ??
+        record['analysis'] ??
+        record['note']
+    );
+    const label = explicitLabel ?? deriveLabelFromActionPlan(actionPlan);
+
+    if (!label) continue;
+
+    const evidenceValue =
+      record['evidence'] && typeof record['evidence'] === 'object'
+        ? (record['evidence'] as Record<string, unknown>)
+        : undefined;
+    const evidenceNote = normalizeText(evidenceValue?.['note'] ?? record['evidenceNote']);
+    const evidenceUrl = normalizeText(evidenceValue?.['url'] ?? record['evidenceUrl']);
+    const evidenceType = normalizeEvidenceType(evidenceValue?.['type'] ?? record['evidenceType']);
+    const rawTags = Array.isArray(record['tags'])
+      ? (record['tags'] as unknown[])
+      : Array.isArray(record['keywords'])
+        ? (record['keywords'] as unknown[])
+        : undefined;
+    const tags = rawTags ? normalizeStringArray(rawTags.map((item) => String(item))) : undefined;
+
+    const stableId =
+      normalizeText(record['id']) ??
+      `${side}-${type}-${slugify(label).slice(0, 48)}-${String(index + 1).padStart(2, '0')}`;
+
+    normalized.push({
+      id: stableId,
+      side,
+      type,
+      label,
+      impactLevel: normalizeImpactLevel(
+        record['impactLevel'] ?? record['level'] ?? record['impact'] ?? record['priority']
+      ),
+      ...(actionPlan ? { actionPlan } : {}),
+      ...(evidenceNote || evidenceUrl
+        ? {
+            evidence: {
+              type: evidenceType,
+              ...(evidenceNote ? { note: evidenceNote } : {}),
+              ...(evidenceUrl ? { url: evidenceUrl } : {}),
+            },
+          }
+        : {}),
+      ...(tags ? { tags } : {}),
+    });
+
+    if (normalized.length >= MAX_STRENGTH_WEAKNESS_ITEMS) break;
+  }
+
+  return normalized.length > 0 ? normalized : undefined;
+}
 
 const AdjustmentTriggerSchema = z
   .object({
@@ -82,6 +259,8 @@ const UpdateGameplanInputSchema = z
     defensivePriorities: z.string().trim().min(1).optional(),
     specialSituations: z.string().trim().min(1).optional(),
     openingScript: z.array(z.string().trim().min(1)).optional(),
+    strengthsWeaknesses: z.array(z.any()).optional(),
+    scoutingReport: z.string().trim().optional(),
     adjustmentTriggers: z.array(AdjustmentTriggerSchema).optional(),
     halftimePriorities: z.array(PrioritySchema).optional(),
     customSections: z.array(SectionSchema).optional(),
@@ -197,6 +376,16 @@ export class UpdateGameplanTool extends BaseTool {
           updateData[key] = value.trim();
         } else if (key === 'openingScript' && Array.isArray(value)) {
           updateData[key] = value.map((v) => String(v).trim()).filter((v) => v.length > 0);
+        } else if (key === 'strengthsWeaknesses' && Array.isArray(value)) {
+          const normalized = normalizeStrengthsWeaknesses(value);
+          if (!normalized) {
+            throw new Error(
+              'strengthsWeaknesses must include at least one valid item with label (or title/name) and team context.'
+            );
+          }
+          updateData[key] = normalized;
+        } else if (key === 'scoutingReport' && typeof value === 'string') {
+          updateData[key] = value.trim();
         } else if (key === 'adjustmentTriggers' && Array.isArray(value)) {
           updateData[key] = value;
         } else if (key === 'halftimePriorities' && Array.isArray(value)) {

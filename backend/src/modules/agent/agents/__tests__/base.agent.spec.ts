@@ -5,7 +5,9 @@ import { BaseAgent } from '../base.agent.js';
 import { ToolRegistry } from '../../tools/tool-registry.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../tools/base.tool.js';
 import { AgentDelegationException } from '../../exceptions/agent-delegation.exception.js';
+import { AgentYieldException } from '../../exceptions/agent-yield.exception.js';
 import type { LLMMessage, LLMToolCall } from '../../llm/llm.types.js';
+import { AskUserTool } from '../../tools/system/ask-user.tool.js';
 import {
   resetOperationMemoryServiceForTests,
   getOperationMemoryService,
@@ -61,6 +63,29 @@ class FakeDynamicExportTool extends BaseTool {
       data: {
         fileName: input['fileName'],
         rowCount: Array.isArray(input['rows']) ? input['rows'].length : 0,
+      },
+    };
+  }
+}
+
+class FakeGenerateThumbnailTool extends BaseTool {
+  readonly name = 'ffmpeg_generate_thumbnail';
+  readonly description = 'Extracts a still frame from a video.';
+  readonly parameters = z.object({
+    inputPath: z.string().min(1),
+    time: z.string().optional(),
+  });
+  readonly isMutation = false;
+  readonly category = 'media' as const;
+  readonly entityGroup = 'user_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        imageUrl: 'https://cdn.example.com/generated-frame.jpg',
+        inputPath: input['inputPath'],
       },
     };
   }
@@ -639,6 +664,18 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(label).toBe('Get Film Review');
   });
 
+  it('normalizes update gameplan labels to a user-friendly descriptor', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('update_gameplan', {
+      gamePlanId: 'mC3D9qg5d9amvcO0otvi_basketball-mens_pregame_2026-05-28_westfield-warriors',
+      customSections:
+        '[{"id":"strengths-weaknesses","title":"Strengths & Weaknesses","content":"..."}]',
+    });
+
+    expect(label).toBe('Update Gameplan: Westfield Warriors (Pregame • 2026-05-28)');
+  });
+
   it('keeps artifact URLs in compacted tool history summaries', () => {
     const agent = new FakeAgent();
     const toolExchange = (
@@ -987,6 +1024,41 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
+  it('repairs truncated signed URL string arguments before execution', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeGenerateThumbnailTool());
+
+    const signedUrl =
+      'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/user/uploads/video.MOV?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=' +
+      '9b8a5d6c8e7f3a2b1d0c'.repeat(80);
+    const malformedArgs = `{"inputPath":"${signedUrl}`;
+
+    const result = await agent.callExecuteTool(
+      {
+        id: 'thumbnail_1',
+        type: 'function',
+        function: {
+          name: 'ffmpeg_generate_thumbnail',
+          arguments: malformedArgs,
+        },
+      },
+      registry,
+      'viewer-1',
+      { allowedToolNames: ['ffmpeg_generate_thumbnail'] }
+    );
+
+    expect(JSON.parse(result)).toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({
+          imageUrl: 'https://cdn.example.com/generated-frame.jpg',
+          inputPath: signedUrl,
+        }),
+      })
+    );
+  });
+
   it('prefers draft team post copy over raw team identifiers in tool step labels', () => {
     const agent = new FakeAgent();
     const teamId = 'mC3D9qg5d9amvcO0otvi';
@@ -1175,6 +1247,67 @@ describe('BaseAgent identifier scrubbing', () => {
         }),
       ])
     );
+  });
+
+  it('treats ask_user as an exclusive yield tool when sibling tools are co-emitted', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new AskUserTool());
+    registry.register(new FakeDelegateTaskTool());
+
+    const llm = {
+      completeStream: vi.fn().mockResolvedValue({
+        content: 'I need one detail before routing this.',
+        toolCalls: [
+          {
+            id: 'call_ask_user',
+            type: 'function',
+            function: {
+              name: 'ask_user',
+              arguments: JSON.stringify({ question: 'Practice defaults?' }),
+            },
+          },
+          {
+            id: 'call_delegate',
+            type: 'function',
+            function: {
+              name: 'delegate_task',
+              arguments: JSON.stringify({ forwarding_intent: 'Build the script' }),
+            },
+          },
+        ],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'tool_calls',
+      }),
+    };
+
+    let yielded: AgentYieldException | undefined;
+    try {
+      await agent.execute(
+        'Build a practice script',
+        createMockContext(),
+        [],
+        llm as never,
+        registry,
+        undefined,
+        () => undefined
+      );
+    } catch (err) {
+      if (err instanceof AgentYieldException) yielded = err;
+      else throw err;
+    }
+
+    expect(yielded).toBeDefined();
+    const assistantWithToolCalls = yielded?.payload.messages.find(
+      (message) => message.role === 'assistant' && (message.tool_calls?.length ?? 0) > 0
+    );
+
+    expect(assistantWithToolCalls?.tool_calls?.map((toolCall) => toolCall.function.name)).toEqual([
+      'ask_user',
+    ]);
   });
 
   it('blocks brand coordinator media delegation and returns an actionable error', async () => {
@@ -1455,6 +1588,7 @@ describe('BaseAgent identifier scrubbing', () => {
           url: 'https://video.example/clip.mp4',
           mimeType: 'video/mp4',
           name: 'clip.mp4',
+          storagePath: 'Users/user-123/uploads/clip.mp4',
           cloudflareVideoId: 'cf-video-123',
         },
       ],
@@ -1490,7 +1624,7 @@ describe('BaseAgent identifier scrubbing', () => {
 
     // Text body includes video reference but NOT extracted PDF content
     expect(textBody).toContain(
-      '[Attached video: clip.mp4 — https://video.example/clip.mp4 | cloudflareVideoId: cf-video-123]'
+      '[Attached video: clip.mp4 — https://video.example/clip.mp4 | storagePath: Users/user-123/uploads/clip.mp4 | cloudflareVideoId: cf-video-123]'
     );
 
     // Ensure extracted PDF content is NOT in the text (native path only)
@@ -1623,10 +1757,18 @@ describe('BaseAgent identifier scrubbing', () => {
     }>;
     const userMessage = completeMessages.find((message) => message.role === 'user');
     const contentParts = userMessage?.content as Array<Record<string, unknown>>;
+    const textPart = contentParts.find((part) => part['type'] === 'text') as
+      | { text?: string }
+      | undefined;
     const imagePart = contentParts.find((part) => part['type'] === 'image_url');
     const imagePayload = imagePart?.['image_url'] as { url?: string } | undefined;
 
     expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(1);
+    expect(textPart?.text).toContain('[Attached image: image-1');
+    expect(textPart?.text).toContain(
+      'https://storage.googleapis.com/bucket/path/image.png?X-Goog-Algorithm=GOOG4-RSA-SHA256'
+    );
+    expect(textPart?.text).toContain('Use attached image URLs when calling image-analysis tools.');
     expect(imagePayload?.url).toBe('data:image/png;base64,AQIDBA==');
   });
 

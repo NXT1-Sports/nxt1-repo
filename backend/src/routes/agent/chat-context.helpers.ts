@@ -206,6 +206,7 @@ function formatAnnotationInstruction(context: AgentXSelectedContext): string {
   const centerX = roundNormalized((bounds.minX + bounds.maxX) / 2);
   const centerY = roundNormalized((bounds.minY + bounds.maxY) / 2);
   const frameRegion = describeFrameRegion(centerX, centerY);
+  const markedFrameTimestamp = formatMarkedFrameTimestampInstruction(context.metadata);
   const snapshotInstruction = formatAnnotationSnapshotInstruction(context.metadata);
   const pointSample = annotation.points?.length
     ? ` Sampled normalized path points: ${annotation.points
@@ -214,7 +215,22 @@ function formatAnnotationInstruction(context: AgentXSelectedContext): string {
         .join(' | ')}.`
     : '';
 
-  return ` — User drawing annotation: ${annotation.kind}, ${annotation.strokeCount} stroke(s), normalized bounds x=${bounds.minX}-${bounds.maxX}, y=${bounds.minY}-${bounds.maxY}, centered in the ${frameRegion} of the video frame.${snapshotInstruction}${pointSample}`;
+  return ` — User drawing annotation: ${annotation.kind}, ${annotation.strokeCount} stroke(s), video-frame normalized bounds x=${bounds.minX}-${bounds.maxX}, y=${bounds.minY}-${bounds.maxY}, centered in the ${frameRegion} of the video frame.${markedFrameTimestamp}${snapshotInstruction}${pointSample}`;
+}
+
+function formatMarkedFrameTimestampInstruction(
+  metadata: AgentXSelectedContext['metadata'] | undefined
+): string {
+  const currentTimeSec = metadata?.['currentTimeSec'];
+  if (
+    typeof currentTimeSec !== 'number' ||
+    !Number.isFinite(currentTimeSec) ||
+    currentTimeSec < 0
+  ) {
+    return '';
+  }
+
+  return ` Marked-frame timestamp: ${Number(currentTimeSec.toFixed(3))}s; use this exact timestamp when generating fallback still frames instead of the play start.`;
 }
 
 function formatAnnotationSnapshotInstruction(
@@ -228,9 +244,16 @@ function formatAnnotationSnapshotInstruction(
     typeof metadata['annotationSnapshotAttachmentName'] === 'string'
       ? metadata['annotationSnapshotAttachmentName'].trim()
       : '';
+  const cropAttachmentName =
+    typeof metadata['annotationCropAttachmentName'] === 'string'
+      ? metadata['annotationCropAttachmentName'].trim()
+      : '';
   const attachmentLabel = attachmentName ? ` named "${attachmentName}"` : '';
+  const cropLabel = cropAttachmentName
+    ? ` A zoomed annotated crop named "${cropAttachmentName}" is also included; use the crop first to identify the marked player, then the full frame for alignment.`
+    : '';
 
-  return ` A flattened annotated frame image attachment${attachmentLabel} is included with this turn; use that image as the primary visual reference for the user-drawn circle/marking, then use the video timestamp for motion context.`;
+  return ` A flattened annotated frame image attachment${attachmentLabel} is included with this turn; use that image as the primary visual reference for the user-drawn circle/marking, then use the video timestamp for motion context.${cropLabel}`;
 }
 
 function annotationFromLegacyMetadata(

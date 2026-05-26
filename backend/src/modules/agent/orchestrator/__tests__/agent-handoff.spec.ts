@@ -61,6 +61,49 @@ describe('Agent handoff and tool narrowing', () => {
     expect(taskIntent).not.toContain('[Current Task]');
   });
 
+  it('preserves selected film context drawing directives during coordinator handoff', () => {
+    const contextService = new AgentRouterContextService(
+      {
+        compressToPrompt: () => 'mocked',
+      } as never,
+      undefined
+    );
+
+    const task: AgentTask = {
+      id: 't1',
+      assignedAgent: 'performance_coordinator',
+      description: 'Analyze the marked film play',
+      dependsOn: [],
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    const taskIntent = contextService.buildTaskIntent(
+      task,
+      new Map(),
+      [
+        '[User Profile]',
+        'Athlete',
+        '',
+        '[Request]',
+        'Can you see who I circled?',
+        '',
+        '[Selected contexts (confirmed by user for this turn):',
+        '1. film_play (Week 4 Cutup): Play 3 @ 11.5s-18.5s — User drawing annotation: freehand, 1 stroke(s), video-frame normalized bounds x=0.123-0.543, y=0.235-0.765, centered in the center-middle of the video frame.',
+        ']',
+        '[Instruction: prioritize these contexts while reasoning and cite their timestamps when relevant. If a selected context includes a drawing annotation, treat the annotation coordinates as the user-selected area even if the raw video frame does not visibly contain the overlay.]',
+      ].join('\n')
+    );
+
+    expect(taskIntent).toContain('[User Profile]\nAthlete');
+    expect(taskIntent).toContain('[Selected Contexts From User Request]');
+    expect(taskIntent).toContain('User drawing annotation: freehand, 1 stroke(s)');
+    expect(taskIntent).toContain('video-frame normalized bounds x=0.123-0.543, y=0.235-0.765');
+    expect(taskIntent).toContain('raw video frame does not visibly contain the overlay');
+    expect(taskIntent).toContain('Objective: Analyze the marked film play');
+    expect(taskIntent).not.toContain('Can you see who I circled?');
+  });
+
   it('adds request sport override when the user explicitly asks about a different sport', () => {
     const contextService = new AgentRouterContextService(
       {

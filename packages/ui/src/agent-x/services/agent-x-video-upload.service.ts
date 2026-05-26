@@ -87,8 +87,11 @@ interface CloudflareFinalizeResponse {
   readonly error?: string;
 }
 
+type VideoUploadTransport = 'auto' | 'firebase';
+
 interface VideoUploadOptions {
   readonly threadId?: string | null;
+  readonly transport?: VideoUploadTransport;
 }
 
 interface NativeFirebaseUploadEvent {
@@ -131,9 +134,12 @@ export class AgentXVideoUploadService {
   ): Observable<VideoUploadProgress> {
     const subject = new Subject<VideoUploadProgress>();
     const threadId = options?.threadId?.trim() ? options.threadId.trim() : null;
-    const uploadTask = shouldUseCloudflareUpload(file.size)
-      ? this._doCloudflareTusUpload(file, authToken, subject, threadId)
-      : this._doFirebaseUpload(file, authToken, subject, threadId);
+    const uploadTask =
+      options?.transport === 'firebase'
+        ? this._doFirebaseUpload(file, authToken, subject, threadId)
+        : shouldUseCloudflareUpload(file.size)
+          ? this._doCloudflareTusUpload(file, authToken, subject, threadId)
+          : this._doFirebaseUpload(file, authToken, subject, threadId);
 
     uploadTask.catch((err) => {
       const msg = err instanceof Error ? err.message : 'Video upload failed';

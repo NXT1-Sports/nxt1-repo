@@ -37,6 +37,7 @@ import {
   teamStatDocToFeedItemStat,
   teamToFeedAuthor,
 } from '@nxt1/core/posts';
+import { normalizeCollegeName } from '../../modules/agent/tools/intel/dedup-utils.js';
 import { logger } from '../../utils/logger.js';
 
 // ============================================
@@ -680,7 +681,6 @@ export class TimelineService {
       let query = this.db
         .collection(RECRUITING_COLLECTION)
         .where('userId', '==', userId)
-        .where('ownerType', '==', 'user')
         .orderBy('date', 'desc') as FirebaseFirestore.Query;
 
       if (sportId) {
@@ -1038,7 +1038,9 @@ export class TimelineService {
         : Promise.resolve([]),
       fetchStats ? this.fetchTeamStats(teamId, fetchLimit, sportId, cursor) : Promise.resolve([]),
       fetchNews ? this.fetchTeamNews(teamId, fetchLimit, cursor) : Promise.resolve([]),
-      fetchRecruiting ? this.fetchTeamRecruiting(teamId, fetchLimit, cursor) : Promise.resolve([]),
+      fetchRecruiting
+        ? this.fetchTeamRecruiting(teamId, fetchLimit, sportId, cursor)
+        : Promise.resolve([]),
     ]);
 
     const items: FeedItem[] = [];
@@ -1395,6 +1397,7 @@ export class TimelineService {
   private async fetchTeamRecruiting(
     teamId: string,
     limit: number,
+    sportId?: string,
     cursor?: string
   ): Promise<
     Array<{
@@ -1419,7 +1422,73 @@ export class TimelineService {
     }>
   > {
     try {
-      // Fan-out via RosterEntries: canonical userId only.
+      const mapRecruitingDoc = (
+        doc: FirebaseFirestore.QueryDocumentSnapshot<FirebaseFirestore.DocumentData>
+      ) => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          data: {
+            category: String(data['category'] ?? 'offer'),
+            collegeName: String(data['collegeName'] ?? 'Unknown Program'),
+            collegeLogoUrl: data['collegeLogoUrl'] as string | undefined,
+            division: data['division'] as string | undefined,
+            conference: data['conference'] as string | undefined,
+            sport: data['sport'] as string | undefined,
+            date: this.firestoreTimestampToISO(data['date']),
+            endDate: data['endDate'] ? this.firestoreTimestampToISO(data['endDate']) : undefined,
+            scholarshipType: data['scholarshipType'] as string | undefined,
+            visitType: data['visitType'] as string | undefined,
+            commitmentStatus: data['commitmentStatus'] as string | undefined,
+            announcedAt: data['announcedAt']
+              ? this.firestoreTimestampToISO(data['announcedAt'])
+              : undefined,
+            coachName: data['coachName'] as string | undefined,
+            notes: data['notes'] as string | undefined,
+            graphicUrl: data['graphicUrl'] as string | undefined,
+          },
+        };
+      };
+
+      const dedupeKey = (item: {
+        readonly data: {
+          readonly category: string;
+          readonly collegeName: string;
+          readonly sport?: string;
+          readonly date: string;
+        };
+      }): string => {
+        const category = item.data.category.toLowerCase().trim();
+        const college = normalizeCollegeName(item.data.collegeName);
+        const sport = String(item.data.sport ?? '')
+          .toLowerCase()
+          .trim();
+        const date = item.data.date.split('T')[0] ?? 'undated';
+        return `${category}::${college}::${sport}::${date}`;
+      };
+
+      let directQuery = this.db
+        .collection(RECRUITING_COLLECTION)
+        .where('teamId', '==', teamId)
+        .orderBy('date', 'desc') as FirebaseFirestore.Query;
+
+      if (sportId) {
+        directQuery = directQuery.where('sport', '==', sportId.toLowerCase());
+      }
+      if (cursor) {
+        const cursorDate = Buffer.from(cursor, 'base64').toString();
+        directQuery = directQuery.where('date', '<', cursorDate);
+      }
+
+      const directSnap = await directQuery.limit(limit).get();
+      const directResults = directSnap.docs.map(mapRecruitingDoc);
+      const seenKeys = new Set(directResults.map(dedupeKey));
+
+      if (directResults.length >= limit) {
+        return directResults;
+      }
+
+      // Legacy fallback: fan-out via rostered athlete userIds for older recruiting docs.
       const rosterSnap = await this.db
         .collection(ROSTER_ENTRIES_COLLECTION)
         .where('teamId', '==', teamId)
@@ -1476,6 +1545,10 @@ export class TimelineService {
             .orderBy('date', 'desc')
             .limit(limit) as FirebaseFirestore.Query;
 
+          if (sportId) {
+            q = q.where('sport', '==', sportId.toLowerCase());
+          }
+
           if (cursor) {
             const cursorDate = Buffer.from(cursor, 'base64').toString();
             q = q.where('date', '<', cursorDate);
@@ -1483,37 +1556,22 @@ export class TimelineService {
 
           const snap = await q.get();
           for (const doc of snap.docs) {
-            const data = doc.data();
-            allResults.push({
-              id: doc.id,
-              data: {
-                category: String(data['category'] ?? 'offer'),
-                collegeName: String(data['collegeName'] ?? 'Unknown Program'),
-                collegeLogoUrl: data['collegeLogoUrl'] as string | undefined,
-                division: data['division'] as string | undefined,
-                conference: data['conference'] as string | undefined,
-                sport: data['sport'] as string | undefined,
-                date: this.firestoreTimestampToISO(data['date']),
-                endDate: data['endDate']
-                  ? this.firestoreTimestampToISO(data['endDate'])
-                  : undefined,
-                scholarshipType: data['scholarshipType'] as string | undefined,
-                visitType: data['visitType'] as string | undefined,
-                commitmentStatus: data['commitmentStatus'] as string | undefined,
-                announcedAt: data['announcedAt']
-                  ? this.firestoreTimestampToISO(data['announcedAt'])
-                  : undefined,
-                coachName: data['coachName'] as string | undefined,
-                notes: data['notes'] as string | undefined,
-                graphicUrl: data['graphicUrl'] as string | undefined,
-              },
-            });
+            const mapped = mapRecruitingDoc(doc);
+            const key = dedupeKey(mapped);
+            if (seenKeys.has(key)) {
+              continue;
+            }
+            seenKeys.add(key);
+            allResults.push(mapped);
           }
         })
       );
 
-      allResults.sort((a, b) => new Date(b.data.date).getTime() - new Date(a.data.date).getTime());
-      return allResults.slice(0, limit);
+      const mergedResults = [...directResults, ...allResults].sort(
+        (a, b) => new Date(b.data.date).getTime() - new Date(a.data.date).getTime()
+      );
+
+      return mergedResults.slice(0, limit);
     } catch (err) {
       logger.error('[Timeline] Failed to fetch team recruiting', {
         teamId,

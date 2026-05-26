@@ -615,6 +615,45 @@ describe('WriteCoreIdentityTool', () => {
     expect(payload).toHaveProperty('connectedSources');
     expect(payload).toHaveProperty('sports');
     expect(mockEnqueueWelcomeGraphicIfReady).toHaveBeenCalledTimes(1);
+    expect((result.data as Record<string, unknown>)['response']).toBe(
+      'I synced your football profile from MaxPreps and refreshed the linked NXT1 data.'
+    );
+  });
+
+  it('includes the welcome graphic queue in the user-facing completion response when applicable', async () => {
+    const { db } = createMockFirestore({
+      userData: {
+        role: 'athlete',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      teamData: {
+        organizationId: 'org_123',
+      },
+      organizationData: {},
+    });
+
+    mockAssertCanManageProfileTarget.mockResolvedValue({
+      actorUserId: 'user_123',
+      targetUserId: 'user_123',
+      targetRole: 'athlete',
+      targetUserData: {
+        role: 'athlete',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      isSelfWrite: true,
+      sharedTeamIds: [],
+      sharedOrganizationIds: [],
+      sharedSports: [],
+    });
+    mockEnqueueWelcomeGraphicIfReady.mockResolvedValue({ status: 'enqueued' });
+
+    const tool = new WriteCoreIdentityTool(db as never);
+    const result = await tool.execute(buildInput(), { userId: 'user_123' });
+
+    expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['response']).toBe(
+      'I synced your football profile from MaxPreps and refreshed the linked NXT1 data and queued your welcome graphic.'
+    );
   });
 
   it('ignores delegated explicit team and organization ids outside shared scope', async () => {

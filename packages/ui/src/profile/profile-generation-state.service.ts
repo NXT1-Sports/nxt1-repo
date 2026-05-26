@@ -312,7 +312,6 @@ export class ProfileGenerationStateService {
 
   private _onRegistryDone(operationId: string, success: boolean, error?: string): void {
     if (this._jobId() !== operationId || !this._isGenerating()) return;
-    if (!this.isPolling && this.activePollResolve === null) return;
 
     if (success) {
       this.logger.info('Profile generation completed via stream registry', { operationId });
@@ -367,6 +366,14 @@ export class ProfileGenerationStateService {
   async pollUntilDone(): Promise<'completed' | 'failed'> {
     const jobId = this._jobId();
     if (!jobId) return 'failed';
+
+    if (this._phase() === 'complete') {
+      return 'completed';
+    }
+
+    if (this._phase() === 'error') {
+      return 'failed';
+    }
 
     // Guard: prevent duplicate polling loops
     if (this.isPolling) {

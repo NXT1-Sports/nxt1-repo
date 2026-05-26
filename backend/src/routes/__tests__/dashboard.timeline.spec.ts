@@ -86,6 +86,19 @@ describe('dashboard film review timeline helpers', () => {
     expect(result.every((segment) => segment.endSec > segment.startSec)).toBe(true);
   });
 
+  it('scopes Gemini timeline cache to the requesting user and film review', () => {
+    const result = __dashboardFilmReviewTimelineTestUtils.buildFilmReviewTimelineCacheOptions(
+      'user-123',
+      'review-456'
+    );
+
+    expect(result).toEqual({
+      userId: 'user-123',
+      contextCacheScopeId: 'film-review:review-456',
+      enableContextCache: true,
+    });
+  });
+
   it('sanitizes nested annotation strokes from timeline payloads before persistence', () => {
     const result = __dashboardFilmReviewTimelineTestUtils.parseFilmReviewTimelineSegments(
       [

@@ -7,11 +7,11 @@
  * (Runway asset URLs expire after 24 hours) and returns a permanent CDN URL.
  */
 
-import { getStorage } from 'firebase-admin/storage';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import type { RunwayMcpBridgeService } from './runway-mcp-bridge.service.js';
 import { z } from 'zod';
 import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
+import { MediaStagingService } from '../../media/media-staging.service.js';
 
 export class RunwayCheckTaskTool extends BaseTool {
   readonly name = 'runway_check_task';
@@ -28,6 +28,8 @@ export class RunwayCheckTaskTool extends BaseTool {
   readonly category = 'media' as const;
 
   readonly entityGroup = 'user_tools' as const;
+  private readonly mediaStaging = new MediaStagingService();
+
   constructor(private readonly bridge: RunwayMcpBridgeService) {
     super();
   }
@@ -64,7 +66,7 @@ export class RunwayCheckTaskTool extends BaseTool {
         outputUrl = (output as Record<string, unknown>)['url'] as string | undefined;
       }
 
-      // If task is complete and we have an output URL, persist to Firebase Storage
+      // If task is complete and we have an output URL, persist to environment-scoped Firebase Storage.
       let persistentUrl: string | undefined;
       let storagePath: string | undefined;
 
@@ -75,38 +77,27 @@ export class RunwayCheckTaskTool extends BaseTool {
         });
 
         try {
-          const response = await fetch(outputUrl);
-          if (!response.ok) {
-            throw new AgentEngineError(
-              'RUNWAY_REQUEST_FAILED',
-              `Failed to download Runway output: ${response.status}`
-            );
-          }
-
-          const buffer = Buffer.from(await response.arrayBuffer());
-          const contentType = response.headers.get('content-type') || 'video/mp4';
-          const extension = contentType.includes('image') ? 'png' : 'mp4';
-          const timestamp = Date.now();
-
-          // Thread-scoped storage path — requires both userId and threadId
           if (!context?.userId || !context?.threadId) {
             throw new AgentEngineError(
               'AGENT_VALIDATION_FAILED',
               'Runway output cannot be saved — no userId/threadId in context'
             );
           }
-          storagePath = `Users/${context.userId}/threads/${context.threadId}/media/${timestamp}-runway-${taskId}.${extension}`;
 
-          const bucket = getStorage().bucket();
-          const file = bucket.file(storagePath);
-          await file.save(buffer, {
-            contentType,
-            metadata: {
-              cacheControl: 'public, max-age=31536000, immutable',
+          const staged = await this.mediaStaging.stageFromUrl({
+            sourceUrl: outputUrl,
+            staging: {
+              userId: context.userId,
+              threadId: context.threadId,
             },
+            environment: context.environment,
+            fileName: `runway-${taskId}`,
+            mediaKind: 'auto',
+            expiresInMinutes: 120,
           });
-          await file.makePublic();
-          persistentUrl = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
+
+          persistentUrl = staged.signedUrl;
+          storagePath = staged.storagePath;
         } catch {
           // Non-fatal — return the ephemeral URL with a warning
           persistentUrl = undefined;

@@ -10,6 +10,8 @@ export class FfmpegMergeVideosTool extends BaseTool {
     'Merge multiple videos into a single output video file. ' +
     'Defaults to concat_filter which re-encodes all inputs to a common codec/timebase — ' +
     'safe for clips from different sources, resolutions, or that have been resized/trimmed. ' +
+    'The backend automatically normalizes audio/video and batches large input lists; do not manually split a highlight reel unless the tool returns an explicit failure. ' +
+    'For branded highlight reels with a Runway/graphic intro as the first input, set maxIntroSeconds to 4 so the opener cannot freeze past the intended timeline. ' +
     'After merging, always call ffmpeg_generate_thumbnail on the output to generate a poster frame. ' +
     'Use that frame as thumbnail metadata for the merged video (do not present it as a separate deliverable unless requested).';
   readonly parameters = MergeVideosInputSchema;

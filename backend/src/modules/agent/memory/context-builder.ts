@@ -967,6 +967,7 @@ export class ContextBuilder {
 
       // Team context
       teamId,
+      teamCode: primaryResolvedTeamRoute?.teamIdentifier ?? undefined,
       organizationId,
 
       // Coach-specific

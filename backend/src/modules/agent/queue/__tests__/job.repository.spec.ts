@@ -1,5 +1,34 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentJobRepository } from '../job.repository.js';
+
+const sendAgentJobFailureAlertMock = vi.hoisted(() => vi.fn());
+const sendSlackAlertMock = vi.hoisted(() => vi.fn());
+const classifyAgentJobAutoResolveTypeMock = vi.hoisted(() => vi.fn());
+const isAgentJobCustomerRecoveryEmailEnabledMock = vi.hoisted(() => vi.fn());
+const sendAgentJobRecoveryStartedEmailMock = vi.hoisted(() => vi.fn());
+
+vi.mock(
+  '../../../../services/communications/agent-jobs/email/agent-job-failure-alert.service.js',
+  () => ({
+    sendAgentJobFailureAlert: sendAgentJobFailureAlertMock,
+  })
+);
+
+vi.mock('../../../../services/platform/alert.service.js', () => ({
+  sendSlackAlert: sendSlackAlertMock,
+}));
+
+vi.mock('../../services/agent-job-auto-resolver.service.js', () => ({
+  classifyAgentJobAutoResolveType: classifyAgentJobAutoResolveTypeMock,
+}));
+
+vi.mock(
+  '../../../../services/communications/agent-jobs/email/agent-job-recovery-started-email.service.js',
+  () => ({
+    isAgentJobCustomerRecoveryEmailEnabled: isAgentJobCustomerRecoveryEmailEnabledMock,
+    sendAgentJobRecoveryStartedEmail: sendAgentJobRecoveryStartedEmailMock,
+  })
+);
 
 interface MockDocSnapshot {
   readonly exists: boolean;
@@ -230,6 +259,14 @@ describe('AgentJobRepository sequencing', () => {
   let repository: AgentJobRepository;
 
   beforeEach(async () => {
+    vi.unstubAllEnvs();
+    vi.clearAllMocks();
+    classifyAgentJobAutoResolveTypeMock.mockReturnValue(null);
+    isAgentJobCustomerRecoveryEmailEnabledMock.mockReturnValue(false);
+    sendAgentJobFailureAlertMock.mockResolvedValue(undefined);
+    sendSlackAlertMock.mockResolvedValue(true);
+    sendAgentJobRecoveryStartedEmailMock.mockResolvedValue('skipped');
+
     firestore = createMockFirestore();
     repository = new AgentJobRepository(firestore.db as never);
 
@@ -426,6 +463,58 @@ describe('AgentJobRepository sequencing', () => {
     expect(job?.progress?.status).toBe('failed');
     expect(job?.progress?.percent).toBe(100);
     expect(job?.progress?.outcomeCode).toBe('task_failed');
+  });
+
+  it('sends internal email and Slack alerts when marking a job failed outside tests', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+
+    await repository.markFailed('op-seq-1', 'boom');
+
+    expect(sendAgentJobFailureAlertMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationId: 'op-seq-1',
+        userId: 'user-1',
+        origin: 'user',
+        intent: 'Test sequencing',
+        error: 'boom',
+      })
+    );
+    expect(sendSlackAlertMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: 'agent',
+        severity: 'critical',
+        title: 'Agent X Job Failed',
+        summary: 'An Agent X background job has failed and needs review.',
+        fields: expect.arrayContaining([
+          { label: 'Operation ID', value: 'op-seq-1' },
+          { label: 'User ID', value: 'user-1' },
+          { label: 'Origin', value: 'user' },
+          { label: 'Error', value: 'boom' },
+        ]),
+      })
+    );
+
+    const job = await repository.getById('op-seq-1');
+    expect(job?.failureAlertStatus).toBe('sent');
+    expect(job?.failureAlertError).toBeNull();
+    expect(job?.failureSlackAlertStatus).toBe('sent');
+    expect(job?.failureSlackAlertError).toBeNull();
+  });
+
+  it('still sends Slack when the internal failure email fails', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    sendAgentJobFailureAlertMock.mockRejectedValueOnce(new Error('smtp down'));
+
+    await repository.markFailed('op-seq-1', 'boom');
+
+    expect(sendAgentJobFailureAlertMock).toHaveBeenCalledOnce();
+    expect(sendSlackAlertMock).toHaveBeenCalledOnce();
+
+    const job = await repository.getById('op-seq-1');
+    expect(job?.failureAlertStatus).toBe('failed');
+    expect(job?.failureAlertError).toBe('smtp down');
+    expect(job?.failureSlackAlertStatus).toBe('sent');
+    expect(job?.failureSlackAlertError).toBeNull();
   });
 
   it('clears yieldState when marking job cancelled', async () => {

@@ -83,7 +83,11 @@ const STRATEGY_ROUTER_FALLBACK_TOOLS = new Set([
   'create_play_diagram',
   'create_board_diagram',
   'write_playbooks',
+  'update_playbook',
+  'delete_playbook',
   'save_gameplan',
+  'update_gameplan',
+  'delete_gameplan',
   'list_film_reviews',
   'get_film_review',
   'save_film_review',
@@ -92,6 +96,21 @@ const STRATEGY_ROUTER_FALLBACK_TOOLS = new Set([
   'add_film_review_annotation',
   'delete_film_review_annotation',
   'refresh_film_review_ai',
+]);
+
+const BRAND_MEDIA_ROUTER_FALLBACK_TOOLS = new Set([
+  'generate_graphic',
+  'runway_generate_video',
+  'runway_upscale_video',
+  'runway_check_task',
+  'ffmpeg_trim_video',
+  'ffmpeg_merge_videos',
+  'ffmpeg_resize_video',
+  'ffmpeg_add_text_overlay',
+  'ffmpeg_burn_subtitles',
+  'ffmpeg_generate_thumbnail',
+  'ffmpeg_convert_video',
+  'ffmpeg_compress_video',
 ]);
 
 const PRIMARY_AGENT_MODEL_OVERRIDE = '~anthropic/claude-sonnet-latest';
@@ -178,8 +197,8 @@ const PRIMARY_OPERATING_CONTRACT = [
   '      • "generate a promo from my game film" → delegate to brand_coordinator',
   '      • "turn these clips into a cinematic reel" → delegate to brand_coordinator',
   '      • "create an elite edit from the uploaded video" → delegate to brand_coordinator',
-  '    - Do NOT ask clarification questions or call classify_media_url yourself. Brand_coordinator has the full External URL Ingestion pre-step and will handle source extraction autonomously.',
-  '    - Pass the video source (URL or reference) in the handoff payload objective sentence.',
+  '    - Do NOT ask clarification questions, call classify_media_url yourself, or call FFmpeg/Runway/generate_graphic tools from router. Brand_coordinator owns creative media execution.',
+  '    - Keep delegate_to_coordinator.goal short (one objective sentence). Put long signed URLs, clip lists, filenames, handles, and exact media arrays in structured_payload.',
   '10k) College questionnaire & web form routing rule (CRITICAL — ABSOLUTE):',
   '    - You have live browser access. NEVER say you cannot access external links, URLs, or web pages.',
   '    - You have form-fill capability. NEVER say you cannot fill out web forms, questionnaires, college applications, or portal forms.',
@@ -447,10 +466,11 @@ export class PrimaryAgent extends BaseAgent {
       );
     }
 
-    // Safety fallback: some model generations may still attempt generate_graphic
-    // even when router-only tools are exposed. Force brand delegation.
-    if (toolCall.function.name === 'generate_graphic') {
-      return this.handleDirectGraphicGenerationFallback(
+    // Safety fallback: some model generations may still attempt creative media
+    // tools directly from router. Force brand delegation instead of returning
+    // a permission error and letting the model spin.
+    if (BRAND_MEDIA_ROUTER_FALLBACK_TOOLS.has(toolCall.function.name)) {
+      return this.handleDirectBrandMediaFallback(
         toolCall,
         userId,
         sessionContext?.operationId,
@@ -638,7 +658,7 @@ export class PrimaryAgent extends BaseAgent {
     });
   }
 
-  private async handleDirectGraphicGenerationFallback(
+  private async handleDirectBrandMediaFallback(
     toolCall: LLMToolCall,
     userId: string,
     operationId: string | undefined,
@@ -674,11 +694,12 @@ export class PrimaryAgent extends BaseAgent {
 
     const coordinatorId: Extract<AgentIdentifier, 'brand_coordinator'> = 'brand_coordinator';
     const goal =
-      'Create the requested branded visual asset and deliver final user-ready output with media URL(s).';
+      'Complete this creative media processing step and continue the brand video workflow to final user-ready output.';
 
     const structuredPayload = {
       ...args,
-      source: 'router_generate_graphic_fallback',
+      source: 'router_brand_media_tool_fallback',
+      originalToolName: toolCall.function.name,
     };
 
     onStreamEvent?.({

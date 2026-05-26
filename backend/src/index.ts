@@ -73,6 +73,7 @@ import iapRoutes from './routes/billing/iap.routes.js';
 import teamsRoutes from './routes/team/teams.routes.js';
 import engagementRoutes from './routes/feed/engagement.routes.js';
 import logsRoutes from './routes/platform/logs.routes.js';
+import marketingRoutes from './routes/marketing/index.js';
 // Staging-only dev utilities
 
 const app: ReturnType<typeof express> = express();
@@ -448,6 +449,7 @@ async function setupApplication() {
     { path: '/pulse', rateLimitType: 'api', handler: pulseRoutes },
     { path: '/settings', rateLimitType: 'api', handler: settingsRoutes },
     { path: '/help-center', rateLimitType: 'api', handler: helpCenterRoutes },
+    { path: '/marketing', rateLimitType: 'api', handler: marketingRoutes },
     { path: '/profile', rateLimitType: 'api', handler: editProfileRoutes },
     { path: '/agent-x', rateLimitType: 'api', handler: agentXRoutes },
     // Messages routes

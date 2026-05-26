@@ -45,17 +45,22 @@ import { NxtMediaService } from '../../services/media';
 import { NxtToastService } from '../../services/toast';
 import { NxtLoggingService } from '../../services/logging';
 import { NxtVideoControlsComponent } from '../video-controls';
-import type { MediaViewerItem } from './media-viewer.types';
+import type { MediaViewerBreakdown, MediaViewerItem } from './media-viewer.types';
 import type { MediaImageFormat } from '../../services/media';
 
 @Component({
   selector: 'nxt1-media-viewer-content',
   standalone: true,
   imports: [NxtVideoControlsComponent],
+  host: {
+    '[style.height]': 'isPlaybookVariant() ? "auto" : "100%"',
+    '[style.min-height]': 'null',
+  },
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div
       class="media-viewer"
+      [class.media-viewer--playbook]="isPlaybookVariant()"
       [attr.data-testid]="testIds.CONTAINER"
       (keydown.escape)="dismiss()"
       (keydown.arrowLeft)="prev()"
@@ -378,7 +383,7 @@ import type { MediaImageFormat } from '../../services/media';
       }
 
       <!-- Caption -->
-      @if (currentItem().caption) {
+      @if (currentItem().caption && !isPlaybookVariant()) {
         <div class="caption" [attr.data-testid]="testIds.CAPTION">
           {{ currentItem().caption }}
         </div>
@@ -421,6 +426,55 @@ import type { MediaImageFormat } from '../../services/media';
           </button>
         </div>
       }
+
+      @if (isPlaybookVariant() && currentBreakdown(); as breakdown) {
+        <section class="playbook-breakdown" aria-label="Play breakdown details">
+          <header class="playbook-breakdown__header">
+            @if (breakdown.subtitle) {
+              <p class="playbook-breakdown__subtitle">{{ breakdown.subtitle }}</p>
+            }
+            @if (breakdown.metaChips?.length) {
+              <div class="playbook-breakdown__summary" aria-label="Play at a glance">
+                <h4 class="playbook-breakdown__summary-title">At a Glance</h4>
+                <ul class="playbook-breakdown__summary-list">
+                  @for (chip of breakdown.metaChips!; track chip) {
+                    <li>{{ chip }}</li>
+                  }
+                </ul>
+              </div>
+            }
+          </header>
+
+          @if (breakdown.sections?.length) {
+            <div class="playbook-breakdown__body">
+              @for (section of breakdown.sections!; track section.title) {
+                <article class="playbook-breakdown__section">
+                  <h4>{{ section.title }}</h4>
+                  @if (section.paragraphs?.length) {
+                    @for (paragraph of section.paragraphs!; track paragraph) {
+                      <p>{{ paragraph }}</p>
+                    }
+                  }
+                  @if (section.bullets?.length) {
+                    <ul>
+                      @for (bullet of section.bullets!; track bullet) {
+                        <li>{{ bullet }}</li>
+                      }
+                    </ul>
+                  }
+                  @if (section.chips?.length) {
+                    <ul class="playbook-breakdown__list playbook-breakdown__list--plain">
+                      @for (chip of section.chips!; track chip) {
+                        <li>{{ chip }}</li>
+                      }
+                    </ul>
+                  }
+                </article>
+              }
+            </div>
+          }
+        </section>
+      }
     </div>
   `,
   styles: `
@@ -440,6 +494,16 @@ import type { MediaImageFormat } from '../../services/media';
       outline: none;
       user-select: none;
       -webkit-user-select: none;
+    }
+
+    .media-viewer--playbook {
+      height: auto;
+      min-height: 0;
+      overflow: visible;
+    }
+
+    .media-viewer--playbook .top-bar {
+      padding: calc(env(safe-area-inset-top, 0px) + 6px) 12px 6px;
     }
 
     /* ── Top bar ─────────────────────────────────── */
@@ -545,6 +609,16 @@ import type { MediaImageFormat } from '../../services/media';
       scrollbar-width: none;
     }
 
+    .media-viewer--playbook .media-track {
+      flex: 0 0 auto;
+      height: min(72vh, 620px);
+      min-height: 420px;
+      overflow-x: hidden;
+      overflow-y: visible;
+      scroll-snap-type: none;
+      touch-action: pan-y;
+    }
+
     .media-track::-webkit-scrollbar {
       display: none;
     }
@@ -560,11 +634,23 @@ import type { MediaImageFormat } from '../../services/media';
       overflow: hidden;
     }
 
+    .media-viewer--playbook .media-slide {
+      align-items: flex-start;
+      padding-top: 0;
+      padding-inline: 8px;
+      box-sizing: border-box;
+    }
+
     .media-image {
       max-width: 100%;
       max-height: 100%;
       object-fit: contain;
       -webkit-touch-callout: none;
+    }
+
+    .media-viewer--playbook .media-image {
+      max-height: calc(100% - 4px);
+      width: auto;
     }
 
     .media-video {
@@ -678,6 +764,126 @@ import type { MediaImageFormat } from '../../services/media';
       line-height: 1.4;
       text-align: center;
       pointer-events: none;
+    }
+
+    .playbook-breakdown {
+      position: relative;
+      left: auto;
+      right: auto;
+      bottom: auto;
+      z-index: auto;
+      max-height: none;
+      display: grid;
+      gap: 10px;
+      border-radius: var(--nxt1-borderRadius-xl, 12px);
+      border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.12));
+      background: var(--nxt1-color-surface-100, #111);
+      color: var(--nxt1-color-text-primary, #fff);
+      overflow: hidden;
+      pointer-events: auto;
+      margin: 10px 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
+    }
+
+    .playbook-breakdown__header {
+      display: grid;
+      gap: 8px;
+      padding: 12px 12px 0;
+    }
+
+    .playbook-breakdown__subtitle {
+      margin: 0;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
+    }
+
+    .playbook-breakdown__summary {
+      display: grid;
+      gap: 6px;
+      border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+      border-radius: var(--nxt1-borderRadius-lg, 8px);
+      background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+      padding: 8px;
+    }
+
+    .playbook-breakdown__summary-title {
+      margin: 0;
+      font-size: 0.68rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+    }
+
+    .playbook-breakdown__summary-list {
+      margin: 0;
+      padding-left: 16px;
+      display: grid;
+      gap: 4px;
+      list-style: disc;
+    }
+
+    .playbook-breakdown__summary-list li {
+      font-size: 0.74rem;
+      line-height: 1.4;
+      color: var(--nxt1-color-text-primary, #fff);
+    }
+
+    .playbook-breakdown__body {
+      overflow: visible;
+      display: grid;
+      gap: 8px;
+      padding: 0 12px 12px;
+      max-height: none;
+    }
+
+    .playbook-breakdown__section {
+      display: grid;
+      gap: 6px;
+      border: 1px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+      border-radius: var(--nxt1-borderRadius-lg, 8px);
+      background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.04));
+      padding: 8px;
+    }
+
+    .playbook-breakdown__section h4 {
+      margin: 0;
+      font-size: 0.68rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+    }
+
+    .playbook-breakdown__section p {
+      margin: 0;
+      font-size: 0.76rem;
+      line-height: 1.45;
+      color: var(--nxt1-color-text-primary, #fff);
+    }
+
+    .playbook-breakdown__list {
+      margin: 0;
+      padding-left: 16px;
+      display: grid;
+      gap: 4px;
+      list-style: disc;
+    }
+
+    .playbook-breakdown__list li {
+      font-size: 0.74rem;
+      line-height: 1.4;
+      color: var(--nxt1-color-text-primary, #fff);
+    }
+
+    .playbook-breakdown__list--plain {
+      list-style: none;
+      padding-left: 0;
+      gap: 2px;
+    }
+
+    .playbook-breakdown__list--plain li {
+      border-left: 2px solid var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.08));
+      padding-left: 8px;
+      color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
     }
 
     /* ── Document preview slide ──────────────────── */
@@ -817,6 +1023,26 @@ import type { MediaImageFormat } from '../../services/media';
       cursor: not-allowed;
     }
 
+    @media (max-width: 767px) {
+      .media-viewer--playbook .top-bar {
+        padding: calc(env(safe-area-inset-top, 0px) + 4px) 10px 4px;
+      }
+
+      .media-viewer--playbook .media-track {
+        height: min(62vh, 460px);
+        min-height: 320px;
+        overflow-x: hidden;
+      }
+
+      .playbook-breakdown {
+        margin: 8px 8px calc(env(safe-area-inset-bottom, 0px) + 10px);
+      }
+
+      .playbook-breakdown__body {
+        max-height: none;
+      }
+    }
+
     /* Spinner animation */
     @keyframes spin {
       to {
@@ -850,6 +1076,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   @Input() showShare = true;
   @Input() showCounter = true;
   @Input() source = '';
+  @Input() variant: 'default' | 'playbook-breakdown' = 'default';
   @Input() primaryActionLabel?: string;
   @Input() primaryActionAriaLabel?: string;
   @Input() primaryAction?: (item: MediaViewerItem) => void | Promise<void>;
@@ -887,6 +1114,10 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     if (!item || item.type !== 'video') return false;
     return this.resolveCloudflareEmbedUrl(item.url) === null;
   });
+  protected readonly isPlaybookVariant = computed(() => this.variant === 'playbook-breakdown');
+  protected readonly currentBreakdown = computed<MediaViewerBreakdown | null>(
+    () => this.currentItem()?.breakdown ?? null
+  );
 
   protected readonly testIds = TEST_IDS.MEDIA_VIEWER;
 

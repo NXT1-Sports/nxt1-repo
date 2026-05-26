@@ -37,7 +37,17 @@ describe('AgentXOperationChatHintFacade', () => {
       }),
     ]);
 
-    vi.advanceTimersByTime(8_000);
+    vi.advanceTimersByTime(24_000);
+
+    expect(facade.shouldRenderDock()).toBe(true);
+    expect(facade.hints()).toEqual([
+      expect.objectContaining({
+        hintKey: 'PANEL_HINT:film-review',
+        title: 'Film Review',
+      }),
+    ]);
+
+    vi.advanceTimersByTime(1_000);
 
     expect(facade.shouldRenderDock()).toBe(false);
     expect(facade.hints()).toEqual([]);
@@ -60,5 +70,39 @@ describe('AgentXOperationChatHintFacade', () => {
         title: 'Playbooks',
       }),
     ]);
+  });
+
+  it('shows a delayed leave-thread hint for the first active user run', () => {
+    vi.useFakeTimers();
+    const facade = createFacade();
+
+    facade.armFirstUserRunHint();
+    facade.setFirstUserRunActive(true);
+
+    vi.advanceTimersByTime(9_000);
+    expect(facade.shouldRenderDock()).toBe(false);
+
+    vi.advanceTimersByTime(1_000);
+    expect(facade.shouldRenderDock()).toBe(true);
+    expect(facade.hints()).toEqual([
+      expect.objectContaining({
+        hintKey: 'FIRST_USER_RUN:leave-thread',
+        title: 'Keep working while Agent X runs',
+      }),
+    ]);
+  });
+
+  it('does not show the delayed leave-thread hint when run stops before 10 seconds', () => {
+    vi.useFakeTimers();
+    const facade = createFacade();
+
+    facade.armFirstUserRunHint();
+    facade.setFirstUserRunActive(true);
+    vi.advanceTimersByTime(4_000);
+    facade.setFirstUserRunActive(false);
+    vi.advanceTimersByTime(10_000);
+
+    expect(facade.shouldRenderDock()).toBe(false);
+    expect(facade.hints()).toEqual([]);
   });
 });

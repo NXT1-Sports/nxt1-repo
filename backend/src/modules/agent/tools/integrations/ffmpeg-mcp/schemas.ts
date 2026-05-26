@@ -55,6 +55,14 @@ export const MergeVideosInputSchema = z.object({
   // concat_demuxer is faster but requires perfectly matching bitstreams and timestamps,
   // which is never guaranteed when clips come from different sources or have been resized/re-encoded.
   method: z.enum(['concat_demuxer', 'concat_filter']).optional().default('concat_filter'),
+  maxIntroSeconds: z
+    .number()
+    .positive()
+    .max(10)
+    .optional()
+    .describe(
+      'Maximum duration for a detected intro/opener first segment. Use 4 for branded highlight reels.'
+    ),
 });
 
 export type MergeVideosInput = z.infer<typeof MergeVideosInputSchema>;
@@ -175,6 +183,20 @@ export const GenerateThumbnailInputSchema = z.object({
     .optional()
     .default('00:00:01')
     .describe('Timestamp to extract frame from (default 00:00:01)'),
+  cropBounds: z
+    .object({
+      minX: z.number().min(0).max(1),
+      minY: z.number().min(0).max(1),
+      maxX: z.number().min(0).max(1),
+      maxY: z.number().min(0).max(1),
+    })
+    .refine((bounds) => bounds.maxX > bounds.minX && bounds.maxY > bounds.minY, {
+      message: 'cropBounds max values must be greater than min values',
+    })
+    .optional()
+    .describe(
+      'Optional normalized video-frame bounds to crop around after extracting the thumbnail. Use for film-review drawn/circled subject grounding.'
+    ),
 });
 
 export type GenerateThumbnailInput = z.infer<typeof GenerateThumbnailInputSchema>;
@@ -205,6 +227,19 @@ export const ConvertVideoInputSchema = z.object({
     .max(51)
     .optional()
     .describe('Constant Rate Factor 0-51 (lower = better quality)'),
+  addSilentAudio: z
+    .preprocess((value) => {
+      if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase();
+        if (['true', '1', 'yes', 'y'].includes(normalized)) return true;
+        if (['false', '0', 'no', 'n'].includes(normalized)) return false;
+      }
+      return value;
+    }, z.boolean())
+    .optional()
+    .describe(
+      'When true, ensure the output has an AAC stereo audio track by adding silent audio if the input has no audio.'
+    ),
   extraArgs: z.string().trim().min(1).optional().describe('Additional FFmpeg arguments'),
 });
 

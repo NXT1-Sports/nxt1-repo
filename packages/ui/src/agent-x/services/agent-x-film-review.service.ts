@@ -570,6 +570,98 @@ export class AgentXFilmReviewService {
     }
   }
 
+  async reorderTimelinePlay(
+    reviewId: string,
+    sourceIndex: number,
+    targetIndex: number
+  ): Promise<TeamFilmReviewDoc | null> {
+    const review = this._reviews().find((item) => item.id === reviewId);
+    if (!review?.timeline?.length) {
+      return null;
+    }
+
+    if (
+      sourceIndex < 0 ||
+      sourceIndex >= review.timeline.length ||
+      targetIndex < 0 ||
+      targetIndex >= review.timeline.length ||
+      sourceIndex === targetIndex
+    ) {
+      return review;
+    }
+
+    const timeline = [...review.timeline];
+    const [movedPlay] = timeline.splice(sourceIndex, 1);
+    if (!movedPlay) {
+      return review;
+    }
+
+    timeline.splice(targetIndex, 0, movedPlay);
+    const previousReviews = this._reviews();
+
+    this._saving.set(true);
+    this._error.set(null);
+    this._reviews.update((reviews) =>
+      reviews.map((item) => (item.id === reviewId ? { ...item, timeline } : item))
+    );
+
+    try {
+      const request: UpdateTeamFilmReviewRequest = { timeline };
+      const updated =
+        (await this.performance?.trace(
+          TRACE_NAMES.FILM_REVIEW_UPDATE,
+          () => this.api.updateFilmReview(reviewId, request),
+          {
+            attributes: {
+              review_id: reviewId,
+              operation: 'reorder_timeline_play',
+              source_index: String(sourceIndex),
+              target_index: String(targetIndex),
+            },
+          }
+        )) ?? (await this.api.updateFilmReview(reviewId, request));
+      const normalized = this.normalizeReviewTimelineError(updated);
+
+      this._reviews.update((reviews) =>
+        reviews.map((item) => (item.id === reviewId ? normalized : item))
+      );
+
+      this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_UPDATED, {
+        review_id: reviewId,
+        fields_updated: 'timeline_order',
+      });
+
+      this.breadcrumb.trackStateChange('film_review_timeline_reordered', {
+        reviewId,
+        playId: movedPlay.id,
+        sourceIndex,
+        targetIndex,
+      });
+
+      this.logger.info('Film review timeline reordered', {
+        reviewId,
+        playId: movedPlay.id,
+        sourceIndex,
+        targetIndex,
+      });
+
+      return normalized;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to reorder film review plays';
+      this._reviews.set(previousReviews);
+      this._error.set(message);
+      this.logger.error('Failed to reorder film review timeline', err, {
+        reviewId,
+        playId: movedPlay.id,
+        sourceIndex,
+        targetIndex,
+      });
+      throw err;
+    } finally {
+      this._saving.set(false);
+    }
+  }
+
   async saveTimelinePlayAnnotation(
     reviewId: string,
     playIndex: number,
@@ -780,7 +872,7 @@ export class AgentXFilmReviewService {
 
   async generateTimeline(
     reviewId: string,
-    maxPollingAttempts: number = 30,
+    maxPollingAttempts: number = 300,
     durationSec?: number
   ): Promise<void> {
     this._saving.set(true);
@@ -831,7 +923,7 @@ export class AgentXFilmReviewService {
       });
       this.logger.info('Timeline generation initiated', { reviewId });
 
-      // Poll for completion (max 30 attempts × 1s = 30 seconds timeout)
+      // Full-game film can take several minutes; keep the UI attached to backend progress.
       let attempt = 0;
       let isComplete = false;
 
@@ -879,6 +971,20 @@ export class AgentXFilmReviewService {
 
             isComplete = true;
             break;
+          } else if (updated.timelineState === 'generating' && updated.timeline?.length) {
+            this._reviews.update((reviews) =>
+              reviews.map((review) =>
+                review.id === reviewId
+                  ? {
+                      ...review,
+                      timelineState: 'generating',
+                      timeline: updated.timeline,
+                      timelineProgress: updated.timelineProgress,
+                      timelineError: undefined,
+                    }
+                  : review
+              )
+            );
           } else if (updated.timelineState === 'error') {
             throw new Error(updated.timelineError ?? 'Timeline generation failed on backend');
           }
@@ -892,7 +998,9 @@ export class AgentXFilmReviewService {
       }
 
       if (!isComplete) {
-        throw new Error('Timeline generation timed out after 30 seconds');
+        throw new Error(
+          `Timeline generation timed out after ${maxPollingAttempts} polling attempts`
+        );
       }
     } catch (err) {
       const rawMessage = err instanceof Error ? err.message : 'Failed to generate timeline';

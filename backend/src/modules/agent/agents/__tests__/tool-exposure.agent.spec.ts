@@ -119,6 +119,11 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain(
       'Use `write_timeline_post` ONLY when the user explicitly wants content published'
     );
+    expect(prompt).toContain(
+      'When the user asks to add/upload/save attached videos to an athlete profile'
+    );
+    expect(prompt).toContain('Do NOT call `stage_media` first for an already-attached video');
+    expect(prompt).toContain('No timeline fallback for profile videos');
   });
 
   it('exposes timeline posting to the brand coordinator with explicit publish rules', () => {
@@ -150,6 +155,8 @@ describe('Agent tool exposure regressions', () => {
 
     expect(agent.getAvailableTools()).not.toContain('write_intel');
     expect(agent.getAvailableTools()).toContain('analyze_video');
+    expect(agent.getAvailableTools()).toContain('analyze_image');
+    expect(agent.getAvailableTools()).toContain('ffmpeg_generate_thumbnail');
     expect(agent.getAvailableTools()).toContain('recommend_learning_videos');
     expect(agent.getAvailableTools()).toContain('get_video_details');
     expect(agent.getAvailableTools()).toContain('call_apify_actor');
@@ -163,6 +170,29 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('clip_video');
     expect(agent.getAvailableTools()).toContain('enable_download');
     expect(agent.getAvailableTools()).toContain('write_athlete_videos');
+  });
+
+  it('guides still-frame image grounding before video for drawn film-review context', () => {
+    const agent = new PerformanceCoordinatorAgent();
+    const prompt = agent.getSystemPrompt(context);
+
+    expect(prompt).toContain('Drawn-context requests are image-first');
+    expect(prompt).toContain(
+      'call `ffmpeg_generate_thumbnail` on the clip/video URL BEFORE any video analysis'
+    );
+    expect(prompt).toContain(
+      'Then call `analyze_image` on the returned `cropImageUrl` / `imageUrl`'
+    );
+    expect(prompt).toContain('do NOT go straight to `analyze_video`');
+    expect(prompt).toContain('marked-frame timestamp/currentTimeSec');
+    expect(prompt).toContain('otherwise use the midpoint of the play window');
+    expect(prompt).toContain('pass `cropBounds` from the video-frame normalized annotation bounds');
+    expect(prompt).toContain('returns the cropped selected area as `cropImageUrl` / `imageUrl`');
+    expect(prompt).toContain('A generated FFmpeg thumbnail is a raw video frame');
+    expect(prompt).toContain(
+      'Never claim a jersey color, number, position, or identity unless it is visible inside the marked bounds'
+    );
+    expect(prompt).toContain('video-frame normalized bounds');
   });
 
   it('exposes college database and workspace tooling to recruiting coordinator', () => {
@@ -194,6 +224,15 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('generate_chart_visualization');
     expect(agent.getAvailableTools()).toContain('create_play_diagram');
     expect(agent.getAvailableTools()).toContain('save_gameplan');
+    expect(agent.getAvailableTools()).toContain('write_callsheet');
+    expect(agent.getAvailableTools()).toContain('list_callsheets');
+    expect(agent.getAvailableTools()).toContain('get_callsheet');
+    expect(agent.getAvailableTools()).toContain('list_practice_scripts');
+    expect(agent.getAvailableTools()).toContain('get_practice_script');
+    expect(agent.getAvailableTools()).toContain('write_practice_script');
+    expect(agent.getAvailableTools()).toContain('update_practice_script');
+    expect(agent.getAvailableTools()).toContain('delete_practice_script');
+    expect(agent.getAvailableTools()).toContain('generate_practice_script');
     expect(agent.getAvailableTools()).toContain('list_film_reviews');
     expect(agent.getAvailableTools()).toContain('get_film_review');
     expect(agent.getAvailableTools()).toContain('save_film_review');
@@ -223,6 +262,14 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('recommend_learning_videos');
     expect(prompt).toContain('proactively include 3-5 recommended videos');
     expect(prompt).toContain('save_gameplan');
+    expect(prompt).toContain('write_callsheet');
+    expect(prompt).toContain('write_practice_script');
+    expect(prompt).toContain('generate_practice_script');
+    expect(prompt).toContain('list_practice_scripts');
+    expect(prompt).toContain(
+      'persist the script first with `write_practice_script`, then optionally generate a PDF or document export'
+    );
+    expect(prompt).toContain('A PDF or document export is optional follow-on delivery');
     expect(prompt).toContain('save_film_review');
     expect(prompt).toContain('update_film_review');
     expect(prompt).toContain('extract_live_view_media');

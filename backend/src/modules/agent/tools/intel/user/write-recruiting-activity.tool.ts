@@ -5,19 +5,20 @@
  * Writes distilled recruiting activities (offers, visits, commitments, etc.)
  * to the top-level `Recruiting` collection.
  *
- * Each document: { userId, ownerType: 'user', category, collegeName, ... }
- * Queried by the profile API: GET /api/v1/auth/profile/:userId/recruiting
- *
- * Deduplicates by (userId + collegeName + category + sport) to prevent
- * re-importing the same offer on repeated scrapes.
+ * Records can be team-linked, athlete-linked, or both. When the same event is
+ * re-ingested with more complete linkage, the existing recruiting document is
+ * enriched instead of duplicated.
  */
 
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../../base.tool.js';
 import { getCacheService } from '../../../../../services/core/cache.service.js';
+import { canManageTeamMutationForUser } from '../../../../../services/team/team-intel-permissions.js';
 import {
   createProfileWriteAccessService,
   resolveAuthorizedTargetSportSelection,
+  type ProfileWriteAccessGrant,
+  type AuthorizedTargetSportSelection,
 } from '../../../../../services/profile/profile-write-access.service.js';
 import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../../services/profile/users.service.js';
 import { invalidateProfileCaches } from '../../../../../routes/profile/shared.js';
@@ -27,9 +28,9 @@ import { resolveCreatedAt } from '../doc-date-utils.js';
 import { CollegeModel } from '../../../../../models/core/college.model.js';
 import { z } from 'zod';
 
-// ─── Constants ──────────────────────────────────────────────────────────────
-
 const RECRUITING_COLLECTION = 'Recruiting';
+const TEAMS_COLLECTION = 'Teams';
+const ROSTER_ENTRIES_COLLECTION = 'RosterEntries';
 const MAX_ACTIVITIES = 100;
 
 const VALID_CATEGORIES = new Set(['offer', 'interest', 'visit', 'camp', 'commitment', 'contact']);
@@ -116,23 +117,49 @@ const RecruitingActivityEntrySchema = z
     city: z.string().trim().min(1).optional(),
     state: z.string().trim().min(1).optional(),
     date: z.string().trim().min(1).optional(),
+    endDate: z.string().trim().min(1).optional(),
+    announcedAt: z.string().trim().min(1).optional(),
     scholarshipType: z.string().trim().min(1).optional(),
+    visitType: z.string().trim().min(1).optional(),
+    commitmentStatus: z.string().trim().min(1).optional(),
     coachName: z.string().trim().min(1).optional(),
     coachTitle: z.string().trim().min(1).optional(),
     notes: z.string().trim().min(1).optional(),
+    graphicUrl: z.string().trim().min(1).optional(),
+    rosterEntryId: z.string().trim().min(1).optional(),
+    prospectDisplayName: z.string().trim().min(1).optional(),
+    prospectFirstName: z.string().trim().min(1).optional(),
+    prospectLastName: z.string().trim().min(1).optional(),
+    classOf: z.union([z.string().trim().min(1), z.number().int()]).optional(),
   })
   .passthrough();
 
-const WriteRecruitingActivityInputSchema = z.object({
-  userId: z.string().trim().min(1),
-  targetSport: z.string().trim().min(1),
-  source: z.string().trim().min(1),
-  sourceUrl: z.string().trim().min(1).optional(),
-  profileUrl: z.string().trim().min(1).optional(),
-  activities: z.array(RecruitingActivityEntrySchema).min(1).max(MAX_ACTIVITIES),
-});
+const WriteRecruitingActivityInputSchema = z
+  .object({
+    userId: z.string().trim().min(1).optional(),
+    teamId: z.string().trim().min(1).optional(),
+    organizationId: z.string().trim().min(1).optional(),
+    teamCode: z.string().trim().min(1).optional(),
+    targetSport: z.string().trim().min(1),
+    source: z.string().trim().min(1),
+    sourceUrl: z.string().trim().min(1).optional(),
+    profileUrl: z.string().trim().min(1).optional(),
+    activities: z.array(RecruitingActivityEntrySchema).min(1).max(MAX_ACTIVITIES),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.userId && !value.teamId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Either userId or teamId is required.',
+        path: ['userId'],
+      });
+    }
+  });
 
-// ─── Tool ───────────────────────────────────────────────────────────────────
+type ExistingRecruitingRecord = {
+  readonly ref: FirebaseFirestore.DocumentReference<FirebaseFirestore.DocumentData>;
+  readonly data: Record<string, unknown>;
+};
 
 export class WriteRecruitingActivityTool extends BaseTool {
   readonly name = 'write_recruiting_activity';
@@ -141,24 +168,15 @@ export class WriteRecruitingActivityTool extends BaseTool {
     'Writes recruiting activities (offers, visits, commitments, interest) to the Recruiting collection.\n\n' +
     'Call this after reading the "recruiting" section via read_distilled_section.\n\n' +
     'Parameters:\n' +
-    '- userId (required): Firebase UID.\n' +
+    '- userId (optional): Firebase UID for athlete-linked records.\n' +
+    '- teamId (optional): Team document ID for team-linked records.\n' +
+    '- organizationId (optional): Organization ID for team-linked records.\n' +
+    '- teamCode (optional): Team code used for cache invalidation.\n' +
     '- targetSport (required): Sport key (e.g. "football").\n' +
     '- source (required): Platform slug (e.g. "247sports").\n' +
     '- sourceUrl (optional): The URL that was scraped to extract this data.\n' +
-    '- profileUrl (optional): The athlete profile URL on the source platform.\n' +
-    '- activities (required): Array of recruiting activity objects:\n' +
-    '  • category (required): "offer", "interest", "visit", "camp", "commitment", or "contact".\n' +
-    '  • collegeName (optional): College/university name.\n' +
-    '  • collegeLogoUrl (optional): Logo URL. If omitted, tool will auto-resolve from college database when possible.\n' +
-    '  • division (optional): e.g. "D1", "D2", "NAIA".\n' +
-    '  • conference (optional): Conference name.\n' +
-    '  • city (optional): College city.\n' +
-    '  • state (optional): College state.\n' +
-    '  • date (optional): ISO date string.\n' +
-    '  • scholarshipType (optional): e.g. "full", "partial", "walk-on".\n' +
-    '  • coachName (optional): Recruiting coach name.\n' +
-    '  • coachTitle (optional): Coach title.\n' +
-    '  • notes (optional): Additional notes.';
+    '- profileUrl (optional): The source profile URL.\n' +
+    '- activities (required): Array of recruiting activity objects. Each activity may include: category, collegeName, collegeLogoUrl, division, conference, city, state, date, endDate, announcedAt, scholarshipType, visitType, commitmentStatus, coachName, coachTitle, notes, graphicUrl, rosterEntryId, prospectDisplayName, prospectFirstName, prospectLastName, and classOf.';
 
   readonly parameters = WriteRecruitingActivityInputSchema;
 
@@ -181,7 +199,7 @@ export class WriteRecruitingActivityTool extends BaseTool {
     const parsed = WriteRecruitingActivityInputSchema.safeParse(input);
     if (!parsed.success) return this.zodError(parsed.error);
 
-    const { userId, targetSport, source } = parsed.data;
+    const { userId, teamId, targetSport, source } = parsed.data;
     const sourceUrl = parsed.data.sourceUrl ?? parsed.data.profileUrl;
     const activities = parsed.data.activities;
 
@@ -190,24 +208,119 @@ export class WriteRecruitingActivityTool extends BaseTool {
     }
 
     try {
-      const accessGrant = await createProfileWriteAccessService(
-        this.db
-      ).assertCanManageAthleteProfileTarget({
-        actorUserId: context.userId,
-        targetUserId: userId,
-        action: 'tool:write_recruiting_activity',
-      });
-      const userData = accessGrant.targetUserData;
       const sportId = targetSport.trim().toLowerCase();
-      if (
-        !accessGrant.isSelfWrite &&
-        !resolveAuthorizedTargetSportSelection(userData, sportId, accessGrant)
-      ) {
-        return {
-          success: false,
-          error: 'Not authorized to write recruiting activity for this sport.',
-        };
+      let userData: Record<string, unknown> = {};
+      let targetUnicode: string | null = null;
+      let resolvedTeamId = teamId?.trim() || undefined;
+      let resolvedOrganizationId = parsed.data.organizationId?.trim() || undefined;
+      let resolvedTeamCode = parsed.data.teamCode?.trim() || undefined;
+      let accessGrant: ProfileWriteAccessGrant | null = null;
+      let authorizedSelection: AuthorizedTargetSportSelection | null = null;
+
+      if (userId) {
+        accessGrant = await createProfileWriteAccessService(
+          this.db
+        ).assertCanManageAthleteProfileTarget({
+          actorUserId: context.userId,
+          targetUserId: userId,
+          action: 'tool:write_recruiting_activity',
+        });
+
+        userData = accessGrant.targetUserData;
+        const selection = resolveAuthorizedTargetSportSelection(userData, sportId, accessGrant);
+        authorizedSelection = selection;
+
+        if (!accessGrant.isSelfWrite && !selection) {
+          return {
+            success: false,
+            error: 'Not authorized to write recruiting activity for this sport.',
+          };
+        }
+
+        if (!resolvedTeamId && selection?.teamId) {
+          resolvedTeamId = selection.teamId;
+        }
+        if (!resolvedOrganizationId && selection?.organizationId) {
+          resolvedOrganizationId = selection.organizationId;
+        }
+
+        if (
+          accessGrant.isSelfWrite &&
+          resolvedTeamId &&
+          selection?.teamId &&
+          resolvedTeamId !== selection.teamId
+        ) {
+          return {
+            success: false,
+            error: 'Not authorized to write recruiting activity for this team.',
+          };
+        }
+
+        if (
+          accessGrant.isSelfWrite &&
+          resolvedOrganizationId &&
+          selection?.organizationId &&
+          resolvedOrganizationId !== selection.organizationId
+        ) {
+          return {
+            success: false,
+            error: 'Not authorized to write recruiting activity for this team.',
+          };
+        }
+        targetUnicode = typeof userData['unicode'] === 'string' ? userData['unicode'] : null;
       }
+
+      if (resolvedTeamId) {
+        const teamDoc = await this.db.collection(TEAMS_COLLECTION).doc(resolvedTeamId).get();
+        if (!teamDoc.exists) {
+          return { success: false, error: `Team ${resolvedTeamId} not found.` };
+        }
+
+        const teamData = (teamDoc.data() ?? {}) as Record<string, unknown>;
+        const isAuthorizedSelfWriteTeam =
+          accessGrant?.isSelfWrite === true &&
+          authorizedSelection?.teamId === resolvedTeamId &&
+          (!authorizedSelection.organizationId ||
+            !resolvedOrganizationId ||
+            authorizedSelection.organizationId === resolvedOrganizationId);
+
+        if (!isAuthorizedSelfWriteTeam) {
+          const canManageTeam = await canManageTeamMutationForUser(
+            this.db,
+            context.userId,
+            resolvedTeamId,
+            teamData
+          );
+          if (!canManageTeam) {
+            return {
+              success: false,
+              error: 'Not authorized to write recruiting activity for this team.',
+            };
+          }
+        }
+
+        if (!resolvedOrganizationId) {
+          resolvedOrganizationId =
+            typeof teamData['organizationId'] === 'string' ? teamData['organizationId'] : undefined;
+        }
+        if (!resolvedTeamCode) {
+          resolvedTeamCode =
+            typeof teamData['teamCode'] === 'string' ? teamData['teamCode'] : undefined;
+        }
+      }
+
+      if (
+        accessGrant?.isSelfWrite &&
+        authorizedSelection?.organizationId &&
+        !resolvedOrganizationId
+      ) {
+        resolvedOrganizationId = authorizedSelection.organizationId;
+      }
+
+      if (accessGrant?.isSelfWrite && authorizedSelection?.teamId && !resolvedTeamId) {
+        resolvedTeamId = authorizedSelection.teamId;
+      }
+
       const now = new Date().toISOString();
       const logoBucket = getStorageBucket();
       const logoCache = new Map<string, string | null>();
@@ -242,14 +355,11 @@ export class WriteRecruitingActivityTool extends BaseTool {
                 .exec());
 
             const logoValue = typeof college?.logoUrl === 'string' ? college.logoUrl.trim() : '';
-            if (!logoValue) {
-              continue;
-            }
+            if (!logoValue) continue;
 
             const resolvedUrl = buildCollegeLogoUrl(logoValue, logoBucket);
-            if (!resolvedUrl) {
-              continue;
-            }
+            if (!resolvedUrl) continue;
+
             logoCache.set(normalizedName, resolvedUrl);
             return resolvedUrl;
           }
@@ -262,25 +372,116 @@ export class WriteRecruitingActivityTool extends BaseTool {
         }
       };
 
+      const parseOptionalClassOf = (value: unknown): number | undefined => {
+        if (typeof value === 'number' && Number.isFinite(value)) {
+          return Math.trunc(value);
+        }
+        if (typeof value !== 'string') {
+          return undefined;
+        }
+        const trimmed = value.trim();
+        if (!trimmed) return undefined;
+        const parsedClass = Number.parseInt(trimmed, 10);
+        return Number.isFinite(parsedClass) ? parsedClass : undefined;
+      };
+
+      const buildPatch = (
+        existing: Record<string, unknown>,
+        incoming: Record<string, unknown>
+      ): Record<string, unknown> => {
+        const patch: Record<string, unknown> = {};
+
+        const fillIfMissing = (field: string): void => {
+          const existingValue = existing[field];
+          const incomingValue = incoming[field];
+          const hasExisting =
+            existingValue !== undefined &&
+            existingValue !== null &&
+            (!(typeof existingValue === 'string') || existingValue.trim().length > 0);
+          const hasIncoming =
+            incomingValue !== undefined &&
+            incomingValue !== null &&
+            (!(typeof incomingValue === 'string') || incomingValue.trim().length > 0);
+
+          if (!hasExisting && hasIncoming) {
+            patch[field] = incomingValue;
+          }
+        };
+
+        [
+          'userId',
+          'teamId',
+          'organizationId',
+          'rosterEntryId',
+          'prospectDisplayName',
+          'prospectFirstName',
+          'prospectLastName',
+          'classOf',
+          'collegeLogoUrl',
+          'division',
+          'conference',
+          'city',
+          'state',
+          'endDate',
+          'announcedAt',
+          'scholarshipType',
+          'visitType',
+          'commitmentStatus',
+          'coachName',
+          'coachTitle',
+          'notes',
+          'graphicUrl',
+          'sourceUrl',
+        ].forEach(fillIfMissing);
+
+        if (Object.keys(patch).length > 0) {
+          patch['updatedAt'] = now;
+        }
+
+        return patch;
+      };
+
       context?.emitStage?.('fetching_data', {
         icon: 'database',
         phase: 'check_duplicate_recruiting_entries',
       });
 
-      // Fetch existing recruiting activities for dedup
-      const existingSnap = await this.db
-        .collection(RECRUITING_COLLECTION)
-        .where('userId', '==', userId)
-        .where('sport', '==', sportId)
-        .get();
+      const existingQueries: Array<
+        Promise<FirebaseFirestore.QuerySnapshot<FirebaseFirestore.DocumentData>>
+      > = [];
+      if (userId) {
+        existingQueries.push(
+          this.db
+            .collection(RECRUITING_COLLECTION)
+            .where('userId', '==', userId)
+            .where('sport', '==', sportId)
+            .get()
+        );
+      }
+      if (resolvedTeamId) {
+        existingQueries.push(
+          this.db
+            .collection(RECRUITING_COLLECTION)
+            .where('teamId', '==', resolvedTeamId)
+            .where('sport', '==', sportId)
+            .get()
+        );
+      }
 
-      const existingKeys = new Set<string>();
-      for (const doc of existingSnap.docs) {
-        const data = doc.data();
-        existingKeys.add(this.dedupeKey(data));
+      const existingSnaps = await Promise.all(existingQueries);
+      const existingByKey = new Map<string, ExistingRecruitingRecord>();
+      for (const existingSnap of existingSnaps) {
+        for (const doc of existingSnap.docs) {
+          const data = doc.data() as Record<string, unknown>;
+          const key = this.dedupeKey(data);
+          if (!existingByKey.has(key)) {
+            existingByKey.set(key, { ref: doc.ref, data });
+          }
+        }
       }
 
       let written = 0;
+      let updated = 0;
       let skipped = 0;
       const batch = this.db.batch();
 
@@ -297,22 +498,39 @@ export class WriteRecruitingActivityTool extends BaseTool {
           continue;
         }
 
+        const rosterEntryId = this.str(a, 'rosterEntryId');
+        if (rosterEntryId && resolvedTeamId) {
+          const rosterEntrySnap = await this.db
+            .collection(ROSTER_ENTRIES_COLLECTION)
+            .doc(rosterEntryId)
+            .get();
+          if (!rosterEntrySnap.exists) {
+            skipped++;
+            continue;
+          }
+          const rosterEntryData = rosterEntrySnap.data() ?? {};
+          if (rosterEntryData['teamId'] !== resolvedTeamId) {
+            skipped++;
+            continue;
+          }
+        }
+
         const record: Record<string, unknown> = {
-          userId,
-          ownerType: 'user',
+          ownerType: teamId ? 'team' : 'user',
           sport: sportId,
           category,
           source,
           verified: false,
-          // Data lineage
           provider: source,
           extractedAt: now,
           createdAt: resolveCreatedAt(undefined, this.str(a, 'date'), now),
           updatedAt: now,
         };
+        if (userId) record['userId'] = userId;
+        if (resolvedTeamId) record['teamId'] = resolvedTeamId;
+        if (resolvedOrganizationId) record['organizationId'] = resolvedOrganizationId;
         if (sourceUrl) record['sourceUrl'] = sourceUrl;
 
-        // Optional fields
         const optionalFields = [
           'collegeName',
           'collegeLogoUrl',
@@ -321,17 +539,30 @@ export class WriteRecruitingActivityTool extends BaseTool {
           'city',
           'state',
           'date',
+          'endDate',
+          'announcedAt',
           'scholarshipType',
+          'visitType',
+          'commitmentStatus',
           'coachName',
           'coachTitle',
           'notes',
-        ];
+          'graphicUrl',
+          'rosterEntryId',
+          'prospectDisplayName',
+          'prospectFirstName',
+          'prospectLastName',
+        ] as const;
         for (const field of optionalFields) {
           const val = this.str(a, field);
           if (val) record[field] = val;
         }
 
-        // Ensure recruiting cards can render a college logo even when upstream extraction omitted it.
+        const classOf = parseOptionalClassOf(a['classOf']);
+        if (classOf !== undefined) {
+          record['classOf'] = classOf;
+        }
+
         if (!record['collegeLogoUrl']) {
           const collegeName = this.str(a, 'collegeName');
           if (collegeName) {
@@ -342,54 +573,70 @@ export class WriteRecruitingActivityTool extends BaseTool {
           }
         }
 
-        // Dedup check
         const key = this.dedupeKey(record);
-        if (existingKeys.has(key)) {
-          skipped++;
+        const existing = existingByKey.get(key);
+        if (existing) {
+          const patch = buildPatch(existing.data, record);
+          if (Object.keys(patch).length > 0) {
+            batch.update(existing.ref, patch);
+            existingByKey.set(key, { ref: existing.ref, data: { ...existing.data, ...patch } });
+            updated++;
+          } else {
+            skipped++;
+          }
           continue;
         }
-        existingKeys.add(key);
 
         const docRef = this.db.collection(RECRUITING_COLLECTION).doc();
         record['id'] = docRef.id;
         batch.set(docRef, record);
+        existingByKey.set(key, { ref: docRef, data: record });
         written++;
       }
 
-      if (written > 0) {
+      if (written > 0 || updated > 0) {
         context?.emitStage?.('submitting_job', {
           icon: 'database',
-          activityCount: written,
+          activityCount: written + updated,
           phase: 'write_recruiting_activity',
         });
         await batch.commit();
         logger.info('[WriteRecruitingActivity] Recruiting activities written', {
-          userId,
+          userId: userId ?? null,
+          teamId: resolvedTeamId ?? null,
           sport: sportId,
           source,
           written,
+          updated,
           skipped,
         });
       } else {
         logger.info('[WriteRecruitingActivity] No new recruiting activities to write', {
-          userId,
+          userId: userId ?? null,
+          teamId: resolvedTeamId ?? null,
           sport: sportId,
           source,
           skipped,
         });
       }
 
-      // Cache invalidation
       try {
         const cache = getCacheService();
         await Promise.all([
-          cache.del(USER_CACHE_KEYS.USER_BY_ID(userId)),
-          cache.del(`profile:${userId}:recruiting:${sportId}`),
-          cache.del(`profile:${userId}:recruiting:all`),
-          invalidateProfileCaches(
-            userId,
-            typeof userData['unicode'] === 'string' ? userData['unicode'] : null
-          ),
+          ...(userId
+            ? [
+                cache.del(USER_CACHE_KEYS.USER_BY_ID(userId)),
+                cache.del(`profile:${userId}:recruiting:${sportId}`),
+                cache.del(`profile:${userId}:recruiting:all`),
+                invalidateProfileCaches(userId, targetUnicode),
+              ]
+            : []),
+          ...(resolvedTeamCode
+            ? [
+                cache.delByPrefix(`team:timeline:v1:${resolvedTeamCode}:`),
+                cache.delByPrefix(`team:profile:code:${resolvedTeamCode}:`),
+              ]
+            : []),
         ]);
       } catch {
         // Best-effort
@@ -398,17 +645,20 @@ export class WriteRecruitingActivityTool extends BaseTool {
       return {
         success: true,
         data: {
-          userId,
+          userId: userId ?? null,
+          teamId: resolvedTeamId ?? null,
           sportId,
           source,
           written,
+          updated,
           skipped,
-          message: `Wrote ${written} recruiting activit(ies) for "${sportId}" from "${source}" (${skipped} skipped/duplicates).`,
+          message: `Processed ${written + updated} recruiting activit(ies) for "${sportId}" from "${source}" (${written} created, ${updated} linked/updated, ${skipped} skipped).`,
         },
       };
     } catch (err) {
       logger.error('[WriteRecruitingActivity] Failed to write recruiting activities', {
-        userId,
+        userId: userId ?? null,
+        teamId: teamId ?? null,
         sport: targetSport,
         source,
         error: err instanceof Error ? err.message : String(err),
@@ -420,13 +670,6 @@ export class WriteRecruitingActivityTool extends BaseTool {
     }
   }
 
-  // ─── Utilities ──────────────────────────────────────────────────────────
-
-  /**
-   * Dedup key: category + collegeName (aggressively normalized) + sport + date.
-   * Uses {@link normalizeCollegeName} to handle variations like
-   * "The Ohio State University" vs "Ohio State".
-   */
   private dedupeKey(data: Record<string, unknown>): string {
     const category = String(data['category'] ?? '')
       .toLowerCase()
@@ -436,6 +679,24 @@ export class WriteRecruitingActivityTool extends BaseTool {
       .toLowerCase()
       .trim();
     const date = String(data['date'] ?? 'undated').split('T')[0];
-    return `${category}::${college}::${sport}::${date}`;
+    const rosterEntryId = String(data['rosterEntryId'] ?? '').trim();
+    const linkedUserId = String(data['userId'] ?? '').trim();
+    const displayName = String(data['prospectDisplayName'] ?? '')
+      .trim()
+      .toLowerCase();
+    const firstName = String(data['prospectFirstName'] ?? '')
+      .trim()
+      .toLowerCase();
+    const lastName = String(data['prospectLastName'] ?? '')
+      .trim()
+      .toLowerCase();
+    const classOf = String(data['classOf'] ?? '').trim();
+    const linkedTeamId = String(data['teamId'] ?? '').trim();
+
+    const nameKey = [firstName, lastName, classOf].filter(Boolean).join('::');
+    const prospectKey =
+      rosterEntryId || displayName || nameKey || linkedUserId || linkedTeamId || 'unknown-prospect';
+
+    return `${category}::${college}::${sport}::${date}::${prospectKey}`;
   }
 }

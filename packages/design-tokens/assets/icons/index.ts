@@ -245,6 +245,14 @@ export const UI_ICONS = {
     paths: [{ d: 'M12 19V5' }, { d: 'M5 12l7-7 7 7' }],
   },
 
+  /** Arrow down icon (stroke) - for reorder controls */
+  arrowDown: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [{ d: 'M12 5v14' }, { d: 'M19 12l-7 7-7-7' }],
+  },
+
   /** Arrow right icon */
   arrowRight: {
     viewBox: '0 0 24 24',
@@ -1474,6 +1482,19 @@ export const UI_ICONS = {
     ],
   },
 
+  /** Print preview icon - for print/export preview actions */
+  printPreview: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2,
+    paths: [
+      { d: 'M6 9V4h12v5' },
+      { d: 'M6 18h12v2H6z' },
+      { d: 'M4 9h16a2 2 0 0 1 2 2v5H2v-5a2 2 0 0 1 2-2z' },
+      { d: 'M17 13h.01' },
+    ],
+  },
+
   /** Image/Photo icon - for image content */
   image: {
     viewBox: '0 0 24 24',
@@ -2157,6 +2178,7 @@ export const ALIAS_ICONS = {
   // ---- Navigation / Arrows ----
   'arrow-back-outline': UI_ICONS.chevronLeft,
   'arrow-up-outline': UI_ICONS.arrowUp,
+  'arrow-down-outline': UI_ICONS.arrowDown,
   'trending-up': UI_ICONS.trendingUp,
   'trending-down': UI_ICONS.trendingDown,
   'trending-up-outline': UI_ICONS.trendingUp,
@@ -2200,6 +2222,8 @@ export const ALIAS_ICONS = {
   'bug-outline': UI_ICONS.alertCircle,
   'refresh-outline': UI_ICONS.refresh,
   'download-outline': UI_ICONS.download,
+  'print-outline': UI_ICONS.printPreview,
+  print: UI_ICONS.printPreview,
   'flash-outline': UI_ICONS.bolt,
   'repeat-outline': UI_ICONS.repeat,
 

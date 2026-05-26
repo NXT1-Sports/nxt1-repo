@@ -171,8 +171,10 @@ async function refreshMessageResultDataMedia(
   return refreshedResultData ?? resultData;
 }
 
-async function refreshMessageAttachments(message: AgentMessage): Promise<AgentMessage> {
-  const bucketName = getStorage().bucket().name;
+async function refreshMessageAttachments(
+  message: AgentMessage,
+  bucketName: string
+): Promise<AgentMessage> {
   // Single source of truth: message.attachments[] only.
   // No legacy content-scanning or resultData fallbacks.
   const attachments =
@@ -314,8 +316,9 @@ router.get('/threads/:threadId/messages', appGuard, async (req: Request, res: Re
     const before = typeof req.query['before'] === 'string' ? req.query['before'] : undefined;
 
     const result = await chatService.getThreadMessages({ threadId, limit, before });
+    const bucketName = req.firebase?.storage?.bucket().name ?? getStorage().bucket().name;
     const refreshedItems = await Promise.all(
-      result.items.map((item) => refreshMessageAttachments(item))
+      result.items.map((item) => refreshMessageAttachments(item, bucketName))
     );
 
     // Reconcile any pending upload-outbox entries for this user's thread.
@@ -329,7 +332,7 @@ router.get('/threads/:threadId/messages', appGuard, async (req: Request, res: Re
     });
     const reconciledItems = await Promise.all(
       reconciledRaw.map((item, index) =>
-        item === refreshedItems[index] ? item : refreshMessageAttachments(item)
+        item === refreshedItems[index] ? item : refreshMessageAttachments(item, bucketName)
       )
     );
 
