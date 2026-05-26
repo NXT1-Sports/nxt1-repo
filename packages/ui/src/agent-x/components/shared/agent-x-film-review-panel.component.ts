@@ -19,6 +19,7 @@ import type Hls from 'hls.js';
 import type { ErrorData } from 'hls.js';
 import {
   getTeamFilmReviewSportTagDefinitions,
+  USER_ROLES,
   type TeamFilmReviewPlayAnnotation,
   type TeamFilmReviewPlaySegment,
   type TeamFilmReviewSportTagColumnWidth,
@@ -125,8 +126,16 @@ const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
 
       @if (!teamId?.trim()) {
         <div class="film-state" [attr.data-testid]="testIds.EMPTY_STATE">
-          <h3>Film Review requires a team context</h3>
-          <p>Connect a team in Agent X to load game film and AI breakdowns.</p>
+          @if (isAthleteWithoutTeamContext()) {
+            <h3>Your athlete film review lives in chat threads</h3>
+            <p>
+              Upload film in the Agent X chat composer to review your own clips. This side panel is
+              the team film board, so it only loads when a team context is connected.
+            </p>
+          } @else {
+            <h3>Film Review requires a team context</h3>
+            <p>Connect a team in Agent X to load game film and AI breakdowns.</p>
+          }
         </div>
       } @else if (loading()) {
         <div class="film-state film-state--loading" [attr.data-testid]="testIds.LOADING_SKELETON">
@@ -3111,6 +3120,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private playAnnotationPersistQueued = false;
 
   @Input() teamId: string | null = null;
+  @Input() role: string | null = null;
   @Input() sport = '';
 
   private filmPlayer?: ElementRef<HTMLVideoElement>;
@@ -3136,6 +3146,17 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly saving = this.service.saving;
   protected readonly error = this.service.error;
   protected readonly isEmpty = this.service.isEmpty;
+  protected readonly isAthleteRole = computed(() => {
+    const role = this.role?.trim().toLowerCase();
+    if (role) {
+      return role === USER_ROLES.ATHLETE;
+    }
+
+    return this.agentXService.hasRole(USER_ROLES.ATHLETE);
+  });
+  protected readonly isAthleteWithoutTeamContext = computed(
+    () => !this.teamId?.trim() && this.isAthleteRole()
+  );
   protected readonly inlinePlayOverlayCollapseIconPath = 'M15 6L9 12L15 18';
   protected readonly inlinePlayOverlayExpandIconPath = 'M9 6L15 12L9 18';
   protected readonly filmFrameStepSeconds = 1 / 30;
@@ -3269,7 +3290,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const review = this.selectedReview();
     const idx = this.currentPlayIndex();
     if (!review?.timeline || idx < 0 || idx >= review.timeline.length) return null;
-    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+
     return review.timeline[idx]!;
   });
 
@@ -3846,12 +3867,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return;
     }
 
-    const teamId = this.teamId?.trim() ?? '';
-    if (!teamId) {
-      this.toast.error('Select a team before uploading videos.');
-      return;
-    }
-
     const authTokenFactory = this.getAuthToken;
     if (!authTokenFactory) {
       this.toast.error('Upload is unavailable right now.');
@@ -3891,6 +3906,30 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
 
     if (!validVideos.length && !validBreakdowns.length) {
+      return;
+    }
+
+    if (this.isAthleteRole()) {
+      if (validBreakdowns.length > 0) {
+        this.toast.error('Breakdown sheet import is available only in team film review.');
+      }
+
+      if (validVideos.length > 0) {
+        this.agentXService.addFiles(validVideos);
+        this.toast.success(
+          validVideos.length === 1
+            ? 'Added video to Agent X chat for personal film review.'
+            : `Added ${validVideos.length} videos to Agent X chat for personal film review.`
+        );
+      }
+
+      this.libraryUploadError.set(null);
+      return;
+    }
+
+    const teamId = this.teamId?.trim() ?? '';
+    if (!teamId) {
+      this.toast.error('Select a team before uploading videos.');
       return;
     }
 

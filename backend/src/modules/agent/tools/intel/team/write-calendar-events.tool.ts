@@ -38,6 +38,7 @@ const VALID_EVENT_TYPES = new Set(['camp', 'combine', 'showcase', 'tournament', 
 const CalendarEventEntrySchema = z
   .object({
     eventType: z.string().trim().min(1).optional(),
+    type: z.string().trim().min(1).optional(),
     title: z.string().trim().min(1).optional(),
     description: z.string().trim().min(1).optional(),
     date: z.string().trim().min(1).optional(),
@@ -46,8 +47,20 @@ const CalendarEventEntrySchema = z
     opponent: z.string().trim().min(1).optional(),
     result: z.string().trim().min(1).optional(),
     outcome: z.enum(['win', 'loss', 'draw']).optional(),
+    status: z
+      .enum(['upcoming', 'scheduled', 'completed', 'final', 'postponed', 'cancelled'])
+      .optional(),
   })
   .passthrough();
+
+const CalendarEventsArraySchema = z.preprocess((value) => {
+  if (typeof value !== 'string') return value;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
+}, z.array(CalendarEventEntrySchema).min(1).max(MAX_EVENTS));
 
 const WriteCalendarEventsInputSchema = z.object({
   userId: z.string().trim().min(1),
@@ -55,7 +68,7 @@ const WriteCalendarEventsInputSchema = z.object({
   source: z.string().trim().min(1),
   sourceUrl: z.string().trim().min(1).optional(),
   profileUrl: z.string().trim().min(1).optional(),
-  events: z.array(CalendarEventEntrySchema).min(1).max(MAX_EVENTS),
+  events: CalendarEventsArraySchema,
 });
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
@@ -160,7 +173,7 @@ export class WriteCalendarEventsTool extends BaseTool {
         }
         const e = event as Record<string, unknown>;
 
-        const eventType = this.str(e, 'eventType');
+        const eventType = this.str(e, 'eventType') ?? this.str(e, 'type');
         if (!eventType || !VALID_EVENT_TYPES.has(eventType)) {
           skipped++;
           continue;
@@ -197,6 +210,7 @@ export class WriteCalendarEventsTool extends BaseTool {
           'opponent',
           'result',
           'outcome',
+          'status',
         ];
         for (const field of optionalFields) {
           const val = this.str(e, field);

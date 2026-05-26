@@ -50,7 +50,11 @@ export const MergeVideosInputSchema = z.object({
     .optional()
     .default('merged.mp4')
     .describe('Output filename (e.g. merged.mp4)'),
-  method: z.enum(['concat_demuxer', 'concat_filter']).optional(),
+  // Default to concat_filter — it always re-encodes inputs to a common codec/timebase
+  // and resets PTS/DTS to 0 for each clip, preventing corrupt durations.
+  // concat_demuxer is faster but requires perfectly matching bitstreams and timestamps,
+  // which is never guaranteed when clips come from different sources or have been resized/re-encoded.
+  method: z.enum(['concat_demuxer', 'concat_filter']).optional().default('concat_filter'),
 });
 
 export type MergeVideosInput = z.infer<typeof MergeVideosInputSchema>;

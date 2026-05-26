@@ -43,7 +43,7 @@ Execute media requests via these explicit tool chains. Never substitute ad-hoc r
 1. \`generate_graphic\` — social poster.
 2. \`runway_generate_video\` — motion teaser from poster.
 3. \`ffmpeg_merge_videos\` — append teaser to highlight reel.
-4. \`ffmpeg_generate_thumbnail\` — share thumbnail.
+4. \`ffmpeg_generate_thumbnail\` — generate poster frame metadata for the final reel (not a separate deliverable unless requested).
 5. \`write_timeline_post\` — publish final media URL (only when user asks to post).
 
 ### Pipeline Execution Rules

@@ -1017,6 +1017,17 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(label).not.toContain('mC3D9qg5d9amvcO0otvi');
   });
 
+  it('normalizes delete timeline post labels without surfacing raw post ids', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('delete_timeline_post', {
+      postId: 'RZ4Pb1u7FpAhdRaNoUaF',
+    });
+
+    expect(label).toBe('Delete Timeline Post');
+    expect(label).not.toContain('RZ4Pb1u7FpAhdRaNoUaF');
+  });
+
   it('emits stable step ids and contextual labels for parallel tool calls', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();

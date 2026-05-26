@@ -169,6 +169,72 @@ const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
   runway_upscale_video: ['runway_check_task'],
 };
 
+function computeForcedToolInclusions(taskIntent: string): readonly string[] {
+  const normalizedIntent = taskIntent.toLowerCase();
+  const forced = new Set<string>();
+
+  if (
+    normalizedIntent.includes('team news') ||
+    normalizedIntent.includes('news article') ||
+    normalizedIntent.includes('publish')
+  ) {
+    forced.add('write_team_news');
+  }
+
+  const isDeleteIntent =
+    normalizedIntent.includes(' delete ') ||
+    normalizedIntent.includes(' remove ') ||
+    normalizedIntent.includes(' take down ') ||
+    normalizedIntent.includes(' erase ') ||
+    normalizedIntent.startsWith('delete ') ||
+    normalizedIntent.startsWith('remove ');
+
+  if (isDeleteIntent) {
+    // Timeline/post deletes can score low semantically when the intent mostly
+    // contains IDs. Force these tools in to avoid false "not allowed" loops.
+    if (
+      normalizedIntent.includes('timeline') ||
+      normalizedIntent.includes('profile post') ||
+      normalizedIntent.includes('post')
+    ) {
+      forced.add('delete_timeline_post');
+      forced.add('delete_team_post');
+      forced.add('scan_timeline_posts');
+      forced.add('query_nxt1_data');
+    }
+  }
+
+  const isCreateOrAddIntent =
+    normalizedIntent.includes(' add ') ||
+    normalizedIntent.includes(' create ') ||
+    normalizedIntent.includes(' write ') ||
+    normalizedIntent.includes(' ingest ') ||
+    normalizedIntent.startsWith('add ') ||
+    normalizedIntent.startsWith('create ');
+
+  if (isCreateOrAddIntent) {
+    if (
+      normalizedIntent.includes('event') ||
+      normalizedIntent.includes('camp') ||
+      normalizedIntent.includes('combine') ||
+      normalizedIntent.includes('showcase')
+    ) {
+      forced.add('write_calendar_events');
+    }
+
+    if (
+      normalizedIntent.includes('schedule') ||
+      normalizedIntent.includes('game') ||
+      normalizedIntent.includes('scrimmage') ||
+      normalizedIntent.includes('practice')
+    ) {
+      forced.add('write_schedule');
+    }
+  }
+
+  return [...forced];
+}
+
 function isRoutableCoordinatorAgent(
   agentId: string
 ): agentId is Exclude<AgentIdentifier, 'router'> {
@@ -425,6 +491,24 @@ export class AgentRouterExecutionService {
                 const finalTools = new Map<string, (typeof matchedToolDefs)[number]>();
                 for (const tool of semanticMatched) finalTools.set(tool.name, tool);
                 for (const tool of safetyBuffer) finalTools.set(tool.name, tool);
+
+                for (const forcedToolName of computeForcedToolInclusions(taskIntent)) {
+                  const matchedForcedTool = matchedToolDefs.find(
+                    (tool) => tool.name === forcedToolName
+                  );
+                  if (matchedForcedTool) {
+                    finalTools.set(matchedForcedTool.name, matchedForcedTool);
+                    continue;
+                  }
+
+                  const fallbackForcedTool = toolDefs.find((tool) => tool.name === forcedToolName);
+                  if (fallbackForcedTool) {
+                    finalTools.set(fallbackForcedTool.name, {
+                      ...fallbackForcedTool,
+                      semanticScore: SAFETY_BUFFER_THRESHOLD,
+                    });
+                  }
+                }
 
                 const selectedScored = [...finalTools.values()];
                 const selected = addCompanionTools(selectedScored, toolDefs);

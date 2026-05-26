@@ -178,25 +178,11 @@ export const PROFILE_TIMELINE_FILTERS: readonly ProfileTimelineFilter[] = [
     emptyMessage: 'Start sharing your journey',
   },
   {
-    id: 'pinned',
-    label: 'Pinned',
-    icon: 'pin',
-    emptyTitle: 'No pinned posts',
-    emptyMessage: 'Pin your best content to the top of your profile',
-  },
-  {
     id: 'media',
     label: 'Media',
     icon: 'image',
     emptyTitle: 'No media posts',
     emptyMessage: 'Share photos and videos to showcase your talent',
-  },
-  {
-    id: 'videos',
-    label: 'Videos',
-    icon: 'videocam',
-    emptyTitle: 'No videos yet',
-    emptyMessage: 'Highlights and game footage will appear here',
   },
   {
     id: 'metrics',

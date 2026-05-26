@@ -491,14 +491,15 @@ export class BoardDiagramService {
           maxTokens: 2400,
           temperature: 0.2,
           timeoutMs: LLM_TIMEOUT_MS,
-          telemetryContext: context
-            ? {
-                operationId: randomUUID(),
-                userId: context.userId ?? 'unknown',
-                agentId: 'strategy_coordinator' as const,
-                feature: 'board-diagrams',
-              }
-            : undefined,
+          telemetryContext:
+            context?.operationId && context.userId
+              ? {
+                  operationId: context.operationId,
+                  userId: context.userId,
+                  agentId: 'strategy_coordinator' as const,
+                  feature: 'board-diagrams',
+                }
+              : undefined,
           signal: context?.signal,
         }
       );

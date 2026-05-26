@@ -18,12 +18,12 @@ import {
   executeBillingDeduction,
   resolveBillingTarget,
   checkBudgetFromContext,
-  estimateChargeAmountSync,
+  MIN_COST_CENTS,
 } from '../../modules/billing/index.js';
 import { getAuthUser, getGenerationService, jobRepository, queueService } from './shared.js';
 
 const router = Router();
-const GENERATION_BILLING_GATE_ESTIMATED_COST_USD = 0.1;
+const GENERATION_BILLING_GATE_MIN_COST_CENTS = MIN_COST_CENTS;
 
 // ─── POST /playbook/generate ──────────────────────────────────────────────
 
@@ -37,9 +37,7 @@ router.post('/playbook/generate', appGuard, aiRateLimit, async (req: Request, re
     }
 
     if (req.firebase?.db) {
-      const { chargeAmountCents: estimatedGateCostCents } = estimateChargeAmountSync(
-        GENERATION_BILLING_GATE_ESTIMATED_COST_USD
-      );
+      const estimatedGateCostCents = GENERATION_BILLING_GATE_MIN_COST_CENTS;
       const playbookTarget = await resolveBillingTarget(req.firebase.db, user.uid);
       const playbookCtx = playbookTarget.context;
       const playbookBudgetCheck = checkBudgetFromContext(playbookCtx, estimatedGateCostCents);
@@ -370,9 +368,7 @@ router.post(
       const { force = false } = req.body as { force?: boolean };
 
       if (req.firebase?.db) {
-        const { chargeAmountCents: estimatedGateCostCents } = estimateChargeAmountSync(
-          GENERATION_BILLING_GATE_ESTIMATED_COST_USD
-        );
+        const estimatedGateCostCents = GENERATION_BILLING_GATE_MIN_COST_CENTS;
         const briefingTarget = await resolveBillingTarget(req.firebase.db, user.uid);
         const briefingCtx = briefingTarget.context;
         const briefingBudgetCheck = checkBudgetFromContext(briefingCtx, estimatedGateCostCents);

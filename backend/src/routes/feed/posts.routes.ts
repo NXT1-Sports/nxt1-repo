@@ -145,7 +145,7 @@ router.get(
       content: feedPost.content,
       body: feedPost.content ?? undefined,
       thumbnailUrl: videoMedia?.thumbnailUrl ?? imageMedia?.url ?? undefined,
-      mediaUrl: videoMedia?.url ?? imageMedia?.url ?? undefined,
+      mediaUrl: videoMedia?.hlsUrl ?? videoMedia?.url ?? imageMedia?.url ?? undefined,
       iframeUrl: videoMedia?.iframeUrl ?? undefined,
       hlsUrl: videoMedia?.hlsUrl ?? undefined,
       cloudflareVideoId: videoMedia?.cloudflareVideoId ?? undefined,

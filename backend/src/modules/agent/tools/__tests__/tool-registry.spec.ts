@@ -365,6 +365,23 @@ describe('ToolRegistry', () => {
       expect(classifyTool.executeFn).toHaveBeenCalledOnce();
     });
 
+    it('should allow an explicitly named tool even when entity groups are stale', async () => {
+      const teamTool = new TeamTool();
+      registry.register(teamTool);
+
+      const result = await registry.execute(
+        'team_tool',
+        { teamId: 'team-1' },
+        {
+          userId: 'u1',
+          allowedToolNames: ['team_tool'],
+          allowedEntityGroups: ['platform_tools'],
+        }
+      );
+
+      expect(result.success).toBe(true);
+    });
+
     it('should refuse execution when the tool is disabled by feature flags', async () => {
       setCachedAgentAppConfig({
         ...DEFAULT_AGENT_APP_CONFIG,

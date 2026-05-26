@@ -360,7 +360,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
       // Accumulate cost per operationId so the billing module can deduct
       // the correct amount at job completion. Helicone handles all usage
       // tracking and cost reporting — no separate telemetry store needed.
-      addJobCost(record.operationId, record.costUsd);
+      addJobCost(record.operationId, record.costUsd, record.feature);
     },
   });
   const toolRegistry = new ToolRegistry();

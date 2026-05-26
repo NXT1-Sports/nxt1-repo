@@ -75,8 +75,16 @@ function isMeaningfulBillableToolSlug(value: string): boolean {
   return !isSystemOrRoutingSlug(value) && !isPassiveToolSlug(value);
 }
 
+function isRenderableToolSlug(value: string): boolean {
+  return !isSystemOrRoutingSlug(value);
+}
+
 function selectBillableTools(tools: readonly string[]): string[] {
   return tools.filter((tool) => isMeaningfulBillableToolSlug(tool));
+}
+
+function selectRenderableTools(tools: readonly string[]): string[] {
+  return tools.filter((tool) => isRenderableToolSlug(tool));
 }
 
 export function resolveBillableFeatures(input: BillableFeatureResolutionInput): string[] {
@@ -86,12 +94,24 @@ export function resolveBillableFeatures(input: BillableFeatureResolutionInput): 
     if (successfulTools.length > 0) {
       return successfulTools;
     }
+
+    // If only read-only tools executed, still expose them instead of
+    // downgrading to coordinator/agent execution fallback labels.
+    const renderableSuccessfulTools = selectRenderableTools(normalizedSuccessfulTools);
+    if (renderableSuccessfulTools.length > 0) {
+      return renderableSuccessfulTools;
+    }
   }
 
   if (input.successfulTools === undefined) {
     const attemptedTools = selectBillableTools(dedupeNormalized(input.agentTools));
     if (attemptedTools.length > 0) {
       return attemptedTools;
+    }
+
+    const renderableAttemptedTools = selectRenderableTools(dedupeNormalized(input.agentTools));
+    if (renderableAttemptedTools.length > 0) {
+      return renderableAttemptedTools;
     }
   }
 
@@ -110,5 +130,17 @@ export function resolveBillableFeatures(input: BillableFeatureResolutionInput): 
 }
 
 export function resolveBillableFeature(input: BillableFeatureResolutionInput): string {
-  return resolveBillableFeatures(input)[0] ?? 'agent-execution';
+  const explicitFeature = typeof input.feature === 'string' ? normalizeSlug(input.feature) : '';
+  const representativeFeature = resolveBillableFeatures(input)[0];
+
+  if (
+    explicitFeature &&
+    !isSystemOrRoutingSlug(explicitFeature) &&
+    representativeFeature &&
+    !isMeaningfulBillableToolSlug(representativeFeature)
+  ) {
+    return explicitFeature;
+  }
+
+  return representativeFeature ?? 'agent-execution';
 }

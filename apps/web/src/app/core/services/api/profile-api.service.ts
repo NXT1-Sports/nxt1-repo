@@ -5,6 +5,8 @@ import { environment } from '../../../../environments/environment';
 import { createProfileApi, type ProfileApi, type ApiResponse } from '@nxt1/core/profile';
 import {
   User,
+  type UserAward,
+  type ProfileRecruitingActivity,
   type ProfilePost,
   type ProfileSeasonGameLog,
   type VerifiedStat,
@@ -390,6 +392,26 @@ export class ProfileService {
   ): Observable<{ success: boolean; data: VerifiedMetric[] }> {
     return this.http.get<{ success: boolean; data: VerifiedMetric[] }>(
       `${environment.apiURL}/auth/profile/${userId}/sports/${encodeURIComponent(sportId)}/metrics`
+    );
+  }
+
+  getProfileAwards(
+    userId: string,
+    sportId?: string
+  ): Observable<{ success: boolean; data: UserAward[] }> {
+    const query = sportId ? `?sportId=${encodeURIComponent(sportId)}` : '';
+    return this.http.get<{ success: boolean; data: UserAward[] }>(
+      `${environment.apiURL}/auth/profile/${userId}/awards${query}`
+    );
+  }
+
+  getProfileRecruiting(
+    userId: string,
+    sportId?: string
+  ): Observable<{ success: boolean; data: ProfileRecruitingActivity[] }> {
+    const query = sportId ? `?sportId=${encodeURIComponent(sportId)}` : '';
+    return this.http.get<{ success: boolean; data: ProfileRecruitingActivity[] }>(
+      `${environment.apiURL}/auth/profile/${userId}/recruiting${query}`
     );
   }
 }

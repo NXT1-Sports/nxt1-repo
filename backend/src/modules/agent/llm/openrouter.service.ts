@@ -419,7 +419,7 @@ export class OpenRouterService {
       costUsd: result.costUsd,
       hasCallback: !!this.telemetryCallback,
     });
-    if (!operationId) {
+    if (!operationId && this.telemetryCallback) {
       logger.warn(
         '[OpenRouter] Billed completion missing operationId — skipping telemetry callback to avoid orphan billing record',
         {
@@ -434,6 +434,7 @@ export class OpenRouterService {
         operationId,
         userId: options.telemetryContext?.userId ?? '',
         agentId: options.telemetryContext?.agentId ?? 'router',
+        feature: options.telemetryContext?.feature,
         model: result.model,
         inputTokens: result.usage.inputTokens,
         outputTokens: result.usage.outputTokens,
@@ -545,6 +546,7 @@ export class OpenRouterService {
       operationId: options.telemetryContext?.operationId ?? '',
       userId: options.telemetryContext?.userId ?? '',
       agentId: options.telemetryContext?.agentId ?? 'brand_coordinator',
+      feature: options.telemetryContext?.feature,
       model: result.model,
       inputTokens: result.usage.inputTokens,
       outputTokens: result.usage.outputTokens,
@@ -842,6 +844,7 @@ export class OpenRouterService {
       operationId: options.telemetryContext?.operationId ?? '',
       userId: options.telemetryContext?.userId ?? '',
       agentId: options.telemetryContext?.agentId ?? 'strategy_coordinator',
+      feature: options.telemetryContext?.feature,
       model: responseModel,
       inputTokens,
       outputTokens,

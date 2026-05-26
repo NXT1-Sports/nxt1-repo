@@ -32,12 +32,9 @@ import { ProfileService } from '../profile.service';
               This athlete hasn't recorded any metrics yet.
             }
           </p>
-          @if (profile.isOwnProfile()) {
-            <button type="button" class="madden-cta-btn" (click)="onAddStats()">Add Metrics</button>
-          }
         </div>
       } @else {
-        @if (activeMetricCategory(); as cat) {
+        @for (cat of visibleMetricCategories(); track cat.name) {
           <div class="madden-stat-group">
             <h3 class="ov-section-title">{{ cat.name }}</h3>
             @if (cat.measuredAt || cat.source) {
@@ -56,7 +53,10 @@ import { ProfileService } from '../profile.service';
               </p>
             }
             <div class="madden-stat-grid">
-              @for (stat of cat.stats; track stat.label) {
+              @for (
+                stat of cat.stats;
+                track stat.label + '|' + stat.value + '|' + (stat.unit ?? '')
+              ) {
                 <div class="madden-stat-card">
                   <span class="madden-stat-value"
                     >{{ stat.value }}{{ stat.unit ? ' ' + stat.unit : '' }}</span
@@ -109,22 +109,8 @@ import { ProfileService } from '../profile.service';
       .madden-empty p {
         font-size: 14px;
         color: var(--m-text-2);
-        margin: 0 0 20px;
+        margin: 0;
         max-width: 280px;
-      }
-      .madden-cta-btn {
-        background: var(--m-accent);
-        color: #000;
-        border: none;
-        border-radius: 999px;
-        padding: 10px 24px;
-        font-size: 14px;
-        font-weight: 700;
-        cursor: pointer;
-        transition: filter 0.15s;
-      }
-      .madden-cta-btn:hover {
-        filter: brightness(1.1);
       }
 
       .madden-stat-group {
@@ -207,20 +193,16 @@ export class ProfileMetricsComponent {
   /** Active side tab from parent, used for filtering metric categories */
   readonly activeSideTab = input<string>('');
 
-  protected readonly activeMetricCategory = computed(() => {
+  protected readonly visibleMetricCategories = computed(() => {
     const cats = this.profile.metrics();
-    if (cats.length === 0) return null;
+    if (cats.length === 0) return [];
 
     const sideTab = this.activeSideTab();
-    if (!sideTab) return cats[0] ?? null;
+    if (!sideTab || sideTab === 'metrics') return cats;
 
     const matched = cats.find(
       (category) => category.name.toLowerCase().replace(/\s+/g, '-') === sideTab
     );
-    return matched ?? cats[0] ?? null;
+    return matched ? [matched] : cats;
   });
-
-  protected onAddStats(): void {
-    // No-op — parent handles
-  }
 }

@@ -436,22 +436,26 @@ function sortCoordinatorCategories(
 
             @if (isPanelMenuOpen()) {
               <div class="header-nav-dropdown-menu" role="menu" aria-label="Panel options">
-                <button
-                  type="button"
-                  class="header-nav-dropdown-item"
-                  [class.header-nav-dropdown-item--active]="panelMenuSelection() === 'film-review'"
-                  role="menuitemradio"
-                  [attr.aria-checked]="panelMenuSelection() === 'film-review'"
-                  (click)="onSelectPanelMenuOption('film-review', $event)"
-                >
-                  <span>Film Review</span>
-                  <nxt1-icon
-                    class="header-nav-dropdown-item-indicator"
-                    name="checkmark"
-                    [size]="14"
-                    aria-hidden="true"
-                  />
-                </button>
+                @if (!isAthleteUser()) {
+                  <button
+                    type="button"
+                    class="header-nav-dropdown-item"
+                    [class.header-nav-dropdown-item--active]="
+                      panelMenuSelection() === 'film-review'
+                    "
+                    role="menuitemradio"
+                    [attr.aria-checked]="panelMenuSelection() === 'film-review'"
+                    (click)="onSelectPanelMenuOption('film-review', $event)"
+                  >
+                    <span>Film Review</span>
+                    <nxt1-icon
+                      class="header-nav-dropdown-item-indicator"
+                      name="checkmark"
+                      [size]="14"
+                      aria-hidden="true"
+                    />
+                  </button>
+                }
                 @if (user()?.role !== 'athlete') {
                   <button
                     type="button"
@@ -1165,6 +1169,7 @@ function sortCoordinatorCategories(
             <div class="action-plan-panel__body">
               <nxt1-agent-x-film-review-panel
                 [teamId]="resolvedActiveTeamId()"
+                [role]="user()?.role ?? null"
                 [sport]="resolvedActiveSport()"
               />
             </div>
@@ -4220,6 +4225,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly showGameplansModal = signal(false);
   protected readonly showPlaybooksModal = signal(false);
   protected readonly showFilmReviewModal = signal(false);
+  protected readonly isAthleteUser = computed(() => this.user()?.role === 'athlete');
   protected readonly isPanelMenuOpen = signal(false);
   protected readonly panelMenuSelection = computed<
     'live-view' | 'gameplans' | 'playbooks' | 'film-review' | null
@@ -5572,6 +5578,12 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   ): Promise<void> {
     event.stopPropagation();
     this.isPanelMenuOpen.set(false);
+
+    if (option === 'film-review' && this.isAthleteUser()) {
+      this.showFilmReviewModal.set(false);
+      this.showActionPlanModal.set(true);
+      return;
+    }
 
     if (option === 'live-view') {
       await this.haptics.impact('light');

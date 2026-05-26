@@ -41,7 +41,7 @@ const TeamNewsArticleSchema = z
 
 const WriteTeamNewsInputSchema = z.object({
   teamId: z.string().trim().min(1),
-  teamCode: z.string().trim().min(1),
+  teamCode: z.string().trim().min(1).optional(),
   articles: z.array(TeamNewsArticleSchema).min(1).max(MAX_ARTICLES_PER_CALL),
 });
 
@@ -56,11 +56,11 @@ export class WriteTeamNewsTool extends BaseTool {
     'Doc ID is derived from the article URL hash — repeated calls for the same URL upsert safely.\n\n' +
     'Parameters:\n' +
     '- teamId (required): Team document ID.\n' +
-    '- teamCode (required): Team code slug (used for cache invalidation).\n' +
+    '- teamCode (optional): Team code slug (used for cache invalidation). If omitted, resolved from Team doc.\n' +
     '- articles (required): Array of news articles:\n' +
-    '  • headline (required): Article headline.\n' +
-    '  • source (required): Publication name (e.g. "MaxPreps", "Team Website").\n' +
-    '  • publishedAt (required): ISO 8601 date string.\n' +
+    '  • headline (required): Article headline. Alias accepted: title.\n' +
+    '  • source (optional): Publication name (e.g. "MaxPreps", "Team Website"). Defaults to "Agent X".\n' +
+    '  • publishedAt (optional): ISO 8601 date string. Defaults to now when omitted.\n' +
     '  • url (optional): Original article URL (used for dedup).\n' +
     '  • excerpt (optional): Short summary or lede.\n' +
     '  • imageUrl (optional): Hero image URL.\n' +
@@ -88,7 +88,8 @@ export class WriteTeamNewsTool extends BaseTool {
     const parsed = WriteTeamNewsInputSchema.safeParse(input);
     if (!parsed.success) return this.zodError(parsed.error);
 
-    const { teamId, teamCode } = parsed.data;
+    const { teamId } = parsed.data;
+    const providedTeamCode = parsed.data.teamCode;
     const rawArticles = parsed.data.articles;
 
     if (!context?.userId) {
@@ -102,6 +103,10 @@ export class WriteTeamNewsTool extends BaseTool {
         return { success: false, error: `Team ${teamId} not found.` };
       }
       const teamData = teamDoc.data() ?? {};
+      const resolvedTeamCode =
+        providedTeamCode ??
+        (typeof teamData['teamCode'] === 'string' ? (teamData['teamCode'] as string) : undefined) ??
+        (typeof teamData['code'] === 'string' ? (teamData['code'] as string) : undefined);
       const isAuthorized = await canManageTeamMutationForUser(
         this.db,
         context.userId,
@@ -123,9 +128,9 @@ export class WriteTeamNewsTool extends BaseTool {
           continue;
         }
         const a = rawArticle as Record<string, unknown>;
-        const headline = this.str(a, 'headline');
-        const source = this.str(a, 'source');
-        const publishedAt = this.str(a, 'publishedAt');
+        const headline = this.str(a, 'headline') ?? this.str(a, 'title');
+        const source = this.str(a, 'source') ?? 'Agent X';
+        const publishedAt = this.str(a, 'publishedAt') ?? now;
 
         if (!headline || !source || !publishedAt) {
           skipped++;
@@ -133,7 +138,7 @@ export class WriteTeamNewsTool extends BaseTool {
         }
 
         const url = this.str(a, 'url') ?? undefined;
-        const excerpt = this.str(a, 'excerpt') ?? undefined;
+        const excerpt = this.str(a, 'excerpt') ?? this.str(a, 'body') ?? undefined;
         const imageUrl = this.str(a, 'imageUrl') ?? undefined;
         const sourceLogoUrl = this.str(a, 'sourceLogoUrl') ?? undefined;
         const category = this.str(a, 'category') ?? undefined;
@@ -177,16 +182,24 @@ export class WriteTeamNewsTool extends BaseTool {
       await batch.commit();
 
       // Invalidate team timeline caches
-      const cache = getCacheService();
-      await cache.delByPrefix(`team:timeline:v1:${teamCode}:`);
+      if (resolvedTeamCode) {
+        const cache = getCacheService();
+        await cache.delByPrefix(`team:timeline:v1:${resolvedTeamCode}:`);
+      }
 
-      logger.info('[WriteTeamNewsTool] Articles written', { teamId, teamCode, written, skipped });
+      logger.info('[WriteTeamNewsTool] Articles written', {
+        teamId,
+        teamCode: resolvedTeamCode,
+        written,
+        skipped,
+      });
 
       return {
         success: true,
         data: {
           written,
           skipped,
+          teamCode: resolvedTeamCode,
           message: `Wrote ${written} news article(s)${skipped > 0 ? `, skipped ${skipped}` : ''}.`,
         },
       };

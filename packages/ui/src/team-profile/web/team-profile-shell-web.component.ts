@@ -1637,7 +1637,6 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   protected readonly timelineSidebarFilter = computed<ProfileTimelineFilterId>(() => {
     const filterMap: Readonly<Record<string, ProfileTimelineFilterId>> = {
       'all-posts': 'all',
-      pinned: 'pinned',
       media: 'media',
       stats: 'stats',
       games: 'events',
@@ -1684,11 +1683,6 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
           id: 'all-posts',
           label: 'All Posts',
           badge: this.teamProfile.allPosts().length || undefined,
-        },
-        {
-          id: 'pinned',
-          label: 'Pinned',
-          badge: this.teamProfile.pinnedPosts().length || undefined,
         },
         {
           id: 'media',
@@ -1807,7 +1801,6 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
   private mapTimelineSectionToFilter(sectionId: string): TeamTimelineFilterId {
     const sectionToFilter: Readonly<Record<string, TeamTimelineFilterId>> = {
       'all-posts': 'all',
-      pinned: 'all',
       media: 'media',
       stats: 'stats',
       games: 'games',
@@ -2085,9 +2078,6 @@ export class TeamProfileShellWebComponent implements OnInit, AfterViewInit, OnDe
     switch (activeTab) {
       case 'all-posts':
         message = `I'd like to add a general team update. Please help me figure out whether this belongs in Posts, TeamStats, Schedule, Recruiting, or News based on what I'm sharing. If this is team photos or highlight video, save it in Posts with the post type set to image or video. If the right section is not obvious, ask me a quick follow-up before saving anything.`;
-        break;
-      case 'pinned':
-        message = `We need to create an important featured update. Please help me write it, then save it to the Posts collection with isPinned set to true.`;
         break;
       case 'stats':
         message = `I need to update the team stats and recent results. Please guide me through the latest numbers, then save that data to the TeamStats collection.`;

@@ -24,6 +24,7 @@ import { invalidateProfileCaches } from '../../../../../routes/profile/shared.js
 import { normalizeCollegeName } from '../dedup-utils.js';
 import { logger } from '../../../../../utils/logger.js';
 import { resolveCreatedAt } from '../doc-date-utils.js';
+import { CollegeModel } from '../../../../../models/core/college.model.js';
 import { z } from 'zod';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -32,6 +33,78 @@ const RECRUITING_COLLECTION = 'Recruiting';
 const MAX_ACTIVITIES = 100;
 
 const VALID_CATEGORIES = new Set(['offer', 'interest', 'visit', 'camp', 'commitment', 'contact']);
+
+const COLLEGE_NAME_ALIASES: Readonly<Record<string, string>> = {
+  ucf: 'University of Central Florida',
+  usf: 'University of South Florida',
+  fau: 'Florida Atlantic University',
+  fiu: 'Florida International University',
+  fsu: 'Florida State University',
+  'ucf knights': 'University of Central Florida',
+  'usf bulls': 'University of South Florida',
+  'fau owls': 'Florida Atlantic University',
+  uf: 'University of Florida',
+  florida: 'University of Florida',
+};
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function getStorageBucket(): string | null {
+  return (
+    process.env['STAGING_FIREBASE_STORAGE_BUCKET'] ?? process.env['FIREBASE_STORAGE_BUCKET'] ?? null
+  );
+}
+
+function buildCollegeLogoUrl(rawLogoValue: string, defaultBucket: string): string {
+  const trimmed = rawLogoValue.trim();
+  if (!trimmed) return '';
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith('gs://')) {
+    const withoutScheme = trimmed.slice('gs://'.length);
+    const slashIndex = withoutScheme.indexOf('/');
+    if (slashIndex <= 0) {
+      return '';
+    }
+
+    const bucket = withoutScheme.slice(0, slashIndex).trim();
+    const objectPath = withoutScheme.slice(slashIndex + 1).trim();
+    if (!bucket || !objectPath) return '';
+
+    return `https://storage.googleapis.com/${bucket}/${objectPath
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/')}`;
+  }
+
+  const looksLikePath = trimmed.includes('/');
+  const fileName = looksLikePath
+    ? trimmed
+    : trimmed.includes('.')
+      ? `Colleges/${trimmed}`
+      : `Colleges/${trimmed}.png`;
+
+  return `https://storage.googleapis.com/${defaultBucket}/${fileName
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/')}`;
+}
+
+function buildCollegeNameCandidates(name: string): readonly string[] {
+  const normalized = normalizeCollegeName(name);
+  if (!normalized) return [];
+
+  const lower = normalized.toLowerCase();
+  const alias = COLLEGE_NAME_ALIASES[lower];
+  if (!alias) return [normalized];
+
+  return [normalized, alias];
+}
 
 const RecruitingActivityEntrySchema = z
   .object({
@@ -76,7 +149,7 @@ export class WriteRecruitingActivityTool extends BaseTool {
     '- activities (required): Array of recruiting activity objects:\n' +
     '  • category (required): "offer", "interest", "visit", "camp", "commitment", or "contact".\n' +
     '  • collegeName (optional): College/university name.\n' +
-    '  • collegeLogoUrl (optional): Logo URL.\n' +
+    '  • collegeLogoUrl (optional): Logo URL. If omitted, tool will auto-resolve from college database when possible.\n' +
     '  • division (optional): e.g. "D1", "D2", "NAIA".\n' +
     '  • conference (optional): Conference name.\n' +
     '  • city (optional): College city.\n' +
@@ -136,6 +209,58 @@ export class WriteRecruitingActivityTool extends BaseTool {
         };
       }
       const now = new Date().toISOString();
+      const logoBucket = getStorageBucket();
+      const logoCache = new Map<string, string | null>();
+
+      const resolveCollegeLogoUrl = async (collegeName: string): Promise<string | null> => {
+        const normalizedName = normalizeCollegeName(collegeName);
+        if (!normalizedName || !logoBucket) return null;
+
+        if (logoCache.has(normalizedName)) {
+          return logoCache.get(normalizedName) ?? null;
+        }
+
+        try {
+          const candidates = buildCollegeNameCandidates(normalizedName);
+
+          for (const candidate of candidates) {
+            const textFilter: Record<string, unknown> =
+              candidate.length >= 3
+                ? { $text: { $search: candidate } }
+                : { name: { $regex: `^${escapeRegex(candidate)}$`, $options: 'i' } };
+
+            const containsFilter: Record<string, unknown> = {
+              name: { $regex: escapeRegex(candidate), $options: 'i' },
+            };
+
+            const college =
+              (await CollegeModel.findOne(textFilter, { logoUrl: 1 })
+                .lean<{ logoUrl?: unknown }>()
+                .exec()) ??
+              (await CollegeModel.findOne(containsFilter, { logoUrl: 1 })
+                .lean<{ logoUrl?: unknown }>()
+                .exec());
+
+            const logoValue = typeof college?.logoUrl === 'string' ? college.logoUrl.trim() : '';
+            if (!logoValue) {
+              continue;
+            }
+
+            const resolvedUrl = buildCollegeLogoUrl(logoValue, logoBucket);
+            if (!resolvedUrl) {
+              continue;
+            }
+            logoCache.set(normalizedName, resolvedUrl);
+            return resolvedUrl;
+          }
+
+          logoCache.set(normalizedName, null);
+          return null;
+        } catch {
+          logoCache.set(normalizedName, null);
+          return null;
+        }
+      };
 
       context?.emitStage?.('fetching_data', {
         icon: 'database',
@@ -204,6 +329,17 @@ export class WriteRecruitingActivityTool extends BaseTool {
         for (const field of optionalFields) {
           const val = this.str(a, field);
           if (val) record[field] = val;
+        }
+
+        // Ensure recruiting cards can render a college logo even when upstream extraction omitted it.
+        if (!record['collegeLogoUrl']) {
+          const collegeName = this.str(a, 'collegeName');
+          if (collegeName) {
+            const resolvedLogoUrl = await resolveCollegeLogoUrl(collegeName);
+            if (resolvedLogoUrl) {
+              record['collegeLogoUrl'] = resolvedLogoUrl;
+            }
+          }
         }
 
         // Dedup check

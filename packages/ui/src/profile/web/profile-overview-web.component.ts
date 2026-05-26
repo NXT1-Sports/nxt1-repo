@@ -581,7 +581,7 @@ const MOBILE_PLACEHOLDER_BADGES: ReadonlyArray<MobileHeaderBadge> = [
               [isLoading]="profile.isLoading()"
               [isOwnProfile]="profile.isOwnProfile()"
               [emptyState]="awardsEmptyState"
-              [emptyCta]="profile.isOwnProfile() ? 'Add Award' : null"
+              [emptyCta]="null"
               [dotOverrides]="awardsDotOverrides"
               cardLayout="horizontal"
               fallbackIcon="trophy"
@@ -1849,29 +1849,26 @@ export class ProfileOverviewWebComponent implements OnDestroy {
   );
 
   constructor() {
-    effect(
-      () => {
-        const summary = this.profile.playerCard()?.agentXSummary?.trim() ?? '';
-        if (!summary) {
-          this.clearTypewriterTimer();
-          this.typewriterTarget = '';
-          this.isTypewriterRunning = false;
-          this.typedAgentXSummary.set('');
-          return;
-        }
-        if (!this.isBrowser) {
-          this.typedAgentXSummary.set(summary);
-          return;
-        }
-        if (this._hasPlayedTypewriter()) {
-          this.typedAgentXSummary.set(summary);
-          return;
-        }
-        if (this.isTypewriterRunning && this.typewriterTarget === summary) return;
-        this.startTypewriter(summary);
-      },
-      { allowSignalWrites: true }
-    );
+    effect(() => {
+      const summary = this.profile.playerCard()?.agentXSummary?.trim() ?? '';
+      if (!summary) {
+        this.clearTypewriterTimer();
+        this.typewriterTarget = '';
+        this.isTypewriterRunning = false;
+        this.typedAgentXSummary.set('');
+        return;
+      }
+      if (!this.isBrowser) {
+        this.typedAgentXSummary.set(summary);
+        return;
+      }
+      if (this._hasPlayedTypewriter()) {
+        this.typedAgentXSummary.set(summary);
+        return;
+      }
+      if (this.isTypewriterRunning && this.typewriterTarget === summary) return;
+      this.startTypewriter(summary);
+    });
   }
 
   // ── Team affiliations ──

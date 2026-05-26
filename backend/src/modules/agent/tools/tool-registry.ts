@@ -537,9 +537,12 @@ export class ToolRegistry {
 
     if (context?.allowedEntityGroups?.length) {
       const toolEntityGroup = this.resolveEntityGroup(tool);
+      const explicitlyAllowedByName =
+        context.allowedToolNames?.map(canonicalToolName).includes(normalizedName) ?? false;
       if (
         toolEntityGroup !== 'system_tools' &&
-        !context.allowedEntityGroups.includes(toolEntityGroup)
+        !context.allowedEntityGroups.includes(toolEntityGroup) &&
+        !explicitlyAllowedByName
       ) {
         return {
           success: false,

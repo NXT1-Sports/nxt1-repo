@@ -16,6 +16,13 @@ const mockExecuteBillingDeduction = vi.fn().mockResolvedValue({
   rawCostUsd: 0,
   chargeAmountCents: 0,
 });
+const mockGetBillingState = vi.fn().mockResolvedValue(null);
+const mockCreateWalletHold = vi.fn().mockResolvedValue({
+  success: true,
+  holdId: 'hold-1',
+  availableBalance: 0,
+});
+const mockReleaseWalletHold = vi.fn().mockResolvedValue(undefined);
 const mockLogAgentTaskCompletion = vi.fn().mockResolvedValue({
   activityId: 'activity-1',
   notificationId: 'notification-1',
@@ -25,8 +32,14 @@ const mockLogAgentTaskFailure = vi.fn().mockResolvedValue({
   notificationId: 'notification-failure-1',
 });
 
-vi.mock('../../billing/usage-deduction.service.js', () => ({
+vi.mock('../../../billing/usage-deduction.service.js', () => ({
   executeBillingDeduction: mockExecuteBillingDeduction,
+}));
+
+vi.mock('../../../billing/budget.service.js', () => ({
+  getBillingState: mockGetBillingState,
+  createWalletHold: mockCreateWalletHold,
+  releaseWalletHold: mockReleaseWalletHold,
 }));
 
 vi.mock('../../services/agent-activity.service.js', () => ({
@@ -202,6 +215,13 @@ describe('AgentWorker', () => {
       rawCostUsd: 0,
       chargeAmountCents: 0,
     });
+    mockGetBillingState.mockResolvedValue(null);
+    mockCreateWalletHold.mockResolvedValue({
+      success: true,
+      holdId: 'hold-1',
+      availableBalance: 0,
+    });
+    mockReleaseWalletHold.mockResolvedValue(undefined);
     mockLogAgentTaskCompletion.mockResolvedValue({
       activityId: 'activity-1',
       notificationId: 'notification-1',
@@ -537,6 +557,50 @@ describe('AgentWorker', () => {
     await capturedProcessor!(job);
 
     expect(mockExecuteBillingDeduction).not.toHaveBeenCalled();
+  });
+
+  it('should emit a billing-action card when hard-stop hold creation fails for insufficient balance', async () => {
+    const payload = makePayload();
+    const job = makeMockJob(payload);
+
+    mockGetBillingState.mockResolvedValue({
+      billingEntity: 'individual',
+      hardStop: true,
+      paymentProvider: 'stripe',
+    });
+    mockCreateWalletHold.mockResolvedValue({
+      success: false,
+      reason: 'Insufficient available balance: $0.11 < $0.31',
+      availableBalance: 11,
+    });
+
+    const result = await capturedProcessor!(job);
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        result: expect.objectContaining({
+          data: expect.objectContaining({
+            blockedByBilling: true,
+            reason: 'insufficient_funds',
+            currentBalanceCents: 11,
+            amountNeededCents: 31,
+          }),
+        }),
+      })
+    );
+
+    expect(mockPubSub.publish).toHaveBeenCalledWith(
+      payload.operationId,
+      'card',
+      expect.objectContaining({
+        type: 'billing-action',
+        payload: expect.objectContaining({
+          reason: 'insufficient_funds',
+          currentBalanceCents: 11,
+          amountNeededCents: 31,
+        }),
+      })
+    );
   });
 
   it('should suppress completion push for active user-viewed jobs by default', async () => {

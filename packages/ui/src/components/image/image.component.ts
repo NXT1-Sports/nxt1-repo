@@ -312,6 +312,9 @@ export class NxtImageComponent implements OnChanges {
   /** Priority loading for above-the-fold images */
   @Input({ transform: booleanAttribute }) priority: boolean = false;
 
+  /** Enable Angular NgOptimizedImage when intrinsic dimensions are known */
+  @Input({ transform: booleanAttribute }) useNgOptimizedImage: boolean = true;
+
   /** Object-fit CSS property */
   @Input() fit: ImageFit = 'cover';
 
@@ -369,7 +372,7 @@ export class NxtImageComponent implements OnChanges {
   readonly isOptimizableUrl = computed(() => {
     const src = this.effectiveSrc();
     if (!src) return false;
-    return !src.startsWith('blob:') && !src.startsWith('data:');
+    return this.useNgOptimizedImage && !src.startsWith('blob:') && !src.startsWith('data:');
   });
 
   /** Whether the image has a valid source */

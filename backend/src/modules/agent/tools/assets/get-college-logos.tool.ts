@@ -27,6 +27,19 @@ import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
 
 const MAX_NAMES = 20;
 
+const COLLEGE_NAME_ALIASES: Readonly<Record<string, string>> = {
+  ucf: 'University of Central Florida',
+  usf: 'University of South Florida',
+  fau: 'Florida Atlantic University',
+  fiu: 'Florida International University',
+  fsu: 'Florida State University',
+  'ucf knights': 'University of Central Florida',
+  'usf bulls': 'University of South Florida',
+  'fau owls': 'Florida Atlantic University',
+  uf: 'University of Florida',
+  florida: 'University of Florida',
+};
+
 const GetCollegeLogosInputSchema = z.object({
   colleges: z.array(z.string().trim().min(1)).min(1),
 });
@@ -35,6 +48,16 @@ const GetCollegeLogosInputSchema = z.object({
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildCollegeNameCandidates(name: string): readonly string[] {
+  const normalized = name.trim();
+  if (!normalized) return [];
+
+  const alias = COLLEGE_NAME_ALIASES[normalized.toLowerCase()];
+  if (!alias) return [normalized];
+
+  return [normalized, alias];
 }
 
 function getBucket(): string {
@@ -47,6 +70,44 @@ function getBucket(): string {
     );
   }
   return bucket;
+}
+
+function buildCollegeLogoUrl(rawLogoValue: string, defaultBucket: string): string {
+  const trimmed = rawLogoValue.trim();
+  if (!trimmed) return '';
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+
+  if (trimmed.startsWith('gs://')) {
+    const withoutScheme = trimmed.slice('gs://'.length);
+    const slashIndex = withoutScheme.indexOf('/');
+    if (slashIndex <= 0) {
+      return '';
+    }
+
+    const bucket = withoutScheme.slice(0, slashIndex).trim();
+    const objectPath = withoutScheme.slice(slashIndex + 1).trim();
+    if (!bucket || !objectPath) return '';
+
+    return `https://storage.googleapis.com/${bucket}/${objectPath
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/')}`;
+  }
+
+  const looksLikePath = trimmed.includes('/');
+  const fileName = looksLikePath
+    ? trimmed
+    : trimmed.includes('.')
+      ? `Colleges/${trimmed}`
+      : `Colleges/${trimmed}.png`;
+
+  return `https://storage.googleapis.com/${defaultBucket}/${fileName
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/')}`;
 }
 
 // ─── Tool ────────────────────────────────────────────────────────────────────
@@ -108,17 +169,38 @@ export class GetCollegeLogosTool extends BaseTool {
 
     for (const name of names) {
       try {
-        const filter: Record<string, unknown> =
-          name.length >= 3
-            ? { $text: { $search: name } }
-            : { name: { $regex: `^${escapeRegex(name)}$`, $options: 'i' } };
+        let logoUrl: string | null = null;
 
-        const doc = await CollegeModel.findOne(filter, { logoUrl: 1, name: 1 }).lean().exec();
+        for (const candidate of buildCollegeNameCandidates(name)) {
+          const textFilter: Record<string, unknown> =
+            candidate.length >= 3
+              ? { $text: { $search: candidate } }
+              : { name: { $regex: `^${escapeRegex(candidate)}$`, $options: 'i' } };
 
-        if (doc?.logoUrl) {
+          const containsFilter: Record<string, unknown> = {
+            name: { $regex: escapeRegex(candidate), $options: 'i' },
+          };
+
+          const doc =
+            (await CollegeModel.findOne(textFilter, { logoUrl: 1 })
+              .lean<{ logoUrl?: unknown }>()
+              .exec()) ??
+            (await CollegeModel.findOne(containsFilter, { logoUrl: 1 })
+              .lean<{ logoUrl?: unknown }>()
+              .exec());
+
+          const logoValue = typeof doc?.logoUrl === 'string' ? doc.logoUrl.trim() : '';
+          if (!logoValue) continue;
+
+          logoUrl = buildCollegeLogoUrl(logoValue, bucket);
+          if (!logoUrl) continue;
+          break;
+        }
+
+        if (logoUrl) {
           results.push({
             name,
-            logoUrl: `https://storage.googleapis.com/${bucket}/Colleges/${encodeURIComponent(doc.logoUrl)}.png`,
+            logoUrl,
             found: true,
           });
         } else {

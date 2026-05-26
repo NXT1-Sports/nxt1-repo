@@ -263,6 +263,29 @@ export class GenerateGraphicTool extends BaseTool {
     return normalized;
   }
 
+  private isDisallowedSocialRedirect(url: string): boolean {
+    try {
+      const parsed = new URL(url);
+      const host = parsed.hostname.toLowerCase().replace(/^www\./, '');
+      return (
+        host === 't.co' ||
+        host === 'x.com' ||
+        host === 'twitter.com' ||
+        host === 'instagram.com' ||
+        host === 'facebook.com' ||
+        host === 'youtube.com' ||
+        host === 'youtu.be'
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private normalizeImageUrlList(urls: readonly string[] | undefined, max: number): string[] {
+    const normalized = this.normalizeUrlList(urls, max);
+    return normalized.filter((url) => !this.isDisallowedSocialRedirect(url));
+  }
+
   private resolveApplyMode(params: {
     explicit: (typeof APPLY_MODES)[number] | undefined;
     hasSubjectPhotos: boolean;
@@ -387,12 +410,16 @@ Return JSON only. No explanation outside the JSON.`;
           strict: true,
         },
         signal: context?.signal,
-        telemetryContext: {
-          operationId: '',
-          userId,
-          agentId: 'brand_coordinator',
-          feature: 'generate-graphic-intent-parser',
-        },
+        ...(context?.operationId
+          ? {
+              telemetryContext: {
+                operationId: context.operationId,
+                userId,
+                agentId: 'brand_coordinator',
+                feature: 'generate-graphic-intent-parser',
+              },
+            }
+          : {}),
       });
 
       const displayText = parsed.parsedOutput?.displayText ?? [];
@@ -521,8 +548,11 @@ Return JSON only. No explanation outside the JSON.`;
       userId,
     } = parsed.data;
 
-    const normalizedSubjectPhotoUrls = this.normalizeUrlList(subjectPhotoUrls, MAX_SUBJECT_PHOTOS);
-    const normalizedLogoUrls = this.normalizeUrlList(logoUrls, MAX_LOGOS);
+    const normalizedSubjectPhotoUrls = this.normalizeImageUrlList(
+      subjectPhotoUrls,
+      MAX_SUBJECT_PHOTOS
+    );
+    const normalizedLogoUrls = this.normalizeImageUrlList(logoUrls, MAX_LOGOS);
     const resolvedRequiredAssets = requiredAssets ?? { subjectPhoto: false, brandLogo: false };
     const validationWarnings: string[] = [];
     const missingAssetError = this.assertRequiredAssetsPresent({
@@ -620,12 +650,16 @@ Return JSON only. No explanation outside the JSON.`;
         additionalImageUrls,
         temperature: hasStrictSubject ? 0.15 : 0.55,
         signal: context?.signal,
-        telemetryContext: {
-          operationId: '',
-          userId,
-          agentId: 'brand_coordinator',
-          feature: hasStrictSubject ? 'generate-graphic-subject-locked' : 'generate-graphic',
-        },
+        ...(context?.operationId
+          ? {
+              telemetryContext: {
+                operationId: context.operationId,
+                userId,
+                agentId: 'brand_coordinator',
+                feature: hasStrictSubject ? 'generate-graphic-subject-locked' : 'generate-graphic',
+              },
+            }
+          : {}),
       });
 
       // ── Upload to Firebase Storage ─────────────────────────────────

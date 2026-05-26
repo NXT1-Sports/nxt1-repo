@@ -170,6 +170,8 @@ import { UsagePaymentHistoryComponent } from './usage-payment-history.component'
               Wallet is empty — add credits to keep Agent X running.
             } @else if (isLowBalance()) {
               Balance is low — add credits to keep Agent X running.
+            } @else if ((data()?.pendingHoldsCents ?? 0) > 0) {
+              {{ pendingHoldsDisplay() }} is reserved for in-flight requests.
             } @else {
               Pre-paid credits for Agent X operations.
             }
@@ -480,16 +482,26 @@ export class UsageOverviewComponent {
     formatPrice(this.data()?.currentMeteredUsage ?? 0)
   );
 
+  protected readonly availableWalletBalanceCents = computed(() => {
+    const walletBalance = this.data()?.walletBalanceCents ?? 0;
+    const pendingHolds = this.data()?.pendingHoldsCents ?? 0;
+    return Math.max(walletBalance - pendingHolds, 0);
+  });
+
   protected readonly walletBalance = computed(() =>
-    formatPrice(this.data()?.walletBalanceCents ?? 0)
+    formatPrice(this.availableWalletBalanceCents())
+  );
+
+  protected readonly pendingHoldsDisplay = computed(() =>
+    formatPrice(this.data()?.pendingHoldsCents ?? 0)
   );
 
   /** Wallet is completely empty */
-  protected readonly isWalletEmpty = computed(() => (this.data()?.walletBalanceCents ?? 0) === 0);
+  protected readonly isWalletEmpty = computed(() => this.availableWalletBalanceCents() === 0);
 
   /** Low balance warning — above $0 but below the backend-configured threshold */
   protected readonly isLowBalance = computed(() => {
-    const bal = this.data()?.walletBalanceCents ?? 0;
+    const bal = this.availableWalletBalanceCents();
     const threshold = this.data()?.lowBalanceThresholdCents ?? 200;
     return bal > 0 && bal < threshold;
   });

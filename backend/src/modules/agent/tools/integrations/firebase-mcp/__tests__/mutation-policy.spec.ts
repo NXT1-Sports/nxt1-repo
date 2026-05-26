@@ -85,8 +85,10 @@ describe('getMutationPolicy', () => {
       expect(p).toBeDefined();
       expect(p!.ownershipPath).toBe('__schedule_owner');
       expect(p!.softDelete).toBe(false);
+      expect(p!.allowedOperations).toContain('set');
       expect(p!.allowedPatchFields).toContain('opponent');
       expect(p!.allowedPatchFields).toContain('date');
+      expect(p!.allowedPatchFields).toContain('ownerType');
     });
 
     it('returns Calendar policy with __team_owner', () => {
@@ -119,10 +121,10 @@ describe('getMutationPolicy', () => {
       expect(p!.allowedPatchFields).toContain('number');
     });
 
-    it('returns Events policy with __team_owner', () => {
+    it('returns Events policy with __event_owner', () => {
       const p = getMutationPolicy('Events');
       expect(p).toBeDefined();
-      expect(p!.ownershipPath).toBe('__team_owner');
+      expect(p!.ownershipPath).toBe('__event_owner');
       expect(p!.allowedPatchFields).toContain('title');
     });
   });

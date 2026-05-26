@@ -32,9 +32,6 @@ import { ProfileService } from '../profile.service';
               This athlete hasn't recorded any metrics yet.
             }
           </p>
-          @if (profile.isOwnProfile()) {
-            <button type="button" class="madden-cta-btn" (click)="onAddStats()">Add Metrics</button>
-          }
         </div>
       } @else {
         @if (activeMetricCategory(); as cat) {
@@ -109,22 +106,8 @@ import { ProfileService } from '../profile.service';
       .madden-empty p {
         font-size: 14px;
         color: var(--m-text-2);
-        margin: 0 0 20px;
+        margin: 0;
         max-width: 280px;
-      }
-      .madden-cta-btn {
-        background: var(--m-accent);
-        color: #000;
-        border: none;
-        border-radius: 999px;
-        padding: 10px 24px;
-        font-size: 14px;
-        font-weight: 700;
-        cursor: pointer;
-        transition: filter 0.15s;
-      }
-      .madden-cta-btn:hover {
-        filter: brightness(1.1);
       }
 
       .madden-stat-group {
@@ -219,8 +202,4 @@ export class ProfileMetricsWebComponent {
     );
     return matched ?? cats[0] ?? null;
   });
-
-  protected onAddStats(): void {
-    // No-op — parent handles
-  }
 }

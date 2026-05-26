@@ -416,9 +416,9 @@ router.post(
       (existingData['thumbnailUrl'] as string | undefined) ??
       null;
     const mediaUrl =
+      finalized.playback.hlsUrl ??
       finalized.playback.iframeUrl ??
       (existingData['mediaUrl'] as string | undefined) ??
-      finalized.playback.hlsUrl ??
       null;
     const createdAt = existingSnapshot.exists
       ? ((existingData['createdAt'] as Timestamp | undefined) ?? Timestamp.now())

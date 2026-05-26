@@ -2955,8 +2955,41 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   ): readonly NonNullable<OperationMessage['attachments']>[number][] {
     const attachments = msg.attachments ?? [];
     if (msg.role !== 'assistant') return attachments;
-    // For assistant messages, only keep app-type chips (connected sources).
-    return attachments.filter((att) => att.type === 'app');
+
+    const normalized = [...attachments];
+    const videoIndexes = normalized
+      .map((attachment, index) => ({ attachment, index }))
+      .filter((entry) => entry.attachment.type === 'video')
+      .map((entry) => entry.index);
+
+    if (videoIndexes.length > 0) {
+      const lastVideoIndex = videoIndexes[videoIndexes.length - 1] ?? 0;
+      const lastVideo = normalized[lastVideoIndex];
+
+      const thumbnailCandidateIndex = normalized.findIndex(
+        (attachment, index) =>
+          index !== lastVideoIndex &&
+          attachment.type === 'image' &&
+          /thumb|thumbnail|preview[-_ ]?frame/i.test(attachment.name)
+      );
+
+      if (thumbnailCandidateIndex >= 0) {
+        const thumbnailAttachment = normalized[thumbnailCandidateIndex];
+        const lastVideoHasThumb =
+          typeof lastVideo.thumbnailUrl === 'string' && lastVideo.thumbnailUrl.trim().length > 0;
+
+        if (!lastVideoHasThumb) {
+          normalized[lastVideoIndex] = {
+            ...lastVideo,
+            thumbnailUrl: thumbnailAttachment.url,
+          };
+        }
+
+        normalized.splice(thumbnailCandidateIndex, 1);
+      }
+    }
+
+    return normalized;
   }
 
   protected hasBubbleProse(msg: OperationMessage): boolean {

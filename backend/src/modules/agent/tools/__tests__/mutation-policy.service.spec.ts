@@ -190,6 +190,37 @@ describe('AgentMutationPolicyService', () => {
     expect((deltaArg['metadata'] as Record<string, unknown>)?.['fallbackReason']).toBeTruthy();
   });
 
+  it('uses typed delta for write_core_identity when firstName/lastName are nested in identity', async () => {
+    const { AgentMutationPolicyService } = await import('../mutation-policy.service.js');
+    const service = new AgentMutationPolicyService();
+
+    await service.apply({
+      toolName: 'write_core_identity',
+      input: {
+        userId: 'user_1',
+        source: 'test_data',
+        profileUrl: 'https://example.com/profile/user_1',
+        targetSport: 'football',
+        identity: {
+          firstName: 'Jaylen',
+          lastName: 'Lowman',
+          school: 'Winter Springs High School',
+        },
+      },
+      context: {
+        userId: 'user_1',
+        operationId: 'op_identity_nested',
+      },
+    });
+
+    expect(safeTrack).toHaveBeenCalledOnce();
+    expect(recordDelta).toHaveBeenCalledOnce();
+    expect(storeDeltaMemories).toHaveBeenCalledOnce();
+
+    const deltaArg = recordDelta.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect((deltaArg['metadata'] as Record<string, unknown>)?.['generationType']).toBe('typed');
+  });
+
   it('dedupes repeated executions by execution key and step', async () => {
     const { AgentMutationPolicyService } = await import('../mutation-policy.service.js');
     const service = new AgentMutationPolicyService();

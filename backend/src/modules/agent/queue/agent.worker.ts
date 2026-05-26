@@ -176,6 +176,36 @@ function createAbortError(message: string): Error {
   return err;
 }
 
+interface InsufficientBalanceSnapshot {
+  readonly currentBalanceCents?: number;
+  readonly amountNeededCents?: number;
+}
+
+function parseDollarsToCents(input: string | undefined): number | undefined {
+  if (!input) return undefined;
+  const dollars = Number.parseFloat(input);
+  if (!Number.isFinite(dollars)) return undefined;
+  return Math.max(0, Math.round(dollars * 100));
+}
+
+function extractInsufficientBalanceSnapshot(message: string): InsufficientBalanceSnapshot | null {
+  if (!/insufficient/i.test(message) || !/balance/i.test(message)) {
+    return null;
+  }
+
+  const amountsMatch = message.match(
+    /\$([0-9]+(?:\.[0-9]{1,2})?)\s*<\s*\$([0-9]+(?:\.[0-9]{1,2})?)/
+  );
+  if (!amountsMatch) {
+    return {};
+  }
+
+  return {
+    currentBalanceCents: parseDollarsToCents(amountsMatch[1]),
+    amountNeededCents: parseDollarsToCents(amountsMatch[2]),
+  };
+}
+
 // ─── Approval card enrichment helpers ────────────────────────────────────────
 
 type GenericApprovalCategory =
@@ -1393,8 +1423,7 @@ export class AgentWorker {
     let iapHoldId: string | null = null;
     const billingCtxForHold = await getBillingState(billingDb, payload.userId);
     if (
-      (billingCtxForHold?.paymentProvider === 'iap' &&
-        billingCtxForHold.billingEntity === 'individual') ||
+      (billingCtxForHold?.billingEntity === 'individual' && billingCtxForHold?.hardStop) ||
       (billingCtxForHold?.billingEntity === 'organization' && billingCtxForHold?.hardStop)
     ) {
       const { chargeAmountCents: estimatedCents } = estimateChargeAmountSync(0.1);
@@ -1407,17 +1436,139 @@ export class AgentWorker {
       );
       if (holdResult.success && holdResult.holdId) {
         iapHoldId = holdResult.holdId;
-        logger.info('[billing] IAP hold created for job', {
+        logger.info('[billing] Wallet hold created for job', {
           holdId: iapHoldId,
           estimatedCents,
           userId: payload.userId,
           operationId: payload.operationId,
         });
       } else {
-        logger.warn('[billing] Failed to create IAP hold — job will proceed without hold', {
+        logger.warn('[billing] Failed to create wallet hold for hard-stop billing target', {
           userId: payload.userId,
           reason: holdResult.reason,
         });
+
+        const reason = (holdResult.reason ?? '').toLowerCase();
+        if (reason.includes('insufficient')) {
+          const billingGateMessage =
+            'You need more wallet credits to run this request. Open Usage to add funds and try again.';
+          const cardData: AgentXRichCard = {
+            type: 'billing-action',
+            agentId: 'router',
+            title: 'Add Funds to Continue',
+            payload: {
+              reason: 'insufficient_funds',
+              description: billingGateMessage,
+              ...(typeof holdResult.availableBalance === 'number'
+                ? { currentBalanceCents: holdResult.availableBalance }
+                : {}),
+              amountNeededCents: estimatedCents,
+            },
+          };
+
+          const operationEvent = this.streamEventToSSE(
+            {
+              type: 'operation',
+              operationId: payload.operationId,
+              threadId: payloadThreadId,
+              status: 'complete',
+              timestamp: new Date().toISOString(),
+            },
+            payload.operationId,
+            payloadThreadId
+          );
+          if (operationEvent) {
+            void this.pubsub.publish(
+              payload.operationId,
+              operationEvent.event,
+              operationEvent.data
+            );
+          }
+
+          const deltaEvent = this.streamEventToSSE(
+            { type: 'delta', agentId: 'router', text: billingGateMessage },
+            payload.operationId,
+            payloadThreadId
+          );
+          if (deltaEvent) {
+            void this.pubsub.publish(payload.operationId, deltaEvent.event, deltaEvent.data);
+          }
+
+          const cardEvent = this.streamEventToSSE(
+            { type: 'card', agentId: 'router', cardData },
+            payload.operationId,
+            payloadThreadId
+          );
+          if (cardEvent) {
+            void this.pubsub.publish(payload.operationId, cardEvent.event, cardEvent.data);
+          }
+
+          const doneEvent = this.streamEventToSSE(
+            {
+              type: 'done',
+              success: true,
+              message: billingGateMessage,
+              agentId: 'router',
+            },
+            payload.operationId,
+            payloadThreadId
+          );
+          if (doneEvent) {
+            void this.pubsub.publish(payload.operationId, doneEvent.event, doneEvent.data);
+          }
+
+          await job.updateProgress({
+            status: 'completed',
+            message: billingGateMessage,
+            agentId: 'router',
+            outcomeCode: 'billing_action_required',
+            metadata: {
+              reason: 'insufficient_funds',
+              holdRejectReason: holdResult.reason,
+            },
+            percent: 100,
+            currentStep: 1,
+            totalSteps: 1,
+            updatedAt: new Date().toISOString(),
+          });
+
+          await repo
+            .markCompleted(payload.operationId, {
+              summary: billingGateMessage,
+              data: {
+                blockedByBilling: true,
+                reason: 'insufficient_funds',
+                currentBalanceCents:
+                  typeof holdResult.availableBalance === 'number'
+                    ? holdResult.availableBalance
+                    : undefined,
+                amountNeededCents: estimatedCents,
+              },
+            })
+            .catch((err: unknown) => {
+              logger.warn('Failed to persist billing-gated completion to Firestore', {
+                operationId: payload.operationId,
+                error: err instanceof Error ? err.message : String(err),
+              });
+            });
+
+          return {
+            result: {
+              summary: billingGateMessage,
+              data: {
+                blockedByBilling: true,
+                reason: 'insufficient_funds',
+                currentBalanceCents:
+                  typeof holdResult.availableBalance === 'number'
+                    ? holdResult.availableBalance
+                    : undefined,
+                amountNeededCents: estimatedCents,
+              },
+            },
+            durationMs: Date.now() - startMs,
+            completedAt: new Date().toISOString(),
+          };
+        }
       }
     }
 
@@ -2082,6 +2233,7 @@ export class AgentWorker {
       }
 
       const message = handledError instanceof Error ? handledError.message : 'Agent pipeline error';
+      const insufficientBalanceSnapshot = extractInsufficientBalanceSnapshot(message);
       const errorCode = getAgentEngineErrorCode(handledError) ?? 'AGENT_PIPELINE_FAILED';
       const failedAgentId = isAgentIdentifier(payload.agent)
         ? payload.agent
@@ -2102,6 +2254,35 @@ export class AgentWorker {
       });
 
       // Write terminal 'done' event with error so frontend's Firestore listener knows to stop
+      if (insufficientBalanceSnapshot) {
+        const insufficientMessage =
+          'You need more wallet credits to run this request. Open Usage to add funds and try again.';
+        eventWriter.emit({
+          type: 'delta',
+          agentId: failedAgentId ?? 'router',
+          text: insufficientMessage,
+        });
+        eventWriter.emit({
+          type: 'card',
+          agentId: failedAgentId ?? 'router',
+          cardData: {
+            type: 'billing-action',
+            agentId: failedAgentId ?? 'router',
+            title: 'Add Funds to Continue',
+            payload: {
+              reason: 'insufficient_funds',
+              description: insufficientMessage,
+              ...(insufficientBalanceSnapshot.currentBalanceCents !== undefined
+                ? { currentBalanceCents: insufficientBalanceSnapshot.currentBalanceCents }
+                : {}),
+              ...(insufficientBalanceSnapshot.amountNeededCents !== undefined
+                ? { amountNeededCents: insufficientBalanceSnapshot.amountNeededCents }
+                : {}),
+            },
+          },
+        });
+      }
+
       eventWriter.emit({
         type: 'operation',
         operationId: payload.operationId,
@@ -2755,24 +2936,9 @@ export class AgentWorker {
             (attachment) => `- [${attachment.name || 'Download file'}](${attachment.url.trim()})`
           );
 
-        // Ensure generated media is always renderable even when the streamed
-        // prose contains wrapped/truncated storage URLs from model formatting.
-        const missingMediaLinks = attachmentsFromResultData
-          .filter((attachment) => attachment.type === 'image' || attachment.type === 'video')
-          .filter((attachment) => {
-            const url = attachment.url?.trim();
-            return !!url && !baseAssistantContent.includes(url);
-          })
-          .map((attachment) => {
-            const url = attachment.url.trim();
-            return attachment.type === 'image'
-              ? `![${attachment.name || 'Generated image'}](${url})`
-              : `[${attachment.name || 'View video'}](${url})`;
-          });
-
         const persistedAssistantContentForStorage =
-          missingDocLinks.length > 0 || missingMediaLinks.length > 0
-            ? `${baseAssistantContent}${missingMediaLinks.length > 0 ? `\n\n${missingMediaLinks.join('\n')}` : ''}${missingDocLinks.length > 0 ? `\n\nDownload:\n${missingDocLinks.join('\n')}` : ''}`
+          missingDocLinks.length > 0
+            ? `${baseAssistantContent}${missingDocLinks.length > 0 ? `\n\nDownload:\n${missingDocLinks.join('\n')}` : ''}`
             : baseAssistantContent;
 
         const addMessageParams = {
