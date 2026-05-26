@@ -276,13 +276,21 @@ export class AgentXOperationChatYieldFacade {
   }
 
   yieldOperationId(): string {
-    const host = this.requireHost();
+    const host = this.host;
+    if (!host) {
+      this.logger.debug('Yield operation id requested before configure');
+      return '';
+    }
     const activeYield = host.activeYieldState();
     return this.resolveYieldOperationId(activeYield ?? undefined) ?? host.contextId();
   }
 
   resolveYieldOperationId(yieldState?: AgentYieldState | null): string | undefined {
-    const host = this.requireHost();
+    const host = this.host;
+    if (!host) {
+      this.logger.debug('Yield operation id resolution requested before configure');
+      return undefined;
+    }
     const toolInputOperationId =
       yieldState?.pendingToolCall?.toolInput &&
       typeof yieldState.pendingToolCall.toolInput['operationId'] === 'string'

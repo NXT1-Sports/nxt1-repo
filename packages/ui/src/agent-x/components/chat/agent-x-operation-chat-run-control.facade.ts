@@ -1,6 +1,4 @@
 import { Injectable, inject, type WritableSignal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { firstValueFrom } from 'rxjs';
 import type { AgentYieldState } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type {
@@ -90,7 +88,6 @@ export interface AgentXOperationChatRunControlFacadeHost {
 
 @Injectable({ providedIn: 'root' })
 export class AgentXOperationChatRunControlFacade {
-  private readonly http = inject(HttpClient);
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
   private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
   private readonly jobService = inject(AgentXJobService);
@@ -177,7 +174,7 @@ export class AgentXOperationChatRunControlFacade {
       (host.contextType() === 'operation' ? host.contextId() : null);
     if (currentOperationId) {
       pausedOperationId = currentOperationId;
-      this.firePauseRequest(currentOperationId);
+      void this.firePauseRequest(currentOperationId);
     }
 
     this.transitionInFlightMessages('Paused');
@@ -242,7 +239,7 @@ export class AgentXOperationChatRunControlFacade {
       (host.contextType() === 'operation' ? host.contextId() : null);
     if (currentOperationId) {
       host.setCurrentOperationId(null);
-      this.fireCancelRequest(currentOperationId);
+      void this.fireCancelRequest(currentOperationId);
     }
 
     this.transitionInFlightMessages('Cancelled');
@@ -301,7 +298,7 @@ export class AgentXOperationChatRunControlFacade {
       this.breadcrumb.trackUserAction('send-after-paused-stream', {
         operationId: previousOperationId,
       });
-      this.fireCancelRequest(previousOperationId);
+      void this.fireCancelRequest(previousOperationId);
       host.setCurrentOperationId(null);
       host.activeYieldState.set(null);
       host.yieldResolved.set(true);
@@ -336,7 +333,7 @@ export class AgentXOperationChatRunControlFacade {
         operationId: pausedOperationId,
       });
 
-      this.fireCancelRequest(pausedOperationId);
+      void this.fireCancelRequest(pausedOperationId);
       host.setCurrentOperationId(null);
       host.activeYieldState.set(null);
       host.yieldResolved.set(true);
@@ -649,42 +646,73 @@ export class AgentXOperationChatRunControlFacade {
     );
   }
 
-  private fireCancelRequest(operationId: string): void {
+  /**
+   * Sends the explicit cancel request to the backend.
+   *
+   * Uses `keepalive: true` for the same reason as {@link firePauseRequest} —
+   * cancel is typically followed by user navigation, and we must guarantee
+   * the request reaches the backend so Firestore is updated to `cancelled`.
+   */
+  private async fireCancelRequest(operationId: string): Promise<void> {
     const url = `${this.baseUrl}/agent-x/cancel/${operationId}`;
-    this.getAuthToken?.()
-      .then((token) => {
-        if (!token) {
-          return;
-        }
-        return firstValueFrom(
-          this.http.post(url, {}, { headers: { Authorization: `Bearer ${token}` } })
-        );
-      })
-      .catch((error) => {
-        this.logger.debug('Explicit cancel request failed (non-critical)', {
-          operationId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+    try {
+      const token = await this.getAuthToken?.();
+      if (!token) {
+        return;
+      }
+      await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: '{}',
+        keepalive: true,
       });
+    } catch (error) {
+      this.logger.debug('Explicit cancel request failed (non-critical)', {
+        operationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
-  private firePauseRequest(operationId: string): void {
+  /**
+   * Sends the explicit pause request to the backend.
+   *
+   * Uses native `fetch` with `keepalive: true` so the request is guaranteed to
+   * be delivered by the browser even if the user immediately refreshes or
+   * navigates away after clicking pause. This is critical because pause is
+   * usually followed by user action — without `keepalive`, the browser kills
+   * the in-flight XHR/fetch on navigation and Firestore never receives the
+   * `paused` status update, causing the operation to incorrectly appear as
+   * `in-progress` after refresh.
+   *
+   * Returns a promise so callers can optionally await backend confirmation,
+   * but errors are logged and swallowed — local UI already reflects paused.
+   */
+  private async firePauseRequest(operationId: string): Promise<void> {
     const url = `${this.baseUrl}/agent-x/pause/${operationId}`;
-    this.getAuthToken?.()
-      .then((token) => {
-        if (!token) {
-          return;
-        }
-        return firstValueFrom(
-          this.http.post(url, {}, { headers: { Authorization: `Bearer ${token}` } })
-        );
-      })
-      .catch((error) => {
-        this.logger.debug('Explicit pause request failed (non-critical)', {
-          operationId,
-          error: error instanceof Error ? error.message : String(error),
-        });
+    try {
+      const token = await this.getAuthToken?.();
+      if (!token) {
+        return;
+      }
+      await fetch(url, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: '{}',
+        keepalive: true,
       });
+    } catch (error) {
+      this.logger.debug('Explicit pause request failed (non-critical)', {
+        operationId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private createChatIdempotencyKey(): string {

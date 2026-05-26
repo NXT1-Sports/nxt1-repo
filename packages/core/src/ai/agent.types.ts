@@ -404,7 +404,11 @@ export interface AgentSessionContext {
     readonly url: string;
     readonly mimeType: string;
     readonly name: string;
+    readonly storagePath?: string;
     readonly cloudflareVideoId?: string;
+    readonly cloudflareStatus?: string;
+    readonly readyToStream?: boolean;
+    readonly thumbnailUrl?: string;
   }[];
   /**
    * Abort signal propagated from the SSE connection.
@@ -1105,6 +1109,7 @@ export interface AgentUserContext {
 
   // ── Team Context (from active sport) ──────────────────────────
   readonly teamId?: string;
+  readonly teamCode?: string;
   readonly organizationId?: string;
 
   // ── Goal & Playbook Context ────────────────────────────────────

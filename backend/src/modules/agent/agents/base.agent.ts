@@ -825,8 +825,17 @@ export abstract class BaseAgent {
     if (context.videoAttachments?.length) {
       const videoRefs = context.videoAttachments
         .map((v) => {
-          const idPart = v.cloudflareVideoId ? ` | cloudflareVideoId: ${v.cloudflareVideoId}` : '';
-          return `[Attached video: ${v.name} — ${v.url}${idPart}]`;
+          const metadata = [
+            v.storagePath ? `storagePath: ${v.storagePath}` : null,
+            v.cloudflareVideoId ? `cloudflareVideoId: ${v.cloudflareVideoId}` : null,
+            v.cloudflareStatus ? `cloudflareStatus: ${v.cloudflareStatus}` : null,
+            typeof v.readyToStream === 'boolean'
+              ? `readyToStream: ${String(v.readyToStream)}`
+              : null,
+            v.thumbnailUrl ? `thumbnailUrl: ${v.thumbnailUrl}` : null,
+          ].filter((part): part is string => typeof part === 'string');
+          const metadataPart = metadata.length > 0 ? ` | ${metadata.join(' | ')}` : '';
+          return `[Attached video: ${v.name} — ${v.url}${metadataPart}]`;
         })
         .join('\n');
       intentText = `${intent}\n\n${videoRefs}`;
@@ -836,6 +845,18 @@ export abstract class BaseAgent {
     const imageAttachments = (context.attachments ?? []).filter((a) =>
       a.mimeType.startsWith('image/')
     );
+
+    if (imageAttachments.length > 0) {
+      const imageRefs = imageAttachments
+        .map((attachment, index) => {
+          const name = attachment.name?.trim() || `image-${index + 1}`;
+          const annotatedFlag = /-annotated-/i.test(name) ? ' | annotatedFrame: true' : '';
+          return `[Attached image: ${name} — ${attachment.url} | mimeType: ${attachment.mimeType}${annotatedFlag}]`;
+        })
+        .join('\n');
+      intentText = `${intentText}\n\n${imageRefs}\nUse attached image URLs when calling image-analysis tools.`;
+    }
+
     const imageAttachmentUrls = await this.resolveImageAttachmentUrls(
       imageAttachments,
       context.signal
@@ -2831,15 +2852,16 @@ export abstract class BaseAgent {
         }
       }
 
+      const sanitized = candidate.replace(/,\s*$/u, '').trimEnd();
       if (inString) {
-        return null;
+        const closeString = escaped ? '\\\\"' : '"';
+        return `${sanitized}${closeString}${stack.reverse().join('')}`;
       }
 
       if (stack.length === 0) {
         return candidate;
       }
 
-      const sanitized = candidate.replace(/,\s*$/u, '').trimEnd();
       return `${sanitized}${stack.reverse().join('')}`;
     };
 
@@ -3776,7 +3798,11 @@ export abstract class BaseAgent {
     type MediaCandidate = {
       name: string;
       url: string;
+      storagePath?: string;
       cloudflareVideoId?: string;
+      cloudflareStatus?: string;
+      readyToStream?: boolean;
+      thumbnailUrl?: string;
       type: 'video' | 'file';
     };
     const candidates: MediaCandidate[] = [];
@@ -3812,13 +3838,36 @@ export abstract class BaseAgent {
           .replace(/\s*\([^)]+\)\s*$/, '');
         const rest = raw.slice(dashIdx + 3).trim();
 
-        const pipeIdx = rest.indexOf(' | cloudflareVideoId: ');
-        const url = (pipeIdx !== -1 ? rest.slice(0, pipeIdx) : rest).trim();
-        const cloudflareVideoId =
-          pipeIdx !== -1 ? rest.slice(pipeIdx + ' | cloudflareVideoId: '.length).trim() : undefined;
+        const [urlPart, ...metadataParts] = rest.split(' | ');
+        const url = urlPart.trim();
+        const metadata = new Map<string, string>();
+        for (const metadataPart of metadataParts) {
+          const separatorIdx = metadataPart.indexOf(': ');
+          if (separatorIdx === -1) continue;
+          metadata.set(
+            metadataPart.slice(0, separatorIdx).trim(),
+            metadataPart.slice(separatorIdx + 2).trim()
+          );
+        }
+        const storagePath = metadata.get('storagePath');
+        const cloudflareVideoId = metadata.get('cloudflareVideoId');
+        const cloudflareStatus = metadata.get('cloudflareStatus');
+        const readyToStreamValue = metadata.get('readyToStream');
+        const readyToStream =
+          readyToStreamValue === 'true' ? true : readyToStreamValue === 'false' ? false : undefined;
+        const thumbnailUrl = metadata.get('thumbnailUrl');
 
         if (url) {
-          candidates.push({ name, url, cloudflareVideoId, type: attachType });
+          candidates.push({
+            name,
+            url,
+            ...(storagePath ? { storagePath } : {}),
+            ...(cloudflareVideoId ? { cloudflareVideoId } : {}),
+            ...(cloudflareStatus ? { cloudflareStatus } : {}),
+            ...(readyToStream !== undefined ? { readyToStream } : {}),
+            ...(thumbnailUrl ? { thumbnailUrl } : {}),
+            type: attachType,
+          });
         }
       }
     }
@@ -3835,9 +3884,16 @@ export abstract class BaseAgent {
       'vision analysis for images). Do NOT ask the user to re-upload.',
       '',
       ...recent.map((c, idx) => {
-        const idNote = c.cloudflareVideoId ? ` | cloudflareVideoId: ${c.cloudflareVideoId}` : '';
+        const metadata = [
+          c.storagePath ? `storagePath: ${c.storagePath}` : null,
+          c.cloudflareVideoId ? `cloudflareVideoId: ${c.cloudflareVideoId}` : null,
+          c.cloudflareStatus ? `cloudflareStatus: ${c.cloudflareStatus}` : null,
+          typeof c.readyToStream === 'boolean' ? `readyToStream: ${String(c.readyToStream)}` : null,
+          c.thumbnailUrl ? `thumbnailUrl: ${c.thumbnailUrl}` : null,
+        ].filter((part): part is string => typeof part === 'string');
+        const metadataNote = metadata.length > 0 ? ` | ${metadata.join(' | ')}` : '';
         const typeLabel = c.type === 'video' ? '[Video]' : '[File]';
-        return `${idx + 1}. ${typeLabel} "${c.name}" — ${c.url}${idNote}`;
+        return `${idx + 1}. ${typeLabel} "${c.name}" — ${c.url}${metadataNote}`;
       }),
     ];
 
@@ -3892,10 +3948,8 @@ export abstract class BaseAgent {
       return toolCall;
     }
 
-    let input: Record<string, unknown>;
-    try {
-      input = JSON.parse(toolCall.function.arguments) as Record<string, unknown>;
-    } catch {
+    const input = this.parseToolCallInput(toolCall.function.arguments);
+    if (!input) {
       return toolCall;
     }
 

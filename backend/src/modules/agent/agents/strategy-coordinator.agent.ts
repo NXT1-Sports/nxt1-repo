@@ -290,8 +290,8 @@ export class StrategyCoordinatorAgent extends BaseAgent {
       '- When selected context metadata indicates `annotationSnapshotAttached: true`, `hasDrawing: true`, or the user says they circled/marked a player, execute a strict two-step sequence.',
       '- Step 1: `analyze_image` on the annotated snapshot to identify the marked player/zone and exact frame location.',
       '- Step 2: `analyze_video` on the same play clip (`timeRange` + `cloudflareVideoId` when available), using the image findings as the focus target for movement/assignment evaluation.',
-      '- If no annotated snapshot image is present but drawing metadata/bounds are present, do not block. Run bounded `analyze_video` using annotation bounds + timeRange and complete the breakdown.',
-      '- Ask for a re-upload only if the marked subject still cannot be resolved after bounded video analysis.',
+      '- If no annotated snapshot image is present but drawing metadata/bounds are present, do not block and do not go straight to `analyze_video`. First generate a still frame with `ffmpeg_generate_thumbnail` at currentTimeSec/marked-frame timestamp when available, otherwise at the timeRange midpoint. Pass annotation `cropBounds` so the tool returns a cropped selected-area image, then call `analyze_image` on that crop before video motion analysis.',
+      '- Ask for a re-upload only if the marked subject still cannot be resolved after thumbnail/image grounding.',
       modeHint,
     ]
       .filter(Boolean)

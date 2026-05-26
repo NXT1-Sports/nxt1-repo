@@ -7,7 +7,7 @@ import type { AgentQueueService } from '../queue/queue.service.js';
 import {
   isAgentJobResolutionEmailEnabled,
   sendAgentJobResolutionEmail,
-} from '../../../services/communications/agent-job-resolution-email.service.js';
+} from '../../../services/communications/agent-jobs/email/agent-job-resolution-email.service.js';
 
 export type AgentJobAutoResolveType =
   | 'openrouter_insufficient_credits'

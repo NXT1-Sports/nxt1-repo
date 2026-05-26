@@ -245,16 +245,26 @@ export class AgentXJobService {
         // Open a lightweight Firestore subscription so the backend's LLM-generated
         // title_updated event is received in real-time. processEvent() internally
         // calls emitTitleUpdated() for 'title_updated' events — no extra callback
-        // wiring needed. Delta/step/card events are ignored (no-op callbacks) so
-        // the UI doesn't stream partial content for background jobs. The subscription
-        // self-destructs when the job's 'done' event fires (processEvent unsubscribes
-        // automatically), so no manual cleanup is required.
+        // wiring needed. Forward step/done/error into ProfileGenerationStateService
+        // so /profile can invalidate transport cache and reload immediately when
+        // background Agent X writes finish. The subscription self-destructs when
+        // the job's 'done' event fires (processEvent unsubscribes automatically),
+        // so no manual cleanup is required.
         const enqueueOperationId = response.data.operationId;
         this.operationEventService.subscribe(enqueueOperationId, {
           onDelta: () => undefined,
-          onStep: () => undefined,
-          onDone: () => undefined,
+          onStep: (step) => {
+            this.profileGeneration.receiveStep(enqueueOperationId, step);
+          },
+          onDone: (event) => {
+            this.profileGeneration.receiveJobDone(
+              enqueueOperationId,
+              event.success ?? false,
+              event.error
+            );
+          },
           onError: (msg) => {
+            this.profileGeneration.receiveJobDone(enqueueOperationId, false, msg);
             this.logger.warn('Firestore title-watch error for enqueued job', {
               operationId: enqueueOperationId,
               msg,

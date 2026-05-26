@@ -202,6 +202,70 @@ export function normalizeVideoUrl(src: string): string {
   return normalized;
 }
 
+// ─── Video Thumbnail Image Detection ───────────────────────────────────────
+
+const VIDEO_THUMBNAIL_HOST_PATTERNS = [
+  /(?:^|\.)img\.youtube\.com$/i,
+  /(?:^|\.)i\.ytimg\.com$/i,
+  /(?:^|\.)videodelivery\.net$/i,
+  /(?:^|\.)cloudflarestream\.com$/i,
+];
+
+const VIDEO_THUMBNAIL_PATH_PATTERNS = [
+  /\/vi\/[a-zA-Z0-9_-]{6,}\//i,
+  /\/thumbnails?\//i,
+  /\/(?:thumb|thumbnail|poster|preview)[-_./]/i,
+  /[-_.](?:thumb|thumbnail|poster|preview)[-_.]/i,
+];
+
+const VIDEO_CONTEXT_PATTERN = /\b(video|videos|highlight|highlights|clip|clips|reel|film)\b/i;
+const THUMBNAIL_CONTEXT_PATTERN = /\b(thumbnail|thumb|poster|cover|preview)\b/i;
+
+/**
+ * Detect image URLs that are likely poster/thumbnail frames for a video.
+ * These should stay attached to video posts, not become standalone image posts.
+ */
+export function isLikelyVideoThumbnailImage(
+  url: string,
+  metadata: {
+    readonly alt?: string;
+    readonly caption?: string;
+    readonly sourceUrl?: string;
+  } = {}
+): boolean {
+  const trimmedUrl = url.trim();
+  if (!trimmedUrl) return false;
+
+  let parsed: URL | null;
+  try {
+    parsed = new URL(trimmedUrl);
+  } catch {
+    parsed = null;
+  }
+
+  const hostname = parsed?.hostname.toLowerCase() ?? '';
+  const pathAndQuery = parsed
+    ? `${decodeURIComponent(parsed.pathname)}?${parsed.searchParams.toString()}`.toLowerCase()
+    : trimmedUrl.toLowerCase();
+
+  if (
+    VIDEO_THUMBNAIL_HOST_PATTERNS.some((pattern) => pattern.test(hostname)) &&
+    VIDEO_THUMBNAIL_PATH_PATTERNS.some((pattern) => pattern.test(pathAndQuery))
+  ) {
+    return true;
+  }
+
+  const urlLooksLikeVideoPreview =
+    VIDEO_CONTEXT_PATTERN.test(pathAndQuery) && THUMBNAIL_CONTEXT_PATTERN.test(pathAndQuery);
+  if (urlLooksLikeVideoPreview) return true;
+
+  const metadataText = [metadata.alt, metadata.caption, metadata.sourceUrl]
+    .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+    .join(' ');
+
+  return VIDEO_CONTEXT_PATTERN.test(metadataText) && THUMBNAIL_CONTEXT_PATTERN.test(metadataText);
+}
+
 // ─── Person Name Normalization (Roster) ─────────────────────────────────────
 
 /**

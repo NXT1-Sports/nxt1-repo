@@ -369,6 +369,23 @@ export interface UpdateNotificationSettingsRequest {
     endHour: number;
     timezone: string;
   };
+  cadenceCaps?: {
+    maxPushesPerDay?: number;
+    minIntervalMinutes?: number;
+    maxMarketingPushesPerDay?: number;
+  };
+}
+
+export interface NotificationCampaignMetadata {
+  readonly key: string;
+  readonly segment?: string;
+  readonly variant?: string;
+}
+
+export interface NotificationDeliveryPolicy {
+  readonly respectQuietHours?: boolean;
+  readonly respectCadenceCap?: boolean;
+  readonly treatAsMarketing?: boolean;
 }
 
 // ============================================
@@ -435,4 +452,10 @@ export interface DispatchNotificationInput {
    * repeated calls with the same logical event.
    */
   readonly idempotencyKey?: string;
+
+  /** Optional campaign metadata for lifecycle or marketing-driven pushes. */
+  readonly campaign?: NotificationCampaignMetadata;
+
+  /** Optional delivery guard hints honored by the push delivery pipeline. */
+  readonly deliveryPolicy?: NotificationDeliveryPolicy;
 }

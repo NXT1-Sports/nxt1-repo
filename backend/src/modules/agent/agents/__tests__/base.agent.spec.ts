@@ -68,6 +68,29 @@ class FakeDynamicExportTool extends BaseTool {
   }
 }
 
+class FakeGenerateThumbnailTool extends BaseTool {
+  readonly name = 'ffmpeg_generate_thumbnail';
+  readonly description = 'Extracts a still frame from a video.';
+  readonly parameters = z.object({
+    inputPath: z.string().min(1),
+    time: z.string().optional(),
+  });
+  readonly isMutation = false;
+  readonly category = 'media' as const;
+  readonly entityGroup = 'user_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        imageUrl: 'https://cdn.example.com/generated-frame.jpg',
+        inputPath: input['inputPath'],
+      },
+    };
+  }
+}
+
 class FakeAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'strategy_coordinator';
   readonly name: string = 'Fake Agent';
@@ -1001,6 +1024,41 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
+  it('repairs truncated signed URL string arguments before execution', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeGenerateThumbnailTool());
+
+    const signedUrl =
+      'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/user/uploads/video.MOV?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=' +
+      '9b8a5d6c8e7f3a2b1d0c'.repeat(80);
+    const malformedArgs = `{"inputPath":"${signedUrl}`;
+
+    const result = await agent.callExecuteTool(
+      {
+        id: 'thumbnail_1',
+        type: 'function',
+        function: {
+          name: 'ffmpeg_generate_thumbnail',
+          arguments: malformedArgs,
+        },
+      },
+      registry,
+      'viewer-1',
+      { allowedToolNames: ['ffmpeg_generate_thumbnail'] }
+    );
+
+    expect(JSON.parse(result)).toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({
+          imageUrl: 'https://cdn.example.com/generated-frame.jpg',
+          inputPath: signedUrl,
+        }),
+      })
+    );
+  });
+
   it('prefers draft team post copy over raw team identifiers in tool step labels', () => {
     const agent = new FakeAgent();
     const teamId = 'mC3D9qg5d9amvcO0otvi';
@@ -1530,6 +1588,7 @@ describe('BaseAgent identifier scrubbing', () => {
           url: 'https://video.example/clip.mp4',
           mimeType: 'video/mp4',
           name: 'clip.mp4',
+          storagePath: 'Users/user-123/uploads/clip.mp4',
           cloudflareVideoId: 'cf-video-123',
         },
       ],
@@ -1565,7 +1624,7 @@ describe('BaseAgent identifier scrubbing', () => {
 
     // Text body includes video reference but NOT extracted PDF content
     expect(textBody).toContain(
-      '[Attached video: clip.mp4 — https://video.example/clip.mp4 | cloudflareVideoId: cf-video-123]'
+      '[Attached video: clip.mp4 — https://video.example/clip.mp4 | storagePath: Users/user-123/uploads/clip.mp4 | cloudflareVideoId: cf-video-123]'
     );
 
     // Ensure extracted PDF content is NOT in the text (native path only)
@@ -1698,10 +1757,18 @@ describe('BaseAgent identifier scrubbing', () => {
     }>;
     const userMessage = completeMessages.find((message) => message.role === 'user');
     const contentParts = userMessage?.content as Array<Record<string, unknown>>;
+    const textPart = contentParts.find((part) => part['type'] === 'text') as
+      | { text?: string }
+      | undefined;
     const imagePart = contentParts.find((part) => part['type'] === 'image_url');
     const imagePayload = imagePart?.['image_url'] as { url?: string } | undefined;
 
     expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(1);
+    expect(textPart?.text).toContain('[Attached image: image-1');
+    expect(textPart?.text).toContain(
+      'https://storage.googleapis.com/bucket/path/image.png?X-Goog-Algorithm=GOOG4-RSA-SHA256'
+    );
+    expect(textPart?.text).toContain('Use attached image URLs when calling image-analysis tools.');
     expect(imagePayload?.url).toBe('data:image/png;base64,AQIDBA==');
   });
 

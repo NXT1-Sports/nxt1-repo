@@ -22,6 +22,7 @@ import type {
   AgentTask,
   AgentTaskStatus,
   AgentToolAccessContext,
+  AgentUserContext,
 } from '@nxt1/core';
 import type { BaseAgent } from '../agents/base.agent.js';
 import type {
@@ -46,6 +47,7 @@ interface PrimaryServiceOptions {
   readonly planner: PlannerAgent;
   readonly agents: ReadonlyMap<AgentIdentifier, BaseAgent>;
   readonly resolveToolAccessContext: (userId: string) => Promise<AgentToolAccessContext>;
+  readonly resolveUserContext?: (userId: string) => Promise<AgentUserContext>;
   readonly planRepository: AgentPlanRepository;
 }
 
@@ -75,11 +77,16 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
         ctx.onStreamEvent?.(event);
       });
 
+    const enrichedStructuredPayload = await this.enrichCoordinatorStructuredPayload(
+      ctx.userId,
+      structuredPayload
+    );
+
     const task: AgentTask = {
       id: `${coordinatorId}_${Date.now()}`,
       assignedAgent: coordinatorId,
       description: goal,
-      ...(structuredPayload ? { structuredPayload } : {}),
+      ...(enrichedStructuredPayload ? { structuredPayload: enrichedStructuredPayload } : {}),
       dependsOn: [],
       status: 'pending',
       createdAt: new Date().toISOString(),
@@ -436,6 +443,52 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
     }
   }
 
+  private async enrichCoordinatorStructuredPayload(
+    userId: string,
+    structuredPayload?: Record<string, unknown>
+  ): Promise<Record<string, unknown> | undefined> {
+    const explicitTeamId = readString(structuredPayload?.['teamId']);
+    const explicitTeamCode = readString(structuredPayload?.['teamCode']);
+
+    if (!this.opts.resolveUserContext) {
+      return structuredPayload;
+    }
+
+    let userContext: AgentUserContext;
+    try {
+      userContext = await this.opts.resolveUserContext(userId);
+    } catch (err) {
+      logger.warn('[PrimaryService] Failed to resolve user context for coordinator handoff', {
+        userId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return structuredPayload;
+    }
+
+    const normalizedRole = userContext.role.trim().toLowerCase();
+    const shouldAttachTeamContext =
+      Boolean(explicitTeamId || explicitTeamCode) ||
+      normalizedRole === 'coach' ||
+      normalizedRole === 'director';
+
+    if (!shouldAttachTeamContext) {
+      return structuredPayload;
+    }
+
+    const fallbackTeamId = explicitTeamId ?? readString(userContext.teamId);
+    const fallbackTeamCode = explicitTeamCode ?? resolveActiveTeamCode(userContext);
+
+    if (!fallbackTeamId && !fallbackTeamCode) {
+      return structuredPayload;
+    }
+
+    return {
+      ...(structuredPayload ?? {}),
+      ...(explicitTeamId ? {} : fallbackTeamId ? { teamId: fallbackTeamId } : {}),
+      ...(explicitTeamCode ? {} : fallbackTeamCode ? { teamCode: fallbackTeamCode } : {}),
+    };
+  }
+
   private emitPlanReviewCard(
     ctx: PrimaryDispatchContext,
     summary: string,
@@ -532,4 +585,23 @@ function formatDispatchResult(payload: {
     streamedCharCount,
     ...(Object.keys(coordinatorArtifacts).length > 0 ? { coordinatorArtifacts } : {}),
   };
+}
+
+function readString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined;
+}
+
+function resolveActiveTeamCode(userContext: AgentUserContext): string | undefined {
+  if (readString(userContext.teamCode)) {
+    return userContext.teamCode;
+  }
+
+  if (userContext.teamPath && Array.isArray(userContext.teamPaths)) {
+    const pathMatch = userContext.teamPaths.find((entry) => entry.path === userContext.teamPath);
+    if (pathMatch?.teamCode) {
+      return pathMatch.teamCode;
+    }
+  }
+
+  return userContext.teamPaths?.[0]?.teamCode;
 }

@@ -26,6 +26,7 @@ import { CACHE_KEYS as USER_CACHE_KEYS } from '../../../../../services/profile/u
 import { invalidateProfileCaches } from '../../../../../routes/profile/shared.js';
 import { logger } from '../../../../../utils/logger.js';
 import { resolveCreatedAt } from '../doc-date-utils.js';
+import { isLikelyVideoThumbnailImage } from '../dedup-utils.js';
 import { ScraperMediaService } from '../../integrations/social/scraper-media.service.js';
 import { AgentMediaLifecycleService } from '../../media/agent-media-lifecycle.service.js';
 import { PostVisibility } from '@nxt1/core';
@@ -166,6 +167,7 @@ export class WriteAthleteImagesTool extends BaseTool {
     '- ONLY write images where the athlete is the subject OR images that directly document their achievement.\n' +
     '- NEVER write school logos, college logos, conference logos, or organization brand marks.\n' +
     '- NEVER write stadium exteriors, court/field graphics, or generic sport imagery.\n' +
+    '- NEVER write video thumbnails, poster frames, cover frames, or preview images as image posts; attach those only as `poster`/`thumbnailUrl` on `write_athlete_videos`.\n' +
     '- Award/achievement graphics (e.g. All-State, All-Conference, Player of the Year):\n' +
     '  → ALLOWED but MUST include a caption explaining the achievement\n' +
     '  → Example caption: "Named to 2025-26 NC Basketball All-State First Team"\n' +
@@ -312,6 +314,23 @@ export class WriteAthleteImagesTool extends BaseTool {
           continue;
         }
 
+        const kind: ImageKind = IMAGE_KIND_VALUES.includes(imageObj['kind'] as ImageKind)
+          ? (imageObj['kind'] as ImageKind)
+          : 'unknown';
+        const alt = typeof imageObj['alt'] === 'string' ? imageObj['alt'] : undefined;
+        const caption = typeof imageObj['caption'] === 'string' ? imageObj['caption'] : undefined;
+
+        if (isLikelyVideoThumbnailImage(url, { alt, caption, sourceUrl: itemSourceUrl })) {
+          skipped++;
+          logger.info('[WriteAthleteImages] Skipped video thumbnail image candidate', {
+            userId,
+            kind,
+            source,
+            sourceUrl: itemSourceUrl,
+          });
+          continue;
+        }
+
         const docRef = this.db.collection(POSTS_COLLECTION).doc();
         const destinationPrefix = `Users/${userId}/posts/${docRef.id}`;
         const promoted = await ScraperMediaService.promoteMedia(
@@ -341,12 +360,6 @@ export class WriteAthleteImagesTool extends BaseTool {
           continue;
         }
         existingKeys.add(normalizedUrl);
-
-        const kind: ImageKind = IMAGE_KIND_VALUES.includes(imageObj['kind'] as ImageKind)
-          ? (imageObj['kind'] as ImageKind)
-          : 'unknown';
-        const alt = typeof imageObj['alt'] === 'string' ? imageObj['alt'] : undefined;
-        const caption = typeof imageObj['caption'] === 'string' ? imageObj['caption'] : undefined;
 
         // Quality gate — reject low-value / context-free images before writing
         const qualityCheck = passesQualityGate(kind, alt, caption);

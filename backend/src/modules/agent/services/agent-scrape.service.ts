@@ -58,6 +58,14 @@ export function setScrapeDependencies(deps: {
   llmService = deps.llmService;
 }
 
+export function buildLinkedAccountScrapeObjective(role: UserRole): string {
+  if (role === 'coach' || role === 'director') {
+    return 'Collect and add or update all relevant team fields now (identity, schedule, roster context, achievements, recent news, and recruiting records for identifiable prospects). Never invent or fabricate roster players; if source roster data is empty, skip roster writes and report that explicitly. When a recruiting mention identifies a prospect, write a team-linked recruiting record and link it to the athlete account when a valid rostered athlete target exists.';
+  }
+
+  return 'Collect and add or update all relevant athlete fields now (bio, team context, position details, measurables, achievements, offers, and recent performance/news). Never invent or fabricate missing data.';
+}
+
 export async function enqueueLinkedAccountScrape(
   db: Firestore,
   input: ScrapeLinkedAccountsInput,
@@ -82,9 +90,7 @@ export async function enqueueLinkedAccountScrape(
   const normalizeScopeId = (value?: string): string => (value ?? '').trim().toLowerCase();
   const isTeamRole = input.role === 'coach' || input.role === 'director';
   const profileTarget = isTeamRole ? 'team profile' : 'NXT1 profile';
-  const onboardingObjective = isTeamRole
-    ? 'Collect and add or update all relevant team fields now (identity, schedule, roster context, recruiting updates, achievements, and recent news). Never invent or fabricate roster players; if source roster data is empty, skip roster writes and report that explicitly.'
-    : 'Collect and add or update all relevant athlete fields now (bio, team context, position details, measurables, achievements, offers, and recent performance/news). Never invent or fabricate missing data.';
+  const onboardingObjective = buildLinkedAccountScrapeObjective(input.role);
   const executionDirective =
     'Execute the sync immediately and write the updates directly to the target profile.';
   const targetDocType: 'user' | 'team' = isTeamRole && !!input.teamId ? 'team' : 'user';

@@ -90,6 +90,28 @@ import { runWithMongoEnvironmentScope } from '../../../middleware/mongo/mongo-sc
 import { sendSlackAlert } from '../../../services/platform/alert.service.js';
 import crypto from 'node:crypto';
 
+const AGENT_X_STANDARD_HOLD_COST_CENTS = estimateChargeAmountSync(0.1).chargeAmountCents;
+const AGENT_X_MEDIA_HOLD_COST_CENTS = (() => {
+  const parsed = Number.parseInt(process.env['AGENT_X_MEDIA_BILLING_GATE_COST_CENTS'] ?? '600', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 600;
+})();
+
+function estimateAgentXHoldCostCents(payload: AgentJobPayload): number {
+  const text =
+    `${payload.intent ?? ''} ${payload.displayIntent ?? ''} ${payload.agent ?? ''}`.toLowerCase();
+  const isMediaIntent =
+    /\b(video|videos|highlight|highlights|reel|clips?|film|hudl|runway|ffmpeg|merge|combine|intro|opener|motion\s+graphic|thumbnail|poster|graphic)\b/i.test(
+      text
+    ) &&
+    /\b(create|make|generate|edit|build|produce|merge|combine|cut|trim|add|turn|post)\b/i.test(
+      text
+    );
+
+  return isMediaIntent
+    ? Math.max(AGENT_X_STANDARD_HOLD_COST_CENTS, AGENT_X_MEDIA_HOLD_COST_CENTS)
+    : AGENT_X_STANDARD_HOLD_COST_CENTS;
+}
+
 const AGENT_IDENTIFIER_SET = new Set<AgentIdentifier>([
   'router',
   'admin_coordinator',
@@ -1431,13 +1453,14 @@ export class AgentWorker {
     // the estimated in-flight cost under "Processing". Released or captured at end.
     let iapHoldId: string | null = null;
     const billingCtxForHold = await getBillingState(billingDb, payload.userId);
+    const hasPrepaidWalletBalance = (billingCtxForHold?.walletBalanceCents ?? 0) > 0;
     if (
       !skipBilling &&
-      ((billingCtxForHold?.paymentProvider === 'iap' &&
-        billingCtxForHold.billingEntity === 'individual') ||
+      ((billingCtxForHold?.billingEntity === 'individual' &&
+        (billingCtxForHold.paymentProvider === 'iap' || hasPrepaidWalletBalance)) ||
         (billingCtxForHold?.billingEntity === 'organization' && billingCtxForHold?.hardStop))
     ) {
-      const { chargeAmountCents: estimatedCents } = estimateChargeAmountSync(0.1);
+      const estimatedCents = estimateAgentXHoldCostCents(payload);
       const holdResult = await createWalletHold(
         billingDb,
         payload.userId,

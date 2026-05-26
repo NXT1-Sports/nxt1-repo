@@ -1594,14 +1594,6 @@ interface GamePlanMutationResponse {
             <section class="detail-section detail-section--record-metadata">
               <div class="detail-section__head">
                 <h3 class="section-title">Record Metadata</h3>
-                <button
-                  type="button"
-                  class="box-edit-btn"
-                  aria-label="Manage game plan record"
-                  (click)="startEditBox('coreMetadata')"
-                >
-                  <nxt1-icon name="pencil" [size]="12"></nxt1-icon>
-                </button>
               </div>
               <p class="section-meta">
                 Source: {{ selectedPlan()!.source }}

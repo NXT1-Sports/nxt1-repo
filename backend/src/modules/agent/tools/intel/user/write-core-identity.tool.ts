@@ -729,6 +729,8 @@ export class WriteCoreIdentityTool extends BaseTool {
         }
       }
 
+      let welcomeGraphicQueued = false;
+
       // ── Deferred welcome graphic after first completed scrape ─────────
       // If the user uploaded their photo/logo before the first linked-account
       // sync completed, the edit-profile route intentionally deferred the
@@ -743,6 +745,7 @@ export class WriteCoreIdentityTool extends BaseTool {
           );
 
           if (welcomeResult.status === 'enqueued') {
+            welcomeGraphicQueued = true;
             logger.info('[WriteCoreIdentity] Welcome graphic enqueued after sync completion', {
               userId,
               source,
@@ -778,6 +781,12 @@ export class WriteCoreIdentityTool extends BaseTool {
             written: orgMetadataWritten,
             skipped: orgMetadataSkipped,
           },
+          response: this.buildCompletionResponse({
+            source,
+            targetSport,
+            isCoachOrDirector,
+            welcomeGraphicQueued,
+          }),
           message: `Wrote ${writtenSections.length} section(s) for "${targetSport}" from "${source}": ${writtenSections.join(', ')}.${orgSkippedNote}`,
         },
       };
@@ -787,6 +796,20 @@ export class WriteCoreIdentityTool extends BaseTool {
         error: err instanceof Error ? err.message : 'Failed to write core identity',
       };
     }
+  }
+
+  private buildCompletionResponse(input: {
+    source: string;
+    targetSport: string;
+    isCoachOrDirector: boolean;
+    welcomeGraphicQueued: boolean;
+  }): string {
+    const sourceLabel = platformDisplayName(input.source);
+    const sportLabel = input.targetSport.replace(/[_-]+/g, ' ').trim() || 'linked';
+    const profileLabel = input.isCoachOrDirector ? 'team profile' : 'profile';
+    const welcomeSuffix = input.welcomeGraphicQueued ? ' and queued your welcome graphic' : '';
+
+    return `I synced your ${sportLabel} ${profileLabel} from ${sourceLabel} and refreshed the linked NXT1 data${welcomeSuffix}.`;
   }
 
   // ─── Merge Helpers ──────────────────────────────────────────────────────

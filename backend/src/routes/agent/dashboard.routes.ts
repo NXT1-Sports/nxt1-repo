@@ -76,7 +76,10 @@ import {
   contextBuilder,
 } from './shared.js';
 import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
-import { GeminiFilesService } from '../../modules/agent/llm/gemini-files.service.js';
+import {
+  GeminiFilesService,
+  type GeminiVideoAnalysisOptions,
+} from '../../modules/agent/llm/gemini-files.service.js';
 import {
   canManageTeamMutationForUser,
   canReadTeamIntelForUser,
@@ -128,6 +131,20 @@ type FilmReviewFirestore = {
   };
 };
 
+type FilmReviewTimelineProgressUpdate = {
+  readonly processedWindowCount: number;
+  readonly totalWindows: number;
+  readonly playCount: number;
+  readonly timeline: readonly TeamFilmReviewPlaySegment[];
+};
+
+type FilmReviewTimelineGenerationOptions = {
+  readonly operationId: string;
+  readonly userId: string;
+  readonly filmReviewId: string;
+  readonly onWindowComplete?: (update: FilmReviewTimelineProgressUpdate) => Promise<void>;
+};
+
 type FirestoreReadDocSnapshot = {
   exists: boolean;
   data(): Record<string, unknown> | undefined;
@@ -162,6 +179,10 @@ const GB = 1024 * MB;
 const VIDEO_UPLOAD_URL_TTL_MS_SMALL = 30 * 60 * 1000;
 const VIDEO_UPLOAD_URL_TTL_MS_MEDIUM = 60 * 60 * 1000;
 const VIDEO_UPLOAD_URL_TTL_MS_LARGE = 120 * 60 * 1000;
+const CONFIGURED_TIMELINE_WINDOW_CONCURRENCY = parsePositiveIntEnv(
+  process.env['AGENT_X_TIMELINE_WINDOW_CONCURRENCY']
+);
+const TIMELINE_WINDOW_CONCURRENCY = Math.min(CONFIGURED_TIMELINE_WINDOW_CONCURRENCY ?? 3, 4);
 const MAX_FILM_REVIEW_ANNOTATION_STROKES = 24;
 const MAX_FILM_REVIEW_ANNOTATION_POINTS = 1200;
 const MAX_FILM_REVIEW_COMPACT_POINTS = 120;
@@ -1254,7 +1275,8 @@ async function analyzeTimelineWindowWithRetry(
   chunkEndSec: number,
   operationId: string,
   windowIndex: number,
-  totalWindows: number
+  totalWindows: number,
+  analysisOptions: GeminiVideoAnalysisOptions
 ): Promise<readonly TeamFilmReviewPlaySegment[]> {
   const basePrompt = buildTimelineAnalysisPrompt(
     durationSec,
@@ -1273,6 +1295,7 @@ async function analyzeTimelineWindowWithRetry(
       prompts[attempt]!,
       4096,
       {
+        ...analysisOptions,
         operationId: `${operationId}:timeline:${windowIndex + 1}/${totalWindows}:attempt:${attempt + 1}`,
       }
     );
@@ -1314,6 +1337,17 @@ async function analyzeTimelineWindowWithRetry(
   }
 
   return [];
+}
+
+function buildFilmReviewTimelineCacheOptions(
+  userId: string,
+  filmReviewId: string
+): GeminiVideoAnalysisOptions {
+  return {
+    userId,
+    contextCacheScopeId: `film-review:${filmReviewId}`,
+    enableContextCache: true,
+  };
 }
 
 function mergeTimelineSegments(
@@ -1419,10 +1453,32 @@ function computeTimelineWindows(
   return windows;
 }
 
+async function runTimelineWindowsWithConcurrency(
+  windows: readonly { startSec: number; endSec: number }[],
+  concurrency: number,
+  worker: (window: { startSec: number; endSec: number }, index: number) => Promise<void>
+): Promise<void> {
+  let nextWindowIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), windows.length);
+
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextWindowIndex < windows.length) {
+        const windowIndex = nextWindowIndex;
+        nextWindowIndex += 1;
+
+        const window = windows[windowIndex];
+        if (!window) continue;
+        await worker(window, windowIndex);
+      }
+    })
+  );
+}
+
 async function buildAiFilmReviewTimeline(
   review: TeamFilmReviewDoc,
   sourceVideoUrl: string,
-  operationId: string
+  options: FilmReviewTimelineGenerationOptions
 ): Promise<readonly TeamFilmReviewPlaySegment[]> {
   if (!GeminiFilesService.isConfigured()) {
     throw new Error('Gemini timeline generation is not configured (missing GEMINI_API_KEY).');
@@ -1437,11 +1493,23 @@ async function buildAiFilmReviewTimeline(
   }
   const windows = computeTimelineWindows(durationSec);
   const collectedSegments: TeamFilmReviewPlaySegment[] = [];
+  let completedWindowCount = 0;
+  const analysisOptions = buildFilmReviewTimelineCacheOptions(options.userId, options.filmReviewId);
 
-  for (let index = 0; index < windows.length; index++) {
-    const window = windows[index];
-    if (!window) continue;
+  logger.info('Starting Gemini film review timeline generation', {
+    operationId: options.operationId,
+    filmReviewId: options.filmReviewId,
+    userId: options.userId,
+    durationSec,
+    windows: windows.length,
+    concurrency: TIMELINE_WINDOW_CONCURRENCY,
+    contextCacheScopeId: analysisOptions.contextCacheScopeId,
+  });
 
+  const analyzeWindow = async (
+    window: { startSec: number; endSec: number },
+    index: number
+  ): Promise<void> => {
     const parsedWindowSegments = await analyzeTimelineWindowWithRetry(
       geminiFiles,
       sourceVideoUrl,
@@ -1449,18 +1517,51 @@ async function buildAiFilmReviewTimeline(
       durationSec,
       window.startSec,
       window.endSec,
-      operationId,
+      options.operationId,
       index,
-      windows.length
+      windows.length,
+      analysisOptions
     );
 
     collectedSegments.push(...parsedWindowSegments);
+    completedWindowCount += 1;
+
+    const partialTimeline = mergeTimelineSegments(collectedSegments, durationSec);
+    if (partialTimeline.length > 0 && options.onWindowComplete) {
+      try {
+        await options.onWindowComplete({
+          processedWindowCount: completedWindowCount,
+          totalWindows: windows.length,
+          playCount: partialTimeline.length,
+          timeline: partialTimeline,
+        });
+      } catch (err) {
+        logger.warn('Failed to persist film review timeline partial progress; continuing job', {
+          operationId: options.operationId,
+          filmReviewId: options.filmReviewId,
+          windowIndex: index + 1,
+          processedWindowCount: completedWindowCount,
+          totalWindows: windows.length,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+  };
+
+  const firstWindow = windows[0];
+  if (firstWindow) {
+    await analyzeWindow(firstWindow, 0);
+    await runTimelineWindowsWithConcurrency(
+      windows.slice(1),
+      TIMELINE_WINDOW_CONCURRENCY,
+      (window, relativeIndex) => analyzeWindow(window, relativeIndex + 1)
+    );
   }
 
   const merged = mergeTimelineSegments(collectedSegments, durationSec);
   if (merged.length === 0) {
     logger.warn('Gemini timeline generation produced no valid play segments; applying fallback.', {
-      operationId,
+      operationId: options.operationId,
       filmReviewId: review.id,
       durationSec,
       windows: windows.length,
@@ -3596,6 +3697,7 @@ router.post(
       await docRef.update({
         timelineState: 'generating',
         timelineError: null,
+        timelineProgress: null,
         ...(durationForGeneration !== null && durationForGeneration > 0
           ? { durationSec: durationForGeneration }
           : {}),
@@ -3613,26 +3715,53 @@ router.post(
       setTimeout(async () => {
         try {
           const sourceVideoUrl = await resolveFilmReviewVideoUrl(existing, storageBucket);
-          const timeline = await buildAiFilmReviewTimeline(
-            reviewForGeneration,
-            sourceVideoUrl,
-            filmReviewId
-          );
+          const timeline = await buildAiFilmReviewTimeline(reviewForGeneration, sourceVideoUrl, {
+            operationId: filmReviewId,
+            userId: user.uid,
+            filmReviewId,
+            onWindowComplete: async (progress) => {
+              const now = new Date().toISOString();
+              await docRef.update({
+                timeline: progress.timeline,
+                timelineState: 'generating',
+                timelineProgress: {
+                  processedWindowCount: progress.processedWindowCount,
+                  totalWindowCount: progress.totalWindows,
+                  playCount: progress.playCount,
+                  updatedAt: now,
+                },
+                timelineError: null,
+                updatedBy: user.uid,
+                updatedAt: now,
+              });
+            },
+          });
           const generationSource = 'gemini_files_api';
+          const now = new Date().toISOString();
+          const totalWindowCount = computeTimelineWindows(
+            Math.floor(reviewForGeneration.durationSec ?? 0)
+          ).length;
 
           await docRef.update({
             timeline,
             timelineState: 'ready',
-            timelineGeneratedAt: new Date().toISOString(),
+            timelineGeneratedAt: now,
+            timelineProgress: {
+              processedWindowCount: totalWindowCount,
+              totalWindowCount,
+              playCount: timeline.length,
+              updatedAt: now,
+            },
             timelineError: null,
             updatedBy: user.uid,
-            updatedAt: new Date().toISOString(),
+            updatedAt: now,
           });
 
           logger.info('Film review timeline generated successfully', {
             filmReviewId,
             playCount: timeline.length,
             generationSource,
+            userId: user.uid,
           });
         } catch (err) {
           const error = err instanceof Error ? err : new Error(String(err));
@@ -3644,11 +3773,12 @@ router.post(
           await docRef.update({
             timelineState: 'error',
             timelineError: error.message,
+            timelineProgress: null,
             updatedBy: user.uid,
             updatedAt: new Date().toISOString(),
           });
         }
-      }, 2000); // Simulate processing delay
+      }, 0);
 
       res.json({
         success: true,
@@ -8107,6 +8237,7 @@ export const __dashboardFilmReviewTimelineTestUtils = {
   parseAiTimelineSeconds,
   parseAiTimelineResponse,
   buildFallbackTimelineSegments,
+  buildFilmReviewTimelineCacheOptions,
 } as const;
 
 export default router;

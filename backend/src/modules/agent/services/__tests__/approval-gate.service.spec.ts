@@ -29,6 +29,37 @@ describe('approval-gate.service', () => {
     expect(requirement?.actionSummary).toContain('Send an email');
   });
 
+  it('requires approval for Microsoft 365 mail mutations', () => {
+    const service = new ApprovalGateService({} as Firestore);
+
+    const requirement = service.getApprovalRequirement('run_microsoft_365_tool', {
+      toolName: 'send-mail',
+      arguments: {
+        to: ['coach1@example.com', 'coach2@example.com'],
+        subject: 'Recruiting update',
+      },
+    });
+
+    expect(requirement).not.toBeNull();
+    expect(requirement?.policy.toolName).toBe('run_microsoft_365_tool');
+    expect(requirement?.policy.sessionTrustGroup).toBe('email');
+    expect(requirement?.actionSummary).toContain('Send 2 Outlook emails');
+    expect(requirement?.actionSummary).toContain('Recruiting update');
+  });
+
+  it('does not require approval for non-mail Microsoft 365 mutations', () => {
+    const service = new ApprovalGateService({} as Firestore);
+
+    const requirement = service.getApprovalRequirement('run_microsoft_365_tool', {
+      toolName: 'create-event',
+      arguments: {
+        subject: 'Team meeting',
+      },
+    });
+
+    expect(requirement).toBeNull();
+  });
+
   it('does not require approval for non-email tools', () => {
     const service = new ApprovalGateService({} as Firestore);
 

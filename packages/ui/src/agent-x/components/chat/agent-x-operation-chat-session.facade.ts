@@ -296,6 +296,7 @@ export class AgentXOperationChatSessionFacade {
     name: string;
     type: 'image' | 'video' | 'doc' | 'app' | 'context';
     storagePath?: string;
+    thumbnailUrl?: string;
     platform?: string;
     faviconUrl?: string;
   } {
@@ -313,6 +314,7 @@ export class AgentXOperationChatSessionFacade {
       name: attachment.name,
       type: mappedType,
       ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),
+      ...(attachment.thumbnailUrl ? { thumbnailUrl: attachment.thumbnailUrl } : {}),
       ...(attachment.platform ? { platform: attachment.platform } : {}),
       ...(attachment.faviconUrl ? { faviconUrl: attachment.faviconUrl } : {}),
     };
@@ -1317,6 +1319,30 @@ export class AgentXOperationChatSessionFacade {
     );
   }
 
+  private shouldReplaceEnqueueWaitingWithLiveReplay(
+    operationId: string | null | undefined
+  ): boolean {
+    const normalizedOperationId = operationId?.trim() ?? '';
+    if (!normalizedOperationId) {
+      return false;
+    }
+
+    const host = this.requireHost();
+    const threadId = host.resolvedThreadId()?.trim() || host.threadId().trim();
+    if (!threadId) {
+      return false;
+    }
+
+    const enqueueWaitingEntry = this.operationEventService.getEnqueueWaitingEntry(threadId);
+    if (!enqueueWaitingEntry) {
+      return false;
+    }
+
+    return (
+      !enqueueWaitingEntry.operationId || enqueueWaitingEntry.operationId === normalizedOperationId
+    );
+  }
+
   /**
    * Called by transport when enqueue-heavy tool execution completes.
    * Converts the transient typing row into the persistent enqueue waiting card.
@@ -1551,6 +1577,10 @@ export class AgentXOperationChatSessionFacade {
         threadIdForCompletionRefresh: threadId ?? undefined,
       });
       return;
+    }
+
+    if (this.shouldReplaceEnqueueWaitingWithLiveReplay(operationId)) {
+      this.clearEnqueueWaitingMessage();
     }
 
     this.messageFacade.messages.update((messages) => {

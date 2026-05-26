@@ -97,22 +97,12 @@ import {
           </button>
           <button
             type="button"
-            class="detail-action-btn detail-action-btn--secondary"
-            [attr.data-testid]="testIds.PLAYBOOK_EXPORT_CURRENT_BUTTON"
-            [disabled]="exportingPdf()"
-            (click)="exportPlaybookPdf('current')"
-          >
-            {{ exportingPdf() ? 'Exporting…' : 'Export Current Tab' }}
-          </button>
-          <button
-            type="button"
-            class="detail-action-btn detail-action-btn--secondary"
+            class="icon-btn icon-btn--sm"
+            title="Print Preview"
+            aria-label="Print Preview"
             (click)="openPrintPreview()"
           >
-            Print Preview
-          </button>
-          <button type="button" class="btn-close" aria-label="Close" (click)="clearSelection()">
-            ×
+            <nxt1-icon name="printPreview" [size]="14"></nxt1-icon>
           </button>
           @if (!editingMeta()) {
             <button

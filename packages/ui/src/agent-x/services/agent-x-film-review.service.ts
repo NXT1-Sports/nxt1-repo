@@ -872,7 +872,7 @@ export class AgentXFilmReviewService {
 
   async generateTimeline(
     reviewId: string,
-    maxPollingAttempts: number = 30,
+    maxPollingAttempts: number = 300,
     durationSec?: number
   ): Promise<void> {
     this._saving.set(true);
@@ -923,7 +923,7 @@ export class AgentXFilmReviewService {
       });
       this.logger.info('Timeline generation initiated', { reviewId });
 
-      // Poll for completion (max 30 attempts × 1s = 30 seconds timeout)
+      // Full-game film can take several minutes; keep the UI attached to backend progress.
       let attempt = 0;
       let isComplete = false;
 
@@ -971,6 +971,20 @@ export class AgentXFilmReviewService {
 
             isComplete = true;
             break;
+          } else if (updated.timelineState === 'generating' && updated.timeline?.length) {
+            this._reviews.update((reviews) =>
+              reviews.map((review) =>
+                review.id === reviewId
+                  ? {
+                      ...review,
+                      timelineState: 'generating',
+                      timeline: updated.timeline,
+                      timelineProgress: updated.timelineProgress,
+                      timelineError: undefined,
+                    }
+                  : review
+              )
+            );
           } else if (updated.timelineState === 'error') {
             throw new Error(updated.timelineError ?? 'Timeline generation failed on backend');
           }
@@ -984,7 +998,9 @@ export class AgentXFilmReviewService {
       }
 
       if (!isComplete) {
-        throw new Error('Timeline generation timed out after 30 seconds');
+        throw new Error(
+          `Timeline generation timed out after ${maxPollingAttempts} polling attempts`
+        );
       }
     } catch (err) {
       const rawMessage = err instanceof Error ? err.message : 'Failed to generate timeline';

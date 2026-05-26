@@ -1,3 +1,24 @@
+import { describe, expect, it } from 'vitest';
+
+import { DelegateToCoordinatorException } from '../../../exceptions/delegate-to-coordinator.exception.js';
+import { DelegateToCoordinatorTool } from '../delegate-to-coordinator.tool.js';
+
+describe('DelegateToCoordinatorTool', () => {
+  it('accepts large signed-url handoff goals without schema failure', async () => {
+    const tool = new DelegateToCoordinatorTool();
+    const longGoal = `Finish the highlight reel. ${'https://storage.googleapis.com/example.mp4?X-Goog-Signature=abc '.repeat(80)}`;
+
+    await expect(
+      tool.execute({
+        coordinator: 'brand_coordinator',
+        goal: longGoal,
+        structured_payload: {
+          outputFileName: 'final.mp4',
+        },
+      })
+    ).rejects.toBeInstanceOf(DelegateToCoordinatorException);
+  });
+});
 import { describe, it, expect } from 'vitest';
 import { DelegateToCoordinatorTool } from '../delegate-to-coordinator.tool.js';
 import {

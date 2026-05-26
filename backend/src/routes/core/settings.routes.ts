@@ -11,7 +11,11 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { notFoundError, validationError } from '@nxt1/core/errors';
-import { NOTIFICATION_TYPES } from '@nxt1/core';
+import {
+  DEFAULT_NOTIFICATION_CADENCE_CAPS,
+  DEFAULT_NOTIFICATION_PREFERENCES,
+  NOTIFICATION_TYPES,
+} from '@nxt1/core';
 import { getCacheService } from '../../services/core/cache.service.js';
 import { dispatch } from '../../services/communications/notification.service.js';
 import { logger } from '../../utils/logger.js';
@@ -29,15 +33,60 @@ const USERS_COLLECTION = 'Users';
 const PREFS_CACHE_TTL = 300; // 5 min
 const buildPrefsCacheKey = (uid: string) => `user:prefs:${uid}`;
 
+function buildDefaultNotificationPreferences(): NotificationPreferences {
+  return {
+    push: true,
+    email: true,
+    marketing: true,
+    categoryPreferences: { ...DEFAULT_NOTIFICATION_PREFERENCES },
+    cadenceCaps: { ...DEFAULT_NOTIFICATION_CADENCE_CAPS },
+  };
+}
+
+function mergeNotificationPreferences(
+  current: Partial<NotificationPreferences> | undefined,
+  incoming: Partial<NotificationPreferences> | undefined = undefined
+): NotificationPreferences {
+  const defaults = buildDefaultNotificationPreferences();
+  const currentCategoryPreferences = current?.categoryPreferences ?? {};
+  const incomingCategoryPreferences = incoming?.categoryPreferences ?? {};
+  const categoryPreferences = Object.fromEntries(
+    Object.entries(DEFAULT_NOTIFICATION_PREFERENCES).map(([category, channelDefaults]) => {
+      const currentCategory =
+        currentCategoryPreferences[category as keyof typeof currentCategoryPreferences];
+      const incomingCategory =
+        incomingCategoryPreferences[category as keyof typeof incomingCategoryPreferences];
+
+      return [
+        category,
+        {
+          ...channelDefaults,
+          ...(currentCategory ?? {}),
+          ...(incomingCategory ?? {}),
+        },
+      ];
+    })
+  ) as NonNullable<NotificationPreferences['categoryPreferences']>;
+
+  return {
+    ...defaults,
+    ...(current ?? {}),
+    ...(incoming ?? {}),
+    categoryPreferences,
+    cadenceCaps: {
+      ...DEFAULT_NOTIFICATION_CADENCE_CAPS,
+      ...(current?.cadenceCaps ?? {}),
+      ...(incoming?.cadenceCaps ?? {}),
+    },
+    quietHours: incoming?.quietHours ?? current?.quietHours,
+  };
+}
+
 // ============================================
 // DEFAULT PREFERENCES
 // ============================================
 
-const DEFAULT_NOTIFICATION_PREFS: NotificationPreferences = {
-  push: true,
-  email: true,
-  marketing: true,
-};
+const DEFAULT_NOTIFICATION_PREFS: NotificationPreferences = buildDefaultNotificationPreferences();
 
 const DEFAULT_PREFERENCES: UserPreferences = {
   notifications: DEFAULT_NOTIFICATION_PREFS,
@@ -81,10 +130,7 @@ router.get(
     const preferences: UserPreferences = {
       ...DEFAULT_PREFERENCES,
       ...rawPrefs,
-      notifications: {
-        ...DEFAULT_NOTIFICATION_PREFS,
-        ...(rawPrefs?.notifications ?? {}),
-      },
+      notifications: mergeNotificationPreferences(rawPrefs?.notifications),
     };
 
     await cache.set(cacheKey, preferences, { ttl: PREFS_CACHE_TTL });
@@ -149,7 +195,10 @@ router.patch(
     // For notifications, merge nested object rather than replace
     const mergedValue =
       key === 'notifications' && typeof value === 'object' && value !== null
-        ? { ...DEFAULT_NOTIFICATION_PREFS, ...(rawPrefs.notifications ?? {}), ...(value as object) }
+        ? mergeNotificationPreferences(
+            rawPrefs.notifications,
+            value as Partial<NotificationPreferences>
+          )
         : value;
 
     await docRef.update({
@@ -161,10 +210,7 @@ router.patch(
     const updatedPrefs: UserPreferences = {
       ...DEFAULT_PREFERENCES,
       ...rawPrefs,
-      notifications: {
-        ...DEFAULT_NOTIFICATION_PREFS,
-        ...(rawPrefs.notifications ?? {}),
-      },
+      notifications: mergeNotificationPreferences(rawPrefs.notifications),
       [key]: mergedValue,
     };
 
@@ -246,11 +292,10 @@ router.patch(
     for (const key of Object.keys(body) as Array<keyof UserPreferences>) {
       const val = body[key];
       if (key === 'notifications' && typeof val === 'object' && val !== null) {
-        const merged = {
-          ...DEFAULT_NOTIFICATION_PREFS,
-          ...(rawPrefs.notifications ?? {}),
-          ...(val as object),
-        };
+        const merged = mergeNotificationPreferences(
+          rawPrefs.notifications,
+          val as Partial<NotificationPreferences>
+        );
         firestoreUpdate[`preferences.notifications`] = merged;
         (mergedPrefs as Record<string, unknown>)['notifications'] = merged;
       } else {
@@ -264,10 +309,7 @@ router.patch(
     const updatedPrefs: UserPreferences = {
       ...DEFAULT_PREFERENCES,
       ...mergedPrefs,
-      notifications: {
-        ...DEFAULT_NOTIFICATION_PREFS,
-        ...(mergedPrefs.notifications ?? {}),
-      },
+      notifications: mergeNotificationPreferences(mergedPrefs.notifications),
     };
 
     // Write updated preferences to cache (not just invalidate) so analytics

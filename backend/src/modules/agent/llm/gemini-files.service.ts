@@ -159,6 +159,7 @@ export interface GeminiUploadResult {
 export interface GeminiVideoAnalysisOptions {
   readonly userId?: string;
   readonly threadId?: string;
+  readonly contextCacheScopeId?: string;
   readonly operationId?: string;
   readonly enableContextCache?: boolean;
 }
@@ -169,6 +170,7 @@ interface GeminiContextCacheMetadata {
   readonly model: string;
   readonly userId: string;
   readonly threadId?: string;
+  readonly contextCacheScopeId?: string;
   readonly sourceUrlDigest: string;
   readonly createdAt: string;
   readonly expiresAt?: string;
@@ -436,7 +438,7 @@ export class GeminiFilesService {
     const scopeMaterial = JSON.stringify({
       model: GEMINI_VIDEO_MODEL,
       userId: options.userId,
-      threadId: options.threadId ?? '',
+      contextCacheScopeId: options.contextCacheScopeId ?? options.threadId ?? '',
       sourceDigest: digest,
     });
     const hash = createHash('sha256').update(scopeMaterial).digest('hex').slice(0, 32);
@@ -577,6 +579,7 @@ export class GeminiFilesService {
         model: GEMINI_VIDEO_MODEL,
         userId: options.userId,
         threadId: options.threadId,
+        contextCacheScopeId: options.contextCacheScopeId,
         sourceUrlDigest: this.computeSourceUrlDigest(uploads.map((u) => u.sourceUrl)),
         createdAt: new Date().toISOString(),
         expiresAt: cachedContent.expireTime,
@@ -588,6 +591,7 @@ export class GeminiFilesService {
         cacheName: cachedContent.name,
         userId: options.userId,
         threadId: options.threadId,
+        contextCacheScopeId: options.contextCacheScopeId,
         ttlSeconds: CONTEXT_CACHE_TTL_SECONDS,
       });
 

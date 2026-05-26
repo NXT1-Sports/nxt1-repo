@@ -493,13 +493,12 @@ router.get(
     const db = req.firebase!.db;
     let query = db
       .collection('Recruiting')
-      .where('userId', '==', userId)
       .where('ownerType', '==', 'user')
-      .orderBy('date', 'desc')
-      .limit(limit) as FirebaseFirestore.Query;
+      .where('userId', '==', userId) as FirebaseFirestore.Query;
     if (sportId) {
       query = query.where('sport', '==', sportId.toLowerCase()) as FirebaseFirestore.Query;
     }
+    query = query.orderBy('date', 'desc').limit(limit) as FirebaseFirestore.Query;
 
     const snap = await query.get();
     const activities = snap.docs.map((d) => {
@@ -523,6 +522,11 @@ router.get(
         coachTitle: data['coachTitle'],
         notes: data['notes'],
         graphicUrl: data['graphicUrl'],
+        ownerType: data['ownerType'],
+        teamId: data['teamId'],
+        organizationId: data['organizationId'],
+        rosterEntryId: data['rosterEntryId'],
+        prospectDisplayName: data['prospectDisplayName'],
         source: data['source'],
         verified: data['verified'],
         createdAt: data['createdAt'],

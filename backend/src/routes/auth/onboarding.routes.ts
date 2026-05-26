@@ -12,7 +12,13 @@ import type { Request, Response, Router as RouterType } from 'express';
 import { FieldValue, type FieldValue as FirestoreFieldValue } from 'firebase-admin/firestore';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { notFoundError } from '@nxt1/core/errors';
-import { USER_SCHEMA_VERSION, normalizeName, isTeamRole } from '@nxt1/core';
+import {
+  DEFAULT_NOTIFICATION_CADENCE_CAPS,
+  DEFAULT_NOTIFICATION_PREFERENCES,
+  USER_SCHEMA_VERSION,
+  normalizeName,
+  isTeamRole,
+} from '@nxt1/core';
 import { normalizeConnectedPlatform } from '@nxt1/core/profile';
 import type {
   UserRole,
@@ -36,6 +42,7 @@ import { enqueueWelcomeGraphicIfReady } from '../../modules/agent/services/agent
 import { invalidateProfileCaches } from '../profile/shared.js';
 import { logger } from '../../utils/logger.js';
 import { sendLegacyOnboardingCompletionEmail } from '../../services/marketing/email/campaigns/legacy/legacy-onboarding-completion-email.service.js';
+import { processCompletedSignupLifecycle } from '../../services/marketing/lifecycle/completed-signup-lifecycle.service.js';
 import {
   mapUserTypeToRole,
   clearLegacyLocationFields,
@@ -55,6 +62,8 @@ const DEFAULT_ONBOARDING_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   push: true,
   email: true,
   marketing: true,
+  categoryPreferences: { ...DEFAULT_NOTIFICATION_PREFERENCES },
+  cadenceCaps: { ...DEFAULT_NOTIFICATION_CADENCE_CAPS },
 };
 
 const DEFAULT_ONBOARDING_PREFERENCES: UserPreferences = {
@@ -94,11 +103,26 @@ function hasCompleteOnboardingPreferences(
     preferences.notifications?.push !== undefined &&
     preferences.notifications?.email !== undefined &&
     preferences.notifications?.marketing !== undefined &&
+    preferences.notifications?.categoryPreferences !== undefined &&
+    preferences.notifications?.cadenceCaps !== undefined &&
     preferences.activityTracking !== undefined &&
     preferences.analyticsTracking !== undefined &&
     preferences.biometricLogin !== undefined &&
     preferences.theme !== undefined
   );
+}
+
+function hasSignupLifecycleMarker(
+  user: UserV2Document | undefined,
+  markerKey: 'completedSlackAlertSentAt' | 'welcomeEmailSentAt'
+): boolean {
+  if (!user) return false;
+
+  if (user.lifecycle?.signup?.[markerKey]) {
+    return true;
+  }
+
+  return Boolean((user as unknown as Record<string, unknown>)[`lifecycle.signup.${markerKey}`]);
 }
 
 // ============================================================================
@@ -672,6 +696,49 @@ router.post(
     const firstTeamEntry = sportTeamMap.size > 0 ? sportTeamMap.values().next().value : undefined;
     const resolvedTeamId = firstTeamEntry?.teamId as string | undefined;
     const resolvedOrgId = firstTeamEntry?.organizationId as string | undefined;
+    const marketingPreferences = userData?.preferences as
+      | {
+          notifications?: {
+            marketing?: boolean;
+          };
+        }
+      | undefined;
+
+    const signupLifecycleResult = await processCompletedSignupLifecycle({
+      db,
+      userId,
+      environment: req.isStaging ? 'staging' : 'production',
+      role: (userData?.role as UserRole | undefined) ?? (role as UserRole),
+      firstName: userData?.firstName ?? updateData.firstName,
+      lastName: userData?.lastName ?? updateData.lastName,
+      displayName: (userData as Record<string, unknown> | undefined)?.['displayName'] as
+        | string
+        | undefined,
+      email:
+        userData?.contact?.email?.trim().toLowerCase() ||
+        userData?.email?.trim().toLowerCase() ||
+        mergedContactEmail ||
+        undefined,
+      primarySport: primarySportName,
+      teamName:
+        (firstTeamEntry?.orgName as string | undefined) ??
+        userData?.sports?.find((sport) => sport.team?.name)?.team?.name,
+      teamId: resolvedTeamId,
+      organizationId: resolvedOrgId,
+      city: userData?.location?.city ?? userData?.city,
+      state: userData?.location?.state ?? userData?.state,
+      referralId: userData?.referralId,
+      teamCode: userData?.teamCode?.teamCode,
+      teamCodeName: userData?.teamCode?.teamName,
+      marketingEnabled: marketingPreferences?.notifications?.marketing !== false,
+      slackAlertAlreadySent: hasSignupLifecycleMarker(userData, 'completedSlackAlertSentAt'),
+      welcomeEmailAlreadySent: hasSignupLifecycleMarker(userData, 'welcomeEmailSentAt'),
+    });
+
+    logger.info('[POST /profile/onboarding] Signup lifecycle processed', {
+      userId,
+      signupLifecycleResult,
+    });
 
     const userConnectedSources =
       (userData?.connectedSources as ConnectedSourceRecord[] | undefined) ?? [];

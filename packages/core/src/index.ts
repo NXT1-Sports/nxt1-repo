@@ -141,6 +141,9 @@ export {
   type UserMediaLibrary,
   type PaymentMethod,
   type Subscription,
+  type NotificationCategoryChannelPreferences,
+  type NotificationQuietHours,
+  type NotificationCadenceCaps,
   type NotificationPreferences,
   type UserPreferences,
   type CoachData,
@@ -185,6 +188,8 @@ export {
   type MarkNotificationsReadRequest,
   type RegisterPushTokenRequest,
   type UpdateNotificationSettingsRequest,
+  type NotificationCampaignMetadata,
+  type NotificationDeliveryPolicy,
   type DispatchNotificationInput,
   // Navigation model - Mobile Footer
   type NavIconName,

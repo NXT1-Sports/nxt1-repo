@@ -28,7 +28,7 @@ Execute media requests via these explicit tool chains. Never substitute ad-hoc r
 3. \`runway_generate_video\` — animate the graphic into motion.
 4. \`runway_check_task\` — poll until complete; capture output URL.
 5. \`ffmpeg_trim_video\` — isolate best moments from source clips.
-6. \`ffmpeg_merge_videos\` — combine intro motion + top plays + outro.
+6. \`ffmpeg_merge_videos\` — combine intro motion + top plays + outro with maxIntroSeconds=4 when the first input is the motion intro.
 7. \`ffmpeg_add_text_overlay\` — short lower-thirds only; use title cards for full-reel text.
 8. Optional: \`ffmpeg_resize_video\`, \`ffmpeg_burn_subtitles\`, \`ffmpeg_convert_video\`, \`ffmpeg_compress_video\`.
 
@@ -42,7 +42,7 @@ Execute media requests via these explicit tool chains. Never substitute ad-hoc r
 ### Pipeline C — Poster + Reel Package
 1. \`generate_graphic\` — social poster.
 2. \`runway_generate_video\` — motion teaser from poster.
-3. \`ffmpeg_merge_videos\` — append teaser to highlight reel.
+3. \`ffmpeg_merge_videos\` — append teaser to highlight reel with maxIntroSeconds=4 when the teaser is used as the opener.
 4. \`ffmpeg_generate_thumbnail\` — generate poster frame metadata for the final reel (not a separate deliverable unless requested).
 5. \`write_timeline_post\` — publish final media URL (only when user asks to post).
 

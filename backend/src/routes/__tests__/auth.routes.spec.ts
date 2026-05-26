@@ -4,7 +4,22 @@
  */
 
 import { beforeEach, describe, it, expect } from 'vitest';
+import { vi } from 'vitest';
 import request from 'supertest';
+
+vi.mock('../../services/platform/alert.service.js', () => ({
+  sendSlackAlert: vi.fn(),
+}));
+
+vi.mock(
+  '../../services/marketing/email/campaigns/welcome/welcome-onboarding-email.service.js',
+  () => ({
+    sendWelcomeOnboardingEmail: vi.fn(),
+  })
+);
+
+import { sendSlackAlert } from '../../services/platform/alert.service.js';
+import { sendWelcomeOnboardingEmail } from '../../services/marketing/email/campaigns/welcome/welcome-onboarding-email.service.js';
 import {
   __getMockFirestoreDocument,
   __getMockFirestoreWrites,
@@ -16,6 +31,13 @@ import app from '../../test-app.js';
 describe('Auth Routes', () => {
   beforeEach(() => {
     __resetMockFirestore();
+    vi.clearAllMocks();
+    vi.mocked(sendSlackAlert).mockResolvedValue(true);
+    vi.mocked(sendWelcomeOnboardingEmail).mockResolvedValue({
+      status: 'sent',
+      email: 'test@example.com',
+      campaignKey: 'welcome_intro_athlete',
+    });
   });
 
   describe('Production Routes', () => {
@@ -228,6 +250,105 @@ describe('Auth Routes', () => {
         expect(userUpdate?.payload).toMatchObject({
           classOf: 2027,
         });
+      });
+
+      it('routes completed athlete signups to the athlete Slack target and welcome campaign', async () => {
+        __seedMockFirestoreDocument('Users/athlete-alert-1', {
+          id: 'athlete-alert-1',
+          email: 'athlete@example.com',
+          role: 'athlete',
+          onboardingCompleted: false,
+        });
+
+        const response = await request(app).post('/api/v1/auth/profile/onboarding').send({
+          userId: 'athlete-alert-1',
+          userType: 'athlete',
+          firstName: 'Ava',
+          lastName: 'Stone',
+          sport: 'Basketball',
+        });
+
+        expect(response.status).toBe(200);
+        expect(sendSlackAlert).toHaveBeenCalledWith(
+          expect.objectContaining({
+            target: 'signup_athlete',
+            title: 'New Athlete Signup',
+          })
+        );
+        expect(sendWelcomeOnboardingEmail).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: 'athlete-alert-1',
+            role: 'athlete',
+            primarySport: 'Basketball',
+            marketingEnabled: true,
+          })
+        );
+      });
+
+      it('routes completed team-role signups to the team Slack target and team welcome variant', async () => {
+        __seedMockFirestoreDocument('Users/coach-alert-1', {
+          id: 'coach-alert-1',
+          email: 'coach@example.com',
+          role: 'coach',
+          onboardingCompleted: false,
+        });
+
+        vi.mocked(sendWelcomeOnboardingEmail).mockResolvedValue({
+          status: 'sent',
+          email: 'coach@example.com',
+          campaignKey: 'welcome_intro_team',
+        });
+
+        const response = await request(app).post('/api/v1/auth/profile/onboarding').send({
+          userId: 'coach-alert-1',
+          userType: 'coach',
+          firstName: 'Jordan',
+          lastName: 'Reed',
+          sport: 'Football',
+          organization: 'Alcoa Football',
+        });
+
+        expect(response.status).toBe(200);
+        expect(sendSlackAlert).toHaveBeenCalledWith(
+          expect.objectContaining({
+            target: 'signup_team',
+            title: 'New Team / Staff Signup',
+          })
+        );
+        expect(sendWelcomeOnboardingEmail).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: 'coach-alert-1',
+            role: 'coach',
+            primarySport: 'Football',
+          })
+        );
+      });
+
+      it('does not resend signup Slack or welcome email when lifecycle markers already exist', async () => {
+        __seedMockFirestoreDocument('Users/retry-alert-1', {
+          id: 'retry-alert-1',
+          email: 'retry@example.com',
+          role: 'athlete',
+          onboardingCompleted: false,
+          lifecycle: {
+            signup: {
+              completedSlackAlertSentAt: { seconds: 1, nanoseconds: 0 },
+              welcomeEmailSentAt: { seconds: 1, nanoseconds: 0 },
+            },
+          },
+        });
+
+        const response = await request(app).post('/api/v1/auth/profile/onboarding').send({
+          userId: 'retry-alert-1',
+          userType: 'athlete',
+          firstName: 'Casey',
+          lastName: 'Lane',
+          sport: 'Basketball',
+        });
+
+        expect(response.status).toBe(200);
+        expect(sendSlackAlert).not.toHaveBeenCalled();
+        expect(sendWelcomeOnboardingEmail).not.toHaveBeenCalled();
       });
 
       it('reuses existing sports on bulk retries without preserving placeholder teams', async () => {

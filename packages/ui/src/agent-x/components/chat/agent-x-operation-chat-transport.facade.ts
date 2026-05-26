@@ -416,6 +416,11 @@ export class AgentXOperationChatTransportFacade {
       );
     }
 
+    // Per-stream flag: fires once when the enqueue_heavy_task tool step lands
+    // with `status='success'`, ensuring the localStorage waiting entry is
+    // written exactly once even if the backend re-emits the step.
+    let enqueueHeavyHandoffMarked = false;
+
     return new Promise<void>((resolve, reject) => {
       const appBaseUrl = resolveCurrentAgentXAppBaseUrl();
       const streamController = this.api.streamMessage(
@@ -574,6 +579,27 @@ export class AgentXOperationChatTransportFacade {
 
             if (isEnqueueHeavy && heavyTaskOperationId) {
               host.setCurrentOperationId(heavyTaskOperationId);
+              // Once the foreground tool successfully enqueues the heavy job,
+              // mark the thread as "enqueue waiting" so the SSE `onDone` handoff
+              // branch can detect it and switch the chat to the live Firestore
+              // replay for the background job. Without this, the first-send path
+              // never writes the localStorage waiting entry, so
+              // `shouldResumeEnqueueBackgroundStream` returns false and the
+              // user sees only the parent prose with no live tool timeline.
+              // The re-entry path already worked because `initializeExistingThread`
+              // attaches Firestore independently — this restores symmetry.
+              if (event.status === 'success' && !enqueueHeavyHandoffMarked) {
+                enqueueHeavyHandoffMarked = true;
+                const handoffThreadId =
+                  host.resolvedThreadId()?.trim() || host.threadId().trim() || null;
+                if (handoffThreadId) {
+                  this.operationEventService.markEnqueueWaiting(
+                    handoffThreadId,
+                    Date.now(),
+                    heavyTaskOperationId
+                  );
+                }
+              }
             }
 
             if (event.stageType !== 'tool') return;
@@ -801,7 +827,6 @@ export class AgentXOperationChatTransportFacade {
             this.messageFacade.flushPendingTypingDelta();
             host.latestProgressLabel.set(null);
             host.batchEmailProgress.set(null);
-            host.setActivityPhase('completed');
             const threadId = host.resolvedThreadId();
             const terminalOperationId =
               event.operationId ?? host.getCurrentOperationId() ?? pendingOperationId;
@@ -827,6 +852,28 @@ export class AgentXOperationChatTransportFacade {
             });
 
             host.setActiveStream(null);
+            host.getShadowFirestoreSub()?.unsubscribe();
+            host.setShadowFirestoreSub(null);
+
+            const shouldResumeBackgroundStream = this.shouldResumeEnqueueBackgroundStream(
+              threadId,
+              terminalOperationId
+            );
+            if (shouldResumeBackgroundStream && terminalOperationId) {
+              host.setOperationStatus('processing');
+              host.loading.set(true);
+              host.setActivityPhase('reconnecting', 'Connecting to background job...');
+              this.logger.info('Parent SSE completed; switching to enqueue Firestore replay', {
+                threadId,
+                operationId: terminalOperationId,
+              });
+              this.agentXService.clearDropRecoveryOp();
+              host.reconcileOperationFromStoredEvents(terminalOperationId);
+              resolve();
+              return;
+            }
+
+            host.setActivityPhase('completed');
             this.breadcrumb.trackStateChange('agent-x-operation-chat:stream-complete', {
               contextId: host.contextId(),
               model: event.model,
@@ -846,9 +893,6 @@ export class AgentXOperationChatTransportFacade {
                 type: event.autoOpenPanel.type,
               });
             }
-
-            host.getShadowFirestoreSub()?.unsubscribe();
-            host.setShadowFirestoreSub(null);
 
             this.logger.info('Stream complete', {
               model: event.model,
@@ -1035,6 +1079,32 @@ export class AgentXOperationChatTransportFacade {
     const p95Ms = Math.round(sorted[p95Index] ?? 0);
 
     return { count, avgMs, p95Ms };
+  }
+
+  private shouldResumeEnqueueBackgroundStream(
+    threadId: string | null,
+    operationId: string | null | undefined
+  ): boolean {
+    const normalizedOperationId = operationId?.trim() ?? '';
+    if (!threadId || !normalizedOperationId) {
+      return false;
+    }
+
+    const enqueueWaitingEntry = this.operationEventService.getEnqueueWaitingEntry(threadId);
+    if (!enqueueWaitingEntry) {
+      return false;
+    }
+
+    if (
+      enqueueWaitingEntry.operationId &&
+      enqueueWaitingEntry.operationId !== normalizedOperationId
+    ) {
+      return false;
+    }
+
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      normalizedOperationId
+    );
   }
 
   private getHostOrSkip(action: string): AgentXOperationChatTransportFacadeHost | null {

@@ -12,6 +12,8 @@ export { weeklyCleanup } from './weeklyCleanup';
 // Pulse news system: scheduler DISABLED, keep worker export for manual/task-driven execution.
 export { pulseWorker } from './dailyPulseUpdates';
 export { dailyBriefings } from './dailyBriefings';
+export { pushDrip } from './pushDrip';
+export { signupDrip } from './signupDrip';
 export { weeklySuggestedActions } from './weeklySuggestedActions';
 export { weeklyPlaybooks } from './weeklyPlaybooks';
 export { playbookNudge } from './playbookNudge';

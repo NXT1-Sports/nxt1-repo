@@ -723,6 +723,7 @@ type TimelineColumnDropIndicator = {
                       class="film-player"
                       [attr.data-testid]="testIds.VIDEO_PLAYER"
                       [attr.data-video-src]="nativeVideoUrl"
+                      crossorigin="anonymous"
                       playsinline
                       preload="auto"
                       (loadedmetadata)="onPlayerLoadedMetadata()"
@@ -918,7 +919,10 @@ type TimelineColumnDropIndicator = {
                   }
                 </div>
 
-                @if (review.timelineState === 'ready' && review.timeline?.length) {
+                @if (
+                  (review.timelineState === 'ready' || review.timelineState === 'generating') &&
+                  review.timeline?.length
+                ) {
                   <div class="film-playbook">
                     <div class="film-playbook-toolbar">
                       <button
@@ -5256,7 +5260,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const reviewTitle = this.getReviewDisplayTitle(review);
     const playId = play.id || String(play.number ?? fallbackIndex + 1);
     const title = `${play.label} @ ${this.formatTime(play.startSec)}`;
-    const annotation = this.normalizeStoredPlayAnnotationForContext(play.annotation);
+    const annotation = this.resolvePlayContextAnnotation(play, fallbackIndex);
     const drawBounds = annotation
       ? `${annotation.bounds.minX.toFixed(3)},${annotation.bounds.minY.toFixed(3)},${annotation.bounds.maxX.toFixed(3)},${annotation.bounds.maxY.toFixed(3)}`
       : null;
@@ -5635,6 +5639,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     this.destroyHls();
     this.nativeVideoSourceUrl = videoUrl;
+    player.crossOrigin = 'anonymous';
     player.preload = 'auto';
 
     if (this.isHlsSourceUrl(videoUrl) && !player.canPlayType('application/vnd.apple.mpegurl')) {
@@ -5768,20 +5773,28 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const currentPlay = this.currentPlay();
     const startSec = currentPlay?.startSec ?? Math.max(0, currentTimeSec - 2);
     const endSec = currentPlay?.endSec ?? Math.max(startSec + 2, currentTimeSec + 2);
-    const annotation = this.resolveDrawAnnotation();
+    const renderedAnnotation = this.resolveDrawAnnotation();
+    const annotation = renderedAnnotation
+      ? this.projectRenderedAnnotationToVideoFrame(renderedAnnotation)
+      : null;
     const drawBounds = annotation
       ? `${annotation.bounds.minX.toFixed(3)},${annotation.bounds.minY.toFixed(3)},${annotation.bounds.maxX.toFixed(3)},${annotation.bounds.maxY.toFixed(3)}`
       : null;
-    const snapshotFile = annotation
-      ? await this.createAnnotatedFrameSnapshotFile(review, currentTimeSec)
+    const renderedDrawBounds = renderedAnnotation
+      ? `${renderedAnnotation.bounds.minX.toFixed(3)},${renderedAnnotation.bounds.minY.toFixed(3)},${renderedAnnotation.bounds.maxX.toFixed(3)},${renderedAnnotation.bounds.maxY.toFixed(3)}`
       : null;
+    const snapshotFiles = renderedAnnotation
+      ? await this.createAnnotatedFrameSnapshotFiles(review, currentTimeSec, renderedAnnotation)
+      : [];
+    const snapshotFile = snapshotFiles[0] ?? null;
+    const cropSnapshotFile = snapshotFiles.find((file) => file.name.includes('-annotated-crop-'));
 
     if (!annotation && !currentPlay) {
       return false;
     }
 
-    if (snapshotFile) {
-      this.agentXService.addFiles([snapshotFile]);
+    if (snapshotFiles.length > 0) {
+      this.agentXService.addFiles(snapshotFiles);
     }
 
     const context: AgentXSelectedContext = {
@@ -5809,10 +5822,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         hasDrawing: this.hasDrawing(),
         drawStrokeCount: this.drawStrokes.length,
         ...(drawBounds ? { drawBounds } : {}),
+        ...(renderedDrawBounds ? { renderedDrawBounds } : {}),
         ...(snapshotFile
           ? {
               annotationSnapshotAttached: true,
               annotationSnapshotAttachmentName: snapshotFile.name,
+              ...(cropSnapshotFile ? { annotationCropAttachmentName: cropSnapshotFile.name } : {}),
             }
           : annotation
             ? { annotationSnapshotAttached: false }
@@ -5833,20 +5848,21 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return true;
   }
 
-  private async createAnnotatedFrameSnapshotFile(
+  private async createAnnotatedFrameSnapshotFiles(
     review: FilmListReview,
-    currentTimeSec: number
-  ): Promise<File | null> {
+    currentTimeSec: number,
+    annotation: AgentXSelectedContextAnnotation
+  ): Promise<File[]> {
     const player = this.filmPlayer?.nativeElement;
     const drawCanvas = this.drawCanvas?.nativeElement;
     if (!player || !drawCanvas || !this.hasDrawing()) {
-      return null;
+      return [];
     }
     if (typeof document === 'undefined' || typeof File === 'undefined') {
-      return null;
+      return [];
     }
     if (!player.videoWidth || !player.videoHeight || player.readyState < 2) {
-      return null;
+      return [];
     }
 
     this.ensureDrawCanvasSize();
@@ -5855,7 +5871,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const sourceWidth = drawCanvas.width || Math.round(drawCanvas.getBoundingClientRect().width);
     const sourceHeight = drawCanvas.height || Math.round(drawCanvas.getBoundingClientRect().height);
     if (!sourceWidth || !sourceHeight) {
-      return null;
+      return [];
     }
 
     const maxSnapshotWidth = 1280;
@@ -5868,28 +5884,132 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     const context = snapshotCanvas.getContext('2d');
     if (!context) {
-      return null;
+      return [];
     }
 
     try {
+      const videoRect = this.resolveContainedMediaRect(
+        snapshotWidth,
+        snapshotHeight,
+        player.videoWidth,
+        player.videoHeight
+      );
+
       context.fillStyle = '#000000';
       context.fillRect(0, 0, snapshotWidth, snapshotHeight);
-      context.drawImage(player, 0, 0, snapshotWidth, snapshotHeight);
+      context.drawImage(player, videoRect.x, videoRect.y, videoRect.width, videoRect.height);
       context.drawImage(drawCanvas, 0, 0, snapshotWidth, snapshotHeight);
 
       const blob = await this.canvasToBlob(snapshotCanvas, 'image/jpeg', 0.86);
       if (!blob) {
-        return null;
+        return [];
       }
 
-      return new File([blob], this.buildAnnotatedSnapshotFileName(review, currentTimeSec), {
-        type: 'image/jpeg',
-        lastModified: Date.now(),
-      });
+      const fullFrameFile = new File(
+        [blob],
+        this.buildAnnotatedSnapshotFileName(review, currentTimeSec),
+        {
+          type: 'image/jpeg',
+          lastModified: Date.now(),
+        }
+      );
+      const cropFile = await this.createAnnotationCropSnapshotFile(
+        snapshotCanvas,
+        review,
+        currentTimeSec,
+        annotation
+      );
+
+      return cropFile ? [fullFrameFile, cropFile] : [fullFrameFile];
     } catch {
       this.toast.info('Added drawing coordinates, but this video blocked image snapshot export.');
+      return [];
+    }
+  }
+
+  private resolveContainedMediaRect(
+    containerWidth: number,
+    containerHeight: number,
+    mediaWidth: number,
+    mediaHeight: number
+  ): { x: number; y: number; width: number; height: number } {
+    const containerAspect = containerWidth / Math.max(containerHeight, 1);
+    const mediaAspect = mediaWidth / Math.max(mediaHeight, 1);
+
+    if (mediaAspect > containerAspect) {
+      const width = containerWidth;
+      const height = Math.round(containerWidth / mediaAspect);
+      return {
+        x: 0,
+        y: Math.round((containerHeight - height) / 2),
+        width,
+        height,
+      };
+    }
+
+    const height = containerHeight;
+    const width = Math.round(containerHeight * mediaAspect);
+    return {
+      x: Math.round((containerWidth - width) / 2),
+      y: 0,
+      width,
+      height,
+    };
+  }
+
+  private async createAnnotationCropSnapshotFile(
+    snapshotCanvas: HTMLCanvasElement,
+    review: FilmListReview,
+    currentTimeSec: number,
+    annotation: AgentXSelectedContextAnnotation
+  ): Promise<File | null> {
+    const cropCanvas = document.createElement('canvas');
+    const bounds = annotation.bounds;
+    const minX = bounds.minX * snapshotCanvas.width;
+    const minY = bounds.minY * snapshotCanvas.height;
+    const maxX = bounds.maxX * snapshotCanvas.width;
+    const maxY = bounds.maxY * snapshotCanvas.height;
+    const boundsWidth = Math.max(1, maxX - minX);
+    const boundsHeight = Math.max(1, maxY - minY);
+    const padding = Math.max(56, Math.max(boundsWidth, boundsHeight) * 0.8);
+    const cropX = Math.max(0, Math.floor(minX - padding));
+    const cropY = Math.max(0, Math.floor(minY - padding));
+    const cropRight = Math.min(snapshotCanvas.width, Math.ceil(maxX + padding));
+    const cropBottom = Math.min(snapshotCanvas.height, Math.ceil(maxY + padding));
+    const cropWidth = Math.max(1, cropRight - cropX);
+    const cropHeight = Math.max(1, cropBottom - cropY);
+    const maxCropWidth = 960;
+    const cropScale = Math.min(1.5, maxCropWidth / cropWidth);
+
+    cropCanvas.width = Math.max(1, Math.round(cropWidth * cropScale));
+    cropCanvas.height = Math.max(1, Math.round(cropHeight * cropScale));
+
+    const cropContext = cropCanvas.getContext('2d');
+    if (!cropContext) {
       return null;
     }
+
+    cropContext.drawImage(
+      snapshotCanvas,
+      cropX,
+      cropY,
+      cropWidth,
+      cropHeight,
+      0,
+      0,
+      cropCanvas.width,
+      cropCanvas.height
+    );
+
+    const blob = await this.canvasToBlob(cropCanvas, 'image/jpeg', 0.9);
+    if (!blob) {
+      return null;
+    }
+
+    return new File([blob], this.buildAnnotatedSnapshotFileName(review, currentTimeSec, 'crop'), {
+      type: 'image/jpeg',
+      lastModified: Date.now(),
+    });
   }
 
   private canvasToBlob(
@@ -5906,14 +6026,19 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     });
   }
 
-  private buildAnnotatedSnapshotFileName(review: FilmListReview, currentTimeSec: number): string {
+  private buildAnnotatedSnapshotFileName(
+    review: FilmListReview,
+    currentTimeSec: number,
+    variant: 'frame' | 'crop' = 'frame'
+  ): string {
     const title = this.getReviewDisplayTitle(review)
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 48);
     const timestamp = Math.max(0, Math.round(currentTimeSec * 100));
-    return `${title || 'film-play'}-annotated-${timestamp}.jpg`;
+    const suffix = variant === 'crop' ? `annotated-crop-${timestamp}` : `annotated-${timestamp}`;
+    return `${title || 'film-play'}-${suffix}.jpg`;
   }
 
   private resetDrawOverlay(): void {
@@ -6070,6 +6195,79 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       strokeCount: annotation.strokeCount,
       ...(points.length > 0 ? { points } : {}),
     };
+  }
+
+  private resolvePlayContextAnnotation(
+    play: FilmTimelinePlay,
+    playIndex: number
+  ): AgentXSelectedContextAnnotation | undefined {
+    if (playIndex === this.currentPlayIndex()) {
+      const annotation =
+        this.resolveDrawAnnotation() ??
+        this.normalizeStoredPlayAnnotationForContext(play.annotation);
+      return annotation ? this.projectRenderedAnnotationToVideoFrame(annotation) : undefined;
+    }
+
+    const annotation = this.normalizeStoredPlayAnnotationForContext(play.annotation);
+    return annotation ? this.projectRenderedAnnotationToVideoFrame(annotation) : undefined;
+  }
+
+  private projectRenderedAnnotationToVideoFrame(
+    annotation: AgentXSelectedContextAnnotation
+  ): AgentXSelectedContextAnnotation {
+    const projector = this.resolveRenderedPointToVideoFrameProjector();
+    if (!projector) {
+      return annotation;
+    }
+
+    const cornerPoints = [
+      projector({ x: annotation.bounds.minX, y: annotation.bounds.minY }),
+      projector({ x: annotation.bounds.maxX, y: annotation.bounds.maxY }),
+    ];
+    const points = annotation.points?.map((point) => projector(point));
+    const allPoints = [...cornerPoints, ...(points ?? [])];
+
+    return {
+      ...annotation,
+      bounds: {
+        minX: this.roundNormalizedPoint(Math.min(...allPoints.map((point) => point.x))),
+        minY: this.roundNormalizedPoint(Math.min(...allPoints.map((point) => point.y))),
+        maxX: this.roundNormalizedPoint(Math.max(...allPoints.map((point) => point.x))),
+        maxY: this.roundNormalizedPoint(Math.max(...allPoints.map((point) => point.y))),
+      },
+      ...(points?.length ? { points } : {}),
+    };
+  }
+
+  private resolveRenderedPointToVideoFrameProjector():
+    | ((point: { x: number; y: number }) => { x: number; y: number })
+    | null {
+    const player = this.filmPlayer?.nativeElement;
+    const canvas = this.drawCanvas?.nativeElement;
+    if (!player || !canvas || !player.videoWidth || !player.videoHeight) {
+      return null;
+    }
+
+    const sourceWidth = canvas.width || Math.round(canvas.getBoundingClientRect().width);
+    const sourceHeight = canvas.height || Math.round(canvas.getBoundingClientRect().height);
+    if (!sourceWidth || !sourceHeight) {
+      return null;
+    }
+
+    const videoRect = this.resolveContainedMediaRect(
+      sourceWidth,
+      sourceHeight,
+      player.videoWidth,
+      player.videoHeight
+    );
+    if (!videoRect.width || !videoRect.height) {
+      return null;
+    }
+
+    return (point) => ({
+      x: this.roundNormalizedPoint((point.x * sourceWidth - videoRect.x) / videoRect.width),
+      y: this.roundNormalizedPoint((point.y * sourceHeight - videoRect.y) / videoRect.height),
+    });
   }
 
   private resolveCurrentPlayAnnotation(): TeamFilmReviewPlayAnnotation | null {

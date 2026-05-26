@@ -1,4 +1,4 @@
-import { sendPlatformEmail } from './platform-email.service.js';
+import { sendPlatformEmail } from '../../platform-email.service.js';
 import { buildSupportEmailTemplate } from './templates/support-email-template.js';
 
 export interface AgentJobFailureAlertInput {

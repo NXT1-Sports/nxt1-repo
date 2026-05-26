@@ -1,9 +1,9 @@
 # =============================================================================
-# NXT1 Backend — Auto Deploy via SSH
+# NXT1 Backend - Auto Deploy via SSH
 # =============================================================================
-# Trigger: push to main → deploy production
+# Trigger: push to main -> deploy production
 #
-# ── One-time setup: generate a passphrase-free CI deploy key ───────────────
+# -- One-time setup: generate a passphrase-free CI deploy key --
 #   Run on your LOCAL machine:
 #     ssh-keygen -t ed25519 -C "github-actions-deploy" -f ~/.ssh/nxt1-ci -N ""
 #     # -N "" = no passphrase (required for CI)
@@ -14,12 +14,14 @@
 #
 #   Add the private key to GitHub Secrets:
 #     cat ~/.ssh/nxt1-ci | pbcopy
-#     → GitHub repo → Settings → Secrets and variables → Actions
-#     → New repository secret → Name: SSH_PRIVATE_KEY → paste
+#     -> GitHub repo -> Settings -> Secrets and variables -> Actions
+#     -> New repository secret -> Name: SSH_PRIVATE_KEY -> paste
 #
-# ── Required Secrets ──────────────────────────────────────────────────
-#   SSH_PRIVATE_KEY  — Contents of ~/.ssh/nxt1-ci (passphrase-free)
-#   SUDO_PASS        — sudo password for ngocsonxx98
+# -- Required Secrets -------------------------------------------------
+#   SSH_PRIVATE_KEY  - Contents of ~/.ssh/nxt1-ci (passphrase-free)
+#   SUDO_PASS        - sudo password for ngocsonxx98
+#   SLACK_NEW_ATHLETES_WEBHOOK_URL - Dedicated signup alerts for athlete signups
+#   SLACK_NEW_TEAMS_WEBHOOK_URL    - Dedicated signup alerts for team/staff signups
 # =============================================================================
 
 name: Deploy Backend
@@ -55,7 +57,7 @@ jobs:
 
     steps:
       - name: Setup SSH key
-        # Write the key directly — no third-party action needed, no passphrase issues
+        # Write the key directly - no third-party action needed, no passphrase issues
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
@@ -102,12 +104,28 @@ jobs:
               printf "%s='%s'\n" "$key" "$value" >> "$ENV_FILE"
             fi
           }
+          upsert_optional_env_var() {
+            local key="$1"
+            local value="$2"
+            if [ -n "$value" ]; then
+              upsert_env_var "$key" "$value"
+              echo "${key}=configured"
+            else
+              echo "${key}=unchanged (secret not provided)"
+            fi
+          }
           upsert_env_var \
             "AGENT_JOB_CUSTOMER_RECOVERY_EMAILS_ENABLED" \
             "true"
           upsert_env_var \
             "AGENT_JOB_RESOLUTION_EMAILS_ENABLED" \
             "true"
+          upsert_optional_env_var \
+            "SLACK_NEW_ATHLETES_WEBHOOK_URL" \
+            "${{ secrets['SLACK_NEW_ATHLETES_WEBHOOK_URL'] }}"
+          upsert_optional_env_var \
+            "SLACK_NEW_TEAMS_WEBHOOK_URL" \
+            "${{ secrets['SLACK_NEW_TEAMS_WEBHOOK_URL'] }}"
           echo 'AGENT_JOB_CUSTOMER_RECOVERY_EMAILS_ENABLED=true'
           echo 'AGENT_JOB_RESOLUTION_EMAILS_ENABLED=true'
 
@@ -141,8 +159,8 @@ jobs:
 
       - name: Notify success
         if: success()
-        run: echo "✅ Deploy succeeded! Commit ${{ github.sha }}"
+        run: echo "Deploy succeeded. Commit ${{ github.sha }}"
 
       - name: Notify failure
         if: failure()
-        run: echo "❌ Deploy FAILED! See logs at ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+        run: echo "Deploy FAILED. See logs at ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

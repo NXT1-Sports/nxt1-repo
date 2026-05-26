@@ -74,7 +74,7 @@ const RosterEntrySchema = z
 
 const WriteRosterEntriesInputSchema = z.object({
   teamId: z.string().trim().min(1),
-  teamCode: z.string().trim().min(1),
+  teamCode: z.string().trim().min(1).optional(),
   sourceUrl: z.string().trim().url().optional(),
   strictSourceValidation: z.boolean().optional(),
   entries: z.array(RosterEntrySchema).min(1).max(MAX_ENTRIES_PER_CALL),
@@ -104,7 +104,7 @@ export class WriteRosterEntriesTool extends BaseTool {
     'Use status "pending" for prospects Agent X has identified but who have not formally committed.\n\n' +
     'Parameters:\n' +
     '- teamId (required): Team document ID.\n' +
-    '- teamCode (required): Team code slug (used for cache invalidation).\n' +
+    '- teamCode (optional): Team code slug (used for cache invalidation). If omitted, resolved from Team doc.\n' +
     '- entries (required): Array of roster entries to upsert:\n' +
     '  • userId (optional): Existing user document ID (account-backed member).\n' +
     '  • firstName (optional): First name for pending-claim roster entries.\n' +
@@ -578,9 +578,13 @@ export class WriteRosterEntriesTool extends BaseTool {
       // Invalidate recruiting timeline for this team
       const cache = getCacheService();
       await Promise.all([
-        cache.delByPrefix(`team:timeline:v1:${canonicalTeamCode}:`),
-        cache.delByPrefix(`team:profile:code:${canonicalTeamCode}:`),
-        ...(inputTeamCode !== canonicalTeamCode
+        ...(canonicalTeamCode
+          ? [
+              cache.delByPrefix(`team:timeline:v1:${canonicalTeamCode}:`),
+              cache.delByPrefix(`team:profile:code:${canonicalTeamCode}:`),
+            ]
+          : []),
+        ...(inputTeamCode && inputTeamCode !== canonicalTeamCode
           ? [
               cache.delByPrefix(`team:timeline:v1:${inputTeamCode}:`),
               cache.delByPrefix(`team:profile:code:${inputTeamCode}:`),
@@ -597,8 +601,8 @@ export class WriteRosterEntriesTool extends BaseTool {
 
       logger.info('[WriteRosterEntriesTool] Entries written', {
         teamId,
-        teamCode: canonicalTeamCode,
-        inputTeamCode,
+        teamCode: canonicalTeamCode ?? null,
+        inputTeamCode: inputTeamCode ?? null,
         written,
         skipped,
         sourceUrl: sourceUrl ?? null,
@@ -855,8 +859,8 @@ function buildPendingLooseKey(key: {
 
 function resolveCanonicalTeamCode(
   teamData: Record<string, unknown>,
-  inputTeamCode: string
-): string {
+  inputTeamCode?: string
+): string | undefined {
   const fromSlug = typeof teamData['slug'] === 'string' ? teamData['slug'].trim() : '';
   if (fromSlug) return fromSlug;
 
@@ -865,6 +869,9 @@ function resolveCanonicalTeamCode(
 
   const fromTeamCode = typeof teamData['teamCode'] === 'string' ? teamData['teamCode'].trim() : '';
   if (fromTeamCode) return fromTeamCode;
+
+  const fromCode = typeof teamData['code'] === 'string' ? teamData['code'].trim() : '';
+  if (fromCode) return fromCode;
 
   return inputTeamCode;
 }

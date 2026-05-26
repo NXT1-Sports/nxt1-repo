@@ -6,6 +6,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   normalizeCollegeName,
+  isLikelyVideoThumbnailImage,
   normalizeOpponentName,
   normalizeVideoUrl,
   rosterDedupeKey,
@@ -156,6 +157,44 @@ describe('normalizeVideoUrl', () => {
   it('returns empty string for empty input', () => {
     expect(normalizeVideoUrl('')).toBe('');
     expect(normalizeVideoUrl('   ')).toBe('');
+  });
+});
+
+// ─── isLikelyVideoThumbnailImage ───────────────────────────────────────────
+
+describe('isLikelyVideoThumbnailImage', () => {
+  it('detects YouTube poster frames', () => {
+    expect(
+      isLikelyVideoThumbnailImage('https://img.youtube.com/vi/abc123def45/hqdefault.jpg')
+    ).toBe(true);
+  });
+
+  it('detects Cloudflare Stream thumbnail URLs', () => {
+    expect(
+      isLikelyVideoThumbnailImage('https://videodelivery.net/video-123/thumbnails/thumbnail.jpg')
+    ).toBe(true);
+  });
+
+  it('detects generic video preview URLs when video and thumbnail context are present', () => {
+    expect(
+      isLikelyVideoThumbnailImage('https://cdn.example.com/highlights/play-44-thumbnail.webp')
+    ).toBe(true);
+  });
+
+  it('uses metadata to catch staged thumbnail URLs with generic storage paths', () => {
+    expect(
+      isLikelyVideoThumbnailImage('https://storage.googleapis.com/bucket/hash.jpg', {
+        alt: 'Highlight video thumbnail',
+      })
+    ).toBe(true);
+  });
+
+  it('does not reject normal action images', () => {
+    expect(
+      isLikelyVideoThumbnailImage('https://cdn.example.com/athletes/mitchell-summers-action.jpg', {
+        alt: 'Mitchell Summers action shot',
+      })
+    ).toBe(false);
   });
 });
 

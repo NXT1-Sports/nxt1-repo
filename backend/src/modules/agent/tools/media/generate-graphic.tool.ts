@@ -519,6 +519,46 @@ Return JSON only. No explanation outside the JSON.`;
     return [...new Set(defaults)].slice(0, 8);
   }
 
+  private buildNotificationTitle(input: {
+    graphicType: 'athlete' | 'team';
+    textRequirements: readonly string[];
+    athleteInfo?: {
+      name?: string;
+    };
+    teamInfo?: {
+      name?: string;
+    };
+  }): string {
+    const normalizedText = input.textRequirements.map((text) => text.trim().toLowerCase());
+    const isWelcomeGraphic = normalizedText.includes('welcome');
+    const subjectName =
+      input.graphicType === 'team' ? input.teamInfo?.name?.trim() : input.athleteInfo?.name?.trim();
+
+    if (isWelcomeGraphic) {
+      return 'Your welcome graphic is ready';
+    }
+
+    if (subjectName) {
+      return `Your graphic for ${subjectName} is ready`;
+    }
+
+    return 'Your graphic is ready';
+  }
+
+  private buildCompletionResponse(input: {
+    graphicType: 'athlete' | 'team';
+    textRequirements: readonly string[];
+    athleteInfo?: {
+      name?: string;
+    };
+    teamInfo?: {
+      name?: string;
+    };
+  }): string {
+    const title = this.buildNotificationTitle(input);
+    return `${title} in Agent X.`;
+  }
+
   async execute(
     input: Record<string, unknown>,
     context?: ToolExecutionContext
@@ -590,6 +630,12 @@ Return JSON only. No explanation outside the JSON.`;
     });
     const effectiveTextRequirements =
       displayTextRequirements.length > 0 ? displayTextRequirements : defaultTextRequirements;
+    const notificationTitle = this.buildNotificationTitle({
+      graphicType,
+      textRequirements: effectiveTextRequirements,
+      athleteInfo,
+      teamInfo,
+    });
 
     // ── Compile the creative brief ─────────────────────────────────────
     const preset = DIMENSION_PRESETS[dimensions];
@@ -723,6 +769,13 @@ Return JSON only. No explanation outside the JSON.`;
           costUsd: result.costUsd,
           textContent: result.textContent,
           applyMode: resolvedApplyMode,
+          notificationTitle,
+          response: this.buildCompletionResponse({
+            graphicType,
+            textRequirements: effectiveTextRequirements,
+            athleteInfo,
+            teamInfo,
+          }),
           usedSubjectPhotoUrls: normalizedSubjectPhotoUrls,
           usedLogoUrls: normalizedLogoUrls,
           ...(validationWarnings.length > 0 ? { warnings: validationWarnings } : {}),

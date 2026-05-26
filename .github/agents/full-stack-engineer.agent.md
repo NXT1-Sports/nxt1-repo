@@ -4,7 +4,40 @@ description:
   'Implementation agent that fixes bugs, writes features, and ensures code
   adheres to the NXT1 2026 Enterprise Architecture.'
 argument-hint: 'Describe the bug to fix or feature to build...'
-tools: [read, edit, execute, search, problems, usages]
+tools:
+  [
+    execute/runNotebookCell,
+    execute/getTerminalOutput,
+    execute/killTerminal,
+    execute/sendToTerminal,
+    execute/runTask,
+    execute/createAndRunTask,
+    execute/runInTerminal,
+    execute/runTests,
+    execute/testFailure,
+    read/getNotebookSummary,
+    read/problems,
+    read/readFile,
+    read/viewImage,
+    read/readNotebookCellOutput,
+    read/terminalSelection,
+    read/terminalLastCommand,
+    read/getTaskOutput,
+    edit/createDirectory,
+    edit/createFile,
+    edit/createJupyterNotebook,
+    edit/editFiles,
+    edit/editNotebook,
+    edit/rename,
+    search/codebase,
+    search/fileSearch,
+    search/listDirectory,
+    search/textSearch,
+    search/usages,
+    analytics-mcp/get_account_summaries,
+    cloudflare-api/execute,
+    cloudflare-api/search,
+  ]
 user-invocable: true
 handoffs:
   - label: Verify Fixes

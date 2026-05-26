@@ -42,10 +42,35 @@ FIREBASE_STORAGE_BUCKET = os.environ.get("FIREBASE_STORAGE_BUCKET", "").strip()
 FFMPEG_OUTPUT_GCS_PREFIX = os.environ.get("FFMPEG_OUTPUT_GCS_PREFIX", "agent-x/ffmpeg")
 FFMPEG_MCP_TOKEN_HEADER = os.environ.get("FFMPEG_MCP_TOKEN_HEADER", "x-ffmpeg-mcp-token").strip().lower()
 
+
+def _positive_int_env(name: str, fallback: int) -> int:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return fallback
+    try:
+        parsed = int(raw)
+        return parsed if parsed > 0 else fallback
+    except ValueError:
+        return fallback
+
+
+FFMPEG_MERGE_DIRECT_LIMIT = _positive_int_env("FFMPEG_MERGE_DIRECT_LIMIT", 6)
+FFMPEG_MERGE_BATCH_SIZE = _positive_int_env("FFMPEG_MERGE_BATCH_SIZE", 4)
+FFMPEG_MERGE_TIMEOUT_SECONDS = _positive_int_env("FFMPEG_MERGE_TIMEOUT_SECONDS", 900)
+FFMPEG_MERGE_INTRO_MAX_SECONDS = _positive_int_env("FFMPEG_MERGE_INTRO_MAX_SECONDS", 4)
+
 # Tool argument keys that represent input file paths or arrays of paths
 _URL_INPUT_KEYS = {"input_path", "subtitle_path"}
 _URL_ARRAY_KEYS = {"input_paths"}
 _OUTPUT_KEYS = {"output_path"}
+
+
+def _truthy(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"true", "1", "yes", "y"}
+    return False
 
 
 # ── URL / GCS helpers ────────────────────────────────────────────────────────
@@ -180,6 +205,433 @@ def _download_url(url: str) -> str:
         raise RuntimeError(f"Failed to download input URL: {exc}") from exc
 
 
+def _has_audio_stream(local_path: str) -> bool:
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "a:0",
+                "-show_entries",
+                "stream=index",
+                "-of",
+                "csv=p=0",
+                local_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        return result.returncode == 0 and bool(result.stdout.strip())
+    except Exception:
+        return False
+
+
+def _media_duration_seconds(local_path: str) -> float:
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                local_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            duration = float(result.stdout.strip())
+            if duration > 0:
+                return duration
+    except Exception:
+        pass
+    return 5.0
+
+
+def _parse_frame_rate(value: str | None) -> float | None:
+    if not value or value in {"0/0", "N/A"}:
+        return None
+    try:
+        if "/" in value:
+            numerator_raw, denominator_raw = value.split("/", 1)
+            numerator = float(numerator_raw)
+            denominator = float(denominator_raw)
+            if denominator == 0:
+                return None
+            parsed = numerator / denominator
+        else:
+            parsed = float(value)
+        if 1 <= parsed <= 240:
+            return parsed
+    except Exception:
+        return None
+    return None
+
+
+def _probe_video_stream(local_path: str) -> dict:
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-select_streams",
+                "v:0",
+                "-show_entries",
+                "stream=width,height,duration,avg_frame_rate,r_frame_rate,nb_frames",
+                "-of",
+                "json",
+                local_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            payload = json.loads(result.stdout or "{}")
+            streams = payload.get("streams") or []
+            if streams and isinstance(streams[0], dict):
+                return streams[0]
+    except Exception:
+        pass
+    return {}
+
+
+def _video_frame_rate(local_path: str) -> float:
+    stream = _probe_video_stream(local_path)
+    return (
+        _parse_frame_rate(str(stream.get("avg_frame_rate") or ""))
+        or _parse_frame_rate(str(stream.get("r_frame_rate") or ""))
+        or 30.0
+    )
+
+
+def _video_duration_seconds(local_path: str) -> float:
+    stream = _probe_video_stream(local_path)
+    frame_rate = (
+        _parse_frame_rate(str(stream.get("avg_frame_rate") or ""))
+        or _parse_frame_rate(str(stream.get("r_frame_rate") or ""))
+    )
+
+    try:
+        frame_count = int(str(stream.get("nb_frames") or "0"))
+        if frame_count > 0 and frame_rate and frame_rate > 0:
+            computed = frame_count / frame_rate
+            if computed > 0:
+                return computed
+    except Exception:
+        pass
+
+    try:
+        duration = float(str(stream.get("duration") or "0"))
+        if duration > 0:
+            return duration
+    except Exception:
+        pass
+
+    return _media_duration_seconds(local_path)
+
+
+def _positive_float_arg(value, fallback: float | None = None) -> float | None:
+    try:
+        parsed = float(value)
+        if parsed > 0:
+            return parsed
+    except Exception:
+        pass
+    return fallback
+
+
+def _looks_like_intro_source(source: str | None) -> bool:
+    if not source:
+        return False
+    normalized = source.lower()
+    return any(
+        marker in normalized
+        for marker in (
+            "runway-",
+            "runway",
+            "intro",
+            "opener",
+            "title-card",
+            "title_card",
+            "motion-graphic",
+            "motion_graphic",
+            "generated-graphic",
+            "graphic",
+        )
+    )
+
+
+def _segment_duration_seconds(
+    local_path: str,
+    index: int,
+    original_source: str | None,
+    max_intro_seconds: float | None,
+    allow_intro_clamp: bool,
+) -> float:
+    duration = max(_video_duration_seconds(local_path), 0.1)
+    if index == 0 and allow_intro_clamp and max_intro_seconds and _looks_like_intro_source(original_source):
+        clamped = min(duration, max_intro_seconds)
+        if clamped < duration:
+            print(
+                f"[ffmpeg-mcp] clamped intro segment from {duration:.3f}s to {clamped:.3f}s",
+                flush=True,
+            )
+        return max(clamped, 0.1)
+    return duration
+
+
+def _probe_video_dimensions(local_path: str) -> tuple[int, int]:
+    try:
+        stream = _probe_video_stream(local_path)
+        width = int(stream.get("width") or 1280)
+        height = int(stream.get("height") or 720)
+        width = max(2, width - (width % 2))
+        height = max(2, height - (height % 2))
+        return width, height
+    except Exception:
+        pass
+    return 1280, 720
+
+
+def _parse_input_paths(value) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    return []
+
+
+def _chunked(values: list[str], size: int) -> list[list[str]]:
+    safe_size = max(2, size)
+    return [values[index : index + safe_size] for index in range(0, len(values), safe_size)]
+
+
+def _run_merge_filter_once(
+    input_paths: list[str],
+    output_path: str,
+    original_input_paths: list[str] | None = None,
+    max_intro_seconds: float | None = None,
+    allow_intro_clamp: bool = True,
+) -> None:
+    if len(input_paths) < 1:
+        raise RuntimeError("merge_videos requires at least one local input path")
+
+    target_width, target_height = _probe_video_dimensions(input_paths[0])
+    cmd = ["ffmpeg", "-y"]
+    for input_path in input_paths:
+        cmd.extend(["-fflags", "+genpts", "-i", input_path])
+
+    filter_parts: list[str] = []
+    concat_inputs: list[str] = []
+
+    for index, input_path in enumerate(input_paths):
+        original_source = (
+            original_input_paths[index]
+            if original_input_paths and index < len(original_input_paths)
+            else input_path
+        )
+        duration = _segment_duration_seconds(
+            input_path,
+            index,
+            original_source,
+            max_intro_seconds,
+            allow_intro_clamp,
+        )
+        source_fps = _video_frame_rate(input_path)
+        filter_parts.append(
+            f"[{index}:v:0]"
+            f"settb=AVTB,setpts=N/({source_fps:.6f}*TB),"
+            f"trim=duration={duration:.3f},setpts=PTS-STARTPTS,"
+            f"scale={target_width}:{target_height}:force_original_aspect_ratio=decrease,"
+            f"pad={target_width}:{target_height}:(ow-iw)/2:(oh-ih)/2:color=black,"
+            f"fps=30,setpts=N/(30*TB),format=yuv420p,setsar=1[v{index}]"
+        )
+
+        if _has_audio_stream(input_path):
+            filter_parts.append(
+                f"[{index}:a:0]"
+                f"aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo,"
+                f"apad,atrim=duration={duration:.3f},asetpts=PTS-STARTPTS[a{index}]"
+            )
+        else:
+            filter_parts.append(
+                "anullsrc=channel_layout=stereo:sample_rate=44100,"
+                f"atrim=duration={duration:.3f},asetpts=PTS-STARTPTS[a{index}]"
+            )
+
+        concat_inputs.append(f"[v{index}][a{index}]")
+
+    filter_parts.append(
+        "".join(concat_inputs) + f"concat=n={len(input_paths)}:v=1:a=1[outv][outa]"
+    )
+
+    cmd.extend([
+        "-filter_complex",
+        ";".join(filter_parts),
+        "-map",
+        "[outv]",
+        "-map",
+        "[outa]",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-movflags",
+        "+faststart",
+        "-avoid_negative_ts",
+        "make_zero",
+        "-video_track_timescale",
+        "30000",
+        output_path,
+    ])
+
+    result = subprocess.run(cmd, capture_output=True, timeout=FFMPEG_MERGE_TIMEOUT_SECONDS)
+    if result.returncode != 0:
+        err = result.stderr.decode(errors="replace")[-1200:]
+        raise RuntimeError(f"FFmpeg resilient merge failed: {err}")
+
+
+def _run_merge_videos_resilient(args: dict) -> dict:
+    input_paths = _parse_input_paths(args.get("input_paths"))
+    original_input_paths = _parse_input_paths(args.get("__nxt1_original_input_paths"))
+    output_path = str(args.get("output_path") or "").strip()
+    requested_method = str(args.get("method") or "concat_filter").strip() or "concat_filter"
+    max_intro_seconds = _positive_float_arg(
+        args.get("max_intro_seconds"),
+        float(FFMPEG_MERGE_INTRO_MAX_SECONDS),
+    )
+
+    if len(input_paths) < 2:
+        raise RuntimeError("merge_videos requires at least 2 input_paths")
+    if not output_path:
+        raise RuntimeError("merge_videos requires output_path")
+
+    batch_outputs: list[str] = []
+    temporary_batch_outputs: list[str] = []
+
+    try:
+        if len(input_paths) > FFMPEG_MERGE_DIRECT_LIMIT:
+            chunks = _chunked(input_paths, FFMPEG_MERGE_BATCH_SIZE)
+            print(
+                f"[ffmpeg-mcp] resilient merge batching {len(input_paths)} inputs into {len(chunks)} chunks",
+                flush=True,
+            )
+            for chunk_index, chunk in enumerate(chunks):
+                chunk_start_index = chunk_index * FFMPEG_MERGE_BATCH_SIZE
+                chunk_originals = (
+                    original_input_paths[chunk_start_index : chunk_start_index + len(chunk)]
+                    if original_input_paths
+                    else None
+                )
+                if len(chunk) == 1:
+                    batch_outputs.append(chunk[0])
+                    continue
+                batch_path = f"/tmp/{uuid.uuid4().hex}_merge_batch.mp4"
+                _run_merge_filter_once(
+                    chunk,
+                    batch_path,
+                    chunk_originals,
+                    max_intro_seconds,
+                    allow_intro_clamp=chunk_start_index == 0,
+                )
+                batch_outputs.append(batch_path)
+                temporary_batch_outputs.append(batch_path)
+            _run_merge_filter_once(batch_outputs, output_path, allow_intro_clamp=False)
+        else:
+            _run_merge_filter_once(
+                input_paths,
+                output_path,
+                original_input_paths or None,
+                max_intro_seconds,
+                allow_intro_clamp=True,
+            )
+
+        return {
+            "success": True,
+            "output_path": output_path,
+            "filesMerged": len(input_paths),
+            "method": "resilient_concat_filter",
+            "requestedMethod": requested_method,
+            "batched": len(input_paths) > FFMPEG_MERGE_DIRECT_LIMIT,
+            "batchSize": FFMPEG_MERGE_BATCH_SIZE,
+        }
+    finally:
+        for temp_path in temporary_batch_outputs:
+            try:
+                Path(temp_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+
+def _run_convert_with_optional_silent_audio(args: dict) -> dict:
+    input_path = str(args.get("input_path") or "").strip()
+    output_path = str(args.get("output_path") or "").strip()
+    if not input_path or not output_path:
+        raise RuntimeError("convert_video requires input_path and output_path")
+
+    video_codec = str(args.get("video_codec") or "libx264").strip()
+    audio_codec = str(args.get("audio_codec") or "aac").strip()
+    preset = str(args.get("preset") or "fast").strip()
+    crf = args.get("crf")
+    video_bitrate = str(args.get("video_bitrate") or "").strip()
+    audio_bitrate = str(args.get("audio_bitrate") or "128k").strip()
+    has_audio = _has_audio_stream(input_path)
+    ensure_audio = _truthy(args.get("add_silent_audio"))
+
+    cmd = ["ffmpeg", "-y", "-fflags", "+genpts", "-i", input_path]
+    if not has_audio and ensure_audio:
+        cmd.extend(["-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100"])
+
+    cmd.extend(["-map", "0:v:0"])
+    if has_audio:
+        cmd.extend(["-map", "0:a:0"])
+    elif ensure_audio:
+        cmd.extend(["-map", "1:a:0"])
+
+    cmd.extend(["-c:v", video_codec])
+    if video_codec in {"libx264", "libx265"}:
+        cmd.extend(["-preset", preset])
+        if crf is not None:
+            cmd.extend(["-crf", str(crf)])
+    if video_bitrate:
+        cmd.extend(["-b:v", video_bitrate])
+    if has_audio or ensure_audio:
+        cmd.extend(["-c:a", audio_codec, "-b:a", audio_bitrate, "-ar", "44100", "-ac", "2"])
+    if not has_audio and ensure_audio:
+        cmd.append("-shortest")
+    cmd.extend(["-movflags", "+faststart", "-avoid_negative_ts", "make_zero", output_path])
+
+    result = subprocess.run(cmd, capture_output=True, timeout=600)
+    if result.returncode != 0:
+        err = result.stderr.decode(errors="replace")[-1000:]
+        raise RuntimeError(f"FFmpeg silent-audio conversion failed: {err}")
+
+    return {
+        "success": True,
+        "output_path": output_path,
+        "audioAdded": not has_audio and ensure_audio,
+    }
+
+
 def _upload_to_gcs(local_path: str, upload_prefix: str | None = None) -> str:
     """
     Upload a local file to Firebase Storage and return a Firebase download URL.
@@ -248,6 +700,7 @@ def _preprocess_args(args: dict) -> tuple[dict, list[str], dict[str, dict[str, s
             if isinstance(val, str):
                 val = [p.strip() for p in val.split(",") if p.strip()]
             if isinstance(val, list):
+                original_list = [str(item).strip() for item in val if str(item).strip()]
                 new_list = []
                 for item in val:
                     if isinstance(item, str) and _is_url(item):
@@ -259,6 +712,7 @@ def _preprocess_args(args: dict) -> tuple[dict, list[str], dict[str, dict[str, s
                 # The upstream MCP tool (dubnium0/ffmpeg-mcp) expects a
                 # comma-separated string, so rejoin after URL resolution
                 modified[key] = ",".join(new_list)
+                modified[f"__nxt1_original_{key}"] = ",".join(original_list)
 
         elif key in _OUTPUT_KEYS and isinstance(val, str):
             # Always force output into /tmp/ so FFmpeg has write access
@@ -545,6 +999,95 @@ class FfmpegUrlMiddleware:
                                      (b"content-length", str(len(sse)).encode())]})
             await send({"type": "http.response.body", "body": sse, "more_body": False})
             return
+
+        tool_name = str(body.get("params", {}).get("name") or "")
+        if tool_name == "convert_video":
+            try:
+                payload = _run_convert_with_optional_silent_audio(modified_args)
+                response_body = json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}],
+                    },
+                }).encode()
+                final_body = _postprocess_response(response_body, output_map, temp_inputs)
+                await send({
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(final_body)).encode()),
+                    ],
+                })
+                await send({"type": "http.response.body", "body": final_body, "more_body": False})
+                return
+            except Exception as exc:
+                for tmp in temp_inputs:
+                    try:
+                        Path(tmp).unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                print(f"[ffmpeg-mcp] Silent-audio conversion failed: {exc}", flush=True)
+                err_payload = {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": f"Error: {exc}"}],
+                        "isError": True,
+                    },
+                }
+                sse = f"event: message\ndata: {json.dumps(err_payload)}\n\n".encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": [(b"content-type", b"text/event-stream"),
+                                         (b"content-length", str(len(sse)).encode())]})
+                await send({"type": "http.response.body", "body": sse, "more_body": False})
+                return
+
+        if tool_name == "merge_videos":
+            try:
+                payload = _run_merge_videos_resilient(modified_args)
+                response_body = json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}],
+                    },
+                }).encode()
+                final_body = _postprocess_response(response_body, output_map, temp_inputs)
+                await send({
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(final_body)).encode()),
+                    ],
+                })
+                await send({"type": "http.response.body", "body": final_body, "more_body": False})
+                return
+            except Exception as exc:
+                for tmp in temp_inputs:
+                    try:
+                        Path(tmp).unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                print(f"[ffmpeg-mcp] Resilient merge failed: {exc}", flush=True)
+                err_payload = {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": f"Error: {exc}"}],
+                        "isError": True,
+                    },
+                }
+                sse = f"event: message\ndata: {json.dumps(err_payload)}\n\n".encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": [(b"content-type", b"text/event-stream"),
+                                         (b"content-length", str(len(sse)).encode())]})
+                await send({"type": "http.response.body", "body": sse, "more_body": False})
+                return
+
+        modified_args.pop("add_silent_audio", None)
 
         body.setdefault("params", {})["arguments"] = modified_args
         modified_bytes = json.dumps(body).encode()

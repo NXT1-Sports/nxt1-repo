@@ -211,6 +211,9 @@ export {
   type CoachData,
   type DirectorData,
   // Preferences & Settings
+  type NotificationCategoryChannelPreferences,
+  type NotificationQuietHours,
+  type NotificationCadenceCaps,
   type NotificationPreferences,
   type UserPreferences,
   // Utility types
@@ -387,6 +390,8 @@ export {
   type MarkNotificationsReadRequest,
   type RegisterPushTokenRequest,
   type UpdateNotificationSettingsRequest,
+  type NotificationCampaignMetadata,
+  type NotificationDeliveryPolicy,
   type DispatchNotificationInput,
 } from './content/notification.model';
 

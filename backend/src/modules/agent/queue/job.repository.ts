@@ -55,6 +55,11 @@ const LOCKED_PROGRESS_STATUSES = new Set<AgentOperationStatus>([
   'cancelled',
 ]);
 
+function truncateForAlert(value: string, maxLength = 800): string {
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 3)}...`;
+}
+
 function buildTerminalProgress(params: {
   status: AgentJobProgress['status'];
   message: string;
@@ -336,6 +341,11 @@ export interface AgentJobDocument {
   readonly failureAlertSentAt?: FirebaseFirestore.Timestamp | null;
   readonly failureAlertFailedAt?: FirebaseFirestore.Timestamp | null;
   readonly failureAlertError?: string | null;
+  readonly failureSlackAlertStatus?: 'pending' | 'sent' | 'failed' | null;
+  readonly failureSlackAlertQueuedAt?: FirebaseFirestore.Timestamp | null;
+  readonly failureSlackAlertSentAt?: FirebaseFirestore.Timestamp | null;
+  readonly failureSlackAlertFailedAt?: FirebaseFirestore.Timestamp | null;
+  readonly failureSlackAlertError?: string | null;
   readonly autoResolveStatus?:
     | 'retry_claimed'
     | 'retry_enqueued'
@@ -540,6 +550,9 @@ export class AgentJobRepository {
         update['failureAlertStatus'] = 'pending';
         update['failureAlertQueuedAt'] = FieldValue.serverTimestamp();
         update['failureAlertError'] = null;
+        update['failureSlackAlertStatus'] = 'pending';
+        update['failureSlackAlertQueuedAt'] = FieldValue.serverTimestamp();
+        update['failureSlackAlertError'] = null;
 
         const data = snapshot.data() as Partial<AgentJobDocument> | undefined;
         alertInput = {
@@ -574,7 +587,7 @@ export class AgentJobRepository {
     const { classifyAgentJobAutoResolveType } =
       await import('../services/agent-job-auto-resolver.service.js');
     const { isAgentJobCustomerRecoveryEmailEnabled, sendAgentJobRecoveryStartedEmail } =
-      await import('../../../services/communications/agent-job-recovery-started-email.service.js');
+      await import('../../../services/communications/agent-jobs/email/agent-job-recovery-started-email.service.js');
 
     if (!isAgentJobCustomerRecoveryEmailEnabled()) return;
     if (!classifyAgentJobAutoResolveType(input.error)) return;
@@ -655,15 +668,26 @@ export class AgentJobRepository {
     createdAt?: unknown;
     failedAt: Date;
   }): Promise<void> {
+    const jobRef = this.db.collection(COLLECTION).doc(input.operationId);
+    let emailError: string | null = null;
+
     try {
       const { sendAgentJobFailureAlert } =
-        await import('../../../services/communications/agent-job-failure-alert.service.js');
+        await import('../../../services/communications/agent-jobs/email/agent-job-failure-alert.service.js');
 
       await sendAgentJobFailureAlert(input);
+    } catch (err) {
+      emailError = err instanceof Error ? err.message : String(err);
+      logger.error('[AgentJobs] Failure alert email failed', {
+        operationId: input.operationId,
+        error: emailError,
+      });
+    }
 
-      await this.db
-        .collection(COLLECTION)
-        .doc(input.operationId)
+    await this.dispatchFailureSlackAlert(input);
+
+    if (!emailError) {
+      await jobRef
         .set(
           {
             failureAlertStatus: 'sent',
@@ -679,27 +703,96 @@ export class AgentJobRepository {
             error: statusErr instanceof Error ? statusErr.message : String(statusErr),
           });
         });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error('[AgentJobs] Failure alert email failed', {
-        operationId: input.operationId,
-        error: message,
+
+      return;
+    }
+
+    await jobRef
+      .set(
+        {
+          failureAlertStatus: 'failed',
+          failureAlertFailedAt: FieldValue.serverTimestamp(),
+          failureAlertError: emailError,
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      )
+      .catch((statusErr: unknown) => {
+        logger.error('[AgentJobs] Failed to persist failure alert error status', {
+          operationId: input.operationId,
+          error: statusErr instanceof Error ? statusErr.message : String(statusErr),
+        });
+      });
+  }
+
+  private async dispatchFailureSlackAlert(input: {
+    operationId: string;
+    userId?: string | null;
+    origin?: string | null;
+    threadId?: string | null;
+    intent?: string | null;
+    error: string;
+  }): Promise<void> {
+    const jobRef = this.db.collection(COLLECTION).doc(input.operationId);
+
+    try {
+      const { sendSlackAlert } = await import('../../../services/platform/alert.service.js');
+      const delivered = await sendSlackAlert({
+        target: 'agent',
+        severity: 'critical',
+        title: 'Agent X Job Failed',
+        summary: 'An Agent X background job has failed and needs review.',
+        fields: [
+          { label: 'Operation ID', value: input.operationId },
+          { label: 'User ID', value: input.userId || 'unknown' },
+          { label: 'Origin', value: input.origin || 'unknown' },
+          { label: 'Thread ID', value: input.threadId || 'not linked' },
+          { label: 'Error', value: truncateForAlert(input.error) },
+          ...(input.intent
+            ? [{ label: 'Intent', value: truncateForAlert(input.intent, 900) }]
+            : []),
+        ],
       });
 
-      await this.db
-        .collection(COLLECTION)
-        .doc(input.operationId)
+      await jobRef
         .set(
           {
-            failureAlertStatus: 'failed',
-            failureAlertFailedAt: FieldValue.serverTimestamp(),
-            failureAlertError: message,
+            failureSlackAlertStatus: delivered ? 'sent' : 'failed',
+            ...(delivered
+              ? { failureSlackAlertSentAt: FieldValue.serverTimestamp() }
+              : { failureSlackAlertFailedAt: FieldValue.serverTimestamp() }),
+            failureSlackAlertError: delivered
+              ? null
+              : 'Slack webhook delivery failed or is not configured.',
             updatedAt: FieldValue.serverTimestamp(),
           },
           { merge: true }
         )
         .catch((statusErr: unknown) => {
-          logger.error('[AgentJobs] Failed to persist failure alert error status', {
+          logger.error('[AgentJobs] Failed to persist Slack failure alert status', {
+            operationId: input.operationId,
+            error: statusErr instanceof Error ? statusErr.message : String(statusErr),
+          });
+        });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error('[AgentJobs] Failure alert Slack dispatch failed', {
+        operationId: input.operationId,
+        error: message,
+      });
+
+      await jobRef
+        .set(
+          {
+            failureSlackAlertStatus: 'failed',
+            failureSlackAlertFailedAt: FieldValue.serverTimestamp(),
+            failureSlackAlertError: message,
+            updatedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        )
+        .catch((statusErr: unknown) => {
+          logger.error('[AgentJobs] Failed to persist Slack failure alert error status', {
             operationId: input.operationId,
             error: statusErr instanceof Error ? statusErr.message : String(statusErr),
           });

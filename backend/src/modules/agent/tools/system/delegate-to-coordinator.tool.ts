@@ -22,7 +22,7 @@ import { DelegateToCoordinatorException } from '../../exceptions/delegate-to-coo
 
 const InputSchema = z.object({
   coordinator: z.enum(COORDINATOR_AGENT_IDS as readonly [string, ...string[]]),
-  goal: z.string().trim().min(1).max(2_000),
+  goal: z.string().trim().min(1).max(16_000),
   /**
    * Optional structured key/value pairs forwarded verbatim to the coordinator.
    * Use this to pass IDs, codes, and references that must not be paraphrased
@@ -44,7 +44,7 @@ export class DelegateToCoordinatorTool extends BaseTool {
     '• strategy_coordinator — Scheduling strategy, analytics dashboards, long-term planning, multi-game review, recruiting pipeline charts, strategic funnels, process maps, Microsoft 365 workflows, and ALL football strategy artifacts (callsheets, practice script matrices, playbooks, game plans, play diagrams).\n' +
     '• admin_coordinator — Compliance, platform administration, support tickets, user management, recurring task scheduling.\n' +
     'Do NOT delegate simple factual lookups the router can answer directly. For work spanning multiple coordinators in sequence, use `create_plan` so the user can review the plan before execution begins. `plan_and_execute` remains a legacy alias only.\n' +
-    'IMPORTANT: When you have exact IDs, codes, or references the coordinator needs (e.g. postId, teamCode, userId), always include them in `structured_payload` — never rely on prose to carry them.';
+    'IMPORTANT: Keep `goal` concise. When you have exact IDs, codes, URLs, arrays of media clips, or references the coordinator needs (e.g. postId, teamCode, userId, videoUrls), always include them in `structured_payload` — never rely on prose to carry them.';
 
   readonly parameters = InputSchema;
   readonly isMutation = false;

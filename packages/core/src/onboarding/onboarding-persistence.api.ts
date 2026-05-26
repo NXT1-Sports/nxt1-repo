@@ -30,6 +30,10 @@
  */
 
 import type { LinkSourcesFormData, SportEntry } from './onboarding-navigation.api';
+import {
+  DEFAULT_NOTIFICATION_CADENCE_CAPS,
+  DEFAULT_NOTIFICATION_PREFERENCES,
+} from '../constants/notification.constants';
 import { USER_ROLES } from '../constants/user.constants';
 import { getPlatformFaviconUrl } from '../platforms/platform-favicons';
 
@@ -576,6 +580,8 @@ export function buildUserUpdatePayload(state: OnboardingPersistenceState): Recor
       push: true,
       email: true,
       marketing: true,
+      categoryPreferences: { ...DEFAULT_NOTIFICATION_PREFERENCES },
+      cadenceCaps: { ...DEFAULT_NOTIFICATION_CADENCE_CAPS },
     },
     activityTracking: true,
     analyticsTracking: true,

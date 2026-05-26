@@ -11,10 +11,13 @@ import {
   IsOptional,
   IsEnum,
   IsBoolean,
+  IsInt,
   ValidateNested,
   IsEmail,
   Matches,
   Length,
+  Max,
+  Min,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -22,42 +25,125 @@ import { Type } from 'class-transformer';
 // NOTIFICATION DTOs
 // ============================================
 
+export class NotificationChannelPreferencesDto {
+  @IsBoolean()
+  @IsOptional()
+  push?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  email?: boolean;
+
+  @IsBoolean()
+  @IsOptional()
+  sms?: boolean;
+}
+
+export class NotificationCategoryPreferencesDto {
+  @ValidateNested()
+  @Type(() => NotificationChannelPreferencesDto)
+  @IsOptional()
+  social?: NotificationChannelPreferencesDto;
+
+  @ValidateNested()
+  @Type(() => NotificationChannelPreferencesDto)
+  @IsOptional()
+  team?: NotificationChannelPreferencesDto;
+
+  @ValidateNested()
+  @Type(() => NotificationChannelPreferencesDto)
+  @IsOptional()
+  content?: NotificationChannelPreferencesDto;
+
+  @ValidateNested()
+  @Type(() => NotificationChannelPreferencesDto)
+  @IsOptional()
+  system?: NotificationChannelPreferencesDto;
+
+  @ValidateNested()
+  @Type(() => NotificationChannelPreferencesDto)
+  @IsOptional()
+  billing?: NotificationChannelPreferencesDto;
+
+  @ValidateNested()
+  @Type(() => NotificationChannelPreferencesDto)
+  @IsOptional()
+  marketing?: NotificationChannelPreferencesDto;
+}
+
+export class NotificationQuietHoursDto {
+  @IsBoolean()
+  @IsOptional()
+  enabled?: boolean;
+
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  @IsOptional()
+  startHour?: number;
+
+  @IsInt()
+  @Min(0)
+  @Max(23)
+  @IsOptional()
+  endHour?: number;
+
+  @IsString()
+  @IsOptional()
+  @Matches(/^[A-Za-z_]+\/[A-Za-z_/]+$/, {
+    message: 'Invalid timezone format. Use IANA timezone (e.g., America/New_York)',
+  })
+  timezone?: string;
+}
+
+export class NotificationCadenceCapsDto {
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  maxPushesPerDay?: number;
+
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  minIntervalMinutes?: number;
+
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  maxMarketingPushesPerDay?: number;
+}
+
 export class NotificationPreferencesDto {
   @IsBoolean()
   @IsOptional()
-  emailNotifications?: boolean;
+  email?: boolean;
 
   @IsBoolean()
   @IsOptional()
-  pushNotifications?: boolean;
+  push?: boolean;
 
   @IsBoolean()
   @IsOptional()
-  smsNotifications?: boolean;
+  sms?: boolean;
 
   @IsBoolean()
   @IsOptional()
-  postShares?: boolean;
+  marketing?: boolean;
 
-  @IsBoolean()
+  @ValidateNested()
+  @Type(() => NotificationCategoryPreferencesDto)
   @IsOptional()
-  teamInvites?: boolean;
+  categoryPreferences?: NotificationCategoryPreferencesDto;
 
-  @IsBoolean()
+  @ValidateNested()
+  @Type(() => NotificationQuietHoursDto)
   @IsOptional()
-  teamUpdates?: boolean;
+  quietHours?: NotificationQuietHoursDto;
 
-  @IsBoolean()
+  @ValidateNested()
+  @Type(() => NotificationCadenceCapsDto)
   @IsOptional()
-  messages?: boolean;
-
-  @IsBoolean()
-  @IsOptional()
-  weeklyDigest?: boolean;
-
-  @IsBoolean()
-  @IsOptional()
-  marketingEmails?: boolean;
+  cadenceCaps?: NotificationCadenceCapsDto;
 }
 
 export class UpdateNotificationPreferencesDto {
@@ -65,27 +151,6 @@ export class UpdateNotificationPreferencesDto {
   @Type(() => NotificationPreferencesDto)
   @IsOptional()
   preferences?: NotificationPreferencesDto;
-
-  @IsString()
-  @IsOptional()
-  @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
-    message: 'Quiet hours must be in HH:MM format (24-hour)',
-  })
-  quietHoursStart?: string;
-
-  @IsString()
-  @IsOptional()
-  @Matches(/^([01]\d|2[0-3]):([0-5]\d)$/, {
-    message: 'Quiet hours must be in HH:MM format (24-hour)',
-  })
-  quietHoursEnd?: string;
-
-  @IsString()
-  @IsOptional()
-  @Matches(/^[A-Z]{2,4}\/[A-Za-z_/]+$/, {
-    message: 'Invalid timezone format. Use IANA timezone (e.g., America/New_York)',
-  })
-  timezone?: string;
 }
 
 // ============================================

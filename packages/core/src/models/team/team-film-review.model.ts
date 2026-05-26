@@ -463,6 +463,13 @@ export interface TeamFilmReviewDownloadPrewarm {
   readonly lastError?: string;
 }
 
+export interface TeamFilmReviewTimelineProgress {
+  readonly processedWindowCount: number;
+  readonly totalWindowCount: number;
+  readonly playCount: number;
+  readonly updatedAt: PortableTimestamp;
+}
+
 export interface TeamFilmReviewDoc {
   readonly id: string;
   readonly teamId: string;
@@ -504,6 +511,8 @@ export interface TeamFilmReviewDoc {
   readonly timelineGeneratedAt?: PortableTimestamp;
   /** Error message if timeline generation failed */
   readonly timelineError?: string;
+  /** Windowed AI generation progress for long full-game timeline jobs */
+  readonly timelineProgress?: TeamFilmReviewTimelineProgress | null;
   /** Upload-time Cloudflare MP4 prewarm state for low-latency analysis */
   readonly downloadPrewarm?: TeamFilmReviewDownloadPrewarm;
 }

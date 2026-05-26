@@ -177,7 +177,28 @@ function stripRequestSection(enrichedContext?: string): string | null {
   }
 
   const scoped = enrichedContext.slice(0, markerIndex).trim();
-  return scoped.length > 0 ? scoped : null;
+  const requestDirectives = extractSelectedContextRequestDirectives(
+    enrichedContext.slice(markerIndex + marker.length)
+  );
+  const parts = [
+    scoped,
+    requestDirectives ? `[Selected Contexts From User Request]\n${requestDirectives}` : '',
+  ].filter((part) => part.length > 0);
+  return parts.length > 0 ? parts.join('\n\n') : null;
+}
+
+function extractSelectedContextRequestDirectives(requestText: string): string | null {
+  const withInstruction = requestText.match(
+    /\[Selected contexts \(confirmed by user for this turn\):[\s\S]*?\n\]\n\[Instruction:[\s\S]*?\]/
+  );
+  if (withInstruction?.[0]?.trim()) {
+    return withInstruction[0].trim();
+  }
+
+  const selectedContextsOnly = requestText.match(
+    /\[Selected contexts \(confirmed by user for this turn\):[\s\S]*?\n\]/
+  );
+  return selectedContextsOnly?.[0]?.trim() ?? null;
 }
 
 export class AgentRouterContextService {
@@ -334,7 +355,11 @@ export class AgentRouterContextService {
       readonly url: string;
       readonly mimeType: string;
       readonly name: string;
+      readonly storagePath?: string;
       readonly cloudflareVideoId?: string;
+      readonly cloudflareStatus?: string;
+      readonly readyToStream?: boolean;
+      readonly thumbnailUrl?: string;
     }[],
     conversationHistory?: readonly AgentSessionMessage[]
   ): AgentSessionContext {
