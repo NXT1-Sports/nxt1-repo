@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/config",
-  "version": "1.39.5",
+  "version": "1.39.6",
   "description": "Shared configuration for NXT1 monorepo",
   "private": true,
   "exports": {
