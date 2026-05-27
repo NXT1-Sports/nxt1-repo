@@ -925,6 +925,16 @@ export class AgentXVideoUploadService {
 
       xhr.open('PUT', uploadUrl);
       xhr.setRequestHeader('Content-Type', file.type);
+      // Bypass the Angular NGSW service worker for this request.
+      // The SW intercepts ALL fetch/XHR events (including PUT) and proxies them
+      // via its own scope.fetch() passthrough. For large video uploads that take
+      // several minutes, Chrome may kill the idle SW mid-upload, aborting the
+      // in-flight passthrough and returning a synthetic 504 Gateway Timeout.
+      // The `ngsw-bypass` header tells the SW to skip this request entirely and
+      // let the browser send it directly to the network.
+      // GCS signed URLs only sign 'content-type' and 'host' headers, so adding
+      // this extra header does NOT invalidate the signature.
+      xhr.setRequestHeader('ngsw-bypass', '1');
       xhr.send(file);
     });
   }

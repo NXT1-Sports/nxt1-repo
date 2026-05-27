@@ -70,16 +70,32 @@ function inferMediaTypeFromUrl(rawUrl: string): MarkdownMediaType | null {
     if (/\/videos?\//i.test(pathname)) {
       return 'video';
     }
+    // Firebase Storage / GCS: encoded paths or extensionless objects — check full URL
+    const lowerUrl = normalized.toLowerCase();
+    if (/(?:firebasestorage|storage)\.googleapis\.com/i.test(lowerUrl)) {
+      if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:[?#%]|$)/i.test(lowerUrl)) return 'image';
+      if (/\.(mp4|mov|m4v|webm|avi|mkv)(?:[?#%]|$)/i.test(lowerUrl)) return 'video';
+      if (/(?:\/|%2F)videos?(?:\/|%2F)/i.test(lowerUrl)) return 'video';
+      if (/(?:\/|%2F)images?(?:\/|%2F)/i.test(lowerUrl)) return 'image';
+    }
     return null;
   } catch {
     return null;
   }
 }
 
-/** Returns true for embeddable video extensions (Firebase Storage URLs include ext before '?'). */
+/** Returns true for embeddable video URLs (by extension or storage-domain path heuristic). */
 function isVideoUrl(url: string | null | undefined): boolean {
   if (!url) return false;
-  return /\.(mp4|mov|webm|m4v)([?#]|$)/i.test(url);
+  if (/\.(mp4|mov|webm|m4v)([?#]|$)/i.test(url)) return true;
+  // Firebase Storage / Google Cloud Storage: detect by domain + path indicators
+  // (URLs may use .bin extension or have encoded path separators with no file extension)
+  if (/(?:firebasestorage|storage)\.googleapis\.com/i.test(url)) {
+    if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:[?#%]|$)/i.test(url)) return false;
+    if (/\.(mp4|mov|m4v|webm|avi|mkv)(?:[?#%]|$)/i.test(url)) return true;
+    if (/(?:\/|%2F)videos?(?:\/|%2F)/i.test(url)) return true;
+  }
+  return false;
 }
 
 function normalizeTrackedLink(url: string | null | undefined): string | null {

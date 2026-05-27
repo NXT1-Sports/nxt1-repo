@@ -71,7 +71,7 @@ PODS:
     - Capacitor
   - CapacitorPreferences (8.0.1):
     - Capacitor
-  - CapacitorPushNotifications (8.0.4):
+  - CapacitorPushNotifications (8.1.1):
     - Capacitor
   - CapacitorShare (8.0.1):
     - Capacitor
@@ -81,13 +81,13 @@ PODS:
     - Capacitor
   - CapawesomeCapacitorBadge (8.0.2):
     - Capacitor
-  - CapgoCapacitorUpdater (8.45.11):
+  - CapgoCapacitorUpdater (8.47.1):
     - Alamofire (= 5.10.2)
     - BigInt (= 5.2.0)
     - Capacitor
     - Version (= 0.8.0)
     - ZIPFoundation (~> 0.9)
-  - CapgoNativePurchases (8.3.10):
+  - CapgoNativePurchases (8.4.0):
     - Capacitor
   - FirebaseABTesting (12.7.0):
     - FirebaseCore (~> 12.7.0)
@@ -393,13 +393,13 @@ SPEC CHECKSUMS:
   CapacitorNativeBiometric: 78cf21304251a512e4597437325b5e9b0cd9f7b3
   CapacitorNetwork: 8812ce60d11fb63d8f2e4ba51a49b2e59892ebe2
   CapacitorPreferences: cca2021f386efb75947c850334447d9ff22b14f1
-  CapacitorPushNotifications: f96978ca9c1b2c0b755e27a13b6bd3f7bc12905c
+  CapacitorPushNotifications: ec08d589c226a2c0db7c032ec1bf5b044ec85f8e
   CapacitorShare: 0c58305114538568059bfc07111f22dcb9cb2a82
   CapacitorSplashScreen: 4b46c72298db552b3c57ce021ef028b6dc7f1fa7
   CapacitorStatusBar: 01d5763b4ed720de5ce2edbc938de6a98f4c8f32
   CapawesomeCapacitorBadge: 0d9dca1ab1e770a4524c5a6c35d3c1ee91b296f8
-  CapgoCapacitorUpdater: 67e9b15ca0f3de25b62a8fe82a0e5964b04c42ec
-  CapgoNativePurchases: 0b78b5f8531112bc5a4cbf0f0ae8102d8618bde9
+  CapgoCapacitorUpdater: 64aa4bbc623497c6db176512c4b0dc8bc13a88b5
+  CapgoNativePurchases: be6c964a6ef4d8c16f5fd1eb7fa8de38cced3329
   FirebaseABTesting: 72e4636929660d40844f2a4db15be9d551fc27d6
   FirebaseAppCheckInterop: d58366471f1dadf2ed998b15f85c658458a10142
   FirebaseAuth: 88beaef7c688a2950541552b6dd195d22137c41a

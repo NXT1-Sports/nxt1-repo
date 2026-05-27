@@ -12,7 +12,8 @@
       "Access-Control-Allow-Origin",
       "Authorization",
       "x-goog-resumable",
-      "x-goog-meta-*"
+      "x-goog-meta-*",
+      "ngsw-bypass"
     ],
     "maxAgeSeconds": 3600
   }
