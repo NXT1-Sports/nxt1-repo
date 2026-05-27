@@ -17,6 +17,9 @@ project(':capacitor-firebase-messaging').projectDir = new File('../../../node_mo
 include ':capacitor-firebase-performance'
 project(':capacitor-firebase-performance').projectDir = new File('../../../node_modules/@capacitor-firebase/performance/android')
 
+include ':capacitor-firebase-storage'
+project(':capacitor-firebase-storage').projectDir = new File('../../../node_modules/@capacitor-firebase/storage/android')
+
 include ':capacitor-action-sheet'
 project(':capacitor-action-sheet').projectDir = new File('../../../node_modules/@capacitor/action-sheet/android')
 
