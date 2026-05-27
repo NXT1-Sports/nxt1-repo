@@ -19,10 +19,16 @@
 import * as admin from 'firebase-admin';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { logger } from 'firebase-functions/v2';
-import { DEFAULT_NOTIFICATION_CADENCE_CAPS } from '@nxt1/core';
 
 const db = admin.firestore();
 const messaging = admin.messaging();
+
+// Keep functions self-contained because workspace packages are unavailable in Cloud Build / Cloud Run.
+const DEFAULT_NOTIFICATION_CADENCE_CAPS = {
+  maxPushesPerDay: 6,
+  minIntervalMinutes: 120,
+  maxMarketingPushesPerDay: 2,
+} as const;
 
 interface TokenData {
   token: string;
