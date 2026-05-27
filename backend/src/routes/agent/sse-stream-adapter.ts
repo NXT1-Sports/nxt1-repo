@@ -58,6 +58,13 @@ function inferMediaType(url: string, mimeType?: string): 'image' | 'video' | nul
   if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:\?|#|$)/i.test(lowerUrl)) return 'image';
   if (/\.(mp4|mov|m4v|webm|avi|mkv|m3u8)(?:\?|#|$)/i.test(lowerUrl)) return 'video';
   if (/videodelivery\.net\//i.test(lowerUrl)) return 'video';
+  // Firebase Storage / GCS: encoded paths or extensionless objects — detect by domain + path
+  if (/(?:firebasestorage|storage)\.googleapis\.com/i.test(lowerUrl)) {
+    if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:[?#%]|$)/i.test(lowerUrl)) return 'image';
+    if (/\.(mp4|mov|m4v|webm|avi|mkv)(?:[?#%]|$)/i.test(lowerUrl)) return 'video';
+    if (/(?:\/|%2F)videos?(?:\/|%2F)/i.test(lowerUrl)) return 'video';
+    if (/(?:\/|%2F)images?(?:\/|%2F)/i.test(lowerUrl)) return 'image';
+  }
   return null;
 }
 

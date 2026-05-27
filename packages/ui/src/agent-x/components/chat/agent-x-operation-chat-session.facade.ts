@@ -231,6 +231,16 @@ export class AgentXOperationChatSessionFacade {
       return 'video';
     }
 
+    // Firebase Storage / GCS: encoded paths have %2F separators instead of /
+    // so literal /video/ won't match — check the full URL string
+    const lowerUrl = normalizedUrl.toLowerCase();
+    if (/(?:firebasestorage|storage)\.googleapis\.com/i.test(lowerUrl)) {
+      if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:[?#%]|$)/i.test(lowerUrl)) return 'image';
+      if (/\.(mp4|mov|m4v|webm|avi|mkv)(?:[?#%]|$)/i.test(lowerUrl)) return 'video';
+      if (/(?:\/|%2F)videos?(?:\/|%2F)/i.test(lowerUrl)) return 'video';
+      if (/(?:\/|%2F)images?(?:\/|%2F)/i.test(lowerUrl)) return 'image';
+    }
+
     return null;
   }
 
