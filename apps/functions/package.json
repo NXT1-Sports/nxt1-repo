@@ -22,6 +22,7 @@
     "node": "22"
   },
   "dependencies": {
+    "@nxt1/core": "*",
     "axios": "^1.15.2",
     "cheerio": "^1.2.0",
     "firebase-admin": "^13.6.0",
