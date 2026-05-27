@@ -125,6 +125,22 @@ function hasSignupLifecycleMarker(
   return Boolean((user as unknown as Record<string, unknown>)[`lifecycle.signup.${markerKey}`]);
 }
 
+function hasSignupNotionDashboardMarker(user: UserV2Document | undefined): boolean {
+  if (!user) return false;
+
+  const state = user.lifecycle?.signup?.notionDashboard;
+  if (state?.createdAt || state?.pageId || state?.status === 'created') {
+    return true;
+  }
+
+  const flatUser = user as unknown as Record<string, unknown>;
+  return Boolean(
+    flatUser['lifecycle.signup.notionDashboard.createdAt'] ||
+    flatUser['lifecycle.signup.notionDashboard.pageId'] ||
+    flatUser['lifecycle.signup.notionDashboard.status'] === 'created'
+  );
+}
+
 // ============================================================================
 // POST /auth/profile/onboarding  — Bulk save (marks onboarding complete)
 // ============================================================================
@@ -733,6 +749,7 @@ router.post(
       marketingEnabled: marketingPreferences?.notifications?.marketing !== false,
       slackAlertAlreadySent: hasSignupLifecycleMarker(userData, 'completedSlackAlertSentAt'),
       welcomeEmailAlreadySent: hasSignupLifecycleMarker(userData, 'welcomeEmailSentAt'),
+      notionDashboardAlreadySynced: hasSignupNotionDashboardMarker(userData),
     });
 
     logger.info('[POST /profile/onboarding] Signup lifecycle processed', {

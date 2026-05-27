@@ -102,19 +102,10 @@ const TOOL_ENTITY_GROUP_OVERRIDES: Readonly<Record<string, AgentToolEntityGroup>
   write_team_news: 'team_tools',
   write_roster_entries: 'team_tools',
   write_playbooks: 'team_tools',
-  add_play_to_playbook: 'team_tools',
-  update_play_in_playbook: 'team_tools',
-  delete_play_from_playbook: 'team_tools',
   get_playbook: 'team_tools',
   list_playbooks: 'team_tools',
   update_playbook: 'team_tools',
   delete_playbook: 'team_tools',
-  list_practice_scripts: 'team_tools',
-  get_practice_script: 'team_tools',
-  write_practice_script: 'team_tools',
-  update_practice_script: 'team_tools',
-  delete_practice_script: 'team_tools',
-  generate_practice_script: 'team_tools',
   get_gameplan: 'team_tools',
   list_gameplans: 'team_tools',
   save_gameplan: 'team_tools',
@@ -546,12 +537,9 @@ export class ToolRegistry {
 
     if (context?.allowedEntityGroups?.length) {
       const toolEntityGroup = this.resolveEntityGroup(tool);
-      const explicitlyAllowedByName =
-        context.allowedToolNames?.map(canonicalToolName).includes(normalizedName) ?? false;
       if (
         toolEntityGroup !== 'system_tools' &&
-        !context.allowedEntityGroups.includes(toolEntityGroup) &&
-        !explicitlyAllowedByName
+        !context.allowedEntityGroups.includes(toolEntityGroup)
       ) {
         return {
           success: false,

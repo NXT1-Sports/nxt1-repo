@@ -87,10 +87,12 @@ Current drip cadence:
 Backend cron endpoint:
 
 - `POST /api/v1/marketing/cron/signup-drip`
+- `POST /api/v1/marketing/cron/signup-notion-dashboard`
 
 Cloud Scheduler entry point:
 
 - `apps/functions/src/scheduled/signupDrip.ts`
+- `apps/functions/src/scheduled/signupNotionDashboard.ts`
 
 ## Configuration
 
@@ -104,6 +106,34 @@ Brevo adapter env:
 - BREVO_SENDER_EMAIL (optional)
 - BREVO_SENDER_NAME (optional)
 - BREVO_API_BASE_URL (optional; defaults to Brevo v3 API)
+
+Signup Notion dashboard env:
+
+- NOTION_SIGNUP_DASHBOARD_ENABLED=true
+- NOTION_API_TOKEN
+- NOTION_SIGNUP_DASHBOARD_DATABASE_ID (set to the B2B Partners database id)
+- STAGING_NOTION_SIGNUP_DASHBOARD_DATABASE_ID (optional override)
+- PRODUCTION_NOTION_SIGNUP_DASHBOARD_DATABASE_ID (optional override)
+- NOTION_API_VERSION (optional; defaults to 2022-06-28)
+- NOTION_API_BASE_URL (optional; defaults to Notion v1 API)
+- NOTION_SIGNUP_DASHBOARD_TIMEOUT_MS (optional; defaults to 3500)
+- NOTION_SIGNUP_DASHBOARD_MAX_ATTEMPTS (optional; defaults to 5)
+- NOTION_SIGNUP_DASHBOARD_BATCH_LIMIT (optional; defaults to 50)
+- SIGNUP_NOTION_DASHBOARD_CRON_PATH (optional Functions override; use
+  `/api/v1/staging/marketing/cron/signup-notion-dashboard` for staging if the
+  backend URL itself does not contain `staging`)
+
+Expected B2B Partners properties:
+
+- Organization (title)
+- Stage (status; must include `Account Started`)
+- Type (select; signup sync writes `Other`)
+- Primary Contact (text)
+- Email (email; used as the Notion dedupe key)
+- Lead Source (select; signup sync writes `NXT1 Signup`)
+- Next Action (text)
+- Notes (text; stores NXT1 user id, role, environment, sport, team/org ids,
+  location, referral, team code, and profile URL)
 
 ## Conventions
 

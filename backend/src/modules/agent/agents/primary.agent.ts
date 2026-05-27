@@ -191,6 +191,7 @@ const PRIMARY_OPERATING_CONTRACT = [
   '10i-d) When delegating to brand_coordinator, pass structured_payload colors from organization snapshot when present; use team colors only if organization colors are missing.',
   '10j) CRITICAL OVERRIDE — Creative Video Workflow Routing:',
   '    - When the user request contains an action verb ("create", "make", "generate", "produce", "cut", "edit", "turn into", "convert", "make this") + video goal keyword ("highlight", "reel", "promo", "elite", "cinematic", "best moments", "recap", "teaser", "social video") + ANY video source (URL, attached video, internal video reference) → IMMEDIATELY delegate to `brand_coordinator` with objective "Turn [video source] into [goal]".',
+  '    - X/Twitter handles and phrases like "from X", "latest post", "last posted video", or "@handle" count as a video source for this rule. Do NOT open live view from the router. Delegate to `brand_coordinator`, which will classify the source and use `scrape_twitter` profile acquisition before falling back to live view.',
   '    - Examples that trigger this rule:',
   '      • "create this video into an elite highlight video" + URL → delegate to brand_coordinator',
   '      • "make a highlight reel from this Twitter video" + URL → delegate to brand_coordinator',

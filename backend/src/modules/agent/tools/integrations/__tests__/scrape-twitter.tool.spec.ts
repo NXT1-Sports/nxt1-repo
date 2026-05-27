@@ -47,6 +47,8 @@ const MOCK_TWEET: ScweetTweet = {
   url: 'https://x.com/jalensmith/status/1234567890',
   imageUrls: ['https://pbs.twimg.com/media/tweet_photo1.jpg'],
   videoUrl: '',
+  profileImageUrl: 'https://pbs.twimg.com/profile_images/jalensmith.jpg',
+  authorName: 'Jalen Smith',
 };
 
 const MOCK_VIDEO_TWEET: ScweetTweet = {
@@ -221,6 +223,8 @@ describe('ScrapeTwitterTool', () => {
     const data = result.data as Record<string, unknown>;
     expect(data['mode']).toBe('profile_tweets');
     expect(data['usernames']).toEqual(['OhioStateFB', 'CoachDay']);
+    expect(data['profileImageUrl']).toBe(MOCK_TWEET.profileImageUrl);
+    expect(data['imageUrl']).toBe(MOCK_TWEET.profileImageUrl);
   });
 
   it('should strip @ from usernames', async () => {
@@ -379,8 +383,14 @@ describe('ScrapeTwitterTool', () => {
     );
 
     const mediaInputs = vi.mocked(mockMedia.persistBatch).mock.calls[0][0];
-    expect(mediaInputs).toHaveLength(1);
+    // profile_tweets mode persists the avatar first, then the tweet video.
+    expect(mediaInputs).toHaveLength(2);
     expect(mediaInputs[0]).toMatchObject({
+      url: MOCK_VIDEO_TWEET.profileImageUrl,
+      type: 'image',
+      platform: 'twitter',
+    });
+    expect(mediaInputs[1]).toMatchObject({
       url: MOCK_VIDEO_TWEET.videoUrl,
       type: 'video',
       platform: 'twitter',
@@ -448,6 +458,16 @@ describe('ScrapeTwitterTool', () => {
     vi.mocked(mockApify.getProfileTweets).mockResolvedValue(mockTweetResult());
     const mockPersisted: PersistedMedia[] = [
       {
+        url: 'https://storage.googleapis.com/bucket/agent-scraping/twitter/profile.jpg',
+        storagePath: 'agent-scraping/twitter/profile.jpg',
+        mimeType: 'image/jpeg',
+        type: 'image',
+        platform: 'twitter',
+        originalUrl: 'https://pbs.twimg.com/profile_images/jalensmith.jpg',
+        sourceUrl: 'https://x.com/jalensmith/status/1234567890',
+        sizeBytes: 100_000,
+      },
+      {
         url: 'https://storage.googleapis.com/bucket/agent-scraping/twitter/789-ghi.jpg',
         storagePath: 'agent-scraping/twitter/789-ghi.jpg',
         mimeType: 'image/jpeg',
@@ -468,6 +488,7 @@ describe('ScrapeTwitterTool', () => {
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data['imageUrl']).toBe(mockPersisted[0].url);
-    expect(data['attachments']).toHaveLength(1);
+    expect(data['profileImageUrl']).toBe(mockPersisted[0].url);
+    expect(data['attachments']).toHaveLength(2);
   });
 });

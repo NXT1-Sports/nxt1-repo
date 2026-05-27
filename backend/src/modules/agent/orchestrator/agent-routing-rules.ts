@@ -7,6 +7,11 @@ export interface DeterministicRoutingRule {
 
 export const DETERMINISTIC_ROUTING_RULES: readonly DeterministicRoutingRule[] = [
   {
+    agent: 'brand_coordinator',
+    pattern:
+      /(?=.*\b(create|make|generate|produce|cut|edit|turn\s+into|convert)\b)(?=.*\b(highlight|reel|promo|cinematic|best moments|recap|teaser|social video|motion graphic|intro)\b)(?=.*\b(video|videos|clip|clips|x|twitter|tweet|post|hudl|youtube|instagram)\b)/i,
+  },
+  {
     agent: 'recruiting_coordinator',
     pattern:
       /\b(recruit|recruiting|college|colleges|programs?|coaches?|head coaches?|(?:offensive|defensive|special teams|quarterbacks|recruiting) coordinators?|outreach|email campaign|email outreach|send emails?|draft emails?|follow-?up emails?)\b/i,

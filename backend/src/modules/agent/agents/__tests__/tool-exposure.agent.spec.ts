@@ -328,6 +328,7 @@ describe('Agent tool exposure regressions', () => {
 
     expect(routerTools).toContain('search_colleges');
     expect(routerTools).toContain('search_college_coaches');
+    expect(routerTools).not.toContain('open_live_view');
     expect(routerTools).not.toContain('save_gameplan');
     expect(routerTools).not.toContain('write_playbooks');
     expect(routerTools).not.toContain('create_play_diagram');

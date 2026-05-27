@@ -35,6 +35,7 @@ import {
   AGENT_X_AUTH_TOKEN_FACTORY,
 } from '../agent-x/services/agent-x-job.service';
 import {
+  AgentXOperationEventService,
   FIRESTORE_ADAPTER,
   type FirestoreAdapter,
 } from '../agent-x/services/agent-x-operation-event.service';
@@ -101,6 +102,7 @@ export class ProfileGenerationStateService {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly streamRegistry = inject(AgentXStreamRegistryService);
+  private readonly operationEventService = inject(AgentXOperationEventService);
   private readonly firestoreAdapter = inject(FIRESTORE_ADAPTER, { optional: true });
   private readonly platformId = inject(PLATFORM_ID);
   private readonly apiBaseUrl = inject(AGENT_X_API_BASE_URL, { optional: true });
@@ -152,6 +154,12 @@ export class ProfileGenerationStateService {
   private readonly operationHandles = new Map<string, symbol>();
   /** Platforms string stored per-watched-operation until the banner starts */
   private readonly watchedPlatforms = new Map<string, string>();
+  /**
+   * Tracks the threadId resolved for each watched operationId.
+   * Used to clear the chat enqueue-waiting marker when the operation completes
+   * (the marker is keyed by threadId, not operationId).
+   */
+  private readonly operationThreadIds = new Map<string, string>();
 
   /**
    * Called by onboarding `handleCompletion()` after the Agent X job is enqueued.
@@ -266,12 +274,24 @@ export class ProfileGenerationStateService {
         onThread: (evt) => {
           // Wire the operationId ↔ threadId mapping in the registry so all
           // registered observers receive subsequent step/done/error events.
+          //
+          // NOTE: We intentionally do NOT call `streamRegistry.register(...)` here.
+          // This is a *headless* tracking stream (no UI handlers) — registering
+          // it would flip `hasActiveStream(threadId)` to true and block the
+          // Agent X chat surface from subscribing to Firestore for the same
+          // thread when the user navigates into it (chat would just spin on a
+          // typing loader until this background SSE eventually ended). Observer
+          // fan-out works through `linkOperation` + `watchOperation` without
+          // needing the stream entry to exist.
           this.streamRegistry.linkOperation(operationId, evt.threadId);
-          if (this.resumeStream) {
-            this.streamRegistry.register(evt.threadId, this.resumeStream, {
-              retentionHint: 'long-running',
-            });
-          }
+          this.operationThreadIds.set(operationId, evt.threadId);
+
+          // Mirror the in-chat `enqueue_heavy_task` handshake so that when the
+          // user navigates into Agent X chat for this thread, the session
+          // facade detects the waiting marker, inserts the typing row, and
+          // subscribes to Firestore — instead of bailing on `hasActiveStream`.
+          this.operationEventService.markEnqueueWaiting(evt.threadId, Date.now(), operationId);
+
           this.logger.info('SSE resume stream thread resolved', {
             operationId,
             threadId: evt.threadId,
@@ -338,6 +358,15 @@ export class ProfileGenerationStateService {
       this.operationHandles.delete(operationId);
     }
     this.watchedPlatforms.delete(operationId);
+
+    // Clear the chat enqueue-waiting marker once the heavy job is terminal.
+    // The chat surface no longer needs to resume a background operation for
+    // this thread.
+    const threadId = this.operationThreadIds.get(operationId);
+    if (threadId) {
+      this.operationEventService.clearEnqueueWaiting(threadId);
+      this.operationThreadIds.delete(operationId);
+    }
   }
 
   /**

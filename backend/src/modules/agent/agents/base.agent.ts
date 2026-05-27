@@ -3092,6 +3092,15 @@ export abstract class BaseAgent {
         });
       }
 
+      if (this.id === 'router' && toolName === 'open_live_view') {
+        return JSON.stringify({
+          error: 'Tool "open_live_view" is not allowed for agent "router".',
+          errorCode: 'ROUTER_LIVE_VIEW_DELEGATION_REQUIRED',
+          guidance:
+            'Delegate browser, form, or media acquisition work to the appropriate coordinator. For creative highlight/video/reel production, call delegate_to_coordinator with coordinatorId="brand_coordinator". Do not retry open_live_view from router.',
+        });
+      }
+
       return JSON.stringify({
         error: `Tool "${toolName}" is not allowed for agent "${this.id}".`,
         errorCode: 'AGENT_TOOL_NOT_ALLOWED',
@@ -3114,6 +3123,17 @@ export abstract class BaseAgent {
       return JSON.stringify({
         error: `Invalid JSON arguments for tool "${toolName}".`,
         errorCode: 'AGENT_TOOL_ARGS_INVALID',
+      });
+    }
+
+    if (this.id === 'router' && toolName === 'open_live_view') {
+      return JSON.stringify({
+        success: false,
+        error:
+          'The router cannot open live view directly. Delegate browser, form, or media acquisition work to the appropriate coordinator. For creative highlight/video/reel production, delegate to brand_coordinator first.',
+        errorCode: 'ROUTER_LIVE_VIEW_DELEGATION_REQUIRED',
+        guidance:
+          'Call delegate_to_coordinator with coordinatorId="brand_coordinator" for creative video production, or recruiting_coordinator for form-fill/browser workflows. Do not retry open_live_view from router.',
       });
     }
 
@@ -3954,7 +3974,13 @@ export abstract class BaseAgent {
     }
 
     // analyze_video keeps the strict artifact-only augmentation path.
-    if (toolCall.function.name === 'analyze_video' && input['artifact'] !== undefined) {
+    // Also skip if the LLM passed an explicit url — it has made a deliberate
+    // routing choice and we must not silently swap that URL for a stale media
+    // artifact from an earlier (potentially unrelated) tool call.
+    if (
+      toolCall.function.name === 'analyze_video' &&
+      (input['artifact'] !== undefined || typeof input['url'] === 'string')
+    ) {
       return toolCall;
     }
 
@@ -4036,6 +4062,28 @@ export abstract class BaseAgent {
             aggregate.sources.push(`${source}:imageUrl`);
           }
 
+          const profileImageCandidates = [
+            entry['profileImageUrl'],
+            entry['profile_image_url'],
+            entry['profile_image_url_https'],
+            entry['avatarUrl'],
+            entry['avatar'],
+          ]
+            .filter(
+              (value): value is string => typeof value === 'string' && value.trim().length > 0
+            )
+            .map((value) => value.trim());
+          if (profileImageCandidates.length > 0) {
+            aggregate.subjectPhotoUrls.push(...profileImageCandidates);
+            aggregate.sources.push(`${source}:profileImageUrl`);
+          }
+
+          const profileImageUrls = readStringArray(entry['profileImageUrls']);
+          if (profileImageUrls.length > 0) {
+            aggregate.subjectPhotoUrls.push(...profileImageUrls);
+            aggregate.sources.push(`${source}:profileImageUrls`);
+          }
+
           const profileImgs = readStringArray(entry['profileImgs']);
           if (profileImgs.length > 0) {
             aggregate.subjectPhotoUrls.push(...profileImgs);
@@ -4076,7 +4124,7 @@ export abstract class BaseAgent {
 
       const collectFromText = (text: string, source: string): void => {
         if (!text.trim()) return;
-        const urlRegex = /https?:\/\/[^\s)\]"]+ /gi;
+        const urlRegex = /https?:\/\/[^\s)\]"]+/gi;
         const lines = text.split(/\r?\n/);
         let match: RegExpExecArray | null;
         while ((match = urlRegex.exec(text)) !== null) {

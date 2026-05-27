@@ -14,6 +14,7 @@ export { pulseWorker } from './dailyPulseUpdates';
 export { dailyBriefings } from './dailyBriefings';
 export { pushDrip } from './pushDrip';
 export { signupDrip } from './signupDrip';
+export { signupNotionDashboard } from './signupNotionDashboard';
 export { weeklySuggestedActions } from './weeklySuggestedActions';
 export { weeklyPlaybooks } from './weeklyPlaybooks';
 export { playbookNudge } from './playbookNudge';

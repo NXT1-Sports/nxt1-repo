@@ -861,14 +861,25 @@ export class AgentXOperationChatTransportFacade {
             );
             if (shouldResumeBackgroundStream && terminalOperationId) {
               host.setOperationStatus('processing');
+              host.setCurrentOperationId(terminalOperationId);
               host.loading.set(true);
               host.setActivityPhase('reconnecting', 'Connecting to background job...');
-              this.logger.info('Parent SSE completed; switching to enqueue Firestore replay', {
+              this.logger.info('Parent SSE completed; subscribing to enqueue Firestore stream', {
                 threadId,
                 operationId: terminalOperationId,
               });
               this.agentXService.clearDropRecoveryOp();
-              host.reconcileOperationFromStoredEvents(terminalOperationId);
+              // Synchronously subscribe to Firestore for the heavy job. This
+              // inserts a typing row immediately so the loadThreadMessages call
+              // queued internally by finalizeStreamedAssistantMessage will see
+              // it via `existingTyping` (post-fetch) and preserve it. Calling
+              // reconcileOperationFromStoredEvents here would race with that
+              // loadThreadMessages chain and the typing row would be wiped
+              // before the Firestore stream could attach deltas/steps to it,
+              // leaving the user staring at a loader until they reopened the
+              // thread. Subscribing directly is a single async path with no
+              // race window.
+              host.subscribeToFirestoreJobEvents(terminalOperationId, 0);
               resolve();
               return;
             }

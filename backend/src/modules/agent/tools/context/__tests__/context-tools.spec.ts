@@ -102,13 +102,14 @@ describe('Context tools', () => {
     expect(result.markdown).toContain('No other active threads.');
   });
 
-  it('GetOtherThreadHistoryTool refuses current thread fetch and avoids contextBuilder calls', async () => {
+  it('GetOtherThreadHistoryTool no-ops current thread fetch and avoids contextBuilder calls', async () => {
     const tool = new GetOtherThreadHistoryTool(contextBuilder);
 
     const result = await tool.execute({ threadId: 'thread-current' }, context);
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('Refusing to read the current thread');
+    expect(result.success).toBe(true);
+    expect(result.markdown).toContain('Already available in the active context window');
+    expect(result.data).toMatchObject({ currentThreadAlreadyInContext: true });
     expect(getRecentThreadHistory).not.toHaveBeenCalled();
   });
 

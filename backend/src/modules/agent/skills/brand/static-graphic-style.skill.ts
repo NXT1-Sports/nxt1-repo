@@ -43,11 +43,15 @@ export class StaticGraphicStyleSkill extends BaseSkill {
 - Subtle motion blur or light streak effects for energy
 
 ### Subject Image Fidelity (Mandatory)
+- If the request includes an athlete handle, linked social account, profile URL, or named/identifiable athlete, retrieve real subject media before generating the graphic
+- Source order: scrape_twitter for X/Twitter handles or URLs, scrape_instagram for Instagram URLs, attached chat images, user_profile_snapshot profileImgs, then user_timeline_feed image posts
+- If no real subject image is available, stop and ask for one; do not substitute a generated person
 - When the user provides an athlete image, treat the task as strict compositing, not free character generation
 - The output must preserve the exact person from the source photo (face, skin tone, hair, body proportions, visible identity details)
 - Allowed changes: cutout, relighting, color grading, background replacement, typography overlays
-- Forbidden changes: new face, different athlete, body double, ethnicity change, jersey number change
+- Forbidden changes: new face, different athlete, body double, stock human, silhouette athlete, ethnicity change, jersey number change
 - If fidelity cannot be preserved, keep the original subject untouched and only style the background/layout
+- Athlete graphics without a supplied real photo must be text/abstract only: no human figure, silhouette, jerseyed player, or AI-generated athlete body
 
 ### Welcome Graphics
 - Personalize with user's name, sport, and position
@@ -61,6 +65,7 @@ export class StaticGraphicStyleSkill extends BaseSkill {
   - team graphic -> graphicType: "team"
 - For athlete graphics, provide athleteInfo whenever available:
   - name, sport, position, team
+- For identifiable athlete graphics, pass subjectPhotoUrls from verified retrieved media and set requiredAssets: { subjectPhoto: true }
 - For team graphics, provide teamInfo whenever available:
   - name, sport, subtitle
 - textRequirements must contain only real on-canvas information. Never use placeholders like "athlete" or "team" as standalone text.

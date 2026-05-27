@@ -476,7 +476,11 @@ describe('Agent X Routes', () => {
   });
 
   it('should enqueue chat and stream replayed yield events from persisted history', async () => {
-    const jobRepository = createMockJobRepository();
+    const jobRepository = createMockJobRepository({
+      userId: 'test-user',
+      status: 'completed',
+      threadId: 'thread-123',
+    });
     jobRepository.getById.mockResolvedValue({
       operationId: 'chat-op-1',
       threadId: 'thread-123',
@@ -720,7 +724,11 @@ describe('Agent X Routes', () => {
       updatedAt: timestamp,
     });
 
-    const jobRepository = createMockJobRepository();
+    const jobRepository = createMockJobRepository({
+      userId: 'test-user',
+      status: 'queued',
+      threadId: 'thread-123',
+    });
     let addMessageCallCount = 0;
     const chatService = {
       addMessage: vi.fn().mockImplementation(async (payload: { role: string }) => {
@@ -780,6 +788,8 @@ describe('Agent X Routes', () => {
       payload: {
         reason: 'insufficient_funds',
         description: expect.stringContaining('Wallet balance'),
+        currentBalanceCents: 0,
+        amountNeededCents: 30,
       },
     });
     expect(events[3]?.data).toMatchObject({ status: 'complete', threadId: 'thread-123' });
@@ -932,11 +942,23 @@ describe('Agent X Routes', () => {
       payload: {
         reason: 'insufficient_funds',
         description: expect.stringContaining('Wallet balance of $0.21'),
+        currentBalanceCents: 21,
+        amountNeededCents: 30,
       },
     });
 
     expect(jobRepository.create).not.toHaveBeenCalled();
     expect(queueService.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('should price media preflight at the quoted request price by default', () => {
+    const estimatedCents = chatRouteTestUtils.estimateChatBillingGateCostCents({
+      message: 'Create a highlight video with a motion graphic intro and merge my posted clips',
+      mode: 'recruiting',
+    });
+
+    expect(estimatedCents).toBe(30);
+    expect(298).toBeGreaterThanOrEqual(estimatedCents);
   });
 
   it.skip('should block chat on org hard-stop budget cap when resolved billing target is organization', async () => {

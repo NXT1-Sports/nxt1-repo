@@ -194,6 +194,17 @@ function docToOrganization(doc: FirebaseFirestore.DocumentSnapshot): Organizatio
   };
 }
 
+function isSearchableOrganizationDoc(data: FirebaseFirestore.DocumentData): boolean {
+  const status = data['status'];
+
+  return (
+    data['isActive'] !== false &&
+    status !== 'merged' &&
+    status !== OrganizationStatus.INACTIVE &&
+    status !== OrganizationStatus.SUSPENDED
+  );
+}
+
 // ============================================
 // SERVICE CLASS
 // ============================================
@@ -499,8 +510,7 @@ export class OrganizationService {
 
     // Over-fetch when applying in-memory filters so we don't
     // miss valid results hidden behind non-matching docs.
-    const hasInMemoryFilters = !!options?.type || !!options?.state;
-    const fetchLimit = hasInMemoryFilters ? limit * 5 : limit;
+    const fetchLimit = limit * 5;
 
     // Firestore prefix range query on the nameLower field.
     // '\uf8ff' is a very high Unicode char that acts as an upper bound
@@ -513,7 +523,9 @@ export class OrganizationService {
 
     const snapshot = await ref.get();
 
-    let orgs = snapshot.docs.map(docToOrganization);
+    let orgs = snapshot.docs
+      .filter((doc) => isSearchableOrganizationDoc(doc.data()))
+      .map(docToOrganization);
 
     // Apply optional filters in-memory (avoids composite index requirement)
     if (options?.type) {

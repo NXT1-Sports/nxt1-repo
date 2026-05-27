@@ -20,6 +20,10 @@ import {
 } from '../email/campaigns/welcome/welcome-onboarding-email.service.js';
 import { enrollPushDrip } from './push-drip.service.js';
 import { enrollSignupDrip } from './signup-drip.service.js';
+import {
+  enqueueSignupNotionDashboardEntry,
+  type EnqueueSignupNotionDashboardEntryResult,
+} from './signup-notion-dashboard.service.js';
 
 interface CompletedSignupLifecycleInput {
   readonly db: FirebaseFirestore.Firestore;
@@ -42,6 +46,7 @@ interface CompletedSignupLifecycleInput {
   readonly marketingEnabled?: boolean;
   readonly slackAlertAlreadySent?: boolean;
   readonly welcomeEmailAlreadySent?: boolean;
+  readonly notionDashboardAlreadySynced?: boolean;
 }
 
 type SignupSlackResult =
@@ -63,6 +68,9 @@ export interface CompletedSignupLifecycleResult {
     | { readonly status: 'enrolled' }
     | { readonly status: 'skipped'; readonly reason: 'already-enrolled' }
     | { readonly status: 'failed'; readonly reason: 'exception' };
+  readonly notionDashboardEntry:
+    | EnqueueSignupNotionDashboardEntryResult
+    | { readonly status: 'failed'; readonly reason: 'enqueue-exception' };
 }
 
 function resolveDisplayName(input: CompletedSignupLifecycleInput): string {
@@ -182,8 +190,43 @@ export async function processCompletedSignupLifecycle(
         organizationName: input.teamName,
         marketingEnabled: input.marketingEnabled,
       });
+  const notionDashboardPromise = input.notionDashboardAlreadySynced
+    ? Promise.resolve({ status: 'skipped', reason: 'already-created' } as const)
+    : enqueueSignupNotionDashboardEntry({
+        db: input.db,
+        userId: input.userId,
+        environment: input.environment,
+        role: input.role,
+        firstName: input.firstName,
+        lastName: input.lastName,
+        displayName: input.displayName,
+        email: input.email,
+        primarySport: input.primarySport,
+        teamName: input.teamName,
+        teamId: input.teamId,
+        organizationId: input.organizationId,
+        city: input.city,
+        state: input.state,
+        referralId: input.referralId,
+        teamCode: input.teamCode,
+        teamCodeName: input.teamCodeName,
+        profileUrl: toAbsoluteAppUrl(`/profile/${input.userId}`, {
+          environment: input.environment,
+        }),
+      }).catch((error): { readonly status: 'failed'; readonly reason: 'enqueue-exception' } => {
+        logger.error('[CompletedSignupLifecycle] Failed to enqueue Notion dashboard entry', {
+          userId: input.userId,
+          role: input.role,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return { status: 'failed', reason: 'enqueue-exception' };
+      });
 
-  const [slackResult, welcomeEmailResult] = await Promise.all([slackPromise, welcomePromise]);
+  const [slackResult, welcomeEmailResult, notionDashboardEntryResult] = await Promise.all([
+    slackPromise,
+    welcomePromise,
+    notionDashboardPromise,
+  ]);
 
   let dripEnrollmentResult: CompletedSignupLifecycleResult['dripEnrollment'];
   let pushDripEnrollmentResult: CompletedSignupLifecycleResult['pushDripEnrollment'];
@@ -256,5 +299,6 @@ export async function processCompletedSignupLifecycle(
     welcomeEmail: welcomeEmailResult,
     dripEnrollment: dripEnrollmentResult,
     pushDripEnrollment: pushDripEnrollmentResult,
+    notionDashboardEntry: notionDashboardEntryResult,
   };
 }

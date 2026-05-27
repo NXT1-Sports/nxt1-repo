@@ -3932,7 +3932,11 @@ export async function captureWalletHold(
   db: Firestore,
   holdId: string,
   actualCostCents: number
-): Promise<void> {
+): Promise<{
+  capturedAmountCents: number;
+  heldAmountCents: number;
+  absorbedOverageCents: number;
+}> {
   if (actualCostCents < 0) {
     throw new Error('Actual cost cannot be negative');
   }
@@ -3940,6 +3944,8 @@ export async function captureWalletHold(
   const holdRef = db.collection(COLLECTIONS.WALLET_HOLDS).doc(holdId);
   let teamId: string | undefined;
   let capturedOwnerType: BillingOwnerType | null = null;
+  let heldAmountCents = 0;
+  let capturedAmountCents = 0;
 
   await db.runTransaction(async (txn) => {
     const holdDoc = await txn.get(holdRef);
@@ -3950,6 +3956,8 @@ export async function captureWalletHold(
 
     const hold = holdDoc.data() as WalletHold;
     teamId = hold.teamId;
+    heldAmountCents = hold.amountCents;
+    capturedAmountCents = Math.min(actualCostCents, heldAmountCents);
     const billingTarget = resolveWalletHoldTarget(hold);
     capturedOwnerType = billingTarget.ownerType;
 
@@ -3965,28 +3973,39 @@ export async function captureWalletHold(
 
     txn.update(owner.refs.walletRef, {
       pendingHoldsCents: FieldValue.increment(-hold.amountCents),
-      balanceCents: FieldValue.increment(-actualCostCents),
+      balanceCents: FieldValue.increment(-capturedAmountCents),
       updatedAt: FieldValue.serverTimestamp(),
     });
 
     txn.update(owner.refs.periodLedgerRef, {
-      currentPeriodSpend: FieldValue.increment(actualCostCents),
+      currentPeriodSpend: FieldValue.increment(capturedAmountCents),
       updatedAt: FieldValue.serverTimestamp(),
     });
 
     // Mark hold as captured
     txn.update(holdRef, {
       status: 'captured',
-      capturedAmountCents: actualCostCents,
+      capturedAmountCents,
+      requestedCaptureAmountCents: actualCostCents,
+      absorbedOverageCents: Math.max(actualCostCents - capturedAmountCents, 0),
       resolvedAt: FieldValue.serverTimestamp(),
     });
   });
 
-  if (capturedOwnerType === 'organization' && actualCostCents > 0 && teamId) {
-    await updateTeamAllocationSpend(db, teamId, actualCostCents);
+  if (capturedOwnerType === 'organization' && capturedAmountCents > 0 && teamId) {
+    await updateTeamAllocationSpend(db, teamId, capturedAmountCents);
   }
 
-  logger.info('[captureWalletHold] Hold captured', { holdId, actualCostCents });
+  const absorbedOverageCents = Math.max(actualCostCents - capturedAmountCents, 0);
+  logger.info('[captureWalletHold] Hold captured', {
+    holdId,
+    actualCostCents,
+    capturedAmountCents,
+    heldAmountCents,
+    absorbedOverageCents,
+  });
+
+  return { capturedAmountCents, heldAmountCents, absorbedOverageCents };
 }
 
 /**

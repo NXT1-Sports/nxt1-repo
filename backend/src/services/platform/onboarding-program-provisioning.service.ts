@@ -173,6 +173,82 @@ async function generateUniqueTeamCode(db: Firestore): Promise<string> {
   return `${Date.now().toString(36).slice(-6)}`.toUpperCase();
 }
 
+function normalizeLookupValue(value: unknown): string {
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function getTeamSportLookupValue(data: FirebaseFirestore.DocumentData): string {
+  return normalizeLookupValue(data['sport']) || normalizeLookupValue(data['sportName']);
+}
+
+function doesTeamLevelMatch(data: FirebaseFirestore.DocumentData, requestedLevel: string): boolean {
+  const teamLevel = normalizeLookupValue(data['level']);
+  return requestedLevel ? teamLevel === requestedLevel : teamLevel.length === 0;
+}
+
+function doesTeamMatchSportAndLevel(
+  data: FirebaseFirestore.DocumentData,
+  normalizedSportName: string,
+  requestedLevel: string
+): boolean {
+  return (
+    data['isActive'] === true &&
+    getTeamSportLookupValue(data) === normalizedSportName &&
+    doesTeamLevelMatch(data, requestedLevel)
+  );
+}
+
+async function findExistingTeamIdForSport(
+  input: ProvisionOnboardingProgramsInput,
+  program: ProvisioningProgramRecord,
+  sportName: string,
+  level?: string
+): Promise<string | null> {
+  const normalizedSportName = normalizeLookupValue(sportName);
+  const requestedLevel = normalizeLookupValue(level);
+
+  if (!normalizedSportName) {
+    return null;
+  }
+
+  const teamsCollection = input.db.collection('Teams');
+  const exactSportSnapshot = await teamsCollection
+    .where('organizationId', '==', program.organizationId)
+    .where('sport', '==', sportName)
+    .where('isActive', '==', true)
+    .get();
+
+  const exactSportDoc = exactSportSnapshot.docs.find((doc) =>
+    doesTeamMatchSportAndLevel(doc.data(), normalizedSportName, requestedLevel)
+  );
+  if (exactSportDoc) {
+    return exactSportDoc.id;
+  }
+
+  const legacySportSnapshot = await teamsCollection
+    .where('organizationId', '==', program.organizationId)
+    .where('sportName', '==', sportName)
+    .where('isActive', '==', true)
+    .get();
+
+  const legacySportDoc = legacySportSnapshot.docs.find((doc) =>
+    doesTeamMatchSportAndLevel(doc.data(), normalizedSportName, requestedLevel)
+  );
+  if (legacySportDoc) {
+    return legacySportDoc.id;
+  }
+
+  const organizationTeamsSnapshot = await teamsCollection
+    .where('organizationId', '==', program.organizationId)
+    .get();
+
+  const normalizedSportDoc = organizationTeamsSnapshot.docs.find((doc) =>
+    doesTeamMatchSportAndLevel(doc.data(), normalizedSportName, requestedLevel)
+  );
+
+  return normalizedSportDoc?.id ?? null;
+}
+
 async function resolvePrograms(
   input: ProvisionOnboardingProgramsInput,
   selections: readonly OnboardingProgramSelection[]
@@ -311,36 +387,9 @@ async function ensureTeamForSport(
   const sport = input.sports.find((s) => s.sport?.toLowerCase() === sportName.toLowerCase());
   const level = sport?.level;
 
-  // Build the uniqueness query: org + sport + level (when present)
-  let query = input.db
-    .collection('Teams')
-    .where('organizationId', '==', program.organizationId)
-    .where('sport', '==', sportName)
-    .where('isActive', '==', true);
-
-  if (level) {
-    query = query.where('level', '==', level) as typeof query;
-  }
-
-  let existingTeamSnapshot = await query.limit(1).get();
-
-  if (existingTeamSnapshot.empty) {
-    let legacyQuery = input.db
-      .collection('Teams')
-      .where('organizationId', '==', program.organizationId)
-      .where('sportName', '==', sportName)
-      .where('isActive', '==', true);
-
-    if (level) {
-      legacyQuery = legacyQuery.where('level', '==', level) as typeof legacyQuery;
-    }
-
-    existingTeamSnapshot = await legacyQuery.limit(1).get();
-  }
-
-  const existingDoc = existingTeamSnapshot.docs[0];
-  if (existingDoc) {
-    return { teamId: existingDoc.id, created: false };
+  const existingTeamId = await findExistingTeamIdForSport(input, program, sportName, level);
+  if (existingTeamId) {
+    return { teamId: existingTeamId, created: false };
   }
 
   const teamCode = await generateUniqueTeamCode(input.db);

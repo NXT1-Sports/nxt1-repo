@@ -4,6 +4,7 @@ import os
 import re
 import sys
 import subprocess
+import traceback
 import urllib.request
 import uuid
 from pathlib import Path
@@ -41,6 +42,7 @@ STATELESS_HTTP = os.environ.get("FFMPEG_MCP_STATELESS_HTTP", "true").lower() == 
 FIREBASE_STORAGE_BUCKET = os.environ.get("FIREBASE_STORAGE_BUCKET", "").strip()
 FFMPEG_OUTPUT_GCS_PREFIX = os.environ.get("FFMPEG_OUTPUT_GCS_PREFIX", "agent-x/ffmpeg")
 FFMPEG_MCP_TOKEN_HEADER = os.environ.get("FFMPEG_MCP_TOKEN_HEADER", "x-ffmpeg-mcp-token").strip().lower()
+WRAPPER_VERSION = "2026-05-27-direct-trim-thumbnail-v3"
 
 
 def _positive_int_env(name: str, fallback: int) -> int:
@@ -304,6 +306,82 @@ def _probe_video_stream(local_path: str) -> dict:
     return {}
 
 
+def _probe_media_format(local_path: str) -> dict:
+    try:
+        result = subprocess.run(
+            [
+                "ffprobe",
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration,size",
+                "-of",
+                "json",
+                local_path,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if result.returncode == 0:
+            payload = json.loads(result.stdout or "{}")
+            format_payload = payload.get("format")
+            if isinstance(format_payload, dict):
+                return format_payload
+    except Exception:
+        pass
+    return {}
+
+
+def _assert_valid_video_output(local_path: str) -> None:
+    path = Path(local_path)
+    if not path.exists():
+        raise RuntimeError(f"FFmpeg output missing: {local_path}")
+
+    size = path.stat().st_size
+    if size < 4096:
+        raise RuntimeError(f"FFmpeg video output is too small to be playable: {size} bytes")
+
+    stream = _probe_video_stream(local_path)
+    width = int(stream.get("width") or 0)
+    height = int(stream.get("height") or 0)
+    if width <= 0 or height <= 0:
+        raise RuntimeError("FFmpeg video output has no readable video stream")
+
+    duration = _media_duration_seconds(local_path)
+    if duration <= 0.05:
+        raise RuntimeError(f"FFmpeg video output has invalid duration: {duration:.3f}s")
+
+    media_format = _probe_media_format(local_path)
+    probed_size = int(float(str(media_format.get("size") or size)))
+    if probed_size < 4096:
+        raise RuntimeError(f"FFmpeg video output probe size is too small: {probed_size} bytes")
+
+
+def _assert_valid_image_output(local_path: str) -> None:
+    path = Path(local_path)
+    if not path.exists():
+        raise RuntimeError(f"FFmpeg image output missing: {local_path}")
+
+    size = path.stat().st_size
+    if size < 512:
+        raise RuntimeError(f"FFmpeg image output is too small: {size} bytes")
+
+    stream = _probe_video_stream(local_path)
+    width = int(stream.get("width") or 0)
+    height = int(stream.get("height") or 0)
+    if width <= 0 or height <= 0:
+        raise RuntimeError("FFmpeg image output has no readable frame")
+
+
+def _assert_valid_output_file(local_path: str) -> None:
+    suffix = Path(local_path).suffix.lower()
+    if suffix in {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"}:
+        _assert_valid_video_output(local_path)
+    elif suffix in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+        _assert_valid_image_output(local_path)
+
+
 def _video_frame_rate(local_path: str) -> float:
     stream = _probe_video_stream(local_path)
     return (
@@ -347,6 +425,36 @@ def _positive_float_arg(value, fallback: float | None = None) -> float | None:
     except Exception:
         pass
     return fallback
+
+
+def _time_arg_seconds(value) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        parsed = float(value)
+        return parsed if parsed >= 0 else None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        parsed = float(text)
+        return parsed if parsed >= 0 else None
+    except Exception:
+        pass
+    parts = text.split(":")
+    if not 1 <= len(parts) <= 3:
+        return None
+    try:
+        total = 0.0
+        for part in parts:
+            total = total * 60 + float(part)
+        return total if total >= 0 else None
+    except Exception:
+        return None
+
+
+def _format_seconds(value: float) -> str:
+    return f"{max(value, 0.0):.3f}"
 
 
 def _looks_like_intro_source(source: str | None) -> bool:
@@ -508,6 +616,7 @@ def _run_merge_filter_once(
     if result.returncode != 0:
         err = result.stderr.decode(errors="replace")[-1200:]
         raise RuntimeError(f"FFmpeg resilient merge failed: {err}")
+    _assert_valid_video_output(output_path)
 
 
 def _run_merge_videos_resilient(args: dict) -> dict:
@@ -564,6 +673,8 @@ def _run_merge_videos_resilient(args: dict) -> dict:
                 max_intro_seconds,
                 allow_intro_clamp=True,
             )
+
+        _assert_valid_video_output(output_path)
 
         return {
             "success": True,
@@ -742,6 +853,7 @@ def _postprocess_response(
     response_body: bytes,
     output_map: dict[str, dict[str, str | None]],
     temp_inputs: list[str],
+    fallback_response_id: object | None = None,
 ) -> bytes:
     """
     After the tool runs:
@@ -771,6 +883,24 @@ def _postprocess_response(
         if not local_path:
             continue
         if Path(local_path).exists():
+            validation_error = None
+            try:
+                _assert_valid_output_file(local_path)
+            except Exception as exc:
+                validation_error = exc
+
+            if validation_error:
+                try:
+                    Path(local_path).unlink(missing_ok=True)
+                except Exception:
+                    pass
+                print(f"[ffmpeg-mcp] Output validation failed: {validation_error}", file=sys.stderr)
+                return _tool_error_response(
+                    response_body,
+                    f"FFmpeg output validation failed: {validation_error}",
+                    fallback_response_id,
+                )
+
             try:
                 output_url = _upload_to_gcs(local_path, upload_prefix)
                 # Only delete after a successful upload — if upload fails, leave
@@ -870,13 +1000,225 @@ def _postprocess_response(
     print(f"[ffmpeg-mcp] Original response (first 300): {text_norm[:300]!r}", flush=True)
     synthetic_rpc = json.dumps({
         "jsonrpc": "2.0",
-        "id": "1",
+        "id": _extract_response_id(response_body, fallback_response_id),
         "result": {"content": injected_content},
     })
-    # Wrap in SSE if the original response looked like SSE
-    if "data: " in text_norm:
+    # Wrap in SSE if the original response looked like SSE. Ping-only SSE
+    # streams contain only comment lines, so checking only for data: is not
+    # sufficient and can leave clients parsing JSON as text/event-stream.
+    if "data: " in text_norm or "event:" in text_norm or text_norm.lstrip().startswith(":"):
         return f"event: message\ndata: {synthetic_rpc}\n\n".encode()
     return synthetic_rpc.encode()
+
+
+def _run_trim_video_resilient(args: dict) -> dict:
+    input_path = str(args.get("input_path") or "").strip()
+    output_path = str(args.get("output_path") or "").strip()
+    if not input_path or not output_path:
+        raise RuntimeError("trim_video requires input_path and output_path")
+
+    start_seconds = _time_arg_seconds(args.get("start_time")) or 0.0
+    duration_seconds = _positive_float_arg(args.get("duration"))
+    end_seconds = _time_arg_seconds(args.get("end_time"))
+
+    if duration_seconds is None and end_seconds is not None:
+        duration_seconds = max(end_seconds - start_seconds, 0.1)
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-fflags",
+        "+genpts",
+        "-i",
+        input_path,
+        "-ss",
+        _format_seconds(start_seconds),
+    ]
+    if duration_seconds is not None:
+        cmd.extend(["-t", _format_seconds(duration_seconds)])
+    elif end_seconds is not None:
+        cmd.extend(["-to", _format_seconds(end_seconds)])
+
+    cmd.extend([
+        "-map",
+        "0:v:0",
+        "-map",
+        "0:a?",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-movflags",
+        "+faststart",
+        "-avoid_negative_ts",
+        "make_zero",
+        output_path,
+    ])
+
+    result = subprocess.run(cmd, capture_output=True, timeout=600)
+    if result.returncode != 0:
+        err = result.stderr.decode(errors="replace")[-1000:]
+        raise RuntimeError(f"FFmpeg trim failed: {err}")
+    _assert_valid_video_output(output_path)
+
+    return {
+        "success": True,
+        "output_path": output_path,
+        "startTime": start_seconds,
+        **({"duration": duration_seconds} if duration_seconds is not None else {}),
+    }
+
+
+def _thumbnail_signal_score(local_path: str) -> float:
+    try:
+        result = subprocess.run(
+            [
+                "ffmpeg",
+                "-hide_banner",
+                "-i",
+                local_path,
+                "-vf",
+                "format=gray,signalstats,metadata=print:file=-",
+                "-frames:v",
+                "1",
+                "-f",
+                "null",
+                "-",
+            ],
+            capture_output=True,
+            timeout=30,
+        )
+        text = (result.stdout + result.stderr).decode(errors="replace")
+        yavg_match = re.search(r"lavfi\.signalstats\.YAVG=([0-9.]+)", text)
+        ymin_match = re.search(r"lavfi\.signalstats\.YMIN=([0-9.]+)", text)
+        ymax_match = re.search(r"lavfi\.signalstats\.YMAX=([0-9.]+)", text)
+        yavg = float(yavg_match.group(1)) if yavg_match else 0.0
+        ymin = float(ymin_match.group(1)) if ymin_match else 0.0
+        ymax = float(ymax_match.group(1)) if ymax_match else 0.0
+        return yavg + max(ymax - ymin, 0.0)
+    except Exception:
+        return 0.0
+
+
+def _run_generate_thumbnail_resilient(args: dict) -> dict:
+    input_path = str(args.get("input_path") or "").strip()
+    output_path = str(args.get("output_path") or "").strip()
+    if not input_path or not output_path:
+        raise RuntimeError("generate_thumbnail requires input_path and output_path")
+
+    duration = max(_video_duration_seconds(input_path), 0.1)
+    requested_time = _time_arg_seconds(args.get("time"))
+    candidate_times: list[float] = []
+    if requested_time is not None:
+        candidate_times.append(min(max(requested_time, 0.0), max(duration - 0.05, 0.0)))
+    candidate_times.extend([
+        min(max(duration * 0.12, 0.1), max(duration - 0.05, 0.1)),
+        min(max(duration * 0.25, 0.1), max(duration - 0.05, 0.1)),
+        min(max(duration * 0.5, 0.1), max(duration - 0.05, 0.1)),
+    ])
+
+    unique_times: list[float] = []
+    for value in candidate_times:
+        rounded = round(value, 3)
+        if rounded not in unique_times:
+            unique_times.append(rounded)
+
+    best_path: str | None = None
+    best_score = -1.0
+    temp_candidates: list[str] = []
+    for index, timestamp in enumerate(unique_times):
+        candidate_path = output_path if index == 0 else f"/tmp/{uuid.uuid4().hex}_{Path(output_path).name}"
+        temp_candidates.append(candidate_path)
+        cmd = [
+            "ffmpeg",
+            "-y",
+            "-ss",
+            _format_seconds(timestamp),
+            "-i",
+            input_path,
+            "-frames:v",
+            "1",
+            "-vf",
+            "scale='min(1280,iw)':-2",
+            "-q:v",
+            "2",
+            candidate_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, timeout=60)
+        if result.returncode != 0 or not Path(candidate_path).exists():
+            continue
+        try:
+            _assert_valid_image_output(candidate_path)
+        except Exception:
+            continue
+        score = _thumbnail_signal_score(candidate_path)
+        if score > best_score:
+            best_score = score
+            best_path = candidate_path
+
+    if not best_path:
+        raise RuntimeError("FFmpeg thumbnail generation failed")
+
+    if best_path != output_path:
+        Path(best_path).replace(output_path)
+
+    for candidate_path in temp_candidates:
+        if candidate_path != output_path:
+            try:
+                Path(candidate_path).unlink(missing_ok=True)
+            except Exception:
+                pass
+
+    _assert_valid_image_output(output_path)
+    return {
+        "success": True,
+        "output_path": output_path,
+        "selectedScore": best_score,
+    }
+
+
+def _extract_response_id(response_body: bytes, fallback_response_id: object | None = None) -> object:
+    text = response_body.decode(errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+    try:
+        sse_match = re.search(r"(^|\n)(data: )(\{[^\n]*\})(\n|$)", text)
+        payload = json.loads(sse_match.group(3) if sse_match else text.strip())
+        if isinstance(payload, list) and payload:
+            payload = payload[0]
+        if isinstance(payload, dict):
+            return payload.get("id", "1")
+    except Exception:
+        pass
+    return fallback_response_id if fallback_response_id is not None else "1"
+
+
+def _tool_error_response(
+    response_body: bytes,
+    message: str,
+    fallback_response_id: object | None = None,
+) -> bytes:
+    response_id = _extract_response_id(response_body, fallback_response_id)
+    payload = {
+        "jsonrpc": "2.0",
+        "id": response_id,
+        "result": {
+            "content": [{"type": "text", "text": f"Error: {message}"}],
+            "isError": True,
+        },
+    }
+    text = response_body.decode(errors="replace")
+    if "data: " in text:
+        return f"event: message\ndata: {json.dumps(payload)}\n\n".encode()
+    return json.dumps(payload).encode()
 
 
 # ── Middleware ────────────────────────────────────────────────────────────────
@@ -1001,6 +1343,95 @@ class FfmpegUrlMiddleware:
             return
 
         tool_name = str(body.get("params", {}).get("name") or "")
+        print(f"[ffmpeg-mcp] direct tools/call received: {tool_name}", flush=True)
+        if tool_name == "trim_video":
+            try:
+                payload = _run_trim_video_resilient(modified_args)
+                response_body = json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}],
+                    },
+                }).encode()
+                final_body = _postprocess_response(response_body, output_map, temp_inputs, body.get("id"))
+                await send({
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(final_body)).encode()),
+                    ],
+                })
+                await send({"type": "http.response.body", "body": final_body, "more_body": False})
+                return
+            except Exception as exc:
+                for tmp in temp_inputs:
+                    try:
+                        Path(tmp).unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                print(f"[ffmpeg-mcp] Resilient trim failed: {exc}", flush=True)
+                print(traceback.format_exc(), flush=True)
+                err_payload = {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": f"Error: {exc}"}],
+                        "isError": True,
+                    },
+                }
+                sse = f"event: message\ndata: {json.dumps(err_payload)}\n\n".encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": [(b"content-type", b"text/event-stream"),
+                                         (b"content-length", str(len(sse)).encode())]})
+                await send({"type": "http.response.body", "body": sse, "more_body": False})
+                return
+
+        if tool_name == "generate_thumbnail":
+            try:
+                payload = _run_generate_thumbnail_resilient(modified_args)
+                response_body = json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}],
+                    },
+                }).encode()
+                final_body = _postprocess_response(response_body, output_map, temp_inputs, body.get("id"))
+                await send({
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(final_body)).encode()),
+                    ],
+                })
+                await send({"type": "http.response.body", "body": final_body, "more_body": False})
+                return
+            except Exception as exc:
+                for tmp in temp_inputs:
+                    try:
+                        Path(tmp).unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                print(f"[ffmpeg-mcp] Resilient thumbnail failed: {exc}", flush=True)
+                print(traceback.format_exc(), flush=True)
+                err_payload = {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": f"Error: {exc}"}],
+                        "isError": True,
+                    },
+                }
+                sse = f"event: message\ndata: {json.dumps(err_payload)}\n\n".encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": [(b"content-type", b"text/event-stream"),
+                                         (b"content-length", str(len(sse)).encode())]})
+                await send({"type": "http.response.body", "body": sse, "more_body": False})
+                return
+
         if tool_name == "convert_video":
             try:
                 payload = _run_convert_with_optional_silent_audio(modified_args)
@@ -1011,7 +1442,7 @@ class FfmpegUrlMiddleware:
                         "content": [{"type": "text", "text": json.dumps(payload)}],
                     },
                 }).encode()
-                final_body = _postprocess_response(response_body, output_map, temp_inputs)
+                final_body = _postprocess_response(response_body, output_map, temp_inputs, body.get("id"))
                 await send({
                     "type": "http.response.start",
                     "status": 200,
@@ -1029,6 +1460,7 @@ class FfmpegUrlMiddleware:
                     except Exception:
                         pass
                 print(f"[ffmpeg-mcp] Silent-audio conversion failed: {exc}", flush=True)
+                print(traceback.format_exc(), flush=True)
                 err_payload = {
                     "jsonrpc": "2.0",
                     "id": body.get("id"),
@@ -1054,7 +1486,7 @@ class FfmpegUrlMiddleware:
                         "content": [{"type": "text", "text": json.dumps(payload)}],
                     },
                 }).encode()
-                final_body = _postprocess_response(response_body, output_map, temp_inputs)
+                final_body = _postprocess_response(response_body, output_map, temp_inputs, body.get("id"))
                 await send({
                     "type": "http.response.start",
                     "status": 200,
@@ -1072,6 +1504,7 @@ class FfmpegUrlMiddleware:
                     except Exception:
                         pass
                 print(f"[ffmpeg-mcp] Resilient merge failed: {exc}", flush=True)
+                print(traceback.format_exc(), flush=True)
                 err_payload = {
                     "jsonrpc": "2.0",
                     "id": body.get("id"),
@@ -1088,6 +1521,7 @@ class FfmpegUrlMiddleware:
                 return
 
         modified_args.pop("add_silent_audio", None)
+        modified_args.pop("max_intro_seconds", None)
 
         body.setdefault("params", {})["arguments"] = modified_args
         modified_bytes = json.dumps(body).encode()
@@ -1108,7 +1542,7 @@ class FfmpegUrlMiddleware:
         await self.app(scope, _make_receive(modified_bytes), capture_send)
 
         response_body = b"".join(response_body_parts)
-        final_body = _postprocess_response(response_body, output_map, temp_inputs)
+        final_body = _postprocess_response(response_body, output_map, temp_inputs, body.get("id"))
 
         # Rebuild headers with updated content-length (drop transfer-encoding)
         new_headers = [
@@ -1135,9 +1569,7 @@ def _make_receive(body: bytes):
         if not sent:
             sent = True
             return {"type": "http.request", "body": body, "more_body": False}
-        # Subsequent calls block; callers should only read once
-        import asyncio
-        await asyncio.sleep(3600)
+        return {"type": "http.disconnect"}
 
     return receive
 
@@ -1186,6 +1618,7 @@ async def health(_: Request):
             "statelessHttp": STATELESS_HTTP,
             "authConfigured": bool(BEARER_TOKEN),
             "storageConfigured": bool(FIREBASE_STORAGE_BUCKET),
+            "wrapperVersion": WRAPPER_VERSION,
         }
     )
 

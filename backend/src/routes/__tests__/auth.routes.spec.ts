@@ -18,8 +18,13 @@ vi.mock(
   })
 );
 
+vi.mock('../../services/marketing/lifecycle/signup-notion-dashboard.service.js', () => ({
+  enqueueSignupNotionDashboardEntry: vi.fn(),
+}));
+
 import { sendSlackAlert } from '../../services/platform/alert.service.js';
 import { sendWelcomeOnboardingEmail } from '../../services/marketing/email/campaigns/welcome/welcome-onboarding-email.service.js';
+import { enqueueSignupNotionDashboardEntry } from '../../services/marketing/lifecycle/signup-notion-dashboard.service.js';
 import {
   __getMockFirestoreDocument,
   __getMockFirestoreWrites,
@@ -38,6 +43,7 @@ describe('Auth Routes', () => {
       email: 'test@example.com',
       campaignKey: 'welcome_intro_athlete',
     });
+    vi.mocked(enqueueSignupNotionDashboardEntry).mockResolvedValue({ status: 'queued' });
   });
 
   describe('Production Routes', () => {
@@ -283,6 +289,14 @@ describe('Auth Routes', () => {
             marketingEnabled: true,
           })
         );
+        expect(enqueueSignupNotionDashboardEntry).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: 'athlete-alert-1',
+            role: 'athlete',
+            primarySport: 'Basketball',
+            email: 'athlete@example.com',
+          })
+        );
       });
 
       it('routes completed team-role signups to the team Slack target and team welcome variant', async () => {
@@ -324,6 +338,57 @@ describe('Auth Routes', () => {
         );
       });
 
+      it('uses the staging environment when staging onboarding completes', async () => {
+        __seedMockFirestoreDocument('Users/staging-alert-1', {
+          id: 'staging-alert-1',
+          email: 'staging@example.com',
+          role: 'athlete',
+          onboardingCompleted: false,
+        });
+
+        const response = await request(app).post('/api/v1/staging/auth/profile/onboarding').send({
+          userId: 'staging-alert-1',
+          userType: 'athlete',
+          firstName: 'Taylor',
+          lastName: 'North',
+          sport: 'Basketball',
+        });
+
+        expect(response.status).toBe(200);
+        expect(enqueueSignupNotionDashboardEntry).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: 'staging-alert-1',
+            environment: 'staging',
+          })
+        );
+      });
+
+      it('keeps onboarding successful when Notion dashboard enqueue fails', async () => {
+        vi.mocked(enqueueSignupNotionDashboardEntry).mockRejectedValueOnce(
+          new Error('Notion unavailable')
+        );
+        __seedMockFirestoreDocument('Users/notion-fail-1', {
+          id: 'notion-fail-1',
+          email: 'notion-fail@example.com',
+          role: 'athlete',
+          onboardingCompleted: false,
+        });
+
+        const response = await request(app).post('/api/v1/auth/profile/onboarding').send({
+          userId: 'notion-fail-1',
+          userType: 'athlete',
+          firstName: 'Morgan',
+          lastName: 'Vale',
+          sport: 'Soccer',
+        });
+
+        expect(response.status).toBe(200);
+        expect(response.body?.success).toBe(true);
+
+        const storedUser = __getMockFirestoreDocument('Users/notion-fail-1');
+        expect(storedUser?.['onboardingCompleted']).toBe(true);
+      });
+
       it('does not resend signup Slack or welcome email when lifecycle markers already exist', async () => {
         __seedMockFirestoreDocument('Users/retry-alert-1', {
           id: 'retry-alert-1',
@@ -349,6 +414,40 @@ describe('Auth Routes', () => {
         expect(response.status).toBe(200);
         expect(sendSlackAlert).not.toHaveBeenCalled();
         expect(sendWelcomeOnboardingEmail).not.toHaveBeenCalled();
+        expect(enqueueSignupNotionDashboardEntry).toHaveBeenCalledWith(
+          expect.objectContaining({
+            userId: 'retry-alert-1',
+          })
+        );
+      });
+
+      it('does not requeue Notion dashboard sync when the signup dashboard marker exists', async () => {
+        __seedMockFirestoreDocument('Users/retry-notion-1', {
+          id: 'retry-notion-1',
+          email: 'retry-notion@example.com',
+          role: 'athlete',
+          onboardingCompleted: false,
+          lifecycle: {
+            signup: {
+              notionDashboard: {
+                status: 'created',
+                createdAt: { seconds: 1, nanoseconds: 0 },
+                pageId: 'notion-page-1',
+              },
+            },
+          },
+        });
+
+        const response = await request(app).post('/api/v1/auth/profile/onboarding').send({
+          userId: 'retry-notion-1',
+          userType: 'athlete',
+          firstName: 'Riley',
+          lastName: 'Cole',
+          sport: 'Basketball',
+        });
+
+        expect(response.status).toBe(200);
+        expect(enqueueSignupNotionDashboardEntry).not.toHaveBeenCalled();
       });
 
       it('reuses existing sports on bulk retries without preserving placeholder teams', async () => {

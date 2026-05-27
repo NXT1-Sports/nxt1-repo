@@ -91,6 +91,47 @@ describe('FfmpegMergeVideosTool', () => {
     );
   });
 
+  it('forces concat_filter for professional reels even when concat_demuxer is requested', async () => {
+    bridge.mergeVideos.mockResolvedValue({
+      success: true,
+      output_path: '/tmp/merged.mp4',
+    });
+
+    const result = await tool.execute(
+      {
+        inputPaths: ['/tmp/runway-intro.mp4', '/tmp/highlight.mp4'],
+        method: 'concat_demuxer',
+      },
+      TEST_CONTEXT
+    );
+
+    expect(result.success).toBe(true);
+    expect(bridge.mergeVideos).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'concat_filter',
+      }),
+      TEST_CONTEXT
+    );
+  });
+
+  it('returns a sanitized actionable merge error instead of raw ffmpeg logs', async () => {
+    bridge.mergeVideos.mockRejectedValue(
+      new Error('Stream specifier :a:0 matches no streams. ffmpeg version 7.1.3')
+    );
+
+    const result = await tool.execute(
+      {
+        inputPaths: ['/tmp/runway-intro.mp4', '/tmp/highlight.mp4'],
+      },
+      TEST_CONTEXT
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Audio-less clips are supported');
+    expect(result.error).not.toContain('ffmpeg version');
+    expect(result.error).not.toContain('matches no streams');
+  });
+
   it('returns an actionable error when only one merge input is provided', async () => {
     const result = await tool.execute(
       {

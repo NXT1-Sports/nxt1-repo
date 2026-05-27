@@ -77,4 +77,23 @@ describe('FfmpegGenerateThumbnailTool', () => {
     );
     expect((result.data as Record<string, unknown>)['imageUrl']).toBe('/tmp/thumb.jpg');
   });
+
+  it('returns a sanitized playback validation error instead of raw ffmpeg logs', async () => {
+    bridge.generateThumbnail.mockRejectedValue(
+      new Error('ffmpeg version 7.1.3\n[mov] moov atom not found\nInvalid data found')
+    );
+
+    const result = await tool.execute(
+      {
+        inputPath: '/tmp/bad-output.mp4',
+        time: 2,
+      },
+      TEST_CONTEXT
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('source video is not readable');
+    expect(result.error).not.toContain('ffmpeg version');
+    expect(result.error).not.toContain('moov atom');
+  });
 });

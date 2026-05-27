@@ -1,5 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const firebaseMocks = vi.hoisted(() => {
+  const createBucket = (name: string) => ({
+    name,
+    file: () => ({
+      exists: vi.fn().mockResolvedValue([false]),
+      download: vi.fn().mockResolvedValue([Buffer.from('')]),
+      save: vi.fn().mockResolvedValue(undefined),
+      makePublic: vi.fn().mockResolvedValue(undefined),
+    }),
+  });
+
+  return {
+    productionBucket: createBucket('nxt1-test-bucket'),
+    stagingBucket: createBucket('nxt1-staging-test-bucket'),
+  };
+});
+
 vi.mock('firebase-admin/storage', () => ({
   getStorage: () => ({
     bucket: () => ({
@@ -18,6 +35,18 @@ vi.mock('node:fs/promises', () => ({
   readFile: vi.fn().mockRejectedValue(new Error('not found')),
 }));
 
+vi.mock('../../../../../utils/firebase.js', () => ({
+  storage: {
+    bucket: () => firebaseMocks.productionBucket,
+  },
+}));
+
+vi.mock('../../../../../utils/firebase-staging.js', () => ({
+  stagingStorage: {
+    bucket: () => firebaseMocks.stagingBucket,
+  },
+}));
+
 import { GenerateGraphicTool } from '../generate-graphic.tool.js';
 
 describe('GenerateGraphicTool', () => {
@@ -25,9 +54,21 @@ describe('GenerateGraphicTool', () => {
     prompt: vi.fn(),
     generateImage: vi.fn(),
   };
+  const transportResolver = {
+    resolveProcessingUrl: vi.fn(async ({ sourceUrl }: { sourceUrl: string }) => ({
+      url: sourceUrl,
+      source: 'unchanged' as const,
+    })),
+  };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    transportResolver.resolveProcessingUrl.mockImplementation(
+      async ({ sourceUrl }: { sourceUrl: string }) => ({
+        url: sourceUrl,
+        source: 'unchanged' as const,
+      })
+    );
   });
 
   it('does not hard-fail when required brand logo is missing', async () => {
@@ -165,5 +206,53 @@ describe('GenerateGraphicTool', () => {
       notificationTitle: 'Your welcome graphic is ready',
       response: 'Your welcome graphic is ready in Agent X.',
     });
+  });
+
+  it('resolves Firebase Storage welcome-photo URLs before calling the image model', async () => {
+    const tool = new GenerateGraphicTool(llm as never, undefined, transportResolver as never);
+
+    llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['WELCOME'] } });
+    llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
+    transportResolver.resolveProcessingUrl.mockResolvedValueOnce({
+      url: 'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/u/profile.png?X-Goog-Signature=signed-photo',
+      source: 'direct',
+    });
+
+    const result = await tool.execute(
+      {
+        graphicType: 'athlete',
+        textRequirements: ['WELCOME'],
+        dimensions: '1080x1080',
+        styleDescription: 'Premium, modern',
+        userId: 'user-1',
+        subjectPhotoUrls: [
+          'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/u/profile.png',
+        ],
+      },
+      {
+        userId: 'u',
+        threadId: 'thread-1',
+        environment: 'staging',
+      }
+    );
+
+    expect(result.success).toBe(false);
+    expect(transportResolver.resolveProcessingUrl).toHaveBeenCalledWith({
+      sourceUrl:
+        'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/u/profile.png',
+      fallbackToFirebaseStaging: true,
+      stageMediaKind: 'image',
+      executionContext: {
+        userId: 'u',
+        threadId: 'thread-1',
+        environment: 'staging',
+      },
+    });
+    expect(llm.generateImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        referenceImageUrl:
+          'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/u/profile.png?X-Goog-Signature=signed-photo',
+      })
+    );
   });
 });

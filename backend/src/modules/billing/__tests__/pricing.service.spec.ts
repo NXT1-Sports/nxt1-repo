@@ -80,4 +80,12 @@ describe('calculateChargeAmount', () => {
     expect(result.overrideSource).toBe('default');
     expect(result.chargeAmountCents).toBe(225);
   });
+
+  it('does not add a floating point penny to synchronous estimates', async () => {
+    const { estimateChargeAmountSync } = await import('../pricing.service.js');
+
+    const result = estimateChargeAmountSync(0.1);
+
+    expect(result.chargeAmountCents).toBe(30);
+  });
 });

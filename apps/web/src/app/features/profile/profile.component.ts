@@ -81,6 +81,7 @@ import {
   buildCanonicalTeamPath,
   buildLinkSourcesFormData,
   mapToConnectedSources,
+  API_ERROR_CODES,
   parseApiError,
   requiresAuth,
   isTeamRole,
@@ -626,10 +627,15 @@ export class ProfileComponent implements OnInit, OnDestroy {
     if (!response.success || !response.data) {
       // API returned a non-success response — treat as an error so the shell
       // shows the error state instead of stale data.
-      this.profileService.setError(response.error ?? 'Failed to load profile');
+      this.profileService.setError(
+        this.getProfileLoadErrorMessage({
+          message: response.error ?? 'Failed to load profile',
+        })
+      );
       this.logger.warn('Profile API returned non-success response', {
         error: response.error,
       });
+      this.applyProfileErrorSeo(response.error ?? null);
       return;
     }
 
@@ -757,20 +763,62 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
   private handleProfileError(err: unknown): void {
     const parsed = parseApiError(err);
+    const message = this.getProfileLoadErrorMessage(parsed);
+
     this.logger.error('Failed to load profile', {
       code: parsed.code,
       statusCode: parsed.statusCode,
+      routeMode: this.routeMode(),
     });
-    this.profileService.setError(parsed.message);
+    this.profileService.setError(message);
 
     if (requiresAuth(err) && isPlatformBrowser(this.platformId)) {
       this.authModal.present();
       return;
     }
 
+    this.applyProfileErrorSeo(message);
+  }
+
+  private getProfileLoadErrorMessage(error: {
+    code?: string;
+    statusCode?: number;
+    message?: string | null;
+  }): string {
+    if (this.routeMode() === 'invalid') {
+      return 'Invalid profile link.';
+    }
+
+    const message = error.message?.trim();
+    const normalizedMessage = message?.toLowerCase() ?? '';
+
+    if (
+      error.statusCode === 404 ||
+      error.code === API_ERROR_CODES.RES_PROFILE_NOT_FOUND ||
+      normalizedMessage === 'profile not found.' ||
+      normalizedMessage === 'profile not found' ||
+      normalizedMessage === 'the requested resource was not found.'
+    ) {
+      return 'This profile could not be found.';
+    }
+
+    if (!message || normalizedMessage === 'an unexpected error occurred. please try again.') {
+      return 'We could not load this profile right now.';
+    }
+
+    return message;
+  }
+
+  private applyProfileErrorSeo(message: string | null): void {
+    const normalizedMessage = message?.trim().toLowerCase() ?? '';
+    const isMissingProfile =
+      this.routeMode() === 'invalid' || normalizedMessage === 'this profile could not be found.';
+
     this.seo.updatePage({
-      title: 'Profile',
-      description: 'View athlete profile on NXT1 Sports',
+      title: isMissingProfile ? 'Profile Not Found' : 'Profile',
+      description: isMissingProfile
+        ? 'The requested athlete profile could not be found on NXT1 Sports.'
+        : 'View athlete profile on NXT1 Sports',
       noIndex: true,
     });
   }

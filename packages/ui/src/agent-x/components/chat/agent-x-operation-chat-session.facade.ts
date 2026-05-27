@@ -212,21 +212,25 @@ export class AgentXOperationChatSessionFacade {
 
   private inferMediaTypeFromUrl(url: string): 'image' | 'video' | null {
     const normalizedUrl = this.normalizeDetectedMediaUrl(url);
-    const pathname = (() => {
+    const parsed = (() => {
       try {
-        return new URL(normalizedUrl).pathname.toLowerCase();
+        return new URL(normalizedUrl);
       } catch {
-        return normalizedUrl.toLowerCase();
+        return null;
       }
     })();
+    const pathname = parsed?.pathname.toLowerCase() ?? normalizedUrl.toLowerCase();
+    const hostname = parsed?.hostname.toLowerCase() ?? '';
 
     if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(pathname) || /\/images?\//i.test(pathname)) {
       return 'image';
     }
     if (
       /\.(m3u8|mov|mp4|m4v|webm|ogg|ogv)$/i.test(pathname) ||
-      /\/videos?\//i.test(pathname) ||
-      /videodelivery\.net\/|stream|cloudflare/i.test(normalizedUrl)
+      hostname === 'watch.cloudflarestream.com' ||
+      hostname === 'iframe.videodelivery.net' ||
+      hostname.endsWith('.videodelivery.net') ||
+      hostname.endsWith('.cloudflarestream.com')
     ) {
       return 'video';
     }
@@ -310,17 +314,21 @@ export class AgentXOperationChatSessionFacade {
     platform?: string;
     faviconUrl?: string;
   } {
+    const normalizedUrl = this.normalizeDetectedMediaUrl(attachment.url);
+    const inferredMediaType = this.inferMediaTypeFromUrl(normalizedUrl);
     const mappedType: 'image' | 'video' | 'doc' | 'app' =
       attachment.type === 'image'
         ? 'image'
-        : attachment.type === 'video'
+        : attachment.type === 'video' && inferredMediaType === 'video'
           ? 'video'
           : attachment.type === 'app'
             ? 'app'
-            : 'doc';
+            : /^https?:\/\//i.test(normalizedUrl) && attachment.type === 'video'
+              ? 'app'
+              : 'doc';
 
     return {
-      url: this.normalizeDetectedMediaUrl(attachment.url),
+      url: normalizedUrl,
       name: attachment.name,
       type: mappedType,
       ...(attachment.storagePath ? { storagePath: attachment.storagePath } : {}),

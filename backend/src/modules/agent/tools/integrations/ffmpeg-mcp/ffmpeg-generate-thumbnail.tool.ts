@@ -21,7 +21,11 @@ type CropResult = {
 
 export class FfmpegGenerateThumbnailTool extends BaseTool {
   readonly name = 'ffmpeg_generate_thumbnail';
-  readonly description = 'Extract a thumbnail image from a video at a specified timestamp.';
+  readonly description =
+    'Extract a thumbnail image from a video at a specified timestamp. ' +
+    'For generated/merged videos, this is also the playback validation step. ' +
+    'If thumbnail generation fails for a merged output, treat the video artifact as invalid: do not present it as complete, retry merge/convert, or report the media pipeline failure. ' +
+    'Do not expose raw FFmpeg logs or container terms to the user unless specifically asked.';
   readonly parameters = GenerateThumbnailInputSchema;
 
   readonly isMutation = true;
@@ -74,11 +78,13 @@ export class FfmpegGenerateThumbnailTool extends BaseTool {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to generate thumbnail';
+      const publicMessage = formatThumbnailFailureForAgent(message);
       logger.error('[FfmpegGenerateThumbnailTool] Failed', {
         error: message,
+        publicError: publicMessage,
         userId: context?.userId,
       });
-      return { success: false, error: message };
+      return { success: false, error: publicMessage };
     }
   }
 
@@ -165,4 +171,16 @@ export class FfmpegGenerateThumbnailTool extends BaseTool {
       return null;
     }
   }
+}
+
+function formatThumbnailFailureForAgent(message: string): string {
+  if (
+    /moov atom|invalid data|error opening input|could not open|detected only with low score/i.test(
+      message
+    )
+  ) {
+    return 'Thumbnail generation failed because the source video is not readable as a playable MP4. Re-stage or regenerate that video before using it as a thumbnail source, and do not present or publish it as a completed reel.';
+  }
+
+  return 'Thumbnail generation failed, so the media output has not been validated for playback. Retry with a freshly staged playable video source before presenting or publishing the reel.';
 }

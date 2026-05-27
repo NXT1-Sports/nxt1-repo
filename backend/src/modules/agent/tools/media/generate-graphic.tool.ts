@@ -19,10 +19,13 @@
  *   and aspect ratio so the model outputs correctly formatted assets.
  */
 
-import { getStorage } from 'firebase-admin/storage';
+import type { Storage } from 'firebase-admin/storage';
 import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
+import { MediaTransportResolverService } from './media-transport-resolver.service.js';
+import { storage as defaultStorage } from '../../../../utils/firebase.js';
+import { stagingStorage } from '../../../../utils/firebase-staging.js';
 import sharp from 'sharp';
 import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
@@ -55,6 +58,8 @@ const RequiredAssetsSchema = z
   .default({ subjectPhoto: false, brandLogo: false });
 
 const APPLY_MODES = ['photo_lock', 'logo_overlay', 'mixed', 'style_only'] as const;
+const SOCIAL_HANDLE_OR_URL_RE =
+  /(?:^|[\s(])@[a-z0-9_]{2,30}\b|(?:https?:\/\/)?(?:www\.)?(?:x|twitter|instagram)\.com\/[a-z0-9_.-]{2,30}/iu;
 
 const DisplayTextIntentSchema = z.object({
   displayText: z.array(z.string().trim().min(1)).default([]),
@@ -128,6 +133,7 @@ export class GenerateGraphicTool extends BaseTool {
   readonly description =
     'Generates a professional sports graphic using structured parameters (text, dimensions, style, subject photos, logos). ' +
     'When subject photos are provided, output preserves that exact person; when logos are provided, logos are composited deterministically. ' +
+    'For identifiable athlete graphics, provide real subjectPhotoUrls from retrieved media; the tool rejects fake-athlete/silhouette fallbacks. ' +
     'Use for game day graphics, player spotlights, announcements, stat cards, and social assets.';
   readonly parameters = GenerateGraphicInputSchema;
 
@@ -140,13 +146,39 @@ export class GenerateGraphicTool extends BaseTool {
 
   constructor(
     private readonly llm: OpenRouterService,
-    _db: Firestore = getFirestore()
+    _db: Firestore = getFirestore(),
+    private readonly transportResolver: MediaTransportResolverService = new MediaTransportResolverService()
   ) {
     super();
   }
 
+  private resolveStorage(context?: ToolExecutionContext): Storage {
+    return context?.environment === 'staging' ? stagingStorage : defaultStorage;
+  }
+
+  private async resolveImageInputUrls(
+    urls: readonly string[],
+    context?: ToolExecutionContext
+  ): Promise<string[]> {
+    if (urls.length === 0) return [];
+
+    const resolved = await Promise.all(
+      urls.map(async (url) => {
+        const result = await this.transportResolver.resolveProcessingUrl({
+          sourceUrl: url,
+          fallbackToFirebaseStaging: true,
+          stageMediaKind: 'image',
+          executionContext: context,
+        });
+        return result.url.trim() || url;
+      })
+    );
+
+    return resolved;
+  }
+
   /** Fetches the NXT1 logo buffer from local disk or Firebase Storage. */
-  private async fetchLogoBuffer(): Promise<Buffer | null> {
+  private async fetchLogoBuffer(context?: ToolExecutionContext): Promise<Buffer | null> {
     for (const localPath of LOCAL_LOGO_CANDIDATE_PATHS) {
       try {
         const buf = await readFile(localPath);
@@ -156,7 +188,7 @@ export class GenerateGraphicTool extends BaseTool {
       }
     }
     try {
-      const bucket = getStorage().bucket();
+      const bucket = this.resolveStorage(context).bucket();
       for (const storagePath of STORAGE_LOGO_CANDIDATE_PATHS) {
         try {
           const file = bucket.file(storagePath);
@@ -328,6 +360,28 @@ export class GenerateGraphicTool extends BaseTool {
       return 'Required brand logo not provided. Attach a logo or run retrieval first.';
     }
     return null;
+  }
+
+  private assertAuthenticAthleteSourcePresent(params: {
+    graphicType: 'athlete' | 'team';
+    requiredAssets: z.infer<typeof RequiredAssetsSchema>;
+    subjectPhotoUrls: readonly string[];
+    textRequirements: readonly string[];
+    styleDescription: string;
+  }): string | null {
+    if (params.graphicType !== 'athlete') return null;
+    if (params.subjectPhotoUrls.length > 0) return null;
+    if (!params.requiredAssets.subjectPhoto) {
+      const searchableBrief = `${params.textRequirements.join(' ')} ${params.styleDescription}`;
+      if (!SOCIAL_HANDLE_OR_URL_RE.test(searchableBrief)) return null;
+    }
+
+    return (
+      'Authentic athlete photo required. The prompt references an identifiable athlete or social account, ' +
+      'but no subjectPhotoUrls were provided. First retrieve real media via scrape_twitter, scrape_instagram, ' +
+      'chat attachments, or query_nxt1_data profile/timeline media. Do not generate silhouettes, stock humans, ' +
+      'or synthetic athlete stand-ins.'
+    );
   }
 
   private async fetchRemoteImageBuffer(url: string, signal?: AbortSignal): Promise<Buffer | null> {
@@ -593,8 +647,25 @@ Return JSON only. No explanation outside the JSON.`;
       MAX_SUBJECT_PHOTOS
     );
     const normalizedLogoUrls = this.normalizeImageUrlList(logoUrls, MAX_LOGOS);
+    const resolvedSubjectPhotoUrls = await this.resolveImageInputUrls(
+      normalizedSubjectPhotoUrls,
+      context
+    );
+    const resolvedLogoUrls = await this.resolveImageInputUrls(normalizedLogoUrls, context);
     const resolvedRequiredAssets = requiredAssets ?? { subjectPhoto: false, brandLogo: false };
     const validationWarnings: string[] = [];
+    const missingAuthenticSubjectError = this.assertAuthenticAthleteSourcePresent({
+      graphicType,
+      requiredAssets: resolvedRequiredAssets,
+      subjectPhotoUrls: normalizedSubjectPhotoUrls,
+      textRequirements,
+      styleDescription,
+    });
+
+    if (missingAuthenticSubjectError) {
+      return { success: false, error: missingAuthenticSubjectError };
+    }
+
     const missingAssetError = this.assertRequiredAssetsPresent({
       requiredAssets: resolvedRequiredAssets,
       subjectPhotoUrls: normalizedSubjectPhotoUrls,
@@ -680,14 +751,12 @@ Return JSON only. No explanation outside the JSON.`;
         phase: 'generate_image',
       });
 
-      const referenceImageUrl = hasSubjectImage
-        ? normalizedSubjectPhotoUrls[0]
-        : normalizedLogoUrls[0];
+      const referenceImageUrl = hasSubjectImage ? resolvedSubjectPhotoUrls[0] : resolvedLogoUrls[0];
       const hasStrictSubject = hasSubjectImage;
 
       const additionalImageUrls = [
-        ...(hasStrictSubject ? normalizedSubjectPhotoUrls.slice(1) : []),
-        ...(hasLogos ? normalizedLogoUrls.slice(hasStrictSubject ? 0 : 1) : []),
+        ...(hasStrictSubject ? resolvedSubjectPhotoUrls.slice(1) : []),
+        ...(hasLogos ? resolvedLogoUrls.slice(hasStrictSubject ? 0 : 1) : []),
       ];
 
       const result = await this.llm.generateImage({
@@ -725,12 +794,12 @@ Return JSON only. No explanation outside the JSON.`;
           ? `Users/${context.userId}/threads/${context.threadId}/media/${timestamp}-graphic.${extension}`
           : `agent-graphics/${userId}/${timestamp}-graphic.${extension}`;
 
-      const bucket = getStorage().bucket();
+      const bucket = this.resolveStorage(context).bucket();
       const file = bucket.file(filePath);
       const imageBuffer = Buffer.from(result.imageBase64, 'base64');
 
       const userLogoBuffers = await Promise.all(
-        normalizedLogoUrls.map((url) => this.fetchRemoteImageBuffer(url, context?.signal))
+        resolvedLogoUrls.map((url) => this.fetchRemoteImageBuffer(url, context?.signal))
       );
       const filteredUserLogos = userLogoBuffers.filter(
         (buffer): buffer is Buffer => !!buffer && buffer.length > 0
@@ -744,7 +813,7 @@ Return JSON only. No explanation outside the JSON.`;
       // Stamp the NXT1 logo in the bottom-right corner.
       // Model receives NO logo images so it cannot hallucinate duplicates;
       // Sharp is the sole, deterministic logo placement mechanism.
-      const logoBuffer = await this.fetchLogoBuffer();
+      const logoBuffer = await this.fetchLogoBuffer(context);
       const finalBuffer = logoBuffer
         ? await this.stampLogoBottomRight(withUserLogos, logoBuffer)
         : withUserLogos;
@@ -866,6 +935,18 @@ If identity cannot be preserved exactly, keep the original subject untouched and
 `
         : '';
 
+    const noSubjectBlock =
+      graphicType === 'athlete' && !hasSubjectImage
+        ? `
+# NO SUBJECT PHOTO PROVIDED (MANDATORY)
+<NO_SUBJECT_START>
+Do NOT create or imply a human athlete, silhouette, cutout, face, body, jerseyed player, stock person, AI model, or body double.
+This must be a typography-led or abstract sports graphic using shapes, light, texture, team/program energy, and verified text only.
+If the design needs a real athlete image, the caller must provide subjectPhotoUrls before generation.
+<NO_SUBJECT_END>
+`
+        : '';
+
     const logoBlock =
       (applyMode === 'logo_overlay' || applyMode === 'mixed') && hasLogos
         ? `
@@ -885,6 +966,7 @@ Width: ${dimensions.width}px | Height: ${dimensions.height}px | Format: ${dimens
 Quality: ultra high resolution
 Graphic category: ${graphicType === 'team' ? 'TEAM GRAPHIC' : 'ATHLETE GRAPHIC'}
 ${subjectBlock}
+${noSubjectBlock}
 ${logoBlock}
 # REQUIRED TEXT — Render ONLY these exact words, spelled character-for-character
 <TEXT_START>

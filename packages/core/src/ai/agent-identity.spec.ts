@@ -179,4 +179,138 @@ describe('extractMediaAttachmentsFromResultData', () => {
       },
     ]);
   });
+
+  it('does not expose raw or staged videos when an ffmpeg merge workflow fails', () => {
+    const attachments = extractMediaAttachmentsFromResultData({
+      videoUrl: 'https://video.twimg.com/ext_tw_video/source.mp4',
+      coordinator_artifacts: {
+        imageUrl:
+          'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/intro.jpg?alt=media',
+      },
+      toolCallRecords: [
+        {
+          toolName: 'ffmpeg_trim_video',
+          status: 'success',
+          output: {
+            outputUrl:
+              'https://firebasestorage.googleapis.com/v0/b/nxt-1-staging-v2.firebasestorage.app/o/source-trim.mp4?alt=media',
+          },
+        },
+        {
+          toolName: 'ffmpeg_merge_videos',
+          status: 'failed',
+          output: {
+            error: 'Circuit breaker OPEN',
+          },
+        },
+      ],
+    });
+
+    expect(attachments).toEqual([]);
+  });
+
+  it('keeps only the successful final merge video and paired thumbnail for ffmpeg merge workflows', () => {
+    const attachments = extractMediaAttachmentsFromResultData({
+      videoUrl: 'https://video.twimg.com/ext_tw_video/source.mp4',
+      imageUrl: 'https://cdn.example.com/title-card.jpg',
+      toolCallRecords: [
+        {
+          toolName: 'ffmpeg_trim_video',
+          status: 'success',
+          output: {
+            outputUrl: 'https://cdn.example.com/source-trim.mp4',
+          },
+        },
+        {
+          toolName: 'ffmpeg_merge_videos',
+          status: 'success',
+          output: {
+            outputUrl: 'https://cdn.example.com/final-reel.mp4',
+          },
+        },
+        {
+          toolName: 'ffmpeg_generate_thumbnail',
+          status: 'success',
+          output: {
+            outputUrl: 'https://cdn.example.com/final-reel-thumb.jpg',
+          },
+        },
+      ],
+    });
+
+    expect(attachments).toEqual([
+      {
+        url: 'https://cdn.example.com/final-reel.mp4',
+        name: 'video.mp4',
+        type: 'video',
+        thumbnailUrl: 'https://cdn.example.com/final-reel-thumb.jpg',
+      },
+    ]);
+  });
+
+  it('uses the generated intro card as the final merged video thumbnail', () => {
+    const attachments = extractMediaAttachmentsFromResultData({
+      coordinatorArtifacts: {
+        imageUrl: 'https://cdn.example.com/intro-card.jpg',
+      },
+      toolCallRecords: [
+        {
+          toolName: 'ffmpeg_merge_videos',
+          status: 'success',
+          output: {
+            videoUrl: 'https://cdn.example.com/final-reel.mp4',
+          },
+        },
+        {
+          toolName: 'ffmpeg_generate_thumbnail',
+          status: 'success',
+          output: {
+            thumbnailUrl: 'https://cdn.example.com/frame-grab.jpg',
+          },
+        },
+      ],
+    });
+
+    expect(attachments).toEqual([
+      {
+        url: 'https://cdn.example.com/final-reel.mp4',
+        name: 'video.mp4',
+        type: 'video',
+        thumbnailUrl: 'https://cdn.example.com/intro-card.jpg',
+      },
+    ]);
+  });
+
+  it('maps routed videoAttachments and still hoists the intro poster', () => {
+    const attachments = extractMediaAttachmentsFromResultData({
+      imageUrl: 'https://cdn.example.com/intro-card.jpg',
+      videoAttachments: [
+        {
+          url: 'https://cdn.example.com/final-reel.mp4',
+          name: 'Final Highlight Reel',
+          mimeType: 'video/mp4',
+          type: 'video',
+        },
+      ],
+      toolCallRecords: [
+        {
+          toolName: 'ffmpeg_merge_videos',
+          status: 'success',
+          output: {
+            outputUrl: 'https://cdn.example.com/final-reel.mp4',
+          },
+        },
+      ],
+    });
+
+    expect(attachments).toEqual([
+      {
+        url: 'https://cdn.example.com/final-reel.mp4',
+        name: 'Final Highlight Reel',
+        type: 'video',
+        mimeType: 'video/mp4',
+        thumbnailUrl: 'https://cdn.example.com/intro-card.jpg',
+      },
+    ]);
+  });
 });

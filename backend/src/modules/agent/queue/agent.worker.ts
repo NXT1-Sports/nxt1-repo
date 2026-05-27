@@ -92,8 +92,8 @@ import crypto from 'node:crypto';
 
 const AGENT_X_STANDARD_HOLD_COST_CENTS = estimateChargeAmountSync(0.1).chargeAmountCents;
 const AGENT_X_MEDIA_HOLD_COST_CENTS = (() => {
-  const parsed = Number.parseInt(process.env['AGENT_X_MEDIA_BILLING_GATE_COST_CENTS'] ?? '600', 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 600;
+  const parsed = Number.parseInt(process.env['AGENT_X_MEDIA_BILLING_GATE_COST_CENTS'] ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : AGENT_X_STANDARD_HOLD_COST_CENTS;
 })();
 
 function estimateAgentXHoldCostCents(payload: AgentJobPayload): number {
@@ -1457,7 +1457,9 @@ export class AgentWorker {
     if (
       !skipBilling &&
       ((billingCtxForHold?.billingEntity === 'individual' &&
-        (billingCtxForHold.paymentProvider === 'iap' || hasPrepaidWalletBalance)) ||
+        (billingCtxForHold.hardStop ||
+          billingCtxForHold.paymentProvider === 'iap' ||
+          hasPrepaidWalletBalance)) ||
         (billingCtxForHold?.billingEntity === 'organization' && billingCtxForHold?.hardStop))
     ) {
       const estimatedCents = estimateAgentXHoldCostCents(payload);

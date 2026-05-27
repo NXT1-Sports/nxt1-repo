@@ -714,21 +714,9 @@ export async function inviteMember(db: Firestore, input: InviteMemberInput): Pro
     throw conflictError('member');
   }
 
-  // V2: Check capacity via RosterEntry count (source of truth)
-  const rosterCountSnap = await db
-    .collection('RosterEntries')
-    .where('teamId', '==', input.teamId)
-    .where('status', 'in', [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING])
-    .count()
-    .get();
-  const currentMemberCount = rosterCountSnap.data().count;
-  const maxMembers = team.athleteMember + team.panelMember;
-
-  if (currentMemberCount >= maxMembers) {
-    throw validationError([
-      { field: 'capacity', message: 'Team has reached maximum member capacity', rule: 'capacity' },
-    ]);
-  }
+  // NOTE: athleteMember and panelMember are running counters, not capacity limits.
+  // Capacity enforcement is intentionally absent; RosterEntries remain the
+  // membership source of truth.
 
   // V2: Membership tracked via RosterEntry docs only.
   // No more memberIds[] writes on the Team doc.

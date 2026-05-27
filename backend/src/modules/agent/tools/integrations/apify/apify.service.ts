@@ -167,6 +167,9 @@ export interface ScweetTweet {
   readonly imageUrls: readonly string[];
   /** Video URL extracted from tweet media (highest bitrate mp4). */
   readonly videoUrl: string;
+  /** Profile/avatar image URL for the tweet author, when returned by the actor. */
+  readonly profileImageUrl?: string;
+  readonly authorName?: string;
   readonly [key: string]: unknown;
 }
 
@@ -754,6 +757,8 @@ export class ApifyService {
       url: tweet?.tweet_url ?? raw.tweet_url ?? '',
       imageUrls: this.extractTweetImageUrls(tweet?.media),
       videoUrl: this.extractTweetVideoUrl(tweet?.media),
+      profileImageUrl: raw.user?.profile_image_url_https,
+      authorName: raw.user?.name,
     };
   }
 
@@ -776,6 +781,22 @@ export class ApifyService {
       (raw['userName'] as string) ??
       (raw['screen_name'] as string) ??
       '';
+    const author = raw['author'] as Record<string, unknown> | undefined;
+    const profileImageUrl =
+      (author?.['profilePicture'] as string) ??
+      (author?.['profileImageUrl'] as string) ??
+      (author?.['profile_image_url_https'] as string) ??
+      (author?.['avatar'] as string) ??
+      (raw['profilePicture'] as string) ??
+      (raw['profileImageUrl'] as string) ??
+      (raw['profile_image_url_https'] as string) ??
+      undefined;
+    const authorName =
+      (author?.['name'] as string) ??
+      (author?.['displayName'] as string) ??
+      (raw['name'] as string) ??
+      (raw['displayName'] as string) ??
+      undefined;
     const timestamp =
       (raw['createdAt'] as string) ??
       (raw['created_at'] as string) ??
@@ -812,6 +833,8 @@ export class ApifyService {
       url,
       imageUrls: this.extractTweetImageUrls(media),
       videoUrl: this.extractTweetVideoUrl(media),
+      profileImageUrl,
+      authorName,
     };
   }
 

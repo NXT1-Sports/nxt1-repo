@@ -47,9 +47,11 @@ export class GetOtherThreadHistoryTool extends BaseTool {
 
     if (context?.threadId && context.threadId === threadId) {
       return {
-        success: false,
-        error:
-          'Refusing to read the current thread’s history. The current thread is already in your context window.',
+        success: true,
+        data: { threadId, transcript: '', maxMessages, currentThreadAlreadyInContext: true },
+        markdown:
+          '## Current Thread History\n\n' +
+          '- Already available in the active context window. Continue from the visible conversation; do not call this tool again for the current thread.',
       };
     }
 
