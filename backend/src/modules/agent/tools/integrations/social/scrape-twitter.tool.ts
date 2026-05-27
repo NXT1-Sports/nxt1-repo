@@ -288,8 +288,12 @@ export class ScrapeTwitterTool extends BaseTool {
       return { success: false, error: result.error ?? 'Search failed' };
     }
 
-    // Persist media to Firebase Storage for in-app display
-    const attachments = await this.persistTweetMedia(result.items, staging);
+    // Persist media to Firebase Storage for in-app display (search mode does
+    // NOT include profile images — search results may span many accounts and
+    // the avatars are not the user-requested asset).
+    const attachments = await this.persistTweetMedia(result.items, staging, {
+      includeProfileImage: false,
+    });
     const firstImage = attachments.find((a) => a.type === 'image');
     const firstVideo = attachments.find((a) => a.type === 'video');
 
@@ -325,10 +329,21 @@ export class ScrapeTwitterTool extends BaseTool {
       return { success: false, error: result.error ?? 'Profile tweets fetch failed' };
     }
 
-    // Persist media to Firebase Storage for in-app display
-    const attachments = await this.persistTweetMedia(result.items, staging);
+    // Persist media to Firebase Storage for in-app display. Profile-tweet
+    // mode prioritises the user's own avatar so downstream renders (chat
+    // thumbnails, intro cards, brand reels) always have a real photo of the
+    // requested athlete/account instead of a generic placeholder.
+    const attachments = await this.persistTweetMedia(result.items, staging, {
+      includeProfileImage: true,
+    });
+    const profileImageUrls = this.collectProfileImageUrls(result.items);
+    const firstProfileImage = attachments.find(
+      (a) => a.type === 'image' && profileImageUrls.includes(a.originalUrl)
+    );
     const firstImage = attachments.find((a) => a.type === 'image');
     const firstVideo = attachments.find((a) => a.type === 'video');
+    const profileImageUrl = firstProfileImage?.url ?? profileImageUrls[0];
+    const primaryImageUrl = profileImageUrl ?? firstImage?.url;
 
     return {
       success: true,
@@ -339,7 +354,9 @@ export class ScrapeTwitterTool extends BaseTool {
         durationMs: result.durationMs,
         tweets: this.formatTweets(result.items),
         attachments: this.formatAttachments(attachments),
-        ...(firstImage ? { imageUrl: firstImage.url } : {}),
+        ...(profileImageUrls.length > 0 ? { profileImageUrls } : {}),
+        ...(profileImageUrl ? { profileImageUrl } : {}),
+        ...(primaryImageUrl ? { imageUrl: primaryImageUrl } : {}),
         ...(firstVideo ? { videoUrl: firstVideo.url } : {}),
       },
     };
@@ -389,7 +406,21 @@ export class ScrapeTwitterTool extends BaseTool {
       url: t.url,
       imageUrls: t.imageUrls.length > 0 ? t.imageUrls : undefined,
       videoUrl: t.videoUrl || undefined,
+      profileImageUrl: t.profileImageUrl || undefined,
+      authorName: t.authorName || undefined,
     }));
+  }
+
+  private collectProfileImageUrls(tweets: readonly ScweetTweet[]): string[] {
+    const seen = new Set<string>();
+    const urls: string[] = [];
+    for (const tweet of tweets) {
+      const url = typeof tweet.profileImageUrl === 'string' ? tweet.profileImageUrl.trim() : '';
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      urls.push(url);
+    }
+    return urls;
   }
 
   /**
@@ -414,11 +445,21 @@ export class ScrapeTwitterTool extends BaseTool {
    */
   private async persistTweetMedia(
     tweets: readonly ScweetTweet[],
-    staging?: MediaThreadContext
+    staging?: MediaThreadContext,
+    options: { includeProfileImage?: boolean } = {}
   ): Promise<PersistedMedia[]> {
+    const { includeProfileImage = false } = options;
     const inputs: MediaInput[] = [];
 
     for (const tweet of tweets.slice(0, MAX_TWEETS_IN_RESPONSE)) {
+      if (includeProfileImage && tweet.profileImageUrl) {
+        inputs.push({
+          url: tweet.profileImageUrl,
+          type: 'image',
+          platform: 'twitter',
+          sourceUrl: tweet.url || `https://x.com/${tweet.username}`,
+        });
+      }
       // Add video URL if present (prefer over images)
       if (tweet.videoUrl) {
         inputs.push({

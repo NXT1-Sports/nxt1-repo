@@ -570,7 +570,7 @@ describe('AgentWorker', () => {
     });
     mockCreateWalletHold.mockResolvedValue({
       success: false,
-      reason: 'Insufficient available balance: $0.11 < $0.31',
+      reason: 'Insufficient available balance: $0.11 < $0.30',
       availableBalance: 11,
     });
 
@@ -583,7 +583,7 @@ describe('AgentWorker', () => {
             blockedByBilling: true,
             reason: 'insufficient_funds',
             currentBalanceCents: 11,
-            amountNeededCents: 31,
+            amountNeededCents: 30,
           }),
         }),
       })
@@ -597,7 +597,7 @@ describe('AgentWorker', () => {
         payload: expect.objectContaining({
           reason: 'insufficient_funds',
           currentBalanceCents: 11,
-          amountNeededCents: 31,
+          amountNeededCents: 30,
         }),
       })
     );

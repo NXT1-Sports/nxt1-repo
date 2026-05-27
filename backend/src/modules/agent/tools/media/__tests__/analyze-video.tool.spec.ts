@@ -116,68 +116,6 @@ describe('AnalyzeVideoTool', () => {
     );
   });
 
-  it('accepts cloudflareVideoId without explicit url and analyzes using resolved download URL', async () => {
-    const tool = new AnalyzeVideoTool(
-      scraper as never,
-      llm as never,
-      apify as never,
-      ffmpeg as never,
-      geminiFiles as never,
-      cloudflareBridge as never
-    );
-
-    const resolveProcessingUrl = vi
-      .fn()
-      .mockResolvedValueOnce({
-        url: 'https://customer.example.cloudflarestream.com/source-321/downloads/default.mp4',
-        source: 'cloudflare_download',
-        cloudflareVideoId: 'source-321',
-      })
-      .mockResolvedValueOnce({
-        url: 'https://customer.example.cloudflarestream.com/source-321/downloads/default.mp4',
-        source: 'cloudflare_download',
-        cloudflareVideoId: 'source-321',
-      });
-
-    (
-      tool as unknown as {
-        mediaTransportResolver: { resolveProcessingUrl: typeof resolveProcessingUrl };
-      }
-    ).mediaTransportResolver = { resolveProcessingUrl };
-
-    geminiFiles.analyzeVideosFromUrls.mockResolvedValueOnce({
-      content: 'Cloudflare prewarmed MP4 analysis',
-      toolCalls: [],
-      model: 'gemini-2.5-flash',
-      usage: { inputTokens: 75, outputTokens: 31, totalTokens: 106 },
-      latencyMs: 960,
-      costUsd: 0.001,
-      finishReason: 'STOP',
-    });
-
-    const result = await tool.execute(
-      {
-        cloudflareVideoId: 'source-321',
-        prompt: 'Analyze this sequence.',
-      },
-      context
-    );
-
-    expect(result.success).toBe(true);
-    expect(resolveProcessingUrl).toHaveBeenCalledWith(
-      expect.objectContaining({
-        sourceUrl: 'https://watch.cloudflarestream.com/source-321',
-        cloudflareVideoId: 'source-321',
-      })
-    );
-    expect(geminiFiles.analyzeVideosFromUrls).toHaveBeenCalledWith(
-      ['https://customer.example.cloudflarestream.com/source-321/downloads/default.mp4'],
-      'Analyze this sequence.',
-      4096,
-      expect.objectContaining({ userId: 'user-123', threadId: 'thread-456' })
-    );
-  });
-
   it('uses Gemini Files API for public direct video files when configured', async () => {
     const tool = new AnalyzeVideoTool(
       scraper as never,

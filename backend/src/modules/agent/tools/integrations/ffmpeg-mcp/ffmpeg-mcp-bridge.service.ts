@@ -52,6 +52,19 @@ const LONG_RUNNING_TIMEOUT_MS = readPositiveIntegerEnv('FFMPEG_MCP_LONG_TIMEOUT_
 const REENCODE_TIMEOUT_MS = readPositiveIntegerEnv('FFMPEG_MCP_REENCODE_TIMEOUT_MS', 300_000);
 const MERGE_TIMEOUT_MS = readPositiveIntegerEnv('FFMPEG_MCP_MERGE_TIMEOUT_MS', 900_000);
 
+interface JsonRpcToolResponse {
+  readonly jsonrpc?: string;
+  readonly id?: string | number | null;
+  readonly result?: {
+    readonly content?: McpToolCallResult['content'];
+    readonly structuredContent?: Record<string, unknown>;
+    readonly isError?: boolean;
+  };
+  readonly error?: {
+    readonly message?: string;
+  };
+}
+
 function compactToolArgs(args: Record<string, unknown>): Record<string, unknown> {
   const compacted: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(args)) {
@@ -212,7 +225,7 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
     );
     const resolvedArgs = await this.resolveOperationArgs(argsWithThreadScopedOutputPath, context);
     const result = await this.executeSerialized(toolName, () =>
-      this.executeTool(toolName, compactToolArgs(resolvedArgs), { timeoutMs })
+      this.executeToolStateless(toolName, compactToolArgs(resolvedArgs), timeoutMs)
     );
 
     if (result.isError) {
@@ -287,6 +300,134 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
     } finally {
       release();
     }
+  }
+
+  private async executeToolStateless(
+    toolName: string,
+    args: Record<string, unknown>,
+    timeoutMs: number
+  ): Promise<McpToolCallResult> {
+    const requestId = `${toolName}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    const timeoutController = new AbortController();
+    const timeout = setTimeout(() => timeoutController.abort(), timeoutMs);
+
+    try {
+      const headers: Record<string, string> = {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+      };
+      if (this.apiToken) {
+        headers[FfmpegMcpBridgeService.TOKEN_HEADER] = this.apiToken;
+      }
+
+      logger.info('[FfmpegMCP] Calling stateless tool endpoint', {
+        toolName,
+        timeoutMs,
+        argKeys: Object.keys(args),
+      });
+
+      const response = await fetch(this.baseUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: requestId,
+          method: 'tools/call',
+          params: {
+            name: toolName,
+            arguments: args,
+          },
+        }),
+        signal: timeoutController.signal,
+      });
+
+      const responseText = await response.text();
+      if (!response.ok) {
+        throw new AgentEngineError(
+          'FFMPEG_MCP_REQUEST_FAILED',
+          `FFmpeg MCP ${toolName} request failed with HTTP ${response.status}`,
+          {
+            metadata: {
+              toolName,
+              status: response.status,
+              responsePreview: responseText.slice(0, 500),
+            },
+          }
+        );
+      }
+
+      return this.parseStatelessToolResponse(toolName, responseText);
+    } catch (err) {
+      if (timeoutController.signal.aborted) {
+        throw new AgentEngineError(
+          'FFMPEG_MCP_REQUEST_FAILED',
+          `FFmpeg MCP ${toolName} timed out after ${timeoutMs}ms`,
+          { cause: err, metadata: { toolName, timeoutMs } }
+        );
+      }
+      throw err;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private parseStatelessToolResponse(toolName: string, responseText: string): McpToolCallResult {
+    const payload = this.parseJsonRpcPayload(responseText);
+
+    if (payload.error) {
+      throw new AgentEngineError(
+        'FFMPEG_MCP_REQUEST_FAILED',
+        payload.error.message ?? `FFmpeg MCP ${toolName} failed`,
+        { metadata: { toolName } }
+      );
+    }
+
+    const result = payload.result;
+    if (!result) {
+      throw new AgentEngineError(
+        'FFMPEG_MCP_RESPONSE_EMPTY',
+        `FFmpeg MCP ${toolName} returned no result`,
+        { metadata: { toolName, responsePreview: responseText.slice(0, 500) } }
+      );
+    }
+
+    return {
+      content: Array.isArray(result.content) ? result.content : [],
+      ...(result.structuredContent ? { structuredContent: result.structuredContent } : {}),
+      ...(typeof result.isError === 'boolean' ? { isError: result.isError } : {}),
+    };
+  }
+
+  private parseJsonRpcPayload(responseText: string): JsonRpcToolResponse {
+    const normalized = responseText.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+    if (!normalized) {
+      throw new AgentEngineError('FFMPEG_MCP_RESPONSE_EMPTY', 'FFmpeg MCP returned an empty body');
+    }
+
+    const ssePayloads = normalized
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice('data:'.length).trim())
+      .filter((line) => line.length > 0 && line !== '[DONE]');
+
+    const jsonText = ssePayloads.length > 0 ? ssePayloads[ssePayloads.length - 1] : normalized;
+
+    try {
+      const parsed = JSON.parse(jsonText) as unknown;
+      const first = Array.isArray(parsed) ? parsed[0] : parsed;
+      if (first && typeof first === 'object') {
+        return first as JsonRpcToolResponse;
+      }
+    } catch (err) {
+      throw new AgentEngineError(
+        'FFMPEG_MCP_INVALID_RESPONSE',
+        'FFmpeg MCP returned a non-JSON response',
+        { cause: err, metadata: { responsePreview: responseText.slice(0, 500) } }
+      );
+    }
+
+    throw new AgentEngineError('FFMPEG_MCP_INVALID_RESPONSE', 'FFmpeg MCP response was invalid');
   }
 
   private withThreadScopedOutputPath(
@@ -519,6 +660,7 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
         input_paths: input.inputPaths,
         output_path: input.outputPath ?? 'merged.mp4',
         method: input.method,
+        max_intro_seconds: input.maxIntroSeconds,
       },
       MERGE_TIMEOUT_MS,
       context

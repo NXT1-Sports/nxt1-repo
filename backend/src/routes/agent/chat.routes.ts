@@ -99,8 +99,8 @@ const CHAT_BILLING_GATE_STANDARD_COST_CENTS = Math.max(
   estimateChargeAmountSync(0.1).chargeAmountCents
 );
 const CHAT_BILLING_GATE_MEDIA_COST_CENTS = (() => {
-  const parsed = Number.parseInt(process.env['AGENT_X_MEDIA_BILLING_GATE_COST_CENTS'] ?? '600', 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : 600;
+  const parsed = Number.parseInt(process.env['AGENT_X_MEDIA_BILLING_GATE_COST_CENTS'] ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : CHAT_BILLING_GATE_STANDARD_COST_CENTS;
 })();
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
 const AGENT_STREAM_EVENT_SCHEMA_VERSION = 2;
@@ -852,13 +852,19 @@ function writeSseHeaders(res: Response): void {
 function buildBillingGateState(
   code: 'WALLET_EMPTY' | 'NO_PAYMENT_METHOD' | 'BUDGET_EXCEEDED',
   description: string,
-  userRole = 'athlete'
+  userRole = 'athlete',
+  costContext?: {
+    readonly estimatedCostCents?: number;
+    readonly availableBalanceCents?: number;
+  }
 ): {
   title: string;
   content: string;
   payload: {
     reason: 'payment_method_required' | 'limit_reached' | 'insufficient_funds';
     description: string;
+    amountNeededCents?: number;
+    currentBalanceCents?: number;
   };
 } {
   if (code === 'NO_PAYMENT_METHOD') {
@@ -885,12 +891,24 @@ function buildBillingGateState(
     };
   }
 
+  const estimatedCostCents = costContext?.estimatedCostCents;
+  const availableBalanceCents = costContext?.availableBalanceCents;
+  const balanceContext =
+    typeof estimatedCostCents === 'number' && typeof availableBalanceCents === 'number'
+      ? ` This request is estimated to require $${(estimatedCostCents / 100).toFixed(2)}; you have $${(availableBalanceCents / 100).toFixed(2)} available. Add at least $${(Math.max(estimatedCostCents - availableBalanceCents, 0) / 100).toFixed(2)} to continue.`
+      : '';
+  const insufficientFundsDescription = `${description}${balanceContext}`;
+
   return {
     title: 'Add Funds to Continue',
-    content: `${description} Add funds to continue this request.`,
+    content: `${insufficientFundsDescription} Add funds to continue this request.`,
     payload: {
       reason: 'insufficient_funds',
-      description,
+      description: insufficientFundsDescription,
+      ...(typeof estimatedCostCents === 'number' ? { amountNeededCents: estimatedCostCents } : {}),
+      ...(typeof availableBalanceCents === 'number'
+        ? { currentBalanceCents: availableBalanceCents }
+        : {}),
     },
   };
 }
@@ -4229,7 +4247,10 @@ router.post(
       if (!chatBudgetCheck.allowed && !bypassHoldGateWithPositiveWallet) {
         const billingReason =
           chatBudgetCheck.reason ?? 'Billing is required to continue this request.';
-        const billingState = buildBillingGateState(billingCode, billingReason, userRole);
+        const billingState = buildBillingGateState(billingCode, billingReason, userRole, {
+          estimatedCostCents: estimatedGateCostCents,
+          availableBalanceCents: Math.max(chatBudgetCheck.budget, 0),
+        });
         const acceptsEventStream =
           req.accepts(['text/event-stream', 'json']) === 'text/event-stream';
 
@@ -4690,6 +4711,7 @@ export default router;
 
 export const __agentChatRouteTestUtils = {
   resolveBillingGateCode,
+  estimateChatBillingGateCostCents,
   clearActiveUserStreams(): void {
     activeUserStreams.clear();
     activeOperationStreams.clear();

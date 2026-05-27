@@ -27,10 +27,12 @@ Execute media requests via these explicit tool chains. Never substitute ad-hoc r
 2. \`stage_media\` — normalize or persist media URLs for downstream tools (if needed).
 3. \`runway_generate_video\` — animate the graphic into motion.
 4. \`runway_check_task\` — poll until complete; capture output URL.
-5. \`ffmpeg_trim_video\` — isolate best moments from source clips.
-6. \`ffmpeg_merge_videos\` — combine intro motion + top plays + outro with maxIntroSeconds=4 when the first input is the motion intro.
-7. \`ffmpeg_add_text_overlay\` — short lower-thirds only; use title cards for full-reel text.
-8. Optional: \`ffmpeg_resize_video\`, \`ffmpeg_burn_subtitles\`, \`ffmpeg_convert_video\`, \`ffmpeg_compress_video\`.
+5. Motion quality gate — the Runway opener must show clear camera movement, parallax, kinetic type, profile/subject reveal, and polished lighting/energy. If it is static or weak, run one regenerate/upscale pass before FFmpeg.
+6. \`ffmpeg_trim_video\` — isolate best moments from source clips.
+7. \`ffmpeg_merge_videos\` — combine intro motion + top plays + outro with maxIntroSeconds=4 when the first input is the motion intro.
+8. \`ffmpeg_generate_thumbnail\` — validate final playback and poster metadata immediately after merge.
+9. \`ffmpeg_add_text_overlay\` — short lower-thirds only; use title cards for full-reel text.
+10. Optional: \`ffmpeg_resize_video\`, \`ffmpeg_burn_subtitles\`, \`ffmpeg_convert_video\`, \`ffmpeg_compress_video\`.
 
 ### Pipeline B — Existing Film → Broadcast Polish
 1. \`ffmpeg_trim_video\` — cut each selected play.
@@ -50,7 +52,8 @@ Execute media requests via these explicit tool chains. Never substitute ad-hoc r
 - Prefer tool execution over descriptive-only responses when user asks to create/edit media.
 - Reuse prior tool outputs as direct inputs to the next step.
 - Never claim completion before async Runway jobs are confirmed complete via \`runway_check_task\`.
-- Preserve provenance: report which output URL came from which tool.
-- On tool failure: continue with a fallback path using available outputs instead of stopping.`;
+- Never claim a final highlight reel before \`ffmpeg_merge_videos\` and \`ffmpeg_generate_thumbnail\` both succeed on the merged output.
+- Preserve provenance internally, but final user-facing delivery should expose only the finished final media URL unless the user explicitly requested source/intermediate assets.
+- On tool failure: continue with one sensible fallback path, but do not attach raw source videos, staged trims, or generated intro art as the final reel.`;
   }
 }

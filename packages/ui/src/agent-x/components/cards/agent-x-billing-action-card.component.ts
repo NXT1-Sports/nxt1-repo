@@ -297,7 +297,19 @@ export class AgentXBillingActionCardComponent {
 
   /** Human-readable card description. */
   protected readonly description = computed<string | null>(() => {
-    return this.payload().description ?? null;
+    const payload = this.payload();
+    if (payload.description) return payload.description;
+
+    if (
+      payload.reason === 'insufficient_funds' &&
+      typeof payload.amountNeededCents === 'number' &&
+      typeof payload.currentBalanceCents === 'number'
+    ) {
+      const shortfallCents = Math.max(payload.amountNeededCents - payload.currentBalanceCents, 0);
+      return `This request is estimated to require ${this.formatCents(payload.amountNeededCents)}; you have ${this.formatCents(payload.currentBalanceCents)} available. Add at least ${this.formatCents(shortfallCents)} to continue.`;
+    }
+
+    return null;
   });
 
   /** Whether the user is on a personal (B2C) billing entity. */
@@ -364,6 +376,6 @@ export class AgentXBillingActionCardComponent {
 
   /** Format cents into a dollars string (e.g. 1250 → "$12.50"). */
   protected formatCents(cents: number): string {
-    return `$${(cents / 100).toFixed(2)}`;
+    return `$${(Math.max(cents, 0) / 100).toFixed(2)}`;
   }
 }

@@ -204,34 +204,6 @@ function computeForcedToolInclusions(taskIntent: string): readonly string[] {
     }
   }
 
-  const isCreateOrAddIntent =
-    normalizedIntent.includes(' add ') ||
-    normalizedIntent.includes(' create ') ||
-    normalizedIntent.includes(' write ') ||
-    normalizedIntent.includes(' ingest ') ||
-    normalizedIntent.startsWith('add ') ||
-    normalizedIntent.startsWith('create ');
-
-  if (isCreateOrAddIntent) {
-    if (
-      normalizedIntent.includes('event') ||
-      normalizedIntent.includes('camp') ||
-      normalizedIntent.includes('combine') ||
-      normalizedIntent.includes('showcase')
-    ) {
-      forced.add('write_calendar_events');
-    }
-
-    if (
-      normalizedIntent.includes('schedule') ||
-      normalizedIntent.includes('game') ||
-      normalizedIntent.includes('scrimmage') ||
-      normalizedIntent.includes('practice')
-    ) {
-      forced.add('write_schedule');
-    }
-  }
-
   return [...forced];
 }
 

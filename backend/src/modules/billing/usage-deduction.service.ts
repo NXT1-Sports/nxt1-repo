@@ -87,6 +87,27 @@ interface BillingFeatureChargeLine {
   readonly overrideSource: 'coordinator' | 'feature' | 'default';
 }
 
+function scaleChargeLinesToTotal(
+  chargeLines: readonly BillingFeatureChargeLine[],
+  targetTotalCents: number
+): BillingFeatureChargeLine[] {
+  if (chargeLines.length === 0) return [];
+  const currentTotalCents = chargeLines.reduce((sum, line) => sum + line.chargeAmountCents, 0);
+  if (currentTotalCents <= 0 || currentTotalCents === targetTotalCents) {
+    return [...chargeLines];
+  }
+
+  let assignedCents = 0;
+  return chargeLines.map((line, index) => {
+    const chargeAmountCents =
+      index === chargeLines.length - 1
+        ? Math.max(targetTotalCents - assignedCents, 0)
+        : Math.floor((line.chargeAmountCents / currentTotalCents) * targetTotalCents);
+    assignedCents += chargeAmountCents;
+    return { ...line, chargeAmountCents };
+  });
+}
+
 function splitRemainingAcrossFeatures(
   remainingUsd: number,
   features: readonly string[]
@@ -328,7 +349,7 @@ export async function executeBillingDeduction(
       resolvedFeatures,
       primaryFeature,
     });
-    const chargeLines: BillingFeatureChargeLine[] = [];
+    let chargeLines: BillingFeatureChargeLine[] = [];
 
     for (const [featureKey, rawCostUsd] of costSlices.byFeatureUsd.entries()) {
       if (rawCostUsd <= 0) continue;
@@ -342,7 +363,10 @@ export async function executeBillingDeduction(
       });
     }
 
-    const chargeAmountCents = chargeLines.reduce((sum, line) => sum + line.chargeAmountCents, 0);
+    let chargeAmountCents = chargeLines.reduce((sum, line) => sum + line.chargeAmountCents, 0);
+    const uncappedChargeAmountCents = chargeAmountCents;
+    let heldAmountCents: number | undefined;
+    let absorbedOverageCents = 0;
 
     if (chargeAmountCents <= 0) {
       // Edge case: markup rounds to zero — release hold
@@ -426,7 +450,15 @@ export async function executeBillingDeduction(
       await deductOrgWallet(db, resolvedOrgId, userId, effectiveTeamId, chargeAmountCents);
     } else if (iapHoldId) {
       // Background job mode (individual billing): capture the pre-authorised hold
-      await captureWalletHold(db, iapHoldId, chargeAmountCents);
+      const captureResult = await captureWalletHold(db, iapHoldId, chargeAmountCents);
+      if (captureResult) {
+        heldAmountCents = captureResult.heldAmountCents;
+        absorbedOverageCents = captureResult.absorbedOverageCents;
+        if (captureResult.capturedAmountCents !== chargeAmountCents) {
+          chargeAmountCents = captureResult.capturedAmountCents;
+          chargeLines = scaleChargeLinesToTotal(chargeLines, chargeAmountCents);
+        }
+      }
     } else if (resolvedOrgId) {
       // Org billing: debit the org wallet and mirror spend onto user/team trackers.
       await deductOrgWallet(db, resolvedOrgId, userId, effectiveTeamId, chargeAmountCents);
@@ -449,6 +481,8 @@ export async function executeBillingDeduction(
         ...(Number.isFinite(line.multiplier) ? { multiplier: line.multiplier } : {}),
         ...(line.overrideSource ? { overrideSource: line.overrideSource } : {}),
       })),
+      ...(heldAmountCents !== undefined ? { heldAmountCents } : {}),
+      ...(absorbedOverageCents > 0 ? { uncappedChargeAmountCents, absorbedOverageCents } : {}),
       via: iapHoldId ? 'captureWalletHold' : resolvedOrgId ? 'deductOrgWallet' : 'recordSpend',
     }).catch((lockErr: unknown) => {
       logger.warn('[billing] Failed to mark deduction lock as charged after money movement', {
@@ -481,6 +515,8 @@ export async function executeBillingDeduction(
         ...(Number.isFinite(line.multiplier) ? { multiplier: line.multiplier } : {}),
         ...(line.overrideSource ? { overrideSource: line.overrideSource } : {}),
       })),
+      ...(heldAmountCents !== undefined ? { heldAmountCents } : {}),
+      ...(absorbedOverageCents > 0 ? { uncappedChargeAmountCents, absorbedOverageCents } : {}),
       fallbackSplitApplied: costSlices.usedFallbackSplit,
     };
 

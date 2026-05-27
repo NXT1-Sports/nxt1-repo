@@ -15,6 +15,7 @@ const MAX_SIGNED_URL_TTL_MINUTES = 24 * 60;
 const DEFAULT_FETCH_TIMEOUT_MS = 180_000;
 const MAX_MEDIA_SIZE_BYTES = 512 * 1024 * 1024;
 const MIN_STAGED_VIDEO_BYTES = 16 * 1024;
+const VIDEO_SIGNATURE_SAMPLE_BYTES = 8192;
 const DEFAULT_USER_AGENT = 'NXT1-AgentX/2026.1';
 
 const SAFE_HEADER_ALLOWLIST = new Set([
@@ -123,7 +124,13 @@ export class MediaStagingService {
     ].join('/');
 
     const file = bucket.file(storagePath);
-    const sizeBytes = await this.streamToStorage(file, response, mimeType, request, mediaKind);
+    let sizeBytes: number;
+    try {
+      sizeBytes = await this.streamToStorage(file, response, mimeType, request, mediaKind);
+    } catch (error) {
+      await file.delete({ ignoreNotFound: true }).catch(() => undefined);
+      throw error;
+    }
     if (mediaKind === 'video' && sizeBytes < MIN_STAGED_VIDEO_BYTES) {
       await file.delete({ ignoreNotFound: true }).catch(() => undefined);
       throw new Error(
@@ -309,6 +316,7 @@ export class MediaStagingService {
       if (buffer.length > MAX_MEDIA_SIZE_BYTES) {
         throw new Error(`Media exceeds max staging size of ${MAX_MEDIA_SIZE_BYTES} bytes`);
       }
+      this.assertPlausibleVideoPayload(buffer.subarray(0, VIDEO_SIGNATURE_SAMPLE_BYTES), mediaKind);
       await new Promise<void>((resolve, reject) => {
         writeStream.on('finish', () => resolve());
         writeStream.on('error', reject);
@@ -318,19 +326,71 @@ export class MediaStagingService {
     }
 
     let totalBytes = 0;
+    const signatureChunks: Buffer[] = [];
+    let signatureBytes = 0;
     const limiter = new Transform({
       transform(chunk, _encoding, callback) {
-        totalBytes += Buffer.byteLength(chunk);
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        totalBytes += buffer.length;
         if (totalBytes > MAX_MEDIA_SIZE_BYTES) {
           callback(new Error(`Media exceeds max staging size of ${MAX_MEDIA_SIZE_BYTES} bytes`));
           return;
         }
 
+        if (signatureBytes < VIDEO_SIGNATURE_SAMPLE_BYTES) {
+          const remaining = VIDEO_SIGNATURE_SAMPLE_BYTES - signatureBytes;
+          const sample = buffer.subarray(0, remaining);
+          signatureChunks.push(sample);
+          signatureBytes += sample.length;
+        }
+
         callback(null, chunk);
+      },
+      flush: (callback) => {
+        try {
+          this.assertPlausibleVideoPayload(Buffer.concat(signatureChunks), mediaKind);
+          callback();
+        } catch (error) {
+          callback(error instanceof Error ? error : new Error(String(error)));
+        }
       },
     });
 
     await pipeline(Readable.fromWeb(response.body as NodeReadableStream), limiter, writeStream);
     return totalBytes;
+  }
+
+  private assertPlausibleVideoPayload(sample: Buffer, mediaKind: StagedMediaKind): void {
+    if (mediaKind !== 'video' || sample.length === 0) return;
+
+    if (this.isPlausibleVideoPayload(sample)) return;
+
+    throw new Error(
+      'Staged video payload is not a recognizable playable video file. ' +
+        'Resolve the provider source to a direct downloadable video before staging.'
+    );
+  }
+
+  private isPlausibleVideoPayload(sample: Buffer): boolean {
+    const ascii = sample.subarray(0, Math.min(sample.length, 512)).toString('ascii').trimStart();
+    const lowerAscii = ascii.toLowerCase();
+
+    if (
+      lowerAscii.startsWith('<!doctype') ||
+      lowerAscii.startsWith('<html') ||
+      lowerAscii.startsWith('{') ||
+      lowerAscii.startsWith('[')
+    ) {
+      return false;
+    }
+
+    if (ascii.startsWith('#EXTM3U')) return true;
+    if (sample.includes(Buffer.from('ftyp'), 4)) return true;
+    if (sample[0] === 0x1a && sample[1] === 0x45 && sample[2] === 0xdf && sample[3] === 0xa3) {
+      return true;
+    }
+    if (sample[0] === 0x47 && (sample[188] === 0x47 || sample[376] === 0x47)) return true;
+
+    return false;
   }
 }

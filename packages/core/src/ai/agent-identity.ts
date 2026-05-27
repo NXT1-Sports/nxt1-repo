@@ -109,11 +109,120 @@ function collectFfmpegThumbnailUrls(resultData: Record<string, unknown>): string
   return urls;
 }
 
+/**
+ * Collect intro-card poster URLs for the highlight reel: the first successful
+ * `generate_graphic` image output in the same response that also produced a
+ * merged video. The intro slide is the canonical, branded poster for the reel
+ * and should always be preferred over a raw ffmpeg frame grab which may land on
+ * a transition or dark frame.
+ */
+function collectIntroPosterUrls(resultData: Record<string, unknown>): string[] {
+  const records = Array.isArray(resultData['toolCallRecords'])
+    ? (resultData['toolCallRecords'] as unknown[])
+    : [];
+
+  const urls: string[] = [];
+  const seen = new Set<string>();
+  const pushUrl = (value: unknown): void => {
+    const normalized = readNonEmptyString(value);
+    if (normalized && /\.(?:mp4|mov|m4v|webm|avi|mkv)(?:[?#]|$)/i.test(normalized)) return;
+    if (normalized && isAbsoluteHttpUrl(normalized) && !seen.has(normalized)) {
+      seen.add(normalized);
+      urls.push(normalized);
+    }
+  };
+
+  const collectImageLikeUrls = (value: unknown, visited = new WeakSet<object>()): void => {
+    if (!value || typeof value !== 'object') return;
+    if (visited.has(value)) return;
+    visited.add(value);
+
+    if (Array.isArray(value)) {
+      for (const item of value) collectImageLikeUrls(item, visited);
+      return;
+    }
+
+    const record = value as Record<string, unknown>;
+    pushUrl(record['imageUrl']);
+    pushUrl(record['outputUrl']);
+    pushUrl(record['url']);
+
+    for (const nested of Object.values(record)) {
+      if (!nested || typeof nested !== 'object') continue;
+      collectImageLikeUrls(nested, visited);
+    }
+  };
+
+  const graphicRecords = records
+    .filter((record): record is Record<string, unknown> => !!record && typeof record === 'object')
+    .filter(
+      (record) => record['toolName'] === 'generate_graphic' && record['status'] === 'success'
+    );
+
+  for (const record of graphicRecords) {
+    const output =
+      record['output'] && typeof record['output'] === 'object'
+        ? (record['output'] as Record<string, unknown>)
+        : null;
+    if (!output) continue;
+    collectImageLikeUrls(output);
+  }
+
+  collectImageLikeUrls(resultData['coordinatorArtifacts']);
+  collectImageLikeUrls(resultData['coordinator_artifacts']);
+
+  return urls;
+}
+
+/**
+ * Weak fallback poster: a top-level `imageUrl` accompanying a video that came
+ * from a merge / coordinator workflow but with no explicit `generate_graphic`
+ * or coordinator artifact intro. Only used when (a) a merge/coordinator
+ * workflow is present AND (b) no ffmpeg-generated thumbnail exists.
+ */
+function collectWeakPosterUrls(resultData: Record<string, unknown>): string[] {
+  if (!hasMergeOrCoordinatorContext(resultData)) return [];
+
+  const raw = readNonEmptyString(resultData['imageUrl']);
+  if (!raw) return [];
+  if (/\.(?:mp4|mov|m4v|webm|avi|mkv)(?:[?#]|$)/i.test(raw)) return [];
+  if (!isAbsoluteHttpUrl(raw)) return [];
+  return [raw];
+}
+
+function hasMergeOrCoordinatorContext(resultData: Record<string, unknown>): boolean {
+  if (Array.isArray(resultData['videoAttachments']) && resultData['videoAttachments'].length > 0) {
+    return true;
+  }
+  if (Array.isArray(resultData['imageAttachments']) && resultData['imageAttachments'].length > 0) {
+    return true;
+  }
+  const records = Array.isArray(resultData['toolCallRecords'])
+    ? (resultData['toolCallRecords'] as unknown[])
+    : [];
+  for (const record of records) {
+    if (!record || typeof record !== 'object') continue;
+    const toolName = (record as Record<string, unknown>)['toolName'];
+    if (typeof toolName !== 'string') continue;
+    if (toolName.startsWith('ffmpeg_')) return true;
+    if (toolName === 'delegate_to_coordinator') return true;
+  }
+  return false;
+}
+
 function pairFfmpegThumbnailWithVideo(
   attachments: readonly ExtractedMediaAttachment[],
-  thumbnailUrls: readonly string[]
+  thumbnailUrls: readonly string[],
+  options: {
+    readonly introPosterUrls?: readonly string[];
+    readonly weakPosterUrls?: readonly string[];
+  } = {}
 ): ExtractedMediaAttachment[] {
-  if (thumbnailUrls.length === 0) return [...attachments];
+  const introPosterUrls = options.introPosterUrls ?? [];
+  const weakPosterUrls = options.weakPosterUrls ?? [];
+  if (thumbnailUrls.length === 0 && introPosterUrls.length === 0 && weakPosterUrls.length === 0) {
+    return [...attachments];
+  }
 
   const videoIndexes = attachments
     .map((attachment, index) => ({ attachment, index }))
@@ -122,34 +231,133 @@ function pairFfmpegThumbnailWithVideo(
 
   if (videoIndexes.length === 0) return [...attachments];
 
-  const thumbnailSet = new Set(
-    thumbnailUrls.map((url) => url.trim()).filter((url) => url.length > 0)
-  );
-  if (thumbnailSet.size === 0) return [...attachments];
+  // Order of precedence for the video poster:
+  // 1. STRONG intro (generate_graphic / coordinatorArtifacts) — always wins
+  //    over a raw ffmpeg frame grab because the intro is a branded asset.
+  // 2. ffmpeg_generate_thumbnail output — an explicit thumbnail tool call.
+  // 3. WEAK intro (top-level resultData.imageUrl in a merge workflow) — only
+  //    used as a last resort when no explicit thumbnail was produced.
+  const orderedPosterCandidates = [
+    ...introPosterUrls.map((url) => url.trim()).filter((url) => url.length > 0),
+    ...thumbnailUrls.map((url) => url.trim()).filter((url) => url.length > 0),
+    ...weakPosterUrls.map((url) => url.trim()).filter((url) => url.length > 0),
+  ];
+  if (orderedPosterCandidates.length === 0) return [...attachments];
 
-  // Use the latest video attachment as the thumbnail target.
+  const posterUrl = orderedPosterCandidates[0] ?? '';
+  if (!posterUrl) return [...attachments];
+
+  // Use the latest video attachment as the poster target.
   const targetVideoIndex = videoIndexes[videoIndexes.length - 1] ?? 0;
-  const thumbnailUrl = [...thumbnailSet][thumbnailSet.size - 1] ?? '';
-  if (!thumbnailUrl) return [...attachments];
+
+  // Standalone image attachments that match either an ffmpeg thumbnail or the
+  // promoted intro poster URL are removed once they have been hoisted onto the
+  // video's thumbnailUrl, so the chat doesn't render duplicate tiles.
+  const standaloneRemovalSet = new Set<string>([
+    ...thumbnailUrls.map((url) => url.trim()).filter((url) => url.length > 0),
+    ...introPosterUrls.map((url) => url.trim()).filter((url) => url.length > 0),
+    ...weakPosterUrls.map((url) => url.trim()).filter((url) => url.length > 0),
+    posterUrl,
+  ]);
 
   const remapped = attachments.map((attachment, index) => {
     if (index !== targetVideoIndex) return attachment;
     return {
       ...attachment,
-      ...(attachment.thumbnailUrl ? {} : { thumbnailUrl }),
+      ...(attachment.thumbnailUrl ? {} : { thumbnailUrl: posterUrl }),
     };
   });
 
-  // Remove standalone image attachments produced by ffmpeg_generate_thumbnail
-  // once they are promoted to the target video's thumbnailUrl.
   return remapped.filter(
     (attachment, index) =>
       !(
         index !== targetVideoIndex &&
         attachment.type === 'image' &&
-        thumbnailSet.has(attachment.url.trim())
+        standaloneRemovalSet.has(attachment.url.trim())
       )
   );
+}
+
+function collectHttpUrlsByKeys(
+  value: unknown,
+  keys: readonly string[],
+  sink: Set<string>,
+  visited = new WeakSet<object>()
+): void {
+  if (!value || typeof value !== 'object') return;
+
+  if (visited.has(value)) return;
+  visited.add(value);
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      collectHttpUrlsByKeys(entry, keys, sink, visited);
+    }
+    return;
+  }
+
+  const record = value as Record<string, unknown>;
+  for (const key of keys) {
+    const candidate = readNonEmptyString(record[key]);
+    if (candidate && isAbsoluteHttpUrl(candidate)) {
+      sink.add(candidate.trim());
+    }
+  }
+
+  for (const nested of Object.values(record)) {
+    if (!nested || typeof nested !== 'object') continue;
+    collectHttpUrlsByKeys(nested, keys, sink, visited);
+  }
+}
+
+function filterFfmpegMergeDeliverables(
+  resultData: Record<string, unknown>,
+  attachments: readonly ExtractedMediaAttachment[]
+): ExtractedMediaAttachment[] {
+  const records = Array.isArray(resultData['toolCallRecords'])
+    ? (resultData['toolCallRecords'] as unknown[])
+    : [];
+
+  const ffmpegRecords = records
+    .filter((record): record is Record<string, unknown> => !!record && typeof record === 'object')
+    .filter((record) => typeof record['toolName'] === 'string')
+    .filter((record) => String(record['toolName']).startsWith('ffmpeg_'));
+
+  const mergeRecords = ffmpegRecords.filter(
+    (record) => record['toolName'] === 'ffmpeg_merge_videos'
+  );
+  if (mergeRecords.length === 0) {
+    return [...attachments];
+  }
+
+  const finalVideoUrls = new Set<string>();
+  const thumbnailUrls = new Set<string>();
+
+  for (const record of mergeRecords) {
+    if (record['status'] !== 'success') continue;
+    collectHttpUrlsByKeys(record['output'], ['videoUrl', 'outputUrl'], finalVideoUrls);
+  }
+
+  for (const record of ffmpegRecords) {
+    if (record['toolName'] !== 'ffmpeg_generate_thumbnail' || record['status'] !== 'success')
+      continue;
+    collectHttpUrlsByKeys(
+      record['output'],
+      ['thumbnailUrl', 'imageUrl', 'outputUrl'],
+      thumbnailUrls
+    );
+  }
+
+  if (finalVideoUrls.size === 0) {
+    return attachments.filter((attachment) => attachment.type === 'doc');
+  }
+
+  return attachments.filter((attachment) => {
+    const url = attachment.url.trim();
+    if (attachment.type === 'video') return finalVideoUrls.has(url);
+    if (attachment.type === 'image') return thumbnailUrls.has(url);
+    return attachment.type === 'doc';
+  });
 }
 
 // ─── Agent X Identity (the constant) ─────────────────────────────────────────
@@ -346,6 +554,16 @@ export function extractMediaAttachmentsFromResultData(
         collectFileLikeAttachment(file, idx);
       });
     }
+    if (Array.isArray(record['videoAttachments'])) {
+      (record['videoAttachments'] as unknown[]).forEach((file, idx) => {
+        collectFileLikeAttachment(file, idx);
+      });
+    }
+    if (Array.isArray(record['imageAttachments'])) {
+      (record['imageAttachments'] as unknown[]).forEach((file, idx) => {
+        collectFileLikeAttachment(file, idx);
+      });
+    }
 
     // mediaArtifact / mediaArtifacts structured outputs from media tools
     if (record['mediaArtifact'] && typeof record['mediaArtifact'] === 'object') {
@@ -424,8 +642,14 @@ export function extractMediaAttachmentsFromResultData(
     return attachments;
   }
 
+  const introPosterUrls = collectIntroPosterUrls(resultData);
   const ffmpegThumbnailUrls = collectFfmpegThumbnailUrls(resultData);
-  return pairFfmpegThumbnailWithVideo(attachments, ffmpegThumbnailUrls);
+  const weakPosterUrls = collectWeakPosterUrls(resultData);
+  const finalMediaAttachments = filterFfmpegMergeDeliverables(resultData, attachments);
+  return pairFfmpegThumbnailWithVideo(finalMediaAttachments, ffmpegThumbnailUrls, {
+    introPosterUrls,
+    weakPosterUrls,
+  });
 }
 
 /**

@@ -44,6 +44,14 @@ env:
     value: 'staging'
   - variable: BACKEND_URL
     value: 'https://api.nxt1sports.com'
+  - variable: NOTION_SIGNUP_DASHBOARD_ENABLED
+    value: 'true'
+  - variable: NOTION_SIGNUP_DASHBOARD_DATABASE_ID
+    value: '34688000-7496-421b-be57-a11e2f3a6f40'
+  - variable: NOTION_API_TOKEN
+    secret: NOTION_API_TOKEN
+    availability:
+      - RUNTIME
   - variable: MEDIA_PROXY_HMAC_SECRET
     secret: media-proxy-hmac-secret
   # Allow devDependencies during build (needed for TypeScript compiler + shx)

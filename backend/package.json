@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/backend",
-  "version": "1.39.4",
+  "version": "1.39.6",
   "description": "NXT1 Backend API Server",
   "private": true,
   "type": "module",
@@ -76,6 +76,8 @@
     "deploy:ota:android:staging": "NODE_ENV=staging tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts --channel staging --platform android",
     "storage:cors": "bash ./scripts/utilities/configure-storage-cors.sh",
     "email:setup-brevo-migration": "node scripts/email/setup-brevo-migration-campaign.mjs",
+    "email:b2b-notion-leads:dry-run": "tsx --tsconfig tsconfig.scripts.json scripts/email/send-b2b-notion-leads.ts",
+    "email:b2b-notion-leads:send": "tsx --tsconfig tsconfig.scripts.json scripts/email/send-b2b-notion-leads.ts --commit",
     "email:b2b-partner:dry-run": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/email/send-b2b-partner-brand-awareness.ts",
     "email:b2b-partner:send": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/email/send-b2b-partner-brand-awareness.ts --commit",
     "email:support:test": "tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/email/send-support-test-email.ts",

@@ -49,6 +49,13 @@ validate_assignment() {
   fi
 }
 
+escape_yaml_string() {
+  local value="$1"
+  value="${value//\\/\\\\}"
+  value="${value//\"/\\\"}"
+  printf '%s' "${value}"
+}
+
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-}"
 REGION="${GOOGLE_CLOUD_REGION:-us-central1}"
 SERVICE_NAME="mcp-ffmpeg"
@@ -61,6 +68,8 @@ CONCURRENCY="4"
 TIMEOUT="900"
 SERVICE_ACCOUNT=""
 TOKEN_SECRET="FFMPEG_MCP_BEARER_TOKEN:latest"
+FIREBASE_STORAGE_BUCKET="${FIREBASE_STORAGE_BUCKET:-}"
+FFMPEG_OUTPUT_GCS_PREFIX="${FFMPEG_OUTPUT_GCS_PREFIX:-agent-x/ffmpeg}"
 DRY_RUN="false"
 
 declare -a ENV_PAIRS=()
@@ -146,8 +155,13 @@ if [[ ${#ENV_PAIRS[@]} -gt 0 ]]; then
   done
 fi
 
+if [[ -z "${FIREBASE_STORAGE_BUCKET}" ]]; then
+  FIREBASE_STORAGE_BUCKET="${PROJECT_ID}.firebasestorage.app"
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKEND_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+BACKEND_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+SERVICE_DIR="${BACKEND_DIR}/mcp/ffmpeg-mcp"
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/${SERVICE_NAME}:latest"
 ENV_FILE="$(mktemp)"
 BUILD_CONFIG_FILE="$(mktemp)"
@@ -156,11 +170,13 @@ trap 'rm -f "${ENV_FILE}" "${BUILD_CONFIG_FILE}"' EXIT
 {
   printf 'FFMPEG_MCP_PATH: "/mcp"\n'
   printf 'FFMPEG_MCP_STATELESS_HTTP: "true"\n'
+  printf 'FIREBASE_STORAGE_BUCKET: "%s"\n' "$(escape_yaml_string "${FIREBASE_STORAGE_BUCKET}")"
+  printf 'FFMPEG_OUTPUT_GCS_PREFIX: "%s"\n' "$(escape_yaml_string "${FFMPEG_OUTPUT_GCS_PREFIX}")"
   if (( ${#ENV_PAIRS[@]} > 0 )); then
     for assignment in "${ENV_PAIRS[@]}"; do
       key="${assignment%%=*}"
       value="${assignment#*=}"
-      printf '%s: "%s"\n' "${key}" "${value//\"/\\\"}"
+      printf '%s: "%s"\n' "${key}" "$(escape_yaml_string "${value}")"
     done
   fi
 } > "${ENV_FILE}"
@@ -170,8 +186,9 @@ steps:
   - name: gcr.io/cloud-builders/docker
     args:
       - build
+      - --no-cache
       - -f
-      - mcp/ffmpeg-mcp/Dockerfile
+      - Dockerfile
       - -t
       - ${IMAGE}
       - .
@@ -193,7 +210,7 @@ ARTIFACT_CREATE_CMD=(
 )
 
 BUILD_CMD=(
-  gcloud builds submit "${BACKEND_DIR}"
+  gcloud builds submit "${SERVICE_DIR}"
   --project "${PROJECT_ID}"
   --config "${BUILD_CONFIG_FILE}"
 )

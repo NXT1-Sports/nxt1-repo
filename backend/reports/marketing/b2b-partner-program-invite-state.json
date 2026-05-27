@@ -1,0 +1,1195 @@
+{
+  "version": 1,
+  "campaignKey": "b2b_partner_program_invite",
+  "updatedAt": "2026-05-26T14:32:24.396Z",
+  "recipients": [
+    {
+      "organization": "Centennial High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "David Carrillo",
+      "email": "dcarrillo1@lcps.net",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Centennial High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Atrisco Heritage Academy",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Jana Villegas",
+      "email": "villegas@aps.edu",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Atrisco Heritage Academy",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Grants High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Reyes Jaramillo",
+      "email": "reyes.jaramillo@gccs.k12.nm.us",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Grants High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Hope Christian High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Jim Murphy",
+      "email": "athletics@hcsnm.org",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "General athletic department inbox.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Hope Christian High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Eldorado High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Roy Sanchez",
+      "email": "sanchez_roy@aps.edu",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Eldorado High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Las Cruces High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Michelle Paz",
+      "email": "mpaz@lcps.net",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Las Cruces High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Gallup High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Cara Bedonie",
+      "email": "cbedonie@gmcs.org",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Gallup High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Del Norte High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Tom Herndon",
+      "email": "thomas.herndon@aps.edu",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Del Norte High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Capitan High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Nate Poss",
+      "email": "nate.poss@capitantigers.org",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Capitan High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "McCurdy High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Ian Maestas",
+      "email": "ian.maestas@mcsk12nm.org",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For McCurdy High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "House High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Jarred Hestand",
+      "email": "hestand@houseschools.net",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For House High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Hozho Academy",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Cyle Balok",
+      "email": "cbalok@hozhoacademy.org",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Hozho Academy",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Gateway Christian High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Justin Stephens",
+      "email": "jstephens@gatewaychristianschool.us",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Gateway Christian High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Melrose High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Casey Jackson",
+      "email": "cjackson@melroseschools.org",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Melrose High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Cobre High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Cory Gropp",
+      "email": "cgropp@cobreschools.org",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Cobre High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Jal High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Brent Satterwhite",
+      "email": "brent.satterwhite@jalnm.org",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Jal High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Albuquerque High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Chad Jones",
+      "email": "chad.jones@aps.edu",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Albuquerque High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Capital High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Nicholas Salazar",
+      "email": "nisalazar@sfps.k12.nm.us",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Capital High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Jemez Valley High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Julian Davis",
+      "email": "jdavis@jvps.org",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Jemez Valley High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Crownpoint High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Kelly Morris",
+      "email": "kmorris@gmcs.org",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Crownpoint High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Logan High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Billy Burns",
+      "email": "bburns@loganschool.net",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Logan High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Hagerman High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Andrew Rodriguez",
+      "email": "arodriguez@bobcat.net",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Hagerman High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Escalante High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Isaac Royston",
+      "email": "iroyston@chamaschools.org",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Escalante High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Clovis Christian School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Sky Saul",
+      "email": "ssaul@cloviseagles.com",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Clovis Christian School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Alamogordo High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Alan Edmonson",
+      "email": "alan.edmonson@alamoqordoschools.org",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "Verify school domain before full send.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Alamogordo High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Maxwell High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Michael Glasman",
+      "email": "mglasman@maxwellp12.com",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Maxwell High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Albuquerque Academy",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Taryn Bachis",
+      "email": "tarvn.bachis@aa.edu",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "Verify address spelling before full send.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Albuquerque Academy",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Aztec High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "David Sweet",
+      "email": "adsweeda@aztecschools.com",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "Verify address spelling before full send.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Aztec High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Lovington High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Kirk Murad",
+      "email": "kirkmurad@lovingtonschools.net",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Lovington High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Bernalillo High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Ira Harge",
+      "email": "iharge@bernalillops.org",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Bernalillo High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Academy for Technology and the Classics",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Jennifer Ferguson",
+      "email": "jennifer.ferguson@atcschool.org",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Academy for Technology and the Classics",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Evangel Christian Academy",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Bryce Hammond",
+      "email": "bryce.hammond@ecanm.org",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Evangel Christian Academy",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Cuba High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Frank Cordova",
+      "email": "frcordova@cuba.k12.nm.us",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Cuba High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Grady High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Les Ciancio",
+      "email": "lciancio@gradyschool.com",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Grady High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Cimarron High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Alberta Martinez",
+      "email": "almartinez@cimarronschools.org",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Cimarron High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Floyd High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Adam Terry",
+      "email": "aterry@floydbroncos.com",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Floyd High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Dexter High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Melissa Duran",
+      "email": "duranm@dexterdemons.org",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Dexter High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Carrizozo High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Gid Allen",
+      "email": "gid.allen@carrizozogrizzlies.org",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Carrizozo High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Los Lunas High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "William Hays",
+      "email": "whays@llschools.net",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Los Lunas High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Lordsburg High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Dale Hooper",
+      "email": "dhooper@lmsed.org",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Lordsburg High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Albuquerque Public Schools",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Adam Baysinger",
+      "email": "adam.baysinger@aps.edu",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "District-level athletic operations contact.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Albuquerque Public Schools",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Fort Sumner High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Crystal Boyd",
+      "email": "cboyd@ftsumnerk12.com",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Fort Sumner High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Animas High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Jeff Gephart",
+      "email": "gephart@animask12.net",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Animas High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Coronado High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Ricky Lindblad",
+      "email": "lindblad_r@jmsd.k12.nm.us",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "New Mexico school outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Coronado High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Oakland Mills High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Kasen Bien-Aime",
+      "email": "kasen2bienaime@gmail.com",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "Personal email on supplied list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Oakland Mills High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "MAT ZONE",
+      "crmStage": "Lead",
+      "partnerType": "Club/Academy",
+      "primaryContact": "Quen Jones",
+      "email": "saucethekiid@gmail.com",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "Club outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For MAT ZONE",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "West Creek",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Logan Adair",
+      "email": "loganadair2008@aol.com",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "Personal email on supplied list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For West Creek",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Rockvale High School",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Maddox Holder",
+      "email": "maddox.holder3@icloud.com",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "Personal email on supplied list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Rockvale High School",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Corinth Holders",
+      "crmStage": "Lead",
+      "partnerType": "Club/Academy",
+      "primaryContact": "Lamont Hunt Jr",
+      "email": "lamonthunt62@gmail.com",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "Club outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Corinth Holders",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Acharnis",
+      "crmStage": "Lead",
+      "partnerType": "Club/Academy",
+      "primaryContact": "Παναγιωτης Πετρουλακης",
+      "email": "petroulakesp@gmail.com",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "International club outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Acharnis",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Haynes Academy",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Adnn Ali",
+      "email": "legend45219@gmail.com",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "Personal email on supplied list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Haynes Academy",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Central Lakes College",
+      "crmStage": "Lead",
+      "partnerType": "School/University",
+      "primaryContact": "Lonnel Harrison",
+      "email": "tazz1911@yahoo.com",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "Personal email on supplied list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Central Lakes College",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Crimson Kings",
+      "crmStage": "Lead",
+      "partnerType": "Club/Academy",
+      "primaryContact": "Sam Robinson",
+      "email": "crimsonkings.elite@gmail.com",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "Club outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Crimson Kings",
+          "provider": "platform_smtp"
+        }
+      ]
+    },
+    {
+      "organization": "Firecrackers",
+      "crmStage": "Lead",
+      "partnerType": "Club/Academy",
+      "primaryContact": "Michael Kruse",
+      "email": "mskruse2@gmail.com",
+      "sendCount": 1,
+      "sequenceStep": "follow_up",
+      "deliveryStatus": "sent",
+      "lastSentAt": "2026-05-26T14:32:24.396Z",
+      "nextFollowUpAt": "2026-05-31T14:32:24.396Z",
+      "notes": "Club outreach list.",
+      "history": [
+        {
+          "sequenceStep": "initial",
+          "sentAt": "2026-05-26T14:32:24.396Z",
+          "campaignKey": "b2b_partner_program_invite_initial",
+          "subject": "An Invite For Firecrackers",
+          "provider": "platform_smtp"
+        }
+      ]
+    }
+  ]
+}

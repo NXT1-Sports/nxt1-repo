@@ -44,6 +44,8 @@ env:
     value: 'false'
   - variable: NPM_CONFIG_INCLUDE
     value: 'dev'
+  - variable: NOTION_API_TOKEN
+    secret: NOTION_API_TOKEN
 
 # Custom headers for all responses
 headers:

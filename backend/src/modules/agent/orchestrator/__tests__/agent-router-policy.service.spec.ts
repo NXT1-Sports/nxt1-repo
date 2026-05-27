@@ -117,6 +117,25 @@ describe('AgentRouterPolicyService', () => {
     );
   });
 
+  it('deterministically reroutes creative highlight video production to brand coordinator', async () => {
+    const planner = { execute: vi.fn() };
+    const policy = new AgentRouterPolicyService(planner as never);
+
+    const reroute = await policy.rerouteDelegatedTask(
+      'Create a highlight video from X for @lwarren084 using his last posted video, with a motion graphic intro and 12-15 clips.',
+      'performance_coordinator',
+      createSessionContext()
+    );
+
+    expect(planner.execute).not.toHaveBeenCalled();
+    expect(reroute).toEqual(
+      expect.objectContaining({
+        assignedAgent: 'brand_coordinator',
+        statusNote: 'Reassigned from performance_coordinator to brand_coordinator.',
+      })
+    );
+  });
+
   it('delegates delegated-task rerouting to the routing orchestrator', async () => {
     const orchestratorSpy = vi
       .spyOn(AgentRoutingOrchestratorService.prototype, 'rerouteDelegatedTask')

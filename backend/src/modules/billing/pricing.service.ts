@@ -137,6 +137,10 @@ function resolveMultiplier(
 // CHARGE CALCULATION
 // ============================================
 
+function ceilUsdToCents(amountUsd: number): number {
+  return Math.ceil(Number((amountUsd * 100).toFixed(6)));
+}
+
 /**
  * Calculate the amount to charge a user for a given feature.
  *
@@ -156,7 +160,7 @@ export async function calculateChargeAmount(
   const { multiplier, overrideSource } = resolveMultiplier(config, feature, coordinatorId);
 
   const chargeAmountUsd = actualCostUsd * multiplier;
-  const chargeAmountCents = Math.ceil(chargeAmountUsd * 100); // round up to protect margin
+  const chargeAmountCents = ceilUsdToCents(chargeAmountUsd); // round up to protect margin
 
   logger.info('[pricing] Charge calculated', {
     feature,
@@ -192,6 +196,6 @@ export function estimateChargeAmountSync(
   multiplier = 3.0
 ): { chargeAmountUsd: number; chargeAmountCents: number } {
   const chargeAmountUsd = estimatedCostUsd * multiplier;
-  const chargeAmountCents = Math.ceil(chargeAmountUsd * 100);
+  const chargeAmountCents = ceilUsdToCents(chargeAmountUsd);
   return { chargeAmountUsd, chargeAmountCents };
 }

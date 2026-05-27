@@ -3,6 +3,7 @@ import { getRuntimeEnvironment } from '../../config/runtime-environment.js';
 import { cronGuard } from '../../middleware/auth/auth.middleware.js';
 import { runPushDripCampaign } from '../../services/marketing/lifecycle/push-drip.service.js';
 import { runSignupDripCampaign } from '../../services/marketing/lifecycle/signup-drip.service.js';
+import { runSignupNotionDashboardSync } from '../../services/marketing/lifecycle/signup-notion-dashboard.service.js';
 import { db } from '../../utils/firebase.js';
 import { logger } from '../../utils/logger.js';
 
@@ -62,6 +63,33 @@ router.post('/cron/push-drip', cronGuard, async (req: Request, res: Response) =>
       stack: error instanceof Error ? error.stack : undefined,
     });
     res.status(500).json({ success: false, error: 'Push drip failed' });
+  }
+});
+
+router.post('/cron/signup-notion-dashboard', cronGuard, async (req: Request, res: Response) => {
+  try {
+    if (!req.firebase?.db) {
+      res.status(500).json({ success: false, error: 'Firebase context unavailable' });
+      return;
+    }
+
+    const result = await runSignupNotionDashboardSync({
+      db: req.firebase.db,
+      environment: req.isStaging ? 'staging' : 'production',
+      limit: parseLimit(req.body?.['limit']),
+    });
+
+    res.json({
+      success: true,
+      message: 'Signup Notion dashboard sync completed',
+      result,
+    });
+  } catch (error) {
+    logger.error('CRON signup-notion-dashboard failed', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    res.status(500).json({ success: false, error: 'Signup Notion dashboard sync failed' });
   }
 });
 

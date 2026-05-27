@@ -19,7 +19,6 @@ import {
   input,
   output,
   signal,
-  effect,
   ElementRef,
   afterNextRender,
 } from '@angular/core';
@@ -57,17 +56,21 @@ function inferMediaTypeFromUrl(rawUrl: string): MarkdownMediaType | null {
     const normalized = /^https?:\/\//i.test(value) ? value : `https://${value}`;
     const url = new URL(normalized);
     const pathname = url.pathname.toLowerCase();
+    const hostname = url.hostname.toLowerCase();
 
     if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(pathname)) {
       return 'image';
     }
-    if (/\.(mp4|mov|webm|m4v|m3u8)$/i.test(pathname)) {
-      return 'video';
-    }
     if (/\/images?\//i.test(pathname)) {
       return 'image';
     }
-    if (/\/videos?\//i.test(pathname)) {
+    if (
+      /\.(mp4|mov|webm|m4v|m3u8)$/i.test(pathname) ||
+      hostname === 'watch.cloudflarestream.com' ||
+      hostname === 'iframe.videodelivery.net' ||
+      hostname.endsWith('.videodelivery.net') ||
+      hostname.endsWith('.cloudflarestream.com')
+    ) {
       return 'video';
     }
     // Firebase Storage / GCS: encoded paths or extensionless objects — check full URL
@@ -84,18 +87,33 @@ function inferMediaTypeFromUrl(rawUrl: string): MarkdownMediaType | null {
   }
 }
 
-/** Returns true for embeddable video URLs (by extension or storage-domain path heuristic). */
-function isVideoUrl(url: string | null | undefined): boolean {
+/** Returns true for inline video preview links we can open in the media viewer. */
+function isInlineVideoPreviewUrl(url: string | null | undefined): boolean {
   if (!url) return false;
-  if (/\.(mp4|mov|webm|m4v)([?#]|$)/i.test(url)) return true;
-  // Firebase Storage / Google Cloud Storage: detect by domain + path indicators
-  // (URLs may use .bin extension or have encoded path separators with no file extension)
-  if (/(?:firebasestorage|storage)\.googleapis\.com/i.test(url)) {
-    if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:[?#%]|$)/i.test(url)) return false;
-    if (/\.(mp4|mov|m4v|webm|avi|mkv)(?:[?#%]|$)/i.test(url)) return true;
-    if (/(?:\/|%2F)videos?(?:\/|%2F)/i.test(url)) return true;
+  try {
+    const normalized = /^https?:\/\//i.test(url.trim()) ? url.trim() : `https://${url.trim()}`;
+    const parsed = new URL(normalized);
+    const hostname = parsed.hostname.toLowerCase();
+    const pathname = parsed.pathname.toLowerCase();
+    const lowerUrl = normalized.toLowerCase();
+    if (
+      /\.(mp4|mov|webm|m4v|m3u8)$/i.test(pathname) ||
+      hostname === 'watch.cloudflarestream.com' ||
+      hostname === 'iframe.videodelivery.net' ||
+      hostname.endsWith('.videodelivery.net') ||
+      hostname.endsWith('.cloudflarestream.com')
+    ) {
+      return true;
+    }
+    if (/(?:firebasestorage|storage)\.googleapis\.com/i.test(lowerUrl)) {
+      if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:[?#%]|$)/i.test(lowerUrl)) return false;
+      if (/\.(mp4|mov|m4v|webm|avi|mkv)(?:[?#%]|$)/i.test(lowerUrl)) return true;
+      if (/(?:\/|%2F)videos?(?:\/|%2F)/i.test(lowerUrl)) return true;
+    }
+    return false;
+  } catch {
+    return /\.(mp4|mov|webm|m4v|m3u8)([?#]|$)/i.test(url);
   }
-  return false;
 }
 
 function normalizeTrackedLink(url: string | null | undefined): string | null {
@@ -108,10 +126,11 @@ function isOpenableHttpUrl(url: string | null | undefined): boolean {
 }
 
 /**
- * Builds a static video thumbnail with a play-icon overlay.
- * No controls, no autoload — tapping opens the full media viewer.
+ * Builds an inline video preview with a play-icon overlay.
+ * No controls — tapping opens the full media viewer.
  */
 function buildVideoThumb(safeHref: string, label: string): string {
+  const previewSrc = safeHref.includes('#') ? safeHref : `${safeHref}#t=0.001`;
   // Play triangle SVG (circle + triangle)
   const playIcon =
     `<svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">` +
@@ -121,7 +140,7 @@ function buildVideoThumb(safeHref: string, label: string): string {
 
   return (
     `<div class="md-video-wrap" data-md-video-src="${safeHref}" role="button" tabindex="0" aria-label="${escapeAttr(label || 'Play video')}">` +
-    `<video class="md-video" src="${safeHref}" preload="metadata" muted playsinline></video>` +
+    `<video class="md-video-preview" src="${previewSrc}" muted playsinline preload="metadata" aria-hidden="true"></video>` +
     `<div class="md-video-play" aria-hidden="true">${playIcon}</div>` +
     `</div>`
   );
@@ -144,7 +163,7 @@ function createNxtRenderer(): Renderer {
 
     const displayText = href && normalizedHref && text === href ? normalizedHref : text;
 
-    if (isVideoUrl(normalizedHref)) {
+    if (isInlineVideoPreviewUrl(normalizedHref)) {
       return buildVideoThumb(safeHref, displayText);
     }
 
@@ -168,7 +187,7 @@ function createNxtRenderer(): Renderer {
   // Images → if src is actually a video URL (model used ![]() with .mp4), render thumb
   renderer.image = ({ href, title, text }) => {
     const safeHref = escapeAttr(href ?? '');
-    if (isVideoUrl(href)) {
+    if (isInlineVideoPreviewUrl(href)) {
       return buildVideoThumb(safeHref, text);
     }
     const titleAttr = title ? ` title="${escapeAttr(title)}"` : '';
@@ -276,6 +295,56 @@ function preprocessStorageImageUrls(source: string): string {
   return source.replace(BARE_STORAGE_IMAGE_URL_RE, (url) =>
     inferMediaTypeFromUrl(url) === 'image' ? `![](${url})` : url
   );
+}
+
+function extractRenderableMediaUrlFromLine(line: string): string | null {
+  const trimmed = line.trim();
+  const unwrapped = /^`([^`\n]+)`$/.exec(trimmed)?.[1]?.trim() ?? trimmed;
+  const imageMatch = /^!\[[^\]]*\]\((https?:\/\/.+)\)$/.exec(unwrapped);
+  const linkMatch = /^\[[^\]]+\]\((https?:\/\/.+)\)$/.exec(unwrapped);
+  const bareMatch = /^(https?:\/\/\S+)$/.exec(unwrapped);
+  const url = imageMatch?.[1] ?? linkMatch?.[1] ?? bareMatch?.[1] ?? null;
+  if (!url) return null;
+
+  return inferMediaTypeFromUrl(url) ? url : null;
+}
+
+function isRenderableMediaLine(line: string): boolean {
+  return extractRenderableMediaUrlFromLine(line) !== null;
+}
+
+function unwrapMediaOnlyFencedBlocks(source: string): string {
+  const fencedBlockPattern = /(^|\n)([ \t]*)(`{3,}|~{3,})[^\n]*\n([\s\S]*?)\n\2\3[ \t]*(?=\n|$)/g;
+
+  return source.replace(
+    fencedBlockPattern,
+    (match, prefix: string, _indent: string, _fence: string, body: string) => {
+      const lines = body.split('\n');
+      const nonEmptyLines = lines.map((line) => line.trim()).filter(Boolean);
+      if (!nonEmptyLines.length || !nonEmptyLines.every(isRenderableMediaLine)) {
+        return match;
+      }
+
+      return `${prefix}${nonEmptyLines.join('\n')}`;
+    }
+  );
+}
+
+function unwrapMediaOnlyInlineCode(source: string): string {
+  return source.replace(/`([^`\n]+)`/g, (match, inner: string) =>
+    isRenderableMediaLine(inner) ? inner.trim() : match
+  );
+}
+
+function deindentMediaOnlyLines(source: string): string {
+  return source
+    .split('\n')
+    .map((line) => (/^[ \t]{4,}/.test(line) && isRenderableMediaLine(line) ? line.trim() : line))
+    .join('\n');
+}
+
+export function preprocessMediaPresentationMarkdown(source: string): string {
+  return deindentMediaOnlyLines(unwrapMediaOnlyInlineCode(unwrapMediaOnlyFencedBlocks(source)));
 }
 
 // ─── Marked singleton ──────────────────────────────────────────────────────
@@ -595,24 +664,28 @@ const markedInstance = new Marked({
         position: relative;
         display: block;
         width: min(240px, 100%);
+        aspect-ratio: 16 / 9;
         border-radius: var(--nxt1-ui-radius-default, 8px);
         overflow: hidden;
-        background: #111;
+        background:
+          radial-gradient(circle at 30% 22%, rgba(204, 255, 0, 0.18), transparent 34%),
+          linear-gradient(135deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.035)), #111;
         margin: var(--nxt1-spacing-2, 0.5rem) 0;
         cursor: pointer;
+      }
+
+      nxt1-markdown .md .md-video-preview {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        background: #000;
+        pointer-events: none;
       }
 
       nxt1-markdown .md .md-video-wrap:focus-visible {
         outline: 2px solid var(--nxt1-color-primary, #ccff00);
         outline-offset: 2px;
-      }
-
-      nxt1-markdown .md .md-video {
-        display: block;
-        width: 100%;
-        height: auto;
-        object-fit: contain;
-        pointer-events: none;
       }
 
       nxt1-markdown .md .md-video-play {
@@ -622,12 +695,12 @@ const markedInstance = new Marked({
         align-items: center;
         justify-content: center;
         pointer-events: none;
-        background: rgba(0, 0, 0, 0.25);
-        transition: background 0.15s ease;
+        background: transparent;
+        transition: transform 0.15s ease;
       }
 
       nxt1-markdown .md .md-video-wrap:hover .md-video-play {
-        background: rgba(0, 0, 0, 0.4);
+        transform: scale(1.05);
       }
 
       /* =========================================================
@@ -668,13 +741,6 @@ export class NxtMarkdownComponent {
   private readonly _dompurifyReady = signal(false);
 
   constructor() {
-    // Keep inline video cards synced to each video's intrinsic ratio.
-    effect(() => {
-      this.content();
-      if (typeof window === 'undefined') return;
-      window.requestAnimationFrame(() => this.hydrateInlineVideoRatios());
-    });
-
     afterNextRender(() => {
       // Eagerly load DOMPurify on first browser render.
       // Once ready, flip the signal so `safeHtml` re-computes with full
@@ -751,33 +817,6 @@ export class NxtMarkdownComponent {
           surface: this.trackingSurface(),
         });
       });
-
-      // Initial ratio hydration for first render.
-      this.hydrateInlineVideoRatios();
-    });
-  }
-
-  /** Applies actual video width/height ratio to wrapper to avoid fixed 16:9 cards. */
-  private hydrateInlineVideoRatios(): void {
-    const videos = this.elRef.nativeElement.querySelectorAll(
-      '.md-video-wrap > video.md-video'
-    ) as NodeListOf<HTMLVideoElement>;
-
-    videos.forEach((video: HTMLVideoElement) => {
-      const wrapper = video.closest('.md-video-wrap') as HTMLElement | null;
-      if (!wrapper) return;
-
-      const applyRatio = (): void => {
-        if (video.videoWidth > 0 && video.videoHeight > 0) {
-          wrapper.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
-        }
-      };
-
-      if (video.readyState >= 1) {
-        applyRatio();
-      } else {
-        video.addEventListener('loadedmetadata', applyRatio, { once: true });
-      }
     });
   }
 
@@ -809,7 +848,7 @@ export class NxtMarkdownComponent {
 
     // Convert bare Firebase/Google Storage image URLs to Markdown image syntax
     // so they render as <img> instead of raw yellow link text.
-    const source = preprocessStorageImageUrls(normalized);
+    const source = preprocessStorageImageUrls(preprocessMediaPresentationMarkdown(normalized));
 
     // On browser runtimes, wait for DOMPurify before injecting HTML to avoid
     // sanitizer crashes on malformed/partial markdown in older WebViews.

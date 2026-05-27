@@ -68,7 +68,7 @@ const CLOUDFLARE_VIDEO_ID_PATTERN = /^[a-zA-Z0-9_-]{8,128}$/;
 const DEFAULT_CLOUDFLARE_CLIP_PADDING_SEC = 2;
 const DEFAULT_CLOUDFLARE_CLIP_DELETION_MINUTES = 240;
 const DEFAULT_CLOUDFLARE_CLIP_WAIT_SECONDS = 300;
-const CLOUDFLARE_READY_POLL_INTERVAL_MAX_MS = 5_000;
+const CLOUDFLARE_READY_POLL_INTERVAL_MS = 5_000;
 
 const MediaArtifactSchema = z.object({
   mediaKind: z.enum(['video', 'image', 'audio', 'document', 'other']),
@@ -224,18 +224,13 @@ export class AnalyzeVideoTool extends BaseTool {
       artifact,
       parsed.data.cloudflareVideoId
     );
-    const fallbackCloudflareWatchUrl = cloudflareVideoId
-      ? `https://watch.cloudflarestream.com/${cloudflareVideoId}`
-      : null;
-    const url =
-      parsed.data.url ?? artifact?.portableUrl ?? artifact?.sourceUrl ?? fallbackCloudflareWatchUrl;
+    const url = parsed.data.url ?? artifact?.portableUrl ?? artifact?.sourceUrl ?? null;
 
     // ── Input validation ───────────────────────────────────────────────
     if (typeof url !== 'string' || url.trim().length === 0) {
       return {
         success: false,
-        error:
-          'Parameter "url", "cloudflareVideoId", or artifact.sourceUrl is required and must be a non-empty string.',
+        error: 'Parameter "url" or artifact.sourceUrl is required and must be a non-empty string.',
       };
     }
 
@@ -484,14 +479,7 @@ export class AnalyzeVideoTool extends BaseTool {
         );
       }
 
-      const elapsedMs = Date.now() - startedAt;
-      const nextPollDelayMs =
-        elapsedMs < 15_000
-          ? 1_250
-          : elapsedMs < 60_000
-            ? 2_500
-            : CLOUDFLARE_READY_POLL_INTERVAL_MAX_MS;
-      await sleep(nextPollDelayMs);
+      await sleep(CLOUDFLARE_READY_POLL_INTERVAL_MS);
     }
 
     throw new Error(
@@ -550,8 +538,27 @@ export class AnalyzeVideoTool extends BaseTool {
     }
 
     if (artifact.analysisReady && artifact.portableUrl) {
+      // If the caller supplied an explicit URL that is itself a portable
+      // analysis URL and differs from artifact.portableUrl, trust the caller.
+      // Otherwise we silently swap the LLM's deliberate URL choice (e.g. a
+      // Twitter MP4) for a stale artifact (e.g. a previously-staged profile
+      // image) and downstream analysis explodes.
+      const callerUrlIsPortable =
+        typeof url === 'string' &&
+        url.trim().length > 0 &&
+        url.trim() !== artifact.portableUrl.trim() &&
+        this.isPortableAnalysisUrl(url);
+
+      const sourceUrl = callerUrlIsPortable ? url : artifact.portableUrl;
+      if (callerUrlIsPortable) {
+        logger.info('[AnalyzeVideoTool] Preferring caller-supplied URL over artifact.portableUrl', {
+          callerUrl: sourceUrl,
+          artifactPortableUrl: artifact.portableUrl,
+        });
+      }
+
       const resolvedPortable = await this.mediaTransportResolver.resolveProcessingUrl({
-        sourceUrl: artifact.portableUrl,
+        sourceUrl,
         cloudflareVideoId,
         fallbackToFirebaseStaging: true,
         stageMediaKind: 'video',
@@ -726,7 +733,7 @@ export class AnalyzeVideoTool extends BaseTool {
       // Register the Gemini direct-call cost into the job tracker so
       // executeBillingDeduction can apply the platform markup and charge the user.
       if (filesResult.costUsd > 0 && context?.operationId) {
-        addJobCost(context.operationId, filesResult.costUsd, this.name);
+        addJobCost(context.operationId, filesResult.costUsd);
       }
 
       if (filesApiUrls.length === videoUrls.length) {
@@ -814,7 +821,7 @@ export class AnalyzeVideoTool extends BaseTool {
           // Register the Gemini direct-call cost into the job tracker so
           // executeBillingDeduction can apply the platform markup and charge the user.
           if (result.costUsd > 0 && context?.operationId) {
-            addJobCost(context.operationId, result.costUsd, this.name);
+            addJobCost(context.operationId, result.costUsd);
           }
           return { result, analyzedVideoUrls: videoUrls };
         }

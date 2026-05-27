@@ -460,6 +460,67 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(displayContent).not.toContain('https://storage.googleapis.com');
   });
 
+  it('keeps external highlight pages as links instead of fake video attachments', () => {
+    const highlightPageUrl = 'https://hoopseen.com/videos/atlanta-jam-highlights';
+    const content = ['Video URLs Found:', '', 'URL:', highlightPageUrl].join('\n');
+
+    const media = facade.collectMessageMedia(
+      assistantMessage('external-highlight-links', 'assistant_final', { content })
+    );
+    const displayContent = facade.stripDisplayedMediaUrlsFromContent(content, media);
+
+    expect(media.videoUrl).toBeUndefined();
+    expect(media.attachments).toBeUndefined();
+    expect(displayContent).toContain(highlightPageUrl);
+  });
+
+  it('still promotes direct playable video assets into video attachments', () => {
+    const playableVideoUrl = 'https://storage.googleapis.com/nxt1-media/reels/final-highlight.mp4';
+    const content = ['Generated highlight video:', playableVideoUrl].join('\n');
+
+    const media = facade.collectMessageMedia(
+      assistantMessage('direct-video-asset', 'assistant_final', { content })
+    );
+
+    expect(media.videoUrl).toBe(playableVideoUrl);
+    expect(media.attachments).toEqual([
+      {
+        url: playableVideoUrl,
+        type: 'video',
+        name: 'media-video-1.mp4',
+      },
+    ]);
+  });
+
+  it('downgrades persisted non-playable video page attachments to app links', () => {
+    const highlightPageUrl = 'https://hoopseen.com/videos/atlanta-jam-highlights';
+
+    const media = facade.collectMessageMedia(
+      assistantMessage('persisted-external-video', 'assistant_final', {
+        content: `Most recent highlight: ${highlightPageUrl}`,
+        attachments: [
+          {
+            id: 'att-highlight-page-1',
+            url: highlightPageUrl,
+            name: 'HoopSeen Atlanta Jam Highlights',
+            type: 'video',
+            mimeType: 'text/html',
+            sizeBytes: 0,
+          },
+        ],
+      })
+    );
+
+    expect(media.videoUrl).toBeUndefined();
+    expect(media.attachments).toEqual([
+      {
+        url: highlightPageUrl,
+        type: 'app',
+        name: 'HoopSeen Atlanta Jam Highlights',
+      },
+    ]);
+  });
+
   it('keeps user-uploaded video as a single attachment without promoting assistant media fields', () => {
     const uploadedVideoUrl = 'https://cdn.example.com/uploads/highlight.mp4';
     const thumbnailUrl = 'https://cdn.example.com/uploads/highlight-thumb.jpg';

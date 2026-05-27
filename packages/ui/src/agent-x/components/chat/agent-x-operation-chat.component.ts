@@ -315,18 +315,13 @@ type YieldStateSource =
                             "
                           />
                         } @else {
-                          <!-- autoplay muted playsinline: the only reliable way to show a
-                               first-frame thumbnail on iOS Safari without canvas/CORS.
-                               We pause immediately on loadeddata so the video freezes
-                               on the first decoded frame and acts as a static preview. -->
                           <video
                             [src]="att.url"
-                            class="msg-attachment__thumb"
+                            preload="metadata"
                             muted
                             playsinline
-                            autoplay
-                            preload="auto"
-                            (loadeddata)="pauseVideoThumbnail($event)"
+                            class="msg-attachment__thumb msg-attachment__video-inline"
+                            [attr.aria-label]="'Open video: ' + att.name"
                             (click)="
                               attachmentsFacade.openAttachmentViewer(
                                 messageAttachmentsForStrip(msg),
@@ -1295,15 +1290,41 @@ type YieldStateSource =
         cursor: pointer;
       }
 
+      .msg-attachment__video-fallback {
+        appearance: none;
+        border: 0;
+        padding: 0;
+        background:
+          radial-gradient(circle at 32% 22%, rgba(204, 255, 0, 0.22), transparent 36%),
+          linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.035)), #111;
+      }
+
+      /* Inline <video> tile — renders the browser's native first-frame
+         preview when no explicit thumbnailUrl is available (Twitter / iMessage
+         pattern). Sits behind the play-button overlay. */
+      .msg-attachment__video-inline {
+        background: #000;
+        pointer-events: auto;
+      }
+
       .msg-attachment__play {
         position: absolute;
         inset: 0;
         display: flex;
         align-items: center;
         justify-content: center;
-        background: rgba(0, 0, 0, 0.35);
+        background: transparent;
         color: #fff;
         pointer-events: none;
+      }
+
+      .msg-attachment__play svg {
+        width: 24px;
+        height: 24px;
+        padding: 7px;
+        border-radius: 999px;
+        background: rgba(0, 0, 0, 0.58);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
       }
 
       .msg-attachment__doc {
@@ -1788,15 +1809,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Explicit recipient label for the composer placeholder. */
   @Input() inputRecipientLabel = '';
-
-  /**
-   * Pause a video element immediately after the first frame is decoded.
-   * Used for thumbnail strip: `autoplay muted playsinline` forces iOS to decode
-   * the first frame; pausing here freezes it as a static preview image.
-   */
-  protected pauseVideoThumbnail(event: Event): void {
-    (event.target as HTMLVideoElement).pause();
-  }
 
   protected getInputPlaceholder(): string {
     return buildOperationChatInputPlaceholder(this.inputRecipientLabel);

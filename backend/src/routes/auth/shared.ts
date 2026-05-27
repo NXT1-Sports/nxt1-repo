@@ -122,6 +122,22 @@ export interface UserV2Document {
     signup?: {
       completedSlackAlertSentAt?: PortableTimestamp;
       welcomeEmailSentAt?: PortableTimestamp;
+      notionDashboard?: {
+        status?: 'queued' | 'processing' | 'created' | 'failed' | 'dead_letter' | 'skipped';
+        idempotencyKey?: string;
+        environment?: 'staging' | 'production';
+        queuedAt?: PortableTimestamp;
+        processingStartedAt?: PortableTimestamp;
+        leaseExpiresAt?: PortableTimestamp;
+        lastAttemptAt?: PortableTimestamp;
+        nextAttemptAt?: PortableTimestamp;
+        attemptCount?: number;
+        createdAt?: PortableTimestamp;
+        pageId?: string;
+        pageUrl?: string;
+        lastError?: string;
+        failedPermanentAt?: PortableTimestamp;
+      };
       drip?: {
         campaignKey?: string;
         enrolledAt?: PortableTimestamp;

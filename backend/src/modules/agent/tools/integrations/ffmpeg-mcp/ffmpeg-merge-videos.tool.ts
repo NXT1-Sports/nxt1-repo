@@ -10,10 +10,12 @@ export class FfmpegMergeVideosTool extends BaseTool {
     'Merge multiple videos into a single output video file. ' +
     'Defaults to concat_filter which re-encodes all inputs to a common codec/timebase — ' +
     'safe for clips from different sources, resolutions, or that have been resized/trimmed. ' +
-    'The backend automatically normalizes audio/video and batches large input lists; do not manually split a highlight reel unless the tool returns an explicit failure. ' +
+    'The backend automatically normalizes audio/video, adds silent audio for no-audio clips, and batches large input lists; do not manually split a highlight reel unless the tool returns an explicit failure. ' +
+    'Do not use concat_demuxer as a fallback for professional reels; audio-less intro graphics are supported and should stay in the reel. ' +
     'For branded highlight reels with a Runway/graphic intro as the first input, set maxIntroSeconds to 4 so the opener cannot freeze past the intended timeline. ' +
-    'After merging, always call ffmpeg_generate_thumbnail on the output to generate a poster frame. ' +
-    'Use that frame as thumbnail metadata for the merged video (do not present it as a separate deliverable unless requested).';
+    'For branded reels, the generated intro-card image is the canonical poster/thumbnail for the merged video. ' +
+    'After merging, still call ffmpeg_generate_thumbnail on the output for playback validation and as a fallback poster frame. ' +
+    'Use poster/thumbnail images as metadata for the merged video (do not present them as separate deliverables unless requested).';
   readonly parameters = MergeVideosInputSchema;
 
   readonly isMutation = true;
@@ -57,7 +59,11 @@ export class FfmpegMergeVideosTool extends BaseTool {
     });
 
     try {
-      const result = await this.bridge.mergeVideos(parsed.data, context);
+      const mergeInput = {
+        ...parsed.data,
+        method: 'concat_filter' as const,
+      };
+      const result = await this.bridge.mergeVideos(mergeInput, context);
       const outputUrl = result.outputUrl ?? result.output_path;
       return {
         success: true,
@@ -70,11 +76,25 @@ export class FfmpegMergeVideosTool extends BaseTool {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to merge videos';
+      const publicMessage = formatMergeFailureForAgent(message);
       logger.error('[FfmpegMergeVideosTool] Failed', {
         error: message,
+        publicError: publicMessage,
         userId: context?.userId,
       });
-      return { success: false, error: message };
+      return { success: false, error: publicMessage };
     }
   }
+}
+
+function formatMergeFailureForAgent(message: string): string {
+  if (/audio|stream specifier|matches no streams|no such filter|concat/i.test(message)) {
+    return 'Video merge failed during media normalization. Audio-less clips are supported by this pipeline; retry the same reel with the standard concat_filter/re-encode path and keep the branded intro unless its video file itself is unreadable.';
+  }
+
+  if (/moov atom|invalid data|error opening input|could not open|not found/i.test(message)) {
+    return 'Video merge failed because one source clip could not be opened as a playable video. Re-stage or regenerate that specific source clip, then retry the full merge.';
+  }
+
+  return 'Video merge failed before a playable reel could be produced. Retry once with the standard re-encode merge path; if it fails again, report that the media pipeline could not produce a valid video.';
 }
