@@ -126,15 +126,17 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('No timeline fallback for profile videos');
   });
 
-  it('exposes timeline posting to the brand coordinator with explicit publish rules', () => {
+  it('keeps brand coordinator focused on media generation and not direct publishing', () => {
     const agent = new BrandCoordinatorAgent();
     const prompt = agent.getSystemPrompt(context);
 
-    expect(agent.getAvailableTools()).toContain('write_timeline_post');
+    expect(agent.getAvailableTools()).not.toContain('write_timeline_post');
+    expect(agent.getAvailableTools()).not.toContain('update_timeline_post');
+    expect(agent.getAvailableTools()).not.toContain('delete_timeline_post');
     expect(agent.getAvailableTools()).toContain('clip_video');
     expect(agent.getAvailableTools()).toContain('runway_generate_video');
-    expect(prompt).toContain('call write_timeline_post after the asset is generated');
-    expect(prompt).toContain('Do NOT publish automatically unless the user clearly asked');
+    expect(prompt).toContain('Publishing is not part of the Brand Coordinator toolchain.');
+    expect(prompt).toContain('Do not call timeline/team publishing tools from Brand.');
     expect(prompt).toContain('## Internal Asset Fallback — MANDATORY Pre-Step');
     expect(prompt).toContain('query_nxt1_data');
     expect(prompt).toContain('user_profile_snapshot');

@@ -29,9 +29,9 @@ describe('Agent workflow integration coverage', () => {
         ],
       },
       {
-        name: 'Brand: analyze video to publish timeline post',
+        name: 'Brand: analyze video and produce media artifacts',
         coordinator: 'brand_coordinator',
-        requiredTools: ['analyze_video', 'write_timeline_post'],
+        requiredTools: ['analyze_video', 'generate_graphic'],
         optionalAnyOf: ['clip_video', 'generate_thumbnail', 'generate_captions'],
       },
       {
