@@ -1,5 +1,5 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import {
   createTeamFilmReviewApi,
@@ -779,6 +779,27 @@ export class AgentXFilmReviewService {
 
       this.logger.info('Film review deleted', { reviewId });
     } catch (err) {
+      if (this.isDeleteNotFoundError(err)) {
+        this._reviews.update((reviews) => reviews.filter((review) => review.id !== reviewId));
+
+        if (this._selectedId() === reviewId) {
+          this._selectedId.set(this._reviews()[0]?.id ?? null);
+        }
+
+        this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_ARCHIVED, {
+          review_id: reviewId,
+        });
+
+        this.breadcrumb.trackStateChange('film_review_deleted', {
+          reviewId,
+        });
+
+        this.logger.warn('Film review delete returned not found; treating as deleted', {
+          reviewId,
+        });
+        return;
+      }
+
       const message = err instanceof Error ? err.message : 'Failed to delete film review';
       this._error.set(message);
       this.logger.error('Failed to delete film review', err, { reviewId });
@@ -786,6 +807,17 @@ export class AgentXFilmReviewService {
     } finally {
       this._saving.set(false);
     }
+  }
+
+  private isDeleteNotFoundError(error: unknown): boolean {
+    if (error instanceof HttpErrorResponse) {
+      return error.status === 404;
+    }
+
+    return (
+      error instanceof Error &&
+      (error.message.includes('404') || error.message.includes('Film review not found'))
+    );
   }
 
   async addAnnotation(reviewId: string, request: AddFilmReviewAnnotationRequest): Promise<void> {

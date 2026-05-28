@@ -252,6 +252,14 @@ describe('basketball concept enhancers', () => {
     expect(layout.zones).toBeDefined();
     expect(layout.zones?.some((z) => z.label === 'Wing')).toBe(true);
     expect(layout.zones?.some((z) => z.label === 'Point')).toBe(true);
+
+    const pointZone = layout.zones?.find((z) => z.id === 'bk-z23-top');
+    const blockZone = layout.zones?.find((z) => z.id === 'bk-z23-block-l');
+
+    expect(pointZone).toBeDefined();
+    expect(blockZone).toBeDefined();
+    // Basket is at top of canvas, so low defenders (blocks) must render above top defenders.
+    expect(blockZone?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(pointZone?.y ?? 0);
   });
 });
 

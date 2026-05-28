@@ -120,6 +120,11 @@ type TimelineColumnDropIndicator = {
   readonly placement: TimelineColumnDropPlacement;
 };
 
+type DrawEffectMarker = {
+  readonly id: string;
+  readonly atSec: number;
+};
+
 @Component({
   selector: 'nxt1-agent-x-film-review-panel',
   standalone: true,
@@ -867,6 +872,7 @@ type TimelineColumnDropIndicator = {
                         [isPlaying]="isPlaying()"
                         [currentTime]="scopedPlayerCurrentTime()"
                         [duration]="scopedPlayerDuration()"
+                        [drawEffectMarkers]="drawEffectMarkers()"
                         [playbackRate]="playbackRate()"
                         [playbackRates]="playbackRates"
                         [showSpeedControls]="true"
@@ -874,6 +880,8 @@ type TimelineColumnDropIndicator = {
                         [showOpenInNewWindow]="!platform.isNative()"
                         [showPlayNavigation]="true"
                         [showAdvancedPlaybackControls]="true"
+                        [showDurationBadge]="true"
+                        [allowTransportCollapse]="true"
                         [frameStepSeconds]="filmFrameStepSeconds"
                         [disablePreviousNav]="currentPlayIndex() <= 0"
                         [disableNextNav]="currentPlayIndex() >= (review.timeline?.length ?? 0) - 1"
@@ -884,6 +892,7 @@ type TimelineColumnDropIndicator = {
                         (seekStart)="onSeekPointerDown()"
                         (seekEnd)="onSeekPointerUp()"
                         (seekChange)="onScopedSeekTime($event)"
+                        (deleteDrawEffectMarker)="onDeleteDrawEffectMarker($event)"
                         (playbackRateChange)="setPlaybackRate($event)"
                         (openInNewWindow)="openVideoInNewWindow()"
                         (fullscreenToggle)="toggleFullscreen()"
@@ -3238,10 +3247,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private drawStrokes: Array<Array<{ x: number; y: number }>> = [];
   private readonly maxContextAnnotationPoints = 80;
   private readonly maxPersistedAnnotationPoints = 600;
+  private readonly drawEffectDurationSec = 1;
   private lastTimelineFieldTouch: { key: string; atMs: number } | null = null;
   private playAnnotationPersistTimer: ReturnType<typeof setTimeout> | null = null;
   private playAnnotationPersistInFlight: Promise<void> | null = null;
   private playAnnotationPersistQueued = false;
+  private currentDrawEffectWindow: { startSec: number; endSec: number } | null = null;
 
   @Input() teamId: string | null = null;
   @Input() role: string | null = null;
@@ -3472,6 +3483,20 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       label: column.label,
       value: this.getTimelineColumnDisplayValue(play, column),
     }));
+  });
+  protected readonly drawEffectMarkers = computed<readonly DrawEffectMarker[]>(() => {
+    const play = this.currentPlay();
+    if (!play?.annotation) return [];
+
+    const window = this.resolveDrawEffectWindowForPlay(play, play.annotation);
+    if (!window) return [];
+
+    return [
+      {
+        id: this.buildDrawEffectMarkerId(this.currentPlayIndex()),
+        atSec: this.roundPlaybackSecond(window.startSec - play.startSec),
+      },
+    ];
   });
 
   ngOnChanges(changes: SimpleChanges): void {
@@ -5720,6 +5745,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     void this.persistCurrentPlayAnnotation();
   }
 
+  protected onDeleteDrawEffectMarker(markerId: string): void {
+    void this.deleteDrawEffectMarker(markerId);
+  }
+
   protected onDrawPointerDown(event: PointerEvent): void {
     if (!this.drawModeEnabled()) return;
 
@@ -5734,6 +5763,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.drawStrokes.push(this.activeStroke);
     this.isDrawStrokeInProgress = true;
     canvas.setPointerCapture?.(event.pointerId);
+    this.currentDrawEffectWindow = this.resolveDefaultDrawEffectWindow(
+      this.currentPlay(),
+      this.playerCurrentTime()
+    );
     this.hasDrawing.set(true);
     this.renderDrawOverlay();
   }
@@ -5784,10 +5817,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       ? `${renderedAnnotation.bounds.minX.toFixed(3)},${renderedAnnotation.bounds.minY.toFixed(3)},${renderedAnnotation.bounds.maxX.toFixed(3)},${renderedAnnotation.bounds.maxY.toFixed(3)}`
       : null;
     const snapshotFiles = renderedAnnotation
-      ? await this.createAnnotatedFrameSnapshotFiles(review, currentTimeSec, renderedAnnotation)
+      ? await this.createAnnotatedFrameSnapshotFiles(review, currentTimeSec)
       : [];
     const snapshotFile = snapshotFiles[0] ?? null;
-    const cropSnapshotFile = snapshotFiles.find((file) => file.name.includes('-annotated-crop-'));
+    const strokeColorHex = this.resolveDrawStrokeColor();
 
     if (!annotation && !currentPlay) {
       return false;
@@ -5827,7 +5860,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
           ? {
               annotationSnapshotAttached: true,
               annotationSnapshotAttachmentName: snapshotFile.name,
-              ...(cropSnapshotFile ? { annotationCropAttachmentName: cropSnapshotFile.name } : {}),
+              annotationStrokeColor: 'light-green',
+              ...(strokeColorHex ? { annotationStrokeColorHex: strokeColorHex } : {}),
             }
           : annotation
             ? { annotationSnapshotAttached: false }
@@ -5850,8 +5884,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   private async createAnnotatedFrameSnapshotFiles(
     review: FilmListReview,
-    currentTimeSec: number,
-    annotation: AgentXSelectedContextAnnotation
+    currentTimeSec: number
   ): Promise<File[]> {
     const player = this.filmPlayer?.nativeElement;
     const drawCanvas = this.drawCanvas?.nativeElement;
@@ -5913,14 +5946,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
           lastModified: Date.now(),
         }
       );
-      const cropFile = await this.createAnnotationCropSnapshotFile(
-        snapshotCanvas,
-        review,
-        currentTimeSec,
-        annotation
-      );
-
-      return cropFile ? [fullFrameFile, cropFile] : [fullFrameFile];
+      return [fullFrameFile];
     } catch {
       this.toast.info('Added drawing coordinates, but this video blocked image snapshot export.');
       return [];
@@ -5957,61 +5983,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     };
   }
 
-  private async createAnnotationCropSnapshotFile(
-    snapshotCanvas: HTMLCanvasElement,
-    review: FilmListReview,
-    currentTimeSec: number,
-    annotation: AgentXSelectedContextAnnotation
-  ): Promise<File | null> {
-    const cropCanvas = document.createElement('canvas');
-    const bounds = annotation.bounds;
-    const minX = bounds.minX * snapshotCanvas.width;
-    const minY = bounds.minY * snapshotCanvas.height;
-    const maxX = bounds.maxX * snapshotCanvas.width;
-    const maxY = bounds.maxY * snapshotCanvas.height;
-    const boundsWidth = Math.max(1, maxX - minX);
-    const boundsHeight = Math.max(1, maxY - minY);
-    const padding = Math.max(56, Math.max(boundsWidth, boundsHeight) * 0.8);
-    const cropX = Math.max(0, Math.floor(minX - padding));
-    const cropY = Math.max(0, Math.floor(minY - padding));
-    const cropRight = Math.min(snapshotCanvas.width, Math.ceil(maxX + padding));
-    const cropBottom = Math.min(snapshotCanvas.height, Math.ceil(maxY + padding));
-    const cropWidth = Math.max(1, cropRight - cropX);
-    const cropHeight = Math.max(1, cropBottom - cropY);
-    const maxCropWidth = 960;
-    const cropScale = Math.min(1.5, maxCropWidth / cropWidth);
-
-    cropCanvas.width = Math.max(1, Math.round(cropWidth * cropScale));
-    cropCanvas.height = Math.max(1, Math.round(cropHeight * cropScale));
-
-    const cropContext = cropCanvas.getContext('2d');
-    if (!cropContext) {
-      return null;
-    }
-
-    cropContext.drawImage(
-      snapshotCanvas,
-      cropX,
-      cropY,
-      cropWidth,
-      cropHeight,
-      0,
-      0,
-      cropCanvas.width,
-      cropCanvas.height
-    );
-
-    const blob = await this.canvasToBlob(cropCanvas, 'image/jpeg', 0.9);
-    if (!blob) {
-      return null;
-    }
-
-    return new File([blob], this.buildAnnotatedSnapshotFileName(review, currentTimeSec, 'crop'), {
-      type: 'image/jpeg',
-      lastModified: Date.now(),
-    });
-  }
-
   private canvasToBlob(
     canvas: HTMLCanvasElement,
     mimeType: string,
@@ -6026,25 +5997,33 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     });
   }
 
-  private buildAnnotatedSnapshotFileName(
-    review: FilmListReview,
-    currentTimeSec: number,
-    variant: 'frame' | 'crop' = 'frame'
-  ): string {
+  private buildAnnotatedSnapshotFileName(review: FilmListReview, currentTimeSec: number): string {
     const title = this.getReviewDisplayTitle(review)
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 48);
     const timestamp = Math.max(0, Math.round(currentTimeSec * 100));
-    const suffix = variant === 'crop' ? `annotated-crop-${timestamp}` : `annotated-${timestamp}`;
+    const suffix = `annotated-${timestamp}`;
     return `${title || 'film-play'}-${suffix}.jpg`;
+  }
+
+  private resolveDrawStrokeColor(): string | null {
+    const canvas = this.drawCanvas?.nativeElement;
+    if (!canvas) {
+      return null;
+    }
+
+    const style = getComputedStyle(canvas);
+    const strokeColor = style.getPropertyValue('--nxt1-color-primary').trim();
+    return strokeColor || '#ccff00';
   }
 
   private resetDrawOverlay(): void {
     this.drawStrokes = [];
     this.activeStroke = [];
     this.isDrawStrokeInProgress = false;
+    this.currentDrawEffectWindow = null;
     this.hasDrawing.set(false);
     this.renderDrawOverlay();
   }
@@ -6065,6 +6044,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.drawStrokes = restoredStrokes;
     this.activeStroke = [];
     this.isDrawStrokeInProgress = false;
+    this.currentDrawEffectWindow = this.resolveDrawEffectWindowForPlay(play, annotation);
     this.hasDrawing.set(true);
     this.ensureDrawCanvasSize();
     this.renderDrawOverlay();
@@ -6271,7 +6251,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private resolveCurrentPlayAnnotation(): TeamFilmReviewPlayAnnotation | null {
-    if (!this.hasDrawing() || this.drawStrokes.length === 0) {
+    const play = this.currentPlay();
+    if (!play || !this.hasDrawing() || this.drawStrokes.length === 0) {
       return null;
     }
 
@@ -6293,6 +6274,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       maxY = Math.max(maxY, point.y);
     }
 
+    const effectWindow =
+      this.currentDrawEffectWindow ??
+      this.resolveDrawEffectWindowForPlay(play, play.annotation) ??
+      this.resolveDefaultDrawEffectWindow(play, this.playerCurrentTime());
+
     return {
       kind: 'freehand',
       bounds: {
@@ -6304,6 +6290,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       strokeCount: strokes.length,
       points: this.compactDrawPointsFromStrokes(strokes, this.maxContextAnnotationPoints),
       strokes,
+      activeFromSec: this.roundPlaybackSecond(effectWindow.startSec),
+      activeUntilSec: this.roundPlaybackSecond(effectWindow.endSec),
     };
   }
 
@@ -6371,6 +6359,21 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     // Keep UI smooth even if the browser emits sparse timeupdate events.
     if (!player.paused && !player.ended) {
       this.startSmoothProgressTracking();
+    }
+  }
+
+  private async deleteDrawEffectMarker(markerId: string): Promise<void> {
+    const review = this.selectedReview();
+    const playIndex = this.parseDrawEffectMarkerId(markerId);
+    if (!review || playIndex === null || !review.timeline || playIndex >= review.timeline.length) {
+      return;
+    }
+
+    await this.flushCurrentPlayAnnotationPersistence();
+    await this.service.saveTimelinePlayAnnotation(review.id, playIndex, null);
+
+    if (playIndex === this.currentPlayIndex()) {
+      this.resetDrawOverlay();
     }
   }
 
@@ -6747,6 +6750,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (force || this.isScrubbing || now - this.lastSignalUpdateMs >= 16) {
       this.lastSignalUpdateMs = now;
       this.playerCurrentTime.set(safeCurrent);
+      if (this.hasDrawing()) {
+        this.renderDrawOverlay();
+      }
     }
   }
 
@@ -7073,8 +7079,25 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       .divider { flex: 0 0 auto; width: 1px; height: 18px; background: rgba(148, 163, 184, 0.28); }
       h1 { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 700; letter-spacing: 0; }
       .status { flex: 0 0 auto; color: #94a3b8; font-size: 12px; font-weight: 600; }
-      main { display: grid; min-height: 0; padding: 0; background: #000; }
-      video { width: 100%; height: 100%; min-height: 0; object-fit: contain; background: #000; outline: none; }
+      main { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; padding: 0; background: #000; }
+      .player-shell { position: relative; min-height: 0; }
+      video { width: 100%; height: 100%; min-height: 0; object-fit: contain; background: #000; outline: none; display: block; }
+      .controls { display: grid; gap: 8px; padding: 10px 12px 12px; background: linear-gradient(180deg, rgba(9, 13, 18, 0.4) 0%, rgba(5, 7, 10, 0.92) 100%); }
+      .seek-wrap { display: flex; align-items: center; }
+      .seek { width: 100%; -webkit-appearance: none; appearance: none; height: 4px; border-radius: 999px; border: 0; outline: none; cursor: pointer; background: linear-gradient(to right, #84cc16 0%, #84cc16 var(--seek-progress, 0%), rgba(148, 163, 184, 0.35) var(--seek-progress, 0%), rgba(148, 163, 184, 0.35) 100%); }
+      .seek::-webkit-slider-runnable-track { height: 4px; background: transparent; border-radius: 999px; }
+      .seek::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 11px; height: 11px; border-radius: 50%; border: 0; margin-top: -3.5px; background: #84cc16; }
+      .seek::-moz-range-track { height: 4px; background: transparent; border-radius: 999px; }
+      .seek::-moz-range-thumb { width: 11px; height: 11px; border-radius: 50%; border: 0; background: #84cc16; }
+      .controls-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+      .controls-cluster { display: inline-flex; align-items: center; gap: 2px; padding: 4px; border-radius: 12px; background: rgba(15, 23, 42, 0.78); border: 1px solid rgba(148, 163, 184, 0.2); }
+      .ctl-btn { min-width: 30px; min-height: 30px; border: 0; border-radius: 8px; background: transparent; color: #e2e8f0; font-size: 12px; font-weight: 700; line-height: 1; cursor: pointer; }
+      .ctl-btn:hover:not(:disabled) { background: rgba(132, 204, 22, 0.16); color: #bef264; }
+      .ctl-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+      .ctl-btn--play { color: #bef264; }
+      .controls-right { display: inline-flex; align-items: center; gap: 4px; }
+      .speed-select { min-height: 30px; border: 0; border-radius: 8px; background: transparent; color: #e2e8f0; font-size: 12px; font-weight: 700; padding: 0 6px; cursor: pointer; }
+      .time-badge { min-height: 30px; display: inline-flex; align-items: center; padding: 0 8px; color: #cbd5e1; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
     </style>
   </head>
   <body>
@@ -7087,7 +7110,38 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       <span class="status" id="status">Loading</span>
     </header>
     <main>
-      <video id="player" controls playsinline preload="metadata"></video>
+      <div class="player-shell">
+        <video id="player" playsinline preload="metadata"></video>
+      </div>
+      <div class="controls" role="group" aria-label="Playback controls">
+        <div class="seek-wrap">
+          <input id="seek" class="seek" type="range" min="0" max="0.1" value="0" step="any" aria-label="Seek timeline" />
+        </div>
+        <div class="controls-row">
+          <div class="controls-cluster" role="group" aria-label="Timeline navigation">
+            <button id="jumpStart" class="ctl-btn" type="button" aria-label="Jump to start" title="Jump to start">|&lt;</button>
+            <button id="back10" class="ctl-btn" type="button" aria-label="Back 10 seconds" title="Back 10 seconds">&laquo;</button>
+            <button id="back5" class="ctl-btn" type="button" aria-label="Back 5 seconds" title="Back 5 seconds">&lsaquo;</button>
+            <button id="playPause" class="ctl-btn ctl-btn--play" type="button" aria-label="Play" title="Play">&#9658;</button>
+            <button id="forward5" class="ctl-btn" type="button" aria-label="Forward 5 seconds" title="Forward 5 seconds">&rsaquo;</button>
+            <button id="forward10" class="ctl-btn" type="button" aria-label="Forward 10 seconds" title="Forward 10 seconds">&raquo;</button>
+            <button id="jumpEnd" class="ctl-btn" type="button" aria-label="Jump to end" title="Jump to end">&gt;|</button>
+          </div>
+
+          <div class="controls-cluster controls-right" role="group" aria-label="Playback options">
+            <select id="speed" class="speed-select" aria-label="Playback speed">
+              <option value="0.5">0.5x</option>
+              <option value="0.75">0.75x</option>
+              <option value="1" selected>1x</option>
+              <option value="1.25">1.25x</option>
+              <option value="1.5">1.5x</option>
+              <option value="2">2x</option>
+            </select>
+            <button id="fullscreen" class="ctl-btn" type="button" aria-label="Toggle fullscreen" title="Toggle fullscreen">&#9974;</button>
+            <span id="timeBadge" class="time-badge">0:00.00 / 0:00.00</span>
+          </div>
+        </div>
+      </div>
     </main>
     <script>
       const sourceUrl = ${safeVideoUrl};
@@ -7096,18 +7150,135 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       const video = document.getElementById('player');
       const titleEl = document.getElementById('title');
       const statusEl = document.getElementById('status');
+      const seekEl = document.getElementById('seek');
+      const playPauseBtn = document.getElementById('playPause');
+      const jumpStartBtn = document.getElementById('jumpStart');
+      const jumpEndBtn = document.getElementById('jumpEnd');
+      const back5Btn = document.getElementById('back5');
+      const back10Btn = document.getElementById('back10');
+      const forward5Btn = document.getElementById('forward5');
+      const forward10Btn = document.getElementById('forward10');
+      const speedEl = document.getElementById('speed');
+      const fullscreenBtn = document.getElementById('fullscreen');
+      const timeBadgeEl = document.getElementById('timeBadge');
+
+      const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+      const formatTime = (seconds) => {
+        if (!Number.isFinite(seconds) || seconds < 0) return '0:00.00';
+        const whole = Math.floor(seconds);
+        const mins = Math.floor(whole / 60);
+        const secs = whole % 60;
+        const hundredths = Math.floor((seconds - whole) * 100);
+        return String(mins) + ':' + String(secs).padStart(2, '0') + '.' + String(hundredths).padStart(2, '0');
+      };
+
+      let scrubbing = false;
+      const updatePlayLabel = () => {
+        const isPaused = video.paused || video.ended;
+        playPauseBtn.textContent = isPaused ? '\u25B6' : '\u23F8';
+        playPauseBtn.setAttribute('aria-label', isPaused ? 'Play' : 'Pause');
+        playPauseBtn.setAttribute('title', isPaused ? 'Play' : 'Pause');
+      };
+      const updateSeek = () => {
+        const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+        if (!scrubbing) {
+          seekEl.max = duration > 0 ? String(duration) : '0.1';
+          seekEl.value = String(clamp(video.currentTime || 0, 0, duration || 0.1));
+        }
+        const progress = duration > 0 ? (clamp(video.currentTime || 0, 0, duration) / duration) * 100 : 0;
+        seekEl.style.setProperty('--seek-progress', String(progress) + '%');
+        timeBadgeEl.textContent = formatTime(video.currentTime || 0) + ' / ' + formatTime(duration);
+      };
+
+      const seekRelative = (delta) => {
+        const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+        if (duration <= 0) return;
+        video.currentTime = clamp((video.currentTime || 0) + delta, 0, duration);
+      };
+
       document.title = 'NXT1 Film Review | ' + title;
       titleEl.textContent = title;
       video.src = sourceUrl;
+      video.controls = false;
+
       video.addEventListener('loadedmetadata', () => {
         if (Number.isFinite(startTime) && startTime > 0 && startTime < video.duration) {
           video.currentTime = startTime;
         }
         statusEl.textContent = 'Ready';
+        updateSeek();
       }, { once: true });
+      video.addEventListener('timeupdate', updateSeek);
+      video.addEventListener('seeking', updateSeek);
+      video.addEventListener('seeked', updateSeek);
+      video.addEventListener('play', () => {
+        statusEl.textContent = 'Playing';
+        updatePlayLabel();
+      });
+      video.addEventListener('pause', () => {
+        statusEl.textContent = 'Paused';
+        updatePlayLabel();
+      });
+      video.addEventListener('ended', () => {
+        statusEl.textContent = 'Ended';
+        updatePlayLabel();
+      });
       video.addEventListener('error', () => {
         statusEl.textContent = 'Video unavailable';
       });
+
+      seekEl.addEventListener('pointerdown', () => {
+        scrubbing = true;
+      });
+      seekEl.addEventListener('pointerup', () => {
+        scrubbing = false;
+      });
+      seekEl.addEventListener('input', () => {
+        const nextTime = Number(seekEl.value || '0');
+        if (!Number.isFinite(nextTime)) return;
+        video.currentTime = nextTime;
+        updateSeek();
+      });
+
+      playPauseBtn.addEventListener('click', () => {
+        if (video.paused || video.ended) {
+          video.play().catch(() => {
+            statusEl.textContent = 'Playback blocked';
+          });
+        } else {
+          video.pause();
+        }
+      });
+      jumpStartBtn.addEventListener('click', () => {
+        video.currentTime = 0;
+      });
+      jumpEndBtn.addEventListener('click', () => {
+        if (Number.isFinite(video.duration) && video.duration > 0) {
+          video.currentTime = video.duration;
+        }
+      });
+      back5Btn.addEventListener('click', () => seekRelative(-5));
+      back10Btn.addEventListener('click', () => seekRelative(-10));
+      forward5Btn.addEventListener('click', () => seekRelative(5));
+      forward10Btn.addEventListener('click', () => seekRelative(10));
+
+      speedEl.addEventListener('change', () => {
+        const nextRate = Number(speedEl.value || '1');
+        if (!Number.isFinite(nextRate) || nextRate <= 0) return;
+        video.playbackRate = nextRate;
+      });
+
+      fullscreenBtn.addEventListener('click', async () => {
+        const doc = document;
+        if (doc.fullscreenElement) {
+          await doc.exitFullscreen().catch(() => undefined);
+          return;
+        }
+        await video.requestFullscreen().catch(() => undefined);
+      });
+
+      updatePlayLabel();
+      updateSeek();
       video.focus({ preventScroll: true });
     </script>
   </body>
@@ -7175,6 +7346,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     context.clearRect(0, 0, canvas.width, canvas.height);
     if (!this.drawStrokes.length) return;
+    if (!this.drawModeEnabled() && !this.shouldRenderDrawOverlayAtCurrentTime()) return;
 
     const style = getComputedStyle(canvas);
     const strokeColor = style.getPropertyValue('--nxt1-color-primary').trim() || '#ccff00';
@@ -7205,6 +7377,80 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
 
     context.restore();
+  }
+
+  private shouldRenderDrawOverlayAtCurrentTime(): boolean {
+    const play = this.currentPlay();
+    if (!play) {
+      return true;
+    }
+
+    const window =
+      this.currentDrawEffectWindow ??
+      this.resolveDrawEffectWindowForPlay(play, play.annotation ?? null);
+    if (!window) {
+      return true;
+    }
+
+    const currentSec = this.playerCurrentTime();
+    return currentSec >= window.startSec && currentSec <= window.endSec;
+  }
+
+  private resolveDrawEffectWindowForPlay(
+    play: FilmTimelinePlay | null | undefined,
+    annotation: TeamFilmReviewPlayAnnotation | null | undefined
+  ): { startSec: number; endSec: number } | null {
+    if (!play || !annotation) return null;
+
+    const startRaw = Number(annotation.activeFromSec);
+    const endRaw = Number(annotation.activeUntilSec);
+    const fallbackStart = Number.isFinite(play.startSec) ? play.startSec : 0;
+    const fallbackEnd = Math.max(
+      fallbackStart + 0.1,
+      Number.isFinite(play.endSec) ? play.endSec : fallbackStart + this.drawEffectDurationSec
+    );
+
+    let startSec = Number.isFinite(startRaw) ? startRaw : fallbackStart;
+    startSec = Math.max(fallbackStart, Math.min(startSec, fallbackEnd - 0.05));
+
+    const maxWindowEnd = Math.min(fallbackEnd, startSec + this.drawEffectDurationSec);
+    let endSec = Number.isFinite(endRaw) ? endRaw : startSec + this.drawEffectDurationSec;
+    endSec = Math.max(startSec + 0.05, Math.min(endSec, maxWindowEnd));
+
+    if (endSec <= startSec) return null;
+    return { startSec, endSec };
+  }
+
+  private resolveDefaultDrawEffectWindow(
+    play: FilmTimelinePlay | null,
+    anchorSec: number
+  ): { startSec: number; endSec: number } {
+    const startBound = Number.isFinite(play?.startSec) ? (play?.startSec as number) : 0;
+    const endBound = Number.isFinite(play?.endSec)
+      ? Math.max(startBound + 0.1, play?.endSec as number)
+      : Math.max(startBound + this.drawEffectDurationSec, this.playerDuration());
+    const safeAnchor = Number.isFinite(anchorSec) ? anchorSec : startBound;
+    const startSec = Math.max(startBound, Math.min(safeAnchor, endBound - 0.05));
+    const endSec = Math.max(
+      startSec + 0.05,
+      Math.min(endBound, startSec + this.drawEffectDurationSec)
+    );
+    return { startSec, endSec };
+  }
+
+  private roundPlaybackSecond(value: number): number {
+    return Number(Math.max(0, value).toFixed(3));
+  }
+
+  private buildDrawEffectMarkerId(playIndex: number): string {
+    return `play-${playIndex}`;
+  }
+
+  private parseDrawEffectMarkerId(markerId: string): number | null {
+    const prefix = 'play-';
+    if (!markerId.startsWith(prefix)) return null;
+    const index = Number(markerId.slice(prefix.length));
+    return Number.isInteger(index) && index >= 0 ? index : null;
   }
 
   /**

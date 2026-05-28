@@ -108,6 +108,8 @@ describe('dashboard film review timeline helpers', () => {
           endSec: 18,
           annotation: {
             kind: 'freehand',
+            activeFromSec: 12.4,
+            activeUntilSec: 14.4,
             strokes: [
               [
                 { x: 0.1, y: 0.2 },
@@ -129,6 +131,8 @@ describe('dashboard film review timeline helpers', () => {
         annotation: expect.objectContaining({
           kind: 'freehand',
           strokeCount: 2,
+          activeFromSec: 12.4,
+          activeUntilSec: 14.4,
           points: [
             { x: 0.1, y: 0.2 },
             { x: 0.15, y: 0.25 },

@@ -68,6 +68,8 @@ export interface TeamFilmReviewPlayAnnotation {
   readonly strokeCount: number;
   readonly points?: readonly AgentXSelectedContextAnnotationPoint[];
   readonly strokes?: readonly (readonly AgentXSelectedContextAnnotationPoint[])[];
+  readonly activeFromSec?: number;
+  readonly activeUntilSec?: number;
 }
 
 export type TeamFilmReviewPlayTagValue = string | number | boolean | null;

@@ -14,7 +14,15 @@ function trimText(value: unknown, maxLen = MAX_TEXT_FIELD_LEN): string | undefin
     return undefined;
   }
 
-  return trimmed.length > maxLen ? `${trimmed.slice(0, maxLen)}...` : trimmed;
+  if (trimmed.length <= maxLen) {
+    return trimmed;
+  }
+
+  if (maxLen <= 3) {
+    return trimmed.slice(0, maxLen);
+  }
+
+  return `${trimmed.slice(0, maxLen - 3)}...`;
 }
 
 function normalizeTimeRange(
@@ -244,16 +252,13 @@ function formatAnnotationSnapshotInstruction(
     typeof metadata['annotationSnapshotAttachmentName'] === 'string'
       ? metadata['annotationSnapshotAttachmentName'].trim()
       : '';
-  const cropAttachmentName =
-    typeof metadata['annotationCropAttachmentName'] === 'string'
-      ? metadata['annotationCropAttachmentName'].trim()
-      : '';
+  const strokeColor =
+    typeof metadata['annotationStrokeColor'] === 'string'
+      ? metadata['annotationStrokeColor'].trim()
+      : 'light-green';
   const attachmentLabel = attachmentName ? ` named "${attachmentName}"` : '';
-  const cropLabel = cropAttachmentName
-    ? ` A zoomed annotated crop named "${cropAttachmentName}" is also included; use the crop first to identify the marked player, then the full frame for alignment.`
-    : '';
 
-  return ` A flattened annotated frame image attachment${attachmentLabel} is included with this turn; use that image as the primary visual reference for the user-drawn circle/marking, then use the video timestamp for motion context.${cropLabel}`;
+  return ` A flattened annotated full-frame image attachment${attachmentLabel} is included with this turn; use that image as the primary visual reference. First locate the user-drawn ${strokeColor} marking, then identify exactly what is inside that marked region before using the video timestamp for motion context.`;
 }
 
 function annotationFromLegacyMetadata(

@@ -1180,18 +1180,8 @@ export class WebShellComponent {
     if (this._currentRoute() === '/profile') {
       await this.profileService.setActiveSportIndex(sportIndex);
       await this.authFlow.refreshUserProfile();
-
-      if (this._userDisplayContext()?.isTeamRole) {
-        const teamId = this.resolveTeamIdForSportIndex(sportIndex);
-        await this.manageTeamModal.open({ teamId: teamId ?? undefined });
-      }
       return;
     }
-
-    // For team roles, compute the destination URL directly from the clicked
-    // sport's team data so navigation does NOT depend on refreshUserProfile()
-    // propagating the new activeSportIndex into the user() signal (race condition).
-    const targetRoute = this.resolveTeamRouteForSportIndex(sportIndex);
 
     const result = await this.editProfileApiService.updateActiveSportIndex(userId, sportIndex);
     if (!result.success) {
@@ -1211,13 +1201,6 @@ export class WebShellComponent {
     this.authFlow.patchUser({ activeSportIndex: sportIndex });
 
     if (this._userDisplayContext()?.isTeamRole) {
-      const teamId = this.resolveTeamIdForSportIndex(sportIndex);
-      await this.manageTeamModal.open({ teamId: teamId ?? undefined });
-      return;
-    }
-
-    if (targetRoute) {
-      await this.router.navigateByUrl(targetRoute);
       return;
     }
 

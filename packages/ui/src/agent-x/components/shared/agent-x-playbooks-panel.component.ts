@@ -6517,12 +6517,10 @@ li + li { margin-top: 2px; }
   protected async deletePlaybook(playbookId: string): Promise<void> {
     const previousPlaybooks = this.playbooks();
     const deletingSelected = this.selectedPlaybook()?.id === playbookId;
+    const optimisticPlaybooks = previousPlaybooks.filter((playbook) => playbook.id !== playbookId);
 
     // Optimistically remove only the deleted playbook to avoid UI list collapse.
-    this.playbooks.update((items) => items.filter((playbook) => playbook.id !== playbookId));
-    if (deletingSelected) {
-      this.clearSelection();
-    }
+    this.playbooks.set(optimisticPlaybooks);
 
     this.saving.set(true);
     try {
@@ -6531,6 +6529,22 @@ li + li { margin-top: 2px; }
       );
       this.deletingPlaybookId.set(null);
       await this.loadPlaybooks();
+
+      if (optimisticPlaybooks.length > 0 && this.playbooks().length === 0) {
+        // Guard against transient empty refreshes that can occur during panel state churn.
+        this.playbooks.set(optimisticPlaybooks);
+        this.logger.warn('Playbook delete refresh returned empty unexpectedly; preserving list', {
+          playbookId,
+          optimisticCount: optimisticPlaybooks.length,
+          teamId: this._teamId(),
+          sport: this._inputSport(),
+        });
+        void this.loadPlaybooks();
+      }
+
+      if (deletingSelected) {
+        this.clearSelection();
+      }
     } catch {
       // Roll back optimistic update on failure.
       this.playbooks.set(previousPlaybooks);
@@ -7692,14 +7706,13 @@ li + li { margin-top: 2px; }
     this.loading.set(true);
     this.error.set(null);
     const teamId = this._teamId();
-    const normalizedSport = this.activeSport().trim().toLowerCase() || undefined;
     if (!teamId) {
       this.playbooks.set([]);
       this.loading.set(false);
       return;
     }
     try {
-      await this.playbooksService.loadPlaybooks(teamId, normalizedSport);
+      await this.playbooksService.loadPlaybooks(teamId);
       this.playbooks.set(this.playbooksService.playbooks());
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : 'Unable to load playbooks.');

@@ -739,6 +739,16 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
         input_path: input.inputPath,
         output_path: input.outputPath ?? 'thumbnail.jpg',
         time: input.time,
+        ...(input.cropBounds
+          ? {
+              crop_bounds: {
+                min_x: input.cropBounds.minX,
+                min_y: input.cropBounds.minY,
+                max_x: input.cropBounds.maxX,
+                max_y: input.cropBounds.maxY,
+              },
+            }
+          : {}),
       },
       DEFAULT_TIMEOUT_MS,
       context

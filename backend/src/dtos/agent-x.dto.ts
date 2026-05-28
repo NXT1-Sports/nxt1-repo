@@ -26,8 +26,27 @@ import {
   IsIn,
   ValidateIf,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import { AGENT_X_MAX_VIDEO_FILE_SIZE } from '@nxt1/core';
+
+const SELECTED_CONTEXT_SUMMARY_MAX_CHARS = 600;
+
+function clampSelectedContextSummary(value: unknown): unknown {
+  if (typeof value !== 'string') {
+    return value;
+  }
+
+  const trimmed = value.trim();
+  if (trimmed.length <= SELECTED_CONTEXT_SUMMARY_MAX_CHARS) {
+    return trimmed;
+  }
+
+  if (SELECTED_CONTEXT_SUMMARY_MAX_CHARS <= 3) {
+    return trimmed.slice(0, SELECTED_CONTEXT_SUMMARY_MAX_CHARS);
+  }
+
+  return `${trimmed.slice(0, SELECTED_CONTEXT_SUMMARY_MAX_CHARS - 3)}...`;
+}
 
 // ============================================
 // AGENT CHAT DTOs
@@ -331,6 +350,7 @@ export class SelectedContextDto {
 
   @IsString()
   @IsOptional()
+  @Transform(({ value }) => clampSelectedContextSummary(value))
   @Length(0, 600)
   summary?: string;
 

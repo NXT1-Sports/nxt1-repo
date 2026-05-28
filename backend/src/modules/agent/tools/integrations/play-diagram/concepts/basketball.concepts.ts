@@ -1,9 +1,21 @@
 import type { ConceptEnhancer } from '../shared/concept.types.js';
 import type { DiagramLayout, DiagramZone } from '../shared/diagram.types.js';
 
+function orientZonesForTopBasket(
+  layout: DiagramLayout,
+  zones: readonly DiagramZone[]
+): DiagramZone[] {
+  return zones.map((zone) => ({
+    ...zone,
+    // Basketball renderer is a half-court with the basket at the top.
+    // Mirror template Y positions so defensive "low" zones sit closer to the rim.
+    y: Math.round(layout.fieldHeight - zone.y - zone.height),
+  }));
+}
+
 function zone23Zones(layout: DiagramLayout): DiagramZone[] {
   const { fieldWidth: w, fieldHeight: h } = layout;
-  return [
+  return orientZonesForTopBasket(layout, [
     {
       id: 'bk-z23-wing-l',
       label: 'Wing',
@@ -54,12 +66,12 @@ function zone23Zones(layout: DiagramLayout): DiagramZone[] {
       width: Math.round(w * 0.15),
       height: Math.round(h * 0.28),
     },
-  ];
+  ]);
 }
 
 function zone131Zones(layout: DiagramLayout): DiagramZone[] {
   const { fieldWidth: w, fieldHeight: h } = layout;
-  return [
+  return orientZonesForTopBasket(layout, [
     {
       id: 'bk-131-top',
       label: 'Point',
@@ -110,7 +122,7 @@ function zone131Zones(layout: DiagramLayout): DiagramZone[] {
       width: Math.round(w * 0.36),
       height: Math.round(h * 0.14),
     },
-  ];
+  ]);
 }
 
 export const basketballConcepts: ConceptEnhancer[] = [

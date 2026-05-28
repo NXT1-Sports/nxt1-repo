@@ -193,6 +193,73 @@ class FakeRouterAgent extends FakeAgent {
   override readonly name = 'Fake Router Agent';
 }
 
+class FakePerformanceAgent extends BaseAgent {
+  readonly id: AgentIdentifier = 'performance_coordinator';
+  readonly name = 'Fake Performance Agent';
+
+  getSystemPrompt(): string {
+    return 'You are a performance test agent.';
+  }
+
+  getAvailableTools(): readonly string[] {
+    return ['analyze_video'];
+  }
+
+  getModelRouting(): ModelRoutingConfig {
+    return {
+      tier: 'chat',
+      maxTokens: 200,
+      temperature: 0.2,
+    };
+  }
+
+  callExecuteToolWithMessages(
+    toolCall: LLMToolCall,
+    registry: ToolRegistry,
+    userId: string,
+    currentMessages: readonly LLMMessage[],
+    sessionContext?: {
+      operationId?: string;
+      sessionId?: string;
+      threadId?: string;
+      allowedToolNames?: readonly string[];
+      conversationHistory?: readonly LLMMessage[];
+    }
+  ): Promise<string> {
+    return this.executeTool(
+      toolCall,
+      registry,
+      userId,
+      undefined,
+      undefined,
+      sessionContext as never,
+      currentMessages
+    );
+  }
+}
+
+class FakeAnalyzeVideoTool extends BaseTool {
+  readonly name = 'analyze_video';
+  readonly description = 'Analyzes a video clip.';
+  readonly parameters = z.object({ url: z.string().url(), prompt: z.string().optional() });
+  readonly isMutation = false;
+  readonly category = 'media' as const;
+  readonly entityGroup = 'user_tools' as const;
+  override readonly allowedAgents = ['performance_coordinator'] as const;
+
+  calls = 0;
+
+  async execute(): Promise<ToolResult> {
+    this.calls += 1;
+    return {
+      success: true,
+      data: {
+        analysis: 'ok',
+      },
+    };
+  }
+}
+
 class FakeExtractLiveViewMediaTool extends BaseTool {
   readonly name = 'extract_live_view_media';
   readonly description = 'Extracts media from live view.';
@@ -962,6 +1029,116 @@ describe('BaseAgent identifier scrubbing', () => {
         }),
       })
     );
+  });
+
+  it('blocks analyze_video until image grounding succeeds for drawn-context film requests', async () => {
+    const agent = new FakePerformanceAgent();
+    const registry = new ToolRegistry();
+    const analyzeVideoTool = new FakeAnalyzeVideoTool();
+    registry.register(analyzeVideoTool);
+
+    const currentMessages: LLMMessage[] = [
+      {
+        role: 'user',
+        content:
+          '[Selected contexts from user request]\n- hasDrawing: true\n- Marked-frame timestamp: 7.5s\n- video-frame normalized bounds x=0.306-0.342, y=0.613-0.672',
+      },
+      {
+        role: 'assistant',
+        content: null,
+        tool_calls: [
+          {
+            id: 'thumb_1',
+            type: 'function',
+            function: {
+              name: 'ffmpeg_generate_thumbnail',
+              arguments: '{}',
+            },
+          },
+        ],
+      },
+      {
+        role: 'tool',
+        tool_call_id: 'thumb_1',
+        content: JSON.stringify({
+          success: false,
+          error: 'Failed to download input URL: HTTP Error 400: Bad Request',
+        }),
+      },
+    ];
+
+    const result = await agent.callExecuteToolWithMessages(
+      {
+        id: 'video_1',
+        type: 'function',
+        function: {
+          name: 'analyze_video',
+          arguments: JSON.stringify({
+            url: 'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/user-1/uploads/video.MOV',
+            prompt: 'Identify the circled player',
+          }),
+        },
+      },
+      registry,
+      'viewer-1',
+      currentMessages,
+      { allowedToolNames: ['analyze_video'] }
+    );
+
+    expect(analyzeVideoTool.calls).toBe(0);
+    expect(JSON.parse(result)).toEqual(
+      expect.objectContaining({
+        success: false,
+        error: expect.stringContaining('Cannot run motion video analysis for a circled play'),
+      })
+    );
+  });
+
+  it('does not block a new full-video upload because prior history contained drawings', async () => {
+    const agent = new FakePerformanceAgent();
+    const registry = new ToolRegistry();
+    const analyzeVideoTool = new FakeAnalyzeVideoTool();
+    registry.register(analyzeVideoTool);
+
+    const result = await agent.callExecuteToolWithMessages(
+      {
+        id: 'video_full_1',
+        type: 'function',
+        function: {
+          name: 'analyze_video',
+          arguments: JSON.stringify({
+            url: 'https://cdn.example.com/full-game.mp4',
+            prompt: 'Analyze the whole video I uploaded.',
+          }),
+        },
+      },
+      registry,
+      'viewer-1',
+      [
+        {
+          role: 'user',
+          content: '[Attached video: full-game.mp4 — https://cdn.example.com/full-game.mp4]',
+        },
+      ],
+      {
+        conversationHistory: [
+          {
+            role: 'user',
+            content:
+              '[Selected contexts from user request]\n- hasDrawing: true\n- Marked-frame timestamp: 7.5s\n- video-frame normalized bounds x=0.306-0.342, y=0.613-0.672',
+          },
+        ],
+        allowedToolNames: ['analyze_video'],
+      }
+    );
+
+    expect(JSON.parse(result)).toEqual(
+      expect.objectContaining({
+        success: true,
+        data: expect.objectContaining({ analysis: 'ok' }),
+      })
+    );
+    expect(analyzeVideoTool.calls).toBe(1);
   });
 
   it('guides router away from forbidden live-view extraction tools', async () => {

@@ -829,11 +829,23 @@ function parseFilmReviewPlayAnnotation(
     return INVALID_FILM_REVIEW_PLAY_ANNOTATION;
   }
 
+  const activeFromSec = parseSeconds(candidate['activeFromSec']);
+  const activeUntilSec = parseSeconds(candidate['activeUntilSec']);
+  const timingWindow =
+    activeFromSec !== null && activeUntilSec !== null && activeUntilSec > activeFromSec
+      ? { activeFromSec, activeUntilSec }
+      : activeFromSec !== null
+        ? { activeFromSec }
+        : activeUntilSec !== null
+          ? { activeUntilSec }
+          : {};
+
   return {
     kind: 'freehand',
     bounds: computeFilmReviewAnnotationBounds(flattenedPoints),
     strokeCount: strokes.length,
     points: compactFilmReviewAnnotationPoints(flattenedPoints),
+    ...timingWindow,
   } satisfies TeamFilmReviewPlayAnnotation;
 }
 

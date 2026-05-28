@@ -81,6 +81,18 @@ const AGENT_X_PENDING_PLAYBOOK_OP_KEY = 'nxt1_pending_playbook_op';
 const AGENT_X_PENDING_STARTUP_MESSAGE_KEY = 'nxt1_pending_startup_message';
 const AGENT_X_WEEKLY_TASKS_GOAL_ID = 'recurring';
 const AGENT_X_WEEKLY_TASKS_GOAL_LABEL = 'Weekly Tasks';
+const SELECTED_CONTEXT_SUMMARY_MAX_CHARS = 600;
+
+function truncateSelectedContextSummary(summary: string): string {
+  const trimmed = summary.trim();
+  if (trimmed.length <= SELECTED_CONTEXT_SUMMARY_MAX_CHARS) {
+    return trimmed;
+  }
+  if (SELECTED_CONTEXT_SUMMARY_MAX_CHARS <= 3) {
+    return trimmed.slice(0, SELECTED_CONTEXT_SUMMARY_MAX_CHARS);
+  }
+  return `${trimmed.slice(0, SELECTED_CONTEXT_SUMMARY_MAX_CHARS - 3)}...`;
+}
 
 function formatFileSizeLabel(bytes: number): string {
   const gb = 1024 * 1024 * 1024;
@@ -529,7 +541,9 @@ export class AgentXService {
       ...context,
       id: normalizedId,
       title: normalizedTitle,
-      ...(context.summary?.trim() ? { summary: context.summary.trim() } : {}),
+      ...(context.summary?.trim()
+        ? { summary: truncateSelectedContextSummary(context.summary) }
+        : {}),
     };
 
     this._pendingSelectedContexts.update((current) => {

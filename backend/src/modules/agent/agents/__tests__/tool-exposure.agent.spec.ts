@@ -182,15 +182,19 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain(
       'call `ffmpeg_generate_thumbnail` on the clip/video URL BEFORE any video analysis'
     );
-    expect(prompt).toContain(
-      'Then call `analyze_image` on the returned `cropImageUrl` / `imageUrl`'
-    );
+    expect(prompt).toContain('Then call `analyze_image` on the returned `imageUrl`');
+    expect(prompt).toContain('find the user-drawn light-green annotation stroke/circle first');
     expect(prompt).toContain('do NOT go straight to `analyze_video`');
     expect(prompt).toContain('marked-frame timestamp/currentTimeSec');
     expect(prompt).toContain('otherwise use the midpoint of the play window');
-    expect(prompt).toContain('pass `cropBounds` from the video-frame normalized annotation bounds');
-    expect(prompt).toContain('returns the cropped selected area as `cropImageUrl` / `imageUrl`');
+    expect(prompt).not.toContain(
+      'pass `cropBounds` from the video-frame normalized annotation bounds'
+    );
     expect(prompt).toContain('A generated FFmpeg thumbnail is a raw video frame');
+    expect(prompt).toContain(
+      'Use the resolved sport context from the thread/request for every image prompt'
+    );
+    expect(prompt).toContain('Never inject a sport that is not explicitly resolved in context');
     expect(prompt).toContain(
       'Never claim a jersey color, number, position, or identity unless it is visible inside the marked bounds'
     );

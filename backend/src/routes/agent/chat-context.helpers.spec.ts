@@ -157,10 +157,26 @@ describe('chat-context.helpers', () => {
     expect(enriched).toContain('Marked-frame timestamp: 74.25s');
     expect(enriched).toContain('use this exact timestamp when generating fallback still frames');
     expect(enriched).toContain(
-      'flattened annotated frame image attachment named "fourth-quarter-annotated-7200.jpg"'
+      'flattened annotated full-frame image attachment named "fourth-quarter-annotated-7200.jpg"'
     );
-    expect(enriched).toContain('primary visual reference for the user-drawn circle/marking');
+    expect(enriched).toContain('First locate the user-drawn light-green marking');
     expect(enriched).toContain('raw video frame does not visibly contain the overlay');
     expect(enriched).toContain('prioritize these contexts');
+  });
+
+  it('keeps truncated summary within dto max length constraints', () => {
+    const normalized = normalizeSelectedContextsForPayload([
+      {
+        id: 'playbook-play:zone-attack:high-low-rip',
+        kind: 'playbook_item',
+        title: 'High-Low Rip',
+        summary: 'a'.repeat(1000),
+      },
+    ]);
+
+    expect(normalized).toHaveLength(1);
+    const summary = normalized[0]?.summary ?? '';
+    expect(summary.length).toBeLessThanOrEqual(600);
+    expect(summary.endsWith('...')).toBe(true);
   });
 });

@@ -67,7 +67,7 @@ describe('AnalyzeVideoTool', () => {
     geminiFiles.analyzeVideosFromUrls.mockResolvedValueOnce({
       content: 'Bounded clip analysis',
       toolCalls: [],
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.1-pro-preview',
       usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
       latencyMs: 1200,
       costUsd: 0.001,
@@ -128,7 +128,7 @@ describe('AnalyzeVideoTool', () => {
     geminiFiles.analyzeVideosFromUrls.mockResolvedValueOnce({
       content: 'Detailed Gemini Files football play analysis',
       toolCalls: [],
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.1-pro-preview',
       usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
       latencyMs: 1200,
       costUsd: 0.001,
@@ -157,7 +157,7 @@ describe('AnalyzeVideoTool', () => {
     expect(result.data).toEqual(
       expect.objectContaining({
         analysis: 'Detailed Gemini Files football play analysis',
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3.1-pro-preview',
         sourceVideoUrls: ['https://cdn.example.com/game-film.mp4'],
         videoUrls: ['https://cdn.example.com/game-film.mp4'],
       })
@@ -179,7 +179,7 @@ describe('AnalyzeVideoTool', () => {
     geminiFiles.analyzeVideosFromUrls.mockResolvedValueOnce({
       content: 'Hudl video analyzed through Gemini Files',
       toolCalls: [],
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.1-pro-preview',
       usage: { inputTokens: 90, outputTokens: 45, totalTokens: 135 },
       latencyMs: 1000,
       costUsd: 0.001,
@@ -212,7 +212,7 @@ describe('AnalyzeVideoTool', () => {
 
     llm.complete.mockResolvedValueOnce({
       content: 'Detailed football play analysis',
-      model: 'google/gemini-2.5-pro',
+      model: 'google/gemini-3.1-pro-preview',
       usage: { totalTokens: 1234 },
     });
 
@@ -251,7 +251,7 @@ describe('AnalyzeVideoTool', () => {
 
     llm.complete.mockResolvedValueOnce({
       content: 'Detailed Apify-backed analysis',
-      model: 'google/gemini-2.5-pro',
+      model: 'google/gemini-3.1-pro-preview',
       usage: { totalTokens: 222 },
     });
     apify.searchActors.mockResolvedValue({
@@ -340,7 +340,7 @@ describe('AnalyzeVideoTool', () => {
 
     llm.complete.mockResolvedValueOnce({
       content: 'Direct signed-url analysis succeeded',
-      model: 'google/gemini-2.5-pro',
+      model: 'google/gemini-3.1-pro-preview',
       usage: { totalTokens: 333 },
     });
 
@@ -401,7 +401,7 @@ describe('AnalyzeVideoTool', () => {
 
     llm.complete.mockResolvedValueOnce({
       content: 'Resolved via transport layer',
-      model: 'google/gemini-2.5-pro',
+      model: 'google/gemini-3.1-pro-preview',
       usage: { totalTokens: 111 },
     });
 
@@ -448,7 +448,7 @@ describe('AnalyzeVideoTool', () => {
     geminiFiles.analyzeVideosFromUrls.mockResolvedValueOnce({
       content: 'Cloudflare-backed film analyzed through Gemini Files',
       toolCalls: [],
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.1-pro-preview',
       usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
       latencyMs: 1200,
       costUsd: 0.001,
@@ -499,7 +499,7 @@ describe('AnalyzeVideoTool', () => {
       .mockRejectedValueOnce(new Error('OpenRouter returned no choices.'))
       .mockResolvedValueOnce({
         content: 'Recovered after FFmpeg normalization',
-        model: 'google/gemini-2.5-pro',
+        model: 'google/gemini-3.1-pro-preview',
         usage: { totalTokens: 321 },
       });
 
@@ -557,7 +557,7 @@ describe('AnalyzeVideoTool', () => {
       )
       .mockResolvedValueOnce({
         content: 'Recovered after provider fetch failure via FFmpeg normalization',
-        model: 'google/gemini-2.5-pro',
+        model: 'google/gemini-3.1-pro-preview',
         usage: { totalTokens: 654 },
       });
 

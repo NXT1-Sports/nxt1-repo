@@ -64,6 +64,52 @@ describe('StageMediaTool', () => {
     );
   });
 
+  it('uses transport-resolved URL before staging', async () => {
+    const resolvedUrl = 'https://signed.example.com/fresh.mp4';
+    const staged: StagedMediaResult = {
+      signedUrl: 'https://storage.googleapis.com/test-bucket/staged-url',
+      expiresAt: '2026-04-29T15:00:00.000Z',
+      storagePath: 'Users/user-123/threads/thread-456/media/staged/video/test.mp4',
+      fileName: 'test.mp4',
+      sourceUrl: resolvedUrl,
+      sourceHost: 'signed.example.com',
+      mediaKind: 'video',
+      mimeType: 'video/mp4',
+      sizeBytes: 1024,
+    };
+    stageFromUrl.mockResolvedValue(staged);
+    const resolveProcessingUrl = vi.fn().mockResolvedValue({
+      url: resolvedUrl,
+      source: 'direct',
+    });
+    const localTool = new StageMediaTool(
+      { stageFromUrl } as never,
+      { resolveProcessingUrl } as never
+    );
+
+    const result = await localTool.execute(
+      {
+        sourceUrl:
+          'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/user-123/uploads/video.MOV?X-Goog-Signature=stale',
+        mediaKind: 'video',
+      },
+      context
+    );
+
+    expect(resolveProcessingUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceUrl:
+          'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/user-123/uploads/video.MOV?X-Goog-Signature=stale',
+      })
+    );
+    expect(stageFromUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceUrl: resolvedUrl,
+      })
+    );
+    expect(result.success).toBe(true);
+  });
+
   it('rejects missing thread context', async () => {
     const result = await tool.execute(
       {

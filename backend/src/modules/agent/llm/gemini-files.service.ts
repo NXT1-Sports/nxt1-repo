@@ -53,17 +53,17 @@ const EXTENSION_TO_MIME: Readonly<Record<string, string>> = {
 };
 
 /** Gemini model used for video analysis (matches the video_analysis tier). */
-const GEMINI_VIDEO_MODEL = 'gemini-2.5-flash';
+const GEMINI_VIDEO_MODEL = 'gemini-3.1-pro-preview';
 
 /**
- * Gemini 2.5 Flash wholesale pricing (USD per token).
- * Source: https://ai.google.dev/pricing — Gemini 2.5 Flash standard tier.
- * Prompts under 128k tokens: $0.15 / 1M input, $0.60 / 1M output.
+ * Gemini 3.1 Pro Preview wholesale pricing (USD per token).
+ * Source: https://ai.google.dev/pricing — Gemini 3.1 Pro Preview standard tier.
+ * Prompts up to 200k tokens: $2.00 / 1M input, $12.00 / 1M output.
  * We use these rates for all video analyses; the 3× platform margin in
  * calculateChargeAmount() absorbs any variation from longer-context pricing.
  */
-const GEMINI_2_5_FLASH_INPUT_COST_PER_TOKEN = 0.15 / 1_000_000; // $0.00000015
-const GEMINI_2_5_FLASH_OUTPUT_COST_PER_TOKEN = 0.6 / 1_000_000; // $0.00000060
+const GEMINI_3_1_PRO_PREVIEW_INPUT_COST_PER_TOKEN = 2 / 1_000_000; // $0.00000200
+const GEMINI_3_1_PRO_PREVIEW_OUTPUT_COST_PER_TOKEN = 12 / 1_000_000; // $0.00001200
 
 /** System prompt for video analysis — same as OpenRouter path. */
 const VIDEO_ANALYSIS_SYSTEM_PROMPT =
@@ -323,8 +323,8 @@ export class GeminiFilesService {
     const inputTokens = usageMeta?.promptTokenCount ?? 0;
     const outputTokens = usageMeta?.candidatesTokenCount ?? 0;
     const costUsd =
-      inputTokens * GEMINI_2_5_FLASH_INPUT_COST_PER_TOKEN +
-      outputTokens * GEMINI_2_5_FLASH_OUTPUT_COST_PER_TOKEN;
+      inputTokens * GEMINI_3_1_PRO_PREVIEW_INPUT_COST_PER_TOKEN +
+      outputTokens * GEMINI_3_1_PRO_PREVIEW_OUTPUT_COST_PER_TOKEN;
 
     logger.info('[GeminiFilesService] Computed video analysis cost', {
       sourceUrls,
@@ -495,8 +495,8 @@ export class GeminiFilesService {
       const inputTokens = usageMeta?.promptTokenCount ?? 0;
       const outputTokens = usageMeta?.candidatesTokenCount ?? 0;
       const costUsd =
-        inputTokens * GEMINI_2_5_FLASH_INPUT_COST_PER_TOKEN +
-        outputTokens * GEMINI_2_5_FLASH_OUTPUT_COST_PER_TOKEN;
+        inputTokens * GEMINI_3_1_PRO_PREVIEW_INPUT_COST_PER_TOKEN +
+        outputTokens * GEMINI_3_1_PRO_PREVIEW_OUTPUT_COST_PER_TOKEN;
 
       logger.info('[GeminiFilesService] Video analysis complete via context cache', {
         sourceUrls,

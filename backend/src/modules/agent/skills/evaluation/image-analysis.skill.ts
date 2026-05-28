@@ -35,6 +35,7 @@ Never infer sport, position, or athlete identity from filename, URL metadata, or
 3. Use the prompt: "Analyze these athlete images: classify each as action_shot, headshot, team_photo, graphic, or banner. Identify sport context, jersey number (if visible), position indicators, and physical attributes. Note image quality and suitability for a recruiting profile."
 4. Incorporate the returned analysis as visual evidence in the intel report's Physical Profile and Technical sections.
 5. Pass the analysis text as \`visionSummary\` when calling \`write_athlete_images\`.
+6. For film-review draw annotations, always use the resolved sport context from the thread/request. If the sport is not explicitly resolved, refer to "the play" or "the clip" rather than guessing or defaulting to a sport label.
 
 **During Data Verification (DataCoordinator):**
 1. After \`scrape_and_index_profile\` returns an athlete profile, if images were discovered via \`extract_page_images\`, call \`analyze_image\` before calling \`write_athlete_images\`.
