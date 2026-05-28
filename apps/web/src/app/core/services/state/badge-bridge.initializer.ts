@@ -132,6 +132,13 @@ export function provideBadgeBridge(): EnvironmentProviders {
               return;
             }
 
+            // Re-check isAuthed after the async getIdToken() call: the user may have
+            // logged out while we were awaiting the token, which would cause a 401.
+            if (!isAuthed) {
+              logger.debug('Auth lost during token fetch, skipping badge refresh');
+              return;
+            }
+
             lastFetchTime = now;
             activityService.refreshBadges().catch((err) => {
               logger.debug('Badge fetch failed (will retry on next poll)', err);
