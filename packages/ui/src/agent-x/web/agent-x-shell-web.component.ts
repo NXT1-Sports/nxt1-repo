@@ -110,6 +110,7 @@ import type { ConnectedAppSource } from '../components/modals/agent-x-attachment
 import { AgentXGameplansPanelComponent } from '../components/shared/agent-x-gameplans-panel.component';
 import { AgentXPlaybooksPanelComponent } from '../components/shared/agent-x-playbooks-panel.component';
 import { AgentXFilmReviewPanelComponent } from '../components/shared/agent-x-film-review-panel.component';
+import { withAgentXReleaseLabel } from '../utils/agent-x-release-stage.utils';
 import { ANALYTICS_ADAPTER } from '../../services/analytics';
 
 /**
@@ -447,7 +448,7 @@ function sortCoordinatorCategories(
                     [attr.aria-checked]="panelMenuSelection() === 'film-review'"
                     (click)="onSelectPanelMenuOption('film-review', $event)"
                   >
-                    <span>Film Review</span>
+                    <span>{{ filmReviewPanelLabel }}</span>
                     <nxt1-icon
                       class="header-nav-dropdown-item-indicator"
                       name="checkmark"
@@ -465,7 +466,7 @@ function sortCoordinatorCategories(
                     [attr.aria-checked]="panelMenuSelection() === 'playbooks'"
                     (click)="onSelectPanelMenuOption('playbooks', $event)"
                   >
-                    <span>Playbooks (Preview)</span>
+                    <span>{{ playbooksPanelLabel }}</span>
                     <nxt1-icon
                       class="header-nav-dropdown-item-indicator"
                       name="checkmark"
@@ -481,7 +482,7 @@ function sortCoordinatorCategories(
                     [attr.aria-checked]="panelMenuSelection() === 'gameplans'"
                     (click)="onSelectPanelMenuOption('gameplans', $event)"
                   >
-                    <span>Game Plans (Preview)</span>
+                    <span>{{ gameplansPanelLabel }}</span>
                     <nxt1-icon
                       class="header-nav-dropdown-item-indicator"
                       name="checkmark"
@@ -1046,7 +1047,7 @@ function sortCoordinatorCategories(
                     <h2 class="agent-column-title">{{ gameplansHeaderTitle() }}</h2>
                   </div>
                 } @else {
-                  <h2 class="agent-column-title">Game Plans (Preview)</h2>
+                  <h2 class="agent-column-title">{{ gameplansPanelLabel }}</h2>
                 }
                 <button
                   type="button"
@@ -1100,7 +1101,7 @@ function sortCoordinatorCategories(
                     <h2 class="agent-column-title">{{ playbooksHeaderTitle() }}</h2>
                   </div>
                 } @else {
-                  <h2 class="agent-column-title">Playbooks (Preview)</h2>
+                  <h2 class="agent-column-title">{{ playbooksPanelLabel }}</h2>
                 }
                 <button
                   type="button"
@@ -1156,7 +1157,7 @@ function sortCoordinatorCategories(
                     <h2 class="agent-column-title">{{ filmReviewHeaderTitle() }}</h2>
                   </div>
                 } @else {
-                  <h2 class="agent-column-title">Film Review</h2>
+                  <h2 class="agent-column-title">{{ filmReviewPanelLabel }}</h2>
                 }
                 <button
                   type="button"
@@ -4263,6 +4264,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly showPlaybooksModal = signal(false);
   protected readonly showFilmReviewModal = signal(false);
   protected readonly isAthleteUser = computed(() => this.user()?.role === 'athlete');
+  protected readonly playbooksPanelLabel = withAgentXReleaseLabel('Playbooks', 'playbooks');
+  protected readonly gameplansPanelLabel = withAgentXReleaseLabel('Game Plans', 'gameplans');
+  protected readonly filmReviewPanelLabel = withAgentXReleaseLabel('Film Review', 'filmReview');
   protected readonly isPanelMenuOpen = signal(false);
   protected readonly panelMenuSelection = computed<
     'live-view' | 'gameplans' | 'playbooks' | 'film-review' | null
@@ -4280,9 +4284,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   });
   protected readonly panelMenuLabel = computed(() => {
     const selection = this.panelMenuSelection();
-    if (selection === 'playbooks') return 'Playbooks (Preview)';
-    if (selection === 'film-review') return 'Film Review';
-    if (selection === 'gameplans') return 'Game Plans (Preview)';
+    if (selection === 'playbooks') return this.playbooksPanelLabel;
+    if (selection === 'film-review') return this.filmReviewPanelLabel;
+    if (selection === 'gameplans') return this.gameplansPanelLabel;
     if (selection === 'live-view') return 'Live View (Preview)';
     return 'Select Tool';
   });
@@ -4297,33 +4301,25 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   );
   protected readonly gameplansHeaderTitle = computed(() => {
     const panel = this.gameplansPanel();
-    if (!panel || !panel.isDetailView()) {
-      return 'Game Plans (Preview)';
-    }
-
-    return panel.getHeaderTitle();
+    const title = !panel || !panel.isDetailView() ? 'Game Plans' : panel.getHeaderTitle();
+    return withAgentXReleaseLabel(title, 'gameplans');
   });
   protected readonly isPlaybooksDetailView = computed(
     () => this.showPlaybooksModal() && !!this.playbooksPanel()?.isDetailView()
   );
   protected readonly playbooksHeaderTitle = computed(() => {
     const panel = this.playbooksPanel();
-    if (!panel || !panel.isDetailView()) {
-      return 'Playbooks (Preview)';
-    }
-
-    return panel.getHeaderTitle();
+    const title = !panel || !panel.isDetailView() ? 'Playbooks' : panel.getHeaderTitle();
+    return withAgentXReleaseLabel(title, 'playbooks');
   });
   protected readonly isFilmReviewInlineVideoView = computed(
     () => this.showFilmReviewModal() && !!this.filmReviewPanel()?.isInlineVideoView()
   );
   protected readonly filmReviewHeaderTitle = computed(() => {
     const panel = this.filmReviewPanel();
-    if (!panel || !panel.isInlineVideoView()) {
-      return 'Film Review';
-    }
-
-    return panel.getInlineHeaderTitle();
+    const title =
+      !panel || !panel.isInlineVideoView() ? 'Film Review' : panel.getInlineHeaderTitle();
+    return withAgentXReleaseLabel(title, 'filmReview');
   });
   protected readonly isPanelMenuActive = computed(
     () =>

@@ -50,6 +50,7 @@ import {
   type VideoUploadProgress,
 } from '../../services/agent-x-video-upload.service';
 import { AgentXService } from '../../services/agent-x.service';
+import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
 
 type FilmListReview = {
   id: string;
@@ -204,7 +205,12 @@ type DrawEffectMarker = {
         >
           <div class="playbooks-list-header">
             <div>
-              <h3>Film Review</h3>
+              <h3>
+                Film Review
+                @if (filmReviewReleaseLabel) {
+                  <span class="release-badge">{{ filmReviewReleaseLabel }}</span>
+                }
+              </h3>
               <p>No film sessions yet. Upload video to start film review.</p>
             </div>
             <div class="playbooks-list-header-actions">
@@ -294,7 +300,12 @@ type DrawEffectMarker = {
           >
             <header class="film-library-header">
               <div class="film-library-header__copy">
-                <h3 class="film-library-title">Video Library</h3>
+                <h3 class="film-library-title">
+                  Video Library
+                  @if (filmReviewReleaseLabel) {
+                    <span class="release-badge">{{ filmReviewReleaseLabel }}</span>
+                  }
+                </h3>
               </div>
               <div class="film-library-header__actions">
                 <button
@@ -1273,6 +1284,26 @@ type DrawEffectMarker = {
         font-size: 0.95rem;
         letter-spacing: 0.01em;
         color: var(--nxt1-color-text-primary);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .release-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--nxt1-color-border-primary);
+        background: var(--nxt1-color-alpha-primary10);
+        color: var(--nxt1-color-text-primary);
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 1;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        white-space: nowrap;
       }
 
       .playbooks-list-header p {
@@ -3274,6 +3305,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   @ViewChild('drawCanvas') private drawCanvas?: ElementRef<HTMLCanvasElement>;
 
   protected readonly testIds = TEST_IDS.FILM_REVIEW;
+  protected readonly filmReviewReleaseLabel = getAgentXReleaseLabel('filmReview');
   protected readonly reviews = this.service.reviews;
   protected readonly selectedId = this.service.selectedId;
   protected readonly selectedReview = this.service.selectedReview;
