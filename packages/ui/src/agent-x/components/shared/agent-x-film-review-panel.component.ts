@@ -9,10 +9,12 @@ import {
   SimpleChanges,
   ViewChild,
   computed,
+  effect,
   inject,
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { OverlayModule, type ConnectedPosition } from '@angular/cdk/overlay';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import type Hls from 'hls.js';
@@ -50,6 +52,7 @@ import {
   type VideoUploadProgress,
 } from '../../services/agent-x-video-upload.service';
 import { AgentXService } from '../../services/agent-x.service';
+import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
 
 type FilmListReview = {
   id: string;
@@ -115,9 +118,33 @@ type TimelineGridColumn = {
   readonly tagDefinition?: TeamFilmReviewSportTagDefinition;
 };
 
+type TimelineColumnFilterMode = 'include' | 'exclude';
+
+type TimelineColumnFilter = {
+  readonly mode: TimelineColumnFilterMode;
+  readonly value: string;
+};
+
+type TimelineFilteredPlayRow = {
+  readonly play: FilmTimelinePlay;
+  readonly originalIndex: number;
+};
+
+type TimelineColumnFilterChip = {
+  readonly columnId: string;
+  readonly columnLabel: string;
+  readonly mode: TimelineColumnFilterMode;
+  readonly value: string;
+};
+
 type TimelineColumnDropIndicator = {
   readonly columnId: string;
   readonly placement: TimelineColumnDropPlacement;
+};
+
+type DrawEffectMarker = {
+  readonly id: string;
+  readonly atSec: number;
 };
 
 @Component({
@@ -125,6 +152,7 @@ type TimelineColumnDropIndicator = {
   standalone: true,
   imports: [
     CommonModule,
+    OverlayModule,
     FormsModule,
     NxtIconComponent,
     NxtStateViewComponent,
@@ -199,7 +227,12 @@ type TimelineColumnDropIndicator = {
         >
           <div class="playbooks-list-header">
             <div>
-              <h3>Film Review</h3>
+              <h3>
+                Film Review
+                @if (filmReviewReleaseLabel) {
+                  <span class="release-badge">{{ filmReviewReleaseLabel }}</span>
+                }
+              </h3>
               <p>No film sessions yet. Upload video to start film review.</p>
             </div>
             <div class="playbooks-list-header-actions">
@@ -289,7 +322,12 @@ type TimelineColumnDropIndicator = {
           >
             <header class="film-library-header">
               <div class="film-library-header__copy">
-                <h3 class="film-library-title">Video Library</h3>
+                <h3 class="film-library-title">
+                  Video Library
+                  @if (filmReviewReleaseLabel) {
+                    <span class="release-badge">{{ filmReviewReleaseLabel }}</span>
+                  }
+                </h3>
               </div>
               <div class="film-library-header__actions">
                 <button
@@ -750,7 +788,8 @@ type TimelineColumnDropIndicator = {
 
                     <div class="film-top-tools">
                       <div
-                        class="film-top-tools__left film-controls__cluster"
+                        class="film-top-tools__left"
+                        [class.film-controls__cluster]="currentInlinePlayOverlayItems().length > 0"
                         [class.film-top-tools__left--collapsed]="!isInlinePlayOverlayExpanded()"
                         aria-label="Selected play details"
                       >
@@ -867,6 +906,7 @@ type TimelineColumnDropIndicator = {
                         [isPlaying]="isPlaying()"
                         [currentTime]="scopedPlayerCurrentTime()"
                         [duration]="scopedPlayerDuration()"
+                        [drawEffectMarkers]="drawEffectMarkers()"
                         [playbackRate]="playbackRate()"
                         [playbackRates]="playbackRates"
                         [showSpeedControls]="true"
@@ -874,9 +914,14 @@ type TimelineColumnDropIndicator = {
                         [showOpenInNewWindow]="!platform.isNative()"
                         [showPlayNavigation]="true"
                         [showAdvancedPlaybackControls]="true"
+                        [showDurationBadge]="true"
+                        [allowTransportCollapse]="true"
                         [frameStepSeconds]="filmFrameStepSeconds"
-                        [disablePreviousNav]="currentPlayIndex() <= 0"
-                        [disableNextNav]="currentPlayIndex() >= (review.timeline?.length ?? 0) - 1"
+                        [disablePreviousNav]="currentFilteredPlayPosition() <= 1"
+                        [disableNextNav]="
+                          filteredTimelineCount() <= 1 ||
+                          currentFilteredPlayPosition() >= filteredTimelineCount()
+                        "
                         (previousNav)="goToPreviousPlay()"
                         (seekRelative)="seekRelative($event)"
                         (playPause)="togglePlayPause()"
@@ -884,6 +929,7 @@ type TimelineColumnDropIndicator = {
                         (seekStart)="onSeekPointerDown()"
                         (seekEnd)="onSeekPointerUp()"
                         (seekChange)="onScopedSeekTime($event)"
+                        (deleteDrawEffectMarker)="onDeleteDrawEffectMarker($event)"
                         (playbackRateChange)="setPlaybackRate($event)"
                         (openInNewWindow)="openVideoInNewWindow()"
                         (fullscreenToggle)="toggleFullscreen()"
@@ -928,7 +974,7 @@ type TimelineColumnDropIndicator = {
                       <button
                         type="button"
                         class="film-playbook-nav-btn"
-                        [disabled]="currentPlayIndex() <= 0"
+                        [disabled]="currentFilteredPlayPosition() <= 1"
                         [attr.data-testid]="testIds.TIMELINE_PLAY_NAV_PREV"
                         (click)="goToPreviousPlay()"
                       >
@@ -937,7 +983,7 @@ type TimelineColumnDropIndicator = {
 
                       <div class="film-playbook-current" aria-live="polite">
                         <span class="film-playbook-summary">
-                          Play {{ currentPlayIndex() + 1 }} of {{ review.timeline?.length ?? 0 }}
+                          Play {{ currentFilteredPlayPosition() }} of {{ filteredTimelineCount() }}
                         </span>
                         @if (currentPlay(); as play) {
                           <span class="film-playbook-active-play">
@@ -950,13 +996,54 @@ type TimelineColumnDropIndicator = {
                       <button
                         type="button"
                         class="film-playbook-nav-btn"
-                        [disabled]="currentPlayIndex() >= (review.timeline?.length ?? 0) - 1"
+                        [disabled]="
+                          filteredTimelineRows().length < 2 ||
+                          currentPlayIndex() ===
+                            filteredTimelineRows()[filteredTimelineRows().length - 1]?.originalIndex
+                        "
                         [attr.data-testid]="testIds.TIMELINE_PLAY_NAV_NEXT"
                         (click)="goToNextPlay()"
                       >
                         Next →
                       </button>
                     </div>
+
+                    @if (activeTimelineFilterChips().length > 0) {
+                      <div
+                        class="film-playbook-filter-chips"
+                        [attr.data-testid]="testIds.TIMELINE_FILTER_CHIPS"
+                      >
+                        @for (chip of activeTimelineFilterChips(); track chip.columnId) {
+                          <button
+                            type="button"
+                            class="film-playbook-filter-chip"
+                            [class.film-playbook-filter-chip--exclude]="chip.mode === 'exclude'"
+                            [attr.data-testid]="testIds.TIMELINE_FILTER_CHIP"
+                            [attr.aria-label]="'Clear ' + chip.columnLabel + ' filter'"
+                            (click)="onRemoveTimelineColumnFilter(chip.columnId, $event)"
+                          >
+                            <span class="film-playbook-filter-chip__label">{{
+                              chip.columnLabel
+                            }}</span>
+                            <span class="film-playbook-filter-chip__operator">
+                              {{ chip.mode === 'include' ? '=' : '≠' }}
+                            </span>
+                            <span class="film-playbook-filter-chip__value">{{ chip.value }}</span>
+                            <span class="film-playbook-filter-chip__close" aria-hidden="true"
+                              >✕</span
+                            >
+                          </button>
+                        }
+                        <button
+                          type="button"
+                          class="film-playbook-filter-clear"
+                          [attr.data-testid]="testIds.TIMELINE_FILTER_CLEAR_ALL"
+                          (click)="onClearAllTimelineColumnFilters($event)"
+                        >
+                          Clear filters
+                        </button>
+                      </div>
+                    }
 
                     <div
                       class="film-playbook-table"
@@ -968,80 +1055,215 @@ type TimelineColumnDropIndicator = {
                         <div class="film-playbook-head" role="row">
                           <span class="film-playbook-head__reorder" aria-label="Move"></span>
                           @for (column of currentTimelineColumns(); track column.id) {
-                            <button
-                              type="button"
-                              class="film-playbook-column-header"
-                              draggable="true"
-                              [class.film-playbook-column-header--dragging]="
-                                column.id === draggingTimelineColumnId()
-                              "
-                              [class.film-playbook-column-header--drop-before]="
-                                isTimelineColumnDropIndicator(column.id, 'before')
-                              "
-                              [class.film-playbook-column-header--drop-after]="
-                                isTimelineColumnDropIndicator(column.id, 'after')
-                              "
-                              [attr.data-testid]="
-                                column.kind === 'tag'
-                                  ? testIds.TIMELINE_TAG_COLUMN
-                                  : testIds.TIMELINE_COLUMN_REORDER_HANDLE
-                              "
-                              [attr.aria-label]="'Move ' + column.label + ' column'"
-                              (click)="$event.stopPropagation()"
-                              (keydown)="$event.stopPropagation()"
-                              (dragstart)="onTimelineColumnDragStart($event, column.id)"
-                              (dragend)="onTimelineColumnDragEnd($event)"
-                              (dragover)="onTimelineColumnDragOver($event, column.id)"
-                              (dragleave)="onTimelineColumnDragLeave($event, column.id)"
-                              (drop)="onTimelineColumnDrop($event, column.id)"
-                            >
-                              <span>{{ column.label }}</span>
-                            </button>
+                            <div class="film-playbook-column-header-wrap">
+                              <button
+                                type="button"
+                                class="film-playbook-column-header"
+                                draggable="true"
+                                [class.film-playbook-column-header--dragging]="
+                                  column.id === draggingTimelineColumnId()
+                                "
+                                [class.film-playbook-column-header--drop-before]="
+                                  isTimelineColumnDropIndicator(column.id, 'before')
+                                "
+                                [class.film-playbook-column-header--drop-after]="
+                                  isTimelineColumnDropIndicator(column.id, 'after')
+                                "
+                                [attr.data-testid]="
+                                  column.kind === 'tag'
+                                    ? testIds.TIMELINE_TAG_COLUMN
+                                    : testIds.TIMELINE_COLUMN_REORDER_HANDLE
+                                "
+                                [attr.aria-label]="'Move ' + column.label + ' column'"
+                                (click)="$event.stopPropagation()"
+                                (keydown)="$event.stopPropagation()"
+                                (dragstart)="onTimelineColumnDragStart($event, column.id)"
+                                (dragend)="onTimelineColumnDragEnd($event)"
+                                (dragover)="onTimelineColumnDragOver($event, column.id)"
+                                (dragleave)="onTimelineColumnDragLeave($event, column.id)"
+                                (drop)="onTimelineColumnDrop($event, column.id)"
+                              >
+                                <span>{{ column.label }}</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                class="film-playbook-column-menu-btn"
+                                cdkOverlayOrigin
+                                #columnMenuOrigin="cdkOverlayOrigin"
+                                [class.film-playbook-column-menu-btn--active]="
+                                  hasTimelineColumnFilter(column.id)
+                                "
+                                [attr.data-testid]="testIds.TIMELINE_COLUMN_FILTER_MENU"
+                                [attr.aria-expanded]="isTimelineColumnMenuOpen(column.id)"
+                                [attr.aria-label]="'Filter ' + column.label"
+                                (click)="onOpenTimelineColumnMenu(column.id, $event)"
+                              >
+                                <nxt1-icon name="moreHorizontal" [size]="12"></nxt1-icon>
+                              </button>
+
+                              @if (isTimelineColumnMenuOpen(column.id)) {
+                                <ng-template
+                                  cdkConnectedOverlay
+                                  [cdkConnectedOverlayOrigin]="columnMenuOrigin"
+                                  [cdkConnectedOverlayOpen]="true"
+                                  [cdkConnectedOverlayHasBackdrop]="true"
+                                  cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+                                  [cdkConnectedOverlayPositions]="timelineColumnMenuPositions"
+                                  [cdkConnectedOverlayPush]="true"
+                                  [cdkConnectedOverlayViewportMargin]="8"
+                                  (backdropClick)="onCloseTimelineColumnMenu($event)"
+                                  (detach)="onCloseTimelineColumnMenu()"
+                                >
+                                  <div
+                                    class="film-playbook-column-menu"
+                                    role="menu"
+                                    [attr.data-testid]="testIds.TIMELINE_COLUMN_FILTER_OPTIONS"
+                                  >
+                                    @if (getTimelineColumnFilterOptions(column); as options) {
+                                      @if (options.length > 0) {
+                                        @for (option of options; track option.normalizedValue) {
+                                          <div class="film-playbook-column-menu__option-row">
+                                            <button
+                                              type="button"
+                                              class="film-playbook-column-menu__option"
+                                              [attr.data-testid]="
+                                                testIds.TIMELINE_COLUMN_FILTER_INCLUDE
+                                              "
+                                              (click)="
+                                                onApplyTimelineColumnFilter(
+                                                  column,
+                                                  'include',
+                                                  option.value,
+                                                  $event
+                                                )
+                                              "
+                                            >
+                                              {{ option.value }}
+                                              <span class="film-playbook-column-menu__count"
+                                                >({{ option.count }})</span
+                                              >
+                                            </button>
+                                          </div>
+                                        }
+                                      } @else {
+                                        <div class="film-playbook-column-menu__empty">
+                                          No options available
+                                        </div>
+                                      }
+                                    }
+
+                                    @if (
+                                      hasTimelineColumnFilter(column.id) ||
+                                      hasActiveTimelineFilters()
+                                    ) {
+                                      <div class="film-playbook-column-menu__actions">
+                                        @if (hasTimelineColumnFilter(column.id)) {
+                                          <button
+                                            type="button"
+                                            class="film-playbook-column-menu__clear"
+                                            [attr.data-testid]="
+                                              testIds.TIMELINE_COLUMN_FILTER_CLEAR
+                                            "
+                                            (click)="onClearTimelineColumnFilter(column.id, $event)"
+                                          >
+                                            Clear {{ column.label }}
+                                          </button>
+                                        }
+                                        @if (hasActiveTimelineFilters()) {
+                                          <button
+                                            type="button"
+                                            class="film-playbook-column-menu__clear"
+                                            (click)="onClearAllTimelineColumnFilters($event)"
+                                          >
+                                            Clear all
+                                          </button>
+                                        }
+                                      </div>
+                                    }
+                                  </div>
+                                </ng-template>
+                              }
+                            </div>
                           }
                         </div>
 
                         <div class="film-playbook-body">
-                          @for (play of review.timeline; track play.id; let idx = $index) {
+                          @if (filteredTimelineRows().length === 0) {
+                            <div
+                              class="film-playbook-empty-filtered"
+                              [attr.data-testid]="testIds.TIMELINE_FILTER_EMPTY_STATE"
+                            >
+                              <p>No plays match the active filters.</p>
+                              <button
+                                type="button"
+                                (click)="onClearAllTimelineColumnFilters($event)"
+                              >
+                                Clear filters
+                              </button>
+                            </div>
+                          }
+                          @for (
+                            row of filteredTimelineRows();
+                            track row.play.id;
+                            let idx = $index
+                          ) {
                             <div
                               class="film-playbook-row"
                               role="row"
-                              [class.film-playbook-row--active]="idx === currentPlayIndex()"
-                              [class.film-playbook-row--editing]="isEditingTimelinePlay(play, idx)"
+                              [class.film-playbook-row--active]="
+                                row.originalIndex === currentPlayIndex()
+                              "
+                              [class.film-playbook-row--editing]="
+                                isEditingTimelinePlay(row.play, row.originalIndex)
+                              "
                               [class.film-playbook-row--dragging]="
-                                idx === draggingTimelinePlayIndex()
+                                row.originalIndex === draggingTimelinePlayIndex()
                               "
                               [class.film-playbook-row--drop-before]="
-                                isTimelinePlayDropIndicator(idx, 'before')
+                                isTimelinePlayDropIndicator(row.originalIndex, 'before')
                               "
                               [class.film-playbook-row--drop-after]="
-                                isTimelinePlayDropIndicator(idx, 'after')
+                                isTimelinePlayDropIndicator(row.originalIndex, 'after')
                               "
                               [nxtAgentXContextDrag]="
-                                isEditingTimelinePlay(play, idx)
+                                isEditingTimelinePlay(row.play, row.originalIndex)
                                   ? null
-                                  : buildFilmPlayDragContext(review, play, idx)
+                                  : buildFilmPlayDragContext(review, row.play, row.originalIndex)
                               "
-                              [nxtAgentXContextDragDisabled]="isTimelinePlayReorderActive()"
-                              [attr.tabindex]="isEditingTimelinePlay(play, idx) ? -1 : 0"
-                              (click)="onSelectTimelinePlay(play, idx)"
-                              (keydown.enter)="onTimelinePlayRowKeydown($event, play, idx)"
-                              (keydown.space)="onTimelinePlayRowKeydown($event, play, idx)"
-                              (dragover)="onTimelinePlayDragOver($event, idx)"
-                              (dragleave)="onTimelinePlayDragLeave($event, idx)"
-                              (drop)="onTimelinePlayDrop($event, review.id, idx)"
-                              [attr.aria-label]="'Jump to ' + play.label"
+                              [nxtAgentXContextDragDisabled]="
+                                isTimelinePlayReorderActive() || hasActiveTimelineFilters()
+                              "
+                              [attr.tabindex]="
+                                isEditingTimelinePlay(row.play, row.originalIndex) ? -1 : 0
+                              "
+                              (click)="onSelectTimelinePlay(row.play, row.originalIndex)"
+                              (keydown.enter)="
+                                onTimelinePlayRowKeydown($event, row.play, row.originalIndex)
+                              "
+                              (keydown.space)="
+                                onTimelinePlayRowKeydown($event, row.play, row.originalIndex)
+                              "
+                              (dragover)="onTimelinePlayDragOver($event, row.originalIndex)"
+                              (dragleave)="onTimelinePlayDragLeave($event, row.originalIndex)"
+                              (drop)="onTimelinePlayDrop($event, review.id, row.originalIndex)"
+                              [attr.aria-label]="'Jump to ' + row.play.label"
                             >
                               <span class="film-playbook-cell film-playbook-cell--reorder">
                                 <button
                                   type="button"
                                   class="film-playbook-reorder-handle"
                                   draggable="true"
-                                  [disabled]="saving() || isEditingTimelinePlay(play, idx)"
+                                  [disabled]="
+                                    saving() ||
+                                    hasActiveTimelineFilters() ||
+                                    isEditingTimelinePlay(row.play, row.originalIndex)
+                                  "
                                   [attr.data-testid]="testIds.TIMELINE_PLAY_REORDER_HANDLE"
-                                  [attr.aria-label]="'Move ' + play.label"
+                                  [attr.aria-label]="'Move ' + row.play.label"
                                   (click)="$event.stopPropagation()"
                                   (keydown)="$event.stopPropagation()"
-                                  (dragstart)="onTimelinePlayDragStart($event, idx)"
+                                  (dragstart)="onTimelinePlayDragStart($event, row.originalIndex)"
                                   (dragend)="onTimelinePlayDragEnd($event)"
                                 >
                                   <nxt1-icon name="menu" [size]="14"></nxt1-icon>
@@ -1054,13 +1276,29 @@ type TimelineColumnDropIndicator = {
                                   [class.film-playbook-cell--label]="column.kind === 'label'"
                                   [attr.data-testid]="getTimelineColumnTestId(column)"
                                   (dblclick)="
-                                    onStartTimelinePlayFieldEdit(play, idx, column.fieldKey, $event)
+                                    onStartTimelinePlayFieldEdit(
+                                      row.play,
+                                      row.originalIndex,
+                                      column.fieldKey,
+                                      $event
+                                    )
                                   "
                                   (touchend)="
-                                    onTimelinePlayFieldTouchEnd(play, idx, column.fieldKey, $event)
+                                    onTimelinePlayFieldTouchEnd(
+                                      row.play,
+                                      row.originalIndex,
+                                      column.fieldKey,
+                                      $event
+                                    )
                                   "
                                 >
-                                  @if (isEditingTimelinePlayField(play, idx, column.fieldKey)) {
+                                  @if (
+                                    isEditingTimelinePlayField(
+                                      row.play,
+                                      row.originalIndex,
+                                      column.fieldKey
+                                    )
+                                  ) {
                                     <input
                                       class="film-playbook-edit__input film-playbook-edit__input--cell"
                                       type="text"
@@ -1078,8 +1316,8 @@ type TimelineColumnDropIndicator = {
                                       (blur)="
                                         onSaveTimelinePlayFieldEdit(
                                           review.id,
-                                          play,
-                                          idx,
+                                          row.play,
+                                          row.originalIndex,
                                           column.fieldKey,
                                           $event,
                                           column.tagDefinition
@@ -1088,8 +1326,8 @@ type TimelineColumnDropIndicator = {
                                       (keydown.enter)="
                                         onSaveTimelinePlayFieldEdit(
                                           review.id,
-                                          play,
-                                          idx,
+                                          row.play,
+                                          row.originalIndex,
                                           column.fieldKey,
                                           $event,
                                           column.tagDefinition
@@ -1099,10 +1337,10 @@ type TimelineColumnDropIndicator = {
                                     />
                                   } @else if (column.kind === 'label') {
                                     <span class="film-playbook-label-text">
-                                      {{ getTimelineColumnDisplayValue(play, column) }}
+                                      {{ getTimelineColumnDisplayValue(row.play, column) }}
                                     </span>
                                   } @else {
-                                    {{ getTimelineColumnDisplayValue(play, column) }}
+                                    {{ getTimelineColumnDisplayValue(row.play, column) }}
                                   }
                                 </span>
                               }
@@ -1204,6 +1442,7 @@ type TimelineColumnDropIndicator = {
       }
 
       .film-review-panel {
+        position: relative;
         display: flex;
         flex-direction: column;
         gap: 12px;
@@ -1264,6 +1503,26 @@ type TimelineColumnDropIndicator = {
         font-size: 0.95rem;
         letter-spacing: 0.01em;
         color: var(--nxt1-color-text-primary);
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .release-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--nxt1-color-border-primary);
+        background: var(--nxt1-color-alpha-primary10);
+        color: var(--nxt1-color-text-primary);
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 1;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        white-space: nowrap;
       }
 
       .playbooks-list-header p {
@@ -1715,6 +1974,7 @@ type TimelineColumnDropIndicator = {
       }
 
       .film-detail {
+        position: relative;
         display: flex;
         flex-direction: column;
         gap: 12px;
@@ -2525,7 +2785,7 @@ type TimelineColumnDropIndicator = {
         max-width: 100%;
         border: 1px solid var(--nxt1-color-border-subtle);
         border-radius: 10px;
-        overflow: hidden;
+        overflow: visible;
         background: linear-gradient(
           180deg,
           var(--nxt1-color-surface-200),
@@ -2538,7 +2798,7 @@ type TimelineColumnDropIndicator = {
         width: 100%;
         max-width: 100%;
         overflow-x: auto;
-        overflow-y: hidden;
+        overflow-y: visible;
         overscroll-behavior-x: contain;
       }
 
@@ -2589,6 +2849,15 @@ type TimelineColumnDropIndicator = {
           opacity 0.15s ease;
       }
 
+      .film-playbook-column-header-wrap {
+        position: relative;
+        min-width: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 22px;
+        align-items: center;
+        gap: 2px;
+      }
+
       .film-playbook-column-header span {
         min-width: 0;
         overflow: hidden;
@@ -2629,6 +2898,157 @@ type TimelineColumnDropIndicator = {
 
       .film-playbook-column-header--drop-after::after {
         right: -5px;
+      }
+
+      .film-playbook-column-menu-btn {
+        width: 20px;
+        min-width: 20px;
+        height: 20px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--nxt1-color-text-tertiary);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+      }
+
+      .film-playbook-column-menu-btn:hover,
+      .film-playbook-column-menu-btn:focus-visible,
+      .film-playbook-column-menu-btn--active {
+        background: var(--nxt1-color-surface-100);
+        color: var(--nxt1-color-primary);
+        outline: none;
+      }
+
+      .film-playbook-column-menu {
+        min-width: 220px;
+        max-width: 280px;
+        max-height: 260px;
+        overflow: auto;
+        display: grid;
+        gap: 4px;
+        padding: 6px;
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: 10px;
+        background: var(--nxt1-color-surface-100);
+        box-shadow: var(--nxt1-navigation-dropdown);
+      }
+
+      .film-playbook-column-menu__option-row {
+        display: block;
+      }
+
+      .film-playbook-column-menu__empty {
+        padding: 8px;
+        font-size: 12px;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .film-playbook-column-menu__option,
+      .film-playbook-column-menu__clear {
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--nxt1-color-text-primary);
+        font-size: 12px;
+        text-align: left;
+        padding: 6px 8px;
+        cursor: pointer;
+      }
+
+      .film-playbook-column-menu__option:hover,
+      .film-playbook-column-menu__clear:hover,
+      .film-playbook-column-menu__option:focus-visible,
+      .film-playbook-column-menu__clear:focus-visible {
+        background: var(--nxt1-color-surface-200);
+        outline: none;
+      }
+
+      .film-playbook-column-menu__actions {
+        display: grid;
+        gap: 2px;
+        padding-top: 4px;
+        border-top: 1px solid var(--nxt1-color-border-subtle);
+      }
+
+      .film-playbook-column-menu__count {
+        color: var(--nxt1-color-text-tertiary);
+        margin-left: 4px;
+      }
+
+      .film-playbook-filter-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .film-playbook-filter-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-height: 28px;
+        border: 1px solid var(--nxt1-color-border-primary);
+        border-radius: 999px;
+        background: var(--nxt1-color-alpha-primary10);
+        color: var(--nxt1-color-text-primary);
+        font-size: 11px;
+        font-weight: 700;
+        padding: 0 10px;
+        cursor: pointer;
+      }
+
+      .film-playbook-filter-chip--exclude {
+        border-color: var(--nxt1-color-border-default);
+        background: var(--nxt1-color-surface-100);
+      }
+
+      .film-playbook-filter-chip__label {
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .film-playbook-filter-chip__close {
+        color: var(--nxt1-color-text-tertiary);
+      }
+
+      .film-playbook-filter-clear {
+        min-height: 28px;
+        border: 1px dashed var(--nxt1-color-border-default);
+        border-radius: 999px;
+        background: transparent;
+        color: var(--nxt1-color-text-secondary);
+        font-size: 11px;
+        font-weight: 700;
+        padding: 0 10px;
+        cursor: pointer;
+      }
+
+      .film-playbook-empty-filtered {
+        display: grid;
+        place-items: center;
+        gap: 8px;
+        padding: 14px;
+        border-bottom: 1px solid var(--nxt1-color-border-subtle);
+      }
+
+      .film-playbook-empty-filtered p {
+        margin: 0;
+        font-size: 12px;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .film-playbook-empty-filtered button {
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: 999px;
+        background: var(--nxt1-color-surface-100);
+        color: var(--nxt1-color-text-primary);
+        font-size: 11px;
+        font-weight: 700;
+        padding: 4px 10px;
+        cursor: pointer;
       }
 
       .film-playbook-body {
@@ -3238,10 +3658,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private drawStrokes: Array<Array<{ x: number; y: number }>> = [];
   private readonly maxContextAnnotationPoints = 80;
   private readonly maxPersistedAnnotationPoints = 600;
+  private readonly drawEffectDurationSec = 1;
   private lastTimelineFieldTouch: { key: string; atMs: number } | null = null;
   private playAnnotationPersistTimer: ReturnType<typeof setTimeout> | null = null;
   private playAnnotationPersistInFlight: Promise<void> | null = null;
   private playAnnotationPersistQueued = false;
+  private currentDrawEffectWindow: { startSec: number; endSec: number } | null = null;
 
   @Input() teamId: string | null = null;
   @Input() role: string | null = null;
@@ -3263,6 +3685,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   @ViewChild('drawCanvas') private drawCanvas?: ElementRef<HTMLCanvasElement>;
 
   protected readonly testIds = TEST_IDS.FILM_REVIEW;
+  protected readonly filmReviewReleaseLabel = getAgentXReleaseLabel('filmReview');
   protected readonly reviews = this.service.reviews;
   protected readonly selectedId = this.service.selectedId;
   protected readonly selectedReview = this.service.selectedReview;
@@ -3318,6 +3741,38 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly timelineColumnOrder = signal<readonly string[]>([]);
   protected readonly draggingTimelineColumnId = signal<string | null>(null);
   protected readonly timelineColumnDropIndicator = signal<TimelineColumnDropIndicator | null>(null);
+  protected readonly openTimelineColumnMenuId = signal<string | null>(null);
+  protected readonly timelineColumnFilters = signal<Record<string, TimelineColumnFilter>>({});
+  protected timelineColumnMenuPositions: ConnectedPosition[] = [
+    {
+      originX: 'end',
+      originY: 'top',
+      overlayX: 'end',
+      overlayY: 'bottom',
+      offsetY: -6,
+    },
+    {
+      originX: 'end',
+      originY: 'bottom',
+      overlayX: 'end',
+      overlayY: 'top',
+      offsetY: 6,
+    },
+    {
+      originX: 'start',
+      originY: 'top',
+      overlayX: 'start',
+      overlayY: 'bottom',
+      offsetY: -6,
+    },
+    {
+      originX: 'start',
+      originY: 'bottom',
+      overlayX: 'start',
+      overlayY: 'top',
+      offsetY: 6,
+    },
+  ];
   protected readonly editingTimelinePlayKey = signal<string | null>(null);
   protected readonly timelinePlayEditDraft = signal('');
   protected readonly generatedVideoThumbnails = signal<Record<string, string>>({});
@@ -3364,6 +3819,54 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly currentTimelineColumns = computed(() =>
     this.applyTimelineColumnOrder(this.defaultTimelineColumns(), this.timelineColumnOrder())
   );
+  protected readonly hasActiveTimelineFilters = computed(
+    () => Object.keys(this.timelineColumnFilters()).length > 0
+  );
+  protected readonly filteredTimelineRows = computed<readonly TimelineFilteredPlayRow[]>(() => {
+    const timeline = this.selectedReview()?.timeline ?? [];
+    const filters = this.timelineColumnFilters();
+    const filterEntries = Object.entries(filters);
+    if (filterEntries.length === 0) {
+      return timeline.map((play, originalIndex) => ({ play, originalIndex }));
+    }
+
+    return timeline
+      .map((play, originalIndex) => ({ play, originalIndex }))
+      .filter(({ play }) =>
+        filterEntries.every(([columnId, filterState]) => {
+          const column = this.currentTimelineColumns().find((item) => item.id === columnId);
+          if (!column) return true;
+
+          const value = this.normalizeTimelineFilterValue(
+            this.getTimelineColumnDisplayValue(play, column)
+          );
+          const expected = this.normalizeTimelineFilterValue(filterState.value);
+          const isMatch = value === expected;
+          return filterState.mode === 'include' ? isMatch : !isMatch;
+        })
+      );
+  });
+  protected readonly activeTimelineFilterChips = computed<readonly TimelineColumnFilterChip[]>(() =>
+    Object.entries(this.timelineColumnFilters())
+      .map(([columnId, filterState]) => {
+        const column = this.currentTimelineColumns().find((item) => item.id === columnId);
+        if (!column) return null;
+
+        return {
+          columnId,
+          columnLabel: column.label,
+          mode: filterState.mode,
+          value: filterState.value,
+        };
+      })
+      .filter((chip): chip is TimelineColumnFilterChip => chip !== null)
+  );
+  protected readonly filteredTimelineCount = computed(() => this.filteredTimelineRows().length);
+  protected readonly currentFilteredPlayPosition = computed(() => {
+    const rows = this.filteredTimelineRows();
+    const index = rows.findIndex((row) => row.originalIndex === this.currentPlayIndex());
+    return index >= 0 ? index + 1 : 0;
+  });
   protected readonly currentTimelineGridTemplate = computed(() =>
     this.buildTimelineGridTemplate(this.currentTimelineColumns())
   );
@@ -3431,6 +3934,16 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return review.timeline[idx] ?? null;
   });
 
+  private readonly syncCurrentPlayWithFilteredRows = effect(() => {
+    const rows = this.filteredTimelineRows();
+    const currentIndex = this.currentPlayIndex();
+    const hasActive = rows.some((row) => row.originalIndex === currentIndex);
+
+    if (rows.length > 0 && !hasActive) {
+      this.currentPlayIndex.set(rows[0]!.originalIndex);
+    }
+  });
+
   /**
    * Per-play scoped seek slider state.
    *
@@ -3473,6 +3986,20 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       value: this.getTimelineColumnDisplayValue(play, column),
     }));
   });
+  protected readonly drawEffectMarkers = computed<readonly DrawEffectMarker[]>(() => {
+    const play = this.currentPlay();
+    if (!play?.annotation) return [];
+
+    const window = this.resolveDrawEffectWindowForPlay(play, play.annotation);
+    if (!window) return [];
+
+    return [
+      {
+        id: this.buildDrawEffectMarkerId(this.currentPlayIndex()),
+        atSec: this.roundPlaybackSecond(window.startSec - play.startSec),
+      },
+    ];
+  });
 
   ngOnChanges(changes: SimpleChanges): void {
     if (!changes['teamId'] && !changes['sport']) return;
@@ -3487,6 +4014,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     this.isVideoView.set(false);
     this.currentPlayIndex.set(0);
+    this.timelineColumnFilters.set({});
+    this.openTimelineColumnMenuId.set(null);
     this.destroyHls();
     this.nativeVideoSourceUrl = null;
     this.cloudflareNativePlaybackFailed.set(false);
@@ -3500,6 +4029,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     this.isVideoView.set(false);
     this.currentPlayIndex.set(0);
+    this.timelineColumnFilters.set({});
+    this.openTimelineColumnMenuId.set(null);
     this.destroyHls();
     this.nativeVideoSourceUrl = null;
     this.cloudflareNativePlaybackFailed.set(false);
@@ -4251,12 +4782,18 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   @HostListener('document:click', ['$event'])
   protected onDocumentClick(event: Event): void {
-    if (!this.openMenuReviewId() && !this.openPlaylistFolderMenuId()) return;
+    if (
+      !this.openMenuReviewId() &&
+      !this.openPlaylistFolderMenuId() &&
+      !this.openTimelineColumnMenuId()
+    ) {
+      return;
+    }
     const target = event.target;
     if (
       target instanceof Element &&
       target.closest(
-        '.film-list-item__menu-btn, .film-list-item__menu, .film-list-item__menu-backdrop'
+        '.film-list-item__menu-btn, .film-list-item__menu, .film-list-item__menu-backdrop, .film-playbook-column-menu-btn, .film-playbook-column-menu, .film-playbook-column-menu-backdrop'
       )
     ) {
       return;
@@ -4266,7 +4803,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   @HostListener('document:keydown.escape')
   protected onEscapeKey(): void {
-    if (this.openMenuReviewId() || this.openPlaylistFolderMenuId()) {
+    if (
+      this.openMenuReviewId() ||
+      this.openPlaylistFolderMenuId() ||
+      this.openTimelineColumnMenuId()
+    ) {
       this.resetMenuState();
     }
   }
@@ -4282,6 +4823,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.playlistDraft.set('');
     this.editingPlaylistFolderId.set(null);
     this.playlistFolderRenameDraft.set('');
+    this.openTimelineColumnMenuId.set(null);
   }
 
   protected getReviewDisplayTitle(review: FilmListReview): string {
@@ -4568,6 +5110,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.cloudflareNativePlaybackFailed.set(false);
 
     this.service.select(reviewId);
+    this.timelineColumnFilters.set({});
+    this.openTimelineColumnMenuId.set(null);
     const selectedReview = this.selectedReview();
     const nativeVideoUrl = this.resolveNativeVideoUrlCandidate(selectedReview);
     const cloudflareEmbedUrl = nativeVideoUrl
@@ -4604,6 +5148,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.isSeekDragLockActive.set(false);
     this.wasPlayingBeforeSeek = false;
     this.resetTimelinePlayEditing();
+    this.timelineColumnFilters.set({});
+    this.openTimelineColumnMenuId.set(null);
 
     this.syncSeekUi(0);
     const player = this.filmPlayer?.nativeElement;
@@ -4689,17 +5235,20 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
    * Updates currentPlayIndex and seeks video player to play start time.
    */
   protected async goToPreviousPlay(): Promise<void> {
-    const review = this.selectedReview();
-    if (!review?.timeline) return;
+    const rows = this.filteredTimelineRows();
+    if (rows.length === 0) return;
 
     this.resetTimelinePlayEditing();
     await this.flushCurrentPlayAnnotationPersistence();
 
-    const idx = this.currentPlayIndex();
-    if (idx > 0) {
-      this.currentPlayIndex.set(idx - 1);
-      this.jumpToPlay(review.timeline[idx - 1]);
-    }
+    const activeRowIndex = rows.findIndex((row) => row.originalIndex === this.currentPlayIndex());
+    if (activeRowIndex <= 0) return;
+
+    const nextRow = rows[activeRowIndex - 1];
+    if (!nextRow) return;
+
+    this.currentPlayIndex.set(nextRow.originalIndex);
+    this.jumpToPlay(nextRow.play);
   }
 
   /**
@@ -4707,17 +5256,20 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
    * Updates currentPlayIndex and seeks video player to play start time.
    */
   protected async goToNextPlay(): Promise<void> {
-    const review = this.selectedReview();
-    if (!review?.timeline) return;
+    const rows = this.filteredTimelineRows();
+    if (rows.length === 0) return;
 
     this.resetTimelinePlayEditing();
     await this.flushCurrentPlayAnnotationPersistence();
 
-    const idx = this.currentPlayIndex();
-    if (idx < review.timeline.length - 1) {
-      this.currentPlayIndex.set(idx + 1);
-      this.jumpToPlay(review.timeline[idx + 1]);
-    }
+    const activeRowIndex = rows.findIndex((row) => row.originalIndex === this.currentPlayIndex());
+    if (activeRowIndex < 0 || activeRowIndex >= rows.length - 1) return;
+
+    const nextRow = rows[activeRowIndex + 1];
+    if (!nextRow) return;
+
+    this.currentPlayIndex.set(nextRow.originalIndex);
+    this.jumpToPlay(nextRow.play);
   }
 
   protected async onSelectTimelinePlay(play: FilmTimelinePlay, index: number): Promise<void> {
@@ -4745,7 +5297,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     event.stopPropagation();
 
     const review = this.selectedReview();
-    if (this.saving() || !review?.timeline?.[index]) {
+    if (this.hasActiveTimelineFilters() || this.saving() || !review?.timeline?.[index]) {
       event.preventDefault();
       return;
     }
@@ -4767,6 +5319,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   protected onTimelinePlayDragOver(event: DragEvent, targetIndex: number): void {
+    if (this.hasActiveTimelineFilters()) return;
+
     const sourceIndex = this.draggingTimelinePlayIndex();
     if (sourceIndex === null || sourceIndex === targetIndex) return;
 
@@ -4796,6 +5350,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     reviewId: string,
     targetIndex: number
   ): Promise<void> {
+    if (this.hasActiveTimelineFilters()) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.resetTimelinePlayDragState();
+      return;
+    }
+
     event.preventDefault();
     event.stopPropagation();
 
@@ -5065,6 +5626,111 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return null;
   }
 
+  protected isTimelineColumnMenuOpen(columnId: string): boolean {
+    return this.openTimelineColumnMenuId() === columnId;
+  }
+
+  protected hasTimelineColumnFilter(columnId: string): boolean {
+    return this.timelineColumnFilters()[columnId] !== undefined;
+  }
+
+  protected onOpenTimelineColumnMenu(columnId: string, event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (this.openTimelineColumnMenuId() === columnId) {
+      this.openTimelineColumnMenuId.set(null);
+      return;
+    }
+
+    this.openTimelineColumnMenuId.set(columnId);
+  }
+
+  protected onCloseTimelineColumnMenu(event?: Event): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    this.openTimelineColumnMenuId.set(null);
+  }
+
+  protected onApplyTimelineColumnFilter(
+    column: TimelineGridColumn,
+    mode: TimelineColumnFilterMode,
+    value: string,
+    event: Event
+  ): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    this.timelineColumnFilters.update((current) => ({
+      ...current,
+      [column.id]: {
+        mode,
+        value,
+      },
+    }));
+    this.openTimelineColumnMenuId.set(null);
+  }
+
+  protected onClearTimelineColumnFilter(columnId: string, event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+
+    this.timelineColumnFilters.update((current) => {
+      const next = { ...current };
+      delete next[columnId];
+      return next;
+    });
+    this.openTimelineColumnMenuId.set(null);
+  }
+
+  protected onRemoveTimelineColumnFilter(columnId: string, event: Event): void {
+    this.onClearTimelineColumnFilter(columnId, event);
+  }
+
+  protected onClearAllTimelineColumnFilters(event?: Event): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    this.timelineColumnFilters.set({});
+    this.openTimelineColumnMenuId.set(null);
+  }
+
+  protected getTimelineColumnFilterOptions(column: TimelineGridColumn): readonly {
+    readonly value: string;
+    readonly normalizedValue: string;
+    readonly count: number;
+  }[] {
+    const timeline = this.selectedReview()?.timeline ?? [];
+    const counts = new Map<string, { value: string; count: number }>();
+
+    for (const play of timeline) {
+      const value = this.getTimelineColumnDisplayValue(play, column);
+      if (this.isTimelineFilterPlaceholderValue(value)) {
+        continue;
+      }
+
+      const normalizedValue = this.normalizeTimelineFilterValue(value);
+      const existing = counts.get(normalizedValue);
+      if (existing) {
+        counts.set(normalizedValue, { value: existing.value, count: existing.count + 1 });
+      } else {
+        counts.set(normalizedValue, { value, count: 1 });
+      }
+    }
+
+    return [...counts.entries()]
+      .map(([normalizedValue, data]) => ({
+        normalizedValue,
+        value: data.value,
+        count: data.count,
+      }))
+      .sort((left, right) => {
+        if (right.count !== left.count) {
+          return right.count - left.count;
+        }
+        return left.value.localeCompare(right.value);
+      });
+  }
+
   private getTimelinePlayFieldDraft(play: FilmTimelinePlay, fieldKey: string): string {
     switch (fieldKey) {
       case 'number':
@@ -5187,6 +5853,24 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
 
     return null;
+  }
+
+  private normalizeTimelineFilterValue(value: string): string {
+    return value.trim().toLowerCase();
+  }
+
+  private isTimelineFilterPlaceholderValue(value: string): boolean {
+    const normalized = this.normalizeTimelineFilterValue(value);
+    return (
+      normalized.length === 0 ||
+      normalized === '-' ||
+      normalized === '—' ||
+      normalized === '–' ||
+      normalized === 'n/a' ||
+      normalized === 'na' ||
+      normalized === 'none' ||
+      normalized === 'null'
+    );
   }
 
   private parseTimelineTagEditValue(
@@ -5695,6 +6379,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   @HostListener('window:resize')
   protected onWindowResize(): void {
+    this.openTimelineColumnMenuId.set(null);
     this.ensureDrawCanvasSize();
     this.renderDrawOverlay();
   }
@@ -5720,6 +6405,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     void this.persistCurrentPlayAnnotation();
   }
 
+  protected onDeleteDrawEffectMarker(markerId: string): void {
+    void this.deleteDrawEffectMarker(markerId);
+  }
+
   protected onDrawPointerDown(event: PointerEvent): void {
     if (!this.drawModeEnabled()) return;
 
@@ -5734,6 +6423,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.drawStrokes.push(this.activeStroke);
     this.isDrawStrokeInProgress = true;
     canvas.setPointerCapture?.(event.pointerId);
+    this.currentDrawEffectWindow = this.resolveDefaultDrawEffectWindow(
+      this.currentPlay(),
+      this.playerCurrentTime()
+    );
     this.hasDrawing.set(true);
     this.renderDrawOverlay();
   }
@@ -5784,10 +6477,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       ? `${renderedAnnotation.bounds.minX.toFixed(3)},${renderedAnnotation.bounds.minY.toFixed(3)},${renderedAnnotation.bounds.maxX.toFixed(3)},${renderedAnnotation.bounds.maxY.toFixed(3)}`
       : null;
     const snapshotFiles = renderedAnnotation
-      ? await this.createAnnotatedFrameSnapshotFiles(review, currentTimeSec, renderedAnnotation)
+      ? await this.createAnnotatedFrameSnapshotFiles(review, currentTimeSec)
       : [];
     const snapshotFile = snapshotFiles[0] ?? null;
-    const cropSnapshotFile = snapshotFiles.find((file) => file.name.includes('-annotated-crop-'));
+    const strokeColorHex = this.resolveDrawStrokeColor();
 
     if (!annotation && !currentPlay) {
       return false;
@@ -5827,7 +6520,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
           ? {
               annotationSnapshotAttached: true,
               annotationSnapshotAttachmentName: snapshotFile.name,
-              ...(cropSnapshotFile ? { annotationCropAttachmentName: cropSnapshotFile.name } : {}),
+              annotationStrokeColor: 'light-green',
+              ...(strokeColorHex ? { annotationStrokeColorHex: strokeColorHex } : {}),
             }
           : annotation
             ? { annotationSnapshotAttached: false }
@@ -5850,8 +6544,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   private async createAnnotatedFrameSnapshotFiles(
     review: FilmListReview,
-    currentTimeSec: number,
-    annotation: AgentXSelectedContextAnnotation
+    currentTimeSec: number
   ): Promise<File[]> {
     const player = this.filmPlayer?.nativeElement;
     const drawCanvas = this.drawCanvas?.nativeElement;
@@ -5913,14 +6606,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
           lastModified: Date.now(),
         }
       );
-      const cropFile = await this.createAnnotationCropSnapshotFile(
-        snapshotCanvas,
-        review,
-        currentTimeSec,
-        annotation
-      );
-
-      return cropFile ? [fullFrameFile, cropFile] : [fullFrameFile];
+      return [fullFrameFile];
     } catch {
       this.toast.info('Added drawing coordinates, but this video blocked image snapshot export.');
       return [];
@@ -5957,61 +6643,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     };
   }
 
-  private async createAnnotationCropSnapshotFile(
-    snapshotCanvas: HTMLCanvasElement,
-    review: FilmListReview,
-    currentTimeSec: number,
-    annotation: AgentXSelectedContextAnnotation
-  ): Promise<File | null> {
-    const cropCanvas = document.createElement('canvas');
-    const bounds = annotation.bounds;
-    const minX = bounds.minX * snapshotCanvas.width;
-    const minY = bounds.minY * snapshotCanvas.height;
-    const maxX = bounds.maxX * snapshotCanvas.width;
-    const maxY = bounds.maxY * snapshotCanvas.height;
-    const boundsWidth = Math.max(1, maxX - minX);
-    const boundsHeight = Math.max(1, maxY - minY);
-    const padding = Math.max(56, Math.max(boundsWidth, boundsHeight) * 0.8);
-    const cropX = Math.max(0, Math.floor(minX - padding));
-    const cropY = Math.max(0, Math.floor(minY - padding));
-    const cropRight = Math.min(snapshotCanvas.width, Math.ceil(maxX + padding));
-    const cropBottom = Math.min(snapshotCanvas.height, Math.ceil(maxY + padding));
-    const cropWidth = Math.max(1, cropRight - cropX);
-    const cropHeight = Math.max(1, cropBottom - cropY);
-    const maxCropWidth = 960;
-    const cropScale = Math.min(1.5, maxCropWidth / cropWidth);
-
-    cropCanvas.width = Math.max(1, Math.round(cropWidth * cropScale));
-    cropCanvas.height = Math.max(1, Math.round(cropHeight * cropScale));
-
-    const cropContext = cropCanvas.getContext('2d');
-    if (!cropContext) {
-      return null;
-    }
-
-    cropContext.drawImage(
-      snapshotCanvas,
-      cropX,
-      cropY,
-      cropWidth,
-      cropHeight,
-      0,
-      0,
-      cropCanvas.width,
-      cropCanvas.height
-    );
-
-    const blob = await this.canvasToBlob(cropCanvas, 'image/jpeg', 0.9);
-    if (!blob) {
-      return null;
-    }
-
-    return new File([blob], this.buildAnnotatedSnapshotFileName(review, currentTimeSec, 'crop'), {
-      type: 'image/jpeg',
-      lastModified: Date.now(),
-    });
-  }
-
   private canvasToBlob(
     canvas: HTMLCanvasElement,
     mimeType: string,
@@ -6026,25 +6657,33 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     });
   }
 
-  private buildAnnotatedSnapshotFileName(
-    review: FilmListReview,
-    currentTimeSec: number,
-    variant: 'frame' | 'crop' = 'frame'
-  ): string {
+  private buildAnnotatedSnapshotFileName(review: FilmListReview, currentTimeSec: number): string {
     const title = this.getReviewDisplayTitle(review)
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 48);
     const timestamp = Math.max(0, Math.round(currentTimeSec * 100));
-    const suffix = variant === 'crop' ? `annotated-crop-${timestamp}` : `annotated-${timestamp}`;
+    const suffix = `annotated-${timestamp}`;
     return `${title || 'film-play'}-${suffix}.jpg`;
+  }
+
+  private resolveDrawStrokeColor(): string | null {
+    const canvas = this.drawCanvas?.nativeElement;
+    if (!canvas) {
+      return null;
+    }
+
+    const style = getComputedStyle(canvas);
+    const strokeColor = style.getPropertyValue('--nxt1-color-primary').trim();
+    return strokeColor || '#ccff00';
   }
 
   private resetDrawOverlay(): void {
     this.drawStrokes = [];
     this.activeStroke = [];
     this.isDrawStrokeInProgress = false;
+    this.currentDrawEffectWindow = null;
     this.hasDrawing.set(false);
     this.renderDrawOverlay();
   }
@@ -6065,6 +6704,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.drawStrokes = restoredStrokes;
     this.activeStroke = [];
     this.isDrawStrokeInProgress = false;
+    this.currentDrawEffectWindow = this.resolveDrawEffectWindowForPlay(play, annotation);
     this.hasDrawing.set(true);
     this.ensureDrawCanvasSize();
     this.renderDrawOverlay();
@@ -6271,7 +6911,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private resolveCurrentPlayAnnotation(): TeamFilmReviewPlayAnnotation | null {
-    if (!this.hasDrawing() || this.drawStrokes.length === 0) {
+    const play = this.currentPlay();
+    if (!play || !this.hasDrawing() || this.drawStrokes.length === 0) {
       return null;
     }
 
@@ -6293,6 +6934,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       maxY = Math.max(maxY, point.y);
     }
 
+    const effectWindow =
+      this.currentDrawEffectWindow ??
+      this.resolveDrawEffectWindowForPlay(play, play.annotation) ??
+      this.resolveDefaultDrawEffectWindow(play, this.playerCurrentTime());
+
     return {
       kind: 'freehand',
       bounds: {
@@ -6304,6 +6950,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       strokeCount: strokes.length,
       points: this.compactDrawPointsFromStrokes(strokes, this.maxContextAnnotationPoints),
       strokes,
+      activeFromSec: this.roundPlaybackSecond(effectWindow.startSec),
+      activeUntilSec: this.roundPlaybackSecond(effectWindow.endSec),
     };
   }
 
@@ -6365,12 +7013,28 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!player) return;
     if (this.isScrubbing) return;
     const current = player.currentTime || 0;
+    if (this.enforceTimelinePlayBoundary(player, current)) return;
     this.updatePlayerTimeSignal(current);
     this.syncSeekUi(current);
 
     // Keep UI smooth even if the browser emits sparse timeupdate events.
     if (!player.paused && !player.ended) {
       this.startSmoothProgressTracking();
+    }
+  }
+
+  private async deleteDrawEffectMarker(markerId: string): Promise<void> {
+    const review = this.selectedReview();
+    const playIndex = this.parseDrawEffectMarkerId(markerId);
+    if (!review || playIndex === null || !review.timeline || playIndex >= review.timeline.length) {
+      return;
+    }
+
+    await this.flushCurrentPlayAnnotationPersistence();
+    await this.service.saveTimelinePlayAnnotation(review.id, playIndex, null);
+
+    if (playIndex === this.currentPlayIndex()) {
+      this.resetDrawOverlay();
     }
   }
 
@@ -6402,9 +7066,20 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!player) return;
 
     if (player.paused) {
-      const duration = Number.isFinite(player.duration) ? player.duration : 0;
-      if (duration > 0 && player.currentTime >= duration - 0.05) {
-        player.currentTime = Math.max(0, duration - 0.1);
+      const playBounds = this.getActiveTimelineSeekBounds();
+      if (playBounds) {
+        const replayThreshold = playBounds.endSec - 0.02;
+        if (player.currentTime >= replayThreshold) {
+          player.currentTime = Math.max(
+            playBounds.startSec,
+            playBounds.endSec - this.timelineReplayRewindSec
+          );
+        }
+      } else {
+        const duration = Number.isFinite(player.duration) ? player.duration : 0;
+        if (duration > 0 && player.currentTime >= duration - 0.05) {
+          player.currentTime = Math.max(0, duration - 0.1);
+        }
       }
 
       this.isPlaying.set(true);
@@ -6495,8 +7170,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const player = this.filmPlayer?.nativeElement;
     if (!player) return;
 
-    const duration = Number.isFinite(player.duration) ? player.duration : Infinity;
-    const nextTime = Math.max(0, Math.min((player.currentTime || 0) + deltaSec, duration));
+    const nextTime = this.clampToActiveSeekBounds((player.currentTime || 0) + deltaSec, player);
     this.seekVideoTo(player, nextTime);
   }
 
@@ -6508,6 +7182,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   private pendingSeekFrameId: number | null = null;
   private pendingSeekTime: number | null = null;
+  private readonly timelinePlayTailPaddingSec = 1;
+  private readonly timelineReplayRewindSec = 0.02;
 
   protected onSeekTime(nextTime: number): void {
     const player = this.filmPlayer?.nativeElement;
@@ -6601,8 +7277,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private seekVideoTo(player: HTMLVideoElement, nextTime: number): void {
+    const targetTime = this.clampToActiveSeekBounds(nextTime, player);
     const duration = Number.isFinite(player.duration) ? player.duration : Infinity;
-    const targetTime = Math.max(0, Math.min(nextTime, duration));
 
     player.currentTime = targetTime;
     const committedTime = Number.isFinite(player.currentTime) ? player.currentTime : targetTime;
@@ -6631,6 +7307,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       }
 
       const current = player.currentTime || 0;
+      if (this.enforceTimelinePlayBoundary(player, current)) {
+        return;
+      }
       this.updatePlayerTimeSignal(current);
       this.syncSeekUi(current);
 
@@ -6643,6 +7322,58 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     };
 
     this.rafId = requestAnimationFrame(step);
+  }
+
+  private getActiveTimelineSeekBounds(): { startSec: number; endSec: number } | null {
+    const play = this.currentPlay();
+    if (!play) return null;
+
+    const startSec = Number.isFinite(play.startSec) ? Math.max(0, play.startSec) : 0;
+    const rawEnd = Number.isFinite(play.endSec)
+      ? play.endSec + this.timelinePlayTailPaddingSec
+      : startSec + this.timelinePlayTailPaddingSec;
+    const endSec = Math.max(startSec + 0.05, rawEnd);
+    return { startSec, endSec };
+  }
+
+  private clampToActiveSeekBounds(nextTime: number, player: HTMLVideoElement): number {
+    const playBounds = this.getActiveTimelineSeekBounds();
+    if (playBounds) {
+      return Math.max(playBounds.startSec, Math.min(nextTime, playBounds.endSec));
+    }
+
+    const duration = Number.isFinite(player.duration) ? player.duration : Infinity;
+    return Math.max(0, Math.min(nextTime, duration));
+  }
+
+  private enforceTimelinePlayBoundary(player: HTMLVideoElement, currentSec: number): boolean {
+    const playBounds = this.getActiveTimelineSeekBounds();
+    if (!playBounds) return false;
+
+    if (currentSec < playBounds.startSec - 0.05) {
+      player.currentTime = playBounds.startSec;
+      this.updatePlayerTimeSignal(player.currentTime, true);
+      this.syncSeekUi(player.currentTime);
+      return true;
+    }
+
+    const endThreshold = playBounds.endSec;
+    if (currentSec <= endThreshold) {
+      return false;
+    }
+
+    const duration = Number.isFinite(player.duration) ? player.duration : Infinity;
+    const stopTime = Math.max(
+      playBounds.startSec,
+      Math.min(endThreshold, Number.isFinite(duration) ? duration - 0.001 : endThreshold)
+    );
+    player.currentTime = stopTime;
+    player.pause();
+    this.isPlaying.set(false);
+    this.stopSmoothProgressTracking();
+    this.updatePlayerTimeSignal(player.currentTime, true);
+    this.syncSeekUi(player.currentTime);
+    return true;
   }
 
   private async playWhenReady(player: HTMLVideoElement): Promise<void> {
@@ -6747,6 +7478,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (force || this.isScrubbing || now - this.lastSignalUpdateMs >= 16) {
       this.lastSignalUpdateMs = now;
       this.playerCurrentTime.set(safeCurrent);
+      if (this.hasDrawing()) {
+        this.renderDrawOverlay();
+      }
     }
   }
 
@@ -7073,8 +7807,25 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       .divider { flex: 0 0 auto; width: 1px; height: 18px; background: rgba(148, 163, 184, 0.28); }
       h1 { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 700; letter-spacing: 0; }
       .status { flex: 0 0 auto; color: #94a3b8; font-size: 12px; font-weight: 600; }
-      main { display: grid; min-height: 0; padding: 0; background: #000; }
-      video { width: 100%; height: 100%; min-height: 0; object-fit: contain; background: #000; outline: none; }
+      main { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; padding: 0; background: #000; }
+      .player-shell { position: relative; min-height: 0; }
+      video { width: 100%; height: 100%; min-height: 0; object-fit: contain; background: #000; outline: none; display: block; }
+      .controls { display: grid; gap: 8px; padding: 10px 12px 12px; background: linear-gradient(180deg, rgba(9, 13, 18, 0.4) 0%, rgba(5, 7, 10, 0.92) 100%); }
+      .seek-wrap { display: flex; align-items: center; }
+      .seek { width: 100%; -webkit-appearance: none; appearance: none; height: 4px; border-radius: 999px; border: 0; outline: none; cursor: pointer; background: linear-gradient(to right, #84cc16 0%, #84cc16 var(--seek-progress, 0%), rgba(148, 163, 184, 0.35) var(--seek-progress, 0%), rgba(148, 163, 184, 0.35) 100%); }
+      .seek::-webkit-slider-runnable-track { height: 4px; background: transparent; border-radius: 999px; }
+      .seek::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 11px; height: 11px; border-radius: 50%; border: 0; margin-top: -3.5px; background: #84cc16; }
+      .seek::-moz-range-track { height: 4px; background: transparent; border-radius: 999px; }
+      .seek::-moz-range-thumb { width: 11px; height: 11px; border-radius: 50%; border: 0; background: #84cc16; }
+      .controls-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+      .controls-cluster { display: inline-flex; align-items: center; gap: 2px; padding: 4px; border-radius: 12px; background: rgba(15, 23, 42, 0.78); border: 1px solid rgba(148, 163, 184, 0.2); }
+      .ctl-btn { min-width: 30px; min-height: 30px; border: 0; border-radius: 8px; background: transparent; color: #e2e8f0; font-size: 12px; font-weight: 700; line-height: 1; cursor: pointer; }
+      .ctl-btn:hover:not(:disabled) { background: rgba(132, 204, 22, 0.16); color: #bef264; }
+      .ctl-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+      .ctl-btn--play { color: #bef264; }
+      .controls-right { display: inline-flex; align-items: center; gap: 4px; }
+      .speed-select { min-height: 30px; border: 0; border-radius: 8px; background: transparent; color: #e2e8f0; font-size: 12px; font-weight: 700; padding: 0 6px; cursor: pointer; }
+      .time-badge { min-height: 30px; display: inline-flex; align-items: center; padding: 0 8px; color: #cbd5e1; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
     </style>
   </head>
   <body>
@@ -7087,7 +7838,38 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       <span class="status" id="status">Loading</span>
     </header>
     <main>
-      <video id="player" controls playsinline preload="metadata"></video>
+      <div class="player-shell">
+        <video id="player" playsinline preload="metadata"></video>
+      </div>
+      <div class="controls" role="group" aria-label="Playback controls">
+        <div class="seek-wrap">
+          <input id="seek" class="seek" type="range" min="0" max="0.1" value="0" step="any" aria-label="Seek timeline" />
+        </div>
+        <div class="controls-row">
+          <div class="controls-cluster" role="group" aria-label="Timeline navigation">
+            <button id="jumpStart" class="ctl-btn" type="button" aria-label="Jump to start" title="Jump to start">|&lt;</button>
+            <button id="back10" class="ctl-btn" type="button" aria-label="Back 10 seconds" title="Back 10 seconds">&laquo;</button>
+            <button id="back5" class="ctl-btn" type="button" aria-label="Back 5 seconds" title="Back 5 seconds">&lsaquo;</button>
+            <button id="playPause" class="ctl-btn ctl-btn--play" type="button" aria-label="Play" title="Play">&#9658;</button>
+            <button id="forward5" class="ctl-btn" type="button" aria-label="Forward 5 seconds" title="Forward 5 seconds">&rsaquo;</button>
+            <button id="forward10" class="ctl-btn" type="button" aria-label="Forward 10 seconds" title="Forward 10 seconds">&raquo;</button>
+            <button id="jumpEnd" class="ctl-btn" type="button" aria-label="Jump to end" title="Jump to end">&gt;|</button>
+          </div>
+
+          <div class="controls-cluster controls-right" role="group" aria-label="Playback options">
+            <select id="speed" class="speed-select" aria-label="Playback speed">
+              <option value="0.5">0.5x</option>
+              <option value="0.75">0.75x</option>
+              <option value="1" selected>1x</option>
+              <option value="1.25">1.25x</option>
+              <option value="1.5">1.5x</option>
+              <option value="2">2x</option>
+            </select>
+            <button id="fullscreen" class="ctl-btn" type="button" aria-label="Toggle fullscreen" title="Toggle fullscreen">&#9974;</button>
+            <span id="timeBadge" class="time-badge">0:00.00 / 0:00.00</span>
+          </div>
+        </div>
+      </div>
     </main>
     <script>
       const sourceUrl = ${safeVideoUrl};
@@ -7096,18 +7878,135 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       const video = document.getElementById('player');
       const titleEl = document.getElementById('title');
       const statusEl = document.getElementById('status');
+      const seekEl = document.getElementById('seek');
+      const playPauseBtn = document.getElementById('playPause');
+      const jumpStartBtn = document.getElementById('jumpStart');
+      const jumpEndBtn = document.getElementById('jumpEnd');
+      const back5Btn = document.getElementById('back5');
+      const back10Btn = document.getElementById('back10');
+      const forward5Btn = document.getElementById('forward5');
+      const forward10Btn = document.getElementById('forward10');
+      const speedEl = document.getElementById('speed');
+      const fullscreenBtn = document.getElementById('fullscreen');
+      const timeBadgeEl = document.getElementById('timeBadge');
+
+      const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+      const formatTime = (seconds) => {
+        if (!Number.isFinite(seconds) || seconds < 0) return '0:00.00';
+        const whole = Math.floor(seconds);
+        const mins = Math.floor(whole / 60);
+        const secs = whole % 60;
+        const hundredths = Math.floor((seconds - whole) * 100);
+        return String(mins) + ':' + String(secs).padStart(2, '0') + '.' + String(hundredths).padStart(2, '0');
+      };
+
+      let scrubbing = false;
+      const updatePlayLabel = () => {
+        const isPaused = video.paused || video.ended;
+        playPauseBtn.textContent = isPaused ? '\u25B6' : '\u23F8';
+        playPauseBtn.setAttribute('aria-label', isPaused ? 'Play' : 'Pause');
+        playPauseBtn.setAttribute('title', isPaused ? 'Play' : 'Pause');
+      };
+      const updateSeek = () => {
+        const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+        if (!scrubbing) {
+          seekEl.max = duration > 0 ? String(duration) : '0.1';
+          seekEl.value = String(clamp(video.currentTime || 0, 0, duration || 0.1));
+        }
+        const progress = duration > 0 ? (clamp(video.currentTime || 0, 0, duration) / duration) * 100 : 0;
+        seekEl.style.setProperty('--seek-progress', String(progress) + '%');
+        timeBadgeEl.textContent = formatTime(video.currentTime || 0) + ' / ' + formatTime(duration);
+      };
+
+      const seekRelative = (delta) => {
+        const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
+        if (duration <= 0) return;
+        video.currentTime = clamp((video.currentTime || 0) + delta, 0, duration);
+      };
+
       document.title = 'NXT1 Film Review | ' + title;
       titleEl.textContent = title;
       video.src = sourceUrl;
+      video.controls = false;
+
       video.addEventListener('loadedmetadata', () => {
         if (Number.isFinite(startTime) && startTime > 0 && startTime < video.duration) {
           video.currentTime = startTime;
         }
         statusEl.textContent = 'Ready';
+        updateSeek();
       }, { once: true });
+      video.addEventListener('timeupdate', updateSeek);
+      video.addEventListener('seeking', updateSeek);
+      video.addEventListener('seeked', updateSeek);
+      video.addEventListener('play', () => {
+        statusEl.textContent = 'Playing';
+        updatePlayLabel();
+      });
+      video.addEventListener('pause', () => {
+        statusEl.textContent = 'Paused';
+        updatePlayLabel();
+      });
+      video.addEventListener('ended', () => {
+        statusEl.textContent = 'Ended';
+        updatePlayLabel();
+      });
       video.addEventListener('error', () => {
         statusEl.textContent = 'Video unavailable';
       });
+
+      seekEl.addEventListener('pointerdown', () => {
+        scrubbing = true;
+      });
+      seekEl.addEventListener('pointerup', () => {
+        scrubbing = false;
+      });
+      seekEl.addEventListener('input', () => {
+        const nextTime = Number(seekEl.value || '0');
+        if (!Number.isFinite(nextTime)) return;
+        video.currentTime = nextTime;
+        updateSeek();
+      });
+
+      playPauseBtn.addEventListener('click', () => {
+        if (video.paused || video.ended) {
+          video.play().catch(() => {
+            statusEl.textContent = 'Playback blocked';
+          });
+        } else {
+          video.pause();
+        }
+      });
+      jumpStartBtn.addEventListener('click', () => {
+        video.currentTime = 0;
+      });
+      jumpEndBtn.addEventListener('click', () => {
+        if (Number.isFinite(video.duration) && video.duration > 0) {
+          video.currentTime = video.duration;
+        }
+      });
+      back5Btn.addEventListener('click', () => seekRelative(-5));
+      back10Btn.addEventListener('click', () => seekRelative(-10));
+      forward5Btn.addEventListener('click', () => seekRelative(5));
+      forward10Btn.addEventListener('click', () => seekRelative(10));
+
+      speedEl.addEventListener('change', () => {
+        const nextRate = Number(speedEl.value || '1');
+        if (!Number.isFinite(nextRate) || nextRate <= 0) return;
+        video.playbackRate = nextRate;
+      });
+
+      fullscreenBtn.addEventListener('click', async () => {
+        const doc = document;
+        if (doc.fullscreenElement) {
+          await doc.exitFullscreen().catch(() => undefined);
+          return;
+        }
+        await video.requestFullscreen().catch(() => undefined);
+      });
+
+      updatePlayLabel();
+      updateSeek();
       video.focus({ preventScroll: true });
     </script>
   </body>
@@ -7175,6 +8074,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     context.clearRect(0, 0, canvas.width, canvas.height);
     if (!this.drawStrokes.length) return;
+    if (!this.drawModeEnabled() && !this.shouldRenderDrawOverlayAtCurrentTime()) return;
 
     const style = getComputedStyle(canvas);
     const strokeColor = style.getPropertyValue('--nxt1-color-primary').trim() || '#ccff00';
@@ -7205,6 +8105,80 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
 
     context.restore();
+  }
+
+  private shouldRenderDrawOverlayAtCurrentTime(): boolean {
+    const play = this.currentPlay();
+    if (!play) {
+      return true;
+    }
+
+    const window =
+      this.currentDrawEffectWindow ??
+      this.resolveDrawEffectWindowForPlay(play, play.annotation ?? null);
+    if (!window) {
+      return true;
+    }
+
+    const currentSec = this.playerCurrentTime();
+    return currentSec >= window.startSec && currentSec <= window.endSec;
+  }
+
+  private resolveDrawEffectWindowForPlay(
+    play: FilmTimelinePlay | null | undefined,
+    annotation: TeamFilmReviewPlayAnnotation | null | undefined
+  ): { startSec: number; endSec: number } | null {
+    if (!play || !annotation) return null;
+
+    const startRaw = Number(annotation.activeFromSec);
+    const endRaw = Number(annotation.activeUntilSec);
+    const fallbackStart = Number.isFinite(play.startSec) ? play.startSec : 0;
+    const fallbackEnd = Math.max(
+      fallbackStart + 0.1,
+      Number.isFinite(play.endSec) ? play.endSec : fallbackStart + this.drawEffectDurationSec
+    );
+
+    let startSec = Number.isFinite(startRaw) ? startRaw : fallbackStart;
+    startSec = Math.max(fallbackStart, Math.min(startSec, fallbackEnd - 0.05));
+
+    const maxWindowEnd = Math.min(fallbackEnd, startSec + this.drawEffectDurationSec);
+    let endSec = Number.isFinite(endRaw) ? endRaw : startSec + this.drawEffectDurationSec;
+    endSec = Math.max(startSec + 0.05, Math.min(endSec, maxWindowEnd));
+
+    if (endSec <= startSec) return null;
+    return { startSec, endSec };
+  }
+
+  private resolveDefaultDrawEffectWindow(
+    play: FilmTimelinePlay | null,
+    anchorSec: number
+  ): { startSec: number; endSec: number } {
+    const startBound = Number.isFinite(play?.startSec) ? (play?.startSec as number) : 0;
+    const endBound = Number.isFinite(play?.endSec)
+      ? Math.max(startBound + 0.1, play?.endSec as number)
+      : Math.max(startBound + this.drawEffectDurationSec, this.playerDuration());
+    const safeAnchor = Number.isFinite(anchorSec) ? anchorSec : startBound;
+    const startSec = Math.max(startBound, Math.min(safeAnchor, endBound - 0.05));
+    const endSec = Math.max(
+      startSec + 0.05,
+      Math.min(endBound, startSec + this.drawEffectDurationSec)
+    );
+    return { startSec, endSec };
+  }
+
+  private roundPlaybackSecond(value: number): number {
+    return Number(Math.max(0, value).toFixed(3));
+  }
+
+  private buildDrawEffectMarkerId(playIndex: number): string {
+    return `play-${playIndex}`;
+  }
+
+  private parseDrawEffectMarkerId(markerId: string): number | null {
+    const prefix = 'play-';
+    if (!markerId.startsWith(prefix)) return null;
+    const index = Number(markerId.slice(prefix.length));
+    return Number.isInteger(index) && index >= 0 ? index : null;
   }
 
   /**

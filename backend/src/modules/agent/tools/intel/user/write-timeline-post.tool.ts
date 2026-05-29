@@ -115,7 +115,6 @@ export class WriteTimelinePostTool extends BaseTool {
   readonly entityGroup = 'user_tools' as const;
   override readonly allowedAgents: readonly (AgentIdentifier | '*')[] = [
     'data_coordinator',
-    'brand_coordinator',
     'recruiting_coordinator',
     'strategy_coordinator',
   ];
@@ -138,28 +137,24 @@ export class WriteTimelinePostTool extends BaseTool {
       return { success: false, error: 'Authenticated tool context is required.' };
     }
 
-    // ── Roster-based write authorization ────────────────────────────────
-    // Self-writes are always allowed. Delegated writes (coach/director acting
-    // on a player's feed) require the actor to be an active team manager
-    // sharing an active roster scope with the target user.
-    if (userId !== context.userId) {
-      try {
-        await createProfileWriteAccessService(this.db).assertCanManageProfileTarget({
-          actorUserId: context.userId,
-          targetUserId: userId,
-          action: 'write_timeline_post',
-          requireDelegatedAthleteTarget: false,
-        });
-      } catch (err) {
-        const message =
-          err instanceof Error ? err.message : 'Not authorized to post on this timeline.';
-        logger.warn('[WriteTimelinePostTool] Delegated write denied', {
-          actorUserId: context.userId,
-          targetUserId: userId,
-          error: message,
-        });
-        return { success: false, error: message };
-      }
+    // ── Athlete-profile write authorization ─────────────────────────────
+    // Timeline posting is currently restricted to athlete profile timelines
+    // only. Self-writes and delegated writes must both target an athlete.
+    try {
+      await createProfileWriteAccessService(this.db).assertCanManageAthleteProfileTarget({
+        actorUserId: context.userId,
+        targetUserId: userId,
+        action: 'write_timeline_post',
+      });
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Not authorized to post on this timeline.';
+      logger.warn('[WriteTimelinePostTool] Athlete-profile write denied', {
+        actorUserId: context.userId,
+        targetUserId: userId,
+        error: message,
+      });
+      return { success: false, error: message };
     }
 
     const content = this.str(input, 'content');

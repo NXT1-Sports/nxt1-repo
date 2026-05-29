@@ -126,15 +126,17 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('No timeline fallback for profile videos');
   });
 
-  it('exposes timeline posting to the brand coordinator with explicit publish rules', () => {
+  it('keeps brand coordinator focused on media generation and not direct publishing', () => {
     const agent = new BrandCoordinatorAgent();
     const prompt = agent.getSystemPrompt(context);
 
-    expect(agent.getAvailableTools()).toContain('write_timeline_post');
+    expect(agent.getAvailableTools()).not.toContain('write_timeline_post');
+    expect(agent.getAvailableTools()).not.toContain('update_timeline_post');
+    expect(agent.getAvailableTools()).not.toContain('delete_timeline_post');
     expect(agent.getAvailableTools()).toContain('clip_video');
     expect(agent.getAvailableTools()).toContain('runway_generate_video');
-    expect(prompt).toContain('call write_timeline_post after the asset is generated');
-    expect(prompt).toContain('Do NOT publish automatically unless the user clearly asked');
+    expect(prompt).toContain('Publishing is not part of the Brand Coordinator toolchain.');
+    expect(prompt).toContain('Do not call timeline/team publishing tools from Brand.');
     expect(prompt).toContain('## Internal Asset Fallback — MANDATORY Pre-Step');
     expect(prompt).toContain('query_nxt1_data');
     expect(prompt).toContain('user_profile_snapshot');
@@ -180,15 +182,19 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain(
       'call `ffmpeg_generate_thumbnail` on the clip/video URL BEFORE any video analysis'
     );
-    expect(prompt).toContain(
-      'Then call `analyze_image` on the returned `cropImageUrl` / `imageUrl`'
-    );
+    expect(prompt).toContain('Then call `analyze_image` on the returned `imageUrl`');
+    expect(prompt).toContain('find the user-drawn light-green annotation stroke/circle first');
     expect(prompt).toContain('do NOT go straight to `analyze_video`');
     expect(prompt).toContain('marked-frame timestamp/currentTimeSec');
     expect(prompt).toContain('otherwise use the midpoint of the play window');
-    expect(prompt).toContain('pass `cropBounds` from the video-frame normalized annotation bounds');
-    expect(prompt).toContain('returns the cropped selected area as `cropImageUrl` / `imageUrl`');
+    expect(prompt).not.toContain(
+      'pass `cropBounds` from the video-frame normalized annotation bounds'
+    );
     expect(prompt).toContain('A generated FFmpeg thumbnail is a raw video frame');
+    expect(prompt).toContain(
+      'Use the resolved sport context from the thread/request for every image prompt'
+    );
+    expect(prompt).toContain('Never inject a sport that is not explicitly resolved in context');
     expect(prompt).toContain(
       'Never claim a jersey color, number, position, or identity unless it is visible inside the marked bounds'
     );

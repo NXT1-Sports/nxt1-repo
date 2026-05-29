@@ -52,6 +52,13 @@ describe('AnalyzeImageTool', () => {
     );
 
     expect(result.success).toBe(true);
+    expect(resolver.resolveProcessingUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceUrl: 'https://storage.googleapis.com/bucket/path/player.jpg?X-Goog-Signature=abc',
+        fallbackToFirebaseStaging: true,
+        preferFreshFirebaseSignedUrl: true,
+      })
+    );
     expect(fetch).toHaveBeenCalledWith(
       'https://storage.googleapis.com/bucket/path/player.jpg?X-Goog-Signature=abc',
       expect.objectContaining({ redirect: 'follow' })

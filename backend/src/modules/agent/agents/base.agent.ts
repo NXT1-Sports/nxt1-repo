@@ -3126,6 +3126,17 @@ export abstract class BaseAgent {
       });
     }
 
+    this.sanitizeDrawnContextThumbnailInput({
+      toolName,
+      input,
+      currentMessages,
+    });
+    this.sanitizeDrawnContextAnalyzeImageInput({
+      toolName,
+      input,
+      currentMessages,
+    });
+
     if (this.id === 'router' && toolName === 'open_live_view') {
       return JSON.stringify({
         success: false,
@@ -3183,6 +3194,22 @@ export abstract class BaseAgent {
     const lockoutMessage = loopDetector.checkLockout(sessionContext?.operationId, toolName);
     if (lockoutMessage) {
       return lockoutMessage;
+    }
+
+    const drawnContextPolicy = this.evaluateDrawnContextVideoGuard({
+      toolName,
+      currentMessages,
+    });
+    if (drawnContextPolicy.shouldBlock) {
+      logger.warn('[BaseAgent] Blocked analyze_video before image grounding', {
+        agentId: this.id,
+        toolName,
+        reason: drawnContextPolicy.reason,
+      });
+      return JSON.stringify({
+        success: false,
+        error: drawnContextPolicy.reason,
+      });
     }
 
     if (approvalGate) {
@@ -3453,6 +3480,260 @@ export abstract class BaseAgent {
         ...(advisory ? { advisory } : {}),
       });
     }
+  }
+
+  private evaluateDrawnContextVideoGuard(params: {
+    toolName: string;
+    currentMessages?: readonly LLMMessage[];
+    conversationHistory?: readonly LLMMessage[];
+  }): { shouldBlock: boolean; reason: string } {
+    if (this.id !== 'performance_coordinator' || params.toolName !== 'analyze_video') {
+      return { shouldBlock: false, reason: '' };
+    }
+
+    const currentTurnMessages = params.currentMessages ?? [];
+    const messagePool: readonly LLMMessage[] = currentTurnMessages;
+    const filmScope = this.resolveFilmAnalysisScope(currentTurnMessages);
+    const hasDrawnContext = filmScope === 'annotated_clip';
+
+    logger.info('[BaseAgent] Resolved film analysis scope for analyze_video guard', {
+      agentId: this.id,
+      toolName: params.toolName,
+      scope: filmScope,
+      hasDrawnContext,
+    });
+
+    if (!hasDrawnContext) {
+      return { shouldBlock: false, reason: '' };
+    }
+
+    const toolNameByCallId = new Map<string, string>();
+    for (const message of messagePool) {
+      if (message.role !== 'assistant' || !message.tool_calls?.length) continue;
+      for (const toolCall of message.tool_calls) {
+        toolNameByCallId.set(toolCall.id, toolCall.function.name);
+      }
+    }
+
+    let hasImageGroundingSuccess = false;
+    let hasImageGroundingFailure = false;
+    let hasPriorAnalyzeVideoGuardBlock = false;
+
+    for (const message of messagePool) {
+      if (message.role !== 'tool' || typeof message.content !== 'string') continue;
+      const calledToolName = message.tool_call_id
+        ? toolNameByCallId.get(message.tool_call_id)
+        : undefined;
+      if (
+        calledToolName !== 'analyze_image' &&
+        calledToolName !== 'ffmpeg_generate_thumbnail' &&
+        calledToolName !== 'stage_media' &&
+        calledToolName !== 'analyze_video'
+      ) {
+        continue;
+      }
+
+      try {
+        const payload = JSON.parse(message.content) as Record<string, unknown>;
+        if (payload['success'] === true) {
+          if (calledToolName === 'analyze_image') {
+            hasImageGroundingSuccess = true;
+            continue;
+          }
+          const data =
+            payload['data'] && typeof payload['data'] === 'object'
+              ? (payload['data'] as Record<string, unknown>)
+              : null;
+          if (
+            data &&
+            (typeof data['cropImageUrl'] === 'string' || typeof data['imageUrl'] === 'string')
+          ) {
+            hasImageGroundingSuccess = true;
+          }
+          continue;
+        }
+
+        if (payload['success'] === false) {
+          if (calledToolName === 'analyze_video') {
+            const payloadError = typeof payload['error'] === 'string' ? payload['error'] : '';
+            if (
+              payloadError.includes('Circled play detected') ||
+              payloadError.includes('Cannot run motion video analysis for a circled play')
+            ) {
+              hasPriorAnalyzeVideoGuardBlock = true;
+            }
+          }
+          hasImageGroundingFailure = true;
+        }
+      } catch {
+        continue;
+      }
+    }
+
+    if (hasImageGroundingSuccess) {
+      return { shouldBlock: false, reason: '' };
+    }
+
+    if (hasPriorAnalyzeVideoGuardBlock) {
+      return {
+        shouldBlock: true,
+        reason:
+          'Analyze_video is already blocked for this turn because the selected clip is annotated. Do not retry analyze_video until image grounding succeeds (analyze_image on annotated frame, or ffmpeg_generate_thumbnail + analyze_image).',
+      };
+    }
+
+    const reason = hasImageGroundingFailure
+      ? 'Cannot run motion video analysis for a circled play until marked-frame image grounding succeeds. First resolve the still-frame step (analyze_image on the annotated full frame, or ffmpeg_generate_thumbnail + analyze_image), then continue.'
+      : 'Circled play detected. Run image grounding first (analyze_image on the annotated full frame, or ffmpeg_generate_thumbnail + analyze_image) before analyze_video.';
+    return { shouldBlock: true, reason };
+  }
+
+  private sanitizeDrawnContextThumbnailInput(params: {
+    toolName: string;
+    input: Record<string, unknown>;
+    currentMessages?: readonly LLMMessage[];
+  }): void {
+    if (this.id !== 'performance_coordinator' || params.toolName !== 'ffmpeg_generate_thumbnail') {
+      return;
+    }
+
+    if (!this.hasDrawnFilmContext(params.currentMessages)) {
+      return;
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(params.input, 'cropBounds')) {
+      return;
+    }
+
+    delete params.input['cropBounds'];
+    logger.info('[BaseAgent] Removed cropBounds for drawn-context thumbnail grounding', {
+      agentId: this.id,
+      toolName: params.toolName,
+    });
+  }
+
+  private sanitizeDrawnContextAnalyzeImageInput(params: {
+    toolName: string;
+    input: Record<string, unknown>;
+    currentMessages?: readonly LLMMessage[];
+  }): void {
+    if (this.id !== 'performance_coordinator' || params.toolName !== 'analyze_image') {
+      return;
+    }
+
+    if (!this.hasDrawnFilmContext(params.currentMessages)) {
+      return;
+    }
+
+    const rawPrompt = params.input['prompt'];
+    if (typeof rawPrompt !== 'string' || rawPrompt.trim().length === 0) {
+      return;
+    }
+
+    const sanitizedPrompt = this.normalizeDrawnContextImagePrompt(rawPrompt);
+    if (sanitizedPrompt === rawPrompt) {
+      return;
+    }
+
+    params.input['prompt'] = sanitizedPrompt;
+    logger.info('[BaseAgent] Sanitized analyze_image prompt for drawn-context grounding', {
+      agentId: this.id,
+      toolName: params.toolName,
+    });
+  }
+
+  private normalizeDrawnContextImagePrompt(prompt: string): string {
+    const withoutCropLanguage = prompt
+      .replace(/\bcropped\s+(?:video\s+)?frame\b/giu, 'annotated full-frame image')
+      .replace(/\bcropped\s+frame\b/giu, 'annotated full-frame image')
+      .replace(/\bcrop(?:ped|ping)?\b/giu, 'marked-region');
+
+    const sportPattern =
+      /\b(?:football|basketball|baseball|softball|soccer|lacrosse|volleyball|hockey|rugby|tennis|golf|swimming|track|cross-country|wrestling|boxing|mma|combat|cricket|field\s+hockey|water\s+polo)\b/giu;
+    const withoutSportWords = withoutCropLanguage
+      .replace(sportPattern, ' ')
+      .replace(/\b(?:game|play|film|frame)\b/giu, (match) => match)
+      .replace(/\s{2,}/gu, ' ')
+      .replace(/\s+([,.!?;:])/gu, '$1')
+      .trim();
+
+    const normalized = withoutSportWords;
+    const guardrail =
+      ' Focus on the user-drawn light-green marking in the full frame and identify only what is inside it. Do not infer or name a sport.';
+    return normalized.includes('Do not infer or name a sport')
+      ? normalized
+      : `${normalized}${guardrail}`;
+  }
+
+  private hasDrawnFilmContext(messages?: readonly LLMMessage[]): boolean {
+    return this.resolveFilmAnalysisScope(messages) === 'annotated_clip';
+  }
+
+  private resolveFilmAnalysisScope(
+    messages?: readonly LLMMessage[]
+  ): 'annotated_clip' | 'multi_clip' | 'full_video' | 'unknown' {
+    if (!messages?.length) {
+      return 'unknown';
+    }
+
+    const selectedContextSegments = messages.flatMap((message) => {
+      if (message.role !== 'user' || typeof message.content !== 'string') {
+        return [];
+      }
+
+      return this.extractSelectedContextSegments(message.content);
+    });
+
+    if (selectedContextSegments.length === 0) {
+      return 'unknown';
+    }
+
+    const hasAnnotatedClipContext = selectedContextSegments.some(
+      (segment) =>
+        /User drawing annotation:/iu.test(segment) ||
+        /annotationSnapshotAttached:\s*true/iu.test(segment) ||
+        /hasDrawing:\s*true/iu.test(segment) ||
+        /video-frame normalized bounds/iu.test(segment) ||
+        /Marked-frame timestamp/iu.test(segment) ||
+        /flattened annotated frame image attachment/iu.test(segment)
+    );
+
+    if (hasAnnotatedClipContext) {
+      return 'annotated_clip';
+    }
+
+    const joinedSegments = selectedContextSegments.join('\n');
+    const filmPlayCount = (joinedSegments.match(/^\d+\.\s+film_play\s*\(/gimu) ?? []).length;
+    if (filmPlayCount > 1) {
+      return 'multi_clip';
+    }
+
+    const hasFilmReviewContext = /^\d+\.\s+film_review\s*\(/gimu.test(joinedSegments);
+    if (hasFilmReviewContext) {
+      return 'full_video';
+    }
+
+    return 'unknown';
+  }
+
+  private extractSelectedContextSegments(content: string): string[] {
+    const segments: string[] = [];
+
+    const blockPatterns = [
+      /\[Selected contexts \(confirmed by user for this turn\):([\s\S]*?)\n\]/giu,
+      /\[Selected contexts from user request\]([\s\S]*?)(?:\n\n|$)/giu,
+    ];
+
+    for (const blockPattern of blockPatterns) {
+      for (const match of content.matchAll(blockPattern)) {
+        const segment = match[1]?.trim();
+        if (segment) {
+          segments.push(segment);
+        }
+      }
+    }
+
+    return segments;
   }
 
   private async executeToolWithRetry(params: {

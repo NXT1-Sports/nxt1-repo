@@ -50,20 +50,20 @@ export interface IconDefinition {
  * All icons use stroke rendering with customizable color.
  */
 export const UI_ICONS = {
-  /** Fast Rewind (triple left arrow) */
+  /** Fast rewind (double left chevrons) */
   fastRewind: {
     viewBox: '0 0 24 24',
     type: 'stroke' as const,
-    strokeWidth: 2.1,
-    paths: [{ d: 'M19 6l-7 6 7 6' }, { d: 'M13 6l-7 6 7 6' }, { d: 'M7 6l-7 6 7 6' }],
+    strokeWidth: 2.2,
+    paths: [{ d: 'M16 7l-6 5 6 5' }, { d: 'M11 7l-6 5 6 5' }],
   },
 
-  /** Fast Forward (triple right arrow) */
+  /** Fast forward (double right chevrons) */
   fastForward: {
     viewBox: '0 0 24 24',
     type: 'stroke' as const,
-    strokeWidth: 2.1,
-    paths: [{ d: 'M7 6l7 6-7 6' }, { d: 'M13 6l7 6-7 6' }, { d: 'M19 6l7 6-7 6' }],
+    strokeWidth: 2.2,
+    paths: [{ d: 'M8 7l6 5-6 5' }, { d: 'M13 7l6 5-6 5' }],
   },
 
   /** Forward (double right arrow) */
@@ -71,7 +71,7 @@ export const UI_ICONS = {
     viewBox: '0 0 24 24',
     type: 'stroke' as const,
     strokeWidth: 2.1,
-    paths: [{ d: 'M7 6l7 6-7 6' }, { d: 'M13 6l7 6-7 6' }],
+    paths: [{ d: 'M9 7l6 5-6 5' }],
   },
 
   /** Rewind (double left arrow) */
@@ -79,7 +79,7 @@ export const UI_ICONS = {
     viewBox: '0 0 24 24',
     type: 'stroke' as const,
     strokeWidth: 2.1,
-    paths: [{ d: 'M13 6l-7 6 7 6' }, { d: 'M7 6l-7 6 7 6' }],
+    paths: [{ d: 'M15 7l-6 5 6 5' }],
   },
   /** Pause icon (for video controls) */
   pause: {
@@ -308,50 +308,68 @@ export const UI_ICONS = {
     paths: [{ d: 'M15 18l-6-6 6-6' }],
   },
 
-  /** Skip Back 5s icon (circular arrow with 5, left) */
+  /** Skip back 5 seconds icon */
   skipBack: {
     viewBox: '0 0 24 24',
-    type: 'fill' as const,
-    paths: [{ d: 'M7 12l7-6v12l-7-6z' }, { d: 'M2 12l7-6v12l-7-6z' }, { d: 'M12 12l7-6v12l-7-6z' }],
+    type: 'stroke' as const,
+    strokeWidth: 2.2,
+    paths: [{ d: 'M8.5 8L5 11l3.5 3' }, { d: 'M5.7 11h6a5.5 5.5 0 1 1-3.3 9.9' }],
   },
 
-  /** Jump to start icon (for film controls) */
+  /** Jump to start icon (bar + double left) */
   jumpToStart: {
     viewBox: '0 0 24 24',
-    type: 'fill' as const,
-    paths: [{ d: 'M5 5h2v14H5z' }, { d: 'M19 6v12L9 12z' }],
+    type: 'stroke' as const,
+    strokeWidth: 2.2,
+    paths: [{ d: 'M6 6v12' }, { d: 'M17 7l-6 5 6 5' }, { d: 'M13 7l-6 5 6 5' }],
   },
 
-  /** Jump to end icon (for film controls) */
+  /** Jump to end icon (double right + bar) */
   jumpToEnd: {
     viewBox: '0 0 24 24',
-    type: 'fill' as const,
-    paths: [{ d: 'M17 5h2v14h-2z' }, { d: 'M5 6v12l10-6z' }],
+    type: 'stroke' as const,
+    strokeWidth: 2.2,
+    paths: [{ d: 'M18 6v12' }, { d: 'M7 7l6 5-6 5' }, { d: 'M11 7l6 5-6 5' }],
   },
 
-  /** Step backward one frame icon (for film controls) */
+  /** Step backward one frame icon (bar + single left) */
   stepBackFrame: {
     viewBox: '0 0 24 24',
-    type: 'fill' as const,
-    paths: [{ d: 'M7 5h2v14H7z' }, { d: 'M18 6v12l-8-6z' }],
+    type: 'stroke' as const,
+    strokeWidth: 2.2,
+    paths: [{ d: 'M7 6v12' }, { d: 'M16 7l-6 5 6 5' }],
   },
 
-  /** Step forward one frame icon (for film controls) */
+  /** Step forward one frame icon (single right + bar) */
   stepForwardFrame: {
     viewBox: '0 0 24 24',
-    type: 'fill' as const,
-    paths: [{ d: 'M15 5h2v14h-2z' }, { d: 'M6 6v12l8-6z' }],
+    type: 'stroke' as const,
+    strokeWidth: 2.2,
+    paths: [{ d: 'M17 6v12' }, { d: 'M8 7l6 5-6 5' }],
   },
 
-  /** Skip Forward 5s icon (circular arrow with 5, right) */
+  /** Skip forward 5 seconds icon */
   skipForward: {
     viewBox: '0 0 24 24',
-    type: 'fill' as const,
-    paths: [
-      { d: 'M17 12l-7-6v12l7-6z' },
-      { d: 'M22 12l-7-6v12l7-6z' },
-      { d: 'M12 12l7-6v12l-7-6z' },
-    ],
+    type: 'stroke' as const,
+    strokeWidth: 2.2,
+    paths: [{ d: 'M15.5 8L19 11l-3.5 3' }, { d: 'M18.3 11h-6a5.5 5.5 0 1 0 3.3 9.9' }],
+  },
+
+  /** Previous clip icon (bar + left triangle) */
+  previousClip: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2.2,
+    paths: [{ d: 'M7 6v12' }, { d: 'M17 8l-7 4 7 4z' }],
+  },
+
+  /** Next clip icon (right triangle + bar) */
+  nextClip: {
+    viewBox: '0 0 24 24',
+    type: 'stroke' as const,
+    strokeWidth: 2.2,
+    paths: [{ d: 'M17 6v12' }, { d: 'M7 8l7 4-7 4z' }],
   },
 
   /** Home icon (outline) - for navigation/tab bars */

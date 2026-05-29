@@ -18,7 +18,7 @@ export interface LayoutQualityReport {
 
 const MIN_PLAYERS: Record<NormalizedSport, number> = {
   football: 8,
-  basketball: 6,
+  basketball: 5,
   soccer: 8,
   baseball: 8,
   softball: 8,
@@ -98,11 +98,37 @@ const POSITION_ALIASES: Record<NormalizedSport, Readonly<Record<string, string>>
     SAFETY: 'S',
   },
   basketball: {
+    '1': 'PG',
+    '2': 'SG',
+    '3': 'SF',
+    '4': 'PF',
+    '5': 'C',
+    D1: 'G',
+    D2: 'G',
+    D3: 'F',
+    D4: 'F',
+    D5: 'C',
     POINTGUARD: 'PG',
     SHOOTINGGUARD: 'SG',
     SMALLFORWARD: 'SF',
     POWERFORWARD: 'PF',
     CENTER: 'C',
+    GUARD: 'G',
+    WING: 'F',
+    LEFTWING: 'F',
+    RIGHTWING: 'F',
+    LW: 'F',
+    RW: 'F',
+    CORNER: 'F',
+    LEFTCORNER: 'F',
+    RIGHTCORNER: 'F',
+    TOP: 'G',
+    ELBOW: 'F',
+    HIGHPOST: 'C',
+    LOWPOST: 'C',
+    POST: 'C',
+    BIG: 'C',
+    BIGMAN: 'C',
   },
   soccer: {
     STRIKER: 'ST',
@@ -129,18 +155,26 @@ function pushFinding(
   findings.push({ severity, code, message });
 }
 
-function normalizePositionToken(raw: string): string {
-  return raw
+function normalizePositionToken(raw: string, stripTrailingNumbers = true): string {
+  const compact = raw
     .trim()
     .toUpperCase()
-    .replace(/[^A-Z0-9]/g, '')
-    .replace(/[0-9]+$/, '');
+    .replace(/[^A-Z0-9]/g, '');
+
+  return stripTrailingNumbers ? compact.replace(/[0-9]+$/, '') : compact;
 }
 
 function resolveAllowedPositionToken(raw: string, sport: NormalizedSport): string {
+  const aliases = POSITION_ALIASES[sport];
+  const exact = normalizePositionToken(raw, false);
+  if (!exact) return '';
+
+  if (aliases[exact]) return aliases[exact];
+
   const normalized = normalizePositionToken(raw);
   if (!normalized) return '';
-  return POSITION_ALIASES[sport][normalized] ?? normalized;
+
+  return aliases[normalized] ?? normalized;
 }
 
 function evaluatePositionHardlist(layout: DiagramLayout, findings: LayoutQualityFinding[]): void {

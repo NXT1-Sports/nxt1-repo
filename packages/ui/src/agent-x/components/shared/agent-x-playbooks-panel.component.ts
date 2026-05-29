@@ -69,6 +69,7 @@ import {
   normalizePracticeScriptPeriods,
   resolveImageExtension,
 } from './agent-x-playbooks-panel.utils';
+import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
 
 @Component({
   selector: 'nxt1-agent-x-playbooks-panel',
@@ -530,6 +531,11 @@ import {
                           </div>
                           <div class="play-head">
                             <h4>{{ play.title || play.name || 'Untitled Play' }}</h4>
+                            @if (generatedPlaysReleaseLabel) {
+                              <span class="release-badge release-badge--inline">
+                                {{ generatedPlaysReleaseLabel }}
+                              </span>
+                            }
                             @if (play.series) {
                               <span class="chip chip--soft">{{ play.series | titlecase }}</span>
                             }
@@ -1844,7 +1850,12 @@ import {
     } @else {
       <div class="playbooks-list-header" [attr.data-testid]="testIds.PLAYBOOK_LIST_CONTAINER">
         <div>
-          <h3>Playbooks</h3>
+          <h3>
+            Playbooks
+            @if (playbooksReleaseLabel) {
+              <span class="release-badge">{{ playbooksReleaseLabel }}</span>
+            }
+          </h3>
           @if (playbooks().length === 0 && !showCreateForm()) {
             <p>No playbooks yet. Start from Agent X or create one manually.</p>
           }
@@ -2093,6 +2104,26 @@ import {
         margin: 0;
         font-size: 0.95rem;
         letter-spacing: 0.01em;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .release-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--agent-primary, #ccff00);
+        background: color-mix(in srgb, var(--agent-primary, #ccff00) 14%, transparent);
+        color: var(--agent-primary, #ccff00);
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 1;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        white-space: nowrap;
       }
       .playbooks-list-header p {
         margin: 4px 0 0;
@@ -2533,6 +2564,10 @@ import {
       .play-head h4 {
         margin: 0;
         font-size: 0.8rem;
+      }
+
+      .release-badge--inline {
+        margin-left: auto;
       }
 
       .play-meta {
@@ -4289,6 +4324,8 @@ export class AgentXPlaybooksPanelComponent {
   private readonly document = inject(DOCUMENT);
   private readonly baseUrl = `${inject(AGENT_X_API_BASE_URL)}/agent-x`;
   protected readonly testIds = TEST_IDS.PLAYBOOK;
+  protected readonly playbooksReleaseLabel = getAgentXReleaseLabel('playbooks');
+  protected readonly generatedPlaysReleaseLabel = getAgentXReleaseLabel('generatedPlays');
   readonly agentXLogoPath = AGENT_X_LOGO_PATH;
   readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
 
@@ -6517,12 +6554,10 @@ li + li { margin-top: 2px; }
   protected async deletePlaybook(playbookId: string): Promise<void> {
     const previousPlaybooks = this.playbooks();
     const deletingSelected = this.selectedPlaybook()?.id === playbookId;
+    const optimisticPlaybooks = previousPlaybooks.filter((playbook) => playbook.id !== playbookId);
 
     // Optimistically remove only the deleted playbook to avoid UI list collapse.
-    this.playbooks.update((items) => items.filter((playbook) => playbook.id !== playbookId));
-    if (deletingSelected) {
-      this.clearSelection();
-    }
+    this.playbooks.set(optimisticPlaybooks);
 
     this.saving.set(true);
     try {
@@ -6531,6 +6566,22 @@ li + li { margin-top: 2px; }
       );
       this.deletingPlaybookId.set(null);
       await this.loadPlaybooks();
+
+      if (optimisticPlaybooks.length > 0 && this.playbooks().length === 0) {
+        // Guard against transient empty refreshes that can occur during panel state churn.
+        this.playbooks.set(optimisticPlaybooks);
+        this.logger.warn('Playbook delete refresh returned empty unexpectedly; preserving list', {
+          playbookId,
+          optimisticCount: optimisticPlaybooks.length,
+          teamId: this._teamId(),
+          sport: this._inputSport(),
+        });
+        void this.loadPlaybooks();
+      }
+
+      if (deletingSelected) {
+        this.clearSelection();
+      }
     } catch {
       // Roll back optimistic update on failure.
       this.playbooks.set(previousPlaybooks);
@@ -7692,14 +7743,13 @@ li + li { margin-top: 2px; }
     this.loading.set(true);
     this.error.set(null);
     const teamId = this._teamId();
-    const normalizedSport = this.activeSport().trim().toLowerCase() || undefined;
     if (!teamId) {
       this.playbooks.set([]);
       this.loading.set(false);
       return;
     }
     try {
-      await this.playbooksService.loadPlaybooks(teamId, normalizedSport);
+      await this.playbooksService.loadPlaybooks(teamId);
       this.playbooks.set(this.playbooksService.playbooks());
     } catch (err) {
       this.error.set(err instanceof Error ? err.message : 'Unable to load playbooks.');

@@ -32,7 +32,7 @@ export const PROD_MODEL_CATALOGUE: Record<ModelTier, string> = {
   image_generation: 'openai/gpt-5.4-image-2',
   video_generation: 'google/gemini-3-pro-image-preview', // placeholder until video models available
   vision_analysis: 'google/gemini-3.1-pro-preview',
-  video_analysis: 'google/gemini-2.5-flash',
+  video_analysis: 'google/gemini-3.1-pro-preview',
   audio_analysis: 'openai/gpt-5.5',
   voice_generation: 'openai/gpt-audio-mini',
   music_generation: 'google/lyria-3-pro-preview',
@@ -61,7 +61,7 @@ export const DEV_MODEL_CATALOGUE: Record<ModelTier, string> = {
   image_generation: 'google/gemini-3-pro-image-preview',
   video_generation: 'google/gemini-3-pro-image-preview',
   vision_analysis: 'openai/gpt-4o',
-  video_analysis: 'google/gemini-2.5-flash',
+  video_analysis: 'google/gemini-3.1-pro-preview',
   audio_analysis: 'openai/gpt-4o',
   voice_generation: 'openai/gpt-4o-mini',
   music_generation: 'openai/gpt-4o-mini',
@@ -113,9 +113,9 @@ export const PROD_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
     'openai/gpt-4o',
   ],
   video_analysis: [
-    'google/gemini-2.5-flash',
-    'google/gemini-2.5-pro',
     'google/gemini-3.1-pro-preview',
+    'google/gemini-2.5-pro',
+    'google/gemini-2.5-flash',
   ],
   audio_analysis: [
     'openai/gpt-5.5',
@@ -166,7 +166,7 @@ export const DEV_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
   image_generation: ['google/gemini-3-pro-image-preview'],
   video_generation: ['google/gemini-3-pro-image-preview'],
   vision_analysis: ['openai/gpt-4o', 'anthropic/claude-sonnet-4'],
-  video_analysis: ['google/gemini-2.5-flash', 'google/gemini-2.5-pro'],
+  video_analysis: ['google/gemini-3.1-pro-preview', 'google/gemini-2.5-pro'],
   audio_analysis: ['openai/gpt-4o', 'anthropic/claude-sonnet-4'],
   voice_generation: ['openai/gpt-4o-mini'],
   music_generation: ['openai/gpt-4o-mini'],

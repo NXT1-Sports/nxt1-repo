@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
 import { MediaStagingService } from './media-staging.service.js';
+import { MediaTransportResolverService } from './media-transport-resolver.service.js';
 import { buildPortableMediaArtifact, type MediaWorkflowArtifact } from './media-workflow.js';
 
 const MediaArtifactSchema = z.object({
@@ -74,7 +75,10 @@ export class StageMediaTool extends BaseTool {
     'strategy_coordinator',
   ] as const;
 
-  constructor(private readonly stagingService: MediaStagingService = new MediaStagingService()) {
+  constructor(
+    private readonly stagingService: MediaStagingService = new MediaStagingService(),
+    private readonly transportResolver: MediaTransportResolverService = new MediaTransportResolverService()
+  ) {
     super();
   }
 
@@ -109,8 +113,13 @@ export class StageMediaTool extends BaseTool {
         };
       }
 
-      const staged = await this.stagingService.stageFromUrl({
+      const resolvedTransport = await this.transportResolver.resolveProcessingUrl({
         sourceUrl: resolvedSourceUrl,
+        executionContext: context,
+      });
+
+      const staged = await this.stagingService.stageFromUrl({
+        sourceUrl: resolvedTransport.url,
         staging: {
           userId: context.userId,
           threadId: context.threadId,

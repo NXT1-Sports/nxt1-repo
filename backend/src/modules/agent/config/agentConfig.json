@@ -980,7 +980,11 @@
         "anthropic/claude-haiku-4-5",
         "deepseek/deepseek-v3.2"
       ],
-      "video_analysis": ["google/gemini-2.5-flash", "google/gemini-2.5-pro"],
+      "video_analysis": [
+        "google/gemini-3.1-pro-preview",
+        "google/gemini-2.5-pro",
+        "google/gemini-2.5-flash"
+      ],
       "voice_generation": ["openai/gpt-4o-mini"],
       "extraction": [
         "anthropic/claude-haiku-4-5",
@@ -1035,7 +1039,7 @@
     },
     "catalogue": {
       "task_automation": "anthropic/claude-sonnet-4-5",
-      "video_analysis": "google/gemini-2.5-flash",
+      "video_analysis": "google/gemini-3.1-pro-preview",
       "voice_generation": "openai/gpt-4o-mini",
       "extraction": "anthropic/claude-haiku-4-5",
       "audio_analysis": "openai/gpt-4o",

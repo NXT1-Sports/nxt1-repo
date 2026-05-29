@@ -1,6 +1,27 @@
-import { ChangeDetectionStrategy, Component, computed, input, output, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  ElementRef,
+  HostListener,
+  ViewChild,
+  computed,
+  inject,
+  input,
+  output,
+  signal,
+} from '@angular/core';
 import { NxtIconComponent } from '../icon';
 import { VIDEO_CONTROL_TOOLTIP_STYLES } from './video-control-tooltips.styles';
+
+type DrawSegment = {
+  readonly startSec: number;
+  readonly endSec: number;
+};
+
+type DrawEffectMarker = {
+  readonly id: string;
+  readonly atSec: number;
+};
 
 @Component({
   selector: 'nxt1-video-controls',
@@ -17,143 +38,279 @@ import { VIDEO_CONTROL_TOOLTIP_STYLES } from './video-control-tooltips.styles';
       (click)="$event.stopPropagation()"
     >
       <div class="video-controls__progress">
-        <input
-          type="range"
-          class="video-controls__seek"
-          min="0"
-          [max]="seekMax()"
-          step="any"
-          [value]="seekDisplayValue()"
-          [style.--seek-progress]="seekProgress()"
-          (pointerdown)="onSeekStart()"
-          (pointerup)="onSeekCommit($event)"
-          (pointercancel)="onSeekEnd()"
-          (input)="onSeekInput($event)"
-          (change)="onSeekCommit($event)"
-          aria-label="Seek video timeline"
-        />
+        <div class="video-controls__seek-track" #seekTrack>
+          @if (resolvedDrawEffectMarkers().length > 0) {
+            <div class="video-controls__effect-markers" aria-label="Video effects timeline markers">
+              @for (marker of resolvedDrawEffectMarkers(); track marker.id) {
+                <button
+                  type="button"
+                  class="video-controls__effect-marker video-controls__tooltip-host"
+                  [style.left.%]="marker.positionPct"
+                  aria-label="Delete effect"
+                  title="Delete effect"
+                  data-tooltip="Delete effect"
+                  (click)="onDeleteDrawEffectMarker(marker.id)"
+                ></button>
+              }
+            </div>
+          }
+
+          <input
+            type="range"
+            class="video-controls__seek"
+            min="0"
+            [max]="seekMax()"
+            step="any"
+            [value]="seekDisplayValue()"
+            [style.--seek-progress]="seekProgress()"
+            (pointerdown)="onSeekStart()"
+            (pointerup)="onSeekCommit($event)"
+            (pointercancel)="onSeekEnd()"
+            (input)="onSeekInput($event)"
+            (change)="onSeekCommit($event)"
+            aria-label="Seek video timeline"
+          />
+
+          @if (showDrawSegmentEditor() && resolvedDrawSegment(); as drawSegment) {
+            <div
+              class="video-controls__draw-segment"
+              [style.left.%]="drawSegmentStartPct()"
+              [style.width.%]="drawSegmentWidthPct()"
+            >
+              <button
+                type="button"
+                class="video-controls__draw-handle video-controls__draw-handle--start video-controls__tooltip-host"
+                aria-label="Drawing start handle"
+                title="Drawing start"
+                data-tooltip="Drawing start"
+                (pointerdown)="onDrawSegmentPointerDown($event, 'start')"
+              >
+                <nxt1-icon name="pencil" [size]="9"></nxt1-icon>
+              </button>
+              <button
+                type="button"
+                class="video-controls__draw-range video-controls__tooltip-host"
+                [attr.aria-label]="'Move drawing window: ' + formattedDrawSegmentDuration()"
+                [attr.title]="'Move drawing window (' + formattedDrawSegmentDuration() + ')'"
+                [attr.data-tooltip]="'Move drawing window (' + formattedDrawSegmentDuration() + ')'"
+                (pointerdown)="onDrawSegmentPointerDown($event, 'move')"
+              >
+                <span class="video-controls__draw-range-dot" aria-hidden="true"></span>
+              </button>
+              <button
+                type="button"
+                class="video-controls__draw-handle video-controls__draw-handle--end video-controls__tooltip-host"
+                aria-label="Drawing end handle"
+                title="Drawing end"
+                data-tooltip="Drawing end"
+                (pointerdown)="onDrawSegmentPointerDown($event, 'end')"
+              >
+                <nxt1-icon name="pencil" [size]="9"></nxt1-icon>
+              </button>
+            </div>
+          }
+        </div>
       </div>
 
       <div class="video-controls__dock">
-        <div class="video-controls__cluster">
-          @if (showAdvancedPlaybackControls()) {
+        <div class="video-controls__cluster video-controls__cluster--transport">
+          @if (allowTransportCollapse()) {
             <button
               type="button"
-              class="video-controls__icon-btn video-controls__tooltip-host"
-              [disabled]="isAtStart()"
-              (click)="seekChange.emit(0)"
-              aria-label="Jump to start"
-              title="Jump to start"
-              data-tooltip="Jump to start"
+              class="video-controls__icon-btn video-controls__transport-toggle video-controls__tooltip-host"
+              (click)="toggleTransportExpanded()"
+              [attr.aria-label]="
+                transportExpanded() ? 'Collapse playback controls' : 'Expand playback controls'
+              "
+              [attr.title]="
+                transportExpanded() ? 'Collapse playback controls' : 'Expand playback controls'
+              "
+              [attr.data-tooltip]="
+                transportExpanded() ? 'Collapse playback controls' : 'Expand playback controls'
+              "
+              [attr.aria-expanded]="transportExpanded()"
             >
-              <nxt1-icon name="jumpToStart" [size]="13"></nxt1-icon>
-            </button>
-            <button
-              type="button"
-              class="video-controls__icon-btn video-controls__tooltip-host"
-              [disabled]="isAtStart()"
-              (click)="seekRelative.emit(-15)"
-              aria-label="Fast rewind"
-              title="Fast rewind"
-              data-tooltip="Fast rewind"
-            >
-              <nxt1-icon name="fastRewind" [size]="13"></nxt1-icon>
-            </button>
-            <button
-              type="button"
-              class="video-controls__icon-btn video-controls__tooltip-host"
-              [disabled]="isAtStart()"
-              (click)="seekRelative.emit(-7)"
-              aria-label="Rewind"
-              title="Rewind"
-              data-tooltip="Rewind"
-            >
-              <nxt1-icon name="rewind" [size]="13"></nxt1-icon>
-            </button>
-            <button
-              type="button"
-              class="video-controls__icon-btn video-controls__tooltip-host"
-              (click)="seekRelative.emit(-5)"
-              aria-label="Skip back 5 seconds"
-              title="Skip back 5 seconds"
-              data-tooltip="Skip back 5 seconds"
-            >
-              <nxt1-icon name="skipBack" [size]="12"></nxt1-icon>
+              <nxt1-icon
+                [name]="transportExpanded() ? 'chevronLeft' : 'chevronRight'"
+                [size]="12"
+              />
             </button>
           }
 
-          <button
-            type="button"
-            class="video-controls__icon-btn video-controls__icon-btn--primary video-controls__tooltip-host"
-            (click)="playPause.emit()"
-            [attr.aria-label]="isPlaying() ? 'Pause video' : 'Play video'"
-            [attr.title]="isPlaying() ? 'Pause video' : 'Play video'"
-            [attr.data-tooltip]="isPlaying() ? 'Pause video' : 'Play video'"
-          >
-            <nxt1-icon [name]="isPlaying() ? 'pause' : 'play'" [size]="13"></nxt1-icon>
-          </button>
+          @if (transportExpanded()) {
+            @if (showPlayNavigation()) {
+              <button
+                type="button"
+                class="video-controls__icon-btn video-controls__tooltip-host"
+                [disabled]="disablePreviousNav()"
+                (click)="previousNav.emit()"
+                [attr.aria-label]="previousNavAriaLabel()"
+                [attr.title]="previousNavAriaLabel()"
+                [attr.data-tooltip]="previousNavAriaLabel()"
+              >
+                <nxt1-icon name="previousClip" [size]="13"></nxt1-icon>
+              </button>
+              <span class="video-controls__divider" aria-hidden="true"></span>
+            }
 
-          @if (showAdvancedPlaybackControls()) {
+            @if (showAdvancedPlaybackControls()) {
+              <button
+                type="button"
+                class="video-controls__icon-btn video-controls__tooltip-host"
+                [disabled]="isAtStart()"
+                (click)="seekRelative.emit(-15)"
+                aria-label="Fast rewind"
+                title="Fast rewind"
+                data-tooltip="Fast rewind"
+              >
+                <nxt1-icon name="fastRewind" [size]="13"></nxt1-icon>
+              </button>
+              <button
+                type="button"
+                class="video-controls__icon-btn video-controls__tooltip-host"
+                (click)="seekRelative.emit(-7)"
+                aria-label="Slow rewind"
+                title="Slow rewind"
+                data-tooltip="Slow rewind"
+              >
+                <nxt1-icon name="rewind" [size]="13"></nxt1-icon>
+              </button>
+              <button
+                type="button"
+                class="video-controls__icon-btn video-controls__tooltip-host"
+                (click)="seekRelative.emit(-5)"
+                aria-label="Skip back 5 seconds"
+                title="Skip back 5 seconds"
+                data-tooltip="Skip back 5 seconds"
+              >
+                <nxt1-icon name="skipBack" [size]="12"></nxt1-icon>
+              </button>
+            }
+
             <button
               type="button"
-              class="video-controls__icon-btn video-controls__tooltip-host"
-              (click)="seekRelative.emit(5)"
-              aria-label="Skip forward 5 seconds"
-              title="Skip forward 5 seconds"
-              data-tooltip="Skip forward 5 seconds"
+              class="video-controls__icon-btn video-controls__icon-btn--primary video-controls__tooltip-host"
+              (click)="playPause.emit()"
+              [attr.aria-label]="isPlaying() ? 'Pause video' : 'Play video'"
+              [attr.title]="isPlaying() ? 'Pause video' : 'Play video'"
+              [attr.data-tooltip]="isPlaying() ? 'Pause video' : 'Play video'"
             >
-              <nxt1-icon name="skipForward" [size]="12"></nxt1-icon>
+              <nxt1-icon [name]="isPlaying() ? 'pause' : 'play'" [size]="13"></nxt1-icon>
             </button>
+
+            @if (showAdvancedPlaybackControls()) {
+              <button
+                type="button"
+                class="video-controls__icon-btn video-controls__tooltip-host"
+                (click)="seekRelative.emit(5)"
+                aria-label="Skip forward 5 seconds"
+                title="Skip forward 5 seconds"
+                data-tooltip="Skip forward 5 seconds"
+              >
+                <nxt1-icon name="skipForward" [size]="12"></nxt1-icon>
+              </button>
+              <button
+                type="button"
+                class="video-controls__icon-btn video-controls__tooltip-host"
+                (click)="seekRelative.emit(7)"
+                aria-label="Slow forward"
+                title="Slow forward"
+                data-tooltip="Slow forward"
+              >
+                <nxt1-icon name="forward" [size]="13"></nxt1-icon>
+              </button>
+              <button
+                type="button"
+                class="video-controls__icon-btn video-controls__tooltip-host"
+                [disabled]="isAtEnd()"
+                (click)="seekRelative.emit(15)"
+                aria-label="Fast forward"
+                title="Fast forward"
+                data-tooltip="Fast forward"
+              >
+                <nxt1-icon name="fastForward" [size]="13"></nxt1-icon>
+              </button>
+            }
+
+            @if (showPlayNavigation()) {
+              <span class="video-controls__divider" aria-hidden="true"></span>
+              <button
+                type="button"
+                class="video-controls__icon-btn video-controls__tooltip-host"
+                [disabled]="disableNextNav()"
+                (click)="nextNav.emit()"
+                [attr.aria-label]="nextNavAriaLabel()"
+                [attr.title]="nextNavAriaLabel()"
+                [attr.data-tooltip]="nextNavAriaLabel()"
+              >
+                <nxt1-icon name="nextClip" [size]="13"></nxt1-icon>
+              </button>
+            }
+          }
+
+          @if (!transportExpanded()) {
             <button
               type="button"
-              class="video-controls__icon-btn video-controls__tooltip-host"
-              [disabled]="isAtEnd()"
-              (click)="seekRelative.emit(7)"
-              aria-label="Forward"
-              title="Forward"
-              data-tooltip="Forward"
+              class="video-controls__icon-btn video-controls__icon-btn--primary video-controls__tooltip-host"
+              (click)="playPause.emit()"
+              [attr.aria-label]="isPlaying() ? 'Pause video' : 'Play video'"
+              [attr.title]="isPlaying() ? 'Pause video' : 'Play video'"
+              [attr.data-tooltip]="isPlaying() ? 'Pause video' : 'Play video'"
             >
-              <nxt1-icon name="forward" [size]="13"></nxt1-icon>
-            </button>
-            <button
-              type="button"
-              class="video-controls__icon-btn video-controls__tooltip-host"
-              [disabled]="isAtEnd()"
-              (click)="seekRelative.emit(15)"
-              aria-label="Fast forward"
-              title="Fast forward"
-              data-tooltip="Fast forward"
-            >
-              <nxt1-icon name="fastForward" [size]="13"></nxt1-icon>
-            </button>
-            <button
-              type="button"
-              class="video-controls__icon-btn video-controls__tooltip-host"
-              [disabled]="isAtEnd()"
-              (click)="seekChange.emit(seekMax())"
-              aria-label="Next play (jump to end)"
-              title="Next play (jump to end)"
-              data-tooltip="Next play (jump to end)"
-            >
-              <nxt1-icon name="jumpToEnd" [size]="13"></nxt1-icon>
+              <nxt1-icon [name]="isPlaying() ? 'pause' : 'play'" [size]="13"></nxt1-icon>
             </button>
           }
         </div>
 
+        @if (showDurationBadge()) {
+          <div
+            class="video-controls__cluster video-controls__cluster--duration"
+            aria-label="Clip duration"
+          >
+            <span class="video-controls__duration-label">Clip</span>
+            <span class="video-controls__duration-value"
+              >{{ formattedCurrentTime() }} / {{ formattedDuration() }}</span
+            >
+          </div>
+        }
+
         <div class="video-controls__cluster video-controls__cluster--right">
           @if (showSpeedControls()) {
-            <div class="video-controls__speed-pills" role="group" aria-label="Playback speed">
-              @for (rate of playbackRates(); track rate) {
-                <button
-                  type="button"
-                  class="video-controls__speed-pill video-controls__tooltip-host"
-                  [class.video-controls__speed-pill--active]="playbackRate() === rate"
-                  (click)="playbackRateChange.emit(rate)"
-                  [attr.title]="formatRateLabel(rate)"
-                  [attr.data-tooltip]="formatRateLabel(rate)"
+            <div class="video-controls__speed-menu" role="group" aria-label="Playback speed">
+              <button
+                type="button"
+                class="video-controls__speed-trigger video-controls__tooltip-host"
+                [class.video-controls__speed-trigger--open]="speedMenuOpen()"
+                [attr.aria-expanded]="speedMenuOpen()"
+                aria-haspopup="menu"
+                aria-label="Playback speed"
+                title="Playback speed"
+                data-tooltip="Playback speed"
+                (click)="toggleSpeedMenu()"
+              >
+                <span class="video-controls__speed-trigger-label">{{ playbackRate() }}x</span>
+                <nxt1-icon name="chevronDown" [size]="10"></nxt1-icon>
+              </button>
+
+              @if (speedMenuOpen()) {
+                <div
+                  class="video-controls__speed-popover"
+                  role="menu"
+                  aria-label="Playback speed options"
                 >
-                  {{ rate }}x
-                </button>
+                  @for (rate of playbackRates(); track rate) {
+                    <button
+                      type="button"
+                      class="video-controls__speed-option"
+                      [class.video-controls__speed-option--active]="playbackRate() === rate"
+                      role="menuitemradio"
+                      [attr.aria-checked]="playbackRate() === rate"
+                      (click)="selectPlaybackRate(rate)"
+                    >
+                      <span>{{ rate }}x</span>
+                    </button>
+                  }
+                </div>
               }
             </div>
           }
@@ -204,9 +361,18 @@ import { VIDEO_CONTROL_TOOLTIP_STYLES } from './video-control-tooltips.styles';
       .video-controls__progress {
         display: flex;
         align-items: center;
+        position: relative;
+        z-index: 1;
+      }
+
+      .video-controls__seek-track {
+        position: relative;
+        width: 100%;
       }
 
       .video-controls__seek {
+        position: relative;
+        z-index: 1;
         width: 100%;
         height: 3px;
         -webkit-appearance: none;
@@ -255,12 +421,96 @@ import { VIDEO_CONTROL_TOOLTIP_STYLES } from './video-control-tooltips.styles';
         border: 1px solid var(--nxt1-color-border-default);
       }
 
+      .video-controls__effect-markers {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        z-index: 3;
+      }
+
+      .video-controls__effect-marker {
+        pointer-events: auto;
+        position: absolute;
+        top: 50%;
+        transform: translate(-50%, -50%);
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-bg-primary) 82%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-danger, #ff4d4f) 80%, #000 20%);
+        box-shadow: 0 0 0 2px color-mix(in srgb, var(--nxt1-color-bg-primary) 72%, transparent);
+        cursor: pointer;
+        padding: 0;
+      }
+
+      .video-controls__effect-marker:hover,
+      .video-controls__effect-marker:focus-visible {
+        transform: translate(-50%, -50%) scale(1.12);
+      }
+
+      .video-controls__draw-segment {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        display: grid;
+        grid-template-columns: auto minmax(10px, 1fr) auto;
+        align-items: center;
+        min-width: 16px;
+        z-index: 2;
+        pointer-events: none;
+      }
+
+      .video-controls__draw-range {
+        pointer-events: auto;
+        min-height: 14px;
+        border: 0;
+        border-radius: 999px;
+        padding: 0;
+        background: color-mix(in srgb, var(--nxt1-color-primary) 62%, transparent);
+        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--nxt1-color-primary) 88%, transparent);
+        cursor: grab;
+      }
+
+      .video-controls__draw-range:active {
+        cursor: grabbing;
+      }
+
+      .video-controls__draw-range-dot {
+        display: block;
+        width: 100%;
+        height: 100%;
+        min-width: 10px;
+      }
+
+      .video-controls__draw-handle {
+        pointer-events: auto;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        border: 0;
+        border-radius: 999px;
+        background: var(--nxt1-color-primary);
+        color: var(--nxt1-color-bg-primary);
+        padding: 0;
+        cursor: ew-resize;
+        box-shadow: 0 0 0 1px color-mix(in srgb, var(--nxt1-color-bg-primary) 55%, transparent);
+      }
+
+      .video-controls__draw-handle:hover,
+      .video-controls__draw-range:hover {
+        filter: brightness(1.06);
+      }
+
       .video-controls__dock {
         display: flex;
         align-items: center;
         justify-content: space-between;
         gap: var(--nxt1-spacing-1, 4px);
         flex-wrap: wrap;
+        position: relative;
+        z-index: 2;
       }
 
       .video-controls__cluster {
@@ -269,13 +519,51 @@ import { VIDEO_CONTROL_TOOLTIP_STYLES } from './video-control-tooltips.styles';
         gap: var(--nxt1-spacing-1, 4px);
         padding: var(--nxt1-spacing-1, 4px);
         border-radius: var(--nxt1-border-radius-sm, 6px);
-        background: color-mix(in srgb, var(--nxt1-color-bg-primary) 68%, transparent);
-        border: 1px solid var(--nxt1-color-border-subtle);
-        backdrop-filter: blur(6px);
+        background: color-mix(in srgb, var(--nxt1-color-bg-primary) 76%, transparent);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-subtle) 78%, transparent);
+        box-shadow: 0 10px 28px color-mix(in srgb, #000 30%, transparent);
+        backdrop-filter: blur(10px);
       }
 
       .video-controls__cluster--right {
         margin-left: auto;
+      }
+
+      .video-controls__cluster--duration {
+        gap: 6px;
+        padding-inline: 10px;
+      }
+
+      .video-controls__duration-label {
+        color: var(--nxt1-color-text-secondary);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.03em;
+        text-transform: uppercase;
+      }
+
+      .video-controls__duration-value {
+        color: var(--nxt1-color-text-primary);
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.01em;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .video-controls__cluster--transport {
+        gap: 2px;
+        padding: 3px;
+      }
+
+      .video-controls__transport-toggle {
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .video-controls__divider {
+        width: 1px;
+        height: 18px;
+        margin: 0 2px;
+        background: color-mix(in srgb, var(--nxt1-color-border-subtle) 85%, transparent);
       }
 
       .video-controls__icon-btn {
@@ -284,8 +572,8 @@ import { VIDEO_CONTROL_TOOLTIP_STYLES } from './video-control-tooltips.styles';
         justify-content: center;
         position: relative;
         gap: 0;
-        min-height: 24px;
-        min-width: 24px;
+        min-height: 28px;
+        min-width: 28px;
         padding: 0;
         border-radius: var(--nxt1-border-radius-sm, 6px);
         border: none;
@@ -296,6 +584,7 @@ import { VIDEO_CONTROL_TOOLTIP_STYLES } from './video-control-tooltips.styles';
       }
 
       .video-controls__icon-btn:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent);
         color: var(--nxt1-color-primary);
       }
 
@@ -311,40 +600,98 @@ import { VIDEO_CONTROL_TOOLTIP_STYLES } from './video-control-tooltips.styles';
 
       .video-controls__icon-btn--primary {
         color: var(--nxt1-color-primary);
+        background: color-mix(in srgb, var(--nxt1-color-primary) 16%, transparent);
       }
 
-      .video-controls__speed-pills {
+      .video-controls__icon-btn--primary:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--nxt1-color-primary) 24%, transparent);
+      }
+
+      .video-controls__speed-menu {
+        position: relative;
+        display: inline-flex;
+        z-index: 4;
+      }
+
+      .video-controls__speed-trigger {
         display: inline-flex;
         align-items: center;
-        gap: var(--nxt1-spacing-1, 4px);
-        padding: 0;
-        border-radius: 0;
-        background: transparent;
-        border: 0;
-      }
-
-      .video-controls__speed-pill {
-        position: relative;
-        min-width: 24px;
-        padding: 0 6px;
-        min-height: 24px;
+        justify-content: center;
+        gap: 3px;
+        min-height: 28px;
+        min-width: 50px;
+        padding: 0 8px;
         border-radius: var(--nxt1-border-radius-sm, 6px);
         border: none;
         background: transparent;
-        color: var(--nxt1-color-text-secondary);
+        color: var(--nxt1-color-text-primary);
         font-size: 10px;
-        font-weight: 700;
+        font-weight: 800;
         line-height: 1;
         cursor: pointer;
-        transition: color 0.16s ease;
+        transition:
+          background 0.16s ease,
+          color 0.16s ease;
       }
 
-      .video-controls__speed-pill:hover {
+      .video-controls__speed-trigger:hover,
+      .video-controls__speed-trigger--open {
+        background: color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent);
         color: var(--nxt1-color-primary);
       }
 
-      .video-controls__speed-pill--active {
+      .video-controls__speed-trigger:focus-visible {
+        outline: 2px solid var(--nxt1-color-primary);
+        outline-offset: 2px;
+      }
+
+      .video-controls__speed-trigger-label {
+        min-width: 18px;
+        text-align: center;
+      }
+
+      .video-controls__speed-popover {
+        position: absolute;
+        right: 0;
+        bottom: calc(100% + 8px);
+        z-index: 40;
+        display: grid;
+        min-width: 94px;
+        padding: 4px;
+        border-radius: var(--nxt1-border-radius-sm, 6px);
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-subtle) 86%, transparent);
+        background: color-mix(in srgb, var(--nxt1-color-bg-primary) 92%, #000 8%);
+        box-shadow: 0 18px 38px color-mix(in srgb, #000 44%, transparent);
+        backdrop-filter: blur(12px);
+      }
+
+      .video-controls__speed-option {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 26px;
+        padding: 0 10px;
+        border: 0;
+        border-radius: var(--nxt1-border-radius-sm, 6px);
+        background: transparent;
+        color: var(--nxt1-color-text-secondary);
+        font-size: 10px;
+        font-weight: 800;
+        cursor: pointer;
+        transition:
+          background 0.16s ease,
+          color 0.16s ease;
+      }
+
+      .video-controls__speed-option:hover,
+      .video-controls__speed-option--active {
+        background: color-mix(in srgb, var(--nxt1-color-primary) 14%, transparent);
         color: var(--nxt1-color-primary);
+      }
+
+      .video-controls__speed-option:focus-visible {
+        outline: 2px solid var(--nxt1-color-primary);
+        outline-offset: 2px;
       }
 
       @media (max-width: 1024px) {
@@ -363,6 +710,8 @@ import { VIDEO_CONTROL_TOOLTIP_STYLES } from './video-control-tooltips.styles';
   ],
 })
 export class NxtVideoControlsComponent {
+  private readonly host = inject(ElementRef<HTMLElement>);
+
   readonly isPlaying = input(false);
   readonly currentTime = input(0);
   readonly duration = input(0);
@@ -375,6 +724,11 @@ export class NxtVideoControlsComponent {
   readonly showOpenInNewWindow = input(false);
   readonly showPlayNavigation = input(false);
   readonly showAdvancedPlaybackControls = input(false);
+  readonly showDurationBadge = input(false);
+  readonly allowTransportCollapse = input(false);
+  readonly showDrawSegmentEditor = input(false);
+  readonly drawSegment = input<DrawSegment | null>(null);
+  readonly drawEffectMarkers = input<readonly DrawEffectMarker[]>([]);
   readonly frameStepSeconds = input(1 / 30);
   readonly disablePreviousNav = input(false);
   readonly disableNextNav = input(false);
@@ -391,9 +745,20 @@ export class NxtVideoControlsComponent {
   readonly openInNewWindow = output<void>();
   readonly previousNav = output<void>();
   readonly nextNav = output<void>();
+  readonly drawSegmentChange = output<DrawSegment>();
+  readonly deleteDrawEffectMarker = output<string>();
 
   private readonly isScrubbing = signal(false);
   private readonly scrubValue = signal(0);
+  protected readonly speedMenuOpen = signal(false);
+  protected readonly transportExpanded = signal(true);
+  @ViewChild('seekTrack') private seekTrack?: ElementRef<HTMLDivElement>;
+  private activeDrawSegmentDrag: {
+    mode: 'start' | 'end' | 'move';
+    startSec: number;
+    endSec: number;
+    pointerStartSec: number;
+  } | null = null;
 
   protected readonly seekMax = computed(() => Math.max(0.1, Number(this.duration()) || 0.1));
   protected readonly safeCurrentTime = computed(() => {
@@ -414,6 +779,72 @@ export class NxtVideoControlsComponent {
     const duration = Number(this.duration()) || 0;
     return duration <= 0 || this.safeCurrentTime() >= duration - 0.05;
   });
+  protected readonly formattedCurrentTime = computed(() =>
+    this.formatTime(this.seekDisplayValue())
+  );
+  protected readonly formattedDuration = computed(() => this.formatTime(this.duration()));
+  protected readonly resolvedDrawSegment = computed<DrawSegment | null>(() => {
+    const segment = this.drawSegment();
+    if (!segment) return null;
+
+    const max = this.seekMax();
+    const start = Math.max(0, Math.min(Number(segment.startSec) || 0, max));
+    const endCandidate = Math.max(0, Math.min(Number(segment.endSec) || 0, max));
+    const end = Math.max(start + 0.05, endCandidate);
+
+    return {
+      startSec: Math.min(start, max),
+      endSec: Math.min(end, max),
+    };
+  });
+  protected readonly drawSegmentStartPct = computed(() => {
+    const segment = this.resolvedDrawSegment();
+    if (!segment) return 0;
+    return Math.min(100, Math.max(0, (segment.startSec / this.seekMax()) * 100));
+  });
+  protected readonly drawSegmentWidthPct = computed(() => {
+    const segment = this.resolvedDrawSegment();
+    if (!segment) return 0;
+    const span = Math.max(0.05, segment.endSec - segment.startSec);
+    return Math.min(100, Math.max(0.2, (span / this.seekMax()) * 100));
+  });
+  protected readonly formattedDrawSegmentDuration = computed(() => {
+    const segment = this.resolvedDrawSegment();
+    if (!segment) return '--:--';
+    return this.formatTime(Math.max(0, segment.endSec - segment.startSec));
+  });
+  protected readonly resolvedDrawEffectMarkers = computed<
+    readonly { id: string; positionPct: number }[]
+  >(() => {
+    const max = this.seekMax();
+    if (max <= 0) return [];
+
+    return this.drawEffectMarkers()
+      .map((marker) => {
+        const atSec = Number(marker.atSec);
+        if (!marker.id || !Number.isFinite(atSec)) return null;
+
+        const clamped = Math.max(0, Math.min(atSec, max));
+        const positionPct = Math.min(100, Math.max(0, (clamped / max) * 100));
+        return { id: marker.id, positionPct };
+      })
+      .filter((marker): marker is { id: string; positionPct: number } => marker !== null);
+  });
+
+  private formatTime(value: number): string {
+    const totalSeconds = Math.floor(Number(value) || 0);
+    if (totalSeconds <= 0) return '--:--';
+
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+
+    if (hours > 0) {
+      return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+
+    return `${minutes}:${String(seconds).padStart(2, '0')}`;
+  }
 
   protected onSeekStart(): void {
     this.isScrubbing.set(true);
@@ -439,7 +870,108 @@ export class NxtVideoControlsComponent {
     this.onSeekEnd();
   }
 
-  protected formatRateLabel(rate: number): string {
-    return `${rate}x playback speed`;
+  protected toggleSpeedMenu(): void {
+    this.speedMenuOpen.update((open) => !open);
+  }
+
+  protected selectPlaybackRate(rate: number): void {
+    this.playbackRateChange.emit(rate);
+    this.speedMenuOpen.set(false);
+  }
+
+  protected toggleTransportExpanded(): void {
+    this.transportExpanded.update((expanded) => !expanded);
+  }
+
+  protected onDrawSegmentPointerDown(event: PointerEvent, mode: 'start' | 'end' | 'move'): void {
+    if (!this.showDrawSegmentEditor()) return;
+
+    const segment = this.resolvedDrawSegment();
+    if (!segment) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    this.activeDrawSegmentDrag = {
+      mode,
+      startSec: segment.startSec,
+      endSec: segment.endSec,
+      pointerStartSec: this.timeFromPointerEvent(event),
+    };
+  }
+
+  protected onDeleteDrawEffectMarker(markerId: string): void {
+    this.deleteDrawEffectMarker.emit(markerId);
+  }
+
+  @HostListener('document:pointermove', ['$event'])
+  protected onDocumentPointerMove(event: PointerEvent): void {
+    if (!this.activeDrawSegmentDrag) return;
+
+    const drag = this.activeDrawSegmentDrag;
+    const pointerSec = this.timeFromPointerEvent(event);
+    const max = this.seekMax();
+    const minSpan = 0.1;
+    const span = Math.max(minSpan, drag.endSec - drag.startSec);
+
+    let nextStart = drag.startSec;
+    let nextEnd = drag.endSec;
+
+    if (drag.mode === 'start') {
+      nextStart = Math.min(pointerSec, drag.endSec - minSpan);
+    } else if (drag.mode === 'end') {
+      nextEnd = Math.max(pointerSec, drag.startSec + minSpan);
+    } else {
+      const delta = pointerSec - drag.pointerStartSec;
+      nextStart = drag.startSec + delta;
+      nextEnd = drag.endSec + delta;
+
+      if (nextStart < 0) {
+        nextStart = 0;
+        nextEnd = span;
+      }
+
+      if (nextEnd > max) {
+        nextEnd = max;
+        nextStart = Math.max(0, max - span);
+      }
+    }
+
+    nextStart = Math.max(0, Math.min(nextStart, max - minSpan));
+    nextEnd = Math.max(nextStart + minSpan, Math.min(nextEnd, max));
+
+    this.drawSegmentChange.emit({ startSec: nextStart, endSec: nextEnd });
+  }
+
+  @HostListener('document:pointerup')
+  @HostListener('document:pointercancel')
+  protected onDocumentPointerUp(): void {
+    this.activeDrawSegmentDrag = null;
+  }
+
+  private timeFromPointerEvent(event: PointerEvent): number {
+    const track = this.seekTrack?.nativeElement;
+    if (!track) return 0;
+
+    const rect = track.getBoundingClientRect();
+    if (!rect.width) return 0;
+
+    const ratio = (event.clientX - rect.left) / rect.width;
+    const clampedRatio = Math.max(0, Math.min(1, ratio));
+    return clampedRatio * this.seekMax();
+  }
+
+  @HostListener('document:click', ['$event'])
+  protected onDocumentClick(event: MouseEvent): void {
+    const target = event.target;
+    if (!this.speedMenuOpen() || target === null) return;
+    if (!this.host.nativeElement.contains(target as Node)) {
+      this.speedMenuOpen.set(false);
+    }
+  }
+
+  @HostListener('document:keydown.escape')
+  protected onEscapeKey(): void {
+    this.speedMenuOpen.set(false);
   }
 }

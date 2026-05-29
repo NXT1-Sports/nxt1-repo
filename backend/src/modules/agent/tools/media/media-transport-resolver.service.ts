@@ -10,8 +10,6 @@ const DIRECT_MP4_PATTERN = /\.mp4(?:$|[?#])/i;
 /** Matches any Firebase / GCS storage URL (signed or unsigned). */
 const FIREBASE_STORAGE_PATTERN =
   /^https?:\/\/(?:storage\.googleapis\.com|firebasestorage\.googleapis\.com)\//i;
-/** A URL is only directly portable if it carries an actual GCS signature or Firebase download token. */
-const FIREBASE_SIGNED_PARAMS = new Set(['X-Goog-Signature', 'token']);
 const STAGING_BUCKET_PATTERN = /staging/i;
 const CLOUDFLARE_HOST_PATTERN =
   /(watch\.cloudflarestream\.com|\.cloudflarestream\.com|videodelivery\.net)$/i;
@@ -28,6 +26,12 @@ export interface ResolveProcessingUrlInput {
   readonly sourceUrl: string;
   readonly cloudflareVideoId?: string;
   readonly fallbackToFirebaseStaging?: boolean;
+  /**
+   * When true, prefer generating a fresh short-lived V4 signed URL for
+   * in-scope Firebase Storage objects before trusting caller-provided tokens.
+   * This helps recover from stale Firebase download tokens that return 403.
+   */
+  readonly preferFreshFirebaseSignedUrl?: boolean;
   readonly stageMediaKind?: 'video' | 'audio' | 'image' | 'document' | 'other';
   readonly executionContext?: ToolExecutionContext;
 }
@@ -103,6 +107,16 @@ export class MediaTransportResolverService {
     }
 
     if (isFirebaseStorageUrl) {
+      if (input.preferFreshFirebaseSignedUrl) {
+        const refreshedSignedUrl = await this.trySignOwnBucketUrl(
+          normalizedUrl,
+          input.executionContext
+        );
+        if (refreshedSignedUrl) {
+          return { url: refreshedSignedUrl, source: 'direct' };
+        }
+      }
+
       if (this.isActuallySignedFirebaseUrl(normalizedUrl)) {
         return {
           url: normalizedUrl,
@@ -175,14 +189,51 @@ export class MediaTransportResolverService {
 
   private isActuallySignedFirebaseUrl(url: string): boolean {
     try {
-      const params = new URL(url).searchParams;
-      for (const key of FIREBASE_SIGNED_PARAMS) {
-        if (params.has(key)) return true;
+      const parsed = new URL(url);
+      const params = parsed.searchParams;
+      if (params.has('token')) {
+        return true;
       }
+
+      if (params.has('X-Goog-Signature')) {
+        const rawDate = params.get('X-Goog-Date');
+        const rawExpires = params.get('X-Goog-Expires');
+        if (!rawDate || !rawExpires) {
+          return false;
+        }
+
+        const issuedAt = this.parseGoogDate(rawDate);
+        const expiresSec = Number.parseInt(rawExpires, 10);
+        if (!issuedAt || !Number.isFinite(expiresSec) || expiresSec <= 0) {
+          return false;
+        }
+
+        const expiresAtMs = issuedAt.getTime() + expiresSec * 1000;
+        const nowWithSkewMs = Date.now() + 30_000;
+        return expiresAtMs > nowWithSkewMs;
+      }
+
       return false;
     } catch {
       return false;
     }
+  }
+
+  private parseGoogDate(raw: string): Date | null {
+    const match = raw.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/u);
+    if (!match) {
+      return null;
+    }
+
+    const year = Number.parseInt(match[1], 10);
+    const month = Number.parseInt(match[2], 10) - 1;
+    const day = Number.parseInt(match[3], 10);
+    const hour = Number.parseInt(match[4], 10);
+    const minute = Number.parseInt(match[5], 10);
+    const second = Number.parseInt(match[6], 10);
+
+    const date = new Date(Date.UTC(year, month, day, hour, minute, second));
+    return Number.isNaN(date.getTime()) ? null : date;
   }
 
   private isCloudflareUrl(urlRaw: string): boolean {

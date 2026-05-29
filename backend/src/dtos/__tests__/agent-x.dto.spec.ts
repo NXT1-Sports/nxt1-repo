@@ -109,4 +109,21 @@ describe('Agent X selected context DTO validation', () => {
 
     expect(errors.length).toBeGreaterThan(0);
   });
+
+  it('clamps selected context summaries over 600 chars before validation', async () => {
+    const dto = plainToClass(AgentChatRequestDto, {
+      message: 'Use this playbook context.',
+      selectedContexts: [
+        {
+          ...selectedContext,
+          summary: 'a'.repeat(1000),
+        },
+      ],
+    });
+
+    const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+
+    expect(errors).toHaveLength(0);
+    expect(dto.selectedContexts?.[0]?.summary?.length ?? 0).toBeLessThanOrEqual(600);
+  });
 });

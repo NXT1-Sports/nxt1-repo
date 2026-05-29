@@ -96,6 +96,67 @@ describe('MediaTransportResolverService', () => {
     expect(storageMocks.defaultStorage.bucket).not.toHaveBeenCalled();
   });
 
+  it('refreshes Firebase token URLs when fresh signing is preferred', async () => {
+    resetStorageMocks();
+    storageMocks.stagingFile.getSignedUrl.mockResolvedValue(['https://signed.example/fresh.jpg']);
+    const cloudflareBridge = {
+      getDownloadLinks: vi.fn(),
+      enableDownload: vi.fn(),
+    };
+
+    const service = new MediaTransportResolverService(cloudflareBridge as never);
+
+    const result = await service.resolveProcessingUrl({
+      sourceUrl:
+        'https://firebasestorage.googleapis.com/v0/b/nxt-1-staging-v2.firebasestorage.app/o/Users%2Fuser-123%2Fthreads%2Fthread-456%2Fmedia%2Fstaged%2Fvideo%2Fthumbnail.jpg?alt=media&token=stale-token',
+      preferFreshFirebaseSignedUrl: true,
+      executionContext: {
+        userId: 'user-123',
+        threadId: 'thread-456',
+        environment: 'staging',
+      },
+    });
+
+    expect(result).toEqual({
+      url: 'https://signed.example/fresh.jpg',
+      source: 'direct',
+    });
+    expect(storageMocks.stagingStorage.bucket).toHaveBeenCalledWith(
+      'nxt-1-staging-v2.firebasestorage.app'
+    );
+  });
+
+  it('re-signs expired staging Firebase signed URLs before processing', async () => {
+    resetStorageMocks();
+    storageMocks.stagingFile.getSignedUrl.mockResolvedValue([
+      'https://signed.example/staging-refreshed.mp4',
+    ]);
+    const cloudflareBridge = {
+      getDownloadLinks: vi.fn(),
+      enableDownload: vi.fn(),
+    };
+
+    const service = new MediaTransportResolverService(cloudflareBridge as never);
+
+    const result = await service.resolveProcessingUrl({
+      sourceUrl:
+        'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/user-123/threads/thread-456/media/staged/video/runway-output.mp4?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Date=20240101T000000Z&X-Goog-Expires=60&X-Goog-Signature=stale',
+      executionContext: {
+        userId: 'user-123',
+        threadId: 'thread-456',
+        environment: 'staging',
+      },
+    });
+
+    expect(result).toEqual({
+      url: 'https://signed.example/staging-refreshed.mp4',
+      source: 'direct',
+    });
+    expect(storageMocks.stagingStorage.bucket).toHaveBeenCalledWith(
+      'nxt-1-staging-v2.firebasestorage.app'
+    );
+  });
+
   it('rejects production Firebase bucket URLs in staging contexts', async () => {
     resetStorageMocks();
     const cloudflareBridge = {

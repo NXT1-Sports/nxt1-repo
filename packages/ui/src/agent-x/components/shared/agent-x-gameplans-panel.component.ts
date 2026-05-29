@@ -20,6 +20,7 @@ import { NxtStateViewComponent } from '../../../components/state-view/state-view
 import { AgentXContextDragDirective } from '../../directives/agent-x-context-drag.directive';
 import { AGENT_X_API_BASE_URL } from '../../services/agent-x-job.service';
 import { AgentXService } from '../../services/agent-x.service';
+import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
 
 type GamePlanDetail = TeamGamePlanDoc;
 type GamePlanSummary = Pick<
@@ -97,6 +98,9 @@ interface GamePlanMutationResponse {
               <span class="detail-badge" [attr.data-status]="selectedPlan()!.status | lowercase">
                 {{ selectedPlan()!.status }}
               </span>
+              @if (gameplansReleaseLabel) {
+                <span class="detail-release-badge">{{ gameplansReleaseLabel }}</span>
+              }
               <button
                 type="button"
                 class="detail-export-btn"
@@ -1649,7 +1653,12 @@ interface GamePlanMutationResponse {
       } @else {
         <div class="playbooks-list-header">
           <div>
-            <h3>Game Plans</h3>
+            <h3>
+              Game Plans
+              @if (gameplansReleaseLabel) {
+                <span class="release-badge">{{ gameplansReleaseLabel }}</span>
+              }
+            </h3>
             @if (plans().length === 0 && !showCreateForm()) {
               <p>No game plans yet. Start from Agent X or import your files.</p>
             }
@@ -1821,6 +1830,9 @@ interface GamePlanMutationResponse {
                     <span class="gameplan-card__badge" [attr.data-status]="plan.status | lowercase">
                       {{ plan.status }}
                     </span>
+                    @if (gameplansReleaseLabel) {
+                      <span class="gameplan-card__release-badge">{{ gameplansReleaseLabel }}</span>
+                    }
                   </div>
 
                   <div class="gameplan-card__meta">
@@ -1898,6 +1910,9 @@ interface GamePlanMutationResponse {
         margin: 0;
         font-size: 0.95rem;
         letter-spacing: 0.01em;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
       }
 
       .playbooks-list-header p {
@@ -2101,6 +2116,7 @@ interface GamePlanMutationResponse {
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
+        flex-wrap: wrap;
         gap: var(--nxt1-spacing-2, 8px);
       }
 
@@ -2142,6 +2158,25 @@ interface GamePlanMutationResponse {
       .gameplan-card__badge[data-status='completed'] {
         background: rgba(100, 116, 139, 0.1);
         color: rgb(100, 116, 139);
+      }
+
+      .release-badge,
+      .gameplan-card__release-badge,
+      .detail-release-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 2px 8px;
+        border-radius: 999px;
+        border: 1px solid var(--agent-primary, #ccff00);
+        background: color-mix(in srgb, var(--agent-primary, #ccff00) 14%, transparent);
+        color: var(--agent-primary, #ccff00);
+        font-size: 10px;
+        font-weight: 700;
+        line-height: 1;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        white-space: nowrap;
       }
 
       /* Card Metadata (Sport / Phase / Opponent) */
@@ -3644,6 +3679,7 @@ export class AgentXGameplansPanelComponent {
   private readonly baseUrl = `${inject(AGENT_X_API_BASE_URL)}/agent-x`;
 
   readonly testIds = TEST_IDS.GAMEPLAN;
+  protected readonly gameplansReleaseLabel = getAgentXReleaseLabel('gameplans');
   readonly agentXLogoPath = AGENT_X_LOGO_PATH;
   readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
 

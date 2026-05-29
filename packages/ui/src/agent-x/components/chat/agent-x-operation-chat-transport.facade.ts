@@ -57,6 +57,19 @@ type OperationStatus =
   | 'awaiting_approval'
   | null;
 
+const SELECTED_CONTEXT_SUMMARY_MAX_CHARS = 600;
+
+function truncateSelectedContextSummary(summary: string): string {
+  const trimmed = summary.trim();
+  if (trimmed.length <= SELECTED_CONTEXT_SUMMARY_MAX_CHARS) {
+    return trimmed;
+  }
+  if (SELECTED_CONTEXT_SUMMARY_MAX_CHARS <= 3) {
+    return trimmed.slice(0, SELECTED_CONTEXT_SUMMARY_MAX_CHARS);
+  }
+  return `${trimmed.slice(0, SELECTED_CONTEXT_SUMMARY_MAX_CHARS - 3)}...`;
+}
+
 export interface BatchEmailRecipientStatus {
   readonly email: string;
   readonly status: 'sending' | 'sent' | 'failed';
@@ -225,7 +238,9 @@ export class AgentXOperationChatTransportFacade {
             ...context,
             id,
             title,
-            ...(context.summary?.trim() ? { summary: context.summary.trim() } : {}),
+            ...(context.summary?.trim()
+              ? { summary: truncateSelectedContextSummary(context.summary) }
+              : {}),
           },
         ];
       }) ?? [];

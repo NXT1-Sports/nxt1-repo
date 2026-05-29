@@ -220,6 +220,13 @@ export class ActivityService {
   private hasRealtimeSnapshot = false;
   private realtimeRetryCount = 0;
   private realtimeRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * When true, the listener for `realtimeTargetUserId` is in error-recovery mode.
+   * Prevents the Angular auth effect from immediately re-creating the listener
+   * (which would loop infinitely) while `authManager.reset()` is still resolving
+   * its async storage operations after logout.
+   */
+  private realtimeListenerSuspended = false;
 
   // ============================================
   // PUBLIC READONLY COMPUTED SIGNALS
@@ -548,7 +555,18 @@ export class ActivityService {
         await trace?.stop();
       }
     } catch (err) {
-      this.logger.error('Failed to refresh badge counts', err);
+      // A 401 is expected during logout or token expiry — it is harmless since
+      // the user is no longer authenticated and badge counts don't matter.
+      // Log at warn level to avoid noisy red errors in the console.
+      const isAuthError =
+        err != null && typeof (err as { status?: unknown }).status === 'number'
+          ? (err as { status: number }).status === 401
+          : err instanceof Error && err.message.includes('401');
+      if (isAuthError) {
+        this.logger.warn('Badge refresh skipped — unauthenticated (401)');
+      } else {
+        this.logger.error('Failed to refresh badge counts', err);
+      }
     }
   }
 
@@ -587,6 +605,16 @@ export class ActivityService {
     }
 
     if (this.realtimeUserId === normalizedUserId && this.realtimeUnsubscribe) {
+      return;
+    }
+
+    // If this user's listener is suspended (in error-recovery), skip re-creation.
+    // The pending retry timer (or an explicit stopRealtimeListener on logout) will
+    // handle the next step. Without this guard, the auth effect re-runs inside
+    // ngZone.run() triggered by the Firestore error callback, sees the still-stale
+    // auth signals, and re-creates the listener immediately — causing an infinite
+    // permission-denied loop until authManager.reset() finishes.
+    if (this.realtimeListenerSuspended && this.realtimeTargetUserId === normalizedUserId) {
       return;
     }
 
@@ -636,12 +664,28 @@ export class ActivityService {
           this.realtimeUnsubscribe?.();
           this.realtimeUnsubscribe = null;
           this.realtimeUserId = null;
+          // Suspend re-creation until the retry timer fires (or explicit logout).
+          // This prevents the auth effect — which re-evaluates synchronously inside
+          // the ngZone.run() wrapping this callback — from seeing null realtimeUserId
+          // and immediately re-creating the listener before authManager.reset() has
+          // finished updating the Angular auth signals.
+          this.realtimeListenerSuspended = true;
 
           // Permission errors often occur during the brief window where Firebase
           // Auth has authenticated the user but the token hasn't propagated to
           // the Firestore connection yet. Retry with exponential back-off.
+          //
+          // IMPORTANT: Only retry if the target user is still the same one this
+          // listener was created for. If the user has logged out (realtimeTargetUserId
+          // is null or changed), the error is expected and must NOT trigger a retry —
+          // doing so would re-subscribe with a stale userId, causing an infinite loop
+          // of 401 / permission-denied errors after logout.
           const MAX_RETRIES = 3;
-          if (this.isPermissionError(error) && this.realtimeRetryCount < MAX_RETRIES) {
+          if (
+            this.isPermissionError(error) &&
+            this.realtimeRetryCount < MAX_RETRIES &&
+            this.realtimeTargetUserId === normalizedUserId
+          ) {
             const delayMs = Math.pow(2, this.realtimeRetryCount) * 2000; // 2s, 4s, 8s
             this.realtimeRetryCount += 1;
             this.logger.warn('Scheduling activity listener retry due to permission error', {
@@ -650,7 +694,12 @@ export class ActivityService {
             });
             this.realtimeRetryTimer = setTimeout(() => {
               this.realtimeRetryTimer = null;
-              this.startRealtimeForUser(normalizedUserId);
+              // Guard again: abort if target user changed while the timer was pending.
+              if (this.realtimeTargetUserId === normalizedUserId) {
+                // Lift suspension so startRealtimeForUser can create the new listener.
+                this.realtimeListenerSuspended = false;
+                this.startRealtimeForUser(normalizedUserId);
+              }
             }, delayMs);
           }
         },
@@ -671,6 +720,9 @@ export class ActivityService {
 
   /** Stop the active activity listener, if any. */
   stopRealtimeListener(): void {
+    // An explicit stop always lifts any suspension so the service is ready for
+    // the next startRealtimeForUser call (e.g., after the user logs back in).
+    this.realtimeListenerSuspended = false;
     if (this.realtimeRetryTimer !== null) {
       clearTimeout(this.realtimeRetryTimer);
       this.realtimeRetryTimer = null;
@@ -732,8 +784,9 @@ export class ActivityService {
     const shouldIncrementUnread = this.hasRealtimeSnapshot;
     const result = this.mergeRealtimeItems(items, shouldIncrementUnread);
     this.hasRealtimeSnapshot = true;
-    // Listener is healthy — reset retry counter.
+    // Listener is healthy — reset retry counter and lift any suspension.
     this.realtimeRetryCount = 0;
+    this.realtimeListenerSuspended = false;
 
     if (result.added > 0 || result.updated > 0 || result.removed > 0) {
       this.logger.debug('Merged live activity snapshot', result);
