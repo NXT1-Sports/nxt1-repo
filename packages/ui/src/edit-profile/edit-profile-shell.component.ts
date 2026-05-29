@@ -64,6 +64,8 @@ import { APP_EVENTS } from '@nxt1/core/analytics';
 import {
   TEAM_TYPE_CONFIGS,
   buildLinkSourcesFormData,
+  formatPositionDisplay,
+  getPositionGroupsForSport,
   mapToConnectedSources,
   titleCase,
   type InboxEmailProvider,
@@ -241,6 +243,13 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
                   class="nxt1-list-value"
                   [class.nxt1-list-placeholder]="!form.basicInfo.classYear"
                   >{{ form.basicInfo.classYear || 'Select class year' }}</span
+                >
+              </nxt1-list-row>
+              <nxt1-list-row label="Position" (tap)="editPositions()">
+                <span
+                  class="nxt1-list-value nxt1-list-value--truncate"
+                  [class.nxt1-list-placeholder]="!positionDisplayValue()"
+                  >{{ positionDisplayValue() || 'Select positions' }}</span
                 >
               </nxt1-list-row>
               <nxt1-list-row label="Bio" (tap)="editBio()">
@@ -609,6 +618,10 @@ const PROGRAM_TYPE_SUFFIX_PATTERNS: Readonly<Record<DraftProgramType, readonly R
         text-overflow: ellipsis;
         white-space: nowrap;
         text-align: right;
+      }
+
+      .nxt1-list-value--truncate {
+        max-width: 200px;
       }
 
       .nxt1-list-bio {
@@ -1040,6 +1053,24 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
     return Array.from({ length: 8 }, (_, index) => String(startYear + index));
   });
 
+  protected readonly availablePositions = computed((): readonly string[] => {
+    const sport = this.profile.formData()?.sportsInfo?.sport;
+    if (!sport) return [];
+    return getPositionGroupsForSport(sport).flatMap((group) => group.positions);
+  });
+
+  protected readonly positionDisplayValue = computed((): string => {
+    const data = this.profile.formData();
+    if (!data) return '';
+    const positions = data.sportsInfo.positions ?? [];
+    const sport = data.sportsInfo.sport;
+    if (!sport || positions.length === 0) return '';
+
+    return positions
+      .map((position) => formatPositionDisplay(position, sport, { showAbbreviation: true }))
+      .join(', ');
+  });
+
   protected readonly carouselImages = computed<readonly string[]>(() => {
     const data = this.profile.formData();
     if (!data) return [];
@@ -1413,6 +1444,56 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
     });
     if (result.selected && result.data) {
       this.profile.updateField('basic-info', 'classYear', result.data as string);
+    }
+  }
+
+  protected async editPositions(): Promise<void> {
+    const form = this.profile.formData();
+    if (!form) return;
+
+    const sport = form.sportsInfo.sport;
+    const allPositions = this.availablePositions();
+    if (!sport || allPositions.length === 0) {
+      this.toast.info('No positions available for this sport');
+      return;
+    }
+
+    const maxPositions = 5;
+    // Normalize to lowercase to match SPORT_POSITION_GROUPS keys
+    let current = (form.sportsInfo.positions ?? []).map((p) => p.toLowerCase());
+
+    let keepSelecting = true;
+    while (keepSelecting) {
+      const atMax = current.length >= maxPositions;
+      const title =
+        current.length > 0 ? `Positions (${current.length}/${maxPositions})` : 'Select Position';
+
+      const result = await this.nxtModal.actionSheet({
+        title,
+        actions: allPositions.map((position) => {
+          const isSelected = current.includes(position);
+          const display = formatPositionDisplay(position, sport);
+          return {
+            text: isSelected ? `✓ ${display}` : display,
+            data: position,
+            ...(atMax && !isSelected ? { destructive: false } : {}),
+          };
+        }),
+        preferNative: 'native',
+        haptics: false,
+      });
+
+      if (!result?.selected || !result.data) {
+        keepSelecting = false;
+      } else {
+        const position = result.data as string;
+        if (current.includes(position)) {
+          current = current.filter((p) => p !== position);
+        } else if (current.length < maxPositions) {
+          current = [...current, position];
+        }
+        this.profile.updateField('sports-info', 'positions', current);
+      }
     }
   }
 
