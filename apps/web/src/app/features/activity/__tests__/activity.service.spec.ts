@@ -16,6 +16,7 @@ import {
 } from '@angular/platform-browser-dynamic/testing';
 import { ActivityService } from '@nxt1/ui/activity';
 import { ActivityApiService } from '@nxt1/ui/activity';
+import { ACTIVITY_FIREBASE_CONTEXT } from '@nxt1/ui/activity';
 import { HapticsService } from '@nxt1/ui/services/haptics';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
@@ -194,6 +195,12 @@ describe('ActivityService', () => {
   let firestoreAdapterMock: ReturnType<typeof createFirestoreAdapterMock>;
   let firestoreUnsubscribeMock: ReturnType<typeof vi.fn>;
   let emitFirestoreSnapshot: (docs: ReadonlyArray<Record<string, unknown>>) => void;
+  let emitFirestoreError: (error: unknown) => void;
+  let firebaseContextState: {
+    currentUserId: string | null;
+    projectId: string | null;
+    authReady: boolean | null;
+  };
 
   beforeAll(() => {
     try {
@@ -223,13 +230,21 @@ describe('ActivityService', () => {
     firestoreAdapterMock = createFirestoreAdapterMock();
     firestoreUnsubscribeMock = vi.fn();
     emitFirestoreSnapshot = () => undefined;
+    emitFirestoreError = () => undefined;
+    firebaseContextState = {
+      currentUserId: 'user-123',
+      projectId: 'nxt-1-v2',
+      authReady: true,
+    };
     firestoreAdapterMock.onSnapshot.mockImplementation(
       (
         _path: string,
         _orderByField: string,
-        onNext: (docs: ReadonlyArray<Record<string, unknown>>) => void
+        onNext: (docs: ReadonlyArray<Record<string, unknown>>) => void,
+        onError?: (error: unknown) => void
       ) => {
         emitFirestoreSnapshot = onNext;
+        emitFirestoreError = onError ?? (() => undefined);
         return firestoreUnsubscribeMock;
       }
     );
@@ -246,6 +261,14 @@ describe('ActivityService', () => {
         { provide: PERFORMANCE_ADAPTER, useValue: performanceMock },
         { provide: MessagesService, useValue: messagesServiceMock },
         { provide: FIRESTORE_ADAPTER, useValue: firestoreAdapterMock },
+        {
+          provide: ACTIVITY_FIREBASE_CONTEXT,
+          useValue: {
+            getCurrentUserId: () => firebaseContextState.currentUserId,
+            getProjectId: () => firebaseContextState.projectId,
+            isAuthReady: () => firebaseContextState.authReady,
+          },
+        },
       ],
     });
 
@@ -608,10 +631,26 @@ describe('ActivityService', () => {
     it('should reuse an existing listener for the same user and unsubscribe when the user changes', () => {
       service.startRealtimeForUser('user-123');
       service.startRealtimeForUser('user-123');
+
+      firebaseContextState.currentUserId = 'user-456';
+      firebaseContextState.authReady = true;
       service.startRealtimeForUser('user-456');
 
       expect(firestoreAdapterMock.onSnapshot).toHaveBeenCalledTimes(2);
       expect(firestoreUnsubscribeMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('should stop and avoid re-subscribing when permission error happens after logout', () => {
+      service.startRealtimeForUser('user-123');
+
+      firebaseContextState.currentUserId = null;
+      firebaseContextState.authReady = false;
+      emitFirestoreError(new Error('Missing or insufficient permissions.'));
+
+      service.startRealtimeForUser('user-123');
+
+      expect(firestoreUnsubscribeMock).toHaveBeenCalledTimes(1);
+      expect(firestoreAdapterMock.onSnapshot).toHaveBeenCalledTimes(1);
     });
   });
 

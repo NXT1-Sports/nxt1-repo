@@ -23,6 +23,7 @@ import {
   ChangeDetectionStrategy,
   inject,
   AfterViewInit,
+  Input,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ModalController } from '@ionic/angular/standalone';
@@ -112,54 +113,54 @@ export class NxtPickerComponent implements AfterViewInit {
   // ============================================
 
   /** Picker mode (determines which content to show) */
-  mode!: PickerMode;
+  @Input() mode!: PickerMode;
 
   /** Title for the picker */
-  title = 'Select';
+  @Input() title = 'Select';
 
   /** Whether to show search */
-  showSearch = false;
+  @Input() showSearch = false;
 
   /** Search placeholder */
-  searchPlaceholder = 'Search...';
+  @Input() searchPlaceholder = 'Search...';
 
   /** Whether to show count badge */
-  showCount = false;
+  @Input() showCount = false;
 
   /** Maximum selections allowed */
-  maxCount = 0;
+  @Input() maxCount = 0;
 
   /** Confirm button text */
-  confirmText = 'Done';
+  @Input() confirmText = 'Done';
 
   /** Cancel button text */
-  cancelText = 'Cancel';
+  @Input() cancelText = 'Cancel';
 
   /** Auto-focus search on open */
-  autoFocusSearch = false;
+  @Input() autoFocusSearch = false;
 
   // ============================================
   // SPORT PICKER INPUTS
   // ============================================
 
   /** Sports already added (shown as disabled) */
-  addedSports: readonly string[] = [];
+  @Input() addedSports: readonly string[] = [];
 
   /** Available sports to display */
-  availableSports: readonly SportItem[] = [];
+  @Input() availableSports: readonly SportItem[] = [];
 
   // ============================================
   // POSITION PICKER INPUTS
   // ============================================
 
   /** Position groups for display */
-  positionGroups: readonly PositionGroup[] = [];
+  @Input() positionGroups: readonly PositionGroup[] = [];
 
   /** Initially selected positions */
-  initialSelectedPositions: readonly string[] = [];
+  @Input() initialSelectedPositions: readonly string[] = [];
 
   /** Maximum positions allowed */
-  maxPositions = 5;
+  @Input() maxPositions = 5;
 
   // ============================================
   // INTERNAL STATE

@@ -599,6 +599,22 @@ export class ActivityService {
       return;
     }
 
+    const authUid = this.firebaseContext.getCurrentUserId();
+    const authReady = this.firebaseContext.isAuthReady();
+    const isAuthUnavailable = authReady === false || authUid === null;
+    const isAuthMismatch = authUid !== null && authUid !== normalizedUserId;
+    if (isAuthUnavailable || isAuthMismatch) {
+      this.logger.info('Skipping activity live listener start until auth context is ready', {
+        requestedUserId: normalizedUserId,
+        authUid,
+        authReady,
+      });
+      this.realtimeRetryCount = 0;
+      this.realtimeTargetUserId = null;
+      this.stopRealtimeListener();
+      return;
+    }
+
     if (normalizedUserId.includes('/')) {
       this.logger.warn('Refusing to start activity listener for invalid user id');
       return;
@@ -647,14 +663,39 @@ export class ActivityService {
           const authReady = this.firebaseContext.isAuthReady();
           const projectId = this.firebaseContext.getProjectId();
 
-          this.logger.error('Activity live listener failed', error, {
-            collectionPath,
-            listenerUserId: normalizedUserId,
-            authUid,
-            authReady,
-            projectId,
-            uidMatchesListener: authUid === normalizedUserId,
-          });
+          if (this.isPermissionError(error) && (authReady === false || authUid === null)) {
+            this.logger.info('Activity live listener stopped after auth became unavailable', {
+              collectionPath,
+              listenerUserId: normalizedUserId,
+              authUid,
+              authReady,
+              projectId,
+            });
+            this.realtimeRetryCount = 0;
+            this.realtimeTargetUserId = null;
+            this.stopRealtimeListener();
+            return;
+          }
+
+          if (this.isPermissionError(error)) {
+            this.logger.warn('Activity live listener permission error', {
+              collectionPath,
+              listenerUserId: normalizedUserId,
+              authUid,
+              authReady,
+              projectId,
+              uidMatchesListener: authUid === normalizedUserId,
+            });
+          } else {
+            this.logger.error('Activity live listener failed', error, {
+              collectionPath,
+              listenerUserId: normalizedUserId,
+              authUid,
+              authReady,
+              projectId,
+              uidMatchesListener: authUid === normalizedUserId,
+            });
+          }
           void this.breadcrumbs.trackStateChange('activity_realtime_error', {
             userId: normalizedUserId,
           });
