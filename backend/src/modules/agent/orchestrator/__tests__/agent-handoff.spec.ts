@@ -134,7 +134,7 @@ describe('Agent handoff and tool narrowing', () => {
     expect(enriched).toContain('Use football as the primary sport context');
   });
 
-  it('keeps the thread sport when the latest user turn does not restate it', () => {
+  it('does not carry sport from thread history when latest user turn does not restate it', () => {
     const contextService = new AgentRouterContextService(
       {
         compressToPrompt: () => 'Name: Multi Sport Athlete\nSport: basketball',
@@ -160,9 +160,37 @@ describe('Agent handoff and tool narrowing', () => {
       '\n<<<THREAD_HISTORY_START>>>\n[User]: Break down my football film from last game\n[Agent X]: Here are the first notes\n<<<THREAD_HISTORY_END>>>'
     );
 
+    expect(enriched).not.toContain('[Resolved Sport Context]');
+  });
+
+  it('uses an explicit session sport lock from job context when request does not restate sport', () => {
+    const contextService = new AgentRouterContextService(
+      {
+        compressToPrompt: () => 'Name: Multi Sport Athlete\nSport: basketball',
+      } as never,
+      undefined
+    );
+
+    const userContext: AgentUserContext = {
+      userId: 'user-1',
+      role: 'athlete',
+      displayName: 'Multi Sport Athlete',
+      sport: 'basketball',
+      sports: [
+        { sport: 'basketball', positions: ['PG'], isActive: true },
+        { sport: 'football', positions: ['QB'], isActive: false },
+      ],
+    };
+
+    const enriched = contextService.enrichIntentWithContext(
+      'Now break down the coverages from that clip',
+      userContext,
+      { sportLock: 'football' }
+    );
+
     expect(enriched).toContain('[Resolved Sport Context]');
     expect(enriched).toContain('Profile active sport: basketball');
-    expect(enriched).toContain('Active thread context refers to: football');
+    expect(enriched).toContain('Session lock refers to: football');
     expect(enriched).toContain('Use football as the primary sport context');
   });
 

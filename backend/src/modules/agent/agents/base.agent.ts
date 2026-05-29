@@ -3493,7 +3493,15 @@ export abstract class BaseAgent {
 
     const currentTurnMessages = params.currentMessages ?? [];
     const messagePool: readonly LLMMessage[] = currentTurnMessages;
-    const hasDrawnContext = this.hasDrawnFilmContext(currentTurnMessages);
+    const filmScope = this.resolveFilmAnalysisScope(currentTurnMessages);
+    const hasDrawnContext = filmScope === 'annotated_clip';
+
+    logger.info('[BaseAgent] Resolved film analysis scope for analyze_video guard', {
+      agentId: this.id,
+      toolName: params.toolName,
+      scope: filmScope,
+      hasDrawnContext,
+    });
 
     if (!hasDrawnContext) {
       return { shouldBlock: false, reason: '' };
@@ -3509,6 +3517,7 @@ export abstract class BaseAgent {
 
     let hasImageGroundingSuccess = false;
     let hasImageGroundingFailure = false;
+    let hasPriorAnalyzeVideoGuardBlock = false;
 
     for (const message of messagePool) {
       if (message.role !== 'tool' || typeof message.content !== 'string') continue;
@@ -3518,7 +3527,8 @@ export abstract class BaseAgent {
       if (
         calledToolName !== 'analyze_image' &&
         calledToolName !== 'ffmpeg_generate_thumbnail' &&
-        calledToolName !== 'stage_media'
+        calledToolName !== 'stage_media' &&
+        calledToolName !== 'analyze_video'
       ) {
         continue;
       }
@@ -3544,6 +3554,15 @@ export abstract class BaseAgent {
         }
 
         if (payload['success'] === false) {
+          if (calledToolName === 'analyze_video') {
+            const payloadError = typeof payload['error'] === 'string' ? payload['error'] : '';
+            if (
+              payloadError.includes('Circled play detected') ||
+              payloadError.includes('Cannot run motion video analysis for a circled play')
+            ) {
+              hasPriorAnalyzeVideoGuardBlock = true;
+            }
+          }
           hasImageGroundingFailure = true;
         }
       } catch {
@@ -3553,6 +3572,14 @@ export abstract class BaseAgent {
 
     if (hasImageGroundingSuccess) {
       return { shouldBlock: false, reason: '' };
+    }
+
+    if (hasPriorAnalyzeVideoGuardBlock) {
+      return {
+        shouldBlock: true,
+        reason:
+          'Analyze_video is already blocked for this turn because the selected clip is annotated. Do not retry analyze_video until image grounding succeeds (analyze_image on annotated frame, or ffmpeg_generate_thumbnail + analyze_image).',
+      };
     }
 
     const reason = hasImageGroundingFailure
@@ -3639,21 +3666,74 @@ export abstract class BaseAgent {
   }
 
   private hasDrawnFilmContext(messages?: readonly LLMMessage[]): boolean {
+    return this.resolveFilmAnalysisScope(messages) === 'annotated_clip';
+  }
+
+  private resolveFilmAnalysisScope(
+    messages?: readonly LLMMessage[]
+  ): 'annotated_clip' | 'multi_clip' | 'full_video' | 'unknown' {
     if (!messages?.length) {
-      return false;
+      return 'unknown';
     }
 
-    const joinedText = messages
-      .map((message) => (typeof message.content === 'string' ? message.content : ''))
-      .join('\n');
+    const selectedContextSegments = messages.flatMap((message) => {
+      if (message.role !== 'user' || typeof message.content !== 'string') {
+        return [];
+      }
 
-    return (
-      /hasDrawing:\s*true/iu.test(joinedText) ||
-      /annotationSnapshotAttached:\s*true/iu.test(joinedText) ||
-      /video-frame normalized bounds/iu.test(joinedText) ||
-      /Marked-frame timestamp/iu.test(joinedText) ||
-      /\bcircled\b|\bdrew\b|\bhighlighted\b|\bmarked\b/iu.test(joinedText)
+      return this.extractSelectedContextSegments(message.content);
+    });
+
+    if (selectedContextSegments.length === 0) {
+      return 'unknown';
+    }
+
+    const hasAnnotatedClipContext = selectedContextSegments.some(
+      (segment) =>
+        /User drawing annotation:/iu.test(segment) ||
+        /annotationSnapshotAttached:\s*true/iu.test(segment) ||
+        /hasDrawing:\s*true/iu.test(segment) ||
+        /video-frame normalized bounds/iu.test(segment) ||
+        /Marked-frame timestamp/iu.test(segment) ||
+        /flattened annotated frame image attachment/iu.test(segment)
     );
+
+    if (hasAnnotatedClipContext) {
+      return 'annotated_clip';
+    }
+
+    const joinedSegments = selectedContextSegments.join('\n');
+    const filmPlayCount = (joinedSegments.match(/^\d+\.\s+film_play\s*\(/gimu) ?? []).length;
+    if (filmPlayCount > 1) {
+      return 'multi_clip';
+    }
+
+    const hasFilmReviewContext = /^\d+\.\s+film_review\s*\(/gimu.test(joinedSegments);
+    if (hasFilmReviewContext) {
+      return 'full_video';
+    }
+
+    return 'unknown';
+  }
+
+  private extractSelectedContextSegments(content: string): string[] {
+    const segments: string[] = [];
+
+    const blockPatterns = [
+      /\[Selected contexts \(confirmed by user for this turn\):([\s\S]*?)\n\]/giu,
+      /\[Selected contexts from user request\]([\s\S]*?)(?:\n\n|$)/giu,
+    ];
+
+    for (const blockPattern of blockPatterns) {
+      for (const match of content.matchAll(blockPattern)) {
+        const segment = match[1]?.trim();
+        if (segment) {
+          segments.push(segment);
+        }
+      }
+    }
+
+    return segments;
   }
 
   private async executeToolWithRetry(params: {

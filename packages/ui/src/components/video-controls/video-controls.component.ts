@@ -362,6 +362,7 @@ type DrawEffectMarker = {
         display: flex;
         align-items: center;
         position: relative;
+        z-index: 1;
       }
 
       .video-controls__seek-track {
@@ -508,6 +509,8 @@ type DrawEffectMarker = {
         justify-content: space-between;
         gap: var(--nxt1-spacing-1, 4px);
         flex-wrap: wrap;
+        position: relative;
+        z-index: 2;
       }
 
       .video-controls__cluster {
@@ -607,6 +610,7 @@ type DrawEffectMarker = {
       .video-controls__speed-menu {
         position: relative;
         display: inline-flex;
+        z-index: 4;
       }
 
       .video-controls__speed-trigger {
@@ -650,7 +654,7 @@ type DrawEffectMarker = {
         position: absolute;
         right: 0;
         bottom: calc(100% + 8px);
-        z-index: 5;
+        z-index: 40;
         display: grid;
         min-width: 94px;
         padding: 4px;

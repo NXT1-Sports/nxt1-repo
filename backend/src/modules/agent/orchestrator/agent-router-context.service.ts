@@ -100,20 +100,20 @@ function detectSportInText(
   return null;
 }
 
-function detectThreadSport(
-  threadHistory: string | undefined,
+function resolveSportLockFromJobContext(
+  jobContext: Record<string, unknown> | undefined,
   candidateSports: Map<string, readonly string[]>
 ): string | null {
-  if (!threadHistory) return null;
+  if (!jobContext) return null;
 
-  const recentUserLines = threadHistory
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith('[User]: '))
-    .reverse();
+  const lockKeys = ['sportLock', 'lockedSport', 'targetSport'] as const;
+  for (const key of lockKeys) {
+    const value = jobContext[key];
+    if (typeof value !== 'string' || value.trim().length === 0) {
+      continue;
+    }
 
-  for (const line of recentUserLines) {
-    const detected = detectSportInText(line.slice('[User]: '.length), candidateSports);
+    const detected = detectSportInText(value, candidateSports);
     if (detected) {
       return detected;
     }
@@ -125,8 +125,8 @@ function detectThreadSport(
 function resolveSportContext(
   intent: string,
   userContext: AgentUserContext,
-  threadHistory?: string
-): { sport: string; source: 'request' | 'thread' } | null {
+  jobContext?: Record<string, unknown>
+): { sport: string; source: 'request' | 'lock' } | null {
   const candidateSports = buildCandidateSports(userContext);
   if (candidateSports.size === 0) return null;
 
@@ -135,9 +135,9 @@ function resolveSportContext(
     return { sport: requestSport, source: 'request' };
   }
 
-  const threadSport = detectThreadSport(threadHistory, candidateSports);
-  if (threadSport) {
-    return { sport: threadSport, source: 'thread' };
+  const lockedSport = resolveSportLockFromJobContext(jobContext, candidateSports);
+  if (lockedSport) {
+    return { sport: lockedSport, source: 'lock' };
   }
 
   return null;
@@ -228,15 +228,15 @@ export class AgentRouterContextService {
       }
     );
     let enriched = `[User Profile]\n${contextStr}`;
-    const resolvedSportContext = resolveSportContext(intent, userContext, threadHistory);
+    const resolvedSportContext = resolveSportContext(intent, userContext, jobContext);
 
     if (
       resolvedSportContext &&
       normalizeSportLabel(userContext.sport ?? '') !== resolvedSportContext.sport
     ) {
       const contextLabel =
-        resolvedSportContext.source === 'thread'
-          ? 'Active thread context refers to'
+        resolvedSportContext.source === 'lock'
+          ? 'Session lock refers to'
           : 'Request explicitly refers to';
       enriched +=
         `\n\n[Resolved Sport Context]\n` +
