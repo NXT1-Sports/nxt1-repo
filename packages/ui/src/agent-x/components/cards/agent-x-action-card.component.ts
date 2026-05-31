@@ -1723,15 +1723,10 @@ export class AgentXActionCardComponent implements OnDestroy {
   readonly isApproval = computed(() => this.yield().reason === 'needs_approval');
 
   /**
-   * True when the approval is eligible for session-level trust.
-   * Excluded: critical-risk actions (deletes, destructive ops).
+   * Session trust is temporarily disabled globally.
+   * Every approval must be explicitly confirmed by the user.
    */
-  readonly isTrustEligible = computed(() => {
-    if (!this.isApproval()) return false;
-    const risk = this.genericApprovalData()?.riskLevel;
-    // Critical-risk actions (permanent deletes, destructive) are never trust-eligible.
-    return risk !== 'critical';
-  });
+  readonly isTrustEligible = computed(() => false);
 
   readonly cardTitle = computed(() => {
     if (!this.isApproval()) return 'Quick Question from Agent X';

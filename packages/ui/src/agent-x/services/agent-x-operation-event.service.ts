@@ -1521,9 +1521,18 @@ export class AgentXOperationEventService {
     if (typeof result['imageUrl'] === 'string') {
       return 'Image generated';
     }
-    // Fallback: show key count
+    const coordinatorObservation = result['coordinator_observation'];
+    if (typeof coordinatorObservation === 'string' && coordinatorObservation.trim().length > 0) {
+      return 'Coordinator response received';
+    }
+
+    const planObservation = result['plan_observation'];
+    if (typeof planObservation === 'string' && planObservation.trim().length > 0) {
+      return 'Coordinator response received';
+    }
+
     const keys = Object.keys(result);
-    return keys.length > 0 ? `Returned ${keys.length} field(s)` : 'Completed';
+    return keys.length > 0 ? 'Processed tool output' : 'Processed';
   }
 
   private buildToolStep(

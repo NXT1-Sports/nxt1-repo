@@ -21,6 +21,7 @@ export interface PlaybookPlay {
   readonly title?: string;
   readonly series?: string;
   readonly category?: string;
+  readonly playType?: string;
   readonly formation?: string;
   readonly personnel?: string;
   readonly downDistance?: string;

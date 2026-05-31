@@ -737,14 +737,24 @@ export class NxtMarkdownComponent {
   /**
    * Tracks whether DOMPurify has been loaded.  Used as a computed
    * dependency so `safeHtml` re-evaluates once sanitization is available.
+   *
+   * Initialized from globalThis so that instances created after the first
+   * component has already loaded DOMPurify start as ready immediately —
+   * preventing a blank-frame flash on every new message bubble.
    */
-  private readonly _dompurifyReady = signal(false);
+  private readonly _dompurifyReady = signal(
+    typeof (globalThis as Record<string, unknown>)['DOMPurify'] !== 'undefined'
+  );
 
   constructor() {
     afterNextRender(() => {
-      // Eagerly load DOMPurify on first browser render.
+      // Load DOMPurify on first browser render if not already present.
       // Once ready, flip the signal so `safeHtml` re-computes with full
       // sanitization (copy buttons + target attrs preserved).
+      if ((globalThis as Record<string, unknown>)['DOMPurify']) {
+        // Already loaded by a sibling instance — nothing to do.
+        return;
+      }
       import('dompurify').then((mod) => {
         (globalThis as Record<string, unknown>)['DOMPurify'] = mod.default;
         this._dompurifyReady.set(true);

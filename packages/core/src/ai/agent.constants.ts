@@ -499,7 +499,7 @@ export const AGENT_APPROVAL_TOOL_GROUPS = {
 } as const;
 
 export const AGENT_APPROVAL_POLICIES: readonly AgentApprovalPolicy[] = [
-  ...createApprovalPolicies(AGENT_APPROVAL_TOOL_GROUPS.communication, 'high', false, 'email'),
+  ...createApprovalPolicies(AGENT_APPROVAL_TOOL_GROUPS.communication, 'high', false),
 ] as const;
 
 /**

@@ -52,8 +52,19 @@ function summarizeToolResult(result: Record<string, unknown>): string {
   if (typeof result['imageUrl'] === 'string') {
     return 'Image generated';
   }
+
+  const coordinatorObservation = result['coordinator_observation'];
+  if (typeof coordinatorObservation === 'string' && coordinatorObservation.trim().length > 0) {
+    return 'Coordinator response received';
+  }
+
+  const planObservation = result['plan_observation'];
+  if (typeof planObservation === 'string' && planObservation.trim().length > 0) {
+    return 'Coordinator response received';
+  }
+
   const keys = Object.keys(result);
-  return keys.length > 0 ? `Returned ${keys.length} field(s)` : 'Completed';
+  return keys.length > 0 ? 'Processed tool output' : 'Processed';
 }
 
 function toRichCard(value: unknown, fallbackAgentId?: string): AgentXRichCard | null {

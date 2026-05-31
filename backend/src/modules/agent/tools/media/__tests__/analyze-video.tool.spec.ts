@@ -36,7 +36,17 @@ describe('AnalyzeVideoTool', () => {
   };
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    scraper.scrape.mockReset();
+    llm.complete.mockReset();
+    apify.searchActors.mockReset();
+    apify.getActorDetails.mockReset();
+    apify.callActor.mockReset();
+    ffmpeg.convertVideo.mockReset();
+    geminiFiles.analyzeVideoFromUrl.mockReset();
+    geminiFiles.analyzeVideosFromUrls.mockReset();
+    cloudflareBridge.clipVideo.mockReset();
+    cloudflareBridge.getVideo.mockReset();
+    context.emitStage = vi.fn();
   });
 
   it('clips bounded Cloudflare ranges before Gemini analysis', async () => {
@@ -93,6 +103,7 @@ describe('AnalyzeVideoTool', () => {
       expect.objectContaining({
         sourceUrl: 'https://watch.cloudflarestream.com/clip-456',
         cloudflareVideoId: 'clip-456',
+        cloudflareDownloadPolicy: 'allow_render_and_poll',
         fallbackToFirebaseStaging: false,
       })
     );
@@ -337,6 +348,15 @@ describe('AnalyzeVideoTool', () => {
 
   it('prefers explicit signed Firebase URL input over stale call_apify_actor artifact hints', async () => {
     const tool = new AnalyzeVideoTool(scraper as never, llm as never, apify as never);
+    const resolveProcessingUrl = vi.fn().mockResolvedValue({
+      url: 'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/user-123/threads/thread-456/tmp/video/clip.mp4?X-Goog-Signature=signed123',
+      source: 'unchanged',
+    });
+    (
+      tool as unknown as {
+        mediaTransportResolver: { resolveProcessingUrl: typeof resolveProcessingUrl };
+      }
+    ).mediaTransportResolver = { resolveProcessingUrl };
 
     llm.complete.mockResolvedValueOnce({
       content: 'Direct signed-url analysis succeeded',
@@ -374,6 +394,12 @@ describe('AnalyzeVideoTool', () => {
 
     expect(result.success).toBe(true);
     expect(apify.searchActors).not.toHaveBeenCalled();
+    expect(resolveProcessingUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceUrl: signedUrl,
+        fallbackToFirebaseStaging: true,
+      })
+    );
     const requestMessages = llm.complete.mock.calls[0]?.[0];
     expect(requestMessages?.[1]?.content).toEqual(
       expect.arrayContaining([
@@ -472,6 +498,7 @@ describe('AnalyzeVideoTool', () => {
       expect.objectContaining({
         sourceUrl: firebasePlaceholderUrl,
         cloudflareVideoId: '8c72670e15519099333c03359dd39b98',
+        cloudflareDownloadPolicy: 'reuse_ready_only',
         fallbackToFirebaseStaging: true,
         stageMediaKind: 'video',
       })
@@ -487,6 +514,66 @@ describe('AnalyzeVideoTool', () => {
     expect(llm.complete).not.toHaveBeenCalled();
   });
 
+  it('reuses a cached Cloudflare MP4 download without hitting the transport resolver again', async () => {
+    const tool = new AnalyzeVideoTool(
+      scraper as never,
+      llm as never,
+      apify as never,
+      ffmpeg as never,
+      geminiFiles as never
+    );
+    const resolveProcessingUrl = vi.fn();
+    (
+      tool as unknown as {
+        mediaTransportResolver: { resolveProcessingUrl: typeof resolveProcessingUrl };
+      }
+    ).mediaTransportResolver = { resolveProcessingUrl };
+
+    geminiFiles.analyzeVideosFromUrls.mockResolvedValueOnce({
+      content: 'Cached Cloudflare download analyzed directly',
+      toolCalls: [],
+      model: 'gemini-3.1-pro-preview',
+      usage: { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+      latencyMs: 1200,
+      costUsd: 0.001,
+      finishReason: 'STOP',
+    });
+
+    const result = await tool.execute(
+      {
+        url: 'https://watch.cloudflarestream.com/video-123',
+        cloudflareVideoId: 'video-123',
+        prompt: 'Analyze this clip.',
+        artifact: {
+          mediaKind: 'video',
+          sourceType: 'cloudflare',
+          transportReadiness: 'persistence_optional',
+          analysisReady: true,
+          recommendedNextAction: 'analyze_video',
+          sourceUrl: 'https://watch.cloudflarestream.com/video-123',
+          portableUrl: 'https://watch.cloudflarestream.com/video-123',
+          playableUrls: ['https://watch.cloudflarestream.com/video-123'],
+          directMp4Urls: [
+            'https://customer.example.cloudflarestream.com/video-123/downloads/default.mp4',
+          ],
+          manifestUrls: [],
+          cloudflareVideoId: 'video-123',
+          rationale: 'A prewarmed Cloudflare MP4 is already available.',
+        },
+      },
+      context
+    );
+
+    expect(result.success).toBe(true);
+    expect(resolveProcessingUrl).not.toHaveBeenCalled();
+    expect(geminiFiles.analyzeVideosFromUrls).toHaveBeenCalledWith(
+      ['https://customer.example.cloudflarestream.com/video-123/downloads/default.mp4'],
+      'Analyze this clip.',
+      4096,
+      expect.objectContaining({ userId: 'user-123', threadId: 'thread-456' })
+    );
+  });
+
   it('retries with FFmpeg-normalized MP4 when OpenRouter returns empty choices for signed Firebase/GCS URLs without extension', async () => {
     const tool = new AnalyzeVideoTool(
       scraper as never,
@@ -494,6 +581,15 @@ describe('AnalyzeVideoTool', () => {
       apify as never,
       ffmpeg as never
     );
+    const resolveProcessingUrl = vi.fn().mockResolvedValue({
+      url: 'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/user-123/threads/thread-456/tmp/video/clip?X-Goog-Signature=abc123',
+      source: 'unchanged',
+    });
+    (
+      tool as unknown as {
+        mediaTransportResolver: { resolveProcessingUrl: typeof resolveProcessingUrl };
+      }
+    ).mediaTransportResolver = { resolveProcessingUrl };
 
     llm.complete
       .mockRejectedValueOnce(new Error('OpenRouter returned no choices.'))
@@ -548,6 +644,15 @@ describe('AnalyzeVideoTool', () => {
       apify as never,
       ffmpeg as never
     );
+    const resolveProcessingUrl = vi.fn().mockResolvedValue({
+      url: 'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/user-123/threads/thread-456/tmp/video/clip?X-Goog-Signature=def456',
+      source: 'unchanged',
+    });
+    (
+      tool as unknown as {
+        mediaTransportResolver: { resolveProcessingUrl: typeof resolveProcessingUrl };
+      }
+    ).mediaTransportResolver = { resolveProcessingUrl };
 
     llm.complete
       .mockRejectedValueOnce(

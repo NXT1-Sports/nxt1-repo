@@ -548,6 +548,22 @@ function formatDispatchResult(payload: {
   const { label, dispatchKind, taskResults, mutableTasks, streamedDeltaCount, streamedCharCount } =
     payload;
   const allCompleted = mutableTasks.every((t) => t.status === 'completed');
+  const hasUserFacingResult = mutableTasks.some((task) => {
+    const rawResult = taskResults.get(task.id);
+    if (!rawResult || typeof rawResult !== 'object') return false;
+
+    const result = rawResult as {
+      summary?: unknown;
+      data?: Record<string, unknown>;
+    };
+
+    if (typeof result.summary === 'string' && isUserFacingDispatchSummary(result.summary)) {
+      return true;
+    }
+
+    const response = result.data?.['response'];
+    return typeof response === 'string' && isUserFacingDispatchSummary(response);
+  });
   const lines: string[] = [`## ${label} dispatch result`];
 
   for (const task of mutableTasks) {
@@ -558,7 +574,7 @@ function formatDispatchResult(payload: {
         : '';
     if (task.status === 'completed') {
       lines.push(`- ✅ \`${task.id}\`: ${task.description}`);
-      if (summary) lines.push(`  ${summary}`);
+      if (summary && isUserFacingDispatchSummary(summary)) lines.push(`  ${summary}`);
     } else {
       lines.push(`- ❌ \`${task.id}\` (${task.status}): ${task.description}`);
       if (task._lastError) lines.push(`  Error: ${task._lastError}`);
@@ -580,11 +596,26 @@ function formatDispatchResult(payload: {
     success: allCompleted,
     observation: lines.join('\n'),
     dispatchKind,
-    userAlreadyReceivedResponse: streamedDeltaCount > 0,
+    // Only short-circuit Primary's follow-up turn when a coordinator both
+    // streamed content and produced a concrete user-facing final result.
+    userAlreadyReceivedResponse: streamedDeltaCount > 0 && hasUserFacingResult,
     streamedDeltaCount,
     streamedCharCount,
     ...(Object.keys(coordinatorArtifacts).length > 0 ? { coordinatorArtifacts } : {}),
   };
+}
+
+function isUserFacingDispatchSummary(value: string): boolean {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length < 32) return false;
+
+  if (/^completed\b/i.test(normalized)) return false;
+  if (/^task completed\.?$/i.test(normalized)) return false;
+  if (/^returned\s+\d+\s+field\(s\)\.?$/i.test(normalized)) return false;
+  if (/dispatch result/i.test(normalized)) return false;
+  if (/^[a-z_]+_\d+\s*:/i.test(normalized)) return false;
+
+  return true;
 }
 
 function readString(value: unknown): string | undefined {

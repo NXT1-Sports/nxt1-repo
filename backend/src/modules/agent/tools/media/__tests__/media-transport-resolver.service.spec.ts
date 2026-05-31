@@ -297,6 +297,34 @@ describe('MediaTransportResolverService', () => {
     expect(cloudflareBridge.enableDownload).not.toHaveBeenCalled();
   });
 
+  it('does not trigger Cloudflare download rendering when reuse_ready_only is requested', async () => {
+    resetStorageMocks();
+    const cloudflareBridge = {
+      getDownloadLinks: vi.fn().mockResolvedValue({
+        default: {
+          url: null,
+          status: 'pending',
+        },
+      }),
+      enableDownload: vi.fn(),
+    };
+
+    const service = new MediaTransportResolverService(cloudflareBridge as never);
+
+    const result = await service.resolveProcessingUrl({
+      sourceUrl: 'https://watch.cloudflarestream.com/video-456',
+      cloudflareDownloadPolicy: 'reuse_ready_only',
+    });
+
+    expect(result).toEqual({
+      url: 'https://watch.cloudflarestream.com/video-456',
+      source: 'unchanged',
+      cloudflareVideoId: 'video-456',
+    });
+    expect(cloudflareBridge.getDownloadLinks).toHaveBeenCalledWith('video-456');
+    expect(cloudflareBridge.enableDownload).not.toHaveBeenCalled();
+  });
+
   it('returns unchanged URL when Cloudflare download cannot be resolved and staging context is absent', async () => {
     resetStorageMocks();
     const cloudflareBridge = {

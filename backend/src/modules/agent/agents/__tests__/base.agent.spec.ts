@@ -682,7 +682,18 @@ describe('BaseAgent identifier scrubbing', () => {
       format: 'rawHtml',
     });
 
-    expect(label).toBe('Reviewing web page');
+    expect(label).toBe('Reviewing source page');
+  });
+
+  it('uses playbook-specific scrape labels for PDF import context', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('scrape_webpage', {
+      url: 'https://storage.googleapis.com/nxt1-imports/Seed-Test-One-Playbook.pdf',
+      query: 'extract formations and install notes from this football playbook',
+    });
+
+    expect(label).toBe('Reviewing playbook file');
   });
 
   it('normalizes ffmpeg trim labels without surfacing clip offsets', () => {
@@ -719,6 +730,16 @@ describe('BaseAgent identifier scrubbing', () => {
     });
 
     expect(label).toBe('Writing intelligence report');
+  });
+
+  it('uses role-neutral profile labels for get_user_profile', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('get_user_profile', {
+      userId: 'coach-123',
+    });
+
+    expect(label).toBe('Reviewing user profile');
   });
 
   it('normalizes film review labels without surfacing raw review ids', () => {
@@ -1166,6 +1187,65 @@ describe('BaseAgent identifier scrubbing', () => {
         guidance: expect.stringContaining('coordinatorId="performance_coordinator"'),
       })
     );
+  });
+
+  it('derives non-empty summary text from coordinator observation for delegation short-circuit', () => {
+    const agent = new FakeAgent();
+    const toolRecords = [
+      {
+        toolName: 'delegate_to_coordinator',
+        status: 'success',
+        timestamp: new Date().toISOString(),
+      },
+    ];
+
+    const summary = (
+      agent as unknown as {
+        resolveDelegationShortCircuitSummary: (
+          extractedToolData: Record<string, unknown>,
+          toolCallRecords: readonly Record<string, unknown>[]
+        ) => string;
+      }
+    ).resolveDelegationShortCircuitSummary(
+      {
+        coordinator_observation:
+          '## performance_coordinator dispatch result\n- ✅ `task_1`: Analyze uploaded film and return tendencies.',
+      },
+      toolRecords
+    );
+
+    expect(summary.trim().length).toBeGreaterThan(0);
+    expect(summary).toContain('Analyze uploaded film and return tendencies');
+  });
+
+  it('ignores boilerplate completed film-review text and derives a scouting summary', () => {
+    const agent = new FakeAgent();
+
+    const summary = (
+      agent as unknown as {
+        resolveDelegationShortCircuitSummary: (
+          extractedToolData: Record<string, unknown>,
+          toolCallRecords: readonly Record<string, unknown>[]
+        ) => string;
+      }
+    ).resolveDelegationShortCircuitSummary(
+      {
+        response: 'Completed: get film review.',
+        filmReview: {
+          opponentName: 'Warren G Harding',
+          keyInsights: [
+            'They over-rotate to motion from trips on early downs.',
+            'Boundary corners play inside leverage and bail late in Cover 3.',
+            'Interior fit widens against split-flow action.',
+          ],
+        },
+      },
+      []
+    );
+
+    expect(summary.toLowerCase()).not.toContain('completed: get film review');
+    expect(summary).toContain('Warren G Harding');
+    expect(summary.toLowerCase()).toContain('top tendencies');
   });
 
   it('repairs truncated dynamic_export tool arguments before execution', async () => {
