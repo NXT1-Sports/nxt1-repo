@@ -16,6 +16,7 @@ on:
     branches: [main]
     paths:
       - 'apps/web/src/**'
+      - 'apps/web/server.ts'
       - 'packages/core/src/**'
       - 'packages/ui/src/**'
       - 'packages/design-tokens/**'
@@ -27,6 +28,7 @@ on:
       - 'apphosting.yaml'
       - 'firebase.json'
       - '.firebaserc'
+      - '.github/workflows/deploy-web-staging.yml'
 
   # Allow manual trigger from GitHub Actions UI
   workflow_dispatch:
