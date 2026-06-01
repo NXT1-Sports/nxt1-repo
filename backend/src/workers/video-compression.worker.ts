@@ -118,9 +118,6 @@ const HEAVY_FFMPEG_TIMEOUT_MS = 4 * 60 * 1000; // 4 min
 /** Signed URL validity window for ffmpeg-mcp input download. */
 const SIGNED_URL_TTL_MS = 20 * 60 * 1000; // 20 min
 
-/** GCS path prefix where ffmpeg-mcp uploads its output files. */
-const FFMPEG_MCP_OUTPUT_PREFIX = 'agent-x/ffmpeg';
-
 /** Custom GCS metadata key stamped on compressed files to prevent re-processing. */
 const COMPRESSED_META_KEY = 'nxt1-compressed';
 const COMPRESSED_AT_META_KEY = 'nxt1-compressed-at';
@@ -417,10 +414,6 @@ async function compressAndReplace(
   ffmpegMcpUrl: string,
   ffmpegTimeoutMs: number = FFMPEG_TIMEOUT_MS
 ): Promise<CompressResult> {
-  const filename = file.name.split('/').pop() ?? 'video.mp4';
-  const tempGcsPath = `${FFMPEG_MCP_OUTPUT_PREFIX}/cron-compress/${Date.now()}-${filename}`;
-  const tempFile = bucket.file(tempGcsPath);
-
   // Step 1: Sign a temporary read URL for the source file
   const [signedUrl] = await file.getSignedUrl({
     version: 'v4',
@@ -428,25 +421,32 @@ async function compressAndReplace(
     expires: Date.now() + SIGNED_URL_TTL_MS,
   });
 
-  // Step 2: ffmpeg-mcp compress
+  // Step 2: ffmpeg-mcp compress — returns the Firebase Storage download URL of the output
+  let outputUrl: string;
   try {
-    await callFfmpegMcpCompress(signedUrl, tempGcsPath, ffmpegMcpUrl, ffmpegTimeoutMs);
+    outputUrl = await callFfmpegMcpCompress(signedUrl, ffmpegMcpUrl, ffmpegTimeoutMs);
   } catch (ffmpegErr) {
-    await tempFile.delete().catch(() => undefined); // clean up any partial output
-    throw new Error('Failed to compress video with ffmpeg-mcp', {
-      cause: ffmpegErr,
-    });
+    throw new Error('Failed to compress video with ffmpeg-mcp', { cause: ffmpegErr });
   }
 
-  // Step 3: Download compressed output
+  // Step 3: Download compressed output from the URL returned by ffmpeg-mcp
   let compressedBuffer: Buffer;
   try {
-    const [data] = await tempFile.download();
-    compressedBuffer = data;
+    const dlRes = await fetch(outputUrl);
+    if (!dlRes.ok) {
+      throw new Error(`HTTP ${dlRes.status} ${dlRes.statusText}`);
+    }
+    compressedBuffer = Buffer.from(await dlRes.arrayBuffer());
   } catch (downloadErr) {
-    await tempFile.delete().catch(() => undefined);
+    // Best-effort cleanup of the remote GCS object
+    const blobPath = gcsPathFromFirebaseUrl(outputUrl);
+    if (blobPath)
+      await bucket
+        .file(blobPath)
+        .delete()
+        .catch(() => undefined);
     const msg = downloadErr instanceof Error ? downloadErr.message : String(downloadErr);
-    throw new Error(`Failed to download compressed output from ${tempGcsPath}: ${msg}`, {
+    throw new Error(`Failed to download compressed output from ffmpeg-mcp: ${msg}`, {
       cause: downloadErr,
     });
   }
@@ -478,13 +478,13 @@ async function compressAndReplace(
     await file.setMetadata({ metadata: stampedMeta });
   }
 
-  // Step 7: Delete temp ffmpeg output
-  await tempFile.delete().catch((err: unknown) => {
-    logger.warn('[VideoCompression] Failed to delete temp ffmpeg output', {
-      path: tempGcsPath,
-      error: err instanceof Error ? err.message : String(err),
-    });
-  });
+  // Step 7: Delete the temporary output object that ffmpeg-mcp uploaded to GCS
+  const tempBlobPath = gcsPathFromFirebaseUrl(outputUrl);
+  if (tempBlobPath)
+    await bucket
+      .file(tempBlobPath)
+      .delete()
+      .catch(() => undefined);
 
   return { compressedSize, skippedOverwrite };
 }
@@ -504,12 +504,27 @@ async function compressAndReplace(
  *   HTTP non-2xx → ffmpeg-mcp service error (possibly overloaded or crashed)
  *   success:false in RPC body → compress_video returned an application-level error
  */
+/**
+ * Extracts the GCS object path from a Firebase Storage download URL.
+ * Returns null if the URL cannot be parsed.
+ */
+function gcsPathFromFirebaseUrl(url: string): string | null {
+  try {
+    const u = new URL(url);
+    // Format: /v0/b/<bucket>/o/<encoded-path>
+    const match = u.pathname.match(/^\/v0\/b\/[^/]+\/o\/(.+)$/);
+    if (!match) return null;
+    return decodeURIComponent(match[1]);
+  } catch {
+    return null;
+  }
+}
+
 async function callFfmpegMcpCompress(
   signedInputUrl: string,
-  tempOutputPath: string,
   ffmpegMcpUrl: string,
   timeoutMs: number = FFMPEG_TIMEOUT_MS
-): Promise<void> {
+): Promise<string> {
   const token = process.env['FFMPEG_MCP_API_TOKEN'];
 
   const headers: Record<string, string> = {
@@ -534,7 +549,6 @@ async function callFfmpegMcpCompress(
           name: 'compress_video',
           arguments: {
             input_path: signedInputUrl,
-            output_path: tempOutputPath,
             crf: 32,
             preset: 'medium',
           },
@@ -574,6 +588,12 @@ async function callFfmpegMcpCompress(
   if (!result.success) {
     throw new Error(`ffmpeg-mcp compress_video failed: ${result.error ?? 'unknown error'}`);
   }
+
+  if (!result.outputUrl) {
+    throw new Error('ffmpeg-mcp compress_video succeeded but returned no outputUrl');
+  }
+
+  return result.outputUrl;
 }
 
 // ─── SSE → JSON-RPC extractor ─────────────────────────────────────────────────
@@ -615,6 +635,7 @@ function parseSseToJsonRpc(sseText: string): Record<string, unknown> {
 interface FfmpegMcpPayload {
   readonly success: boolean;
   readonly error?: string;
+  readonly outputUrl?: string;
 }
 
 /**
@@ -641,6 +662,7 @@ function parseFfmpegMcpResult(body: Record<string, unknown>): FfmpegMcpPayload {
       return {
         success: structured['success'] as boolean,
         error: structured['error'] as string | undefined,
+        outputUrl: structured['outputUrl'] as string | undefined,
       };
     }
 
@@ -674,6 +696,7 @@ function parseFfmpegMcpResult(body: Record<string, unknown>): FfmpegMcpPayload {
       return {
         success: payload['success'] === true,
         error: payload['error'] as string | undefined,
+        outputUrl: payload['outputUrl'] as string | undefined,
       };
     }
 
