@@ -5,7 +5,7 @@
 
 // export const environment = {
 //   production: true,
-//   appVersion: '1.41.2',
+//   appVersion: '1.41.3',
 //   apiUrl: 'http://34.72.3.113:8080/api/v1',
 
 //   // Production web URL for shareable links
@@ -38,7 +38,7 @@
 
 export const environment = {
   production: true,
-  appVersion: '1.41.2',
+  appVersion: '1.41.3',
 
   // Production API
   apiUrl: 'https://api.nxt1sports.com/api/v1',
@@ -54,7 +54,7 @@ export const environment = {
     storageBucket: 'nxt-1-v2.firebasestorage.app',
     messagingSenderId: '112256620070',
     appId: '1:112256620070:web:6a758d6428d2222f2c78e7',
-    measurementId: 'G-SNZ2T18P5G',
+    measurementId: 'G-13NF238EE7',
   },
 
   // iOS CLIENT_ID from GoogleService-Info.plist (production/ios)

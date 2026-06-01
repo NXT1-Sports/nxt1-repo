@@ -5,8 +5,8 @@
  */
 export const environment = {
   production: true,
-  appVersion: '1.41.2',
-  version: '1.41.2',
+  appVersion: '1.41.3',
+  version: '1.41.3',
   webUrl: 'https://nxt1sports.com',
 
   // Backend API URLs (Production)
@@ -22,7 +22,7 @@ export const environment = {
     storageBucket: 'nxt-1-v2.firebasestorage.app',
     messagingSenderId: '112256620070',
     appId: '1:112256620070:web:6a758d6428d2222f2c78e7',
-    measurementId: 'G-GZGSTY65KQ',
+    measurementId: 'G-13NF238EE7',
   },
 
   // Firebase Cloud Messaging VAPID key (production)

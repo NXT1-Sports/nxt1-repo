@@ -14,7 +14,8 @@
 import { Router, type Router as ExpressRouter, Request, Response } from 'express';
 import { logger } from '../../utils/logger.js';
 import { getHelpArticleModel } from '../../models/help-center/help-article.model.js';
-import { HELP_CATEGORIES } from '@nxt1/core';
+import { HELP_CATEGORIES, buildCanonicalProfilePath } from '@nxt1/core';
+import { isIndexableProfile } from '@nxt1/core/seo';
 import mongoose from 'mongoose';
 import { FieldPath } from 'firebase-admin/firestore';
 
@@ -48,8 +49,13 @@ interface TimestampedXmlCache {
 
 let sitemapIndexCache: TimestampedXmlCache | null = null;
 let coreSitemapCache: TimestampedXmlCache | null = null;
-let profileCountCache: { count: number; timestamp: number } | null = null;
+let indexableProfileCache: { items: ProfileSitemapEntry[]; timestamp: number } | null = null;
 const profileSitemapCache = new Map<number, TimestampedXmlCache>();
+
+interface ProfileSitemapEntry {
+  docId: string;
+  data: FirebaseFirestore.DocumentData;
+}
 
 function isCacheFresh(cache: { timestamp: number } | null, now: number): boolean {
   return !!cache && now - cache.timestamp < CACHE_DURATION;
@@ -65,32 +71,15 @@ function getTodayIsoDate(): string {
   return new Date().toISOString().split('T')[0];
 }
 
-async function getOnboardedProfileCount(db: FirebaseFirestore.Firestore): Promise<number> {
+async function getIndexableProfiles(
+  db: FirebaseFirestore.Firestore
+): Promise<ProfileSitemapEntry[]> {
   const now = Date.now();
-  if (isCacheFresh(profileCountCache, now)) {
-    return profileCountCache!.count;
+  if (isCacheFresh(indexableProfileCache, now)) {
+    return indexableProfileCache!.items;
   }
 
-  const usersQuery = db.collection('Users').where('onboardingCompleted', '==', true);
-  const countQuery = usersQuery as {
-    count?: () => { get: () => Promise<{ data: () => { count: number } }> };
-  };
-
-  if (typeof countQuery.count === 'function') {
-    try {
-      const aggregate = await countQuery.count().get();
-      const count = Number(aggregate.data().count ?? 0);
-      profileCountCache = { count, timestamp: now };
-      return count;
-    } catch (error) {
-      logger.warn('[sitemap] Firestore count() failed, using paginated count fallback', { error });
-    }
-  } else {
-    logger.debug('[sitemap] Firestore count() unsupported, using paginated count fallback');
-  }
-
-  // Fallback for environments where aggregate count is unavailable.
-  let total = 0;
+  const entries: ProfileSitemapEntry[] = [];
   let lastDoc: FirebaseFirestore.QueryDocumentSnapshot | null = null;
 
   while (true) {
@@ -98,6 +87,26 @@ async function getOnboardedProfileCount(db: FirebaseFirestore.Firestore): Promis
       .collection('Users')
       .where('onboardingCompleted', '==', true)
       .orderBy(FieldPath.documentId())
+      .select(
+        'aboutMe',
+        'activeSportIndex',
+        'awards',
+        'classOf',
+        'connectedSources',
+        'displayName',
+        'firstName',
+        'lastName',
+        'location',
+        'measurables',
+        'profileImgs',
+        'sports',
+        'teamHistory',
+        'unicode',
+        'username',
+        'verificationStatus',
+        'sport',
+        'updatedAt'
+      )
       .limit(5000);
 
     if (lastDoc) {
@@ -105,7 +114,12 @@ async function getOnboardedProfileCount(db: FirebaseFirestore.Firestore): Promis
     }
 
     const snapshot = await query.get();
-    total += snapshot.size;
+    snapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
+      const data = doc.data();
+      if (isIndexableProfile(data)) {
+        entries.push({ docId: doc.id, data });
+      }
+    });
 
     if (snapshot.empty || snapshot.size < 5000) {
       break;
@@ -115,8 +129,8 @@ async function getOnboardedProfileCount(db: FirebaseFirestore.Firestore): Promis
     if (!lastDoc) break;
   }
 
-  profileCountCache = { count: total, timestamp: now };
-  return total;
+  indexableProfileCache = { items: entries, timestamp: now };
+  return entries;
 }
 
 function buildProfileUrl(
@@ -124,23 +138,30 @@ function buildProfileUrl(
   docId: string,
   data: FirebaseFirestore.DocumentData
 ): string {
-  const sport = (data['sport'] as string | undefined)?.toLowerCase() ?? 'athlete';
+  const sports = Array.isArray(data['sports']) ? (data['sports'] as Array<{ sport?: string }>) : [];
+  const activeSportIndex = Number(data['activeSportIndex']);
+  const primarySport =
+    sports[Number.isFinite(activeSportIndex) && activeSportIndex >= 0 ? activeSportIndex : 0]
+      ?.sport ??
+    sports[0]?.sport ??
+    (data['sport'] as string | undefined) ??
+    undefined;
+
   const firstName = (data['firstName'] as string | undefined)?.trim() ?? '';
   const lastName = (data['lastName'] as string | undefined)?.trim() ?? '';
-  const unicode = (data['unicode'] as string | undefined) || docId;
+  const displayName = (data['displayName'] as string | undefined)?.trim() ?? '';
   const username = (data['username'] as string | undefined)?.trim() ?? '';
+  const unicode = (data['unicode'] as string | undefined) || docId;
 
-  const rawSlug =
-    firstName || lastName ? `${firstName}-${lastName}` : username || `athlete-${unicode}`;
-  const name = rawSlug
-    .toLowerCase()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-_]/g, '')
-    .replace(/-+/g, '-')
-    .replace(/^-|-$/g, '');
+  const athleteName =
+    [firstName, lastName].filter(Boolean).join(' ') || displayName || username || 'NXT1 Athlete';
 
-  const safeName = name || `athlete-${unicode.toLowerCase()}`;
-  return `${baseUrl}/profile/${sport}/${safeName}/${unicode}`;
+  return `${baseUrl}${buildCanonicalProfilePath({
+    athleteName,
+    sport: primarySport,
+    unicode,
+    id: docId,
+  })}`;
 }
 
 function coerceLastMod(value: unknown): string | undefined {
@@ -181,8 +202,8 @@ router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> =>
 
     const { db } = req.firebase!;
     const baseUrl = process.env['PUBLIC_URL'] || 'https://nxt1sports.com';
-    const profileCount = await getOnboardedProfileCount(db);
-    const profilePageCount = Math.ceil(profileCount / PROFILE_SITEMAP_PAGE_SIZE);
+    const indexableProfiles = await getIndexableProfiles(db);
+    const profilePageCount = Math.ceil(indexableProfiles.length / PROFILE_SITEMAP_PAGE_SIZE);
     const today = getTodayIsoDate();
 
     const sitemapEntries: SitemapIndexEntry[] = [
@@ -200,7 +221,7 @@ router.get('/sitemap.xml', async (req: Request, res: Response): Promise<void> =>
     sitemapIndexCache = { xml, timestamp: now };
 
     logger.info(
-      `[${requestId}] Sitemap index generated with ${sitemapEntries.length} sitemap files (profiles: ${profileCount})`
+      `[${requestId}] Sitemap index generated with ${sitemapEntries.length} sitemap files (profiles: ${indexableProfiles.length})`
     );
 
     sendXml(res, xml);
@@ -333,7 +354,8 @@ router.get('/sitemaps/profiles-:page.xml', async (req: Request, res: Response): 
 
     const { db } = req.firebase!;
     const baseUrl = process.env['PUBLIC_URL'] || 'https://nxt1sports.com';
-    const totalProfiles = await getOnboardedProfileCount(db);
+    const indexableProfiles = await getIndexableProfiles(db);
+    const totalProfiles = indexableProfiles.length;
     const totalPages = Math.ceil(totalProfiles / PROFILE_SITEMAP_PAGE_SIZE);
 
     if (totalPages > 0 && page > totalPages) {
@@ -342,20 +364,12 @@ router.get('/sitemaps/profiles-:page.xml', async (req: Request, res: Response): 
     }
 
     const offset = (page - 1) * PROFILE_SITEMAP_PAGE_SIZE;
-    const snapshot = await db
-      .collection('Users')
-      .where('onboardingCompleted', '==', true)
-      .orderBy(FieldPath.documentId())
-      .select('unicode', 'username', 'firstName', 'lastName', 'sport', 'updatedAt')
-      .offset(offset)
-      .limit(PROFILE_SITEMAP_PAGE_SIZE)
-      .get();
+    const snapshot = indexableProfiles.slice(offset, offset + PROFILE_SITEMAP_PAGE_SIZE);
 
     const entries: SitemapEntry[] = [];
 
-    snapshot.forEach((doc: FirebaseFirestore.QueryDocumentSnapshot) => {
-      const data = doc.data();
-      const loc = buildProfileUrl(baseUrl, doc.id, data);
+    snapshot.forEach(({ docId, data }) => {
+      const loc = buildProfileUrl(baseUrl, docId, data);
 
       entries.push({
         loc,

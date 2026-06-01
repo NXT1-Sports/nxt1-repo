@@ -36,5 +36,5 @@ Disallow: /
 User-agent: BLEXBot
 Disallow: /
 
-# Sitemap (direct XML endpoint, no redirect hop)
-Sitemap: https://api.nxt1sports.com/sitemap.xml
+# Sitemap (web host proxies to backend sitemap generator)
+Sitemap: https://nxt1sports.com/sitemap.xml
