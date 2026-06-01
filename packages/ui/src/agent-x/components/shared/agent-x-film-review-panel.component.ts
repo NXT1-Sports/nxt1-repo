@@ -3934,15 +3934,17 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return review.timeline[idx] ?? null;
   });
 
-  protected readonly syncCurrentPlayWithFilteredRows = effect(() => {
-    const rows = this.filteredTimelineRows();
-    const currentIndex = this.currentPlayIndex();
-    const hasActive = rows.some((row) => row.originalIndex === currentIndex);
+  constructor() {
+    effect(() => {
+      const rows = this.filteredTimelineRows();
+      const currentIndex = this.currentPlayIndex();
+      const hasActive = rows.some((row) => row.originalIndex === currentIndex);
 
-    if (rows.length > 0 && !hasActive) {
-      this.currentPlayIndex.set(rows[0]!.originalIndex);
-    }
-  });
+      if (rows.length > 0 && !hasActive) {
+        this.currentPlayIndex.set(rows[0]!.originalIndex);
+      }
+    });
+  }
 
   /**
    * Per-play scoped seek slider state.
