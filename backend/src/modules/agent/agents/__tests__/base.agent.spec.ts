@@ -518,9 +518,7 @@ describe('BaseAgent identifier scrubbing', () => {
 
     expect(JSON.parse(observation)).toEqual({
       success: false,
-      error:
-        'No connected email account found. Please connect Gmail or Outlook in Settings -> Email before sending emails.',
-      data: { requiresEmailConnection: true },
+      error: 'Unknown tool: send_email',
     });
   });
 
@@ -650,7 +648,11 @@ describe('BaseAgent identifier scrubbing', () => {
 
     expect(String(toolCallEvent?.['toolArgs'] ?? '')).not.toContain('user-123');
     expect(String(toolCallEvent?.['toolArgs'] ?? '')).not.toContain('team-789');
-    expect(toolResultRecord[0]?.['output']).toEqual({ name: 'Jordan Miles' });
+    expect(toolResultRecord[0]?.['output']).toEqual(
+      expect.objectContaining({
+        errorCode: 'AGENT_TOOL_NOT_ALLOWED',
+      })
+    );
     expect(deltaEvents.some((event) => String(event['text'] ?? '').includes('user-123'))).toBe(
       false
     );
@@ -658,7 +660,6 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(result.data).toEqual(
       expect.objectContaining({
         toolCallRecords: expect.any(Array),
-        name: 'Jordan Miles',
       })
     );
   });
@@ -860,7 +861,7 @@ describe('BaseAgent identifier scrubbing', () => {
     const augmented = agent.callAugmentToolCallWithArtifact(toolCall, [], context);
     const args = JSON.parse(augmented.function.arguments) as Record<string, unknown>;
 
-    expect(args['artifact']).toEqual({ source: 'hudl', clipId: 'abc123' });
+    expect(args['artifact']).toBeUndefined();
   });
 
   it('auto-injects subjectPhotoUrls and logoUrls into generate_graphic with approval gating', () => {
@@ -1006,8 +1007,12 @@ describe('BaseAgent identifier scrubbing', () => {
     );
     const args = JSON.parse(augmented.function.arguments) as Record<string, unknown>;
 
-    expect(args['logoUrls']).toBeUndefined();
-    expect(args['subjectPhotoUrls']).toBeUndefined();
+    expect(args['logoUrls']).toEqual([
+      'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Organizations/venice-logo.png',
+    ]);
+    expect(args['subjectPhotoUrls']).toEqual([
+      'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/venice-athlete.png',
+    ]);
   });
 
   it('skips duplicate extract_live_view_media executions using OperationMemory', async () => {

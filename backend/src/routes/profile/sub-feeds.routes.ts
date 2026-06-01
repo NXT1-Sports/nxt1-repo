@@ -28,6 +28,14 @@ import { USERS_COLLECTION, PLAYER_STATS_COLLECTION, CACHE_TTL } from './shared.j
 
 const router = Router();
 
+function isFirestoreIndexError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const withCode = error as { code?: unknown; message?: unknown };
+  const code = typeof withCode.code === 'number' ? withCode.code : undefined;
+  const message = typeof withCode.message === 'string' ? withCode.message : '';
+  return code === 9 || /requires an index|failed_precondition/i.test(message);
+}
+
 function normalizeCollegeLogoUrl(value: unknown): string | undefined {
   const raw = typeof value === 'string' ? value.trim() : '';
   if (!raw) return undefined;
@@ -285,12 +293,37 @@ router.get(
     }
 
     const db = req.firebase!.db;
-    let query = db.collection('Awards').where('userId', '==', userId) as FirebaseFirestore.Query;
-    if (sportId) query = query.where('sport', '==', sportId);
-    query = query.orderBy('createdAt', 'desc').limit(limit);
+    const baseQuery = (() => {
+      let q = db.collection('Awards').where('userId', '==', userId) as FirebaseFirestore.Query;
+      if (sportId) q = q.where('sport', '==', sportId);
+      return q;
+    })();
 
-    const snap = await query.get();
-    const awards = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const awards: Array<Record<string, unknown>> = await (async () => {
+      try {
+        const snap = await baseQuery.orderBy('createdAt', 'desc').limit(limit).get();
+        return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      } catch (error) {
+        if (!isFirestoreIndexError(error)) {
+          throw error;
+        }
+
+        logger.warn('[Profile] Awards query missing index; using unsorted fallback', {
+          userId,
+          sportId,
+        });
+
+        const fallbackSnap = await baseQuery.get();
+        return fallbackSnap.docs
+          .map((d) => ({ id: d.id, ...d.data() }))
+          .sort((a: Record<string, unknown>, b: Record<string, unknown>) => {
+            const aCreatedAt = String(a['createdAt'] ?? '');
+            const bCreatedAt = String(b['createdAt'] ?? '');
+            return bCreatedAt.localeCompare(aCreatedAt);
+          })
+          .slice(0, limit);
+      }
+    })();
 
     await cache.set(cacheKey, awards, { ttl: CACHE_TTL.STATS });
     res.json({ success: true, data: awards });

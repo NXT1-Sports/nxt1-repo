@@ -42,24 +42,24 @@ describe('PracticeScriptAndProgressionSkill', () => {
     it('should include sport context when provided', () => {
       const context = skill.getPromptContext({ sport: 'football' });
       expect(context).toContain('football');
-      expect(context).toContain('Sport: football');
+      expect(context).toContain('**Sport**: football');
     });
 
     it('should include division context when provided', () => {
       const context = skill.getPromptContext({ division: 'college' });
       expect(context).toContain('college');
-      expect(context).toContain('Division: college');
+      expect(context).toContain('**Division**: college');
     });
 
     it('should include install stage in context', () => {
       const context = skill.getPromptContext({ installStage: 'install' });
-      expect(context).toContain('Install Stage: install');
+      expect(context).toContain('**Install Stage**: install');
       expect(context).toContain('Foundation teaching phase');
     });
 
     it('should include practice window minutes', () => {
       const context = skill.getPromptContext({ practiceWindowMinutes: 90 });
-      expect(context).toContain('Practice Window: 90 minutes');
+      expect(context).toContain('**Practice Window**: 90 minutes');
     });
 
     it('should include play name when provided', () => {
@@ -70,12 +70,12 @@ describe('PracticeScriptAndProgressionSkill', () => {
     it('should include position context when provided', () => {
       const context = skill.getPromptContext({ position: 'QB' });
       expect(context).toContain('QB');
-      expect(context).toContain('Position Focus: QB');
+      expect(context).toContain('**Position Focus**: QB');
     });
 
     it('should include roster size when provided', () => {
       const context = skill.getPromptContext({ rosterSize: 85 });
-      expect(context).toContain('Roster Size: 85');
+      expect(context).toContain('**Roster Size**: 85 athletes');
     });
   });
 
@@ -114,7 +114,7 @@ describe('PracticeScriptAndProgressionSkill', () => {
       const context = skill.getPromptContext({ installStage: 'rep' });
       expect(context).toContain('Repetition and integration phase');
       expect(context).toContain('75–85% of game speed');
-      expect(context).toContain('unit coordination');
+      expect(context).toContain('Unit coordination');
     });
 
     it('should describe game-ready stage correctly', () => {
@@ -202,7 +202,8 @@ describe('PracticeScriptAndProgressionSkill', () => {
   describe('Sport-Specific Guidance', () => {
     it('should include sport-agnostic framework', () => {
       const context = skill.getPromptContext({ sport: 'basketball' });
-      expect(context).toContain('sport-agnostic');
+      expect(context).toContain('**Sport**: basketball');
+      expect(context).toContain("sport: 'basketball'");
     });
 
     it('should customize drill labels by sport', () => {

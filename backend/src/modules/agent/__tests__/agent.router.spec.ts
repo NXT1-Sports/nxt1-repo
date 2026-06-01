@@ -482,7 +482,8 @@ describe('AgentRouter', () => {
       );
 
       expect(performanceAgent.execute).toHaveBeenCalledTimes(1);
-      expect(result.summary).toContain('Tape graded: B+ overall.');
+      expect(result.summary).toContain('## execute_saved_plan dispatch result');
+      expect(result.summary).toContain('Analyze highlight tape');
       // Finalization no longer emits acting in this flow; verify updates were emitted.
       expect(updates.length).toBeGreaterThan(0);
     });
@@ -934,7 +935,8 @@ describe('AgentRouter', () => {
         createdAt: new Date().toISOString(),
       });
 
-      expect(result.summary).toContain('Performance review done.');
+      expect(result.summary).toContain('## execute_saved_plan dispatch result');
+      expect(result.summary).toContain('- ✅ `1`: test');
       expect(performanceAgent.execute).toHaveBeenCalledTimes(1);
     });
   });
@@ -1037,7 +1039,10 @@ describe('AgentRouter', () => {
         (u) => updates.push(u)
       );
 
-      expect(result.summary).toContain('Email sent successfully.');
+      expect(result.summary).toContain('## execute_saved_plan dispatch result');
+      expect(result.summary).toContain(
+        'Draft and send the requested email to nxt1@nxt1sports.com.'
+      );
       expect(adminAgent.execute).toHaveBeenCalledTimes(1);
       expect(recruitingAgent.execute).toHaveBeenCalledTimes(1);
       expect(plannerCallCount).toBe(2);

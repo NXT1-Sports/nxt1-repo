@@ -386,7 +386,7 @@ export function buildShareUrl(content: ShareableContent, baseUrl: string = BASE_
     case 'highlight':
       return `${resolvedBaseUrl}/video/${identifier}`;
     case 'post':
-      return `${resolvedBaseUrl}/post/${encodeURIComponent((content as ShareablePost).id)}`;
+      return `${resolvedBaseUrl}${buildCanonicalPostPath(content as ShareablePost)}`;
     case 'article':
       return `${resolvedBaseUrl}/explore/pulse/${content.id}`;
     default:
@@ -528,7 +528,7 @@ export function buildVideoSeoConfig(video: ShareableVideo): SeoConfig {
  */
 export function buildPostSeoConfig(post: ShareablePost, baseUrl: string = BASE_URL): SeoConfig {
   const resolvedBaseUrl = (baseUrl || BASE_URL).replace(/\/+$/, '');
-  const canonicalPath = `/post/${encodeURIComponent(post.id)}`;
+  const canonicalPath = buildCanonicalPostPath(post);
   const canonicalUrl = `${resolvedBaseUrl}${canonicalPath}`;
   const postTitle = post.title || 'Post';
   const title = `${postTitle} | ${post.authorName} | NXT1 Sports`;
@@ -568,6 +568,17 @@ export function buildPostSeoConfig(post: ShareablePost, baseUrl: string = BASE_U
     },
     structuredData: buildPostStructuredData(post, canonicalUrl),
   };
+}
+
+function buildCanonicalPostPath(post: Pick<ShareablePost, 'id' | 'userUnicode'>): string {
+  const postId = encodeURIComponent(post.id);
+  const userUnicode = post.userUnicode?.trim();
+
+  if (!userUnicode) {
+    return `/post/${postId}`;
+  }
+
+  return `/post/${encodeURIComponent(userUnicode)}/${postId}`;
 }
 
 // ============================================

@@ -194,7 +194,10 @@ describe('SearchCollegeCoachesTool', () => {
     it('should use $regex for short college names < 3 chars', async () => {
       await tool.execute({ collegeName: 'OU' });
       const match = getMatch();
-      expect(match['name']).toEqual({ $regex: 'OU', $options: 'i' });
+      const nameFilter = match['name'] as { $regex?: string; $options?: string };
+      expect(nameFilter.$options).toBe('i');
+      expect(nameFilter.$regex).toContain('OU');
+      expect(nameFilter.$regex).toContain('University of Oklahoma');
     });
 
     it('should filter by state with regex matching both abbreviation and full name', async () => {
@@ -288,14 +291,13 @@ describe('SearchCollegeCoachesTool', () => {
       expect(lookup?.['from']).toBe('contacts');
     });
 
-    it('should use let/pipeline for safe ObjectId join', async () => {
+    it('should use indexed localField/foreignField ObjectId join', async () => {
       await tool.execute({ collegeName: 'Ohio State' });
       const lookup = getLookup();
-      expect(lookup?.['let']).toBeDefined();
-      expect(lookup?.['pipeline']).toBeDefined();
-      // Should NOT use simple localField/foreignField (unsafe with mixed string/ObjectId)
-      expect(lookup?.['localField']).toBeUndefined();
-      expect(lookup?.['foreignField']).toBeUndefined();
+      expect(lookup?.['let']).toBeUndefined();
+      expect(lookup?.['pipeline']).toBeUndefined();
+      expect(lookup?.['localField']).toBe('contactObjectIds');
+      expect(lookup?.['foreignField']).toBe('_id');
     });
 
     it('should populate into "populatedContacts" field', async () => {

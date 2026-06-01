@@ -12,13 +12,7 @@ import type { Request, Response, Router as RouterType } from 'express';
 import { FieldValue, type FieldValue as FirestoreFieldValue } from 'firebase-admin/firestore';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { notFoundError } from '@nxt1/core/errors';
-import {
-  DEFAULT_NOTIFICATION_CADENCE_CAPS,
-  DEFAULT_NOTIFICATION_PREFERENCES,
-  USER_SCHEMA_VERSION,
-  normalizeName,
-  isTeamRole,
-} from '@nxt1/core';
+import { USER_SCHEMA_VERSION, normalizeName, isTeamRole } from '@nxt1/core';
 import { normalizeConnectedPlatform } from '@nxt1/core/profile';
 import type {
   UserRole,
@@ -62,8 +56,6 @@ const DEFAULT_ONBOARDING_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   push: true,
   email: true,
   marketing: true,
-  categoryPreferences: { ...DEFAULT_NOTIFICATION_PREFERENCES },
-  cadenceCaps: { ...DEFAULT_NOTIFICATION_CADENCE_CAPS },
 };
 
 const DEFAULT_ONBOARDING_PREFERENCES: UserPreferences = {
@@ -103,8 +95,6 @@ function hasCompleteOnboardingPreferences(
     preferences.notifications?.push !== undefined &&
     preferences.notifications?.email !== undefined &&
     preferences.notifications?.marketing !== undefined &&
-    preferences.notifications?.categoryPreferences !== undefined &&
-    preferences.notifications?.cadenceCaps !== undefined &&
     preferences.activityTracking !== undefined &&
     preferences.analyticsTracking !== undefined &&
     preferences.biometricLogin !== undefined &&

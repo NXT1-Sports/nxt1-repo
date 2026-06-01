@@ -11,11 +11,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { notFoundError, validationError } from '@nxt1/core/errors';
-import {
-  DEFAULT_NOTIFICATION_CADENCE_CAPS,
-  DEFAULT_NOTIFICATION_PREFERENCES,
-  NOTIFICATION_TYPES,
-} from '@nxt1/core';
+import { NOTIFICATION_TYPES } from '@nxt1/core';
 import { getCacheService } from '../../services/core/cache.service.js';
 import { dispatch } from '../../services/communications/notification.service.js';
 import { logger } from '../../utils/logger.js';
@@ -38,8 +34,22 @@ function buildDefaultNotificationPreferences(): NotificationPreferences {
     push: true,
     email: true,
     marketing: true,
-    categoryPreferences: { ...DEFAULT_NOTIFICATION_PREFERENCES },
-    cadenceCaps: { ...DEFAULT_NOTIFICATION_CADENCE_CAPS },
+  };
+}
+
+function sanitizeNotificationPreferences(
+  preferences: Partial<NotificationPreferences> | undefined
+): Partial<NotificationPreferences> {
+  if (!preferences) {
+    return {};
+  }
+
+  return {
+    ...(typeof preferences.push === 'boolean' ? { push: preferences.push } : {}),
+    ...(typeof preferences.email === 'boolean' ? { email: preferences.email } : {}),
+    ...(typeof preferences.marketing === 'boolean' ? { marketing: preferences.marketing } : {}),
+    ...(typeof preferences.sms === 'boolean' ? { sms: preferences.sms } : {}),
+    ...(preferences.quietHours ? { quietHours: preferences.quietHours } : {}),
   };
 }
 
@@ -48,37 +58,13 @@ function mergeNotificationPreferences(
   incoming: Partial<NotificationPreferences> | undefined = undefined
 ): NotificationPreferences {
   const defaults = buildDefaultNotificationPreferences();
-  const currentCategoryPreferences = current?.categoryPreferences ?? {};
-  const incomingCategoryPreferences = incoming?.categoryPreferences ?? {};
-  const categoryPreferences = Object.fromEntries(
-    Object.entries(DEFAULT_NOTIFICATION_PREFERENCES).map(([category, channelDefaults]) => {
-      const currentCategory =
-        currentCategoryPreferences[category as keyof typeof currentCategoryPreferences];
-      const incomingCategory =
-        incomingCategoryPreferences[category as keyof typeof incomingCategoryPreferences];
-
-      return [
-        category,
-        {
-          ...channelDefaults,
-          ...(currentCategory ?? {}),
-          ...(incomingCategory ?? {}),
-        },
-      ];
-    })
-  ) as NonNullable<NotificationPreferences['categoryPreferences']>;
+  const normalizedCurrent = sanitizeNotificationPreferences(current);
+  const normalizedIncoming = sanitizeNotificationPreferences(incoming);
 
   return {
     ...defaults,
-    ...(current ?? {}),
-    ...(incoming ?? {}),
-    categoryPreferences,
-    cadenceCaps: {
-      ...DEFAULT_NOTIFICATION_CADENCE_CAPS,
-      ...(current?.cadenceCaps ?? {}),
-      ...(incoming?.cadenceCaps ?? {}),
-    },
-    quietHours: incoming?.quietHours ?? current?.quietHours,
+    ...normalizedCurrent,
+    ...normalizedIncoming,
   };
 }
 

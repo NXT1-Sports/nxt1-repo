@@ -498,7 +498,7 @@ describe('AnalyzeVideoTool', () => {
       expect.objectContaining({
         sourceUrl: firebasePlaceholderUrl,
         cloudflareVideoId: '8c72670e15519099333c03359dd39b98',
-        cloudflareDownloadPolicy: 'reuse_ready_only',
+        cloudflareDownloadPolicy: 'allow_render_and_poll',
         fallbackToFirebaseStaging: true,
         stageMediaKind: 'video',
       })

@@ -583,7 +583,7 @@ describe('Upload Routes', () => {
           content: 'Week 9 tape',
           thumbnailUrl:
             'https://customer-123.cloudflarestream.com/video-123/thumbnails/thumbnail.jpg',
-          mediaUrl: 'https://customer-123.cloudflarestream.com/video-123/iframe',
+          mediaUrl: 'https://customer-123.cloudflarestream.com/video-123/manifest/video.m3u8',
           duration: 42,
           visibility: 'public',
           playlistId: null,
@@ -607,7 +607,7 @@ describe('Upload Routes', () => {
         sportId: 'football',
         cloudflareVideoId: 'video-123',
         readyToStream: true,
-        mediaUrl: 'https://customer-123.cloudflarestream.com/video-123/iframe',
+        mediaUrl: 'https://customer-123.cloudflarestream.com/video-123/manifest/video.m3u8',
         videoUrl: 'https://customer-123.cloudflarestream.com/video-123/manifest/video.m3u8',
         thumbnailUrl:
           'https://customer-123.cloudflarestream.com/video-123/thumbnails/thumbnail.jpg',
