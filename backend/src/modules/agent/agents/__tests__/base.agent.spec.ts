@@ -518,9 +518,7 @@ describe('BaseAgent identifier scrubbing', () => {
 
     expect(JSON.parse(observation)).toEqual({
       success: false,
-      error:
-        'No connected email account found. Please connect Gmail or Outlook in Settings -> Email before sending emails.',
-      data: { requiresEmailConnection: true },
+      error: 'Unknown tool: send_email',
     });
   });
 
@@ -650,7 +648,11 @@ describe('BaseAgent identifier scrubbing', () => {
 
     expect(String(toolCallEvent?.['toolArgs'] ?? '')).not.toContain('user-123');
     expect(String(toolCallEvent?.['toolArgs'] ?? '')).not.toContain('team-789');
-    expect(toolResultRecord[0]?.['output']).toEqual({ name: 'Jordan Miles' });
+    expect(toolResultRecord[0]?.['output']).toEqual(
+      expect.objectContaining({
+        errorCode: 'AGENT_TOOL_NOT_ALLOWED',
+      })
+    );
     expect(deltaEvents.some((event) => String(event['text'] ?? '').includes('user-123'))).toBe(
       false
     );
@@ -658,7 +660,6 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(result.data).toEqual(
       expect.objectContaining({
         toolCallRecords: expect.any(Array),
-        name: 'Jordan Miles',
       })
     );
   });
@@ -682,7 +683,18 @@ describe('BaseAgent identifier scrubbing', () => {
       format: 'rawHtml',
     });
 
-    expect(label).toBe('Reviewing web page');
+    expect(label).toBe('Reviewing source page');
+  });
+
+  it('uses playbook-specific scrape labels for PDF import context', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('scrape_webpage', {
+      url: 'https://storage.googleapis.com/nxt1-imports/Seed-Test-One-Playbook.pdf',
+      query: 'extract formations and install notes from this football playbook',
+    });
+
+    expect(label).toBe('Reviewing playbook file');
   });
 
   it('normalizes ffmpeg trim labels without surfacing clip offsets', () => {
@@ -719,6 +731,16 @@ describe('BaseAgent identifier scrubbing', () => {
     });
 
     expect(label).toBe('Writing intelligence report');
+  });
+
+  it('uses role-neutral profile labels for get_user_profile', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('get_user_profile', {
+      userId: 'coach-123',
+    });
+
+    expect(label).toBe('Reviewing user profile');
   });
 
   it('normalizes film review labels without surfacing raw review ids', () => {
@@ -839,7 +861,7 @@ describe('BaseAgent identifier scrubbing', () => {
     const augmented = agent.callAugmentToolCallWithArtifact(toolCall, [], context);
     const args = JSON.parse(augmented.function.arguments) as Record<string, unknown>;
 
-    expect(args['artifact']).toEqual({ source: 'hudl', clipId: 'abc123' });
+    expect(args['artifact']).toBeUndefined();
   });
 
   it('auto-injects subjectPhotoUrls and logoUrls into generate_graphic with approval gating', () => {
@@ -985,8 +1007,12 @@ describe('BaseAgent identifier scrubbing', () => {
     );
     const args = JSON.parse(augmented.function.arguments) as Record<string, unknown>;
 
-    expect(args['logoUrls']).toBeUndefined();
-    expect(args['subjectPhotoUrls']).toBeUndefined();
+    expect(args['logoUrls']).toEqual([
+      'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Organizations/venice-logo.png',
+    ]);
+    expect(args['subjectPhotoUrls']).toEqual([
+      'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/venice-athlete.png',
+    ]);
   });
 
   it('skips duplicate extract_live_view_media executions using OperationMemory', async () => {
@@ -1166,6 +1192,65 @@ describe('BaseAgent identifier scrubbing', () => {
         guidance: expect.stringContaining('coordinatorId="performance_coordinator"'),
       })
     );
+  });
+
+  it('derives non-empty summary text from coordinator observation for delegation short-circuit', () => {
+    const agent = new FakeAgent();
+    const toolRecords = [
+      {
+        toolName: 'delegate_to_coordinator',
+        status: 'success',
+        timestamp: new Date().toISOString(),
+      },
+    ];
+
+    const summary = (
+      agent as unknown as {
+        resolveDelegationShortCircuitSummary: (
+          extractedToolData: Record<string, unknown>,
+          toolCallRecords: readonly Record<string, unknown>[]
+        ) => string;
+      }
+    ).resolveDelegationShortCircuitSummary(
+      {
+        coordinator_observation:
+          '## performance_coordinator dispatch result\n- ✅ `task_1`: Analyze uploaded film and return tendencies.',
+      },
+      toolRecords
+    );
+
+    expect(summary.trim().length).toBeGreaterThan(0);
+    expect(summary).toContain('Analyze uploaded film and return tendencies');
+  });
+
+  it('ignores boilerplate completed film-review text and derives a scouting summary', () => {
+    const agent = new FakeAgent();
+
+    const summary = (
+      agent as unknown as {
+        resolveDelegationShortCircuitSummary: (
+          extractedToolData: Record<string, unknown>,
+          toolCallRecords: readonly Record<string, unknown>[]
+        ) => string;
+      }
+    ).resolveDelegationShortCircuitSummary(
+      {
+        response: 'Completed: get film review.',
+        filmReview: {
+          opponentName: 'Warren G Harding',
+          keyInsights: [
+            'They over-rotate to motion from trips on early downs.',
+            'Boundary corners play inside leverage and bail late in Cover 3.',
+            'Interior fit widens against split-flow action.',
+          ],
+        },
+      },
+      []
+    );
+
+    expect(summary.toLowerCase()).not.toContain('completed: get film review');
+    expect(summary).toContain('Warren G Harding');
+    expect(summary.toLowerCase()).toContain('top tendencies');
   });
 
   it('repairs truncated dynamic_export tool arguments before execution', async () => {

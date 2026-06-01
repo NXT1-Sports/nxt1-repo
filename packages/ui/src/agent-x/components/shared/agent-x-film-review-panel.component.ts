@@ -3934,7 +3934,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return review.timeline[idx] ?? null;
   });
 
-  private readonly syncCurrentPlayWithFilteredRows = effect(() => {
+  protected readonly syncCurrentPlayWithFilteredRows = effect(() => {
     const rows = this.filteredTimelineRows();
     const currentIndex = this.currentPlayIndex();
     const hasActive = rows.some((row) => row.originalIndex === currentIndex);

@@ -440,6 +440,23 @@ describe('AgentJobRepository sequencing', () => {
     expect(job?.progress?.outcomeCode).toBe('success_default');
   });
 
+  it('clears stale error when marking job completed', async () => {
+    await repository.markFailed('op-seq-1', 'temporary failure');
+
+    const failedJob = await repository.getById('op-seq-1');
+    expect(failedJob?.status).toBe('failed');
+    expect(failedJob?.error).toBe('temporary failure');
+
+    await repository.markCompleted('op-seq-1', {
+      summary: 'Recovered',
+      data: { ok: true },
+    });
+
+    const recoveredJob = await repository.getById('op-seq-1');
+    expect(recoveredJob?.status).toBe('completed');
+    expect(recoveredJob?.error).toBeNull();
+  });
+
   it('clears yieldState when marking job failed', async () => {
     await repository.markPaused('op-seq-1', {
       reason: 'needs_input',
@@ -515,6 +532,21 @@ describe('AgentJobRepository sequencing', () => {
     expect(job?.failureAlertError).toBe('smtp down');
     expect(job?.failureSlackAlertStatus).toBe('sent');
     expect(job?.failureSlackAlertError).toBeNull();
+  });
+
+  it('does not overwrite a completed job when markFailed arrives late', async () => {
+    await repository.markCompleted('op-seq-1', {
+      summary: 'Done',
+      data: { ok: true },
+    });
+
+    await repository.markFailed('op-seq-1', 'late failure write');
+
+    const job = await repository.getById('op-seq-1');
+    expect(job?.status).toBe('completed');
+    expect(job?.error).toBeNull();
+    expect(sendAgentJobFailureAlertMock).not.toHaveBeenCalled();
+    expect(sendSlackAlertMock).not.toHaveBeenCalled();
   });
 
   it('clears yieldState when marking job cancelled', async () => {

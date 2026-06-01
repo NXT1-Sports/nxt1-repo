@@ -365,7 +365,7 @@ describe('ToolRegistry', () => {
       expect(classifyTool.executeFn).toHaveBeenCalledOnce();
     });
 
-    it('should allow an explicitly named tool even when entity groups are stale', async () => {
+    it('should reject execution when allowed entity groups do not include the tool entity group', async () => {
       const teamTool = new TeamTool();
       registry.register(teamTool);
 
@@ -379,7 +379,10 @@ describe('ToolRegistry', () => {
         }
       );
 
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
+      expect(result.error).toBe(
+        'Tool entity group is not allowed in this execution context: team_tools'
+      );
     });
 
     it('should refuse execution when the tool is disabled by feature flags', async () => {

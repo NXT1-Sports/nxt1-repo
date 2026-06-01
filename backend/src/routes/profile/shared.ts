@@ -25,6 +25,61 @@ export { teamCodeService };
 export const USERS_COLLECTION = 'Users';
 export const PLAYER_STATS_COLLECTION = 'PlayerStats';
 
+function toPublicStorageUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const raw = value.trim();
+  if (!raw) return undefined;
+
+  if (raw.startsWith('gs://')) {
+    const withoutScheme = raw.slice('gs://'.length);
+    const slashIndex = withoutScheme.indexOf('/');
+    if (slashIndex <= 0) return undefined;
+    const bucket = withoutScheme.slice(0, slashIndex);
+    const objectPath = withoutScheme.slice(slashIndex + 1).replace(/^\/+/, '');
+    if (!bucket || !objectPath) return undefined;
+    return `https://storage.googleapis.com/${bucket}/${objectPath
+      .split('/')
+      .map((segment) => encodeURIComponent(segment))
+      .join('/')}`;
+  }
+
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const parsed = new URL(raw);
+      if (parsed.hostname === 'firebasestorage.googleapis.com') {
+        const pathMatch = parsed.pathname.match(/^\/v0\/b\/([^/]+)\/o\/(.+)$/);
+        if (!pathMatch) return raw;
+
+        const bucket = decodeURIComponent(pathMatch[1] ?? '').trim();
+        const encodedObjectPath = pathMatch[2] ?? '';
+        const objectPath = decodeURIComponent(encodedObjectPath).replace(/^\/+/, '');
+        if (!bucket || !objectPath) return raw;
+
+        return `https://storage.googleapis.com/${bucket}/${objectPath
+          .split('/')
+          .map((segment) => encodeURIComponent(segment))
+          .join('/')}`;
+      }
+    } catch {
+      return raw;
+    }
+
+    return raw;
+  }
+
+  // Legacy raw storage paths persisted in user docs (e.g., Users/<uid>/profile/avatar.jpg)
+  if (!raw.includes('/')) return raw;
+  const bucket =
+    process.env['STAGING_FIREBASE_STORAGE_BUCKET'] ?? process.env['FIREBASE_STORAGE_BUCKET'] ?? '';
+  const objectPath = raw.replace(/^\/+/, '');
+  if (!bucket || !objectPath) return raw;
+
+  return `https://storage.googleapis.com/${bucket}/${objectPath
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/')}`;
+}
+
 // ─── Types ──────────────────────────────────────────────────────────────────
 
 export type UserFirestoreDoc = DocumentData & {
@@ -155,13 +210,30 @@ export async function invalidateProfileCaches(
 // ─── Document Mappers ─────────────────────────────────────────────────────────
 
 export function docToUser(docId: string, data: UserFirestoreDoc): User {
-  return { id: docId, ...data } as unknown as User;
+  const normalizedProfileImgs = Array.isArray(data['profileImgs'])
+    ? (data['profileImgs'] as unknown[])
+        .map((value) => toPublicStorageUrl(value))
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    : undefined;
+
+  const normalizedPhotoUrl = toPublicStorageUrl(data['photoURL']);
+
+  return {
+    id: docId,
+    ...data,
+    ...(normalizedProfileImgs ? { profileImgs: normalizedProfileImgs } : {}),
+    ...(normalizedPhotoUrl ? { photoURL: normalizedPhotoUrl } : {}),
+  } as unknown as User;
 }
 
 export function docToUserSummary(docId: string, data: UserFirestoreDoc): UserSummary {
   const sports = Array.isArray(data['sports']) ? (data['sports'] as SportProfile[]) : undefined;
   const primarySport = sports?.find((s) => s.order === 0) ?? sports?.[0];
-  const profileImgs = data['profileImgs'] as string[] | undefined;
+  const profileImgs = Array.isArray(data['profileImgs'])
+    ? (data['profileImgs'] as unknown[])
+        .map((value) => toPublicStorageUrl(value))
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+    : undefined;
 
   return {
     id: docId,

@@ -5,6 +5,7 @@
  * POST /cron/summarize-threads
  * POST /cron/cleanup-thread-media
  * POST /cron/reconcile-job-thread-links
+ * POST /cron/compress-old-videos
  */
 
 import { Router, type Request, type Response } from 'express';
@@ -687,6 +688,58 @@ router.post('/cron/queue-depth-check', cronGuard, async (_req: Request, res: Res
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('CRON queue-depth-check failed', { error: error.message, stack: error.stack });
     res.status(500).json({ success: false, error: 'Queue depth check failed' });
+  }
+});
+
+// ─── POST /cron/compress-old-videos ──────────────────────────────────────
+// Cloud Scheduler: every day at 2:00 AM ET  (cron: 0 2 * * *)
+//
+// Compresses video files in Firebase Storage that are ≥ 3 days old and
+// have not yet been compressed (nxt1-compressed custom metadata not set).
+// Overwrites the original GCS path so all existing Storage URLs remain valid.
+//
+// Optional body params for targeted testing:
+//   { "dryRun": true }                          — list candidates, skip compression
+//   { "filterUserId": "<uid>" }                 — restrict to a single user's files
+//   { "dryRun": true, "filterUserId": "<uid>" } — both
+
+router.post('/cron/compress-old-videos', cronGuard, async (req: Request, res: Response) => {
+  const dryRun = req.body?.dryRun === true;
+  const filterUserId =
+    typeof req.body?.filterUserId === 'string' && req.body.filterUserId.trim()
+      ? (req.body.filterUserId as string).trim()
+      : undefined;
+
+  // Respond immediately — worker runs in the same request context.
+  // For batch sizes up to BATCH_LIMIT (30 files), compression completes
+  // well within the 9-min Cloud Function timeout.
+  logger.info('CRON compress-old-videos starting', { dryRun, filterUserId });
+
+  try {
+    const { VideoCompressionWorker } = await import('../../workers/video-compression.worker.js');
+    const result = await VideoCompressionWorker.run({ dryRun, filterUserId });
+
+    logger.info('CRON compress-old-videos completed', {
+      ...result,
+      bytesReducedMb: (result.bytesReduced / 1024 / 1024).toFixed(1),
+      dryRun,
+      filterUserId,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        processed: result.processed,
+        skipped: result.skipped,
+        errors: result.errors,
+        bytesReducedMb: Number((result.bytesReduced / 1024 / 1024).toFixed(1)),
+        dryRun,
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('CRON compress-old-videos failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Video compression cron failed' });
   }
 });
 

@@ -1573,6 +1573,10 @@ export abstract class BaseAgent {
 
         if (isSynthesized) {
           summary = this.synthesizeSummary(toolCallRecords);
+          const synthesizedTrimmed = summary.trim();
+          if (synthesizedTrimmed.length > 0 && this.isDispatchBoilerplate(synthesizedTrimmed)) {
+            summary = '';
+          }
           // When we already streamed assistant content earlier in this run,
           // synth fallback text should start on a fresh paragraph to avoid
           // run-on joins like "...?Completed: ...".
@@ -1585,6 +1589,13 @@ export abstract class BaseAgent {
           if (hasPriorAssistantContent && summary.trim().length > 0) {
             summary = `\n\n${summary}`;
           }
+        }
+
+        // Never persist an empty final summary. Handoff-only paths can synthesize
+        // to an empty string by design; derive a safe fallback from structured
+        // delegation observations before returning.
+        if (!summary.trim()) {
+          summary = this.resolveDelegationShortCircuitSummary(extractedToolData, toolCallRecords);
         }
 
         summary = sanitizeAgentOutputText(summary);
@@ -2117,11 +2128,15 @@ export abstract class BaseAgent {
           Object.keys({} as Record<string, string>).length > 0
             ? ({} as AgentArtifactHandoff)
             : undefined;
+        const delegationSummary = this.resolveDelegationShortCircuitSummary(
+          extractedToolData,
+          toolCallRecords
+        );
         // Delegation short-circuit success: a downstream coordinator has
         // already streamed a complete user-facing response, so Primary must
         // end cleanly without an extra LLM turn.
         return {
-          summary: '',
+          summary: delegationSummary,
           data: sanitizeAgentPayload({
             model: '',
             toolCallRecords,
@@ -3032,6 +3047,120 @@ export abstract class BaseAgent {
     return `Completed ${successRecords.length} step${successRecords.length > 1 ? 's' : ''}: ${toolNames.join(', ')}.`;
   }
 
+  private resolveDelegationShortCircuitSummary(
+    extractedToolData: Record<string, unknown>,
+    toolCallRecords: readonly AgentToolCallRecord[]
+  ): string {
+    const directResponse = extractedToolData['response'];
+    if (typeof directResponse === 'string') {
+      const normalized = sanitizeAgentOutputText(directResponse).trim();
+      if (normalized.length > 0 && !this.isDispatchBoilerplate(normalized)) {
+        return normalized;
+      }
+    }
+
+    const filmReviewSummary = this.buildFilmReviewScoutingSummary(extractedToolData);
+    if (filmReviewSummary) return filmReviewSummary;
+
+    const observationCandidates = [
+      extractedToolData['coordinator_observation'],
+      extractedToolData['plan_observation'],
+    ];
+
+    for (const candidate of observationCandidates) {
+      if (typeof candidate !== 'string') continue;
+      const flattened = sanitizeAgentOutputText(candidate)
+        .replace(/^##[^\n]*$/gim, ' ')
+        .replace(/^\s*-\s*✅\s*/gim, ' ')
+        .replace(/`/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (flattened.length > 0 && !this.isDispatchBoilerplate(flattened)) {
+        return flattened;
+      }
+    }
+
+    const synthesized = sanitizeAgentOutputText(this.synthesizeSummary(toolCallRecords)).trim();
+    return synthesized.length > 0 ? synthesized : 'Task completed.';
+  }
+
+  private isDispatchBoilerplate(text: string): boolean {
+    const normalized = text.toLowerCase();
+    if (normalized.includes('dispatch result')) return true;
+    if (/\bcompleted:\s*get film review\b/i.test(text)) return true;
+    if (/^performance_coordinator_\d+:/i.test(text.trim())) return true;
+    return false;
+  }
+
+  private buildFilmReviewScoutingSummary(
+    extractedToolData: Record<string, unknown>
+  ): string | null {
+    const rawReview = extractedToolData['filmReview'];
+    if (!rawReview || typeof rawReview !== 'object') return null;
+    const review = rawReview as Record<string, unknown>;
+
+    const opponentName =
+      (typeof review['opponentName'] === 'string' && review['opponentName'].trim()) || 'opponent';
+    const keyInsights = Array.isArray(review['keyInsights'])
+      ? (review['keyInsights'] as unknown[]).filter(
+          (item): item is string => typeof item === 'string' && item.trim().length > 0
+        )
+      : [];
+    const aiSummary =
+      typeof review['aiSummary'] === 'string' && review['aiSummary'].trim().length > 0
+        ? review['aiSummary'].trim()
+        : '';
+
+    const topTendencies = keyInsights.slice(0, 2).map((line) => `- ${line}`) || ([] as string[]);
+    const habits = keyInsights.slice(2, 4).map((line) => `- ${line}`);
+    const pressureLooks = keyInsights.slice(4, 6).map((line) => `- ${line}`);
+    const attackPoints = keyInsights.slice(0, 3).map((line, index) => `${index + 1}. ${line}`);
+
+    if (topTendencies.length === 0 && aiSummary.length > 0) {
+      topTendencies.push(`- ${aiSummary}`);
+    }
+    if (habits.length === 0 && aiSummary.length > 0) {
+      habits.push(`- ${aiSummary}`);
+    }
+    if (pressureLooks.length === 0 && aiSummary.length > 0) {
+      pressureLooks.push(`- ${aiSummary}`);
+    }
+    if (attackPoints.length === 0 && aiSummary.length > 0) {
+      attackPoints.push(`1. Attack the leverage mismatch highlighted in the film summary.`);
+      attackPoints.push(`2. Script an opening call that tests their early-fit discipline.`);
+      attackPoints.push(
+        `3. Build a pressure answer package with quick-game and max-protect counters.`
+      );
+    }
+
+    if (
+      topTendencies.length === 0 &&
+      habits.length === 0 &&
+      pressureLooks.length === 0 &&
+      attackPoints.length === 0
+    ) {
+      return null;
+    }
+
+    return [
+      `Opponent scouting packet (${opponentName}):`,
+      '',
+      'Top tendencies by down and distance:',
+      ...topTendencies,
+      '',
+      'Defensive habits / alignment tendencies:',
+      ...habits,
+      '',
+      'Pressure looks:',
+      ...pressureLooks,
+      '',
+      '3 attack points to install this week:',
+      ...attackPoints,
+    ]
+      .join('\n')
+      .trim();
+  }
+
   // ─── Tool Execution ─────────────────────────────────────────────────────
 
   /**
@@ -3896,7 +4025,7 @@ export abstract class BaseAgent {
       firecrawl_agent_research: 'Conducting web research',
       firecrawl_search_web: 'Searching the web',
       extract_web_data: 'Extracting structured data',
-      scrape_webpage: 'Reviewing web page',
+      scrape_webpage: 'Reviewing source page',
       map_website: 'Mapping website structure',
       search_web: 'Searching the web',
 
@@ -3918,7 +4047,7 @@ export abstract class BaseAgent {
       query_nxt1_data: 'Querying platform database',
       list_nxt1_data_views: 'Reviewing available data views',
       query_nxt1_platform_data: 'Querying platform database',
-      get_user_profile: 'Reviewing athlete profile',
+      get_user_profile: 'Reviewing user profile',
       get_recent_sync_summaries: 'Reviewing recent sync history',
       get_active_threads: 'Reviewing active conversations',
       get_other_thread_history: 'Reviewing related conversation history',
@@ -4953,9 +5082,12 @@ export abstract class BaseAgent {
     toolName: string,
     inputOrArgs?: Record<string, unknown> | string
   ): string {
+    if (toolName === 'scrape_webpage') {
+      return this.resolveScrapeWebpageLabel(inputOrArgs);
+    }
+
     const baseLabel = this.humanizeToolName(toolName);
     if (
-      toolName === 'scrape_webpage' ||
       toolName === 'ffmpeg_trim_video' ||
       toolName === 'ffmpeg_merge_videos' ||
       toolName === 'write_intel'
@@ -4964,6 +5096,33 @@ export abstract class BaseAgent {
     }
     const descriptor = this.resolveToolInvocationDescriptor(inputOrArgs);
     return descriptor ? `${baseLabel}: ${descriptor}` : baseLabel;
+  }
+
+  private resolveScrapeWebpageLabel(inputOrArgs?: Record<string, unknown> | string): string {
+    const input =
+      typeof inputOrArgs === 'string'
+        ? this.parseToolCallInput(inputOrArgs)
+        : inputOrArgs && typeof inputOrArgs === 'object' && !Array.isArray(inputOrArgs)
+          ? inputOrArgs
+          : null;
+
+    const url = typeof input?.['url'] === 'string' ? input['url'] : '';
+    const query = typeof input?.['query'] === 'string' ? input['query'] : '';
+    const format = typeof input?.['format'] === 'string' ? input['format'] : '';
+    const context = `${url} ${query} ${format}`.toLowerCase();
+
+    if (
+      /\.pdf(?:$|\?)/.test(context) ||
+      /\b(pdf|playbook|formation|install note)s?\b/.test(context)
+    ) {
+      return 'Reviewing playbook file';
+    }
+
+    if (/\b(file|upload|document|doc)s?\b/.test(context)) {
+      return 'Reviewing source file';
+    }
+
+    return 'Reviewing source page';
   }
 
   private resolveToolInvocationDescriptor(

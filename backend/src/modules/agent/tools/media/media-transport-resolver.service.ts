@@ -22,9 +22,12 @@ export type ResolvedProcessingSource =
   | 'firebase_staged'
   | 'unchanged';
 
+export type CloudflareDownloadPolicy = 'reuse_ready_only' | 'allow_render_and_poll';
+
 export interface ResolveProcessingUrlInput {
   readonly sourceUrl: string;
   readonly cloudflareVideoId?: string;
+  readonly cloudflareDownloadPolicy?: CloudflareDownloadPolicy;
   readonly fallbackToFirebaseStaging?: boolean;
   /**
    * When true, prefer generating a fresh short-lived V4 signed URL for
@@ -96,7 +99,10 @@ export class MediaTransportResolverService {
         this.isCloudflareStagedPlaceholder(normalizedUrl));
 
     if (shouldTryCloudflare && this.cloudflareBridge) {
-      const downloadUrl = await this.resolveCloudflareDownloadUrl(cloudflareVideoId);
+      const downloadUrl = await this.resolveCloudflareDownloadUrl(
+        cloudflareVideoId,
+        input.cloudflareDownloadPolicy ?? 'allow_render_and_poll'
+      );
       if (downloadUrl) {
         return {
           url: downloadUrl,
@@ -279,7 +285,10 @@ export class MediaTransportResolverService {
     return this.extractCloudflareVideoIdFromStagedFilename(urlRaw) !== null;
   }
 
-  private async resolveCloudflareDownloadUrl(videoId: string): Promise<string | null> {
+  private async resolveCloudflareDownloadUrl(
+    videoId: string,
+    policy: CloudflareDownloadPolicy
+  ): Promise<string | null> {
     if (!this.cloudflareBridge) return null;
 
     // Check for an existing ready download link first
@@ -292,6 +301,14 @@ export class MediaTransportResolverService {
         videoId,
         error: error instanceof Error ? error.message : String(error),
       });
+    }
+
+    if (policy === 'reuse_ready_only') {
+      logger.info('[MediaTransportResolver] Skipping Cloudflare download render request', {
+        videoId,
+        policy,
+      });
+      return null;
     }
 
     // Enable download rendering

@@ -34,7 +34,10 @@ import { addJobCost } from '../../queue/job-cost-tracker.js';
 import { logger } from '../../../../utils/logger.js';
 import { z } from 'zod';
 import { buildPortableMediaArtifact, type MediaWorkflowArtifact } from './media-workflow.js';
-import { MediaTransportResolverService } from './media-transport-resolver.service.js';
+import {
+  MediaTransportResolverService,
+  type CloudflareDownloadPolicy,
+} from './media-transport-resolver.service.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -160,6 +163,7 @@ type RequestedTimeRange = z.infer<typeof RequestedTimeRangeSchema>;
 interface PreparedAnalysisInput {
   readonly url: string;
   readonly cloudflareVideoId?: string;
+  readonly cloudflareDownloadPolicy?: CloudflareDownloadPolicy;
   readonly clipApplied?: {
     readonly sourceVideoId: string;
     readonly clipVideoId: string;
@@ -219,10 +223,13 @@ export class AnalyzeVideoTool extends BaseTool {
     const artifact = parsed.data.artifact as MediaWorkflowArtifact | undefined;
     const requestedTimeRange = this.resolveRequestedTimeRange(parsed.data);
     const clipPaddingSec = parsed.data.clipPaddingSec ?? DEFAULT_CLOUDFLARE_CLIP_PADDING_SEC;
+    const explicitCloudflareVideoId = this.normalizeCloudflareVideoId(
+      parsed.data.cloudflareVideoId
+    );
     const cloudflareVideoId = this.resolveCloudflareVideoId(
       parsed.data.url,
       artifact,
-      parsed.data.cloudflareVideoId
+      explicitCloudflareVideoId
     );
     const url = parsed.data.url ?? artifact?.portableUrl ?? artifact?.sourceUrl ?? null;
 
@@ -251,6 +258,7 @@ export class AnalyzeVideoTool extends BaseTool {
         preparedInput.url,
         artifact,
         preparedInput.cloudflareVideoId,
+        preparedInput.cloudflareDownloadPolicy,
         context
       );
 
@@ -386,7 +394,13 @@ export class AnalyzeVideoTool extends BaseTool {
     context?: ToolExecutionContext
   ): Promise<PreparedAnalysisInput> {
     if (!requestedTimeRange || !cloudflareVideoId || !this.cloudflareBridge) {
-      return { url, ...(cloudflareVideoId ? { cloudflareVideoId } : {}) };
+      return {
+        url,
+        ...(cloudflareVideoId ? { cloudflareVideoId } : {}),
+        ...(cloudflareVideoId
+          ? { cloudflareDownloadPolicy: 'allow_render_and_poll' as const }
+          : {}),
+      };
     }
 
     const clipStartSec = Math.max(0, requestedTimeRange.startSec - clipPaddingSec);
@@ -422,6 +436,7 @@ export class AnalyzeVideoTool extends BaseTool {
     const resolvedClip = await this.mediaTransportResolver.resolveProcessingUrl({
       sourceUrl: `https://watch.cloudflarestream.com/${clip.uid}`,
       cloudflareVideoId: clip.uid,
+      cloudflareDownloadPolicy: 'allow_render_and_poll',
       fallbackToFirebaseStaging: false,
       stageMediaKind: artifact?.mediaKind ?? 'video',
       executionContext: context,
@@ -436,6 +451,7 @@ export class AnalyzeVideoTool extends BaseTool {
     return {
       url: resolvedClip.url,
       cloudflareVideoId: clip.uid,
+      cloudflareDownloadPolicy: 'allow_render_and_poll',
       clipApplied: {
         sourceVideoId: cloudflareVideoId,
         clipVideoId: clip.uid,
@@ -491,12 +507,26 @@ export class AnalyzeVideoTool extends BaseTool {
     url: string,
     artifact: MediaWorkflowArtifact | undefined,
     cloudflareVideoId?: string,
+    cloudflareDownloadPolicy: CloudflareDownloadPolicy = 'allow_render_and_poll',
     context?: ToolExecutionContext
   ): Promise<{ readonly url: string; readonly headers?: Readonly<Record<string, string>> }> {
+    const cachedCloudflareDownloadUrl = this.resolveCachedCloudflareDownloadUrl(
+      url,
+      artifact,
+      cloudflareVideoId
+    );
+    if (cachedCloudflareDownloadUrl) {
+      return {
+        url: cachedCloudflareDownloadUrl,
+        ...(artifact?.stagingHeaders ? { headers: artifact.stagingHeaders } : {}),
+      };
+    }
+
     if (!artifact) {
       const resolvedTransportInput = await this.mediaTransportResolver.resolveProcessingUrl({
         sourceUrl: url,
         cloudflareVideoId,
+        cloudflareDownloadPolicy,
         fallbackToFirebaseStaging: true,
         stageMediaKind: 'video',
         executionContext: context,
@@ -560,6 +590,7 @@ export class AnalyzeVideoTool extends BaseTool {
       const resolvedPortable = await this.mediaTransportResolver.resolveProcessingUrl({
         sourceUrl,
         cloudflareVideoId,
+        cloudflareDownloadPolicy,
         fallbackToFirebaseStaging: true,
         stageMediaKind: 'video',
         executionContext: context,
@@ -579,6 +610,7 @@ export class AnalyzeVideoTool extends BaseTool {
         const resolvedPortableInput = await this.mediaTransportResolver.resolveProcessingUrl({
           sourceUrl: url,
           cloudflareVideoId,
+          cloudflareDownloadPolicy,
           fallbackToFirebaseStaging: true,
           stageMediaKind: 'video',
           executionContext: context,
@@ -596,6 +628,7 @@ export class AnalyzeVideoTool extends BaseTool {
         const resolvedForArtifact = await this.mediaTransportResolver.resolveProcessingUrl({
           sourceUrl: artifact.sourceUrl,
           cloudflareVideoId,
+          cloudflareDownloadPolicy,
           fallbackToFirebaseStaging: true,
           stageMediaKind: 'video',
           executionContext: context,
@@ -993,6 +1026,34 @@ export class AnalyzeVideoTool extends BaseTool {
     if (FIREBASE_GCS_HOST_PATTERN.test(url)) return true;
     if (/^https?:\/\/[^/]*firebasestorage\.app\//i.test(url)) return true;
     return false;
+  }
+
+  private resolveCachedCloudflareDownloadUrl(
+    url: string,
+    artifact: MediaWorkflowArtifact | undefined,
+    cloudflareVideoId: string | undefined
+  ): string | undefined {
+    if (!cloudflareVideoId) {
+      return undefined;
+    }
+
+    const candidates = [
+      url,
+      ...(artifact?.directMp4Urls ?? []),
+      artifact?.portableUrl,
+      artifact?.sourceUrl,
+    ];
+
+    return candidates.find((candidate): candidate is string => {
+      if (typeof candidate !== 'string' || candidate.trim().length === 0) {
+        return false;
+      }
+
+      return (
+        DIRECT_VIDEO_EXTENSIONS.test(candidate) &&
+        this.extractCloudflareVideoId(candidate) === cloudflareVideoId
+      );
+    });
   }
 
   private async acquireMp4WithApify(

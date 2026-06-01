@@ -87,35 +87,43 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
     @if (showingDetail() && selectedPlaybook()) {
       <div class="playbook-detail">
         <div class="detail-header detail-header--actions-only">
-          <button
-            type="button"
-            class="detail-action-btn detail-action-btn--secondary"
-            [attr.data-testid]="testIds.PLAYBOOK_EXPORT_FULL_BUTTON"
-            [disabled]="exportingPdf()"
-            (click)="exportPlaybookPdf('full')"
-          >
-            Full Packet
-          </button>
-          <button
-            type="button"
-            class="icon-btn icon-btn--sm"
-            title="Print Preview"
-            aria-label="Print Preview"
-            (click)="openPrintPreview()"
-          >
-            <nxt1-icon name="printPreview" [size]="14"></nxt1-icon>
-          </button>
           @if (!editingMeta()) {
+            <h2 class="detail-title detail-title--inline">
+              {{ selectedPlaybook()!.title || selectedPlaybook()!.name }}
+            </h2>
+          }
+
+          <div class="detail-header-actions">
             <button
               type="button"
-              class="icon-btn icon-btn--sm detail-header__edit"
-              title="Edit playbook"
-              aria-label="Edit playbook"
-              (click)="startEditMeta()"
+              class="detail-action-btn detail-action-btn--secondary"
+              [attr.data-testid]="testIds.PLAYBOOK_EXPORT_FULL_BUTTON"
+              [disabled]="exportingPdf()"
+              (click)="exportPlaybookPdf('full')"
             >
-              <nxt1-icon name="pencil" [size]="14"></nxt1-icon>
+              Full Packet
             </button>
-          }
+            <button
+              type="button"
+              class="icon-btn icon-btn--sm"
+              title="Print Preview"
+              aria-label="Print Preview"
+              (click)="openPrintPreview()"
+            >
+              <nxt1-icon name="printPreview" [size]="14"></nxt1-icon>
+            </button>
+            @if (!editingMeta()) {
+              <button
+                type="button"
+                class="icon-btn icon-btn--sm detail-header__edit"
+                title="Edit playbook"
+                aria-label="Edit playbook"
+                (click)="startEditMeta()"
+              >
+                <nxt1-icon name="pencil" [size]="14"></nxt1-icon>
+              </button>
+            }
+          </div>
         </div>
 
         @if (editingMeta()) {
@@ -152,9 +160,6 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
             </div>
           </div>
         } @else {
-          <h2 class="detail-title">
-            {{ selectedPlaybook()!.title || selectedPlaybook()!.name }}
-          </h2>
           <div class="detail-meta-grid">
             <div class="meta-item">
               <span class="meta-label">Sport</span>
@@ -230,7 +235,41 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
               <!-- Filter Controls for Plays -->
               <div class="tab-plays-section">
                 <div class="section-header">
-                  <h3 class="section-title">Plays</h3>
+                  <div class="section-title-row">
+                    <h3 class="section-title">Plays</h3>
+                    @if (isFootballSport()) {
+                      <div
+                        class="football-side-toggle"
+                        role="group"
+                        aria-label="Football side filter"
+                      >
+                        <button
+                          type="button"
+                          class="football-side-btn"
+                          [class.football-side-btn--active]="playFilters().side === 'offense'"
+                          (click)="setFootballSide('offense')"
+                        >
+                          Offense
+                        </button>
+                        <button
+                          type="button"
+                          class="football-side-btn"
+                          [class.football-side-btn--active]="playFilters().side === 'defense'"
+                          (click)="setFootballSide('defense')"
+                        >
+                          Defense
+                        </button>
+                        <button
+                          type="button"
+                          class="football-side-btn"
+                          [class.football-side-btn--active]="playFilters().side === 'special-teams'"
+                          (click)="setFootballSide('special-teams')"
+                        >
+                          Special Teams
+                        </button>
+                      </div>
+                    }
+                  </div>
                   <div class="section-header-actions">
                     <button
                       type="button"
@@ -262,33 +301,65 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
                     </select>
                   </label>
 
-                  <label>
-                    {{ playFilterLabels().category }}:
-                    <select
-                      class="form-input"
-                      [value]="playFilters().side || ''"
-                      (change)="onPlayFilterChange('side', $event)"
-                    >
-                      <option value="">All</option>
-                      @for (tag of selectedPlaybook()!.categoryIndex || []; track tag) {
-                        <option [value]="tag">{{ tag | titlecase }}</option>
-                      }
-                    </select>
-                  </label>
+                  @if (isFootballSport()) {
+                    <label>
+                      Formation:
+                      <select
+                        class="form-input"
+                        [value]="playFilters().formation || ''"
+                        (change)="onPlayFilterChange('formation', $event)"
+                      >
+                        <option value="">All</option>
+                        @for (tag of selectedPlaybook()!.formationIndex || []; track tag) {
+                          <option [value]="tag">{{ tag | titlecase }}</option>
+                        }
+                      </select>
+                    </label>
 
-                  <label>
-                    {{ playFilterLabels().concept }}:
-                    <select
-                      class="form-input"
-                      [value]="playFilters().concept || ''"
-                      (change)="onPlayFilterChange('concept', $event)"
-                    >
-                      <option value="">All</option>
-                      @for (tag of selectedPlaybook()!.conceptTagIndex || []; track tag) {
-                        <option [value]="tag">{{ tag | titlecase }}</option>
-                      }
-                    </select>
-                  </label>
+                    @if (playFilters().side) {
+                      <label>
+                        {{ footballPlayTypeLabel() }}:
+                        <select
+                          class="form-input"
+                          [value]="playFilters().playType || ''"
+                          (change)="onPlayFilterChange('playType', $event)"
+                        >
+                          <option value="">All</option>
+                          @for (option of footballPlayTypeOptions(); track option.value) {
+                            <option [value]="option.value">{{ option.label }}</option>
+                          }
+                        </select>
+                      </label>
+                    }
+                  } @else {
+                    <label>
+                      {{ playFilterLabels().category }}:
+                      <select
+                        class="form-input"
+                        [value]="playFilters().side || ''"
+                        (change)="onPlayFilterChange('side', $event)"
+                      >
+                        <option value="">All</option>
+                        @for (tag of selectedPlaybook()!.categoryIndex || []; track tag) {
+                          <option [value]="tag">{{ tag | titlecase }}</option>
+                        }
+                      </select>
+                    </label>
+
+                    <label>
+                      {{ playFilterLabels().concept }}:
+                      <select
+                        class="form-input"
+                        [value]="playFilters().concept || ''"
+                        (change)="onPlayFilterChange('concept', $event)"
+                      >
+                        <option value="">All</option>
+                        @for (tag of selectedPlaybook()!.conceptTagIndex || []; track tag) {
+                          <option [value]="tag">{{ tag | titlecase }}</option>
+                        }
+                      </select>
+                    </label>
+                  }
 
                   @if (hasActivePlayFilters()) {
                     <button
@@ -1862,6 +1933,37 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         </div>
         @if (!showCreateForm()) {
           <div class="playbooks-list-header-actions">
+            <input
+              #playbookHeaderImportInput
+              type="file"
+              class="hidden-file-input"
+              accept=".pdf,.doc,.docx,.txt,.rtf,.md,.csv,.xls,.xlsx,image/*,text/csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              multiple
+              (change)="onImportPlaybookFilesSelected($event)"
+            />
+            <button
+              type="button"
+              class="btn-new btn-new--secondary"
+              data-testid="playbook-import-button"
+              (click)="openPlaybookImportPicker(playbookHeaderImportInput)"
+            >
+              <svg
+                class="btn-new__icon"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M14 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7z" />
+                <path d="M14 2v5h5" />
+                <path d="M12 11v7" />
+                <path d="m9 15 3 3 3-3" />
+              </svg>
+              Import
+            </button>
             <button
               type="button"
               class="btn-new"
@@ -2150,6 +2252,12 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         background: rgba(204, 255, 0, 0.22);
       }
 
+      .btn-new__icon {
+        width: 14px;
+        height: 14px;
+        flex: 0 0 auto;
+      }
+
       .playbooks-list-header-actions {
         display: inline-flex;
         align-items: center;
@@ -2316,7 +2424,16 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
       }
 
       .detail-header--actions-only {
+        justify-content: space-between;
+      }
+
+      .detail-header-actions {
+        display: inline-flex;
+        align-items: center;
         justify-content: flex-end;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-left: auto;
       }
 
       .detail-action-btn {
@@ -2413,6 +2530,11 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         line-height: 1.3;
       }
 
+      .detail-title--inline {
+        flex: 1 1 auto;
+        min-width: 200px;
+      }
+
       .detail-meta-grid {
         display: grid;
         grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -2454,6 +2576,47 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         display: flex;
         align-items: center;
         justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+      }
+
+      .section-title-row {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .football-side-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 2px;
+        border-radius: 999px;
+        border: 1px solid var(--agent-border, rgba(0, 0, 0, 0.08));
+        background: var(--agent-surface-hover, rgba(0, 0, 0, 0.05));
+      }
+
+      .football-side-btn {
+        border: none;
+        background: transparent;
+        color: var(--agent-text-secondary, rgba(0, 0, 0, 0.7));
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        cursor: pointer;
+        transition: all 120ms ease;
+      }
+
+      .football-side-btn:hover {
+        color: var(--agent-text-primary, #1a1a1a);
+      }
+
+      .football-side-btn--active {
+        background: var(--agent-primary-glow, rgba(204, 255, 0, 0.15));
+        color: var(--agent-text-primary, #1a1a1a);
+        border: 1px solid var(--agent-primary, #ccff00);
       }
 
       .section-header-actions {
@@ -4282,16 +4445,45 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
 })
 export class AgentXPlaybooksPanelComponent {
   // --- Play Filters State ---
-  private readonly _playFilters = signal<{ personnel?: string; side?: string; concept?: string }>(
-    {}
-  );
+  private readonly _playFilters = signal<{
+    personnel?: string;
+    side?: 'offense' | 'defense' | 'special-teams';
+    concept?: string;
+    formation?: string;
+    playType?: string;
+  }>({});
   protected readonly playFilters = this._playFilters.asReadonly();
   protected readonly installDragOverStage = signal<'install' | 'rep' | 'game-ready' | null>(null);
   protected readonly draggingInstallPlayIndex = signal<number | null>(null);
 
-  protected onPlayFilterChange(key: 'personnel' | 'side' | 'concept', event: Event): void {
+  protected onPlayFilterChange(
+    key: 'personnel' | 'side' | 'concept' | 'formation' | 'playType',
+    event: Event
+  ): void {
     const value = (event.target as HTMLSelectElement).value;
-    this._playFilters.update((prev) => ({ ...prev, [key]: value || undefined }));
+    if (key === 'side' && this.isFootballSport()) {
+      this.setFootballSide(value === 'offense' || value === 'defense' ? value : undefined);
+      return;
+    }
+
+    this._playFilters.update((prev) => {
+      const next = { ...prev, [key]: value || undefined };
+
+      if (key === 'playType' && value) {
+        next.concept = undefined;
+      }
+
+      return next;
+    });
+  }
+
+  protected setFootballSide(side: 'offense' | 'defense' | 'special-teams' | undefined): void {
+    this._playFilters.update((prev) => ({
+      ...prev,
+      side,
+      playType: undefined,
+      concept: undefined,
+    }));
   }
 
   protected clearPlayFilters(): void {
@@ -4299,16 +4491,81 @@ export class AgentXPlaybooksPanelComponent {
   }
 
   protected readonly hasActivePlayFilters = computed(() => {
-    const { personnel, side, concept } = this._playFilters();
-    return [personnel, side, concept].some((value) => (value ?? '').trim().length > 0);
+    const { personnel, side, concept, formation, playType } = this._playFilters();
+    return [personnel, side, concept, formation, playType].some(
+      (value) => (value ?? '').trim().length > 0
+    );
   });
 
   protected readonly filteredPlays = computed(() => {
     const plays = this.selectedPlaybook()?.plays || [];
-    const { personnel, side, concept } = this._playFilters();
+    const { personnel, side, concept, formation, playType } = this._playFilters();
+
+    const normalize = (value: string | undefined): string => value?.trim().toLowerCase() ?? '';
+
+    const matchesFootballPlayType = (play: PlaybookPlay, wantedType: string): boolean => {
+      const desired = normalize(wantedType);
+      if (!desired) return true;
+
+      const playTypeValue = normalize(play.playType);
+      const tags = (play.conceptTags ?? []).map((tag) => normalize(tag));
+      const haystack = [
+        playTypeValue,
+        normalize(play.title),
+        normalize(play.name),
+        normalize(play.objective),
+        ...tags,
+      ].join(' ');
+
+      if (desired === 'coverage') {
+        return (
+          playTypeValue.includes('coverage') ||
+          playTypeValue.includes('cover') ||
+          tags.some((tag) => tag.includes('coverage') || tag.includes('cover')) ||
+          haystack.includes('coverage') ||
+          haystack.includes('cover ')
+        );
+      }
+
+      return (
+        playTypeValue.includes(desired) ||
+        tags.some((tag) => tag.includes(desired)) ||
+        haystack.includes(desired)
+      );
+    };
+
     return plays.filter((play) => {
       if (personnel && play.personnel !== personnel) return false;
-      if (side && (play.category ?? '').toLowerCase() !== side.toLowerCase()) return false;
+      if (formation && play.formation !== formation) return false;
+      if (side) {
+        const playSide = normalize(play.category);
+        if (side === 'special-teams') {
+          if (
+            !['special-teams', 'special teams', 'specialteams', 'st'].some(
+              (entry) => playSide === entry
+            )
+          ) {
+            if (
+              !['kickoff', 'punt', 'return', 'field goal', 'extra point', 'pat'].some((entry) =>
+                [
+                  playSide,
+                  normalize(play.playType),
+                  normalize(play.objective),
+                  normalize(play.title),
+                  normalize(play.name),
+                ]
+                  .join(' ')
+                  .includes(entry)
+              )
+            ) {
+              return false;
+            }
+          }
+        } else if (playSide !== side) {
+          return false;
+        }
+      }
+      if (playType && !matchesFootballPlayType(play, playType)) return false;
       if (concept && !(play.conceptTags || []).includes(concept)) return false;
       return true;
     });
@@ -4460,7 +4717,52 @@ export class AgentXPlaybooksPanelComponent {
   protected readonly activeSport = computed(
     () => this._inputSport() ?? this.selectedPlaybook()?.sport ?? ''
   );
+  protected readonly isFootballSport = computed(() =>
+    this.activeSport().trim().toLowerCase().includes('football')
+  );
   protected readonly sportConfig = computed(() => getSportPlaybookConfig(this.activeSport()));
+  protected readonly footballPlayTypeLabel = computed(() => {
+    const side = this.playFilters().side;
+    if (side === 'defense') return 'Blitz/Coverage';
+    if (side === 'special-teams') return 'Kick/Punt Type';
+    return 'Run/Pass Type';
+  });
+  protected readonly footballPlayTypeOptions = computed(() => {
+    const side = this.playFilters().side;
+    if (side === 'defense') {
+      return [
+        { value: 'blitz', label: 'Blitz' },
+        { value: 'coverage', label: 'Coverage' },
+      ] as const;
+    }
+
+    if (side === 'special-teams') {
+      return [
+        { value: 'kickoff', label: 'Kickoff' },
+        { value: 'punt', label: 'Punt' },
+        { value: 'return', label: 'Return' },
+        { value: 'field goal', label: 'Field Goal' },
+        { value: 'extra point', label: 'Extra Point' },
+      ] as const;
+    }
+
+    return [
+      { value: 'run', label: 'Run' },
+      { value: 'pass', label: 'Pass' },
+    ] as const;
+  });
+
+  private applyDefaultFootballPlayFilters(playbook: PlaybookDetail | null): void {
+    if (!playbook || !this.isFootballSport()) return;
+
+    const currentFilters = this._playFilters();
+    if (currentFilters.side) return;
+
+    this._playFilters.set({
+      ...currentFilters,
+      side: 'offense',
+    });
+  }
   protected readonly playFilterLabels = computed(() => {
     const sport = this.activeSport().trim().toLowerCase();
     const config = this.sportConfig();
@@ -6436,7 +6738,7 @@ li + li { margin-top: 2px; }
     const sport = this.activeSport().trim().toLowerCase();
     const prompt =
       `Import the attached files and build a clean ${sport || 'team'} playbook draft. ` +
-      'Extract formations, plays, install notes, and coaching points, then ask me to confirm before saving anything. Format install notes as clean line items (one instruction per line), and avoid markdown emphasis.';
+      'Extract formations, plays, install notes, and coaching points, then ask me to confirm before saving anything. Respond with a coach-friendly summary first: total plays, key formations, install priority groups, and top recommendations. Do not dump every play in the first response. Do not offer full play-by-play breakdown unless I explicitly ask for it. Keep install notes clean and readable with one instruction per line. End with this exact question: "Would you like me to create this draft now?"';
 
     this.logger.info('Queued playbook import files for Agent X', {
       teamId: this._teamId(),
@@ -7780,6 +8082,7 @@ li + li { margin-top: 2px; }
         throw new Error(response.error ?? 'Unable to load playbook detail.');
       }
       this.selectedPlaybook.set(response.data.playbook);
+      this.applyDefaultFootballPlayFilters(response.data.playbook);
       await this.loadCallsheetsForSelectedPlaybook();
       await this.loadPracticeScriptsForSelectedPlaybook();
       await this.loadGamePlansForSelectedPlaybook();

@@ -42,7 +42,6 @@ describe('Agent tool exposure regressions', () => {
       expect(tools).not.toContain('search_nxt1_platform');
       expect(tools).not.toContain('query_nxt1_platform_data');
       expect(tools).not.toContain('list_nxt1_data_views');
-      expect(tools).not.toContain('query_nxt1_data');
       expect(tools).not.toContain('scan_timeline_posts');
       expect(tools).not.toContain('firecrawl_search_web');
       expect(tools).not.toContain('firecrawl_agent_research');

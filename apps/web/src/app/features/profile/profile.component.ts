@@ -109,6 +109,7 @@ import { clearHttpCache } from '../../core/infrastructure';
 import { EditProfileApiService } from '../../core/services';
 import { ProfileService as ApiProfileService } from '../../core/services/api/profile-api.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
+import { isIndexableProfile as isRichProfileIndexable } from '@nxt1/core/seo';
 import { IMAGE_PATHS } from '@nxt1/design-tokens/assets';
 import { environment } from '../../../environments/environment';
 
@@ -296,6 +297,10 @@ export class ProfileComponent implements OnInit, OnDestroy {
       imageUrl: profile.profileImgs?.[0] || undefined,
     };
   });
+
+  private readonly shouldIndexProfile = computed<boolean>(() =>
+    isRichProfileIndexable(this.fetchedProfile())
+  );
 
   private readonly canonicalProfilePath = computed<string | null>(() => {
     const meta = this.profileMeta();
@@ -744,7 +749,17 @@ export class ProfileComponent implements OnInit, OnDestroy {
         });
       });
 
-    this.seo.updateForProfile(meta);
+    if (this.routeMode() === 'me' || !this.shouldIndexProfile()) {
+      this.seo.updatePage({
+        title: `${meta.athleteName} | NXT1 Sports`,
+        description: 'View athlete profile on NXT1 Sports.',
+        canonicalUrl: this.canonicalProfilePath() ?? undefined,
+        image: meta.imageUrl,
+        noIndex: true,
+      });
+    } else {
+      this.seo.updateForProfile(meta);
+    }
 
     this.logger.info('Profile SEO updated', {
       unicode: meta.id,
