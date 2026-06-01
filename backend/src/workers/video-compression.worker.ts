@@ -342,10 +342,12 @@ export class VideoCompressionWorker {
           }
         } catch (err) {
           errors++;
+          const cause = err instanceof Error ? (err.cause instanceof Error ? err.cause : err) : err;
           logger.error('[VideoCompression] Failed to compress file', {
             path: file.name,
             originalMb: (originalSize / 1024 / 1024).toFixed(1),
             error: err instanceof Error ? err.message : String(err),
+            cause: cause instanceof Error ? cause.message : String(cause),
           });
           // Continue — one failure must not abort the entire batch
         }
