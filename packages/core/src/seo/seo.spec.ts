@@ -32,6 +32,7 @@ import {
   sanitizeMetaText,
   appendUTMParams,
   buildUTMShareUrl,
+  isIndexableProfile,
   UTM_MEDIUM,
   UTM_CAMPAIGN,
   type ShareableArticle,
@@ -178,6 +179,32 @@ describe('buildShareUrl', () => {
   it('should build pulse article URL', () => {
     const url = buildShareUrl(mockArticle);
     expect(url).toBe('https://nxt1sports.com/explore/pulse/pulse-article-123');
+  });
+});
+
+describe('isIndexableProfile', () => {
+  it('should allow rich or verified profiles to be indexed', () => {
+    expect(
+      isIndexableProfile({
+        aboutMe: 'Point guard and multi-sport athlete.',
+        profileImgs: ['https://storage.googleapis.com/nxt1/profiles/john-smith.jpg'],
+      })
+    ).toBe(true);
+
+    expect(
+      isIndexableProfile({
+        verificationStatus: 'verified',
+      })
+    ).toBe(true);
+  });
+
+  it('should keep thin shells out of the index', () => {
+    expect(
+      isIndexableProfile({
+        classOf: 2027,
+        location: { city: 'Austin', state: 'TX', country: 'US' },
+      })
+    ).toBe(false);
   });
 });
 

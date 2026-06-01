@@ -581,6 +581,64 @@ function buildCanonicalPostPath(post: Pick<ShareablePost, 'id' | 'userUnicode'>)
   return `/post/${encodeURIComponent(userUnicode)}/${postId}`;
 }
 
+/**
+ * Minimal profile shape used to decide whether a profile is rich enough to index.
+ * Shared by the web profile page and backend sitemap generation.
+ */
+export interface ProfileIndexabilitySource {
+  aboutMe?: string | null;
+  profileImgs?: readonly string[] | null;
+  sports?: readonly unknown[] | null;
+  teamHistory?: readonly unknown[] | null;
+  awards?: readonly unknown[] | null;
+  connectedSources?: readonly { connected?: boolean; profileUrl?: string }[] | null;
+  measurables?: readonly unknown[] | null;
+  location?: { city?: string; state?: string; country?: string } | null;
+  classOf?: number | null;
+  verificationStatus?: string | null;
+}
+
+/**
+ * Determine whether a profile has enough public substance to be indexed.
+ * Thin shells stay out of the sitemap and are marked noindex until they grow.
+ */
+export function isIndexableProfile(profile: ProfileIndexabilitySource | null | undefined): boolean {
+  if (!profile) return false;
+
+  const verificationStatus = (profile.verificationStatus ?? '').toLowerCase();
+  if (verificationStatus === 'verified' || verificationStatus === 'premium') {
+    return true;
+  }
+
+  const hasAboutMe = !!profile.aboutMe?.trim();
+  const hasProfileImages = (profile.profileImgs?.length ?? 0) > 0;
+  const hasSports = (profile.sports?.length ?? 0) > 0;
+  const hasTeamHistory = (profile.teamHistory?.length ?? 0) > 0;
+  const hasAwards = (profile.awards?.length ?? 0) > 0;
+  const hasConnectedSources =
+    profile.connectedSources?.some(
+      (source) => source?.connected !== false && !!source?.profileUrl
+    ) ?? false;
+  const hasMeasurables = (profile.measurables?.length ?? 0) > 0;
+
+  const strongSignalCount = [
+    hasAboutMe,
+    hasProfileImages,
+    hasSports,
+    hasTeamHistory,
+    hasAwards,
+    hasConnectedSources,
+    hasMeasurables,
+  ].filter(Boolean).length;
+
+  const hasLocation =
+    !!profile.location?.city || !!profile.location?.state || !!profile.location?.country;
+  const hasGraduationYear = typeof profile.classOf === 'number' && Number.isFinite(profile.classOf);
+  const supportiveSignalCount = [hasLocation, hasGraduationYear].filter(Boolean).length;
+
+  return strongSignalCount >= 1 && strongSignalCount + supportiveSignalCount >= 2;
+}
+
 // ============================================
 // INTERNAL HELPER FUNCTIONS
 // ============================================
