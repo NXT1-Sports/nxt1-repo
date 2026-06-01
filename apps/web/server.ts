@@ -27,6 +27,13 @@ import { dirname, extname, join, resolve, sep } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { brotliCompressSync, gzipSync } from 'node:zlib';
 import { createProxyMiddleware } from 'http-proxy-middleware';
+import {
+  buildCanonicalProfilePath,
+  getActiveSport,
+  isTeamRole,
+  type User,
+} from '@nxt1/core';
+import type { ApiResponse } from '@nxt1/core/profile';
 import bootstrap from './src/main.server';
 
 // Import the SSR_AUTH_TOKEN injection token from the dedicated tokens file
@@ -94,6 +101,71 @@ function extractAuthToken(req: Request): string | undefined {
 function isPublicMarketingRoute(req: Request): boolean {
   const normalizedPath = req.path.replace(/\/+$/, '') || '/';
   return normalizedPath === '/' || normalizedPath === '/agent-x' || normalizedPath === '/programs';
+}
+
+function isNumericProfileRouteParam(value: string): boolean {
+  return /^\d+$/.test(value);
+}
+
+function isUserIdProfileRouteParam(value: string): boolean {
+  return /^[a-zA-Z0-9]{20,32}$/.test(value) && /[a-zA-Z]/.test(value) && /\d/.test(value);
+}
+
+function resolveProfileApiBaseUrl(baseUrl: string): string {
+  const normalizedBaseUrl = baseUrl.replace(/\/+$/, '');
+  if (/\/api\/v1(?:\/staging)?$/.test(normalizedBaseUrl)) {
+    return normalizedBaseUrl;
+  }
+
+  return `${normalizedBaseUrl}/api/v1`;
+}
+
+function buildCanonicalProfileRedirectPath(profile: User): string | null {
+  if (!profile.unicode || isTeamRole(profile.role)) {
+    return null;
+  }
+
+  const activeSport = getActiveSport(profile);
+  const athleteName =
+    `${profile.firstName ?? ''} ${profile.lastName ?? ''}`.trim() || profile.displayName || 'NXT1 Athlete';
+
+  return buildCanonicalProfilePath({
+    athleteName,
+    sport: activeSport?.sport,
+    unicode: profile.unicode,
+  });
+}
+
+async function fetchProfileForCanonicalRedirect(
+  routeParam: string,
+  profileApiBaseUrl: string
+): Promise<User | null> {
+  const lookupPath = isNumericProfileRouteParam(routeParam)
+    ? `/auth/profile/unicode/${encodeURIComponent(routeParam)}`
+    : isUserIdProfileRouteParam(routeParam)
+      ? `/auth/profile/${encodeURIComponent(routeParam)}`
+      : null;
+
+  if (!lookupPath) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(`${profileApiBaseUrl}${lookupPath}`, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(3000),
+    });
+
+    if (!response.ok) {
+      return null;
+    }
+
+    const payload = (await response.json()) as ApiResponse<User>;
+    return payload.success && payload.data ? payload.data : null;
+  } catch (error) {
+    console.warn('Canonical profile redirect lookup failed:', error);
+    return null;
+  }
 }
 
 const STATIC_ASSET_EXTENSIONS = new Set([
@@ -286,12 +358,38 @@ export function createServer(): express.Express {
     res.redirect(308, `/agent-x${query}`);
   });
 
+  const backendTarget = process.env['BACKEND_URL'] || 'https://api.nxt1sports.com';
+  const profileApiBaseUrl = resolveProfileApiBaseUrl(
+    process.env['BACKEND_API_URL'] || backendTarget
+  );
+
+  // Redirect short profile URLs to the slugged canonical route before SSR.
+  // Client-side replaceUrl is not strong enough for crawler canonicalization.
+  server.get(/^\/profile\/[^/]+\/?$/, async (req: Request, res: Response, next: NextFunction) => {
+    const routeParam = req.path.match(/^\/profile\/([^/]+)\/?$/)?.[1] ?? '';
+    if (!routeParam) {
+      next();
+      return;
+    }
+
+    const profile = await fetchProfileForCanonicalRedirect(routeParam, profileApiBaseUrl);
+    const canonicalPath = profile ? buildCanonicalProfileRedirectPath(profile) : null;
+    const currentPath = req.path.replace(/\/+$/, '') || req.path;
+
+    if (canonicalPath && canonicalPath !== currentPath) {
+      const query = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+      res.redirect(308, `${canonicalPath}${query}`);
+      return;
+    }
+
+    next();
+  });
+
   // ============================================
   // BACKEND API PROXY (Sitemap, XML, and API routes)
   // ============================================
 
   // Proxy XML sitemap endpoints to backend before SSR so crawlers never receive HTML fallback.
-  const backendTarget = process.env['BACKEND_URL'] || 'https://api.nxt1sports.com';
   const sitemapProxy = createProxyMiddleware({
     target: backendTarget,
     changeOrigin: true,
