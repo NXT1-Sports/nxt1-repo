@@ -698,32 +698,25 @@ router.post('/cron/queue-depth-check', cronGuard, async (_req: Request, res: Res
 // have not yet been compressed (nxt1-compressed custom metadata not set).
 // Overwrites the original GCS path so all existing Storage URLs remain valid.
 //
-// Optional body params for targeted testing:
-//   { "dryRun": true }                          — list candidates, skip compression
-//   { "filterUserId": "<uid>" }                 — restrict to a single user's files
-//   { "dryRun": true, "filterUserId": "<uid>" } — both
+// Optional body params:
+//   { "dryRun": true } — list candidates, skip compression
 
 router.post('/cron/compress-old-videos', cronGuard, async (req: Request, res: Response) => {
   const dryRun = req.body?.dryRun === true;
-  const filterUserId =
-    typeof req.body?.filterUserId === 'string' && req.body.filterUserId.trim()
-      ? (req.body.filterUserId as string).trim()
-      : undefined;
 
   // Respond immediately — worker runs in the same request context.
   // For batch sizes up to BATCH_LIMIT (30 files), compression completes
   // well within the 9-min Cloud Function timeout.
-  logger.info('CRON compress-old-videos starting', { dryRun, filterUserId });
+  logger.info('CRON compress-old-videos starting', { dryRun });
 
   try {
     const { VideoCompressionWorker } = await import('../../workers/video-compression.worker.js');
-    const result = await VideoCompressionWorker.run({ dryRun, filterUserId });
+    const result = await VideoCompressionWorker.run({ dryRun });
 
     logger.info('CRON compress-old-videos completed', {
       ...result,
       bytesReducedMb: (result.bytesReduced / 1024 / 1024).toFixed(1),
       dryRun,
-      filterUserId,
     });
 
     res.json({
@@ -734,6 +727,7 @@ router.post('/cron/compress-old-videos', cronGuard, async (req: Request, res: Re
         errors: result.errors,
         bytesReducedMb: Number((result.bytesReduced / 1024 / 1024).toFixed(1)),
         dryRun,
+        ...(dryRun && result.candidates ? { candidates: result.candidates } : {}),
       },
     });
   } catch (err) {

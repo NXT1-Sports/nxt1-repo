@@ -140,8 +140,13 @@ const MIN_COMPRESSION_GAIN_RATIO = 0.95; // require at least 5% reduction
 export interface VideoCompressionOptions {
   /** When true, list candidates but perform no compression. */
   readonly dryRun?: boolean;
-  /** Restrict processing to a single userId — useful for targeted testing. */
-  readonly filterUserId?: string;
+}
+
+export interface VideoCompressionCandidate {
+  readonly path: string;
+  readonly sizeMb: number;
+  readonly ageDays: number;
+  readonly tier: 'fast' | 'heavy';
 }
 
 export interface VideoCompressionResult {
@@ -149,13 +154,15 @@ export interface VideoCompressionResult {
   readonly skipped: number;
   readonly errors: number;
   readonly bytesReduced: number;
+  /** Populated only when dryRun=true — files that would be compressed. */
+  readonly candidates?: readonly VideoCompressionCandidate[];
 }
 
 // ─── Worker ───────────────────────────────────────────────────────────────────
 
 export class VideoCompressionWorker {
   static async run(options: VideoCompressionOptions = {}): Promise<VideoCompressionResult> {
-    const { dryRun = false, filterUserId } = options;
+    const { dryRun = false } = options;
 
     const ffmpegMcpUrl = process.env['FFMPEG_MCP_URL'];
     if (!ffmpegMcpUrl) {
@@ -167,12 +174,12 @@ export class VideoCompressionWorker {
 
     const bucket = getStorage().bucket() as unknown as GCSBucket;
     const cutoffMs = Date.now() - AGE_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
-    const prefix = filterUserId ? `Users/${filterUserId}/` : 'Users/';
+    const prefix = 'Users/';
     const runStartMs = Date.now();
+    const dryRunCandidates: VideoCompressionCandidate[] = [];
 
     logger.info('[VideoCompression] Worker starting', {
       dryRun,
-      filterUserId,
       prefix,
       cutoffDate: new Date(cutoffMs).toISOString(),
       limits: {
@@ -246,11 +253,22 @@ export class VideoCompressionWorker {
         // ── Dry run: log candidate and move on ───────────────────────────────
 
         if (dryRun) {
+          const candidateSizeMb = Number((sizeBytes / 1024 / 1024).toFixed(2));
+          const candidateAgeDays = Number(
+            ((Date.now() - createdMs) / (1000 * 60 * 60 * 24)).toFixed(1)
+          );
+          const tier = isHeavy ? ('heavy' as const) : ('fast' as const);
+          dryRunCandidates.push({
+            path: file.name,
+            sizeMb: candidateSizeMb,
+            ageDays: candidateAgeDays,
+            tier,
+          });
           logger.info('[VideoCompression] DRY RUN — candidate', {
             path: file.name,
-            tier: isHeavy ? 'heavy' : 'fast',
-            sizeMb: (sizeBytes / 1024 / 1024).toFixed(1),
-            ageDays: ((Date.now() - createdMs) / (1000 * 60 * 60 * 24)).toFixed(1),
+            tier,
+            sizeMb: candidateSizeMb,
+            ageDays: candidateAgeDays,
           });
           continue;
         }
@@ -335,7 +353,13 @@ export class VideoCompressionWorker {
     } while (pageToken && !budgetExhausted);
 
     const totalElapsedSec = ((Date.now() - runStartMs) / 1000).toFixed(1);
-    const result: VideoCompressionResult = { processed, skipped, errors, bytesReduced };
+    const result: VideoCompressionResult = {
+      processed,
+      skipped,
+      errors,
+      bytesReduced,
+      ...(dryRun ? { candidates: dryRunCandidates } : {}),
+    };
 
     logger.info('[VideoCompression] Worker completed', {
       ...result,
