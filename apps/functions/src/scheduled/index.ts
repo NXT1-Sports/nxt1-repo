@@ -29,3 +29,4 @@ export { reconcileAgentJobThreadLinks } from './reconcileAgentJobThreadLinks';
 export { cleanupStaleWalletHolds } from './cleanupStaleWalletHolds';
 export { weeklyHelpCenterRefresh } from './weeklyHelpCenterRefresh';
 export { cleanupTmpMedia } from './cleanupTmpMedia';
+export { compressOldVideos } from './compressOldVideos';
