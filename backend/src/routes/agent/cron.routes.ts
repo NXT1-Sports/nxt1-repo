@@ -704,37 +704,56 @@ router.post('/cron/queue-depth-check', cronGuard, async (_req: Request, res: Res
 router.post('/cron/compress-old-videos', cronGuard, async (req: Request, res: Response) => {
   const dryRun = req.body?.dryRun === true;
 
-  // Respond immediately — worker runs in the same request context.
-  // For batch sizes up to BATCH_LIMIT (30 files), compression completes
-  // well within the 9-min Cloud Function timeout.
   logger.info('CRON compress-old-videos starting', { dryRun });
 
-  try {
-    const { VideoCompressionWorker } = await import('../../workers/video-compression.worker.js');
-    const result = await VideoCompressionWorker.run({ dryRun });
+  if (dryRun) {
+    // dryRun is fast (no ffmpeg) — run synchronously and return full candidate list.
+    try {
+      const { VideoCompressionWorker } = await import('../../workers/video-compression.worker.js');
+      const result = await VideoCompressionWorker.run({ dryRun: true });
+      logger.info('CRON compress-old-videos dryRun completed', {
+        candidates: result.candidates?.length ?? 0,
+        skipped: result.skipped,
+      });
+      res.json({
+        success: true,
+        data: {
+          processed: 0,
+          skipped: result.skipped,
+          errors: 0,
+          bytesReducedMb: 0,
+          dryRun: true,
+          candidates: result.candidates ?? [],
+        },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('CRON compress-old-videos dryRun failed', { error: error.message });
+      res.status(500).json({ success: false, error: 'Video compression dry-run failed' });
+    }
+    return;
+  }
 
-    logger.info('CRON compress-old-videos completed', {
-      ...result,
-      bytesReducedMb: (result.bytesReduced / 1024 / 1024).toFixed(1),
-      dryRun,
-    });
+  // Real compression: respond 202 immediately, run worker in background.
+  // ffmpeg-mcp can take several minutes for a full batch — never block the HTTP response.
+  res.status(202).json({ success: true, message: 'Video compression started in background' });
 
-    res.json({
-      success: true,
-      data: {
+  // Fire-and-forget — errors are caught and logged; they must not crash the process.
+  (async () => {
+    try {
+      const { VideoCompressionWorker } = await import('../../workers/video-compression.worker.js');
+      const result = await VideoCompressionWorker.run({ dryRun: false });
+      logger.info('CRON compress-old-videos completed', {
         processed: result.processed,
         skipped: result.skipped,
         errors: result.errors,
-        bytesReducedMb: Number((result.bytesReduced / 1024 / 1024).toFixed(1)),
-        dryRun,
-        ...(dryRun && result.candidates ? { candidates: result.candidates } : {}),
-      },
-    });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('CRON compress-old-videos failed', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Video compression cron failed' });
-  }
+        bytesReducedMb: (result.bytesReduced / 1024 / 1024).toFixed(1),
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('CRON compress-old-videos failed', { error: error.message, stack: error.stack });
+    }
+  })();
 });
 
 export default router;
