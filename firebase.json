@@ -17,21 +17,19 @@
     "target": "web",
     "public": "apps/web/dist/nxt1-web/browser",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
-    "rewrites": [
+    "redirects": [
       {
         "source": "/sitemap.xml",
-        "run": {
-          "serviceId": "nxt1-repo-backend",
-          "region": "us-east4"
-        }
+        "destination": "https://api.nxt1sports.com/sitemap.xml",
+        "type": 301
       },
       {
-        "source": "/sitemaps/**",
-        "run": {
-          "serviceId": "nxt1-repo-backend",
-          "region": "us-east4"
-        }
-      },
+        "source": "/sitemaps/:path*",
+        "destination": "https://api.nxt1sports.com/sitemaps/:path",
+        "type": 301
+      }
+    ],
+    "rewrites": [
       {
         "source": "**",
         "destination": "/index.csr.html"
