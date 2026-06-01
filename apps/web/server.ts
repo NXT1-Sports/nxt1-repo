@@ -27,12 +27,7 @@ import { dirname, extname, join, resolve, sep } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import { brotliCompressSync, gzipSync } from 'node:zlib';
 import { createProxyMiddleware } from 'http-proxy-middleware';
-import {
-  buildCanonicalProfilePath,
-  getActiveSport,
-  isTeamRole,
-  type User,
-} from '@nxt1/core';
+import { buildCanonicalProfilePath, getActiveSport, isTeamRole, type User } from '@nxt1/core';
 import type { ApiResponse } from '@nxt1/core/profile';
 import bootstrap from './src/main.server';
 
@@ -127,7 +122,9 @@ function buildCanonicalProfileRedirectPath(profile: User): string | null {
 
   const activeSport = getActiveSport(profile);
   const athleteName =
-    `${profile.firstName ?? ''} ${profile.lastName ?? ''}`.trim() || profile.displayName || 'NXT1 Athlete';
+    `${profile.firstName ?? ''} ${profile.lastName ?? ''}`.trim() ||
+    profile.displayName ||
+    'NXT1 Athlete';
 
   return buildCanonicalProfilePath({
     athleteName,
