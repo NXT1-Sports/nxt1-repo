@@ -560,12 +560,55 @@ async function callFfmpegMcpCompress(
     throw new Error(`ffmpeg-mcp HTTP ${response.status}: ${body.slice(0, 300)}`);
   }
 
-  const body = (await response.json()) as Record<string, unknown>;
+  const contentType = response.headers.get('content-type') ?? '';
+  let body: Record<string, unknown>;
+
+  if (contentType.includes('text/event-stream')) {
+    const text = await response.text();
+    body = parseSseToJsonRpc(text);
+  } else {
+    body = (await response.json()) as Record<string, unknown>;
+  }
+
   const result = parseFfmpegMcpResult(body);
 
   if (!result.success) {
     throw new Error(`ffmpeg-mcp compress_video failed: ${result.error ?? 'unknown error'}`);
   }
+}
+
+// ─── SSE → JSON-RPC extractor ─────────────────────────────────────────────────
+
+/**
+ * Extracts the JSON-RPC payload from an SSE (text/event-stream) response.
+ * Scans for `data: {...}` lines and returns the last one that is a plain object.
+ * Throws if no valid JSON-RPC data line is found.
+ */
+function parseSseToJsonRpc(sseText: string): Record<string, unknown> {
+  let lastJsonData: Record<string, unknown> | null = null;
+
+  for (const line of sseText.split('\n')) {
+    const trimmed = line.trimEnd();
+    if (!trimmed.startsWith('data:')) continue;
+    const raw = trimmed.slice(5).trim(); // strip 'data:' prefix + leading space
+    if (!raw.startsWith('{') && !raw.startsWith('[')) continue;
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        lastJsonData = parsed as Record<string, unknown>;
+      }
+    } catch {
+      // malformed data line — keep scanning
+    }
+  }
+
+  if (!lastJsonData) {
+    throw new Error(
+      `ffmpeg-mcp SSE response contained no valid JSON-RPC data. Preview: ${sseText.slice(0, 300)}`
+    );
+  }
+
+  return lastJsonData;
 }
 
 // ─── JSON-RPC response parser ─────────────────────────────────────────────────
