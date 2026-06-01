@@ -160,14 +160,41 @@ const SearchResponseSchema = z.union([
   z
     .object({
       results: z.array(z.record(z.string(), JsonValueSchema)).optional(),
-      data: z.array(z.record(z.string(), JsonValueSchema)).optional(),
+      data: z
+        .union([
+          z.array(z.record(z.string(), JsonValueSchema)),
+          z
+            .object({
+              web: z.array(z.record(z.string(), JsonValueSchema)).optional(),
+              news: z.array(z.record(z.string(), JsonValueSchema)).optional(),
+              images: z.array(z.record(z.string(), JsonValueSchema)).optional(),
+            })
+            .passthrough(),
+        ])
+        .optional(),
       answer: z.string().optional(),
       query: z.string().optional(),
     })
     .passthrough()
-    .refine((payload) => payload.results !== undefined || payload.data !== undefined, {
-      message: 'Search response must include results or data array',
-    }),
+    .refine(
+      (payload) => {
+        if (payload.results !== undefined) return true;
+        if (Array.isArray(payload.data)) return true;
+        if (payload.data && typeof payload.data === 'object') {
+          const nested = payload.data as Record<string, unknown>;
+          return (
+            Array.isArray(nested['web']) ||
+            Array.isArray(nested['news']) ||
+            Array.isArray(nested['images'])
+          );
+        }
+        return false;
+      },
+      {
+        message:
+          'Search response must include results, data array, or data.web/data.news/data.images',
+      }
+    ),
 ]);
 
 /** Schema for firecrawl_map output — array of discovered URLs. */
@@ -247,6 +274,10 @@ const AgentStatusResponseSchema = z
 
 export interface FirecrawlScrapeOptions {
   readonly formats?: ReadonlyArray<string>;
+  readonly jsonOptions?: {
+    readonly prompt?: string;
+    readonly schema?: Record<string, unknown>;
+  };
   readonly onlyMainContent?: boolean;
   readonly waitFor?: number;
   readonly mobile?: boolean;
@@ -399,6 +430,7 @@ export class FirecrawlMcpBridgeService extends BaseMcpClientService {
   async scrape(url: string, options?: FirecrawlScrapeOptions): Promise<unknown> {
     const args: Record<string, unknown> = { url };
     if (options?.formats) args['formats'] = options.formats;
+    if (options?.jsonOptions) args['jsonOptions'] = options.jsonOptions;
     if (options?.onlyMainContent !== undefined) args['onlyMainContent'] = options.onlyMainContent;
     if (options?.waitFor !== undefined) args['waitFor'] = options.waitFor;
     if (options?.mobile !== undefined) args['mobile'] = options.mobile;

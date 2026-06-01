@@ -46,6 +46,7 @@ const JOB_EVENT_SCHEMA_VERSION = 2;
 const ACTIVE_JOB_RETENTION_DAYS = 14;
 const TERMINAL_JOB_RETENTION_DAYS = 30;
 const FAILURE_ALERT_TERMINAL_STATUSES = new Set(['pending', 'sent']);
+const LOCKED_FAILURE_STATUSES = new Set<AgentOperationStatus>(['completed', 'failed', 'cancelled']);
 const LOCKED_PROGRESS_STATUSES = new Set<AgentOperationStatus>([
   'paused',
   'awaiting_input',
@@ -484,6 +485,7 @@ export class AgentJobRepository {
         .doc(operationId)
         .update({
           status: 'completed' satisfies AgentOperationStatus,
+          error: null,
           result: safeResult,
           progress,
           yieldState: null,
@@ -529,6 +531,18 @@ export class AgentJobRepository {
 
     await this.db.runTransaction(async (tx) => {
       const snapshot = await tx.get(jobRef);
+      if (!snapshot.exists) {
+        return;
+      }
+
+      const currentStatus = snapshot.get('status');
+      if (
+        typeof currentStatus === 'string' &&
+        LOCKED_FAILURE_STATUSES.has(currentStatus as AgentOperationStatus)
+      ) {
+        return;
+      }
+
       const existingAlertStatus = snapshot.exists ? snapshot.get('failureAlertStatus') : null;
       const shouldSetAlertPending =
         shouldQueueAlert &&
