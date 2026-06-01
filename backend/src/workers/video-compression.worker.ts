@@ -418,8 +418,7 @@ async function compressAndReplace(
   ffmpegTimeoutMs: number = FFMPEG_TIMEOUT_MS
 ): Promise<CompressResult> {
   const filename = file.name.split('/').pop() ?? 'video.mp4';
-  const tempOutputPath = `cron-compress/${Date.now()}-${filename}`;
-  const tempGcsPath = `${FFMPEG_MCP_OUTPUT_PREFIX}/${tempOutputPath}`;
+  const tempGcsPath = `${FFMPEG_MCP_OUTPUT_PREFIX}/cron-compress/${Date.now()}-${filename}`;
   const tempFile = bucket.file(tempGcsPath);
 
   // Step 1: Sign a temporary read URL for the source file
@@ -431,7 +430,7 @@ async function compressAndReplace(
 
   // Step 2: ffmpeg-mcp compress
   try {
-    await callFfmpegMcpCompress(signedUrl, tempOutputPath, ffmpegMcpUrl, ffmpegTimeoutMs);
+    await callFfmpegMcpCompress(signedUrl, tempGcsPath, ffmpegMcpUrl, ffmpegTimeoutMs);
   } catch (ffmpegErr) {
     await tempFile.delete().catch(() => undefined); // clean up any partial output
     throw new Error('Failed to compress video with ffmpeg-mcp', {
