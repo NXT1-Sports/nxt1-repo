@@ -19,6 +19,11 @@
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "redirects": [
       {
+        "regex": "^/profile/(?P<profileCode>\\d+)/?$",
+        "destination": "/profile/athlete/athlete/:profileCode",
+        "type": 301
+      },
+      {
         "source": "/sitemap.xml",
         "destination": "https://api.nxt1sports.com/sitemap.xml",
         "type": 301
