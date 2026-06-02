@@ -5,6 +5,8 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sendB2BPartnerBrandAwarenessEmail } from '../../src/services/marketing/email/campaigns/b2b/b2b-partner-brand-awareness-email.service.js';
 
+type B2BSequenceStep = 'initial' | 'follow_up';
+
 interface NotionLeadRecord {
   readonly notionPageId?: string | null;
   readonly organization: string;
@@ -13,6 +15,7 @@ interface NotionLeadRecord {
   readonly stage?: string | null;
   readonly type?: string | null;
   readonly nextFollowUp?: string | null;
+  readonly timesContacted?: number | null;
 }
 
 interface SendSuccess extends NotionLeadRecord {
@@ -20,9 +23,14 @@ interface SendSuccess extends NotionLeadRecord {
   readonly subject: string;
   readonly campaignKey: string;
   readonly providerMessageId: string | null;
+  readonly notionUpdated: boolean;
 }
 
 interface SendFailure extends NotionLeadRecord {
+  readonly error: string;
+}
+
+interface NotionSyncFailure extends NotionLeadRecord {
   readonly error: string;
 }
 
@@ -32,8 +40,15 @@ const inputArg = args.find((arg) => arg.startsWith('--input='));
 const reportArg = args.find((arg) => arg.startsWith('--report='));
 const onlyArg = args.find((arg) => arg.startsWith('--only='));
 const testEmailArg = args.find((arg) => arg.startsWith('--test-email='));
+const sequenceStepArg = args.find((arg) => arg.startsWith('--sequence-step='));
+const allowStageMismatch = args.includes('--allow-stage-mismatch');
+const followUpDaysArg = args.find((arg) => arg.startsWith('--follow-up-days='));
+const skipNotionSync = args.includes('--skip-notion-sync');
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
+const notionToken = (process.env['NOTION_API_TOKEN'] ?? '').trim();
+const notionApiBaseUrl = (process.env['NOTION_API_BASE_URL'] ?? 'https://api.notion.com/v1').trim();
+const notionApiVersion = (process.env['NOTION_API_VERSION'] ?? '2022-06-28').trim();
 
 function getRequiredArg(arg: string | undefined, flagName: string): string {
   const value = arg?.split('=').slice(1).join('=').trim();
@@ -55,6 +70,45 @@ function getDefaultReportPath(now: Date): string {
   );
 }
 
+function parseSequenceStep(value: string | undefined): B2BSequenceStep {
+  const normalized = (value ?? '').trim().toLowerCase();
+
+  if (normalized === 'follow_up' || normalized === 'follow-up') {
+    return 'follow_up';
+  }
+
+  return 'initial';
+}
+
+function normalizeStage(stage: string | null | undefined): string {
+  return (stage ?? '').trim().toLowerCase();
+}
+
+function parsePositiveInteger(value: string | undefined): number | null {
+  if (!value) return null;
+
+  const parsed = Number.parseInt(value.trim(), 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function resolveFollowUpDays(value: string | undefined): number {
+  const parsed = parsePositiveInteger(value);
+  return parsed ?? 2;
+}
+
+function isStageAllowedForStep(stage: string | null | undefined, step: B2BSequenceStep): boolean {
+  const normalized = normalizeStage(stage);
+  if (step === 'follow_up') {
+    return normalized === 'contacted';
+  }
+
+  return normalized === 'lead';
+}
+
 function normalizeLeadRecord(value: unknown, index: number): NotionLeadRecord {
   if (!value || typeof value !== 'object') {
     throw new Error(`Lead at index ${index} is not an object.`);
@@ -70,6 +124,11 @@ function normalizeLeadRecord(value: unknown, index: number): NotionLeadRecord {
   const stage = String(candidate.stage ?? '').trim();
   const type = String(candidate.type ?? '').trim();
   const nextFollowUp = String(candidate.nextFollowUp ?? '').trim();
+  const timesContactedRaw = candidate.timesContacted;
+  const timesContacted =
+    typeof timesContactedRaw === 'number' && Number.isFinite(timesContactedRaw)
+      ? timesContactedRaw
+      : null;
 
   if (!organization) {
     throw new Error(`Lead at index ${index} is missing organization.`);
@@ -87,6 +146,7 @@ function normalizeLeadRecord(value: unknown, index: number): NotionLeadRecord {
     stage: stage || null,
     type: type || null,
     nextFollowUp: nextFollowUp || null,
+    timesContacted,
   };
 }
 
@@ -113,6 +173,77 @@ function loadLeads(inputPath: string): NotionLeadRecord[] {
   return nestedList.map(normalizeLeadRecord);
 }
 
+async function notionRequest<T>(path: string, method: 'GET' | 'PATCH', body?: unknown): Promise<T> {
+  const response = await fetch(`${notionApiBaseUrl}${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${notionToken}`,
+      'Content-Type': 'application/json',
+      'Notion-Version': notionApiVersion,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (!response.ok) {
+    const details = await response.text().catch(() => '');
+    throw new Error(`Notion request failed (${response.status}): ${details.slice(0, 300)}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+async function readCurrentTimesContacted(lead: NotionLeadRecord): Promise<number> {
+  if (!lead.notionPageId) {
+    return lead.timesContacted ?? 0;
+  }
+
+  const page = await notionRequest<{
+    properties?: { 'Times Contacted'?: { number?: number | null } };
+  }>(`/pages/${lead.notionPageId}`, 'GET');
+
+  const current = page.properties?.['Times Contacted']?.number;
+  return typeof current === 'number' && Number.isFinite(current) ? current : 0;
+}
+
+async function syncNotionAfterSend(
+  lead: NotionLeadRecord,
+  sequenceStep: B2BSequenceStep,
+  followUpDays: number
+): Promise<void> {
+  if (!lead.notionPageId) {
+    throw new Error('Missing notionPageId on lead record.');
+  }
+
+  const currentTimesContacted = await readCurrentTimesContacted(lead);
+  const today = new Date();
+  const lastContactedAt = today.toISOString().slice(0, 10);
+  const nextFollowUp = new Date(today.getTime() + followUpDays * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+
+  await notionRequest(`/pages/${lead.notionPageId}`, 'PATCH', {
+    properties: {
+      Stage: { status: { name: 'Contacted' } },
+      'Times Contacted': { number: currentTimesContacted + 1 },
+      'Last Contacted At': { date: { start: lastContactedAt } },
+      'Next Follow-Up': { date: { start: nextFollowUp } },
+      'Next Action': {
+        rich_text: [
+          {
+            type: 'text',
+            text: {
+              content:
+                sequenceStep === 'follow_up'
+                  ? 'Monitor reply, then decide on final touchpoint.'
+                  : 'Wait for reply, then run follow-up sequence if needed.',
+            },
+          },
+        ],
+      },
+    },
+  });
+}
+
 async function main(): Promise<void> {
   const now = new Date();
   const inputPath = resolve(process.cwd(), getRequiredArg(inputArg, '--input'));
@@ -130,6 +261,9 @@ async function main(): Promise<void> {
   const testEmail = testEmailArg
     ? getRequiredArg(testEmailArg, '--test-email').trim().toLowerCase()
     : null;
+  const sequenceStep = parseSequenceStep(sequenceStepArg?.split('=').slice(1).join('='));
+  const followUpDays = resolveFollowUpDays(followUpDaysArg?.split('=').slice(1).join('='));
+  const notionSyncEnabled = !skipNotionSync;
 
   let leads = loadLeads(inputPath);
 
@@ -137,10 +271,23 @@ async function main(): Promise<void> {
     leads = leads.filter((lead) => onlyEmails.has(lead.email));
   }
 
+  const skippedStageMismatch = allowStageMismatch
+    ? []
+    : leads.filter((lead) => !isStageAllowedForStep(lead.stage, sequenceStep));
+
+  if (!allowStageMismatch) {
+    leads = leads.filter((lead) => isStageAllowedForStep(lead.stage, sequenceStep));
+  }
+
   console.log('B2B Notion leads sender');
   console.log(`Mode: ${shouldCommit ? 'COMMIT' : 'DRY RUN'}`);
+  console.log(`Sequence step: ${sequenceStep}`);
+  console.log(`Stage guardrail: ${allowStageMismatch ? 'DISABLED' : 'ENABLED'}`);
+  console.log(`Notion sync: ${notionSyncEnabled ? 'ENABLED' : 'DISABLED'}`);
+  console.log(`Next follow-up offset (days): ${followUpDays}`);
   console.log(`Input: ${inputPath}`);
   console.log(`Selected leads: ${leads.length}`);
+  console.log(`Skipped stage mismatch: ${skippedStageMismatch.length}`);
   console.log(`Report: ${reportPath}`);
 
   if (testEmail) {
@@ -152,7 +299,19 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (shouldCommit && notionSyncEnabled && !notionToken) {
+    throw new Error(
+      'NOTION_API_TOKEN is required for Notion sync. Use --skip-notion-sync to bypass.'
+    );
+  }
+
   if (!shouldCommit) {
+    if (skippedStageMismatch.length > 0) {
+      for (const lead of skippedStageMismatch) {
+        console.log(`[SKIP] ${lead.email} | ${lead.organization} | stage=${lead.stage ?? 'n/a'}`);
+      }
+    }
+
     for (const lead of leads) {
       console.log(
         `[DRY] ${lead.email} | ${lead.organization} | page=${lead.notionPageId ?? 'n/a'} | stage=${lead.stage ?? 'n/a'}`
@@ -164,6 +323,7 @@ async function main(): Promise<void> {
 
   const successes: SendSuccess[] = [];
   const failures: SendFailure[] = [];
+  const notionSyncFailures: NotionSyncFailure[] = [];
 
   for (const lead of leads) {
     try {
@@ -171,8 +331,23 @@ async function main(): Promise<void> {
         email: testEmail ?? lead.email,
         firstName: lead.primaryContact,
         organization: lead.organization,
-        sequenceStep: 'initial',
+        sequenceStep,
       });
+
+      let notionUpdated = false;
+      if (notionSyncEnabled) {
+        try {
+          await syncNotionAfterSend(lead, sequenceStep, followUpDays);
+          notionUpdated = true;
+        } catch (notionError) {
+          const message = notionError instanceof Error ? notionError.message : String(notionError);
+          notionSyncFailures.push({
+            ...lead,
+            error: message,
+          });
+          console.log(`NOTION_FAILED\t${lead.organization}\t${lead.email}\t${message}`);
+        }
+      }
 
       successes.push({
         ...lead,
@@ -180,6 +355,7 @@ async function main(): Promise<void> {
         subject: result.subject,
         campaignKey: result.campaignKey,
         providerMessageId: result.providerMessageId ?? null,
+        notionUpdated,
       });
       console.log(`SENT\t${lead.organization}\t${testEmail ?? lead.email}`);
     } catch (error) {
@@ -199,8 +375,15 @@ async function main(): Promise<void> {
       {
         sentCount: successes.length,
         failureCount: failures.length,
+        notionSyncFailureCount: notionSyncFailures.length,
+        skippedCount: skippedStageMismatch.length,
+        sequenceStep,
+        guardrailEnabled: !allowStageMismatch,
+        notionSyncEnabled,
+        followUpDays,
         successes,
         failures,
+        notionSyncFailures,
       },
       null,
       2

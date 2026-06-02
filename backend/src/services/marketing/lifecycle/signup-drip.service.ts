@@ -360,18 +360,20 @@ function buildSetupFocusAreas(
   hasTimelinePost: boolean
 ): readonly string[] {
   const items: string[] = [];
+  const isTeam =
+    typeof user.role === 'string' && ['coach', 'staff', 'director'].includes(user.role as string);
 
   if (!user.hasProfileImage) {
-    items.push('Add a profile image so your account presents cleanly right away.');
+    items.push('Add a profile/program image so your account presents cleanly right away.');
   }
   if (!user.hasBio) {
-    items.push('Add a short bio so NXT1 and other people have the right context.');
+    items.push('Add a short bio or description so NXT1 and other people have the right context.');
   }
-  if (!user.hasPositions) {
+  if (!user.hasPositions && !isTeam) {
     items.push('Add your sport positions so recommendations stay relevant.');
   }
   if (!user.hasConnectedSources) {
-    items.push('Connect the sources or links that make your profile more complete.');
+    items.push('Connect the sources or links that make your presence more complete.');
   }
   if (!user.hasClassYear && user.role === 'athlete') {
     items.push('Add your class year so planning and visibility stay aligned to your stage.');
