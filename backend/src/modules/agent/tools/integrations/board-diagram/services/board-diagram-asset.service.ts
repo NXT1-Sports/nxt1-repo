@@ -18,7 +18,11 @@ import { randomUUID } from 'node:crypto';
 import type { Firestore } from 'firebase-admin/firestore';
 import { logger } from '../../../../../../utils/logger.js';
 import type { BoardDiagramAsset, BoardDiagramAssetPatch } from '../shared/board-diagram.types.js';
-import type { DiagramLayout, DiagramRoute } from '../../play-diagram/shared/diagram.types.js';
+import type {
+  DiagramLayout,
+  DiagramPlayer,
+  DiagramRoute,
+} from '../../play-diagram/shared/diagram.types.js';
 
 const PRIMARY_COLLECTION = 'DiagramAssets';
 const LEGACY_COLLECTION = 'diagramAssets';
@@ -48,29 +52,59 @@ function serializeLayoutForFirestore(layout: DiagramLayout): FirestoreDiagramLay
 }
 
 function deserializeLayoutFromFirestore(layout: unknown): DiagramLayout {
-  const parsed = layout as DiagramLayout | FirestoreDiagramLayout;
+  const parsed =
+    layout && typeof layout === 'object'
+      ? (layout as Partial<DiagramLayout | FirestoreDiagramLayout>)
+      : {};
+  const routes = Array.isArray(parsed.routes) ? parsed.routes : [];
+  const players = Array.isArray(parsed.players) ? parsed.players : [];
 
   return {
     ...parsed,
-    routes: parsed.routes.map((route) => ({
-      ...route,
-      points: route.points.map((point) => {
-        if (Array.isArray(point) && point.length >= 2) {
-          return [point[0], point[1]] as [number, number];
-        }
+    sport: parsed.sport ?? 'football',
+    title: typeof parsed.title === 'string' ? parsed.title : 'Untitled Diagram',
+    fieldWidth: Number(parsed.fieldWidth ?? 600),
+    fieldHeight: Number(parsed.fieldHeight ?? 440),
+    losY: Number(parsed.losY ?? 280),
+    fieldStyle:
+      parsed.fieldStyle === 'night' ||
+      parsed.fieldStyle === 'blueprint' ||
+      parsed.fieldStyle === 'chalk' ||
+      parsed.fieldStyle === 'classic'
+        ? parsed.fieldStyle
+        : undefined,
+    players: players as DiagramPlayer[],
+    routes: routes.map((route) => {
+      const parsedRoute =
+        route && typeof route === 'object'
+          ? (route as Partial<DiagramRoute | FirestoreDiagramRoute>)
+          : {};
 
-        const candidate = point as Partial<FirestoreDiagramPoint>;
-        return [Number(candidate.x ?? 0), Number(candidate.y ?? 0)] as [number, number];
-      }),
-    })),
+      return {
+        ...parsedRoute,
+        points: (Array.isArray(parsedRoute.points) ? parsedRoute.points : []).map((point) => {
+          if (Array.isArray(point) && point.length >= 2) {
+            return [point[0], point[1]] as [number, number];
+          }
+
+          const candidate = point as Partial<FirestoreDiagramPoint>;
+          return [Number(candidate.x ?? 0), Number(candidate.y ?? 0)] as [number, number];
+        }),
+      } as DiagramRoute;
+    }),
   };
 }
 
 function serializeAssetForFirestore(asset: BoardDiagramAsset): Record<string, unknown> {
-  return {
+  const serialized: Record<string, unknown> = {
     ...asset,
-    sourceLayout: serializeLayoutForFirestore(asset.sourceLayout),
   };
+
+  if (asset.sourceLayout) {
+    serialized['sourceLayout'] = serializeLayoutForFirestore(asset.sourceLayout);
+  }
+
+  return serialized;
 }
 
 function deserializeAssetFromFirestore(
@@ -80,7 +114,9 @@ function deserializeAssetFromFirestore(
 
   return {
     ...asset,
-    sourceLayout: deserializeLayoutFromFirestore(asset.sourceLayout),
+    ...(asset.sourceLayout
+      ? { sourceLayout: deserializeLayoutFromFirestore(asset.sourceLayout) }
+      : {}),
   };
 }
 
@@ -248,20 +284,11 @@ export class BoardDiagramAssetService {
   /**
    * List non-deleted assets for a user, ordered by creation time descending.
    * Capped at `limit` results (default 50) to prevent oversized reads.
-   *
-   * NOTE: This query requires a Firestore composite index on
-   *   (userId ASC, deleted ASC, createdAt DESC).
    */
   async listByUser(userId: string, limit = 50): Promise<BoardDiagramAsset[]> {
     const snaps = await Promise.all(
       READ_COLLECTIONS.map((collectionName) =>
-        this.db
-          .collection(collectionName)
-          .where('userId', '==', userId)
-          .where('deleted', '==', false)
-          .orderBy('createdAt', 'desc')
-          .limit(limit)
-          .get()
+        this.db.collection(collectionName).where('userId', '==', userId).limit(limit).get()
       )
     );
 
@@ -270,10 +297,38 @@ export class BoardDiagramAssetService {
     for (const snap of snaps) {
       for (const doc of snap.docs) {
         const asset = deserializeAssetFromFirestore(doc.data() as Record<string, unknown>);
+        if (asset.deleted) {
+          continue;
+        }
         deduped.set(asset.id, asset);
       }
     }
 
     return [...deduped.values()].sort((a, b) => b.createdAt - a.createdAt).slice(0, limit);
+  }
+
+  async findByImageUrl(userId: string, imageUrl: string): Promise<BoardDiagramAsset | null> {
+    for (const collectionName of READ_COLLECTIONS) {
+      const snap = await this.db
+        .collection(collectionName)
+        .where('userId', '==', userId)
+        .where('imageUrl', '==', imageUrl)
+        .limit(1)
+        .get();
+
+      const doc = snap.docs[0];
+      if (!doc) {
+        continue;
+      }
+
+      const asset = deserializeAssetFromFirestore(doc.data() as Record<string, unknown>);
+      if (asset.deleted) {
+        continue;
+      }
+
+      return asset;
+    }
+
+    return null;
   }
 }

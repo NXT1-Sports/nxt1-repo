@@ -95,6 +95,7 @@ import {
 } from '../services/agent-x-operation-event.service';
 import type { CommandCategory } from '../components/shell/agent-x-shell.component';
 import {
+  type DiagramAssetSummary,
   type ShellWeeklyPlaybookItem,
   type OperationLogEntry,
   type AgentYieldState,
@@ -110,6 +111,7 @@ import type { ConnectedAppSource } from '../components/modals/agent-x-attachment
 import { AgentXGameplansPanelComponent } from '../components/shared/agent-x-gameplans-panel.component';
 import { AgentXPlaybooksPanelComponent } from '../components/shared/agent-x-playbooks-panel.component';
 import { AgentXFilmReviewPanelComponent } from '../components/shared/agent-x-film-review-panel.component';
+import { AgentXDiagramsPanelComponent } from '../components/shared/agent-x-diagrams-panel.component';
 import { withAgentXReleaseLabel } from '../utils/agent-x-release-stage.utils';
 import { ANALYTICS_ADAPTER } from '../../services/analytics';
 
@@ -196,6 +198,7 @@ type AgentXDesktopResizablePanel =
   | 'gameplans'
   | 'playbooks'
   | 'film-review'
+  | 'diagrams'
   | 'expanded-panel';
 
 interface AgentXDesktopResizeState {
@@ -242,6 +245,7 @@ function sortCoordinatorCategories(
     AgentXGameplansPanelComponent,
     AgentXPlaybooksPanelComponent,
     AgentXFilmReviewPanelComponent,
+    AgentXDiagramsPanelComponent,
   ],
   template: `
     <!-- Portal: center — Agent X title + centered nav pills -->
@@ -365,6 +369,27 @@ function sortCoordinatorCategories(
                   <path d="M17 12h5" />
                   <path d="M17 17h5" />
                 </svg>
+              } @else if (panelMenuSelection() === 'diagrams') {
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <rect x="3" y="3" width="18" height="18" rx="2" />
+                  <path d="M7 8h4" />
+                  <path d="M13 8h4" />
+                  <path d="M7 16h4" />
+                  <path d="M13 16h4" />
+                  <path d="M9 10v4" />
+                  <path d="M15 10v4" />
+                </svg>
               } @else if (panelMenuSelection() === 'gameplans') {
                 <svg
                   xmlns="http://www.w3.org/2000/svg"
@@ -467,6 +492,22 @@ function sortCoordinatorCategories(
                     (click)="onSelectPanelMenuOption('playbooks', $event)"
                   >
                     <span>{{ playbooksPanelLabel }}</span>
+                    <nxt1-icon
+                      class="header-nav-dropdown-item-indicator"
+                      name="checkmark"
+                      [size]="14"
+                      aria-hidden="true"
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    class="header-nav-dropdown-item"
+                    [class.header-nav-dropdown-item--active]="panelMenuSelection() === 'diagrams'"
+                    role="menuitemradio"
+                    [attr.aria-checked]="panelMenuSelection() === 'diagrams'"
+                    (click)="onSelectPanelMenuOption('diagrams', $event)"
+                  >
+                    <span>{{ diagramsPanelLabel }}</span>
                     <nxt1-icon
                       class="header-nav-dropdown-item-indicator"
                       name="checkmark"
@@ -592,10 +633,14 @@ function sortCoordinatorCategories(
         !expandedSidePanel() &&
         !showGameplansModal() &&
         !showPlaybooksModal() &&
-        !showFilmReviewModal()
+        !showFilmReviewModal() &&
+        !showDiagramsModal()
       "
       [class.agent-main--with-gameplans]="
-        (showGameplansModal() || showPlaybooksModal() || showFilmReviewModal()) &&
+        (showGameplansModal() ||
+          showPlaybooksModal() ||
+          showFilmReviewModal() ||
+          showDiagramsModal()) &&
         !expandedSidePanel()
       "
       [class.agent-main--with-expanded-panel]="!!expandedSidePanel()"
@@ -769,6 +814,7 @@ function sortCoordinatorCategories(
           !showGameplansModal() &&
           !showPlaybooksModal() &&
           !showFilmReviewModal() &&
+          !showDiagramsModal() &&
           !expandedSidePanel()
         ) {
           <aside class="agent-column agent-action-plan-column" aria-label="This Week's Game Plan">
@@ -1120,6 +1166,79 @@ function sortCoordinatorCategories(
             </div>
             <div class="action-plan-panel__body">
               <nxt1-agent-x-playbooks-panel
+                [teamId]="resolvedActiveTeamId()"
+                [sport]="resolvedActiveSport()"
+              />
+            </div>
+          </aside>
+        }
+
+        @if (showDiagramsModal() && !expandedSidePanel()) {
+          <aside
+            class="agent-column agent-action-plan-column agent-diagrams-column"
+            aria-label="Diagrams Lab"
+          >
+            <div
+              class="agent-resize-handle agent-resize-handle--left"
+              [class.agent-resize-handle--active]="activeDesktopResize()?.panel === 'diagrams'"
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize diagrams lab panel"
+              (mousedown)="startDesktopPanelResize('diagrams', $event)"
+              (dblclick)="resetDesktopPanelWidth('diagrams', $event)"
+            ></div>
+            <div class="agent-column-header">
+              <div class="agent-column-header-row">
+                <h2 class="agent-column-title">{{ diagramsHeaderTitle() }}</h2>
+                <div class="agent-column-header-actions">
+                  @if (diagramsSelectedDiagram(); as diagram) {
+                    @if (diagram.editUrl) {
+                      <button
+                        type="button"
+                        class="agent-column-icon-btn"
+                        title="Open editor"
+                        aria-label="Open editor"
+                        (click)="openSelectedDiagramEditor()"
+                      >
+                        <nxt1-icon name="link" [size]="14"></nxt1-icon>
+                      </button>
+                    }
+                    <a
+                      class="agent-column-icon-btn"
+                      title="Download diagram"
+                      aria-label="Download diagram"
+                      [href]="diagram.imageUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      [attr.download]="getDiagramDownloadName(diagram)"
+                    >
+                      <nxt1-icon name="download" [size]="14"></nxt1-icon>
+                    </a>
+                    <button
+                      type="button"
+                      class="agent-column-icon-btn agent-column-icon-btn--danger"
+                      title="Delete diagram"
+                      aria-label="Delete diagram"
+                      [disabled]="isDiagramSaving()"
+                      (click)="deleteSelectedDiagram()"
+                    >
+                      <nxt1-icon name="trash" [size]="14"></nxt1-icon>
+                    </button>
+                  }
+                  <button
+                    type="button"
+                    class="rail-close-btn"
+                    (click)="showDiagramsModal.set(false)"
+                    aria-label="Close diagrams lab"
+                  >
+                    <nxt1-icon name="close" [size]="16"></nxt1-icon>
+                  </button>
+                </div>
+              </div>
+              <p class="agent-column-subtitle">{{ diagramsHeaderSubtitle() }}</p>
+            </div>
+            <div class="action-plan-panel__body">
+              <nxt1-agent-x-diagrams-panel
                 [teamId]="resolvedActiveTeamId()"
                 [sport]="resolvedActiveSport()"
               />
@@ -1878,6 +1997,13 @@ function sortCoordinatorCategories(
         justify-content: space-between;
       }
 
+      .agent-column-header-actions {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+
       .agent-column-inline-title-group {
         display: flex;
         align-items: center;
@@ -1944,6 +2070,39 @@ function sortCoordinatorCategories(
       .rail-close-btn:hover {
         background: var(--agent-surface-hover);
         color: var(--agent-text-primary);
+      }
+
+      .agent-column-icon-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        border: none;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--agent-text-muted);
+        cursor: pointer;
+        transition:
+          background 0.15s ease,
+          color 0.15s ease,
+          opacity 0.15s ease;
+        flex-shrink: 0;
+      }
+
+      .agent-column-icon-btn:hover:not(:disabled) {
+        background: var(--agent-surface-hover);
+        color: var(--agent-text-primary);
+      }
+
+      .agent-column-icon-btn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .agent-column-icon-btn--danger:hover:not(:disabled) {
+        background: color-mix(in srgb, var(--nxt1-color-feedback-error) 12%, transparent);
+        color: var(--nxt1-color-feedback-error);
       }
 
       .expanded-panel__actions {
@@ -2517,7 +2676,8 @@ function sortCoordinatorCategories(
       }
 
       .agent-gameplans-column .action-plan-panel__body,
-      .agent-playbooks-column .action-plan-panel__body {
+      .agent-playbooks-column .action-plan-panel__body,
+      .agent-diagrams-column .action-plan-panel__body {
         padding: 10px 12px 12px;
       }
 
@@ -4114,6 +4274,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private static readonly DESKTOP_ACTION_PLAN_MIN_WIDTH = 260;
   private static readonly DESKTOP_GAMEPLANS_MIN_WIDTH = 500;
   private static readonly DESKTOP_PLAYBOOKS_MIN_WIDTH = 500;
+  private static readonly DESKTOP_DIAGRAMS_MIN_WIDTH = 560;
   private static readonly DESKTOP_FILM_REVIEW_MIN_WIDTH = 400;
   private static readonly DESKTOP_EXPANDED_PANEL_MIN_WIDTH = 400;
 
@@ -4138,6 +4299,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly gameplansPanel = viewChild(AgentXGameplansPanelComponent);
   private readonly playbooksPanel = viewChild(AgentXPlaybooksPanelComponent);
   private readonly filmReviewPanel = viewChild(AgentXFilmReviewPanelComponent);
+  private readonly diagramsPanel = viewChild(AgentXDiagramsPanelComponent);
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
   private readonly operationEventService = inject(AgentXOperationEventService);
@@ -4243,6 +4405,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   );
   protected readonly gameplansWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly playbooksWidth = signal(this.getDefaultExpandedPanelWidth());
+  protected readonly diagramsWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly filmReviewWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly expandedPanelWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly activeDesktopResize = signal<AgentXDesktopResizeState | null>(null);
@@ -4252,26 +4415,31 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       ? this.expandedPanelWidth()
       : this.showPlaybooksModal()
         ? this.playbooksWidth()
-        : this.showFilmReviewModal()
-          ? this.filmReviewWidth()
-          : this.showGameplansModal()
-            ? this.gameplansWidth()
-            : this.actionPlanWidth()
+        : this.showDiagramsModal()
+          ? this.diagramsWidth()
+          : this.showFilmReviewModal()
+            ? this.filmReviewWidth()
+            : this.showGameplansModal()
+              ? this.gameplansWidth()
+              : this.actionPlanWidth()
   );
 
   /** Whether the Game Plans panel is visible (behind feature flag). Starts closed. */
   protected readonly showGameplansModal = signal(false);
   protected readonly showPlaybooksModal = signal(false);
   protected readonly showFilmReviewModal = signal(false);
+  protected readonly showDiagramsModal = signal(false);
   protected readonly isAthleteUser = computed(() => this.user()?.role === 'athlete');
   protected readonly playbooksPanelLabel = withAgentXReleaseLabel('Playbooks', 'playbooks');
   protected readonly gameplansPanelLabel = withAgentXReleaseLabel('Game Plans', 'gameplans');
   protected readonly filmReviewPanelLabel = withAgentXReleaseLabel('Film Review', 'filmReview');
+  protected readonly diagramsPanelLabel = withAgentXReleaseLabel('Diagrams Lab', 'diagramsLab');
   protected readonly isPanelMenuOpen = signal(false);
   protected readonly panelMenuSelection = computed<
-    'live-view' | 'gameplans' | 'playbooks' | 'film-review' | null
+    'live-view' | 'gameplans' | 'playbooks' | 'film-review' | 'diagrams' | null
   >(() => {
     if (this.showPlaybooksModal()) return 'playbooks';
+    if (this.showDiagramsModal()) return 'diagrams';
     if (this.showFilmReviewModal()) return 'film-review';
     if (this.showGameplansModal()) return 'gameplans';
 
@@ -4285,6 +4453,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly panelMenuLabel = computed(() => {
     const selection = this.panelMenuSelection();
     if (selection === 'playbooks') return this.playbooksPanelLabel;
+    if (selection === 'diagrams') return this.diagramsPanelLabel;
     if (selection === 'film-review') return this.filmReviewPanelLabel;
     if (selection === 'gameplans') return this.gameplansPanelLabel;
     if (selection === 'live-view') return 'Live View (Preview)';
@@ -4292,7 +4461,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   });
   protected readonly activeContextPanelHint = computed<AgentXPanelHintKind | null>(() => {
     const selection = this.panelMenuSelection();
-    return selection === 'gameplans' || selection === 'playbooks' || selection === 'film-review'
+    return selection === 'gameplans' ||
+      selection === 'playbooks' ||
+      selection === 'film-review' ||
+      selection === 'diagrams'
       ? selection
       : null;
   });
@@ -4321,11 +4493,47 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       !panel || !panel.isInlineVideoView() ? 'Film Review' : panel.getInlineHeaderTitle();
     return withAgentXReleaseLabel(title, 'filmReview');
   });
+  protected readonly diagramsSelectedDiagram = computed(
+    () => this.diagramsPanel()?.getSelectedDiagram() ?? null
+  );
+  protected readonly diagramsHeaderTitle = computed(() => {
+    const panel = this.diagramsPanel();
+    return panel?.getHeaderTitle() ?? this.diagramsPanelLabel;
+  });
+  protected readonly diagramsHeaderSubtitle = computed(() => {
+    const panel = this.diagramsPanel();
+    return (
+      panel?.getHeaderSubtitle() ??
+      'Saved plays, formations, and drill boards in one visual library'
+    );
+  });
+
+  protected getDiagramDownloadName(diagram: DiagramAssetSummary): string {
+    const slug = diagram.title
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    return `${slug || 'diagram'}.png`;
+  }
+
+  protected openSelectedDiagramEditor(): void {
+    this.diagramsPanel()?.openSelectedDiagramEditor();
+  }
+
+  protected async deleteSelectedDiagram(): Promise<void> {
+    await this.diagramsPanel()?.deleteSelectedDiagram();
+  }
+
+  protected isDiagramSaving(): boolean {
+    return this.diagramsPanel()?.isSaving() ?? false;
+  }
   protected readonly isPanelMenuActive = computed(
     () =>
       this.showPlaybooksModal() ||
       this.showFilmReviewModal() ||
       this.showGameplansModal() ||
+      this.showDiagramsModal() ||
       !!this.expandedSidePanel()
   );
   protected readonly resolvedActiveTeamId = computed(() => {
@@ -4515,6 +4723,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       panel === 'action-plan' ||
       panel === 'gameplans' ||
       panel === 'playbooks' ||
+      panel === 'diagrams' ||
       panel === 'film-review' ||
       panel === 'expanded-panel'
         ? 0
@@ -4522,13 +4731,15 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
           ? this.expandedPanelWidth()
           : this.showPlaybooksModal()
             ? this.playbooksWidth()
-            : this.showFilmReviewModal()
-              ? this.filmReviewWidth()
-              : this.showGameplansModal()
-                ? this.gameplansWidth()
-                : this.showActionPlanModal()
-                  ? this.actionPlanWidth()
-                  : 0;
+            : this.showDiagramsModal()
+              ? this.diagramsWidth()
+              : this.showFilmReviewModal()
+                ? this.filmReviewWidth()
+                : this.showGameplansModal()
+                  ? this.gameplansWidth()
+                  : this.showActionPlanModal()
+                    ? this.actionPlanWidth()
+                    : 0;
     const remainingWidth = Math.max(
       mainWidth - leftWidth - rightWidth - AgentXShellWebComponent.DESKTOP_CHAT_MIN_WIDTH,
       0
@@ -4543,6 +4754,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_GAMEPLANS_MIN_WIDTH);
       case 'playbooks':
         return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_PLAYBOOKS_MIN_WIDTH);
+      case 'diagrams':
+        return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_DIAGRAMS_MIN_WIDTH);
       case 'film-review':
         return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_FILM_REVIEW_MIN_WIDTH);
       case 'expanded-panel':
@@ -4569,6 +4782,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       case 'playbooks':
         this.showPlaybooksModal.set(false);
         this.playbooksWidth.set(this.getDefaultExpandedPanelWidth());
+        break;
+      case 'diagrams':
+        this.showDiagramsModal.set(false);
+        this.diagramsWidth.set(this.getDefaultExpandedPanelWidth());
         break;
       case 'film-review':
         this.showFilmReviewModal.set(false);
@@ -4610,6 +4827,13 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         this.getDesktopPanelMaxWidth('playbooks')
       )
     );
+    this.diagramsWidth.set(
+      this.clampWidth(
+        this.diagramsWidth(),
+        AgentXShellWebComponent.DESKTOP_DIAGRAMS_MIN_WIDTH,
+        this.getDesktopPanelMaxWidth('diagrams')
+      )
+    );
     this.filmReviewWidth.set(
       this.clampWidth(
         this.filmReviewWidth(),
@@ -4639,6 +4863,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     const syncedRightPanelDefault = this.getDefaultExpandedPanelWidth();
     this.gameplansWidth.set(syncedRightPanelDefault);
     this.playbooksWidth.set(syncedRightPanelDefault);
+    this.diagramsWidth.set(syncedRightPanelDefault);
     this.filmReviewWidth.set(syncedRightPanelDefault);
     this.expandedPanelWidth.set(this.getDefaultExpandedPanelWidth());
     this.clampDesktopPanelWidths();
@@ -4660,9 +4885,11 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
             ? this.gameplansWidth()
             : panel === 'playbooks'
               ? this.playbooksWidth()
-              : panel === 'film-review'
-                ? this.filmReviewWidth()
-                : this.expandedPanelWidth();
+              : panel === 'diagrams'
+                ? this.diagramsWidth()
+                : panel === 'film-review'
+                  ? this.filmReviewWidth()
+                  : this.expandedPanelWidth();
 
     this.activeDesktopResize.set({
       panel,
@@ -4688,6 +4915,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         break;
       case 'playbooks':
         this.playbooksWidth.set(this.getDefaultExpandedPanelWidth());
+        break;
+      case 'diagrams':
+        this.diagramsWidth.set(this.getDefaultExpandedPanelWidth());
         break;
       case 'film-review':
         this.filmReviewWidth.set(this.getDefaultExpandedPanelWidth());
@@ -4762,6 +4992,17 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
           nextWidth,
           AgentXShellWebComponent.DESKTOP_PLAYBOOKS_MIN_WIDTH,
           this.getDesktopPanelMaxWidth('playbooks')
+        )
+      );
+      return;
+    }
+
+    if (resizeState.panel === 'diagrams') {
+      this.diagramsWidth.set(
+        this.clampWidth(
+          nextWidth,
+          AgentXShellWebComponent.DESKTOP_DIAGRAMS_MIN_WIDTH,
+          this.getDesktopPanelMaxWidth('diagrams')
         )
       );
       return;
@@ -5371,6 +5612,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       !this.showGameplansModal() &&
       !this.showPlaybooksModal() &&
       !this.showFilmReviewModal() &&
+      !this.showDiagramsModal() &&
       !this.expandedSidePanel()
     ) {
       this.showActionPlanModal.set(false);
@@ -5383,6 +5625,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.showPlaybooksModal.set(false);
     this.showGameplansModal.set(false);
     this.showFilmReviewModal.set(false);
+    this.showDiagramsModal.set(false);
     this.actionPlanWidth.set(AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH);
     this.showActionPlanModal.set(true);
   }
@@ -5399,6 +5642,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.showActionPlanModal.set(false);
       this.showPlaybooksModal.set(false);
       this.showFilmReviewModal.set(false);
+      this.showDiagramsModal.set(false);
       this.gameplansWidth.set(this.getDefaultExpandedPanelWidth());
     }
     this.showGameplansModal.set(newValue);
@@ -5421,6 +5665,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.showPlaybooksModal.set(false);
     this.showGameplansModal.set(false);
     this.showFilmReviewModal.set(false);
+    this.showDiagramsModal.set(false);
     this.actionPlanWidth.set(AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH);
     this.showActionPlanModal.set(true);
   }
@@ -5600,7 +5845,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   public async onSelectPanelMenuOption(
-    option: 'live-view' | 'gameplans' | 'playbooks' | 'film-review',
+    option: 'live-view' | 'gameplans' | 'playbooks' | 'film-review' | 'diagrams',
     event: MouseEvent
   ): Promise<void> {
     event.stopPropagation();
@@ -5609,6 +5854,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
     if (option === 'film-review' && this.isAthleteUser()) {
       this.showFilmReviewModal.set(false);
+      this.showDiagramsModal.set(false);
       this.showActionPlanModal.set(true);
       return;
     }
@@ -5618,6 +5864,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.showPlaybooksModal.set(false);
       this.showGameplansModal.set(false);
       this.showFilmReviewModal.set(false);
+      this.showDiagramsModal.set(false);
 
       const expanded = this.expandedSidePanel();
       const isLiveViewPanel =
@@ -5647,9 +5894,30 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.showActionPlanModal.set(false);
       this.showGameplansModal.set(false);
       this.showFilmReviewModal.set(false);
+      this.showDiagramsModal.set(false);
       this.playbooksWidth.set(this.getDefaultExpandedPanelWidth());
       this.showPlaybooksModal.set(true);
       this.breadcrumb.trackStateChange('agent_x_shell:playbooks_opened', {});
+      return;
+    }
+
+    if (option === 'diagrams') {
+      await this.haptics.impact('light');
+
+      if (this.expandedSidePanel()) {
+        this.closeExpandedSidePanel();
+      }
+
+      this.showActionPlanModal.set(false);
+      this.showPlaybooksModal.set(false);
+      this.showGameplansModal.set(false);
+      this.showFilmReviewModal.set(false);
+      this.diagramsWidth.set(this.getDefaultExpandedPanelWidth());
+      this.showDiagramsModal.set(true);
+      this.analytics?.trackEvent(APP_EVENTS.DIAGRAM_ASSET_LIST_LOADED, {
+        surface: 'agent_x_shell_menu',
+      });
+      this.breadcrumb.trackStateChange('agent_x_shell:diagrams_opened', {});
       return;
     }
 
@@ -5663,6 +5931,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.showActionPlanModal.set(false);
       this.showPlaybooksModal.set(false);
       this.showGameplansModal.set(false);
+      this.showDiagramsModal.set(false);
       this.filmReviewWidth.set(this.getDefaultExpandedPanelWidth());
       this.showFilmReviewModal.set(true);
       this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_OPENED, {
@@ -5683,6 +5952,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.showActionPlanModal.set(false);
     this.showPlaybooksModal.set(false);
     this.showFilmReviewModal.set(false);
+    this.showDiagramsModal.set(false);
     this.gameplansWidth.set(this.getDefaultExpandedPanelWidth());
     this.showGameplansModal.set(true);
 
@@ -5706,6 +5976,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.showActionPlanModal.set(false);
     this.showPlaybooksModal.set(false);
     this.showGameplansModal.set(false);
+    this.showDiagramsModal.set(false);
     this.filmReviewWidth.set(this.getDefaultExpandedPanelWidth());
     this.showFilmReviewModal.set(true);
     this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_OPENED, {

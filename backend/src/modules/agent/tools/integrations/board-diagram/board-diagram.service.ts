@@ -2,8 +2,8 @@
  * @fileoverview BoardDiagramService — Orchestrator for the Board Diagram Platform.
  *
  * Handles the full lifecycle for both sport_play and sport_drill diagrams:
- *   create  → LLM layout generation → SVG render → PNG upload → Firestore persist
- *   update  → LLM re-generation → SVG render → new PNG upload → Firestore patch → old PNG delete
+ *   create  → LLM layout generation → SVG render → PNG+SVG upload → Firestore persist
+ *   update  → LLM re-generation → SVG render → new PNG+SVG upload → Firestore patch → old assets delete
  *   delete  → Firestore soft-delete → storage PNG cleanup
  *
  * Design principles:
@@ -252,6 +252,54 @@ async function convertSvgToPng(svgString: string): Promise<Buffer> {
     .toBuffer();
 }
 
+function resolveTeamFocus(layout: DiagramLayout, requestedTeamFocus?: TeamFocusRequest): TeamFocus {
+  const hasOffense = layout.players.some((player) => player.team === 'offense');
+  const hasDefense = layout.players.some((player) => player.team === 'defense');
+  const derivedTeamFocus: TeamFocus =
+    hasOffense && hasDefense ? 'both' : hasDefense ? 'defense' : 'offense';
+
+  return requestedTeamFocus && requestedTeamFocus !== 'auto'
+    ? requestedTeamFocus
+    : derivedTeamFocus;
+}
+
+function buildRenderProfile(
+  layout: DiagramLayout,
+  kind: BoardDiagramKind,
+  requestedTeamFocus?: TeamFocusRequest
+): RenderProfileOptions {
+  const teamFocus = resolveTeamFocus(layout, requestedTeamFocus);
+
+  if (kind === 'sport_drill') {
+    return {
+      kind,
+      showLegend: false,
+      showTitleBar: true,
+      annotationClutter: false,
+      teamFocus,
+    };
+  }
+
+  return {
+    kind,
+    showLegend: true,
+    showTitleBar: true,
+    annotationClutter: true,
+    teamFocus,
+  };
+}
+
+export function renderBoardDiagramSvg(
+  layout: DiagramLayout,
+  kind: BoardDiagramKind,
+  requestedTeamFocus?: TeamFocusRequest
+): string {
+  const renderer = getSportRenderer(layout.sport);
+  const fieldSvg = renderer.renderField(layout);
+  const renderProfile = buildRenderProfile(layout, kind, requestedTeamFocus);
+  return renderDiagramSvg(layout, fieldSvg, renderProfile);
+}
+
 function buildEditUrl(mxXml: string): string {
   return `${DIAGRAMS_EDITOR_BASE}#R${encodeURIComponent(mxXml)}`;
 }
@@ -391,7 +439,7 @@ function parseLlmLayout(
 // ─── BoardDiagramService ──────────────────────────────────────────────────────
 
 export class BoardDiagramService {
-  constructor(private readonly llm: OpenRouterService) {}
+  constructor(private readonly llm?: OpenRouterService) {}
 
   // ─── Private helpers ────────────────────────────────────────────────────
 
@@ -399,29 +447,40 @@ export class BoardDiagramService {
     return new BoardDiagramAssetService(resolveFirestoreDb(context));
   }
 
-  private buildStoragePath(title: string, context?: ToolExecutionContext): string {
+  private buildStoragePaths(
+    title: string,
+    context?: ToolExecutionContext
+  ): { pngStoragePath: string; svgStoragePath: string } {
     const timestamp = Date.now();
     const id = randomUUID().slice(0, 8);
-    const filename = `${sanitizeFileName(title)}-${timestamp}-${id}.png`;
+    const filenameBase = `${sanitizeFileName(title)}-${timestamp}-${id}`;
 
     if (context?.userId && context?.threadId) {
-      return `Users/${context.userId}/threads/${context.threadId}/media/board-diagrams/${filename}`;
+      const directory = `Users/${context.userId}/threads/${context.threadId}/media/board-diagrams`;
+      return {
+        pngStoragePath: `${directory}/${filenameBase}.png`,
+        svgStoragePath: `${directory}/${filenameBase}.svg`,
+      };
     }
 
-    return `agent-board-diagrams/${filename}`;
+    return {
+      pngStoragePath: `agent-board-diagrams/${filenameBase}.png`,
+      svgStoragePath: `agent-board-diagrams/${filenameBase}.svg`,
+    };
   }
 
-  private async uploadPng(
-    pngBuffer: Buffer,
+  private async uploadAsset(
+    fileContents: Buffer,
     storagePath: string,
+    contentType: string,
     context?: ToolExecutionContext
   ): Promise<string> {
     const storageInstance = resolveStorage(context);
     const bucket = storageInstance.bucket();
     const file = bucket.file(storagePath);
 
-    await file.save(pngBuffer, {
-      contentType: 'image/png',
+    await file.save(fileContents, {
+      contentType,
       metadata: { cacheControl: 'public, max-age=31536000, immutable' },
     });
     await file.makePublic();
@@ -442,22 +501,60 @@ export class BoardDiagramService {
     return `https://storage.googleapis.com/${bucket.name}/${encodedPath}`;
   }
 
+  private async uploadPng(
+    pngBuffer: Buffer,
+    storagePath: string,
+    context?: ToolExecutionContext
+  ): Promise<string> {
+    return this.uploadAsset(pngBuffer, storagePath, 'image/png', context);
+  }
+
+  private async uploadSvg(
+    svgString: string,
+    storagePath: string,
+    context?: ToolExecutionContext
+  ): Promise<string> {
+    return this.uploadAsset(Buffer.from(svgString, 'utf-8'), storagePath, 'image/svg+xml', context);
+  }
+
   /**
    * Delete a storage PNG. Non-fatal — logs a warning on failure so that a
    * missed cleanup never blocks the caller's success path.
    */
-  private async deletePng(storagePath: string, context?: ToolExecutionContext): Promise<void> {
+  private async deleteStorageAsset(
+    storagePath: string | undefined,
+    assetKind: 'PNG' | 'SVG',
+    context?: ToolExecutionContext
+  ): Promise<void> {
+    if (!storagePath) {
+      return;
+    }
+
     try {
       const storageInstance = resolveStorage(context);
       const bucket = storageInstance.bucket();
       await bucket.file(storagePath).delete();
-      logger.info('[BoardDiagramService] Deleted storage PNG', { storagePath });
+      logger.info(`[BoardDiagramService] Deleted storage ${assetKind}`, { storagePath });
     } catch (error) {
-      logger.warn('[BoardDiagramService] Failed to delete storage PNG (non-fatal)', {
+      logger.warn(`[BoardDiagramService] Failed to delete storage ${assetKind} (non-fatal)`, {
         storagePath,
         error: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+
+  private async deletePng(
+    storagePath: string | undefined,
+    context?: ToolExecutionContext
+  ): Promise<void> {
+    await this.deleteStorageAsset(storagePath, 'PNG', context);
+  }
+
+  private async deleteSvg(
+    storagePath: string | undefined,
+    context?: ToolExecutionContext
+  ): Promise<void> {
+    await this.deleteStorageAsset(storagePath, 'SVG', context);
   }
 
   private async generateLayoutWithRetry(
@@ -470,6 +567,13 @@ export class BoardDiagramService {
     xmlTemplate: string | undefined,
     context?: ToolExecutionContext
   ): Promise<DiagramLayout> {
+    if (!this.llm) {
+      throw new AgentEngineError(
+        'BOARD_DIAGRAM_LLM_UNAVAILABLE',
+        'Board diagram generation is unavailable because the LLM service is not configured.'
+      );
+    }
+
     const renderer = getSportRenderer(sport);
     const systemPrompt = buildSystemPromptForKind(sport, kind);
     let previousError: string | null = null;
@@ -560,46 +664,23 @@ export class BoardDiagramService {
 
   private async renderAndUpload(
     layout: DiagramLayout,
-    storagePath: string,
+    pngStoragePath: string,
+    svgStoragePath: string,
     context?: ToolExecutionContext,
     kindOverride?: BoardDiagramKind,
     requestedTeamFocus?: TeamFocusRequest
-  ): Promise<{ imageUrl: string; xmlContent: string; editUrl: string }> {
-    const renderer = getSportRenderer(layout.sport);
-    const fieldSvg = renderer.renderField(layout);
-    const hasOffense = layout.players.some((player) => player.team === 'offense');
-    const hasDefense = layout.players.some((player) => player.team === 'defense');
-    const derivedTeamFocus: TeamFocus =
-      hasOffense && hasDefense ? 'both' : hasDefense ? 'defense' : 'offense';
-    const teamFocus =
-      requestedTeamFocus && requestedTeamFocus !== 'auto' ? requestedTeamFocus : derivedTeamFocus;
-    // Select render profile based on kind
+  ): Promise<{ imageUrl: string; svgUrl: string; xmlContent: string; editUrl: string }> {
     const kind = kindOverride ?? extractBoardDiagramKind(context) ?? 'sport_play';
-    let renderProfile: RenderProfileOptions;
-    if (kind === 'sport_drill') {
-      renderProfile = {
-        kind,
-        showLegend: false,
-        showTitleBar: true,
-        annotationClutter: false,
-        teamFocus,
-      };
-    } else {
-      renderProfile = {
-        kind,
-        showLegend: true,
-        showTitleBar: true,
-        annotationClutter: true,
-        teamFocus,
-      };
-    }
-    const svgString = renderDiagramSvg(layout, fieldSvg, renderProfile);
+    const svgString = renderBoardDiagramSvg(layout, kind, requestedTeamFocus);
     const pngBuffer = await convertSvgToPng(svgString);
-    const imageUrl = await this.uploadPng(pngBuffer, storagePath, context);
+    const [imageUrl, svgUrl] = await Promise.all([
+      this.uploadPng(pngBuffer, pngStoragePath, context),
+      this.uploadSvg(svgString, svgStoragePath, context),
+    ]);
     const mxXml = layoutToMxGraphModel(layout);
     const editUrl = buildEditUrl(mxXml);
 
-    return { imageUrl, xmlContent: mxXml, editUrl };
+    return { imageUrl, svgUrl, xmlContent: mxXml, editUrl };
   }
 
   // ─── Public API ──────────────────────────────────────────────────────────
@@ -658,10 +739,11 @@ export class BoardDiagramService {
       }
 
       // Render and upload, toggling legend/title bar in SVG helpers (to be implemented)
-      const storagePath = this.buildStoragePath(title, context);
-      const { imageUrl, xmlContent, editUrl } = await this.renderAndUpload(
+      const { pngStoragePath, svgStoragePath } = this.buildStoragePaths(title, context);
+      const { imageUrl, svgUrl, xmlContent, editUrl } = await this.renderAndUpload(
         finalLayout,
-        storagePath,
+        pngStoragePath,
+        svgStoragePath,
         context,
         kind,
         requestedTeamFocus
@@ -676,7 +758,9 @@ export class BoardDiagramService {
         title,
         description: input.description,
         imageUrl,
-        storagePath,
+        storagePath: pngStoragePath,
+        svgUrl,
+        svgStoragePath,
         xmlContent,
         editUrl,
         sourceLayout: finalLayout,
@@ -692,7 +776,8 @@ export class BoardDiagramService {
         assetId: asset.id,
         kind,
         sport: asset.sport,
-        storagePath,
+        storagePath: pngStoragePath,
+        svgStoragePath,
         imageBytes: (await convertSvgToPng(renderDiagramSvg(finalLayout, ''))).length,
       });
 
@@ -706,6 +791,59 @@ export class BoardDiagramService {
         { cause: error }
       );
     }
+  }
+
+  private normalizeManualLayout(
+    layout: DiagramLayout,
+    sport: NormalizedSport,
+    title: string
+  ): DiagramLayout {
+    const normalized: DiagramLayout = {
+      ...layout,
+      sport,
+      title,
+      fieldStyle: layout.fieldStyle ?? 'classic',
+      players: layout.players.map((player) => ({
+        ...player,
+        x: clampCoord(player.x, 10, layout.fieldWidth - 10, player.x),
+        y: clampCoord(player.y, 10, layout.fieldHeight - 10, player.y),
+        shape: coercePlayerShape(player.shape),
+      })),
+      routes: layout.routes.map((route, index) => ({
+        ...route,
+        id: route.id ?? `route-${index + 1}`,
+        type: coerceRouteType(route.type),
+        points: route.points.map(
+          ([x, y]) =>
+            [
+              clampCoord(x, 5, layout.fieldWidth - 5, x),
+              clampCoord(y, 5, layout.fieldHeight - 5, y),
+            ] as [number, number]
+        ),
+      })),
+      zones: layout.zones?.map((zone, index) => ({
+        ...zone,
+        id: zone.id || `zone-${index + 1}`,
+        x: clampCoord(zone.x, 0, layout.fieldWidth - 10, zone.x),
+        y: clampCoord(zone.y, 0, layout.fieldHeight - 10, zone.y),
+        width: clampCoord(zone.width, 20, layout.fieldWidth, zone.width),
+        height: clampCoord(zone.height, 20, layout.fieldHeight, zone.height),
+      })),
+    };
+
+    if (
+      sport === 'football' ||
+      sport === 'basketball' ||
+      sport === 'soccer' ||
+      sport === 'baseball' ||
+      sport === 'softball'
+    ) {
+      validateLayoutForSport(normalized);
+    } else {
+      validateDrillLayout(normalized);
+    }
+
+    return normalized;
   }
 
   /**
@@ -771,10 +909,12 @@ export class BoardDiagramService {
       }
 
       // Upload the new PNG before patching the asset record
-      const newStoragePath = this.buildStoragePath(title, context);
-      const { imageUrl, xmlContent, editUrl } = await this.renderAndUpload(
+      const { pngStoragePath: newStoragePath, svgStoragePath: newSvgStoragePath } =
+        this.buildStoragePaths(title, context);
+      const { imageUrl, svgUrl, xmlContent, editUrl } = await this.renderAndUpload(
         finalLayout,
         newStoragePath,
+        newSvgStoragePath,
         context,
         undefined,
         requestedTeamFocus
@@ -785,6 +925,8 @@ export class BoardDiagramService {
         description,
         imageUrl,
         storagePath: newStoragePath,
+        svgUrl,
+        svgStoragePath: newSvgStoragePath,
         xmlContent,
         editUrl,
         sourceLayout: finalLayout,
@@ -799,8 +941,12 @@ export class BoardDiagramService {
       }
 
       // Non-fatal: delete the old PNG after the Firestore record is safely updated
-      if (existing.storagePath !== newStoragePath) {
+      if (existing.storagePath && existing.storagePath !== newStoragePath) {
         await this.deletePng(existing.storagePath, context);
+      }
+
+      if (existing.svgStoragePath && existing.svgStoragePath !== newSvgStoragePath) {
+        await this.deleteSvg(existing.svgStoragePath, context);
       }
 
       logger.info('[BoardDiagramService] Diagram updated', { assetId: updated.id });
@@ -817,13 +963,86 @@ export class BoardDiagramService {
     }
   }
 
+  async saveManualEdits(
+    input: {
+      readonly assetId: string;
+      readonly userId: string;
+      readonly sourceLayout: DiagramLayout;
+      readonly title?: string;
+      readonly description?: string;
+    },
+    context?: ToolExecutionContext
+  ): Promise<BoardDiagramAsset> {
+    const assetService = this.getAssetService(context);
+    const existing = await assetService.getById(input.assetId, input.userId);
+
+    if (!existing) {
+      throw new AgentEngineError(
+        'BOARD_DIAGRAM_NOT_FOUND',
+        `Diagram asset '${input.assetId}' not found or you do not have permission to update it.`
+      );
+    }
+
+    const title = input.title?.trim() || existing.title;
+    const description = input.description?.trim() || existing.description;
+    const requestedTeamFocus = inferRequestedTeamFocus(title, description);
+    const normalizedLayout = this.normalizeManualLayout(input.sourceLayout, existing.sport, title);
+
+    const { pngStoragePath: newStoragePath, svgStoragePath: newSvgStoragePath } =
+      this.buildStoragePaths(title, context);
+    const { imageUrl, svgUrl, xmlContent, editUrl } = await this.renderAndUpload(
+      normalizedLayout,
+      newStoragePath,
+      newSvgStoragePath,
+      context,
+      existing.kind,
+      requestedTeamFocus
+    );
+
+    const updated = await assetService.patch(input.assetId, input.userId, {
+      title,
+      description,
+      imageUrl,
+      storagePath: newStoragePath,
+      svgUrl,
+      svgStoragePath: newSvgStoragePath,
+      xmlContent,
+      editUrl,
+      sourceLayout: normalizedLayout,
+      updatedAt: Date.now(),
+    });
+
+    if (!updated) {
+      throw new AgentEngineError(
+        'BOARD_DIAGRAM_EXPORT_FAILED',
+        'Failed to patch asset record after successful manual diagram render.'
+      );
+    }
+
+    if (existing.storagePath && existing.storagePath !== newStoragePath) {
+      await this.deletePng(existing.storagePath, context);
+    }
+
+    if (existing.svgStoragePath && existing.svgStoragePath !== newSvgStoragePath) {
+      await this.deleteSvg(existing.svgStoragePath, context);
+    }
+
+    logger.info('[BoardDiagramService] Manual diagram edits saved', {
+      assetId: updated.id,
+      kind: updated.kind,
+      sport: updated.sport,
+    });
+
+    return updated;
+  }
+
   /**
-   * Soft-delete a diagram asset and remove its backing storage PNG.
+   * Soft-delete a diagram asset and remove its backing storage PNG/SVG assets.
    *
    * Process:
    *   1. Fetch existing asset (auth check included).
    *   2. Soft-delete Firestore record (deleted=true, deletedAt=now).
-   *   3. Delete storage PNG (non-fatal failure).
+   *   3. Delete storage assets (non-fatal failure).
    */
   async deleteDiagram(
     input: DeleteBoardDiagramInput,
@@ -849,8 +1068,11 @@ export class BoardDiagramService {
       );
     }
 
-    // Storage cleanup is non-fatal — a failed PNG delete does not roll back the record
+    // Storage cleanup is non-fatal — a failed asset delete does not roll back the record
     await this.deletePng(existing.storagePath, context);
+    if (existing.svgStoragePath) {
+      await this.deleteSvg(existing.svgStoragePath, context);
+    }
 
     logger.info('[BoardDiagramService] Diagram deleted', {
       assetId: input.assetId,

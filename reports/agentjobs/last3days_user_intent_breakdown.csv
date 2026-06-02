@@ -1,0 +1,154 @@
+userId,firstName,lastName,displayName,email,intent,total_jobs,failed_jobs,non_failed_jobs,status_counts_json
+0yDiOyIHPPa1715B4fKt2KZOh5k2,Shaun,Gill,Shaun Gill,freezerswish@gmail.com,Generate weekly playbook,3,0,3,"{""completed"": 3}"
+CGYcybG6WqRyKb9cYlhezp1227H2,Evan,Rupinta,Evan Rupinta,vrupinta@yahoo.com,"Search for colleges that fit me — Class of 2028, 6'3"" 215 lb outfielder from Orlando, FL. Mix in-state options (UF, FSU, UCF, USF, Stetson) with realistic D1/D2 fits in the Southeast and explain why each matches.",1,0,1,"{""completed"": 1}"
+CGYcybG6WqRyKb9cYlhezp1227H2,Evan,Rupinta,Evan Rupinta,vrupinta@yahoo.com,"Please handle Weekly Graphics with the Brand Coordinator and frame it as a recurring workflow for me. Post performance graphics. Give me the execution plan, timing, checkpoints, and follow-up actions I should run with.",1,0,1,"{""completed"": 1}"
+MxQHGSNx8CbRJU1cMkB29YFN7Jo1,Ngoc,Son,Ngoc Son,sonngoc.dev@gmail.com,"Generate the daily briefing for today. Summarize profile views, new followers, recruiting updates, and suggest actions.",4,0,4,"{""completed"": 4}"
+MxQHGSNx8CbRJU1cMkB29YFN7Jo1,Ngoc,Son,Ngoc Son,sonngoc.dev@gmail.com,"Daily sync on manual-team for Football detected changes: 3 updates (0 stat changes, 0 new categories, 0 recruiting activities, 0 schedule events, 0 new videos). Review the delta report and take proactive actions — update the briefing, notify the athlete, and suggest outreach if stats improved.",1,0,1,"{""completed"": 1}"
+Pz3k8zmktDcssmYmNeD2GrhAFXG3,Jahden,Ruff,Jahden Ruff,ruffjahden2@gmail.com,"Sync my connected accounts. Linked accounts in this job: hudl, x. Target profile: NXT1 profile. Collect and add or update all relevant athlete fields now (bio, team context, position details, measurables, achievements, offers, and recent performance/news). Never invent or fabricate missing data. Execute the sync immediately and write the updates directly to the target profile.
+
+Accounts to sync:
+- hudl: https://www.hudl.com/profile/19756084
+- x: https://x.com/jahdenruff",1,0,1,"{""completed"": 1}"
+Pz3k8zmktDcssmYmNeD2GrhAFXG3,Jahden,Ruff,Jahden Ruff,ruffjahden2@gmail.com,"Sync my connected accounts. Linked accounts in this job: instagram. Target profile: NXT1 profile. Collect and add or update all relevant athlete fields now (bio, team context, position details, measurables, achievements, offers, and recent performance/news). Never invent or fabricate missing data. Execute the sync immediately and write the updates directly to the target profile.
+
+Accounts to sync:
+- instagram: luh_jahdenn",1,0,1,"{""thinking"": 1}"
+Pz3k8zmktDcssmYmNeD2GrhAFXG3,Jahden,Ruff,Jahden Ruff,ruffjahden2@gmail.com,"Please handle Email Campaign to Coaches with the Recruiting Coordinator. Send emails to coaches include my NXT1 profile link. Give me the clearest deliverable, priorities, and next steps to act on immediately.",1,0,1,"{""thinking"": 1}"
+Pz3k8zmktDcssmYmNeD2GrhAFXG3,Jahden,Ruff,Jahden Ruff,ruffjahden2@gmail.com,"Create a welcome graphic for a new athlete joining the platform.
+
+## Content
+- Headline: ""WELCOME""
+- Athlete Name: ""JAHDEN""
+- Sport/Role: ""FOOTBALL — RUNNING BACK""
+- Athlete Photo: https://firebasestorage.googleapis.com/v0/b/nxt-1-staging-v2.firebasestorage.app/o/Users%2FPz3k8zmktDcssmYmNeD2GrhAFXG3?alt=media
+- Brand Colors: Derive the color palette from the athlete photo provided above.
+
+## Rules
+- Do NOT draw, generate, or invent any logos, watermarks, or corner branding.
+- Be as creative as you want with the design, style, and composition.",1,0,1,"{""completed"": 1}"
+TwruZxJn2JZzkjOql2SbO24w4S43,,,,,"Create a welcome graphic for a new athlete joining the platform.
+
+## Content
+- Headline: ""WELCOME""
+- Athlete Name: ""HUY""
+- Sport/Role: ""FOOTBALL — RUNNING BACK""
+- Athlete Photo: blob:capacitor://localhost/70f642ab-80c3-415c-b6e6-f559b65f3fc2
+- Brand Colors: Derive the color palette from the athlete photo provided above.
+
+## Rules
+- Do NOT draw, generate, or invent any logos, watermarks, or corner branding.
+- Be as creative as you want with the design, style, and composition.",1,0,1,"{""completed"": 1}"
+VzJ8Xd2hRSfiRH20f0IfP2HuhI23,Bacon,Dao,Bacon Dao,2972hfrhdb@privaterelay.appleid.com,"Sync my connected accounts. Linked accounts in this job: youtube, instagram. Target profile: NXT1 profile. Collect and add or update all relevant athlete fields now (bio, team context, position details, measurables, achievements, offers, and recent performance/news). Never invent or fabricate missing data. Execute the sync immediately and write the updates directly to the target profile.
+
+Accounts to sync:
+- youtube: https://youtube.com/@gk.baconn
+- instagram: https://instagram.com/gk.bacon_",1,0,1,"{""completed"": 1}"
+VzJ8Xd2hRSfiRH20f0IfP2HuhI23,Bacon,Dao,Bacon Dao,2972hfrhdb@privaterelay.appleid.com,"Create a welcome graphic for a new athlete joining the platform.
+
+## Content
+- Headline: ""WELCOME""
+- Athlete Name: ""BACON""
+- Sport/Role: ""SOCCER — GOAL KEEPER""
+- Athlete Photo: https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/VzJ8Xd2hRSfiRH20f0IfP2HuhI23/profile/avatar_1780205747142.jpg
+- Brand Colors: Derive the color palette from the athlete photo provided above.
+
+## Rules
+- Do NOT draw, generate, or invent any logos, watermarks, or corner branding.
+- Be as creative as you want with the design, style, and composition.",1,0,1,"{""completed"": 1}"
+VzJ8Xd2hRSfiRH20f0IfP2HuhI23,Bacon,Dao,Bacon Dao,2972hfrhdb@privaterelay.appleid.com,Generate weekly playbook,3,1,2,"{""completed"": 2, ""failed"": 1}"
+gLiqjnKojKXTA0nkJtZxzXlS27G3,Jacob,Ramos,Jacob Ramos,jakethegr318@gmail.com,"Create a welcome graphic for a new athlete joining the platform.
+
+## Content
+- Headline: ""WELCOME""
+- Athlete Name: ""JACOB""
+- Sport/Role: ""FOOTBALL — WIDE RECEIVER""
+- Athlete Photo: https://firebasestorage.googleapis.com/v0/b/nxt-1-staging-v2.firebasestorage.app/o/Users%2FgLiqjnKojKXTA0nkJtZxzXlS27G3_1771624272945?alt=media
+- Brand Colors: Derive the color palette from the athlete photo provided above.
+
+## Rules
+- Do NOT draw, generate, or invent any logos, watermarks, or corner branding.
+- Be as creative as you want with the design, style, and composition.",1,0,1,"{""completed"": 1}"
+gLiqjnKojKXTA0nkJtZxzXlS27G3,Jacob,Ramos,Jacob Ramos,jakethegr318@gmail.com,"Sync my connected accounts. Linked accounts in this job: twitter, instagram. Target profile: NXT1 profile. Collect and add or update all relevant athlete fields now (bio, team context, position details, measurables, achievements, offers, and recent performance/news). Never invent or fabricate missing data. Execute the sync immediately and write the updates directly to the target profile.
+
+Accounts to sync:
+- twitter: @Jacob34Ramos
+- instagram: Hat4d.jake",1,0,1,"{""completed"": 1}"
+hKpfl4xHgYQEeOgvN3TMFcA7q8i2,Ray,Keller,Ray Keller,kellerr001@gmail.com,That’s not the right athlete,2,0,2,"{""completed"": 2}"
+hKpfl4xHgYQEeOgvN3TMFcA7q8i2,Ray,Keller,Ray Keller,kellerr001@gmail.com,Is Shia actual people image form X,1,0,1,"{""cancelled"": 1}"
+hKpfl4xHgYQEeOgvN3TMFcA7q8i2,Ray,Keller,Ray Keller,kellerr001@gmail.com,Ok just make me a graphic with the same criteria,1,0,1,"{""completed"": 1}"
+hKpfl4xHgYQEeOgvN3TMFcA7q8i2,Ray,Keller,Ray Keller,kellerr001@gmail.com,Where is it,1,0,1,"{""cancelled"": 1}"
+hKpfl4xHgYQEeOgvN3TMFcA7q8i2,Ray,Keller,Ray Keller,kellerr001@gmail.com,Use his X profile image,1,0,1,"{""completed"": 1}"
+hKpfl4xHgYQEeOgvN3TMFcA7q8i2,Ray,Keller,Ray Keller,kellerr001@gmail.com,"I want to set council: Select leadership council. Please execute this action now. Objective: I want to move the offseason culture plan into action by naming and onboarding the first NXT1 leadership council. Execution request: I need you to agent X will create selection criteria, nomination prompts, interview questions, and a first-meeting agenda focused on standards, accountability, and summer ownership.",1,0,1,"{""completed"": 1}"
+hKpfl4xHgYQEeOgvN3TMFcA7q8i2,Ray,Keller,Ray Keller,kellerr001@gmail.com,"Create a highlight video for Jontae O Lowery from his X account @IballOd with a Marvel style super villain motion graphic intro that includes his name, position and grad class. Use his videos posted from 4/20/26, 4/14/26 and 3/16/26.",1,0,1,"{""cancelled"": 1}"
+hKpfl4xHgYQEeOgvN3TMFcA7q8i2,Ray,Keller,Ray Keller,kellerr001@gmail.com,Ok,1,0,1,"{""completed"": 1}"
+hKpfl4xHgYQEeOgvN3TMFcA7q8i2,Ray,Keller,Ray Keller,kellerr001@gmail.com,"Create a highlight video with a motion graphic intro that has a colorful female super hero theme for Jaeden Antonelli from her X account @Jaeden_2027 use the last 7 game clips she posted. On the motion graphic be sure to use her X profile image and add her name, position and graduation class",1,0,1,"{""completed"": 1}"
+hKpfl4xHgYQEeOgvN3TMFcA7q8i2,Ray,Keller,Ray Keller,kellerr001@gmail.com,"I want to draft standard: Define the NXT1 standard. Please execute this action now. Objective: I want to turn my core values into visible behaviors players can be coached, praised, and corrected on all summer. Execution request: I need you to agent X will draft a one-page NXT1 Standard with 4-5 core behaviors, examples of winning actions, accountability consequences, and a rollout script for the team.",1,0,1,"{""completed"": 1}"
+hKpfl4xHgYQEeOgvN3TMFcA7q8i2,Ray,Keller,Ray Keller,kellerr001@gmail.com,When is the dead period for football recruiting,1,0,1,"{""completed"": 1}"
+kQKSDptl6Nfv9KUrSpVKKeRikdS2,Logan,Stevenson,Logan Stevenson,stevensonlogan401@gmail.com,"Create a welcome graphic for a new athlete joining the platform.
+
+## Content
+- Headline: ""WELCOME""
+- Athlete Name: ""LOGAN""
+- Sport/Role: ""FOOTBALL — QUARTERBACK""
+- Athlete Photo: https://firebasestorage.googleapis.com/v0/b/nxt-1-staging-v2.firebasestorage.app/o/Users%2FkQKSDptl6Nfv9KUrSpVKKeRikdS2_1750610332678?alt=media
+- Brand Colors: Derive the color palette from the athlete photo provided above.
+
+## Rules
+- Do NOT draw, generate, or invent any logos, watermarks, or corner branding.
+- Be as creative as you want with the design, style, and composition.",1,0,1,"{""completed"": 1}"
+kQKSDptl6Nfv9KUrSpVKKeRikdS2,Logan,Stevenson,Logan Stevenson,stevensonlogan401@gmail.com,"Sync my connected accounts. Linked accounts in this job: instagram. Target profile: NXT1 profile. Collect and add or update all relevant athlete fields now (bio, team context, position details, measurables, achievements, offers, and recent performance/news). Never invent or fabricate missing data. Execute the sync immediately and write the updates directly to the target profile.
+
+Accounts to sync:
+- instagram: ballermadelogan",1,0,1,"{""completed"": 1}"
+kQKSDptl6Nfv9KUrSpVKKeRikdS2,Logan,Stevenson,Logan Stevenson,stevensonlogan401@gmail.com,"Sync my connected accounts. Linked accounts in this job: hudl, twitter. Target profile: NXT1 profile. Collect and add or update all relevant athlete fields now (bio, team context, position details, measurables, achievements, offers, and recent performance/news). Never invent or fabricate missing data. Execute the sync immediately and write the updates directly to the target profile.
+
+Accounts to sync:
+- hudl: https://www.hudl.com/profile/23862865
+- twitter: @ballermadelogan",1,0,1,"{""completed"": 1}"
+m3FNBzSTBefdAgUK9fA6Ea2TNeq1,Javeon,Taylor,Javeon Taylor,john@nxt1sports.com,"I want to research camps: Research 5 D1/D2 QB Camps. Please execute this action now. Objective: I want to identify top college QB camps within 300 miles of Austin, TX for June-July Execution request: I need you to agent X, compile a list of 5 D1/D2 QB camps (e.g., Texas, Texas A&M, Baylor, TCU, SMU) with dates, costs, and registration deadlines. Include coach contact info for each.",1,0,1,"{""completed"": 1}"
+m3FNBzSTBefdAgUK9fA6Ea2TNeq1,Javeon,Taylor,Javeon Taylor,john@nxt1sports.com,"Help me send personalized emails to college QB coaches at D1 and D2 programs. Include my NXT1 profile link, Hudl film, class year (2026), position (QB), school (North Forest), and my May camp availability. Focus on programs that fit my level.",1,0,1,"{""paused"": 1}"
+m3FNBzSTBefdAgUK9fA6Ea2TNeq1,Javeon,Taylor,Javeon Taylor,john@nxt1sports.com,"I want to send emails: Email 5 Target QB Coaches. Please execute this action now. Objective: I want to send personalized emails with my highlight reel and camp invites Execution request: I need you to agent X, draft 5 personalized emails for Javeon to send to D1/D2 QB coaches (use his NXT1 profile link and Hudl highlights). Include camp invites and a call-to-action for feedback or a call.",1,0,1,"{""completed"": 1}"
+m3FNBzSTBefdAgUK9fA6Ea2TNeq1,Javeon,Taylor,Javeon Taylor,john@nxt1sports.com,"I want to log progress: Log Off-Season Workout Progress. Please execute this action now. Objective: I want to track my strength and conditioning gains for the week Execution request: I need you to agent X, create a weekly log template for Javeon to input his strength (bench, squat), agility (shuttle, L-drill), and throwing velocity metrics. Flag any gaps in his current tracking.",1,0,1,"{""completed"": 1}"
+uXAgzkqQWkPPhV2a3OD4JUTwco43,Torrance,Carle,Torrance Carle,t.carle@svlocal.org,"Sync my connected accounts. Linked accounts in this job: maxpreps, instagram. Target profile: team profile. Collect and add or update all relevant team fields now (identity, schedule, roster context, achievements, recent news, and recruiting records for identifiable prospects). Never invent or fabricate roster players; if source roster data is empty, skip roster writes and report that explicitly. When a recruiting mention identifies a prospect, write a team-linked recruiting record and link it to the athlete account when a valid rostered athlete target exists. Execute the sync immediately and write the updates directly to the target profile.
+
+Accounts to sync:
+- maxpreps: https://www.maxpreps.com/oh/magnolia/sandy-valley-cardinals/football/
+- instagram: https://instagram.com/sv_cardinals_fb",1,0,1,"{""completed"": 1}"
+uXAgzkqQWkPPhV2a3OD4JUTwco43,Torrance,Carle,Torrance Carle,t.carle@svlocal.org,"Sync my connected accounts. Linked accounts in this job: x, hudl. Target profile: team profile. Collect and add or update all relevant team fields now (identity, schedule, roster context, achievements, recent news, and recruiting records for identifiable prospects). Never invent or fabricate roster players; if source roster data is empty, skip roster writes and report that explicitly. When a recruiting mention identifies a prospect, write a team-linked recruiting record and link it to the athlete account when a valid rostered athlete target exists. Execute the sync immediately and write the updates directly to the target profile.
+
+Accounts to sync:
+- x: https://x.com/SV_Cardinals_FB
+- hudl: https://www.hudl.com/team/v2/32147/Boys-Varsity-Football",1,0,1,"{""completed"": 1}"
+uXAgzkqQWkPPhV2a3OD4JUTwco43,Torrance,Carle,Torrance Carle,t.carle@svlocal.org,"Re-sync my connected accounts right now. Refresh these linked accounts: twitter, hudl, maxpreps. Pull in the latest public updates and update my NXT1 profile with any changed data.",1,0,1,"{""completed"": 1}"
+uXAgzkqQWkPPhV2a3OD4JUTwco43,Torrance,Carle,Torrance Carle,t.carle@svlocal.org,yes,1,0,1,"{""completed"": 1}"
+uXAgzkqQWkPPhV2a3OD4JUTwco43,Torrance,Carle,Torrance Carle,t.carle@svlocal.org,"42/43 are inside zone, not iso, 10/11 are Iso",1,0,1,"{""completed"": 1}"
+uXAgzkqQWkPPhV2a3OD4JUTwco43,Torrance,Carle,Torrance Carle,t.carle@svlocal.org,"Import the attached files and build a clean football playbook draft. Extract formations, plays, install notes, and coaching points, then ask me to confirm before saving anything. Format install notes as clean line items (one instruction per line), and avoid markdown emphasis.",1,0,1,"{""completed"": 1}"
+uXAgzkqQWkPPhV2a3OD4JUTwco43,Torrance,Carle,Torrance Carle,t.carle@svlocal.org,Yes,1,0,1,"{""completed"": 1}"
+uXAgzkqQWkPPhV2a3OD4JUTwco43,Torrance,Carle,Torrance Carle,t.carle@svlocal.org,5,1,0,1,"{""completed"": 1}"
+uXAgzkqQWkPPhV2a3OD4JUTwco43,Torrance,Carle,Torrance Carle,t.carle@svlocal.org,"""Build the 9 polished diagrams.""",1,0,1,"{""completed"": 1}"
+uXAgzkqQWkPPhV2a3OD4JUTwco43,Torrance,Carle,Torrance Carle,t.carle@svlocal.org,"Polished, Deuce, Yes, and both",1,0,1,"{""completed"": 1}"
+uXAgzkqQWkPPhV2a3OD4JUTwco43,Torrance,Carle,Torrance Carle,t.carle@svlocal.org,These diagrams are not good,1,0,1,"{""completed"": 1}"
+uXAgzkqQWkPPhV2a3OD4JUTwco43,Torrance,Carle,Torrance Carle,t.carle@svlocal.org,But there are more than 4 run plays,1,0,1,"{""completed"": 1}"
+uXAgzkqQWkPPhV2a3OD4JUTwco43,Torrance,Carle,Torrance Carle,t.carle@svlocal.org,So what do I do with this now?,1,0,1,"{""completed"": 1}"
+zKhDybhPkfbtN4HE5aukQztKLHY2,Jerqalin,Boyd,Jerqalin Boyd,nsbqalin@gmail.com,"Sync my connected accounts. Linked accounts in this job: hudl, twitter. Target profile: NXT1 profile. Collect and add or update all relevant athlete fields now (bio, team context, position details, measurables, achievements, offers, and recent performance/news). Never invent or fabricate missing data. Execute the sync immediately and write the updates directly to the target profile.
+
+Accounts to sync:
+- hudl: https://www.hudl.com/v/2Qsknv
+- twitter: @Cfwqalin",1,0,1,"{""completed"": 1}"
+zKhDybhPkfbtN4HE5aukQztKLHY2,Jerqalin,Boyd,Jerqalin Boyd,nsbqalin@gmail.com,"Sync my connected accounts. Linked accounts in this job: instagram. Target profile: NXT1 profile. Collect and add or update all relevant athlete fields now (bio, team context, position details, measurables, achievements, offers, and recent performance/news). Never invent or fabricate missing data. Execute the sync immediately and write the updates directly to the target profile.
+
+Accounts to sync:
+- instagram: Cfwqalin",1,0,1,"{""completed"": 1}"
+zKhDybhPkfbtN4HE5aukQztKLHY2,Jerqalin,Boyd,Jerqalin Boyd,nsbqalin@gmail.com,"Create a welcome graphic for a new athlete joining the platform.
+
+## Content
+- Headline: ""WELCOME""
+- Athlete Name: ""JERQALIN""
+- Sport/Role: ""FOOTBALL — RUNNING BACK""
+- Athlete Photo: https://firebasestorage.googleapis.com/v0/b/nxt-1-staging-v2.firebasestorage.app/o/HighLightImages%2Fimage_1760494010858?alt=media
+- Brand Colors: Derive the color palette from the athlete photo provided above.
+
+## Rules
+- Do NOT draw, generate, or invent any logos, watermarks, or corner branding.
+- Be as creative as you want with the design, style, and composition.",1,0,1,"{""completed"": 1}"
+zKhDybhPkfbtN4HE5aukQztKLHY2,Jerqalin,Boyd,Jerqalin Boyd,nsbqalin@gmail.com,"Please handle Weekly Match Updates with the Recruiting Coordinator and frame it as a recurring workflow for me. Add new schools. Give me the execution plan, timing, checkpoints, and follow-up actions I should run with.",1,0,1,"{""completed"": 1}"

@@ -31,6 +31,7 @@ export interface PlaybookPlay {
   readonly tags?: readonly string[];
   readonly conceptTags?: readonly string[];
   readonly diagramUrl?: string;
+  readonly diagramAssetId?: string;
   readonly videoUrl?: string;
   readonly installUrl?: string;
   readonly installStage?: 'install' | 'rep' | 'game-ready';

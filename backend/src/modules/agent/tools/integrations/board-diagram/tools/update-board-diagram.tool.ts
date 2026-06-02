@@ -60,12 +60,14 @@ export class UpdateBoardDiagramTool extends BaseTool {
           mimeType: 'image/png',
           imageUrls: [asset.imageUrl],
           mediaUrls: [asset.imageUrl],
+          ...(asset.svgUrl ? { svgUrl: asset.svgUrl } : {}),
 
           editUrl: asset.editUrl,
           xmlContent: asset.xmlContent,
 
           title: asset.title,
           storagePath: asset.storagePath,
+          ...(asset.svgStoragePath ? { svgStoragePath: asset.svgStoragePath } : {}),
           updatedAt: asset.updatedAt,
 
           files: [

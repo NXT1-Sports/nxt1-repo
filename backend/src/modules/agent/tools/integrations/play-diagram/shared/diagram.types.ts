@@ -14,6 +14,8 @@ export type DiagramZoneShape = 'ellipse' | 'rect';
 
 export type DiagramPlayerShape = 'circle' | 'square' | 'diamond';
 
+export type DiagramFieldStyle = 'classic' | 'night' | 'blueprint' | 'chalk';
+
 export interface DiagramZone {
   id: string;
   label: string;
@@ -35,6 +37,7 @@ export interface DiagramPlayer {
 }
 
 export interface DiagramRoute {
+  id?: string;
   from: string;
   points: Array<[number, number]>;
   label?: string;
@@ -54,6 +57,7 @@ export interface DiagramLayout {
   fieldWidth: number;
   fieldHeight: number;
   losY: number;
+  fieldStyle?: DiagramFieldStyle;
   players: DiagramPlayer[];
   routes: DiagramRoute[];
   zones?: DiagramZone[];

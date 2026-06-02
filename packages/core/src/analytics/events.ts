@@ -1015,6 +1015,18 @@ export const APP_EVENTS = {
   FILM_REVIEW_PLAY_SKIPPED: 'film_review_play_skipped',
 
   // ============================================
+  // AGENT X DIAGRAM ASSET EVENTS
+  // ============================================
+  /** Diagram asset list loaded */
+  DIAGRAM_ASSET_LIST_LOADED: 'diagram_asset_list_loaded',
+  /** Diagram asset selected/opened */
+  DIAGRAM_ASSET_OPENED: 'diagram_asset_opened',
+  /** Diagram asset updated */
+  DIAGRAM_ASSET_UPDATED: 'diagram_asset_updated',
+  /** Diagram asset deleted */
+  DIAGRAM_ASSET_DELETED: 'diagram_asset_deleted',
+
+  // ============================================
   // TEAM PLAYBOOK PLAY EVENTS
   // ============================================
   /** Play viewed (clicked in list) */

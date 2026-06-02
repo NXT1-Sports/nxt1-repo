@@ -5,6 +5,7 @@ import { getCacheService } from '../../../../../services/core/cache.service.js';
 import { canManageTeamMutationForUser } from '../../../../../services/team/team-intel-permissions.js';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 import { createPlayKey, ensurePlayId } from './playbook-play.utils.js';
+import { assessPlaybookExtractionQuality } from './playbook-extraction-quality.util.js';
 
 const PLAYBOOKS_COLLECTION = 'TeamPlaybooks';
 const TEAMS_COLLECTION = 'Teams';
@@ -206,12 +207,50 @@ export class UpdatePlaybookTool extends BaseTool {
         ? normalizePlayList(incomingPlays, playbookId, 'replace')
         : mergeIncomingPlays(existingPlays, incomingPlays, playbookId);
 
-      updateData['plays'] = plays;
-      updateData['playCount'] = plays.length;
-      updateData['conceptTagIndex'] = collectConceptTags(plays);
-      updateData['formationIndex'] = collectStringIndex(plays, 'formation');
-      updateData['personnelIndex'] = collectStringIndex(plays, 'personnel');
-      updateData['categoryIndex'] = collectStringIndex(plays, 'category');
+      const quality = assessPlaybookExtractionQuality(existing.sport, plays);
+      const previousQuality = assessPlaybookExtractionQuality(existing.sport, existingPlays);
+      const canProceedWithLegacyReview =
+        quality.disposition === 'reject' &&
+        !shouldReplace &&
+        previousQuality.disposition === 'reject';
+
+      if (quality.disposition === 'reject') {
+        if (canProceedWithLegacyReview) {
+          updateData['extractionQualityDisposition'] = 'review_required';
+          updateData['extractionQualitySummary'] =
+            'Legacy playbook quality remains below threshold after incremental update.';
+        } else {
+          return {
+            success: false,
+            error: `Updated playbook content failed extraction quality validation. ${quality.summary}`,
+            data: {
+              playbookId,
+              quality,
+            },
+          };
+        }
+      }
+
+      if (quality.disposition !== 'reject' || canProceedWithLegacyReview) {
+        const persistedDisposition = canProceedWithLegacyReview
+          ? ('review_required' as const)
+          : quality.disposition;
+        const persistedSummary = canProceedWithLegacyReview
+          ? 'Review required: legacy playbook remains below extraction quality target.'
+          : quality.summary;
+
+        updateData['plays'] = plays;
+        updateData['playCount'] = plays.length;
+        updateData['conceptTagIndex'] = collectConceptTags(plays);
+        updateData['formationIndex'] = collectStringIndex(plays, 'formation');
+        updateData['personnelIndex'] = collectStringIndex(plays, 'personnel');
+        updateData['categoryIndex'] = collectStringIndex(plays, 'category');
+        updateData['extractionQuality'] = quality;
+        updateData['extractionQualityDisposition'] = persistedDisposition;
+        updateData['extractionQualityScore'] = quality.score;
+        updateData['extractionQualityVersion'] = quality.version;
+        updateData['extractionQualitySummary'] = persistedSummary;
+      }
     }
 
     await docRef.update(updateData);

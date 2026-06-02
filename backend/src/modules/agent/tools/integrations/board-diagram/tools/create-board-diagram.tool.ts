@@ -61,6 +61,7 @@ export class CreateBoardDiagramTool extends BaseTool {
           mimeType: 'image/png',
           imageUrls: [asset.imageUrl],
           mediaUrls: [asset.imageUrl],
+          ...(asset.svgUrl ? { svgUrl: asset.svgUrl } : {}),
 
           // Editor access — open in diagrams.net for manual fine-tuning
           editUrl: asset.editUrl,
@@ -68,6 +69,7 @@ export class CreateBoardDiagramTool extends BaseTool {
 
           title: asset.title,
           storagePath: asset.storagePath,
+          ...(asset.svgStoragePath ? { svgStoragePath: asset.svgStoragePath } : {}),
 
           files: [
             {

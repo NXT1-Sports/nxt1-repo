@@ -638,7 +638,7 @@ export class PrimaryAgent extends BaseAgent {
     );
 
     const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
-    const followUpRequired = !result.success && !userAlreadyReceivedResponse;
+    const followUpRequired = !userAlreadyReceivedResponse;
     return JSON.stringify({
       success: result.success,
       data: {
@@ -647,7 +647,9 @@ export class PrimaryAgent extends BaseAgent {
         user_already_received_response: userAlreadyReceivedResponse,
         follow_up_required: followUpRequired,
         follow_up_hint: followUpRequired
-          ? 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
+          ? result.success
+            ? 'Coordinator finished execution without a user-facing summary. Synthesize a concrete response from coordinator_observation and coordinator_artifacts.'
+            : 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
           : 'No follow-up needed because the coordinator already responded directly to the user.',
         coordinator_observation: result.observation,
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
@@ -726,7 +728,7 @@ export class PrimaryAgent extends BaseAgent {
     );
 
     const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
-    const followUpRequired = !result.success && !userAlreadyReceivedResponse;
+    const followUpRequired = !userAlreadyReceivedResponse;
     return JSON.stringify({
       success: result.success,
       data: {
@@ -735,7 +737,9 @@ export class PrimaryAgent extends BaseAgent {
         user_already_received_response: userAlreadyReceivedResponse,
         follow_up_required: followUpRequired,
         follow_up_hint: followUpRequired
-          ? 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
+          ? result.success
+            ? 'Coordinator finished execution without a user-facing summary. Synthesize a concrete response from coordinator_observation and coordinator_artifacts.'
+            : 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
           : 'No follow-up needed because the coordinator already responded directly to the user.',
         coordinator_observation: result.observation,
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
@@ -814,7 +818,7 @@ export class PrimaryAgent extends BaseAgent {
     );
 
     const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
-    const followUpRequired = !result.success && !userAlreadyReceivedResponse;
+    const followUpRequired = !userAlreadyReceivedResponse;
     return JSON.stringify({
       success: result.success,
       data: {
@@ -823,7 +827,9 @@ export class PrimaryAgent extends BaseAgent {
         user_already_received_response: userAlreadyReceivedResponse,
         follow_up_required: followUpRequired,
         follow_up_hint: followUpRequired
-          ? 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
+          ? result.success
+            ? 'Coordinator finished execution without a user-facing summary. Synthesize a concrete response from coordinator_observation and coordinator_artifacts.'
+            : 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
           : 'No follow-up needed because the coordinator already responded directly to the user.',
         coordinator_observation: result.observation,
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
@@ -912,7 +918,7 @@ export class PrimaryAgent extends BaseAgent {
     );
 
     const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
-    const followUpRequired = !result.success && !userAlreadyReceivedResponse;
+    const followUpRequired = !userAlreadyReceivedResponse;
     return JSON.stringify({
       success: result.success,
       data: {
@@ -921,7 +927,9 @@ export class PrimaryAgent extends BaseAgent {
         user_already_received_response: userAlreadyReceivedResponse,
         follow_up_required: followUpRequired,
         follow_up_hint: followUpRequired
-          ? 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
+          ? result.success
+            ? 'Coordinator finished execution without a user-facing summary. Synthesize a concrete response from coordinator_observation and coordinator_artifacts.'
+            : 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
           : 'No follow-up needed because the coordinator already responded directly to the user.',
         coordinator_observation: result.observation,
         ...(result.coordinatorArtifacts && Object.keys(result.coordinatorArtifacts).length > 0
@@ -1143,7 +1151,7 @@ export class PrimaryAgent extends BaseAgent {
         : [],
     });
     const userAlreadyReceivedResponse = result.userAlreadyReceivedResponse === true;
-    const followUpRequired = !result.success && !userAlreadyReceivedResponse;
+    const followUpRequired = !userAlreadyReceivedResponse;
     return JSON.stringify({
       success: result.success,
       data: {
@@ -1152,7 +1160,9 @@ export class PrimaryAgent extends BaseAgent {
         user_already_received_response: userAlreadyReceivedResponse,
         follow_up_required: followUpRequired,
         follow_up_hint: followUpRequired
-          ? 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
+          ? result.success
+            ? 'Coordinator finished execution without a user-facing summary. Synthesize a concrete response from coordinator_observation and coordinator_artifacts.'
+            : 'Coordinator dispatch did not complete successfully. Provide a single recovery sentence and next step.'
           : 'No follow-up needed because the coordinator already responded directly to the user.',
         coordinator_observation: result.observation,
         // Tier 4: Surface artifacts the coordinator produced so Primary can

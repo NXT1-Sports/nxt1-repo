@@ -20,6 +20,13 @@ export const CreatePlayDiagramInputSchema = z.object({
    * this XML rather than produce a new diagram.
    */
   xmlTemplate: z.string().trim().min(1).optional(),
+  /**
+   * Diagram generation strategy for controlled rollouts and lab evaluation.
+   * - auto: prefer deterministic football spec when available, fallback to legacy layout JSON
+   * - deterministic_spec: require football_spec_v1 output for football requests
+   * - legacy_layout: force legacy coordinate-layout JSON path
+   */
+  generationMode: z.enum(['auto', 'deterministic_spec', 'legacy_layout']).optional(),
 });
 
 /**
@@ -39,6 +46,7 @@ export const PlayDiagramResultSchema = z.object({
   editUrl: z.string().url(),
   title: z.string().trim().min(1),
   storagePath: z.string().optional(),
+  generationMode: z.enum(['auto', 'deterministic_spec', 'legacy_layout']).optional(),
 });
 
 export type CreatePlayDiagramInput = z.infer<typeof CreatePlayDiagramInputSchema>;

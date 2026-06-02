@@ -28,6 +28,11 @@ import {
   evaluateLayoutQualityForSport,
   validateLayoutForSport,
 } from './shared/layout-validation.js';
+import {
+  compileFootballSpecToLayout,
+  tryParseFootballSpec,
+  validateFootballSpec,
+} from './shared/football-spec.js';
 import { layoutToMxGraphModel } from './shared/mxgraph.js';
 import { clampCoord, renderDiagramSvg } from './shared/svg-helpers.js';
 import type {
@@ -44,10 +49,27 @@ const CANVAS_WIDTH = 600;
 const CANVAS_HEIGHT = 440;
 const MAX_LAYOUT_ATTEMPTS = 2;
 const HEX_COLOR_REGEX = /^#[0-9a-fA-F]{6}$/;
+type DiagramGenerationMode = 'auto' | 'deterministic_spec' | 'legacy_layout';
 
 function buildUserPrompt(input: CreatePlayDiagramInput, sport: NormalizedSport): string {
   const title = input.title ?? 'Play Diagram';
   let prompt = `Sport: ${sport}\nTitle: ${title}\nDescription: ${input.description}`;
+
+  if (sport === 'football' && input.generationMode !== 'legacy_layout') {
+    prompt +=
+      '\n\nFor football, prefer deterministic JSON in this exact schema:\n' +
+      '{"schema":"football_spec_v1","title":"<title>","formation":"trips_right|trips_left|doubles|ace","includeProtection":true|false,"routes":[{"from":"X|Y|Z|H|RB|TE","concept":"go|seam|fade|post|corner|out|dig|flat|curl|slant|cross|wheel|block","depth":"quick|intermediate|deep","breakDirection":"left|right|inside|outside","label":"optional"}]}.\n' +
+      'Return raw JSON only.';
+    if (input.generationMode === 'deterministic_spec') {
+      prompt +=
+        '\n\nSTRICT MODE: You must return football_spec_v1 JSON only. Do not return players/routes coordinate layout JSON.';
+    }
+  }
+
+  if (sport === 'football' && input.generationMode === 'legacy_layout') {
+    prompt +=
+      '\n\nSTRICT MODE: Return coordinate layout JSON only (players + routes). Do NOT return football_spec_v1 schema.';
+  }
 
   if (input.xmlTemplate) {
     prompt += `\n\nBase layout JSON to adapt:\n${input.xmlTemplate}`;
@@ -57,7 +79,6 @@ function buildUserPrompt(input: CreatePlayDiagramInput, sport: NormalizedSport):
     '\n\nOutput the JSON layout for this play. Ensure route points accurately represent the described movement and are in bounds. Raw JSON only.';
   return prompt;
 }
-
 function sanitizeFileName(input: string): string {
   const trimmed = input.trim();
   const lowered = trimmed.toLowerCase();
@@ -242,7 +263,7 @@ export class PlayDiagramService {
     sport: NormalizedSport,
     extendedSportsEnabled: boolean,
     context: ToolExecutionContext | undefined
-  ): Promise<DiagramLayout> {
+  ): Promise<{ layout: DiagramLayout; generationMode: DiagramGenerationMode }> {
     const renderer = getSportRenderer(sport);
     const systemPrompt = buildSystemPrompt(sport);
     const conceptText = `${input.title ?? ''} ${input.description}`.trim();
@@ -287,12 +308,69 @@ export class PlayDiagramService {
           );
         }
 
-        const layout = parseLlmLayout(
-          rawOutput,
-          sport,
-          renderer.defaultLosY,
-          extendedSportsEnabled
-        );
+        let layout: DiagramLayout;
+        let generationMode: DiagramGenerationMode = input.generationMode ?? 'auto';
+
+        if (sport === 'football') {
+          const requestedMode = input.generationMode ?? 'auto';
+          const parsedSpec =
+            requestedMode !== 'legacy_layout' ? tryParseFootballSpec(rawOutput) : null;
+
+          if (parsedSpec && requestedMode !== 'legacy_layout') {
+            const validation = validateFootballSpec(parsedSpec);
+            if (!validation.valid) {
+              const reason = validation.issues.join('; ');
+              if (requestedMode === 'deterministic_spec') {
+                throw new AgentEngineError(
+                  'PLAY_DIAGRAM_LLM_INVALID_LAYOUT',
+                  `Invalid football_spec_v1 in deterministic mode: ${reason}`
+                );
+              }
+
+              if (attempt < MAX_LAYOUT_ATTEMPTS) {
+                previousError = `football_spec_v1 validation failed: ${reason}`;
+                logger.warn('[PlayDiagramService] Retrying invalid football spec in auto mode', {
+                  attempt,
+                  issues: validation.issues,
+                });
+                continue;
+              }
+
+              layout = parseLlmLayout(
+                rawOutput,
+                sport,
+                renderer.defaultLosY,
+                extendedSportsEnabled
+              );
+              generationMode = 'legacy_layout';
+            } else {
+              layout = compileFootballSpecToLayout(parsedSpec);
+              generationMode =
+                requestedMode === 'deterministic_spec' ? 'deterministic_spec' : 'auto';
+              logger.info('[PlayDiagramService] Using deterministic football_spec_v1 output', {
+                attempt,
+                title: parsedSpec.title,
+                formation: parsedSpec.formation,
+                routeCount: parsedSpec.routes.length,
+                requestedMode,
+              });
+            }
+          } else {
+            if (requestedMode === 'deterministic_spec') {
+              throw new AgentEngineError(
+                'PLAY_DIAGRAM_LLM_INVALID_LAYOUT',
+                'Deterministic mode requires football_spec_v1 JSON output.'
+              );
+            }
+
+            layout = parseLlmLayout(rawOutput, sport, renderer.defaultLosY, extendedSportsEnabled);
+            generationMode = 'legacy_layout';
+          }
+        } else {
+          layout = parseLlmLayout(rawOutput, sport, renderer.defaultLosY, extendedSportsEnabled);
+          generationMode = input.generationMode ?? 'auto';
+        }
+
         const enhancedLayout = enhanceLayoutForConcept(layout, conceptText);
         const quality = evaluateLayoutQualityForSport(enhancedLayout, conceptText);
         const qualityIssues = quality.findings
@@ -348,7 +426,7 @@ export class PlayDiagramService {
           qualityMinorFindings: minorCount,
           qualityMajorFindings: quality.findings.filter((item) => item.severity === 'major').length,
         });
-        return enhancedLayout;
+        return { layout: enhancedLayout, generationMode };
       } catch (error) {
         const code = getAgentEngineErrorCode(error);
         if (code !== 'PLAY_DIAGRAM_LLM_INVALID_LAYOUT' || attempt >= MAX_LAYOUT_ATTEMPTS) {
@@ -391,7 +469,8 @@ export class PlayDiagramService {
     });
 
     try {
-      const layout = await this.generateLayoutWithRetry(
+      const generationRequestMode: DiagramGenerationMode = input.generationMode ?? 'auto';
+      const { layout, generationMode } = await this.generateLayoutWithRetry(
         input,
         requestedSport,
         extendedSportsEnabled,
@@ -413,6 +492,8 @@ export class PlayDiagramService {
 
       logger.info('[PlayDiagramService] Generation complete', {
         sport: layout.sport,
+        generationRequestMode,
+        generationMode,
         storagePath,
         imageBytes: pngBuffer.length,
         qualityScore: quality.score,
@@ -428,6 +509,7 @@ export class PlayDiagramService {
         editUrl,
         title,
         storagePath,
+        generationMode,
       };
     } catch (error) {
       if (isAgentEngineError(error)) {

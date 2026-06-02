@@ -11,6 +11,7 @@ describe('agent-x-release-stage.utils', () => {
     'playbooks',
     'gameplans',
     'filmReview',
+    'diagramsLab',
     'generatedPlays',
   ];
 

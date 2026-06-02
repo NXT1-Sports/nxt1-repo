@@ -142,6 +142,9 @@ const MOCK_ASSET: BoardDiagramAsset = {
   imageUrl:
     'https://storage.googleapis.com/nxt1-bucket/Users/u1/threads/t1/media/board-diagrams/cover-2-1234.png',
   storagePath: 'Users/u1/threads/t1/media/board-diagrams/cover-2-1234.png',
+  svgUrl:
+    'https://storage.googleapis.com/nxt1-bucket/Users/u1/threads/t1/media/board-diagrams/cover-2-1234.svg',
+  svgStoragePath: 'Users/u1/threads/t1/media/board-diagrams/cover-2-1234.svg',
   xmlContent: '<mxfile>xml</mxfile>',
   editUrl: 'https://app.diagrams.net/#Rxml-encoded',
   sourceLayout: {
@@ -213,6 +216,12 @@ describe('BoardDiagramService', () => {
       expect(asset.kind).toBe('sport_play');
       expect(asset.imageUrl).toContain('https://storage.googleapis.com');
       expect(mockCreate).toHaveBeenCalledTimes(1);
+      expect(mockCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          svgUrl: expect.stringContaining('.svg'),
+          svgStoragePath: expect.stringContaining('.svg'),
+        })
+      );
     }, 15_000);
 
     it('calls LLM with a system prompt containing sport context', async () => {
@@ -285,6 +294,18 @@ describe('BoardDiagramService', () => {
       );
     });
 
+    it('saves SVG to Firebase Storage', async () => {
+      await service.createDiagram(
+        { description: 'Test play', sport: 'football', kind: 'sport_play' },
+        TEST_CONTEXT
+      );
+
+      expect(MOCK_FILE.save).toHaveBeenCalledWith(
+        expect.any(Buffer),
+        expect.objectContaining({ contentType: 'image/svg+xml' })
+      );
+    });
+
     it('throws when LLM returns invalid JSON', async () => {
       llmMock.complete.mockResolvedValue({ content: 'NOT JSON AT ALL' });
 
@@ -312,6 +333,14 @@ describe('BoardDiagramService', () => {
 
       expect(updated.id).toBe('asset-uuid-1234');
       expect(mockPatch).toHaveBeenCalledTimes(1);
+      expect(mockPatch).toHaveBeenCalledWith(
+        'asset-uuid-1234',
+        'u1',
+        expect.objectContaining({
+          svgUrl: expect.stringContaining('.svg'),
+          svgStoragePath: expect.stringContaining('.svg'),
+        })
+      );
     });
 
     it('throws when asset not found', async () => {
@@ -339,7 +368,7 @@ describe('BoardDiagramService', () => {
       await service.deleteDiagram({ assetId: 'asset-uuid-1234', userId: 'u1' }, TEST_CONTEXT);
 
       expect(mockSoftDelete).toHaveBeenCalledWith('asset-uuid-1234', 'u1');
-      expect(MOCK_FILE.delete).toHaveBeenCalledTimes(1);
+      expect(MOCK_FILE.delete).toHaveBeenCalledTimes(2);
     });
 
     it('throws when asset not found', async () => {

@@ -8,7 +8,7 @@ import { type AgentXHintDockItem } from './agent-x-operation-chat-hint-dock.comp
  * Manages short-lived, first-open panel hints for the operation chat dock.
  */
 
-export type AgentXPanelHintKind = 'gameplans' | 'playbooks' | 'film-review';
+export type AgentXPanelHintKind = 'gameplans' | 'playbooks' | 'film-review' | 'diagrams';
 
 const PANEL_HINT_AUTO_DISMISS_MS = 25_000;
 const FIRST_USER_RUN_HINT_DELAY_MS = 10_000;
@@ -40,6 +40,11 @@ const PANEL_HINTS: Record<AgentXPanelHintKind, Omit<AgentXHintDockItem, 'hintKey
     title: 'Film Review',
     description: 'Drag clips or marked-up plays into the composer to include the review context.',
     tone: 'brand',
+  },
+  diagrams: {
+    icon: 'image',
+    title: 'Diagrams Lab',
+    description: 'Drag a saved play, formation, or drill board into the composer as context.',
   },
 };
 
@@ -118,9 +123,13 @@ export class AgentXOperationChatHintFacade {
     this.cancelFirstUserRunHintTimer();
   }
 
-  markLiveViewActive(_startTime?: number): void {}
+  markLiveViewActive(_startTime?: number): void {
+    // Runtime live-view timing hints are intentionally disabled in this facade.
+  }
 
-  markLiveViewInactive(): void {}
+  markLiveViewInactive(): void {
+    // Runtime live-view timing hints are intentionally disabled in this facade.
+  }
 
   /**
    * Dismiss a hint permanently for this session.

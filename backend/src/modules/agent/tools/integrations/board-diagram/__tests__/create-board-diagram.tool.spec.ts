@@ -21,6 +21,9 @@ const MOCK_ASSET: BoardDiagramAsset = {
   imageUrl:
     'https://storage.googleapis.com/nxt1-bucket/Users/user-42/threads/thread-99/media/board-diagrams/cover-2-zone-1234.png',
   storagePath: 'Users/user-42/threads/thread-99/media/board-diagrams/cover-2-zone-1234.png',
+  svgUrl:
+    'https://storage.googleapis.com/nxt1-bucket/Users/user-42/threads/thread-99/media/board-diagrams/cover-2-zone-1234.svg',
+  svgStoragePath: 'Users/user-42/threads/thread-99/media/board-diagrams/cover-2-zone-1234.svg',
   xmlContent:
     '<mxfile><diagram><mxGraphModel><root><mxCell id="0"/></root></mxGraphModel></diagram></mxfile>',
   editUrl:
@@ -80,6 +83,7 @@ describe('CreateBoardDiagramTool', () => {
     expect(data['sport']).toBe('football');
     expect(data['imageUrl']).toBe(MOCK_ASSET.imageUrl);
     expect(data['diagramUrl']).toBe(MOCK_ASSET.imageUrl);
+    expect(data['svgUrl']).toBe(MOCK_ASSET.svgUrl);
     expect(data['editUrl']).toBe(MOCK_ASSET.editUrl);
     expect(data['xmlContent']).toBe(MOCK_ASSET.xmlContent);
     expect(data['title']).toBe('Cover 2 Zone');

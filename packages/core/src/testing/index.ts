@@ -1516,6 +1516,38 @@ export const FILM_REVIEW_TEST_IDS = {
   TIMELINE_PLAY_EDIT_CANCEL: 'film-review-timeline-play-edit-cancel',
 } as const;
 
+// ============================================
+// AGENT X DIAGRAMS LAB TEST IDS
+// ============================================
+export const DIAGRAMS_LAB_TEST_IDS = {
+  PANEL_CONTAINER: 'diagrams-lab-panel-container',
+  LIST_CONTAINER: 'diagrams-lab-list-container',
+  LIST_ITEM: 'diagrams-lab-list-item',
+  EMPTY_STATE: 'diagrams-lab-empty-state',
+  ERROR_STATE: 'diagrams-lab-error-state',
+  LOADING_SKELETON: 'diagrams-lab-loading-skeleton',
+  SEARCH_INPUT: 'diagrams-lab-search-input',
+  KIND_FILTER: 'diagrams-lab-kind-filter',
+  VIEWER: 'diagrams-lab-viewer',
+  VIEWER_IMAGE: 'diagrams-lab-viewer-image',
+  BUILDER_TOOLBAR: 'diagrams-lab-builder-toolbar',
+  BUILDER_CANVAS: 'diagrams-lab-builder-canvas',
+  BUILDER_INSPECTOR: 'diagrams-lab-builder-inspector',
+  BUILDER_EDIT_BUTTON: 'diagrams-lab-builder-edit-button',
+  BUILDER_SAVE_BUTTON: 'diagrams-lab-builder-save-button',
+  BUILDER_DISCARD_BUTTON: 'diagrams-lab-builder-discard-button',
+  BUILDER_ADD_ROUTE_BUTTON: 'diagrams-lab-builder-add-route-button',
+  BUILDER_ADD_ZONE_BUTTON: 'diagrams-lab-builder-add-zone-button',
+  BUILDER_FIELD_STYLE_OPTION: 'diagrams-lab-builder-field-style-option',
+  BUILDER_PLAYER_NODE: 'diagrams-lab-builder-player-node',
+  BUILDER_ROUTE_NODE: 'diagrams-lab-builder-route-node',
+  BUILDER_ZONE_NODE: 'diagrams-lab-builder-zone-node',
+  OPEN_EDITOR_BUTTON: 'diagrams-lab-open-editor-button',
+  DOWNLOAD_BUTTON: 'diagrams-lab-download-button',
+  DELETE_BUTTON: 'diagrams-lab-delete-button',
+  REFRESH_BUTTON: 'diagrams-lab-refresh-button',
+} as const;
+
 export const TEST_IDS = {
   AUTH: AUTH_TEST_IDS,
   AUTH_PAGE: AUTH_PAGE_TEST_IDS,
@@ -1555,6 +1587,7 @@ export const TEST_IDS = {
   GAMEPLAN: GAMEPLAN_TEST_IDS,
   PLAYBOOK: PLAYBOOK_TEST_IDS,
   FILM_REVIEW: FILM_REVIEW_TEST_IDS,
+  DIAGRAMS_LAB: DIAGRAMS_LAB_TEST_IDS,
 } as const;
 
 // Type exports for TypeScript

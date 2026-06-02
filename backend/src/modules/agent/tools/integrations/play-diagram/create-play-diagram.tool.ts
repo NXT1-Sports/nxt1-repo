@@ -57,6 +57,7 @@ export class CreatePlayDiagramTool extends BaseTool {
           xmlContent: result.xmlContent,
 
           title: result.title,
+          generationMode: result.generationMode,
 
           ...(result.storagePath ? { storagePath: result.storagePath } : {}),
 

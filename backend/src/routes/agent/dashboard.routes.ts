@@ -47,6 +47,7 @@ import {
   AGENT_X_FIREBASE_MAX_VIDEO_FILE_SIZE,
   AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES,
   getTeamFilmReviewSportTagDefinitions,
+  normalizeBaseSportKey,
   resolveTeamFilmReviewSportTagSchemaKey,
 } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
@@ -97,6 +98,17 @@ import {
   requestCloudflareVideoDownloadRender,
   CLOUDFLARE_API_BASE_URL,
 } from '../core/upload/shared.js';
+import { BoardDiagramAssetService } from '../../modules/agent/tools/integrations/board-diagram/services/board-diagram-asset.service.js';
+import {
+  BoardDiagramService,
+  renderBoardDiagramSvg,
+} from '../../modules/agent/tools/integrations/board-diagram/board-diagram.service.js';
+import { normalizeSportId } from '../../modules/agent/tools/integrations/play-diagram/sport-normalization.js';
+import { syncPlaybookDiagramAsset } from '../../modules/agent/tools/intel/team/playbook-diagram-asset.util.js';
+import type {
+  BoardDiagramAsset,
+  BoardDiagramKind,
+} from '../../modules/agent/tools/integrations/board-diagram/shared/board-diagram.types.js';
 
 type AuthenticatedRequest = Request & {
   user?: {
@@ -187,6 +199,121 @@ const MAX_FILM_REVIEW_ANNOTATION_STROKES = 24;
 const MAX_FILM_REVIEW_ANNOTATION_POINTS = 1200;
 const MAX_FILM_REVIEW_COMPACT_POINTS = 120;
 const INVALID_FILM_REVIEW_PLAY_ANNOTATION = Symbol('invalid-film-review-play-annotation');
+
+const DIAGRAM_ASSET_KIND_VALUES = [
+  'sport_play',
+  'sport_drill',
+] as const satisfies readonly BoardDiagramKind[];
+const DIAGRAM_FIELD_STYLE_VALUES = ['classic', 'night', 'blueprint', 'chalk'] as const;
+const DIAGRAM_ROUTE_TYPE_VALUES = [
+  'screen',
+  'pick',
+  'block',
+  'cut',
+  'drag',
+  'space',
+  'go',
+  'fade',
+] as const;
+const DIAGRAM_ZONE_SHAPE_VALUES = ['ellipse', 'rect'] as const;
+const DIAGRAM_PLAYER_SHAPE_VALUES = ['circle', 'square', 'diamond'] as const;
+const hexColorRegex = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+const diagramPointSchema = z.tuple([z.number().finite(), z.number().finite()]);
+const diagramPlayerSchema = z.object({
+  id: z.string().trim().min(1).max(60),
+  label: z.string().trim().min(1).max(40),
+  x: z.number().finite(),
+  y: z.number().finite(),
+  team: z.enum(['offense', 'defense']),
+  shape: z.enum(DIAGRAM_PLAYER_SHAPE_VALUES).optional(),
+});
+const diagramRouteSchema = z.object({
+  id: z.string().trim().min(1).max(60).optional(),
+  from: z.string().trim().min(1).max(60),
+  points: z.array(diagramPointSchema).min(2).max(32),
+  label: z.string().trim().max(80).optional(),
+  type: z.enum(DIAGRAM_ROUTE_TYPE_VALUES).optional(),
+  curve: z.boolean().optional(),
+  color: z.string().regex(hexColorRegex, 'Route color must be a hex value').optional(),
+  strokeDasharray: z.string().trim().max(30).optional(),
+  opacity: z.number().min(0.15).max(1).optional(),
+});
+const diagramZoneSchema = z.object({
+  id: z.string().trim().min(1).max(60),
+  label: z.string().trim().min(1).max(60),
+  x: z.number().finite(),
+  y: z.number().finite(),
+  width: z.number().finite().min(20),
+  height: z.number().finite().min(20),
+  shape: z.enum(DIAGRAM_ZONE_SHAPE_VALUES).optional(),
+  team: z.enum(['offense', 'defense']).optional(),
+});
+const diagramLayoutSchema = z.object({
+  sport: z.string().trim().min(1).max(32),
+  title: z.string().trim().min(1).max(120),
+  fieldWidth: z.number().finite().min(300).max(1200),
+  fieldHeight: z.number().finite().min(220).max(900),
+  losY: z.number().finite().min(0).max(900),
+  fieldStyle: z.enum(DIAGRAM_FIELD_STYLE_VALUES).optional(),
+  players: z.array(diagramPlayerSchema).min(1).max(40),
+  routes: z.array(diagramRouteSchema).max(64),
+  zones: z.array(diagramZoneSchema).max(24).optional(),
+});
+const diagramAssetPatchSchema = z
+  .object({
+    title: z.string().trim().min(1).max(120).optional(),
+    description: z.string().trim().max(2000).optional(),
+    sourceLayout: diagramLayoutSchema.optional(),
+  })
+  .refine((value) => Object.keys(value).length > 0, {
+    message: 'At least one field is required',
+  });
+
+function toDiagramAssetSummary(asset: BoardDiagramAsset): Record<string, unknown> {
+  return {
+    id: asset.id,
+    kind: asset.kind,
+    sport: asset.sport,
+    title: asset.title,
+    description: asset.description,
+    imageUrl: asset.imageUrl,
+    ...(asset.storagePath ? { storagePath: asset.storagePath } : {}),
+    ...(asset.svgUrl ? { svgUrl: asset.svgUrl } : {}),
+    ...(asset.svgStoragePath ? { svgStoragePath: asset.svgStoragePath } : {}),
+    ...(asset.editUrl ? { editUrl: asset.editUrl } : {}),
+    threadId: asset.threadId,
+    createdAt: asset.createdAt,
+    updatedAt: asset.updatedAt,
+  };
+}
+
+function toDiagramAssetDetail(asset: BoardDiagramAsset): Record<string, unknown> {
+  let svgContent: string | undefined;
+
+  try {
+    if (asset.assetSource !== 'external_image' && asset.sourceLayout) {
+      svgContent = renderBoardDiagramSvg(asset.sourceLayout, asset.kind);
+    }
+  } catch (error) {
+    logger.error('Failed to render diagram SVG detail', {
+      assetId: asset.id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  return {
+    ...toDiagramAssetSummary(asset),
+    ...(asset.xmlContent ? { xmlContent: asset.xmlContent } : {}),
+    ...(asset.sourceLayout ? { sourceLayout: asset.sourceLayout } : {}),
+    ...(svgContent ? { svgContent } : {}),
+  };
+}
+
+function normalizeDiagramSportFilter(input: unknown): string | null {
+  const value = normalizeString(input);
+  if (!value) return null;
+  return normalizeBaseSportKey(value) || value.toLowerCase();
+}
 
 function formatSizeLabel(bytes: number): string {
   if (bytes >= GB) {
@@ -4793,6 +4920,179 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// ─── Diagram Assets REST CRUD ────────────────────────────────────────────────
+
+router.get('/diagram-assets', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const sport = normalizeDiagramSportFilter(req.query['sport']);
+    const kindParam = normalizeString(req.query['kind']);
+    const kind = DIAGRAM_ASSET_KIND_VALUES.includes(kindParam as BoardDiagramKind)
+      ? (kindParam as BoardDiagramKind)
+      : null;
+    const limit = parsePositiveInt(req.query['limit'], 50, 100);
+    const assetService = new BoardDiagramAssetService(db);
+
+    const diagrams = (await assetService.listByUser(user.uid, limit))
+      .filter((asset) => (sport ? normalizeDiagramSportFilter(asset.sport) === sport : true))
+      .filter((asset) => (kind ? asset.kind === kind : true))
+      .map(toDiagramAssetSummary);
+
+    logger.info('GET /diagram-assets', {
+      userId: user.uid,
+      sport: sport ?? null,
+      kind,
+      count: diagrams.length,
+    });
+
+    res.json({ success: true, data: { diagrams, count: diagrams.length } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('GET /diagram-assets failed', { error: error.message, stack: error.stack });
+    res.status(500).json({ success: false, error: 'Failed to load diagrams' });
+  }
+});
+
+router.get('/diagram-assets/:assetId', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const assetId = normalizeString(req.params['assetId']);
+    if (!assetId) {
+      res.status(400).json({ success: false, error: 'assetId is required' });
+      return;
+    }
+
+    const assetService = new BoardDiagramAssetService(req.firebase!.db);
+    const asset = await assetService.getById(assetId, user.uid);
+    if (!asset) {
+      res.status(404).json({ success: false, error: 'Diagram not found' });
+      return;
+    }
+
+    res.json({ success: true, data: { diagram: toDiagramAssetDetail(asset) } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('GET /diagram-assets/:assetId failed', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to load diagram' });
+  }
+});
+
+router.patch('/diagram-assets/:assetId', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const assetId = normalizeString(req.params['assetId']);
+    if (!assetId) {
+      res.status(400).json({ success: false, error: 'assetId is required' });
+      return;
+    }
+
+    const parsed = diagramAssetPatchSchema.safeParse(req.body);
+    if (!parsed.success) {
+      res
+        .status(400)
+        .json({ success: false, error: parsed.error.issues[0]?.message ?? 'Invalid request' });
+      return;
+    }
+
+    let asset: BoardDiagramAsset | null;
+    if (parsed.data.sourceLayout) {
+      const boardDiagramService = new BoardDiagramService(llmService ?? undefined);
+      const sourceLayout = {
+        ...parsed.data.sourceLayout,
+        sport: normalizeSportId(parsed.data.sourceLayout.sport),
+      };
+      asset = await boardDiagramService.saveManualEdits(
+        {
+          assetId,
+          userId: user.uid,
+          title: parsed.data.title,
+          description: parsed.data.description,
+          sourceLayout,
+        },
+        { userId: user.uid, environment: req.isStaging ? 'staging' : 'production' }
+      );
+    } else {
+      const assetService = new BoardDiagramAssetService(req.firebase!.db);
+      asset = await assetService.patch(assetId, user.uid, {
+        title: parsed.data.title,
+        description: parsed.data.description,
+      });
+    }
+
+    if (!asset) {
+      res.status(404).json({ success: false, error: 'Diagram not found' });
+      return;
+    }
+
+    logger.info('PATCH /diagram-assets/:assetId', {
+      userId: user.uid,
+      assetId,
+      fields: Object.keys(parsed.data),
+    });
+
+    res.json({ success: true, data: { diagram: toDiagramAssetDetail(asset) } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('PATCH /diagram-assets/:assetId failed', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to update diagram' });
+  }
+});
+
+router.delete('/diagram-assets/:assetId', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const assetId = normalizeString(req.params['assetId']);
+    if (!assetId) {
+      res.status(400).json({ success: false, error: 'assetId is required' });
+      return;
+    }
+
+    const assetService = new BoardDiagramAssetService(req.firebase!.db);
+    const deleted = await assetService.softDelete(assetId, user.uid);
+    if (!deleted) {
+      res.status(404).json({ success: false, error: 'Diagram not found' });
+      return;
+    }
+
+    logger.info('DELETE /diagram-assets/:assetId', { userId: user.uid, assetId });
+    res.json({ success: true, data: { id: assetId, deleted: true } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('DELETE /diagram-assets/:assetId failed', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to delete diagram' });
+  }
+});
+
 // TeamPlaybooks REST CRUD
 // GET    /playbooks              — list playbooks for a team
 // GET    /playbooks/:id          — get full playbook detail
@@ -6470,6 +6770,24 @@ router.post('/playbooks/:playbookId/plays', appGuard, async (req: Request, res: 
       : [];
     if (situations.length) newPlay['situations'] = situations;
 
+    const syncedDiagram = await syncPlaybookDiagramAsset({
+      db,
+      userId: user.uid,
+      sport: String(existing['sport'] ?? ''),
+      title: typeof newPlay['name'] === 'string' ? newPlay['name'] : playName,
+      description:
+        typeof newPlay['playBreakdown'] === 'string'
+          ? newPlay['playBreakdown']
+          : typeof newPlay['installNotes'] === 'string'
+            ? newPlay['installNotes']
+            : undefined,
+      diagramUrl: typeof newPlay['diagramUrl'] === 'string' ? newPlay['diagramUrl'] : undefined,
+      diagramAssetId:
+        typeof body['diagramAssetId'] === 'string' ? body['diagramAssetId'] : undefined,
+    });
+    if (syncedDiagram.diagramUrl) newPlay['diagramUrl'] = syncedDiagram.diagramUrl;
+    if (syncedDiagram.diagramAssetId) newPlay['diagramAssetId'] = syncedDiagram.diagramAssetId;
+
     const plays: Record<string, unknown>[] = [
       ...((existing['plays'] as Record<string, unknown>[]) ?? []),
       newPlay,
@@ -6569,7 +6887,18 @@ router.patch(
         'videoUrl',
       ] as const;
       for (const field of strFields) {
-        if (typeof body[field] === 'string') updated[field] = (body[field] as string).trim();
+        if (typeof body[field] === 'string') {
+          const trimmed = (body[field] as string).trim();
+          if (trimmed.length > 0) updated[field] = trimmed;
+          else delete updated[field];
+        }
+      }
+      if (Object.prototype.hasOwnProperty.call(body, 'diagramAssetId')) {
+        if (typeof body['diagramAssetId'] === 'string' && body['diagramAssetId'].trim()) {
+          updated['diagramAssetId'] = body['diagramAssetId'].trim();
+        } else {
+          delete updated['diagramAssetId'];
+        }
       }
       if (Array.isArray(body['conceptTags']))
         updated['conceptTags'] = titleCaseArr(body['conceptTags']);
@@ -6615,6 +6944,28 @@ router.patch(
           .map((s) => s.trim());
         updated['situations'] = situs;
       }
+
+      const syncedDiagram = await syncPlaybookDiagramAsset({
+        db,
+        userId: user.uid,
+        sport: String(existing['sport'] ?? ''),
+        title:
+          typeof updated['name'] === 'string' && updated['name'].trim().length > 0
+            ? updated['name']
+            : String(plays[idx]?.['name'] ?? `Play ${idx + 1}`),
+        description:
+          typeof updated['playBreakdown'] === 'string'
+            ? updated['playBreakdown']
+            : typeof updated['installNotes'] === 'string'
+              ? updated['installNotes']
+              : undefined,
+        diagramUrl: typeof updated['diagramUrl'] === 'string' ? updated['diagramUrl'] : undefined,
+        diagramAssetId:
+          typeof updated['diagramAssetId'] === 'string' ? updated['diagramAssetId'] : undefined,
+      });
+      if (syncedDiagram.diagramUrl) updated['diagramUrl'] = syncedDiagram.diagramUrl;
+      if (syncedDiagram.diagramAssetId) updated['diagramAssetId'] = syncedDiagram.diagramAssetId;
+      if (!updated['diagramUrl']) delete updated['diagramAssetId'];
 
       plays[idx] = updated;
       const now = new Date().toISOString();

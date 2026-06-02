@@ -222,6 +222,28 @@ export {
 } from './playbook.api';
 
 export {
+  createDiagramAssetApi,
+  type DiagramAssetApi,
+  type DiagramAssetKind,
+  type DiagramFieldStyle,
+  type DiagramRouteType,
+  type DiagramZoneShape,
+  type DiagramPlayerShape,
+  type DiagramZone,
+  type DiagramPlayer,
+  type DiagramRoute,
+  type DiagramLayout,
+  type DiagramAssetSummary,
+  type DiagramAssetDetail,
+  type ListDiagramAssetsRequest,
+  type ListDiagramAssetsResponse,
+  type GetDiagramAssetResponse,
+  type UpdateDiagramAssetRequest,
+  type UpdateDiagramAssetResponse,
+  type DeleteDiagramAssetResponse,
+} from './diagram.api';
+
+export {
   createTeamFilmReviewApi,
   type TeamFilmReviewApi,
   type ListTeamFilmReviewsRequest,
