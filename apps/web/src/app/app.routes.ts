@@ -226,6 +226,19 @@ export const routes: Routes = [
   // SPECIAL ROUTES (Outside Shell)
   // ============================================
 
+  // Internal launch video recording stage for marketing exports.
+  {
+    path: 'dev/video-launch',
+    title: 'NXT1 Launch Video Studio',
+    loadComponent: () =>
+      import('./marketing/video-launch/video-launch.component').then((m) => m.VideoLaunchComponent),
+  },
+  {
+    path: 'video-launch',
+    pathMatch: 'full',
+    redirectTo: 'dev/video-launch',
+  },
+
   // Add Sport / Add Team wizard (full-page, outside shell — mirrors mobile /add-sport)
   {
     path: 'add-sport',

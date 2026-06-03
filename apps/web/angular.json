@@ -48,6 +48,11 @@
               },
               {
                 "glob": "**/*",
+                "input": "../../packages/design-tokens/assets/videos",
+                "output": "/assets/shared/videos"
+              },
+              {
+                "glob": "**/*",
                 "input": "src/.well-known",
                 "output": "/.well-known"
               },

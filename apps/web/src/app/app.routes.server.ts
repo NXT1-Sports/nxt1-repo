@@ -41,6 +41,14 @@ export const serverRoutes: ServerRoute[] = [
     path: 'privacy',
     renderMode: RenderMode.Server,
   },
+  {
+    path: 'dev/video-launch',
+    renderMode: RenderMode.Server,
+  },
+  {
+    path: 'video-launch',
+    renderMode: RenderMode.Server,
+  },
 
   // Profile pages
   {

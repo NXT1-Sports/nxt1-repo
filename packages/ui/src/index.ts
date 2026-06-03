@@ -192,6 +192,12 @@ export { NxtEcosystemMapComponent, type EcosystemMapStep } from './components/ec
 export { NxtSectionHeaderComponent, type SectionHeaderLevel } from './components/section-header';
 export { NxtHeaderCardComponent } from './components/header-card';
 export {
+  NxtInteractiveDemoReelComponent,
+  NxtInteractiveDemoTimelineService,
+  type NxtInteractiveDemoCue,
+  type NxtInteractiveDemoPhase,
+} from './components/interactive-demo';
+export {
   NxtSuperProfileBreakdownComponent,
   type SuperProfileHotspot,
 } from './components/super-profile-breakdown';

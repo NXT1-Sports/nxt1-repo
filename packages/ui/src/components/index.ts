@@ -60,6 +60,12 @@ export { NxtGraphicFactoryHeroComponent } from './graphic-factory-hero';
 export { NxtCoverageGapPainPointComponent, type CoverageGapLayer } from './coverage-gap-pain-point';
 export { NxtNewsletterFeatureSectionComponent } from './newsletter-feature-section';
 export { NxtContentFactoryLandingComponent } from './content-factory';
+export {
+  NxtInteractiveDemoReelComponent,
+  NxtInteractiveDemoTimelineService,
+  type NxtInteractiveDemoCue,
+  type NxtInteractiveDemoPhase,
+} from './interactive-demo';
 
 export { NxtHeaderCardComponent } from './header-card';
 
