@@ -1103,6 +1103,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   private smoothProgressFrameId: number | null = null;
   private pendingSeekFrameId: number | null = null;
   private pendingSeekTime: number | null = null;
+  private _fullscreenChangeHandler: (() => void) | null = null;
 
   protected readonly totalItems = computed(() => this.items.length);
   protected readonly currentItem = computed(() => this.items[this.currentIndex()] ?? null);
@@ -1146,11 +1147,26 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     const clamped = Math.max(0, Math.min(this.initialIndex, this.items.length - 1));
     this.currentIndex.set(clamped);
     this.resetCustomVideoState();
+
+    if (isPlatformBrowser(this.platformId)) {
+      this._fullscreenChangeHandler = () => this._handleFullscreenEnd();
+      document.addEventListener('fullscreenchange', this._fullscreenChangeHandler);
+      document.addEventListener('webkitfullscreenchange', this._fullscreenChangeHandler);
+      // webkitendfullscreen fires on iOS when native video fullscreen (AVPlayerViewController)
+      // is dismissed — document fullscreenchange does NOT fire in this case.
+      document.addEventListener('webkitendfullscreen', this._fullscreenChangeHandler);
+    }
   }
 
   ngOnDestroy(): void {
     this.stopSmoothProgressTracking();
     this.cancelPendingVideoSeek();
+    if (isPlatformBrowser(this.platformId) && this._fullscreenChangeHandler) {
+      document.removeEventListener('fullscreenchange', this._fullscreenChangeHandler);
+      document.removeEventListener('webkitfullscreenchange', this._fullscreenChangeHandler);
+      document.removeEventListener('webkitendfullscreen', this._fullscreenChangeHandler);
+      this._fullscreenChangeHandler = null;
+    }
   }
 
   // ── Navigation ─────────────────────────────────────────
@@ -1458,6 +1474,17 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
 
   protected toggleFullscreenForCurrent(): void {
     const video = this.getCurrentVideoElement();
+    if (this.platform.isIOS() && this.platform.isNative()) {
+      const iosVideo = video as
+        | (HTMLVideoElement & {
+            webkitEnterFullscreen?: () => void;
+            webkitExitFullscreen?: () => void;
+          })
+        | null;
+      iosVideo?.webkitEnterFullscreen?.();
+      return;
+    }
+
     const target = video?.closest('.media-slide') as HTMLElement | null;
     if (!target || typeof document === 'undefined') return;
 
@@ -1474,6 +1501,80 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     void document.exitFullscreen?.().catch(() => undefined);
   }
 
+  /**
+   * Called when any fullscreenchange event fires.
+   * Resets the iOS viewport shift when fullscreen exits.
+   */
+  private _handleFullscreenEnd(): void {
+    const isFullscreen = !!(
+      document.fullscreenElement ||
+      (document as unknown as { webkitFullscreenElement?: Element }).webkitFullscreenElement
+    );
+    if (!isFullscreen) {
+      this._resetIosViewportShift();
+    }
+  }
+
+  private _resetIosViewportShift(): void {
+    if (!isPlatformBrowser(this.platformId) || typeof window === 'undefined') return;
+    if (this.platform.isIOS() && this.platform.isNative()) {
+      void import('@capacitor/core').then(({ Capacitor, registerPlugin }) => {
+        if (Capacitor.isPluginAvailable('NxtTheme')) {
+          const plugin = registerPlugin<{ resetWebViewLayout: () => Promise<void> }>('NxtTheme');
+          void plugin.resetWebViewLayout();
+        }
+      });
+    }
+
+    const doReset = () => {
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
+      if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      const ionApp = document.querySelector('ion-app') as HTMLElement | null;
+      if (ionApp) {
+        ionApp.scrollTop = 0;
+        if (ionApp.style.marginTop) ionApp.style.marginTop = '';
+        if (ionApp.style.top) ionApp.style.top = '';
+        if (ionApp.style.transform) ionApp.style.transform = '';
+      }
+      // Force synchronous reflow
+      document.documentElement.getBoundingClientRect();
+    };
+
+    const dispatchResize = () => {
+      window.dispatchEvent(new Event('resize'));
+    };
+
+    doReset();
+    dispatchResize();
+
+    let guardActive = true;
+    const scrollGuard = () => {
+      if (guardActive) {
+        doReset();
+        dispatchResize();
+      }
+    };
+    window.addEventListener('scroll', scrollGuard, { passive: true });
+
+    setTimeout(() => {
+      doReset();
+      dispatchResize();
+    }, 100);
+    setTimeout(() => {
+      doReset();
+      dispatchResize();
+    }, 350);
+
+    setTimeout(() => {
+      guardActive = false;
+      window.removeEventListener('scroll', scrollGuard);
+      doReset();
+      dispatchResize();
+    }, 800);
+  }
+
   protected openCurrentVideoInNewWindow(): void {
     const item = this.currentItem();
     if (!item || item.type !== 'video' || typeof window === 'undefined') return;
@@ -1483,6 +1584,10 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   // ── Actions ────────────────────────────────────────────
 
   dismiss(): void {
+    // Reset any iOS viewport shift BEFORE dismissing so the underlying page
+    // is already corrected when the modal closes.
+    this._resetIosViewportShift();
+
     const data = { lastIndex: this.currentIndex(), item: this.currentItem() };
     this.close.emit(data);
     // Only call ModalController.dismiss() when opened via Ionic bottom sheet.

@@ -21,6 +21,7 @@ public class NxtThemePlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "NxtTheme"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "setStyle", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "resetWebViewLayout", returnType: CAPPluginReturnPromise),
     ]
 
     @objc func setStyle(_ call: CAPPluginCall) {
@@ -69,6 +70,51 @@ public class NxtThemePlugin: CAPPlugin, CAPBridgedPlugin {
             print("[NxtThemePlugin] ✅ Applied to \(vcCount) ViewController(s) in chain")
             print("[NxtThemePlugin] ✅ bridge?.viewController = \(String(describing: self.bridge?.viewController))")
             call.resolve()
+        }
+    }
+
+    @objc func resetWebViewLayout(_ call: CAPPluginCall) {
+        // Resolve immediately — the JS caller does not need to wait for retries.
+        call.resolve()
+
+        DispatchQueue.main.async { [weak self] in
+            guard let webView = self?.bridge?.webView else { return }
+
+            // Perform the reset now AND after short delays.
+            // Reason: iOS UIKit fires its post-AVPlayerViewController-dismissal
+            // completion block AFTER JS runs (and after a single DispatchQueue.main.async
+            // call). That block sets WKScrollView.contentOffset.y to a negative value,
+            // undoing any single-shot reset. The 200 ms and 500 ms retries are
+            // guaranteed to run after the UIKit completion block.
+            func applyReset() {
+                // a) Restore WKScrollView scroll position
+                webView.scrollView.contentOffset = .zero
+                webView.scrollView.contentInset = .zero
+                webView.scrollView.scrollIndicatorInsets = .zero
+
+                // b) Restore WKWebView frame — AVPlayerViewController can leave a stale
+                //    frame that makes position:fixed elements think the viewport is smaller
+                //    (black bars at top and bottom).
+                if let superview = webView.superview {
+                    webView.frame = superview.bounds
+                }
+
+                // c) Force UIKit re-layout
+                webView.setNeedsLayout()
+                webView.superview?.setNeedsLayout()
+                webView.layoutIfNeeded()
+                webView.superview?.layoutIfNeeded()
+
+                // d) Tell the web layer to re-evaluate vh / env() / position:fixed
+                webView.evaluateJavaScript(
+                    "window.scrollTo(0,0); window.dispatchEvent(new Event('resize'));",
+                    completionHandler: nil
+                )
+            }
+
+            applyReset()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) { applyReset() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.50) { applyReset() }
         }
     }
 }
