@@ -297,20 +297,36 @@ function preprocessStorageImageUrls(source: string): string {
   );
 }
 
+function unescapeMediaMarkdownSyntax(value: string): string {
+  return value.replace(/\\([!()[\]])/g, '$1');
+}
+
 function extractRenderableMediaUrlFromLine(line: string): string | null {
   const trimmed = line.trim();
-  const unwrapped = /^`([^`\n]+)`$/.exec(trimmed)?.[1]?.trim() ?? trimmed;
-  const imageMatch = /^!\[[^\]]*\]\((https?:\/\/.+)\)$/.exec(unwrapped);
-  const linkMatch = /^\[[^\]]+\]\((https?:\/\/.+)\)$/.exec(unwrapped);
-  const bareMatch = /^(https?:\/\/\S+)$/.exec(unwrapped);
-  const url = imageMatch?.[1] ?? linkMatch?.[1] ?? bareMatch?.[1] ?? null;
-  if (!url) return null;
+  const codeMatch = /^(?<ticks>`+)(?<inner>[^`\n]+)\k<ticks>$/.exec(trimmed);
+  const unwrapped = codeMatch?.groups?.['inner']?.trim() ?? trimmed;
 
-  return inferMediaTypeFromUrl(url) ? url : null;
+  for (const candidate of [unwrapped, unescapeMediaMarkdownSyntax(unwrapped)]) {
+    const imageMatch = /^!\[[^\]]*\]\((https?:\/\/.+)\)$/.exec(candidate);
+    const linkMatch = /^\[[^\]]+\]\((https?:\/\/.+)\)$/.exec(candidate);
+    const bareMatch = /^(https?:\/\/\S+)$/.exec(candidate);
+    const url = imageMatch?.[1] ?? linkMatch?.[1] ?? bareMatch?.[1] ?? null;
+    if (url && inferMediaTypeFromUrl(url)) return url;
+  }
+
+  return null;
 }
 
 function isRenderableMediaLine(line: string): boolean {
   return extractRenderableMediaUrlFromLine(line) !== null;
+}
+
+function normalizeRenderableMediaLine(line: string): string | null {
+  const trimmed = line.trim();
+  const codeMatch = /^(?<ticks>`+)(?<inner>[^`\n]+)\k<ticks>$/.exec(trimmed);
+  const unwrapped = codeMatch?.groups?.['inner']?.trim() ?? trimmed;
+  const normalized = unescapeMediaMarkdownSyntax(unwrapped);
+  return isRenderableMediaLine(normalized) ? normalized : null;
 }
 
 function unwrapMediaOnlyFencedBlocks(source: string): string {
@@ -320,8 +336,8 @@ function unwrapMediaOnlyFencedBlocks(source: string): string {
     fencedBlockPattern,
     (match, prefix: string, _indent: string, _fence: string, body: string) => {
       const lines = body.split('\n');
-      const nonEmptyLines = lines.map((line) => line.trim()).filter(Boolean);
-      if (!nonEmptyLines.length || !nonEmptyLines.every(isRenderableMediaLine)) {
+      const nonEmptyLines = lines.map((line) => normalizeRenderableMediaLine(line)).filter(Boolean);
+      if (!nonEmptyLines.length) {
         return match;
       }
 
@@ -331,15 +347,21 @@ function unwrapMediaOnlyFencedBlocks(source: string): string {
 }
 
 function unwrapMediaOnlyInlineCode(source: string): string {
-  return source.replace(/`([^`\n]+)`/g, (match, inner: string) =>
-    isRenderableMediaLine(inner) ? inner.trim() : match
-  );
+  return source.replace(/(`+)([^`\n]+?)\1/g, (match, _ticks: string, inner: string) => {
+    const normalized = normalizeRenderableMediaLine(inner);
+    return normalized ?? match;
+  });
 }
 
 function deindentMediaOnlyLines(source: string): string {
   return source
     .split('\n')
-    .map((line) => (/^[ \t]{4,}/.test(line) && isRenderableMediaLine(line) ? line.trim() : line))
+    .map((line) => {
+      const normalized = normalizeRenderableMediaLine(line);
+      if (!normalized) return line;
+      if (/^[ \t]{4,}/.test(line)) return normalized;
+      return line.trim() !== normalized ? normalized : line;
+    })
     .join('\n');
 }
 
@@ -748,18 +770,6 @@ export class NxtMarkdownComponent {
 
   constructor() {
     afterNextRender(() => {
-      // Load DOMPurify on first browser render if not already present.
-      // Once ready, flip the signal so `safeHtml` re-computes with full
-      // sanitization (copy buttons + target attrs preserved).
-      if ((globalThis as Record<string, unknown>)['DOMPurify']) {
-        // Already loaded by a sibling instance — nothing to do.
-        return;
-      }
-      import('dompurify').then((mod) => {
-        (globalThis as Record<string, unknown>)['DOMPurify'] = mod.default;
-        this._dompurifyReady.set(true);
-      });
-
       // Delegated click handler for dynamically injected controls and links.
       this.elRef.nativeElement.addEventListener('click', (e: Event) => {
         const target = e.target as HTMLElement;
@@ -826,6 +836,18 @@ export class NxtMarkdownComponent {
           source: this.trackingSource(),
           surface: this.trackingSurface(),
         });
+      });
+
+      // Load DOMPurify on first browser render if not already present.
+      // Once ready, flip the signal so `safeHtml` re-computes with full
+      // sanitization (copy buttons + target attrs preserved).
+      if ((globalThis as Record<string, unknown>)['DOMPurify']) {
+        // Already loaded by a sibling instance — nothing to do.
+        return;
+      }
+      import('dompurify').then((mod) => {
+        (globalThis as Record<string, unknown>)['DOMPurify'] = mod.default;
+        this._dompurifyReady.set(true);
       });
     });
   }

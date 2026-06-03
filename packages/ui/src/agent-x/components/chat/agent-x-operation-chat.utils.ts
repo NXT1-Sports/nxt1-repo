@@ -55,6 +55,33 @@ export function buildOperationChatInputPlaceholder(inputRecipientLabel?: string)
   return recipientLabel ? `Message ${recipientLabel}` : 'Message Agent X';
 }
 
+export function normalizeOperationChatMediaUrl(value: string): string {
+  const trimmed = value.trim().replace(/[),.;!?]+$/g, '');
+  if (!trimmed) return '';
+
+  try {
+    const url = new URL(trimmed);
+    if (/^#t=\d+(?:\.\d+)?$/i.test(url.hash)) {
+      url.hash = '';
+    }
+    return url.toString();
+  } catch {
+    return trimmed;
+  }
+}
+
+export function collectOperationChatMediaUrlsFromText(content: string): Set<string> {
+  const urls = new Set<string>();
+  const urlPattern = /https?:\/\/[^\s)\]"'<>]+/gi;
+
+  for (const match of content.match(urlPattern) ?? []) {
+    const normalized = normalizeOperationChatMediaUrl(match);
+    if (normalized) urls.add(normalized);
+  }
+
+  return urls;
+}
+
 function toSentence(value: string | undefined): string {
   const trimmed = value?.trim();
   if (!trimmed) {

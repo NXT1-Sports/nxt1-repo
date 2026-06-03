@@ -126,27 +126,38 @@ export interface ChatBubbleMediaRequestedEvent {
             </div>
           }
           @case ('image') {
-            <div class="bubble-media">
+            <button
+              type="button"
+              class="bubble-media bubble-media-button"
+              [attr.aria-label]="'Open image' + (part.alt ? ': ' + part.alt : '')"
+              (click)="mediaRequested.emit({ url: part.url, type: 'image', alt: part.alt })"
+            >
               <img
                 [src]="part.url"
                 [alt]="part.alt || 'Generated image'"
                 class="bubble-img"
                 loading="lazy"
-                (click)="mediaRequested.emit({ url: part.url, type: 'image', alt: part.alt })"
               />
-            </div>
+            </button>
           }
           @case ('video') {
-            <div class="bubble-media">
+            <button
+              type="button"
+              class="bubble-media bubble-media-button bubble-media-button--video"
+              aria-label="Open video"
+              (click)="mediaRequested.emit({ url: part.url, type: 'video' })"
+            >
               <video
                 [src]="part.url"
                 class="bubble-video"
-                controls
+                muted
                 playsinline
                 preload="metadata"
-                (click)="mediaRequested.emit({ url: part.url, type: 'video' })"
               ></video>
-            </div>
+              <span class="bubble-media-play" aria-hidden="true">
+                <nxt1-icon name="playCircle" [size]="38" />
+              </span>
+            </button>
           }
           @case ('thinking') {
             <nxt1-agent-x-extended-thinking
@@ -563,10 +574,33 @@ export interface ChatBubbleMediaRequestedEvent {
          ============================================ */
 
       .bubble-media {
+        position: relative;
+        display: block;
         margin-top: 0.75rem;
         border-radius: 12px;
         overflow: hidden;
         max-width: var(--bubble-media-max-width);
+      }
+
+      .bubble-media-button {
+        width: min(100%, var(--bubble-media-max-width));
+        padding: 0;
+        border: 0;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+        text-align: inherit;
+        appearance: none;
+      }
+
+      .bubble-media-button:focus-visible {
+        outline: 2px solid var(--nxt1-color-primary, #ccff00);
+        outline-offset: 2px;
+      }
+
+      .bubble-media-button--video {
+        aspect-ratio: 16 / 9;
+        background: #000;
       }
 
       .bubble-img {
@@ -576,15 +610,40 @@ export interface ChatBubbleMediaRequestedEvent {
         height: auto;
         border-radius: 12px;
         object-fit: cover;
-        cursor: pointer;
+        pointer-events: none;
       }
 
       .bubble-video {
         display: block;
         width: 100%;
         max-width: 100%;
+        height: 100%;
         border-radius: 12px;
-        cursor: pointer;
+        object-fit: cover;
+        pointer-events: none;
+      }
+
+      .bubble-media-play {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #fff;
+        background: rgba(0, 0, 0, 0.18);
+        pointer-events: none;
+        transition:
+          background 0.15s ease,
+          transform 0.15s ease;
+      }
+
+      .bubble-media-button--video:hover .bubble-media-play,
+      .bubble-media-button--video:focus-visible .bubble-media-play {
+        background: rgba(0, 0, 0, 0.28);
+      }
+
+      .bubble-media-button--video:hover .bubble-media-play {
+        transform: scale(1.04);
       }
 
       :host ::ng-deep nxt1-markdown .md img:not(.md-link-favicon),

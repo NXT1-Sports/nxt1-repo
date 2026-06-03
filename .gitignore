@@ -74,6 +74,7 @@ firebase-debug.log
 *.tgz
 *.tar.gz
 .cache/
+.tmp/
 tmp/
 temp/
 packages/mcp-servers/google-drive-mcp/
