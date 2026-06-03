@@ -378,6 +378,16 @@ export interface AgentXChatRequest {
   readonly selectedContexts?: readonly AgentXSelectedContext[];
 }
 
+/**
+ * Lightweight authenticated context warm response.
+ * The backend owns hydration and caching; clients store only this compact
+ * first-turn snapshot for personalization and routing hints.
+ */
+export interface AgentXContextWarmData {
+  readonly userContext: AgentXUserContext;
+  readonly warmedAt: string;
+}
+
 /** Which coordinator action surface originated the request. */
 export type AgentXSelectedActionSurface = 'command' | 'scheduled' | 'suggested';
 
@@ -408,18 +418,56 @@ export interface AgentXChatResponse {
  * User context for AI personalization.
  */
 export interface AgentXUserContext {
+  /** Authenticated NXT1 user id. */
+  readonly userId?: string;
+  /** User-facing display name for personalization. */
+  readonly displayName?: string;
   /** User's role on the platform */
   readonly role?: string;
   /** User's primary sport */
   readonly sport?: string;
+  /** Known sport contexts for multi-sport users. */
+  readonly sports?: readonly {
+    readonly sport: string;
+    readonly positions?: readonly string[];
+    readonly teamName?: string;
+    readonly isActive?: boolean;
+  }[];
   /** User's position/event */
   readonly position?: string;
   /** Graduation year (for athletes) */
   readonly gradYear?: number;
+  /** User's school or program name. */
+  readonly school?: string;
+  /** User's city/region */
+  readonly city?: string;
   /** User's state/region */
   readonly state?: string;
   /** User's IANA timezone, when known. */
   readonly timezone?: string;
+  /** Active team id resolved by the backend, when available. */
+  readonly teamId?: string;
+  /** Active team code/slug resolved by the backend, when available. */
+  readonly teamCode?: string;
+  /** Organization id resolved by the backend, when available. */
+  readonly organizationId?: string;
+  /** Canonical public profile route for the active sport context. */
+  readonly profilePath?: string;
+  /** Canonical public team route for the active team context. */
+  readonly teamPath?: string;
+  /** Token-efficient active goals for first-turn routing and personalization. */
+  readonly activeGoals?: readonly {
+    readonly id: string;
+    readonly text: string;
+    readonly category?: string;
+  }[];
+  /** Current playbook progress summary, when already built by the backend. */
+  readonly currentPlaybookSummary?: {
+    readonly playbookId: string;
+    readonly total: number;
+    readonly completed: number;
+    readonly snoozed: number;
+  };
 }
 
 // ============================================

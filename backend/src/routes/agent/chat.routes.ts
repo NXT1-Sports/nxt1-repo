@@ -23,6 +23,7 @@ import type {
   AgentJobPayload,
   AgentJobOrigin,
   AgentOperationStatus,
+  AgentUserContext,
   AgentYieldState,
   AgentXAttachment,
   AgentXOperationLifecycleStatus,
@@ -56,6 +57,7 @@ import {
   queueService,
   jobRepository,
   chatService,
+  contextBuilder,
   llmService,
   pubsubService,
   activeAbortControllers,
@@ -72,6 +74,77 @@ import {
 } from './chat-context.helpers.js';
 
 const router = Router();
+
+interface AgentXCompactWarmContext {
+  readonly userId: string;
+  readonly displayName: string;
+  readonly role: string;
+  readonly sport?: string;
+  readonly sports?: readonly {
+    readonly sport: string;
+    readonly positions?: readonly string[];
+    readonly teamName?: string;
+    readonly isActive?: boolean;
+  }[];
+  readonly position?: string;
+  readonly gradYear?: number;
+  readonly school?: string;
+  readonly city?: string;
+  readonly state?: string;
+  readonly timezone?: string;
+  readonly teamId?: string;
+  readonly teamCode?: string;
+  readonly organizationId?: string;
+  readonly profilePath?: string;
+  readonly teamPath?: string;
+  readonly activeGoals?: readonly {
+    readonly id: string;
+    readonly text: string;
+    readonly category?: string;
+  }[];
+  readonly currentPlaybookSummary?: {
+    readonly playbookId: string;
+    readonly total: number;
+    readonly completed: number;
+    readonly snoozed: number;
+  };
+}
+
+function compactAgentUserContext(context: AgentUserContext): AgentXCompactWarmContext {
+  const activeSport = context.sport ?? context.coachSport;
+
+  return {
+    userId: context.userId,
+    displayName: context.displayName,
+    role: context.role,
+    ...(activeSport ? { sport: activeSport } : {}),
+    ...(context.sports?.length
+      ? {
+          sports: context.sports.map((sport) => ({
+            sport: sport.sport,
+            ...(sport.positions?.length ? { positions: sport.positions } : {}),
+            ...(sport.teamName ? { teamName: sport.teamName } : {}),
+            ...(typeof sport.isActive === 'boolean' ? { isActive: sport.isActive } : {}),
+          })),
+        }
+      : {}),
+    ...(context.position ? { position: context.position } : {}),
+    ...(typeof context.graduationYear === 'number' ? { gradYear: context.graduationYear } : {}),
+    ...(context.school ? { school: context.school } : {}),
+    ...(context.city ? { city: context.city } : {}),
+    ...(context.state ? { state: context.state } : {}),
+    ...(context.timezone ? { timezone: context.timezone } : {}),
+    ...(context.teamId ? { teamId: context.teamId } : {}),
+    ...(context.teamCode ? { teamCode: context.teamCode } : {}),
+    ...(context.organizationId ? { organizationId: context.organizationId } : {}),
+    ...(context.profilePath ? { profilePath: context.profilePath } : {}),
+    ...(context.teamPath ? { teamPath: context.teamPath } : {}),
+    ...(context.activeGoals?.length ? { activeGoals: context.activeGoals } : {}),
+    ...(context.currentPlaybookSummary
+      ? { currentPlaybookSummary: context.currentPlaybookSummary }
+      : {}),
+  };
+}
 
 const IDEMPOTENCY_KEY_HEADER = 'x-idempotency-key';
 const IDEMPOTENCY_KEY_RE = /^[a-zA-Z0-9:_-]{8,128}$/;
@@ -1999,6 +2072,52 @@ async function streamOperationToSse(params: {
 
   scheduleNextPoll(pollDelayMs);
 }
+
+router.get('/context/warm', appGuard, async (req: Request, res: Response) => {
+  const user = getAuthUser(req);
+  if (!user?.uid) {
+    res.status(401).json({ success: false, error: 'Unauthorized' });
+    return;
+  }
+
+  const db = req.firebase?.db;
+  if (!db || !contextBuilder) {
+    logger.warn('Agent X context warm unavailable', {
+      userId: user.uid,
+      hasFirestore: Boolean(db),
+      hasContextBuilder: Boolean(contextBuilder),
+    });
+    res.status(503).json({ success: false, error: 'Agent context unavailable' });
+    return;
+  }
+
+  const startedAt = Date.now();
+
+  try {
+    const context = await contextBuilder.buildContext(user.uid, db);
+    const userContext = compactAgentUserContext(context);
+
+    logger.info('Agent X context warmed', {
+      userId: user.uid,
+      durationMs: Date.now() - startedAt,
+      hasSport: Boolean(userContext.sport),
+      hasTeam: Boolean(userContext.teamId || userContext.teamCode),
+      goalCount: userContext.activeGoals?.length ?? 0,
+    });
+
+    res.setHeader('Cache-Control', 'private, max-age=60');
+    res.json({
+      success: true,
+      data: {
+        userContext,
+        warmedAt: new Date().toISOString(),
+      },
+    });
+  } catch (err) {
+    logger.error('Failed to warm Agent X context', { err, userId: user.uid });
+    res.status(500).json({ success: false, error: 'Failed to warm Agent context' });
+  }
+});
 
 router.get('/stream-observability', appGuard, async (req: Request, res: Response) => {
   const user = getAuthUser(req);

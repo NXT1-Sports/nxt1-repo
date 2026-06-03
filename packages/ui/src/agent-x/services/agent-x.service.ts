@@ -225,7 +225,10 @@ export class AgentXService {
 
   // Retry counter for loadDashboard() when auth token not yet available
   private _dashboardRetryCount = 0;
+  private _contextWarmInFlight: Promise<void> | null = null;
+  private _contextWarmedAtMs = 0;
   private static readonly MAX_DASHBOARD_RETRIES = 4;
+  private static readonly CONTEXT_WARM_FRESH_MS = 5 * 60 * 1000;
   private static readonly PLAYBOOK_POLL_INTERVAL_MS =
     AGENT_X_RUNTIME_CONFIG.playbookAsync.pollIntervalMs;
   private static readonly PLAYBOOK_POLL_MAX_ATTEMPTS =
@@ -518,6 +521,86 @@ export class AgentXService {
       ...context,
       ...(context.timezone ? {} : { timezone }),
     });
+  }
+
+  /**
+   * Best-effort background warm for the first chat turn. The backend still
+   * rebuilds context on send if this misses, so this never blocks the UI.
+   */
+  async warmContext(force = false): Promise<void> {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    const isFresh =
+      this._contextWarmedAtMs > 0 &&
+      Date.now() - this._contextWarmedAtMs < AgentXService.CONTEXT_WARM_FRESH_MS;
+    if (!force && isFresh && this._userContext()) return;
+
+    if (this._contextWarmInFlight) {
+      return this._contextWarmInFlight;
+    }
+
+    const inFlight = this.performContextWarm(force);
+    this._contextWarmInFlight = inFlight;
+
+    try {
+      await inFlight;
+    } finally {
+      if (this._contextWarmInFlight === inFlight) {
+        this._contextWarmInFlight = null;
+      }
+    }
+  }
+
+  private async performContextWarm(force: boolean): Promise<void> {
+    if (this.getAuthToken) {
+      const token = await this.getAuthToken().catch(() => null);
+      if (!token) {
+        this.logger.debug('warmContext: no auth token yet, skipping background warm');
+        return;
+      }
+    }
+
+    this.logger.info('Warming Agent X context', { force });
+    this.breadcrumb.trackStateChange('agent-x:context-warming');
+
+    try {
+      const loadWarmContext = () => this.api.warmContext();
+      const response = this.performance
+        ? await this.performance.trace(TRACE_NAMES.AGENT_X_CONTEXT_WARM, loadWarmContext, {
+            attributes: {
+              [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent-x',
+              [ATTRIBUTE_NAMES.CONTENT_TYPE]: 'user-context',
+            },
+          })
+        : await loadWarmContext();
+
+      if (!response?.userContext) {
+        this.logger.debug('Agent X context warm returned no data');
+        return;
+      }
+
+      this.setUserContext(response.userContext);
+      this._contextWarmedAtMs = Date.now();
+
+      const warmedContext = response.userContext;
+      this.logger.info('Agent X context warmed', {
+        hasSport: Boolean(warmedContext.sport),
+        hasTeam: Boolean(warmedContext.teamId || warmedContext.teamCode),
+        goalCount: warmedContext.activeGoals?.length ?? 0,
+      });
+      this.breadcrumb.trackStateChange('agent-x:context-warmed', {
+        hasSport: Boolean(warmedContext.sport),
+        hasTeam: Boolean(warmedContext.teamId || warmedContext.teamCode),
+      });
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_CONTEXT_WARMED, {
+        hasSport: Boolean(warmedContext.sport),
+        hasTeam: Boolean(warmedContext.teamId || warmedContext.teamCode),
+        goalCount: warmedContext.activeGoals?.length ?? 0,
+      });
+    } catch (err) {
+      this.logger.warn('Failed to warm Agent X context', { error: String(err) });
+      this.breadcrumb.trackStateChange('agent-x:context-warm-failed');
+    }
   }
 
   /**
@@ -1576,6 +1659,7 @@ export class AgentXService {
     }
     // Auth token acquired — reset retry counter for future manual refreshes
     this._dashboardRetryCount = 0;
+    void this.warmContext();
 
     // On first load: show skeleton. On background refresh (already loaded): update silently.
     const isRefresh = this._dashboardLoaded();
