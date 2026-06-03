@@ -20,7 +20,7 @@ const DETECTED_LOCAL_IP = '192.168.1.162';
 
 export const environment = {
   production: false,
-  appVersion: '1.43.1-dev',
+  appVersion: '1.43.2-dev',
 
   // Development API - Local backend
   apiUrl: `http://${DETECTED_LOCAL_IP}:3000/api/v1/staging`,
