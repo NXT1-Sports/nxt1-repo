@@ -138,6 +138,7 @@ export interface SportThemeOption {
 
 interface NxtThemePluginHandle {
   setStyle: (opts: { style: string }) => Promise<void>;
+  resetWebViewLayout: () => Promise<void>;
 }
 
 type TeamThemeReturnState = {

@@ -14,6 +14,20 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Initialize Firebase - MUST be called before using any Firebase services
         FirebaseApp.configure()
 
+        // Safety net for iOS fullscreen video (AVPlayerViewController) dismissal.
+        // When WebKit presents native fullscreen video, it creates a separate UIWindow.
+        // On dismissal that window resigns key status and ours becomes key again — this
+        // fires UIWindow.didBecomeKeyNotification for OUR window. At that point iOS UIKit
+        // may have already (or is about to) set WKScrollView.contentOffset.y to a negative
+        // value, producing black bars. We schedule two resets with short delays to win the
+        // race after UIKit's post-dismissal completion block.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(mainWindowDidBecomeKey(_:)),
+            name: UIWindow.didBecomeKeyNotification,
+            object: nil
+        )
+
         // Set GIDServerClientID from GoogleService-Info.plist so serverAuthCode is
         // scoped to the correct Web OAuth client for backend token exchange.
         // The build script (auto-switch-firebase-env.js) copies the right plist
@@ -82,6 +96,56 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
+    }
+
+    // MARK: - Fullscreen video layout guard
+
+    @objc private func mainWindowDidBecomeKey(_ notification: Notification) {
+        // Only act when OUR main window becomes key (not alerts, keyboards, etc.)
+        guard let notifWindow = notification.object as? UIWindow,
+              notifWindow === self.window else { return }
+
+        // Schedule resets at 150 ms and 450 ms.
+        // • 150 ms: catches UIKit's immediate post-dismissal callback
+        // • 450 ms: catches deferred layout passes on slower devices
+        // Guard condition inside resetWebViewLayoutIfNeeded() means this is a no-op
+        // unless the scrollView actually has a negative offset (i.e., after fullscreen).
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+            self?.resetWebViewLayoutIfNeeded()
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
+            self?.resetWebViewLayoutIfNeeded()
+        }
+    }
+
+    private func resetWebViewLayoutIfNeeded() {
+        guard let webView = (window?.rootViewController as? CAPBridgeViewController)?.bridge?.webView else { return }
+
+        let scrollView = webView.scrollView
+
+        // Only act when the scrollView has the specific negative-offset symptom.
+        // This prevents running unnecessarily on every window-key event (alerts, etc.).
+        guard scrollView.contentOffset.y < -1 || scrollView.contentInset != .zero else { return }
+
+        scrollView.contentOffset = .zero
+        scrollView.contentInset = .zero
+        scrollView.scrollIndicatorInsets = .zero
+
+        if let superview = webView.superview {
+            webView.frame = superview.bounds
+        }
+
+        webView.setNeedsLayout()
+        webView.superview?.setNeedsLayout()
+        webView.layoutIfNeeded()
+        webView.superview?.layoutIfNeeded()
+
+        webView.evaluateJavaScript(
+            "window.scrollTo(0,0); window.dispatchEvent(new Event('resize'));",
+            completionHandler: nil
+        )
+
+        print("[AppDelegate] ✅ resetWebViewLayoutIfNeeded: black-bar fix applied")
     }
 
     // MARK: - Native UI Style

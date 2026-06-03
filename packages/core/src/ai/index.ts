@@ -49,6 +49,7 @@ export type {
   AgentXSelectedAction,
   AgentXSelectedActionSurface,
   AgentXChatResponse,
+  AgentXContextWarmData,
   AgentXUserContext,
   AgentXErrorCode,
   AgentXConfig,
