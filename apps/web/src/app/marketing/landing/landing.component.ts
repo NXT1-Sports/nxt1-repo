@@ -135,10 +135,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
              ABOVE THE FOLD — Eagerly loaded (LCP-critical)
              ═══════════════════════════════════════════════════ -->
         <section aria-label="Hero">
-          <nxt1-immersive-hero
-            variant="sleek"
-            headline="The World's First Autonomous Sports Platform"
-          />
+          <nxt1-immersive-hero variant="sleek" headline="AI Coordinators That Work For You" />
         </section>
 
         @defer (on viewport) {

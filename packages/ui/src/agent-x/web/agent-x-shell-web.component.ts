@@ -43,6 +43,7 @@ import {
   HostListener,
   ElementRef,
   TemplateRef,
+  type Signal,
   viewChild,
   DestroyRef,
 } from '@angular/core';
@@ -112,6 +113,7 @@ import { AgentXGameplansPanelComponent } from '../components/shared/agent-x-game
 import { AgentXPlaybooksPanelComponent } from '../components/shared/agent-x-playbooks-panel.component';
 import { AgentXFilmReviewPanelComponent } from '../components/shared/agent-x-film-review-panel.component';
 import { AgentXDiagramsPanelComponent } from '../components/shared/agent-x-diagrams-panel.component';
+import type { DiagramGenerationRequest } from '../components/shared/agent-x-diagrams-panel.component';
 import { withAgentXReleaseLabel } from '../utils/agent-x-release-stage.utils';
 import { ANALYTICS_ADAPTER } from '../../services/analytics';
 
@@ -644,6 +646,7 @@ function sortCoordinatorCategories(
         !expandedSidePanel()
       "
       [class.agent-main--with-expanded-panel]="!!expandedSidePanel()"
+      [class.agent-main--tool-panel-fullscreen]="isSideToolPanelFullscreenActive()"
       [class.agent-main--resizing]="isDesktopPanelResizing()"
       [style.--agent-left-column-width.px]="leftRailWidth()"
       [style.--agent-right-column-width.px]="activeRightPanelWidth()"
@@ -1095,14 +1098,70 @@ function sortCoordinatorCategories(
                 } @else {
                   <h2 class="agent-column-title">{{ gameplansPanelLabel }}</h2>
                 }
-                <button
-                  type="button"
-                  class="rail-close-btn"
-                  (click)="showGameplansModal.set(false)"
-                  aria-label="Close game plans"
-                >
-                  <nxt1-icon name="close" [size]="16"></nxt1-icon>
-                </button>
+                <div class="agent-column-header-actions">
+                  <button
+                    type="button"
+                    class="agent-column-icon-btn"
+                    [class.agent-column-icon-btn--active]="isSideToolPanelFullscreenActive()"
+                    [attr.aria-label]="
+                      isSideToolPanelFullscreenActive()
+                        ? 'Restore chat layout'
+                        : 'Extend panel to full width'
+                    "
+                    [attr.title]="
+                      isSideToolPanelFullscreenActive()
+                        ? 'Restore chat layout'
+                        : 'Extend panel to full width'
+                    "
+                    (click)="toggleSideToolPanelFullscreen()"
+                  >
+                    @if (isSideToolPanelFullscreenActive()) {
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M4 14h6v6" />
+                        <path d="M20 10h-6V4" />
+                        <path d="m14 10 7-7" />
+                        <path d="m3 21 7-7" />
+                      </svg>
+                    } @else {
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M15 3h6v6" />
+                        <path d="M9 21H3v-6" />
+                        <path d="m21 3-7 7" />
+                        <path d="m3 21 7-7" />
+                      </svg>
+                    }
+                  </button>
+                  <button
+                    type="button"
+                    class="rail-close-btn"
+                    (click)="closeGameplansPanel()"
+                    aria-label="Close game plans"
+                  >
+                    <nxt1-icon name="close" [size]="16"></nxt1-icon>
+                  </button>
+                </div>
               </div>
               @if (!isGameplansDetailView()) {
                 <p class="agent-column-subtitle">Team strategy & playbooks</p>
@@ -1149,14 +1208,70 @@ function sortCoordinatorCategories(
                 } @else {
                   <h2 class="agent-column-title">{{ playbooksPanelLabel }}</h2>
                 }
-                <button
-                  type="button"
-                  class="rail-close-btn"
-                  (click)="showPlaybooksModal.set(false)"
-                  aria-label="Close playbooks"
-                >
-                  <nxt1-icon name="close" [size]="16"></nxt1-icon>
-                </button>
+                <div class="agent-column-header-actions">
+                  <button
+                    type="button"
+                    class="agent-column-icon-btn"
+                    [class.agent-column-icon-btn--active]="isSideToolPanelFullscreenActive()"
+                    [attr.aria-label]="
+                      isSideToolPanelFullscreenActive()
+                        ? 'Restore chat layout'
+                        : 'Extend panel to full width'
+                    "
+                    [attr.title]="
+                      isSideToolPanelFullscreenActive()
+                        ? 'Restore chat layout'
+                        : 'Extend panel to full width'
+                    "
+                    (click)="toggleSideToolPanelFullscreen()"
+                  >
+                    @if (isSideToolPanelFullscreenActive()) {
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M4 14h6v6" />
+                        <path d="M20 10h-6V4" />
+                        <path d="m14 10 7-7" />
+                        <path d="m3 21 7-7" />
+                      </svg>
+                    } @else {
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M15 3h6v6" />
+                        <path d="M9 21H3v-6" />
+                        <path d="m21 3-7 7" />
+                        <path d="m3 21 7-7" />
+                      </svg>
+                    }
+                  </button>
+                  <button
+                    type="button"
+                    class="rail-close-btn"
+                    (click)="closePlaybooksPanel()"
+                    aria-label="Close playbooks"
+                  >
+                    <nxt1-icon name="close" [size]="16"></nxt1-icon>
+                  </button>
+                </div>
               </div>
               @if (!isPlaybooksDetailView()) {
                 <p class="agent-column-subtitle">
@@ -1227,8 +1342,62 @@ function sortCoordinatorCategories(
                   }
                   <button
                     type="button"
+                    class="agent-column-icon-btn"
+                    [class.agent-column-icon-btn--active]="isSideToolPanelFullscreenActive()"
+                    [attr.aria-label]="
+                      isSideToolPanelFullscreenActive()
+                        ? 'Restore chat layout'
+                        : 'Extend panel to full width'
+                    "
+                    [attr.title]="
+                      isSideToolPanelFullscreenActive()
+                        ? 'Restore chat layout'
+                        : 'Extend panel to full width'
+                    "
+                    (click)="toggleSideToolPanelFullscreen()"
+                  >
+                    @if (isSideToolPanelFullscreenActive()) {
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M4 14h6v6" />
+                        <path d="M20 10h-6V4" />
+                        <path d="m14 10 7-7" />
+                        <path d="m3 21 7-7" />
+                      </svg>
+                    } @else {
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M15 3h6v6" />
+                        <path d="M9 21H3v-6" />
+                        <path d="m21 3-7 7" />
+                        <path d="m3 21 7-7" />
+                      </svg>
+                    }
+                  </button>
+                  <button
+                    type="button"
                     class="rail-close-btn"
-                    (click)="showDiagramsModal.set(false)"
+                    (click)="closeDiagramsPanel()"
                     aria-label="Close diagrams lab"
                   >
                     <nxt1-icon name="close" [size]="16"></nxt1-icon>
@@ -1241,6 +1410,7 @@ function sortCoordinatorCategories(
               <nxt1-agent-x-diagrams-panel
                 [teamId]="resolvedActiveTeamId()"
                 [sport]="resolvedActiveSport()"
+                (generateWithAgentX)="onGenerateDiagramRequest($event)"
               />
             </div>
           </aside>
@@ -1278,14 +1448,70 @@ function sortCoordinatorCategories(
                 } @else {
                   <h2 class="agent-column-title">{{ filmReviewPanelLabel }}</h2>
                 }
-                <button
-                  type="button"
-                  class="rail-close-btn"
-                  (click)="showFilmReviewModal.set(false)"
-                  aria-label="Close film review"
-                >
-                  <nxt1-icon name="close" [size]="16"></nxt1-icon>
-                </button>
+                <div class="agent-column-header-actions">
+                  <button
+                    type="button"
+                    class="agent-column-icon-btn"
+                    [class.agent-column-icon-btn--active]="isSideToolPanelFullscreenActive()"
+                    [attr.aria-label]="
+                      isSideToolPanelFullscreenActive()
+                        ? 'Restore chat layout'
+                        : 'Extend panel to full width'
+                    "
+                    [attr.title]="
+                      isSideToolPanelFullscreenActive()
+                        ? 'Restore chat layout'
+                        : 'Extend panel to full width'
+                    "
+                    (click)="toggleSideToolPanelFullscreen()"
+                  >
+                    @if (isSideToolPanelFullscreenActive()) {
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M4 14h6v6" />
+                        <path d="M20 10h-6V4" />
+                        <path d="m14 10 7-7" />
+                        <path d="m3 21 7-7" />
+                      </svg>
+                    } @else {
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M15 3h6v6" />
+                        <path d="M9 21H3v-6" />
+                        <path d="m21 3-7 7" />
+                        <path d="m3 21 7-7" />
+                      </svg>
+                    }
+                  </button>
+                  <button
+                    type="button"
+                    class="rail-close-btn"
+                    (click)="closeFilmReviewPanel()"
+                    aria-label="Close film review"
+                  >
+                    <nxt1-icon name="close" [size]="16"></nxt1-icon>
+                  </button>
+                </div>
               </div>
               @if (!isFilmReviewInlineVideoView()) {
                 <p class="agent-column-subtitle">
@@ -1894,6 +2120,29 @@ function sortCoordinatorCategories(
           var(--agent-right-column-width, 540px);
       }
 
+      .agent-main--tool-panel-fullscreen {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .agent-main--with-sessions.agent-main--tool-panel-fullscreen {
+        grid-template-columns:
+          var(--agent-left-column-width, 280px)
+          minmax(0, 1fr);
+      }
+
+      .agent-main--tool-panel-fullscreen .agent-chat-column {
+        display: none;
+      }
+
+      .agent-main--tool-panel-fullscreen .agent-gameplans-column,
+      .agent-main--tool-panel-fullscreen .agent-diagrams-column,
+      .agent-main--tool-panel-fullscreen .agent-playbooks-column,
+      .agent-main--tool-panel-fullscreen .agent-film-review-column {
+        grid-column: -2 / -1;
+        width: 100%;
+        min-width: 0;
+      }
+
       .agent-main--with-gameplans {
         grid-template-columns: minmax(0, 1fr) var(--agent-right-column-width, 620px);
       }
@@ -1903,6 +2152,16 @@ function sortCoordinatorCategories(
           var(--agent-left-column-width, 280px)
           minmax(0, 1fr)
           var(--agent-right-column-width, 620px);
+      }
+
+      .agent-main--tool-panel-fullscreen.agent-main--with-gameplans {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .agent-main--with-sessions.agent-main--tool-panel-fullscreen.agent-main--with-gameplans {
+        grid-template-columns:
+          var(--agent-left-column-width, 280px)
+          minmax(0, 1fr);
       }
 
       .agent-main--resizing {
@@ -2098,6 +2357,11 @@ function sortCoordinatorCategories(
       .agent-column-icon-btn:disabled {
         opacity: 0.55;
         cursor: not-allowed;
+      }
+
+      .agent-column-icon-btn--active {
+        background: color-mix(in srgb, var(--agent-primary) 12%, transparent);
+        color: var(--agent-primary);
       }
 
       .agent-column-icon-btn--danger:hover:not(:disabled) {
@@ -4429,6 +4693,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly showPlaybooksModal = signal(false);
   protected readonly showFilmReviewModal = signal(false);
   protected readonly showDiagramsModal = signal(false);
+  protected readonly sideToolPanelFullscreen = signal(false);
   protected readonly isAthleteUser = computed(() => this.user()?.role === 'athlete');
   protected readonly playbooksPanelLabel = withAgentXReleaseLabel('Playbooks', 'playbooks');
   protected readonly gameplansPanelLabel = withAgentXReleaseLabel('Game Plans', 'gameplans');
@@ -4468,6 +4733,14 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       ? selection
       : null;
   });
+  protected readonly isSideToolPanelFullscreenActive = computed(
+    () =>
+      this.sideToolPanelFullscreen() &&
+      (this.showGameplansModal() ||
+        this.showPlaybooksModal() ||
+        this.showFilmReviewModal() ||
+        this.showDiagramsModal())
+  );
   protected readonly isGameplansDetailView = computed(
     () => this.showGameplansModal() && !!this.gameplansPanel()?.isDetailView()
   );
@@ -4493,7 +4766,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       !panel || !panel.isInlineVideoView() ? 'Film Review' : panel.getInlineHeaderTitle();
     return withAgentXReleaseLabel(title, 'filmReview');
   });
-  protected readonly diagramsSelectedDiagram = computed(
+  protected readonly diagramsSelectedDiagram: Signal<DiagramAssetSummary | null> = computed(
     () => this.diagramsPanel()?.getSelectedDiagram() ?? null
   );
   protected readonly diagramsHeaderTitle = computed(() => {
@@ -4740,10 +5013,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
                   : this.showActionPlanModal()
                     ? this.actionPlanWidth()
                     : 0;
-    const remainingWidth = Math.max(
-      mainWidth - leftWidth - rightWidth - AgentXShellWebComponent.DESKTOP_CHAT_MIN_WIDTH,
-      0
-    );
+    const reservedChatWidth = this.isSideToolDesktopPanel(panel)
+      ? 0
+      : AgentXShellWebComponent.DESKTOP_CHAT_MIN_WIDTH;
+    const remainingWidth = Math.max(mainWidth - leftWidth - rightWidth - reservedChatWidth, 0);
 
     switch (panel) {
       case 'sessions':
@@ -4776,18 +5049,22 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         this.actionPlanWidth.set(AgentXShellWebComponent.DESKTOP_ACTION_PLAN_DEFAULT_WIDTH);
         break;
       case 'gameplans':
+        this.sideToolPanelFullscreen.set(false);
         this.showGameplansModal.set(false);
         this.gameplansWidth.set(this.getDefaultExpandedPanelWidth());
         break;
       case 'playbooks':
+        this.sideToolPanelFullscreen.set(false);
         this.showPlaybooksModal.set(false);
         this.playbooksWidth.set(this.getDefaultExpandedPanelWidth());
         break;
       case 'diagrams':
+        this.sideToolPanelFullscreen.set(false);
         this.showDiagramsModal.set(false);
         this.diagramsWidth.set(this.getDefaultExpandedPanelWidth());
         break;
       case 'film-review':
+        this.sideToolPanelFullscreen.set(false);
         this.showFilmReviewModal.set(false);
         this.filmReviewWidth.set(this.getDefaultExpandedPanelWidth());
         break;
@@ -4869,32 +5146,80 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.clampDesktopPanelWidths();
   }
 
+  private isSideToolDesktopPanel(
+    panel: AgentXDesktopResizablePanel
+  ): panel is 'gameplans' | 'playbooks' | 'diagrams' | 'film-review' {
+    return (
+      panel === 'gameplans' ||
+      panel === 'playbooks' ||
+      panel === 'diagrams' ||
+      panel === 'film-review'
+    );
+  }
+
+  private setDesktopPanelWidth(panel: AgentXDesktopResizablePanel, width: number): void {
+    switch (panel) {
+      case 'sessions':
+        this.leftRailWidth.set(width);
+        break;
+      case 'action-plan':
+        this.actionPlanWidth.set(width);
+        break;
+      case 'gameplans':
+        this.gameplansWidth.set(width);
+        break;
+      case 'playbooks':
+        this.playbooksWidth.set(width);
+        break;
+      case 'diagrams':
+        this.diagramsWidth.set(width);
+        break;
+      case 'film-review':
+        this.filmReviewWidth.set(width);
+        break;
+      case 'expanded-panel':
+        this.expandedPanelWidth.set(width);
+        break;
+    }
+  }
+
+  private getDesktopPanelWidth(panel: AgentXDesktopResizablePanel): number {
+    switch (panel) {
+      case 'sessions':
+        return this.leftRailWidth();
+      case 'action-plan':
+        return this.actionPlanWidth();
+      case 'gameplans':
+        return this.gameplansWidth();
+      case 'playbooks':
+        return this.playbooksWidth();
+      case 'diagrams':
+        return this.diagramsWidth();
+      case 'film-review':
+        return this.filmReviewWidth();
+      case 'expanded-panel':
+        return this.expandedPanelWidth();
+    }
+  }
+
   protected startDesktopPanelResize(panel: AgentXDesktopResizablePanel, event: MouseEvent): void {
     if (event.button !== 0 || this.platform.isMobile()) return;
 
     event.preventDefault();
     event.stopPropagation();
-    this.clampDesktopPanelWidths();
 
-    const startWidth =
-      panel === 'sessions'
-        ? this.leftRailWidth()
-        : panel === 'action-plan'
-          ? this.actionPlanWidth()
-          : panel === 'gameplans'
-            ? this.gameplansWidth()
-            : panel === 'playbooks'
-              ? this.playbooksWidth()
-              : panel === 'diagrams'
-                ? this.diagramsWidth()
-                : panel === 'film-review'
-                  ? this.filmReviewWidth()
-                  : this.expandedPanelWidth();
+    if (this.sideToolPanelFullscreen() && this.isSideToolDesktopPanel(panel)) {
+      const restoredWidth = this.getDesktopPanelMaxWidth(panel);
+      this.setDesktopPanelWidth(panel, restoredWidth);
+      this.sideToolPanelFullscreen.set(false);
+    }
+
+    this.clampDesktopPanelWidths();
 
     this.activeDesktopResize.set({
       panel,
       startX: event.clientX,
-      startWidth,
+      startWidth: this.getDesktopPanelWidth(panel),
     });
     this.setDesktopResizeCursor(true);
   }
@@ -5130,6 +5455,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     afterNextRender(() => {
       this.resetDesktopPanelWidths();
       this.agentX.startTitleAnimation();
+      void this.agentX.warmContext();
       this.agentX.loadDashboard();
 
       const startupMessage = this.agentX.consumeStartupMessage();
@@ -5588,6 +5914,18 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     });
   }
 
+  protected async onGenerateDiagramRequest(request: DiagramGenerationRequest): Promise<void> {
+    const prompt = request.prompt.trim();
+    if (!prompt) return;
+
+    if (request.context) {
+      this.agentX.queueSelectedContext(request.context);
+    }
+
+    this.agentX.setUserMessage(prompt);
+    await this.onSendMessage();
+  }
+
   public async onToggleTasks(): Promise<void> {
     await this.openActionPlanModal();
   }
@@ -5615,6 +5953,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       !this.showDiagramsModal() &&
       !this.expandedSidePanel()
     ) {
+      this.sideToolPanelFullscreen.set(false);
       this.showActionPlanModal.set(false);
       return;
     }
@@ -5622,6 +5961,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     if (this.expandedSidePanel()) {
       this.closeExpandedSidePanel();
     }
+    this.sideToolPanelFullscreen.set(false);
     this.showPlaybooksModal.set(false);
     this.showGameplansModal.set(false);
     this.showFilmReviewModal.set(false);
@@ -5644,6 +5984,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.showFilmReviewModal.set(false);
       this.showDiagramsModal.set(false);
       this.gameplansWidth.set(this.getDefaultExpandedPanelWidth());
+    } else {
+      this.sideToolPanelFullscreen.set(false);
     }
     this.showGameplansModal.set(newValue);
     this.logger.info('Game plans panel toggled', { shown: newValue });
@@ -5662,6 +6004,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    */
   protected async openActionPlanModal(): Promise<void> {
     await this.haptics.impact('light');
+    this.sideToolPanelFullscreen.set(false);
     this.showPlaybooksModal.set(false);
     this.showGameplansModal.set(false);
     this.showFilmReviewModal.set(false);
@@ -5673,6 +6016,40 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   /** Closes the Action Plan panel. */
   public closeActionPlanModal(): void {
     this.showActionPlanModal.set(false);
+  }
+
+  protected toggleSideToolPanelFullscreen(): void {
+    if (
+      !this.showGameplansModal() &&
+      !this.showPlaybooksModal() &&
+      !this.showFilmReviewModal() &&
+      !this.showDiagramsModal()
+    ) {
+      return;
+    }
+
+    void this.haptics.impact('light');
+    this.sideToolPanelFullscreen.update((value) => !value);
+  }
+
+  protected closeGameplansPanel(): void {
+    this.sideToolPanelFullscreen.set(false);
+    this.showGameplansModal.set(false);
+  }
+
+  protected closePlaybooksPanel(): void {
+    this.sideToolPanelFullscreen.set(false);
+    this.showPlaybooksModal.set(false);
+  }
+
+  protected closeFilmReviewPanel(): void {
+    this.sideToolPanelFullscreen.set(false);
+    this.showFilmReviewModal.set(false);
+  }
+
+  protected closeDiagramsPanel(): void {
+    this.sideToolPanelFullscreen.set(false);
+    this.showDiagramsModal.set(false);
   }
 
   // ── Expanded Side Panel methods ────────────────────────────────────
@@ -5797,6 +6174,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    * Automatically hides the Action Plan while the expanded panel is active.
    */
   openExpandedSidePanel(content: ExpandedSidePanelContent): void {
+    this.sideToolPanelFullscreen.set(false);
     if (content.type === 'live-view') {
       this.expandedPanelIframeLoading.set(true);
     }
@@ -5807,6 +6185,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   /** Closes the expanded side panel and restores the Action Plan. */
   public closeExpandedSidePanel(): void {
     const panel = this.expandedSidePanel();
+    this.sideToolPanelFullscreen.set(false);
     this.expandedSidePanel.set(null);
     this.expandedPanelIframeLoading.set(false);
 
@@ -5855,6 +6234,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     if (option === 'film-review' && this.isAthleteUser()) {
       this.showFilmReviewModal.set(false);
       this.showDiagramsModal.set(false);
+      this.sideToolPanelFullscreen.set(false);
       this.showActionPlanModal.set(true);
       return;
     }

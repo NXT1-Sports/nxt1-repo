@@ -24,6 +24,7 @@ import type { HttpAdapter } from '../api/http-adapter';
 import type {
   AgentXChatRequest,
   AgentXChatResponse,
+  AgentXContextWarmData,
   AgentXMessage,
   AgentXQuickTask,
   AgentDashboardData,
@@ -223,6 +224,23 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
         // Wrap network errors
         throw externalServiceError('ai', error);
       }
+    },
+
+    /**
+     * Warm the authenticated user's compact Agent X context before their first
+     * chat turn. Backend owns hydration and Redis caching; clients only retain
+     * the returned safe snapshot for request context.
+     */
+    async warmContext(): Promise<AgentXContextWarmData | null> {
+      const response = await http.get<ApiResponse<AgentXContextWarmData>>(
+        endpoint(AGENT_X_ENDPOINTS.CONTEXT_WARM)
+      );
+
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to warm Agent X context');
+      }
+
+      return response.data ?? null;
     },
 
     /**

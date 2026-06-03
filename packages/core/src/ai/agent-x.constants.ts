@@ -150,6 +150,8 @@ export const AGENT_X_REQUEST_HEADERS = {
 export const AGENT_X_ENDPOINTS = {
   /** Chat completion endpoint */
   CHAT: '/agent-x/chat',
+  /** Warm the authenticated user's compact Agent X context before first message */
+  CONTEXT_WARM: '/agent-x/context/warm',
   /** Bind a completed background upload to a persisted user message. */
   MESSAGE_ATTACHMENT_SYNC: '/agent-x/messages/attachments/sync',
   /** Resume a yielded job with user input */

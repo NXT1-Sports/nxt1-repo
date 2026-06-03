@@ -1,9 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentMessage } from '@nxt1/core';
 import { AgentXOperationChatSessionFacade } from './agent-x-operation-chat-session.facade';
+import type { OperationMessage } from './agent-x-operation-chat.models';
 
 type Canonicalizer = {
   resolveCanonicalAssistantRows(items: readonly AgentMessage[]): readonly AgentMessage[];
+  reorderTurnsByPairing(messages: readonly OperationMessage[]): OperationMessage[];
+  isPauseYieldSupersededByLaterTurn(
+    yieldState: NonNullable<AgentMessage['resultData']>['yieldState'],
+    items: readonly AgentMessage[]
+  ): boolean;
   coercePersistedYieldStateFromMessage(
     message: AgentMessage,
     persistedCards: AgentMessage['cards']
@@ -57,6 +63,88 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
       ...extras,
     };
   }
+
+  it('keeps a new assistant response attached to the matching user turn after an older pause', () => {
+    const pausedUser: OperationMessage = {
+      id: 'user-old-paused',
+      role: 'user',
+      content: 'Make me a graphic with my latest play',
+      operationId: 'chat-paused-old',
+      timestamp: new Date('2026-05-05T12:00:00.000Z'),
+    };
+    const newUser: OperationMessage = {
+      id: 'user-new',
+      role: 'user',
+      content: 'Actually write a short caption instead',
+      operationId: 'chat-new-turn',
+      timestamp: new Date('2026-05-05T12:01:00.000Z'),
+    };
+    const newAssistant: OperationMessage = {
+      id: 'assistant-new',
+      role: 'assistant',
+      content: 'Here is a tight caption for the post.',
+      operationId: 'chat-new-turn',
+      timestamp: new Date('2026-05-05T12:01:30.000Z'),
+    };
+
+    const reordered = facade.reorderTurnsByPairing([pausedUser, newUser, newAssistant]);
+
+    expect(reordered.map((message) => message.id)).toEqual([
+      'user-old-paused',
+      'user-new',
+      'assistant-new',
+    ]);
+  });
+
+  it('treats manual pause metadata as stale once a later turn supersedes it', () => {
+    const pauseYieldState = {
+      reason: 'needs_input',
+      promptToUser: 'Operation paused. Resume whenever you are ready.',
+      agentId: 'router',
+      messages: [],
+      pendingToolCall: {
+        toolName: 'resume_paused_operation',
+        toolCallId: 'pause_resume_chat-paused-old',
+        toolInput: { operationId: 'chat-paused-old' },
+      },
+      yieldedAt: '2026-05-05T12:00:30.000Z',
+      expiresAt: '2026-05-06T12:00:30.000Z',
+    } as NonNullable<AgentMessage['resultData']>['yieldState'];
+
+    const items: readonly AgentMessage[] = [
+      {
+        id: 'user-old-paused',
+        threadId: 'thread-1',
+        userId: 'user-1',
+        role: 'user',
+        content: 'Make me a graphic with my latest play',
+        origin: 'user',
+        operationId: 'chat-paused-old',
+        createdAt: '2026-05-05T12:00:00.000Z',
+      },
+      assistantMessage('old-partial', 'assistant_partial', {
+        operationId: 'chat-paused-old',
+        content: 'I can start that graphic.',
+      }),
+      {
+        id: 'user-new',
+        threadId: 'thread-1',
+        userId: 'user-1',
+        role: 'user',
+        content: 'Actually write a short caption instead',
+        origin: 'user',
+        operationId: 'chat-new-turn',
+        createdAt: '2026-05-05T12:01:00.000Z',
+      },
+      assistantMessage('assistant-new', 'assistant_final', {
+        operationId: 'chat-new-turn',
+        content: 'Here is a tight caption for the post.',
+        createdAt: '2026-05-05T12:01:30.000Z',
+      }),
+    ];
+
+    expect(facade.isPauseYieldSupersededByLaterTurn(pauseYieldState, items)).toBe(true);
+  });
 
   it('keeps only assistant_final when partial media/card snapshots share the same operationId', () => {
     const mediaCard = {

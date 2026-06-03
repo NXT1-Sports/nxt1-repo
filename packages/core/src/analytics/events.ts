@@ -743,6 +743,8 @@ export const APP_EVENTS = {
   // ============================================
   /** User opened the Agent X command center */
   AGENT_X_DASHBOARD_VIEWED: 'agent_x_dashboard_viewed',
+  /** Agent X compact context warmed before first user message */
+  AGENT_X_CONTEXT_WARMED: 'agent_x_context_warmed',
   /** User set or updated their Agent X goals */
   AGENT_X_GOALS_SET: 'agent_x_goals_set',
   /** Weekly playbook was generated or regenerated */

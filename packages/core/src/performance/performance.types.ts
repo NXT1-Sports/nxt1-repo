@@ -404,6 +404,7 @@ export const TRACE_NAMES = {
   MEDIA_VIEWER_OPEN: 'media_viewer_open',
 
   // Agent X goal traces
+  AGENT_X_CONTEXT_WARM: 'agent_x_context_warm',
   AGENT_X_JOB_ENQUEUE: 'agent_x_job_enqueue',
   AGENT_X_OPERATION_APPROVE: 'agent_x_operation_approve',
   AGENT_X_OPERATION_REPLY: 'agent_x_operation_reply',

@@ -665,7 +665,7 @@ export class AgentXOperationChatSessionFacade {
     // Track each user's landing index in `result` and how many assistants
     // have been attached after it. A user's "block" occupies indices
     // [idx, idx + assistantCount].
-    const userSlots: Array<{ idx: number; assistantCount: number }> = [];
+    const userSlots: Array<{ idx: number; assistantCount: number; operationId?: string }> = [];
 
     const attachAfter = (
       slot: { idx: number; assistantCount: number },
@@ -683,13 +683,25 @@ export class AgentXOperationChatSessionFacade {
     for (const msg of messages) {
       if (msg.role === 'user') {
         result.push(msg);
-        userSlots.push({ idx: result.length - 1, assistantCount: 0 });
+        userSlots.push({
+          idx: result.length - 1,
+          assistantCount: 0,
+          ...(msg.operationId?.trim() ? { operationId: msg.operationId.trim() } : {}),
+        });
         continue;
       }
 
       if (msg.role === 'assistant') {
-        // Prefer the earliest user with zero assistants attached.
-        let target = userSlots.find((s) => s.assistantCount === 0);
+        const assistantOperationId = msg.operationId?.trim() ?? '';
+        // Prefer the user row for the same operation. This prevents a later
+        // assistant response from being attached to an older paused turn that
+        // never produced a final message.
+        let target = assistantOperationId
+          ? userSlots.find((s) => s.assistantCount === 0 && s.operationId === assistantOperationId)
+          : undefined;
+        // Fall back to the earliest user with zero assistants attached for
+        // older rows that do not have operation ids backfilled.
+        target ??= userSlots.find((s) => s.assistantCount === 0);
         if (!target && userSlots.length > 0) {
           // Otherwise attach to the user with the fewest assistants
           // (preferring earlier on ties — stable scan order does this).
@@ -711,6 +723,43 @@ export class AgentXOperationChatSessionFacade {
     }
 
     return result;
+  }
+
+  private yieldToolOperationId(yieldState: AgentYieldState | null | undefined): string {
+    const operationId =
+      yieldState?.pendingToolCall?.toolInput &&
+      typeof yieldState.pendingToolCall.toolInput['operationId'] === 'string'
+        ? yieldState.pendingToolCall.toolInput['operationId'].trim()
+        : '';
+    return operationId;
+  }
+
+  private isPauseResumeYieldState(yieldState: AgentYieldState | null | undefined): boolean {
+    return yieldState?.pendingToolCall?.toolName === 'resume_paused_operation';
+  }
+
+  private isPauseYieldSupersededByLaterTurn(
+    yieldState: AgentYieldState,
+    items: readonly AgentMessage[]
+  ): boolean {
+    if (!this.isPauseResumeYieldState(yieldState)) return false;
+
+    const pausedOperationId = this.yieldToolOperationId(yieldState);
+    if (!pausedOperationId) return false;
+
+    const lastPausedOperationIndex = items.reduce((latest, item, index) => {
+      const itemOperationId = item.operationId?.trim() ?? '';
+      return itemOperationId === pausedOperationId ? index : latest;
+    }, -1);
+
+    if (lastPausedOperationIndex < 0) return false;
+
+    return items.slice(lastPausedOperationIndex + 1).some((item) => {
+      const itemOperationId = item.operationId?.trim() ?? '';
+      if (itemOperationId === pausedOperationId) return false;
+      if (item.role === 'user' && item.content?.trim()) return true;
+      return item.role === 'assistant' && item.semanticPhase === 'assistant_final';
+    });
   }
 
   /**
@@ -1980,14 +2029,21 @@ export class AgentXOperationChatSessionFacade {
     try {
       const { messages: items, latestPausedYieldState } =
         await this.agentXService.getPersistedThreadMessages(threadId);
-      const persistedPendingYieldState = this.coercePersistedYieldState(latestPausedYieldState);
+      const rawPersistedPendingYieldState = this.coercePersistedYieldState(latestPausedYieldState);
+      const stalePauseYieldFromThreadMetadata = rawPersistedPendingYieldState
+        ? this.isPauseYieldSupersededByLaterTurn(rawPersistedPendingYieldState, items)
+        : false;
+      const persistedPendingYieldState = stalePauseYieldFromThreadMetadata
+        ? null
+        : rawPersistedPendingYieldState;
       const timelinePendingYieldState = persistedPendingYieldState
         ? null
         : this.extractLatestPendingYieldFromItems(items);
       this.logger.info('Resolved pending yield candidates during thread load', {
         threadId,
         contextId: host.contextId(),
-        fromThreadMetadata: !!persistedPendingYieldState,
+        fromThreadMetadata: !!rawPersistedPendingYieldState,
+        skippedStalePauseYieldFromThreadMetadata: stalePauseYieldFromThreadMetadata,
         fromTimelineFallback: !!timelinePendingYieldState,
       });
 
@@ -3510,6 +3566,7 @@ export class AgentXOperationChatSessionFacade {
 
       const yieldState = this.coercePersistedYieldStateFromMessage(item, persistedCards);
       if (!yieldState) continue;
+      if (this.isPauseYieldSupersededByLaterTurn(yieldState, items)) continue;
 
       const persistedYieldCardStateRaw = item.resultData?.['yieldCardState'];
       if (persistedYieldCardStateRaw === 'resolved') continue;
