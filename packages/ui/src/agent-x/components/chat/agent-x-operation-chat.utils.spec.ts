@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   buildOperationChatInputPlaceholder,
   buildCoordinatorActionPrompt,
+  collectOperationChatMediaUrlsFromText,
+  normalizeOperationChatMediaUrl,
   resolveCoordinatorActionId,
   resolveCoordinatorChipId,
 } from './agent-x-operation-chat.utils';
@@ -17,6 +19,22 @@ describe('buildOperationChatInputPlaceholder', () => {
     expect(buildOperationChatInputPlaceholder('Recruiting Coordinator')).toBe(
       'Message Recruiting Coordinator'
     );
+  });
+});
+
+describe('operation chat media URL helpers', () => {
+  it('normalizes punctuation and preview time fragments from media URLs', () => {
+    expect(normalizeOperationChatMediaUrl('https://cdn.nxt1.test/final.mp4#t=0.001.')).toBe(
+      'https://cdn.nxt1.test/final.mp4'
+    );
+  });
+
+  it('collects media URLs from markdown prose for render dedupe', () => {
+    const urls = collectOperationChatMediaUrlsFromText(
+      'Animated video: [View Video](https://cdn.nxt1.test/final.mp4)'
+    );
+
+    expect([...urls]).toEqual(['https://cdn.nxt1.test/final.mp4']);
   });
 });
 
