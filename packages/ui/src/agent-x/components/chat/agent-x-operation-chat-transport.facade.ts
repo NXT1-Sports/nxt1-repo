@@ -772,7 +772,7 @@ export class AgentXOperationChatTransportFacade {
                   contextType: host.contextType(),
                   contextId: host.contextId(),
                   recipientDomain: recipientEmail.includes('@')
-                    ? recipientEmail.split('@').at(-1)
+                    ? recipientEmail.split('@').pop()
                     : undefined,
                   subject,
                 });
@@ -782,7 +782,7 @@ export class AgentXOperationChatTransportFacade {
                   contextType: host.contextType(),
                   contextId: host.contextId(),
                   recipientDomain: recipientEmail.includes('@')
-                    ? recipientEmail.split('@').at(-1)
+                    ? recipientEmail.split('@').pop()
                     : undefined,
                   subject,
                 });
@@ -796,7 +796,7 @@ export class AgentXOperationChatTransportFacade {
                     contextType: host.contextType(),
                     contextId: host.contextId(),
                     recipientDomain: recipientEmail.includes('@')
-                      ? recipientEmail.split('@').at(-1)
+                      ? recipientEmail.split('@').pop()
                       : undefined,
                     subject,
                   });

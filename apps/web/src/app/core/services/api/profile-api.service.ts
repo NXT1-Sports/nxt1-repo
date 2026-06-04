@@ -18,7 +18,7 @@ import { clearHttpCache } from '../../infrastructure/http/cache.interceptor';
 import { PerformanceService } from '..';
 import { TRACE_NAMES, ATTRIBUTE_NAMES, METRIC_NAMES } from '@nxt1/core/performance';
 import { APP_EVENTS } from '@nxt1/core/analytics';
-import { AnalyticsService } from '../analytics.service';
+import { AnalyticsService } from '../infrastructure/analytics.service';
 
 /**
  * Angular Profile Service
