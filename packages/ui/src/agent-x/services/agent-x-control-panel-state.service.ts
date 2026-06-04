@@ -290,6 +290,8 @@ export class AgentXControlPanelStateService implements OnDestroy {
   saveBudget(settings: AgentXBudgetSettings): void {
     const monthlyBudget = this.normalizeCurrency(settings.monthlyBudget, 25, 5000);
     const autoTopOffAmount = this.normalizeCurrency(settings.autoTopOffAmount, 25, 5000);
+    const budgetTrimmed = monthlyBudget !== settings.monthlyBudget;
+    const autoTopOffTrimmed = autoTopOffAmount !== settings.autoTopOffAmount;
 
     this._monthlyBudget.set(monthlyBudget);
     this._autoTopOffEnabled.set(settings.autoTopOffEnabled);
@@ -311,6 +313,17 @@ export class AgentXControlPanelStateService implements OnDestroy {
       autoTopOffEnabled: settings.autoTopOffEnabled,
       autoTopOffAmount,
     });
+    if (budgetTrimmed || autoTopOffTrimmed) {
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_BUDGET_TOOL_TRIMMED, {
+        source: 'agent-x-control-panel',
+        budgetTrimmed,
+        autoTopOffTrimmed,
+        requestedMonthlyBudget: settings.monthlyBudget,
+        appliedMonthlyBudget: monthlyBudget,
+        requestedAutoTopOffAmount: settings.autoTopOffAmount,
+        appliedAutoTopOffAmount: autoTopOffAmount,
+      });
+    }
   }
 
   saveGoals(goalIds: readonly string[]): void {

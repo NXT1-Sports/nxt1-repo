@@ -45,9 +45,19 @@ describe('agent approval policy', () => {
       },
     });
 
+    const gmailCopy = resolveAgentApprovalCopy({
+      toolName: 'gmail_send_email',
+      toolInput: {
+        to: ['gmail-coach@example.com'],
+        subject: 'Gmail update',
+      },
+    });
+
     expect(sendCopy.notificationTitle).toBe('Review Email Draft');
     expect(sendCopy.actionSummary).toContain('coach@example.com');
     expect(batchCopy.notificationTitle).toBe('Review Email Campaign');
     expect(batchCopy.actionSummary).toContain('Send 2 emails');
+    expect(gmailCopy.notificationTitle).toBe('Review Email Draft');
+    expect(gmailCopy.actionSummary).toContain('gmail-coach@example.com');
   });
 });

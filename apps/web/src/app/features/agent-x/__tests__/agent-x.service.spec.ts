@@ -124,6 +124,7 @@ function createService() {
 }
 
 describe('AgentXService', () => {
+  const pendingPlaybookOperationKey = 'nxt1_pending_playbook_op';
   let service: AgentXService;
   let httpMock: {
     get: ReturnType<typeof vi.fn>;
@@ -135,6 +136,7 @@ describe('AgentXService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    sessionStorage.clear();
     const ctx = createService();
     service = ctx.service;
     httpMock = ctx.httpMock;
@@ -453,5 +455,72 @@ describe('AgentXService', () => {
       'Review film',
       'Weekly Tasks',
     ]);
+  });
+
+  it('recovers a pending playbook after route return even when generating state is stale', async () => {
+    const generatedItem = createPlaybookItem('generated-1', {
+      id: 'recurring',
+      label: 'Weekly Tasks',
+    });
+    const dashboardResponse = {
+      success: true,
+      data: {
+        briefing: { insights: [], previewText: 'Ready' },
+        playbook: {
+          id: 'old-playbook',
+          items: [],
+          goals: [],
+          generatedAt: null,
+          canRegenerate: true,
+        },
+        coordinators: [],
+      },
+    };
+    const completedStatusResponse = {
+      success: true,
+      data: {
+        operationId: 'playbook-op-1',
+        status: 'completed',
+        result: {
+          data: {
+            playbook: {
+              id: 'new-playbook',
+              items: [generatedItem],
+              goals: [],
+              generatedAt: '2026-06-04T10:00:00.000Z',
+              canRegenerate: true,
+            },
+          },
+        },
+      },
+    };
+
+    const serviceState = service as unknown as {
+      _playbookGenerating: { set: (value: boolean) => void };
+    };
+    serviceState._playbookGenerating.set(true);
+    sessionStorage.setItem(
+      pendingPlaybookOperationKey,
+      JSON.stringify({ operationId: 'playbook-op-1', savedAt: Date.now() })
+    );
+
+    httpMock.get.mockImplementation((url: string) => {
+      if (url.includes('/agent-x/dashboard')) return of(dashboardResponse);
+      if (url.includes('/agent-x/playbook/generate/status/playbook-op-1')) {
+        return of(completedStatusResponse);
+      }
+      if (url.includes('/agent-x/tasks')) {
+        return of({ success: true, data: { tasks: [] } });
+      }
+      return of({ success: true, data: [] });
+    });
+
+    await service.loadDashboard();
+
+    await vi.waitFor(() => {
+      expect(service.playbookGenerating()).toBe(false);
+      expect(service.weeklyPlaybook().map((item) => item.id)).toEqual(['generated-1']);
+      expect(sessionStorage.getItem(pendingPlaybookOperationKey)).toBeNull();
+    });
   });
 });

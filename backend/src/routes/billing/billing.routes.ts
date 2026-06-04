@@ -6,13 +6,12 @@
  */
 
 import { Router, type Request, type Response } from 'express';
+import { Types } from 'mongoose';
 import { appGuard, cronGuard } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
 import { getCacheService } from '../../services/core/cache.service.js';
 import {
   recordUsageEvent,
-  getUserUsageEvents,
-  getTeamUsageEvents,
   type CreateUsageEventInput,
   getUnitCost,
   checkBudget,
@@ -37,8 +36,12 @@ import {
   hasConfiguredOrganizationBilling,
   expireStaleHolds,
   UsageEventStatus,
+  type UsageEvent,
 } from '../../modules/billing/index.js';
-import { UsageEventModel } from '../../models/analytics/usage-event.model.js';
+import {
+  UsageEventModel,
+  type UsageEventDocument,
+} from '../../models/analytics/usage-event.model.js';
 import { validateBody } from '../../middleware/validation/validation.middleware.js';
 import {
   CreateUsageEventDto,
@@ -101,6 +104,242 @@ async function buildAvailableBudgetTargets(
       })
       .sort((left, right) => left.label.localeCompare(right.label)),
   ];
+}
+
+function toUsageEvent(doc: UsageEventDocument): UsageEvent {
+  return {
+    id: (doc._id as Types.ObjectId).toString(),
+    userId: doc.userId,
+    ...(doc.teamId ? { teamId: doc.teamId } : {}),
+    ...(doc.organizationId ? { organizationId: doc.organizationId } : {}),
+    ...(doc.billedOwnerType ? { billedOwnerType: doc.billedOwnerType } : {}),
+    ...(doc.billedOwnerId ? { billedOwnerId: doc.billedOwnerId } : {}),
+    feature: doc.feature as UsageEvent['feature'],
+    quantity: doc.quantity,
+    unitCostSnapshot: doc.unitCostSnapshot,
+    costType: doc.costType as UsageEvent['costType'],
+    rawProviderCostUsd: doc.rawProviderCostUsd,
+    currency: doc.currency,
+    stripePriceId: doc.stripePriceId,
+    idempotencyKey: doc.idempotencyKey,
+    status: doc.status as UsageEventStatus,
+    stripeUsageId: doc.stripeUsageId,
+    stripeInvoiceItemId: doc.stripeInvoiceItemId,
+    errorMessage: doc.errorMessage,
+    retryCount: doc.retryCount,
+    lastRetryAt: doc.lastRetryAt as unknown as UsageEvent['lastRetryAt'],
+    metadata: doc.metadata,
+    createdAt: doc.createdAt as unknown as UsageEvent['createdAt'],
+    updatedAt: doc.updatedAt as unknown as UsageEvent['updatedAt'],
+  };
+}
+
+type UsageEventQuery = Record<string, unknown>;
+
+async function getOwnerAwareUsageEvents(
+  db: FirebaseFirestore.Firestore,
+  userId: string,
+  limit: number
+): Promise<UsageEvent[]> {
+  const target = await resolveBillingTarget(db, userId);
+
+  if (target.type === 'organization') {
+    const scopeFilters: Record<string, unknown>[] = [];
+    if ((target.teamIds?.length ?? 0) > 0) {
+      scopeFilters.push({ teamId: { $in: target.teamIds } });
+    }
+    if (target.organizationId) {
+      scopeFilters.push({ organizationId: target.organizationId });
+    }
+
+    const orgOwnedFilter: UsageEventQuery = {
+      billedOwnerType: 'organization',
+      billedOwnerId: target.billingUserId,
+    };
+    const legacyOrgFilter: UsageEventQuery | null =
+      scopeFilters.length > 0
+        ? {
+            $and: [
+              { $or: scopeFilters },
+              {
+                $or: [
+                  { 'metadata.settlementPath': 'org-wallet-debit' },
+                  { 'metadata.billingEntity': 'organization' },
+                ],
+              },
+              {
+                $or: [
+                  { billedOwnerType: { $exists: false } },
+                  { billedOwnerType: null },
+                  { billedOwnerType: '' },
+                ],
+              },
+            ],
+          }
+        : null;
+
+    const orgQuery: UsageEventQuery = legacyOrgFilter
+      ? { $or: [orgOwnedFilter, legacyOrgFilter] }
+      : orgOwnedFilter;
+
+    const docs = await UsageEventModel.find(orgQuery).sort({ createdAt: -1 }).limit(limit).lean();
+
+    return (docs as UsageEventDocument[]).map(toUsageEvent);
+  }
+
+  const normalizedBillingUserId = target.billingUserId.startsWith('individual:')
+    ? target.billingUserId.slice('individual:'.length)
+    : target.billingUserId;
+  const personalBilledOwnerIds = Array.from(
+    new Set([
+      target.billingUserId,
+      normalizedBillingUserId,
+      `individual:${normalizedBillingUserId}`,
+    ])
+  );
+
+  const personalQuery: UsageEventQuery = {
+    $or: [
+      {
+        billedOwnerType: 'individual',
+        billedOwnerId: { $in: personalBilledOwnerIds },
+      },
+      {
+        $and: [
+          { userId: target.billingUserId },
+          {
+            $or: [
+              { 'metadata.settlementPath': { $exists: false } },
+              { 'metadata.settlementPath': null },
+              { 'metadata.settlementPath': { $ne: 'org-wallet-debit' } },
+            ],
+          },
+          {
+            $or: [
+              { billedOwnerType: { $exists: false } },
+              { billedOwnerType: null },
+              { billedOwnerType: '' },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  const docs = await UsageEventModel.find(personalQuery)
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .lean();
+
+  return (docs as UsageEventDocument[]).map(toUsageEvent);
+}
+
+async function getOwnerAwareTeamUsageEvents(
+  db: FirebaseFirestore.Firestore,
+  teamId: string,
+  limit: number
+): Promise<UsageEvent[]> {
+  const teamDoc = await db.collection('Teams').doc(teamId).get();
+  const organizationId = teamDoc.data()?.['organizationId'] as string | undefined;
+
+  const teamQuery: UsageEventQuery = organizationId
+    ? {
+        $or: [
+          {
+            billedOwnerType: 'organization',
+            billedOwnerId: `org:${organizationId}`,
+            teamId,
+          },
+          {
+            $and: [
+              { teamId },
+              {
+                $or: [
+                  { 'metadata.settlementPath': 'org-wallet-debit' },
+                  { 'metadata.billingEntity': 'organization' },
+                ],
+              },
+              {
+                $or: [
+                  { billedOwnerType: { $exists: false } },
+                  { billedOwnerType: null },
+                  { billedOwnerType: '' },
+                ],
+              },
+            ],
+          },
+        ],
+      }
+    : { teamId };
+
+  const docs = await UsageEventModel.find(teamQuery).sort({ createdAt: -1 }).limit(limit).lean();
+
+  return (docs as UsageEventDocument[]).map(toUsageEvent);
+}
+
+async function getTeamUsageAccess(
+  db: FirebaseFirestore.Firestore,
+  teamId: string,
+  userId: string
+): Promise<{ allowed: boolean; teamFound: boolean }> {
+  const teamDoc = await db.collection('Teams').doc(teamId).get();
+  const teamData = teamDoc.data();
+
+  if (!teamData) {
+    return { allowed: false, teamFound: false };
+  }
+
+  const memberIds: string[] = Array.isArray(teamData['memberIds'])
+    ? (teamData['memberIds'] as string[])
+    : [];
+  const adminIds: string[] = Array.isArray(teamData['adminIds'])
+    ? (teamData['adminIds'] as string[])
+    : [];
+
+  if (memberIds.includes(userId) || adminIds.includes(userId) || teamData['createdBy'] === userId) {
+    return { allowed: true, teamFound: true };
+  }
+
+  const rosterSnap = await db
+    .collection('RosterEntries')
+    .where('userId', '==', userId)
+    .where('status', '==', 'active')
+    .limit(10)
+    .get();
+
+  if (
+    rosterSnap.docs.some((doc) => {
+      const roster = doc.data();
+      return roster['teamId'] === teamId;
+    })
+  ) {
+    return { allowed: true, teamFound: true };
+  }
+
+  const organizationId = teamData['organizationId'] as string | undefined;
+  if (!organizationId) {
+    return { allowed: false, teamFound: true };
+  }
+
+  const [userDoc, orgDoc] = await Promise.all([
+    db.collection('Users').doc(userId).get(),
+    db.collection('Organizations').doc(organizationId).get(),
+  ]);
+  const role = userDoc.data()?.['role'] as string | undefined;
+  const orgData = orgDoc.data();
+
+  if (!orgData) {
+    return { allowed: false, teamFound: true };
+  }
+
+  const ownerId = orgData['ownerId'] as string | undefined;
+  const orgAdmins = (orgData['admins'] as Array<{ userId: string }>) ?? [];
+  const orgAdminIds = orgAdmins.map((admin) => admin.userId).filter(Boolean);
+
+  return {
+    allowed: role === 'director' || ownerId === userId || orgAdminIds.includes(userId),
+    teamFound: true,
+  };
 }
 
 // ============================================
@@ -231,7 +470,7 @@ router.post(
 
 /**
  * GET /api/v1/billing/usage/me
- * Get current user's usage events
+ * Get current billing target's usage events
  */
 router.get('/usage/me', appGuard, async (req: Request, res: Response) => {
   try {
@@ -244,7 +483,7 @@ router.get('/usage/me', appGuard, async (req: Request, res: Response) => {
     }
 
     const limit = Number(req.query['limit']) || 50;
-    const events = await getUserUsageEvents(userId, limit);
+    const events = await getOwnerAwareUsageEvents(db, userId, limit);
 
     return res.json({
       success: true,
@@ -278,29 +517,18 @@ router.get('/usage/team/:teamId', appGuard, async (req: Request, res: Response) 
       throw new Error('Firebase context not available');
     }
 
-    // Verify the caller is a team member or admin
-    const teamDoc = await db.collection('Teams').doc(teamId).get();
-    const teamData = teamDoc.data();
-    if (!teamData) {
+    const access = await getTeamUsageAccess(db, teamId, userId);
+
+    if (!access.teamFound) {
       return res.status(404).json({ error: 'Team not found' });
     }
 
-    const memberIds: string[] = Array.isArray(teamData['memberIds'])
-      ? (teamData['memberIds'] as string[])
-      : [];
-    const adminIds: string[] = Array.isArray(teamData['adminIds'])
-      ? (teamData['adminIds'] as string[])
-      : [];
-    if (
-      !memberIds.includes(userId) &&
-      !adminIds.includes(userId) &&
-      teamData['createdBy'] !== userId
-    ) {
+    if (!access.allowed) {
       return res.status(403).json({ error: 'Access denied: not a team member' });
     }
 
     const limit = Number(req.query['limit']) || 100;
-    const events = await getTeamUsageEvents(teamId, limit);
+    const events = await getOwnerAwareTeamUsageEvents(db, teamId, limit);
 
     return res.json({
       success: true,

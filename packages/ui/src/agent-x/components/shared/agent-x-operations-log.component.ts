@@ -1374,6 +1374,7 @@ export class AgentXOperationsLogComponent {
    * the `done` event (prefer HTTP terminal status).
    */
   private readonly _liveInProgressThreads = new Set<string>();
+  private readonly _httpNotifiedTerminalRefreshKeys = new Set<string>();
 
   private getLiveEventKey(operationId: string | undefined, _threadId: string | undefined): string {
     // Strict operationId-only keying — see `_confirmedTerminalStatuses` doc
@@ -1393,6 +1394,72 @@ export class AgentXOperationsLogComponent {
       this._confirmedTerminalStatuses.delete(opId);
     }
     this._terminalOperationIdsByThread.delete(threadId);
+  }
+
+  private buildThreadRefreshNotificationKey(entry: OperationLogEntry): string {
+    const threadId = entry.threadId?.trim() ?? '';
+    if (!threadId) return '';
+
+    const operationId = entry.operationId?.trim() ?? '';
+    if (operationId) {
+      return `${threadId}:${operationId}:${entry.status}`;
+    }
+
+    return `${threadId}:${entry.timestamp}:${entry.status}`;
+  }
+
+  private emitOutOfBandThreadRefreshes(
+    previousEntries: readonly OperationLogEntry[],
+    nextEntries: readonly OperationLogEntry[]
+  ): void {
+    const terminalStatuses = new Set<OperationLogStatus>(['complete', 'error', 'cancelled']);
+    const previousByThread = new Map<string, OperationLogEntry>();
+    const previousByOperation = new Map<string, OperationLogEntry>();
+
+    for (const entry of previousEntries) {
+      const threadId = entry.threadId?.trim();
+      if (threadId) {
+        previousByThread.set(threadId, entry);
+      }
+
+      const operationId = entry.operationId?.trim();
+      if (operationId) {
+        previousByOperation.set(operationId, entry);
+      }
+    }
+
+    for (const entry of nextEntries) {
+      const threadId = entry.threadId?.trim();
+      if (!threadId || !terminalStatuses.has(entry.status)) continue;
+
+      const operationId = entry.operationId?.trim();
+      const previous =
+        (operationId ? previousByOperation.get(operationId) : undefined) ??
+        previousByThread.get(threadId);
+      const isFreshTerminalUpdate =
+        !previous ||
+        previous.status !== entry.status ||
+        previous.timestamp !== entry.timestamp ||
+        (previous.operationId?.trim() ?? '') !== (operationId ?? '');
+
+      if (!isFreshTerminalUpdate) continue;
+
+      const notificationKey = this.buildThreadRefreshNotificationKey(entry);
+      if (!notificationKey || this._httpNotifiedTerminalRefreshKeys.has(notificationKey)) continue;
+
+      this._httpNotifiedTerminalRefreshKeys.add(notificationKey);
+      this._unreadThreadIds.update((set) => {
+        const next = new Set(set);
+        next.add(threadId);
+        return next;
+      });
+      this.operationEventService.emitThreadMessagesUpdated(
+        threadId,
+        'operations-log',
+        operationId,
+        entry.status
+      );
+    }
   }
 
   /**
@@ -1803,10 +1870,11 @@ export class AgentXOperationsLogComponent {
    */
   private async silentRefresh(): Promise<void> {
     try {
+      const previousEntries = this._operations();
       // Snapshot live "in-flight" statuses from real-time SSE before the fetch
       const liveStatuses = new Map<string, OperationLogStatus>();
       const liveEntries = new Map<string, OperationLogEntry>();
-      for (const op of this._operations()) {
+      for (const op of previousEntries) {
         // Capture ALL live statuses — not just in-progress/awaiting_input.
         // This prevents a stale HTTP response (which may still say "in-progress"
         // while SSE has already set the entry to "complete"/"error") from
@@ -1912,6 +1980,7 @@ export class AgentXOperationsLogComponent {
         }
 
         this._operations.set(entries);
+        this.emitOutOfBandThreadRefreshes(previousEntries, entries);
       }
     } catch {
       // Silent refresh failures are non-critical

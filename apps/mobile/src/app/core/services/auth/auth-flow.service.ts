@@ -1015,6 +1015,12 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           team_code: credentials.teamCode,
           referral_source: credentials.referralId,
         });
+        if (credentials.teamCode) {
+          this.analytics.trackEvent(APP_EVENTS.TEAM_CODE_JOINED, {
+            team_code: credentials.teamCode,
+            method: AUTH_METHODS.EMAIL,
+          });
+        }
         this.analytics.setUserId(result.user.uid);
 
         // Update profile with display name

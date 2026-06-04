@@ -47,6 +47,39 @@ describe('approval-gate.service', () => {
     expect(requirement?.actionSummary).toContain('Recruiting update');
   });
 
+  it('requires approval for Google Workspace Gmail sends through the generic runner', () => {
+    const service = new ApprovalGateService({} as Firestore);
+
+    const requirement = service.getApprovalRequirement('run_google_workspace_tool', {
+      toolName: 'gmail_send_email',
+      arguments: {
+        to: ['coach1@example.com', 'coach2@example.com'],
+        subject: 'Recruiting update',
+        body: '<p>Coach, here is my latest film.</p>',
+      },
+    });
+
+    expect(requirement).not.toBeNull();
+    expect(requirement?.policy.toolName).toBe('run_google_workspace_tool');
+    expect(requirement?.policy.sessionTrustGroup).toBe('email');
+    expect(requirement?.reasonCode).toBe('send_email');
+    expect(requirement?.actionSummary).toContain('Send 2 Gmail emails');
+    expect(requirement?.actionSummary).toContain('Recruiting update');
+  });
+
+  it('does not require approval for Google Workspace Gmail reads through the generic runner', () => {
+    const service = new ApprovalGateService({} as Firestore);
+
+    const requirement = service.getApprovalRequirement('run_google_workspace_tool', {
+      toolName: 'query_gmail_emails',
+      arguments: {
+        query: 'from:coach@example.com',
+      },
+    });
+
+    expect(requirement).toBeNull();
+  });
+
   it('does not require approval for non-mail Microsoft 365 mutations', () => {
     const service = new ApprovalGateService({} as Firestore);
 

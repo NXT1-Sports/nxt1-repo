@@ -1187,6 +1187,11 @@ export class ProfileComponent {
       user.primarySport?.name?.toLowerCase()
     );
 
+    this.analyticsService.trackEvent(APP_EVENTS.PROFILE_QR_SCANNED, {
+      profile_id: profileId,
+      is_own_profile: this.uiProfileService.isOwnProfile(),
+    });
+
     await this.qrCode.open({
       url: qrUrl,
       displayName: user.displayName || `${user.firstName} ${user.lastName}`.trim() || 'Athlete',
@@ -1213,6 +1218,11 @@ export class ProfileComponent {
 
     const profileId = this.profileUnicode() || user.profileCode || user.uid;
     if (!profileId) return;
+
+    this.analyticsService.trackEvent(APP_EVENTS.PROFILE_SHARED, {
+      profile_id: profileId,
+      is_own_profile: this.uiProfileService.isOwnProfile(),
+    });
 
     await this.shareService.shareProfile(
       {

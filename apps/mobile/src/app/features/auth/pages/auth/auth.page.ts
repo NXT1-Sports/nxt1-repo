@@ -54,8 +54,10 @@ import {
 import { AuthFlowService, AuthApiService, BiometricService } from '../../../../core/services/auth';
 import { AuthNavigationService } from '@nxt1/ui/services';
 import { HapticsService } from '@nxt1/ui';
+import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { InviteApiService } from '@nxt1/ui/invite';
 import { isValidTeamCode } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { ValidatedTeamInfo } from '@nxt1/core';
 import { AUTH_PAGE_TEST_IDS } from '@nxt1/core/testing';
 import { Preferences } from '@capacitor/preferences';
@@ -186,6 +188,7 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AuthPage implements OnInit {
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   // ============================================
   // DEV CONSTANTS
   // ============================================
@@ -645,6 +648,10 @@ export class AuthPage implements OnInit {
    * Clear validated team code
    */
   onClearTeamCode(): void {
+    this.analytics?.trackEvent(APP_EVENTS.TEAM_CODE_LEFT, {
+      team_code: this.validatedTeam()?.code ?? this.teamCodeInput,
+      source: 'auth-mobile',
+    });
     this.teamCodeInput = '';
     this.validatedTeam.set(null);
     this.teamCodeError.set(null);

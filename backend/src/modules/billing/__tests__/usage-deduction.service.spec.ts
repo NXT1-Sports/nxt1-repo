@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Firestore } from 'firebase-admin/firestore';
 
-const mockGetAndClearJobCost = vi.fn();
+const mockGetAndClearJobCostBreakdown = vi.fn();
 const mockCalculateChargeAmount = vi.fn();
 const mockRecordSpend = vi.fn();
 const mockDeductOrgWallet = vi.fn();
@@ -10,8 +10,8 @@ const mockReleaseWalletHold = vi.fn();
 const mockResolveBillingTarget = vi.fn();
 const mockRecordUsageEvent = vi.fn();
 
-vi.mock('../agent/queue/job-cost-tracker.js', () => ({
-  getAndClearJobCost: mockGetAndClearJobCost,
+vi.mock('../../agent/queue/job-cost-tracker.js', () => ({
+  getAndClearJobCostBreakdown: mockGetAndClearJobCostBreakdown,
 }));
 
 vi.mock('../pricing.service.js', () => ({
@@ -47,7 +47,11 @@ describe('executeBillingDeduction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    mockGetAndClearJobCost.mockReturnValue(0);
+    mockGetAndClearJobCostBreakdown.mockReturnValue({
+      totalUsd: 0,
+      byFeatureUsd: {},
+      byFeatureCount: {},
+    });
     mockCalculateChargeAmount.mockResolvedValue({ chargeAmountCents: 175 });
     mockRecordSpend.mockResolvedValue(undefined);
     mockDeductOrgWallet.mockResolvedValue(undefined);
@@ -191,6 +195,58 @@ describe('executeBillingDeduction', () => {
     );
   });
 
+  it('stores the per-feature telemetry call count as line quantity for multi-artifact diagram usage', async () => {
+    const db = {} as Firestore;
+
+    mockGetAndClearJobCostBreakdown.mockReturnValueOnce({
+      totalUsd: 0.27510219,
+      byFeatureUsd: { 'create-play-diagram': 0.27510219 },
+      byFeatureCount: { 'create-play-diagram': 3 },
+    });
+    mockCalculateChargeAmount.mockResolvedValueOnce({
+      chargeAmountCents: 83,
+      multiplier: 3,
+      overrideSource: 'default',
+    });
+    mockResolveBillingTarget.mockResolvedValue({
+      type: 'organization',
+      billingUserId: 'org:org_diagram',
+      organizationId: 'org_diagram',
+      context: { teamId: 'team_diagram' },
+      teamIds: ['team_diagram'],
+    });
+
+    const { executeBillingDeduction } = await import('../usage-deduction.service.js');
+
+    const result = await executeBillingDeduction({
+      db,
+      userId: 'user_diagram',
+      operationId: 'op_three_diagrams',
+      feature: 'create-play-diagram',
+    });
+
+    expect(result).toEqual({ charged: true, rawCostUsd: 0.27510219, chargeAmountCents: 83 });
+    expect(mockRecordUsageEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        feature: 'create-play-diagram',
+        dynamicCostCents: 83,
+        quantity: 1,
+        metadata: expect.objectContaining({
+          lineFeature: 'create-play-diagram',
+          lineQuantity: 3,
+          chargeBreakdown: [
+            expect.objectContaining({
+              feature: 'create-play-diagram',
+              chargeAmountCents: 83,
+              quantity: 3,
+            }),
+          ],
+        }),
+      }),
+      'production'
+    );
+  });
+
   it('skips wallet mutation and releases the duplicate hold when the billing lock exists', async () => {
     const lockRef = { id: 'op_duplicate' };
     const transaction = {
@@ -315,6 +371,69 @@ describe('executeBillingDeduction', () => {
     );
   });
 
+  it('stores resolved org and team attribution on the charged deduction lock', async () => {
+    const lockRef = {
+      id: 'op_lock_attribution',
+      set: vi.fn().mockResolvedValue(undefined),
+    };
+    const transaction = {
+      get: vi.fn().mockResolvedValue({
+        exists: false,
+        data: () => undefined,
+      }),
+      set: vi.fn(),
+    };
+    const db = {
+      collection: vi.fn(() => ({ doc: vi.fn(() => lockRef) })),
+      runTransaction: vi.fn(async (callback: (txn: typeof transaction) => Promise<boolean>) =>
+        callback(transaction)
+      ),
+    } as unknown as Firestore;
+
+    mockCalculateChargeAmount.mockResolvedValue({ chargeAmountCents: 85 });
+    mockResolveBillingTarget.mockResolvedValue({
+      type: 'organization',
+      billingUserId: 'org:org_lock',
+      organizationId: 'org_lock',
+      context: { teamId: 'team_lock' },
+      teamIds: ['team_lock'],
+    });
+
+    const { executeBillingDeduction } = await import('../usage-deduction.service.js');
+
+    const result = await executeBillingDeduction({
+      db,
+      userId: 'user_lock',
+      operationId: 'op_lock_attribution',
+      feature: 'film-breakdown',
+      knownCostUsd: 0.35,
+    });
+
+    expect(result).toEqual({ charged: true, rawCostUsd: 0.35, chargeAmountCents: 85 });
+    expect(lockRef.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'charged',
+        userId: 'user_lock',
+        chargeAmountCents: 85,
+        primaryFeature: 'film-breakdown',
+        billableFeatures: ['film-breakdown'],
+        billedOwnerType: 'organization',
+        billedOwnerId: 'org:org_lock',
+        organizationId: 'org_lock',
+        teamId: 'team_lock',
+        via: 'deductOrgWallet',
+        chargeBreakdown: [
+          expect.objectContaining({
+            feature: 'film-breakdown',
+            rawCostUsd: 0.35,
+            chargeAmountCents: 85,
+          }),
+        ],
+      }),
+      { merge: true }
+    );
+  });
+
   it('captures a wallet hold once for the operation charge', async () => {
     const db = {} as Firestore;
 
@@ -356,6 +475,51 @@ describe('executeBillingDeduction', () => {
     );
   });
 
+  it('resolves org billing before capturing a held job when the caller already supplied a teamId', async () => {
+    const db = {} as Firestore;
+
+    mockCalculateChargeAmount.mockResolvedValueOnce({ chargeAmountCents: 90 });
+    mockResolveBillingTarget.mockResolvedValue({
+      type: 'organization',
+      billingUserId: 'org:org_held',
+      organizationId: 'org_held',
+      teamIds: ['team_held'],
+      context: { teamId: 'team_held' },
+    });
+
+    const { executeBillingDeduction } = await import('../usage-deduction.service.js');
+
+    const result = await executeBillingDeduction({
+      db,
+      userId: 'user_held',
+      operationId: 'op_held_org',
+      feature: 'generate-graphic',
+      teamId: 'team_held',
+      knownCostUsd: 0.9,
+      iapHoldId: 'hold_personal_stale',
+    });
+
+    expect(result).toEqual({ charged: true, rawCostUsd: 0.9, chargeAmountCents: 90 });
+    expect(mockResolveBillingTarget).toHaveBeenCalledWith(db, 'user_held');
+    expect(mockReleaseWalletHold).toHaveBeenCalledWith(db, 'hold_personal_stale');
+    expect(mockDeductOrgWallet).toHaveBeenCalledWith(db, 'org_held', 'user_held', 'team_held', 90);
+    expect(mockCaptureWalletHold).not.toHaveBeenCalled();
+    expect(mockRecordUsageEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user_held',
+        teamId: 'team_held',
+        organizationId: 'org_held',
+        billedOwnerType: 'organization',
+        billedOwnerId: 'org:org_held',
+        metadata: expect.objectContaining({
+          settlementPath: 'wallet-hold-capture',
+          alreadySettled: true,
+        }),
+      }),
+      'production'
+    );
+  });
+
   it('uses the resolved org teamId when the caller does not provide one', async () => {
     const db = {} as Firestore;
 
@@ -383,8 +547,54 @@ describe('executeBillingDeduction', () => {
       expect.objectContaining({
         userId: 'user_456',
         teamId: 'team_ctx',
+        metadata: expect.objectContaining({
+          teamAttributionStatus: 'resolved',
+        }),
       }),
       'staging'
+    );
+  });
+
+  it('does not guess an org teamId from the org team list when the billing context is missing one', async () => {
+    const db = {} as Firestore;
+
+    mockResolveBillingTarget.mockResolvedValue({
+      type: 'organization',
+      billingUserId: 'org:org_missing_team',
+      organizationId: 'org_missing_team',
+      teamIds: ['team_wrong_guess'],
+      context: { teamId: undefined },
+    });
+
+    const { executeBillingDeduction } = await import('../usage-deduction.service.js');
+
+    await executeBillingDeduction({
+      db,
+      userId: 'user_missing_team',
+      operationId: 'op_missing_team',
+      feature: 'briefing-generation',
+      knownCostUsd: 0.75,
+    });
+
+    expect(mockDeductOrgWallet).toHaveBeenCalledWith(
+      db,
+      'org_missing_team',
+      'user_missing_team',
+      undefined,
+      175
+    );
+    expect(mockRecordUsageEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user_missing_team',
+        metadata: expect.objectContaining({
+          teamAttributionStatus: 'missing',
+        }),
+      }),
+      'production'
+    );
+    expect(mockRecordUsageEvent).toHaveBeenCalledWith(
+      expect.not.objectContaining({ teamId: expect.anything() }),
+      'production'
     );
   });
 
@@ -525,6 +735,48 @@ describe('executeBillingDeduction', () => {
     expect(mockReleaseWalletHold).not.toHaveBeenCalled();
     expect(mockDeductOrgWallet).not.toHaveBeenCalled();
     expect(mockRecordSpend).not.toHaveBeenCalled();
+  });
+
+  it('captures the pre-authorized personal hold estimate when telemetry cost is missing', async () => {
+    const db = {} as Firestore;
+
+    mockResolveBillingTarget.mockResolvedValue({
+      type: 'individual',
+      billingUserId: 'user_iap_fallback',
+      context: { teamId: undefined },
+      teamIds: [],
+    });
+
+    const { executeBillingDeduction } = await import('../usage-deduction.service.js');
+
+    const result = await executeBillingDeduction({
+      db,
+      userId: 'user_iap_fallback',
+      operationId: 'op_iap_fallback',
+      feature: 'agent-execution',
+      iapHoldId: 'hold_fallback_789',
+      fallbackChargeAmountCents: 30,
+    });
+
+    expect(result).toEqual({ charged: true, rawCostUsd: 0, chargeAmountCents: 30 });
+    expect(mockCalculateChargeAmount).not.toHaveBeenCalled();
+    expect(mockCaptureWalletHold).toHaveBeenCalledWith(db, 'hold_fallback_789', 30);
+    expect(mockReleaseWalletHold).not.toHaveBeenCalled();
+    expect(mockRecordUsageEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user_iap_fallback',
+        billedOwnerType: 'individual',
+        billedOwnerId: 'user_iap_fallback',
+        feature: 'agent-execution',
+        dynamicCostCents: 30,
+        rawProviderCostUsd: 0,
+        metadata: expect.objectContaining({
+          fallbackChargeApplied: true,
+          settlementPath: 'wallet-hold-capture',
+        }),
+      }),
+      'production'
+    );
   });
 
   it('caps IAP billing to the pre-authorized hold and records platform-absorbed overage', async () => {

@@ -230,6 +230,25 @@ describe('Phase 5: Strategy Coordinator Diagram Tool Routing & Hardening', () =>
       expect(prompt).toContain('Do NOT say "I have created your diagrams"');
       expect(prompt).toContain('real `diagramUrl` values');
     });
+
+    it('system prompt allows clear diagram requests without permission gating', () => {
+      const prompt = agent.getSystemPrompt({ mode: 'default' });
+
+      expect(prompt).toContain('Do not ask permission just to generate the diagram');
+      expect(prompt).toContain('Clear diagram requests are already user authorization');
+      expect(prompt).toContain('Do NOT ask "Do you want me to create the diagram?"');
+    });
+
+    it('system prompt does not classify diagram tools as approval-only persistence tools', () => {
+      const prompt = agent.getSystemPrompt({ mode: 'default' });
+      const approvalSection = prompt.substring(
+        prompt.indexOf('STEP 3 — EXECUTE ONLY AFTER APPROVAL:'),
+        prompt.indexOf('For play mutations specifically')
+      );
+
+      expect(approvalSection).not.toContain('`create_play_diagram`, `create_board_diagram`');
+      expect(approvalSection).toContain('Diagram tools are the exception');
+    });
   });
 
   // ─── REGRESSION PREVENTION ──────────────────────────────────────────

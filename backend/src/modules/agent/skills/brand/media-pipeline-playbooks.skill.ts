@@ -46,7 +46,7 @@ Execute media requests via these explicit tool chains. Never substitute ad-hoc r
 2. \`runway_generate_video\` — motion teaser from poster.
 3. \`ffmpeg_merge_videos\` — append teaser to highlight reel with maxIntroSeconds=4 when the teaser is used as the opener.
 4. \`ffmpeg_generate_thumbnail\` — generate poster frame metadata for the final reel (not a separate deliverable unless requested).
-5. \`write_timeline_post\` — publish final media URL (only when user asks to post).
+5. NXT1 posting handoff — return the final media URL for the Data Coordinator posting workflow only when the user explicitly asks for a NXT1 timeline/feed post. For Instagram, TikTok, X/Twitter, Facebook, LinkedIn, YouTube, Threads, Snapchat, or any external network, prepare the media URL and caption only; direct external publishing is not connected yet.
 
 ### Pipeline Execution Rules
 - Prefer tool execution over descriptive-only responses when user asks to create/edit media.

@@ -226,6 +226,48 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
                       }
                     }
                   }
+
+                  @if (row.lineItems.length > 0) {
+                    <tr class="accounting-row">
+                      <td colspan="3">
+                        <div class="accounting-cell">
+                          <nxt1-icon name="creditCard" size="14" className="accounting-icon" />
+                          <span class="accounting-name">Other usage</span>
+                          <span class="nested-amount">{{
+                            formatAmount(rowLineItemsTotal(row))
+                          }}</span>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr class="sku-header-row">
+                      <td colspan="3">
+                        <div class="sku-header sku-header--accounting">
+                          <span class="sku-col-name">Product</span>
+                          <span class="sku-col">Units</span>
+                          <span class="sku-col">Price/unit</span>
+                          <span class="sku-col">Gross amount</span>
+                          <span class="sku-col-billed">Billed amount</span>
+                        </div>
+                      </td>
+                    </tr>
+                    @for (item of row.lineItems; track $index) {
+                      <tr class="sku-row">
+                        <td colspan="3">
+                          <div class="sku-detail sku-detail--accounting">
+                            <span class="sku-col-name">
+                              <span class="sku-name">{{ item.sku }}</span>
+                            </span>
+                            <span class="sku-col">{{ item.units }}</span>
+                            <span class="sku-col">{{ item.pricePerUnit }}</span>
+                            <span class="sku-col">{{ formatAmount(item.grossAmount) }}</span>
+                            <span class="sku-col-billed">{{
+                              formatAmount(item.billedAmount)
+                            }}</span>
+                          </div>
+                        </td>
+                      </tr>
+                    }
+                  }
                 } @else {
                   <!-- ─── INDIVIDUAL PATH: Flat product rows ─── -->
                   <tr class="sku-header-row">
@@ -471,6 +513,36 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
         }
       }
 
+      .accounting-row {
+        border-bottom: 1px solid var(--nxt1-color-border-subtle);
+        background: var(--nxt1-color-surface-200);
+      }
+
+      .accounting-row td {
+        padding: 0;
+      }
+
+      .accounting-cell {
+        display: flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2);
+        padding: var(--nxt1-spacing-3) var(--nxt1-spacing-4) var(--nxt1-spacing-3)
+          var(--nxt1-spacing-10);
+        font-size: var(--nxt1-fontSize-sm);
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .accounting-icon {
+        color: var(--nxt1-color-text-secondary);
+        flex-shrink: 0;
+      }
+
+      .accounting-name {
+        font-weight: var(--nxt1-fontWeight-medium);
+        flex: 1;
+        min-width: 0;
+      }
+
       .team-cell {
         display: flex;
         align-items: center;
@@ -563,6 +635,10 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
         padding-left: var(--nxt1-spacing-20, 80px);
       }
 
+      .sku-header--accounting {
+        padding-left: var(--nxt1-spacing-16, 64px);
+      }
+
       .sku-row td {
         padding: 0;
         border-bottom: 1px solid var(--nxt1-color-border-subtle);
@@ -580,6 +656,10 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
 
       .sku-detail--nested {
         padding-left: var(--nxt1-spacing-20, 80px);
+      }
+
+      .sku-detail--accounting {
+        padding-left: var(--nxt1-spacing-16, 64px);
       }
 
       .sku-col-name {
@@ -680,6 +760,10 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
           padding-left: var(--nxt1-spacing-8);
         }
 
+        .accounting-cell {
+          padding-left: var(--nxt1-spacing-8);
+        }
+
         .user-cell {
           padding-left: var(--nxt1-spacing-12);
         }
@@ -687,6 +771,11 @@ import { USAGE_TEST_IDS } from '@nxt1/core/testing';
         .sku-header--nested,
         .sku-detail--nested {
           padding-left: var(--nxt1-spacing-14, 56px);
+        }
+
+        .sku-header--accounting,
+        .sku-detail--accounting {
+          padding-left: var(--nxt1-spacing-12, 48px);
         }
 
         .sub-action-panel {
@@ -811,6 +900,10 @@ export class UsageBreakdownTableComponent {
 
   protected formatAmount(cents: number): string {
     return formatPrice(cents);
+  }
+
+  protected rowLineItemsTotal(row: UsageBreakdownRow): number {
+    return row.lineItems.reduce((total, item) => total + item.billedAmount, 0);
   }
 
   protected onTimeframeChange(event: Event): void {

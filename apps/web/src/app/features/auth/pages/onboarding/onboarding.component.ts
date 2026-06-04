@@ -1590,6 +1590,7 @@ export class OnboardingComponent implements OnInit, OnDestroy {
         role: result.user?.role,
         onboardingCompleted: result.user?.onboardingCompleted,
       });
+      this.onboardingAnalytics.trackQualifiedOrganizationLead(profileData);
 
       const primarySport =
         profileData.sports?.find((sportEntry) => sportEntry.isPrimary)?.sport ??

@@ -478,6 +478,41 @@ describe('agent-app-config', () => {
     expect(action?.executionPrompt).toContain('Produce a concrete deliverable');
   });
 
+  it('uses concept-first prompt text for brand creative dashboard actions', () => {
+    const config = parseAgentAppConfig({
+      coordinators: [
+        {
+          id: 'brand_coordinator',
+          name: 'Brand Coordinator',
+          description: 'Owns creative assets and brand media.',
+          icon: 'sparkles',
+          capabilities: ['creative_media'],
+          availableForRoles: ['coach'],
+          commands: [
+            {
+              id: 'brand-program-graphic',
+              label: 'Program Overview Graphic',
+              icon: 'sparkles',
+              subLabel: 'Create a recruiting-ready program graphic',
+            },
+          ],
+          scheduledActions: [],
+        },
+      ],
+    });
+
+    const coordinator = resolveConfiguredCoordinatorsForRole('coach', config).find(
+      (item) => item.id === 'brand_coordinator'
+    );
+
+    expect(coordinator?.commands[0]?.promptText).toContain(
+      'Start by proposing 3 creative directions'
+    );
+    expect(coordinator?.commands[0]?.promptText).not.toContain(
+      'Give me the clearest deliverable, priorities, and next steps to act on immediately.'
+    );
+  });
+
   it('reads AppConfig/agentConfig once and reuses the cached config within the TTL', async () => {
     resetCachedAgentAppConfig();
 

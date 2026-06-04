@@ -17,6 +17,8 @@ import { AngularHttpAdapter } from '../../infrastructure';
 import { clearHttpCache } from '../../infrastructure/http/cache.interceptor';
 import { PerformanceService } from '..';
 import { TRACE_NAMES, ATTRIBUTE_NAMES, METRIC_NAMES } from '@nxt1/core/performance';
+import { APP_EVENTS } from '@nxt1/core/analytics';
+import { AnalyticsService } from '../infrastructure/analytics.service';
 
 /**
  * Angular Profile Service
@@ -36,6 +38,7 @@ export class ProfileService {
   private readonly api: ProfileApi;
   private readonly ssrUrl = environment.apiURL;
   private readonly performance = inject(PerformanceService);
+  private readonly analytics = inject(AnalyticsService);
 
   constructor() {
     // Create profile API instance with Angular HTTP adapter
@@ -186,7 +189,16 @@ export class ProfileService {
     return from(
       this.performance.trace(
         TRACE_NAMES.PROFILE_SPORT_REMOVE,
-        () => this.api.removeSport(userId, sportIndex),
+        async () => {
+          const result = await this.api.removeSport(userId, sportIndex);
+          if (result.success) {
+            this.analytics.trackEvent(APP_EVENTS.PROFILE_SPORT_REMOVED, {
+              user_id: userId,
+              sport_index: sportIndex,
+            });
+          }
+          return result;
+        },
         {
           attributes: {
             [ATTRIBUTE_NAMES.FEATURE_NAME]: 'profile_sport_edit',

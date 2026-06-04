@@ -1929,6 +1929,10 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
     }
 
     if (uploadedUrls.length > 0) {
+      this.analytics?.trackEvent(APP_EVENTS.PROFILE_PHOTO_UPDATED, {
+        source: 'edit-profile-shell',
+        uploaded_count: uploadedUrls.length,
+      });
       this.toast.success(`Uploaded ${uploadedUrls.length} image(s)`);
     }
 

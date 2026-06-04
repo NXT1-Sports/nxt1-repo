@@ -32,7 +32,7 @@ import {
   type UsageCoupon,
   type UsageBudget,
 } from '@nxt1/core';
-import { APP_EVENTS } from '@nxt1/core/analytics';
+import { APP_EVENTS, FIREBASE_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
@@ -87,6 +87,39 @@ export class UsageService implements OnDestroy {
   private _holdsPollingInterval: ReturnType<typeof setInterval> | null = null;
   /** Interval handle for polling wallet balance every 60 s while the page is active */
   private _balancePollInterval: ReturnType<typeof setInterval> | null = null;
+
+  private trackCreditPurchaseFunnelStep(
+    eventName: string,
+    amountCents: number,
+    organizationId?: string,
+    extra?: Record<string, unknown>
+  ): void {
+    const value = amountCents / 100;
+    const payload: Record<string, unknown> = {
+      currency: 'USD',
+      value,
+      billing_entity: organizationId ? 'organization' : 'individual',
+      organization_id: organizationId,
+      items: [
+        {
+          item_id: 'nxt1_wallet_credits',
+          item_name: 'NXT1 Wallet Credits',
+          item_category: 'wallet_credits',
+          price: value,
+          quantity: 1,
+        },
+      ],
+      ...extra,
+    };
+
+    (
+      this.analytics as
+        | { trackEvent: (name: string, properties?: Record<string, unknown>) => void }
+        | null
+        | undefined
+    )?.trackEvent(eventName, payload);
+  }
+
   /** Timeout handles for short-lived force-refresh retries after external billing flows */
   private _externalRefreshTimeouts: Array<ReturnType<typeof setTimeout>> = [];
   /** Monotonic token so stale async dashboard loads cannot overwrite newer state */
@@ -198,6 +231,11 @@ export class UsageService implements OnDestroy {
           options.sessionId,
           options.organizationId ?? undefined
         );
+        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_BILLING_CARD_PURCHASE_COMPLETED, {
+          checkoutType: 'hosted_checkout',
+          organizationId: options.organizationId ?? undefined,
+          sessionId: options.sessionId,
+        });
         this.logger.info('Stripe checkout session finalized on return', {
           sessionId: options.sessionId,
           organizationId: options.organizationId,
@@ -1040,9 +1078,19 @@ export class UsageService implements OnDestroy {
   async buyCredits(amountCents: number, organizationId?: string): Promise<void> {
     this.logger.info('Purchasing credits', { amountCents, organizationId });
     this.breadcrumb.trackStateChange('usage:buying-credits', { amountCents, organizationId });
+    this.trackCreditPurchaseFunnelStep(FIREBASE_EVENTS.VIEW_ITEM, amountCents, organizationId);
+    this.trackCreditPurchaseFunnelStep(FIREBASE_EVENTS.ADD_TO_CART, amountCents, organizationId);
 
     const hasSavedDefaultMethod = this.defaultPaymentMethod() !== null;
     const isNativePlatform = typeof window !== 'undefined' && Capacitor.isNativePlatform();
+    this.trackCreditPurchaseFunnelStep(
+      FIREBASE_EVENTS.BEGIN_CHECKOUT,
+      amountCents,
+      organizationId,
+      {
+        checkout_type: hasSavedDefaultMethod ? 'direct_charge' : 'hosted_checkout',
+      }
+    );
 
     try {
       const result = (await this.runWithSharedLoader(
@@ -1055,9 +1103,18 @@ export class UsageService implements OnDestroy {
         amountCents,
         billingEntity: organizationId ? 'organization' : 'individual',
       });
+      this.analytics?.trackEvent(APP_EVENTS.CREDITS_PURCHASED, {
+        amountCents,
+        billingEntity: organizationId ? 'organization' : 'individual',
+      });
 
       if (result.type === 'credited') {
         // Saved card charged directly — no redirect needed.
+        this.analytics?.trackEvent(APP_EVENTS.AGENT_X_BILLING_CARD_PURCHASE_COMPLETED, {
+          amountCents,
+          billingEntity: organizationId ? 'organization' : 'individual',
+          checkoutType: 'direct_charge',
+        });
         await this.haptics.notification('success');
         this.toast.success(`$${(amountCents / 100).toFixed(2)} added to your wallet`);
         // Reload so balance card and payment history update immediately.

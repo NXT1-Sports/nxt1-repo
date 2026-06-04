@@ -64,6 +64,14 @@ export interface ThreadTitleUpdatedEvent {
   readonly operationId?: string;
 }
 
+/** Emitted when persisted thread messages changed and the open thread should refresh. */
+export interface ThreadMessagesUpdatedEvent {
+  readonly threadId: string;
+  readonly source: 'chat' | 'enqueue' | 'operations-log';
+  readonly operationId?: string;
+  readonly status?: OperationLogStatus;
+}
+
 /** Emitted when an operation's status changes during the /chat SSE stream. */
 export interface OperationStatusUpdatedEvent {
   readonly threadId: string;
@@ -424,6 +432,9 @@ export class AgentXOperationEventService {
   private readonly _titleUpdated$ = new Subject<ThreadTitleUpdatedEvent>();
   readonly titleUpdated$ = this._titleUpdated$.asObservable();
 
+  private readonly _threadMessagesUpdated$ = new Subject<ThreadMessagesUpdatedEvent>();
+  readonly threadMessagesUpdated$ = this._threadMessagesUpdated$.asObservable();
+
   /**
    * Observable that emits when an operation's status changes during the /chat SSE stream.
    * The operations log component subscribes to this to update entry statuses in real-time
@@ -594,6 +605,36 @@ export class AgentXOperationEventService {
         source,
         ...(normalizedOperationId ? { operationId: normalizedOperationId } : {}),
         ...(title ? { title } : {}),
+      })
+    );
+  }
+
+  /**
+   * Emit a thread-messages-updated event so the shell can refresh an already-open
+   * thread after an out-of-band background completion lands in persisted storage.
+   */
+  emitThreadMessagesUpdated(
+    threadId: string,
+    source: 'chat' | 'enqueue' | 'operations-log' = 'chat',
+    operationId?: string,
+    status?: OperationLogStatus
+  ): void {
+    const resolvedThreadId = threadId.trim();
+    if (!resolvedThreadId) return;
+
+    const normalizedOperationId = operationId?.trim() || undefined;
+    this.logger.debug('Emitting thread messages update', {
+      threadId: resolvedThreadId,
+      operationId: normalizedOperationId,
+      source,
+      status,
+    });
+    this.ngZone.run(() =>
+      this._threadMessagesUpdated$.next({
+        threadId: resolvedThreadId,
+        source,
+        ...(normalizedOperationId ? { operationId: normalizedOperationId } : {}),
+        ...(status ? { status } : {}),
       })
     );
   }

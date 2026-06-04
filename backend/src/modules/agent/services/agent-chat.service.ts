@@ -393,11 +393,66 @@ export class AgentChatService {
       .lean()
       .exec();
 
-    if (!doc) return null;
+    if (!doc) return this.repairThreadMetadataFromMessages(threadId, userId);
 
     return {
       ...this.toThread(doc),
       latestPausedYieldState: doc.latestPausedYieldState ?? null,
+    };
+  }
+
+  private async repairThreadMetadataFromMessages(
+    threadId: string,
+    userId: string
+  ): Promise<(AgentThread & { latestPausedYieldState?: unknown }) | null> {
+    const filter = { threadId, userId, deletedAt: null };
+    const [firstMessage, lastMessage, messageCount] = await Promise.all([
+      AgentMessageModel.findOne(filter).sort({ createdAt: 1 }).lean().exec(),
+      AgentMessageModel.findOne(filter).sort({ createdAt: -1 }).lean().exec(),
+      AgentMessageModel.countDocuments(filter).exec(),
+    ]);
+
+    if (!firstMessage || !lastMessage || messageCount === 0) return null;
+
+    const now = new Date().toISOString();
+    const firstContent = typeof firstMessage.content === 'string' ? firstMessage.content : '';
+    const title = deriveFallbackTitle(firstContent || 'Agent X Thread')
+      .slice(0, 80)
+      .trim();
+
+    const repaired = await AgentThreadModel.findOneAndUpdate(
+      { _id: threadId, userId },
+      {
+        $set: {
+          lastAgentId: lastMessage.agentId,
+          lastMessageAt: lastMessage.createdAt,
+          messageCount,
+          memorySummarized: false,
+          updatedAt: now,
+        },
+        $setOnInsert: {
+          userId,
+          title: title || 'Agent X Thread',
+          archived: false,
+          createdAt: firstMessage.createdAt ?? now,
+        },
+      },
+      { upsert: true, returnDocument: 'after' }
+    )
+      .lean()
+      .exec();
+
+    if (!repaired) return null;
+
+    logger.warn('[AgentChatService] Repaired missing thread metadata from messages', {
+      threadId,
+      userId,
+      messageCount,
+    });
+
+    return {
+      ...this.toThread(repaired),
+      latestPausedYieldState: repaired.latestPausedYieldState ?? null,
     };
   }
 
@@ -759,7 +814,19 @@ export class AgentChatService {
 
     await AgentThreadModel.updateOne(
       { _id: params.threadId, userId: params.userId },
-      { $set, $inc: { messageCount: 1 } }
+      {
+        $set,
+        $setOnInsert: {
+          userId: params.userId,
+          title: deriveFallbackTitle(params.content || 'Agent X Thread')
+            .slice(0, 80)
+            .trim(),
+          archived: false,
+          createdAt: now,
+        },
+        $inc: { messageCount: 1 },
+      },
+      { upsert: true }
     ).exec();
 
     if (this.queueService) {

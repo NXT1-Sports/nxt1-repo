@@ -818,13 +818,14 @@ export class LiveViewSessionService {
       }
     }
 
-    let sessionId = scrapeResult.metadata?.scrapeId;
-    if (!sessionId) {
+    const initialSessionId = scrapeResult.metadata?.scrapeId;
+    if (!initialSessionId) {
       throw new AgentEngineError(
         'LIVE_VIEW_REQUEST_FAILED',
         'Firecrawl scrape did not return a scrapeId — cannot start live view.'
       );
     }
+    let sessionId: string = initialSessionId;
 
     // Fire an initial interact() call to activate the live-view session
     // and obtain the interactiveLiveViewUrl.

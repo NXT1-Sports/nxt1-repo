@@ -48,6 +48,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
+import { interval } from 'rxjs';
 
 import { NxtIconComponent } from '../../components/icon';
 import { NxtStateViewComponent } from '../../components/state-view';
@@ -4145,6 +4146,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly platform = inject(NxtPlatformService);
   private readonly selectedCoordinatorLabel = signal<string | null>(null);
   private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
+  private readonly activeThreadRefreshKeys = new Set<string>();
   protected readonly mobileComposerCanSend = computed(() => this.agentX.canSend());
   private desktopSessionCounter = 0;
 
@@ -4182,6 +4184,25 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
           this.activeDesktopSession.set({ ...current, contextTitle: evt.title });
         }
       });
+
+    this.operationEventService.threadMessagesUpdated$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((evt) => {
+        const current = this.activeDesktopSession();
+        const activeThreadId = current?.threadId?.trim() ?? '';
+        if (!activeThreadId || activeThreadId !== evt.threadId) return;
+
+        this.requestActiveThreadRefresh(evt.threadId, evt.source, evt.operationId, evt.status);
+      });
+
+    interval(60_000)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        const threadId = this.activeDesktopSession()?.threadId?.trim() ?? '';
+        if (!threadId || !this.operationsLog()?.hasRecurringTaskForThread(threadId)) return;
+
+        this.requestActiveThreadRefresh(threadId, 'recurring-poll');
+      });
   }
 
   ngOnDestroy(): void {
@@ -4193,6 +4214,47 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     if (this.liveView.activeSession()) {
       this.liveView.closePanel();
     }
+  }
+
+  @HostListener('window:focus')
+  protected onWindowFocus(): void {
+    const threadId = this.activeDesktopSession()?.threadId?.trim() ?? '';
+    if (!threadId || !this.operationsLog()?.hasRecurringTaskForThread(threadId)) return;
+
+    this.requestActiveThreadRefresh(threadId, 'window-focus');
+  }
+
+  private requestActiveThreadRefresh(
+    threadId: string,
+    source: string,
+    operationId?: string,
+    status?: string
+  ): void {
+    const refreshKey = operationId?.trim() ? `${threadId}:${operationId.trim()}` : threadId;
+    if (this.activeThreadRefreshKeys.has(refreshKey)) return;
+
+    this.activeThreadRefreshKeys.add(refreshKey);
+    void this.agentX
+      .refreshThread(threadId)
+      .then(() => {
+        this.logger.info('Refreshed active thread after background update', {
+          threadId,
+          operationId,
+          source,
+          status,
+        });
+      })
+      .catch((err: unknown) => {
+        this.logger.error('Failed to refresh active thread after background update', err, {
+          threadId,
+          operationId,
+          source,
+          status,
+        });
+      })
+      .finally(() => {
+        this.activeThreadRefreshKeys.delete(refreshKey);
+      });
   }
 
   /** Agent X SVG logo path data for inline icon rendering. */

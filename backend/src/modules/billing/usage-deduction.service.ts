@@ -63,6 +63,12 @@ export interface BillingDeductionInput {
   /** Optional metadata attached to the usage event for audit */
   metadata?: Record<string, unknown>;
   /**
+   * Best-effort charge in cents when telemetry cost is unavailable after a
+   * completed wallet-held job. This should come from the pre-authorized hold
+   * estimate so we never charge more than the user already approved.
+   */
+  fallbackChargeAmountCents?: number;
+  /**
    * When the caller already knows the raw USD cost (e.g. from LLMCompletionResult.costUsd),
    * pass it here to skip the job-cost-tracker lookup.  The tracker is still cleared for
    * the operationId to prevent stale accumulation.
@@ -83,6 +89,7 @@ interface BillingFeatureChargeLine {
   readonly feature: string;
   readonly rawCostUsd: number;
   readonly chargeAmountCents: number;
+  readonly quantity: number;
   readonly multiplier: number;
   readonly overrideSource: 'coordinator' | 'feature' | 'default';
 }
@@ -282,6 +289,7 @@ export async function executeBillingDeduction(
     iapHoldId,
     metadata,
     knownCostUsd,
+    fallbackChargeAmountCents,
   } = input;
   let resolvedTeamId = input.teamId;
   // Seed resolvedOrgId from the caller-supplied hint. This covers first-run
@@ -308,15 +316,18 @@ export async function executeBillingDeduction(
     // Step 1: Resolve raw cost
     let totalCostUsd: number;
     let telemetryByFeatureUsd: Record<string, number> = {};
+    let telemetryByFeatureCount: Record<string, number> = {};
     if (knownCostUsd != null && knownCostUsd > 0) {
       // Caller provided cost — still clear tracker to avoid stale entries
       getAndClearJobCostBreakdown(operationId);
       totalCostUsd = knownCostUsd;
       telemetryByFeatureUsd = { [primaryFeature]: knownCostUsd };
+      telemetryByFeatureCount = { [primaryFeature]: 1 };
     } else {
       const telemetryBreakdown = getAndClearJobCostBreakdown(operationId);
       totalCostUsd = telemetryBreakdown.totalUsd;
       telemetryByFeatureUsd = telemetryBreakdown.byFeatureUsd;
+      telemetryByFeatureCount = telemetryBreakdown.byFeatureCount;
     }
 
     logger.info('[billing] Deduction pipeline start', {
@@ -329,8 +340,15 @@ export async function executeBillingDeduction(
       mode: iapHoldId ? 'hold-capture' : 'direct-debit',
     });
 
-    // Step 2: Zero cost — release any hold and bail
-    if (totalCostUsd <= 0) {
+    // Step 2: Zero cost — for completed wallet-held jobs, fall back to the
+    // pre-authorized estimate when telemetry was unavailable. Otherwise release
+    // any hold and bail.
+    const fallbackChargeCents = Number.isInteger(fallbackChargeAmountCents)
+      ? Math.max(0, fallbackChargeAmountCents ?? 0)
+      : 0;
+    const shouldUseFallbackCharge = totalCostUsd <= 0 && iapHoldId && fallbackChargeCents > 0;
+
+    if (totalCostUsd <= 0 && !shouldUseFallbackCharge) {
       if (iapHoldId) {
         releaseWalletHold(db, iapHoldId).catch((e: unknown) => {
           logger.warn('[billing] Failed to release IAP hold on zero cost', {
@@ -343,24 +361,44 @@ export async function executeBillingDeduction(
     }
 
     // Step 3: Apply markup per resolved feature/tool cost slice.
-    const costSlices = buildFeatureRawCostMap({
-      totalCostUsd,
-      telemetryByFeatureUsd,
-      resolvedFeatures,
-      primaryFeature,
-    });
+    const costSlices = shouldUseFallbackCharge
+      ? { byFeatureUsd: new Map<string, number>([[primaryFeature, 0]]), usedFallbackSplit: false }
+      : buildFeatureRawCostMap({
+          totalCostUsd,
+          telemetryByFeatureUsd,
+          resolvedFeatures,
+          primaryFeature,
+        });
     let chargeLines: BillingFeatureChargeLine[] = [];
 
-    for (const [featureKey, rawCostUsd] of costSlices.byFeatureUsd.entries()) {
-      if (rawCostUsd <= 0) continue;
-      const lineCharge = await calculateChargeAmount(db, rawCostUsd, featureKey, coordinatorId);
+    if (shouldUseFallbackCharge) {
       chargeLines.push({
-        feature: featureKey,
-        rawCostUsd,
-        chargeAmountCents: lineCharge.chargeAmountCents,
-        multiplier: lineCharge.multiplier,
-        overrideSource: lineCharge.overrideSource,
+        feature: primaryFeature,
+        rawCostUsd: 0,
+        chargeAmountCents: fallbackChargeCents,
+        quantity: 1,
+        multiplier: 0,
+        overrideSource: 'default',
       });
+      logger.warn('[billing] Using wallet hold estimate because telemetry cost was zero', {
+        operationId,
+        userId,
+        feature: primaryFeature,
+        fallbackChargeCents,
+      });
+    } else {
+      for (const [featureKey, rawCostUsd] of costSlices.byFeatureUsd.entries()) {
+        if (rawCostUsd <= 0) continue;
+        const lineCharge = await calculateChargeAmount(db, rawCostUsd, featureKey, coordinatorId);
+        chargeLines.push({
+          feature: featureKey,
+          rawCostUsd,
+          chargeAmountCents: lineCharge.chargeAmountCents,
+          quantity: Math.max(1, telemetryByFeatureCount[featureKey] ?? 1),
+          multiplier: lineCharge.multiplier,
+          overrideSource: lineCharge.overrideSource,
+        });
+      }
     }
 
     let chargeAmountCents = chargeLines.reduce((sum, line) => sum + line.chargeAmountCents, 0);
@@ -419,12 +457,20 @@ export async function executeBillingDeduction(
 
     // Step 4: Resolve billing target before any direct debit so org-billed users
     // always debit the org wallet, even when the caller already passed a teamId.
-    if (!iapHoldId || !resolvedTeamId) {
+    if (!resolvedOrgId || !resolvedTeamId) {
       try {
         const target = await resolveBillingTarget(db, userId);
-        resolvedTeamId = resolvedTeamId ?? target.context.teamId ?? target.teamIds?.[0];
+        resolvedTeamId = resolvedTeamId ?? target.context.teamId;
         if (target.type === 'organization') {
           resolvedOrgId = target.organizationId;
+          if (!resolvedTeamId) {
+            logger.warn('[billing] Missing canonical org team attribution for usage event', {
+              operationId,
+              userId,
+              organizationId: target.organizationId,
+              availableTeamIds: target.teamIds ?? [],
+            });
+          }
         }
       } catch {
         resolvedTeamId = resolvedTeamId ?? undefined;
@@ -469,15 +515,21 @@ export async function executeBillingDeduction(
     moneyMoved = true;
 
     await markBillingDeductionLock(db, operationId, 'charged', {
+      userId,
       chargedAt: FieldValue.serverTimestamp(),
       chargeAmountCents,
       rawCostUsd: totalCostUsd,
       primaryFeature,
       billableFeatures: [...resolvedFeatures],
+      billedOwnerType: resolvedOrgId ? 'organization' : 'individual',
+      billedOwnerId: resolvedOrgId ? `org:${resolvedOrgId}` : userId,
+      ...(effectiveTeamId ? { teamId: effectiveTeamId } : {}),
+      ...(resolvedOrgId ? { organizationId: resolvedOrgId } : {}),
       chargeBreakdown: chargeLines.map((line) => ({
         feature: line.feature,
         rawCostUsd: line.rawCostUsd,
         chargeAmountCents: line.chargeAmountCents,
+        quantity: line.quantity,
         ...(Number.isFinite(line.multiplier) ? { multiplier: line.multiplier } : {}),
         ...(line.overrideSource ? { overrideSource: line.overrideSource } : {}),
       })),
@@ -496,6 +548,7 @@ export async function executeBillingDeduction(
       operationId,
       ...(coordinatorId ? { coordinatorId } : {}),
       ...metadata,
+      ...(resolvedOrgId ? { teamAttributionStatus: effectiveTeamId ? 'resolved' : 'missing' } : {}),
       primaryFeature,
       billableFeatures: [...resolvedFeatures],
       // Canonical trail used by usage breakdown routes to keep labels
@@ -512,12 +565,14 @@ export async function executeBillingDeduction(
         feature: line.feature,
         rawCostUsd: line.rawCostUsd,
         chargeAmountCents: line.chargeAmountCents,
+        quantity: line.quantity,
         ...(Number.isFinite(line.multiplier) ? { multiplier: line.multiplier } : {}),
         ...(line.overrideSource ? { overrideSource: line.overrideSource } : {}),
       })),
       ...(heldAmountCents !== undefined ? { heldAmountCents } : {}),
       ...(absorbedOverageCents > 0 ? { uncappedChargeAmountCents, absorbedOverageCents } : {}),
       fallbackSplitApplied: costSlices.usedFallbackSplit,
+      fallbackChargeApplied: shouldUseFallbackCharge,
     };
 
     // Step 5: Write per-feature audit trail usage events.
@@ -553,6 +608,7 @@ export async function executeBillingDeduction(
               lineFeature: line.feature,
               lineIndex: index + 1,
               lineCount: usageLines.length,
+              lineQuantity: line.quantity,
               settlementPath: iapHoldId
                 ? 'wallet-hold-capture'
                 : resolvedOrgId

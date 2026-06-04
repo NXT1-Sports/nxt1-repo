@@ -70,6 +70,7 @@ describe('schedule-recurring.tool', () => {
       },
       {
         userId: 'user-1',
+        environment: 'staging',
       }
     );
 
@@ -83,12 +84,13 @@ describe('schedule-recurring.tool', () => {
         userId: 'user-1',
         intent: 'Send intro email',
         origin: 'system_cron',
-        context: {
+        context: expect.objectContaining({
           sourceId: 'thread-123',
           threadId: 'thread-123',
-        },
+          timezone: 'America/Chicago',
+        }),
       }),
-      'production'
+      'staging'
     );
 
     expect(doc).toHaveBeenCalledWith('repeat:key:123');
@@ -99,7 +101,7 @@ describe('schedule-recurring.tool', () => {
         cronExpression: '0 8 * * 2',
         timezone: 'America/Chicago',
         sourceId: 'thread-123',
-        environment: 'production',
+        environment: 'staging',
       })
     );
   });
@@ -133,6 +135,7 @@ describe('schedule-recurring.tool', () => {
       {
         userId: 'user-1',
         threadId: '663f7c99f9b6aa3f9f77c4ad',
+        environment: 'staging',
       }
     );
 
@@ -142,16 +145,20 @@ describe('schedule-recurring.tool', () => {
       '0 10 * * 1',
       'America/Chicago',
       expect.objectContaining({
-        context: {
+        context: expect.objectContaining({
           sourceId: '663f7c99f9b6aa3f9f77c4ad',
           threadId: '663f7c99f9b6aa3f9f77c4ad',
-        },
+          timezone: 'America/Chicago',
+        }),
       }),
-      'production'
+      'staging'
     );
 
     expect(set).toHaveBeenCalledWith(
-      expect.objectContaining({ sourceId: '663f7c99f9b6aa3f9f77c4ad' })
+      expect.objectContaining({
+        sourceId: '663f7c99f9b6aa3f9f77c4ad',
+        environment: 'staging',
+      })
     );
   });
 
@@ -191,10 +198,17 @@ describe('schedule-recurring.tool', () => {
       expect.stringMatching(/^recv:user-1:/),
       '0 10 * * 1',
       'America/Chicago',
-      expect.not.objectContaining({ context: expect.anything() }),
-      'production'
+      expect.objectContaining({
+        context: { timezone: 'America/Chicago' },
+      }),
+      'staging'
     );
 
+    expect(set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        environment: 'staging',
+      })
+    );
     expect(set).toHaveBeenCalledWith(expect.not.objectContaining({ sourceId: expect.anything() }));
   });
 });

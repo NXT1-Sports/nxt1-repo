@@ -9,9 +9,73 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { logger } from 'firebase-functions/v2';
+import * as admin from 'firebase-admin';
 
 const CRON_SECRET = defineSecret('CRON_SECRET');
 const BACKEND_URL = defineString('BACKEND_URL');
+const FAILURE_ALERT_THRESHOLD = 3;
+const HEALTH_DOC_PATH = 'CronHealth/reconcileAgentJobThreadLinks';
+
+interface ReconcileFailureDetails {
+  readonly reason: string;
+  readonly status?: number;
+  readonly body?: string;
+}
+
+async function recordSuccess(): Promise<void> {
+  await admin.firestore().doc(HEALTH_DOC_PATH).set(
+    {
+      consecutiveFailures: 0,
+      lastSuccessAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    },
+    { merge: true }
+  );
+}
+
+async function recordFailure(details: ReconcileFailureDetails): Promise<number> {
+  const db = admin.firestore();
+  const ref = db.doc(HEALTH_DOC_PATH);
+
+  return db.runTransaction(async (transaction) => {
+    const snapshot = await transaction.get(ref);
+    const previous = snapshot.data();
+    const previousFailures =
+      typeof previous?.['consecutiveFailures'] === 'number' ? previous['consecutiveFailures'] : 0;
+    const consecutiveFailures = previousFailures + 1;
+
+    transaction.set(
+      ref,
+      {
+        consecutiveFailures,
+        lastFailureAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastFailureReason: details.reason,
+        lastFailureStatus: details.status ?? null,
+        lastFailureBody: details.body?.slice(0, 500) ?? null,
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+
+    return consecutiveFailures;
+  });
+}
+
+async function handleFailure(details: ReconcileFailureDetails): Promise<void> {
+  const consecutiveFailures = await recordFailure(details);
+
+  logger.warn('Agent job-thread link reconciliation skipped', {
+    ...details,
+    consecutiveFailures,
+    alertThreshold: FAILURE_ALERT_THRESHOLD,
+  });
+
+  if (consecutiveFailures >= FAILURE_ALERT_THRESHOLD) {
+    throw new Error(
+      `Agent job-thread link reconciliation failed ${consecutiveFailures} times consecutively: ${details.reason}`
+    );
+  }
+}
 
 export const reconcileAgentJobThreadLinks = onSchedule(
   {
@@ -37,24 +101,33 @@ export const reconcileAgentJobThreadLinks = onSchedule(
 
       if (!response.ok) {
         const body = await response.text().catch(() => '');
-        // Use warn (not error) so the scheduler wrapper doesn't create a
-        // duplicate Error Reporting group — the outer catch logs the single
-        // authoritative error entry.
         logger.warn('Backend returned non-OK response', {
           status: response.status,
           body: body.slice(0, 500),
         });
-        throw new Error(`Reconcile job-thread links: backend returned ${response.status}`);
+        await handleFailure({
+          reason: 'backend_non_ok',
+          status: response.status,
+          body,
+        });
+        return;
       }
 
       const result = (await response.json()) as { data?: Record<string, unknown> };
+      await recordSuccess();
       logger.info('Agent job-thread link reconciliation completed', {
         result: result.data ?? null,
       });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
-      logger.error('Agent job-thread link reconciliation failed', { error: error.message });
-      throw error;
+      if (error.message.startsWith('Agent job-thread link reconciliation failed')) {
+        logger.error('Agent job-thread link reconciliation escalation', {
+          error: error.message,
+        });
+        throw error;
+      }
+
+      await handleFailure({ reason: error.message });
     }
   }
 );

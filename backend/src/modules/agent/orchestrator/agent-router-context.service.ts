@@ -343,6 +343,7 @@ export class AgentRouterContextService {
     threadId?: string,
     environment?: 'staging' | 'production',
     appBaseUrl?: string,
+    timezone?: string,
     signal?: AbortSignal,
     mode?: string,
     attachments?: readonly {
@@ -372,6 +373,7 @@ export class AgentRouterContextService {
       lastActiveAt: now,
       ...(environment && { environment }),
       ...(appBaseUrl && { appBaseUrl }),
+      ...(timezone && { timezone }),
       ...(operationId && { operationId }),
       ...(threadId && { threadId }),
       ...(mode && { mode }),

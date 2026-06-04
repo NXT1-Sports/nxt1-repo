@@ -301,6 +301,21 @@ export class AgentXOperationChatTransportFacade {
       ...(resolvedUserContext ? { userContext: resolvedUserContext } : {}),
     } satisfies AgentXChatRequest;
 
+    this.analytics?.trackEvent(APP_EVENTS.AI_TASK_STARTED, {
+      contextType: host.contextType(),
+      contextId: host.contextId(),
+      threadId: host.resolveActiveThreadId() ?? undefined,
+      hasAttachments: attachments.length > 0,
+      attachmentCount: attachments.length,
+    });
+    this.analytics?.trackEvent(APP_EVENTS.AGENT_THREAD_MESSAGE_APPENDED, {
+      contextType: host.contextType(),
+      contextId: host.contextId(),
+      threadId: host.resolveActiveThreadId() ?? undefined,
+      role: 'user',
+      source: 'operation-chat-send',
+    });
+
     this.logger.info('Dispatching Agent X chat request', {
       contextId: host.contextId(),
       threadId: host.resolveActiveThreadId() ?? null,
@@ -750,6 +765,43 @@ export class AgentXOperationChatTransportFacade {
                 typeof meta['recipientError'] === 'string'
                   ? (meta['recipientError'] as string)
                   : undefined;
+              const isReply = meta['isReply'] === true;
+
+              if (recipientStatus === 'sending') {
+                this.analytics?.trackEvent(APP_EVENTS.EMAIL_CREATED, {
+                  contextType: host.contextType(),
+                  contextId: host.contextId(),
+                  recipientDomain: recipientEmail.includes('@')
+                    ? recipientEmail.split('@').pop()
+                    : undefined,
+                  subject,
+                });
+              }
+              if (recipientStatus === 'sent') {
+                this.analytics?.trackEvent(APP_EVENTS.EMAIL_SENT, {
+                  contextType: host.contextType(),
+                  contextId: host.contextId(),
+                  recipientDomain: recipientEmail.includes('@')
+                    ? recipientEmail.split('@').pop()
+                    : undefined,
+                  subject,
+                });
+                this.analytics?.trackEvent(APP_EVENTS.AGENT_X_DRAFT_EMAIL_SENT, {
+                  contextType: host.contextType(),
+                  contextId: host.contextId(),
+                  subject,
+                });
+                if (isReply) {
+                  this.analytics?.trackEvent(APP_EVENTS.EMAIL_REPLIED, {
+                    contextType: host.contextType(),
+                    contextId: host.contextId(),
+                    recipientDomain: recipientEmail.includes('@')
+                      ? recipientEmail.split('@').pop()
+                      : undefined,
+                    subject,
+                  });
+                }
+              }
 
               host.batchEmailProgress.update((prev) => {
                 const base = prev ?? {
@@ -910,6 +962,24 @@ export class AgentXOperationChatTransportFacade {
               streaming: true,
               model: event.model,
             });
+            this.analytics?.trackEvent(APP_EVENTS.AGENT_X_JOB_COMPLETED, {
+              contextType: host.contextType(),
+              contextId: host.contextId(),
+              operationId: terminalOperationId ?? undefined,
+              threadId: event.threadId ?? threadId ?? undefined,
+            });
+            this.analytics?.trackEvent(APP_EVENTS.AI_TASK_COMPLETED, {
+              contextType: host.contextType(),
+              contextId: host.contextId(),
+              operationId: terminalOperationId ?? undefined,
+              threadId: event.threadId ?? threadId ?? undefined,
+              model: event.model,
+            });
+            this.analytics?.trackEvent(APP_EVENTS.CREDITS_USED, {
+              contextType: host.contextType(),
+              contextId: host.contextId(),
+              operationId: terminalOperationId ?? undefined,
+            });
             if (terminalOperationId) {
               this.profileGenerationState?.receiveJobDone(terminalOperationId, true);
             }
@@ -1014,6 +1084,20 @@ export class AgentXOperationChatTransportFacade {
               content: 'Something went wrong. Please try again.',
               timestamp: new Date(),
               error: true,
+            });
+            this.analytics?.trackEvent(APP_EVENTS.AGENT_X_JOB_FAILED, {
+              contextType: host.contextType(),
+              contextId: host.contextId(),
+              operationId: currentOperationId ?? undefined,
+              threadId: host.resolvedThreadId() ?? undefined,
+            });
+            this.analytics?.trackEvent(APP_EVENTS.AI_TASK_FAILED, {
+              contextType: host.contextType(),
+              contextId: host.contextId(),
+              operationId: currentOperationId ?? undefined,
+              threadId: host.resolvedThreadId() ?? undefined,
+              status: event.status,
+              code: event.code,
             });
             this.agentXService.clearDropRecoveryOp();
             const error = new Error(event.error);

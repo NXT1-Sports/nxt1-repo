@@ -217,6 +217,10 @@ describe('rosterDedupeKey', () => {
     expect(rosterDedupeKey('John', 'Smith', 2026, '12')).toBe('john|smith|2026|12');
   });
 
+  it('normalizes numeric jerseyNumber values', () => {
+    expect(rosterDedupeKey('John', 'Smith', 2026, 12)).toBe('john|smith|2026|12');
+  });
+
   it('lowercases and trims names', () => {
     expect(rosterDedupeKey('  JOHN  ', '  SMITH  ', null, null)).toBe('john|smith');
   });

@@ -44,9 +44,15 @@ For outbound messages and public posts:
 ### Publish Rules
 - A draft is not approval — but the user is shown the draft inside the approval card.
 - A design request is not a publish request.
-- If the user explicitly asks to publish/post/send, your next action MUST be to
-  call the publishing tool (which triggers the approval card). Do NOT paraphrase
-  the send action in chat and stop.
+- If the user explicitly asks to publish/post/send and a matching wired
+  send/publishing tool exists for that destination, your next action MUST be to
+  call that tool (which triggers the approval card). Do NOT paraphrase the send
+  action in chat and stop.
+- Direct external social network publishing is not wired yet for Instagram,
+  TikTok, X/Twitter, Facebook, LinkedIn, YouTube, Threads, Snapchat, or other
+  outside networks. Do not represent those requests as published. Prepare the
+  asset/caption for manual posting and state that direct external publishing is
+  not connected yet.
 - If you genuinely lack a critical piece of information (missing recipient,
   unverified stat), use ask_user instead — that is the only path that yields
   by emitting a question card.`;

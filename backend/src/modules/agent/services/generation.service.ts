@@ -188,7 +188,24 @@ function trimToNull(value: unknown): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
+const BRAND_CREATIVE_ACTION_RE =
+  /\b(graphic|poster|banner|thumbnail|visual|creative|promo|teaser|reel|highlight|media\s+kit|title\s+card|social\s+asset)\b/i;
+
+function shouldUseBrandDiscoveryPrompt(params: {
+  readonly coordinatorId: string;
+  readonly actionLabel: string;
+  readonly actionDescription?: string;
+}): boolean {
+  if (params.coordinatorId !== 'brand_coordinator') {
+    return false;
+  }
+
+  const promptSource = `${params.actionLabel} ${params.actionDescription ?? ''}`;
+  return BRAND_CREATIVE_ACTION_RE.test(promptSource);
+}
+
 function buildSuggestedActionPromptText(params: {
+  readonly coordinatorId: string;
   readonly coordinatorLabel: string;
   readonly coordinatorDescription: string;
   readonly actionLabel: string;
@@ -198,7 +215,9 @@ function buildSuggestedActionPromptText(params: {
   return [
     `Please handle ${params.actionLabel} with the ${params.coordinatorLabel}.`,
     detail,
-    'Give me the clearest deliverable, priorities, and next steps to act on immediately.',
+    shouldUseBrandDiscoveryPrompt(params)
+      ? 'Start by proposing 3 creative directions, call out any missing audience/platform/copy/style inputs, and only produce the final asset after those are confirmed.'
+      : 'Give me the clearest deliverable, priorities, and next steps to act on immediately.',
   ]
     .filter(Boolean)
     .join(' ');
@@ -774,6 +793,7 @@ export class AgentGenerationService {
           promptText:
             fallbackAction.promptText ??
             buildSuggestedActionPromptText({
+              coordinatorId: coordinator.id,
               coordinatorLabel: coordinator.label,
               coordinatorDescription: coordinator.description,
               actionLabel: fallbackAction.label,

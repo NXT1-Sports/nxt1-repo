@@ -414,7 +414,12 @@ function sectionToFirestoreUpdate(
 
       // Jersey number
       if (data.jerseyNumber !== undefined) {
-        const trimmed = data.jerseyNumber?.trim() ?? '';
+        const trimmed =
+          typeof data.jerseyNumber === 'string'
+            ? data.jerseyNumber.trim()
+            : typeof data.jerseyNumber === 'number'
+              ? String(data.jerseyNumber).trim()
+              : '';
         targetSport.jerseyNumber = trimmed || undefined;
       }
 

@@ -37,6 +37,8 @@ import {
   buildUnifiedActivityFeed,
 } from '@nxt1/core';
 import { type FeedItem } from '@nxt1/core/posts';
+import { APP_EVENTS } from '@nxt1/core/analytics';
+import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { type RankingSource } from './rankings/profile-rankings.component';
@@ -79,6 +81,7 @@ export class ProfileService {
   private readonly logger = inject(NxtLoggingService).child('ProfileService');
   private readonly toast = inject(NxtToastService);
   private readonly theme = inject(NxtThemeService);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
   // Optional API service for persisting active sport index
   private api?: ProfileUiApi;
@@ -1160,6 +1163,19 @@ export class ProfileService {
       const result = await this.api.deletePost(userId, post.id);
       if (!result.success) {
         throw new Error(result.error ?? 'Failed to delete post');
+      }
+
+      if (post.type === 'video') {
+        this.analytics?.trackEvent(APP_EVENTS.VIDEO_DELETED, {
+          post_id: post.id,
+          source: 'profile-post',
+        });
+      }
+      if (post.type === 'offer') {
+        this.analytics?.trackEvent(APP_EVENTS.OFFER_REMOVED, {
+          post_id: post.id,
+          source: 'profile-post',
+        });
       }
 
       this.toast.success('Post deleted.');

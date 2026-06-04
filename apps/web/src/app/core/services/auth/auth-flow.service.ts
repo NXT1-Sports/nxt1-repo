@@ -174,6 +174,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
    */
   private firebaseAuth: Auth | null = null;
   private authStateSubscription?: Subscription;
+  private oauthPopupInFlight = false;
 
   /**
    * Tracks whether Firebase Auth has ever emitted a non-null user in this session.
@@ -333,6 +334,27 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     } finally {
       this.authManager.setLoading(false);
     }
+  }
+
+  /**
+   * Guard against launching multiple OAuth popups concurrently.
+   * Firebase popup flows are not re-entrant and can fail with internal
+   * assertion/minified runtime errors when duplicate requests race.
+   */
+  private beginOAuthPopup(provider: 'google' | 'microsoft' | 'apple'): boolean {
+    if (this.oauthPopupInFlight || this.authManager.getState().isLoading) {
+      this.logger.warn('Ignoring duplicate OAuth popup request', { provider });
+      return false;
+    }
+
+    this.oauthPopupInFlight = true;
+    this.authManager.setLoading(true);
+    return true;
+  }
+
+  private endOAuthPopup(): void {
+    this.oauthPopupInFlight = false;
+    this.authManager.setLoading(false);
   }
 
   /**
@@ -875,7 +897,37 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         this.analytics.trackEvent(APP_EVENTS.AUTH_SIGNED_IN, { method: AUTH_METHODS.EMAIL });
         this.analytics.setUserId(result.user.uid);
 
-        // Auth state listener handles profile sync and navigation
+        await this.storeTokenFromUser(result.user);
+        await this.syncUserProfile(result.user);
+
+        const currentUser = this.user();
+        if (currentUser) {
+          this.analytics.setUserProperties({
+            user_type: currentUser.role,
+            auth_provider: AUTH_METHODS.EMAIL,
+          });
+        }
+
+        if (
+          isEmailVerificationRequired() &&
+          currentUser?.provider === 'email' &&
+          currentUser.emailVerified === false
+        ) {
+          await this.navigateForward(AUTH_ROUTES.VERIFY_EMAIL);
+          return true;
+        }
+
+        if (!currentUser?.hasCompletedOnboarding) {
+          if (currentUser?._legacyId) {
+            await this.navigateForward('/auth/onboarding/congratulations');
+          } else {
+            await this.navigateForward(AUTH_ROUTES.ONBOARDING);
+          }
+          return true;
+        }
+
+        await this.navigateRoot(AUTH_REDIRECTS.DEFAULT);
+
         return true;
       },
       (err) => {
@@ -1101,6 +1153,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     }
 
     this.authManager.setError(null);
+
+    if (!this.beginOAuthPopup('google')) {
+      return false;
+    }
 
     // ⏱️ DEBUG: Total social login timing
     const __dbgT0 = performance.now();
@@ -1377,6 +1433,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       this.authManager.setError(errorMessage);
       return false;
+    } finally {
+      this.endOAuthPopup();
     }
   }
 
@@ -1393,6 +1451,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     }
 
     this.authManager.setError(null);
+
+    if (!this.beginOAuthPopup('microsoft')) {
+      return false;
+    }
 
     try {
       // Dynamic imports for SSR safety
@@ -1510,6 +1572,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       this.authManager.setError(errorMessage);
       return false;
+    } finally {
+      this.endOAuthPopup();
     }
   }
 
@@ -1526,6 +1590,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     }
 
     this.authManager.setError(null);
+
+    if (!this.beginOAuthPopup('apple')) {
+      return false;
+    }
 
     this.logger.info('🍎 Starting Apple OAuth (popup)');
 
@@ -1667,6 +1735,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       this.authManager.setError(errorMessage);
       return false;
+    } finally {
+      this.endOAuthPopup();
     }
   }
 
@@ -1731,6 +1801,12 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
             team_code: credentials.teamCode,
             referral_source: credentials.referralId,
           });
+          if (credentials.teamCode) {
+            this.analytics.trackEvent(APP_EVENTS.TEAM_CODE_JOINED, {
+              team_code: credentials.teamCode,
+              method: AUTH_METHODS.EMAIL,
+            });
+          }
           this.analytics.setUserId(result.user.uid);
 
           // Sync user state BEFORE navigating (required for onboarding page)

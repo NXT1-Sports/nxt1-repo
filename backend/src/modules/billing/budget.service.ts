@@ -1468,10 +1468,15 @@ export async function checkBudget(
     }
   }
 
-  // Tier 2: Check organization master wallet balance
   const orgCtx = orgId ? await getOrgBillingState(db, orgId) : null;
-
   const masterCtx = orgCtx ?? ctx;
+
+  const masterBudgetResult = checkHardStopSpendingBudget(masterCtx, costCents, 'organization');
+  if (masterBudgetResult) {
+    return masterBudgetResult;
+  }
+
+  // Tier 2: Check organization master wallet balance
   const result = checkWalletBudget(masterCtx, costCents, 'organization');
   // Signal to the frontend that this roster member can switch to their personal wallet
   if (!result.allowed) {
@@ -1561,35 +1566,70 @@ export async function checkBudgetForResolvedTarget(
     }
   }
 
-  const result = checkWalletBudget(ctx, costCents, 'organization');
+  const masterCtx = orgId ? ((await getOrgBillingState(db, orgId)) ?? ctx) : ctx;
+  const masterBudgetResult = checkHardStopSpendingBudget(masterCtx, costCents, 'organization');
+  if (masterBudgetResult) {
+    return masterBudgetResult;
+  }
+
+  const result = checkWalletBudget(masterCtx, costCents, 'organization');
   if (!result.allowed) {
     result.canSwitchToPersonal = true;
   }
   return result;
 }
 
+function checkHardStopSpendingBudget(
+  ctx: BillingState,
+  costCents: number,
+  billingEntity: BillingEntity = ctx.billingEntity
+): BudgetCheckResult | null {
+  const budget = ctx.monthlyBudget ?? 0;
+  if (!ctx.hardStop || budget <= 0) {
+    return null;
+  }
+
+  const currentSpend = ctx.currentPeriodSpend ?? 0;
+  const pendingHolds = ctx.pendingHoldsCents ?? 0;
+  const projectedSpend = currentSpend + pendingHolds + costCents;
+  const percentUsed = Math.round((projectedSpend / budget) * 100);
+  const alreadyAtLimit = currentSpend + pendingHolds >= budget;
+  const wouldExceedLimit = projectedSpend > budget;
+
+  if (!alreadyAtLimit && !wouldExceedLimit) {
+    return null;
+  }
+
+  const intervalLabel = getBudgetIntervalLabel(ctx.budgetInterval);
+  const capitalizedInterval = `${intervalLabel[0]!.toUpperCase()}${intervalLabel.slice(1)}`;
+  const action =
+    billingEntity === 'organization'
+      ? 'Increase your organization budget to continue.'
+      : 'Increase your budget in Settings → Usage to continue.';
+
+  return {
+    allowed: false,
+    reason: `${capitalizedInterval} budget of $${(budget / 100).toFixed(2)} reached. ${action}`,
+    currentSpend,
+    budget,
+    percentUsed,
+    billingEntity,
+  };
+}
+
 /**
  * Single-tier budget check (shared by individual and org master).
  */
 function checkSingleTierBudget(ctx: BillingState, costCents: number): BudgetCheckResult {
+  const budgetResult = checkHardStopSpendingBudget(ctx, costCents);
+  if (budgetResult) {
+    return budgetResult;
+  }
+
   const pendingHolds = ctx.pendingHoldsCents ?? 0;
   const projectedSpend = ctx.currentPeriodSpend + pendingHolds + costCents;
   const percentUsed =
     ctx.monthlyBudget > 0 ? Math.round((projectedSpend / ctx.monthlyBudget) * 100) : 0;
-
-  if (ctx.hardStop && projectedSpend > ctx.monthlyBudget) {
-    const intervalLabel = getBudgetIntervalLabel(ctx.budgetInterval);
-    return {
-      allowed: false,
-      reason:
-        `${intervalLabel[0]!.toUpperCase()}${intervalLabel.slice(1)} budget of $${(ctx.monthlyBudget / 100).toFixed(2)} reached. ` +
-        'Increase your budget in Settings → Usage to continue.',
-      currentSpend: ctx.currentPeriodSpend,
-      budget: ctx.monthlyBudget,
-      percentUsed,
-      billingEntity: ctx.billingEntity,
-    };
-  }
 
   return {
     allowed: true,
@@ -1658,7 +1698,10 @@ export function checkBudgetFromContext(
     return checkWalletBudget(ctx, costCents, 'individual');
   }
   if (ctx.billingEntity === 'organization') {
-    return checkWalletBudget(ctx, costCents, 'organization');
+    return (
+      checkHardStopSpendingBudget(ctx, costCents, 'organization') ??
+      checkWalletBudget(ctx, costCents, 'organization')
+    );
   }
   return checkSingleTierBudget(ctx, costCents);
 }

@@ -96,6 +96,8 @@ const AGENT_X_MEDIA_HOLD_COST_CENTS = (() => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : AGENT_X_STANDARD_HOLD_COST_CENTS;
 })();
 
+const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
+
 function estimateAgentXHoldCostCents(payload: AgentJobPayload): number {
   const text =
     `${payload.intent ?? ''} ${payload.displayIntent ?? ''} ${payload.agent ?? ''}`.toLowerCase();
@@ -132,7 +134,7 @@ function shouldSuppressCompletionPushWhenActivelyViewing(payload: AgentJobPayloa
     return explicitPolicy;
   }
 
-  return payload.origin === 'user';
+  return false;
 }
 
 const MAX_TIMEOUT_AUTO_CONTINUATIONS =
@@ -404,6 +406,134 @@ function extractTimelinePostDraft(
   return null;
 }
 
+function extractEmailApprovalDraft(
+  toolName: string,
+  toolInput: Record<string, unknown>
+): {
+  readonly title: string;
+  readonly variant: 'email' | 'email-batch';
+  readonly subject: string;
+  readonly body: string;
+  readonly toEmail?: string;
+  readonly recipients: Array<string | { toEmail: string; variables: Record<string, unknown> }>;
+  readonly recipientsCount: number;
+  readonly approveLabel: string;
+} | null {
+  type EmailBatchRecipient = { toEmail: string; variables: Record<string, unknown> };
+
+  if (toolName === 'send_email') {
+    const subject = typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '';
+    const body =
+      (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
+      (typeof toolInput['body'] === 'string' ? toolInput['body'] : '') ||
+      '';
+    const toEmail = typeof toolInput['toEmail'] === 'string' ? toolInput['toEmail'] : '';
+
+    return {
+      title: 'Review and Approve Email',
+      variant: 'email',
+      subject,
+      body,
+      toEmail,
+      recipients: toEmail ? [toEmail] : [],
+      recipientsCount: 1,
+      approveLabel: 'Send',
+    };
+  }
+
+  if (toolName === 'gmail_send_email') {
+    const subject = typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '';
+    const body = typeof toolInput['body'] === 'string' ? toolInput['body'] : '';
+    const recipients = Array.isArray(toolInput['to'])
+      ? toolInput['to'].filter(
+          (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+        )
+      : [];
+    const toEmail = recipients[0] ?? '';
+
+    return {
+      title:
+        recipients.length > 1
+          ? `Review and Approve Emails (${recipients.length} recipients)`
+          : 'Review and Approve Email',
+      variant: recipients.length > 1 ? 'email-batch' : 'email',
+      subject,
+      body,
+      toEmail,
+      recipients,
+      recipientsCount: Math.max(recipients.length, 1),
+      approveLabel: recipients.length > 1 ? 'Send All' : 'Send',
+    };
+  }
+
+  if (toolName === 'run_google_workspace_tool') {
+    const nestedToolName =
+      typeof toolInput['toolName'] === 'string' ? toolInput['toolName'].trim() : '';
+    if (nestedToolName !== 'gmail_send_email') return null;
+
+    const args =
+      toolInput['arguments'] &&
+      typeof toolInput['arguments'] === 'object' &&
+      !Array.isArray(toolInput['arguments'])
+        ? (toolInput['arguments'] as Record<string, unknown>)
+        : {};
+    return extractEmailApprovalDraft('gmail_send_email', args);
+  }
+
+  if (toolName === 'batch_send_email') {
+    const subject =
+      (typeof toolInput['subjectTemplate'] === 'string' && toolInput['subjectTemplate']) ||
+      (typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '') ||
+      '';
+    const body =
+      (typeof toolInput['bodyHtmlTemplate'] === 'string' && toolInput['bodyHtmlTemplate']) ||
+      (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
+      (typeof toolInput['body'] === 'string' ? toolInput['body'] : '') ||
+      '';
+    const recipients = Array.isArray(toolInput['recipients'])
+      ? (toolInput['recipients'] as Array<unknown>)
+          .map((r): EmailBatchRecipient | null => {
+            if (typeof r === 'string' && r.trim()) {
+              return { toEmail: r.trim(), variables: {} };
+            }
+            if (r && typeof r === 'object') {
+              const obj = r as Record<string, unknown>;
+              const toEmail =
+                typeof obj['toEmail'] === 'string' && obj['toEmail'].trim()
+                  ? obj['toEmail'].trim()
+                  : typeof obj['email'] === 'string' && obj['email'].trim()
+                    ? obj['email'].trim()
+                    : '';
+              if (!toEmail) return null;
+              return {
+                toEmail,
+                variables:
+                  obj['variables'] &&
+                  typeof obj['variables'] === 'object' &&
+                  !Array.isArray(obj['variables'])
+                    ? (obj['variables'] as Record<string, unknown>)
+                    : {},
+              };
+            }
+            return null;
+          })
+          .filter((recipient): recipient is EmailBatchRecipient => recipient !== null)
+      : [];
+
+    return {
+      title: `Review and Approve Emails (${recipients.length} recipient${recipients.length === 1 ? '' : 's'})`,
+      variant: 'email-batch',
+      subject,
+      body,
+      recipients,
+      recipientsCount: recipients.length,
+      approveLabel: 'Send All',
+    };
+  }
+
+  return null;
+}
+
 /**
  * Build an inline rich card for an agent yield (approval or input request).
  *
@@ -441,96 +571,25 @@ export function buildInlineYieldCard(params: {
   if (reason === 'needs_approval' && pendingToolCall && approvalId) {
     const { toolName, toolInput } = pendingToolCall;
 
-    // Email approvals: enrich with email metadata for frontend to render email-variant approval card
-    if (toolName === 'send_email') {
-      const subject = typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '';
-      const body =
-        (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
-        (typeof toolInput['body'] === 'string' ? toolInput['body'] : '') ||
-        '';
-      const toEmail = typeof toolInput['toEmail'] === 'string' ? toolInput['toEmail'] : '';
+    const emailDraft = extractEmailApprovalDraft(toolName, toolInput);
+    if (emailDraft) {
       return {
         type: 'confirmation',
         agentId,
-        title: 'Review and Approve Email',
+        title: emailDraft.title,
         payload: {
           message: promptToUser,
-          variant: 'email', // Signal frontend to render email UI
+          variant: emailDraft.variant,
           emailData: {
-            subject,
-            body,
-            toEmail,
-            recipients: toEmail ? [toEmail] : [],
-            recipientsCount: 1,
+            subject: emailDraft.subject,
+            body: emailDraft.body,
+            ...(emailDraft.toEmail ? { toEmail: emailDraft.toEmail } : {}),
+            recipients: emailDraft.recipients,
+            recipientsCount: emailDraft.recipientsCount,
           },
           actions: [
             { id: 'reject', label: 'Reject', variant: 'secondary' },
-            { id: 'approve', label: 'Send', variant: 'primary' },
-          ],
-          approvalId,
-          toolCallId: pendingToolCall.toolCallId,
-          operationId,
-        },
-      };
-    }
-
-    if (toolName === 'batch_send_email') {
-      const subject =
-        (typeof toolInput['subjectTemplate'] === 'string' && toolInput['subjectTemplate']) ||
-        (typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '') ||
-        '';
-      const body =
-        (typeof toolInput['bodyHtmlTemplate'] === 'string' && toolInput['bodyHtmlTemplate']) ||
-        (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
-        (typeof toolInput['body'] === 'string' ? toolInput['body'] : '') ||
-        '';
-      // Preserve full recipient objects {toEmail, variables} so the frontend
-      // can show variable previews and round-trip them intact through approval.
-      const recipients = Array.isArray(toolInput['recipients'])
-        ? (toolInput['recipients'] as Array<unknown>)
-            .map((r) => {
-              if (typeof r === 'string' && r.trim()) {
-                return { toEmail: r.trim(), variables: {} };
-              }
-              if (r && typeof r === 'object') {
-                const obj = r as Record<string, unknown>;
-                const toEmail =
-                  typeof obj['toEmail'] === 'string' && obj['toEmail'].trim()
-                    ? obj['toEmail'].trim()
-                    : typeof obj['email'] === 'string' && obj['email'].trim()
-                      ? obj['email'].trim()
-                      : '';
-                if (!toEmail) return null;
-                return {
-                  toEmail,
-                  variables:
-                    obj['variables'] &&
-                    typeof obj['variables'] === 'object' &&
-                    !Array.isArray(obj['variables'])
-                      ? (obj['variables'] as Record<string, string | number | boolean>)
-                      : {},
-                };
-              }
-              return null;
-            })
-            .filter(Boolean)
-        : [];
-      return {
-        type: 'confirmation',
-        agentId,
-        title: `Review and Approve Emails (${recipients.length} recipient${recipients.length === 1 ? '' : 's'})`,
-        payload: {
-          message: promptToUser,
-          variant: 'email-batch', // Signal frontend to render batch email UI
-          emailData: {
-            subject,
-            body,
-            recipients,
-            recipientsCount: recipients.length,
-          },
-          actions: [
-            { id: 'reject', label: 'Reject', variant: 'secondary' },
-            { id: 'approve', label: 'Send All', variant: 'primary' },
+            { id: 'approve', label: emailDraft.approveLabel, variant: 'primary' },
           ],
           approvalId,
           toolCallId: pendingToolCall.toolCallId,
@@ -807,6 +866,94 @@ export class AgentWorker {
     const scheduleId = repeatJobKey && repeatJobKey.trim().length > 0 ? repeatJobKey : job.name;
 
     return { scheduleId, runId };
+  }
+
+  private resolvePayloadThreadIdFromContext(
+    payload: import('@nxt1/core').AgentJobPayload
+  ): string | undefined {
+    const contextObj =
+      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+
+    const threadIdRaw =
+      typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['threadId'] as string)
+        : undefined;
+    const threadId = threadIdRaw?.trim();
+    if (threadId) {
+      return threadId;
+    }
+
+    const sourceIdRaw =
+      typeof (contextObj as Record<string, unknown>)['sourceId'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['sourceId'] as string)
+        : undefined;
+    const sourceId = sourceIdRaw?.trim();
+    return sourceId || undefined;
+  }
+
+  private resolveThreadIdFromRecurringMetadata(
+    data: Record<string, unknown> | undefined
+  ): string | undefined {
+    if (!data) return undefined;
+
+    const threadIdRaw = typeof data['threadId'] === 'string' ? data['threadId'] : undefined;
+    const threadId = threadIdRaw?.trim();
+    if (threadId) {
+      return threadId;
+    }
+
+    const sourceIdRaw = typeof data['sourceId'] === 'string' ? data['sourceId'] : undefined;
+    const sourceId = sourceIdRaw?.trim();
+    return sourceId || undefined;
+  }
+
+  private async resolveScheduledRunThreadId(
+    job: Job<AgentQueueJobData, AgentQueueJobResult>,
+    scheduledRunContext: { scheduleId: string; runId: string } | null,
+    db: FirebaseFirestore.Firestore
+  ): Promise<string | undefined> {
+    if (!scheduledRunContext) return undefined;
+
+    try {
+      const scheduleDoc = await db
+        .collection(RECURRING_TASKS_COLLECTION)
+        .doc(scheduledRunContext.scheduleId)
+        .get();
+      const fromDoc = this.resolveThreadIdFromRecurringMetadata(
+        scheduleDoc.exists ? (scheduleDoc.data() as Record<string, unknown> | undefined) : undefined
+      );
+      if (fromDoc) {
+        return fromDoc;
+      }
+
+      const byJobName = await db
+        .collection(RECURRING_TASKS_COLLECTION)
+        .where('jobName', '==', job.name)
+        .limit(1)
+        .get();
+      const firstMatch = byJobName.docs[0];
+      const fromJobName = this.resolveThreadIdFromRecurringMetadata(
+        firstMatch?.data() as Record<string, unknown> | undefined
+      );
+      if (fromJobName) {
+        return fromJobName;
+      }
+
+      logger.warn('Scheduled run has no recoverable thread metadata', {
+        operationId: scheduledRunContext.runId,
+        scheduleId: scheduledRunContext.scheduleId,
+        jobName: job.name,
+      });
+    } catch (err) {
+      logger.warn('Failed to resolve scheduled run thread metadata', {
+        operationId: scheduledRunContext.runId,
+        scheduleId: scheduledRunContext.scheduleId,
+        jobName: job.name,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    return undefined;
   }
 
   private async ensureJobDocumentExists(
@@ -1356,16 +1503,16 @@ export class AgentWorker {
       typeof basePayload.context === 'object' && basePayload.context !== null
         ? basePayload.context
         : {};
-    const payloadThreadId =
-      typeof (payloadContext as Record<string, unknown>)['threadId'] === 'string'
-        ? ((payloadContext as Record<string, unknown>)['threadId'] as string)
-        : undefined;
     const scheduledRunContext = this.getScheduledRunContext(job, basePayload);
     const payload = scheduledRunContext
       ? { ...basePayload, operationId: scheduledRunContext.runId }
       : basePayload;
     const startMs = Date.now();
     const repo = this.getJobRepo(job);
+    const billingDb = await this.getActivityFirestore(job);
+    const payloadThreadId =
+      this.resolvePayloadThreadIdFromContext(basePayload) ??
+      (await this.resolveScheduledRunThreadId(job, scheduledRunContext, billingDb));
 
     await this.ensureJobDocumentExists(repo, payload);
 
@@ -1443,8 +1590,6 @@ export class AgentWorker {
       }
     }
 
-    // Hoist billing db so it's available across the full job lifecycle
-    const billingDb = await this.getActivityFirestore(job);
     const feature = typeof payload.agent === 'string' ? payload.agent : 'agent';
     const skipBilling = (payloadContext as Record<string, unknown>)['skipBilling'] === true;
 
@@ -1452,6 +1597,7 @@ export class AgentWorker {
     // For prepaid wallet users, create a hold at job start so the UI can display
     // the estimated in-flight cost under "Processing". Released or captured at end.
     let iapHoldId: string | null = null;
+    let walletHoldEstimateCents: number | undefined;
     const billingCtxForHold = await getBillingState(billingDb, payload.userId);
     const hasPrepaidWalletBalance = (billingCtxForHold?.walletBalanceCents ?? 0) > 0;
     if (
@@ -1463,6 +1609,7 @@ export class AgentWorker {
         (billingCtxForHold?.billingEntity === 'organization' && billingCtxForHold?.hardStop))
     ) {
       const estimatedCents = estimateAgentXHoldCostCents(payload);
+      walletHoldEstimateCents = estimatedCents;
       const holdResult = await createWalletHold(
         billingDb,
         payload.userId,
@@ -1921,14 +2068,7 @@ export class AgentWorker {
           // This applies to both pause and cancel — cancelled jobs also benefit from
           // having partial context visible in the thread.
           if (this.chatService) {
-            const contextObj =
-              typeof payload.context === 'object' && payload.context !== null
-                ? payload.context
-                : {};
-            const threadId =
-              typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
-                ? ((contextObj as Record<string, unknown>)['threadId'] as string)
-                : undefined;
+            const threadId = payloadThreadId;
 
             if (threadId) {
               const partialSnapshot = persistedAssistantStream.snapshot();
@@ -2072,12 +2212,7 @@ export class AgentWorker {
         });
 
         // Persist the agent's question as a system message in MongoDB thread
-        const contextObj =
-          typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
-        const threadId =
-          typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
-            ? ((contextObj as Record<string, unknown>)['threadId'] as string)
-            : undefined;
+        const threadId = payloadThreadId;
 
         // Emit a rich inline card (`confirmation` / `draft` / `ask_user`) so
         // the chat UI renders interactive Approve/Reject buttons or a reply
@@ -2764,6 +2899,7 @@ export class AgentWorker {
         successfulTools,
         environment: job.data.environment,
         iapHoldId: iapHoldId ?? undefined,
+        fallbackChargeAmountCents: iapHoldId ? walletHoldEstimateCents : undefined,
         organizationId: contextOrgId,
         metadata: { agent: payload.agent, agentTools: invokedTools, successfulTools },
       });
@@ -2857,12 +2993,7 @@ export class AgentWorker {
       persistedStreamSnapshot.content.length > 0 ? persistedStreamSnapshot.content : summary;
 
     // ─── Persist assistant response to MongoDB thread ─────────────────────
-    const contextObj =
-      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
-    const threadId =
-      typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
-        ? ((contextObj as Record<string, unknown>)['threadId'] as string)
-        : undefined;
+    const threadId = payloadThreadId;
     let persistedAssistantMessageId: string | undefined;
 
     if (threadId && this.chatService) {

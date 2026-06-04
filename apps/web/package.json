@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/web",
-  "version": "1.43.3",
+  "version": "1.43.10",
   "description": "NXT1 Web Application - Angular + Ionic with SSR",
   "private": true,
   "scripts": {
@@ -43,10 +43,10 @@
     "@nxt1/core": "*",
     "@nxt1/ui": "*",
     "@sentry/angular": "^10.48.0",
-    "cross-env": "^7.0.3",
+    "cross-env": "^10.1.0",
     "firebase": "^12.9.0",
     "hls.js": "^1.6.16",
-    "http-proxy-middleware": "^3.0.0",
+    "http-proxy-middleware": "^4.0.0",
     "ionicons": "^8.0.0",
     "rxjs": "~7.8.0",
     "tailwindcss": "^3.4.19",
@@ -69,6 +69,6 @@
     "karma-jasmine-html-reporter": "^2.1.0",
     "msw": "^2.12.7",
     "postcss": "^8.5.10",
-    "typescript": "~5.9.3"
+    "typescript": "^6.0.3"
   }
 }
