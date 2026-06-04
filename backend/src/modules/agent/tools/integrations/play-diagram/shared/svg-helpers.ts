@@ -9,7 +9,6 @@ import type {
 } from './diagram.types.js';
 
 const PLAYER_RADIUS = 13;
-const LEGEND_HEIGHT = 24;
 
 /**
  * Determines if legend/title bar should be rendered based on diagram kind.
@@ -333,52 +332,6 @@ export function renderRoutes(routes: DiagramRoute[]): string {
   return `<g class="route-layer">\n${parts.join('\n')}\n</g>`;
 }
 
-/**
- * Render a clean annotation strip below the field listing each labeled route.
- * Returns { svg, height } where height is 0 if no labels exist.
- * Renders as a dark band matching the legend, split into up to 2 columns.
- */
-export function renderAnnotationStrip(
-  routes: DiagramRoute[],
-  width: number,
-  offsetY: number
-): { svg: string; height: number } {
-  const labeled = routes
-    .map((r) => ({
-      from: normalizePositionToken(r.from),
-      label: compactLabel(r.label, 18),
-      color: r.color || getRouteMarkerAndStyle(r.type).color, // Use custom color if provided, else default
-    }))
-    .filter((r) => r.label.length > 0);
-
-  if (labeled.length === 0) return { svg: '', height: 0 };
-
-  const ROW_H = 18;
-  const PAD_Y = 10;
-  const COLS = labeled.length > 5 ? 2 : 1;
-  const perCol = Math.ceil(labeled.length / COLS);
-  const stripH = perCol * ROW_H + PAD_Y * 2;
-  const colW = width / COLS;
-
-  const parts: string[] = [
-    `<rect x="0" y="${offsetY}" width="${width}" height="${stripH}" fill="rgba(0,0,0,0.55)"/>`,
-  ];
-
-  labeled.forEach((item, i) => {
-    const col = Math.floor(i / perCol);
-    const row = i % perCol;
-    const x = col * colW + 12;
-    const y = offsetY + PAD_Y + row * ROW_H + ROW_H / 2;
-    // colored dot
-    parts.push(
-      `<circle cx="${x + 4}" cy="${y}" r="4" fill="${item.color}" opacity="0.9"/>`,
-      `<text x="${x + 12}" y="${y}" dominant-baseline="middle" fill="rgba(255,255,255,0.92)" font-size="9" font-family="Arial,sans-serif" font-weight="600">${escapeXml(item.from ? `${item.from}: ${item.label}` : item.label)}</text>`
-    );
-  });
-
-  return { svg: parts.join('\n'), height: stripH };
-}
-
 // ─── Players ──────────────────────────────────────────────────────────────────
 
 /**
@@ -435,71 +388,18 @@ export function renderPlayers(players: DiagramPlayer[]): string {
 
 // ─── Legend ───────────────────────────────────────────────────────────────────
 
-const ROUTE_TYPE_ORDER: DiagramRouteType[] = [
-  'go',
-  'cut',
-  'drag',
-  'screen',
-  'block',
-  'pick',
-  'fade',
-  'space',
-];
-
-const ROUTE_LABELS: Record<DiagramRouteType, string> = {
-  go: 'Go',
-  cut: 'Cut',
-  drag: 'Drag',
-  screen: 'Screen',
-  block: 'Block',
-  pick: 'Pick',
-  fade: 'Fade',
-  space: 'Run',
-};
-
-const ROUTE_COLORS: Record<DiagramRouteType, string> = {
-  go: C.routePass,
-  cut: C.routeCut,
-  drag: C.routeDrag,
-  screen: C.routeScreen,
-  block: C.routeBlock,
-  pick: C.routePick,
-  fade: C.routeFade,
-  space: C.routeRun,
-};
-
 /**
  * Renders a compact semi-transparent bar at the bottom of the canvas showing
  * only the route types actually present in this diagram.  Returns an empty
  * string if no typed routes exist (no clutter for pure positional diagrams).
  */
 
-export function renderLegend(routes: DiagramRoute[], width: number, fieldHeight: number): string {
-  const used = new Set(routes.filter((r) => r.type != null).map((r) => r.type as DiagramRouteType));
-  const types = ROUTE_TYPE_ORDER.filter((t) => used.has(t));
-  if (types.length === 0) return '';
-
-  const ITEM_W = 64;
-  const startX = Math.max(8, (width - types.length * ITEM_W) / 2);
-  const barY = fieldHeight - LEGEND_HEIGHT;
-  const midY = barY + LEGEND_HEIGHT / 2 + 1;
-
-  const parts: string[] = [
-    `<rect x="0" y="${barY}" width="${width}" height="${LEGEND_HEIGHT}" fill="rgba(0,0,0,0.6)"/>`,
-  ];
-
-  types.forEach((type, i) => {
-    const ix = startX + i * ITEM_W;
-    const { marker, strokeDasharray, opacity } = getRouteMarkerAndStyle(type);
-    const dash = strokeDasharray ? ` stroke-dasharray="${strokeDasharray}"` : '';
-    const color = ROUTE_COLORS[type] || '#fff';
-    parts.push(
-      `<line x1="${ix}" y1="${midY}" x2="${ix + 16}" y2="${midY}" stroke="${color}" stroke-width="2" marker-end="${marker}"${dash} opacity="${opacity}"/>`,
-      `<text x="${ix + 20}" y="${midY + 3.5}" fill="rgba(255,255,255,0.9)" font-size="8.5" font-family="Arial,sans-serif">${ROUTE_LABELS[type]}</text>`
-    );
-  });
-
-  return parts.join('\n');
+export function renderLegend(
+  _routes: DiagramRoute[],
+  _width: number,
+  _fieldHeight: number
+): string {
+  return '';
 }
 
 // ─── Title bar ────────────────────────────────────────────────────────────────
@@ -577,18 +477,8 @@ export function renderDiagramSvg(
   const showLegend = shouldRenderLegend(kind, opts);
   const showTitleBar = shouldRenderTitleBar(kind, opts);
 
-  // Route annotation strip: labeled routes listed cleanly BELOW the field canvas.
-  // Legend is embedded inside the field (bottom edge). Annotations expand the total SVG height.
-  const { svg: annotSvg, height: annotH } = renderAnnotationStrip(
-    focused.routes,
-    fieldWidth,
-    fieldHeight // start immediately below the field
-  );
-  // Total SVG height: field + annotation strip (0 when no labels exist)
-  const totalHeight = fieldHeight + annotH;
-
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="${fieldWidth}" height="${totalHeight}" viewBox="0 0 ${fieldWidth} ${totalHeight}">
+<svg xmlns="http://www.w3.org/2000/svg" width="${fieldWidth}" height="${fieldHeight}" viewBox="0 0 ${fieldWidth} ${fieldHeight}">
 ${renderDefs()}
 ${fieldSvg}
 ${renderRoutes(focused.routes)}
@@ -596,7 +486,6 @@ ${renderPlayers(focused.players)}
 ${renderZones(focused.zones)}
 ${showTitleBar ? renderTitleBar(title, fieldWidth) : ''}
 ${showLegend ? renderLegend(focused.routes, fieldWidth, fieldHeight) : ''}
-${annotSvg}
 </svg>`;
 }
 

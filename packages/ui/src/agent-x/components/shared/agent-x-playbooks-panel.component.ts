@@ -16,7 +16,10 @@ import {
 import type { TeamGamePlanDoc } from '@nxt1/core';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
 import { NxtStateViewComponent } from '../../../components/state-view';
-import { NxtMediaViewerService } from '../../../components/media-viewer';
+import {
+  NxtMediaViewerService,
+  type MediaViewerBreakdownEditorConfig,
+} from '../../../components/media-viewer';
 import { NxtLoggingService } from '../../../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../../../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../../../services/breadcrumb/breadcrumb.service';
@@ -67,7 +70,6 @@ import {
   isImageAssetUrl,
   mapGamePlanToUi,
   normalizePracticeScriptPeriods,
-  resolveImageExtension,
 } from './agent-x-playbooks-panel.utils';
 import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
 
@@ -377,10 +379,16 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
                     @for (play of filteredPlays(); track play.id || play.name || $index) {
                       <article
                         class="play-item"
+                        role="button"
+                        tabindex="0"
+                        [attr.data-testid]="testIds.PLAY_ITEM"
                         [nxtAgentXContextDrag]="buildPlaybookPlayDragContext(play, $index)"
+                        (click)="openDiagramModal(play, $index)"
+                        (keydown.enter)="openDiagramModal(play, $index)"
+                        (keydown.space)="openDiagramModal(play, $index); $event.preventDefault()"
                       >
                         @if (deletingPlayIndex() === $index) {
-                          <div class="delete-overlay">
+                          <div class="delete-overlay" (click)="$event.stopPropagation()">
                             <p class="delete-msg">
                               Remove <strong>{{ play.title || play.name }}</strong>
                             </p>
@@ -398,196 +406,16 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
                               </button>
                             </div>
                           </div>
-                        } @else if (editingPlayIndex() === $index) {
-                          <div class="play-edit-form">
-                            <div class="form-field">
-                              <label class="form-label">Play Name *</label>
-                              <input
-                                class="form-input"
-                                placeholder="Enter play name"
-                                [value]="editPlayForm().name"
-                                (input)="patchEditPlayForm('name', $event)"
-                              />
-                            </div>
-                            <div class="form-row">
-                              <div class="form-field">
-                                <label class="form-label">Series</label>
-                                <input
-                                  class="form-input"
-                                  placeholder="Series"
-                                  [value]="editPlayForm().series"
-                                  (input)="patchEditPlayForm('series', $event)"
-                                />
-                              </div>
-                              <div class="form-field">
-                                <label class="form-label">Category</label>
-                                <input
-                                  class="form-input"
-                                  placeholder="Category"
-                                  [value]="editPlayForm().category"
-                                  (input)="patchEditPlayForm('category', $event)"
-                                />
-                              </div>
-                            </div>
-                            <div class="form-row">
-                              <div class="form-field">
-                                <label class="form-label">{{ sportConfig().formationLabel }}</label>
-                                <input
-                                  class="form-input"
-                                  [placeholder]="sportConfig().formationLabel"
-                                  [value]="editPlayForm().formation"
-                                  (input)="patchEditPlayForm('formation', $event)"
-                                />
-                              </div>
-                              <div class="form-field">
-                                <label class="form-label">{{ sportConfig().personnelLabel }}</label>
-                                <input
-                                  class="form-input"
-                                  [placeholder]="sportConfig().personnelLabel"
-                                  [value]="editPlayForm().personnel"
-                                  (input)="patchEditPlayForm('personnel', $event)"
-                                />
-                              </div>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Objective</label>
-                              <textarea
-                                class="form-input form-textarea"
-                                placeholder="Objective"
-                                [value]="editPlayForm().objective"
-                                (input)="patchEditPlayForm('objective', $event)"
-                              ></textarea>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Play Breakdown</label>
-                              <textarea
-                                class="form-input form-textarea"
-                                placeholder="Detailed breakdown of assignments, reads, route concepts, and why the play works"
-                                [value]="editPlayForm().playBreakdown"
-                                (input)="patchEditPlayForm('playBreakdown', $event)"
-                              ></textarea>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Install Notes</label>
-                              <textarea
-                                class="form-input form-textarea"
-                                placeholder="Use clean lines or bullets"
-                                [value]="editPlayForm().installNotes"
-                                (input)="patchEditPlayForm('installNotes', $event)"
-                              ></textarea>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Concept Tags</label>
-                              <textarea
-                                class="form-input form-textarea"
-                                placeholder="Comma-separated"
-                                [value]="editPlayForm().conceptTags"
-                                (input)="patchEditPlayForm('conceptTags', $event)"
-                              ></textarea>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Install Stage</label>
-                              <select
-                                class="form-input"
-                                [value]="editPlayForm().installStage"
-                                (change)="patchEditPlayForm('installStage', $event)"
-                              >
-                                <option value="">Select stage (optional)</option>
-                                <option value="install">Install</option>
-                                <option value="rep">Rep</option>
-                                <option value="game-ready">Game-Ready</option>
-                              </select>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Upload Diagram</label>
-                              <input
-                                #editDiagramInput
-                                type="file"
-                                class="hidden-file-input"
-                                accept="image/*"
-                                (change)="onEditDiagramFileSelected($event)"
-                              />
-                              <div class="diagram-upload-row">
-                                <button
-                                  type="button"
-                                  class="btn-upload-diagram"
-                                  (click)="editDiagramInput.click()"
-                                >
-                                  Choose Image
-                                </button>
-                                @if (editPlayDiagramFileName()) {
-                                  <span class="diagram-upload-status">
-                                    Selected: {{ editPlayDiagramFileName() }}
-                                  </span>
-                                }
-                              </div>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Coaching Points</label>
-                              <textarea
-                                class="form-input form-textarea"
-                                placeholder="One point per line"
-                                [value]="editPlayForm().coachingPoints"
-                                (input)="patchEditPlayForm('coachingPoints', $event)"
-                              ></textarea>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Common Busts</label>
-                              <textarea
-                                class="form-input form-textarea"
-                                placeholder="One bust per line"
-                                [value]="editPlayForm().commonBusts"
-                                (input)="patchEditPlayForm('commonBusts', $event)"
-                              ></textarea>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Correction Cues</label>
-                              <textarea
-                                class="form-input form-textarea"
-                                placeholder="One cue per line"
-                                [value]="editPlayForm().correctionCues"
-                                (input)="patchEditPlayForm('correctionCues', $event)"
-                              ></textarea>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Drill Progression</label>
-                              <textarea
-                                class="form-input form-textarea"
-                                placeholder="One drill step per line"
-                                [value]="editPlayForm().drillProgression"
-                                (input)="patchEditPlayForm('drillProgression', $event)"
-                              ></textarea>
-                            </div>
-                            <div class="form-field">
-                              <label class="form-label">Situations</label>
-                              <textarea
-                                class="form-input form-textarea"
-                                placeholder="Comma-separated: 1st & 10, red zone, 2-minute"
-                                [value]="editPlayForm().situations"
-                                (input)="patchEditPlayForm('situations', $event)"
-                              ></textarea>
-                            </div>
-                            <div class="form-actions">
-                              <button type="button" class="btn-cancel" (click)="cancelEditPlay()">
-                                Cancel
-                              </button>
-                              <button
-                                type="button"
-                                class="btn-save"
-                                [disabled]="savingPlay()"
-                                (click)="saveEditPlay($index)"
-                              >
-                                {{ savingPlay() ? 'Saving…' : 'Save' }}
-                              </button>
-                            </div>
-                          </div>
                         } @else {
                           <div class="play-actions">
                             <button
                               type="button"
                               class="icon-btn icon-btn--sm"
                               title="Edit play"
-                              (click)="startEditPlay($index, play)"
+                              [attr.data-testid]="testIds.PLAY_EDIT_BUTTON"
+                              (click)="
+                                openDiagramModal(play, $index, true); $event.stopPropagation()
+                              "
                             >
                               <nxt1-icon name="pencil" [size]="12"></nxt1-icon>
                             </button>
@@ -595,13 +423,16 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
                               type="button"
                               class="icon-btn icon-btn--sm icon-btn--danger"
                               title="Remove play"
-                              (click)="confirmDeletePlay($index)"
+                              [attr.data-testid]="testIds.PLAY_DELETE_BUTTON"
+                              (click)="confirmDeletePlay($index); $event.stopPropagation()"
                             >
                               <nxt1-icon name="trash" [size]="12"></nxt1-icon>
                             </button>
                           </div>
                           <div class="play-head">
-                            <h4>{{ play.title || play.name || 'Untitled Play' }}</h4>
+                            <h4 [attr.data-testid]="testIds.PLAY_ITEM_NAME">
+                              {{ play.title || play.name || 'Untitled Play' }}
+                            </h4>
                             @if (generatedPlaysReleaseLabel) {
                               <span class="release-badge release-badge--inline">
                                 {{ generatedPlaysReleaseLabel }}
@@ -626,7 +457,7 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
                             <button
                               class="diagram-preview-card"
                               type="button"
-                              (click)="openDiagramModal(play)"
+                              (click)="openDiagramModal(play, $index); $event.stopPropagation()"
                               [attr.aria-label]="
                                 'Open play details for ' + (play.title || play.name || 'play')
                               "
@@ -730,7 +561,7 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
                                     <button
                                       type="button"
                                       class="install-play-view"
-                                      (click)="openDiagramModal(play)"
+                                      (click)="openDiagramModal(play, getPlayIndex(play))"
                                       [attr.aria-label]="
                                         'Open play details for ' +
                                         (play.title || play.name || 'play')
@@ -2180,9 +2011,12 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
       .playbooks-panel {
         height: 100%;
         overflow: auto;
+        width: 100%;
         padding: var(--nxt1-spacing-3, 12px);
         color: var(--agent-text-primary, #1a1a1a);
         scrollbar-color: var(--agent-border, rgba(0, 0, 0, 0.08)) transparent;
+        container-type: inline-size;
+        container-name: playbooks-panel;
       }
 
       .agent-x-context-drag-source:not(.agent-x-context-drag-source--disabled) {
@@ -2338,7 +2172,7 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
       /* ── Grid ── */
       .playbooks-grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 10px;
       }
 
@@ -2420,7 +2254,7 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         justify-content: space-between;
         align-items: center;
         gap: 8px;
-        flex-wrap: wrap;
+        flex-wrap: nowrap;
       }
 
       .detail-header--actions-only {
@@ -2434,6 +2268,7 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         gap: 8px;
         flex-wrap: wrap;
         margin-left: auto;
+        flex: 0 0 auto;
       }
 
       .detail-action-btn {
@@ -2528,6 +2363,10 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         margin: 0;
         font-size: 1.05rem;
         line-height: 1.3;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .detail-title--inline {
@@ -2537,7 +2376,7 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
 
       .detail-meta-grid {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         gap: 8px;
       }
 
@@ -2585,12 +2424,15 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         align-items: center;
         gap: 8px;
         flex-wrap: wrap;
+        min-width: 0;
       }
 
       .football-side-toggle {
-        display: inline-flex;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
         align-items: center;
-        gap: 4px;
+        gap: 2px;
+        width: min(100%, 300px);
         padding: 2px;
         border-radius: 999px;
         border: 1px solid var(--agent-border, rgba(0, 0, 0, 0.08));
@@ -2605,6 +2447,11 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         padding: 4px 10px;
         font-size: 0.7rem;
         font-weight: 700;
+        min-width: 0;
+        overflow: hidden;
+        text-align: center;
+        text-overflow: ellipsis;
+        white-space: nowrap;
         cursor: pointer;
         transition: all 120ms ease;
       }
@@ -3021,35 +2868,84 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         animation: pulse 1.1s ease-in-out infinite;
       }
 
-      /* ── Responsive ── */
-      @media (max-width: 1450px) {
+      /* ── Container Responsive Layout ── */
+      @container playbooks-panel (max-width: 480px) {
+        .detail-header,
+        .section-header {
+          align-items: stretch;
+          flex-wrap: wrap;
+        }
+
+        .detail-title--inline {
+          min-width: 0;
+        }
+
+        .detail-header-actions,
+        .section-header-actions,
+        .callsheet-workspace-actions {
+          width: 100%;
+          justify-content: flex-start;
+        }
+
+        .detail-meta-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .football-side-toggle {
+          width: 100%;
+          border-radius: 12px;
+        }
+      }
+
+      @container playbooks-panel (min-width: 1080px) {
+        .playbooks-grid,
+        .install-stages,
+        .callsheet-saved-grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .detail-meta-grid {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+      }
+
+      @container playbooks-panel (min-width: 1440px) {
         .playbooks-grid {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+
+        .plays-list,
+        .install-stages,
+        .callsheet-saved-grid {
           grid-template-columns: repeat(3, minmax(0, 1fr));
         }
       }
-      @media (max-width: 1180px) {
-        .playbooks-grid {
+
+      @container playbooks-panel (max-width: 760px) {
+        .tabs-header {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
-        .detail-meta-grid {
+
+        .tab-btn {
+          white-space: normal;
+          line-height: 1.25;
+          padding: 10px 12px;
+        }
+
+        .playbooks-grid,
+        .plays-list,
+        .install-stages,
+        .callsheet-saved-grid,
+        .plays-filters {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
-        .install-stages {
+
+        .form-row {
           grid-template-columns: repeat(2, minmax(0, 1fr));
         }
-      }
-      @media (max-width: 760px) {
-        .playbooks-grid {
-          grid-template-columns: minmax(0, 1fr);
-        }
-        .plays-list {
-          grid-template-columns: minmax(0, 1fr);
-        }
-        .detail-meta-grid {
-          grid-template-columns: minmax(0, 1fr);
-        }
-        .install-stages {
-          grid-template-columns: minmax(0, 1fr);
+
+        .football-side-btn {
+          padding-inline: 8px;
         }
       }
 
@@ -3061,7 +2957,8 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
       }
 
       .tabs-header {
-        display: flex;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 0;
         border-bottom: 1px solid var(--agent-border, rgba(0, 0, 0, 0.08));
         background: var(--agent-surface, rgba(0, 0, 0, 0.03));
@@ -3069,7 +2966,6 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
       }
 
       .tab-btn {
-        flex: 1;
         padding: 10px 16px;
         border: none;
         background: transparent;
@@ -3081,6 +2977,8 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         transition: all 120ms ease;
         text-align: center;
         white-space: nowrap;
+        min-width: 0;
+        min-height: 44px;
       }
       .tab-btn:hover {
         color: var(--agent-text-primary, #1a1a1a);
@@ -3118,8 +3016,8 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
       }
 
       .plays-filters {
-        display: flex;
-        flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr));
         gap: 10px;
         align-items: flex-end;
       }
@@ -3127,7 +3025,7 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
       .plays-filters label {
         display: grid;
         gap: 4px;
-        min-width: 160px;
+        min-width: 0;
         font-size: 0.74rem;
         font-weight: 600;
         color: var(--agent-text-secondary, rgba(0, 0, 0, 0.7));
@@ -3135,6 +3033,7 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
 
       .btn-clear-filters {
         height: 30px;
+        justify-self: start;
       }
 
       .play-filter-empty-state {
@@ -3208,7 +3107,7 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
       /* ── Install Plans Tab ── */
       .install-stages {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 10px;
         align-items: start;
       }
@@ -3371,6 +3270,7 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
 
       .callsheet-saved-grid {
         display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 8px;
       }
 
@@ -4432,6 +4332,44 @@ import { getAgentXReleaseLabel } from '../../utils/agent-x-release-stage.utils';
         margin-top: 8px;
       }
 
+      /* Final panel-width bands: keep playbook workspaces dense as the panel expands. */
+      .playbooks-grid,
+      .plays-list,
+      .install-stages,
+      .callsheet-saved-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      @container playbooks-panel (min-width: 900px) {
+        .playbooks-grid,
+        .plays-list,
+        .install-stages,
+        .callsheet-saved-grid {
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+      }
+
+      @container playbooks-panel (min-width: 1100px) {
+        .playbooks-grid,
+        .plays-list,
+        .install-stages,
+        .callsheet-saved-grid {
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+      }
+
+      @container playbooks-panel (max-width: 620px) {
+        .tabs-header,
+        .playbooks-grid,
+        .plays-list,
+        .install-stages,
+        .callsheet-saved-grid,
+        .plays-filters,
+        .form-row {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
       @keyframes pulse {
         0% {
           background-position: 100% 0;
@@ -4610,14 +4548,8 @@ export class AgentXPlaybooksPanelComponent {
   protected readonly activePlaybookTab = signal<'plays' | 'install' | 'callsheet' | 'play-script'>(
     'plays'
   );
-  protected readonly editingPlayIndex = signal<number | null>(null);
-  protected readonly editPlayForm = signal<PlayForm>({ ...EMPTY_PLAY_FORM });
-  protected readonly editPlayDiagramFile = signal<File | null>(null);
   protected readonly deletingPlayIndex = signal<number | null>(null);
   protected readonly savingPlay = signal(false);
-  protected readonly editPlayDiagramFileName = computed(
-    () => this.editPlayDiagramFile()?.name ?? ''
-  );
 
   // ── AI Callsheet: Situation-based play finding ─────────────────────────────────
   protected readonly callsheetFilters = signal<Record<string, string>>({});
@@ -4836,7 +4768,6 @@ export class AgentXPlaybooksPanelComponent {
     this.editingGamePlanId.set(null);
     this.editingGamePlanPlays.set([]);
     this.editingMeta.set(false);
-    this.cancelEditPlay();
     this.deletingPlayIndex.set(null);
   }
 
@@ -6921,50 +6852,159 @@ li + li { margin-top: 2px; }
     this.agentX.queueStartupMessage(prompt);
   }
 
-  protected async startEditPlay(index: number, play: PlaybookPlay): Promise<void> {
-    this.editingPlayIndex.set(index);
-    this.editPlayDiagramFile.set(null);
-    this.editPlayForm.set({
-      name: play.name ?? play.title ?? '',
-      series: play.series ?? '',
-      category: play.category ?? '',
-      formation: play.formation ?? '',
-      personnel: play.personnel ?? '',
-      objective: play.objective ?? '',
-      playBreakdown: play.playBreakdown ?? '',
-      installNotes: play.installNotes ?? '',
-      conceptTags: (play.conceptTags ?? []).join(', '),
-      diagramUrl: play.diagramUrl ?? '',
-      installStage: (play.installStage ?? '') as 'install' | 'rep' | 'game-ready' | '',
-      coachingPoints: (play.coachingPoints ?? []).join('\n'),
-      commonBusts: (play.commonBusts ?? []).join('\n'),
-      correctionCues: (play.correctionCues ?? []).join('\n'),
-      drillProgression: (play.drillProgression ?? []).join('\n'),
-      situations: (play.situations ?? []).join(', '),
-    });
+  private buildPlayEditorConfig(
+    index: number,
+    play: PlaybookPlay,
+    startInEditMode: boolean
+  ): MediaViewerBreakdownEditorConfig {
+    const formationLabel = this.sportConfig().formationLabel;
+    const personnelLabel = this.sportConfig().personnelLabel;
 
-    if (play.diagramUrl) {
-      await this.seedDiagramEditInAgentChat(play);
-    }
+    return {
+      title: play.title || play.name || 'Untitled Play',
+      editLabel: 'Edit',
+      saveLabel: 'Save',
+      savingLabel: 'Saving...',
+      startInEditMode,
+      fields: [
+        {
+          key: 'name',
+          label: 'Play Name',
+          value: play.name ?? play.title ?? '',
+          required: true,
+          placeholder: 'Enter play name',
+        },
+        { key: 'series', label: 'Series', value: play.series ?? '', placeholder: 'Series' },
+        { key: 'category', label: 'Category', value: play.category ?? '', placeholder: 'Category' },
+        {
+          key: 'formation',
+          label: formationLabel,
+          value: play.formation ?? '',
+          placeholder: formationLabel,
+        },
+        {
+          key: 'personnel',
+          label: personnelLabel,
+          value: play.personnel ?? '',
+          placeholder: personnelLabel,
+        },
+        {
+          key: 'objective',
+          label: 'Objective',
+          value: play.objective ?? '',
+          type: 'textarea',
+          rows: 3,
+          placeholder: 'Objective',
+        },
+        {
+          key: 'playBreakdown',
+          label: 'Play Breakdown',
+          value: play.playBreakdown ?? '',
+          type: 'textarea',
+          rows: 5,
+          placeholder: 'Assignments, reads, route concepts, and why it works',
+        },
+        {
+          key: 'installNotes',
+          label: 'Install Notes',
+          value: play.installNotes ?? '',
+          type: 'textarea',
+          rows: 3,
+          placeholder: 'Use clean lines or bullets',
+        },
+        {
+          key: 'conceptTags',
+          label: 'Concept Tags',
+          value: (play.conceptTags ?? []).join(', '),
+          type: 'textarea',
+          rows: 2,
+          placeholder: 'Comma-separated',
+        },
+        {
+          key: 'installStage',
+          label: 'Install Stage',
+          value: play.installStage ?? '',
+          type: 'select',
+          options: [
+            { value: '', label: 'Select stage' },
+            { value: 'install', label: 'Install' },
+            { value: 'rep', label: 'Rep' },
+            { value: 'game-ready', label: 'Game-Ready' },
+          ],
+        },
+        {
+          key: 'diagramUrl',
+          label: 'Diagram URL',
+          value: play.diagramUrl ?? '',
+          type: 'url',
+          placeholder: 'https://...',
+        },
+        {
+          key: 'diagram',
+          label: 'Upload Diagram',
+          value: '',
+          type: 'file',
+          placeholder: 'Choose image',
+        },
+        {
+          key: 'coachingPoints',
+          label: 'Coaching Points',
+          value: (play.coachingPoints ?? []).join('\n'),
+          type: 'textarea',
+          rows: 4,
+          placeholder: 'One point per line',
+        },
+        {
+          key: 'commonBusts',
+          label: 'Common Busts',
+          value: (play.commonBusts ?? []).join('\n'),
+          type: 'textarea',
+          rows: 3,
+          placeholder: 'One bust per line',
+        },
+        {
+          key: 'correctionCues',
+          label: 'Correction Cues',
+          value: (play.correctionCues ?? []).join('\n'),
+          type: 'textarea',
+          rows: 3,
+          placeholder: 'One cue per line',
+        },
+        {
+          key: 'drillProgression',
+          label: 'Drill Progression',
+          value: (play.drillProgression ?? []).join('\n'),
+          type: 'textarea',
+          rows: 3,
+          placeholder: 'One drill step per line',
+        },
+        {
+          key: 'situations',
+          label: 'Situations',
+          value: (play.situations ?? []).join(', '),
+          type: 'textarea',
+          rows: 2,
+          placeholder: 'Comma-separated',
+        },
+      ],
+      onSave: async (values, files) => {
+        const form: PlayForm = { ...EMPTY_PLAY_FORM, ...values };
+        await this.saveEditPlay(index, form, files['diagram'] ?? null);
+        await this.mediaViewer.dismiss();
+      },
+    };
   }
-  protected cancelEditPlay(): void {
-    this.editingPlayIndex.set(null);
-    this.editPlayForm.set({ ...EMPTY_PLAY_FORM });
-    this.editPlayDiagramFile.set(null);
-  }
-  protected patchEditPlayForm(field: keyof PlayForm, event: Event): void {
-    this.editPlayForm.update((p) => ({
-      ...p,
-      [field]: (event.target as HTMLInputElement | HTMLTextAreaElement).value,
-    }));
-  }
-  protected async saveEditPlay(index: number): Promise<void> {
-    const form = this.editPlayForm();
+
+  protected async saveEditPlay(
+    index: number,
+    form: PlayForm,
+    diagramFile: File | null
+  ): Promise<void> {
     const playbook = this.selectedPlaybook();
     if (!form.name.trim() || !playbook) return;
     this.savingPlay.set(true);
     try {
-      const uploadedDiagramUrl = await this.uploadEditPlayDiagramIfNeeded();
+      const uploadedDiagramUrl = await this.uploadPlayDiagramFileIfNeeded(diagramFile);
       const nextDiagramUrl =
         uploadedDiagramUrl ?? (form.diagramUrl.trim().length ? form.diagramUrl.trim() : undefined);
 
@@ -6991,25 +7031,21 @@ li + li { margin-top: 2px; }
           }
         )
       );
-      this.cancelEditPlay();
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_ACTION_EXECUTED, {
+        action: 'play_updated_from_breakdown_modal',
+        teamId: playbook.teamId,
+        playbookId: playbook.id,
+        sport: playbook.sport,
+      });
       await this.loadPlaybookDetail(playbook.id);
-    } catch {
-      /* noop */
+    } catch (error) {
+      this.logger.error('Failed to save play from breakdown modal', error, {
+        playbookId: playbook.id,
+        playIndex: index,
+      });
     } finally {
       this.savingPlay.set(false);
     }
-  }
-
-  protected onEditDiagramFileSelected(event: Event): void {
-    const target = event.target as HTMLInputElement | null;
-    const file = target?.files?.[0] ?? null;
-    if (!file) return;
-    if (!file.type.startsWith('image/')) {
-      if (target) target.value = '';
-      return;
-    }
-    this.editPlayDiagramFile.set(file);
-    if (target) target.value = '';
   }
 
   protected confirmDeletePlay(index: number): void {
@@ -7887,11 +7923,13 @@ li + li { margin-top: 2px; }
     return isImageAssetUrl(url);
   }
 
-  protected async openDiagramModal(play: PlaybookPlay): Promise<void> {
-    const diagramUrl = play.diagramUrl?.trim();
-    if (!diagramUrl) return;
-
+  protected async openDiagramModal(
+    play: PlaybookPlay,
+    index: number,
+    startInEditMode = false
+  ): Promise<void> {
     const title = (play.title || play.name || 'Play').trim();
+    const diagramUrl = play.diagramUrl?.trim() || this.buildDiagramPlaceholderDataUrl(title);
 
     try {
       await this.mediaViewer.open({
@@ -7907,10 +7945,26 @@ li + li { margin-top: 2px; }
         source: 'playbooks-diagram',
         showShare: false,
         variant: 'playbook-breakdown',
+        playbookEditor: this.buildPlayEditorConfig(index, play, startInEditMode),
       });
     } catch (err) {
       this.logger.error('Failed to open diagram modal', err, { diagramUrl, title });
     }
+  }
+
+  private buildDiagramPlaceholderDataUrl(title: string): string {
+    const escapedTitle = title.replace(/[&<>"']/g, (char) => {
+      const entities: Record<string, string> = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      };
+      return entities[char] ?? char;
+    });
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540"><rect width="960" height="540" fill="#101010"/><rect x="80" y="70" width="800" height="400" rx="20" fill="none" stroke="#404040" stroke-width="3"/><text x="480" y="260" fill="#f4f4f5" font-family="Arial, sans-serif" font-size="34" font-weight="700" text-anchor="middle">${escapedTitle}</text><text x="480" y="310" fill="#a1a1aa" font-family="Arial, sans-serif" font-size="22" text-anchor="middle">No diagram attached</text></svg>`;
+    return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
   }
 
   private buildPlayBreakdown(play: PlaybookPlay): {
@@ -7984,8 +8038,7 @@ li + li { margin-top: 2px; }
     };
   }
 
-  private async uploadEditPlayDiagramIfNeeded(): Promise<string | null> {
-    const file = this.editPlayDiagramFile();
+  private async uploadPlayDiagramFileIfNeeded(file: File | null): Promise<string | null> {
     if (!file) return null;
 
     const formData = new FormData();
@@ -8000,43 +8053,6 @@ li + li { margin-top: 2px; }
     }
 
     return response.data.url;
-  }
-
-  private async seedDiagramEditInAgentChat(play: PlaybookPlay): Promise<void> {
-    const diagramUrl = play.diagramUrl?.trim();
-    if (!diagramUrl) return;
-
-    const playName = (play.title || play.name || 'this play').trim();
-    const prompt = `Edit this play diagram for "${playName}". Keep the concept intact, improve spacing and labels, and return an updated diagram.`;
-
-    const fetchedFile = await this.fetchDiagramAsFile(diagramUrl, playName);
-    if (fetchedFile) {
-      this.agentX.addFiles([fetchedFile]);
-      this.agentX.setUserMessage(prompt);
-      return;
-    }
-
-    this.agentX.setUserMessage(`${prompt}\n\nSource diagram: ${diagramUrl}`);
-  }
-
-  private async fetchDiagramAsFile(diagramUrl: string, playName: string): Promise<File | null> {
-    try {
-      const response = await fetch(diagramUrl);
-      if (!response.ok) return null;
-
-      const blob = await response.blob();
-      if (!blob.type.startsWith('image/')) return null;
-
-      const safeBaseName =
-        playName
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, '-')
-          .replace(/^-+|-+$/g, '') || 'play-diagram';
-      const extension = resolveImageExtension(blob.type, diagramUrl);
-      return new File([blob], `${safeBaseName}.${extension}`, { type: blob.type });
-    } catch {
-      return null;
-    }
   }
 
   // ── Loaders ──────────────────────────────────────────────────────────────────

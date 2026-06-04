@@ -11,4 +11,10 @@ export type {
   MediaViewerResult,
   MediaViewerBreakdown,
   MediaViewerBreakdownSection,
+  MediaViewerBreakdownEditorConfig,
+  MediaViewerBreakdownEditorField,
+  MediaViewerBreakdownEditorOption,
+  MediaViewerDiagramToolAction,
+  MediaViewerDiagramToolsConfig,
+  MediaViewerDiagramSvgTarget,
 } from './media-viewer.types';

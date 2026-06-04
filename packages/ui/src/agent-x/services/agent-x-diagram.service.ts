@@ -1,4 +1,4 @@
-import { Injectable, computed, inject, signal } from '@angular/core';
+import { Injectable, computed, inject, signal, type Signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import {
@@ -55,21 +55,23 @@ export class AgentXDiagramService {
   private readonly _saving = signal(false);
   private readonly _error = signal<string | null>(null);
 
-  readonly diagrams = computed(() => this._diagrams());
+  readonly diagrams: Signal<readonly DiagramAssetSummary[]> = computed(() => this._diagrams());
   readonly selectedId = computed(() => this._selectedId());
   readonly loading = computed(() => this._loading());
   readonly saving = computed(() => this._saving());
   readonly error = computed(() => this._error());
   readonly isEmpty = computed(() => this._diagrams().length === 0);
-  readonly selectedDiagram = computed<DiagramAssetDetail | DiagramAssetSummary | null>(() => {
-    const selectedId = this._selectedId();
-    if (!selectedId) return null;
-    return (
-      this._details()[selectedId] ??
-      this._diagrams().find((diagram) => diagram.id === selectedId) ??
-      null
-    );
-  });
+  readonly selectedDiagram: Signal<DiagramAssetDetail | DiagramAssetSummary | null> = computed(
+    () => {
+      const selectedId = this._selectedId();
+      if (!selectedId) return null;
+      return (
+        this._details()[selectedId] ??
+        this._diagrams().find((diagram) => diagram.id === selectedId) ??
+        null
+      );
+    }
+  );
 
   private applyDetail(id: string, detail: DiagramAssetDetail): void {
     this._details.update((details) => ({ ...details, [id]: detail }));

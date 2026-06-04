@@ -129,4 +129,56 @@ describe('NxtMarkdownComponent', () => {
 
     expect(spy).toHaveBeenCalledWith({ url: videoUrl, type: 'video' });
   });
+
+  it('renders video timestamps as inline seek buttons', async () => {
+    setContent('Watch the corner route at 1:23 and the safety rotation at 01:02:03.');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const buttons = [...nativeEl.querySelectorAll<HTMLButtonElement>('.md-timestamp-link')];
+
+    expect(buttons).toHaveLength(2);
+    expect(buttons[0]?.textContent).toBe('1:23');
+    expect(buttons[0]?.getAttribute('data-md-time-ms')).toBe('83000');
+    expect(buttons[1]?.textContent).toBe('01:02:03');
+    expect(buttons[1]?.getAttribute('data-md-time-ms')).toBe('3723000');
+  });
+
+  it('emits timestamp click requests in milliseconds', async () => {
+    const spy = vi.fn();
+
+    component.timestampClicked.subscribe(spy);
+    setContent('Jump to 2:05.');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    nativeEl.querySelector<HTMLButtonElement>('.md-timestamp-link')?.click();
+
+    expect(spy).toHaveBeenCalledWith(125000);
+  });
+
+  it('does not rewrite timestamps inside code or URLs', async () => {
+    setContent('`1:23` https://example.com/watch/1:23 then live at 3:21');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const buttons = [...nativeEl.querySelectorAll<HTMLButtonElement>('.md-timestamp-link')];
+
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]?.textContent).toBe('3:21');
+  });
+
+  it('does not nest timestamp buttons inside standard markdown links', async () => {
+    setContent('[1:23](https://example.com/clip) and the live rep at 2:34');
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const link = nativeEl.querySelector<HTMLAnchorElement>('a[href="https://example.com/clip"]');
+    const buttons = [...nativeEl.querySelectorAll<HTMLButtonElement>('.md-timestamp-link')];
+
+    expect(link?.textContent).toBe('1:23');
+    expect(link?.querySelector('.md-timestamp-link')).toBeNull();
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0]?.textContent).toBe('2:34');
+  });
 });

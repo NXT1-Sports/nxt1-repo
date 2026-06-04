@@ -79,6 +79,16 @@ const _matchAuthenticatedAgentXLayout: CanMatchFn = () => matchAgentXLayout(true
  */
 
 export const routes: Routes = [
+  // Shell-free Film Review popout. Opened from Agent X into its own browser window.
+  {
+    path: 'agent-x/film-review-popout',
+    title: 'NXT1 Film Review',
+    loadComponent: () =>
+      import('./features/agent-x/film-review-popout.component').then(
+        (m) => m.AgentXFilmReviewPopoutComponent
+      ),
+  },
+
   // ============================================
   // PUBLIC MARKETING ROUTES (No heavy app shell)
   // ============================================

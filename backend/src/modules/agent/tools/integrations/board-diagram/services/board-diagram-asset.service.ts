@@ -67,6 +67,7 @@ function deserializeLayoutFromFirestore(layout: unknown): DiagramLayout {
     fieldHeight: Number(parsed.fieldHeight ?? 440),
     losY: Number(parsed.losY ?? 280),
     fieldStyle:
+      parsed.fieldStyle === 'modern' ||
       parsed.fieldStyle === 'night' ||
       parsed.fieldStyle === 'blueprint' ||
       parsed.fieldStyle === 'chalk' ||

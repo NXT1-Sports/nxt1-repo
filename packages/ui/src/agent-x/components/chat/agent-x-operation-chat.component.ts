@@ -257,6 +257,7 @@ type YieldStateSource =
                   [externalCardState]="resolveExternalCardStateForMessage(msg, idx)"
                   [externalResolvedText]="msg.yieldResolvedText ?? ''"
                   (mediaRequested)="onBubbleMediaRequested($event)"
+                  (timestampClicked)="onBubbleTimestampClicked($event)"
                   (billingActionResolved)="onBillingActionResolved($event)"
                   (retryRequested)="runControlFacade.onRetryErrorMessage(msg)"
                 />
@@ -2339,6 +2340,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Emitted when attachments flow requests opening Film Review Library. */
   readonly filmReviewLibraryRequested = output<void>();
 
+  /** Emitted when an assistant markdown timestamp should seek the Film Review panel. */
+  readonly filmTimestampSeekRequested = output<number>();
+
   /** Whether this chat was opened to view a historical thread (suppresses generic welcome). */
   private readonly _isThreadMode = signal(false);
 
@@ -3428,6 +3432,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       name: this.deriveMediaName(event.url, event.type),
     };
     this.attachmentsFacade.openAttachmentViewer([attachment], 0);
+  }
+
+  protected onBubbleTimestampClicked(timeMs: number): void {
+    this.filmTimestampSeekRequested.emit(timeMs);
   }
 
   /** Handle billing card outcomes from inline chat bubbles. */

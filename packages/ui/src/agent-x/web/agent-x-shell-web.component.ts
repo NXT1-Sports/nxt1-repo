@@ -113,7 +113,6 @@ import { AgentXGameplansPanelComponent } from '../components/shared/agent-x-game
 import { AgentXPlaybooksPanelComponent } from '../components/shared/agent-x-playbooks-panel.component';
 import { AgentXFilmReviewPanelComponent } from '../components/shared/agent-x-film-review-panel.component';
 import { AgentXDiagramsPanelComponent } from '../components/shared/agent-x-diagrams-panel.component';
-import type { DiagramGenerationRequest } from '../components/shared/agent-x-diagrams-panel.component';
 import { withAgentXReleaseLabel } from '../utils/agent-x-release-stage.utils';
 import { ANALYTICS_ADAPTER } from '../../services/analytics';
 
@@ -804,6 +803,7 @@ function sortCoordinatorCategories(
                 (coordinatorQuickActionSelected)="onEmbeddedCoordinatorQuickAction($event)"
                 (connectedAccountsSave)="connectedAccountsSave.emit($event)"
                 (filmReviewLibraryRequested)="openFilmReviewLibraryFromUpload()"
+                (filmTimestampSeekRequested)="onFilmTimestampSeekRequested($event)"
               />
             }
           </div>
@@ -1410,7 +1410,6 @@ function sortCoordinatorCategories(
               <nxt1-agent-x-diagrams-panel
                 [teamId]="resolvedActiveTeamId()"
                 [sport]="resolvedActiveSport()"
-                (generateWithAgentX)="onGenerateDiagramRequest($event)"
               />
             </div>
           </aside>
@@ -4692,6 +4691,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly showGameplansModal = signal(false);
   protected readonly showPlaybooksModal = signal(false);
   protected readonly showFilmReviewModal = signal(false);
+  private readonly pendingFilmTimestampSeekMs = signal<number | null>(null);
   protected readonly showDiagramsModal = signal(false);
   protected readonly sideToolPanelFullscreen = signal(false);
   protected readonly isAthleteUser = computed(() => this.user()?.role === 'athlete');
@@ -5486,6 +5486,19 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       untracked(() => this.clampDesktopPanelWidths());
     });
 
+    effect(() => {
+      const pendingTimeMs = this.pendingFilmTimestampSeekMs();
+      if (pendingTimeMs === null || !this.showFilmReviewModal()) return;
+
+      const panel = this.filmReviewPanel();
+      if (!panel) return;
+
+      untracked(() => {
+        this.pendingFilmTimestampSeekMs.set(null);
+        void panel.seekToTimestampMs(pendingTimeMs);
+      });
+    });
+
     // Keep AgentXService in sync with the shell's filtered connected sources so
     // operation-chat can always read them regardless of how it was opened.
     effect(() => {
@@ -5912,18 +5925,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       autoSendOnOpen: true,
       quickActions: this.commandQuickActions(),
     });
-  }
-
-  protected async onGenerateDiagramRequest(request: DiagramGenerationRequest): Promise<void> {
-    const prompt = request.prompt.trim();
-    if (!prompt) return;
-
-    if (request.context) {
-      this.agentX.queueSelectedContext(request.context);
-    }
-
-    this.agentX.setUserMessage(prompt);
-    await this.onSendMessage();
   }
 
   public async onToggleTasks(): Promise<void> {
@@ -6363,6 +6364,42 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       surface: 'agent_x_upload_auto_open',
     });
     this.breadcrumb.trackStateChange('agent_x_shell:film_review_opened_from_upload', {});
+  }
+
+  protected async onFilmTimestampSeekRequested(timeMs: number): Promise<void> {
+    if (!Number.isFinite(timeMs) || timeMs < 0) return;
+
+    const seekTimeMs = Math.max(0, timeMs);
+    await this.haptics.impact('light');
+
+    if (this.expandedSidePanel()) {
+      this.closeExpandedSidePanel();
+    }
+
+    const existingPanel = this.showFilmReviewModal() ? this.filmReviewPanel() : null;
+    if (existingPanel) {
+      this.pendingFilmTimestampSeekMs.set(null);
+      void existingPanel.seekToTimestampMs(seekTimeMs);
+      this.breadcrumb.trackStateChange('agent_x_shell:film_review_timestamp_seek_requested', {
+        timeMs: seekTimeMs,
+      });
+      return;
+    }
+
+    this.isPanelMenuOpen.set(false);
+    this.showActionPlanModal.set(false);
+    this.showPlaybooksModal.set(false);
+    this.showGameplansModal.set(false);
+    this.showDiagramsModal.set(false);
+    this.filmReviewWidth.set(this.getDefaultExpandedPanelWidth());
+    this.showFilmReviewModal.set(true);
+    this.pendingFilmTimestampSeekMs.set(seekTimeMs);
+    this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_OPENED, {
+      surface: 'agent_x_timestamp_seek',
+    });
+    this.breadcrumb.trackStateChange('agent_x_shell:film_review_timestamp_seek_requested', {
+      timeMs: seekTimeMs,
+    });
   }
 
   public onGameplansHeaderBack(): void {

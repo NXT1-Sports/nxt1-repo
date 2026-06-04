@@ -95,6 +95,7 @@ export interface ChatBubbleMediaRequestedEvent {
                 [content]="part.content"
                 [isStreaming]="isStreaming() && last"
                 (mediaRequested)="onMarkdownMediaRequested($event)"
+                (timestampClicked)="onMarkdownTimestampClicked($event)"
               />
             }
           }
@@ -109,7 +110,10 @@ export interface ChatBubbleMediaRequestedEvent {
                   (actionResolved)="billingActionResolved.emit($event)"
                 />
               } @else if (part.card.type === 'ask_user') {
-                <nxt1-markdown [content]="askUserCardText(part.card)" />
+                <nxt1-markdown
+                  [content]="askUserCardText(part.card)"
+                  (timestampClicked)="onMarkdownTimestampClicked($event)"
+                />
               } @else if (part.card.type === 'connect-account') {
                 <nxt1-agent-x-connect-account-card
                   [card]="part.card"
@@ -180,6 +184,7 @@ export interface ChatBubbleMediaRequestedEvent {
             [content]="content()"
             [isStreaming]="isStreaming()"
             (mediaRequested)="onMarkdownMediaRequested($event)"
+            (timestampClicked)="onMarkdownTimestampClicked($event)"
           />
         }
       }
@@ -191,7 +196,10 @@ export interface ChatBubbleMediaRequestedEvent {
               (actionResolved)="billingActionResolved.emit($event)"
             />
           } @else if (card.type === 'ask_user') {
-            <nxt1-markdown [content]="askUserCardText(card)" />
+            <nxt1-markdown
+              [content]="askUserCardText(card)"
+              (timestampClicked)="onMarkdownTimestampClicked($event)"
+            />
           } @else if (card.type === 'connect-account') {
             <nxt1-agent-x-connect-account-card
               [card]="card"
@@ -750,6 +758,9 @@ export class NxtChatBubbleComponent {
   /** Emitted when media inside markdown/parts should open in a viewer overlay. */
   readonly mediaRequested = output<ChatBubbleMediaRequestedEvent>();
 
+  /** Emitted when an inline markdown timestamp should seek active film review video. */
+  readonly timestampClicked = output<number>();
+
   /** Emitted when the user taps connect-account card actions. */
   readonly connectAccountAction = output<ConnectAccountCardActionEvent>();
 
@@ -758,6 +769,10 @@ export class NxtChatBubbleComponent {
 
   protected onMarkdownMediaRequested(event: MarkdownMediaRequestedEvent): void {
     this.mediaRequested.emit(event);
+  }
+
+  protected onMarkdownTimestampClicked(timeMs: number): void {
+    this.timestampClicked.emit(timeMs);
   }
 
   protected cardThemeStyle(card: AgentXRichCard): string {

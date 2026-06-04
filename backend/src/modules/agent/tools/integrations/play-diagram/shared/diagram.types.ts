@@ -10,11 +10,11 @@ export type DiagramRouteType =
   | 'go'
   | 'fade';
 
-export type DiagramZoneShape = 'ellipse' | 'rect';
+export type DiagramZoneShape = 'ellipse' | 'rect' | 'text';
 
-export type DiagramPlayerShape = 'circle' | 'square' | 'diamond';
+export type DiagramPlayerShape = 'circle' | 'square' | 'diamond' | 'triangle';
 
-export type DiagramFieldStyle = 'classic' | 'night' | 'blueprint' | 'chalk';
+export type DiagramFieldStyle = 'classic' | 'modern' | 'night' | 'blueprint' | 'chalk';
 
 export interface DiagramZone {
   id: string;

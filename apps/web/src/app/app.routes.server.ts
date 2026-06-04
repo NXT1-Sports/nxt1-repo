@@ -14,6 +14,10 @@ export const serverRoutes: ServerRoute[] = [
     renderMode: RenderMode.Server,
   },
   {
+    path: 'agent-x/film-review-popout',
+    renderMode: RenderMode.Client,
+  },
+  {
     path: 'agent-x',
     renderMode: RenderMode.Server,
   },

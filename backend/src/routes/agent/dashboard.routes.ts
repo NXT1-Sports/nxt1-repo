@@ -204,7 +204,7 @@ const DIAGRAM_ASSET_KIND_VALUES = [
   'sport_play',
   'sport_drill',
 ] as const satisfies readonly BoardDiagramKind[];
-const DIAGRAM_FIELD_STYLE_VALUES = ['classic', 'night', 'blueprint', 'chalk'] as const;
+const DIAGRAM_FIELD_STYLE_VALUES = ['classic', 'modern', 'night', 'blueprint', 'chalk'] as const;
 const DIAGRAM_ROUTE_TYPE_VALUES = [
   'screen',
   'pick',
@@ -215,8 +215,8 @@ const DIAGRAM_ROUTE_TYPE_VALUES = [
   'go',
   'fade',
 ] as const;
-const DIAGRAM_ZONE_SHAPE_VALUES = ['ellipse', 'rect'] as const;
-const DIAGRAM_PLAYER_SHAPE_VALUES = ['circle', 'square', 'diamond'] as const;
+const DIAGRAM_ZONE_SHAPE_VALUES = ['ellipse', 'rect', 'text'] as const;
+const DIAGRAM_PLAYER_SHAPE_VALUES = ['circle', 'square', 'diamond', 'triangle'] as const;
 const hexColorRegex = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 const diagramPointSchema = z.tuple([z.number().finite(), z.number().finite()]);
 const diagramPlayerSchema = z.object({

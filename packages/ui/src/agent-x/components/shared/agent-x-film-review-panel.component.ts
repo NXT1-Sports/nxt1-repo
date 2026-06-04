@@ -98,6 +98,7 @@ const FILM_REVIEW_TIMELINE_COLUMN_DRAG_MIME = 'application/x-nxt1-film-timeline-
 const FILM_REVIEW_STARTER_PLAYLIST_NAMES = ['Self Scout Playlist', 'Opponent Play list'] as const;
 const FILM_REVIEW_PLAYLIST_STORAGE_PREFIX = 'agent-x-film-playlists';
 const FILM_REVIEW_COLUMN_ORDER_STORAGE_PREFIX = 'agent-x-film-timeline-columns';
+const FILM_REVIEW_POPOUT_STORAGE_PREFIX = 'nxt1-film-review-popout:';
 
 type TimelinePlayDropPlacement = 'before' | 'after';
 type TimelineColumnDropPlacement = 'before' | 'after';
@@ -457,112 +458,114 @@ type DrawEffectMarker = {
                       <span class="film-playlist-folder__count">{{ folder.reviews.length }}</span>
                     </button>
 
-                    <div class="film-playlist-folder__menu-anchor">
-                      <button
-                        type="button"
-                        class="film-list-item__menu-btn film-playlist-folder__menu-btn"
-                        aria-label="Playlist options"
-                        [attr.aria-expanded]="isPlaylistFolderMenuOpen(folder.id)"
-                        aria-haspopup="menu"
-                        [attr.data-testid]="testIds.PLAYLIST_FOLDER_MENU"
-                        (click)="onOpenPlaylistFolderMenu($event, folder)"
-                      >
-                        <nxt1-icon name="moreHorizontal" [size]="18"></nxt1-icon>
-                      </button>
-
-                      @if (isPlaylistFolderMenuOpen(folder.id)) {
-                        <div
-                          class="film-list-item__menu-backdrop"
-                          (click)="onMenuBackdropTap()"
-                        ></div>
-                        <div
-                          class="film-list-item__menu film-playlist-folder__menu"
-                          role="menu"
+                    @if (!folder.isUnassigned) {
+                      <div class="film-playlist-folder__menu-anchor">
+                        <button
+                          type="button"
+                          class="film-list-item__menu-btn film-playlist-folder__menu-btn"
                           aria-label="Playlist options"
-                          (click)="$event.stopPropagation()"
+                          [attr.aria-expanded]="isPlaylistFolderMenuOpen(folder.id)"
+                          aria-haspopup="menu"
+                          [attr.data-testid]="testIds.PLAYLIST_FOLDER_MENU"
+                          (click)="onOpenPlaylistFolderMenu($event, folder)"
                         >
-                          @if (isEditingPlaylistFolder(folder.id)) {
-                            <div class="film-list-item__menu-rename">
-                              <label
-                                class="film-list-item__menu-label"
-                                for="film-playlist-folder-rename-{{ folder.id }}"
+                          <nxt1-icon name="moreHorizontal" [size]="18"></nxt1-icon>
+                        </button>
+
+                        @if (isPlaylistFolderMenuOpen(folder.id)) {
+                          <div
+                            class="film-list-item__menu-backdrop"
+                            (click)="onMenuBackdropTap()"
+                          ></div>
+                          <div
+                            class="film-list-item__menu film-playlist-folder__menu"
+                            role="menu"
+                            aria-label="Playlist options"
+                            (click)="$event.stopPropagation()"
+                          >
+                            @if (isEditingPlaylistFolder(folder.id)) {
+                              <div class="film-list-item__menu-rename">
+                                <label
+                                  class="film-list-item__menu-label"
+                                  for="film-playlist-folder-rename-{{ folder.id }}"
+                                >
+                                  Rename playlist
+                                </label>
+                                <input
+                                  id="film-playlist-folder-rename-{{ folder.id }}"
+                                  type="text"
+                                  class="film-list-item__menu-input"
+                                  maxlength="80"
+                                  [value]="playlistFolderRenameDraft()"
+                                  (input)="onPlaylistFolderRenameInput($any($event.target).value)"
+                                  (keydown.enter)="onPlaylistFolderRenameConfirm(folder, $event)"
+                                  (keydown.escape)="onPlaylistFolderRenameCancel($event)"
+                                />
+                                <div class="film-list-item__menu-actions">
+                                  <button
+                                    type="button"
+                                    class="film-list-item__menu-action film-list-item__menu-action--primary"
+                                    (click)="onPlaylistFolderRenameConfirm(folder, $event)"
+                                  >
+                                    Save
+                                  </button>
+                                  <button
+                                    type="button"
+                                    class="film-list-item__menu-action"
+                                    (click)="onPlaylistFolderRenameCancel($event)"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            } @else if (isDeletingPlaylistFolder(folder.id)) {
+                              <div class="film-list-item__menu-confirm">
+                                <p class="film-list-item__menu-confirm-text">
+                                  @if (folder.reviews.length) {
+                                    Delete this playlist? Film will move to Unassigned Film.
+                                  } @else {
+                                    Delete this empty playlist?
+                                  }
+                                </p>
+                                <div class="film-list-item__menu-actions">
+                                  <button
+                                    type="button"
+                                    class="film-list-item__menu-action film-list-item__menu-action--danger"
+                                    (click)="onPlaylistFolderDeleteConfirm(folder, $event)"
+                                  >
+                                    Delete
+                                  </button>
+                                  <button
+                                    type="button"
+                                    class="film-list-item__menu-action"
+                                    (click)="onPlaylistFolderDeleteCancel($event)"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            } @else {
+                              <button
+                                type="button"
+                                class="film-list-item__menu-action"
+                                role="menuitem"
+                                (click)="onPlaylistFolderRenameStart(folder, $event)"
                               >
-                                Rename playlist
-                              </label>
-                              <input
-                                id="film-playlist-folder-rename-{{ folder.id }}"
-                                type="text"
-                                class="film-list-item__menu-input"
-                                maxlength="80"
-                                [value]="playlistFolderRenameDraft()"
-                                (input)="onPlaylistFolderRenameInput($any($event.target).value)"
-                                (keydown.enter)="onPlaylistFolderRenameConfirm(folder, $event)"
-                                (keydown.escape)="onPlaylistFolderRenameCancel($event)"
-                              />
-                              <div class="film-list-item__menu-actions">
-                                <button
-                                  type="button"
-                                  class="film-list-item__menu-action film-list-item__menu-action--primary"
-                                  (click)="onPlaylistFolderRenameConfirm(folder, $event)"
-                                >
-                                  Save
-                                </button>
-                                <button
-                                  type="button"
-                                  class="film-list-item__menu-action"
-                                  (click)="onPlaylistFolderRenameCancel($event)"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            </div>
-                          } @else if (isDeletingPlaylistFolder(folder.id)) {
-                            <div class="film-list-item__menu-confirm">
-                              <p class="film-list-item__menu-confirm-text">
-                                @if (folder.reviews.length) {
-                                  Delete this playlist? Film will move to Unassigned Film.
-                                } @else {
-                                  Delete this empty playlist?
-                                }
-                              </p>
-                              <div class="film-list-item__menu-actions">
-                                <button
-                                  type="button"
-                                  class="film-list-item__menu-action film-list-item__menu-action--danger"
-                                  (click)="onPlaylistFolderDeleteConfirm(folder, $event)"
-                                >
-                                  Delete
-                                </button>
-                                <button
-                                  type="button"
-                                  class="film-list-item__menu-action"
-                                  (click)="onPlaylistFolderDeleteCancel($event)"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            </div>
-                          } @else {
-                            <button
-                              type="button"
-                              class="film-list-item__menu-action"
-                              role="menuitem"
-                              (click)="onPlaylistFolderRenameStart(folder, $event)"
-                            >
-                              Rename
-                            </button>
-                            <button
-                              type="button"
-                              class="film-list-item__menu-action film-list-item__menu-action--danger"
-                              role="menuitem"
-                              (click)="onPlaylistFolderDeleteStart(folder, $event)"
-                            >
-                              Delete playlist
-                            </button>
-                          }
-                        </div>
-                      }
-                    </div>
+                                Rename
+                              </button>
+                              <button
+                                type="button"
+                                class="film-list-item__menu-action film-list-item__menu-action--danger"
+                                role="menuitem"
+                                (click)="onPlaylistFolderDeleteStart(folder, $event)"
+                              >
+                                Delete playlist
+                              </button>
+                            }
+                          </div>
+                        }
+                      </div>
+                    }
                   </div>
 
                   @if (isPlaylistFolderExpanded(folder.id)) {
@@ -1442,10 +1445,12 @@ type DrawEffectMarker = {
       }
 
       .film-review-panel {
+        --film-review-stage-max-height: min(46vh, 390px);
         position: relative;
         display: flex;
         flex-direction: column;
         gap: 12px;
+        min-height: 0;
         min-width: 0;
         width: 100%;
         max-width: 100%;
@@ -1455,6 +1460,7 @@ type DrawEffectMarker = {
       }
 
       .film-review-panel--video-view {
+        --film-review-stage-max-height: min(50vh, 430px);
         gap: 10px;
         padding: 8px;
       }
@@ -1472,6 +1478,7 @@ type DrawEffectMarker = {
         display: grid;
         grid-template-columns: 1fr;
         gap: 16px;
+        justify-items: center;
         min-width: 0;
         width: 100%;
         max-width: 100%;
@@ -1986,7 +1993,7 @@ type DrawEffectMarker = {
       .film-player {
         width: 100%;
         max-width: 100%;
-        aspect-ratio: 16/8;
+        aspect-ratio: 16 / 9;
         display: block;
         margin: 0;
         border-radius: var(--nxt1-border-radius-md, 10px);
@@ -2097,10 +2104,18 @@ type DrawEffectMarker = {
       .film-player-wrapper {
         position: relative;
         display: flex;
+        align-items: center;
+        justify-content: center;
         min-width: 0;
-        width: 100%;
+        width: min(100%, 1040px, 82vh, 693px);
         max-width: 100%;
         height: auto;
+        aspect-ratio: 16 / 9;
+        margin-inline: auto;
+      }
+
+      .film-review-panel--video-view .film-player-wrapper {
+        width: min(100%, 1120px, 89vh, 764px);
       }
 
       .film-player-wrapper:focus-visible {
@@ -3670,6 +3685,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   @Input() sport = '';
 
   private filmPlayer?: ElementRef<HTMLVideoElement>;
+  private pendingTimestampSeekSec: number | null = null;
 
   @ViewChild('filmPlayer')
   set filmPlayerRef(player: ElementRef<HTMLVideoElement> | undefined) {
@@ -3925,6 +3941,59 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   public backToLibrary(): void {
     void this.onBackToLibrary();
+  }
+
+  public async seekToTimestampMs(timeMs: number): Promise<void> {
+    if (!Number.isFinite(timeMs) || timeMs < 0) return;
+
+    let review = this.selectedReview();
+    if (!review) {
+      const teamId = this.teamId?.trim();
+      if (teamId) {
+        await this.loadFilmReviews(teamId);
+        review = this.selectedReview();
+      }
+    }
+
+    if (!review) return;
+
+    const seconds = Math.max(0, timeMs / 1000);
+    if (!this.isVideoView()) {
+      await this.onSelectReview(review.id);
+      review = this.selectedReview() ?? review;
+    }
+
+    const timeline = review.timeline ?? [];
+    const matchingPlayIndex = timeline.findIndex(
+      (play) => seconds >= play.startSec && seconds <= play.endSec
+    );
+
+    this.resetTimelinePlayEditing();
+    await this.flushCurrentPlayAnnotationPersistence();
+
+    if (matchingPlayIndex >= 0) {
+      this.currentPlayIndex.set(matchingPlayIndex);
+      this.restoreDrawOverlayForPlay(timeline[matchingPlayIndex] ?? null);
+    } else {
+      this.restoreDrawOverlayForPlay(null);
+    }
+
+    if (this.jumpCloudflareIframeTo(seconds)) {
+      this.pendingTimestampSeekSec = null;
+      return;
+    }
+
+    const player = this.filmPlayer?.nativeElement;
+    if (!player || player.readyState < 1) {
+      this.pendingTimestampSeekSec = seconds;
+      this.updatePlayerTimeSignal(seconds, true);
+      this.syncSeekUi(seconds);
+      this.scheduleNativeVideoSourceSync();
+      return;
+    }
+
+    this.pendingTimestampSeekSec = null;
+    this.jumpTo(seconds);
   }
 
   protected readonly currentPlay = computed<FilmTimelinePlay | null>(() => {
@@ -6293,6 +6362,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.updatePlayerTimeSignal(player.currentTime || 0, true);
     this.syncSeekUi(player.currentTime || 0);
     this.playbackRate.set(player.playbackRate || 1);
+    const pendingSeekSec = this.pendingTimestampSeekSec;
+    if (pendingSeekSec !== null) {
+      this.pendingTimestampSeekSec = null;
+      this.jumpTo(pendingSeekSec);
+    }
     this.ensureDrawCanvasSize();
     this.renderDrawOverlay();
   }
@@ -7741,10 +7815,29 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!videoUrl || typeof window === 'undefined') return;
 
     const currentTimeSec = Math.max(0, Number(this.playerCurrentTime().toFixed(2)));
+    const sessionId = this.createFilmReviewPopoutSessionId();
+    const payload = {
+      videoUrl: videoUrl.split('#')[0],
+      title: review ? this.getReviewDisplayTitle(review) : 'NXT1 Film Review',
+      startTimeSec: currentTimeSec,
+      playCounter: this.currentInlinePlayOverlayCounter(),
+      playDetails: this.currentInlinePlayOverlayItems(),
+    };
+
+    try {
+      window.sessionStorage.setItem(
+        `${FILM_REVIEW_POPOUT_STORAGE_PREFIX}${sessionId}`,
+        JSON.stringify(payload)
+      );
+    } catch {
+      this.toast.error('Could not prepare the video player window.');
+      return;
+    }
+
     const screenWidth = window.screen.availWidth || window.innerWidth;
     const screenHeight = window.screen.availHeight || window.innerHeight;
     const popupWidth = Math.min(1280, Math.max(720, Math.round(screenWidth * 0.82)));
-    const popupHeight = Math.min(720, Math.max(405, Math.round(popupWidth * 0.5625)));
+    const popupHeight = Math.min(860, Math.max(560, Math.round(popupWidth * 0.66)));
     const popupLeft = Math.max(0, Math.round((screenWidth - popupWidth) / 2));
     const popupTop = Math.max(0, Math.round((screenHeight - popupHeight) / 2));
     const popupFeatures = [
@@ -7761,274 +7854,26 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       `top=${popupTop}`,
     ].join(',');
 
-    const playerHtml = this.createVideoPopoutHtml(
-      videoUrl.split('#')[0],
-      review ? this.getReviewDisplayTitle(review) : 'NXT1 Film Review',
-      currentTimeSec
-    );
-    const videoWindow = window.open('', 'nxt1-film-review-player', popupFeatures);
-    if (!videoWindow) {
-      this.toast.error('Allow pop-ups to open video in a new window.');
-      return;
-    }
+    const popoutUrl = new URL('/agent-x/film-review-popout', window.location.origin);
+    popoutUrl.searchParams.set('session', sessionId);
 
-    try {
-      videoWindow.document.open();
-      videoWindow.document.write(playerHtml);
-      videoWindow.document.close();
-      videoWindow.opener = null;
-    } catch {
-      videoWindow.close();
-      this.toast.error('Could not open the video player window.');
+    const videoWindow = window.open(popoutUrl.toString(), 'nxt1-film-review-player', popupFeatures);
+    if (!videoWindow) {
+      window.sessionStorage.removeItem(`${FILM_REVIEW_POPOUT_STORAGE_PREFIX}${sessionId}`);
+      this.toast.error('Allow pop-ups to open video in a new window.');
       return;
     }
 
     videoWindow.focus();
   }
 
-  private createVideoPopoutHtml(videoUrl: string, title: string, startTimeSec: number): string {
-    const safeVideoUrl = this.toHtmlScriptValue(videoUrl);
-    const safeTitle = this.toHtmlScriptValue(title);
-    const brandedTitle = `NXT1 Film Review | ${title}`;
-    const safeStartTime = Number.isFinite(startTimeSec) ? startTimeSec : 0;
+  private createFilmReviewPopoutSessionId(): string {
+    const cryptoApi = window.crypto;
+    if (typeof cryptoApi?.randomUUID === 'function') {
+      return cryptoApi.randomUUID();
+    }
 
-    return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${this.escapeHtml(brandedTitle)}</title>
-    <style>
-      :root { color-scheme: dark; }
-      * { box-sizing: border-box; }
-      html, body { width: 100%; height: 100%; margin: 0; background: #05070a; color: #f8fafc; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-      body { display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }
-      header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 16px; border-bottom: 1px solid rgba(148, 163, 184, 0.18); background: rgba(5, 7, 10, 0.92); }
-      .identity { display: inline-flex; align-items: center; min-width: 0; gap: 10px; }
-      .brand { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; min-height: 24px; padding: 0 9px; border-radius: 6px; background: #0f172a; border: 1px solid rgba(148, 163, 184, 0.24); color: #38bdf8; font-size: 11px; font-weight: 900; letter-spacing: 0.08em; }
-      .divider { flex: 0 0 auto; width: 1px; height: 18px; background: rgba(148, 163, 184, 0.28); }
-      h1 { min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 700; letter-spacing: 0; }
-      .status { flex: 0 0 auto; color: #94a3b8; font-size: 12px; font-weight: 600; }
-      main { display: grid; grid-template-rows: minmax(0, 1fr) auto; min-height: 0; padding: 0; background: #000; }
-      .player-shell { position: relative; min-height: 0; }
-      video { width: 100%; height: 100%; min-height: 0; object-fit: contain; background: #000; outline: none; display: block; }
-      .controls { display: grid; gap: 8px; padding: 10px 12px 12px; background: linear-gradient(180deg, rgba(9, 13, 18, 0.4) 0%, rgba(5, 7, 10, 0.92) 100%); }
-      .seek-wrap { display: flex; align-items: center; }
-      .seek { width: 100%; -webkit-appearance: none; appearance: none; height: 4px; border-radius: 999px; border: 0; outline: none; cursor: pointer; background: linear-gradient(to right, #84cc16 0%, #84cc16 var(--seek-progress, 0%), rgba(148, 163, 184, 0.35) var(--seek-progress, 0%), rgba(148, 163, 184, 0.35) 100%); }
-      .seek::-webkit-slider-runnable-track { height: 4px; background: transparent; border-radius: 999px; }
-      .seek::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 11px; height: 11px; border-radius: 50%; border: 0; margin-top: -3.5px; background: #84cc16; }
-      .seek::-moz-range-track { height: 4px; background: transparent; border-radius: 999px; }
-      .seek::-moz-range-thumb { width: 11px; height: 11px; border-radius: 50%; border: 0; background: #84cc16; }
-      .controls-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-      .controls-cluster { display: inline-flex; align-items: center; gap: 2px; padding: 4px; border-radius: 12px; background: rgba(15, 23, 42, 0.78); border: 1px solid rgba(148, 163, 184, 0.2); }
-      .ctl-btn { min-width: 30px; min-height: 30px; border: 0; border-radius: 8px; background: transparent; color: #e2e8f0; font-size: 12px; font-weight: 700; line-height: 1; cursor: pointer; }
-      .ctl-btn:hover:not(:disabled) { background: rgba(132, 204, 22, 0.16); color: #bef264; }
-      .ctl-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-      .ctl-btn--play { color: #bef264; }
-      .controls-right { display: inline-flex; align-items: center; gap: 4px; }
-      .speed-select { min-height: 30px; border: 0; border-radius: 8px; background: transparent; color: #e2e8f0; font-size: 12px; font-weight: 700; padding: 0 6px; cursor: pointer; }
-      .time-badge { min-height: 30px; display: inline-flex; align-items: center; padding: 0 8px; color: #cbd5e1; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
-    </style>
-  </head>
-  <body>
-    <header>
-      <div class="identity">
-        <span class="brand">NXT1</span>
-        <span class="divider" aria-hidden="true"></span>
-        <h1 id="title"></h1>
-      </div>
-      <span class="status" id="status">Loading</span>
-    </header>
-    <main>
-      <div class="player-shell">
-        <video id="player" playsinline preload="metadata"></video>
-      </div>
-      <div class="controls" role="group" aria-label="Playback controls">
-        <div class="seek-wrap">
-          <input id="seek" class="seek" type="range" min="0" max="0.1" value="0" step="any" aria-label="Seek timeline" />
-        </div>
-        <div class="controls-row">
-          <div class="controls-cluster" role="group" aria-label="Timeline navigation">
-            <button id="jumpStart" class="ctl-btn" type="button" aria-label="Jump to start" title="Jump to start">|&lt;</button>
-            <button id="back10" class="ctl-btn" type="button" aria-label="Back 10 seconds" title="Back 10 seconds">&laquo;</button>
-            <button id="back5" class="ctl-btn" type="button" aria-label="Back 5 seconds" title="Back 5 seconds">&lsaquo;</button>
-            <button id="playPause" class="ctl-btn ctl-btn--play" type="button" aria-label="Play" title="Play">&#9658;</button>
-            <button id="forward5" class="ctl-btn" type="button" aria-label="Forward 5 seconds" title="Forward 5 seconds">&rsaquo;</button>
-            <button id="forward10" class="ctl-btn" type="button" aria-label="Forward 10 seconds" title="Forward 10 seconds">&raquo;</button>
-            <button id="jumpEnd" class="ctl-btn" type="button" aria-label="Jump to end" title="Jump to end">&gt;|</button>
-          </div>
-
-          <div class="controls-cluster controls-right" role="group" aria-label="Playback options">
-            <select id="speed" class="speed-select" aria-label="Playback speed">
-              <option value="0.5">0.5x</option>
-              <option value="0.75">0.75x</option>
-              <option value="1" selected>1x</option>
-              <option value="1.25">1.25x</option>
-              <option value="1.5">1.5x</option>
-              <option value="2">2x</option>
-            </select>
-            <button id="fullscreen" class="ctl-btn" type="button" aria-label="Toggle fullscreen" title="Toggle fullscreen">&#9974;</button>
-            <span id="timeBadge" class="time-badge">0:00.00 / 0:00.00</span>
-          </div>
-        </div>
-      </div>
-    </main>
-    <script>
-      const sourceUrl = ${safeVideoUrl};
-      const title = ${safeTitle};
-      const startTime = ${safeStartTime};
-      const video = document.getElementById('player');
-      const titleEl = document.getElementById('title');
-      const statusEl = document.getElementById('status');
-      const seekEl = document.getElementById('seek');
-      const playPauseBtn = document.getElementById('playPause');
-      const jumpStartBtn = document.getElementById('jumpStart');
-      const jumpEndBtn = document.getElementById('jumpEnd');
-      const back5Btn = document.getElementById('back5');
-      const back10Btn = document.getElementById('back10');
-      const forward5Btn = document.getElementById('forward5');
-      const forward10Btn = document.getElementById('forward10');
-      const speedEl = document.getElementById('speed');
-      const fullscreenBtn = document.getElementById('fullscreen');
-      const timeBadgeEl = document.getElementById('timeBadge');
-
-      const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
-      const formatTime = (seconds) => {
-        if (!Number.isFinite(seconds) || seconds < 0) return '0:00.00';
-        const whole = Math.floor(seconds);
-        const mins = Math.floor(whole / 60);
-        const secs = whole % 60;
-        const hundredths = Math.floor((seconds - whole) * 100);
-        return String(mins) + ':' + String(secs).padStart(2, '0') + '.' + String(hundredths).padStart(2, '0');
-      };
-
-      let scrubbing = false;
-      const updatePlayLabel = () => {
-        const isPaused = video.paused || video.ended;
-        playPauseBtn.textContent = isPaused ? '\u25B6' : '\u23F8';
-        playPauseBtn.setAttribute('aria-label', isPaused ? 'Play' : 'Pause');
-        playPauseBtn.setAttribute('title', isPaused ? 'Play' : 'Pause');
-      };
-      const updateSeek = () => {
-        const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
-        if (!scrubbing) {
-          seekEl.max = duration > 0 ? String(duration) : '0.1';
-          seekEl.value = String(clamp(video.currentTime || 0, 0, duration || 0.1));
-        }
-        const progress = duration > 0 ? (clamp(video.currentTime || 0, 0, duration) / duration) * 100 : 0;
-        seekEl.style.setProperty('--seek-progress', String(progress) + '%');
-        timeBadgeEl.textContent = formatTime(video.currentTime || 0) + ' / ' + formatTime(duration);
-      };
-
-      const seekRelative = (delta) => {
-        const duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : 0;
-        if (duration <= 0) return;
-        video.currentTime = clamp((video.currentTime || 0) + delta, 0, duration);
-      };
-
-      document.title = 'NXT1 Film Review | ' + title;
-      titleEl.textContent = title;
-      video.src = sourceUrl;
-      video.controls = false;
-
-      video.addEventListener('loadedmetadata', () => {
-        if (Number.isFinite(startTime) && startTime > 0 && startTime < video.duration) {
-          video.currentTime = startTime;
-        }
-        statusEl.textContent = 'Ready';
-        updateSeek();
-      }, { once: true });
-      video.addEventListener('timeupdate', updateSeek);
-      video.addEventListener('seeking', updateSeek);
-      video.addEventListener('seeked', updateSeek);
-      video.addEventListener('play', () => {
-        statusEl.textContent = 'Playing';
-        updatePlayLabel();
-      });
-      video.addEventListener('pause', () => {
-        statusEl.textContent = 'Paused';
-        updatePlayLabel();
-      });
-      video.addEventListener('ended', () => {
-        statusEl.textContent = 'Ended';
-        updatePlayLabel();
-      });
-      video.addEventListener('error', () => {
-        statusEl.textContent = 'Video unavailable';
-      });
-
-      seekEl.addEventListener('pointerdown', () => {
-        scrubbing = true;
-      });
-      seekEl.addEventListener('pointerup', () => {
-        scrubbing = false;
-      });
-      seekEl.addEventListener('input', () => {
-        const nextTime = Number(seekEl.value || '0');
-        if (!Number.isFinite(nextTime)) return;
-        video.currentTime = nextTime;
-        updateSeek();
-      });
-
-      playPauseBtn.addEventListener('click', () => {
-        if (video.paused || video.ended) {
-          video.play().catch(() => {
-            statusEl.textContent = 'Playback blocked';
-          });
-        } else {
-          video.pause();
-        }
-      });
-      jumpStartBtn.addEventListener('click', () => {
-        video.currentTime = 0;
-      });
-      jumpEndBtn.addEventListener('click', () => {
-        if (Number.isFinite(video.duration) && video.duration > 0) {
-          video.currentTime = video.duration;
-        }
-      });
-      back5Btn.addEventListener('click', () => seekRelative(-5));
-      back10Btn.addEventListener('click', () => seekRelative(-10));
-      forward5Btn.addEventListener('click', () => seekRelative(5));
-      forward10Btn.addEventListener('click', () => seekRelative(10));
-
-      speedEl.addEventListener('change', () => {
-        const nextRate = Number(speedEl.value || '1');
-        if (!Number.isFinite(nextRate) || nextRate <= 0) return;
-        video.playbackRate = nextRate;
-      });
-
-      fullscreenBtn.addEventListener('click', async () => {
-        const doc = document;
-        if (doc.fullscreenElement) {
-          await doc.exitFullscreen().catch(() => undefined);
-          return;
-        }
-        await video.requestFullscreen().catch(() => undefined);
-      });
-
-      updatePlayLabel();
-      updateSeek();
-      video.focus({ preventScroll: true });
-    </script>
-  </body>
-</html>`;
-  }
-
-  private toHtmlScriptValue(value: string): string {
-    return JSON.stringify(value)
-      .replace(/</g, '\\u003c')
-      .replace(/>/g, '\\u003e')
-      .replace(/&/g, '\\u0026');
-  }
-
-  private escapeHtml(value: string): string {
-    return value
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;');
+    return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
   private toNormalizedDrawPoint(

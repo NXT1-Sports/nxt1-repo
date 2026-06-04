@@ -35,7 +35,7 @@ import {
   afterNextRender,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
+import { DomSanitizer, type SafeHtml, type SafeResourceUrl } from '@angular/platform-browser';
 import { ModalController } from '@ionic/angular/standalone';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { APP_EVENTS } from '@nxt1/core/analytics';
@@ -45,13 +45,20 @@ import { NxtMediaService } from '../../services/media';
 import { NxtToastService } from '../../services/toast';
 import { NxtLoggingService } from '../../services/logging';
 import { NxtVideoControlsComponent } from '../video-controls';
-import type { MediaViewerBreakdown, MediaViewerItem } from './media-viewer.types';
+import { NxtIconComponent } from '../icon/icon.component';
+import type {
+  MediaViewerBreakdown,
+  MediaViewerBreakdownEditorConfig,
+  MediaViewerDiagramSvgTarget,
+  MediaViewerDiagramToolAction,
+  MediaViewerItem,
+} from './media-viewer.types';
 import type { MediaImageFormat } from '../../services/media';
 
 @Component({
   selector: 'nxt1-media-viewer-content',
   standalone: true,
-  imports: [NxtVideoControlsComponent],
+  imports: [NxtVideoControlsComponent, NxtIconComponent],
   host: {
     '[style.height]': 'isPlaybookVariant() ? "auto" : "100%"',
     '[style.min-height]': 'null',
@@ -293,15 +300,132 @@ import type { MediaImageFormat } from '../../services/media';
                   <span>Failed to load media</span>
                 </div>
               } @else {
-                <img
-                  class="media-image"
-                  [attr.data-testid]="testIds.IMAGE"
-                  [src]="item.url"
-                  [alt]="item.alt ?? ''"
-                  [loading]="i === initialIndex ? 'eager' : 'lazy'"
-                  draggable="false"
-                  (error)="onMediaError(i)"
-                />
+                @if (showDiagramToolOverlay()) {
+                  <div class="media-diagram-tools" aria-label="Diagram editing tools">
+                    <div class="media-diagram-tools__groups">
+                      @if (diagramToolPrimaryActions().length > 0) {
+                        <div class="media-diagram-tools__actions">
+                          @for (action of diagramToolPrimaryActions(); track action.id) {
+                            <button
+                              type="button"
+                              class="media-diagram-tools__action"
+                              [class.media-diagram-tools__action--primary]="
+                                action.variant === 'primary'
+                              "
+                              [class.media-diagram-tools__action--secondary]="
+                                action.variant === 'secondary'
+                              "
+                              [disabled]="
+                                diagramToolActionBusy() || isDiagramToolActionDisabled(action)
+                              "
+                              [attr.aria-label]="action.ariaLabel || action.label"
+                              [attr.title]="action.label"
+                              (click)="runDiagramToolAction(action)"
+                            >
+                              <span
+                                class="media-diagram-tools__icon"
+                                [class.media-diagram-tools__icon--circle-player]="
+                                  action.icon === 'circle-player'
+                                "
+                                [class.media-diagram-tools__icon--triangle-player]="
+                                  action.icon === 'triangle-player'
+                                "
+                                [class.media-diagram-tools__icon--square-player]="
+                                  action.icon === 'square-player'
+                                "
+                                [class.media-diagram-tools__icon--route]="action.icon === 'route'"
+                                [class.media-diagram-tools__icon--block]="action.icon === 'block'"
+                                [class.media-diagram-tools__icon--motion]="action.icon === 'motion'"
+                                [class.media-diagram-tools__icon--text]="action.icon === 'text'"
+                                [class.media-diagram-tools__icon--zone]="action.icon === 'zone'"
+                                [class.media-diagram-tools__icon--background]="
+                                  action.icon === 'background'
+                                "
+                                [class.media-diagram-tools__icon--shield]="action.icon === 'shield'"
+                                [class.media-diagram-tools__icon--discard]="
+                                  action.icon === 'discard'
+                                "
+                                aria-hidden="true"
+                              ></span>
+                              <span class="media-diagram-tools__label">{{ action.label }}</span>
+                            </button>
+                          }
+                        </div>
+                      }
+
+                      @if (diagramToolHistoryActions().length > 0) {
+                        <div
+                          class="media-diagram-tools__actions media-diagram-tools__actions--history"
+                        >
+                          @for (action of diagramToolHistoryActions(); track action.id) {
+                            <button
+                              type="button"
+                              class="media-diagram-tools__action"
+                              [class.media-diagram-tools__action--primary]="
+                                action.variant === 'primary'
+                              "
+                              [class.media-diagram-tools__action--secondary]="
+                                action.variant === 'secondary'
+                              "
+                              [disabled]="
+                                diagramToolActionBusy() || isDiagramToolActionDisabled(action)
+                              "
+                              [attr.aria-label]="action.ariaLabel || action.label"
+                              [attr.title]="action.label"
+                              (click)="runDiagramToolAction(action)"
+                            >
+                              @if (action.icon === 'undo' || action.icon === 'redo') {
+                                <nxt1-icon
+                                  [name]="action.icon"
+                                  [size]="18"
+                                  className="media-diagram-tools__svg-icon"
+                                  [ariaHidden]="true"
+                                />
+                              } @else {
+                                <span
+                                  class="media-diagram-tools__icon"
+                                  [class.media-diagram-tools__icon--discard]="
+                                    action.icon === 'discard'
+                                  "
+                                  aria-hidden="true"
+                                ></span>
+                              }
+                              <span class="media-diagram-tools__label">{{ action.label }}</span>
+                            </button>
+                          }
+                        </div>
+                      }
+                    </div>
+                    @if (diagramToolStatus()) {
+                      <span class="media-diagram-tools__status">{{ diagramToolStatus() }}</span>
+                    }
+                  </div>
+                }
+                @if (diagramToolPreviewSvg()) {
+                  <div
+                    class="media-image media-diagram-svg"
+                    [attr.data-testid]="testIds.IMAGE"
+                    [attr.aria-label]="item.alt ?? ''"
+                    [innerHTML]="diagramToolPreviewSvg()"
+                    (pointerdown)="onDiagramSvgPointerDown($event)"
+                    (pointermove)="onDiagramSvgPointerMove($event)"
+                    (pointerup)="onDiagramSvgPointerUp($event)"
+                    (pointercancel)="onDiagramSvgPointerCancel($event)"
+                    (pointerleave)="onDiagramSvgPointerLeave($event)"
+                    (click)="onDiagramSvgClick($event)"
+                    (dblclick)="onDiagramSvgDoubleClick($event)"
+                  ></div>
+                } @else {
+                  <img
+                    class="media-image"
+                    [attr.data-testid]="testIds.IMAGE"
+                    [src]="getMediaImageUrl(item)"
+                    [alt]="item.alt ?? ''"
+                    [loading]="i === initialIndex ? 'eager' : 'lazy'"
+                    draggable="false"
+                    (error)="onMediaError(i)"
+                  />
+                }
               }
             }
           </div>
@@ -430,9 +554,52 @@ import type { MediaImageFormat } from '../../services/media';
       @if (isPlaybookVariant() && currentBreakdown(); as breakdown) {
         <section class="playbook-breakdown" aria-label="Play breakdown details">
           <header class="playbook-breakdown__header">
-            @if (breakdown.subtitle) {
-              <p class="playbook-breakdown__subtitle">{{ breakdown.subtitle }}</p>
-            }
+            <div class="playbook-breakdown__title-row">
+              <div>
+                @if (playbookEditor?.title || breakdown.title) {
+                  <h3 class="playbook-breakdown__title">
+                    {{ playbookEditor?.title || breakdown.title }}
+                  </h3>
+                }
+                @if (breakdown.subtitle) {
+                  <p class="playbook-breakdown__subtitle">{{ breakdown.subtitle }}</p>
+                }
+              </div>
+              @if (playbookEditor) {
+                <div class="playbook-breakdown__actions">
+                  @if (playbookEditorOpen()) {
+                    <button
+                      type="button"
+                      class="playbook-breakdown__action-btn playbook-breakdown__action-btn--secondary"
+                      [disabled]="playbookEditorBusy()"
+                      (click)="cancelPlaybookEditor()"
+                    >
+                      {{ playbookEditor.cancelLabel || 'Cancel' }}
+                    </button>
+                    <button
+                      type="button"
+                      class="playbook-breakdown__action-btn"
+                      [disabled]="playbookEditorBusy() || !canSavePlaybookEditor()"
+                      (click)="savePlaybookEditor()"
+                    >
+                      {{
+                        playbookEditorBusy()
+                          ? playbookEditor.savingLabel || 'Saving...'
+                          : playbookEditor.saveLabel || 'Save'
+                      }}
+                    </button>
+                  } @else {
+                    <button
+                      type="button"
+                      class="playbook-breakdown__action-btn"
+                      (click)="startPlaybookEditor()"
+                    >
+                      {{ playbookEditor.editLabel || 'Edit' }}
+                    </button>
+                  }
+                </div>
+              }
+            </div>
             @if (breakdown.metaChips?.length) {
               <div class="playbook-breakdown__summary" aria-label="Play at a glance">
                 <h4 class="playbook-breakdown__summary-title">At a Glance</h4>
@@ -445,7 +612,55 @@ import type { MediaImageFormat } from '../../services/media';
             }
           </header>
 
-          @if (breakdown.sections?.length) {
+          @if (playbookEditorOpen() && playbookEditor; as editor) {
+            <form class="playbook-breakdown__editor" (submit)="savePlaybookEditor($event)">
+              @for (field of editor.fields; track field.key) {
+                <label
+                  class="playbook-breakdown__section playbook-breakdown__field"
+                  [class.playbook-breakdown__field--file]="field.type === 'file'"
+                >
+                  <span class="playbook-breakdown__field-label">{{ field.label }}</span>
+                  @if (field.type === 'textarea') {
+                    <textarea
+                      class="playbook-breakdown__input playbook-breakdown__textarea"
+                      [attr.rows]="field.rows || 3"
+                      [attr.placeholder]="field.placeholder || ''"
+                      [value]="playbookEditorFieldValue(field.key)"
+                      (input)="onPlaybookEditorInput(field.key, $event)"
+                    ></textarea>
+                  } @else if (field.type === 'select') {
+                    <select
+                      class="playbook-breakdown__input"
+                      [value]="playbookEditorFieldValue(field.key)"
+                      (change)="onPlaybookEditorInput(field.key, $event)"
+                    >
+                      @for (option of field.options || []; track option.value) {
+                        <option [value]="option.value">{{ option.label }}</option>
+                      }
+                    </select>
+                  } @else if (field.type === 'file') {
+                    <input
+                      type="file"
+                      class="playbook-breakdown__file-input"
+                      accept="image/*"
+                      (change)="onPlaybookEditorFileInput(field.key, $event)"
+                    />
+                    <span class="playbook-breakdown__file-status">
+                      {{ playbookEditorFileName(field.key) || field.placeholder || 'Choose image' }}
+                    </span>
+                  } @else {
+                    <input
+                      class="playbook-breakdown__input"
+                      [type]="field.type === 'url' ? 'url' : 'text'"
+                      [attr.placeholder]="field.placeholder || ''"
+                      [value]="playbookEditorFieldValue(field.key)"
+                      (input)="onPlaybookEditorInput(field.key, $event)"
+                    />
+                  }
+                </label>
+              }
+            </form>
+          } @else if (breakdown.sections?.length) {
             <div class="playbook-breakdown__body">
               @for (section of breakdown.sections!; track section.title) {
                 <article class="playbook-breakdown__section">
@@ -624,6 +839,7 @@ import type { MediaImageFormat } from '../../services/media';
     }
 
     .media-slide {
+      position: relative;
       flex: 0 0 100%;
       width: 100%;
       height: 100%;
@@ -651,6 +867,312 @@ import type { MediaImageFormat } from '../../services/media';
     .media-viewer--playbook .media-image {
       max-height: calc(100% - 4px);
       width: auto;
+    }
+
+    .media-diagram-svg {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      min-width: 0;
+      touch-action: none;
+      user-select: none;
+    }
+
+    :host ::ng-deep .media-diagram-svg svg {
+      width: auto;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    .media-diagram-tools {
+      position: absolute;
+      top: 58px;
+      bottom: 18px;
+      left: 18px;
+      z-index: 12;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      justify-content: flex-start;
+      gap: 10px;
+      pointer-events: none;
+    }
+
+    .media-diagram-tools__groups {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+      max-height: 100%;
+      pointer-events: auto;
+    }
+
+    .media-diagram-tools__actions {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+      max-height: 100%;
+      overflow-y: auto;
+      padding: 6px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: var(--nxt1-borderRadius-lg, 8px);
+      background: rgba(0, 0, 0, 0.58);
+      box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      pointer-events: auto;
+    }
+
+    .media-diagram-tools__actions--history {
+      border-color: rgba(255, 255, 255, 0.16);
+      background: rgba(0, 0, 0, 0.66);
+    }
+
+    .media-diagram-tools__action {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: flex-start;
+      width: auto;
+      min-width: 34px;
+      min-height: 30px;
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      border-radius: var(--nxt1-borderRadius-md, 6px);
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      font-size: 0.72rem;
+      font-weight: 800;
+      line-height: 1;
+      padding: 0 8px;
+      overflow: hidden;
+      cursor: pointer;
+      transition:
+        border-color 160ms ease,
+        background 160ms ease,
+        box-shadow 160ms ease,
+        transform 160ms ease;
+    }
+
+    .media-diagram-tools__action:hover:not(:disabled),
+    .media-diagram-tools__action:focus-visible:not(:disabled) {
+      border-color: rgba(255, 255, 255, 0.28);
+      background: rgba(255, 255, 255, 0.14);
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+      transform: translateX(1px);
+    }
+
+    .media-diagram-tools__action--primary {
+      border-color: var(--nxt1-color-primary, #ccff00);
+      background: var(--nxt1-color-primary, #ccff00);
+      color: var(--nxt1-color-primary-contrast, #050505);
+    }
+
+    .media-diagram-tools__action--secondary {
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    .media-diagram-tools__action:disabled {
+      opacity: 0.48;
+      cursor: not-allowed;
+    }
+
+    .media-diagram-tools__label {
+      display: inline-flex;
+      align-items: center;
+      max-width: 0;
+      margin-left: 0;
+      overflow: hidden;
+      opacity: 0;
+      white-space: nowrap;
+      color: currentColor;
+      font-size: 0.68rem;
+      font-weight: 800;
+      letter-spacing: 0.01em;
+      transform: translateX(-4px);
+      transition:
+        max-width 180ms ease,
+        margin-left 180ms ease,
+        opacity 140ms ease,
+        transform 180ms ease;
+    }
+
+    .media-diagram-tools__action:hover .media-diagram-tools__label,
+    .media-diagram-tools__action:focus-visible .media-diagram-tools__label {
+      max-width: 96px;
+      margin-left: 8px;
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .media-diagram-tools__icon {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 18px;
+      height: 18px;
+      color: currentColor;
+      flex: 0 0 auto;
+      font-family: Arial, sans-serif;
+      font-size: 12px;
+      font-weight: 900;
+      line-height: 1;
+    }
+
+    .media-diagram-tools__svg-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: currentColor;
+      flex: 0 0 auto;
+    }
+
+    .media-diagram-tools__icon--circle-player::before,
+    .media-diagram-tools__icon--square-player::before,
+    .media-diagram-tools__icon--zone::before,
+    .media-diagram-tools__icon--background::before,
+    .media-diagram-tools__icon--shield::before,
+    .media-diagram-tools__icon--discard::before {
+      content: '';
+      display: block;
+      width: 13px;
+      height: 13px;
+      border: 2px solid currentColor;
+    }
+
+    .media-diagram-tools__icon--circle-player::before {
+      border-radius: 999px;
+    }
+
+    .media-diagram-tools__icon--square-player::before {
+      border-radius: 3px;
+    }
+
+    .media-diagram-tools__icon--triangle-player::before {
+      content: '';
+      display: block;
+      width: 0;
+      height: 0;
+      border-right: 7px solid transparent;
+      border-bottom: 14px solid currentColor;
+      border-left: 7px solid transparent;
+    }
+
+    .media-diagram-tools__icon--route::before,
+    .media-diagram-tools__icon--route::after,
+    .media-diagram-tools__icon--block::before,
+    .media-diagram-tools__icon--block::after,
+    .media-diagram-tools__icon--motion::before,
+    .media-diagram-tools__icon--motion::after {
+      content: '';
+      position: absolute;
+      top: 8px;
+      left: 1px;
+      display: block;
+      width: 14px;
+      height: 2px;
+      border-radius: 999px;
+      background: currentColor;
+    }
+
+    .media-diagram-tools__icon--route::after,
+    .media-diagram-tools__icon--block::after,
+    .media-diagram-tools__icon--motion::after {
+      top: 5px;
+      left: 10px;
+      width: 7px;
+      height: 7px;
+      border-top: 2px solid currentColor;
+      border-right: 2px solid currentColor;
+      background: transparent;
+      transform: rotate(45deg);
+    }
+
+    .media-diagram-tools__icon--block::after {
+      top: 3px;
+      left: 12px;
+      width: 2px;
+      height: 13px;
+      border: 0;
+      border-radius: 999px;
+      background: currentColor;
+      transform: none;
+    }
+
+    .media-diagram-tools__icon--motion::before {
+      height: 0;
+      border-top: 2px dashed currentColor;
+      background: transparent;
+    }
+
+    .media-diagram-tools__icon--text::before {
+      content: 'Ab';
+    }
+
+    .media-diagram-tools__icon--zone::before {
+      width: 16px;
+      border-style: dashed;
+      border-radius: 999px;
+      opacity: 0.85;
+    }
+
+    .media-diagram-tools__icon--background::before {
+      border-radius: 3px;
+      background: linear-gradient(
+        135deg,
+        transparent 45%,
+        currentColor 46%,
+        currentColor 54%,
+        transparent 55%
+      );
+    }
+
+    .media-diagram-tools__icon--shield::before {
+      width: 13px;
+      height: 15px;
+      border-radius: 7px 7px 4px 4px;
+      transform: perspective(18px) rotateX(12deg);
+    }
+
+    .media-diagram-tools__icon--discard::before,
+    .media-diagram-tools__icon--discard::after {
+      content: '';
+      position: absolute;
+      width: 16px;
+      height: 2px;
+      border: 0;
+      border-radius: 999px;
+      background: currentColor;
+      transform: rotate(45deg);
+    }
+
+    .media-diagram-tools__icon--discard::after {
+      transform: rotate(-45deg);
+    }
+
+    .media-diagram-tools__status {
+      position: fixed;
+      top: 70px;
+      right: 18px;
+      flex-shrink: 0;
+      border-radius: 999px;
+      background: rgba(204, 255, 0, 0.16);
+      color: var(--nxt1-color-primary, #ccff00);
+      font-size: 0.66rem;
+      font-weight: 900;
+      line-height: 1;
+      padding: 7px 9px;
+      text-transform: uppercase;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.2);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      pointer-events: none;
     }
 
     .media-video {
@@ -790,6 +1312,49 @@ import type { MediaImageFormat } from '../../services/media';
       padding: 12px 12px 0;
     }
 
+    .playbook-breakdown__title-row {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .playbook-breakdown__title {
+      margin: 0 0 2px;
+      font-size: 0.95rem;
+      font-weight: 800;
+      color: var(--nxt1-color-text-primary, #fff);
+    }
+
+    .playbook-breakdown__actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .playbook-breakdown__action-btn {
+      border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.16));
+      border-radius: var(--nxt1-borderRadius-md, 6px);
+      background: var(--nxt1-color-primary, #fff);
+      color: var(--nxt1-color-primary-contrast, #050505);
+      font-size: 0.72rem;
+      font-weight: 800;
+      line-height: 1;
+      padding: 7px 10px;
+      cursor: pointer;
+    }
+
+    .playbook-breakdown__action-btn--secondary {
+      background: var(--nxt1-color-surface-200, rgba(255, 255, 255, 0.06));
+      color: var(--nxt1-color-text-primary, #fff);
+    }
+
+    .playbook-breakdown__action-btn:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
     .playbook-breakdown__subtitle {
       margin: 0;
       font-size: 0.75rem;
@@ -834,6 +1399,59 @@ import type { MediaImageFormat } from '../../services/media';
       gap: 8px;
       padding: 0 12px 12px;
       max-height: none;
+    }
+
+    .playbook-breakdown__editor {
+      display: grid;
+      gap: 8px;
+      padding: 0 12px 12px;
+    }
+
+    .playbook-breakdown__field {
+      cursor: default;
+    }
+
+    .playbook-breakdown__field-label {
+      font-size: 0.68rem;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+    }
+
+    .playbook-breakdown__input {
+      width: 100%;
+      min-width: 0;
+      border: 1px solid var(--nxt1-color-border-default, rgba(255, 255, 255, 0.14));
+      border-radius: var(--nxt1-borderRadius-md, 6px);
+      background: var(--nxt1-color-surface-100, rgba(0, 0, 0, 0.25));
+      color: var(--nxt1-color-text-primary, #fff);
+      font: inherit;
+      font-size: 0.78rem;
+      line-height: 1.4;
+      padding: 8px 9px;
+      outline: none;
+    }
+
+    .playbook-breakdown__input:focus {
+      border-color: var(--nxt1-color-primary, rgba(255, 255, 255, 0.72));
+      box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.08);
+    }
+
+    .playbook-breakdown__textarea {
+      resize: vertical;
+      min-height: 76px;
+    }
+
+    .playbook-breakdown__file-input {
+      width: 100%;
+      color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.72));
+      font-size: 0.74rem;
+    }
+
+    .playbook-breakdown__file-status {
+      font-size: 0.72rem;
+      color: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.7));
     }
 
     .playbook-breakdown__section {
@@ -1080,6 +1698,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   @Input() primaryActionLabel?: string;
   @Input() primaryActionAriaLabel?: string;
   @Input() primaryAction?: (item: MediaViewerItem) => void | Promise<void>;
+  @Input() playbookEditor?: MediaViewerBreakdownEditorConfig;
   /**
    * Set to true when opened via NxtOverlayService (Angular CDK, no Ionic modal).
    * Prevents modalCtrl.dismiss() from accidentally closing the topmost Ionic
@@ -1097,6 +1716,12 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   protected readonly videoPlaybackRates = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
   private readonly _saving = signal(false);
   protected readonly primaryActionBusy = signal(false);
+  protected readonly playbookEditorOpen = signal(false);
+  protected readonly playbookEditorBusy = signal(false);
+  protected readonly playbookEditorDraft = signal<Record<string, string>>({});
+  protected readonly playbookEditorFiles = signal<Record<string, File | null>>({});
+  protected readonly diagramToolActionBusy = signal(false);
+  private readonly diagramToolRevision = signal(0);
   protected readonly saving = computed(() => this._saving());
   private isScrubbingVideo = false;
   private wasPlayingBeforeSeek = false;
@@ -1118,6 +1743,35 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   protected readonly currentBreakdown = computed<MediaViewerBreakdown | null>(
     () => this.currentItem()?.breakdown ?? null
   );
+  protected readonly diagramToolPreviewUrl = computed(() => {
+    this.diagramToolRevision();
+    return this.playbookEditor?.diagramTools?.getPreviewUrl?.() ?? null;
+  });
+  protected readonly diagramToolPreviewSvg = computed<SafeHtml | null>(() => {
+    this.diagramToolRevision();
+    const svg = this.playbookEditor?.diagramTools?.getPreviewSvg?.() ?? null;
+    return svg ? this.sanitizer.bypassSecurityTrustHtml(svg) : null;
+  });
+  protected readonly diagramToolStatus = computed(() => {
+    this.diagramToolRevision();
+    return this.playbookEditor?.diagramTools?.getStatus?.() ?? null;
+  });
+  protected readonly diagramToolPrimaryActions = computed(() => {
+    this.diagramToolRevision();
+    const actions = this.playbookEditor?.diagramTools?.actions ?? [];
+    return actions.filter((action) => !this.isDiagramToolHistoryAction(action));
+  });
+  protected readonly diagramToolHistoryActions = computed(() => {
+    this.diagramToolRevision();
+    const actions = this.playbookEditor?.diagramTools?.actions ?? [];
+    return actions.filter((action) => this.isDiagramToolHistoryAction(action));
+  });
+  protected readonly canSavePlaybookEditor = computed(() => {
+    const editor = this.playbookEditor;
+    if (!editor) return false;
+    const draft = this.playbookEditorDraft();
+    return editor.fields.every((field) => !field.required || (draft[field.key] ?? '').trim());
+  });
 
   protected readonly testIds = TEST_IDS.MEDIA_VIEWER;
 
@@ -1146,6 +1800,158 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     const clamped = Math.max(0, Math.min(this.initialIndex, this.items.length - 1));
     this.currentIndex.set(clamped);
     this.resetCustomVideoState();
+    if (this.playbookEditor?.startInEditMode) {
+      this.startPlaybookEditor();
+    }
+  }
+
+  protected startPlaybookEditor(): void {
+    const editor = this.playbookEditor;
+    if (!editor) return;
+
+    const draft = editor.fields.reduce<Record<string, string>>((acc, field) => {
+      if (field.type !== 'file') acc[field.key] = field.value ?? '';
+      return acc;
+    }, {});
+
+    this.playbookEditorDraft.set(draft);
+    this.playbookEditorFiles.set({});
+    this.playbookEditorOpen.set(true);
+  }
+
+  protected cancelPlaybookEditor(): void {
+    this.playbookEditorOpen.set(false);
+    this.playbookEditorBusy.set(false);
+    this.playbookEditorDraft.set({});
+    this.playbookEditorFiles.set({});
+  }
+
+  protected playbookEditorFieldValue(key: string): string {
+    return this.playbookEditorDraft()[key] ?? '';
+  }
+
+  protected playbookEditorFileName(key: string): string {
+    return this.playbookEditorFiles()[key]?.name ?? '';
+  }
+
+  protected onPlaybookEditorInput(key: string, event: Event): void {
+    const target = event.target as
+      | HTMLInputElement
+      | HTMLTextAreaElement
+      | HTMLSelectElement
+      | null;
+    this.playbookEditorDraft.update((draft) => ({ ...draft, [key]: target?.value ?? '' }));
+  }
+
+  protected onPlaybookEditorFileInput(key: string, event: Event): void {
+    const target = event.target as HTMLInputElement | null;
+    const file = target?.files?.[0] ?? null;
+    if (file && !file.type.startsWith('image/')) {
+      if (target) target.value = '';
+      return;
+    }
+    this.playbookEditorFiles.update((files) => ({ ...files, [key]: file }));
+  }
+
+  protected showDiagramToolOverlay(): boolean {
+    const actions = this.playbookEditor?.diagramTools?.actions ?? [];
+    return this.isPlaybookVariant() && this.playbookEditorOpen() && actions.length > 0;
+  }
+
+  protected getMediaImageUrl(item: MediaViewerItem): string {
+    return this.showDiagramToolOverlay() ? (this.diagramToolPreviewUrl() ?? item.url) : item.url;
+  }
+
+  protected isDiagramToolActionDisabled(action: MediaViewerDiagramToolAction): boolean {
+    this.diagramToolRevision();
+    return action.disabled?.() ?? false;
+  }
+
+  protected isDiagramToolHistoryAction(action: MediaViewerDiagramToolAction): boolean {
+    return action.icon === 'undo' || action.icon === 'redo' || action.icon === 'discard';
+  }
+
+  protected async runDiagramToolAction(action: MediaViewerDiagramToolAction): Promise<void> {
+    if (this.diagramToolActionBusy() || this.isDiagramToolActionDisabled(action)) return;
+
+    this.diagramToolActionBusy.set(true);
+    try {
+      await action.run();
+      this.diagramToolRevision.update((revision) => revision + 1);
+    } finally {
+      this.diagramToolActionBusy.set(false);
+    }
+  }
+
+  protected onDiagramSvgPointerDown(event: PointerEvent): void {
+    this.playbookEditor?.diagramTools?.onSvgPointerDown?.(
+      event,
+      this.resolveDiagramSvgTarget(event.target)
+    );
+    this.diagramToolRevision.update((revision) => revision + 1);
+  }
+
+  protected onDiagramSvgPointerMove(event: PointerEvent): void {
+    this.playbookEditor?.diagramTools?.onSvgPointerMove?.(event);
+    this.diagramToolRevision.update((revision) => revision + 1);
+  }
+
+  protected onDiagramSvgPointerUp(event: PointerEvent): void {
+    this.playbookEditor?.diagramTools?.onSvgPointerUp?.(event);
+    this.diagramToolRevision.update((revision) => revision + 1);
+  }
+
+  protected onDiagramSvgPointerCancel(event: PointerEvent): void {
+    this.playbookEditor?.diagramTools?.onSvgPointerCancel?.(event);
+    this.diagramToolRevision.update((revision) => revision + 1);
+  }
+
+  protected onDiagramSvgPointerLeave(event: PointerEvent): void {
+    this.playbookEditor?.diagramTools?.onSvgPointerLeave?.(event);
+    this.diagramToolRevision.update((revision) => revision + 1);
+  }
+
+  protected onDiagramSvgClick(event: MouseEvent): void {
+    this.playbookEditor?.diagramTools?.onSvgClick?.(
+      event,
+      this.resolveDiagramSvgTarget(event.target)
+    );
+    this.diagramToolRevision.update((revision) => revision + 1);
+  }
+
+  protected onDiagramSvgDoubleClick(event: MouseEvent): void {
+    this.playbookEditor?.diagramTools?.onSvgDoubleClick?.(
+      event,
+      this.resolveDiagramSvgTarget(event.target)
+    );
+    this.diagramToolRevision.update((revision) => revision + 1);
+  }
+
+  private resolveDiagramSvgTarget(target: EventTarget | null): MediaViewerDiagramSvgTarget {
+    const element = target instanceof Element ? target : null;
+    const node = element?.closest<HTMLElement>('[data-diagram-node-type]') ?? null;
+    const type = node?.dataset['diagramNodeType'];
+    const id = node?.dataset['diagramNodeId'];
+
+    if (type === 'player' || type === 'route' || type === 'zone') {
+      return { type, id };
+    }
+
+    return { type: 'canvas' };
+  }
+
+  protected async savePlaybookEditor(event?: Event): Promise<void> {
+    event?.preventDefault();
+    const editor = this.playbookEditor;
+    if (!editor || this.playbookEditorBusy() || !this.canSavePlaybookEditor()) return;
+
+    this.playbookEditorBusy.set(true);
+    try {
+      await editor.onSave(this.playbookEditorDraft(), this.playbookEditorFiles());
+      this.playbookEditorOpen.set(false);
+    } finally {
+      this.playbookEditorBusy.set(false);
+    }
   }
 
   ngOnDestroy(): void {

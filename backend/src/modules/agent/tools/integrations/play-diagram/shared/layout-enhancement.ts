@@ -25,7 +25,7 @@ export function coerceRouteType(value: unknown): DiagramRouteType | undefined {
   return ROUTE_TYPE_SET.has(normalized) ? (normalized as DiagramRouteType) : undefined;
 }
 
-const PLAYER_SHAPE_SET = new Set<string>(['circle', 'square', 'diamond']);
+const PLAYER_SHAPE_SET = new Set<string>(['circle', 'square', 'diamond', 'triangle']);
 
 export function coercePlayerShape(value: unknown): DiagramPlayerShape | undefined {
   if (typeof value !== 'string') return undefined;
