@@ -96,6 +96,51 @@ describe('AgentWorker :: Approval Cards', () => {
     });
   });
 
+  describe('Gmail email approvals', () => {
+    it('should render email approval card for direct gmail_send_email tool', () => {
+      const card = renderApprovalCard({
+        toolName: 'gmail_send_email',
+        toolInput: {
+          to: ['coach@example.com'],
+          subject: 'Gmail Schedule Update',
+          body: '<p>Please review the updated schedule.</p>',
+        },
+      });
+
+      expect(card.type).toBe('confirmation');
+      expect(card.title).toBe('Review and Approve Email');
+      expect(card.payload.variant).toBe('email');
+      expect(card.payload.emailData.toEmail).toBe('coach@example.com');
+      expect(card.payload.emailData.recipients).toEqual(['coach@example.com']);
+      expect(card.payload.emailData.subject).toBe('Gmail Schedule Update');
+      expect(card.payload.actions[1].label).toBe('Send');
+    });
+
+    it('should render batch email approval card for wrapped Google Workspace Gmail send', () => {
+      const card = renderApprovalCard({
+        toolName: 'run_google_workspace_tool',
+        toolInput: {
+          toolName: 'gmail_send_email',
+          arguments: {
+            to: ['coach1@example.com', 'coach2@example.com'],
+            subject: 'Gmail Campaign Update',
+            body: '<p>Here is my latest recruiting update.</p>',
+          },
+        },
+      });
+
+      expect(card.type).toBe('confirmation');
+      expect(card.title).toBe('Review and Approve Emails (2 recipients)');
+      expect(card.payload.variant).toBe('email-batch');
+      expect(card.payload.emailData.recipients).toEqual([
+        'coach1@example.com',
+        'coach2@example.com',
+      ]);
+      expect(card.payload.emailData.subject).toBe('Gmail Campaign Update');
+      expect(card.payload.actions[1].label).toBe('Send All');
+    });
+  });
+
   describe('batch email (batch_send_email)', () => {
     it('should render batch email approval card with structured recipients', () => {
       const card = renderApprovalCard({
