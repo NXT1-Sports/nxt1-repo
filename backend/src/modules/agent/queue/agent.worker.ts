@@ -96,6 +96,8 @@ const AGENT_X_MEDIA_HOLD_COST_CENTS = (() => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : AGENT_X_STANDARD_HOLD_COST_CENTS;
 })();
 
+const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
+
 function estimateAgentXHoldCostCents(payload: AgentJobPayload): number {
   const text =
     `${payload.intent ?? ''} ${payload.displayIntent ?? ''} ${payload.agent ?? ''}`.toLowerCase();
@@ -132,7 +134,7 @@ function shouldSuppressCompletionPushWhenActivelyViewing(payload: AgentJobPayloa
     return explicitPolicy;
   }
 
-  return payload.origin === 'user';
+  return false;
 }
 
 const MAX_TIMEOUT_AUTO_CONTINUATIONS =
@@ -866,6 +868,94 @@ export class AgentWorker {
     return { scheduleId, runId };
   }
 
+  private resolvePayloadThreadIdFromContext(
+    payload: import('@nxt1/core').AgentJobPayload
+  ): string | undefined {
+    const contextObj =
+      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+
+    const threadIdRaw =
+      typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['threadId'] as string)
+        : undefined;
+    const threadId = threadIdRaw?.trim();
+    if (threadId) {
+      return threadId;
+    }
+
+    const sourceIdRaw =
+      typeof (contextObj as Record<string, unknown>)['sourceId'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['sourceId'] as string)
+        : undefined;
+    const sourceId = sourceIdRaw?.trim();
+    return sourceId || undefined;
+  }
+
+  private resolveThreadIdFromRecurringMetadata(
+    data: Record<string, unknown> | undefined
+  ): string | undefined {
+    if (!data) return undefined;
+
+    const threadIdRaw = typeof data['threadId'] === 'string' ? data['threadId'] : undefined;
+    const threadId = threadIdRaw?.trim();
+    if (threadId) {
+      return threadId;
+    }
+
+    const sourceIdRaw = typeof data['sourceId'] === 'string' ? data['sourceId'] : undefined;
+    const sourceId = sourceIdRaw?.trim();
+    return sourceId || undefined;
+  }
+
+  private async resolveScheduledRunThreadId(
+    job: Job<AgentQueueJobData, AgentQueueJobResult>,
+    scheduledRunContext: { scheduleId: string; runId: string } | null,
+    db: FirebaseFirestore.Firestore
+  ): Promise<string | undefined> {
+    if (!scheduledRunContext) return undefined;
+
+    try {
+      const scheduleDoc = await db
+        .collection(RECURRING_TASKS_COLLECTION)
+        .doc(scheduledRunContext.scheduleId)
+        .get();
+      const fromDoc = this.resolveThreadIdFromRecurringMetadata(
+        scheduleDoc.exists ? (scheduleDoc.data() as Record<string, unknown> | undefined) : undefined
+      );
+      if (fromDoc) {
+        return fromDoc;
+      }
+
+      const byJobName = await db
+        .collection(RECURRING_TASKS_COLLECTION)
+        .where('jobName', '==', job.name)
+        .limit(1)
+        .get();
+      const firstMatch = byJobName.docs[0];
+      const fromJobName = this.resolveThreadIdFromRecurringMetadata(
+        firstMatch?.data() as Record<string, unknown> | undefined
+      );
+      if (fromJobName) {
+        return fromJobName;
+      }
+
+      logger.warn('Scheduled run has no recoverable thread metadata', {
+        operationId: scheduledRunContext.runId,
+        scheduleId: scheduledRunContext.scheduleId,
+        jobName: job.name,
+      });
+    } catch (err) {
+      logger.warn('Failed to resolve scheduled run thread metadata', {
+        operationId: scheduledRunContext.runId,
+        scheduleId: scheduledRunContext.scheduleId,
+        jobName: job.name,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    return undefined;
+  }
+
   private async ensureJobDocumentExists(
     repo: AgentJobRepository,
     payload: AgentJobPayload
@@ -1413,16 +1503,16 @@ export class AgentWorker {
       typeof basePayload.context === 'object' && basePayload.context !== null
         ? basePayload.context
         : {};
-    const payloadThreadId =
-      typeof (payloadContext as Record<string, unknown>)['threadId'] === 'string'
-        ? ((payloadContext as Record<string, unknown>)['threadId'] as string)
-        : undefined;
     const scheduledRunContext = this.getScheduledRunContext(job, basePayload);
     const payload = scheduledRunContext
       ? { ...basePayload, operationId: scheduledRunContext.runId }
       : basePayload;
     const startMs = Date.now();
     const repo = this.getJobRepo(job);
+    const billingDb = await this.getActivityFirestore(job);
+    const payloadThreadId =
+      this.resolvePayloadThreadIdFromContext(basePayload) ??
+      (await this.resolveScheduledRunThreadId(job, scheduledRunContext, billingDb));
 
     await this.ensureJobDocumentExists(repo, payload);
 
@@ -1500,8 +1590,6 @@ export class AgentWorker {
       }
     }
 
-    // Hoist billing db so it's available across the full job lifecycle
-    const billingDb = await this.getActivityFirestore(job);
     const feature = typeof payload.agent === 'string' ? payload.agent : 'agent';
     const skipBilling = (payloadContext as Record<string, unknown>)['skipBilling'] === true;
 
@@ -1509,6 +1597,7 @@ export class AgentWorker {
     // For prepaid wallet users, create a hold at job start so the UI can display
     // the estimated in-flight cost under "Processing". Released or captured at end.
     let iapHoldId: string | null = null;
+    let walletHoldEstimateCents: number | undefined;
     const billingCtxForHold = await getBillingState(billingDb, payload.userId);
     const hasPrepaidWalletBalance = (billingCtxForHold?.walletBalanceCents ?? 0) > 0;
     if (
@@ -1520,6 +1609,7 @@ export class AgentWorker {
         (billingCtxForHold?.billingEntity === 'organization' && billingCtxForHold?.hardStop))
     ) {
       const estimatedCents = estimateAgentXHoldCostCents(payload);
+      walletHoldEstimateCents = estimatedCents;
       const holdResult = await createWalletHold(
         billingDb,
         payload.userId,
@@ -1978,14 +2068,7 @@ export class AgentWorker {
           // This applies to both pause and cancel — cancelled jobs also benefit from
           // having partial context visible in the thread.
           if (this.chatService) {
-            const contextObj =
-              typeof payload.context === 'object' && payload.context !== null
-                ? payload.context
-                : {};
-            const threadId =
-              typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
-                ? ((contextObj as Record<string, unknown>)['threadId'] as string)
-                : undefined;
+            const threadId = payloadThreadId;
 
             if (threadId) {
               const partialSnapshot = persistedAssistantStream.snapshot();
@@ -2129,12 +2212,7 @@ export class AgentWorker {
         });
 
         // Persist the agent's question as a system message in MongoDB thread
-        const contextObj =
-          typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
-        const threadId =
-          typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
-            ? ((contextObj as Record<string, unknown>)['threadId'] as string)
-            : undefined;
+        const threadId = payloadThreadId;
 
         // Emit a rich inline card (`confirmation` / `draft` / `ask_user`) so
         // the chat UI renders interactive Approve/Reject buttons or a reply
@@ -2821,6 +2899,7 @@ export class AgentWorker {
         successfulTools,
         environment: job.data.environment,
         iapHoldId: iapHoldId ?? undefined,
+        fallbackChargeAmountCents: iapHoldId ? walletHoldEstimateCents : undefined,
         organizationId: contextOrgId,
         metadata: { agent: payload.agent, agentTools: invokedTools, successfulTools },
       });
@@ -2914,12 +2993,7 @@ export class AgentWorker {
       persistedStreamSnapshot.content.length > 0 ? persistedStreamSnapshot.content : summary;
 
     // ─── Persist assistant response to MongoDB thread ─────────────────────
-    const contextObj =
-      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
-    const threadId =
-      typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
-        ? ((contextObj as Record<string, unknown>)['threadId'] as string)
-        : undefined;
+    const threadId = payloadThreadId;
     let persistedAssistantMessageId: string | undefined;
 
     if (threadId && this.chatService) {

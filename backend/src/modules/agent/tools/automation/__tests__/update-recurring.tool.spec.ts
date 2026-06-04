@@ -40,11 +40,14 @@ describe('update-recurring.tool', () => {
 
     const tool = new UpdateRecurringTaskTool(queueService as never, db);
 
-    const result = await tool.execute({
-      userId: 'user-1',
-      key: 'repeat:key:old',
-      cronExpression: '0 */2 * * *',
-    });
+    const result = await tool.execute(
+      {
+        userId: 'user-1',
+        key: 'repeat:key:old',
+        cronExpression: '0 */2 * * *',
+      },
+      { userId: 'user-1', environment: 'staging' }
+    );
 
     expect(result.success).toBe(true);
     expect(queueService.enqueueRecurring).toHaveBeenCalledWith(
@@ -57,10 +60,10 @@ describe('update-recurring.tool', () => {
         displayIntent: 'Old summary',
         origin: 'system_cron',
       }),
-      'production'
+      'staging'
     );
     expect(queueService.removeRecurringJob).toHaveBeenCalledWith('repeat:key:old');
-    expect(newDocSet).toHaveBeenCalled();
+    expect(newDocSet).toHaveBeenCalledWith(expect.objectContaining({ environment: 'staging' }));
     expect(oldDocDelete).toHaveBeenCalled();
   });
 

@@ -383,7 +383,7 @@ export const AGENT_TRIGGER_RULES: readonly AgentTriggerRule[] = [
     name: 'Weekly Recap',
     description: 'Scheduled: compile weekly stats, engagement, and recruiting progress.',
     enabled: true,
-    cooldownMs: 604_800_000, // Once per week
+    cooldownMs: 0, // Weekly email campaigns use backend week-key idempotency, not rolling cooldowns.
     intentTemplate:
       'Generate a comprehensive weekly recap for this user. Use your available tools to gather all relevant data before writing the summary. ' +
       'Steps: ' +

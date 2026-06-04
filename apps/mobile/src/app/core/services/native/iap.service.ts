@@ -29,11 +29,13 @@ import { firstValueFrom } from 'rxjs';
 import { Capacitor } from '@capacitor/core';
 import { NativePurchases, PURCHASE_TYPE } from '@capgo/native-purchases';
 import type { Product } from '@capgo/native-purchases';
+import { FIREBASE_EVENTS } from '@nxt1/core/analytics';
 import { NxtToastService } from '@nxt1/ui';
 import { NxtLoggingService } from '@nxt1/ui';
 import { USAGE_API_BASE_URL } from '@nxt1/ui';
 import { NxtBottomSheetService } from '@nxt1/ui';
 import type { BottomSheetAction } from '@nxt1/ui';
+import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
@@ -54,6 +56,14 @@ export const IAP_CREDIT_MAP: Record<IapProductId, number> = {
   'nxt1.wallet.1000': 1000,
   'nxt1.wallet.2500': 2500,
   'nxt1.wallet.5000': 5000,
+};
+
+const IAP_PRICE_MAP: Record<IapProductId, number> = {
+  'nxt1.wallet.100': 0.99,
+  'nxt1.wallet.500': 4.99,
+  'nxt1.wallet.1000': 9.99,
+  'nxt1.wallet.2500': 24.99,
+  'nxt1.wallet.5000': 49.99,
 };
 
 export interface IapProductDisplay {
@@ -84,6 +94,7 @@ export class IapService {
   private readonly toast = inject(NxtToastService);
   private readonly logger = inject(NxtLoggingService).child('IapService');
   private readonly baseUrl = inject(USAGE_API_BASE_URL);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
 
   private readonly bottomSheet = inject(NxtBottomSheetService);
 
@@ -188,6 +199,10 @@ export class IapService {
       // Must be RFC 4122 UUID format (iOS requirement).
       const appAccountToken = crypto.randomUUID();
 
+      this._trackIapPurchaseFunnelStep(FIREBASE_EVENTS.BEGIN_CHECKOUT, productId, {
+        app_account_token: appAccountToken,
+      });
+
       const transaction = await NativePurchases.purchaseProduct({
         productIdentifier: productId,
         productType: PURCHASE_TYPE.INAPP,
@@ -283,12 +298,53 @@ export class IapService {
 
     if (!selectedProduct) return;
 
+    this._trackIapPurchaseFunnelStep(FIREBASE_EVENTS.VIEW_ITEM, selectedProduct.productId);
+    this._trackIapPurchaseFunnelStep(FIREBASE_EVENTS.ADD_TO_CART, selectedProduct.productId);
     await this.purchase(selectedProduct.productId);
   }
 
   // ============================================================
   // PRIVATE HELPERS
   // ============================================================
+
+  private _trackIapPurchaseFunnelStep(
+    eventName: string,
+    productId: IapProductId,
+    extra?: Record<string, unknown>
+  ): void {
+    const product = this._getProductForAnalytics(productId);
+
+    this.analytics?.trackEvent(eventName, {
+      currency: product.currencyCode,
+      value: product.price,
+      checkout_type: 'apple_iap',
+      payment_provider: 'apple_app_store',
+      credits: product.credits,
+      items: [
+        {
+          item_id: product.productId,
+          item_name: product.title,
+          item_category: 'wallet_credits',
+          price: product.price,
+          quantity: 1,
+        },
+      ],
+      ...extra,
+    });
+  }
+
+  private _getProductForAnalytics(productId: IapProductId): IapProductDisplay {
+    return (
+      this.products().find((product) => product.productId === productId) ?? {
+        productId,
+        credits: IAP_CREDIT_MAP[productId],
+        priceString: `$${IAP_PRICE_MAP[productId].toFixed(2)}`,
+        price: IAP_PRICE_MAP[productId],
+        currencyCode: 'USD',
+        title: `${IAP_CREDIT_MAP[productId]} Credits`,
+      }
+    );
+  }
 
   private async _verifyWithBackend(
     jwsTransaction: string,

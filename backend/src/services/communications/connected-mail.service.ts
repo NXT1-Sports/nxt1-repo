@@ -875,6 +875,41 @@ export async function sendEmailViaProvider(
   return { ...result, trackingId };
 }
 
+function sanitizeMimeHeaderValue(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').trim();
+}
+
+function encodeMimeHeaderValue(value: string): string {
+  const sanitized = sanitizeMimeHeaderValue(value);
+  if (!sanitized) return '';
+
+  // Raw RFC 2822 headers must use encoded-word syntax for non-ASCII text.
+  if (!/[^\x20-\x7E]/.test(sanitized)) {
+    return sanitized;
+  }
+
+  return `=?UTF-8?B?${Buffer.from(sanitized, 'utf8').toString('base64')}?=`;
+}
+
+function encodeMimeBodyBase64(value: string): string {
+  const base64 = Buffer.from(value, 'utf8').toString('base64');
+  return base64.match(/.{1,76}/g)?.join('\r\n') ?? '';
+}
+
+export function buildRawGmailMessage(to: string, subject: string, body: string): string {
+  const messageParts = [
+    `To: ${sanitizeMimeHeaderValue(to)}`,
+    `Subject: ${encodeMimeHeaderValue(subject)}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=utf-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    encodeMimeBodyBase64(body),
+  ];
+
+  return Buffer.from(messageParts.join('\r\n'), 'utf8').toString('base64url');
+}
+
 /**
  * Send email via Gmail API.
  */
@@ -884,16 +919,7 @@ async function sendGmailMessage(
   subject: string,
   body: string
 ): Promise<{ success: boolean; externalMessageId?: string; externalThreadId?: string }> {
-  // Construct RFC 2822 message
-  const messageParts = [
-    `To: ${to}`,
-    `Subject: ${subject}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/html; charset=utf-8',
-    '',
-    body,
-  ];
-  const rawMessage = Buffer.from(messageParts.join('\r\n')).toString('base64url');
+  const rawMessage = buildRawGmailMessage(to, subject, body);
 
   const res = await axios.post(
     'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',

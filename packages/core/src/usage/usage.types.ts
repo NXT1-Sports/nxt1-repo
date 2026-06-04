@@ -226,7 +226,7 @@ export interface UsageBreakdownRow {
   readonly grossAmount: number;
   /** Total billed amount for the day in cents */
   readonly billedAmount: number;
-  /** Flat line items — used for individual (non-org) billing */
+  /** Flat line items — individual products, or org day-level usage not attributed to a team */
   readonly lineItems: readonly UsageBreakdownLineItem[];
   /** Nested team → user → product hierarchy — used for organization billing */
   readonly teams?: readonly UsageBreakdownTeam[];

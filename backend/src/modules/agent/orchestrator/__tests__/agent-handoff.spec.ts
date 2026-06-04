@@ -653,6 +653,440 @@ describe('Agent handoff and tool narrowing', () => {
     expect(usedToolNames).toContain('write_schedule');
   });
 
+  it('forces schedule writer tools for direct event write intents', async () => {
+    const baseDefs: AgentToolDefinition[] = [
+      {
+        name: 'write_calendar_events',
+        description: 'Write camps, combines, showcases, and exposure events',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'database',
+        entityGroup: 'team_tools',
+      },
+      {
+        name: 'write_schedule',
+        description: 'Write competitive schedule events',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'database',
+        entityGroup: 'team_tools',
+      },
+      {
+        name: 'mutate_nxt1_data',
+        description: 'Generic NXT1 data mutation',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'database',
+        entityGroup: 'platform_tools',
+      },
+    ];
+
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue(baseDefs),
+      matchWithScores: vi.fn().mockResolvedValue([]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const capturedToolDefs: AgentToolDefinition[][] = [];
+    const fakeAgent = {
+      id: 'data_coordinator' as AgentIdentifier,
+      name: 'Data Coordinator',
+      execute: vi
+        .fn()
+        .mockImplementation(
+          async (
+            _intent: string,
+            _context: AgentSessionContext,
+            defs: readonly AgentToolDefinition[]
+          ) => {
+            capturedToolDefs.push([...defs]);
+            return {
+              summary: 'Schedule event saved.',
+              data: {},
+              suggestions: [],
+            } as AgentOperationResult;
+          }
+        ),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+
+    const task: AgentTask = {
+      id: 't4',
+      assignedAgent: 'data_coordinator',
+      description: 'Save AAU Nationals in Orlando from June 28 through July 1',
+      dependsOn: [],
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    const accessContext: AgentToolAccessContext = {
+      userId: 'user-1',
+      role: 'athlete',
+      allowedEntityGroups: ['platform_tools', 'system_tools', 'team_tools'],
+    };
+
+    await service.executePlan({
+      operationId: 'op-4',
+      userId: 'user-1',
+      plan: { tasks: [task] },
+      enrichedIntent: 'AAU Nationals in Orlando FL 28 June thru 1 July',
+      context: createContext(),
+      toolAccessContext: accessContext,
+      taskMaxRetries: 0,
+      agents: new Map([['data_coordinator', fakeAgent]]),
+      buildTaskIntent: () => 'Objective: Save AAU Nationals in Orlando FL 28 June thru 1 July',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    const usedToolNames = (capturedToolDefs[0] ?? []).map((tool) => tool.name);
+    expect(usedToolNames).toContain('write_calendar_events');
+    expect(usedToolNames).toContain('write_schedule');
+    expect(usedToolNames).toContain('mutate_nxt1_data');
+  });
+
+  it('marks explicit blocked tool-unavailable coordinator results as failed', async () => {
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue([]),
+      matchWithScores: vi.fn().mockResolvedValue([]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const fakeAgent = {
+      id: 'data_coordinator' as AgentIdentifier,
+      name: 'Data Coordinator',
+      execute: vi.fn().mockResolvedValue({
+        summary:
+          '**Blocked:** The required write_calendar_events tool is not available in the current toolset for saving this schedule event. No action taken.',
+        data: {},
+        suggestions: [],
+      } as AgentOperationResult),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+
+    const task: AgentTask = {
+      id: 't5',
+      assignedAgent: 'data_coordinator',
+      description: 'Save a schedule event',
+      dependsOn: [],
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    const result = await service.executePlan({
+      operationId: 'op-5',
+      userId: 'user-1',
+      plan: { tasks: [task] },
+      enrichedIntent: 'Save AAU Nationals as a schedule event',
+      context: createContext(),
+      toolAccessContext: {
+        userId: 'user-1',
+        role: 'athlete',
+        allowedEntityGroups: ['platform_tools', 'system_tools', 'team_tools'],
+      },
+      taskMaxRetries: 0,
+      agents: new Map([['data_coordinator', fakeAgent]]),
+      buildTaskIntent: () => 'Objective: Save a schedule event',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    expect(result.taskResults.size).toBe(0);
+    expect(result.mutableTasks[0]?.status).toBe('failed');
+    expect(result.mutableTasks[0]?._lastError).toContain(
+      'write_calendar_events tool is not available'
+    );
+  });
+
+  it('does not expose internal NXT1 post tools for external social publish intents', async () => {
+    const baseDefs: AgentToolDefinition[] = [
+      {
+        name: 'write_timeline_post',
+        description: 'Create a new post on the user NXT1 timeline',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'communication',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'write_team_post',
+        description: 'Create a new post on the team NXT1 timeline',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'database',
+        entityGroup: 'team_tools',
+      },
+      {
+        name: 'query_nxt1_data',
+        description: 'Read NXT1 profile context',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'database',
+        entityGroup: 'platform_tools',
+      },
+    ];
+
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue(baseDefs),
+      matchWithScores: vi.fn().mockResolvedValue([
+        { ...baseDefs[0], semanticScore: 0.95 },
+        { ...baseDefs[1], semanticScore: 0.92 },
+        { ...baseDefs[2], semanticScore: 0.6 },
+      ]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const capturedToolDefs: AgentToolDefinition[][] = [];
+    const fakeAgent = {
+      id: 'data_coordinator' as AgentIdentifier,
+      name: 'Data Coordinator',
+      execute: vi
+        .fn()
+        .mockImplementation(
+          async (
+            _intent: string,
+            _context: AgentSessionContext,
+            defs: readonly AgentToolDefinition[]
+          ) => {
+            capturedToolDefs.push([...defs]);
+            return {
+              summary: 'Prepared the graphic and caption for manual Instagram posting.',
+              data: {},
+              suggestions: [],
+            } as AgentOperationResult;
+          }
+        ),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+
+    await service.executePlan({
+      operationId: 'op-6',
+      userId: 'user-1',
+      plan: {
+        tasks: [
+          {
+            id: 't6',
+            assignedAgent: 'data_coordinator',
+            description: 'Post the finished graphic on Instagram',
+            dependsOn: [],
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+      enrichedIntent: 'Make a better one and post it on Instagram',
+      context: createContext(),
+      toolAccessContext: {
+        userId: 'user-1',
+        role: 'athlete',
+        allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools', 'team_tools'],
+      },
+      taskMaxRetries: 0,
+      agents: new Map([['data_coordinator', fakeAgent]]),
+      buildTaskIntent: () => 'Objective: Make a better one and post it on Instagram',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    const usedToolNames = (capturedToolDefs[0] ?? []).map((tool) => tool.name);
+    expect(usedToolNames).not.toContain('write_timeline_post');
+    expect(usedToolNames).not.toContain('write_team_post');
+    expect(usedToolNames).toContain('query_nxt1_data');
+  });
+
+  it('keeps internal NXT1 posting tools for explicit NXT1 feed intents', async () => {
+    const baseDefs: AgentToolDefinition[] = [
+      {
+        name: 'write_timeline_post',
+        description: 'Create a new post on the user NXT1 timeline',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'communication',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'write_team_post',
+        description: 'Create a new post on the team NXT1 timeline',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'database',
+        entityGroup: 'team_tools',
+      },
+    ];
+
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue(baseDefs),
+      matchWithScores: vi.fn().mockResolvedValue([
+        { ...baseDefs[0], semanticScore: 0.95 },
+        { ...baseDefs[1], semanticScore: 0.92 },
+      ]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const capturedToolDefs: AgentToolDefinition[][] = [];
+    const fakeAgent = {
+      id: 'data_coordinator' as AgentIdentifier,
+      name: 'Data Coordinator',
+      execute: vi
+        .fn()
+        .mockImplementation(
+          async (
+            _intent: string,
+            _context: AgentSessionContext,
+            defs: readonly AgentToolDefinition[]
+          ) => {
+            capturedToolDefs.push([...defs]);
+            return {
+              summary: 'Posted to the NXT1 timeline.',
+              data: {},
+              suggestions: [],
+            } as AgentOperationResult;
+          }
+        ),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+
+    await service.executePlan({
+      operationId: 'op-7',
+      userId: 'user-1',
+      plan: {
+        tasks: [
+          {
+            id: 't7',
+            assignedAgent: 'data_coordinator',
+            description: 'Post the finished graphic to my NXT1 timeline',
+            dependsOn: [],
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+      enrichedIntent: 'Post this to my NXT1 timeline',
+      context: createContext(),
+      toolAccessContext: {
+        userId: 'user-1',
+        role: 'athlete',
+        allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools', 'team_tools'],
+      },
+      taskMaxRetries: 0,
+      agents: new Map([['data_coordinator', fakeAgent]]),
+      buildTaskIntent: () => 'Objective: Post this to my NXT1 timeline',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    const usedToolNames = (capturedToolDefs[0] ?? []).map((tool) => tool.name);
+    expect(usedToolNames).toContain('write_timeline_post');
+    expect(usedToolNames).toContain('write_team_post');
+  });
+
+  it('marks false external social publish claims as failed', async () => {
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue([]),
+      matchWithScores: vi.fn().mockResolvedValue([]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const fakeAgent = {
+      id: 'data_coordinator' as AgentIdentifier,
+      name: 'Data Coordinator',
+      execute: vi.fn().mockResolvedValue({
+        summary: 'Posted the graphic to Instagram.',
+        data: {},
+        suggestions: [],
+      } as AgentOperationResult),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+
+    const result = await service.executePlan({
+      operationId: 'op-8',
+      userId: 'user-1',
+      plan: {
+        tasks: [
+          {
+            id: 't8',
+            assignedAgent: 'data_coordinator',
+            description: 'Post the finished graphic on Instagram',
+            dependsOn: [],
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+      enrichedIntent: 'Make a better one and post it on Instagram',
+      context: createContext(),
+      toolAccessContext: {
+        userId: 'user-1',
+        role: 'athlete',
+        allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools', 'team_tools'],
+      },
+      taskMaxRetries: 0,
+      agents: new Map([['data_coordinator', fakeAgent]]),
+      buildTaskIntent: () => 'Objective: Make a better one and post it on Instagram',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    expect(result.taskResults.size).toBe(0);
+    expect(result.mutableTasks[0]?.status).toBe('failed');
+    expect(result.mutableTasks[0]?._lastError).toContain(
+      'Direct external social publishing is not connected yet'
+    );
+  });
+
   it('enforces single in-progress task ownership across plan snapshots', async () => {
     const toolRegistry = {
       getDefinitions: vi.fn().mockReturnValue([]),

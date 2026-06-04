@@ -116,7 +116,10 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('`write_team_stats`');
     expect(prompt).toContain('`write_team_post`');
     expect(prompt).toContain(
-      'Use `write_timeline_post` ONLY when the user explicitly wants content published'
+      'Use `write_timeline_post` ONLY for NXT1 user timeline/profile feed posts'
+    );
+    expect(prompt).toContain(
+      'External social publishing is not wired yet. Do NOT use `write_timeline_post`'
     );
     expect(prompt).toContain(
       'When the user asks to add/upload/save attached videos to an athlete profile'
@@ -136,6 +139,8 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('runway_generate_video');
     expect(prompt).toContain('Publishing is not part of the Brand Coordinator toolchain.');
     expect(prompt).toContain('Do not call timeline/team publishing tools from Brand.');
+    expect(prompt).toContain('direct publishing to external networks such as Instagram');
+    expect(prompt).toContain('Never say it was posted externally.');
     expect(prompt).toContain('## Internal Asset Fallback — MANDATORY Pre-Step');
     expect(prompt).toContain('query_nxt1_data');
     expect(prompt).toContain('user_profile_snapshot');

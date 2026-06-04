@@ -652,14 +652,14 @@ export abstract class BaseAgent {
     }
   }
 
-  private buildRuntimeTemporalContext(intent: string): string {
+  private buildRuntimeTemporalContext(intent: string, context?: AgentSessionContext): string {
     const now = new Date();
     const monthYear = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
     const currentDate = now.toISOString().slice(0, 10);
     // Include the exact UTC timestamp so the LLM can compute relative times like
     // "in 1 hour" or "at 3 PM" without hallucinating the current clock time.
     const currentUtcIso = now.toISOString();
-    const timezone = this.extractTimezoneFromIntent(intent);
+    const timezone = context?.timezone?.trim() || this.extractTimezoneFromIntent(intent);
     const sport = this.extractSportFromIntent(intent);
 
     const timezoneContext = timezone ? this.formatCurrentTimeForTimezone(now, timezone) : null;
@@ -807,7 +807,7 @@ export abstract class BaseAgent {
         '- If tool data is incomplete, ask a concise clarification question.';
     }
 
-    systemContent += `\n\n## Runtime Date Guardrail\n${this.buildRuntimeTemporalContext(intent)}`;
+    systemContent += `\n\n## Runtime Date Guardrail\n${this.buildRuntimeTemporalContext(intent, context)}`;
 
     systemContent += delegationRule;
     systemContent +=

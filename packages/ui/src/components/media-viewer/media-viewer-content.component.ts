@@ -1147,6 +1147,12 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     const clamped = Math.max(0, Math.min(this.initialIndex, this.items.length - 1));
     this.currentIndex.set(clamped);
     this.resetCustomVideoState();
+    if (this.items[clamped]?.type === 'video') {
+      this.analytics?.trackEvent(APP_EVENTS.VIDEO_VIEWED, {
+        index: clamped,
+        source: this.source,
+      });
+    }
 
     if (isPlatformBrowser(this.platformId)) {
       this._fullscreenChangeHandler = () => this._handleFullscreenEnd();
@@ -1238,6 +1244,10 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   protected onViewerVideoPlay(index: number): void {
     if (!this.isCurrentVideoIndex(index)) return;
     this.videoIsPlaying.set(true);
+    this.analytics?.trackEvent(APP_EVENTS.VIDEO_PLAYED, {
+      index,
+      source: this.source,
+    });
 
     const video = this.getCurrentVideoElement();
     if (video && !video.paused && !video.ended) {
@@ -1249,6 +1259,11 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     if (!this.isCurrentVideoIndex(index)) return;
     this.stopSmoothProgressTracking();
     this.videoIsPlaying.set(false);
+    this.analytics?.trackEvent(APP_EVENTS.VIDEO_PAUSED, {
+      index,
+      source: this.source,
+      time_seconds: Math.round(this.videoCurrentTime()),
+    });
     const video = this.getCurrentVideoElement();
     this.videoCurrentTime.set(video?.currentTime || 0);
   }
@@ -1605,6 +1620,12 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
       type: this.currentItem().type,
       source: this.source,
     });
+    if (this.currentItem().type === 'video') {
+      this.analytics?.trackEvent(APP_EVENTS.VIDEO_SHARED, {
+        index: this.currentIndex(),
+        source: this.source,
+      });
+    }
     const data = { lastIndex: this.currentIndex(), item: this.currentItem() };
     this.close.emit(data);
     if (!this.isOverlay) {
@@ -1652,6 +1673,13 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
         source: this.source,
         action: 'save',
       });
+      if (item.type === 'video') {
+        this.analytics?.trackEvent(APP_EVENTS.VIDEO_SHARED, {
+          index: this.currentIndex(),
+          source: this.source,
+          action: 'save',
+        });
+      }
     } catch (err) {
       this.logger.error('Failed to save media item', err, { type: item.type });
       this.toast.error('Failed to save media');
@@ -1847,6 +1875,13 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
       type: this.items[index]?.type,
       source: this.source,
     });
+    if (this.items[index]?.type === 'video') {
+      this.analytics?.trackEvent(APP_EVENTS.VIDEO_VIEWED, {
+        index,
+        source: this.source,
+        method,
+      });
+    }
   }
 
   private pauseAllVideos(): void {

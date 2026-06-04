@@ -175,7 +175,24 @@ function toSentence(value: string | undefined): string {
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
+const BRAND_CREATIVE_ACTION_RE =
+  /\b(graphic|poster|banner|thumbnail|visual|creative|promo|teaser|reel|highlight|media\s+kit|title\s+card|social\s+asset)\b/i;
+
+function shouldUseBrandDiscoveryPrompt(params: {
+  readonly coordinatorId: string;
+  readonly action: Pick<ConfiguredCoordinatorActionChip, 'label' | 'subLabel'>;
+  readonly surface: AgentXSelectedActionSurface;
+}): boolean {
+  if (params.coordinatorId !== 'brand_coordinator' || params.surface === 'scheduled') {
+    return false;
+  }
+
+  const promptSource = `${params.action.label} ${params.action.subLabel ?? ''}`;
+  return BRAND_CREATIVE_ACTION_RE.test(promptSource);
+}
+
 function buildFallbackVisiblePromptText(params: {
+  readonly coordinatorId: string;
   readonly coordinatorName: string;
   readonly coordinatorDescription: string;
   readonly action: Pick<ConfiguredCoordinatorActionChip, 'label' | 'subLabel'>;
@@ -190,7 +207,9 @@ function buildFallbackVisiblePromptText(params: {
   const closing =
     params.surface === 'scheduled'
       ? 'Give me the execution plan, timing, checkpoints, and follow-up actions I should run with.'
-      : 'Give me the clearest deliverable, priorities, and next steps to act on immediately.';
+      : shouldUseBrandDiscoveryPrompt(params)
+        ? 'Start by proposing 3 creative directions, call out any missing audience/platform/copy/style inputs, and only produce the final asset after those are confirmed.'
+        : 'Give me the clearest deliverable, priorities, and next steps to act on immediately.';
 
   return [opening, detail, closing]
     .filter((part): part is string => !!part && part.length > 0)
@@ -200,6 +219,7 @@ function buildFallbackVisiblePromptText(params: {
 function ensureActionPromptText(
   action: ConfiguredCoordinatorActionChip,
   params: {
+    readonly coordinatorId: string;
     readonly coordinatorName: string;
     readonly coordinatorDescription: string;
     readonly surface: AgentXSelectedActionSurface;
@@ -216,6 +236,7 @@ function ensureActionPromptText(
   return {
     ...action,
     promptText: buildFallbackVisiblePromptText({
+      coordinatorId: params.coordinatorId,
       coordinatorName: params.coordinatorName,
       coordinatorDescription: params.coordinatorDescription,
       action,
@@ -274,6 +295,7 @@ function applyCoordinatorPromptTextConfig(
               commands: Object.freeze(
                 override.commands.map((action) =>
                   ensureActionPromptText(action, {
+                    coordinatorId,
                     coordinatorName: coordinatorIdToDescriptorName(coordinatorId),
                     coordinatorDescription: roleDescription,
                     surface: 'command',
@@ -287,6 +309,7 @@ function applyCoordinatorPromptTextConfig(
               scheduledActions: Object.freeze(
                 override.scheduledActions.map((action) =>
                   ensureActionPromptText(action, {
+                    coordinatorId,
                     coordinatorName: coordinatorIdToDescriptorName(coordinatorId),
                     coordinatorDescription: roleDescription,
                     surface: 'scheduled',
@@ -303,6 +326,7 @@ function applyCoordinatorPromptTextConfig(
       commands: Object.freeze(
         coordinator.commands.map((action) =>
           ensureActionPromptText(action, {
+            coordinatorId,
             coordinatorName: coordinatorIdToDescriptorName(coordinatorId),
             coordinatorDescription: coordinator.description,
             surface: 'command',
@@ -312,6 +336,7 @@ function applyCoordinatorPromptTextConfig(
       scheduledActions: Object.freeze(
         coordinator.scheduledActions.map((action) =>
           ensureActionPromptText(action, {
+            coordinatorId,
             coordinatorName: coordinatorIdToDescriptorName(coordinatorId),
             coordinatorDescription: coordinator.description,
             surface: 'scheduled',
@@ -1864,6 +1889,7 @@ function getCoordinatorActionsForRole(
     commands: Object.freeze(
       (roleUiOverride?.commands ?? coordinator.commands).map((action) =>
         ensureActionPromptText(action, {
+          coordinatorId: coordinator.id,
           coordinatorName: coordinator.name,
           coordinatorDescription: roleUiOverride?.description ?? coordinator.description,
           surface: 'command',
@@ -1873,6 +1899,7 @@ function getCoordinatorActionsForRole(
     scheduledActions: Object.freeze(
       (roleUiOverride?.scheduledActions ?? coordinator.scheduledActions).map((action) =>
         ensureActionPromptText(action, {
+          coordinatorId: coordinator.id,
           coordinatorName: coordinator.name,
           coordinatorDescription: roleUiOverride?.description ?? coordinator.description,
           surface: 'scheduled',

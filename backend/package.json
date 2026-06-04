@@ -75,6 +75,7 @@
     "deploy:ota:android": "NODE_ENV=production tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts --channel production --platform android",
     "deploy:ota:android:staging": "NODE_ENV=staging tsx --tsconfig tsconfig.scripts.json --import dotenv/config scripts/deploy-mobile-bundle.ts --channel staging --platform android",
     "storage:cors": "bash ./scripts/utilities/configure-storage-cors.sh",
+    "test:live:e2e-user": "tsx --tsconfig tsconfig.scripts.json scripts/utilities/request-as-e2e-user.ts",
     "email:setup-brevo-migration": "node scripts/email/setup-brevo-migration-campaign.mjs",
     "email:b2b-notion-leads:dry-run": "tsx --tsconfig tsconfig.scripts.json scripts/email/send-b2b-notion-leads.ts",
     "email:b2b-notion-leads:send": "tsx --tsconfig tsconfig.scripts.json scripts/email/send-b2b-notion-leads.ts --commit",

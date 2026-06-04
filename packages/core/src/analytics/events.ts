@@ -116,6 +116,8 @@ export const FIREBASE_EVENTS = {
   // ============================================
   /** Lead generated (form submission, etc.) */
   GENERATE_LEAD: 'generate_lead',
+  /** Lead qualified for sales follow-up */
+  QUALIFY_LEAD: 'qualify_lead',
 
   // ============================================
   // NAVIGATION EVENTS (Automatic but can be manual)
@@ -265,6 +267,30 @@ export interface GenerateLeadEventParams {
   currency?: string;
   /** Source of the lead */
   lead_source?: string;
+}
+
+/**
+ * Parameters for qualify_lead event
+ */
+export interface QualifyLeadEventParams extends GenerateLeadEventParams {
+  /** Role/type that qualified the lead */
+  user_role?: string;
+  /** Organization or team source */
+  organization_id?: string;
+  /** Organization/program display name */
+  organization_name?: string;
+  /** Team/program identifier used during onboarding */
+  team_id?: string;
+  /** Team/program display name */
+  team_name?: string;
+  /** Team code used for organization invite/signup */
+  team_code?: string;
+  /** Invite/referral code used to qualify the lead */
+  invite_code?: string;
+  /** Sport tied to the onboarding team/program context */
+  sport?: string;
+  /** Signup method that qualified the lead */
+  method?: string;
 }
 
 /**

@@ -3774,6 +3774,38 @@ router.post(
       });
       stampAgentXLastActiveAt(db, user.uid);
 
+      const estimatedGateCostCents = estimateChatBillingGateCostCents({
+        message: enrichedIntentText,
+        selectedAction: normalizedSelectedAction,
+        attachments,
+      });
+      const enqueueTarget = await resolveBillingTarget(db, user.uid);
+      const enqueueBudgetCheck = await checkBudgetForResolvedTarget(
+        db,
+        enqueueTarget,
+        estimatedGateCostCents
+      );
+
+      if (!enqueueBudgetCheck.allowed) {
+        const billingCode = resolveBillingGateCode({
+          billingEntity: enqueueBudgetCheck.billingEntity,
+          reason: enqueueBudgetCheck.reason,
+        });
+        const billingReason =
+          enqueueBudgetCheck.reason ?? 'Billing is required to continue this request.';
+
+        res.status(402).json({
+          success: false,
+          error: billingReason,
+          code: billingCode,
+          billing: buildBillingGateState(billingCode, billingReason, 'athlete', {
+            estimatedCostCents: estimatedGateCostCents,
+            availableBalanceCents: Math.max(enqueueBudgetCheck.budget, 0),
+          }),
+        });
+        return;
+      }
+
       // Opportunistic healing for previously failed/pending outbox entries.
       void reconcileAgentOutbox(db, environment).catch((err: unknown) => {
         logger.warn('Outbox reconciliation failed during /enqueue admission', {

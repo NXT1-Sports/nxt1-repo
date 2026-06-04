@@ -59,8 +59,8 @@ export class WriteTeamPostTool extends BaseTool {
   readonly name = 'write_team_post';
 
   readonly description =
-    'Creates posts in the Posts collection on behalf of a team.\n\n' +
-    'Use this to publish team announcements, share highlight media, or post text updates.\n\n' +
+    'Creates posts in the Posts collection on behalf of a team for the NXT1 team timeline/feed.\n\n' +
+    'Use this to publish NXT1 team announcements, share highlight media, or post text updates to the team feed. This tool does not publish to Instagram, TikTok, X/Twitter, Facebook, LinkedIn, YouTube, Threads, Snapchat, or any external social network.\n\n' +
     'Each call creates new post documents — no deduplication applied.\n\n' +
     'Parameters:\n' +
     '- teamId (required): Team document ID.\n' +

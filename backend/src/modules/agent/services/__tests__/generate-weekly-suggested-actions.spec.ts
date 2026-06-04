@@ -328,6 +328,69 @@ describe('AgentGenerationService.generateWeeklySuggestedActions', () => {
     vi.clearAllMocks();
   });
 
+  it('uses concept-first fallback prompt text for brand creative suggested actions', async () => {
+    resolveConfiguredCoordinatorsForRoleMock.mockReturnValueOnce([
+      {
+        id: 'brand_coordinator',
+        name: 'Brand Coordinator',
+        icon: 'sparkles',
+        description: 'Owns creative assets and brand media.',
+        availableForRoles: ['coach'],
+        commands: [
+          {
+            id: 'brand-program-graphic',
+            label: 'Program Overview Graphic',
+            icon: 'sparkles',
+            subLabel: 'Create a recruiting-ready program graphic',
+          },
+        ],
+        scheduledActions: [],
+      },
+    ]);
+
+    const llm = {
+      complete: vi.fn().mockResolvedValue({
+        content: JSON.stringify({ coordinators: [] }),
+        parsedOutput: { coordinators: [] },
+        toolCalls: [],
+        model: 'test-model',
+        usage: { inputTokens: 100, outputTokens: 100, totalTokens: 200 },
+        latencyMs: 20,
+        costUsd: 0.01,
+        finishReason: 'stop',
+      }),
+    } as unknown as OpenRouterService;
+    const contextBuilder = {
+      buildPromptContext: vi.fn().mockResolvedValue({
+        profile: { userId: 'user-1', role: 'coach', displayName: 'John Keller' },
+        memories: { user: [], team: [], organization: [] },
+        recentSyncSummaries: [],
+      }),
+      compressToPrompt: vi.fn().mockReturnValue('compressed-rag-context'),
+    } as unknown as ContextBuilder;
+    const fakeDb = new FakeFirestore({
+      userId: 'user-1',
+      userData: {
+        role: 'coach',
+        primarySport: 'basketball',
+      },
+    });
+
+    const service = new AgentGenerationService(llm, contextBuilder, fakeDb as unknown as Firestore);
+    const result = await service.generateWeeklySuggestedActions(
+      'user-1',
+      true,
+      fakeDb as unknown as Firestore
+    );
+
+    expect(result?.coordinators[0]?.actions[0]?.promptText).toContain(
+      'Start by proposing 3 creative directions'
+    );
+    expect(result?.coordinators[0]?.actions[0]?.promptText).not.toContain(
+      'Give me the clearest deliverable, priorities, and next steps to act on immediately.'
+    );
+  });
+
   it('skips generation without recent activity when not forced', async () => {
     const llm = createMockLlm();
     const contextBuilder = {

@@ -422,6 +422,90 @@ describe('AgentWorker', () => {
     );
   });
 
+  it('should persist scheduled assistant responses to the originating thread via sourceId fallback', async () => {
+    const payload = makePayload({
+      origin: 'system_cron' as AgentJobOrigin,
+      context: { sourceId: 'thread-recurring-source-only-123' } as Record<string, unknown>,
+      intent: 'Send John a reminder to check out NXT1 Sports',
+      displayIntent: 'Send John a reminder to check out NXT1 Sports',
+    });
+    const job = {
+      ...makeMockJob(payload),
+      id: 'repeat:key:1777381200000',
+      name: 'recv:user-abc:1234567890',
+      repeatJobKey: 'repeat:key',
+    };
+
+    mockRouter.run.mockResolvedValueOnce({
+      ...mockRouterResult,
+      summary: 'Email sent to john@nxt1sports.com',
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-recurring-source-only-123',
+        role: 'assistant',
+        origin: 'system_cron',
+        operationId: 'repeat:key:1777381200000',
+        content: 'Email sent to john@nxt1sports.com',
+      })
+    );
+  });
+
+  it('should rehydrate old scheduled run thread linkage from RecurringTasks metadata', async () => {
+    const payload = makePayload({
+      origin: 'system_cron' as AgentJobOrigin,
+      operationId: 'recurring-user-abc-1700000000000',
+      context: undefined,
+      intent: 'Send John a reminder to check out NXT1 Sports',
+      displayIntent: 'Send John a reminder to check out NXT1 Sports',
+    });
+    const job = {
+      ...makeMockJob(payload),
+      id: 'repeat:key:1777381200000',
+      name: 'recv:user-abc:1234567890',
+      repeatJobKey: 'repeat:key',
+    };
+
+    const firestoreGetSpy = vi.spyOn(mockFirestoreRef, 'get').mockResolvedValueOnce({
+      ...mockFirestoreSnapshot,
+      exists: true,
+      data: () => ({
+        userId: 'user-abc',
+        sourceId: 'thread-from-recurring-task-doc',
+        jobName: 'recv:user-abc:1234567890',
+      }),
+    });
+
+    mockRouter.run.mockResolvedValueOnce({
+      ...mockRouterResult,
+      summary: 'Email sent to john@nxt1sports.com',
+    });
+
+    await capturedProcessor!(job);
+
+    expect(firestoreGetSpy).toHaveBeenCalled();
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-from-recurring-task-doc',
+        role: 'user',
+        origin: 'system_cron',
+        operationId: 'repeat:key:1777381200000',
+      })
+    );
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-from-recurring-task-doc',
+        role: 'assistant',
+        origin: 'system_cron',
+        operationId: 'repeat:key:1777381200000',
+        content: 'Email sent to john@nxt1sports.com',
+      })
+    );
+  });
+
   it('should persist streamed parts and tool steps for thread reload hydration', async () => {
     const payload = makePayload({
       context: { threadId: 'thread-123' },
@@ -603,7 +687,7 @@ describe('AgentWorker', () => {
     );
   });
 
-  it('should suppress completion push for active user-viewed jobs by default', async () => {
+  it('should dispatch completion push for active user-viewed jobs by default', async () => {
     const payload = makePayload();
     const job = makeMockJob(payload);
 
@@ -614,14 +698,13 @@ describe('AgentWorker', () => {
 
     await capturedProcessor!(job);
 
-    expect(mockLogAgentTaskCompletion).not.toHaveBeenCalled();
+    expect(mockLogAgentTaskCompletion).toHaveBeenCalledTimes(1);
   });
 
-  it('should still dispatch completion push for background jobs that disable active-viewer suppression', async () => {
+  it('should suppress completion push only when active-viewer suppression is explicitly enabled', async () => {
     const payload = makePayload({
-      origin: 'database_event' as AgentJobOrigin,
       notificationPolicy: {
-        suppressPushWhenActivelyViewing: false,
+        suppressPushWhenActivelyViewing: true,
       },
     });
     const job = makeMockJob(payload);
@@ -633,14 +716,7 @@ describe('AgentWorker', () => {
 
     await capturedProcessor!(job);
 
-    expect(mockLogAgentTaskCompletion).toHaveBeenCalledTimes(1);
-    expect(mockLogAgentTaskCompletion).toHaveBeenCalledWith(
-      mockFirestore,
-      expect.objectContaining({
-        userId: payload.userId,
-        job: expect.objectContaining({ operationId: payload.operationId }),
-      })
-    );
+    expect(mockLogAgentTaskCompletion).not.toHaveBeenCalled();
   });
 
   // ── Progress Tracking ─────────────────────────────────────────────────

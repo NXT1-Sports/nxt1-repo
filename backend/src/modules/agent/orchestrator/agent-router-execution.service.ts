@@ -53,6 +53,15 @@ const SAFETY_BUFFER_THRESHOLD = 0.2;
 const MAX_COORDINATOR_HANDOFFS_PER_TASK = 3;
 const COORDINATOR_HANDOFF_FAILED_NOTE =
   'Coordinator handoff failed. Router could not reassign this task.';
+const INTERNAL_NXT1_POSTING_TOOLS = new Set([
+  'write_timeline_post',
+  'update_timeline_post',
+  'delete_timeline_post',
+  'write_team_post',
+  'update_team_post',
+  'delete_team_post',
+  'write_team_news',
+]);
 const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
   scrape_and_index_profile: [
     'read_distilled_section',
@@ -173,11 +182,7 @@ function computeForcedToolInclusions(taskIntent: string): readonly string[] {
   const normalizedIntent = taskIntent.toLowerCase();
   const forced = new Set<string>();
 
-  if (
-    normalizedIntent.includes('team news') ||
-    normalizedIntent.includes('news article') ||
-    normalizedIntent.includes('publish')
-  ) {
+  if (normalizedIntent.includes('team news') || normalizedIntent.includes('news article')) {
     forced.add('write_team_news');
   }
 
@@ -204,7 +209,98 @@ function computeForcedToolInclusions(taskIntent: string): readonly string[] {
     }
   }
 
+  const mentionsScheduleWrite =
+    /\b(schedule|calendar|event|events|tournament|camp|combine|showcase|nationals|aau)\b/i.test(
+      normalizedIntent
+    ) && /\b(add|save|write|create|log|sync|update|record)\b/i.test(normalizedIntent);
+
+  if (mentionsScheduleWrite) {
+    forced.add('write_calendar_events');
+    forced.add('write_schedule');
+  }
+
   return [...forced];
+}
+
+function isExternalSocialPublishIntent(taskIntent: string): boolean {
+  const normalizedIntent = taskIntent.toLowerCase();
+  const hasPublishVerb =
+    /\b(post|posts|posting|publish|publishes|published|publishing|share|shares|shared|sharing|upload|uploads|uploaded|uploading)\b/.test(
+      normalizedIntent
+    );
+  if (!hasPublishVerb) return false;
+
+  return mentionsExternalSocialPlatform(normalizedIntent);
+}
+
+function mentionsExternalSocialPlatform(normalizedIntent: string): boolean {
+  return (
+    /\b(instagram|ig|tiktok|tik\s*tok|facebook|fb|linkedin|linked\s*in|youtube|you\s*tube|threads|snapchat)\b/.test(
+      normalizedIntent
+    ) ||
+    /\b(twitter|x\/twitter|x\.com|twitter\.com)\b/.test(normalizedIntent) ||
+    /\b(?:on|to|for)\s+x\b/.test(normalizedIntent)
+  );
+}
+
+function isExplicitNxt1PostIntent(taskIntent: string): boolean {
+  const normalizedIntent = taskIntent.toLowerCase();
+
+  return (
+    /\bnxt1\b/.test(normalizedIntent) ||
+    /\b(?:my|user|profile|personal)\s+(?:timeline|feed)\b/.test(normalizedIntent) ||
+    /\bteam\s+(?:timeline|feed)\b/.test(normalizedIntent) ||
+    /\binternal\s+(?:timeline|feed|post)\b/.test(normalizedIntent)
+  );
+}
+
+function shouldSuppressInternalPostingTools(taskIntent: string): boolean {
+  return isExternalSocialPublishIntent(taskIntent) && !isExplicitNxt1PostIntent(taskIntent);
+}
+
+function removeInternalPostingTools<T extends { readonly name: string }>(
+  toolDefs: readonly T[]
+): T[] {
+  return toolDefs.filter((tool) => !INTERNAL_NXT1_POSTING_TOOLS.has(tool.name));
+}
+
+function isBlockedToolUnavailableResult(result: AgentOperationResult): boolean {
+  const normalizedSummary = result.summary.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!normalizedSummary) return false;
+
+  const namesMissingTool =
+    /\b(required|needed)\b.*\b[a-z0-9_]+\s+tool\b.*\b(not available|unavailable|not exposed|missing)\b/.test(
+      normalizedSummary
+    ) ||
+    /\btool\b.*\b(not available|unavailable|not exposed|missing)\b.*\bcurrent toolset\b/.test(
+      normalizedSummary
+    );
+
+  if (!namesMissingTool) return false;
+
+  return /\bblocked\b/.test(normalizedSummary) || /\bno action taken\b/.test(normalizedSummary);
+}
+
+function summarizeBlockedToolResult(result: AgentOperationResult): string {
+  const summary = result.summary.replace(/\s+/g, ' ').trim();
+  return summary.length > 280 ? `${summary.slice(0, 277)}...` : summary;
+}
+
+function isFalseExternalSocialPublishClaim(
+  taskIntent: string,
+  result: AgentOperationResult
+): boolean {
+  if (!isExternalSocialPublishIntent(taskIntent) || isExplicitNxt1PostIntent(taskIntent)) {
+    return false;
+  }
+
+  const normalizedSummary = result.summary.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (!mentionsExternalSocialPlatform(normalizedSummary)) return false;
+  if (!/\b(posted|published|uploaded|shared)\b/.test(normalizedSummary)) return false;
+
+  return !/\b(not|cannot|can't|cant|unable|unavailable|not available|not connected|manual|prepared|ready for|exported for)\b/.test(
+    normalizedSummary
+  );
 }
 
 function isRoutableCoordinatorAgent(
@@ -432,15 +528,22 @@ export class AgentRouterExecutionService {
                 );
               }
 
+              const suppressInternalPostingTools = shouldSuppressInternalPostingTools(taskIntent);
               let toolDefs = this.toolRegistry.getDefinitions(agent.id, toolAccessContext);
+              if (suppressInternalPostingTools) {
+                toolDefs = removeInternalPostingTools(toolDefs);
+              }
               try {
                 const intentEmbedding = await this.llm.embed(taskIntent);
-                const matchedToolDefs = await this.toolRegistry.matchWithScores(
+                const rawMatchedToolDefs = await this.toolRegistry.matchWithScores(
                   intentEmbedding,
                   (text) => this.llm.embed(text),
                   agent.id,
                   toolAccessContext
                 );
+                const matchedToolDefs = suppressInternalPostingTools
+                  ? removeInternalPostingTools(rawMatchedToolDefs)
+                  : rawMatchedToolDefs;
 
                 const semanticMatched = matchedToolDefs.filter(
                   (tool) => tool.semanticScore >= SEMANTIC_MATCH_THRESHOLD
@@ -534,6 +637,32 @@ export class AgentRouterExecutionService {
                 approvalGate
               );
               this.throwIfAborted(signal);
+
+              if (isBlockedToolUnavailableResult(result)) {
+                throw new AgentEngineError(
+                  'AGENT_TOOL_UNAVAILABLE',
+                  summarizeBlockedToolResult(result),
+                  {
+                    metadata: {
+                      taskId: task.id,
+                      assignedAgentId: task.assignedAgent,
+                    },
+                  }
+                );
+              }
+
+              if (isFalseExternalSocialPublishClaim(taskIntent, result)) {
+                throw new AgentEngineError(
+                  'AGENT_TOOL_UNAVAILABLE',
+                  'Direct external social publishing is not connected yet. Prepare the asset and caption for manual posting instead of claiming it was published.',
+                  {
+                    metadata: {
+                      taskId: task.id,
+                      assignedAgentId: task.assignedAgent,
+                    },
+                  }
+                );
+              }
 
               taskResults.set(task.id, result);
               task.status = 'completed' as AgentTaskStatus;

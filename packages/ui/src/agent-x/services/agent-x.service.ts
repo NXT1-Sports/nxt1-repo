@@ -915,12 +915,30 @@ export class AgentXService {
    * chat state so the user sees the full conversation.
    */
   async loadThread(threadId: string): Promise<void> {
-    if (!threadId || this._currentThreadId() === threadId) return;
+    await this.hydrateThread(threadId, false);
+  }
+
+  /**
+   * Force-refresh the currently open thread after background work appends
+   * persisted messages outside the active chat session lifecycle.
+   */
+  async refreshThread(threadId: string): Promise<void> {
+    await this.hydrateThread(threadId, true);
+  }
+
+  private async hydrateThread(threadId: string, forceRefresh: boolean): Promise<void> {
+    if (!threadId || (!forceRefresh && this._currentThreadId() === threadId)) return;
     // Guard against concurrent loads — let the in-flight request finish
     if (this._isLoading()) return;
 
-    this.logger.info('Loading thread from deep link', { threadId });
-    this.breadcrumb.trackStateChange('agent-x:loading-thread', { threadId });
+    this.logger.info(
+      forceRefresh ? 'Refreshing persisted thread' : 'Loading thread from deep link',
+      {
+        threadId,
+        forceRefresh,
+      }
+    );
+    this.breadcrumb.trackStateChange('agent-x:loading-thread', { threadId, forceRefresh });
     this._isLoading.set(true);
 
     try {
@@ -962,6 +980,12 @@ export class AgentXService {
         threadId,
         messageCount: messages.length,
         hasPendingYield: !!latestPausedYieldState,
+        forceRefresh,
+      });
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_THREAD_REPLAY_LOADED, {
+        threadId,
+        messageCount: messages.length,
+        source: forceRefresh ? 'refresh' : 'load',
       });
     } catch (err) {
       this.logger.error('Failed to load thread', err, { threadId });

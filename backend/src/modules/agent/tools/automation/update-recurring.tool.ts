@@ -98,6 +98,7 @@ export class UpdateRecurringTaskTool extends BaseTool {
     }
 
     const { userId, key, actionSummary, cronExpression, timezone, sourceId } = parsed.data;
+    const targetEnvironment = context?.environment === 'production' ? 'production' : 'staging';
 
     try {
       const existingDoc = await this.db.collection(RECURRING_TASKS_COLLECTION).doc(key).get();
@@ -187,9 +188,10 @@ export class UpdateRecurringTaskTool extends BaseTool {
               context: {
                 sourceId: nextSourceId,
                 threadId: nextSourceId,
+                timezone: nextTimezone,
               },
             }
-          : {}),
+          : { context: { timezone: nextTimezone } }),
       };
 
       const replacementKey = await this.queueService.enqueueRecurring(
@@ -197,7 +199,7 @@ export class UpdateRecurringTaskTool extends BaseTool {
         nextCronExpression,
         nextTimezone,
         payload,
-        'production'
+        targetEnvironment
       );
 
       await this.db
@@ -211,7 +213,7 @@ export class UpdateRecurringTaskTool extends BaseTool {
           ...(nextSourceId ? { sourceId: nextSourceId } : {}),
           jobName,
           createdAt: FieldValue.serverTimestamp(),
-          environment: 'production',
+          environment: targetEnvironment,
           replacedFromKey: key,
         });
 
@@ -236,6 +238,7 @@ export class UpdateRecurringTaskTool extends BaseTool {
         replacementKey,
         cronExpression: nextCronExpression,
         timezone: nextTimezone,
+        environment: targetEnvironment,
       });
 
       return {

@@ -104,7 +104,7 @@ export const PROD_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
   ],
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
-  image_generation: ['openai/gpt-5.4-image-2', 'google/gemini-3-pro-image-preview'],
+  image_generation: ['google/gemini-3-pro-image-preview'],
   video_generation: ['google/gemini-3-pro-image-preview'],
   vision_analysis: [
     'google/gemini-3.1-pro-preview',
@@ -163,7 +163,7 @@ export const DEV_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
   ],
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
-  image_generation: ['google/gemini-3-pro-image-preview'],
+  image_generation: ['openai/gpt-5.4-image-2', 'google/gemini-3-pro-image-preview'],
   video_generation: ['google/gemini-3-pro-image-preview'],
   vision_analysis: ['openai/gpt-4o', 'anthropic/claude-sonnet-4'],
   video_analysis: ['google/gemini-3.1-pro-preview', 'google/gemini-2.5-pro'],
@@ -208,7 +208,7 @@ export const BILLING_TIER_MAP: Record<string, keyof typeof MODEL_CATALOGUE> = {
  * image models require different request shapes (modalities, extended timeout).
  * Must match the model used in the legacy nxt1 project (functions/).
  */
-export const IMAGE_MODEL = 'google/gemini-3-pro-image-preview' as const;
+export const IMAGE_MODEL = 'openai/gpt-5.4-image-2' as const;
 
 export const SUPPORTED_IMAGE_GENERATION_MODELS = [
   'google/gemini-3-pro-image-preview',

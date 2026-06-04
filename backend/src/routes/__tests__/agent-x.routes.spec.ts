@@ -961,7 +961,7 @@ describe('Agent X Routes', () => {
     expect(298).toBeGreaterThanOrEqual(estimatedCents);
   });
 
-  it.skip('should block chat on org hard-stop budget cap when resolved billing target is organization', async () => {
+  it('should block chat on org hard-stop budget cap when resolved billing target is organization', async () => {
     const now = new Date();
     const periodKey = now.toISOString().slice(0, 7);
     const timestamp = { seconds: Math.floor(now.getTime() / 1000), nanoseconds: 0 };
@@ -1004,8 +1004,8 @@ describe('Agent X Routes', () => {
     });
 
     __seedMockFirestoreDocument(`PeriodLedgers/org:org-1:${periodKey}`, {
-      monthlyBudget: 0,
-      currentPeriodSpend: 0,
+      monthlyBudget: 100,
+      currentPeriodSpend: 100,
       periodStart,
       periodEnd,
       notified50: false,
@@ -1083,6 +1083,106 @@ describe('Agent X Routes', () => {
       },
     });
 
+    expect(jobRepository.create).not.toHaveBeenCalled();
+    expect(queueService.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('should block background enqueue on org hard-stop budget cap before creating a job', async () => {
+    const now = new Date();
+    const periodKey = now.toISOString().slice(0, 7);
+    const timestamp = { seconds: Math.floor(now.getTime() / 1000), nanoseconds: 0 };
+    const periodStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)
+    ).toISOString();
+    const periodEnd = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999)
+    ).toISOString();
+
+    __seedMockFirestoreDocument('Users/test-user', {
+      role: 'athlete',
+      activeBillingTarget: {
+        ownerId: 'org-1',
+        ownerType: 'organization',
+        organizationId: 'org-1',
+        source: 'organization',
+      },
+    });
+    __seedMockFirestoreDocument('Organizations/org-1', {
+      admins: [{ userId: 'test-user', role: 'director' }],
+      ownerId: 'test-user',
+    });
+    __seedMockFirestoreDocument('Wallets/org:org-1', {
+      balanceCents: 100_00,
+      pendingHoldsCents: 0,
+      iapLowBalanceNotified: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    __seedMockFirestoreDocument('BillingPreferences/org:org-1', {
+      hardStop: true,
+      paymentProvider: 'iap',
+      budgetInterval: 'monthly',
+      budgetAlertsEnabled: true,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    __seedMockFirestoreDocument(`PeriodLedgers/org:org-1:${periodKey}`, {
+      monthlyBudget: 100,
+      currentPeriodSpend: 100,
+      periodStart,
+      periodEnd,
+      notified50: false,
+      notified80: false,
+      notified100: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    const jobRepository = createMockJobRepository();
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+      isHealthy: vi.fn().mockResolvedValue(true),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: {
+        addMessage: vi.fn(),
+        createThread: vi.fn().mockResolvedValue({ id: 'thread-123' }),
+        getThread: vi.fn().mockResolvedValue(null),
+      } as never,
+      contextBuilder: {
+        buildContext: vi.fn().mockResolvedValue({}),
+        compressToPrompt: vi.fn().mockReturnValue(''),
+        getRecentThreadHistory: vi.fn().mockResolvedValue(''),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/enqueue')
+      .set('Authorization', 'Bearer test-token')
+      .send({ intent: 'Build my recruiting plan' });
+
+    expect(response.status).toBe(402);
+    expect(response.body).toMatchObject({
+      success: false,
+      code: 'BUDGET_EXCEEDED',
+      billing: {
+        title: 'Budget Limit Reached',
+        payload: {
+          reason: 'limit_reached',
+          description: expect.stringContaining('budget of $1.00 reached'),
+        },
+      },
+    });
     expect(jobRepository.create).not.toHaveBeenCalled();
     expect(queueService.enqueue).not.toHaveBeenCalled();
   });

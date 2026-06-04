@@ -169,6 +169,17 @@ class FakeAgent extends BaseAgent {
     ).compressMessageHistoryIfNeeded(params);
   }
 
+  callBuildRuntimeTemporalContext(intent: string, context?: AgentSessionContext): string {
+    return (
+      this as unknown as {
+        buildRuntimeTemporalContext: (
+          intentArg: string,
+          contextArg?: AgentSessionContext
+        ) => string;
+      }
+    ).buildRuntimeTemporalContext(intent, context);
+  }
+
   callSummarizeMiddleExchangesWithLlm(
     middleExchanges: readonly LLMMessage[][],
     llm: { complete: (...args: unknown[]) => Promise<{ content: string | null }> },
@@ -488,8 +499,25 @@ function createMockContext(): AgentSessionContext {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   resetOperationMemoryServiceForTests();
   setCachedAgentAppConfig(DEFAULT_AGENT_APP_CONFIG);
+});
+
+describe('BaseAgent runtime date guardrail', () => {
+  it('uses session timezone when formatting current date near UTC midnight', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-04T03:48:00.000Z'));
+
+    const agent = new FakeAgent();
+    const context = { ...createMockContext(), timezone: 'America/Chicago' };
+    const temporalContext = agent.callBuildRuntimeTemporalContext('what time is it', context);
+
+    expect(temporalContext).toContain('Wednesday, June 3, 2026');
+    expect(temporalContext).toContain('10:48 PM CDT');
+    expect(temporalContext).toContain('2026-06-04T03:48:00.000Z');
+    expect(temporalContext).not.toContain('June 4, 2026, 10:48 PM CDT');
+  });
 });
 
 describe('BaseAgent identifier scrubbing', () => {

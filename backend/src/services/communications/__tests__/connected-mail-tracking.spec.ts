@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { buildTrackedEmailHtml } from '../connected-mail.service.js';
+import { buildRawGmailMessage, buildTrackedEmailHtml } from '../connected-mail.service.js';
 
 describe('buildTrackedEmailHtml', () => {
   it('rewrites click links and open pixel with recipientEmailHash only', () => {
@@ -71,5 +71,27 @@ describe('buildTrackedEmailHtml', () => {
 
     expect(html).toContain('href="mailto:test@example.com"');
     expect(html).not.toContain('/api/v1/analytics/track/click?destination=mailto');
+  });
+});
+
+describe('buildRawGmailMessage', () => {
+  it('MIME-encodes non-ASCII subjects and base64-encodes the HTML body', () => {
+    const rawMessage = buildRawGmailMessage(
+      'coach@example.com',
+      'Friday Game Canceled – Weather',
+      '<p>We’re moving practice to Saturday.</p>'
+    );
+
+    const decoded = Buffer.from(rawMessage, 'base64url').toString('utf8');
+    const [headers, encodedBody] = decoded.split('\r\n\r\n');
+
+    expect(headers).toContain('To: coach@example.com');
+    expect(headers).toContain('Subject: =?UTF-8?B?');
+    expect(headers).toContain('Content-Transfer-Encoding: base64');
+    expect(headers).not.toContain('Ã¢Â€Â“');
+
+    expect(Buffer.from(encodedBody, 'base64').toString('utf8')).toBe(
+      '<p>We’re moving practice to Saturday.</p>'
+    );
   });
 });

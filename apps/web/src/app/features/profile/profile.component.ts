@@ -1190,6 +1190,11 @@ export class ProfileComponent implements OnInit, OnDestroy {
     const meta = this.profileMeta();
     if (!meta) return;
 
+    this.analytics.trackEvent(APP_EVENTS.PROFILE_SHARED, {
+      profile_id: meta.id,
+      is_own_profile: this.isOwnProfile(),
+    });
+
     await this.share.shareProfile(meta, {
       analyticsProps: { is_own_profile: this.isOwnProfile() },
     });
@@ -1248,6 +1253,11 @@ export class ProfileComponent implements OnInit, OnDestroy {
       UTM_CAMPAIGN.PROFILE,
       meta?.sport?.toLowerCase()
     );
+
+    this.analytics.trackEvent(APP_EVENTS.PROFILE_QR_SCANNED, {
+      profile_id: unicode,
+      is_own_profile: this.isOwnProfile(),
+    });
 
     try {
       await this.qrCode.open({

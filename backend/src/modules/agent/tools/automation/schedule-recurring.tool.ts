@@ -127,6 +127,7 @@ export class ScheduleRecurringTaskTool extends BaseTool {
       };
     }
     const userId = context.userId;
+    const targetEnvironment = context.environment === 'production' ? 'production' : 'staging';
 
     const { actionSummary, cronExpression, timezone, sourceId } = parsed.data;
     const resolvedSourceId = sourceId?.trim() || context?.threadId?.trim() || undefined;
@@ -169,9 +170,10 @@ export class ScheduleRecurringTaskTool extends BaseTool {
             context: {
               sourceId: resolvedSourceId,
               threadId: resolvedSourceId,
+              timezone,
             },
           }
-        : {}),
+        : { context: { timezone } }),
     };
 
     // ── 4. Enqueue via BullMQ then persist durable metadata ──────────
@@ -181,7 +183,7 @@ export class ScheduleRecurringTaskTool extends BaseTool {
         cronExpression,
         timezone,
         payload,
-        'production'
+        targetEnvironment
       );
 
       // Firestore is the durable source of truth for recurring task metadata.
@@ -197,7 +199,7 @@ export class ScheduleRecurringTaskTool extends BaseTool {
           ...(resolvedSourceId ? { sourceId: resolvedSourceId } : {}),
           jobName,
           createdAt: FieldValue.serverTimestamp(),
-          environment: 'production',
+          environment: targetEnvironment,
         });
 
       logger.info('Recurring task scheduled', {
@@ -207,6 +209,7 @@ export class ScheduleRecurringTaskTool extends BaseTool {
         timezone,
         ...(resolvedSourceId ? { sourceId: resolvedSourceId } : {}),
         actionSummary,
+        environment: targetEnvironment,
       });
 
       return {

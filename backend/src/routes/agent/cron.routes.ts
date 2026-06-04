@@ -21,6 +21,26 @@ import { sendSlackAlert } from '../../services/platform/alert.service.js';
 
 const router = Router();
 
+const activeCronRuns = new Set<string>();
+
+function runCronTaskInBackground(taskKey: string, task: () => Promise<void>): boolean {
+  if (activeCronRuns.has(taskKey)) {
+    logger.warn('CRON task already running, skipping duplicate kickoff', { taskKey });
+    return false;
+  }
+
+  activeCronRuns.add(taskKey);
+  void (async () => {
+    try {
+      await task();
+    } finally {
+      activeCronRuns.delete(taskKey);
+    }
+  })();
+
+  return true;
+}
+
 // ─── POST /cron/daily-briefings ───────────────────────────────────────────
 
 router.post('/cron/daily-briefings', cronGuard, async (_req: Request, res: Response) => {
@@ -39,32 +59,48 @@ router.post('/cron/daily-briefings', cronGuard, async (_req: Request, res: Respo
 // Cloud Scheduler: every Monday at 8:00 AM  (cron: 0 8 * * 1)
 
 router.post('/cron/weekly-playbooks', cronGuard, async (_req: Request, res: Response) => {
-  try {
-    const { runWeeklyPlaybooks } =
-      await import('../../modules/agent/triggers/trigger.listeners.js');
-    await runWeeklyPlaybooks();
-    res.json({ success: true, message: 'Weekly playbooks completed' });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('CRON weekly playbooks failed', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Weekly playbooks failed' });
-  }
+  const started = runCronTaskInBackground('weekly-playbooks', async () => {
+    try {
+      const { runWeeklyPlaybooks } =
+        await import('../../modules/agent/triggers/trigger.listeners.js');
+      await runWeeklyPlaybooks();
+      logger.info('CRON weekly playbooks completed');
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('CRON weekly playbooks failed', { error: error.message, stack: error.stack });
+    }
+  });
+
+  res.json({
+    success: true,
+    message: started ? 'Weekly playbooks started' : 'Weekly playbooks already running',
+    status: started ? 'running' : 'already_running',
+  });
 });
 
 // ─── POST /cron/suggested-actions ────────────────────────────────────────
 // Cloud Scheduler: every Sunday at 9:00 AM  (cron: 0 9 * * 0)
 
 router.post('/cron/suggested-actions', cronGuard, async (_req: Request, res: Response) => {
-  try {
-    const { runWeeklySuggestedActions } =
-      await import('../../modules/agent/triggers/trigger.listeners.js');
-    await runWeeklySuggestedActions();
-    res.json({ success: true, message: 'Weekly suggested actions completed' });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('CRON suggested-actions failed', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Suggested actions failed' });
-  }
+  const started = runCronTaskInBackground('suggested-actions', async () => {
+    try {
+      const { runWeeklySuggestedActions } =
+        await import('../../modules/agent/triggers/trigger.listeners.js');
+      await runWeeklySuggestedActions();
+      logger.info('CRON suggested-actions completed');
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('CRON suggested-actions failed', { error: error.message, stack: error.stack });
+    }
+  });
+
+  res.json({
+    success: true,
+    message: started
+      ? 'Weekly suggested actions started'
+      : 'Weekly suggested actions already running',
+    status: started ? 'running' : 'already_running',
+  });
 });
 
 // ─── POST /cron/playbook-nudge ────────────────────────────────────────────
@@ -72,37 +108,45 @@ router.post('/cron/suggested-actions', cronGuard, async (_req: Request, res: Res
 // Sends a personalized mid-week progress check-in push for active playbooks.
 
 router.post('/cron/playbook-nudge', cronGuard, async (_req: Request, res: Response) => {
-  try {
-    const { runPlaybookNudge } = await import('../../modules/agent/triggers/trigger.listeners.js');
-    await runPlaybookNudge();
-    res.json({ success: true, message: 'Playbook nudge dispatched' });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('CRON playbook-nudge failed', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Playbook nudge failed' });
-  }
+  const started = runCronTaskInBackground('playbook-nudge', async () => {
+    try {
+      const { runPlaybookNudge } =
+        await import('../../modules/agent/triggers/trigger.listeners.js');
+      await runPlaybookNudge();
+      logger.info('CRON playbook-nudge completed');
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('CRON playbook-nudge failed', { error: error.message, stack: error.stack });
+    }
+  });
+
+  res.json({
+    success: true,
+    message: started ? 'Playbook nudge started' : 'Playbook nudge already running',
+    status: started ? 'running' : 'already_running',
+  });
 });
 
 // ─── POST /cron/weekly-recaps ─────────────────────────────────────────────
 // Cloud Scheduler: every Friday at 9:00 AM  (cron: 0 9 * * 5)
 
 router.post('/cron/weekly-recaps', cronGuard, async (_req: Request, res: Response) => {
-  // Respond immediately — enqueuing jobs across all eligible users can take
-  // longer than the 30-second global server timeout. The actual recap
-  // generation happens asynchronously via the BullMQ job worker.
-  res.json({ success: true, message: 'Weekly recaps started', status: 'running' });
-
-  // Fire-and-forget background job
-  (async () => {
+  const started = runCronTaskInBackground('weekly-recaps', async () => {
     try {
       const { runWeeklyRecaps } = await import('../../modules/agent/triggers/trigger.listeners.js');
-      await runWeeklyRecaps();
-      logger.info('CRON weekly-recaps completed');
+      const result = await runWeeklyRecaps();
+      logger.info('CRON weekly-recaps completed', { ...result });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       logger.error('CRON weekly recaps failed', { error: error.message, stack: error.stack });
     }
-  })();
+  });
+
+  res.json({
+    success: true,
+    message: started ? 'Weekly recaps started' : 'Weekly recaps already running',
+    status: started ? 'running' : 'already_running',
+  });
 });
 
 // ─── POST /cron/summarize-threads ─────────────────────────────────────────

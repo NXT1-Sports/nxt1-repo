@@ -15,22 +15,53 @@
  * - Express routes for webhook-based triggers
  */
 
-import type { AgentTriggerEvent, SyncDeltaReport } from '@nxt1/core';
+import { randomUUID } from 'node:crypto';
+import {
+  AGENT_TRIGGER_RULES,
+  type AgentJobPayload,
+  type AgentTriggerEvent,
+  type SyncDeltaReport,
+} from '@nxt1/core';
 import { AgentTriggerService } from './trigger.service.js';
 import { AgentGenerationService } from '../services/generation.service.js';
 import { OpenRouterService } from '../llm/openrouter.service.js';
 import { ContextBuilder } from '../memory/context-builder.js';
 import { SyncMemoryExtractorService } from '../memory/sync-memory-extractor.service.js';
 import { VectorMemoryService } from '../memory/vector.service.js';
+import { AgentQueueService } from '../queue/queue.service.js';
 import { logger } from '../../../utils/logger.js';
 import { getSyncDeltaEventService } from '../../../services/core/sync-delta-event.service.js';
 import { db as appDb } from '../../../utils/firebase.js';
+
+const WEEKLY_RECAP_DISPATCH_COLLECTION = 'AgentWeeklyRecapDispatches';
+const WEEKLY_RECAP_BATCH_SIZE = 20;
+
+interface WeeklyRecapRunResult {
+  readonly totalUsers: number;
+  readonly eligible: number;
+  readonly enqueued: number;
+  readonly skippedAlreadyDispatched: number;
+  readonly skippedEmailOptOut: number;
+  readonly failed: number;
+  readonly weekKey: string;
+}
+
+interface WeeklyRecapEligibleUser {
+  readonly id: string;
+  readonly email: string;
+}
 
 /** Lazy singleton — avoids eager Firestore access at module load time. */
 let _triggerService: AgentTriggerService | null = null;
 function getTriggerService(): AgentTriggerService {
   if (!_triggerService) _triggerService = new AgentTriggerService();
   return _triggerService;
+}
+
+let _queueService: AgentQueueService | null = null;
+function getQueueService(): AgentQueueService {
+  if (!_queueService) _queueService = new AgentQueueService();
+  return _queueService;
 }
 
 /** Lazy singleton for content generation. */
@@ -65,6 +96,135 @@ async function getEligibleUserIdsWithGoals(): Promise<string[]> {
       return Array.isArray(goals) && goals.length > 0;
     })
     .map((doc) => doc.id);
+}
+
+async function processInBatches<T, R>(
+  items: readonly T[],
+  batchSize: number,
+  worker: (item: T) => Promise<R>
+): Promise<R[]> {
+  const results: R[] = [];
+
+  for (let index = 0; index < items.length; index += batchSize) {
+    const chunk = items.slice(index, index + batchSize);
+    const chunkResults = await Promise.all(chunk.map((item) => worker(item)));
+    results.push(...chunkResults);
+  }
+
+  return results;
+}
+
+function getWeeklyRecapWeekKey(date = new Date()): string {
+  const startOfYear = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+  const dayOfYear = Math.floor((date.getTime() - startOfYear.getTime()) / 86_400_000) + 1;
+  const weekNum = Math.ceil((dayOfYear + startOfYear.getUTCDay()) / 7);
+  return `${date.getUTCFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+}
+
+function isAlreadyExistsError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+
+  const record = error as Record<string, unknown>;
+  return (
+    record['code'] === 6 ||
+    String(record['message'] ?? '')
+      .toLowerCase()
+      .includes('already exists')
+  );
+}
+
+function isWeeklyRecapEmailEligible(
+  data: Record<string, unknown>
+): data is Record<string, unknown> & { email: string } {
+  const preferences = data['preferences'] as Record<string, unknown> | undefined;
+  const notifications = preferences?.['notifications'] as Record<string, unknown> | undefined;
+  return (
+    typeof data['email'] === 'string' &&
+    data['email'].trim().length > 0 &&
+    data['weeklyRecapEmailEnabled'] !== false &&
+    notifications?.['email'] !== false
+  );
+}
+
+async function enqueueWeeklyRecapForUser(input: {
+  readonly user: WeeklyRecapEligibleUser;
+  readonly weekKey: string;
+  readonly scheduledAt: string;
+}): Promise<'enqueued' | 'already_dispatched' | 'failed'> {
+  const { getFirestore, FieldValue } = await import('firebase-admin/firestore');
+  const db = getFirestore();
+  const dispatchId = `${input.weekKey}_${input.user.id}`;
+  const dispatchRef = db.collection(WEEKLY_RECAP_DISPATCH_COLLECTION).doc(dispatchId);
+  const operationId = `op_${randomUUID()}`;
+
+  try {
+    await dispatchRef.create({
+      userId: input.user.id,
+      email: input.user.email,
+      triggerType: 'weekly_recap',
+      weekKey: input.weekKey,
+      operationId,
+      status: 'enqueuing',
+      scheduledAt: input.scheduledAt,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+  } catch (err) {
+    if (isAlreadyExistsError(err)) return 'already_dispatched';
+    logger.error('[TriggerListener] Weekly recap dispatch reservation failed', {
+      userId: input.user.id,
+      weekKey: input.weekKey,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return 'failed';
+  }
+
+  const rule = AGENT_TRIGGER_RULES.find((candidate) => candidate.type === 'weekly_recap');
+  const payload: AgentJobPayload = {
+    operationId,
+    userId: input.user.id,
+    intent: rule?.intentTemplate ?? 'Generate a comprehensive weekly recap for this user.',
+    sessionId: `trigger_weekly_recap_${input.weekKey}`,
+    origin: 'system_cron',
+    triggerEvent: {
+      id: `weekly_recap_${input.weekKey}_${input.user.id}`,
+      type: 'weekly_recap',
+      userId: input.user.id,
+      intent: '',
+      eventData: {
+        scheduledAt: input.scheduledAt,
+        weekKey: input.weekKey,
+      },
+      origin: 'system_cron',
+      priority: 'normal',
+      createdAt: input.scheduledAt,
+    },
+    context: {
+      scheduledAt: input.scheduledAt,
+      weekKey: input.weekKey,
+    },
+  };
+
+  try {
+    await getQueueService().enqueue(payload, 'production');
+    await dispatchRef.set(
+      {
+        status: 'enqueued',
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    return 'enqueued';
+  } catch (err) {
+    logger.error('[TriggerListener] Weekly recap enqueue failed', {
+      userId: input.user.id,
+      operationId,
+      weekKey: input.weekKey,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    await dispatchRef.delete().catch(() => undefined);
+    return 'failed';
+  }
 }
 
 // ─── Database Event Listeners ───────────────────────────────────────────────
@@ -316,23 +476,23 @@ export async function runWeeklyPlaybooks(): Promise<void> {
     userCount: eligibleUserIds.length,
   });
 
-  let successCount = 0;
-  let failCount = 0;
-
-  for (const uid of eligibleUserIds) {
+  const outcomes = await processInBatches(eligibleUserIds, 4, async (uid) => {
     try {
       // force=false: the 144h dedup guard prevents duplicate generation
-      // if the scheduler fires twice in a week for any reason
+      // if the scheduler fires twice in a week for any reason.
       await generation.generateWeeklyPlaybook(uid);
-      successCount++;
+      return 'success' as const;
     } catch (err) {
-      failCount++;
       logger.error('[TriggerListener] Weekly playbook generation failed for user', {
         userId: uid,
         error: err instanceof Error ? err.message : String(err),
       });
+      return 'failed' as const;
     }
-  }
+  });
+
+  const successCount = outcomes.filter((outcome) => outcome === 'success').length;
+  const failCount = outcomes.length - successCount;
 
   logger.info('[TriggerListener] Weekly playbooks complete', {
     total: eligibleUserIds.length,
@@ -379,21 +539,21 @@ export async function runWeeklySuggestedActions(): Promise<void> {
     userCount: eligibleUserIds.length,
   });
 
-  let successCount = 0;
-  let failCount = 0;
-
-  for (const uid of eligibleUserIds) {
+  const outcomes = await processInBatches(eligibleUserIds, 4, async (uid) => {
     try {
       await generation.generateWeeklySuggestedActions(uid);
-      successCount++;
+      return 'success' as const;
     } catch (err) {
-      failCount++;
       logger.error('[TriggerListener] Weekly suggested actions generation failed for user', {
         userId: uid,
         error: err instanceof Error ? err.message : String(err),
       });
+      return 'failed' as const;
     }
-  }
+  });
+
+  const successCount = outcomes.filter((outcome) => outcome === 'success').length;
+  const failCount = outcomes.length - successCount;
 
   logger.info('[TriggerListener] Weekly suggested actions complete', {
     total: eligibleUserIds.length,
@@ -404,30 +564,90 @@ export async function runWeeklySuggestedActions(): Promise<void> {
 
 /**
  * Called by Cloud Scheduler every Friday at 9:00 AM.
- * Fetches all premium users and enqueues weekly recaps.
+ * Fetches email-eligible users and enqueues weekly recap jobs.
+ *
+ * Weekly recaps are a scheduled email product, not a user-initiated autonomous
+ * action. They intentionally bypass AgentTriggerPreferences.autonomousEnabled
+ * and the generic rolling trigger cooldown. Professional campaign-style
+ * delivery uses an explicit email opt-out gate plus a deterministic per-week
+ * dispatch ledger for idempotency.
  */
-export async function runWeeklyRecaps(): Promise<void> {
-  let eligibleUserIds: string[];
+export async function runWeeklyRecaps(): Promise<WeeklyRecapRunResult> {
+  const scheduledAt = new Date().toISOString();
+  const weekKey = getWeeklyRecapWeekKey();
+  let totalUsers = 0;
+  let skippedEmailOptOut = 0;
+  let eligibleUsers: WeeklyRecapEligibleUser[];
+
   try {
     const { getFirestore } = await import('firebase-admin/firestore');
     const db = getFirestore();
-    const snap = await db.collection('Users').select('weeklyRecapEmailEnabled').get();
-    eligibleUserIds = snap.docs
-      .filter((doc) => doc.data()['weeklyRecapEmailEnabled'] !== false)
-      .map((doc) => doc.id);
+
+    const snap = await db
+      .collection('Users')
+      .select('email', 'weeklyRecapEmailEnabled', 'preferences')
+      .get();
+
+    totalUsers = snap.size;
+    eligibleUsers = snap.docs.reduce<WeeklyRecapEligibleUser[]>((users, doc) => {
+      const data = doc.data() as Record<string, unknown>;
+
+      if (!isWeeklyRecapEmailEligible(data)) {
+        skippedEmailOptOut++;
+        return users;
+      }
+
+      users.push({ id: doc.id, email: data.email.trim() });
+      return users;
+    }, []);
   } catch (err) {
     logger.error('[TriggerListener] Failed to fetch eligible users for weekly recaps', {
       error: err instanceof Error ? err.message : String(err),
     });
-    return;
+    return {
+      totalUsers,
+      eligible: 0,
+      enqueued: 0,
+      skippedAlreadyDispatched: 0,
+      skippedEmailOptOut,
+      failed: 1,
+      weekKey,
+    };
   }
 
-  if (eligibleUserIds.length === 0) {
-    logger.info('[TriggerListener] No eligible users for weekly recaps');
-    return;
+  if (eligibleUsers.length === 0) {
+    logger.info('[TriggerListener] No email-eligible users for weekly recaps', {
+      totalUsers,
+      skippedEmailOptOut,
+      weekKey,
+    });
+    return {
+      totalUsers,
+      eligible: 0,
+      enqueued: 0,
+      skippedAlreadyDispatched: 0,
+      skippedEmailOptOut,
+      failed: 0,
+      weekKey,
+    };
   }
 
-  await getTriggerService().processBatchTrigger('weekly_recap', eligibleUserIds);
+  const outcomes = await processInBatches(eligibleUsers, WEEKLY_RECAP_BATCH_SIZE, (user) =>
+    enqueueWeeklyRecapForUser({ user, weekKey, scheduledAt })
+  );
+
+  const result: WeeklyRecapRunResult = {
+    totalUsers,
+    eligible: eligibleUsers.length,
+    enqueued: outcomes.filter((outcome) => outcome === 'enqueued').length,
+    skippedAlreadyDispatched: outcomes.filter((outcome) => outcome === 'already_dispatched').length,
+    skippedEmailOptOut,
+    failed: outcomes.filter((outcome) => outcome === 'failed').length,
+    weekKey,
+  };
+
+  logger.info('[TriggerListener] Weekly recaps enqueue complete', { ...result });
+  return result;
 }
 
 /**
@@ -483,7 +703,7 @@ export async function runPlaybookNudge(): Promise<void> {
   // ── 1. Fetch users who have active goals ──────────────────────────────
   let userDocs: FirebaseFirestore.QueryDocumentSnapshot[];
   try {
-    const snap = await db.collection('Users').select('agentGoals').get();
+    const snap = await db.collection('Users').select('agentGoals', 'lastPlaybookNudgeAt').get();
     userDocs = snap.docs.filter((doc) => {
       const goals = doc.data()['agentGoals'];
       return Array.isArray(goals) && goals.length > 0;
@@ -503,16 +723,11 @@ export async function runPlaybookNudge(): Promise<void> {
   logger.info('[TriggerListener] runPlaybookNudge started', { userCount: userDocs.length });
 
   const generation = getGenerationService();
-  let sent = 0;
-  let skipped = 0;
-  let failed = 0;
-
-  for (const userDoc of userDocs) {
+  const outcomes = await processInBatches(userDocs, 5, async (userDoc) => {
     const uid = userDoc.id;
     try {
       // ── 2. Dedup guard ──────────────────────────────────────────────
-      const fullUser = await db.collection('Users').doc(uid).get();
-      const userData = fullUser.data() ?? {};
+      const userData = userDoc.data() ?? {};
       const lastNudge = userData['lastPlaybookNudgeAt'];
       if (lastNudge) {
         const lastMs =
@@ -520,8 +735,7 @@ export async function runPlaybookNudge(): Promise<void> {
             ? (lastNudge as FirebaseFirestore.Timestamp).toMillis()
             : new Date(String(lastNudge)).getTime();
         if (now - lastMs < DEDUP_WINDOW_MS) {
-          skipped++;
-          continue;
+          return 'skipped' as const;
         }
       }
 
@@ -532,8 +746,7 @@ export async function runPlaybookNudge(): Promise<void> {
 
       if (!nudge) {
         // No active playbook this week or LLM failed — skip silently
-        skipped++;
-        continue;
+        return 'skipped' as const;
       }
 
       // ── 4. Dispatch push ─────────────────────────────────────────────
@@ -551,15 +764,19 @@ export async function runPlaybookNudge(): Promise<void> {
         .doc(uid)
         .update({ lastPlaybookNudgeAt: FieldValue.serverTimestamp() });
 
-      sent++;
+      return 'sent' as const;
     } catch (err) {
-      failed++;
       logger.error('[TriggerListener] runPlaybookNudge: failed for user', {
         userId: uid,
         error: err instanceof Error ? err.message : String(err),
       });
+      return 'failed' as const;
     }
-  }
+  });
+
+  const sent = outcomes.filter((outcome) => outcome === 'sent').length;
+  const skipped = outcomes.filter((outcome) => outcome === 'skipped').length;
+  const failed = outcomes.filter((outcome) => outcome === 'failed').length;
 
   logger.info('[TriggerListener] runPlaybookNudge complete', {
     total: userDocs.length,

@@ -132,9 +132,18 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain('delegate to `data_coordinator`');
     expect(prompt).toContain('delegate to `strategy_coordinator`');
     expect(prompt).toContain('NEVER call `generate_graphic` directly from router');
+    expect(prompt).toContain('External social publishing boundary');
+    expect(prompt).toContain('Do NOT promise external publishing');
+    expect(prompt).toContain(
+      'Only delegate posting to `data_coordinator` when the destination is explicitly the NXT1 timeline/feed'
+    );
     expect(prompt).toContain('Live-view film requests are coordinator-owned');
     expect(prompt).toContain(
       'NEVER call `create_play_diagram`, `write_playbooks`, `save_gameplan`, `list_gameplans`, `get_gameplan`, or film review tools'
+    );
+    expect(prompt).toContain('clear user-requested play/drill diagram generation');
+    expect(prompt).toContain(
+      'delegate to `strategy_coordinator` immediately and do not ask permission first'
     );
     expect(prompt).toContain('single objective sentence as the handoff payload');
     expect(prompt).toContain('Ask User Decision Matrix (CRITICAL)');
