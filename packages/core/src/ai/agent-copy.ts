@@ -204,6 +204,25 @@ export function resolveAgentApprovalCopy(input: {
         notificationBody: actionSummary,
       };
     }
+    case 'gmail_send_email': {
+      const recipients = Array.isArray(toolInput['to'])
+        ? toolInput['to'].filter(
+            (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+          )
+        : [];
+      const subject =
+        typeof toolInput['subject'] === 'string' ? toolInput['subject'] : 'No subject';
+      const actionSummary =
+        recipients.length > 1
+          ? `Send ${recipients.length} Gmail emails with subject "${subject}".`
+          : `Send a Gmail email to ${recipients[0] ?? 'the recipient'} with subject "${subject}".`;
+      return {
+        reasonCode: 'send_email',
+        actionSummary,
+        notificationTitle: recipients.length > 1 ? 'Review Email Campaign' : 'Review Email Draft',
+        notificationBody: actionSummary,
+      };
+    }
     case 'batch_send_email': {
       const recipients = Array.isArray(toolInput['recipients']) ? toolInput['recipients'] : [];
       const recipientCount = recipients.length;

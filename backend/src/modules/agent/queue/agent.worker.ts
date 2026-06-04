@@ -404,6 +404,134 @@ function extractTimelinePostDraft(
   return null;
 }
 
+function extractEmailApprovalDraft(
+  toolName: string,
+  toolInput: Record<string, unknown>
+): {
+  readonly title: string;
+  readonly variant: 'email' | 'email-batch';
+  readonly subject: string;
+  readonly body: string;
+  readonly toEmail?: string;
+  readonly recipients: Array<string | { toEmail: string; variables: Record<string, unknown> }>;
+  readonly recipientsCount: number;
+  readonly approveLabel: string;
+} | null {
+  type EmailBatchRecipient = { toEmail: string; variables: Record<string, unknown> };
+
+  if (toolName === 'send_email') {
+    const subject = typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '';
+    const body =
+      (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
+      (typeof toolInput['body'] === 'string' ? toolInput['body'] : '') ||
+      '';
+    const toEmail = typeof toolInput['toEmail'] === 'string' ? toolInput['toEmail'] : '';
+
+    return {
+      title: 'Review and Approve Email',
+      variant: 'email',
+      subject,
+      body,
+      toEmail,
+      recipients: toEmail ? [toEmail] : [],
+      recipientsCount: 1,
+      approveLabel: 'Send',
+    };
+  }
+
+  if (toolName === 'gmail_send_email') {
+    const subject = typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '';
+    const body = typeof toolInput['body'] === 'string' ? toolInput['body'] : '';
+    const recipients = Array.isArray(toolInput['to'])
+      ? toolInput['to'].filter(
+          (entry): entry is string => typeof entry === 'string' && entry.trim().length > 0
+        )
+      : [];
+    const toEmail = recipients[0] ?? '';
+
+    return {
+      title:
+        recipients.length > 1
+          ? `Review and Approve Emails (${recipients.length} recipients)`
+          : 'Review and Approve Email',
+      variant: recipients.length > 1 ? 'email-batch' : 'email',
+      subject,
+      body,
+      toEmail,
+      recipients,
+      recipientsCount: Math.max(recipients.length, 1),
+      approveLabel: recipients.length > 1 ? 'Send All' : 'Send',
+    };
+  }
+
+  if (toolName === 'run_google_workspace_tool') {
+    const nestedToolName =
+      typeof toolInput['toolName'] === 'string' ? toolInput['toolName'].trim() : '';
+    if (nestedToolName !== 'gmail_send_email') return null;
+
+    const args =
+      toolInput['arguments'] &&
+      typeof toolInput['arguments'] === 'object' &&
+      !Array.isArray(toolInput['arguments'])
+        ? (toolInput['arguments'] as Record<string, unknown>)
+        : {};
+    return extractEmailApprovalDraft('gmail_send_email', args);
+  }
+
+  if (toolName === 'batch_send_email') {
+    const subject =
+      (typeof toolInput['subjectTemplate'] === 'string' && toolInput['subjectTemplate']) ||
+      (typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '') ||
+      '';
+    const body =
+      (typeof toolInput['bodyHtmlTemplate'] === 'string' && toolInput['bodyHtmlTemplate']) ||
+      (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
+      (typeof toolInput['body'] === 'string' ? toolInput['body'] : '') ||
+      '';
+    const recipients = Array.isArray(toolInput['recipients'])
+      ? (toolInput['recipients'] as Array<unknown>)
+          .map((r): EmailBatchRecipient | null => {
+            if (typeof r === 'string' && r.trim()) {
+              return { toEmail: r.trim(), variables: {} };
+            }
+            if (r && typeof r === 'object') {
+              const obj = r as Record<string, unknown>;
+              const toEmail =
+                typeof obj['toEmail'] === 'string' && obj['toEmail'].trim()
+                  ? obj['toEmail'].trim()
+                  : typeof obj['email'] === 'string' && obj['email'].trim()
+                    ? obj['email'].trim()
+                    : '';
+              if (!toEmail) return null;
+              return {
+                toEmail,
+                variables:
+                  obj['variables'] &&
+                  typeof obj['variables'] === 'object' &&
+                  !Array.isArray(obj['variables'])
+                    ? (obj['variables'] as Record<string, unknown>)
+                    : {},
+              };
+            }
+            return null;
+          })
+          .filter((recipient): recipient is EmailBatchRecipient => recipient !== null)
+      : [];
+
+    return {
+      title: `Review and Approve Emails (${recipients.length} recipient${recipients.length === 1 ? '' : 's'})`,
+      variant: 'email-batch',
+      subject,
+      body,
+      recipients,
+      recipientsCount: recipients.length,
+      approveLabel: 'Send All',
+    };
+  }
+
+  return null;
+}
+
 /**
  * Build an inline rich card for an agent yield (approval or input request).
  *
@@ -441,96 +569,25 @@ export function buildInlineYieldCard(params: {
   if (reason === 'needs_approval' && pendingToolCall && approvalId) {
     const { toolName, toolInput } = pendingToolCall;
 
-    // Email approvals: enrich with email metadata for frontend to render email-variant approval card
-    if (toolName === 'send_email') {
-      const subject = typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '';
-      const body =
-        (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
-        (typeof toolInput['body'] === 'string' ? toolInput['body'] : '') ||
-        '';
-      const toEmail = typeof toolInput['toEmail'] === 'string' ? toolInput['toEmail'] : '';
+    const emailDraft = extractEmailApprovalDraft(toolName, toolInput);
+    if (emailDraft) {
       return {
         type: 'confirmation',
         agentId,
-        title: 'Review and Approve Email',
+        title: emailDraft.title,
         payload: {
           message: promptToUser,
-          variant: 'email', // Signal frontend to render email UI
+          variant: emailDraft.variant,
           emailData: {
-            subject,
-            body,
-            toEmail,
-            recipients: toEmail ? [toEmail] : [],
-            recipientsCount: 1,
+            subject: emailDraft.subject,
+            body: emailDraft.body,
+            ...(emailDraft.toEmail ? { toEmail: emailDraft.toEmail } : {}),
+            recipients: emailDraft.recipients,
+            recipientsCount: emailDraft.recipientsCount,
           },
           actions: [
             { id: 'reject', label: 'Reject', variant: 'secondary' },
-            { id: 'approve', label: 'Send', variant: 'primary' },
-          ],
-          approvalId,
-          toolCallId: pendingToolCall.toolCallId,
-          operationId,
-        },
-      };
-    }
-
-    if (toolName === 'batch_send_email') {
-      const subject =
-        (typeof toolInput['subjectTemplate'] === 'string' && toolInput['subjectTemplate']) ||
-        (typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '') ||
-        '';
-      const body =
-        (typeof toolInput['bodyHtmlTemplate'] === 'string' && toolInput['bodyHtmlTemplate']) ||
-        (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
-        (typeof toolInput['body'] === 'string' ? toolInput['body'] : '') ||
-        '';
-      // Preserve full recipient objects {toEmail, variables} so the frontend
-      // can show variable previews and round-trip them intact through approval.
-      const recipients = Array.isArray(toolInput['recipients'])
-        ? (toolInput['recipients'] as Array<unknown>)
-            .map((r) => {
-              if (typeof r === 'string' && r.trim()) {
-                return { toEmail: r.trim(), variables: {} };
-              }
-              if (r && typeof r === 'object') {
-                const obj = r as Record<string, unknown>;
-                const toEmail =
-                  typeof obj['toEmail'] === 'string' && obj['toEmail'].trim()
-                    ? obj['toEmail'].trim()
-                    : typeof obj['email'] === 'string' && obj['email'].trim()
-                      ? obj['email'].trim()
-                      : '';
-                if (!toEmail) return null;
-                return {
-                  toEmail,
-                  variables:
-                    obj['variables'] &&
-                    typeof obj['variables'] === 'object' &&
-                    !Array.isArray(obj['variables'])
-                      ? (obj['variables'] as Record<string, string | number | boolean>)
-                      : {},
-                };
-              }
-              return null;
-            })
-            .filter(Boolean)
-        : [];
-      return {
-        type: 'confirmation',
-        agentId,
-        title: `Review and Approve Emails (${recipients.length} recipient${recipients.length === 1 ? '' : 's'})`,
-        payload: {
-          message: promptToUser,
-          variant: 'email-batch', // Signal frontend to render batch email UI
-          emailData: {
-            subject,
-            body,
-            recipients,
-            recipientsCount: recipients.length,
-          },
-          actions: [
-            { id: 'reject', label: 'Reject', variant: 'secondary' },
-            { id: 'approve', label: 'Send All', variant: 'primary' },
+            { id: 'approve', label: emailDraft.approveLabel, variant: 'primary' },
           ],
           approvalId,
           toolCallId: pendingToolCall.toolCallId,
