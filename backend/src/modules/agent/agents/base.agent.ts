@@ -54,7 +54,7 @@ import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/system/ask-user.tool.js';
 import { parse as parseCsv } from 'csv-parse/sync';
-import pdfParse from 'pdf-parse';
+import * as pdfParseModule from 'pdf-parse';
 import { isToolAllowedByPatterns } from './tool-policy.js';
 import { getEffectiveAgentToolPolicy } from './tool-policy.js';
 import {
@@ -76,6 +76,15 @@ import {
 import { getOperationMemoryService } from '../services/operation-memory.service.js';
 import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
 import { logger } from '../../../utils/logger.js';
+
+type PdfParseRuntimeModule = {
+  PDFParse: new (options: { data: Uint8Array | Buffer }) => {
+    getText(): Promise<{ text?: string }>;
+    destroy(): Promise<void>;
+  };
+};
+
+const pdfParseRuntime = pdfParseModule as unknown as PdfParseRuntimeModule;
 
 /** Maximum tool-calling iterations before we force the agent to respond. */
 const MAX_ITERATIONS = 20;
@@ -424,7 +433,9 @@ export abstract class BaseAgent {
 
     if (mimeType === 'application/pdf') {
       try {
-        const parsed = await pdfParse(attachmentBuffer);
+        const parser = new pdfParseRuntime.PDFParse({ data: attachmentBuffer });
+        const parsed = await parser.getText();
+        await parser.destroy();
         const extracted = this.trimAttachmentText(parsed.text ?? '');
         if (!extracted) return null;
         return `[Attachment Extract: ${attachmentName} (${mimeType})]\n${extracted}`;
