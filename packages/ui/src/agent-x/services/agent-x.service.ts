@@ -2098,11 +2098,19 @@ export class AgentXService {
 
   private async resumePendingPlaybookGenerationFromStorage(): Promise<void> {
     if (!isPlatformBrowser(this.platformId)) return;
-    if (this._playbookGenerating()) return;
     if (this._playbookResumePollingInFlight) return;
 
     const operationId = this.readPendingPlaybookOperation();
     if (!operationId) return;
+
+    // Route returns can preserve a stale generating flag even though the
+    // actual in-memory poller is gone. A persisted pending operation is the
+    // stronger signal, so resume polling instead of bailing out on UI state.
+    if (this._playbookGenerating()) {
+      this.logger.warn('Recovering pending playbook generation from stale UI state', {
+        operationId,
+      });
+    }
 
     this._playbookResumePollingInFlight = true;
     this._playbookGenerating.set(true);

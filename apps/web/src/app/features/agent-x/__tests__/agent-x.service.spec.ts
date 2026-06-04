@@ -516,11 +516,11 @@ describe('AgentXService', () => {
     });
 
     await service.loadDashboard();
-    await Promise.resolve();
-    await Promise.resolve();
 
-    expect(service.playbookGenerating()).toBe(false);
-    expect(service.weeklyPlaybook().map((item) => item.id)).toEqual(['generated-1']);
-    expect(sessionStorage.getItem(pendingPlaybookOperationKey)).toBeNull();
+    await vi.waitFor(() => {
+      expect(service.playbookGenerating()).toBe(false);
+      expect(service.weeklyPlaybook().map((item) => item.id)).toEqual(['generated-1']);
+      expect(sessionStorage.getItem(pendingPlaybookOperationKey)).toBeNull();
+    });
   });
 });
