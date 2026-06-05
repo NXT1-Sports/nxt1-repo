@@ -14,7 +14,14 @@
  * @version 1.0.0
  */
 
-import { formatSportDisplayName } from '../constants/sport.constants';
+import {
+  formatPositionDisplay,
+  formatSportDisplayName,
+  getPositionAbbreviation,
+  POSITION_ABBREVIATIONS,
+  SPORT_POSITIONS,
+  normalizeSportKey,
+} from '../constants/sport.constants';
 import { buildCanonicalProfilePath, buildCanonicalTeamPath } from '../helpers/formatters';
 
 // ============================================
@@ -646,11 +653,75 @@ export function isIndexableProfile(profile: ProfileIndexabilitySource | null | u
 /**
  * Build page title for athlete profile
  */
+function getCanonicalProfilePosition(profile: ShareableProfile): string | undefined {
+  const rawPosition = profile.position?.trim();
+  if (!rawPosition) return undefined;
+
+  const normalizedPosition = rawPosition.toLowerCase();
+  const sportKey = profile.sport ? normalizeSportKey(profile.sport) : undefined;
+
+  if (sportKey) {
+    const canonicalPositions = SPORT_POSITIONS[sportKey] ?? [];
+    const canonicalMatch = canonicalPositions.find(
+      (candidate) => candidate.toLowerCase() === normalizedPosition
+    );
+    if (canonicalMatch) {
+      return canonicalMatch;
+    }
+  }
+
+  const abbreviationMaps = sportKey
+    ? [POSITION_ABBREVIATIONS[sportKey] ?? {}]
+    : Object.values(POSITION_ABBREVIATIONS);
+
+  for (const abbreviationMap of abbreviationMaps) {
+    const canonicalKey = Object.entries(abbreviationMap).find(
+      ([, abbreviation]) => abbreviation.toLowerCase() === normalizedPosition
+    )?.[0];
+    if (!canonicalKey) {
+      continue;
+    }
+
+    if (sportKey) {
+      const canonicalPosition = (SPORT_POSITIONS[sportKey] ?? []).find(
+        (candidate) => candidate.toLowerCase() === canonicalKey
+      );
+      if (canonicalPosition) {
+        return canonicalPosition;
+      }
+    }
+
+    return formatPositionDisplay(canonicalKey, profile.sport, { showAbbreviation: false });
+  }
+
+  return formatPositionDisplay(rawPosition, profile.sport, { showAbbreviation: false });
+}
+
+function getCompactProfilePosition(profile: ShareableProfile): string | undefined {
+  const canonicalPosition = getCanonicalProfilePosition(profile);
+  if (!canonicalPosition) return undefined;
+
+  const abbreviation = getPositionAbbreviation(canonicalPosition, profile.sport).trim();
+  if (!abbreviation) {
+    return canonicalPosition;
+  }
+
+  if (
+    abbreviation.toLowerCase() !== canonicalPosition.toLowerCase() ||
+    /^[a-z0-9]{1,4}$/i.test(canonicalPosition)
+  ) {
+    return abbreviation.toUpperCase();
+  }
+
+  return canonicalPosition;
+}
+
 function buildProfileTitle(profile: ShareableProfile): string {
   const parts = [profile.athleteName];
+  const compactPosition = getCompactProfilePosition(profile);
 
-  if (profile.position) {
-    parts.push(profile.position);
+  if (compactPosition) {
+    parts.push(compactPosition);
   }
 
   if (profile.classYear) {
@@ -666,16 +737,18 @@ function buildProfileTitle(profile: ShareableProfile): string {
  * Build description for athlete profile
  */
 function buildProfileDescription(profile: ShareableProfile): string {
+  const canonicalPosition = getCanonicalProfilePosition(profile);
+
   if (profile.description) {
     return profile.description;
   }
 
   const parts: string[] = [];
 
-  if (profile.position && profile.sport) {
-    parts.push(`${profile.position} in ${formatSportDisplayName(profile.sport)}`);
-  } else if (profile.position) {
-    parts.push(profile.position);
+  if (canonicalPosition && profile.sport) {
+    parts.push(`${canonicalPosition} in ${formatSportDisplayName(profile.sport)}`);
+  } else if (canonicalPosition) {
+    parts.push(canonicalPosition);
   } else if (profile.sport) {
     parts.push(`${formatSportDisplayName(profile.sport)} athlete`);
   }
@@ -702,6 +775,7 @@ function buildProfileDescription(profile: ShareableProfile): string {
  * Build keywords for athlete profile
  */
 function buildProfileKeywords(profile: ShareableProfile): string[] {
+  const canonicalPosition = getCanonicalProfilePosition(profile);
   const keywords: string[] = [profile.athleteName, 'recruiting', 'highlights', 'NXT1'];
 
   if (profile.sport)
@@ -709,7 +783,7 @@ function buildProfileKeywords(profile: ShareableProfile): string[] {
       formatSportDisplayName(profile.sport),
       `${formatSportDisplayName(profile.sport)} recruiting`
     );
-  if (profile.position) keywords.push(profile.position);
+  if (canonicalPosition) keywords.push(canonicalPosition);
   if (profile.school) keywords.push(profile.school);
   if (profile.location) keywords.push(profile.location);
   if (profile.classYear) keywords.push(`class of ${profile.classYear}`);
@@ -726,6 +800,7 @@ function buildProfileStructuredData(
   url: string
 ): Record<string, unknown> {
   const BASE_URL = 'https://nxt1sports.com';
+  const canonicalPosition = getCanonicalProfilePosition(profile);
   const breadcrumbs: Array<{ name: string; url: string }> = [
     { name: 'NXT1 Sports', url: BASE_URL },
     { name: 'Athletes', url: `${BASE_URL}/athletes` },
@@ -745,7 +820,7 @@ function buildProfileStructuredData(
     url,
     image: profile.imageUrl || undefined,
     description: buildProfileDescription(profile),
-    jobTitle: profile.position || undefined,
+    jobTitle: canonicalPosition,
     identifier: profile.id,
     knowsAbout: profile.sport ? formatSportDisplayName(profile.sport) : undefined,
     alumniOf: profile.school

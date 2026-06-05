@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { applyServerRouteSeo, resolveServerRouteSeo } from './ssr-route-seo';
+import {
+  applyServerRouteSeo,
+  buildServerProfileRouteSeo,
+  resolveServerRouteSeo,
+} from './ssr-route-seo';
 
 const DEFAULT_HTML = `<!doctype html>
 <html lang="en">
@@ -47,6 +51,24 @@ describe('ssr-route-seo', () => {
       canonicalUrl: 'https://nxt1sports.com/profile/football/test-athlete/123',
     });
     expect(metadata?.robots).toContain('index');
+  });
+
+  it('builds compact SSR titles for public athlete profiles', () => {
+    const metadata = buildServerProfileRouteSeo({
+      athleteName: 'Yadon Urbieta',
+      position: 'quarterback',
+      classYear: 2027,
+      school: 'Brownsburg High School',
+      sport: 'football',
+      location: 'Brownsburg, IN',
+      unicode: '59836990',
+    });
+
+    expect(metadata).toMatchObject({
+      title: 'Yadon Urbieta | QB | Class of 2027 | NXT1 Sports',
+      canonicalUrl: 'https://nxt1sports.com/profile/football/yadon-urbieta/59836990',
+    });
+    expect(metadata?.description).toContain('Quarterback in Football');
   });
 
   it('rewrites head tags with route metadata', () => {

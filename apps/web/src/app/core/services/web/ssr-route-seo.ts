@@ -6,6 +6,22 @@ export interface ServerRouteSeoMetadata {
   readonly googlebot?: string;
 }
 
+export interface ServerRouteSeoProfile {
+  readonly athleteName: string;
+  readonly position?: string;
+  readonly classYear?: number;
+  readonly school?: string;
+  readonly sport?: string;
+  readonly location?: string;
+  readonly imageUrl?: string;
+  readonly firstName?: string;
+  readonly lastName?: string;
+  readonly username?: string;
+  readonly unicode?: string;
+}
+
+import { buildProfileSeoConfig, type ShareableProfile } from '@nxt1/core';
+
 const INDEXABLE_ROBOTS =
   'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1';
 const NOINDEX_ROBOTS =
@@ -218,6 +234,40 @@ export function resolveServerRouteSeo(
   }
 
   return null;
+}
+
+export function buildServerProfileRouteSeo(
+  profile: ServerRouteSeoProfile
+): ServerRouteSeoMetadata | null {
+  if (!profile.athleteName.trim() || !profile.unicode?.trim()) {
+    return null;
+  }
+
+  const shareableProfile: ShareableProfile = {
+    type: 'profile',
+    id: profile.unicode,
+    unicode: profile.unicode,
+    title: profile.athleteName,
+    description: '',
+    athleteName: profile.athleteName,
+    position: profile.position,
+    classYear: profile.classYear,
+    school: profile.school,
+    sport: profile.sport,
+    location: profile.location,
+    imageUrl: profile.imageUrl,
+    firstName: profile.firstName,
+    lastName: profile.lastName,
+    username: profile.username,
+  };
+
+  const seoConfig = buildProfileSeoConfig(shareableProfile);
+
+  return {
+    title: seoConfig.page.title,
+    description: seoConfig.page.description,
+    canonicalUrl: seoConfig.page.canonicalUrl,
+  };
 }
 
 export function applyServerRouteSeo(html: string, metadata: ServerRouteSeoMetadata | null): string {

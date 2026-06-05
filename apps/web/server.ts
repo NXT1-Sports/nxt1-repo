@@ -32,6 +32,7 @@ import type { ApiResponse } from '@nxt1/core/profile';
 import bootstrap from './src/main.server';
 import {
   applyServerRouteSeo,
+  buildServerProfileRouteSeo,
   resolveServerRouteSeo,
 } from './src/app/core/services/web/ssr-route-seo';
 
@@ -167,6 +168,59 @@ async function fetchProfileForCanonicalRedirect(
     console.warn('Canonical profile redirect lookup failed:', error);
     return null;
   }
+}
+
+function extractProfileRouteLookupParam(requestPath: string): string | null {
+  const canonicalMatch = requestPath.match(/^\/profile\/[^/]+\/[^/]+\/([^/]+)\/?$/);
+  if (canonicalMatch?.[1]) {
+    return canonicalMatch[1];
+  }
+
+  const directMatch = requestPath.match(/^\/profile\/([^/]+)\/?$/);
+  if (directMatch?.[1] && directMatch[1] !== 'profile') {
+    return directMatch[1];
+  }
+
+  return null;
+}
+
+function buildProfileRouteSeoMetadata(profile: User) {
+  if (!profile.unicode || isTeamRole(profile.role)) {
+    return null;
+  }
+
+  const primarySport = getActiveSport(profile) ?? profile.sports?.[profile.activeSportIndex || 0];
+  const city = profile.location?.city || '';
+  const state = profile.location?.state || '';
+  const location = [city, state].filter(Boolean).join(', ');
+  const athleteName =
+    `${profile.firstName ?? ''} ${profile.lastName ?? ''}`.trim() ||
+    profile.displayName ||
+    'NXT1 Athlete';
+
+  return buildServerProfileRouteSeo({
+    athleteName,
+    firstName: profile.firstName || undefined,
+    lastName: profile.lastName || undefined,
+    username: profile.username || undefined,
+    unicode: profile.unicode,
+    position: primarySport?.positions?.[0] || undefined,
+    classYear: profile.classOf || undefined,
+    school: primarySport?.team?.name || undefined,
+    sport: primarySport?.sport || undefined,
+    location: location || undefined,
+    imageUrl: profile.profileImgs?.[0] || profile.profileImg || undefined,
+  });
+}
+
+async function resolveDynamicProfileRouteSeo(requestPath: string, profileApiBaseUrl: string) {
+  const routeParam = extractProfileRouteLookupParam(requestPath);
+  if (!routeParam) {
+    return null;
+  }
+
+  const profile = await fetchProfileForCanonicalRedirect(routeParam, profileApiBaseUrl);
+  return profile ? buildProfileRouteSeoMetadata(profile) : null;
 }
 
 const STATIC_ASSET_EXTENSIONS = new Set([
@@ -440,34 +494,41 @@ export function createServer(): express.Express {
     // Extract theme preferences from cookies for flash-free SSR
     const themePreference = extractCookie(req, THEME_COOKIE);
     const sportTheme = extractCookie(req, SPORT_THEME_COOKIE);
-    const routeSeo = resolveServerRouteSeo(req.path, fullUrl);
+    const staticRouteSeo = resolveServerRouteSeo(req.path, fullUrl);
 
-    commonEngine
-      .render({
-        bootstrap,
-        documentFilePath: INDEX_HTML,
-        url: fullUrl,
-        publicPath: DIST_FOLDER,
-        providers: [
-          { provide: APP_BASE_HREF, useValue: baseUrl || '/' },
-          // Provide auth token for FirebaseServerApp initialization
-          // ServerAuthService uses this to initialize authenticated SSR
-          {
-            provide: SSR_AUTH_TOKEN,
-            useValue: authToken,
-          },
-          // Provide theme preferences so NxtThemeService renders correct theme on server
-          {
-            provide: SSR_INITIAL_THEME,
-            useValue: themePreference,
-          },
-          {
-            provide: SSR_INITIAL_SPORT_THEME,
-            useValue: sportTheme,
-          },
-        ],
-      })
-      .then((html) => {
+    Promise.resolve(resolveDynamicProfileRouteSeo(req.path, profileApiBaseUrl))
+      .then((dynamicProfileSeo) => ({
+        routeSeo: dynamicProfileSeo ? { ...staticRouteSeo, ...dynamicProfileSeo } : staticRouteSeo,
+      }))
+      .then(({ routeSeo }) =>
+        commonEngine
+          .render({
+            bootstrap,
+            documentFilePath: INDEX_HTML,
+            url: fullUrl,
+            publicPath: DIST_FOLDER,
+            providers: [
+              { provide: APP_BASE_HREF, useValue: baseUrl || '/' },
+              // Provide auth token for FirebaseServerApp initialization
+              // ServerAuthService uses this to initialize authenticated SSR
+              {
+                provide: SSR_AUTH_TOKEN,
+                useValue: authToken,
+              },
+              // Provide theme preferences so NxtThemeService renders correct theme on server
+              {
+                provide: SSR_INITIAL_THEME,
+                useValue: themePreference,
+              },
+              {
+                provide: SSR_INITIAL_SPORT_THEME,
+                useValue: sportTheme,
+              },
+            ],
+          })
+          .then((html) => ({ html, routeSeo }))
+      )
+      .then(({ html, routeSeo }) => {
         // Add security headers
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.setHeader('X-Frame-Options', 'SAMEORIGIN');
@@ -502,11 +563,12 @@ export function createServer(): express.Express {
         res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
         res.setHeader('X-SSR-Fallback', 'true');
 
-        if (routeSeo?.robots) {
-          res.setHeader('X-Robots-Tag', routeSeo.robots);
-        }
-
         try {
+          const routeSeo = staticRouteSeo;
+          if (routeSeo?.robots) {
+            res.setHeader('X-Robots-Tag', routeSeo.robots);
+          }
+
           const fallbackHtml = readFileSync(CSR_INDEX, 'utf-8');
           const responseHtml = applyServerRouteSeo(fallbackHtml, routeSeo);
           sendCompressedBody(req, res, 200, responseHtml, 'text/html; charset=utf-8');
