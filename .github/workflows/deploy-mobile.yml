@@ -188,9 +188,6 @@ jobs:
           retry pod update IONGeolocationLib --no-repo-update
           retry pod install --repo-update
 
-      - name: Install Fastlane
-        run: gem install fastlane -N
-
       - name: Write App Store Connect API key
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
@@ -219,7 +216,7 @@ jobs:
           APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 120
-        run: fastlane release
+        run: bundle exec fastlane release
 
       - name: Upload gym build log on failure
         if: failure()
@@ -243,7 +240,7 @@ jobs:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
-        run: fastlane upload_testflight
+        run: bundle exec fastlane upload_testflight
 
       # Submit for App Store review — DISABLED (uncomment when ready)
       # - name: Submit to App Store
@@ -356,8 +353,8 @@ jobs:
         working-directory: apps/mobile/android
         run: bundle exec fastlane upload_internal
 
-      # Upload to Play Store Production — promote from internal track
+      # Upload to Play Store Production — upload the newly built production AAB
       - name: Upload to Play Store Production
         if: env.BUILD_PROFILE == 'production'
         working-directory: apps/mobile/android
-        run: bundle exec fastlane promote_to_production
+        run: bundle exec fastlane upload_production
