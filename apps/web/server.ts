@@ -202,14 +202,14 @@ function buildProfileRouteSeoMetadata(profile: User) {
     athleteName,
     firstName: profile.firstName || undefined,
     lastName: profile.lastName || undefined,
-    username: profile.username || undefined,
+    username: profile.unicode,
     unicode: profile.unicode,
     position: primarySport?.positions?.[0] || undefined,
     classYear: profile.classOf || undefined,
     school: primarySport?.team?.name || undefined,
     sport: primarySport?.sport || undefined,
     location: location || undefined,
-    imageUrl: profile.profileImgs?.[0] || profile.profileImg || undefined,
+    imageUrl: profile.profileImgs?.[0] || undefined,
   });
 }
 
