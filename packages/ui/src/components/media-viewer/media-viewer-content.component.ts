@@ -47,6 +47,7 @@ import { NxtLoggingService } from '../../services/logging';
 import { NxtVideoControlsComponent } from '../video-controls';
 import type { MediaViewerBreakdown, MediaViewerItem } from './media-viewer.types';
 import type { MediaImageFormat } from '../../services/media';
+import { dumpViewportState } from './viewport-debug';
 
 @Component({
   selector: 'nxt1-media-viewer-content',
@@ -206,6 +207,8 @@ import type { MediaImageFormat } from '../../services/media';
                   (seeking)="onViewerVideoSeeking(i)"
                   (seeked)="onViewerVideoSeeked(i, $event)"
                   (error)="onMediaError(i)"
+                  (webkitbeginfullscreen)="onViewerVideoWebkitBeginFullscreen(i, $event)"
+                  (webkitendfullscreen)="onViewerVideoWebkitEndFullscreen(i, $event)"
                 ></video>
               }
             } @else if (item.type === 'doc') {
@@ -1103,7 +1106,9 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   private smoothProgressFrameId: number | null = null;
   private pendingSeekFrameId: number | null = null;
   private pendingSeekTime: number | null = null;
-  private _fullscreenChangeHandler: (() => void) | null = null;
+  private _fullscreenChangeHandler: ((event: Event) => void) | null = null;
+  private _resizeHandler: (() => void) | null = null;
+  private _orientationChangeHandler: (() => void) | null = null;
 
   protected readonly totalItems = computed(() => this.items.length);
   protected readonly currentItem = computed(() => this.items[this.currentIndex()] ?? null);
@@ -1155,12 +1160,21 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     }
 
     if (isPlatformBrowser(this.platformId)) {
-      this._fullscreenChangeHandler = () => this._handleFullscreenEnd();
+      dumpViewportState('media-viewer-content ngOnInit');
+      this._fullscreenChangeHandler = (event: Event) => {
+        dumpViewportState(`media-viewer-content ${event.type}`);
+        this._handleFullscreenEnd();
+      };
+      this._resizeHandler = () => dumpViewportState('media-viewer-content resize');
+      this._orientationChangeHandler = () =>
+        dumpViewportState('media-viewer-content orientationchange');
       document.addEventListener('fullscreenchange', this._fullscreenChangeHandler);
       document.addEventListener('webkitfullscreenchange', this._fullscreenChangeHandler);
       // webkitendfullscreen fires on iOS when native video fullscreen (AVPlayerViewController)
       // is dismissed — document fullscreenchange does NOT fire in this case.
       document.addEventListener('webkitendfullscreen', this._fullscreenChangeHandler);
+      window.addEventListener('resize', this._resizeHandler);
+      window.addEventListener('orientationchange', this._orientationChangeHandler);
     }
   }
 
@@ -1172,6 +1186,14 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
       document.removeEventListener('webkitfullscreenchange', this._fullscreenChangeHandler);
       document.removeEventListener('webkitendfullscreen', this._fullscreenChangeHandler);
       this._fullscreenChangeHandler = null;
+    }
+    if (isPlatformBrowser(this.platformId) && this._resizeHandler) {
+      window.removeEventListener('resize', this._resizeHandler);
+      this._resizeHandler = null;
+    }
+    if (isPlatformBrowser(this.platformId) && this._orientationChangeHandler) {
+      window.removeEventListener('orientationchange', this._orientationChangeHandler);
+      this._orientationChangeHandler = null;
     }
   }
 
@@ -1285,6 +1307,16 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     if (!this.isScrubbingVideo && !video.paused && !video.ended) {
       this.startSmoothProgressTracking();
     }
+  }
+
+  protected onViewerVideoWebkitBeginFullscreen(index: number, _event: Event): void {
+    if (!this.isCurrentVideoIndex(index)) return;
+    dumpViewportState('media-viewer-content webkitbeginfullscreen');
+  }
+
+  protected onViewerVideoWebkitEndFullscreen(index: number, _event: Event): void {
+    if (!this.isCurrentVideoIndex(index)) return;
+    dumpViewportState('media-viewer-content webkitendfullscreen');
   }
 
   protected async togglePlayPauseForCurrent(): Promise<void> {
@@ -1488,6 +1520,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   }
 
   protected toggleFullscreenForCurrent(): void {
+    dumpViewportState('media-viewer-content before fullscreen');
     const video = this.getCurrentVideoElement();
     if (this.platform.isIOS() && this.platform.isNative()) {
       const iosVideo = video as
@@ -1526,6 +1559,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
       (document as unknown as { webkitFullscreenElement?: Element }).webkitFullscreenElement
     );
     if (!isFullscreen) {
+      dumpViewportState('media-viewer-content before iOS viewport reset');
       this._resetIosViewportShift();
     }
   }
@@ -1542,6 +1576,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     }
 
     const doReset = () => {
+      dumpViewportState('media-viewer-content resetIosViewportShift doReset before');
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
       if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
       document.documentElement.scrollTop = 0;
@@ -1555,6 +1590,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
       }
       // Force synchronous reflow
       document.documentElement.getBoundingClientRect();
+      dumpViewportState('media-viewer-content resetIosViewportShift doReset after');
     };
 
     const dispatchResize = () => {

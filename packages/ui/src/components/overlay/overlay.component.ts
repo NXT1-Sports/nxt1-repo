@@ -38,6 +38,7 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import type { OverlayDismissReason, OverlaySize } from './overlay.types';
+import { dumpViewportState } from '../media-viewer/viewport-debug';
 
 @Component({
   selector: 'nxt1-overlay',
@@ -384,6 +385,7 @@ export class NxtOverlayComponent implements OnDestroy {
       // Lock body scroll — save previous value for proper restore
       this.previousBodyOverflow = document.body.style.overflow;
       document.body.style.overflow = 'hidden';
+      dumpViewportState('nxt1-overlay opened after body scroll lock');
 
       // Listen for Escape key
       document.addEventListener('keydown', this.onKeyDown);
@@ -397,8 +399,10 @@ export class NxtOverlayComponent implements OnDestroy {
   }
 
   ngOnDestroy(): void {
+    dumpViewportState('nxt1-overlay closed before body scroll restore');
     // Restore body scroll to previous value
     document.body.style.overflow = this.previousBodyOverflow ?? '';
+    dumpViewportState('nxt1-overlay closed after body scroll restore');
 
     // Remove Escape listener
     document.removeEventListener('keydown', this.onKeyDown);

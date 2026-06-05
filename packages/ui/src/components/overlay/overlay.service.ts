@@ -53,6 +53,7 @@ import {
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { NxtOverlayComponent } from './overlay.component';
+import { dumpViewportState } from '../media-viewer/viewport-debug';
 import type {
   OverlayConfig,
   OverlayRef,
@@ -163,6 +164,7 @@ export class NxtOverlayService {
 
     // 7. Append overlay to document body
     document.body.appendChild(hostRef.location.nativeElement);
+    dumpViewportState('nxt1-overlay opened after append');
 
     // 7b. Apply custom panel classes to the panel element
     if (config.panelClass) {
@@ -247,6 +249,7 @@ export class NxtOverlayService {
     if (!this.activeOverlay) return;
 
     const { hostRef, contentRef, resolve } = this.activeOverlay;
+    dumpViewportState(`nxt1-overlay closed before destroy (${reason})`);
 
     // Resolve the closed promise
     resolve({ reason, data });
@@ -258,6 +261,7 @@ export class NxtOverlayService {
     // Remove from DOM
     const hostEl = hostRef.location.nativeElement as HTMLElement;
     hostEl.parentElement?.removeChild(hostEl);
+    dumpViewportState(`nxt1-overlay closed after remove (${reason})`);
 
     // Destroy component refs
     contentRef.destroy();
