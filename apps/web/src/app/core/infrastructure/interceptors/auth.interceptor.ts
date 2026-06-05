@@ -27,7 +27,7 @@ import {
 import { Observable, from, switchMap, catchError, throwError } from 'rxjs';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { environment } from '../../../../environments/environment';
-import { AuthFlowService } from '../../services/auth';
+import { AuthFlowService } from '../../services/auth/auth-flow.service';
 
 /**
  * Endpoints that don't require authentication

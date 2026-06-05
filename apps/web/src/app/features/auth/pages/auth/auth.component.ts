@@ -42,7 +42,8 @@ import {
   AuthTeamCodeBannerComponent,
   type TeamCodeValidationState,
 } from '@nxt1/ui/auth/auth-team-code';
-import { AuthFlowService, AuthApiService } from '../../../../core/services/auth';
+import { AuthFlowService } from '../../../../core/services/auth/auth-flow.service';
+import { AuthApiService } from '../../../../core/services/auth/auth-api.service';
 import { AuthNavigationService } from '@nxt1/ui/services/auth-navigation';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
@@ -51,7 +52,7 @@ import { NxtToastService } from '@nxt1/ui/services/toast';
 import { isValidTeamCode } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { ValidatedTeamInfo } from '@nxt1/core';
-import { PENDING_REFERRAL_KEY, type PendingReferral } from '../../../join/join.component';
+import { PENDING_REFERRAL_KEY, type PendingReferral } from '../../../join/pending-referral';
 import { ILogger } from '@nxt1/core/logging';
 
 @Component({

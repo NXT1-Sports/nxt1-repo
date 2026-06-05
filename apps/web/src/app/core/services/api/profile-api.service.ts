@@ -13,9 +13,9 @@ import {
   type VerifiedMetric,
 } from '@nxt1/core';
 import { type FeedItemResponse } from '@nxt1/core/posts';
-import { AngularHttpAdapter } from '../../infrastructure';
+import { AngularHttpAdapter } from '../../infrastructure/http/angular-http-adapter.service';
 import { clearHttpCache } from '../../infrastructure/http/cache.interceptor';
-import { PerformanceService } from '..';
+import { PerformanceService } from '../infrastructure/performance.service';
 import { TRACE_NAMES, ATTRIBUTE_NAMES, METRIC_NAMES } from '@nxt1/core/performance';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { AnalyticsService } from '../infrastructure/analytics.service';
