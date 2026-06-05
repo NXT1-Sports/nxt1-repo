@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/cache",
-  "version": "1.43.21",
+  "version": "1.43.22",
   "description": "Cache abstraction with Redis and in-memory fallback",
   "type": "module",
   "main": "./dist/index.js",
@@ -19,6 +19,6 @@
     "redis": "^6.0.0"
   },
   "devDependencies": {
-    "typescript": "^6.0.3"
+    "typescript": "~5.9.3"
   }
 }

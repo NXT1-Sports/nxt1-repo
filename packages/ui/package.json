@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/ui",
-  "version": "2.43.21",
+  "version": "2.43.22",
   "description": "NXT1 UI - Shared Angular/Ionic components, services, and infrastructure for cross-platform applications (2026 APF)",
   "sideEffects": [
     "*.css"
@@ -32,9 +32,9 @@
     "./styles/animations": "./src/styles/animations.css"
   },
   "scripts": {
-    "build": "ng-packagr -p ng-package.json",
-    "build:watch": "ng-packagr -p ng-package.json --watch",
-    "dev": "ng-packagr -p ng-package.json --watch",
+    "build": "ng-packagr -p ng-package.json -c tsconfig.json",
+    "build:watch": "ng-packagr -p ng-package.json -c tsconfig.json --watch",
+    "dev": "ng-packagr -p ng-package.json -c tsconfig.json --watch",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "typecheck": "tsc --noEmit",
@@ -108,7 +108,7 @@
     "ng-packagr": "^21.0.0",
     "rxjs": "^7.8.1",
     "tus-js-client": "^4.3.1",
-    "typescript": "^6.0.3"
+    "typescript": "~5.9.3"
   },
   "keywords": [
     "angular",
