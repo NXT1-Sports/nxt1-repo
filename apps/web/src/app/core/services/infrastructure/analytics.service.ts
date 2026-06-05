@@ -14,6 +14,7 @@ import {
   FIREBASE_EVENTS,
   createFirebaseAnalyticsAdapter,
   getEventCategory,
+  getFirebaseEquivalent,
   type AnalyticsAdapter,
   type UserProperties,
 } from '@nxt1/core/analytics';
@@ -92,10 +93,14 @@ export class AnalyticsService implements AnalyticsAdapter {
 
     const enrichedProps = this.enrichProperties(properties);
     const category = getEventCategory(eventName);
+    const firebaseEquivalent = getFirebaseEquivalent(eventName);
 
     this.logger.debug(`[${category}] ${eventName}`, enrichedProps);
     this.runWhenReady((adapter) => {
       adapter.trackEvent(eventName, enrichedProps);
+      if (firebaseEquivalent && firebaseEquivalent !== eventName) {
+        adapter.trackEvent(firebaseEquivalent, enrichedProps);
+      }
     });
   }
 

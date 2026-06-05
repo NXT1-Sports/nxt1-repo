@@ -57,7 +57,7 @@ import {
   FAILED_JOB_TTL_S,
 } from './queue.types.js';
 import { AgentQueueService } from './queue.service.js';
-import { AgentJobRepository } from './job.repository.js';
+import { AgentJobRepository, AGENT_WEEKLY_RECAP_JOBS_COLLECTION } from './job.repository.js';
 import { DebouncedEventWriter } from './event-writer.js';
 import type { StreamEvent } from './event-writer.js';
 import { PersistedAssistantStreamBuilder } from './persisted-stream-message.js';
@@ -81,7 +81,10 @@ import {
   logAgentTaskFailure,
   deriveBodyFromResult,
 } from '../services/agent-activity.service.js';
-import { processRecapForUser } from '../services/weekly-recap-email.service.js';
+import {
+  processRecapForUser,
+  updateWeeklyRecapDispatchStatus,
+} from '../services/weekly-recap-email.service.js';
 import { dispatchAgentPush } from '../services/agent-push-adapter.service.js';
 import { getConnectedSourceSyncTracker } from '../services/connected-source-sync-tracker.service.js';
 import { logger } from '../../../utils/logger.js';
@@ -819,9 +822,17 @@ export class AgentWorker {
 
   // ─── Repository Selector ────────────────────────────────────────────────
 
+  private isWeeklyRecapPersistenceJob(job: Job<AgentQueueJobData, AgentQueueJobResult>): boolean {
+    return job.data.kind === 'agent' && job.data.payload.triggerEvent?.type === 'weekly_recap';
+  }
+
   /** Return the correct Firestore repo based on which environment the job belongs to. */
   private getJobRepo(job: Job<AgentQueueJobData, AgentQueueJobResult>): AgentJobRepository {
-    return job.data.environment === 'staging' ? this.stagingJobRepo : this.productionJobRepo;
+    const baseRepo =
+      job.data.environment === 'staging' ? this.stagingJobRepo : this.productionJobRepo;
+    return this.isWeeklyRecapPersistenceJob(job)
+      ? baseRepo.withCollection(AGENT_WEEKLY_RECAP_JOBS_COLLECTION)
+      : baseRepo;
   }
 
   /** Return the correct Firestore instance for user lookups based on job environment. */
@@ -1510,6 +1521,24 @@ export class AgentWorker {
     const startMs = Date.now();
     const repo = this.getJobRepo(job);
     const billingDb = await this.getActivityFirestore(job);
+    const syncWeeklyRecapDispatchStatus = async (
+      status: 'completed' | 'failed',
+      error?: string
+    ): Promise<void> => {
+      if (payload.triggerEvent?.type !== 'weekly_recap') return;
+
+      await updateWeeklyRecapDispatchStatus(billingDb, {
+        operationId: payload.operationId,
+        status,
+        ...(status === 'failed' ? { error } : {}),
+      }).catch((dispatchErr) => {
+        logger.warn('Failed to update weekly recap dispatch status', {
+          operationId: payload.operationId,
+          status,
+          error: dispatchErr instanceof Error ? dispatchErr.message : String(dispatchErr),
+        });
+      });
+    };
     const payloadThreadId =
       this.resolvePayloadThreadIdFromContext(basePayload) ??
       (await this.resolveScheduledRunThreadId(job, scheduledRunContext, billingDb));
@@ -2479,6 +2508,7 @@ export class AgentWorker {
           error: fsErr instanceof Error ? fsErr.message : String(fsErr),
         });
       });
+      await syncWeeklyRecapDispatchStatus('failed', message);
 
       await this.flushConnectedSourceTerminalStatus(
         payload.operationId,
@@ -2700,6 +2730,7 @@ export class AgentWorker {
           error: err instanceof Error ? err.message : String(err),
         });
       });
+      await syncWeeklyRecapDispatchStatus('failed', terminalMessage);
 
       await this.flushConnectedSourceTerminalStatus(payload.operationId, 'error', 'max_iterations');
 
@@ -2748,6 +2779,7 @@ export class AgentWorker {
           error: err instanceof Error ? err.message : String(err),
         });
       });
+      await syncWeeklyRecapDispatchStatus('failed', terminalMessage);
 
       await this.flushConnectedSourceTerminalStatus(payload.operationId, 'error', 'plan_failed');
 
@@ -2806,6 +2838,7 @@ export class AgentWorker {
     try {
       if (operationFailed) {
         await repo.markFailed(payload.operationId, failureMessage);
+        await syncWeeklyRecapDispatchStatus('failed', failureMessage);
       } else {
         await repo.markCompleted(payload.operationId, result);
       }
@@ -2825,6 +2858,10 @@ export class AgentWorker {
             error: markFailedErr instanceof Error ? markFailedErr.message : String(markFailedErr),
           });
         });
+      await syncWeeklyRecapDispatchStatus(
+        'failed',
+        `Completion persistence failed: ${persistError}`
+      );
 
       await this.flushConnectedSourceTerminalStatus(
         payload.operationId,
@@ -2984,8 +3021,13 @@ export class AgentWorker {
 
     // ─── Weekly recap email (fire-and-forget) ─────────────────────────────
     if (payload.triggerEvent?.type === 'weekly_recap') {
-      const { getFirestore } = await import('firebase-admin/firestore');
-      void processRecapForUser(payload.userId, summary, job.id?.toString(), getFirestore());
+      const recapNumber = payload.triggerEvent.eventData['recapNumber'];
+      const recapWeekLabel = payload.triggerEvent.eventData['recapWeekLabel'];
+
+      void processRecapForUser(payload.userId, summary, job.id?.toString(), billingDb, {
+        recapNumber: typeof recapNumber === 'number' ? recapNumber : undefined,
+        weekLabel: typeof recapWeekLabel === 'string' ? recapWeekLabel : undefined,
+      });
     }
 
     const persistedStreamSnapshot = persistedAssistantStream.snapshot();
@@ -3538,14 +3580,27 @@ export class AgentWorker {
         jobId,
       });
 
-      // Mark both production and staging repos — we don't know which env the job belongs to
+      // Mark all candidate repos — stalled jobs only surface a jobId here, so recover
+      // both standard AgentJobs and the recap-specific collection across environments.
       const failMessage = 'Job stalled: processing exceeded lock duration and was abandoned.';
       void this.productionJobRepo.markFailed(jobId, failMessage).catch(() => {
         /* stall recovery */
       });
+      void this.productionJobRepo
+        .withCollection(AGENT_WEEKLY_RECAP_JOBS_COLLECTION)
+        .markFailed(jobId, failMessage)
+        .catch(() => {
+          /* stall recovery */
+        });
       void this.stagingJobRepo.markFailed(jobId, failMessage).catch(() => {
         /* stall recovery */
       });
+      void this.stagingJobRepo
+        .withCollection(AGENT_WEEKLY_RECAP_JOBS_COLLECTION)
+        .markFailed(jobId, failMessage)
+        .catch(() => {
+          /* stall recovery */
+        });
     });
 
     this.worker.on('error', (err) => {

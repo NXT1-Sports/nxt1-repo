@@ -30,6 +30,10 @@ import { createProxyMiddleware } from 'http-proxy-middleware';
 import { buildCanonicalProfilePath, getActiveSport, isTeamRole, type User } from '@nxt1/core';
 import type { ApiResponse } from '@nxt1/core/profile';
 import bootstrap from './src/main.server';
+import {
+  applyServerRouteSeo,
+  resolveServerRouteSeo,
+} from './src/app/core/services/web/ssr-route-seo';
 
 // Import the SSR_AUTH_TOKEN injection token from the dedicated tokens file
 // IMPORTANT: Do NOT import from server-auth.service.ts as it has Firebase imports
@@ -355,6 +359,13 @@ export function createServer(): express.Express {
     res.redirect(308, `/agent-x${query}`);
   });
 
+  // The web app no longer exposes a /messages surface.
+  // Return a 410 so crawlers and caches drop the legacy path instead of indexing the shell.
+  server.get(/^\/messages(?:\/.*)?$/, (_req: Request, res: Response) => {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    res.status(410).type('text/plain; charset=utf-8').send('Gone');
+  });
+
   const backendTarget = process.env['BACKEND_URL'] || 'https://api.nxt1sports.com';
   const profileApiBaseUrl = resolveProfileApiBaseUrl(
     process.env['BACKEND_API_URL'] || backendTarget
@@ -429,6 +440,7 @@ export function createServer(): express.Express {
     // Extract theme preferences from cookies for flash-free SSR
     const themePreference = extractCookie(req, THEME_COOKIE);
     const sportTheme = extractCookie(req, SPORT_THEME_COOKIE);
+    const routeSeo = resolveServerRouteSeo(req.path, fullUrl);
 
     commonEngine
       .render({
@@ -464,7 +476,12 @@ export function createServer(): express.Express {
         // Allow OAuth popups without COOP blocking window.closed
         res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
 
-        const responseHtml = isPublicMarketingRoute(req) ? optimizePublicMarketingHtml(html) : html;
+        if (routeSeo?.robots) {
+          res.setHeader('X-Robots-Tag', routeSeo.robots);
+        }
+
+        const renderedHtml = isPublicMarketingRoute(req) ? optimizePublicMarketingHtml(html) : html;
+        const responseHtml = applyServerRouteSeo(renderedHtml, routeSeo);
 
         sendCompressedBody(req, res, 200, responseHtml, 'text/html; charset=utf-8');
       })
@@ -484,12 +501,19 @@ export function createServer(): express.Express {
         res.setHeader('X-XSS-Protection', '1; mode=block');
         res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
         res.setHeader('X-SSR-Fallback', 'true');
-        res.status(200).sendFile(CSR_INDEX, (sendErr) => {
-          if (sendErr) {
-            console.error('CSR fallback failed:', sendErr?.message);
-            next(err); // Only use error handler as last resort
-          }
-        });
+
+        if (routeSeo?.robots) {
+          res.setHeader('X-Robots-Tag', routeSeo.robots);
+        }
+
+        try {
+          const fallbackHtml = readFileSync(CSR_INDEX, 'utf-8');
+          const responseHtml = applyServerRouteSeo(fallbackHtml, routeSeo);
+          sendCompressedBody(req, res, 200, responseHtml, 'text/html; charset=utf-8');
+        } catch (fallbackError) {
+          console.error('CSR fallback failed:', fallbackError);
+          next(err); // Only use error handler as last resort
+        }
       });
   });
 

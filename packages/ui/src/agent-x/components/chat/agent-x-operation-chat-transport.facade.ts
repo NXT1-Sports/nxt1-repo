@@ -766,14 +766,15 @@ export class AgentXOperationChatTransportFacade {
                   ? (meta['recipientError'] as string)
                   : undefined;
               const isReply = meta['isReply'] === true;
+              const recipientParts = recipientEmail.split('@');
+              const recipientDomain =
+                recipientParts.length > 1 ? recipientParts[recipientParts.length - 1] : undefined;
 
               if (recipientStatus === 'sending') {
                 this.analytics?.trackEvent(APP_EVENTS.EMAIL_CREATED, {
                   contextType: host.contextType(),
                   contextId: host.contextId(),
-                  recipientDomain: recipientEmail.includes('@')
-                    ? recipientEmail.split('@').pop()
-                    : undefined,
+                  recipientDomain,
                   subject,
                 });
               }
@@ -781,9 +782,7 @@ export class AgentXOperationChatTransportFacade {
                 this.analytics?.trackEvent(APP_EVENTS.EMAIL_SENT, {
                   contextType: host.contextType(),
                   contextId: host.contextId(),
-                  recipientDomain: recipientEmail.includes('@')
-                    ? recipientEmail.split('@').pop()
-                    : undefined,
+                  recipientDomain,
                   subject,
                 });
                 this.analytics?.trackEvent(APP_EVENTS.AGENT_X_DRAFT_EMAIL_SENT, {
@@ -795,9 +794,7 @@ export class AgentXOperationChatTransportFacade {
                   this.analytics?.trackEvent(APP_EVENTS.EMAIL_REPLIED, {
                     contextType: host.contextType(),
                     contextId: host.contextId(),
-                    recipientDomain: recipientEmail.includes('@')
-                      ? recipientEmail.split('@').pop()
-                      : undefined,
+                    recipientDomain,
                     subject,
                   });
                 }

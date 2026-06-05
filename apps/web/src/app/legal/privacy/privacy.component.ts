@@ -103,6 +103,7 @@ export class PrivacyComponent implements OnInit, AfterViewInit, OnDestroy {
       title: 'Privacy Policy',
       description:
         'Learn how NXT1 Sports collects, uses, and protects your personal information. Review our commitment to data privacy and security.',
+      canonicalUrl: 'https://nxt1sports.com/privacy',
       keywords: ['privacy', 'policy', 'data', 'security', 'GDPR', 'CCPA'],
     });
   }

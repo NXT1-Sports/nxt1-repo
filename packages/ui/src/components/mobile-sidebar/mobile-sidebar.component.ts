@@ -462,7 +462,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
           </div>
 
           <!-- Agent Sessions — embedded directly below the quick-actions grid -->
-          @if (section.id === 'quick-actions') {
+          @if (section.id === 'quick-actions' && user()) {
             <div class="mobile-sidebar__agent-log">
               <div class="mobile-sidebar__sessions-header">
                 <div class="mobile-sidebar__sessions-header-row">

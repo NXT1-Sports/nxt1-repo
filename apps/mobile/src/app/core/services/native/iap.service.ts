@@ -29,7 +29,7 @@ import { firstValueFrom } from 'rxjs';
 import { Capacitor } from '@capacitor/core';
 import { NativePurchases, PURCHASE_TYPE } from '@capgo/native-purchases';
 import type { Product } from '@capgo/native-purchases';
-import { FIREBASE_EVENTS } from '@nxt1/core/analytics';
+import { APP_EVENTS, FIREBASE_EVENTS } from '@nxt1/core/analytics';
 import { NxtToastService } from '@nxt1/ui';
 import { NxtLoggingService } from '@nxt1/ui';
 import { USAGE_API_BASE_URL } from '@nxt1/ui';
@@ -232,6 +232,7 @@ export class IapService {
 
       // Verify with backend → credits wallet
       const result = await this._verifyWithBackend(
+        productId,
         jwsTransaction,
         transaction.transactionId,
         appAccountToken,
@@ -333,6 +334,33 @@ export class IapService {
     });
   }
 
+  private _trackPurchaseCompleted(productId: IapProductId, transactionId: string): void {
+    const product = this._getProductForAnalytics(productId);
+    const purchasePayload = {
+      transaction_id: transactionId,
+      value: product.price,
+      currency: product.currencyCode,
+      checkout_type: 'apple_iap',
+      payment_provider: 'apple_app_store',
+      credits: product.credits,
+      amountCents: Math.round(product.price * 100),
+      billingEntity: 'individual',
+      items: [
+        {
+          item_id: product.productId,
+          item_name: product.title,
+          item_category: 'wallet_credits',
+          price: product.price,
+          quantity: 1,
+        },
+      ],
+    };
+
+    this.analytics?.trackEvent(FIREBASE_EVENTS.PURCHASE, purchasePayload);
+    this.analytics?.trackEvent(APP_EVENTS.USAGE_CREDITS_PURCHASED, purchasePayload);
+    this.analytics?.trackEvent(APP_EVENTS.CREDITS_PURCHASED, purchasePayload);
+  }
+
   private _getProductForAnalytics(productId: IapProductId): IapProductDisplay {
     return (
       this.products().find((product) => product.productId === productId) ?? {
@@ -347,6 +375,7 @@ export class IapService {
   }
 
   private async _verifyWithBackend(
+    productId: IapProductId,
     jwsTransaction: string,
     transactionId: string,
     appAccountToken: string,
@@ -381,6 +410,8 @@ export class IapService {
         transactionId,
         newBalanceCents: response.newBalanceCents,
       });
+
+      this._trackPurchaseCompleted(productId, response.transactionId);
 
       this.toast.success(
         `Credits added! New balance: $${(response.newBalanceCents / 100).toFixed(2)}`,

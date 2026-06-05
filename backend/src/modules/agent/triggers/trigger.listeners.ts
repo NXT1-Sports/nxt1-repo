@@ -29,12 +29,14 @@ import { ContextBuilder } from '../memory/context-builder.js';
 import { SyncMemoryExtractorService } from '../memory/sync-memory-extractor.service.js';
 import { VectorMemoryService } from '../memory/vector.service.js';
 import { AgentQueueService } from '../queue/queue.service.js';
+import { getNextRecapNumber, getRecapWeekLabel } from '../services/weekly-recap-email.service.js';
 import { logger } from '../../../utils/logger.js';
 import { getSyncDeltaEventService } from '../../../services/core/sync-delta-event.service.js';
 import { db as appDb } from '../../../utils/firebase.js';
 
 const WEEKLY_RECAP_DISPATCH_COLLECTION = 'AgentWeeklyRecapDispatches';
 const WEEKLY_RECAP_BATCH_SIZE = 20;
+const WEEKLY_RECAP_ACTIVITY_LOOKBACK_DAYS = 14;
 
 interface WeeklyRecapRunResult {
   readonly totalUsers: number;
@@ -141,9 +143,35 @@ function isWeeklyRecapEmailEligible(
   return (
     typeof data['email'] === 'string' &&
     data['email'].trim().length > 0 &&
-    data['weeklyRecapEmailEnabled'] !== false &&
     notifications?.['email'] !== false
   );
+}
+
+async function getWeeklyRecapActiveUserIds(
+  db: import('firebase-admin/firestore').Firestore
+): Promise<ReadonlySet<string>> {
+  const { Timestamp } = await import('firebase-admin/firestore');
+  const cutoff = new Date(Date.now() - WEEKLY_RECAP_ACTIVITY_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+
+  const snapshot = await db
+    .collection('AgentJobs')
+    .where('createdAt', '>=', Timestamp.fromDate(cutoff))
+    .select('userId', 'origin')
+    .get();
+
+  const activeUserIds = new Set<string>();
+
+  for (const doc of snapshot.docs) {
+    const data = doc.data() as Record<string, unknown>;
+    if (data['origin'] !== 'user') continue;
+
+    const userId = data['userId'];
+    if (typeof userId === 'string' && userId.trim().length > 0) {
+      activeUserIds.add(userId);
+    }
+  }
+
+  return activeUserIds;
 }
 
 async function enqueueWeeklyRecapForUser(input: {
@@ -156,6 +184,8 @@ async function enqueueWeeklyRecapForUser(input: {
   const dispatchId = `${input.weekKey}_${input.user.id}`;
   const dispatchRef = db.collection(WEEKLY_RECAP_DISPATCH_COLLECTION).doc(dispatchId);
   const operationId = `op_${randomUUID()}`;
+  const recapNumber = await getNextRecapNumber(input.user.id, db);
+  const recapWeekLabel = getRecapWeekLabel(recapNumber);
 
   try {
     await dispatchRef.create({
@@ -163,6 +193,8 @@ async function enqueueWeeklyRecapForUser(input: {
       email: input.user.email,
       triggerType: 'weekly_recap',
       weekKey: input.weekKey,
+      recapNumber,
+      recapWeekLabel,
       operationId,
       status: 'enqueuing',
       scheduledAt: input.scheduledAt,
@@ -184,6 +216,7 @@ async function enqueueWeeklyRecapForUser(input: {
     operationId,
     userId: input.user.id,
     intent: rule?.intentTemplate ?? 'Generate a comprehensive weekly recap for this user.',
+    displayIntent: `Generate ${recapWeekLabel} recap for this user.`,
     sessionId: `trigger_weekly_recap_${input.weekKey}`,
     origin: 'system_cron',
     triggerEvent: {
@@ -194,6 +227,8 @@ async function enqueueWeeklyRecapForUser(input: {
       eventData: {
         scheduledAt: input.scheduledAt,
         weekKey: input.weekKey,
+        recapNumber,
+        recapWeekLabel,
       },
       origin: 'system_cron',
       priority: 'normal',
@@ -202,6 +237,8 @@ async function enqueueWeeklyRecapForUser(input: {
     context: {
       scheduledAt: input.scheduledAt,
       weekKey: input.weekKey,
+      recapNumber,
+      recapWeekLabel,
     },
   };
 
@@ -564,13 +601,14 @@ export async function runWeeklySuggestedActions(): Promise<void> {
 
 /**
  * Called by Cloud Scheduler every Friday at 9:00 AM.
- * Fetches email-eligible users and enqueues weekly recap jobs.
+ * Fetches recently active Agent X users, filters email-eligible recipients,
+ * and enqueues weekly recap jobs.
  *
  * Weekly recaps are a scheduled email product, not a user-initiated autonomous
  * action. They intentionally bypass AgentTriggerPreferences.autonomousEnabled
  * and the generic rolling trigger cooldown. Professional campaign-style
- * delivery uses an explicit email opt-out gate plus a deterministic per-week
- * dispatch ledger for idempotency.
+ * delivery uses the standard email notification gate plus a deterministic
+ * per-week dispatch ledger for idempotency.
  */
 export async function runWeeklyRecaps(): Promise<WeeklyRecapRunResult> {
   const scheduledAt = new Date().toISOString();
@@ -582,14 +620,36 @@ export async function runWeeklyRecaps(): Promise<WeeklyRecapRunResult> {
   try {
     const { getFirestore } = await import('firebase-admin/firestore');
     const db = getFirestore();
+    const activeUserIds = await getWeeklyRecapActiveUserIds(db);
 
-    const snap = await db
-      .collection('Users')
-      .select('email', 'weeklyRecapEmailEnabled', 'preferences')
-      .get();
+    if (activeUserIds.size === 0) {
+      logger.info('[TriggerListener] No recently active Agent X users for weekly recaps', {
+        weekKey,
+        lookbackDays: WEEKLY_RECAP_ACTIVITY_LOOKBACK_DAYS,
+      });
+      return {
+        totalUsers: 0,
+        eligible: 0,
+        enqueued: 0,
+        skippedAlreadyDispatched: 0,
+        skippedEmailOptOut: 0,
+        failed: 0,
+        weekKey,
+      };
+    }
 
-    totalUsers = snap.size;
-    eligibleUsers = snap.docs.reduce<WeeklyRecapEligibleUser[]>((users, doc) => {
+    const userSnapshots = await processInBatches(
+      [...activeUserIds].map((userId) => db.collection('Users').doc(userId)),
+      100,
+      async (ref) => ref.get()
+    );
+
+    totalUsers = userSnapshots.filter((doc) => doc.exists).length;
+    eligibleUsers = userSnapshots.reduce<WeeklyRecapEligibleUser[]>((users, doc) => {
+      if (!doc.exists) {
+        return users;
+      }
+
       const data = doc.data() as Record<string, unknown>;
 
       if (!isWeeklyRecapEmailEligible(data)) {
@@ -616,10 +676,11 @@ export async function runWeeklyRecaps(): Promise<WeeklyRecapRunResult> {
   }
 
   if (eligibleUsers.length === 0) {
-    logger.info('[TriggerListener] No email-eligible users for weekly recaps', {
+    logger.info('[TriggerListener] No active email-eligible users for weekly recaps', {
       totalUsers,
       skippedEmailOptOut,
       weekKey,
+      lookbackDays: WEEKLY_RECAP_ACTIVITY_LOOKBACK_DAYS,
     });
     return {
       totalUsers,

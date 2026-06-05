@@ -163,7 +163,6 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
           ctaLabel="Build Your Agentic Profile"
           ctaRoute="/auth"
           titleId="profile-cta-banner-title"
-          [avatarImages]="ctaAvatars"
         />
       }
     </nxt1-profile-shell-web>

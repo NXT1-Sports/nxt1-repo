@@ -377,7 +377,7 @@ export class OnboardingAnalyticsService {
           ? 'organization_profile'
           : 'team_profile';
 
-    this.analytics.trackEvent(FIREBASE_EVENTS.QUALIFY_LEAD, {
+    const leadParams = {
       lead_source: leadSource,
       user_role: userType,
       organization_id: selectedTeam?.organizationId,
@@ -386,7 +386,10 @@ export class OnboardingAnalyticsService {
       team_name: selectedTeam?.name ?? sportTeam?.name,
       sport: selectedTeam?.sport ?? profileData.sports?.[0]?.sport,
       method: 'onboarding_complete',
-    });
+    };
+
+    this.analytics.trackEvent(FIREBASE_EVENTS.GENERATE_LEAD, leadParams);
+    this.analytics.trackEvent(FIREBASE_EVENTS.QUALIFY_LEAD, leadParams);
   }
 
   /**

@@ -1794,10 +1794,19 @@ export class OpenRouterService {
     outputTokens: number,
     apiReportedCostUsd?: number
   ): number {
-    // If the API provided the exact wholesale cost in the response payload, trust it implicitly.
-    // This allows us to bypass stale local token math and avoids unnecessary Helicone true-ups.
-    if (typeof apiReportedCostUsd === 'number' && apiReportedCostUsd > 0) {
+    // If the API provided the exact wholesale cost in the response payload, trust it implicitly,
+    // including explicit zero-cost responses from free OpenRouter models.
+    if (typeof apiReportedCostUsd === 'number' && Number.isFinite(apiReportedCostUsd)) {
       return apiReportedCostUsd;
+    }
+
+    const normalizedModel = model.trim().toLowerCase();
+    if (
+      normalizedModel.endsWith(':free') ||
+      normalizedModel === 'openrouter/free' ||
+      normalizedModel === 'openrouter/owl-alpha'
+    ) {
+      return 0;
     }
 
     const pricing = AGENT_MODEL_PRICING[model];

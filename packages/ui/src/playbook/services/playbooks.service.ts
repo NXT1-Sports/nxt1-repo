@@ -36,7 +36,7 @@ export interface PlaybookViewModel {
   readonly teamId: string;
   readonly sport: string;
   readonly name: string;
-  readonly plays: readonly any[];
+  readonly plays: readonly unknown[];
   readonly playCount: number;
 }
 

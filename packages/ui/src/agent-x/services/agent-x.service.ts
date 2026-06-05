@@ -256,6 +256,7 @@ export class AgentXService {
   private readonly _goalHistory = signal<CompletedGoalRecord[]>([]);
   private readonly _goalHistoryLoading = signal(false);
   private readonly _goalHistoryError = signal<string | null>(null);
+  private _playbookPollingInFlight = false;
   private _playbookResumePollingInFlight = false;
 
   // ============================================
@@ -1935,6 +1936,7 @@ export class AgentXService {
       this.logger.info('Playbook generation queued', { operationId, force });
       this.persistPendingPlaybookOperation(operationId);
 
+      this._playbookPollingInFlight = true;
       const pollResult = await this.pollPlaybookGenerationStatus(operationId);
       if (!pollResult.success) {
         // Keep the pending marker on timeout so refresh can resume background polling.
@@ -1958,6 +1960,7 @@ export class AgentXService {
       this.logger.error('Failed to generate playbook', err);
       this.toast.error('Failed to generate playbook');
     } finally {
+      this._playbookPollingInFlight = false;
       this._playbookGenerating.set(false);
     }
   }
@@ -2098,20 +2101,13 @@ export class AgentXService {
 
   private async resumePendingPlaybookGenerationFromStorage(): Promise<void> {
     if (!isPlatformBrowser(this.platformId)) return;
+    if (this._playbookPollingInFlight) return;
     if (this._playbookResumePollingInFlight) return;
 
     const operationId = this.readPendingPlaybookOperation();
     if (!operationId) return;
 
-    // Route returns can preserve a stale generating flag even though the
-    // actual in-memory poller is gone. A persisted pending operation is the
-    // stronger signal, so resume polling instead of bailing out on UI state.
-    if (this._playbookGenerating()) {
-      this.logger.warn('Recovering pending playbook generation from stale UI state', {
-        operationId,
-      });
-    }
-
+    this._playbookPollingInFlight = true;
     this._playbookResumePollingInFlight = true;
     this._playbookGenerating.set(true);
     this.logger.info('Resuming pending playbook generation polling', { operationId });
@@ -2140,6 +2136,7 @@ export class AgentXService {
         error: err instanceof Error ? err.message : String(err),
       });
     } finally {
+      this._playbookPollingInFlight = false;
       this._playbookGenerating.set(false);
       this._playbookResumePollingInFlight = false;
     }

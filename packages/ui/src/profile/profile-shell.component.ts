@@ -784,9 +784,7 @@ export class ProfileShellComponent implements OnInit {
         {
           id: 'stats',
           label: 'Stats',
-          badge:
-            this.profile.polymorphicTimeline().filter((i) => i.feedType === 'STAT').length ||
-            undefined,
+          badge: this.profile.statsSectionBadge(),
         },
         {
           id: 'awards',

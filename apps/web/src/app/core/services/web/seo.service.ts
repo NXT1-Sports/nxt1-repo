@@ -287,6 +287,7 @@ export class SeoService {
     // Robots
     const robotsContent = this.buildRobotsContent(page.noIndex, page.noFollow);
     this.updateMetaTag('robots', robotsContent);
+    this.updateMetaTag('googlebot', robotsContent);
 
     // Canonical URL
     const canonicalUrl = page.canonicalUrl || this.getCurrentUrl();

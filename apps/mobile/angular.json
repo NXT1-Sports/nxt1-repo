@@ -49,6 +49,7 @@
               "scriptjs",
               "dijkstrajs",
               "qrcode",
+              "url-parse",
               ""
             ]
           },
@@ -62,7 +63,7 @@
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "42kb",
+                  "maximumWarning": "44kb",
                   "maximumError": "55kb"
                 }
               ],
@@ -93,7 +94,7 @@
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "42kb",
+                  "maximumWarning": "44kb",
                   "maximumError": "55kb"
                 }
               ],

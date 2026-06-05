@@ -37,6 +37,8 @@
     "reconcile:usage:staging": "tsx scripts/reconcile-usage-events.ts --staging",
     "migrate:billing-contexts": "tsx scripts/migrate-billing-contexts.ts",
     "migrate:billing-contexts:dry-run": "tsx scripts/migrate-billing-contexts.ts --dry-run",
+    "migrate:weekly-recap-jobs": "tsx scripts/data-migrations/migrate-weekly-recap-jobs.ts --commit",
+    "migrate:weekly-recap-jobs:dry-run": "tsx scripts/data-migrations/migrate-weekly-recap-jobs.ts",
     "cleanup:analytics:lifecycle-noise": "tsx scripts/cleanup-analytics-lifecycle-noise.ts",
     "cleanup:analytics:lifecycle-noise:dry-run": "tsx scripts/cleanup-analytics-lifecycle-noise.ts --dry-run",
     "backfill:activity-badges": "tsx scripts/backfill-activity-badges.ts",

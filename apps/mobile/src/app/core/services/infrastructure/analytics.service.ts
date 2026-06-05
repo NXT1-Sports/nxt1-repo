@@ -36,6 +36,7 @@ import {
   type UserProperties,
   type BaseEventProperties,
   getEventCategory,
+  getFirebaseEquivalent,
 } from '@nxt1/core/analytics';
 import type { ILogger } from '@nxt1/core/logging';
 import { NxtLoggingService } from '@nxt1/ui';
@@ -155,9 +156,13 @@ export class AnalyticsService implements AnalyticsAdapter {
 
     // Log via structured logger
     const category = getEventCategory(eventName);
+    const firebaseEquivalent = getFirebaseEquivalent(eventName);
     this.logger.debug(`📊 [${category}] ${eventName}`, { event: eventName, ...enrichedProps });
 
     this.adapter.trackEvent(eventName, enrichedProps);
+    if (firebaseEquivalent && firebaseEquivalent !== eventName) {
+      this.adapter.trackEvent(firebaseEquivalent, enrichedProps);
+    }
   }
 
   /**
