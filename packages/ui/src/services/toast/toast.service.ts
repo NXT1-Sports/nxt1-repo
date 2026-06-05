@@ -38,12 +38,16 @@
  * ```
  */
 
-import { Injectable, inject, signal, computed, NgZone, InjectionToken } from '@angular/core';
 import {
-  ToastController,
-  type ToastButton,
-  type ToastOptions as IonicToastOptions,
-} from '@ionic/angular/standalone';
+  Injectable,
+  inject,
+  signal,
+  computed,
+  NgZone,
+  InjectionToken,
+  Injector,
+} from '@angular/core';
+import type { ToastButton, ToastOptions as IonicToastOptions } from '@ionic/angular/standalone';
 import { NxtPlatformService } from '../platform';
 import { HapticsService } from '../haptics';
 import { NxtLoggingService } from '../logging';
@@ -57,11 +61,15 @@ export const NXT_USE_IONIC_TOASTS = new InjectionToken<boolean>('NXT_USE_IONIC_T
   factory: () => false,
 });
 
+interface IonicToastControllerLike {
+  create(options: IonicToastOptions): Promise<HTMLIonToastElement>;
+}
+
 // Register icons used by toast service
 @Injectable({ providedIn: 'root' })
 export class NxtToastService {
   private readonly platform = inject(NxtPlatformService);
-  private readonly toastController = inject(ToastController, { optional: true });
+  private readonly injector = inject(Injector);
   private readonly useIonicToasts = inject(NXT_USE_IONIC_TOASTS);
   private readonly haptics = inject(HapticsService);
   private readonly ngZone = inject(NgZone);
@@ -302,9 +310,11 @@ export class NxtToastService {
         });
       }
 
-      if (this.shouldUseIonicToast()) {
+      const toastController = await this.getIonicToastController();
+
+      if (toastController) {
         try {
-          await this.presentIonicToast(nextToast, buttons);
+          await this.presentIonicToast(toastController, nextToast, buttons);
         } catch (error) {
           this.logger.error('Ionic toast presentation failed, falling back to DOM toast', error, {
             type: nextToast.type,
@@ -321,18 +331,19 @@ export class NxtToastService {
     }
   }
 
-  private shouldUseIonicToast(): boolean {
-    return this.useIonicToasts && this.toastController !== null;
+  private async getIonicToastController(): Promise<IonicToastControllerLike | null> {
+    if (!this.useIonicToasts) return null;
+
+    const { ToastController } = await import('@ionic/angular/standalone');
+    return this.injector.get(ToastController, null);
   }
 
-  private async presentIonicToast(toast: QueuedToast, buttons: ToastButton[]): Promise<void> {
-    if (!this.toastController) {
-      return;
-    }
-
-    const ionicToast = await this.toastController.create(
-      this.buildIonicToastOptions(toast, buttons)
-    );
+  private async presentIonicToast(
+    toastController: IonicToastControllerLike,
+    toast: QueuedToast,
+    buttons: ToastButton[]
+  ): Promise<void> {
+    const ionicToast = await toastController.create(this.buildIonicToastOptions(toast, buttons));
     this.activeIonicToast = ionicToast;
 
     ionicToast.onDidDismiss().then(() => {

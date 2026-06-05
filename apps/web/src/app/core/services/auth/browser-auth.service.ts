@@ -14,8 +14,7 @@
  * The server uses ServerAuthService instead.
  */
 
-import { Injectable, inject } from '@angular/core';
-import { ProfileService } from '../api/profile-api.service';
+import { Injectable, inject, Injector } from '@angular/core';
 import { Auth, EmailAuthProvider, signOut, reauthenticateWithCredential } from '@angular/fire/auth';
 
 import { IAuthService, AppUser, SignInCredentials, SignUpCredentials } from './auth.interface';
@@ -43,9 +42,9 @@ import type { FirebaseUserInfo } from './auth.interface';
 @Injectable()
 export class BrowserAuthService implements IAuthService {
   private readonly authFlow = inject(AuthFlowService);
+  private readonly injector = inject(Injector);
   private readonly firebaseAuth = inject(Auth);
   private readonly authCookie = inject(AuthCookieService);
-  private readonly profileService = inject(ProfileService);
   private readonly logger: ILogger = inject(NxtLoggingService).child('BrowserAuthService');
 
   // ============================================
@@ -176,7 +175,10 @@ export class BrowserAuthService implements IAuthService {
 
     // ---- Step 2: Clear profile cache ----
     try {
-      this.profileService.invalidateCache(userId, (deletedUser as AppUser | null)?.unicode);
+      const { ProfileService } = await import('../api/profile-api.service');
+      this.injector
+        .get(ProfileService)
+        .invalidateCache(userId, (deletedUser as AppUser | null)?.unicode);
       this.logger.debug('Profile cache invalidated', { userId });
     } catch (cacheErr) {
       this.logger.warn('Could not clear profile cache', {

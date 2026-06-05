@@ -13,11 +13,11 @@
  */
 import { Injectable, inject } from '@angular/core';
 import { createAuthApi, type AuthApi, type User } from '@nxt1/core';
-import { AngularHttpAdapter } from '../../infrastructure';
+import { AngularHttpAdapter } from '../../infrastructure/http/angular-http-adapter.service';
 import { environment } from '../../../../environments/environment';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import type { ILogger } from '@nxt1/core/logging';
-import { PerformanceService } from '..';
+import { PerformanceService } from '../infrastructure/performance.service';
 import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
 
 /**

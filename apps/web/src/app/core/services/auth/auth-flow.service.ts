@@ -62,9 +62,10 @@ import { AuthCookieService } from './auth-cookie.service';
 import { AUTH_TRANSFER_STATE_KEY } from './ssr-tokens';
 import type { TransferredAuthState } from './ssr-tokens';
 import { AuthErrorHandler } from '@nxt1/ui/services/auth-error';
-import { FileUploadService } from '..';
-import { InviteApiService } from '@nxt1/ui/invite';
-import { PENDING_REFERRAL_KEY, type PendingReferral } from '../../../features/join/join.component';
+import {
+  PENDING_REFERRAL_KEY,
+  type PendingReferral,
+} from '../../../features/join/pending-referral';
 import {
   type UserRole,
   type AuthState as CoreAuthState,
@@ -97,7 +98,7 @@ import {
 import type { CrashlyticsAdapter, CrashUser } from '@nxt1/core/crashlytics';
 import { GLOBAL_CRASHLYTICS } from '@nxt1/ui/infrastructure/error-handling';
 import { environment } from '../../../../environments/environment';
-import { clearHttpCache } from '../../infrastructure';
+import { clearHttpCache } from '../../infrastructure/http/cache.interceptor';
 import { mapBackendProfileToCachedUserProfile } from './auth-profile.mapper';
 
 /**
@@ -155,7 +156,6 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
   private readonly authApi = inject(AuthApiService);
   private readonly authCookie = inject(AuthCookieService);
   private readonly authErrorHandler = inject(AuthErrorHandler);
-  private readonly inviteApi = inject(InviteApiService);
   private readonly transferState = inject(TransferState);
 
   /** Structured logger for auth operations */
@@ -1111,7 +1111,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       });
       // Pass inviterUid so backend can track referral even for team invites
       // isNewUser=true signals backend to credit the $5 referral reward (Flow B only)
-      await this.inviteApi.acceptInvite(
+      const { InviteApiService } = await import('@nxt1/ui/invite/invite-api.service');
+      const inviteApi = this.injector.get(InviteApiService);
+
+      await inviteApi.acceptInvite(
         referral.code,
         referral.teamCode,
         roleOverride ?? referral.role,
@@ -2323,6 +2326,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     }
 
     // Use FileUploadService (backend-first pattern)
+    const { FileUploadService } = await import('../web/file-upload.service');
     const fileUploadService = this.injector.get(FileUploadService);
 
     try {
