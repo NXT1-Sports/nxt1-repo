@@ -31,6 +31,8 @@ const mockLogAgentTaskFailure = vi.fn().mockResolvedValue({
   activityId: 'activity-failure-1',
   notificationId: 'notification-failure-1',
 });
+const mockProcessRecapForUser = vi.fn().mockResolvedValue(undefined);
+const mockUpdateWeeklyRecapDispatchStatus = vi.fn().mockResolvedValue(true);
 
 vi.mock('../../../billing/usage-deduction.service.js', () => ({
   executeBillingDeduction: mockExecuteBillingDeduction,
@@ -46,6 +48,11 @@ vi.mock('../../services/agent-activity.service.js', () => ({
   logAgentTaskCompletion: mockLogAgentTaskCompletion,
   logAgentTaskFailure: mockLogAgentTaskFailure,
   deriveBodyFromResult: vi.fn().mockReturnValue('Drafted 5 recruiting emails'),
+}));
+
+vi.mock('../../services/weekly-recap-email.service.js', () => ({
+  processRecapForUser: mockProcessRecapForUser,
+  updateWeeklyRecapDispatchStatus: mockUpdateWeeklyRecapDispatchStatus,
 }));
 
 // ─── Capture the processor callback ────────────────────────────────────────
@@ -180,6 +187,19 @@ describe('AgentWorker', () => {
     writeJobEvent: vi.fn().mockResolvedValue(undefined),
     writeJobEventWithAutoSeq: vi.fn().mockResolvedValue(0),
     allocateEventSeqRange: vi.fn().mockResolvedValue(0),
+    withCollection: vi.fn(),
+  };
+
+  const mockWeeklyRecapJobRepo = {
+    updateProgress: vi.fn().mockResolvedValue(undefined),
+    markYielded: vi.fn().mockResolvedValue(undefined),
+    markCompleted: vi.fn().mockResolvedValue(undefined),
+    markFailed: vi.fn().mockResolvedValue(undefined),
+    create: vi.fn().mockResolvedValue(undefined),
+    getById: vi.fn().mockResolvedValue(null),
+    writeJobEvent: vi.fn().mockResolvedValue(undefined),
+    writeJobEventWithAutoSeq: vi.fn().mockResolvedValue(0),
+    allocateEventSeqRange: vi.fn().mockResolvedValue(0),
   };
 
   const mockPubSub = {
@@ -230,7 +250,11 @@ describe('AgentWorker', () => {
       activityId: 'activity-failure-1',
       notificationId: 'notification-failure-1',
     });
+    mockProcessRecapForUser.mockResolvedValue(undefined);
+    mockUpdateWeeklyRecapDispatchStatus.mockResolvedValue(true);
     mockJobRepo.getById.mockResolvedValue(null);
+    mockJobRepo.withCollection.mockReturnValue(mockWeeklyRecapJobRepo);
+    mockWeeklyRecapJobRepo.getById.mockResolvedValue(null);
     mockPubSub.subscriberCount.mockResolvedValue(0);
     capturedProcessor = null;
     // Instantiate worker — this captures the processor
@@ -504,6 +528,90 @@ describe('AgentWorker', () => {
         content: 'Email sent to john@nxt1sports.com',
       })
     );
+  });
+
+  it('should persist weekly recap jobs in the dedicated recap collection', async () => {
+    const payload = makePayload({
+      origin: 'system_cron' as AgentJobOrigin,
+      triggerEvent: {
+        id: 'weekly_recap_2026-W23_user-abc',
+        type: 'weekly_recap',
+        userId: 'user-abc',
+        intent: '',
+        eventData: { weekKey: '2026-W23' },
+        origin: 'system_cron',
+        priority: 'normal',
+        createdAt: '2026-06-05T13:00:00.000Z',
+      },
+    });
+    const job = makeMockJob(payload);
+
+    await capturedProcessor!(job);
+
+    expect(mockJobRepo.withCollection).toHaveBeenCalledWith('AgentWeeklyRecapJobs');
+    expect(mockWeeklyRecapJobRepo.create).toHaveBeenCalledWith(payload);
+    expect(mockWeeklyRecapJobRepo.markCompleted).toHaveBeenCalledWith(
+      'op-worker-test',
+      expect.any(Object)
+    );
+    expect(mockJobRepo.create).not.toHaveBeenCalled();
+  });
+
+  it('should process weekly recap jobs against the job environment Firestore', async () => {
+    const payload = makePayload({
+      origin: 'system_cron' as AgentJobOrigin,
+      triggerEvent: {
+        id: 'weekly_recap_2026-W23_user-abc',
+        type: 'weekly_recap',
+        userId: 'user-abc',
+        intent: '',
+        eventData: { weekKey: '2026-W23' },
+        origin: 'system_cron',
+        priority: 'normal',
+        createdAt: '2026-06-05T13:00:00.000Z',
+      },
+    });
+    const job = makeMockJob(payload, 'staging');
+
+    await capturedProcessor!(job);
+
+    expect(mockProcessRecapForUser).toHaveBeenCalledWith(
+      'user-abc',
+      'Drafted 5 recruiting emails',
+      'op-worker-test',
+      mockFirestore,
+      {
+        recapNumber: undefined,
+        weekLabel: undefined,
+      }
+    );
+  });
+
+  it('should mark weekly recap dispatches failed when the job fails before recap processing', async () => {
+    const payload = makePayload({
+      origin: 'system_cron' as AgentJobOrigin,
+      triggerEvent: {
+        id: 'weekly_recap_2026-W23_user-abc',
+        type: 'weekly_recap',
+        userId: 'user-abc',
+        intent: '',
+        eventData: { weekKey: '2026-W23' },
+        origin: 'system_cron',
+        priority: 'normal',
+        createdAt: '2026-06-05T13:00:00.000Z',
+      },
+    });
+    const job = makeMockJob(payload, 'staging');
+
+    mockRouter.run.mockRejectedValueOnce(new Error('LLM timeout'));
+
+    await expect(capturedProcessor!(job)).rejects.toThrow('LLM timeout');
+
+    expect(mockUpdateWeeklyRecapDispatchStatus).toHaveBeenCalledWith(mockFirestore, {
+      operationId: 'op-worker-test',
+      status: 'failed',
+      error: 'LLM timeout',
+    });
   });
 
   it('should persist streamed parts and tool steps for thread reload hydration', async () => {

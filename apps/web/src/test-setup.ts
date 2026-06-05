@@ -7,11 +7,20 @@
  */
 
 import '@testing-library/jest-dom/vitest';
+import { vi } from 'vitest';
 import { getTestBed } from '@angular/core/testing';
 import {
   BrowserDynamicTestingModule,
   platformBrowserDynamicTesting,
 } from '@angular/platform-browser-dynamic/testing';
+
+vi.mock('@stripe/stripe-js', () => ({
+  loadStripe: vi.fn().mockResolvedValue({
+    elements: vi.fn(),
+    createPaymentMethod: vi.fn(),
+    confirmCardSetup: vi.fn(),
+  }),
+}));
 
 // Initialize Angular TestBed environment globally (once per worker)
 try {
@@ -54,7 +63,10 @@ global.IntersectionObserver = class IntersectionObserver {
   readonly rootMargin: string = '';
   readonly scrollMargin: string = '';
   readonly thresholds: ReadonlyArray<number> = [];
-  constructor(_callback: IntersectionObserverCallback, _options?: IntersectionObserverInit) {}
+  constructor(_callback: IntersectionObserverCallback, _options?: IntersectionObserverInit) {
+    void _callback;
+    void _options;
+  }
   /* eslint-disable @typescript-eslint/no-empty-function */
   observe() {}
   unobserve() {}
@@ -65,6 +77,26 @@ global.IntersectionObserver = class IntersectionObserver {
   }
 };
 
-// Suppress console errors during tests (optional)
-// Uncomment if you want cleaner test output
-// vi.spyOn(console, 'error').mockImplementation(() => {});
+const originalConsoleError = console.error.bind(console);
+
+vi.spyOn(console, 'error').mockImplementation((...args: Parameters<typeof console.error>) => {
+  const message = args
+    .map((arg) => (arg instanceof Error ? `${arg.name}: ${arg.message}` : String(arg)))
+    .join(' ');
+
+  const isKnownAngularWarning =
+    message.includes('NG0303:') &&
+    (message.includes('OnboardingLinkDropStepComponent') || message.includes("'nxt1-news-list'"));
+  const isKnownInputWarning =
+    message.includes("Can't set value of the 'selectedSports' input") ||
+    message.includes("Can't set value of the 'role' input");
+  const isKnownStripeWarning =
+    message.includes('Stripe') &&
+    (message.includes('Failed to load') || message.includes('loadStripe'));
+
+  if (isKnownAngularWarning || isKnownInputWarning || isKnownStripeWarning) {
+    return;
+  }
+
+  originalConsoleError(...args);
+});

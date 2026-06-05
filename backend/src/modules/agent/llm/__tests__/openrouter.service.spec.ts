@@ -167,6 +167,55 @@ describe('OpenRouterService', () => {
     expect(body.model).toBe('openai/gpt-4o');
   });
 
+  it('should keep explicit free model overrides at zero estimated cost', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ...MOCK_RESPONSE,
+          model: 'nvidia/nemotron-3-super-120b-a12b-20230311:free',
+          usage: {
+            prompt_tokens: 438,
+            completion_tokens: 700,
+            total_tokens: 1138,
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    const result = await service.complete([{ role: 'user', content: 'test' }], {
+      tier: 'task_automation',
+      modelOverride: 'nvidia/nemotron-3-super-120b-a12b:free',
+    });
+
+    expect(result.model).toBe('nvidia/nemotron-3-super-120b-a12b-20230311:free');
+    expect(result.costUsd).toBe(0);
+  });
+
+  it('should trust API-reported zero cost', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ...MOCK_RESPONSE,
+          usage: {
+            prompt_tokens: 438,
+            completion_tokens: 700,
+            total_tokens: 1138,
+            cost: 0,
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    const result = await service.complete([{ role: 'user', content: 'test' }], {
+      tier: 'task_automation',
+      modelOverride: 'openai/gpt-4o',
+    });
+
+    expect(result.costUsd).toBe(0);
+  });
+
   it('should honor runtime model routing from cached agent config', async () => {
     setCachedAgentAppConfig({
       ...DEFAULT_AGENT_APP_CONFIG,

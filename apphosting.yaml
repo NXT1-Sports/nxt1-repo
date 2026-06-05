@@ -7,8 +7,9 @@
 runtimeConfig:
   nodeVersion: 22
 
-# Point to the Angular app directory
-rootDirectory: apps/web
+# Build from the monorepo root so App Hosting uses the workspace lockfile
+# and root gcp-build script for @nxt1/web.
+rootDirectory: .
 
 # Explicitly specify the server entry point (path from workspace root)
 scripts:

@@ -6,10 +6,20 @@
  * limits for different endpoint types (auth, API, billing, etc.)
  */
 
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import type { Request } from 'express';
 import { rateLimitError } from '@nxt1/core/errors';
 import { logger } from '../../utils/logger.js';
+
+function userOrIpRateLimitKey(req: Request): string {
+  const uid = (req as unknown as { user?: { uid?: string } }).user?.uid;
+
+  if (uid) {
+    return `uid:${uid}`;
+  }
+
+  return `ip:${ipKeyGenerator(req.ip ?? 'anonymous')}`;
+}
 
 // ============================================
 // RATE LIMIT CONFIGURATIONS
@@ -25,11 +35,7 @@ import { logger } from '../../utils/logger.js';
 export const apiRateLimit = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 150, // Limit each key to 150 requests per minute
-  keyGenerator: (req: Request): string => {
-    // req.user is populated by authMiddleware when a valid token is present
-    const uid = (req as unknown as { user?: { uid?: string } }).user?.uid;
-    return uid ?? req.ip ?? 'anonymous';
-  },
+  keyGenerator: userOrIpRateLimitKey,
   message: (req: Request): void => {
     logger.warn('[Rate Limit] API limit exceeded', {
       ip: req.ip,
@@ -108,10 +114,7 @@ export const emailRateLimit = rateLimit({
 export const aiRateLimit = rateLimit({
   windowMs: 60 * 1000, // 1 minute
   max: 20,
-  keyGenerator: (req: Request): string => {
-    const uid = (req as unknown as { user?: { uid?: string } }).user?.uid;
-    return uid ?? req.ip ?? 'anonymous';
-  },
+  keyGenerator: userOrIpRateLimitKey,
   message: (req: Request): void => {
     logger.warn('[Rate Limit] AI inference limit exceeded', {
       ip: req.ip,
@@ -153,10 +156,7 @@ export const passwordResetRateLimit = rateLimit({
 export const uploadRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 20, // Reasonable limit for file uploads
-  keyGenerator: (req: Request): string => {
-    const uid = (req as unknown as { user?: { uid?: string } }).user?.uid;
-    return uid ?? req.ip ?? 'anonymous';
-  },
+  keyGenerator: userOrIpRateLimitKey,
   message: (req: Request): void => {
     logger.warn('[Rate Limit] Upload limit exceeded', {
       ip: req.ip,

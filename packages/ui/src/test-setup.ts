@@ -45,7 +45,10 @@ global.IntersectionObserver = class IntersectionObserver {
   readonly scrollMargin = '';
   readonly thresholds: ReadonlyArray<number> = [];
 
-  constructor(_callback: IntersectionObserverCallback, _options?: IntersectionObserverInit) {}
+  constructor(_callback: IntersectionObserverCallback, _options?: IntersectionObserverInit) {
+    void _callback;
+    void _options;
+  }
 
   observe(): void {
     return undefined;

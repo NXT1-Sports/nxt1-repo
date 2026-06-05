@@ -40,7 +40,8 @@ import type { AgentJobProgress } from './queue.types.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
-const COLLECTION = 'AgentJobs' as const;
+export const AGENT_JOBS_COLLECTION = 'AgentJobs' as const;
+export const AGENT_WEEKLY_RECAP_JOBS_COLLECTION = 'AgentWeeklyRecapJobs' as const;
 const EVENTS_SUBCOLLECTION = 'events' as const;
 const JOB_EVENT_SCHEMA_VERSION = 2;
 const ACTIVE_JOB_RETENTION_DAYS = 14;
@@ -385,9 +386,11 @@ export interface AgentJobDocument {
 
 export class AgentJobRepository {
   private readonly db: Firestore;
+  private readonly collectionName: string;
 
-  constructor(db?: Firestore) {
+  constructor(db?: Firestore, collectionName: string = AGENT_JOBS_COLLECTION) {
     this.db = db ?? getFirestore();
+    this.collectionName = collectionName;
   }
 
   /**
@@ -395,7 +398,19 @@ export class AgentJobRepository {
    * Used by route handlers to target staging vs production Firestore.
    */
   withDb(db: Firestore): AgentJobRepository {
-    return new AgentJobRepository(db);
+    return new AgentJobRepository(db, this.collectionName);
+  }
+
+  withCollection(collectionName: string): AgentJobRepository {
+    return new AgentJobRepository(this.db, collectionName);
+  }
+
+  private collectionRef(): FirebaseFirestore.CollectionReference {
+    return this.db.collection(this.collectionName);
+  }
+
+  private jobRef(operationId: string): FirebaseFirestore.DocumentReference {
+    return this.collectionRef().doc(operationId);
   }
 
   /**
@@ -405,32 +420,29 @@ export class AgentJobRepository {
   async create(payload: AgentJobPayload): Promise<void> {
     const replayPayload = sanitizeForFirestore(payload);
 
-    await this.db
-      .collection(COLLECTION)
-      .doc(payload.operationId)
-      .set({
-        operationId: payload.operationId,
-        userId: payload.userId,
-        replayPayload,
-        idempotencyKey: (payload.context?.['idempotencyKey'] as string) ?? null,
-        intent: payload.displayIntent ?? payload.intent,
-        origin: payload.origin,
-        recurringTaskKey: (payload.context?.['recurringTaskKey'] as string) ?? null,
-        planId: (payload.context?.['planId'] as string) ?? null,
-        planStatus: (payload.context?.['planStatus'] as string) ?? null,
-        executionSource: (payload.context?.['executionSource'] as string) ?? null,
-        resumedFromPlanId: (payload.context?.['resumedFromPlanId'] as string) ?? null,
-        status: 'queued' satisfies AgentOperationStatus,
-        progress: null,
-        result: null,
-        error: null,
-        threadId: (payload.context?.['threadId'] as string) ?? null,
-        nextEventSeq: 0,
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-        completedAt: null,
-        expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
-      });
+    await this.jobRef(payload.operationId).set({
+      operationId: payload.operationId,
+      userId: payload.userId,
+      replayPayload,
+      idempotencyKey: (payload.context?.['idempotencyKey'] as string) ?? null,
+      intent: payload.displayIntent ?? payload.intent,
+      origin: payload.origin,
+      recurringTaskKey: (payload.context?.['recurringTaskKey'] as string) ?? null,
+      planId: (payload.context?.['planId'] as string) ?? null,
+      planStatus: (payload.context?.['planStatus'] as string) ?? null,
+      executionSource: (payload.context?.['executionSource'] as string) ?? null,
+      resumedFromPlanId: (payload.context?.['resumedFromPlanId'] as string) ?? null,
+      status: 'queued' satisfies AgentOperationStatus,
+      progress: null,
+      result: null,
+      error: null,
+      threadId: (payload.context?.['threadId'] as string) ?? null,
+      nextEventSeq: 0,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      completedAt: null,
+      expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
+    });
   }
 
   /**
@@ -438,7 +450,7 @@ export class AgentJobRepository {
    * Called by the AgentWorker's onUpdate callback.
    */
   async updateProgress(operationId: string, progress: AgentJobProgress): Promise<void> {
-    const jobRef = this.db.collection(COLLECTION).doc(operationId);
+    const jobRef = this.jobRef(operationId);
 
     await this.db.runTransaction(async (tx) => {
       const snapshot = await tx.get(jobRef);
@@ -480,19 +492,16 @@ export class AgentJobRepository {
     const safeResult = sanitizeForFirestore(result);
 
     try {
-      await this.db
-        .collection(COLLECTION)
-        .doc(operationId)
-        .update({
-          status: 'completed' satisfies AgentOperationStatus,
-          error: null,
-          result: safeResult,
-          progress,
-          yieldState: null,
-          updatedAt: FieldValue.serverTimestamp(),
-          completedAt: FieldValue.serverTimestamp(),
-          expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
-        });
+      await this.jobRef(operationId).update({
+        status: 'completed' satisfies AgentOperationStatus,
+        error: null,
+        result: safeResult,
+        progress,
+        yieldState: null,
+        updatedAt: FieldValue.serverTimestamp(),
+        completedAt: FieldValue.serverTimestamp(),
+        expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
+      });
     } catch (err) {
       // Diagnostic: dump the structure of the offending payload so we can
       // pinpoint which field shape is being rejected by Firestore.
@@ -515,7 +524,7 @@ export class AgentJobRepository {
       outcomeCode: 'task_failed',
     });
 
-    const jobRef = this.db.collection(COLLECTION).doc(operationId);
+    const jobRef = this.jobRef(operationId);
     let alertInput: {
       operationId: string;
       userId?: string | null;
@@ -606,7 +615,7 @@ export class AgentJobRepository {
     if (!isAgentJobCustomerRecoveryEmailEnabled()) return;
     if (!classifyAgentJobAutoResolveType(input.error)) return;
 
-    const jobRef = this.db.collection(COLLECTION).doc(input.operationId);
+    const jobRef = this.jobRef(input.operationId);
     const claimed = await this.db.runTransaction(async (tx) => {
       const snapshot = await tx.get(jobRef);
       if (!snapshot.exists) return false;
@@ -682,7 +691,7 @@ export class AgentJobRepository {
     createdAt?: unknown;
     failedAt: Date;
   }): Promise<void> {
-    const jobRef = this.db.collection(COLLECTION).doc(input.operationId);
+    const jobRef = this.jobRef(input.operationId);
     let emailError: string | null = null;
 
     try {
@@ -747,7 +756,7 @@ export class AgentJobRepository {
     intent?: string | null;
     error: string;
   }): Promise<void> {
-    const jobRef = this.db.collection(COLLECTION).doc(input.operationId);
+    const jobRef = this.jobRef(input.operationId);
 
     try {
       const { sendSlackAlert } = await import('../../../services/platform/alert.service.js');
@@ -820,18 +829,15 @@ export class AgentJobRepository {
    */
   async markYielded(operationId: string, yieldState: AgentYieldState): Promise<void> {
     const safeYieldState = sanitizeForFirestore(yieldState);
-    await this.db
-      .collection(COLLECTION)
-      .doc(operationId)
-      .update({
-        status:
-          yieldState.reason === 'needs_approval'
-            ? ('awaiting_approval' satisfies AgentOperationStatus)
-            : ('awaiting_input' satisfies AgentOperationStatus),
-        yieldState: safeYieldState,
-        updatedAt: FieldValue.serverTimestamp(),
-        expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
-      });
+    await this.jobRef(operationId).update({
+      status:
+        yieldState.reason === 'needs_approval'
+          ? ('awaiting_approval' satisfies AgentOperationStatus)
+          : ('awaiting_input' satisfies AgentOperationStatus),
+      yieldState: safeYieldState,
+      updatedAt: FieldValue.serverTimestamp(),
+      expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
+    });
   }
 
   /**
@@ -842,15 +848,12 @@ export class AgentJobRepository {
    * by the resume route.
    */
   async markPaused(operationId: string, yieldState: AgentYieldState): Promise<void> {
-    await this.db
-      .collection(COLLECTION)
-      .doc(operationId)
-      .update({
-        status: 'paused' satisfies AgentOperationStatus,
-        yieldState: sanitizeForFirestore(yieldState),
-        updatedAt: FieldValue.serverTimestamp(),
-        expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
-      });
+    await this.jobRef(operationId).update({
+      status: 'paused' satisfies AgentOperationStatus,
+      yieldState: sanitizeForFirestore(yieldState),
+      updatedAt: FieldValue.serverTimestamp(),
+      expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
+    });
   }
 
   /**
@@ -862,17 +865,14 @@ export class AgentJobRepository {
       message: 'Operation cancelled by user.',
     });
 
-    await this.db
-      .collection(COLLECTION)
-      .doc(operationId)
-      .update({
-        status: 'cancelled' satisfies AgentOperationStatus,
-        progress,
-        yieldState: null,
-        updatedAt: FieldValue.serverTimestamp(),
-        completedAt: FieldValue.serverTimestamp(),
-        expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
-      });
+    await this.jobRef(operationId).update({
+      status: 'cancelled' satisfies AgentOperationStatus,
+      progress,
+      yieldState: null,
+      updatedAt: FieldValue.serverTimestamp(),
+      completedAt: FieldValue.serverTimestamp(),
+      expiresAt: ttlFromNow(TERMINAL_JOB_RETENTION_DAYS),
+    });
   }
 
   /**
@@ -880,7 +880,7 @@ export class AgentJobRepository {
    * This is observability metadata only; it does not change operation status.
    */
   async markDetached(operationId: string): Promise<void> {
-    await this.db.collection(COLLECTION).doc(operationId).set(
+    await this.jobRef(operationId).set(
       {
         viewerDetachedAt: FieldValue.serverTimestamp(),
         updatedAt: FieldValue.serverTimestamp(),
@@ -905,7 +905,7 @@ export class AgentJobRepository {
       update[key] = value;
     }
 
-    await this.db.collection(COLLECTION).doc(operationId).update(update);
+    await this.jobRef(operationId).update(update);
   }
 
   /**
@@ -913,8 +913,7 @@ export class AgentJobRepository {
    * Used by the "Agent X command center" to show job history.
    */
   async getByUser(userId: string, limit = 20): Promise<AgentJobDocument[]> {
-    const snapshot = await this.db
-      .collection(COLLECTION)
+    const snapshot = await this.collectionRef()
       .where('userId', '==', userId)
       .orderBy('createdAt', 'desc')
       .limit(limit)
@@ -947,8 +946,7 @@ export class AgentJobRepository {
       };
     }
 
-    const snapshot = await this.db
-      .collection(COLLECTION)
+    const snapshot = await this.collectionRef()
       .where('userId', '==', userId)
       .where('recurringTaskKey', '==', recurringTaskKey)
       .get();
@@ -986,7 +984,7 @@ export class AgentJobRepository {
    * Get a single job document by operationId.
    */
   async getById(operationId: string): Promise<AgentJobDocument | null> {
-    const doc = await this.db.collection(COLLECTION).doc(operationId).get();
+    const doc = await this.jobRef(operationId).get();
 
     return doc.exists ? (doc.data() as AgentJobDocument) : null;
   }
@@ -1012,8 +1010,7 @@ export class AgentJobRepository {
       'awaiting_input',
       'streaming_result',
     ];
-    const snapshot = await this.db
-      .collection(COLLECTION)
+    const snapshot = await this.collectionRef()
       .where('threadId', '==', threadId)
       .where('status', 'in', ACTIVE as AgentOperationStatus[])
       .get();
@@ -1034,8 +1031,7 @@ export class AgentJobRepository {
     userId: string,
     idempotencyKey: string
   ): Promise<AgentJobDocument | null> {
-    const snapshot = await this.db
-      .collection(COLLECTION)
+    const snapshot = await this.collectionRef()
       .where('userId', '==', userId)
       .where('idempotencyKey', '==', idempotencyKey)
       .limit(1)
@@ -1055,15 +1051,10 @@ export class AgentJobRepository {
    * Uses auto-generated document IDs — ordering is guaranteed by the `seq` field.
    */
   async writeJobEvent(operationId: string, event: Omit<JobEvent, 'createdAt'>): Promise<void> {
-    const eventRef = this.db
-      .collection(COLLECTION)
-      .doc(operationId)
-      .collection(EVENTS_SUBCOLLECTION)
-      .doc();
+    const parentRef = this.jobRef(operationId);
+    const eventRef = parentRef.collection(EVENTS_SUBCOLLECTION).doc();
 
-    await this.db
-      .collection(COLLECTION)
-      .doc(operationId)
+    await parentRef
       .collection(EVENTS_SUBCOLLECTION)
       .doc(eventRef.id)
       .set({
@@ -1087,7 +1078,7 @@ export class AgentJobRepository {
       throw new Error('allocateEventSeqRange count must be a positive integer');
     }
 
-    const parentRef = this.db.collection(COLLECTION).doc(operationId);
+    const parentRef = this.jobRef(operationId);
 
     return this.db.runTransaction(async (txn) => {
       const parentSnap = await txn.get(parentRef);
@@ -1133,7 +1124,7 @@ export class AgentJobRepository {
     operationId: string,
     event: Omit<JobEvent, 'createdAt' | 'seq'>
   ): Promise<number> {
-    const parentRef = this.db.collection(COLLECTION).doc(operationId);
+    const parentRef = this.jobRef(operationId);
 
     return this.db.runTransaction(async (txn) => {
       const parentSnap = await txn.get(parentRef);
@@ -1190,7 +1181,7 @@ export class AgentJobRepository {
     if (events.length === 0) return;
 
     const batch = this.db.batch();
-    const parentRef = this.db.collection(COLLECTION).doc(operationId);
+    const parentRef = this.jobRef(operationId);
 
     for (const event of events) {
       const docRef = parentRef.collection(EVENTS_SUBCOLLECTION).doc();
@@ -1212,9 +1203,7 @@ export class AgentJobRepository {
    * Used for replay when the frontend reconnects mid-job.
    */
   async getJobEvents(operationId: string): Promise<JobEvent[]> {
-    const snapshot = await this.db
-      .collection(COLLECTION)
-      .doc(operationId)
+    const snapshot = await this.jobRef(operationId)
       .collection(EVENTS_SUBCOLLECTION)
       .orderBy('seq', 'asc')
       .get();

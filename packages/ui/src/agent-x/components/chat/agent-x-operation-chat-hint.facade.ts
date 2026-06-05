@@ -118,9 +118,13 @@ export class AgentXOperationChatHintFacade {
     this.cancelFirstUserRunHintTimer();
   }
 
-  markLiveViewActive(_startTime?: number): void {}
+  markLiveViewActive(_startTime?: number): void {
+    void _startTime;
+  }
 
-  markLiveViewInactive(): void {}
+  markLiveViewInactive(): void {
+    return undefined;
+  }
 
   /**
    * Dismiss a hint permanently for this session.

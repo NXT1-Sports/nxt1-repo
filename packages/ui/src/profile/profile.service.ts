@@ -599,6 +599,15 @@ export class ProfileService {
     ];
   });
 
+  /** Stats section badge count aligned with the renderable stats dashboard data. */
+  readonly statsSectionBadge = computed<number | undefined>(() => {
+    const gameLogCount = this.gameLog().length;
+    if (gameLogCount > 0) return gameLogCount;
+
+    const athleticStatsCount = this.athleticStats().length;
+    return athleticStatsCount > 0 ? athleticStatsCount : undefined;
+  });
+
   /** Tab badge counts */
   readonly tabBadges = computed(() => {
     return {

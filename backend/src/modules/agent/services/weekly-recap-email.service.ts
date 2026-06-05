@@ -30,7 +30,9 @@ const MAX_RECAP_HISTORY = 52;
 const RECAP_CONTEXT_COUNT = 3;
 const USERS_COLLECTION = 'Users';
 const RECAPS_SUBCOLLECTION = 'agent_weekly_recaps';
+const WEEKLY_RECAP_DISPATCH_COLLECTION = 'AgentWeeklyRecapDispatches';
 const APP_URL = 'https://app.nxt1sports.com';
+export const WEEKLY_RECAP_EMAIL_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -61,14 +63,20 @@ const recapEmailContentSchema = z.object({
   ctaUrl: z.string().optional(),
 });
 
-/** ISO week label, e.g. "Week 28, 2025". */
-function getWeekLabel(): string {
-  const now = new Date();
-  const startOfYear = new Date(now.getFullYear(), 0, 1);
-  const weekNum = Math.ceil(
-    ((now.getTime() - startOfYear.getTime()) / 86_400_000 + startOfYear.getDay() + 1) / 7
-  );
-  return `Week ${weekNum}, ${now.getFullYear()}`;
+/** User progression label, e.g. "Week 1" or "Week 8". */
+export function getRecapWeekLabel(recapNumber: number): string {
+  return `Week ${Number.isInteger(recapNumber) && recapNumber > 0 ? recapNumber : 1}`;
+}
+
+function coerceRecapItems(value: unknown, fallback: string[], maxItems = 5): string[] {
+  const items = Array.isArray(value)
+    ? value
+        .map((item) => String(item).trim())
+        .filter((item) => item.length > 0)
+        .slice(0, maxItems)
+    : [];
+
+  return items.length > 0 ? items : fallback;
 }
 
 // ─── Firestore helpers ────────────────────────────────────────────────────────
@@ -94,6 +102,49 @@ export async function getRecapHistory(uid: string, db: Firestore): Promise<Agent
     });
     return [];
   }
+}
+
+export async function updateWeeklyRecapDispatchStatus(
+  db: Firestore,
+  input: {
+    readonly operationId: string | undefined;
+    readonly status: 'completed' | 'failed';
+    readonly error?: string | null;
+  }
+): Promise<boolean> {
+  const operationId = input.operationId?.trim();
+  if (!operationId) return false;
+
+  const { FieldValue } = await import('firebase-admin/firestore');
+  const snapshot = await db
+    .collection(WEEKLY_RECAP_DISPATCH_COLLECTION)
+    .where('operationId', '==', operationId)
+    .limit(1)
+    .get();
+
+  const dispatchDoc = snapshot.docs[0];
+  if (!dispatchDoc) return false;
+
+  await dispatchDoc.ref.set(
+    {
+      status: input.status,
+      updatedAt: FieldValue.serverTimestamp(),
+      ...(input.status === 'completed'
+        ? {
+            completedAt: FieldValue.serverTimestamp(),
+            failedAt: null,
+            error: null,
+          }
+        : {
+            failedAt: FieldValue.serverTimestamp(),
+            completedAt: null,
+            error: input.error ?? 'Weekly recap failed',
+          }),
+    },
+    { merge: true }
+  );
+
+  return true;
 }
 
 /**
@@ -219,6 +270,7 @@ export async function generateEmailContent(
   userName: string,
   role: string,
   sport: string | undefined,
+  weekLabel: string,
   agentResultSummary: string,
   history: AgentWeeklyRecap[],
   db: Firestore,
@@ -230,7 +282,6 @@ export async function generateEmailContent(
   }
 ): Promise<RecapEmailContent> {
   const llm = new OpenRouterService({ firestore: db });
-  const weekLabel = getWeekLabel();
 
   const historyContext =
     history.length > 0
@@ -280,9 +331,10 @@ Keep the tone professional yet energetic. Be specific — reference sports conte
 
   try {
     const response = await llm.complete([{ role: 'user', content: prompt }], {
-      // Weekly recap emails are offline automation output and should be priced
-      // and routed like other background worker tasks.
+      // Keep weekly recap email copy on a zero-cost OpenRouter model without
+      // changing the broader task_automation routing used by other Agent X jobs.
       tier: 'task_automation',
+      modelOverride: WEEKLY_RECAP_EMAIL_MODEL,
       temperature: 0.7,
       maxTokens: 700,
       outputSchema: {
@@ -307,16 +359,31 @@ Keep the tone professional yet energetic. Be specific — reference sports conte
       'Weekly recap email generation'
     ) as RecapEmailContent;
 
+    const fallbackCompletedActions = [
+      'Reviewed your Agent X activity from this week.',
+      agentResultSummary.slice(0, 120),
+      'Prepared a focused recap for your next step forward.',
+    ];
+    const fallbackResultsHighlights = [
+      `${weekLabel} recap is ready to review.`,
+      'Your latest activity has been organized into clear progress highlights.',
+      'Agent X identified next steps to keep momentum moving.',
+    ];
+    const fallbackNextSteps = [
+      'Open your dashboard and review the full recap.',
+      'Choose one priority action to complete next.',
+      'Ask Agent X for a fresh plan when you are ready to move faster.',
+    ];
+
     return {
-      subject: String(parsed.subject ?? `Your Week ${weekLabel} Recap`),
-      introParagraph: String(parsed.introParagraph ?? ''),
-      completedActions: Array.isArray(parsed.completedActions)
-        ? parsed.completedActions.slice(0, 5).map(String)
-        : [],
-      resultsHighlights: Array.isArray(parsed.resultsHighlights)
-        ? parsed.resultsHighlights.slice(0, 5).map(String)
-        : [],
-      nextSteps: Array.isArray(parsed.nextSteps) ? parsed.nextSteps.slice(0, 5).map(String) : [],
+      subject: String(parsed.subject ?? `Your ${weekLabel} Recap`),
+      introParagraph: String(
+        parsed.introParagraph ??
+          `Here's a clear look at what Agent X helped you move forward in ${weekLabel}.`
+      ),
+      completedActions: coerceRecapItems(parsed.completedActions, fallbackCompletedActions),
+      resultsHighlights: coerceRecapItems(parsed.resultsHighlights, fallbackResultsHighlights),
+      nextSteps: coerceRecapItems(parsed.nextSteps, fallbackNextSteps),
       ctaText: String(parsed.ctaText ?? 'Open Dashboard'),
       ctaUrl:
         typeof parsed.ctaUrl === 'string' && parsed.ctaUrl.startsWith('https://')
@@ -444,13 +511,28 @@ export async function processRecapForUser(
   uid: string,
   agentResultSummary: string,
   jobId: string | undefined,
-  db: Firestore
+  db: Firestore,
+  progression?: {
+    readonly recapNumber?: number;
+    readonly weekLabel?: string;
+  }
 ): Promise<void> {
   try {
     // ── 1. Load user doc ────────────────────────────────────────────────────
     const userSnap = await db.collection(USERS_COLLECTION).doc(uid).get();
     if (!userSnap.exists) {
       logger.warn('[WeeklyRecap] User not found, skipping recap', { uid });
+      await updateWeeklyRecapDispatchStatus(db, {
+        operationId: jobId,
+        status: 'failed',
+        error: 'Weekly recap user not found',
+      }).catch((dispatchErr) => {
+        logger.warn('[WeeklyRecap] Failed to update dispatch status for missing user', {
+          uid,
+          jobId,
+          error: dispatchErr instanceof Error ? dispatchErr.message : String(dispatchErr),
+        });
+      });
       return;
     }
 
@@ -467,8 +549,7 @@ export async function processRecapForUser(
     const prefs = user['preferences'] as Record<string, unknown> | undefined;
     const notifications = prefs?.['notifications'] as Record<string, unknown> | undefined;
     const emailEnabled = notifications?.['email'] !== false;
-    const recapEmailEnabled = user['weeklyRecapEmailEnabled'] !== false;
-    const shouldSendEmail = emailEnabled && recapEmailEnabled && !!email;
+    const shouldSendEmail = emailEnabled && !!email;
 
     // ── 3. Load history + goal progress in parallel ─────────────────────────
     const [history, goalProgress] = await Promise.all([
@@ -477,8 +558,12 @@ export async function processRecapForUser(
     ]);
 
     // ── 4. Get next recap number ────────────────────────────────────────────
-    const recapNumber = await getNextRecapNumber(uid, db);
-    const weekLabel = getWeekLabel();
+    const hintedRecapNumber = progression?.recapNumber;
+    const recapNumber =
+      Number.isInteger(hintedRecapNumber) && (hintedRecapNumber ?? 0) > 0
+        ? (hintedRecapNumber as number)
+        : await getNextRecapNumber(uid, db);
+    const weekLabel = progression?.weekLabel?.trim() || getRecapWeekLabel(recapNumber);
     const weekNumber = recapNumber; // Use recap # as week display number
 
     // ── 5. Generate content via OpenRouter ──────────────────────────────────
@@ -486,6 +571,7 @@ export async function processRecapForUser(
       displayName,
       role,
       primarySport,
+      weekLabel,
       agentResultSummary,
       history,
       db,
@@ -552,16 +638,38 @@ export async function processRecapForUser(
       logger.info('[WeeklyRecap] Email skipped (opted out or no email address)', {
         uid,
         emailEnabled,
-        recapEmailEnabled,
         hasEmail: !!email,
       });
     }
+
+    await updateWeeklyRecapDispatchStatus(db, {
+      operationId: jobId,
+      status: 'completed',
+    }).catch((dispatchErr) => {
+      logger.warn('[WeeklyRecap] Failed to update dispatch status after success', {
+        uid,
+        jobId,
+        error: dispatchErr instanceof Error ? dispatchErr.message : String(dispatchErr),
+      });
+    });
   } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
     logger.error('[WeeklyRecap] processRecapForUser failed', {
       uid,
       jobId,
-      error: err instanceof Error ? err.message : String(err),
+      error: errorMessage,
       stack: err instanceof Error ? err.stack : undefined,
+    });
+    await updateWeeklyRecapDispatchStatus(db, {
+      operationId: jobId,
+      status: 'failed',
+      error: errorMessage,
+    }).catch((dispatchErr) => {
+      logger.warn('[WeeklyRecap] Failed to update dispatch status after failure', {
+        uid,
+        jobId,
+        error: dispatchErr instanceof Error ? dispatchErr.message : String(dispatchErr),
+      });
     });
     // Never propagate — recap failure must not fail the agent job
   }

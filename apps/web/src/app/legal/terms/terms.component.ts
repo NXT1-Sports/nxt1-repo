@@ -103,6 +103,7 @@ export class TermsComponent implements OnInit, AfterViewInit, OnDestroy {
       title: 'Terms of Service',
       description:
         'Read the Terms of Service for NXT1 Sports. Understand your rights and responsibilities when using our platform.',
+      canonicalUrl: 'https://nxt1sports.com/terms',
       keywords: ['terms', 'service', 'legal', 'agreement', 'conditions'],
     });
   }
