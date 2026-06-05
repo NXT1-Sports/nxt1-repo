@@ -91,11 +91,17 @@ platform :android do
     key_file = "google-play-key.json"
     if File.exist?(key_file) && File.size(key_file) > 10
       begin
-        version_codes = google_play_track_version_codes(
-          track: "internal",
-          json_key: key_file,
-          package_name: PACKAGE_NAME
-        )
+        tracks = %w[internal alpha beta production]
+        version_codes = tracks.flat_map do |track|
+          google_play_track_version_codes(
+            track: track,
+            json_key: key_file,
+            package_name: PACKAGE_NAME
+          )
+        rescue => e
+          UI.important("⚠️  Could not fetch Play Store version codes for #{track}: #{e.message}")
+          []
+        end
         new_version_code = (version_codes.max || 0) + 1
       rescue => e
         UI.important("⚠️  Could not fetch Play Store version codes: #{e.message}")
