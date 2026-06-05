@@ -7,8 +7,9 @@
 # Project: nxt-1-staging-v2
 # URL: https://nxt1-repo--nxt-1-staging-v2.us-east4.hosted.app
 
-# Point to the Angular app directory
-rootDirectory: apps/web
+# Build from the monorepo root so App Hosting uses the workspace lockfile
+# and root gcp-build script for @nxt1/web.
+rootDirectory: .
 
 # Server entry point
 scripts:

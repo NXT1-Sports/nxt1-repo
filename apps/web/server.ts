@@ -359,9 +359,9 @@ export function createServer(): express.Express {
     res.redirect(308, `/agent-x${query}`);
   });
 
-  // The web app no longer exposes a /messages surface.
-  // Return a 410 so crawlers and caches drop the legacy path instead of indexing the shell.
-  server.get(/^\/messages(?:\/.*)?$/, (_req: Request, res: Response) => {
+  // The web app no longer exposes /messages or /ai-scout.
+  // Return a 410 so crawlers and caches drop these legacy paths instead of indexing the shell.
+  server.get(/^\/(?:messages|ai-scout)(?:\/.*)?$/, (_req: Request, res: Response) => {
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
     res.status(410).type('text/plain; charset=utf-8').send('Gone');
   });
