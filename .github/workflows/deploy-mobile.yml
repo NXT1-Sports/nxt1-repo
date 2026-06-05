@@ -312,9 +312,8 @@ jobs:
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
-
-      - name: Install Fastlane
-        run: gem install fastlane -N
+          bundler-cache: true
+          working-directory: apps/mobile/android
 
       - name: Setup Android signing
         env:
@@ -339,9 +338,9 @@ jobs:
         working-directory: apps/mobile/android
         run: |
           if [ "$BUILD_PROFILE" == "production" ]; then
-            fastlane release
+            bundle exec fastlane release
           else
-            fastlane release_staging
+            bundle exec fastlane release_staging
           fi
 
       - name: Save AAB artifact
@@ -355,10 +354,10 @@ jobs:
       - name: Upload to Play Store Internal Track
         if: env.BUILD_PROFILE == 'staging'
         working-directory: apps/mobile/android
-        run: fastlane upload_internal
+        run: bundle exec fastlane upload_internal
 
       # Upload to Play Store Production — promote from internal track
       - name: Upload to Play Store Production
         if: env.BUILD_PROFILE == 'production'
         working-directory: apps/mobile/android
-        run: fastlane promote_to_production
+        run: bundle exec fastlane promote_to_production
