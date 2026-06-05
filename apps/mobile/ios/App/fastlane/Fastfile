@@ -238,8 +238,9 @@ platform :ios do
       end
     end
 
-    # Determine the next build number for target_version
-    # (returns 0 when no build exists for that version yet)
+    # Determine the next build number for target_version.
+    # GITHUB_RUN_NUMBER provides a CI-unique floor, which prevents TestFlight
+    # duplicate-upload failures when App Store Connect returns stale build data.
     latest_build = begin
       latest_testflight_build_number(
         app_identifier: APP_IDENTIFIER,
@@ -249,9 +250,11 @@ platform :ios do
     rescue
       0
     end
-    next_build = latest_build.to_i + 1
+    ci_run_number = ENV["GITHUB_RUN_NUMBER"].to_s
+    ci_build_floor = ci_run_number.match?(/\A\d+\z/) ? ci_run_number.to_i : 0
+    next_build = [latest_build.to_i + 1, ci_build_floor].max
 
-    UI.message("▶ Next build: #{target_version} (#{next_build})  [TestFlight latest for #{target_version}: #{latest_build}]")
+    UI.message("▶ Next build: #{target_version} (#{next_build})  [TestFlight latest for #{target_version}: #{latest_build}; CI floor: #{ci_build_floor}]")
     { version: target_version, build: next_build }
   end
 
