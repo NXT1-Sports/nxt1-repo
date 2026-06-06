@@ -146,7 +146,7 @@ export interface PublicNavItem {
               href="/"
               routerLink="/"
               class="mobile-menu-brand"
-              aria-label="Go to home page"
+              aria-label="NXT1 Menu"
               (click)="onLogoClick(); closeMobileMenu()"
             >
               <span class="mobile-menu-brand__logo">
