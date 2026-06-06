@@ -238,7 +238,7 @@ const COMMAND_AUTO_TAP_PRESS_MS = 160;
               }
               <span
                 class="genesis__terminal-cursor"
-                [class.genesis__terminal-cursor--hidden]="deployed()"
+                [class.genesis__terminal-cursor--hidden]="deployed() || !animateOnLoad()"
                 >|</span
               >
             </div>
@@ -940,7 +940,7 @@ export class NxtGenesisMomentComponent implements OnDestroy {
   private autoTapTimer: ReturnType<typeof setTimeout> | null = null;
   private autoTapPressTimer: ReturnType<typeof setTimeout> | null = null;
 
-  protected readonly deployed = computed(() => !this.animateOnLoad() || this._deployed());
+  protected readonly deployed = computed(() => this._deployed());
   protected readonly displayedCommand = computed(() =>
     this.animateOnLoad() ? this._displayedCommand() : this.commandUrl()
   );
