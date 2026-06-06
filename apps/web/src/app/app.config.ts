@@ -57,7 +57,6 @@ import {
 } from '@nxt1/ui/infrastructure/error-handling';
 import {
   httpErrorInterceptor,
-  HTTP_ERROR_INTERCEPTOR_FIREBASE_AUTH,
 } from '@nxt1/ui/infrastructure/interceptors';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui/services/logging';
@@ -70,20 +69,6 @@ import { httpPerformanceInterceptor } from './core/infrastructure/performance-in
 
 import { AnalyticsService } from './core/services/infrastructure/analytics.service';
 import { PerformanceService } from './core/services/infrastructure/performance.service';
-
-// Firebase
-// IMPORTANT: Only import what's actually used in browser bundle
-// - FirebaseApp: Required for Firebase initialization
-// - Auth: Required for authentication (BrowserAuthService uses it)
-// - Storage: NOT imported - file uploads go through backend API (security)
-// - Analytics/Performance: Lazy-loaded after LCP (see AppComponent)
-import { provideFirebaseApp, initializeApp } from '@angular/fire/app';
-import { provideAuth, getAuth, Auth } from '@angular/fire/auth';
-import { providePerformance, getPerformance } from '@angular/fire/performance';
-
-// Auth service with injection token pattern
-import { AUTH_SERVICE } from './core/services/auth/auth.interface';
-import { BrowserAuthService } from './core/services/auth/browser-auth.service';
 
 // Provider for Sentry
 import { SentryCrashlyticsAdapter } from './core/infrastructure/sentry-crashlytics.adapter';
@@ -210,31 +195,6 @@ export const appConfig: ApplicationConfig = {
 
     // Async animations for better performance
     provideAnimationsAsync(),
-
-    // ============================================
-    // FIREBASE
-    // ============================================
-
-    provideFirebaseApp(() => initializeApp(environment.firebase)),
-    provideAuth(() => getAuth()),
-    // Provide Firebase Auth instance to the HTTP error interceptor so it can
-    // attempt a token force-refresh on 401 before redirecting to /auth.
-    {
-      provide: HTTP_ERROR_INTERCEPTOR_FIREBASE_AUTH,
-      useFactory: (auth: Auth) => auth,
-      deps: [Auth],
-    },
-    providePerformance(() => getPerformance()),
-    // NOTE: Storage is NOT provided in browser bundle —
-    // file uploads go through backend API for security
-
-    // ============================================
-    // AUTH SERVICE (Injection Token Pattern)
-    // ============================================
-
-    // Provide BrowserAuthService for AUTH_SERVICE token
-    // Server uses ServerAuthService instead (see app.config.server.ts)
-    { provide: AUTH_SERVICE, useClass: BrowserAuthService },
 
     // ============================================
     // LOGGING & ERROR HANDLING

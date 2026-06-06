@@ -74,8 +74,8 @@ export const routes: Routes = [
   // Handles /join/:code?ref=<uid>&code=<CODE>&type=<type>
   // Stores referral data in sessionStorage, then redirects to /auth?mode=signup
   {
-    path: 'join/:code',
-    loadComponent: () => import('./features/join/join.component').then((m) => m.JoinComponent),
+    path: 'join',
+    loadChildren: () => import('./features/join/join.routes').then((m) => m.JOIN_ROUTES),
   },
 
   // OAuth Callback Pages (Google, Microsoft, Yahoo)

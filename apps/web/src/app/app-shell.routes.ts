@@ -1,11 +1,12 @@
 import { Routes } from '@angular/router';
+import { provideBrowserAuthProviders } from './core/providers/browser-auth.providers';
 import { provideWebShellProviders } from './core/providers/web-shell.providers';
 import { matchAuthenticatedAgentXLayout } from './core/routing/agent-x-layout.matchers';
 
 export const APP_SHELL_ROUTES: Routes = [
   {
     path: '',
-    providers: [provideWebShellProviders()],
+    providers: [provideBrowserAuthProviders(), provideWebShellProviders()],
     loadComponent: () =>
       import('./core/layout/web-shell.component').then((m) => m.WebShellComponent),
     children: [
