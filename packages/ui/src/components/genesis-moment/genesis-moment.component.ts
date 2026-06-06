@@ -925,6 +925,7 @@ export class NxtGenesisMomentComponent implements OnDestroy {
   readonly commandUrl = input('https://www.hudl.com/team/westlake-hs/roster');
   readonly ariaId = input('genesis-moment-title');
   readonly headingLevel = input<1 | 2>(2);
+  readonly animateOnLoad = input(true);
 
   /* ── Outputs ── */
 
@@ -939,8 +940,10 @@ export class NxtGenesisMomentComponent implements OnDestroy {
   private autoTapTimer: ReturnType<typeof setTimeout> | null = null;
   private autoTapPressTimer: ReturnType<typeof setTimeout> | null = null;
 
-  protected readonly deployed = computed(() => this._deployed());
-  protected readonly displayedCommand = computed(() => this._displayedCommand());
+  protected readonly deployed = computed(() => !this.animateOnLoad() || this._deployed());
+  protected readonly displayedCommand = computed(() =>
+    this.animateOnLoad() ? this._displayedCommand() : this.commandUrl()
+  );
   protected readonly autoTapActive = computed(() => this._autoTapActive());
   protected readonly isCommandUrlLink = computed(() => /^https?:\/\//.test(this.commandUrl()));
 
@@ -950,6 +953,10 @@ export class NxtGenesisMomentComponent implements OnDestroy {
 
   constructor() {
     afterNextRender(() => {
+      if (!this.animateOnLoad()) {
+        return;
+      }
+
       this.startCommandTypewriter();
     });
   }

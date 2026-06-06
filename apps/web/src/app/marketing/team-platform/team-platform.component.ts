@@ -225,6 +225,7 @@ const PROGRAM_PERSONAS: readonly ProgramPersona[] = [
         subhead="Agent X turns the systems your staff already uses into autonomous operations: film, rosters, content, outreach, briefings, and recruiting execution."
         commandUrl="https://www.maxpreps.com/al/hoover/hoover-buccaneers/football/"
         [headingLevel]="1"
+        [animateOnLoad]="false"
       />
 
       <section class="program-band program-band--staff" aria-labelledby="digital-staff-title">
