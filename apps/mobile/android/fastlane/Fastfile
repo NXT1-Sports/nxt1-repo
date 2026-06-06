@@ -66,10 +66,14 @@ platform :android do
   # ============================================================================
   desc "Build staging AAB for Play Store Internal Track"
   lane :release_staging do
-    version_code = ENV["GITHUB_RUN_NUMBER"]&.to_i || Time.now.strftime("%Y%m%d%H").to_i
+    gradle_file = "app/build.gradle"
+    checked_in_version_code = current_gradle_version_code(gradle_file_path: gradle_file)
+    version_code = android_ci_version_code_floor(checked_in_version_code: checked_in_version_code)
+
+    UI.message("Android staging versionCode selected: #{version_code} (checked-in #{checked_in_version_code})")
 
     increment_version_code(
-      gradle_file_path: "app/build.gradle",
+      gradle_file_path: gradle_file,
       version_code: version_code
     )
 
@@ -86,8 +90,13 @@ platform :android do
   # ============================================================================
   desc "Build production AAB for Play Store"
   lane :release do
-    # Try to get the latest version code from Play Store; fall back to GITHUB_RUN_NUMBER
-    # when google-play-key.json is missing or the caller lacks Play API permission.
+    gradle_file = "app/build.gradle"
+    checked_in_version_code = current_gradle_version_code(gradle_file_path: gradle_file)
+    ci_version_floor = android_ci_version_code_floor(checked_in_version_code: checked_in_version_code)
+    play_version_floor = 0
+
+    # Try to get the latest version code from Play Store; always keep CI builds
+    # above the checked-in Android version code so Play can upgrade existing users.
     key_file = "google-play-key.json"
     if File.exist?(key_file) && File.size(key_file) > 10
       begin
@@ -102,19 +111,23 @@ platform :android do
           UI.important("⚠️  Could not fetch Play Store version codes for #{track}: #{e.message}")
           []
         end
-        new_version_code = (version_codes.max || 0) + 1
+        play_version_floor = (version_codes.max || 0) + 1
       rescue => e
         UI.important("⚠️  Could not fetch Play Store version codes: #{e.message}")
-        UI.important("⚠️  Falling back to GITHUB_RUN_NUMBER for version code.")
-        new_version_code = ENV["GITHUB_RUN_NUMBER"]&.to_i || Time.now.strftime("%Y%m%d%H").to_i
+        UI.important("⚠️  Falling back to CI/check-in floor for version code.")
       end
     else
-      UI.important("⚠️  google-play-key.json not found or empty — using GITHUB_RUN_NUMBER for version code.")
-      new_version_code = ENV["GITHUB_RUN_NUMBER"]&.to_i || Time.now.strftime("%Y%m%d%H").to_i
+      UI.important("⚠️  google-play-key.json not found or empty — using CI/check-in floor for version code.")
     end
 
+    new_version_code = [play_version_floor, ci_version_floor, checked_in_version_code + 1].max
+    UI.message(
+      "Android production versionCode selected: #{new_version_code} " \
+      "(checked-in #{checked_in_version_code}, CI floor #{ci_version_floor}, Play floor #{play_version_floor})"
+    )
+
     increment_version_code(
-      gradle_file_path: "app/build.gradle",
+      gradle_file_path: gradle_file,
       version_code: new_version_code
     )
 
@@ -188,6 +201,23 @@ platform :android do
     version_code = options[:version_code]
     
     sh("sed -i 's/versionCode [0-9]*/versionCode #{version_code}/' ../#{path}")
+  end
+
+  private_lane :current_gradle_version_code do |options|
+    path = options[:gradle_file_path]
+    gradle_file = File.expand_path("../#{path}", __dir__)
+    match = File.read(gradle_file).match(/versionCode\s+(\d+)/)
+    match ? match[1].to_i : 0
+  end
+
+  private_lane :android_ci_version_code_floor do |options|
+    checked_in_version_code = options[:checked_in_version_code].to_i
+    ci_run_number = ENV["GITHUB_RUN_NUMBER"].to_s
+    ci_run_attempt = ENV["GITHUB_RUN_ATTEMPT"].to_s
+    run_number = ci_run_number.match?(/\A\d+\z/) ? ci_run_number.to_i : 0
+    run_attempt = ci_run_attempt.match?(/\A\d+\z/) ? ci_run_attempt.to_i : 0
+
+    checked_in_version_code + run_number + [run_attempt, 1].max
   end
 
   # ============================================================================
