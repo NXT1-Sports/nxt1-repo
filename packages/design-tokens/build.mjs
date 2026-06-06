@@ -1286,7 +1286,7 @@ function ensureDir(dir) {
 
 function cleanDist() {
   if (existsSync(DIST_DIR)) {
-    rmSync(DIST_DIR, { recursive: true });
+    rmSync(DIST_DIR, { recursive: true, force: true });
   }
 }
 

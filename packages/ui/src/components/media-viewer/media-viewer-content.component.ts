@@ -1068,6 +1068,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   /** Output for self-dismissal — NxtOverlayService auto-subscribes. */
   readonly close = output<{ lastIndex: number; item: MediaViewerItem | null }>();
 
+  private readonly el = inject(ElementRef<HTMLElement>);
   private readonly mediaTrack = viewChild<ElementRef<HTMLElement>>('mediaTrack');
 
   // ── Inputs (via ModalController componentProps) ────────
@@ -1104,6 +1105,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   private pendingSeekFrameId: number | null = null;
   private pendingSeekTime: number | null = null;
   private _fullscreenChangeHandler: (() => void) | null = null;
+  private _androidFsBackHandler: ((ev: Event) => void) | null = null;
 
   protected readonly totalItems = computed(() => this.items.length);
   protected readonly currentItem = computed(() => this.items[this.currentIndex()] ?? null);
@@ -1155,7 +1157,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     }
 
     if (isPlatformBrowser(this.platformId)) {
-      this._fullscreenChangeHandler = () => this._handleFullscreenEnd();
+      this._fullscreenChangeHandler = () => this._handleFullscreenChange();
       document.addEventListener('fullscreenchange', this._fullscreenChangeHandler);
       document.addEventListener('webkitfullscreenchange', this._fullscreenChangeHandler);
       // webkitendfullscreen fires on iOS when native video fullscreen (AVPlayerViewController)
@@ -1173,6 +1175,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
       document.removeEventListener('webkitendfullscreen', this._fullscreenChangeHandler);
       this._fullscreenChangeHandler = null;
     }
+    this._removeAndroidFullscreenBackHandler();
   }
 
   // ── Navigation ─────────────────────────────────────────
@@ -1500,8 +1503,14 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const target = video?.closest('.media-slide') as HTMLElement | null;
-    if (!target || typeof document === 'undefined') return;
+    if (typeof document === 'undefined') return;
+
+    // Use the root .media-viewer container so the video-controls-overlay
+    // (which is a sibling of .media-slide) remains visible in fullscreen.
+    const target = (this.el.nativeElement as HTMLElement).querySelector(
+      '.media-viewer'
+    ) as HTMLElement | null;
+    if (!target) return;
 
     if (!document.fullscreenElement) {
       const requestFullscreen = target.requestFullscreen?.bind(target) as
@@ -1518,16 +1527,45 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
 
   /**
    * Called when any fullscreenchange event fires.
-   * Resets the iOS viewport shift when fullscreen exits.
+   * Registers/removes the Android back-button handler and resets the iOS
+   * viewport shift when fullscreen exits.
    */
-  private _handleFullscreenEnd(): void {
+  private _handleFullscreenChange(): void {
     const isFullscreen = !!(
       document.fullscreenElement ||
       (document as unknown as { webkitFullscreenElement?: Element }).webkitFullscreenElement
     );
-    if (!isFullscreen) {
+    if (isFullscreen) {
+      if (this.platform.isAndroid() && this.platform.isNative()) {
+        this._addAndroidFullscreenBackHandler();
+      }
+    } else {
+      this._removeAndroidFullscreenBackHandler();
       this._resetIosViewportShift();
     }
+  }
+
+  /**
+   * Registers a one-shot Ionic ionBackButton listener so Android's hardware
+   * back button exits the web fullscreen instead of navigating away.
+   */
+  private _addAndroidFullscreenBackHandler(): void {
+    if (this._androidFsBackHandler || typeof document === 'undefined') return;
+    this._androidFsBackHandler = (ev: Event) => {
+      // Stop Ionic from processing its own back-navigation for this press.
+      (
+        ev as CustomEvent & { detail?: { register?: (p: number, fn: () => void) => void } }
+      ).detail?.register?.(9999, () => {
+        void document.exitFullscreen?.().catch(() => undefined);
+      });
+    };
+    document.addEventListener('ionBackButton', this._androidFsBackHandler);
+  }
+
+  private _removeAndroidFullscreenBackHandler(): void {
+    if (!this._androidFsBackHandler || typeof document === 'undefined') return;
+    document.removeEventListener('ionBackButton', this._androidFsBackHandler);
+    this._androidFsBackHandler = null;
   }
 
   private _resetIosViewportShift(): void {
