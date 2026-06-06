@@ -1,6 +1,5 @@
 import { makeEnvironmentProviders, NgZone } from '@angular/core';
 import { Auth } from '@angular/fire/auth';
-import { provideIonicAngular } from '@ionic/angular/standalone';
 import { TEAM_PROFILE_API_BASE_URL } from '@nxt1/ui/team-profile/tokens';
 import { INTEL_API_BASE_URL } from '@nxt1/ui/intel/tokens';
 import { MANAGE_TEAM_API_BASE_URL, TEAM_LOGO_UPLOADER } from '@nxt1/ui/manage-team/tokens';
@@ -94,11 +93,6 @@ function loadFirestoreRuntime() {
 
 export function provideWebShellProviders() {
   return makeEnvironmentProviders([
-    provideIonicAngular({
-      mode: 'md',
-      useSetInputAPI: true,
-    }),
-
     {
       provide: FIRESTORE_ADAPTER,
       useFactory: (ngZone: NgZone) => ({

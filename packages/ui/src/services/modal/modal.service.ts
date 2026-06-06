@@ -288,7 +288,7 @@ export class NxtModalService {
     type: 'open' | 'confirm' | 'cancel' | 'destructive',
     enabled = true
   ): Promise<void> {
-    if (!enabled || !this.isNativeMobile()) return;
+    if (!enabled || !this.isNativeMobile() || this.isAndroidNative()) return;
 
     try {
       switch (type) {
