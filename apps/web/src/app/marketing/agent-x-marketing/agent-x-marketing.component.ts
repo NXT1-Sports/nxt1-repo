@@ -84,7 +84,7 @@ const AGENT_X_MARKETING_STRUCTURED_DATA = {
   template: `
     <main class="agent-x-marketing" role="main">
       <section class="agent-x-marketing__hero" aria-label="Agent X hero">
-        <nxt1-agent-x-welcome-header />
+        <nxt1-agent-x-welcome-header [animateOnLoad]="false" />
       </section>
 
       <nxt1-agent-x-execution-layer-section />
