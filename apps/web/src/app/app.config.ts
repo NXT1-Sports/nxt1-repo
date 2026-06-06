@@ -46,6 +46,7 @@ import {
 } from '@angular/platform-browser';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideServiceWorker } from '@angular/service-worker';
+import { provideIonicAngular } from '@ionic/angular/standalone';
 
 import { routes } from './app.routes';
 
@@ -55,12 +56,11 @@ import {
   GLOBAL_ERROR_LOGGER,
   GLOBAL_CRASHLYTICS,
 } from '@nxt1/ui/infrastructure/error-handling';
-import {
-  httpErrorInterceptor,
-} from '@nxt1/ui/infrastructure/interceptors';
+import { httpErrorInterceptor } from '@nxt1/ui/infrastructure/interceptors';
 import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui/services/logging';
 import { PERFORMANCE_ADAPTER } from '@nxt1/ui/services/performance';
+import { AGENT_X_API_BASE_URL } from '@nxt1/ui/agent-x';
 
 // Core infrastructure (app-specific)
 import { httpCacheInterceptor } from './core/infrastructure/http/cache.interceptor';
@@ -69,6 +69,7 @@ import { httpPerformanceInterceptor } from './core/infrastructure/performance-in
 
 import { AnalyticsService } from './core/services/infrastructure/analytics.service';
 import { PerformanceService } from './core/services/infrastructure/performance.service';
+import { provideBrowserAuthProviders } from './core/providers/browser-auth.providers';
 
 // Provider for Sentry
 import { SentryCrashlyticsAdapter } from './core/infrastructure/sentry-crashlytics.adapter';
@@ -196,6 +197,18 @@ export const appConfig: ApplicationConfig = {
     // Async animations for better performance
     provideAnimationsAsync(),
 
+    // Ionic Framework - must be at root level so ModalController/AngularDelegate
+    // are available to all providedIn:'root' services (NxtBottomSheetService etc.)
+    provideIonicAngular({
+      mode: 'md',
+      useSetInputAPI: true,
+    }),
+
+    // Firebase Auth must be available from the root injector because
+    // AuthFlowService is provided in root and initializes before route
+    // providers are visible to its injector.
+    provideBrowserAuthProviders(),
+
     // ============================================
     // LOGGING & ERROR HANDLING
     // ============================================
@@ -218,6 +231,7 @@ export const appConfig: ApplicationConfig = {
 
     // Provide analytics adapter for shared services (@nxt1/ui)
     { provide: ANALYTICS_ADAPTER, useExisting: AnalyticsService },
+    { provide: AGENT_X_API_BASE_URL, useFactory: () => environment.apiURL },
 
     {
       provide: Sentry.TraceService,

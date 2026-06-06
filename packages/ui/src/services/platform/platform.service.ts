@@ -272,10 +272,11 @@ export class NxtPlatformService {
 
   private detectCapabilities(): PlatformCapabilities {
     const isNative = this.isNativeRuntime();
+    const isAndroid = this.detectOS() === 'android';
     const hasTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 
     return {
-      haptics: isNative || 'vibrate' in navigator,
+      haptics: !isAndroid && (isNative || 'vibrate' in navigator),
       camera: 'mediaDevices' in navigator && 'getUserMedia' in navigator.mediaDevices,
       biometrics: isNative, // Requires Capacitor plugin
       pushNotifications: 'Notification' in window || isNative,

@@ -384,7 +384,7 @@ export class NxtBottomSheetService {
    * Triggers haptic feedback when opening the sheet.
    */
   private async triggerHaptic(): Promise<void> {
-    if (!this.platform.isNative()) return;
+    if (!this.platform.isNative() || this.platform.is('android')) return;
 
     try {
       await Haptics.impact({ style: ImpactStyle.Light });

@@ -141,7 +141,7 @@ export class BiometricPromptService {
    * Trigger haptic feedback (safe for web).
    */
   private async triggerHaptic(type: 'light' | 'medium' | 'success'): Promise<void> {
-    if (!this.platform.isNative()) return;
+    if (!this.platform.isNative() || this.platform.isAndroid()) return;
 
     try {
       if (type === 'success') {
