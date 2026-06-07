@@ -23,9 +23,20 @@ export const TrimVideoInputSchema = z
       .optional()
       .default('output.mp4')
       .describe('Output filename (e.g. trimmed.mp4). The service handles storage automatically.'),
-    startTime: z.string().trim().min(1).describe('Start time in seconds or HH:MM:SS format'),
+    startTime: z
+      .string()
+      .trim()
+      .min(1)
+      .describe('Start time in seconds or HH:MM:SS format. Use 0 when preserving a full clip.'),
     endTime: z.string().trim().min(1).optional().describe('End time in seconds or HH:MM:SS format'),
-    duration: z.string().trim().min(1).optional().describe('Duration in seconds'),
+    duration: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe(
+        'Duration in seconds. For highlight reels, prefer full short clips or 10-20+ second play windows unless the user requests tight social cuts.'
+      ),
   })
   .refine((value) => value.endTime || value.duration, {
     message: 'Either endTime or duration must be provided.',

@@ -269,6 +269,37 @@ describe('Agent handoff and tool narrowing', () => {
     } as unknown as BaseAgent;
 
     const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+    const contextService = new AgentRouterContextService(
+      {
+        compressToPrompt: () => 'Name: Test Athlete\nRole: athlete\nSport: football',
+      } as never,
+      undefined
+    );
+    const userContext: AgentUserContext = {
+      userId: 'user-1',
+      role: 'athlete',
+      displayName: 'Test Athlete',
+      sport: 'football',
+    };
+    const enrichedIntent = contextService.enrichIntentWithContext(
+      'Create Highlight Reel from uploaded video',
+      userContext,
+      {
+        selectedAction: {
+          coordinatorId: 'brand_coordinator',
+          actionId: 'brand-highlight',
+          surface: 'command',
+        },
+        videoAttachments: [
+          {
+            name: 'source.mp4',
+            mimeType: 'video/mp4',
+            url: 'https://storage.googleapis.com/nxt1-test/source.mp4',
+            cloudflareVideoId: 'cf-source-1',
+          },
+        ],
+      }
+    );
 
     const task: AgentTask = {
       id: 't1',
@@ -525,6 +556,217 @@ describe('Agent handoff and tool narrowing', () => {
     expect(usedToolNames).toContain('ffmpeg_merge_videos');
     expect(usedToolNames).toContain('ffmpeg_generate_thumbnail');
     expect(usedToolNames).not.toContain('runway_edit_video');
+  });
+
+  it('forces FFmpeg tools for selected highlight reel action with attached video', async () => {
+    const baseDefs: AgentToolDefinition[] = [
+      {
+        name: 'generate_graphic',
+        description: 'Generate a graphic or title card image',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'runway_generate_video',
+        description: 'Animate a generated still image with Runway',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'runway_check_task',
+        description: 'Check Runway task status',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'stage_media',
+        description: 'Stage media for downstream editing',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'analyze_video',
+        description: 'Analyze source video for highlight timestamps',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'get_video_details',
+        description: 'Read source video metadata',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'enable_download',
+        description: 'Enable source media download for editing tools',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'ffmpeg_trim_video',
+        description: 'Trim a source video to selected highlight moments',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'ffmpeg_merge_videos',
+        description: 'Merge trimmed clips into one reel',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+      {
+        name: 'ffmpeg_generate_thumbnail',
+        description: 'Generate a thumbnail for a merged reel',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+    ];
+
+    const scoredDefs: MatchedToolDefinition[] = [
+      { ...baseDefs[0], semanticScore: 0.9 },
+      { ...baseDefs[1], semanticScore: 0.86 },
+    ];
+
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue(baseDefs),
+      matchWithScores: vi.fn().mockResolvedValue(scoredDefs),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const capturedToolDefs: AgentToolDefinition[][] = [];
+    const fakeAgent = {
+      id: 'brand_coordinator' as AgentIdentifier,
+      name: 'Brand',
+      execute: vi
+        .fn()
+        .mockImplementation(
+          async (
+            _intent: string,
+            _context: AgentSessionContext,
+            defs: readonly AgentToolDefinition[]
+          ) => {
+            capturedToolDefs.push([...defs]);
+            return {
+              summary: 'ok',
+              data: {},
+              suggestions: [],
+            } as AgentOperationResult;
+          }
+        ),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+    const contextService = new AgentRouterContextService(
+      {
+        compressToPrompt: () => 'Name: Test Athlete\nRole: athlete\nSport: football',
+      } as never,
+      undefined
+    );
+    const userContext: AgentUserContext = {
+      userId: 'user-1',
+      role: 'athlete',
+      displayName: 'Test Athlete',
+      sport: 'football',
+    };
+    const enrichedIntent = contextService.enrichIntentWithContext(
+      'Create Highlight Reel from uploaded video',
+      userContext,
+      {
+        selectedAction: {
+          coordinatorId: 'brand_coordinator',
+          actionId: 'brand-highlight',
+          surface: 'command',
+        },
+        videoAttachments: [
+          {
+            name: 'source.mp4',
+            mimeType: 'video/mp4',
+            url: 'https://storage.googleapis.com/nxt1-test/source.mp4',
+            cloudflareVideoId: 'cf-source-1',
+          },
+        ],
+      }
+    );
+
+    const task: AgentTask = {
+      id: 't2c',
+      assignedAgent: 'brand_coordinator',
+      description: 'Create Highlight Reel from uploaded video',
+      dependsOn: [],
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    const accessContext: AgentToolAccessContext = {
+      userId: 'user-1',
+      role: 'athlete',
+      allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools'],
+    };
+
+    await service.executePlan({
+      operationId: 'op-2c',
+      userId: 'user-1',
+      plan: { tasks: [task] },
+      enrichedIntent,
+      context: createContext(),
+      toolAccessContext: accessContext,
+      taskMaxRetries: 0,
+      agents: new Map([['brand_coordinator', fakeAgent]]),
+      buildTaskIntent: (activeTask, upstreamResults, enrichedContext) =>
+        contextService.buildTaskIntent(activeTask, upstreamResults, enrichedContext),
+      rerouteDelegatedTask: async () => null,
+    });
+
+    const usedToolNames = (capturedToolDefs[0] ?? []).map((tool) => tool.name);
+    expect(usedToolNames).toContain('generate_graphic');
+    expect(usedToolNames).toContain('runway_generate_video');
+    expect(usedToolNames).toContain('runway_check_task');
+    expect(usedToolNames).toContain('stage_media');
+    expect(usedToolNames).toContain('analyze_video');
+    expect(usedToolNames).toContain('get_video_details');
+    expect(usedToolNames).toContain('enable_download');
+    expect(usedToolNames).toContain('ffmpeg_trim_video');
+    expect(usedToolNames).toContain('ffmpeg_merge_videos');
+    expect(usedToolNames).toContain('ffmpeg_generate_thumbnail');
   });
 
   it('retains distilled scrape follow-up tools when profile ingestion is selected', async () => {

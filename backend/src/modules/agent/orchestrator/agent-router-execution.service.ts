@@ -219,6 +219,25 @@ function computeForcedToolInclusions(taskIntent: string): readonly string[] {
     forced.add('write_schedule');
   }
 
+  const mentionsVideoSource =
+    /\b(attached video|video attachment|videoattachments?|cloudflarevideoid|hudl|youtube|instagram|twitter|x\.com|firebasestorage|storage\.googleapis|cloudflarestream)\b/.test(
+      normalizedIntent
+    ) || /\.(mp4|mov|m4v|webm|avi|mkv)(?:\b|[?#/])/.test(normalizedIntent);
+  const asksForCreativeVideoOutput =
+    /\b(create|make|generate|produce|build|cut|edit|clip|trim|assemble|merge)\b/.test(
+      normalizedIntent
+    ) && /\b(highlight|reel|video|promo|teaser|recap|best moments?)\b/.test(normalizedIntent);
+
+  if (mentionsVideoSource && asksForCreativeVideoOutput) {
+    forced.add('stage_media');
+    forced.add('analyze_video');
+    forced.add('get_video_details');
+    forced.add('enable_download');
+    forced.add('ffmpeg_trim_video');
+    forced.add('ffmpeg_merge_videos');
+    forced.add('ffmpeg_generate_thumbnail');
+  }
+
   return [...forced];
 }
 

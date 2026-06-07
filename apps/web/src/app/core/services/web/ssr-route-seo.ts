@@ -2,6 +2,19 @@ export interface ServerRouteSeoMetadata {
   readonly title?: string;
   readonly description?: string;
   readonly canonicalUrl?: string;
+  readonly image?: string;
+  readonly imageAlt?: string;
+  readonly imageWidth?: number;
+  readonly imageHeight?: number;
+  readonly openGraphTitle?: string;
+  readonly openGraphType?: string;
+  readonly twitterCard?: string;
+  readonly twitterTitle?: string;
+  readonly twitterImage?: string;
+  readonly twitterImageAlt?: string;
+  readonly profileFirstName?: string;
+  readonly profileLastName?: string;
+  readonly profileUsername?: string;
   readonly robots?: string;
   readonly googlebot?: string;
   readonly statusCode?: 404 | 410;
@@ -269,6 +282,19 @@ export function buildServerProfileRouteSeo(
     title: seoConfig.page.title,
     description: seoConfig.page.description,
     canonicalUrl: seoConfig.page.canonicalUrl,
+    image: seoConfig.openGraph?.image ?? seoConfig.page.image,
+    imageAlt: seoConfig.openGraph?.imageAlt ?? seoConfig.page.imageAlt,
+    imageWidth: seoConfig.openGraph?.imageWidth,
+    imageHeight: seoConfig.openGraph?.imageHeight,
+    openGraphTitle: seoConfig.openGraph?.title ?? seoConfig.page.title,
+    openGraphType: seoConfig.openGraph?.type,
+    twitterCard: seoConfig.twitter?.card,
+    twitterTitle: seoConfig.twitter?.title ?? seoConfig.openGraph?.title ?? seoConfig.page.title,
+    twitterImage: seoConfig.twitter?.image ?? seoConfig.openGraph?.image ?? seoConfig.page.image,
+    twitterImageAlt: seoConfig.twitter?.imageAlt ?? seoConfig.openGraph?.imageAlt,
+    profileFirstName: profile.firstName,
+    profileLastName: profile.lastName,
+    profileUsername: profile.username ?? profile.unicode,
   };
 }
 
@@ -308,8 +334,18 @@ export function applyServerRouteSeo(html: string, metadata: ServerRouteSeoMetada
 
   if (metadata.title) {
     updatedHtml = replaceTitleTag(updatedHtml, metadata.title);
-    updatedHtml = replaceMetaTag(updatedHtml, 'property', 'og:title', metadata.title);
-    updatedHtml = replaceMetaTag(updatedHtml, 'name', 'twitter:title', metadata.title);
+    updatedHtml = replaceMetaTag(
+      updatedHtml,
+      'property',
+      'og:title',
+      metadata.openGraphTitle ?? metadata.title
+    );
+    updatedHtml = replaceMetaTag(
+      updatedHtml,
+      'name',
+      'twitter:title',
+      metadata.twitterTitle ?? metadata.openGraphTitle ?? metadata.title
+    );
   }
 
   if (metadata.description) {
@@ -321,6 +357,82 @@ export function applyServerRouteSeo(html: string, metadata: ServerRouteSeoMetada
   if (metadata.canonicalUrl) {
     updatedHtml = replaceLinkTag(updatedHtml, 'canonical', metadata.canonicalUrl);
     updatedHtml = replaceMetaTag(updatedHtml, 'property', 'og:url', metadata.canonicalUrl);
+  }
+
+  if (metadata.openGraphType) {
+    updatedHtml = replaceMetaTag(updatedHtml, 'property', 'og:type', metadata.openGraphType);
+  }
+
+  if (metadata.image) {
+    updatedHtml = replaceMetaTag(updatedHtml, 'property', 'og:image', metadata.image);
+    updatedHtml = replaceMetaTag(
+      updatedHtml,
+      'name',
+      'twitter:image',
+      metadata.twitterImage ?? metadata.image
+    );
+  }
+
+  if (metadata.imageAlt) {
+    updatedHtml = replaceMetaTag(updatedHtml, 'property', 'og:image:alt', metadata.imageAlt);
+  }
+
+  if (metadata.twitterImageAlt ?? metadata.imageAlt) {
+    updatedHtml = replaceMetaTag(
+      updatedHtml,
+      'name',
+      'twitter:image:alt',
+      metadata.twitterImageAlt ?? metadata.imageAlt ?? ''
+    );
+  }
+
+  if (metadata.imageWidth) {
+    updatedHtml = replaceMetaTag(
+      updatedHtml,
+      'property',
+      'og:image:width',
+      String(metadata.imageWidth)
+    );
+  }
+
+  if (metadata.imageHeight) {
+    updatedHtml = replaceMetaTag(
+      updatedHtml,
+      'property',
+      'og:image:height',
+      String(metadata.imageHeight)
+    );
+  }
+
+  if (metadata.twitterCard) {
+    updatedHtml = replaceMetaTag(updatedHtml, 'name', 'twitter:card', metadata.twitterCard);
+  }
+
+  if (metadata.profileFirstName) {
+    updatedHtml = replaceMetaTag(
+      updatedHtml,
+      'property',
+      'og:profile:first_name',
+      metadata.profileFirstName
+    );
+  }
+
+  if (metadata.profileLastName) {
+    updatedHtml = replaceMetaTag(
+      updatedHtml,
+      'property',
+      'og:profile:last_name',
+      metadata.profileLastName
+    );
+  }
+
+  if (metadata.profileUsername) {
+    updatedHtml = replaceMetaTag(
+      updatedHtml,
+      'property',
+      'og:profile:username',
+      metadata.profileUsername
+    );
   }
 
   if (metadata.robots) {

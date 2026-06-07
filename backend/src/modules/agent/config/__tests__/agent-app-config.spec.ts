@@ -447,6 +447,22 @@ describe('agent-app-config', () => {
     expect(coachAction?.executionPrompt).toBe('Base hidden prompt');
   });
 
+  it('keeps highlight reel execution prompts action-first and full-window by default', () => {
+    const action = resolveConfiguredCoordinatorActionForRole(
+      'athlete',
+      'brand_coordinator',
+      'brand-highlight',
+      'command',
+      undefined,
+      DEFAULT_AGENT_APP_CONFIG
+    );
+
+    expect(action?.executionPrompt).toContain('do not ask for A/B/C options');
+    expect(action?.executionPrompt).toContain('preserve the full clip or full play window');
+    expect(action?.executionPrompt).toContain('Use tight 3-7 second best-moment cuts only');
+    expect(action?.executionPrompt).toContain('do not stop for confirmation');
+  });
+
   it('builds a detailed fallback execution prompt when an action label is sent but the action id misses', () => {
     const config = parseAgentAppConfig({
       coordinators: [

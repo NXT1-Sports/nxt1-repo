@@ -7,6 +7,7 @@
  * POST /briefing/generate
  */
 
+import { createHash, randomUUID } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { aiRateLimit } from '../../middleware/rate-limit/rate-limit.middleware.js';
@@ -24,34 +25,32 @@ import { getAuthUser, getGenerationService, jobRepository, queueService } from '
 
 const router = Router();
 const GENERATION_BILLING_GATE_MIN_COST_CENTS = MIN_COST_CENTS;
+const PLAYBOOK_IDEMPOTENCY_KEY_MAX_LENGTH = 160;
+
+function readPlaybookIdempotencyKey(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null;
+  const value = (body as Record<string, unknown>)['idempotencyKey'];
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > PLAYBOOK_IDEMPOTENCY_KEY_MAX_LENGTH) return null;
+  return trimmed;
+}
+
+function buildPlaybookOperationId(userId: string, idempotencyKey: string | null): string {
+  if (!idempotencyKey) return `playbook-${randomUUID()}`;
+  const digest = createHash('sha256').update(`${userId}:${idempotencyKey}`).digest('hex');
+  return `playbook-${digest.slice(0, 32)}`;
+}
 
 // ─── POST /playbook/generate ──────────────────────────────────────────────
 
 router.post('/playbook/generate', appGuard, aiRateLimit, async (req: Request, res: Response) => {
-  const playbookOpId = `playbook-${crypto.randomUUID()}`;
+  let playbookOpId: string | null = null;
   try {
     const user = getAuthUser(req);
     if (!user?.uid) {
       res.status(401).json({ success: false, error: 'Unauthorized' });
       return;
-    }
-
-    if (req.firebase?.db) {
-      const estimatedGateCostCents = GENERATION_BILLING_GATE_MIN_COST_CENTS;
-      const playbookTarget = await resolveBillingTarget(req.firebase.db, user.uid);
-      const playbookCtx = playbookTarget.context;
-      const playbookBudgetCheck = checkBudgetFromContext(playbookCtx, estimatedGateCostCents);
-      if (!playbookBudgetCheck.allowed) {
-        const isWalletContext =
-          playbookCtx.billingEntity === 'individual' ||
-          playbookCtx.billingEntity === 'organization';
-        res.status(402).json({
-          success: false,
-          error: playbookBudgetCheck.reason,
-          code: isWalletContext ? 'WALLET_EMPTY' : 'BUDGET_EXCEEDED',
-        });
-        return;
-      }
     }
 
     const db = req.firebase?.db;
@@ -60,19 +59,106 @@ router.post('/playbook/generate', appGuard, aiRateLimit, async (req: Request, re
       return;
     }
 
+    const scopedJobRepository = jobRepository.withDb(db);
+    const idempotencyKey = readPlaybookIdempotencyKey(req.body);
+    playbookOpId = buildPlaybookOperationId(user.uid, idempotencyKey);
+
+    const userDoc = await db.collection('Users').doc(user.uid).get();
+    const userData = userDoc.data() ?? {};
+    const agentGoals = Array.isArray(userData['agentGoals']) ? userData['agentGoals'] : [];
+    if (agentGoals.length === 0) {
+      res.status(400).json({
+        success: false,
+        error: {
+          code: 'VAL_REQUIRED_FIELD',
+          message: 'Set at least one goal before generating a playbook',
+        },
+      });
+      return;
+    }
+
+    if (idempotencyKey) {
+      const existingIdempotentJob = await scopedJobRepository.getById(playbookOpId);
+      if (existingIdempotentJob?.userId === user.uid) {
+        res.status(202).json({
+          success: true,
+          data: {
+            operationId: existingIdempotentJob.operationId,
+            jobId: existingIdempotentJob.operationId,
+            status: existingIdempotentJob.status,
+            reused: true,
+          },
+        });
+        return;
+      }
+    }
+
+    const activePlaybookJobs = await scopedJobRepository.findActivePlaybookByUser(user.uid);
+    const activePlaybookJob = activePlaybookJobs[0];
+    if (activePlaybookJob) {
+      logger.info('Reusing active playbook generation job', {
+        operationId: activePlaybookJob.operationId,
+        userId: user.uid,
+        status: activePlaybookJob.status,
+      });
+
+      res.status(202).json({
+        success: true,
+        data: {
+          operationId: activePlaybookJob.operationId,
+          jobId: activePlaybookJob.operationId,
+          status: activePlaybookJob.status,
+          reused: true,
+        },
+      });
+      return;
+    }
+
+    const estimatedGateCostCents = GENERATION_BILLING_GATE_MIN_COST_CENTS;
+    const playbookTarget = await resolveBillingTarget(db, user.uid);
+    const playbookCtx = playbookTarget.context;
+    const playbookBudgetCheck = checkBudgetFromContext(playbookCtx, estimatedGateCostCents);
+    if (!playbookBudgetCheck.allowed) {
+      const isWalletContext =
+        playbookCtx.billingEntity === 'individual' || playbookCtx.billingEntity === 'organization';
+      res.status(402).json({
+        success: false,
+        error: playbookBudgetCheck.reason,
+        code: isWalletContext ? 'WALLET_EMPTY' : 'BUDGET_EXCEEDED',
+      });
+      return;
+    }
+
     const enqueuePayload: AgentJobPayload = {
       operationId: playbookOpId,
       userId: user.uid,
       intent: 'Generate weekly playbook',
-      sessionId: crypto.randomUUID(),
+      sessionId: randomUUID(),
       origin: 'user',
       agent: 'strategy_coordinator',
       context: {
         mode: 'playbook',
+        ...(idempotencyKey ? { idempotencyKey } : {}),
       },
     };
 
-    await jobRepository.withDb(db).create(enqueuePayload);
+    const created = idempotencyKey
+      ? await scopedJobRepository.createIfAbsent(enqueuePayload)
+      : (await scopedJobRepository.create(enqueuePayload), true);
+
+    if (!created) {
+      const existingJob = await scopedJobRepository.getById(playbookOpId);
+      res.status(202).json({
+        success: true,
+        data: {
+          operationId: playbookOpId,
+          jobId: playbookOpId,
+          status: existingJob?.status ?? 'queued',
+          reused: true,
+        },
+      });
+      return;
+    }
 
     const environment = req.isStaging ? 'staging' : 'production';
     const jobId = await queueService.enqueuePlaybookGeneration(
@@ -96,10 +182,12 @@ router.post('/playbook/generate', appGuard, aiRateLimit, async (req: Request, re
     });
 
     if (req.firebase?.db && jobRepository) {
-      await jobRepository
-        .withDb(req.firebase.db)
-        .markFailed(playbookOpId, error.message)
-        .catch(() => undefined);
+      if (playbookOpId) {
+        await jobRepository
+          .withDb(req.firebase.db)
+          .markFailed(playbookOpId, error.message)
+          .catch(() => undefined);
+      }
     }
 
     res.status(500).json({ success: false, error: 'Failed to enqueue playbook generation' });

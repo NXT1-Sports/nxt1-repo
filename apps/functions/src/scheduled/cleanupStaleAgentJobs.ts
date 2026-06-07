@@ -2,9 +2,9 @@
  * @fileoverview Cleanup Stale Agent Jobs — Cloud Scheduler Entry Point
  * @module @nxt1/functions/scheduled/cleanupStaleAgentJobs
  *
- * Runs every 15 minutes to mark queued Agent X jobs that have been stuck
- * for more than 100 minutes as failed. This handles the case where the
- * backend process crashed mid-flight and never wrote a terminal status.
+ * Runs every 15 minutes to retire stale non-terminal Agent X jobs. Queued
+ * jobs older than 100 minutes are marked failed, while long-lived yielded
+ * jobs are auto-cancelled on separate thresholds depending on origin.
  *
  * Required secrets/params (Firebase Secret Manager / .env.local):
  *   - CRON_SECRET: Shared secret between this function and the backend
@@ -19,11 +19,13 @@ const CRON_SECRET = defineSecret('CRON_SECRET');
 const BACKEND_URL = defineString('BACKEND_URL');
 
 /**
- * Sweep for dead/stuck queued jobs every 15 minutes.
+ * Sweep for dead/stuck non-terminal jobs every 15 minutes.
  *
  * Calls the backend /api/v1/agent-x/cron/cleanup-stale-jobs endpoint which:
- *   1. Queries agentJobs where status === 'queued' AND createdAt < now − 100 min
- *   2. Batch-updates matching docs to status 'failed'
+ *   1. Marks queued jobs older than 100 minutes as failed
+ *   2. Cancels yielded jobs older than 72 hours for system_cron origins
+ *   3. Cancels yielded jobs older than 7 days for user origins
+ *   4. Clears paused thread state for cancelled yielded jobs
  */
 export const cleanupStaleAgentJobs = onSchedule(
   {
@@ -60,7 +62,12 @@ export const cleanupStaleAgentJobs = onSchedule(
       }
 
       const result = (await response.json()) as {
-        data?: { scanned: number; markedFailed: number };
+        data?: {
+          scanned: number;
+          markedFailed: number;
+          cancelled: number;
+          failedToUpdate: number;
+        };
       };
       logger.info('Stale agent job cleanup completed', { result: result.data });
     } catch (err) {
