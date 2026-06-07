@@ -3,6 +3,9 @@ import type { AgentJobPayload } from '@nxt1/core';
 import {
   buildAgentJobRetryPayload,
   classifyAgentJobAutoResolveType,
+  getAgentJobAutoResolveMaxAttempts,
+  shouldAutoRetryAgentJob,
+  shouldSendAgentJobCustomerRecoveryEmail,
 } from '../agent-job-auto-resolver.service.js';
 
 describe('AgentJobAutoResolverService helpers', () => {
@@ -60,5 +63,131 @@ describe('AgentJobAutoResolverService helpers', () => {
     expect(retryPayload.context?.['platformSponsoredRetry']).toBe(true);
     expect(retryPayload.context?.['rerunOfOperationId']).toBe('original-operation');
     expect(retryPayload.context?.['threadId']).toBe('thread-1');
+  });
+
+  it('disables automatic retries for OpenRouter insufficient credits', () => {
+    expect(getAgentJobAutoResolveMaxAttempts('openrouter_insufficient_credits', 1)).toBe(0);
+
+    expect(
+      shouldAutoRetryAgentJob(
+        {
+          replayPayload: {
+            operationId: 'original-operation',
+            userId: 'user-1',
+            intent: 'Create a graphic',
+            sessionId: 'session-1',
+            origin: 'user',
+            context: {},
+          },
+        },
+        'openrouter_insufficient_credits'
+      )
+    ).toBe(false);
+  });
+
+  it('does not retry jobs that are already platform-sponsored retries', () => {
+    expect(
+      shouldAutoRetryAgentJob(
+        {
+          replayPayload: {
+            operationId: 'retry-operation',
+            userId: 'user-1',
+            intent: 'Retry this job',
+            sessionId: 'session-1',
+            origin: 'user',
+            context: {
+              platformSponsoredRetry: true,
+              rerunOfOperationId: 'original-operation',
+            },
+          },
+        },
+        'job_timeout'
+      )
+    ).toBe(false);
+
+    expect(
+      shouldAutoRetryAgentJob(
+        {
+          replayPayload: {
+            operationId: 'original-operation',
+            userId: 'user-1',
+            intent: 'Retry this job',
+            sessionId: 'session-1',
+            origin: 'user',
+            context: {},
+          },
+        },
+        'job_timeout'
+      )
+    ).toBe(true);
+  });
+
+  it('suppresses customer emails for platform-sponsored retries and onboarding flows', () => {
+    expect(
+      shouldSendAgentJobCustomerRecoveryEmail({
+        origin: 'user',
+        replayPayload: {
+          operationId: 'retry-op',
+          userId: 'user-1',
+          intent: 'Retry request',
+          sessionId: 'session-1',
+          origin: 'user',
+          context: {
+            platformSponsoredRetry: true,
+            rerunOfOperationId: 'original-op',
+          },
+        },
+      })
+    ).toBe(false);
+
+    expect(
+      shouldSendAgentJobCustomerRecoveryEmail({
+        origin: 'user',
+        replayPayload: {
+          operationId: 'onboarding-op',
+          userId: 'user-1',
+          intent: 'Sync connected accounts',
+          sessionId: 'session-1',
+          origin: 'user',
+          context: {
+            origin: 'onboarding',
+            step: 'link-sources',
+          },
+        },
+      })
+    ).toBe(false);
+  });
+
+  it('suppresses customer emails for connected account resync jobs', () => {
+    expect(
+      shouldSendAgentJobCustomerRecoveryEmail({
+        origin: 'user',
+        replayPayload: {
+          operationId: 'resync-op',
+          userId: 'user-1',
+          intent: 'Re-sync all connected accounts',
+          sessionId: 'session-1',
+          origin: 'user',
+          context: {
+            source: 'connected_accounts',
+            trigger: 'manual_resync',
+          },
+        },
+      })
+    ).toBe(false);
+
+    expect(
+      shouldSendAgentJobCustomerRecoveryEmail({
+        origin: 'user',
+        replayPayload: {
+          operationId: 'chat-op',
+          userId: 'user-1',
+          intent: 'Write me an outreach email',
+          sessionId: 'session-1',
+          origin: 'user',
+          context: {},
+        },
+      })
+    ).toBe(true);
   });
 });

@@ -73,6 +73,7 @@ import { provideBrowserAuthProviders } from './core/providers/browser-auth.provi
 
 // Provider for Sentry
 import { SentryCrashlyticsAdapter } from './core/infrastructure/sentry-crashlytics.adapter';
+import { provideWebShellProviders } from './core/providers/web-shell.providers';
 
 // Helps with tracking initial load / routing performance
 import * as Sentry from '@sentry/angular';
@@ -208,6 +209,10 @@ export const appConfig: ApplicationConfig = {
     // AuthFlowService is provided in root and initializes before route
     // providers are visible to its injector.
     provideBrowserAuthProviders(),
+
+    // Browser-only UI/api tokens needed by root-provided shared services.
+    // Route-scoped shell providers are not early enough for bootstrap-time injections.
+    provideWebShellProviders(),
 
     // ============================================
     // LOGGING & ERROR HANDLING

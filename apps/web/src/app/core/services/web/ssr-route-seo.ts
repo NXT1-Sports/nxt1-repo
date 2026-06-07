@@ -4,6 +4,7 @@ export interface ServerRouteSeoMetadata {
   readonly canonicalUrl?: string;
   readonly robots?: string;
   readonly googlebot?: string;
+  readonly statusCode?: 404 | 410;
 }
 
 export interface ServerRouteSeoProfile {
@@ -72,6 +73,7 @@ const NOINDEX_PREFIXES = [
   '/microsoft/callback',
   '/yahoo/callback',
   '/pulse',
+  '/explore/pulse',
 ] as const;
 
 function normalizePath(requestPath: string): string {
@@ -268,6 +270,33 @@ export function buildServerProfileRouteSeo(
     description: seoConfig.page.description,
     canonicalUrl: seoConfig.page.canonicalUrl,
   };
+}
+
+export function buildMissingProfileRouteSeo(fullUrl: string): ServerRouteSeoMetadata {
+  return {
+    title: 'Profile Not Found',
+    description: 'The requested athlete profile could not be found on NXT1 Sports.',
+    canonicalUrl: toCanonicalUrl(fullUrl),
+    robots: NOINDEX_ROBOTS,
+    googlebot: NOINDEX_ROBOTS,
+    statusCode: 404,
+  };
+}
+
+export function buildNotFoundRouteSeo(fullUrl: string): ServerRouteSeoMetadata {
+  return {
+    title: 'Page Not Found',
+    description: 'The requested page could not be found on NXT1 Sports.',
+    canonicalUrl: toCanonicalUrl(fullUrl),
+    robots: NOINDEX_ROBOTS,
+    googlebot: NOINDEX_ROBOTS,
+    statusCode: 404,
+  };
+}
+
+export function isRetiredPulseArticleRoute(requestPath: string): boolean {
+  const path = normalizePath(requestPath);
+  return /^\/(?:pulse|explore\/pulse)\/[^/]+$/.test(path);
 }
 
 export function applyServerRouteSeo(html: string, metadata: ServerRouteSeoMetadata | null): string {

@@ -32,7 +32,10 @@ import type { ApiResponse } from '@nxt1/core/profile';
 import bootstrap from './src/main.server';
 import {
   applyServerRouteSeo,
+  buildNotFoundRouteSeo,
+  buildMissingProfileRouteSeo,
   buildServerProfileRouteSeo,
+  isRetiredPulseArticleRoute,
   resolveServerRouteSeo,
 } from './src/app/core/services/web/ssr-route-seo';
 
@@ -101,6 +104,32 @@ function extractAuthToken(req: Request): string | undefined {
 function isPublicMarketingRoute(req: Request): boolean {
   const normalizedPath = req.path.replace(/\/+$/, '') || '/';
   return normalizedPath === '/' || normalizedPath === '/agent-x' || normalizedPath === '/programs';
+}
+
+const KNOWN_APP_ROUTE_PATTERNS = [
+  /^\/$/,
+  /^\/programs\/?$/,
+  /^\/agent-x(?:\/.*)?$/,
+  /^\/auth(?:\/(?:forgot-password|verify-email|onboarding(?:\/congratulations)?)?)?\/?$/,
+  /^\/add-sport\/?$/,
+  /^\/join\/[^/]+\/?$/,
+  /^\/(?:google|microsoft|yahoo)\/callback\/?$/,
+  /^\/oauth\/success\/?$/,
+  /^\/activity\/?$/,
+  /^\/profile(?:\/[^/]+\/[^/]+\/[^/]+|\/[^/]+)?\/?$/,
+  /^\/settings(?:\/(?:account-information|connected-accounts|notification-preferences))?\/?$/,
+  /^\/help-center(?:\/(?:category\/[^/]+|article\/[^/]+|video\/[^/]+|search|contact))?\/?$/,
+  /^\/manage-team\/?$/,
+  /^\/invite(?:\/team\/[^/]+)?\/?$/,
+  /^\/usage\/?$/,
+  /^\/pulse\/?$/,
+  /^\/terms\/?$/,
+  /^\/privacy\/?$/,
+  /^\/post\/[^/]+\/?$/,
+] as const;
+
+function isKnownAppRoute(requestPath: string): boolean {
+  return KNOWN_APP_ROUTE_PATTERNS.some((pattern) => pattern.test(requestPath));
 }
 
 function isNumericProfileRouteParam(value: string): boolean {
@@ -220,7 +249,43 @@ async function resolveDynamicProfileRouteSeo(requestPath: string, profileApiBase
   }
 
   const profile = await fetchProfileForCanonicalRedirect(routeParam, profileApiBaseUrl);
-  return profile ? buildProfileRouteSeoMetadata(profile) : null;
+  return profile;
+}
+
+async function resolveProfileRequestOutcome(
+  requestPath: string,
+  profileApiBaseUrl: string,
+  fullUrl: string
+) {
+  const profile = await resolveDynamicProfileRouteSeo(requestPath, profileApiBaseUrl);
+  if (profile) {
+    return buildProfileRouteSeoMetadata(profile);
+  }
+
+  return extractProfileRouteLookupParam(requestPath) ? buildMissingProfileRouteSeo(fullUrl) : null;
+}
+
+async function resolveRequestRouteSeo(
+  requestPath: string,
+  fullUrl: string,
+  profileApiBaseUrl: string
+) {
+  const staticRouteSeo = resolveServerRouteSeo(requestPath, fullUrl);
+  const dynamicProfileSeo = await resolveProfileRequestOutcome(
+    requestPath,
+    profileApiBaseUrl,
+    fullUrl
+  );
+
+  if (dynamicProfileSeo) {
+    return staticRouteSeo ? { ...staticRouteSeo, ...dynamicProfileSeo } : dynamicProfileSeo;
+  }
+
+  if (staticRouteSeo) {
+    return staticRouteSeo;
+  }
+
+  return isKnownAppRoute(requestPath) ? null : buildNotFoundRouteSeo(fullUrl);
 }
 
 const STATIC_ASSET_EXTENSIONS = new Set([
@@ -420,6 +485,23 @@ export function createServer(): express.Express {
     res.status(410).type('text/plain; charset=utf-8').send('Gone');
   });
 
+  // The legacy Explore surface is retired.
+  // Return 410 for the whole prefix so crawlers and users stop treating it as active.
+  server.get(/^\/explore(?:\/.*)?$/, (_req: Request, res: Response) => {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    res.status(410).type('text/plain; charset=utf-8').send('Gone');
+  });
+
+  server.get(/^\/(?:pulse|explore\/pulse)\/[^/]+\/?$/, (req: Request, res: Response) => {
+    if (!isRetiredPulseArticleRoute(req.path)) {
+      res.status(404).type('text/plain; charset=utf-8').send('Not found');
+      return;
+    }
+
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    res.status(410).type('text/plain; charset=utf-8').send('Gone');
+  });
+
   const backendTarget = process.env['BACKEND_URL'] || 'https://api.nxt1sports.com';
   const profileApiBaseUrl = resolveProfileApiBaseUrl(
     process.env['BACKEND_API_URL'] || backendTarget
@@ -494,14 +576,13 @@ export function createServer(): express.Express {
     // Extract theme preferences from cookies for flash-free SSR
     const themePreference = extractCookie(req, THEME_COOKIE);
     const sportTheme = extractCookie(req, SPORT_THEME_COOKIE);
-    const staticRouteSeo = resolveServerRouteSeo(req.path, fullUrl);
+    let resolvedRouteSeo: ReturnType<typeof resolveServerRouteSeo> = null;
 
-    Promise.resolve(resolveDynamicProfileRouteSeo(req.path, profileApiBaseUrl))
-      .then((dynamicProfileSeo) => ({
-        routeSeo: dynamicProfileSeo ? { ...staticRouteSeo, ...dynamicProfileSeo } : staticRouteSeo,
-      }))
-      .then(({ routeSeo }) =>
-        commonEngine
+    Promise.resolve(resolveRequestRouteSeo(req.path, fullUrl, profileApiBaseUrl))
+      .then((routeSeo) => {
+        resolvedRouteSeo = routeSeo;
+
+        return commonEngine
           .render({
             bootstrap,
             documentFilePath: INDEX_HTML,
@@ -526,8 +607,8 @@ export function createServer(): express.Express {
               },
             ],
           })
-          .then((html) => ({ html, routeSeo }))
-      )
+          .then((html) => ({ html, routeSeo }));
+      })
       .then(({ html, routeSeo }) => {
         // Add security headers
         res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -544,7 +625,13 @@ export function createServer(): express.Express {
         const renderedHtml = isPublicMarketingRoute(req) ? optimizePublicMarketingHtml(html) : html;
         const responseHtml = applyServerRouteSeo(renderedHtml, routeSeo);
 
-        sendCompressedBody(req, res, 200, responseHtml, 'text/html; charset=utf-8');
+        sendCompressedBody(
+          req,
+          res,
+          routeSeo?.statusCode ?? 200,
+          responseHtml,
+          'text/html; charset=utf-8'
+        );
       })
       .catch((err) => {
         // Log the SSR error for debugging in Cloud Run logs
@@ -564,7 +651,7 @@ export function createServer(): express.Express {
         res.setHeader('X-SSR-Fallback', 'true');
 
         try {
-          const routeSeo = staticRouteSeo;
+          const routeSeo = resolvedRouteSeo;
           if (routeSeo?.robots) {
             res.setHeader('X-Robots-Tag', routeSeo.robots);
           }

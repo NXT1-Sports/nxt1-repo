@@ -55,7 +55,7 @@ import type { SportLandingConfig } from '@nxt1/core';
         primaryCtaLabel="Create Free Profile"
         primaryCtaRoute="/auth"
         [secondaryCtaLabel]="'Browse ' + c.displayName + ' Athletes'"
-        secondaryCtaRoute="/explore"
+        secondaryCtaRoute="/agent-x"
         [ariaId]="c.slug + '-hero'"
       >
         <nxt1-sport-landing-preview

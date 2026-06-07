@@ -37,6 +37,7 @@ import type {
 } from '@nxt1/core';
 import { logger } from '../../../utils/logger.js';
 import type { AgentJobProgress } from './queue.types.js';
+import { trackAgentJobTerminalEvent } from '../services/ga4-agent-job.service.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -382,6 +383,15 @@ export interface AgentJobDocument {
   readonly expiresAt: FirebaseFirestore.Timestamp;
 }
 
+type TerminalAnalyticsMetadata = {
+  userId?: string | null;
+  origin?: string | null;
+  threadId?: string | null;
+  intent?: string | null;
+  autoResolveType?: string | null;
+  autoResolveStatus?: string | null;
+};
+
 // ─── Repository ─────────────────────────────────────────────────────────────
 
 export class AgentJobRepository {
@@ -490,6 +500,9 @@ export class AgentJobRepository {
     // Sanitize before write: strip `undefined` values and non-serializable
     // nested objects that cause Firestore INVALID_ARGUMENT errors.
     const safeResult = sanitizeForFirestore(result);
+    const snapshot = await this.jobRef(operationId).get();
+    const currentData = snapshot.data() as Partial<AgentJobDocument> | undefined;
+    const shouldTrackCompletion = currentData?.status !== 'completed';
 
     try {
       await this.jobRef(operationId).update({
@@ -512,6 +525,20 @@ export class AgentJobRepository {
       });
       throw err;
     }
+
+    if (shouldTrackCompletion) {
+      await trackAgentJobTerminalEvent({
+        operationId,
+        status: 'completed',
+        userId: currentData?.userId ?? null,
+        origin: currentData?.origin ?? null,
+        threadId: currentData?.threadId ?? null,
+        intent: currentData?.intent ?? null,
+        autoResolveType: currentData?.autoResolveType ?? null,
+        autoResolveStatus: currentData?.autoResolveStatus ?? null,
+        summary: typeof result.summary === 'string' ? result.summary : null,
+      });
+    }
   }
 
   /**
@@ -531,12 +558,15 @@ export class AgentJobRepository {
       origin?: string | null;
       threadId?: string | null;
       intent?: string | null;
+      replayPayload?: AgentJobPayload | null;
       error: string;
       createdAt?: unknown;
       failedAt: Date;
     } | null = null;
 
     const shouldQueueAlert = process.env['NODE_ENV'] !== 'test';
+    let shouldTrackFailure = false;
+    let analyticsInput: TerminalAnalyticsMetadata | null = null;
 
     await this.db.runTransaction(async (tx) => {
       const snapshot = await tx.get(jobRef);
@@ -551,6 +581,17 @@ export class AgentJobRepository {
       ) {
         return;
       }
+
+      shouldTrackFailure = true;
+      const data = snapshot.data() as Partial<AgentJobDocument> | undefined;
+      analyticsInput = {
+        userId: data?.userId ?? null,
+        origin: data?.origin ?? null,
+        threadId: data?.threadId ?? null,
+        intent: data?.intent ?? null,
+        autoResolveType: data?.autoResolveType ?? null,
+        autoResolveStatus: data?.autoResolveStatus ?? null,
+      };
 
       const existingAlertStatus = snapshot.exists ? snapshot.get('failureAlertStatus') : null;
       const shouldSetAlertPending =
@@ -577,13 +618,13 @@ export class AgentJobRepository {
         update['failureSlackAlertQueuedAt'] = FieldValue.serverTimestamp();
         update['failureSlackAlertError'] = null;
 
-        const data = snapshot.data() as Partial<AgentJobDocument> | undefined;
         alertInput = {
           operationId,
           userId: data?.userId ?? null,
           origin: data?.origin ?? null,
           threadId: data?.threadId ?? null,
           intent: data?.intent ?? null,
+          replayPayload: data?.replayPayload ?? null,
           error,
           createdAt: data?.createdAt,
           failedAt: new Date(),
@@ -592,6 +633,31 @@ export class AgentJobRepository {
 
       tx.update(jobRef, update);
     });
+
+    if (shouldTrackFailure) {
+      const terminalAnalyticsInput =
+        analyticsInput ??
+        ({
+          userId: null,
+          origin: null,
+          threadId: null,
+          intent: null,
+          autoResolveType: null,
+          autoResolveStatus: null,
+        } satisfies TerminalAnalyticsMetadata);
+
+      await trackAgentJobTerminalEvent({
+        operationId,
+        status: 'failed',
+        userId: terminalAnalyticsInput.userId ?? null,
+        origin: terminalAnalyticsInput.origin ?? null,
+        threadId: terminalAnalyticsInput.threadId ?? null,
+        intent: terminalAnalyticsInput.intent ?? null,
+        autoResolveType: terminalAnalyticsInput.autoResolveType ?? null,
+        autoResolveStatus: terminalAnalyticsInput.autoResolveStatus ?? null,
+        error,
+      });
+    }
 
     if (alertInput) {
       await this.dispatchFailureAlert(alertInput);
@@ -602,18 +668,45 @@ export class AgentJobRepository {
   private async dispatchRecoveryStartedEmail(input: {
     operationId: string;
     userId?: string | null;
+    origin?: string | null;
     intent?: string | null;
+    replayPayload?: AgentJobPayload | null;
     error: string;
   }): Promise<void> {
     if (!input.userId) return;
 
-    const { classifyAgentJobAutoResolveType } =
-      await import('../services/agent-job-auto-resolver.service.js');
+    const {
+      classifyAgentJobAutoResolveType,
+      shouldAutoRetryAgentJob,
+      shouldSendAgentJobCustomerRecoveryEmail,
+    } = await import('../services/agent-job-auto-resolver.service.js');
     const { isAgentJobCustomerRecoveryEmailEnabled, sendAgentJobRecoveryStartedEmail } =
       await import('../../../services/communications/agent-jobs/email/agent-job-recovery-started-email.service.js');
 
     if (!isAgentJobCustomerRecoveryEmailEnabled()) return;
-    if (!classifyAgentJobAutoResolveType(input.error)) return;
+    const autoResolveType = classifyAgentJobAutoResolveType(input.error);
+    if (!autoResolveType) return;
+
+    if (!shouldAutoRetryAgentJob({ replayPayload: input.replayPayload ?? null }, autoResolveType)) {
+      return;
+    }
+
+    if (
+      !shouldSendAgentJobCustomerRecoveryEmail({
+        origin: input.origin ?? 'user',
+        replayPayload: input.replayPayload ?? null,
+      })
+    ) {
+      await this.jobRef(input.operationId).set(
+        {
+          autoRecoveryStartedEmailStatus: 'skipped',
+          autoRecoveryStartedEmailError: 'suppressed_by_policy',
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      return;
+    }
 
     const jobRef = this.jobRef(input.operationId);
     const claimed = await this.db.runTransaction(async (tx) => {
