@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyServerRouteSeo,
+  buildNotFoundRouteSeo,
+  buildMissingProfileRouteSeo,
   buildServerProfileRouteSeo,
+  isRetiredPulseArticleRoute,
   resolveServerRouteSeo,
 } from './ssr-route-seo';
 
@@ -51,6 +54,45 @@ describe('ssr-route-seo', () => {
       canonicalUrl: 'https://nxt1sports.com/profile/football/test-athlete/123',
     });
     expect(metadata?.robots).toContain('index');
+  });
+
+  it('marks explore pulse routes as noindex', () => {
+    const metadata = resolveServerRouteSeo(
+      '/explore/pulse',
+      'https://nxt1sports.com/explore/pulse?tab=latest'
+    );
+
+    expect(metadata?.canonicalUrl).toBe('https://nxt1sports.com/explore/pulse');
+    expect(metadata?.robots).toContain('noindex');
+  });
+
+  it('builds a non-indexable 404 for missing profiles', () => {
+    const metadata = buildMissingProfileRouteSeo('https://nxt1sports.com/profile/99999999999');
+
+    expect(metadata).toMatchObject({
+      title: 'Profile Not Found',
+      canonicalUrl: 'https://nxt1sports.com/profile/99999999999',
+      statusCode: 404,
+    });
+    expect(metadata.robots).toContain('noindex');
+  });
+
+  it('builds a non-indexable 404 for unknown routes', () => {
+    const metadata = buildNotFoundRouteSeo('https://nxt1sports.com/does-not-exist');
+
+    expect(metadata).toMatchObject({
+      title: 'Page Not Found',
+      canonicalUrl: 'https://nxt1sports.com/does-not-exist',
+      statusCode: 404,
+    });
+    expect(metadata.robots).toContain('noindex');
+  });
+
+  it('detects retired pulse article detail routes', () => {
+    expect(isRetiredPulseArticleRoute('/pulse/abc123')).toBe(true);
+    expect(isRetiredPulseArticleRoute('/explore/pulse/abc123')).toBe(true);
+    expect(isRetiredPulseArticleRoute('/explore/pulse')).toBe(false);
+    expect(isRetiredPulseArticleRoute('/agent-x')).toBe(false);
   });
 
   it('builds compact SSR titles for public athlete profiles', () => {

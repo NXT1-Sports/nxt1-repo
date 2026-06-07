@@ -6,12 +6,22 @@
  * for distributed environments. Provides shared state across multiple server instances.
  */
 
-import rateLimit from 'express-rate-limit';
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import RedisStore from 'rate-limit-redis';
 import type { Request } from 'express';
 import { getCache } from '@nxt1/cache';
 import { rateLimitError } from '@nxt1/core/errors';
 import { logger } from '../../utils/logger.js';
+
+function redisRateLimitBaseKey(req: Request): string {
+  const userId = (req as { user?: { uid?: string } }).user?.uid;
+
+  if (userId) {
+    return `user:${userId}`;
+  }
+
+  return `ip:${ipKeyGenerator(req.ip ?? 'anonymous')}`;
+}
 
 // ============================================
 // REDIS STORE MANAGEMENT
@@ -179,12 +189,7 @@ export async function createRedisRateLimit(type: RateLimitType = 'api') {
     },
 
     // Key generator for better tracking
-    keyGenerator: (req: Request): string => {
-      // Use user ID if authenticated, otherwise IP
-      const userId = (req as { user?: { uid?: string } }).user?.uid;
-      const baseKey = userId ? `user:${userId}` : `ip:${req.ip}`;
-      return `${type}:${baseKey}`;
-    },
+    keyGenerator: (req: Request): string => `${type}:${redisRateLimitBaseKey(req)}`,
   });
 }
 

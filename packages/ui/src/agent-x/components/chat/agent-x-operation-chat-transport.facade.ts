@@ -959,12 +959,6 @@ export class AgentXOperationChatTransportFacade {
               streaming: true,
               model: event.model,
             });
-            this.analytics?.trackEvent(APP_EVENTS.AGENT_X_JOB_COMPLETED, {
-              contextType: host.contextType(),
-              contextId: host.contextId(),
-              operationId: terminalOperationId ?? undefined,
-              threadId: event.threadId ?? threadId ?? undefined,
-            });
             this.analytics?.trackEvent(APP_EVENTS.AI_TASK_COMPLETED, {
               contextType: host.contextType(),
               contextId: host.contextId(),
@@ -1081,12 +1075,6 @@ export class AgentXOperationChatTransportFacade {
               content: 'Something went wrong. Please try again.',
               timestamp: new Date(),
               error: true,
-            });
-            this.analytics?.trackEvent(APP_EVENTS.AGENT_X_JOB_FAILED, {
-              contextType: host.contextType(),
-              contextId: host.contextId(),
-              operationId: currentOperationId ?? undefined,
-              threadId: host.resolvedThreadId() ?? undefined,
             });
             this.analytics?.trackEvent(APP_EVENTS.AI_TASK_FAILED, {
               contextType: host.contextType(),

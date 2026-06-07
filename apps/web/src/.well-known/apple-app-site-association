@@ -9,6 +9,8 @@
           "NOT /__/auth/handler/",
           "NOT /_/*",
           "NOT /api/*",
+          "NOT /explore",
+          "NOT /explore/*",
           "/profile/*",
           "/athlete/*",
           "/team/*",
@@ -18,7 +20,6 @@
           "/college/*",
           "/settings",
           "/settings/*",
-          "/explore",
           "/home",
           "/*"
         ]

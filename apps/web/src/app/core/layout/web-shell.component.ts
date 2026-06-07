@@ -1488,7 +1488,7 @@ export class WebShellComponent {
   // ============================================
 
   /** Current route for active state detection */
-  private readonly _currentRoute = signal('/explore');
+  private readonly _currentRoute = signal('/agent-x');
   protected readonly platformBannerScrolledAway = signal(false);
 
   protected readonly showLoggedOutPlatformBanner = computed(() => {
@@ -1501,7 +1501,7 @@ export class WebShellComponent {
   });
 
   /** Active tab ID for mobile footer */
-  private readonly _activeTabId = signal<string | null>('explore');
+  private readonly _activeTabId = signal<string | null>('agent');
   readonly activeTabId = computed(() => this._activeTabId());
 
   /** Sidebar collapsed state (persisted) */
