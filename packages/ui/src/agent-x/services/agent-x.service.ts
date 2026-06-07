@@ -82,6 +82,7 @@ const AGENT_X_PENDING_STARTUP_MESSAGE_KEY = 'nxt1_pending_startup_message';
 const AGENT_X_WEEKLY_TASKS_GOAL_ID = 'recurring';
 const AGENT_X_WEEKLY_TASKS_GOAL_LABEL = 'Weekly Tasks';
 const SELECTED_CONTEXT_SUMMARY_MAX_CHARS = 600;
+const PENDING_PLAYBOOK_OPERATION_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 function truncateSelectedContextSummary(summary: string): string {
   const trimmed = summary.trim();
@@ -1910,6 +1911,53 @@ export class AgentXService {
       return;
     }
 
+    const pendingPlaybookRequest = this.readPendingPlaybookRequest();
+    const pendingOperationId = pendingPlaybookRequest.operationId;
+    if (pendingOperationId) {
+      if (this._playbookPollingInFlight) {
+        this.toast.info('Your playbook is still generating');
+        return;
+      }
+
+      this._playbookGenerating.set(true);
+      this._playbookPollingInFlight = true;
+      this.logger.info('Reattaching to pending playbook generation', {
+        operationId: pendingOperationId,
+        force,
+      });
+
+      try {
+        const pollResult = await this.pollPlaybookGenerationStatus(pendingOperationId);
+        if (!pollResult.success) {
+          if (!pollResult.timedOut) {
+            this.clearPendingPlaybookOperation();
+            this.toast.error(pollResult.error ?? 'Playbook generation failed');
+          } else {
+            this.toast.info('Your playbook is still generating');
+          }
+          return;
+        }
+
+        this.clearPendingPlaybookOperation();
+        await this.applyPlaybookPollResult(pollResult.playbook, true);
+        this._canRegenerate.set(true);
+        this.toast.success('Weekly playbook generated!');
+        return;
+      } catch (err) {
+        this.logger.error('Failed to reattach to pending playbook generation', err, {
+          operationId: pendingOperationId,
+        });
+        if (this.isNotFoundError(err)) {
+          this.clearPendingPlaybookOperation();
+        }
+        this.toast.error('Failed to check playbook generation');
+        return;
+      } finally {
+        this._playbookPollingInFlight = false;
+        this._playbookGenerating.set(false);
+      }
+    }
+
     this._playbookGenerating.set(true);
     this.logger.info('Generating playbook', { force });
     this.breadcrumb.trackStateChange('agent-x:playbook-generating');
@@ -1921,9 +1969,13 @@ export class AgentXService {
         error?: string;
       };
 
+      const idempotencyKey = pendingPlaybookRequest.idempotencyKey ?? this.generateId();
+      this.persistPendingPlaybookOperation(null, idempotencyKey);
+
       const enqueueResponse = await firstValueFrom(
         this.http.post<PlaybookEnqueueResponse>(`${this.baseUrl}/agent-x/playbook/generate`, {
           force,
+          idempotencyKey,
         })
       );
 
@@ -1934,7 +1986,7 @@ export class AgentXService {
 
       const operationId = enqueueResponse.data.operationId;
       this.logger.info('Playbook generation queued', { operationId, force });
-      this.persistPendingPlaybookOperation(operationId);
+      this.persistPendingPlaybookOperation(operationId, idempotencyKey);
 
       this._playbookPollingInFlight = true;
       const pollResult = await this.pollPlaybookGenerationStatus(operationId);
@@ -2066,28 +2118,55 @@ export class AgentXService {
     await this.loadDashboard();
   }
 
-  private persistPendingPlaybookOperation(operationId: string): void {
+  private persistPendingPlaybookOperation(
+    operationId: string | null,
+    idempotencyKey?: string
+  ): void {
     if (!isPlatformBrowser(this.platformId)) return;
     try {
-      sessionStorage.setItem(
-        AGENT_X_PENDING_PLAYBOOK_OP_KEY,
-        JSON.stringify({ operationId, savedAt: Date.now() })
-      );
+      const payload: { operationId?: string; idempotencyKey?: string; savedAt: number } = {
+        savedAt: Date.now(),
+      };
+      if (operationId) payload.operationId = operationId;
+      if (idempotencyKey) payload.idempotencyKey = idempotencyKey;
+
+      sessionStorage.setItem(AGENT_X_PENDING_PLAYBOOK_OP_KEY, JSON.stringify(payload));
     } catch {
       // Non-blocking best-effort persistence.
     }
   }
 
-  private readPendingPlaybookOperation(): string | null {
-    if (!isPlatformBrowser(this.platformId)) return null;
+  private readPendingPlaybookRequest(): {
+    operationId: string | null;
+    idempotencyKey: string | null;
+  } {
+    if (!isPlatformBrowser(this.platformId)) return { operationId: null, idempotencyKey: null };
     try {
       const raw = sessionStorage.getItem(AGENT_X_PENDING_PLAYBOOK_OP_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as { operationId?: unknown };
-      return typeof parsed.operationId === 'string' ? parsed.operationId : null;
+      if (!raw) return { operationId: null, idempotencyKey: null };
+      const parsed = JSON.parse(raw) as {
+        operationId?: unknown;
+        idempotencyKey?: unknown;
+        savedAt?: unknown;
+      };
+
+      const savedAt = typeof parsed.savedAt === 'number' ? parsed.savedAt : 0;
+      if (savedAt > 0 && Date.now() - savedAt > PENDING_PLAYBOOK_OPERATION_MAX_AGE_MS) {
+        this.clearPendingPlaybookOperation();
+        return { operationId: null, idempotencyKey: null };
+      }
+
+      return {
+        operationId: typeof parsed.operationId === 'string' ? parsed.operationId : null,
+        idempotencyKey: typeof parsed.idempotencyKey === 'string' ? parsed.idempotencyKey : null,
+      };
     } catch {
-      return null;
+      return { operationId: null, idempotencyKey: null };
     }
+  }
+
+  private readPendingPlaybookOperation(): string | null {
+    return this.readPendingPlaybookRequest().operationId;
   }
 
   private clearPendingPlaybookOperation(): void {
@@ -2135,11 +2214,18 @@ export class AgentXService {
         operationId,
         error: err instanceof Error ? err.message : String(err),
       });
+      if (this.isNotFoundError(err)) {
+        this.clearPendingPlaybookOperation();
+      }
     } finally {
       this._playbookPollingInFlight = false;
       this._playbookGenerating.set(false);
       this._playbookResumePollingInFlight = false;
     }
+  }
+
+  private isNotFoundError(err: unknown): boolean {
+    return typeof err === 'object' && err !== null && (err as { status?: unknown }).status === 404;
   }
 
   /**

@@ -226,7 +226,13 @@ export async function dispatchToMany(
   input: Omit<DispatchNotificationInput, 'userId'>
 ): Promise<readonly DispatchResult[]> {
   const results = await Promise.allSettled(
-    userIds.map((userId) => dispatch(db, { ...input, userId }))
+    userIds.map((userId) => {
+      const perRecipientInput = input.idempotencyKey
+        ? { ...input, idempotencyKey: `${input.idempotencyKey}_${userId}` }
+        : input;
+
+      return dispatch(db, { ...perRecipientInput, userId });
+    })
   );
 
   const dispatched: DispatchResult[] = [];

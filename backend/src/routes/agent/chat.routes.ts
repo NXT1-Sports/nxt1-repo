@@ -464,7 +464,10 @@ async function resolveSelectedActionIntent(params: {
       appConfig
     );
 
-    return configuredAction?.executionPrompt ?? params.fallbackIntent;
+    return mergeSelectedActionExecutionPrompt(
+      configuredAction?.executionPrompt,
+      params.fallbackIntent
+    );
   } catch (error) {
     logger.warn('Failed to resolve selected quick action intent; falling back to visible prompt', {
       userId: params.userId,
@@ -475,6 +478,31 @@ async function resolveSelectedActionIntent(params: {
     });
     return params.fallbackIntent;
   }
+}
+
+function mergeSelectedActionExecutionPrompt(
+  executionPrompt: string | null | undefined,
+  fallbackIntent: string
+): string {
+  const trimmedFallback = fallbackIntent.trim();
+  const trimmedPrompt = executionPrompt?.trim();
+
+  if (!trimmedPrompt) {
+    return fallbackIntent;
+  }
+
+  if (!trimmedFallback || trimmedPrompt.includes(trimmedFallback)) {
+    return trimmedPrompt;
+  }
+
+  return [
+    trimmedPrompt,
+    '',
+    '[User request and attached context]',
+    trimmedFallback,
+    '',
+    '[Instruction: Execute the selected action using the user request, selected contexts, and attached media above. Do not ignore attachments or return only a plan when the request asks for a produced deliverable.]',
+  ].join('\n');
 }
 
 function stampAgentXLastActiveAt(db: Firestore, userId: string): void {

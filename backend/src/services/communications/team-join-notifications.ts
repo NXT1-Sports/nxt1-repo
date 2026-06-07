@@ -1,20 +1,21 @@
 /**
- * @fileoverview Team Join Notifications — Org-Level Admin Fan-Out
+ * @fileoverview Team Join Notifications — Team Membership Fan-Out
  * @module @nxt1/backend/services/communications/team-join-notifications
  *
  * Single source of truth for "someone joined a team" notifications.
  *
- * Notifications are ALWAYS dispatched at the ORGANIZATION level, never the
- * team level. Every admin on the organization receives the push + activity
- * entry. This is invoked from BOTH join paths:
+ * Notifications are dispatched to every organization admin plus active
+ * team-level managers/coaches so the people who can act on roster requests
+ * receive the push + activity entry. This is invoked from BOTH join paths:
  *
  *   1. POST /api/v1/teams/:teamCode/join     (direct join)
  *   2. POST /api/v1/invite/accept            (invite link / QR / referral)
  *
  * Recipient resolution order (deduped):
  *   1. `Organizations/{organizationId}.admins[].userId`
- *   2. `Organizations/{organizationId}.ownerId`               (fallback)
- *   3. `Teams/{teamId}.createdBy`                             (legacy fallback)
+ *   2. `Organizations/{organizationId}.ownerId`
+ *   3. Active manager roles in `RosterEntries`
+ *   4. `Teams/{teamId}.createdBy`                             (legacy fallback)
  *
  * The joiner is always excluded from recipients.
  *
@@ -29,7 +30,8 @@
 
 import type { Firestore } from 'firebase-admin/firestore';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
-import { dispatchToMany } from './notification.service.js';
+import { dispatch, dispatchToMany } from './notification.service.js';
+import { canManageTeamMembershipForRole } from '../team/team-intel-permissions.js';
 import { logger } from '../../utils/logger.js';
 
 // ============================================
@@ -66,6 +68,22 @@ export interface NotifyTeamJoinedResult {
   readonly recipientCount: number;
   readonly dispatchedCount: number;
   readonly organizationId: string | null;
+}
+
+export interface NotifyMembershipApprovedInput {
+  /** Team primary key (Teams/{id}) */
+  readonly teamId: string;
+  /** UID of the approved user */
+  readonly userId: string;
+  /** UID of the team admin who approved the request */
+  readonly approvedBy: string;
+  /** Optional display name of the team. If omitted, resolved from Teams doc. */
+  readonly teamName?: string;
+}
+
+export interface NotifyMembershipApprovedResult {
+  readonly dispatched: boolean;
+  readonly notificationId: string | null;
 }
 
 // ============================================
@@ -160,6 +178,51 @@ export async function notifyTeamJoined(
   }
 }
 
+/**
+ * Notify a user that a pending team membership request was approved.
+ * Fire-and-forget safe: never throws. Failures are logged and returned.
+ */
+export async function notifyMembershipApproved(
+  db: Firestore,
+  input: NotifyMembershipApprovedInput
+): Promise<NotifyMembershipApprovedResult> {
+  const { teamId, userId, approvedBy } = input;
+
+  try {
+    const teamName = input.teamName ?? (await resolveTeamName(db, teamId)) ?? 'your team';
+    const result = await dispatch(db, {
+      userId,
+      type: NOTIFICATION_TYPES.TEAM_MEMBER_JOINED,
+      title: `You're on ${teamName}`,
+      body: `Your request to join ${teamName} was accepted.`,
+      deepLink: `/team/${teamId}`,
+      data: {
+        teamId,
+        approvedBy,
+      },
+      source: { teamName },
+      idempotencyKey: `team_membership_approved_${teamId}_${userId}`,
+    });
+
+    logger.info('[notifyMembershipApproved] Dispatched approval notification', {
+      teamId,
+      userId,
+      approvedBy,
+      notificationId: result.notificationId,
+    });
+
+    return { dispatched: true, notificationId: result.notificationId };
+  } catch (err) {
+    logger.error('[notifyMembershipApproved] Failed to dispatch approval notification', {
+      teamId,
+      userId,
+      approvedBy,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { dispatched: false, notificationId: null };
+  }
+}
+
 // ============================================
 // HELPERS
 // ============================================
@@ -217,21 +280,19 @@ async function resolveOrgAdminRecipients(
       }
     }
 
-    if (
-      recipientSet.size === 0 &&
-      typeof orgData?.ownerId === 'string' &&
-      orgData.ownerId.length > 0
-    ) {
+    if (typeof orgData?.ownerId === 'string' && orgData.ownerId.length > 0) {
       recipientSet.add(orgData.ownerId);
     }
   }
 
-  // Legacy fallback: pre-Organizations teams only have Teams.createdBy.
-  if (
-    recipientSet.size === 0 &&
-    typeof teamData?.createdBy === 'string' &&
-    teamData.createdBy.length > 0
-  ) {
+  const managerIds = await resolveActiveTeamManagerRecipients(db, teamId);
+  for (const managerId of managerIds) {
+    recipientSet.add(managerId);
+  }
+
+  // Legacy fallback: pre-Organizations teams only have Teams.createdBy. Keep it
+  // included for current teams too because this is often the acting coach.
+  if (typeof teamData?.createdBy === 'string' && teamData.createdBy.length > 0) {
     recipientSet.add(teamData.createdBy);
   }
 
@@ -242,4 +303,32 @@ async function resolveOrgAdminRecipients(
     organizationId,
     recipients: Array.from(recipientSet),
   };
+}
+
+async function resolveActiveTeamManagerRecipients(
+  db: Firestore,
+  teamId: string
+): Promise<readonly string[]> {
+  const snapshot = await db
+    .collection('RosterEntries')
+    .where('teamId', '==', teamId)
+    .where('status', '==', 'active')
+    .get();
+
+  const recipients = new Set<string>();
+
+  for (const doc of snapshot.docs) {
+    const data = doc.data() as { userId?: string; role?: string | null };
+    if (typeof data.userId !== 'string' || data.userId.length === 0) continue;
+    if (!canManageTeamMembershipForRole(data.role)) continue;
+    recipients.add(data.userId);
+  }
+
+  return Array.from(recipients);
+}
+
+async function resolveTeamName(db: Firestore, teamId: string): Promise<string | null> {
+  const teamSnap = await db.collection('Teams').doc(teamId).get();
+  const data = teamSnap.data() as { teamName?: string; name?: string } | undefined;
+  return data?.teamName ?? data?.name ?? null;
 }

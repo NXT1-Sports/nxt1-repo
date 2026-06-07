@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
+import { cleanupStaleAgentJobs } from '../agent/cron.routes.js';
 
 const cronListenersMocks = vi.hoisted(() => ({
   runWeeklyPlaybooks: vi.fn<() => Promise<void>>(),
@@ -26,6 +27,71 @@ vi.mock('../../modules/agent/triggers/trigger.listeners.js', () => ({
 }));
 
 import app from '../../test-app.js';
+
+interface MockAgentJobDoc {
+  id: string;
+  status: 'queued' | 'paused' | 'awaiting_input' | 'awaiting_approval';
+  createdAt: string;
+  origin?: string | null;
+  threadId?: string | null;
+}
+
+function createMockAgentJobsDb(docs: MockAgentJobDoc[]) {
+  const applyFilters = (
+    source: MockAgentJobDoc[],
+    filters: Array<{ field: string; operator: string; value: unknown }>
+  ) => {
+    return source.filter((doc) => {
+      return filters.every((filter) => {
+        if (filter.field === 'status' && filter.operator === '==') {
+          return doc.status === filter.value;
+        }
+
+        if (
+          filter.field === 'createdAt' &&
+          filter.operator === '<' &&
+          filter.value instanceof Date
+        ) {
+          return new Date(doc.createdAt).getTime() < filter.value.getTime();
+        }
+
+        return false;
+      });
+    });
+  };
+
+  const buildQuery = (
+    filters: Array<{ field: string; operator: string; value: unknown }> = [],
+    limitCount = Number.POSITIVE_INFINITY
+  ) => ({
+    where(field: string, operator: string, value: unknown) {
+      return buildQuery([...filters, { field, operator, value }], limitCount);
+    },
+    limit(count: number) {
+      return buildQuery(filters, count);
+    },
+    async get() {
+      const filtered = applyFilters(docs, filters).slice(0, limitCount);
+      return {
+        docs: filtered.map((doc) => ({
+          id: doc.id,
+          data: () => ({
+            createdAt: doc.createdAt,
+            origin: doc.origin ?? null,
+            threadId: doc.threadId ?? null,
+          }),
+        })),
+      };
+    },
+  });
+
+  return {
+    collection(name: string) {
+      expect(name).toBe('AgentJobs');
+      return buildQuery();
+    },
+  } as unknown as import('firebase-admin').firestore.Firestore;
+}
 
 describe('Agent X Cron Routes Smoke', () => {
   beforeEach(() => {
@@ -239,5 +305,88 @@ describe('Agent X Cron Routes Smoke', () => {
 
     releaseRun?.();
     await Promise.resolve();
+  });
+
+  it('cleans up stale queued and yielded jobs with separate thresholds', async () => {
+    const now = new Date('2026-06-01T12:00:00.000Z');
+    const jobRepository = {
+      markFailed: vi.fn().mockResolvedValue(undefined),
+      markCancelled: vi.fn().mockResolvedValue(undefined),
+    };
+    const clearThreadPausedYieldState = vi.fn().mockResolvedValue(true);
+
+    const result = await cleanupStaleAgentJobs({
+      db: createMockAgentJobsDb([
+        {
+          id: 'queued-old',
+          status: 'queued',
+          createdAt: '2026-06-01T10:00:00.000Z',
+        },
+        {
+          id: 'queued-fresh',
+          status: 'queued',
+          createdAt: '2026-06-01T11:10:00.000Z',
+        },
+        {
+          id: 'paused-system-old',
+          status: 'paused',
+          origin: 'system_cron',
+          threadId: 'thread-system',
+          createdAt: '2026-05-28T11:00:00.000Z',
+        },
+        {
+          id: 'awaiting-user-old',
+          status: 'awaiting_input',
+          origin: 'user',
+          threadId: 'thread-user',
+          createdAt: '2026-05-24T11:00:00.000Z',
+        },
+        {
+          id: 'paused-user-recent',
+          status: 'paused',
+          origin: 'user',
+          threadId: 'thread-recent',
+          createdAt: '2026-05-31T11:00:00.000Z',
+        },
+        {
+          id: 'approval-other-origin',
+          status: 'awaiting_approval',
+          origin: 'system',
+          threadId: 'thread-skip',
+          createdAt: '2026-05-20T11:00:00.000Z',
+        },
+      ]),
+      now,
+      jobRepository,
+      clearThreadPausedYieldState,
+    });
+
+    expect(jobRepository.markFailed).toHaveBeenCalledTimes(1);
+    expect(jobRepository.markFailed).toHaveBeenCalledWith(
+      'queued-old',
+      'Job timed out - no activity for over 100 minutes'
+    );
+    expect(jobRepository.markCancelled).toHaveBeenCalledTimes(2);
+    expect(jobRepository.markCancelled).toHaveBeenCalledWith('paused-system-old', {
+      message: 'Operation auto-cancelled after waiting more than 72 hours for scheduled follow-up.',
+    });
+    expect(jobRepository.markCancelled).toHaveBeenCalledWith('awaiting-user-old', {
+      message: 'Operation auto-cancelled after waiting more than 7 days for user follow-up.',
+    });
+    expect(clearThreadPausedYieldState).toHaveBeenCalledTimes(2);
+    expect(clearThreadPausedYieldState).toHaveBeenCalledWith('thread-system');
+    expect(clearThreadPausedYieldState).toHaveBeenCalledWith('thread-user');
+    expect(result).toEqual({
+      scanned: 4,
+      queuedScanned: 1,
+      yieldedScanned: 3,
+      markedFailed: 1,
+      cancelled: 2,
+      cancelledSystemCronYielded: 1,
+      cancelledUserYielded: 1,
+      skippedYielded: 1,
+      failedToUpdate: 0,
+      threadStateClearFailures: 0,
+    });
   });
 });

@@ -7,7 +7,7 @@ import { TrimVideoInputSchema } from './schemas.js';
 export class FfmpegTrimVideoTool extends BaseTool {
   readonly name = 'ffmpeg_trim_video';
   readonly description =
-    'Trim a source video using start + end or start + duration and produce a new output file.';
+    'Trim or preserve a source video range using start + end or start + duration. For short uploaded highlight clips, use startTime=0 and endTime equal to the source duration when preserving the full clip for merging.';
   readonly parameters = TrimVideoInputSchema;
 
   readonly isMutation = true;
@@ -22,9 +22,11 @@ export class FfmpegTrimVideoTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const normalizedInput = normalizeFfmpegToolInput(input, {
-      coerceStringFields: ['startTime', 'endTime', 'duration'],
-    });
+    const normalizedInput = this.normalizeTrimRequest(
+      normalizeFfmpegToolInput(input, {
+        coerceStringFields: ['startTime', 'endTime', 'duration'],
+      })
+    );
     const parsed = TrimVideoInputSchema.safeParse(normalizedInput);
     if (!parsed.success) return this.zodError(parsed.error);
 
@@ -48,5 +50,14 @@ export class FfmpegTrimVideoTool extends BaseTool {
       });
       return { success: false, error: message };
     }
+  }
+
+  private normalizeTrimRequest(input: Record<string, unknown>): Record<string, unknown> {
+    const endTime = typeof input['endTime'] === 'string' ? input['endTime'].trim() : '';
+    const duration = typeof input['duration'] === 'string' ? input['duration'].trim() : '';
+    if (!endTime || !duration) return input;
+
+    const { duration: _duration, ...withoutDuration } = input;
+    return withoutDuration;
   }
 }

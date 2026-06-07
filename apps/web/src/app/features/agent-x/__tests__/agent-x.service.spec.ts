@@ -523,4 +523,109 @@ describe('AgentXService', () => {
       expect(sessionStorage.getItem(pendingPlaybookOperationKey)).toBeNull();
     });
   });
+
+  it('reattaches to a pending playbook instead of enqueueing another billable generation', async () => {
+    const generatedItem = createPlaybookItem('reattached-1', {
+      id: 'goal-1',
+      label: 'Recruiting',
+    });
+    const serviceState = service as unknown as {
+      _goals: {
+        set: (goals: readonly { id: string; text: string; category: string }[]) => void;
+      };
+    };
+    serviceState._goals.set([{ id: 'goal-1', text: 'Get recruited', category: 'recruiting' }]);
+
+    sessionStorage.setItem(
+      pendingPlaybookOperationKey,
+      JSON.stringify({ operationId: 'playbook-op-pending', savedAt: Date.now() })
+    );
+
+    httpMock.get.mockImplementation((url: string) => {
+      if (url.includes('/agent-x/playbook/generate/status/playbook-op-pending')) {
+        return of({
+          success: true,
+          data: {
+            operationId: 'playbook-op-pending',
+            status: 'completed',
+            result: {
+              data: {
+                playbook: {
+                  id: 'reattached-playbook',
+                  items: [generatedItem],
+                  goals: [{ id: 'goal-1', text: 'Get recruited', category: 'recruiting' }],
+                  generatedAt: '2026-06-07T10:00:00.000Z',
+                  canRegenerate: true,
+                },
+              },
+            },
+          },
+        });
+      }
+      return of({ success: true, data: [] });
+    });
+
+    await service.generatePlaybook(true);
+
+    expect(httpMock.post).not.toHaveBeenCalledWith(
+      '/api/agent-x/playbook/generate',
+      expect.objectContaining({ force: true })
+    );
+    expect(service.weeklyPlaybook().map((item) => item.id)).toEqual(['reattached-1']);
+    expect(sessionStorage.getItem(pendingPlaybookOperationKey)).toBeNull();
+  });
+
+  it('reuses a pending playbook idempotency key when enqueue response is lost', async () => {
+    const serviceState = service as unknown as {
+      _goals: {
+        set: (goals: readonly { id: string; text: string; category: string }[]) => void;
+      };
+    };
+    serviceState._goals.set([{ id: 'goal-1', text: 'Get recruited', category: 'recruiting' }]);
+
+    sessionStorage.setItem(
+      pendingPlaybookOperationKey,
+      JSON.stringify({ idempotencyKey: 'stable-playbook-key', savedAt: Date.now() })
+    );
+
+    httpMock.post.mockReturnValue(
+      of({ success: true, data: { operationId: 'playbook-op-from-idempotency' } })
+    );
+    httpMock.get.mockImplementation((url: string) => {
+      if (url.includes('/agent-x/playbook/generate/status/playbook-op-from-idempotency')) {
+        return of({
+          success: true,
+          data: {
+            operationId: 'playbook-op-from-idempotency',
+            status: 'completed',
+            result: { data: { playbook: null } },
+          },
+        });
+      }
+      if (url.includes('/agent-x/dashboard')) {
+        return of({
+          success: true,
+          data: {
+            briefing: { insights: [], previewText: 'Ready' },
+            playbook: {
+              id: 'dashboard-playbook',
+              items: [],
+              goals: [],
+              generatedAt: null,
+              canRegenerate: true,
+            },
+            coordinators: [],
+          },
+        });
+      }
+      return of({ success: true, data: [] });
+    });
+
+    await service.generatePlaybook(true);
+
+    expect(httpMock.post).toHaveBeenCalledWith('/api/agent-x/playbook/generate', {
+      force: true,
+      idempotencyKey: 'stable-playbook-key',
+    });
+  });
 });

@@ -423,14 +423,10 @@ export class AgentJobRepository {
     return this.collectionRef().doc(operationId);
   }
 
-  /**
-   * Create a new job document when a job is enqueued.
-   * The frontend can immediately start listening to this document.
-   */
-  async create(payload: AgentJobPayload): Promise<void> {
+  private buildInitialJobData(payload: AgentJobPayload): Record<string, unknown> {
     const replayPayload = sanitizeForFirestore(payload);
 
-    await this.jobRef(payload.operationId).set({
+    return {
       operationId: payload.operationId,
       userId: payload.userId,
       replayPayload,
@@ -452,6 +448,31 @@ export class AgentJobRepository {
       updatedAt: FieldValue.serverTimestamp(),
       completedAt: null,
       expiresAt: ttlFromNow(ACTIVE_JOB_RETENTION_DAYS),
+    };
+  }
+
+  /**
+   * Create a new job document when a job is enqueued.
+   * The frontend can immediately start listening to this document.
+   */
+  async create(payload: AgentJobPayload): Promise<void> {
+    await this.jobRef(payload.operationId).set(this.buildInitialJobData(payload));
+  }
+
+  /**
+   * Create a job document only when the operationId has not been claimed yet.
+   * This is used by idempotent enqueue routes where duplicate client requests
+   * intentionally resolve to the same operation document.
+   */
+  async createIfAbsent(payload: AgentJobPayload): Promise<boolean> {
+    const ref = this.jobRef(payload.operationId);
+
+    return this.db.runTransaction(async (txn) => {
+      const snap = await txn.get(ref);
+      if (snap.exists) return false;
+
+      txn.set(ref, this.buildInitialJobData(payload));
+      return true;
     });
   }
 
@@ -950,12 +971,17 @@ export class AgentJobRepository {
   }
 
   /**
-   * Mark the job as cancelled (user-initiated).
+   * Mark the job as cancelled.
    */
-  async markCancelled(operationId: string): Promise<void> {
+  async markCancelled(
+    operationId: string,
+    options?: {
+      message?: string;
+    }
+  ): Promise<void> {
     const progress = buildTerminalProgress({
       status: 'cancelled',
-      message: 'Operation cancelled by user.',
+      message: options?.message ?? 'Operation cancelled by user.',
     });
 
     await this.jobRef(operationId).update({
@@ -1113,6 +1139,41 @@ export class AgentJobRepository {
         const aMs = a.createdAt?.toMillis?.() ?? 0;
         const bMs = b.createdAt?.toMillis?.() ?? 0;
         return aMs - bMs;
+      });
+  }
+
+  /**
+   * Find active weekly playbook generations for a user.
+   * Used by the playbook enqueue route to reattach client retries instead of
+   * creating duplicate billable operations while an earlier generation is still running.
+   */
+  async findActivePlaybookByUser(userId: string): Promise<AgentJobDocument[]> {
+    if (!userId) return [];
+    const ACTIVE: readonly AgentOperationStatus[] = [
+      'queued',
+      'thinking',
+      'acting',
+      'paused',
+      'awaiting_approval',
+      'awaiting_input',
+      'streaming_result',
+    ];
+
+    const snapshot = await this.collectionRef()
+      .where('userId', '==', userId)
+      .where('status', 'in', ACTIVE as AgentOperationStatus[])
+      .get();
+
+    return snapshot.docs
+      .map((d) => d.data() as AgentJobDocument)
+      .filter((job) => {
+        const mode = job.replayPayload?.context?.['mode'];
+        return mode === 'playbook' || job.intent === 'Generate weekly playbook';
+      })
+      .sort((a, b) => {
+        const aMs = a.createdAt?.toMillis?.() ?? 0;
+        const bMs = b.createdAt?.toMillis?.() ?? 0;
+        return bMs - aMs;
       });
   }
 

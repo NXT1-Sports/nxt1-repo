@@ -16,8 +16,12 @@ const DEFAULT_HTML = `<!doctype html>
     <meta property="og:title" content="Default title" />
     <meta property="og:description" content="Default description" />
     <meta property="og:url" content="https://nxt1sports.com/" />
+    <meta property="og:image" content="https://nxt1sports.com/assets/shared/images/og-image.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
     <meta name="twitter:title" content="Default title" />
     <meta name="twitter:description" content="Default description" />
+    <meta name="twitter:image" content="https://nxt1sports.com/assets/shared/images/og-image.jpg" />
     <meta name="robots" content="index, follow" />
     <meta name="googlebot" content="index, follow" />
   </head>
@@ -103,14 +107,49 @@ describe('ssr-route-seo', () => {
       school: 'Brownsburg High School',
       sport: 'football',
       location: 'Brownsburg, IN',
+      imageUrl: 'https://cdn.nxt1sports.com/yadon.jpg',
+      firstName: 'Yadon',
+      lastName: 'Urbieta',
       unicode: '59836990',
     });
 
     expect(metadata).toMatchObject({
       title: 'Yadon Urbieta | QB | Class of 2027 | NXT1 Sports',
       canonicalUrl: 'https://nxt1sports.com/profile/football/yadon-urbieta/59836990',
+      image: 'https://cdn.nxt1sports.com/yadon.jpg',
+      openGraphTitle: 'Yadon Urbieta',
+      openGraphType: 'profile',
+      twitterImage: 'https://cdn.nxt1sports.com/yadon.jpg',
+      profileFirstName: 'Yadon',
+      profileLastName: 'Urbieta',
     });
     expect(metadata?.description).toContain('Quarterback in Football');
+  });
+
+  it('rewrites social image and profile tags for public athlete profiles', () => {
+    const metadata = buildServerProfileRouteSeo({
+      athleteName: 'Yadon Urbieta',
+      position: 'quarterback',
+      classYear: 2027,
+      school: 'Brownsburg High School',
+      sport: 'football',
+      location: 'Brownsburg, IN',
+      imageUrl: 'https://cdn.nxt1sports.com/yadon.jpg',
+      firstName: 'Yadon',
+      lastName: 'Urbieta',
+      username: '59836990',
+      unicode: '59836990',
+    });
+
+    const html = applyServerRouteSeo(DEFAULT_HTML, metadata);
+
+    expect(html).toContain('property="og:type" content="profile"');
+    expect(html).toContain('property="og:title" content="Yadon Urbieta"');
+    expect(html).toContain('property="og:image" content="https://cdn.nxt1sports.com/yadon.jpg"');
+    expect(html).toContain('name="twitter:image" content="https://cdn.nxt1sports.com/yadon.jpg"');
+    expect(html).toContain('property="og:profile:first_name" content="Yadon"');
+    expect(html).toContain('property="og:profile:last_name" content="Urbieta"');
+    expect(html).toContain('property="og:profile:username" content="59836990"');
   });
 
   it('rewrites head tags with route metadata', () => {

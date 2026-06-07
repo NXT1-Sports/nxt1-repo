@@ -35,7 +35,10 @@ import {
 import { logger } from '../../utils/logger.js';
 import { getAnalyticsLoggerService } from '../../services/core/analytics-logger.service.js';
 import { dispatch } from '../../services/communications/notification.service.js';
-import { notifyTeamJoined } from '../../services/communications/team-join-notifications.js';
+import {
+  notifyMembershipApproved,
+  notifyTeamJoined,
+} from '../../services/communications/team-join-notifications.js';
 import { getUserById } from '../../services/profile/users.service.js';
 import { resolveRosterPositions } from '../../services/team/roster-sport-profile.service.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
@@ -1924,6 +1927,12 @@ router.post(
 
     const raw = approved as unknown as Record<string, unknown>;
     const item = mapRosterEntryToEditorItem(entryId, raw);
+
+    void notifyMembershipApproved(db, {
+      teamId,
+      userId: approved.userId,
+      approvedBy: requesterId,
+    });
 
     logger.info('[Teams API] Membership entry approved', { teamId, entryId, requesterId });
     sendSuccess(res, item);
