@@ -1,3 +1,4 @@
+import type { RuntimeEnvironment } from '../../config/runtime-environment.js';
 import { logger } from '../../utils/logger.js';
 
 export type AlertTarget = 'agent' | 'sentry' | 'signup_athlete' | 'signup_team' | 'default';
@@ -10,6 +11,7 @@ export interface AlertField {
 
 export interface SlackAlertInput {
   readonly target?: AlertTarget;
+  readonly environment?: RuntimeEnvironment;
   readonly severity?: AlertSeverity;
   readonly title: string;
   readonly summary: string;
@@ -18,33 +20,67 @@ export interface SlackAlertInput {
   readonly linkUrl?: string;
 }
 
-function resolveSlackWebhook(): string {
-  return process.env['SLACK_ALERT_WEBHOOK_URL']?.trim() ?? '';
+type WebhookResolutionSource = 'target-specific' | 'default-fallback';
+
+interface ResolvedWebhook {
+  readonly url: string;
+  readonly envVar: string | null;
+  readonly source: WebhookResolutionSource;
 }
 
-function resolveTargetWebhook(target: AlertTarget): string {
-  const specificWebhook =
-    (
-      {
-        agent: process.env['SLACK_AGENT_ALERT_WEBHOOK_URL'],
-        sentry: process.env['SLACK_SENTRY_ALERT_WEBHOOK_URL'],
-        signup_athlete: process.env['SLACK_NEW_ATHLETES_WEBHOOK_URL'],
-        signup_team: process.env['SLACK_NEW_TEAMS_WEBHOOK_URL'],
-        default: process.env['SLACK_ALERT_WEBHOOK_URL'],
-      } as const
-    )[target] ?? '';
-
-  const resolvedSpecificWebhook = specificWebhook.trim();
-
-  if (resolvedSpecificWebhook) {
-    return resolvedSpecificWebhook;
+function resolveWebhookFromEnvKeys(envKeys: readonly string[]): {
+  readonly url: string;
+  readonly envVar: string | null;
+} {
+  for (const envKey of envKeys) {
+    const candidate = process.env[envKey]?.trim() ?? '';
+    if (candidate) {
+      return { url: candidate, envVar: envKey };
+    }
   }
 
-  if (target === 'signup_athlete' || target === 'signup_team') {
-    return '';
+  return { url: '', envVar: null };
+}
+
+function resolveTargetWebhook(
+  target: AlertTarget,
+  environment: RuntimeEnvironment = 'production'
+): ResolvedWebhook {
+  const targetEnvKeys =
+    environment === 'staging'
+      ? ({
+          agent: ['STAGING_SLACK_AGENT_ALERT_WEBHOOK_URL', 'SLACK_AGENT_ALERT_WEBHOOK_URL'],
+          sentry: ['STAGING_SLACK_SENTRY_ALERT_WEBHOOK_URL', 'SLACK_SENTRY_ALERT_WEBHOOK_URL'],
+          signup_athlete: [
+            'STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL',
+            'SLACK_NEW_ATHLETES_WEBHOOK_URL',
+          ],
+          signup_team: ['STAGING_SLACK_NEW_TEAMS_WEBHOOK_URL', 'SLACK_NEW_TEAMS_WEBHOOK_URL'],
+          default: ['STAGING_SLACK_ALERT_WEBHOOK_URL', 'SLACK_ALERT_WEBHOOK_URL'],
+        } as const)
+      : ({
+          agent: ['SLACK_AGENT_ALERT_WEBHOOK_URL'],
+          sentry: ['SLACK_SENTRY_ALERT_WEBHOOK_URL'],
+          signup_athlete: ['SLACK_NEW_ATHLETES_WEBHOOK_URL'],
+          signup_team: ['SLACK_NEW_TEAMS_WEBHOOK_URL'],
+          default: ['SLACK_ALERT_WEBHOOK_URL'],
+        } as const);
+
+  const specific = resolveWebhookFromEnvKeys(targetEnvKeys[target]);
+  if (specific.url) {
+    return {
+      url: specific.url,
+      envVar: specific.envVar,
+      source: 'target-specific',
+    };
   }
 
-  return resolveSlackWebhook();
+  const fallback = resolveWebhookFromEnvKeys(targetEnvKeys.default);
+  return {
+    url: fallback.url,
+    envVar: fallback.envVar,
+    source: 'default-fallback',
+  };
 }
 
 function formatAlertBody(input: SlackAlertInput): string {
@@ -63,15 +99,27 @@ function formatAlertBody(input: SlackAlertInput): string {
 
 export async function sendSlackAlert(input: SlackAlertInput): Promise<boolean> {
   const target = input.target ?? 'default';
+  const environment = input.environment ?? 'production';
   const severity = input.severity ?? 'error';
-  const webhookUrl = resolveTargetWebhook(target);
+  const resolvedWebhook = resolveTargetWebhook(target, environment);
+  const webhookUrl = resolvedWebhook.url;
 
   if (!webhookUrl) {
     logger.warn('Slack alert skipped: webhook URL not configured', {
       target,
+      environment,
       title: input.title,
     });
     return false;
+  }
+
+  if (target !== 'default' && resolvedWebhook.source === 'default-fallback') {
+    logger.warn('Slack alert target webhook missing; falling back to default webhook', {
+      target,
+      environment,
+      title: input.title,
+      fallbackEnvVar: resolvedWebhook.envVar,
+    });
   }
 
   const payload = {
@@ -105,6 +153,7 @@ export async function sendSlackAlert(input: SlackAlertInput): Promise<boolean> {
       const body = await response.text().catch(() => '');
       logger.error('Slack alert delivery failed', {
         target,
+        environment,
         title: input.title,
         status: response.status,
         body,
@@ -116,6 +165,7 @@ export async function sendSlackAlert(input: SlackAlertInput): Promise<boolean> {
   } catch (error) {
     logger.error('Slack alert delivery failed', {
       target,
+      environment,
       title: input.title,
       error: error instanceof Error ? error.message : String(error),
     });

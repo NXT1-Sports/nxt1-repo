@@ -1792,7 +1792,11 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
 
     for (const job of jobs) {
       const operationId = (job['operationId'] as string) ?? '';
-      const jobContext = (job as typeof job & { context?: unknown }).context;
+      const replayContext = job.replayPayload?.context;
+      const jobContext =
+        replayContext && typeof replayContext === 'object'
+          ? replayContext
+          : (job as typeof job & { context?: unknown }).context;
       const jobMode =
         jobContext && typeof jobContext === 'object' && 'mode' in jobContext
           ? typeof (jobContext as { mode?: unknown }).mode === 'string'
@@ -4204,20 +4208,6 @@ router.post('/goals', appGuard, validateBody(SetGoalsDto), async (req: Request, 
     contextBuilder?.invalidateContext(user.uid).catch(() => {
       /* non-critical */
     });
-
-    // Goals changed — regenerate the action plan immediately so the user
-    // sees a fresh playbook that reflects their new goals. fire-and-forget
-    // (non-blocking — the HTTP response returns instantly).
-    if (goals.length > 0) {
-      getGenerationService()
-        .generateWeeklyPlaybook(user.uid, true)
-        .catch((err) =>
-          logger.warn('Playbook regeneration after goal update failed', {
-            userId: user.uid,
-            error: err instanceof Error ? err.message : String(err),
-          })
-        );
-    }
 
     res.json({ success: true });
   } catch (err) {

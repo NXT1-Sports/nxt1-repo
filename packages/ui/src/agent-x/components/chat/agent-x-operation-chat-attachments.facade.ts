@@ -124,6 +124,36 @@ export function buildVideoUploadBatchProgressState(
   };
 }
 
+export function buildVideoUploadProgressDetail(
+  uploadBatch: VideoUploadBatchProgressState | null
+): string | null {
+  if (!uploadBatch) {
+    return null;
+  }
+
+  if (uploadBatch.totalFiles <= 1) {
+    if (uploadBatch.failedFiles > 0) {
+      return 'Upload needs attention';
+    }
+    if (uploadBatch.completedFiles > 0 || uploadBatch.overallPercent >= 100) {
+      return 'Video uploaded successfully';
+    }
+    if (uploadBatch.overallPercent === 0) {
+      return null;
+    }
+    return 'Your video is uploading securely';
+  }
+
+  const completionText = `${uploadBatch.completedFiles} of ${uploadBatch.totalFiles} videos uploaded`;
+  if (uploadBatch.failedFiles > 0) {
+    return `${completionText} • ${uploadBatch.failedFiles} need attention`;
+  }
+  if (uploadBatch.activeFiles > 1) {
+    return `${completionText} • ${uploadBatch.activeFiles} still uploading`;
+  }
+  return completionText;
+}
+
 interface BackgroundUploadRecord {
   readonly pendingId: string;
   readonly resultPromise: Promise<AgentXAttachment | null>;

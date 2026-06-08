@@ -248,11 +248,9 @@ export class OnboardingCongratulationsComponent implements OnInit {
     this.selectedGoals.set(goals);
     this.logger.debug('Goals updated', { count: goals.length });
 
-    // If transition is visible or this is the prewarm slide, prepare using latest goals.
-    if (
-      this.isTransitioningToAgent() ||
-      (goals.length > 0 && this.isPreparationSlide(this.currentSlideIndex()))
-    ) {
+    // Keep goal selection local until the user advances past the goals slide.
+    // Once the handoff animation starts, use the latest goals snapshot.
+    if (this.isTransitioningToAgent()) {
       void this.prepareInitialAgentStateIfNeeded();
     }
   }
@@ -278,11 +276,8 @@ export class OnboardingCongratulationsComponent implements OnInit {
     this.currentSlideIndex.set(event.index);
     this.logger.debug('Slide viewed', event);
 
-    // Prepare agent state on the second-to-last slide (so Agent X loads while user views final slide)
-    if (
-      this.isPreparationSlide(event.index) &&
-      (!this.isGoalsSlide(event.index) || this.selectedGoals().length > 0)
-    ) {
+    // Start preparation only after the user has advanced beyond the goals slide.
+    if (this.isPreparationSlide(event.index)) {
       void this.prepareInitialAgentStateIfNeeded();
     }
   }
@@ -359,7 +354,7 @@ export class OnboardingCongratulationsComponent implements OnInit {
   }
 
   private isPreparationSlide(index: number): boolean {
-    return index === Math.max(0, this.totalSlides() - 2);
+    return index === Math.max(0, this.totalSlides() - 1);
   }
 
   private isGoalsSlide(index: number): boolean {

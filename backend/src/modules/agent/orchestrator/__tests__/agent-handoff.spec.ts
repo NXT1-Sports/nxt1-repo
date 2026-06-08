@@ -558,6 +558,175 @@ describe('Agent handoff and tool narrowing', () => {
     expect(usedToolNames).not.toContain('runway_edit_video');
   });
 
+  it('forces canonical snapshot lookup and suppresses broad platform lookup for brand highlight branding', async () => {
+    const baseDefs: AgentToolDefinition[] = [
+      {
+        name: 'query_nxt1_platform_data',
+        description: 'Query broad platform data across all collections',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'system',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'query_nxt1_data',
+        description:
+          'Read canonical user, team, and organization snapshots including logoUrl, primaryColor, and secondaryColor',
+        parameters: {},
+        allowedAgents: ['*'],
+        isMutation: false,
+        category: 'database',
+        entityGroup: 'platform_tools',
+      },
+      {
+        name: 'generate_graphic',
+        description: 'Generate a branded sports graphic',
+        parameters: {},
+        allowedAgents: ['brand_coordinator'],
+        isMutation: true,
+        category: 'media',
+        entityGroup: 'user_tools',
+      },
+    ];
+
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue(baseDefs),
+      matchWithScores: vi.fn().mockResolvedValue([
+        { ...baseDefs[0], semanticScore: 0.96 },
+        { ...baseDefs[2], semanticScore: 0.9 },
+      ]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const capturedToolDefs: AgentToolDefinition[][] = [];
+    const fakeAgent = {
+      id: 'brand_coordinator' as AgentIdentifier,
+      name: 'Brand',
+      execute: vi
+        .fn()
+        .mockImplementation(
+          async (
+            _intent: string,
+            _context: AgentSessionContext,
+            defs: readonly AgentToolDefinition[]
+          ) => {
+            capturedToolDefs.push([...defs]);
+            return {
+              summary: 'Built the branded highlight reel.',
+              data: {},
+              suggestions: [],
+            } as AgentOperationResult;
+          }
+        ),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+
+    await service.executePlan({
+      operationId: 'op-brand-snapshot-lookup',
+      userId: 'user-1',
+      plan: {
+        tasks: [
+          {
+            id: 't-brand-snapshot-lookup',
+            assignedAgent: 'brand_coordinator',
+            description: 'Create a branded Crown Point Bulldogs highlight reel',
+            dependsOn: [],
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
+      enrichedIntent: 'Create a branded Crown Point Bulldogs highlight reel from attached clips',
+      context: createContext(),
+      toolAccessContext: {
+        userId: 'user-1',
+        role: 'director',
+        allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools'],
+      },
+      taskMaxRetries: 0,
+      agents: new Map([['brand_coordinator', fakeAgent]]),
+      buildTaskIntent: () =>
+        'Objective: Create a branded Crown Point Bulldogs highlight reel from attached clips',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    const usedToolNames = (capturedToolDefs[0] ?? []).map((tool) => tool.name);
+    expect(usedToolNames).toContain('query_nxt1_data');
+    expect(usedToolNames).toContain('generate_graphic');
+    expect(usedToolNames).not.toContain('query_nxt1_platform_data');
+  });
+
+  it('marks explicit failed coordinator results as failed tasks', async () => {
+    const toolRegistry = {
+      getDefinitions: vi.fn().mockReturnValue([]),
+      matchWithScores: vi.fn().mockResolvedValue([]),
+    } as unknown as ToolRegistry;
+
+    const llm = {
+      embed: vi.fn().mockResolvedValue([0.5, 0.4, 0.3]),
+    } as unknown as OpenRouterService;
+
+    const telemetry = {
+      emitProgressOperation: vi.fn(),
+      emitUpdate: vi.fn(),
+      recordPhaseLatency: vi.fn(),
+    };
+
+    const fakeAgent = {
+      id: 'brand_coordinator' as AgentIdentifier,
+      name: 'Brand',
+      execute: vi.fn().mockResolvedValue({
+        summary: 'Task completed.',
+        data: {},
+        suggestions: [],
+        success: false,
+        errorMessage: 'Media production did not produce a final video URL.',
+      } as AgentOperationResult),
+    } as unknown as BaseAgent;
+
+    const service = new AgentRouterExecutionService(llm, toolRegistry, telemetry);
+    const task: AgentTask = {
+      id: 't-media-failed',
+      assignedAgent: 'brand_coordinator',
+      description: 'Create highlight video from attached clips',
+      dependsOn: [],
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+
+    const result = await service.executePlan({
+      operationId: 'op-media-failed',
+      userId: 'user-1',
+      plan: { tasks: [task] },
+      enrichedIntent: 'Create highlight video from attached clips',
+      context: createContext(),
+      toolAccessContext: {
+        userId: 'user-1',
+        role: 'athlete',
+        allowedEntityGroups: ['platform_tools', 'system_tools', 'user_tools'],
+      },
+      taskMaxRetries: 0,
+      agents: new Map([['brand_coordinator', fakeAgent]]),
+      buildTaskIntent: () => 'Objective: Create highlight video from attached clips',
+      rerouteDelegatedTask: async () => null,
+    });
+
+    expect(result.mutableTasks[0]?.status).toBe('failed');
+    expect(result.mutableTasks[0]?._lastError).toContain('final video URL');
+    expect(result.taskResults.size).toBe(0);
+  });
+
   it('forces FFmpeg tools for selected highlight reel action with attached video', async () => {
     const baseDefs: AgentToolDefinition[] = [
       {

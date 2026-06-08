@@ -4,6 +4,8 @@
       "https://nxt-1-staging-v2.web.app",
       "https://nxt1-repo--nxt-1-staging-v2.us-east4.hosted.app",
       "http://localhost:4200",
+      "http://localhost:4300",
+      "http://127.0.0.1:4300",
       "http://localhost:5000"
     ],
     "method": ["GET", "PUT", "POST", "DELETE", "HEAD", "OPTIONS"],

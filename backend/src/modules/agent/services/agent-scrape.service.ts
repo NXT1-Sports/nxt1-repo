@@ -114,7 +114,7 @@ export async function enqueueLinkedAccountScrape(
       .map((a) => a.platform.trim())
       .filter(Boolean)
       .join(', ');
-    const sharedPrompt = `Sync my connected accounts (${allPlatforms}). Target profile: ${profileTarget}. ${onboardingObjective} ${executionDirective}`;
+    const sharedPrompt = `Sync my connected accounts (${allPlatforms}) to my ${profileTarget}.`;
 
     let sharedThreadId: string | undefined;
     if (chatService) {

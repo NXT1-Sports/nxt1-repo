@@ -210,6 +210,33 @@ export class AgentXOperationChatSessionFacade {
     return attachmentSignature;
   }
 
+  private shouldDropLiveReplayAssistantRow(
+    message: OperationMessage,
+    replay: {
+      readonly operationIds: ReadonlySet<string>;
+      readonly content: string;
+      readonly steps: readonly AgentXToolStep[];
+    }
+  ): boolean {
+    if (message.id === 'typing') return true;
+    if (message.role !== 'assistant') return false;
+    if (message.yieldState || this.messageHasYieldCard(message)) return false;
+
+    const messageOperationId = message.operationId?.trim() ?? '';
+    if (messageOperationId && replay.operationIds.has(messageOperationId)) return true;
+
+    const messageContent = this.normalizeMessageContent(message.content);
+    const replayContent = this.normalizeMessageContent(replay.content);
+    if (messageContent && replayContent) {
+      if (messageContent === replayContent) return true;
+      if (messageContent.length >= 24 && replayContent.includes(messageContent)) return true;
+    }
+
+    const messageSteps = this.stepSignature(message.steps);
+    const replaySteps = this.stepSignature(replay.steps);
+    return !!messageSteps && messageSteps === replaySteps;
+  }
+
   private inferMediaTypeFromUrl(url: string): 'image' | 'video' | null {
     const normalizedUrl = this.normalizeDetectedMediaUrl(url);
     const parsed = (() => {
@@ -1186,6 +1213,14 @@ export class AgentXOperationChatSessionFacade {
   initializeAfterView(): void {
     const host = this.requireHost();
     const threadId = host.threadId().trim();
+    const resumeOperationId = host.resumeOperationId().trim();
+    if (threadId && resumeOperationId && host.contextType() === 'operation') {
+      host.setCurrentOperationId(resumeOperationId);
+      if (host.getOperationStatus() === null) {
+        host.setOperationStatus('processing');
+      }
+    }
+
     if (threadId) {
       this.initializeExistingThread(threadId);
       return;
@@ -1211,9 +1246,9 @@ export class AgentXOperationChatSessionFacade {
       this.attachmentsFacade.pendingConnectedSources.set([...host.initialConnectedSources()]);
     }
 
-    if (host.resumeOperationId().trim()) {
+    if (resumeOperationId) {
       void host.attachToResumedOperation({
-        operationId: host.resumeOperationId().trim(),
+        operationId: resumeOperationId,
         threadId: threadId || undefined,
         afterSeq: 0,
       });
@@ -1650,12 +1685,20 @@ export class AgentXOperationChatSessionFacade {
       this.clearEnqueueWaitingMessage();
     }
 
+    const replayOperationIds = new Set([operationId]);
+    if (storedHeavyTaskOperationId) {
+      replayOperationIds.add(storedHeavyTaskOperationId);
+    }
+
     this.messageFacade.messages.update((messages) => {
-      const filtered = messages.filter((message) => {
-        if (message.id === 'typing') return false;
-        if (message.role !== 'assistant' || message.operationId !== operationId) return true;
-        return !!message.yieldState || this.messageHasYieldCard(message);
-      });
+      const filtered = messages.filter(
+        (message) =>
+          !this.shouldDropLiveReplayAssistantRow(message, {
+            operationIds: replayOperationIds,
+            content,
+            steps: stored.steps,
+          })
+      );
 
       return [
         ...filtered,
@@ -3345,6 +3388,11 @@ export class AgentXOperationChatSessionFacade {
         // in seq order (same merge logic as the SSE stream registry) so text, tools,
         // and cards are interleaved at their exact positions. No manual storedParts
         // construction here that would hardcode tools-first/text-last order.
+        const replayOperationIds = new Set([operationId]);
+        if (storedHeavyTaskOperationId) {
+          replayOperationIds.add(storedHeavyTaskOperationId);
+        }
+
         this.messageFacade.messages.update((messages) => {
           if (messages.some((message) => message.id === 'typing')) return messages;
           // Hard-refresh dedup: loadThreadMessages may have inserted persisted
@@ -3356,7 +3404,12 @@ export class AgentXOperationChatSessionFacade {
           // persisted bubble, once in the typing bubble — until assistant_final
           // lands and the next render suppresses the partial.
           const filtered = messages.filter(
-            (m) => m.role !== 'assistant' || m.operationId !== operationId
+            (message) =>
+              !this.shouldDropLiveReplayAssistantRow(message, {
+                operationIds: replayOperationIds,
+                content: stored.content + replayContentSuffix,
+                steps: stored.steps,
+              })
           );
           return [
             ...filtered,

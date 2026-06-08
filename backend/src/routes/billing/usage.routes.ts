@@ -520,11 +520,15 @@ function isBillingDeductionLockInScope(
   }
 
   const userIds = normalizeIndividualBillingUserIds(target.billingUserId);
+  const isExplicitlyIndividualBilled =
+    lock.billedOwnerType === 'individual' &&
+    (!lock.billedOwnerId || userIds.has(lock.billedOwnerId));
+  const isLegacyPersonalBilled = !lock.billedOwnerType && !lock.organizationId;
+
   return (
     userIds.has(lock.userId) &&
-    lock.billedOwnerType !== 'organization' &&
     lock.via !== 'deductOrgWallet' &&
-    !lock.organizationId
+    (isExplicitlyIndividualBilled || isLegacyPersonalBilled)
   );
 }
 
@@ -1752,12 +1756,22 @@ router.get('/chart', appGuard, async (req: Request, res: Response) => {
     const target = await resolveBillingTarget(db, userId);
 
     const eventsDocs = await fetchUsageEvents(db, target, start, end, false);
+    const fallbackEventsDocs = await fetchBillingDeductionFallbackUsageEvents(
+      db,
+      target,
+      start,
+      end,
+      eventsDocs
+    );
+    const usageDocs = [...eventsDocs, ...fallbackEventsDocs];
 
     const dailyUsage = new Map<string, number>();
+    const collapsedLegacyOperationKeys = new Set<string>();
     let eventUsageCents = 0;
-    for (const doc of eventsDocs) {
+    for (const doc of usageDocs) {
       const dateKey = toLocalDateKey(doc.createdAt);
-      const cost = getUsageEventCost(doc);
+      const lineItems = getUsageEventLineItems(doc, dateKey, collapsedLegacyOperationKeys);
+      const cost = lineItems.reduce((sum, lineItem) => sum + lineItem.cost, 0);
       eventUsageCents += cost;
       dailyUsage.set(dateKey, (dailyUsage.get(dateKey) ?? 0) + cost);
     }

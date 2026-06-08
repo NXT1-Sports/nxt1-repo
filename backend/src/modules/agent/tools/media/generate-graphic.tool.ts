@@ -935,17 +935,21 @@ If identity cannot be preserved exactly, keep the original subject untouched and
 `
         : '';
 
-    const noSubjectBlock =
-      graphicType === 'athlete' && !hasSubjectImage
-        ? `
+    const noSubjectBlock = !hasSubjectImage
+      ? `
 # NO SUBJECT PHOTO PROVIDED (MANDATORY)
 <NO_SUBJECT_START>
-Do NOT create or imply a human athlete, silhouette, cutout, face, body, jerseyed player, stock person, AI model, or body double.
-This must be a typography-led or abstract sports graphic using shapes, light, texture, team/program energy, and verified text only.
-If the design needs a real athlete image, the caller must provide subjectPhotoUrls before generation.
+No real subject image is attached. Do NOT create empty photo frames, cutout boxes, player-card windows, portrait panels, matte placeholders, blank silhouette areas, or "drop image here" zones.
+${
+  graphicType === 'athlete'
+    ? 'Do NOT create or imply a human athlete, silhouette, cutout, face, body, jerseyed player, stock person, AI model, or body double.'
+    : 'Do NOT create blank athlete/team-photo panels or reserved media frames.'
+}
+Use typography, texture, light, motion lines, team/program energy, and verified text to fill the full composition.
+If the design needs a real subject image, the caller must provide subjectPhotoUrls before generation.
 <NO_SUBJECT_END>
 `
-        : '';
+      : '';
 
     const logoBlock =
       (applyMode === 'logo_overlay' || applyMode === 'mixed') && hasLogos
@@ -959,6 +963,22 @@ The generation model should focus on background/layout aesthetics; logos are ove
 `
         : '';
 
+    const noLogoBlock = !hasLogos
+      ? `
+      # NO BRAND LOGO PROVIDED (MANDATORY)
+      <NO_LOGO_START>
+      No real brand logo asset is attached. Do NOT create logo boxes, logo placeholders, crest frames, top-corner empty badges, bottom-corner empty badges, or blank logo wells.
+      Do NOT invent or approximate a team logo. Use text, color, texture, and abstract team energy instead.
+      <NO_LOGO_END>
+      `
+      : `
+      # BRAND LOGO COMPOSITING (MANDATORY)
+      <LOGO_COMPOSITING_START>
+      Real logo assets are attached and will be composited after generation. Do NOT draw empty logo boxes, blank badge frames, or placeholder wells.
+      Keep the composition clean near the bottom-left for overlay placement, but do not render a visible empty container.
+      <LOGO_COMPOSITING_END>
+      `;
+
     return `You are a professional sports graphic designer. Produce a single, high-quality image.
 
 # CANVAS SPECIFICATIONS
@@ -968,6 +988,7 @@ Graphic category: ${graphicType === 'team' ? 'TEAM GRAPHIC' : 'ATHLETE GRAPHIC'}
 ${subjectBlock}
 ${noSubjectBlock}
 ${logoBlock}
+${noLogoBlock}
 # REQUIRED TEXT — Render ONLY these exact words, spelled character-for-character
 <TEXT_START>
 ${quotedTextLines}
@@ -994,12 +1015,15 @@ Treat the attached photo as the locked identity source and preserve that exact p
 
 CRITICAL: If logos are provided, they are brand-locked assets. Do not hallucinate or mutate logo identity.
 
+CRITICAL: Never leave missing-asset areas in the artwork. The final image must look complete even when no subject photo or logo is supplied.
+
 # OUTPUT CHECKLIST — verify before finalizing
 - [ ] Only the text from <TEXT_START>…<TEXT_END> appears on the graphic
 - [ ] Every word is spelled exactly as provided — no typos
 - [ ] No style labels, mood words, or theme names appear as visible text${hasSubjectImage ? '\n- [ ] The person in the output is the SAME person from the attached photo' : ''}
 - [ ] The person in the output is the SAME person from the attached photo${hasSubjectImage ? '' : ' (skip when no subject photo supplied)'}
-- [ ] Logo placeholders/clear zones exist where brand overlays should sit${hasLogos ? '' : ' (skip when no logos supplied)'}
+- [ ] No empty photo frames, blank media panels, logo wells, crest placeholders, or missing-asset boxes are visible
+- [ ] If logos are supplied, the design leaves subtle breathing room for compositing without drawing a visible empty container
 - [ ] The design looks like a professional broadcast sports graphic`;
   }
 

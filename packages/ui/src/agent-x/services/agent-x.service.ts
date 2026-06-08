@@ -78,6 +78,7 @@ import type { ConnectedAppSource } from '../components/modals/agent-x-attachment
 /** sessionStorage key for in-flight operation drop-recovery. */
 const AGENT_X_PENDING_OP_KEY = 'nxt1_pending_agent_op';
 const AGENT_X_PENDING_PLAYBOOK_OP_KEY = 'nxt1_pending_playbook_op';
+const AGENT_X_PENDING_GOALS_KEY = 'nxt1_pending_agent_goals';
 const AGENT_X_PENDING_STARTUP_MESSAGE_KEY = 'nxt1_pending_startup_message';
 const AGENT_X_WEEKLY_TASKS_GOAL_ID = 'recurring';
 const AGENT_X_WEEKLY_TASKS_GOAL_LABEL = 'Weekly Tasks';
@@ -1705,23 +1706,36 @@ export class AgentXService {
 
       if (response.success && response.data) {
         const { briefing, playbook, coordinators } = response.data;
+        const dashboardGoals = [...playbook.goals];
+        const pendingGoals = this.readPendingGoals();
+        const hydratedGoals = dashboardGoals.length > 0 ? dashboardGoals : pendingGoals;
+
+        if (dashboardGoals.length > 0) {
+          this.clearPendingGoals();
+        } else if (pendingGoals.length > 0) {
+          this.logger.warn('Dashboard returned empty goals; preserving pending saved goals', {
+            pendingGoalCount: pendingGoals.length,
+            playbookItems: playbook.items.length,
+          });
+        }
+
         this._briefingInsights.set([...briefing.insights]);
         this._briefingPreviewText.set(briefing.previewText);
         this._weeklyPlaybook.set([...playbook.items]);
         this._activePlaybookId.set(playbook.id ?? null);
         this.resetCategoryFilter();
-        this._goals.set([...playbook.goals]);
+        this._goals.set(hydratedGoals);
         this._playbookGeneratedAt.set(playbook.generatedAt);
-        this._canRegenerate.set(playbook.canRegenerate);
+        this._canRegenerate.set(playbook.canRegenerate || hydratedGoals.length > 0);
         this._coordinators.set([...coordinators]);
         this._dashboardLoaded.set(true);
 
         this.logger.info('Dashboard loaded', {
-          goalCount: playbook.goals.length,
+          goalCount: hydratedGoals.length,
           playbookItems: playbook.items.length,
         });
         this.analytics?.trackEvent(APP_EVENTS.AGENT_X_DASHBOARD_VIEWED, {
-          hasGoals: playbook.goals.length > 0,
+          hasGoals: hydratedGoals.length > 0,
           hasPlaybook: playbook.items.length > 0,
         });
       }
@@ -1742,6 +1756,7 @@ export class AgentXService {
   async setGoals(goals: AgentDashboardGoal[]): Promise<boolean> {
     this.logger.info('Setting Agent X goals', { count: goals.length });
     this.breadcrumb.trackStateChange('agent-x:goals-setting');
+    this.persistPendingGoals(goals);
 
     try {
       const response = await firstValueFrom(
@@ -1762,10 +1777,12 @@ export class AgentXService {
         });
         return true;
       }
+      this.clearPendingGoals();
       this.toast.error(response.error ?? 'Failed to save goals');
       return false;
     } catch (err) {
       this.logger.error('Failed to set goals', err);
+      this.clearPendingGoals();
       this.toast.error('Failed to save goals');
       return false;
     }
@@ -1906,6 +1923,17 @@ export class AgentXService {
    * Generate or regenerate the weekly playbook.
    */
   async generatePlaybook(force = false): Promise<void> {
+    if (this._goals().length === 0) {
+      const pendingGoals = this.readPendingGoals();
+      if (pendingGoals.length > 0) {
+        this.logger.info('Restoring pending goals before playbook generation', {
+          goalCount: pendingGoals.length,
+        });
+        this._goals.set(pendingGoals);
+        this._canRegenerate.set(true);
+      }
+    }
+
     if (this._goals().length === 0) {
       this.toast.info('Set your goals first to generate a playbook');
       return;
@@ -2093,7 +2121,18 @@ export class AgentXService {
   ): Promise<void> {
     if (playbook) {
       const newItems = playbook.items as ShellWeeklyPlaybookItem[];
+      const generatedGoals = [...playbook.goals];
+      const pendingGoals = this.readPendingGoals();
+      const hydratedGoals = generatedGoals.length > 0 ? generatedGoals : pendingGoals;
+
       this._activePlaybookId.set(playbook.id ?? null);
+      if (hydratedGoals.length > 0) {
+        this._goals.set(hydratedGoals);
+        this._canRegenerate.set(true);
+      }
+      if (generatedGoals.length > 0) {
+        this.clearPendingGoals();
+      }
 
       // Forced regenerations should immediately reflect the server-generated
       // playbook, even when IDs are reused. This fixes the stale UI case where
@@ -2133,6 +2172,72 @@ export class AgentXService {
       sessionStorage.setItem(AGENT_X_PENDING_PLAYBOOK_OP_KEY, JSON.stringify(payload));
     } catch {
       // Non-blocking best-effort persistence.
+    }
+  }
+
+  private persistPendingGoals(goals: readonly AgentDashboardGoal[]): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+    try {
+      if (goals.length === 0) {
+        this.clearPendingGoals();
+        return;
+      }
+
+      sessionStorage.setItem(
+        AGENT_X_PENDING_GOALS_KEY,
+        JSON.stringify({ goals, savedAt: Date.now() })
+      );
+    } catch {
+      // Non-blocking best-effort persistence.
+    }
+  }
+
+  private readPendingGoals(): AgentDashboardGoal[] {
+    if (!isPlatformBrowser(this.platformId)) return [];
+    try {
+      const raw = sessionStorage.getItem(AGENT_X_PENDING_GOALS_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as { goals?: unknown; savedAt?: unknown };
+      const savedAt = typeof parsed.savedAt === 'number' ? parsed.savedAt : 0;
+      if (savedAt > 0 && Date.now() - savedAt > PENDING_PLAYBOOK_OPERATION_MAX_AGE_MS) {
+        this.clearPendingGoals();
+        return [];
+      }
+
+      if (!Array.isArray(parsed.goals)) return [];
+      return parsed.goals.flatMap((goal): AgentDashboardGoal[] => {
+        if (!goal || typeof goal !== 'object') return [];
+        const candidate = goal as Record<string, unknown>;
+        const id = typeof candidate['id'] === 'string' ? candidate['id'].trim() : '';
+        const text = typeof candidate['text'] === 'string' ? candidate['text'].trim() : '';
+        const category =
+          typeof candidate['category'] === 'string' ? candidate['category'].trim() : 'custom';
+        if (!id || !text) return [];
+
+        return [
+          {
+            id,
+            text,
+            category: category || 'custom',
+            ...(typeof candidate['icon'] === 'string' ? { icon: candidate['icon'] } : {}),
+            createdAt:
+              typeof candidate['createdAt'] === 'string'
+                ? candidate['createdAt']
+                : new Date().toISOString(),
+          },
+        ];
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  private clearPendingGoals(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+    try {
+      sessionStorage.removeItem(AGENT_X_PENDING_GOALS_KEY);
+    } catch {
+      // Non-blocking best-effort cleanup.
     }
   }
 

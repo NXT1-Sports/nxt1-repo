@@ -61,6 +61,7 @@ import type { MediaImageFormat } from '../../services/media';
     <div
       class="media-viewer"
       [class.media-viewer--playbook]="isPlaybookVariant()"
+      [class.media-viewer--inline-video-fullscreen]="inlineVideoFullscreen()"
       [attr.data-testid]="testIds.CONTAINER"
       (keydown.escape)="dismiss()"
       (keydown.arrowLeft)="prev()"
@@ -500,6 +501,42 @@ import type { MediaImageFormat } from '../../services/media';
       height: auto;
       min-height: 0;
       overflow: visible;
+    }
+
+    .media-viewer--inline-video-fullscreen {
+      position: fixed;
+      inset: 0;
+      z-index: 2147483647;
+      width: 100vw;
+      height: 100dvh;
+      min-height: 100dvh;
+      background: #000;
+    }
+
+    .media-viewer--inline-video-fullscreen .media-track,
+    .media-viewer--inline-video-fullscreen .media-slide {
+      width: 100%;
+      height: 100%;
+    }
+
+    .media-viewer--inline-video-fullscreen .media-video {
+      width: 100%;
+      height: 100%;
+      max-width: none;
+      max-height: none;
+      object-fit: contain;
+    }
+
+    .media-viewer--inline-video-fullscreen .caption,
+    .media-viewer--inline-video-fullscreen .bottom-save-bar {
+      display: none;
+    }
+
+    .media-viewer--inline-video-fullscreen .video-controls-overlay,
+    .media-viewer--inline-video-fullscreen .video-controls-overlay--with-caption,
+    .media-viewer--inline-video-fullscreen .video-controls-overlay--with-save-bar {
+      bottom: 0;
+      padding-bottom: calc(env(safe-area-inset-bottom, 0px) + var(--nxt1-spacing-1, 4px));
     }
 
     .media-viewer--playbook .top-bar {
@@ -1095,6 +1132,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   protected readonly videoDuration = signal(0);
   protected readonly videoIsPlaying = signal(false);
   protected readonly videoPlaybackRate = signal(1);
+  protected readonly inlineVideoFullscreen = signal(false);
   protected readonly videoPlaybackRates = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
   private readonly _saving = signal(false);
   protected readonly primaryActionBusy = signal(false);
@@ -1106,11 +1144,17 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   private pendingSeekTime: number | null = null;
   private _fullscreenChangeHandler: (() => void) | null = null;
   private _androidFsBackHandler: ((ev: Event) => void) | null = null;
+  private iosViewportResetScrollGuard: (() => void) | null = null;
+  private readonly iosViewportResetTimeoutIds: number[] = [];
 
   protected readonly totalItems = computed(() => this.items.length);
   protected readonly currentItem = computed(() => this.items[this.currentIndex()] ?? null);
   protected readonly showMobileSaveBar = computed(
-    () => this.showShare && this.platform.isNative() && this.currentItem()?.type !== 'doc'
+    () =>
+      this.showShare &&
+      this.platform.isNative() &&
+      !this.inlineVideoFullscreen() &&
+      this.currentItem()?.type !== 'doc'
   );
   protected readonly showCustomVideoControls = computed(() => {
     const item = this.currentItem();
@@ -1169,6 +1213,9 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.stopSmoothProgressTracking();
     this.cancelPendingVideoSeek();
+    this.inlineVideoFullscreen.set(false);
+    this.clearIosViewportResetGuards();
+    this._resetIosViewportShift();
     if (isPlatformBrowser(this.platformId) && this._fullscreenChangeHandler) {
       document.removeEventListener('fullscreenchange', this._fullscreenChangeHandler);
       document.removeEventListener('webkitfullscreenchange', this._fullscreenChangeHandler);
@@ -1491,15 +1538,8 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   }
 
   protected toggleFullscreenForCurrent(): void {
-    const video = this.getCurrentVideoElement();
     if (this.platform.isIOS() && this.platform.isNative()) {
-      const iosVideo = video as
-        | (HTMLVideoElement & {
-            webkitEnterFullscreen?: () => void;
-            webkitExitFullscreen?: () => void;
-          })
-        | null;
-      iosVideo?.webkitEnterFullscreen?.();
+      this.toggleInlineVideoFullscreen();
       return;
     }
 
@@ -1512,17 +1552,47 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     ) as HTMLElement | null;
     if (!target) return;
 
-    if (!document.fullscreenElement) {
+    const isDocumentFullscreen = !!(
+      document.fullscreenElement ||
+      (document as Document & { webkitFullscreenElement?: Element }).webkitFullscreenElement
+    );
+
+    if (!isDocumentFullscreen) {
       const requestFullscreen = target.requestFullscreen?.bind(target) as
         | (() => Promise<void>)
         | undefined;
       if (requestFullscreen) {
         void requestFullscreen().catch(() => undefined);
+        return;
       }
+
+      const webkitRequestFullscreen = (
+        target as HTMLElement & { webkitRequestFullscreen?: () => void }
+      ).webkitRequestFullscreen;
+      webkitRequestFullscreen?.call(target);
       return;
     }
 
-    void document.exitFullscreen?.().catch(() => undefined);
+    const exitFullscreen = document.exitFullscreen?.bind(document) as
+      | (() => Promise<void>)
+      | undefined;
+    if (exitFullscreen) {
+      void exitFullscreen().catch(() => undefined);
+      return;
+    }
+
+    const webkitExitFullscreen = (document as Document & { webkitExitFullscreen?: () => void })
+      .webkitExitFullscreen;
+    webkitExitFullscreen?.call(document);
+  }
+
+  private toggleInlineVideoFullscreen(): void {
+    const nextValue = !this.inlineVideoFullscreen();
+    this.inlineVideoFullscreen.set(nextValue);
+
+    if (!nextValue) {
+      this._resetIosViewportShift();
+    }
   }
 
   /**
@@ -1541,6 +1611,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
       }
     } else {
       this._removeAndroidFullscreenBackHandler();
+      this.inlineVideoFullscreen.set(false);
       this._resetIosViewportShift();
     }
   }
@@ -1570,14 +1641,25 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
 
   private _resetIosViewportShift(): void {
     if (!isPlatformBrowser(this.platformId) || typeof window === 'undefined') return;
-    if (this.platform.isIOS() && this.platform.isNative()) {
-      void import('@capacitor/core').then(({ Capacitor, registerPlugin }) => {
+    if (!this.platform.isIOS() || !this.platform.isNative()) return;
+
+    this.clearIosViewportResetGuards();
+
+    void import('@capacitor/core')
+      .then(({ Capacitor, registerPlugin }) => {
+        void import('@capacitor/status-bar')
+          .then(({ StatusBar }) => {
+            void StatusBar.show().catch(() => undefined);
+            void StatusBar.setOverlaysWebView({ overlay: true }).catch(() => undefined);
+          })
+          .catch(() => undefined);
+
         if (Capacitor.isPluginAvailable('NxtTheme')) {
           const plugin = registerPlugin<{ resetWebViewLayout: () => Promise<void> }>('NxtTheme');
-          void plugin.resetWebViewLayout();
+          void plugin.resetWebViewLayout().catch(() => undefined);
         }
-      });
-    }
+      })
+      .catch(() => undefined);
 
     const doReset = () => {
       window.scrollTo({ top: 0, left: 0, behavior: 'instant' as ScrollBehavior });
@@ -1609,23 +1691,48 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
         dispatchResize();
       }
     };
+    this.iosViewportResetScrollGuard = scrollGuard;
     window.addEventListener('scroll', scrollGuard, { passive: true });
 
-    setTimeout(() => {
+    this.scheduleIosViewportReset(() => {
       doReset();
       dispatchResize();
     }, 100);
-    setTimeout(() => {
+    this.scheduleIosViewportReset(() => {
       doReset();
       dispatchResize();
     }, 350);
 
-    setTimeout(() => {
+    this.scheduleIosViewportReset(() => {
       guardActive = false;
-      window.removeEventListener('scroll', scrollGuard);
+      this.clearIosViewportResetGuards();
       doReset();
       dispatchResize();
     }, 800);
+  }
+
+  private scheduleIosViewportReset(callback: () => void, delayMs: number): void {
+    const timeoutId = window.setTimeout(() => {
+      const index = this.iosViewportResetTimeoutIds.indexOf(timeoutId);
+      if (index >= 0) {
+        this.iosViewportResetTimeoutIds.splice(index, 1);
+      }
+      callback();
+    }, delayMs);
+    this.iosViewportResetTimeoutIds.push(timeoutId);
+  }
+
+  private clearIosViewportResetGuards(): void {
+    if (!isPlatformBrowser(this.platformId) || typeof window === 'undefined') return;
+
+    for (const timeoutId of this.iosViewportResetTimeoutIds.splice(0)) {
+      window.clearTimeout(timeoutId);
+    }
+
+    if (this.iosViewportResetScrollGuard) {
+      window.removeEventListener('scroll', this.iosViewportResetScrollGuard);
+      this.iosViewportResetScrollGuard = null;
+    }
   }
 
   protected openCurrentVideoInNewWindow(): void {
@@ -1637,6 +1744,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   // ── Actions ────────────────────────────────────────────
 
   dismiss(): void {
+    this.inlineVideoFullscreen.set(false);
     // Reset any iOS viewport shift BEFORE dismissing so the underlying page
     // is already corrected when the modal closes.
     this._resetIosViewportShift();
@@ -1653,6 +1761,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   }
 
   share(): void {
+    this.inlineVideoFullscreen.set(false);
     this.analytics?.trackEvent(APP_EVENTS.MEDIA_VIEWER_SHARED, {
       index: this.currentIndex(),
       type: this.currentItem().type,
@@ -1893,6 +2002,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   private resetCustomVideoState(): void {
     this.stopSmoothProgressTracking();
     this.cancelPendingVideoSeek();
+    this.inlineVideoFullscreen.set(false);
     this.videoCurrentTime.set(0);
     this.videoDuration.set(0);
     this.videoPlaybackRate.set(1);

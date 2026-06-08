@@ -292,10 +292,8 @@ export async function executeBillingDeduction(
     fallbackChargeAmountCents,
   } = input;
   let resolvedTeamId = input.teamId;
-  // Seed resolvedOrgId from the caller-supplied hint. This covers first-run
-  // scenarios (e.g. onboarding link scrape) where resolveBillingTarget may
-  // not yet have the org billing docs ready.
   let resolvedOrgId: string | undefined = input.organizationId;
+  let billingOrgId: string | undefined;
   let deductionLockAcquired = false;
   let moneyMoved = false;
 
@@ -455,33 +453,39 @@ export async function executeBillingDeduction(
       return { charged: false, rawCostUsd: totalCostUsd, chargeAmountCents: 0 };
     }
 
-    // Step 4: Resolve billing target before any direct debit so org-billed users
-    // always debit the org wallet, even when the caller already passed a teamId.
-    if (!resolvedOrgId || !resolvedTeamId) {
-      try {
-        const target = await resolveBillingTarget(db, userId);
-        resolvedTeamId = resolvedTeamId ?? target.context.teamId;
-        if (target.type === 'organization') {
-          resolvedOrgId = target.organizationId;
-          if (!resolvedTeamId) {
-            logger.warn('[billing] Missing canonical org team attribution for usage event', {
-              operationId,
-              userId,
-              organizationId: target.organizationId,
-              availableTeamIds: target.teamIds ?? [],
-            });
-          }
+    // Step 4: Resolve billing target before any direct debit. Caller-supplied
+    // organization/team IDs are attribution hints; the resolved target decides
+    // who actually pays. This preserves personal billing for org admins/members
+    // while still tagging usage to the active team/org.
+    try {
+      const target = await resolveBillingTarget(db, userId);
+      resolvedTeamId = resolvedTeamId ?? target.context.teamId;
+      resolvedOrgId = resolvedOrgId ?? target.context.organizationId ?? target.organizationId;
+
+      if (target.type === 'organization') {
+        billingOrgId = target.organizationId;
+        resolvedOrgId = target.organizationId ?? resolvedOrgId;
+        if (!resolvedTeamId) {
+          logger.warn('[billing] Missing canonical org team attribution for usage event', {
+            operationId,
+            userId,
+            organizationId: target.organizationId,
+            availableTeamIds: target.teamIds ?? [],
+          });
         }
-      } catch {
-        resolvedTeamId = resolvedTeamId ?? undefined;
       }
+    } catch {
+      // Keep the legacy first-run fallback for onboarding paths where the org
+      // billing target may not resolve yet but the caller supplied the org.
+      billingOrgId = input.organizationId;
+      resolvedTeamId = resolvedTeamId ?? undefined;
     }
 
     const effectiveTeamId =
       resolvedTeamId && resolvedTeamId !== userId ? resolvedTeamId : undefined;
 
     // Step 4b: Deduct funds
-    if (iapHoldId && resolvedOrgId) {
+    if (iapHoldId && billingOrgId) {
       // An IAP hold was pre-created but the resolved billing target is the org.
       // This happens when the hold was created while the billing cache still had
       // a stale 'individual' entry (e.g. athlete just joined a team).  Release
@@ -493,7 +497,7 @@ export async function executeBillingDeduction(
           error: e instanceof Error ? e.message : String(e),
         });
       });
-      await deductOrgWallet(db, resolvedOrgId, userId, effectiveTeamId, chargeAmountCents);
+      await deductOrgWallet(db, billingOrgId, userId, effectiveTeamId, chargeAmountCents);
     } else if (iapHoldId) {
       // Background job mode (individual billing): capture the pre-authorised hold
       const captureResult = await captureWalletHold(db, iapHoldId, chargeAmountCents);
@@ -505,9 +509,9 @@ export async function executeBillingDeduction(
           chargeLines = scaleChargeLinesToTotal(chargeLines, chargeAmountCents);
         }
       }
-    } else if (resolvedOrgId) {
+    } else if (billingOrgId) {
       // Org billing: debit the org wallet and mirror spend onto user/team trackers.
-      await deductOrgWallet(db, resolvedOrgId, userId, effectiveTeamId, chargeAmountCents);
+      await deductOrgWallet(db, billingOrgId, userId, effectiveTeamId, chargeAmountCents);
     } else {
       // Individual / IAP wallet billing
       await recordSpend(db, userId, chargeAmountCents, effectiveTeamId);
@@ -521,8 +525,8 @@ export async function executeBillingDeduction(
       rawCostUsd: totalCostUsd,
       primaryFeature,
       billableFeatures: [...resolvedFeatures],
-      billedOwnerType: resolvedOrgId ? 'organization' : 'individual',
-      billedOwnerId: resolvedOrgId ? `org:${resolvedOrgId}` : userId,
+      billedOwnerType: billingOrgId ? 'organization' : 'individual',
+      billedOwnerId: billingOrgId ? `org:${billingOrgId}` : userId,
       ...(effectiveTeamId ? { teamId: effectiveTeamId } : {}),
       ...(resolvedOrgId ? { organizationId: resolvedOrgId } : {}),
       chargeBreakdown: chargeLines.map((line) => ({
@@ -535,7 +539,7 @@ export async function executeBillingDeduction(
       })),
       ...(heldAmountCents !== undefined ? { heldAmountCents } : {}),
       ...(absorbedOverageCents > 0 ? { uncappedChargeAmountCents, absorbedOverageCents } : {}),
-      via: iapHoldId ? 'captureWalletHold' : resolvedOrgId ? 'deductOrgWallet' : 'recordSpend',
+      via: iapHoldId ? 'captureWalletHold' : billingOrgId ? 'deductOrgWallet' : 'recordSpend',
     }).catch((lockErr: unknown) => {
       logger.warn('[billing] Failed to mark deduction lock as charged after money movement', {
         operationId,
@@ -577,8 +581,8 @@ export async function executeBillingDeduction(
 
     // Step 5: Write per-feature audit trail usage events.
     try {
-      const billedOwnerType = resolvedOrgId ? 'organization' : 'individual';
-      const billedOwnerId = resolvedOrgId ? `org:${resolvedOrgId}` : userId;
+      const billedOwnerType = billingOrgId ? 'organization' : 'individual';
+      const billedOwnerId = billingOrgId ? `org:${billingOrgId}` : userId;
       const usageLines = chargeLines.length > 0 ? chargeLines : [];
 
       for (let index = 0; index < usageLines.length; index++) {
@@ -611,7 +615,7 @@ export async function executeBillingDeduction(
               lineQuantity: line.quantity,
               settlementPath: iapHoldId
                 ? 'wallet-hold-capture'
-                : resolvedOrgId
+                : billingOrgId
                   ? 'org-wallet-debit'
                   : 'wallet-or-spend-record',
               alreadySettled: true,

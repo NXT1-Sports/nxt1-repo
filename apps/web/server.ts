@@ -38,6 +38,11 @@ import {
   isRetiredPulseArticleRoute,
   resolveServerRouteSeo,
 } from './src/app/core/services/web/ssr-route-seo';
+import {
+  buildPreferredHostRedirectUrl,
+  extractLegacyProfileLookupParam,
+  isRetiredLegacyRoute,
+} from './src/app/core/services/web/legacy-route-handling';
 
 // Import the SSR_AUTH_TOKEN injection token from the dedicated tokens file
 // IMPORTANT: Do NOT import from server-auth.service.ts as it has Firebase imports
@@ -430,6 +435,14 @@ function tryServeCompressedStatic(req: Request, res: Response, next: NextFunctio
  */
 export function createServer(): express.Express {
   const server = express();
+  const publicBaseUrl = (process.env['PUBLIC_URL'] || 'https://nxt1sports.com').replace(/\/+$/, '');
+  const publicHostname = (() => {
+    try {
+      return new URL(publicBaseUrl).hostname;
+    } catch {
+      return 'nxt1sports.com';
+    }
+  })();
   const allowedHosts =
     process.env['ALLOWED_HOSTS']
       ?.split(',')
@@ -448,6 +461,17 @@ export function createServer(): express.Express {
   // ============================================
   server.get('/health', (_req: Request, res: Response) => {
     res.status(200).json({ status: 'healthy', timestamp: new Date().toISOString() });
+  });
+
+  server.use((req: Request, res: Response, next: NextFunction) => {
+    const fullUrl = `${req.protocol}://${req.headers.host ?? req.hostname}${req.originalUrl}`;
+    const preferredHostUrl = buildPreferredHostRedirectUrl(fullUrl, publicHostname);
+    if (!preferredHostUrl) {
+      next();
+      return;
+    }
+
+    res.redirect(308, preferredHostUrl);
   });
 
   // ============================================
@@ -481,6 +505,16 @@ export function createServer(): express.Express {
   // The web app no longer exposes /messages or /ai-scout.
   // Return a 410 so crawlers and caches drop these legacy paths instead of indexing the shell.
   server.get(/^\/(?:messages|ai-scout)(?:\/.*)?$/, (_req: Request, res: Response) => {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    res.status(410).type('text/plain; charset=utf-8').send('Gone');
+  });
+
+  server.get(/^(?:\/saved-scouting-report(?:\/.*)?|\/search-videos(?:\/.*)?)$/, (req, res) => {
+    if (!isRetiredLegacyRoute(req.path)) {
+      res.status(404).type('text/plain; charset=utf-8').send('Not found');
+      return;
+    }
+
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
     res.status(410).type('text/plain; charset=utf-8').send('Gone');
   });
@@ -528,6 +562,33 @@ export function createServer(): express.Express {
 
     next();
   });
+
+  server.get(
+    /^(?:\/prospect-profile\/[^/]+|\/profile\/athlete\/[^/]+\/[^/]+)\/?$/,
+    async (req: Request, res: Response) => {
+      const routeParam = extractLegacyProfileLookupParam(req.path);
+      if (!routeParam) {
+        res.status(404).type('text/plain; charset=utf-8').send('Not found');
+        return;
+      }
+
+      const profile = await fetchProfileForCanonicalRedirect(routeParam, profileApiBaseUrl);
+      const canonicalPath = profile ? buildCanonicalProfileRedirectPath(profile) : null;
+      if (canonicalPath) {
+        res.redirect(308, `${publicBaseUrl}${canonicalPath}`);
+        return;
+      }
+
+      if (req.path.startsWith('/prospect-profile/')) {
+        res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+        res.status(410).type('text/plain; charset=utf-8').send('Gone');
+        return;
+      }
+
+      res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+      res.status(404).type('text/plain; charset=utf-8').send('Not found');
+    }
+  );
 
   // ============================================
   // BACKEND API PROXY (Sitemap, XML, and API routes)

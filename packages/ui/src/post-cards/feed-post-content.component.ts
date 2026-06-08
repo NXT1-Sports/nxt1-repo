@@ -67,13 +67,31 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
                     </div>
                   </div>
                 } @else if (shouldRenderVideoPlayer(media)) {
-                  <!-- Render player immediately for Cloudflare; tap-to-play for non-Cloudflare -->
+                  <!-- Keep poster visible until the iframe has painted to avoid white flashes -->
+                  @if (media.thumbnailUrl) {
+                    <nxt1-image
+                      [src]="media.thumbnailUrl"
+                      [alt]="media.altText || 'Video thumbnail'"
+                      fit="contain"
+                      [width]="getMediaWidth(media)"
+                      [height]="getMediaHeight(media)"
+                      [useNgOptimizedImage]="false"
+                    />
+                  } @else {
+                    <div
+                      class="post-content__video-placeholder post-content__video-placeholder--loading"
+                    >
+                      <nxt1-icon name="videocam" [size]="48" />
+                    </div>
+                  }
                   <iframe
                     class="post-content__video-iframe"
+                    [class.post-content__video-iframe--loaded]="isVideoIframeReady(media.id)"
                     [src]="getSafeIframeUrl(media.iframeUrl || media.url)"
                     allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
                     allowfullscreen
                     frameborder="0"
+                    (load)="markVideoIframeReady(media.id)"
                   ></iframe>
                 } @else {
                   <!-- Inactive: show thumbnail + play button tap target -->
@@ -294,6 +312,10 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
         color: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
       }
 
+      .post-content__video-placeholder--loading {
+        background: #000;
+      }
+
       .post-content__video-processing {
         position: absolute;
         inset: 0;
@@ -324,6 +346,12 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
         height: 100%;
         border: none;
         background: #000;
+        opacity: 0;
+        transition: opacity 0.18s ease;
+      }
+
+      .post-content__video-iframe--loaded {
+        opacity: 1;
       }
 
       .post-content__video-overlay {
@@ -542,10 +570,13 @@ export class FeedPostContentComponent {
   readonly menuClick = output<void>();
 
   private readonly sanitizer = inject(DomSanitizer);
+  private readonly safeIframeUrls = new Map<string, SafeResourceUrl>();
   protected readonly testIds = FEED_CARD_TEST_IDS;
   protected readonly activeMediaIndex = signal(0);
   /** Tracks which video slide is "playing" by media ID. null = thumbnail shown. */
   protected readonly activeVideoSlide = signal<string | null>(null);
+  /** Tracks which embedded video iframes have painted and can replace the poster. */
+  protected readonly videoIframeReady = signal<Record<string, true>>({});
 
   protected readonly hasMedia = computed(() => this.data().media.length > 0);
   protected readonly showMedia = computed(() => {
@@ -645,10 +676,19 @@ export class FeedPostContentComponent {
     this.activeVideoSlide.set(mediaId);
   }
 
+  protected isVideoIframeReady(mediaId: string): boolean {
+    return this.videoIframeReady()[mediaId] === true;
+  }
+
+  protected markVideoIframeReady(mediaId: string): void {
+    this.videoIframeReady.update((current) => {
+      if (current[mediaId]) return current;
+      return { ...current, [mediaId]: true };
+    });
+  }
+
   protected shouldRenderVideoPlayer(media: FeedMedia): boolean {
-    return (
-      this.isCloudflareVideo(media) || this.activeVideoSlide() === this.getMediaIndex(media.id)
-    );
+    return this.activeVideoSlide() === this.getMediaIndex(media.id);
   }
 
   protected getMediaIndex(mediaId: string): string {
@@ -667,19 +707,17 @@ export class FeedPostContentComponent {
       : FeedPostContentComponent.FALLBACK_MEDIA_HEIGHT;
   }
 
-  protected isCloudflareVideo(media: FeedMedia): boolean {
-    if (media.cloudflareVideoId) return true;
-
-    const source = media.iframeUrl ?? media.url ?? media.thumbnailUrl ?? '';
-    return /cloudflarestream\.com|videodelivery\.net/i.test(source);
-  }
-
   /**
    * Bypasses Angular's URL sanitization for trusted Cloudflare Stream iframe URLs.
    * Only called for iframeUrl values constructed by the backend from CF's own CDN.
    */
   protected getSafeIframeUrl(iframeUrl: string): SafeResourceUrl {
-    return this.sanitizer.bypassSecurityTrustResourceUrl(iframeUrl);
+    const cached = this.safeIframeUrls.get(iframeUrl);
+    if (cached) return cached;
+
+    const safeUrl = this.sanitizer.bypassSecurityTrustResourceUrl(iframeUrl);
+    this.safeIframeUrls.set(iframeUrl, safeUrl);
+    return safeUrl;
   }
 
   protected formatRelativeTime(dateString: string): string {
