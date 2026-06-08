@@ -319,7 +319,9 @@ export class AgentXVideoUploadService {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorName = error instanceof Error ? error.name : 'VideoUploadError';
 
-    void this.crashlytics
+    const crashlytics = this.crashlytics;
+
+    void crashlytics
       .recordException({
         message: `Agent X video upload failed during ${phase}: ${errorMessage}`,
         name: errorName,
@@ -334,6 +336,7 @@ export class AgentXVideoUploadService {
           sizeBytes: file.size,
         },
       })
+      .then(() => crashlytics.sendUnsentReports())
       .catch((crashlyticsErr) => {
         this.logger.warn('Failed to record Agent X video upload failure in Crashlytics', {
           error: crashlyticsErr instanceof Error ? crashlyticsErr.message : String(crashlyticsErr),
@@ -622,6 +625,9 @@ export class AgentXVideoUploadService {
    *       SDK. This completely bypasses the WKWebView HTTP bridge, which cannot
    *       perform cross-origin PUT requests to `storage.googleapis.com` on iOS
    *       without the `com.apple.runningboard.assertions.webkit` entitlement.
+   *       If the native SDK rejects (for example, native Firebase Auth is not
+   *       synced with the WebView auth user), the already-provisioned signed URL
+   *       remains the source of truth and this method falls back to XHR.
    *
    *       Detection is behavioural, not heuristic: `_nativeFirebasePut()` probes
    *       the Capacitor Filesystem plugin to check whether it returns a native
@@ -639,16 +645,35 @@ export class AgentXVideoUploadService {
     storagePath: string,
     onProgress: (percent: number) => void
   ): Promise<void> {
-    // Try the native Firebase Storage SDK first. On native Capacitor (iOS/Android)
-    // the Filesystem probe confirms `file://` URIs and the upload proceeds natively.
-    // On web the probe returns a virtual URI → method returns false → fall through.
-    const uploadedViaNative = await this._nativeFirebasePut(file, storagePath, onProgress);
+    let uploadedViaNative = false;
+    try {
+      // Try the native Firebase Storage SDK first. On native Capacitor (iOS/Android)
+      // the Filesystem probe confirms `file://` URIs and the upload proceeds natively.
+      // On web the probe returns a virtual URI -> method returns false -> fall through.
+      uploadedViaNative = await this._nativeFirebasePut(file, storagePath, onProgress);
+    } catch (nativeErr) {
+      this.logger.warn(
+        '[_xhrPutWithRetry] Native Firebase Storage upload failed; falling back to signed URL XHR upload',
+        {
+          error: nativeErr instanceof Error ? nativeErr.message : String(nativeErr),
+          name: file.name,
+          sizeBytes: file.size,
+          mimeType: file.type,
+          storagePath,
+        }
+      );
+      this.breadcrumb.trackStateChange('agent-x-video-upload:native-firebase-put-fallback', {
+        name: file.name,
+        storagePath,
+      });
+      onProgress(0);
+    }
     if (uploadedViaNative) return;
 
-    // Native Firebase path did not handle the upload (returned false).
-    // Falling through to the XHR path. On web this is expected. On native
-    // Capacitor this may indicate plugin/config issues, and large files can
-    // fail due to CapacitorHttp bridge size limits.
+    // Native Firebase path did not handle the upload (returned false or threw).
+    // Falling through to the backend-provisioned signed URL keeps the same auth
+    // model as web. On native Capacitor, large files can still fail due to
+    // CapacitorHttp/WKWebView bridge limits; those failures surface from _xhrPut.
     this.logger.info(
       '[_xhrPutWithRetry] Using XHR upload fallback after native Firebase path returned false.',
       {
@@ -700,9 +725,9 @@ export class AgentXVideoUploadService {
    *      is the sole platform discriminator — it cannot be defeated by Angular
    *      build optimisations or bridge initialisation timing races.
    *
-   *   2. Writes the browser `File` object (as a `Blob`) to the Capacitor cache
-   *      filesystem. In Capacitor 6+, Blob data is streamed natively without
-   *      base64 overhead.
+   *   2. Writes the browser `File` object to the Capacitor cache filesystem as
+   *      base64. Capacitor Filesystem supports Blob writes only on web; native
+   *      iOS/Android expects base64 when no text encoding is provided.
    *
    *   3. Uploads from the local `file://` URI via
    *      `@capacitor-firebase/storage.uploadFile()`, which calls
@@ -826,42 +851,12 @@ export class AgentXVideoUploadService {
     onProgress(2);
 
     try {
-      // Attempt Blob write first (Capacitor 8 supports native Blob transfer via WKWebView binary channel).
-      // If the platform does not support Blob (Capacitor emits an error), fall back to base64.
-      // NOTE: base64 for large files will pass ~17 MB through the bridge on iOS which may also
-      // fail — but we log the error so production crashes are visible.
-      try {
-        await Filesystem.writeFile({
-          path: tempFileName,
-          data: file as Blob,
-          directory: Directory.Cache,
-        });
-      } catch (blobWriteErr) {
-        this.logger.warn(
-          '[_nativeFirebasePut] Blob writeFile failed; retrying with base64 encoding',
-          {
-            error: blobWriteErr instanceof Error ? blobWriteErr.message : String(blobWriteErr),
-            name: file.name,
-            sizeBytes: file.size,
-          }
-        );
-        // Convert Blob → base64 string for older Capacitor / iOS configurations.
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const result = reader.result as string;
-            // FileReader.readAsDataURL returns "data:<mime>;base64,<data>" — strip the prefix.
-            resolve(result.substring(result.indexOf(',') + 1));
-          };
-          reader.onerror = () => reject(new Error('FileReader error during base64 conversion'));
-          reader.readAsDataURL(file);
-        });
-        await Filesystem.writeFile({
-          path: tempFileName,
-          data: base64,
-          directory: Directory.Cache,
-        });
-      }
+      const base64 = await this._fileToBase64(file);
+      await Filesystem.writeFile({
+        path: tempFileName,
+        data: base64,
+        directory: Directory.Cache,
+      });
 
       const { uri: fileUri } = await Filesystem.getUri({
         path: tempFileName,
@@ -929,6 +924,19 @@ export class AgentXVideoUploadService {
         });
       });
     }
+  }
+
+  private _fileToBase64(file: File): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = typeof reader.result === 'string' ? reader.result : '';
+        const commaIndex = result.indexOf(',');
+        resolve(commaIndex >= 0 ? result.substring(commaIndex + 1) : result);
+      };
+      reader.onerror = () => reject(new Error('FileReader error during base64 conversion'));
+      reader.readAsDataURL(file);
+    });
   }
 
   /**

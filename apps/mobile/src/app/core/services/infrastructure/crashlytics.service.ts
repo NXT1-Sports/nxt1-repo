@@ -120,6 +120,7 @@ export class CrashlyticsService implements CrashlyticsAdapter {
         console.warn('[Crashlytics] Initialization failed, using no-op mode:', error);
       }
       await this.noOpAdapter.initialize(this._config);
+      this._isNative = false;
       this._ready = true;
     }
   }

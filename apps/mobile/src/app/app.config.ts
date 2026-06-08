@@ -153,6 +153,21 @@ function configureEditProfileApi(
   };
 }
 
+function initializeCrashlytics(crashlytics: CrashlyticsService): () => Promise<void> {
+  return () =>
+    crashlytics.initialize({
+      enabled: environment.production,
+      debug: !environment.production,
+      collectNavigationBreadcrumbs: true,
+      collectHttpBreadcrumbs: true,
+      initialCustomKeys: {
+        app_version: environment.appVersion || '1.0.0',
+        environment: environment.production ? 'production' : 'development',
+        platform: Capacitor.getPlatform(),
+      },
+    });
+}
+
 /**
  * Get Firebase Auth with proper persistence for the platform.
  * iOS WebView has issues with IndexedDB use browserLocalPersistence.
@@ -441,6 +456,12 @@ export const appConfig: ApplicationConfig = {
       provide: APP_INITIALIZER,
       useFactory: configureEditProfileApi,
       deps: [EditProfileService, EditProfileApiService],
+      multi: true,
+    },
+    {
+      provide: APP_INITIALIZER,
+      useFactory: initializeCrashlytics,
+      deps: [CrashlyticsService],
       multi: true,
     },
   ],

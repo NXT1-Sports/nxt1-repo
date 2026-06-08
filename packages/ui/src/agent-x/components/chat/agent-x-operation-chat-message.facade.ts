@@ -319,15 +319,6 @@ export class AgentXOperationChatMessageFacade {
       return nextParts;
     }
 
-    const lastPart = nextParts[nextParts.length - 1];
-    if (lastPart?.type === 'tool-steps') {
-      nextParts[nextParts.length - 1] = {
-        type: 'tool-steps',
-        steps: [...lastPart.steps, step],
-      };
-      return nextParts;
-    }
-
     nextParts.push({ type: 'tool-steps', steps: [step] });
     return nextParts;
   }
