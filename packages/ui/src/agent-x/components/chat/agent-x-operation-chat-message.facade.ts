@@ -22,6 +22,7 @@ import { AGENT_X_API_BASE_URL } from '../../services/agent-x-job.service';
 import type { AgentXFeedbackSubmitEvent } from '../modals/agent-x-feedback-modal.component';
 import type { AgentYieldState } from '@nxt1/core';
 import type { OperationMessage, PendingUndoState } from './agent-x-operation-chat.models';
+import { stripDistilledSectionTransitionLines } from './agent-x-operation-chat.utils';
 
 export interface AgentXOperationChatMessageFacadeHost {
   readonly contextId: () => string;
@@ -332,8 +333,9 @@ export class AgentXOperationChatMessageFacade {
   }
 
   queueTypingDelta(text: string): void {
-    if (!text) return;
-    this.pendingTypingDelta += text;
+    const filteredText = stripDistilledSectionTransitionLines(text);
+    if (!filteredText) return;
+    this.pendingTypingDelta += filteredText;
 
     if (this.pendingTypingFlushFrame !== null) return;
 

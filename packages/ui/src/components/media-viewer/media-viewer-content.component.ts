@@ -504,12 +504,9 @@ import type { MediaImageFormat } from '../../services/media';
     }
 
     .media-viewer--inline-video-fullscreen {
-      position: fixed;
-      inset: 0;
-      z-index: 2147483647;
-      width: 100vw;
-      height: 100dvh;
-      min-height: 100dvh;
+      width: 100%;
+      height: 100%;
+      min-height: 100%;
       background: #000;
     }
 
@@ -529,6 +526,11 @@ import type { MediaImageFormat } from '../../services/media';
 
     .media-viewer--inline-video-fullscreen .caption,
     .media-viewer--inline-video-fullscreen .bottom-save-bar {
+      display: none;
+    }
+
+    .media-viewer--inline-video-fullscreen .top-bar,
+    .media-viewer--inline-video-fullscreen .nav-arrow {
       display: none;
     }
 
@@ -1167,6 +1169,14 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   );
 
   protected readonly testIds = TEST_IDS.MEDIA_VIEWER;
+  private readonly inlineVideoFullscreenModalCss = {
+    '--height': '100dvh',
+    '--max-height': '100dvh',
+    '--width': '100vw',
+    '--max-width': '100vw',
+    '--border-radius': '0',
+    '--box-shadow': 'none',
+  } as const;
 
   /** Whether post-render setup has already run. */
   private initialized = false;
@@ -1213,7 +1223,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.stopSmoothProgressTracking();
     this.cancelPendingVideoSeek();
-    this.inlineVideoFullscreen.set(false);
+    this.setInlineVideoFullscreenState(false);
     this.clearIosViewportResetGuards();
     this._resetIosViewportShift();
     if (isPlatformBrowser(this.platformId) && this._fullscreenChangeHandler) {
@@ -1588,11 +1598,42 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
 
   private toggleInlineVideoFullscreen(): void {
     const nextValue = !this.inlineVideoFullscreen();
-    this.inlineVideoFullscreen.set(nextValue);
+    this.setInlineVideoFullscreenState(nextValue);
 
     if (!nextValue) {
       this._resetIosViewportShift();
     }
+  }
+
+  private setInlineVideoFullscreenState(isFullscreen: boolean): void {
+    this.inlineVideoFullscreen.set(isFullscreen);
+
+    const modal = this.getEnclosingIonModal();
+    if (!modal) return;
+
+    if (isFullscreen) {
+      modal.classList.add('nxt1-media-viewer-modal--inline-video-fullscreen');
+      for (const [property, value] of Object.entries(this.inlineVideoFullscreenModalCss)) {
+        modal.style.setProperty(property, value);
+      }
+      void modal.setCurrentBreakpoint?.(1).catch(() => undefined);
+      return;
+    }
+
+    modal.classList.remove('nxt1-media-viewer-modal--inline-video-fullscreen');
+    for (const property of Object.keys(this.inlineVideoFullscreenModalCss)) {
+      modal.style.removeProperty(property);
+    }
+  }
+
+  private getEnclosingIonModal():
+    | (HTMLElement & { setCurrentBreakpoint?: (breakpoint: number) => Promise<void> })
+    | null {
+    if (!isPlatformBrowser(this.platformId)) return null;
+
+    return this.el.nativeElement.closest('ion-modal') as
+      | (HTMLElement & { setCurrentBreakpoint?: (breakpoint: number) => Promise<void> })
+      | null;
   }
 
   /**
@@ -1611,7 +1652,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
       }
     } else {
       this._removeAndroidFullscreenBackHandler();
-      this.inlineVideoFullscreen.set(false);
+      this.setInlineVideoFullscreenState(false);
       this._resetIosViewportShift();
     }
   }
@@ -1744,7 +1785,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   // ── Actions ────────────────────────────────────────────
 
   dismiss(): void {
-    this.inlineVideoFullscreen.set(false);
+    this.setInlineVideoFullscreenState(false);
     // Reset any iOS viewport shift BEFORE dismissing so the underlying page
     // is already corrected when the modal closes.
     this._resetIosViewportShift();
@@ -1761,7 +1802,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   }
 
   share(): void {
-    this.inlineVideoFullscreen.set(false);
+    this.setInlineVideoFullscreenState(false);
     this.analytics?.trackEvent(APP_EVENTS.MEDIA_VIEWER_SHARED, {
       index: this.currentIndex(),
       type: this.currentItem().type,
@@ -2002,7 +2043,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   private resetCustomVideoState(): void {
     this.stopSmoothProgressTracking();
     this.cancelPendingVideoSeek();
-    this.inlineVideoFullscreen.set(false);
+    this.setInlineVideoFullscreenState(false);
     this.videoCurrentTime.set(0);
     this.videoDuration.set(0);
     this.videoPlaybackRate.set(1);

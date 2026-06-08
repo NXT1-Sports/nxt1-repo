@@ -27,6 +27,7 @@ import type {
   PendingFile,
   OperationMessage,
 } from './agent-x-operation-chat.models';
+import { stripDistilledSectionTransitionLines } from './agent-x-operation-chat.utils';
 import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-message.facade';
 import { AgentXOperationChatTransportFacade } from './agent-x-operation-chat-transport.facade';
 import { AgentXOperationChatAttachmentsFacade } from './agent-x-operation-chat-attachments.facade';
@@ -2209,8 +2210,10 @@ export class AgentXOperationChatSessionFacade {
                   this.stripPersistedAttachmentAnnotations(message.content),
                   persistedMedia
                 )
-              : this.promoteAssistantMediaUrlsToMarkdown(
-                  this.stripPersistedAttachmentAnnotations(message.content)
+              : stripDistilledSectionTransitionLines(
+                  this.promoteAssistantMediaUrlsToMarkdown(
+                    this.stripPersistedAttachmentAnnotations(message.content)
+                  )
                 );
 
           // BUG FIX: Rehydration drops text when cards are present.

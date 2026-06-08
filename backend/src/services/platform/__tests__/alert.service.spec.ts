@@ -111,4 +111,88 @@ describe('sendSlackAlert', () => {
       })
     );
   });
+
+  it('retries the default webhook when a dedicated signup webhook fails', async () => {
+    process.env['SLACK_ALERT_WEBHOOK_URL'] = 'https://hooks.slack.test/default';
+    process.env['SLACK_NEW_ATHLETES_WEBHOOK_URL'] = 'https://hooks.slack.test/athletes';
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('invalid_hook', { status: 404 }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const delivered = await sendSlackAlert({
+      target: 'signup_athlete',
+      environment: 'production',
+      severity: 'info',
+      title: 'New Athlete Signup',
+      summary: 'A signup completed.',
+    });
+
+    expect(delivered).toBe(true);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://hooks.slack.test/athletes',
+      expect.objectContaining({ method: 'POST' })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://hooks.slack.test/default',
+      expect.objectContaining({ method: 'POST' })
+    );
+  });
+
+  it('retries the agent webhook when the default webhook fails', async () => {
+    process.env['SLACK_ALERT_WEBHOOK_URL'] = 'https://hooks.slack.test/default';
+    process.env['SLACK_AGENT_ALERT_WEBHOOK_URL'] = 'https://hooks.slack.test/agent';
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('invalid_hook', { status: 404 }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const delivered = await sendSlackAlert({
+      target: 'default',
+      environment: 'production',
+      severity: 'info',
+      title: 'Sales Signup Alert',
+      summary: 'A sales alert completed.',
+    });
+
+    expect(delivered).toBe(true);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://hooks.slack.test/default',
+      expect.objectContaining({ method: 'POST' })
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://hooks.slack.test/agent',
+      expect.objectContaining({ method: 'POST' })
+    );
+  });
+
+  it('uses the agent webhook as a last resort when signup and default webhooks are missing', async () => {
+    process.env['SLACK_AGENT_ALERT_WEBHOOK_URL'] = 'https://hooks.slack.test/agent';
+
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const delivered = await sendSlackAlert({
+      target: 'signup_team',
+      environment: 'production',
+      severity: 'info',
+      title: 'New Team / Staff Signup',
+      summary: 'A signup completed.',
+    });
+
+    expect(delivered).toBe(true);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://hooks.slack.test/agent',
+      expect.objectContaining({ method: 'POST' })
+    );
+  });
 });

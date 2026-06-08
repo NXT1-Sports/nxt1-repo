@@ -83,6 +83,34 @@ function resolveTargetWebhook(
   };
 }
 
+function resolveDefaultFallbackWebhook(environment: RuntimeEnvironment): ResolvedWebhook {
+  const fallbackKeys =
+    environment === 'staging'
+      ? (['STAGING_SLACK_ALERT_WEBHOOK_URL', 'SLACK_ALERT_WEBHOOK_URL'] as const)
+      : (['SLACK_ALERT_WEBHOOK_URL'] as const);
+  const fallback = resolveWebhookFromEnvKeys(fallbackKeys);
+
+  return {
+    url: fallback.url,
+    envVar: fallback.envVar,
+    source: 'default-fallback',
+  };
+}
+
+function resolveAgentFallbackWebhook(environment: RuntimeEnvironment): ResolvedWebhook {
+  const fallbackKeys =
+    environment === 'staging'
+      ? (['STAGING_SLACK_AGENT_ALERT_WEBHOOK_URL', 'SLACK_AGENT_ALERT_WEBHOOK_URL'] as const)
+      : (['SLACK_AGENT_ALERT_WEBHOOK_URL'] as const);
+  const fallback = resolveWebhookFromEnvKeys(fallbackKeys);
+
+  return {
+    url: fallback.url,
+    envVar: fallback.envVar,
+    source: 'default-fallback',
+  };
+}
+
 function formatAlertBody(input: SlackAlertInput): string {
   const lines: string[] = [input.summary];
 
@@ -110,10 +138,9 @@ export async function sendSlackAlert(input: SlackAlertInput): Promise<boolean> {
       environment,
       title: input.title,
     });
-    return false;
   }
 
-  if (target !== 'default' && resolvedWebhook.source === 'default-fallback') {
+  if (webhookUrl && target !== 'default' && resolvedWebhook.source === 'default-fallback') {
     logger.warn('Slack alert target webhook missing; falling back to default webhook', {
       target,
       environment,
@@ -142,33 +169,98 @@ export async function sendSlackAlert(input: SlackAlertInput): Promise<boolean> {
     ],
   };
 
-  try {
-    const response = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+  const postSlackWebhook = async (
+    url: string,
+    resolvedEnvVar: string | null,
+    deliveryAttempt: 'primary' | 'default-fallback' | 'agent-fallback'
+  ): Promise<boolean> => {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        logger.error('Slack alert delivery failed', {
+          target,
+          environment,
+          title: input.title,
+          deliveryAttempt,
+          envVar: resolvedEnvVar,
+          status: response.status,
+          body,
+        });
+        return false;
+      }
+
+      return true;
+    } catch (error) {
       logger.error('Slack alert delivery failed', {
         target,
         environment,
         title: input.title,
-        status: response.status,
-        body,
+        deliveryAttempt,
+        envVar: resolvedEnvVar,
+        error: error instanceof Error ? error.message : String(error),
       });
       return false;
     }
+  };
 
-    return true;
-  } catch (error) {
-    logger.error('Slack alert delivery failed', {
+  const attemptedUrls = new Set<string>();
+  if (webhookUrl) {
+    attemptedUrls.add(webhookUrl);
+    if (await postSlackWebhook(webhookUrl, resolvedWebhook.envVar, 'primary')) {
+      return true;
+    }
+  }
+
+  const fallbackCandidates: Array<{
+    readonly resolvedWebhook: ResolvedWebhook;
+    readonly deliveryAttempt: 'default-fallback' | 'agent-fallback';
+  }> = [];
+
+  if (target !== 'default' && resolvedWebhook.source === 'target-specific') {
+    fallbackCandidates.push({
+      resolvedWebhook: resolveDefaultFallbackWebhook(environment),
+      deliveryAttempt: 'default-fallback',
+    });
+  }
+
+  if (target !== 'agent') {
+    fallbackCandidates.push({
+      resolvedWebhook: resolveAgentFallbackWebhook(environment),
+      deliveryAttempt: 'agent-fallback',
+    });
+  }
+
+  for (const fallbackCandidate of fallbackCandidates) {
+    const fallbackWebhookUrl = fallbackCandidate.resolvedWebhook.url;
+    if (!fallbackWebhookUrl || attemptedUrls.has(fallbackWebhookUrl)) {
+      continue;
+    }
+
+    attemptedUrls.add(fallbackWebhookUrl);
+    logger.warn('Retrying Slack alert with fallback webhook', {
       target,
       environment,
       title: input.title,
-      error: error instanceof Error ? error.message : String(error),
+      deliveryAttempt: fallbackCandidate.deliveryAttempt,
+      fallbackEnvVar: fallbackCandidate.resolvedWebhook.envVar,
     });
-    return false;
+
+    if (
+      await postSlackWebhook(
+        fallbackWebhookUrl,
+        fallbackCandidate.resolvedWebhook.envVar,
+        fallbackCandidate.deliveryAttempt
+      )
+    ) {
+      return true;
+    }
   }
+
+  return false;
 }

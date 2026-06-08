@@ -34,7 +34,9 @@ import { NxtLoggingService } from '../../services/logging/logging.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { PERFORMANCE_ADAPTER } from '../../services/performance/performance-adapter.token';
+import { GLOBAL_CRASHLYTICS } from '../../infrastructure';
 import { APP_EVENTS } from '@nxt1/core/analytics';
+import type { CrashlyticsAdapter } from '@nxt1/core/crashlytics';
 import { TRACE_NAMES, ATTRIBUTE_NAMES } from '@nxt1/core/performance';
 
 // ============================================
@@ -125,6 +127,9 @@ export class AgentXVideoUploadService {
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
   private readonly performance = inject(PERFORMANCE_ADAPTER, { optional: true });
+  private readonly crashlytics = inject<CrashlyticsAdapter | null>(GLOBAL_CRASHLYTICS, {
+    optional: true,
+  });
 
   /** Upload a video file using the best transport for its size. */
   uploadVideo(
@@ -144,6 +149,10 @@ export class AgentXVideoUploadService {
     uploadTask.catch((err) => {
       const msg = err instanceof Error ? err.message : 'Video upload failed';
       this.logger.error('Unhandled video upload error', err, { name: file.name });
+      this.recordUploadFailure('unexpected', err, file, {
+        transport: options?.transport ?? 'auto',
+        hasThreadId: !!threadId,
+      });
       subject.next({ phase: 'error', percent: 0, errorMessage: msg });
       subject.complete();
     });
@@ -215,6 +224,10 @@ export class AgentXVideoUploadService {
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to provision upload URL';
       this.logger.error('Failed to provision video upload URL', err, { name: file.name });
+      this.recordUploadFailure('provisioning', err, file, {
+        storageBackend: 'firebase',
+        hasThreadId: !!threadId,
+      });
       this.breadcrumb.trackStateChange('agent-x-video-upload:error', {
         name: file.name,
         phase: 'provisioning',
@@ -281,6 +294,10 @@ export class AgentXVideoUploadService {
         sizeBytes: file.size,
         mimeType: file.type,
       });
+      this.recordUploadFailure('firebase-storage-put', err, file, {
+        storageBackend: 'firebase',
+        hasThreadId: !!threadId,
+      });
       this.breadcrumb.trackStateChange('agent-x-video-upload:error', {
         name: file.name,
         phase: 'uploading',
@@ -289,6 +306,45 @@ export class AgentXVideoUploadService {
       subject.next({ phase: 'error', percent: 0, errorMessage: msg });
       subject.complete();
     }
+  }
+
+  private recordUploadFailure(
+    phase: string,
+    error: unknown,
+    file: File,
+    context: Record<string, string | number | boolean | null | undefined> = {}
+  ): void {
+    if (!this.crashlytics?.isReady()) return;
+
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorName = error instanceof Error ? error.name : 'VideoUploadError';
+
+    void this.crashlytics
+      .recordException({
+        message: `Agent X video upload failed during ${phase}: ${errorMessage}`,
+        name: errorName,
+        stacktrace: error instanceof Error ? error.stack : undefined,
+        severity: 'error',
+        category: 'media',
+        context: {
+          ...context,
+          phase,
+          fileExtension: this.getFileExtension(file.name),
+          mimeType: file.type || 'unknown',
+          sizeBytes: file.size,
+        },
+      })
+      .catch((crashlyticsErr) => {
+        this.logger.warn('Failed to record Agent X video upload failure in Crashlytics', {
+          error: crashlyticsErr instanceof Error ? crashlyticsErr.message : String(crashlyticsErr),
+          phase,
+        });
+      });
+  }
+
+  private getFileExtension(fileName: string): string {
+    const match = /\.([a-z0-9]{1,12})$/i.exec(fileName.trim());
+    return match ? match[1].toLowerCase() : 'unknown';
   }
 
   private async _doCloudflareTusUpload(

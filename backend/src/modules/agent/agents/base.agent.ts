@@ -2035,20 +2035,6 @@ export abstract class BaseAgent {
               toolCall.function.arguments
             ),
           });
-
-          const postToolProgress = this.resolvePostToolProgressLine(
-            toolCall.function.name,
-            toolCall.function.arguments,
-            toolSuccess
-          );
-          if (postToolProgress) {
-            onStreamEvent({
-              type: 'delta',
-              agentId: this.id,
-              text: `\n${postToolProgress}\n`,
-              noBatch: true,
-            });
-          }
         }
 
         const toolResultMsg: LLMMessage = {
@@ -5196,37 +5182,6 @@ export abstract class BaseAgent {
     };
 
     return sectionLabels[section] ?? 'Reading imported profile details';
-  }
-
-  private resolvePostToolProgressLine(
-    toolName: string,
-    inputOrArgs: Record<string, unknown> | string,
-    toolSuccess: boolean
-  ): string | null {
-    if (!toolSuccess || toolName !== 'read_distilled_section') return null;
-
-    const input =
-      typeof inputOrArgs === 'string'
-        ? this.parseToolCallInput(inputOrArgs)
-        : inputOrArgs && typeof inputOrArgs === 'object' && !Array.isArray(inputOrArgs)
-          ? inputOrArgs
-          : null;
-
-    const section = typeof input?.['section'] === 'string' ? input['section'].trim() : '';
-    const sectionProgress: Record<string, string> = {
-      identity: 'Identity details loaded; preparing profile updates.',
-      academics: 'Academic details loaded; preparing profile updates.',
-      sportInfo: 'Sport details loaded; preparing profile updates.',
-      team: 'Team details loaded; preparing team context updates.',
-      coach: 'Coach details loaded; preparing profile updates.',
-      metrics: 'Combine metrics loaded; preparing metric updates.',
-      seasonStats: 'Season stats loaded; preparing verified stat updates.',
-      schedule: 'Schedule details loaded; preparing calendar updates.',
-      recruiting: 'Recruiting activity loaded; preparing recruiting updates.',
-      awards: 'Career awards loaded; preparing award updates.',
-    };
-
-    return sectionProgress[section] ?? 'Imported profile details loaded; preparing updates.';
   }
 
   private resolveScrapeWebpageLabel(inputOrArgs?: Record<string, unknown> | string): string {

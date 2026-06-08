@@ -58,6 +58,9 @@ Operational lifecycle routing:
 - `SLACK_NEW_TEAMS_WEBHOOK_URL` routes team/staff signup alerts
 - signup alerts fall back to `SLACK_ALERT_WEBHOOK_URL` when their dedicated
   webhook is not configured
+- if a configured dedicated signup webhook fails delivery, the backend retries
+  `SLACK_ALERT_WEBHOOK_URL`, then `SLACK_AGENT_ALERT_WEBHOOK_URL` as a final
+  last-resort alert path
 
 App Hosting secret names:
 

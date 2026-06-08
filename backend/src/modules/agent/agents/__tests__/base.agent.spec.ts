@@ -763,21 +763,6 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(label).toBe('Reading season stats');
   });
 
-  it('emits deterministic progress text after distilled section reads', () => {
-    const agent = new FakeAgent();
-
-    const progressLine = agent['resolvePostToolProgressLine'](
-      'read_distilled_section',
-      {
-        url: 'https://www.maxpreps.com/athletes/example',
-        section: 'seasonStats',
-      },
-      true
-    );
-
-    expect(progressLine).toBe('Season stats loaded; preparing verified stat updates.');
-  });
-
   it('normalizes ffmpeg trim labels without surfacing clip offsets', () => {
     const agent = new FakeAgent();
 
