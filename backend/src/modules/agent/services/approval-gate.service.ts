@@ -743,31 +743,39 @@ export class ApprovalGateService {
     }> = [];
 
     for (const doc of snapshot.docs) {
-      const request = doc.data() as AgentApprovalRequest & { expiryPushSent?: boolean };
+      try {
+        const request = doc.data() as AgentApprovalRequest & { expiryPushSent?: boolean };
 
-      // Skip if already marked (handles race between concurrent cron invocations)
-      if (request.expiryPushSent) {
-        skipped++;
-        continue;
+        // Skip if already marked (handles race between concurrent cron invocations)
+        if (request.expiryPushSent) {
+          skipped++;
+          continue;
+        }
+
+        const createdAtMs = new Date(request.createdAt).getTime();
+        const expiresAtMs = createdAtMs + request.expiresInMs;
+        const remaining = expiresAtMs - now;
+
+        // Only notify when within threshold and not already expired
+        if (remaining <= 0 || remaining > thresholdMs) {
+          skipped++;
+          continue;
+        }
+
+        const mins = Math.max(1, Math.round(remaining / 60_000));
+        const copy = resolveAgentApprovalCopy({
+          toolName: request.toolName,
+          toolInput: request.toolInput as Record<string, unknown>,
+        });
+
+        toNotify.push({ doc, request, remaining, mins, copy });
+      } catch (docErr) {
+        logger.warn('Skipping approval during expiry notification sweep', {
+          approvalId: doc.id,
+          error: docErr instanceof Error ? docErr.message : String(docErr),
+        });
+        failed++;
       }
-
-      const createdAtMs = new Date(request.createdAt).getTime();
-      const expiresAtMs = createdAtMs + request.expiresInMs;
-      const remaining = expiresAtMs - now;
-
-      // Only notify when within threshold and not already expired
-      if (remaining <= 0 || remaining > thresholdMs) {
-        skipped++;
-        continue;
-      }
-
-      const mins = Math.max(1, Math.round(remaining / 60_000));
-      const copy = resolveAgentApprovalCopy({
-        toolName: request.toolName,
-        toolInput: request.toolInput as Record<string, unknown>,
-      });
-
-      toNotify.push({ doc, request, remaining, mins, copy });
     }
 
     // Send all push notifications in parallel

@@ -62,6 +62,7 @@ const INTERNAL_NXT1_POSTING_TOOLS = new Set([
   'delete_team_post',
   'write_team_news',
 ]);
+const BRAND_MEDIA_SUPPRESSED_PLATFORM_TOOLS = new Set(['query_nxt1_platform_data']);
 const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
   scrape_and_index_profile: [
     'read_distilled_section',
@@ -227,6 +228,11 @@ function computeForcedToolInclusions(taskIntent: string): readonly string[] {
     /\b(create|make|generate|produce|build|cut|edit|clip|trim|assemble|merge)\b/.test(
       normalizedIntent
     ) && /\b(highlight|reel|video|promo|teaser|recap|best moments?)\b/.test(normalizedIntent);
+  const asksForBrandVisualOutput =
+    /\b(create|make|generate|produce|build|design|edit)\b/.test(normalizedIntent) &&
+    /\b(highlight|reel|promo|teaser|recap|graphic|poster|thumbnail|title card|intro|brand(?:ed)?|creative)\b/.test(
+      normalizedIntent
+    );
 
   if (mentionsVideoSource && asksForCreativeVideoOutput) {
     forced.add('stage_media');
@@ -238,7 +244,33 @@ function computeForcedToolInclusions(taskIntent: string): readonly string[] {
     forced.add('ffmpeg_generate_thumbnail');
   }
 
+  if (asksForBrandVisualOutput) {
+    forced.add('query_nxt1_data');
+  }
+
   return [...forced];
+}
+
+function isBrandCreativeMediaIntent(
+  agentId: AgentIdentifier,
+  taskIntent: string
+): agentId is Extract<AgentIdentifier, 'brand_coordinator'> {
+  if (agentId !== 'brand_coordinator') return false;
+  const normalizedIntent = taskIntent.toLowerCase();
+  return (
+    /\b(create|make|generate|produce|build|design|cut|edit|assemble|merge)\b/.test(
+      normalizedIntent
+    ) &&
+    /\b(highlight|reel|promo|teaser|recap|graphic|poster|thumbnail|title card|intro|brand(?:ed)?|creative|media)\b/.test(
+      normalizedIntent
+    )
+  );
+}
+
+function removeBrandMediaSuppressedPlatformTools<T extends AgentToolDefinition>(
+  toolDefs: readonly T[]
+): T[] {
+  return toolDefs.filter((tool) => !BRAND_MEDIA_SUPPRESSED_PLATFORM_TOOLS.has(tool.name));
 }
 
 function isExternalSocialPublishIntent(taskIntent: string): boolean {
@@ -548,9 +580,16 @@ export class AgentRouterExecutionService {
               }
 
               const suppressInternalPostingTools = shouldSuppressInternalPostingTools(taskIntent);
+              const suppressBrandMediaPlatformTools = isBrandCreativeMediaIntent(
+                agent.id,
+                taskIntent
+              );
               let toolDefs = this.toolRegistry.getDefinitions(agent.id, toolAccessContext);
               if (suppressInternalPostingTools) {
                 toolDefs = removeInternalPostingTools(toolDefs);
+              }
+              if (suppressBrandMediaPlatformTools) {
+                toolDefs = removeBrandMediaSuppressedPlatformTools(toolDefs);
               }
               try {
                 const intentEmbedding = await this.llm.embed(taskIntent);
@@ -563,8 +602,11 @@ export class AgentRouterExecutionService {
                 const matchedToolDefs = suppressInternalPostingTools
                   ? removeInternalPostingTools(rawMatchedToolDefs)
                   : rawMatchedToolDefs;
+                const brandSafeMatchedToolDefs = suppressBrandMediaPlatformTools
+                  ? removeBrandMediaSuppressedPlatformTools(matchedToolDefs)
+                  : matchedToolDefs;
 
-                const semanticMatched = matchedToolDefs.filter(
+                const semanticMatched = brandSafeMatchedToolDefs.filter(
                   (tool) => tool.semanticScore >= SEMANTIC_MATCH_THRESHOLD
                 );
 
@@ -575,19 +617,19 @@ export class AgentRouterExecutionService {
                 // so pure-write tasks delegated to data_coordinator would silently receive
                 // no write tools and stall.
                 const agentPolicy = getEffectiveAgentToolPolicy(agent.id);
-                const safetyBuffer = matchedToolDefs.filter((tool) => {
+                const safetyBuffer = brandSafeMatchedToolDefs.filter((tool) => {
                   if (tool.semanticScore < SAFETY_BUFFER_THRESHOLD) return false;
                   if (tool.category === 'system') return true;
                   if (!tool.isMutation) return true;
                   return isToolAllowedByPatterns(tool.name, agentPolicy);
                 });
 
-                const finalTools = new Map<string, (typeof matchedToolDefs)[number]>();
+                const finalTools = new Map<string, (typeof brandSafeMatchedToolDefs)[number]>();
                 for (const tool of semanticMatched) finalTools.set(tool.name, tool);
                 for (const tool of safetyBuffer) finalTools.set(tool.name, tool);
 
                 for (const forcedToolName of computeForcedToolInclusions(taskIntent)) {
-                  const matchedForcedTool = matchedToolDefs.find(
+                  const matchedForcedTool = brandSafeMatchedToolDefs.find(
                     (tool) => tool.name === forcedToolName
                   );
                   if (matchedForcedTool) {
@@ -674,6 +716,19 @@ export class AgentRouterExecutionService {
                 throw new AgentEngineError(
                   'AGENT_TOOL_UNAVAILABLE',
                   'Direct external social publishing is not connected yet. Prepare the asset and caption for manual posting instead of claiming it was published.',
+                  {
+                    metadata: {
+                      taskId: task.id,
+                      assignedAgentId: task.assignedAgent,
+                    },
+                  }
+                );
+              }
+
+              if (result.success === false) {
+                throw new AgentEngineError(
+                  'AGENT_SUB_AGENT_INVALID_OUTPUT',
+                  result.errorMessage ?? result.summary ?? 'Coordinator task failed.',
                   {
                     metadata: {
                       taskId: task.id,

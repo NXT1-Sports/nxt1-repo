@@ -751,6 +751,27 @@ describe('AgentWorker', () => {
     expect(mockExecuteBillingDeduction).not.toHaveBeenCalled();
   });
 
+  it('should pass active team context into billing deduction', async () => {
+    const payload = makePayload({
+      context: {
+        teamId: 'team-football',
+        organizationId: 'org-crown-point',
+      },
+    });
+    const job = makeMockJob(payload);
+
+    await capturedProcessor!(job);
+
+    expect(mockExecuteBillingDeduction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-abc',
+        operationId: 'op-worker-test',
+        teamId: 'team-football',
+        organizationId: 'org-crown-point',
+      })
+    );
+  });
+
   it('should emit a billing-action card when hard-stop hold creation fails for insufficient balance', async () => {
     const payload = makePayload();
     const job = makeMockJob(payload);

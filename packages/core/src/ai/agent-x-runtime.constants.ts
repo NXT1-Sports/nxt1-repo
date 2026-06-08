@@ -45,7 +45,7 @@ export const AGENT_X_RUNTIME_CONFIG = {
   },
   playbookAsync: {
     pollIntervalMs: 1_500,
-    pollMaxAttempts: 50,
+    pollMaxAttempts: 100,
   },
   controlPanelHealth: {
     pollIntervalMs: 60_000,

@@ -52,7 +52,7 @@ async function refreshStorageUrl(
   }
 }
 
-async function refreshAttachmentUrl(
+export async function refreshAttachmentUrl(
   attachment: AgentXAttachment,
   bucketName: string
 ): Promise<AgentXAttachment> {
@@ -64,14 +64,20 @@ async function refreshAttachmentUrl(
     bucketName
   );
 
+  const refreshedThumbnail =
+    typeof attachment.thumbnailUrl === 'string' && attachment.thumbnailUrl.trim().length > 0
+      ? await refreshStorageUrl({ url: attachment.thumbnailUrl }, bucketName)
+      : null;
+
   return {
     ...attachment,
     url: refreshedMedia.url,
     ...(refreshedMedia.storagePath ? { storagePath: refreshedMedia.storagePath } : {}),
+    ...(refreshedThumbnail?.url ? { thumbnailUrl: refreshedThumbnail.url } : {}),
   };
 }
 
-async function refreshMessageResultDataMedia(
+export async function refreshMessageResultDataMedia(
   resultData: AgentMessage['resultData'],
   bucketName: string
 ): Promise<AgentMessage['resultData']> {
@@ -89,7 +95,9 @@ async function refreshMessageResultDataMedia(
     return refreshed.url;
   };
 
-  const refreshField = async (field: 'imageUrl' | 'videoUrl' | 'outputUrl'): Promise<void> => {
+  const refreshField = async (
+    field: 'imageUrl' | 'videoUrl' | 'outputUrl' | 'thumbnailUrl'
+  ): Promise<void> => {
     const value = resultData[field];
     if (typeof value !== 'string' || value.trim().length === 0) return;
 
@@ -137,7 +145,7 @@ async function refreshMessageResultDataMedia(
         const record = item as Record<string, unknown>;
         let nextRecord: Record<string, unknown> | null = null;
 
-        for (const urlField of ['url', 'downloadUrl'] as const) {
+        for (const urlField of ['url', 'downloadUrl', 'thumbnailUrl'] as const) {
           const current = record[urlField];
           if (typeof current !== 'string' || current.trim().length === 0) continue;
 
@@ -162,6 +170,7 @@ async function refreshMessageResultDataMedia(
   await refreshField('imageUrl');
   await refreshField('videoUrl');
   await refreshField('outputUrl');
+  await refreshField('thumbnailUrl');
   await refreshArrayField('persistedMediaUrls');
   await refreshArrayField('mediaUrls');
   await refreshArrayField('imageUrls');

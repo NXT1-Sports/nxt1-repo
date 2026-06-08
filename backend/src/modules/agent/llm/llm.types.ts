@@ -26,7 +26,7 @@ export const PROD_MODEL_CATALOGUE: Record<ModelTier, string> = {
   copywriting: '~anthropic/claude-opus-latest',
   prompt_engineering: 'openai/o1',
   chat: 'openai/gpt-chat-latest',
-  task_automation: 'openai/gpt-5.5-pro',
+  task_automation: 'anthropic/claude-sonnet-4.5',
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
   image_generation: 'openai/gpt-5.4-image-2',
@@ -97,11 +97,7 @@ export const PROD_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
   copywriting: ['~anthropic/claude-opus-latest', 'openai/gpt-5.5-pro', 'anthropic/claude-opus-4.5'],
   prompt_engineering: ['openai/o1', 'anthropic/claude-sonnet-4', 'openai/gpt-4o'],
   chat: ['openai/gpt-chat-latest', 'anthropic/claude-haiku-4.5', 'anthropic/claude-sonnet-4.5'],
-  task_automation: [
-    'openai/gpt-5.5-pro',
-    'mistralai/mistral-medium-3-5',
-    'anthropic/claude-sonnet-4',
-  ],
+  task_automation: ['openai/gpt-5.5-pro'],
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
   image_generation: ['google/gemini-3-pro-image-preview'],
@@ -155,12 +151,7 @@ export const DEV_FALLBACK_CHAIN: Record<ModelTier, readonly string[]> = {
     'deepseek/deepseek-v3.2',
   ],
   chat: ['anthropic/claude-haiku-4.5', 'openai/gpt-4o-mini', 'deepseek/deepseek-v3.2'],
-  task_automation: [
-    'anthropic/claude-sonnet-4',
-    'openai/gpt-4o',
-    'anthropic/claude-haiku-4.5',
-    'deepseek/deepseek-v3.2',
-  ],
+  task_automation: ['openai/gpt-5.5-pro'],
 
   // ── Media Tiers ─────────────────────────────────────────────────────────
   image_generation: ['openai/gpt-5.4-image-2', 'google/gemini-3-pro-image-preview'],

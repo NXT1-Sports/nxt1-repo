@@ -53,12 +53,16 @@ Current adapters:
 Operational lifecycle routing:
 
 - `SLACK_ALERT_WEBHOOK_URL` remains the generic fallback webhook
+- `SLACK_SENTRY_ALERT_WEBHOOK_URL` routes Sentry-specific alerts
 - `SLACK_NEW_ATHLETES_WEBHOOK_URL` routes athlete signup alerts
 - `SLACK_NEW_TEAMS_WEBHOOK_URL` routes team/staff signup alerts
+- signup alerts fall back to `SLACK_ALERT_WEBHOOK_URL` when their dedicated
+  webhook is not configured
 
 App Hosting secret names:
 
-- Production: `SLACK_NEW_ATHLETES_WEBHOOK_URL`, `SLACK_NEW_TEAMS_WEBHOOK_URL`
+- Production: `SLACK_ALERT_WEBHOOK_URL`, `SLACK_SENTRY_ALERT_WEBHOOK_URL`,
+  `SLACK_NEW_ATHLETES_WEBHOOK_URL`, `SLACK_NEW_TEAMS_WEBHOOK_URL`
 - Staging: `STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL`,
   `STAGING_SLACK_NEW_TEAMS_WEBHOOK_URL`
 

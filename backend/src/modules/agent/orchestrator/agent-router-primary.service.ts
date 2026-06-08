@@ -18,6 +18,7 @@
 
 import type {
   AgentIdentifier,
+  AgentJobUpdate,
   AgentOperationResult,
   AgentTask,
   AgentTaskStatus,
@@ -37,6 +38,7 @@ import type { AgentRouterPolicyService } from './agent-router-policy.service.js'
 import type { AgentRouterPlanningService } from './agent-router-planning.service.js';
 import { isAgentYield } from '../exceptions/agent-yield.exception.js';
 import { AgentPlanRepository, buildPlanTaskSnapshot } from '../queue/agent-plan.repository.js';
+import type { StreamEvent } from '../queue/event-writer.js';
 import { logger } from '../../../utils/logger.js';
 
 interface PrimaryServiceOptions {
@@ -62,6 +64,7 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
   ): Promise<PrimaryDispatchResult> {
     let streamedDeltaCount = 0;
     let streamedCharCount = 0;
+    const taskId = `${coordinatorId}_${Date.now()}`;
     const onDispatchStreamEvent =
       ctx.onStreamEvent &&
       ((event: Parameters<NonNullable<typeof ctx.onStreamEvent>>[0]) => {
@@ -77,13 +80,27 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
         ctx.onStreamEvent?.(event);
       });
 
+    this.emitCoordinatorProgress(ctx, {
+      coordinatorId,
+      taskId,
+      message: `${formatCoordinatorLabel(coordinatorId)} is starting...`,
+      status: 'running',
+      phaseStatus: 'started',
+    });
+
+    const onDispatchUpdate = ctx.onStreamEvent
+      ? (update: AgentJobUpdate) => {
+          this.emitCoordinatorUpdate(ctx, coordinatorId, update);
+        }
+      : undefined;
+
     const enrichedStructuredPayload = await this.enrichCoordinatorStructuredPayload(
       ctx.userId,
       structuredPayload
     );
 
     const task: AgentTask = {
-      id: `${coordinatorId}_${Date.now()}`,
+      id: taskId,
       assignedAgent: coordinatorId,
       description: goal,
       ...(enrichedStructuredPayload ? { structuredPayload: enrichedStructuredPayload } : {}),
@@ -104,6 +121,7 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
         ...(ctx.approvalGate ? { approvalGate: ctx.approvalGate } : {}),
         taskMaxRetries: 1,
         agents: this.opts.agents,
+        ...(onDispatchUpdate ? { onUpdate: onDispatchUpdate } : {}),
         ...(onDispatchStreamEvent ? { onStreamEvent: onDispatchStreamEvent } : {}),
         ...(ctx.signal ? { signal: ctx.signal } : {}),
         buildTaskIntent: (t, upstream, enriched) =>
@@ -149,6 +167,103 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
         streamedDeltaCount,
         streamedCharCount,
       };
+    }
+  }
+
+  private emitCoordinatorUpdate(
+    ctx: PrimaryDispatchContext,
+    fallbackCoordinatorId: Exclude<AgentIdentifier, 'router'>,
+    update: AgentJobUpdate
+  ): void {
+    const payload = update.step.payload ?? {};
+    const taskId = typeof payload['taskId'] === 'string' ? payload['taskId'] : undefined;
+    const originalEventType =
+      typeof payload['eventType'] === 'string' ? payload['eventType'] : 'task_update';
+    const coordinatorId =
+      update.agentId && update.agentId !== 'router' ? update.agentId : fallbackCoordinatorId;
+
+    this.emitCoordinatorProgress(ctx, {
+      coordinatorId,
+      taskId,
+      message: update.step.message,
+      status: this.toStreamStatus(update.status),
+      stageType: update.stageType,
+      stage: update.stage,
+      phaseStatus: update.status,
+      originalEventType,
+      metadata: update.metadata,
+    });
+  }
+
+  private emitCoordinatorProgress(
+    ctx: PrimaryDispatchContext,
+    payload: {
+      readonly coordinatorId: AgentIdentifier;
+      readonly taskId?: string;
+      readonly message: string;
+      readonly status: NonNullable<StreamEvent['status']>;
+      readonly stageType?: StreamEvent['stageType'];
+      readonly stage?: StreamEvent['stage'];
+      readonly phaseStatus: string;
+      readonly originalEventType?: string;
+      readonly metadata?: Record<string, unknown>;
+    }
+  ): void {
+    if (!ctx.onStreamEvent) return;
+
+    const timestamp = new Date().toISOString();
+    const metadata = {
+      ...(payload.metadata ?? {}),
+      eventType: 'progress_subphase',
+      phase: 'coordinator_dispatch',
+      status: payload.phaseStatus,
+      coordinatorId: payload.coordinatorId,
+      ...(payload.taskId ? { taskId: payload.taskId } : {}),
+      ...(payload.originalEventType ? { originalEventType: payload.originalEventType } : {}),
+    };
+
+    ctx.onStreamEvent({
+      type: 'operation',
+      operationId: ctx.operationId,
+      status: payload.status,
+      agentId: payload.coordinatorId,
+      stageType: payload.stageType ?? 'router',
+      stage: payload.stage ?? 'routing_to_agent',
+      message: payload.message,
+      metadata,
+      timestamp,
+    });
+    ctx.onStreamEvent({
+      type: 'progress_subphase',
+      operationId: ctx.operationId,
+      status: payload.status,
+      agentId: payload.coordinatorId,
+      stageType: payload.stageType ?? 'router',
+      stage: payload.stage ?? 'routing_to_agent',
+      message: payload.message,
+      metadata,
+      timestamp,
+    });
+  }
+
+  private toStreamStatus(status: AgentJobUpdate['status']): NonNullable<StreamEvent['status']> {
+    switch (status) {
+      case 'queued':
+        return 'queued';
+      case 'paused':
+        return 'paused';
+      case 'awaiting_approval':
+        return 'awaiting_approval';
+      case 'awaiting_input':
+        return 'awaiting_input';
+      case 'completed':
+        return 'complete';
+      case 'failed':
+        return 'failed';
+      case 'cancelled':
+        return 'cancelled';
+      default:
+        return 'running';
     }
   }
 
@@ -449,6 +564,7 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
   ): Promise<Record<string, unknown> | undefined> {
     const explicitTeamId = readString(structuredPayload?.['teamId']);
     const explicitTeamCode = readString(structuredPayload?.['teamCode']);
+    const explicitOrganizationId = readString(structuredPayload?.['organizationId']);
 
     if (!this.opts.resolveUserContext) {
       return structuredPayload;
@@ -465,9 +581,12 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
       return structuredPayload;
     }
 
+    const contextTeamId = readString(userContext.teamId);
+    const contextOrganizationId = readString(userContext.organizationId);
     const normalizedRole = userContext.role.trim().toLowerCase();
     const shouldAttachTeamContext =
-      Boolean(explicitTeamId || explicitTeamCode) ||
+      Boolean(explicitTeamId || explicitTeamCode || explicitOrganizationId) ||
+      Boolean(contextTeamId || contextOrganizationId) ||
       normalizedRole === 'coach' ||
       normalizedRole === 'director';
 
@@ -475,10 +594,11 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
       return structuredPayload;
     }
 
-    const fallbackTeamId = explicitTeamId ?? readString(userContext.teamId);
+    const fallbackTeamId = explicitTeamId ?? contextTeamId;
     const fallbackTeamCode = explicitTeamCode ?? resolveActiveTeamCode(userContext);
+    const fallbackOrganizationId = explicitOrganizationId ?? contextOrganizationId;
 
-    if (!fallbackTeamId && !fallbackTeamCode) {
+    if (!fallbackTeamId && !fallbackTeamCode && !fallbackOrganizationId) {
       return structuredPayload;
     }
 
@@ -486,6 +606,11 @@ export class AgentRouterPrimaryService implements PrimaryDispatcher {
       ...(structuredPayload ?? {}),
       ...(explicitTeamId ? {} : fallbackTeamId ? { teamId: fallbackTeamId } : {}),
       ...(explicitTeamCode ? {} : fallbackTeamCode ? { teamCode: fallbackTeamCode } : {}),
+      ...(explicitOrganizationId
+        ? {}
+        : fallbackOrganizationId
+          ? { organizationId: fallbackOrganizationId }
+          : {}),
     };
   }
 
@@ -616,6 +741,13 @@ function isUserFacingDispatchSummary(value: string): boolean {
   if (/^[a-z_]+_\d+\s*:/i.test(normalized)) return false;
 
   return true;
+}
+
+function formatCoordinatorLabel(coordinatorId: AgentIdentifier): string {
+  return coordinatorId
+    .split('_')
+    .map((part) => (part.length > 0 ? `${part[0]?.toUpperCase() ?? ''}${part.slice(1)}` : part))
+    .join(' ');
 }
 
 function readString(value: unknown): string | undefined {

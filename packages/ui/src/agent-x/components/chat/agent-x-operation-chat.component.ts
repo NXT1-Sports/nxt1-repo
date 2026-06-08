@@ -75,6 +75,7 @@ import { AgentXMessageUndoComponent } from './agent-x-message-undo.component';
 import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-message.facade';
 import {
   AgentXOperationChatAttachmentsFacade,
+  buildVideoUploadProgressDetail,
   type VideoUploadBatchProgressState,
 } from './agent-x-operation-chat-attachments.facade';
 import { AgentXOperationChatRunControlFacade } from './agent-x-operation-chat-run-control.facade';
@@ -2000,21 +2001,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Secondary upload detail for file name / batch completion counts. */
   protected readonly videoUploadDetail = computed(() => {
-    const uploadBatch = this._videoUploadBatch();
-    if (!uploadBatch) return null;
-
-    if (uploadBatch.totalFiles <= 1) {
-      return uploadBatch.currentFileName;
-    }
-
-    const completionText = `${uploadBatch.completedFiles} of ${uploadBatch.totalFiles} uploaded`;
-    if (uploadBatch.failedFiles > 0) {
-      return `${completionText} • ${uploadBatch.failedFiles} failed`;
-    }
-    if (uploadBatch.activeFiles > 1) {
-      return `${completionText} • ${uploadBatch.activeFiles} in progress`;
-    }
-    return completionText;
+    return buildVideoUploadProgressDetail(this._videoUploadBatch());
   });
 
   /** Most recent backend progress commentary message (stage/subphase/metric). */
@@ -2641,43 +2628,31 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     });
 
     // Track live view status for hint facade.
-    // This effect invokes facade methods that may write signals.
-    effect(
-      () => {
-        const hasLiveView = this._hasActiveLiveView();
-        if (hasLiveView) {
-          this.hintFacade.markLiveViewActive();
-        } else {
-          this.hintFacade.markLiveViewInactive();
-        }
-      },
-      { allowSignalWrites: true }
-    );
+    effect(() => {
+      const hasLiveView = this._hasActiveLiveView();
+      if (hasLiveView) {
+        this.hintFacade.markLiveViewActive();
+      } else {
+        this.hintFacade.markLiveViewInactive();
+      }
+    });
 
-    // Panel hints are written to signal state in the hint facade.
-    effect(
-      () => {
-        const activePanel = this._activeContextPanel();
-        if (activePanel) {
-          this.hintFacade.showPanelHint(activePanel);
-        }
-      },
-      { allowSignalWrites: true }
-    );
+    effect(() => {
+      const activePanel = this._activeContextPanel();
+      if (activePanel) {
+        this.hintFacade.showPanelHint(activePanel);
+      }
+    });
 
-    // First user run hint lifecycle writes facade signal state.
-    effect(
-      () => {
-        const hasUserSent = this.hasUserSent();
-        if (hasUserSent && !this.firstUserRunHintArmed) {
-          this.firstUserRunHintArmed = true;
-          this.hintFacade.armFirstUserRunHint();
-        }
+    effect(() => {
+      const hasUserSent = this.hasUserSent();
+      if (hasUserSent && !this.firstUserRunHintArmed) {
+        this.firstUserRunHintArmed = true;
+        this.hintFacade.armFirstUserRunHint();
+      }
 
-        this.hintFacade.setFirstUserRunActive(this.isInFlightPhase(this._activityPhase()));
-      },
-      { allowSignalWrites: true }
-    );
+      this.hintFacade.setFirstUserRunActive(this.isInFlightPhase(this._activityPhase()));
+    });
   }
 
   private yieldSourcePriority(source: YieldStateSource): number {

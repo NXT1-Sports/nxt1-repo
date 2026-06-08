@@ -35,6 +35,20 @@ export const routes: Routes = [
   },
 
   // ============================================
+  // PUBLIC PROFILE ROUTES (no auth required)
+  // ============================================
+  {
+    path: 'profile/:sport/:name/:unicode',
+    loadComponent: () =>
+      import('./features/profile/profile.component').then((m) => m.ProfileComponent),
+  },
+  {
+    path: 'profile/:unicode',
+    loadComponent: () =>
+      import('./features/profile/profile.component').then((m) => m.ProfileComponent),
+  },
+
+  // ============================================
   // AUTHENTICATED ROUTES (With Mobile Shell)
   // ============================================
 

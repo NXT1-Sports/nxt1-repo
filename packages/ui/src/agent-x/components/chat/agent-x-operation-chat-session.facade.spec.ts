@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentMessage } from '@nxt1/core';
+import type { AgentXToolStep } from '@nxt1/core/ai';
 import { AgentXOperationChatSessionFacade } from './agent-x-operation-chat-session.facade';
 import type { OperationMessage } from './agent-x-operation-chat.models';
 
@@ -23,6 +24,14 @@ type Canonicalizer = {
       parts?: AgentMessage['parts'];
     }>,
     operationId: string
+  ): boolean;
+  shouldDropLiveReplayAssistantRow(
+    message: OperationMessage,
+    replay: {
+      readonly operationIds: ReadonlySet<string>;
+      readonly content: string;
+      readonly steps: readonly AgentXToolStep[];
+    }
   ): boolean;
   hasMongoFinalForOperation(items: readonly AgentMessage[], operationId: string | null): boolean;
   collectMessageMedia(message: AgentMessage): {
@@ -500,6 +509,41 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     );
 
     expect(yielded).toBe(true);
+  });
+
+  it('drops persisted assistant snapshots already represented by live Firestore replay', () => {
+    const replay = {
+      operationIds: new Set(['parent-op', 'child-op']),
+      content:
+        'Data coordinator is extracting profile information and reviewing distilled sections sequentially.',
+      steps: [] as AgentXToolStep[],
+    };
+
+    expect(
+      facade.shouldDropLiveReplayAssistantRow(
+        {
+          id: 'persisted-without-op',
+          role: 'assistant',
+          content:
+            'Data coordinator is extracting profile information and reviewing distilled sections sequentially.',
+          timestamp: new Date('2026-06-08T12:25:33.000Z'),
+        },
+        replay
+      )
+    ).toBe(true);
+
+    expect(
+      facade.shouldDropLiveReplayAssistantRow(
+        {
+          id: 'persisted-child-op',
+          role: 'assistant',
+          operationId: 'child-op',
+          content: 'Reviewing distilled insights: seasonStats',
+          timestamp: new Date('2026-06-08T12:25:34.000Z'),
+        },
+        replay
+      )
+    ).toBe(true);
   });
 
   it('promotes persisted graphic URLs into image media and strips the raw URL from prose', () => {

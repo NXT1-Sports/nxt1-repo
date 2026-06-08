@@ -157,4 +157,66 @@ describe('approval-gate.service', () => {
     expect(expiresAt!._seconds).toBeGreaterThan(nowSeconds + retentionSeconds - 60);
     expect(expiresAt!._seconds).toBeLessThan(nowSeconds + retentionSeconds + 60);
   });
+
+  it('continues notifying valid approvals when one snapshot cannot be read', async () => {
+    const transactionUpdate = vi.fn();
+    const runTransaction = vi.fn(
+      async (callback: (txn: { update: typeof transactionUpdate }) => Promise<void>) => {
+        await callback({ update: transactionUpdate });
+      }
+    );
+
+    const validDocRef = { id: 'approval-valid' } as FirebaseFirestore.DocumentReference;
+    const brokenDoc = {
+      id: 'approval-broken',
+      data: vi.fn(() => {
+        throw new Error('snapshot decode failed');
+      }),
+      ref: { id: 'approval-broken' },
+    } as unknown as FirebaseFirestore.QueryDocumentSnapshot;
+    const validDoc = {
+      id: 'approval-valid',
+      data: vi.fn(() => ({
+        id: 'approval-valid',
+        operationId: 'op-1',
+        userId: 'user-1',
+        threadId: 'thread-1',
+        toolName: 'send_email',
+        toolInput: {
+          toEmail: 'coach@example.com',
+          subject: 'Thanks coach',
+        },
+        status: 'pending',
+        createdAt: new Date(Date.now() - 4 * 60 * 1000).toISOString(),
+        expiresInMs: 5 * 60 * 1000,
+        expiryPushSent: false,
+      })),
+      ref: validDocRef,
+    } as unknown as FirebaseFirestore.QueryDocumentSnapshot;
+
+    const get = vi.fn().mockResolvedValue({
+      empty: false,
+      size: 2,
+      docs: [brokenDoc, validDoc],
+    });
+    const where = vi.fn();
+    where.mockReturnValue({ where, get });
+
+    const db = {
+      collection: vi.fn(() => ({ where, get })),
+      runTransaction,
+    } as unknown as Firestore;
+
+    const service = new ApprovalGateService(db);
+
+    const result = await service.notifyExpiringSoon();
+
+    expect(result).toEqual({ notified: 1 });
+    expect(dispatchAgentPushMock).toHaveBeenCalledTimes(1);
+    expect(runTransaction).toHaveBeenCalledTimes(1);
+    expect(transactionUpdate).toHaveBeenCalledWith(validDocRef, {
+      expiryPushSent: expect.anything(),
+      expiryPushSentAt: expect.anything(),
+    });
+  });
 });

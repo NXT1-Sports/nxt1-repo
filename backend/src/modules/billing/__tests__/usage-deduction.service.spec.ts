@@ -779,6 +779,55 @@ describe('executeBillingDeduction', () => {
     );
   });
 
+  it('keeps org/team-attributed jobs on personal billing when the resolved target is individual', async () => {
+    const db = {} as Firestore;
+
+    mockCalculateChargeAmount.mockResolvedValueOnce({ chargeAmountCents: 70 });
+    mockResolveBillingTarget.mockResolvedValue({
+      type: 'individual',
+      billingUserId: 'admin_personal',
+      organizationId: 'org_context',
+      teamIds: ['team_context'],
+      context: {
+        billingEntity: 'individual',
+        billingMode: 'personal',
+        organizationId: 'org_context',
+        teamId: 'team_context',
+      },
+    });
+
+    const { executeBillingDeduction } = await import('../usage-deduction.service.js');
+
+    const result = await executeBillingDeduction({
+      db,
+      userId: 'admin_personal',
+      operationId: 'op_admin_personal_org_context',
+      feature: 'agent-execution',
+      teamId: 'team_context',
+      organizationId: 'org_context',
+      knownCostUsd: 0.7,
+    });
+
+    expect(result).toEqual({ charged: true, rawCostUsd: 0.7, chargeAmountCents: 70 });
+    expect(mockRecordSpend).toHaveBeenCalledWith(db, 'admin_personal', 70, 'team_context');
+    expect(mockDeductOrgWallet).not.toHaveBeenCalled();
+    expect(mockRecordUsageEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'admin_personal',
+        teamId: 'team_context',
+        organizationId: 'org_context',
+        billedOwnerType: 'individual',
+        billedOwnerId: 'admin_personal',
+        dynamicCostCents: 70,
+        metadata: expect.objectContaining({
+          settlementPath: 'wallet-or-spend-record',
+          teamAttributionStatus: 'resolved',
+        }),
+      }),
+      'production'
+    );
+  });
+
   it('caps IAP billing to the pre-authorized hold and records platform-absorbed overage', async () => {
     const db = {} as Firestore;
 

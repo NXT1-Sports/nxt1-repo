@@ -2911,13 +2911,16 @@ export class AgentWorker {
       await eventWriter.flush().catch(() => undefined);
     }
 
-    // Billing deduction: use centralized pipeline
-    // Pass organizationId from job context as a fallback for onboarding
-    // scrape jobs where the billing docs may not yet have been initialized
-    // before the worker picked up the job.
+    // Billing deduction: use centralized pipeline. Keep job-level org/team
+    // context so charges are attributed to the active team instead of a stored
+    // billing-target fallback.
     const contextOrgId =
       typeof (payloadContext as Record<string, unknown>)['organizationId'] === 'string'
         ? ((payloadContext as Record<string, unknown>)['organizationId'] as string)
+        : undefined;
+    const contextTeamId =
+      typeof (payloadContext as Record<string, unknown>)['teamId'] === 'string'
+        ? ((payloadContext as Record<string, unknown>)['teamId'] as string)
         : undefined;
     if (skipBilling) {
       logger.info('[AgentWorker] Skipping billing deduction for platform-sponsored job', {
@@ -2937,6 +2940,7 @@ export class AgentWorker {
         environment: job.data.environment,
         iapHoldId: iapHoldId ?? undefined,
         fallbackChargeAmountCents: iapHoldId ? walletHoldEstimateCents : undefined,
+        teamId: contextTeamId,
         organizationId: contextOrgId,
         metadata: { agent: payload.agent, agentTools: invokedTools, successfulTools },
       });
