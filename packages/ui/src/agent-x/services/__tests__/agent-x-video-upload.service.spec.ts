@@ -152,15 +152,86 @@ describe('AgentXVideoUploadService', () => {
     });
     expect(exceptions[0].context).not.toHaveProperty('storagePath');
   });
+
+  it('falls back to signed URL XHR when native Firebase upload rejects', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            success: true,
+            data: {
+              uploadUrl: 'https://storage.googleapis.com/nxt-1-v2/upload',
+              readUrl: 'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2/o/video.mp4',
+              storagePath: 'Users/user-1/threads/thread-1/media/video/video.mp4',
+              expiresAt: '2026-06-08T20:00:00.000Z',
+            },
+          }),
+      })
+    );
+
+    TestBed.configureTestingModule({
+      providers: [
+        AgentXVideoUploadService,
+        { provide: AGENT_X_API_BASE_URL, useValue: 'https://api.test/api/v1' },
+        { provide: GLOBAL_CRASHLYTICS, useValue: createMemoryCrashlyticsAdapter() },
+        { provide: NxtLoggingService, useValue: loggerMock },
+        {
+          provide: NxtBreadcrumbService,
+          useValue: { trackStateChange: vi.fn() },
+        },
+      ],
+    });
+
+    const service = TestBed.inject(AgentXVideoUploadService);
+    const internals = service as unknown as AgentXVideoUploadServiceInternals;
+    vi.spyOn(internals, '_nativeFirebasePut').mockRejectedValue(
+      new Error('User does not have permission to access this object')
+    );
+    vi.spyOn(internals, '_xhrPut').mockImplementation(async (_file, _uploadUrl, onProgress) => {
+      onProgress(100);
+    });
+
+    const file = new File(['video'], '02420402042.mp4', { type: 'video/mp4' });
+    const events = await collectUploadEvents(service, file);
+
+    expect(internals._xhrPut).toHaveBeenCalledWith(
+      file,
+      'https://storage.googleapis.com/nxt-1-v2/upload',
+      expect.any(Function)
+    );
+    expect(events.at(-1)).toMatchObject({
+      phase: 'complete',
+      percent: 100,
+      streamUrl: 'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2/o/video.mp4',
+      storagePath: 'Users/user-1/threads/thread-1/media/video/video.mp4',
+    });
+    expect(loggerMock.warn).toHaveBeenCalledWith(
+      '[_xhrPutWithRetry] Native Firebase Storage upload failed; falling back to signed URL XHR upload',
+      expect.objectContaining({
+        error: 'User does not have permission to access this object',
+        storagePath: 'Users/user-1/threads/thread-1/media/video/video.mp4',
+      })
+    );
+  });
 });
 
 interface AgentXVideoUploadServiceInternals {
+  _nativeFirebasePut(
+    file: File,
+    storagePath: string,
+    onProgress: (percent: number) => void
+  ): Promise<boolean>;
+
   _xhrPutWithRetry(
     file: File,
     uploadUrl: string,
     storagePath: string,
     onProgress: (percent: number) => void
   ): Promise<void>;
+
+  _xhrPut(file: File, uploadUrl: string, onProgress: (percent: number) => void): Promise<void>;
 }
 
 function collectUploadEvents(

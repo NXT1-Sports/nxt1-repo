@@ -56,6 +56,9 @@ Operational lifecycle routing:
 - `SLACK_SENTRY_ALERT_WEBHOOK_URL` routes Sentry-specific alerts
 - `SLACK_NEW_ATHLETES_WEBHOOK_URL` routes athlete signup alerts
 - `SLACK_NEW_TEAMS_WEBHOOK_URL` routes team/staff signup alerts
+- production deploys populate the signup webhook env vars from the known-good
+  signup Slack secrets so prod and staging signups land in the same signup
+  channels
 - signup alerts fall back to `SLACK_ALERT_WEBHOOK_URL` when their dedicated
   webhook is not configured
 - if a configured dedicated signup webhook fails delivery, the backend retries
@@ -65,8 +68,7 @@ Operational lifecycle routing:
 App Hosting secret names:
 
 - Production: `SLACK_ALERT_WEBHOOK_URL`, `SLACK_SENTRY_ALERT_WEBHOOK_URL`,
-  `SLACK_NEW_ATHLETES_WEBHOOK_URL`, `SLACK_NEW_TEAMS_WEBHOOK_URL`
-- Staging: `STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL`,
+  `STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL`,
   `STAGING_SLACK_NEW_TEAMS_WEBHOOK_URL`
 
 ## Signup Lifecycle

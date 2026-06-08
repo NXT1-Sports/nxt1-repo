@@ -22,6 +22,11 @@ export interface SlackAlertInput {
 
 type WebhookResolutionSource = 'target-specific' | 'default-fallback';
 
+const SHARED_SIGNUP_WEBHOOK_KEYS = {
+  signup_athlete: ['SLACK_NEW_ATHLETES_WEBHOOK_URL', 'STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL'],
+  signup_team: ['SLACK_NEW_TEAMS_WEBHOOK_URL', 'STAGING_SLACK_NEW_TEAMS_WEBHOOK_URL'],
+} as const;
+
 interface ResolvedWebhook {
   readonly url: string;
   readonly envVar: string | null;
@@ -46,23 +51,34 @@ function resolveTargetWebhook(
   target: AlertTarget,
   environment: RuntimeEnvironment = 'production'
 ): ResolvedWebhook {
+  if (target === 'signup_athlete' || target === 'signup_team') {
+    const signupWebhook = resolveWebhookFromEnvKeys(SHARED_SIGNUP_WEBHOOK_KEYS[target]);
+    if (signupWebhook.url) {
+      return {
+        url: signupWebhook.url,
+        envVar: signupWebhook.envVar,
+        source: 'target-specific',
+      };
+    }
+
+    const fallback = resolveDefaultFallbackWebhook(environment);
+    return {
+      url: fallback.url,
+      envVar: fallback.envVar,
+      source: 'default-fallback',
+    };
+  }
+
   const targetEnvKeys =
     environment === 'staging'
       ? ({
           agent: ['STAGING_SLACK_AGENT_ALERT_WEBHOOK_URL', 'SLACK_AGENT_ALERT_WEBHOOK_URL'],
           sentry: ['STAGING_SLACK_SENTRY_ALERT_WEBHOOK_URL', 'SLACK_SENTRY_ALERT_WEBHOOK_URL'],
-          signup_athlete: [
-            'STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL',
-            'SLACK_NEW_ATHLETES_WEBHOOK_URL',
-          ],
-          signup_team: ['STAGING_SLACK_NEW_TEAMS_WEBHOOK_URL', 'SLACK_NEW_TEAMS_WEBHOOK_URL'],
           default: ['STAGING_SLACK_ALERT_WEBHOOK_URL', 'SLACK_ALERT_WEBHOOK_URL'],
         } as const)
       : ({
           agent: ['SLACK_AGENT_ALERT_WEBHOOK_URL'],
           sentry: ['SLACK_SENTRY_ALERT_WEBHOOK_URL'],
-          signup_athlete: ['SLACK_NEW_ATHLETES_WEBHOOK_URL'],
-          signup_team: ['SLACK_NEW_TEAMS_WEBHOOK_URL'],
           default: ['SLACK_ALERT_WEBHOOK_URL'],
         } as const);
 

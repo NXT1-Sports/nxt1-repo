@@ -64,10 +64,10 @@ describe('sendSlackAlert', () => {
     );
   });
 
-  it('uses the staging athlete signup webhook when a staging override is configured', async () => {
-    process.env['SLACK_NEW_ATHLETES_WEBHOOK_URL'] = 'https://hooks.slack.test/athletes-prod';
+  it('uses the shared production signup webhook for staging signup alerts too', async () => {
+    process.env['SLACK_NEW_ATHLETES_WEBHOOK_URL'] = 'https://hooks.slack.test/athletes-shared';
     process.env['STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL'] =
-      'https://hooks.slack.test/athletes-staging';
+      'https://hooks.slack.test/athletes-legacy-staging';
 
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
@@ -82,10 +82,32 @@ describe('sendSlackAlert', () => {
 
     expect(delivered).toBe(true);
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://hooks.slack.test/athletes-staging',
+      'https://hooks.slack.test/athletes-shared',
       expect.objectContaining({
         method: 'POST',
       })
+    );
+  });
+
+  it('keeps the legacy staging signup webhook as a compatibility fallback', async () => {
+    process.env['STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL'] =
+      'https://hooks.slack.test/athletes-legacy-staging';
+
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const delivered = await sendSlackAlert({
+      target: 'signup_athlete',
+      environment: 'production',
+      severity: 'info',
+      title: 'New Athlete Signup',
+      summary: 'A signup completed.',
+    });
+
+    expect(delivered).toBe(true);
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://hooks.slack.test/athletes-legacy-staging',
+      expect.objectContaining({ method: 'POST' })
     );
   });
 
