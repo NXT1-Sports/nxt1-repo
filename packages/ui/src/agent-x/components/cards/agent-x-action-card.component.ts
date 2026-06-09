@@ -31,6 +31,7 @@ import { FormsModule } from '@angular/forms';
 import { DomSanitizer, type SafeHtml } from '@angular/platform-browser';
 import { NxtMediaViewerService } from '../../../components/media-viewer/media-viewer.service';
 import type { MediaViewerItem } from '../../../components/media-viewer/media-viewer.types';
+import { NxtBrowserService } from '../../../services/browser/browser.service';
 import type {
   AgentYieldState,
   AgentXRichCard,
@@ -206,6 +207,7 @@ export interface BatchEmailRecipientEdit {
                   contenteditable="true"
                   spellcheck="true"
                   [innerHTML]="safeBodyHtml()"
+                  (click)="onBodyHtmlClick($event)"
                   (blur)="onBodyHtmlBlur($event)"
                 ></div>
               </div>
@@ -1734,6 +1736,7 @@ export class AgentXActionCardComponent implements OnDestroy {
   /** Sanitized HTML for the body preview renderer. */
   private readonly sanitizer = inject(DomSanitizer);
   private readonly mediaViewer = inject(NxtMediaViewerService);
+  private readonly browser = inject(NxtBrowserService);
   readonly safeBodyHtml = computed<SafeHtml>(() =>
     this.sanitizer.bypassSecurityTrustHtml(this.editEmailBodyHtml())
   );
@@ -2420,6 +2423,23 @@ export class AgentXActionCardComponent implements OnDestroy {
     const html = (target.innerHTML ?? '').trim();
     this.editEmailBodyHtml.set(html);
     this.editEmailBody.set(this.htmlToText(html));
+  }
+
+  async onBodyHtmlClick(event: MouseEvent): Promise<void> {
+    const target = event.target;
+    const element =
+      target instanceof HTMLElement ? target : target instanceof Node ? target.parentElement : null;
+    const link = element?.closest('a[href]');
+    const href = link?.getAttribute('href')?.trim();
+    if (!href) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    await this.browser.openLink({
+      url: href,
+      source: 'agent-x-approval-card',
+      surface: 'email',
+    });
   }
 
   onTimelineMediaClick(index: number): void {

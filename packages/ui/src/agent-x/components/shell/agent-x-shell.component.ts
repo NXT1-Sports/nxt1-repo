@@ -123,6 +123,7 @@ export interface AgentXUser {
 
 export interface AgentXConnectedAccountsSaveRequest {
   readonly linkSources: LinkSourcesFormData;
+  readonly disconnectedSignInProviders?: readonly string[];
   readonly requestResync?: boolean;
   readonly resyncSources?: readonly ConnectedAccountsResyncSource[];
 }
@@ -2114,6 +2115,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     if (result.linkSources) {
       this.connectedAccountsSave.emit({
         linkSources: result.linkSources,
+        disconnectedSignInProviders: result.disconnectedSignInProviders ?? [],
         requestResync: result.resync === true,
         resyncSources: result.sources ?? [],
       });

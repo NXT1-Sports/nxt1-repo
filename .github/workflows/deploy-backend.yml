@@ -22,8 +22,9 @@
 #   SUDO_PASS        - sudo password for ngocsonxx98
 #   SLACK_ALERT_WEBHOOK_URL      - Generic backend Slack webhook fallback
 #   SLACK_AGENT_ALERT_WEBHOOK_URL - Dedicated Agent X job alert webhook
-#   STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL - Known-good signup alert webhook for athlete signups
-#   STAGING_SLACK_NEW_TEAMS_WEBHOOK_URL    - Known-good signup alert webhook for team/staff signups
+#   SLACK_NEW_ATHLETES_WEBHOOK_URL  - Production signup webhook for athlete signups
+#   SLACK_NEW_TEAMS_WEBHOOK_URL     - Production signup webhook for team/staff signups
+#   (Optional legacy fallback) STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL / STAGING_SLACK_NEW_TEAMS_WEBHOOK_URL
 # =============================================================================
 
 name: Deploy Backend

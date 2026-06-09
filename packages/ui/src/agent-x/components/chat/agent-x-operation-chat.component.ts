@@ -201,6 +201,7 @@ type YieldStateSource =
     <div
       class="operation-chat-shell"
       nxtDragDrop
+      (focusin)="onFocusWithinChat($event)"
       (dragStateChange)="attachmentsFacade.onDragStateChange($event)"
       (filesDropped)="attachmentsFacade.onFilesDropped($event)"
       (selectedContextsDropped)="attachmentsFacade.addPendingSelectedContexts($event)"
@@ -1743,6 +1744,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   /** Timers used for post-focus scroll corrections while keyboard animates in. */
   private focusScrollTimers: ReturnType<typeof setTimeout>[] = [];
 
+  /** Last focus zone inside the sheet, used to keep keyboard auto-scroll targeted. */
+  private lastFocusedZone: 'composer' | 'action-card' | 'other' = 'other';
+
   /** Operation ID from the backend — used for explicit cancel endpoint. */
   private _currentOperationId: string | null = null;
 
@@ -2913,10 +2917,39 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       safeAreaCssVar: '--footer-safe-area',
       keyboardOffsetTrimPx: -6,
       onKeyboardShow: () => {
-        // When keyboard opens, scroll to bottom to show all content
+        // Keep composer replies visible, but do not yank approval-card editors off-screen.
+        if (!this.shouldAutoScrollForKeyboard()) {
+          return;
+        }
+
         this.scrollToBottom({ behavior: 'auto' });
       },
     });
+  }
+
+  /** Track which editable region owns focus so keyboard lift only scrolls the composer. */
+  protected onFocusWithinChat(event: FocusEvent): void {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      this.lastFocusedZone = 'other';
+      return;
+    }
+
+    if (target.closest('nxt1-agent-x-input-bar')) {
+      this.lastFocusedZone = 'composer';
+      return;
+    }
+
+    if (target.closest('nxt1-agent-action-card')) {
+      this.lastFocusedZone = 'action-card';
+      return;
+    }
+
+    this.lastFocusedZone = 'other';
+  }
+
+  private shouldAutoScrollForKeyboard(): boolean {
+    return this.lastFocusedZone === 'composer';
   }
 
   /** Ensure latest messages remain visible when the input receives focus. */

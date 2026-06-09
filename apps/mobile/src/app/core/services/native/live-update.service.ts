@@ -77,6 +77,16 @@ export class LiveUpdateService {
   readonly currentVersion = computed(() => this._currentVersion());
   readonly lastResult = computed(() => this._lastResult());
 
+  /** Local Xcode/dev bundles should never be replaced by staged OTA content. */
+  readonly otaEnabled = computed(() => !this.isLocalDevelopmentBuild);
+
+  private get isLocalDevelopmentBuild(): boolean {
+    return (
+      !environment.production &&
+      (environment.appVersion.includes('-dev') || environment.apiUrl.startsWith('http://'))
+    );
+  }
+
   /** Resolved channel for the currently running build. */
   private get channel(): LiveUpdateChannel {
     return environment.production ? 'production' : 'staging';
@@ -128,6 +138,16 @@ export class LiveUpdateService {
       return;
     }
 
+    if (this.isLocalDevelopmentBuild) {
+      this.logger.info('Skipping OTA for local development build', {
+        appVersion: environment.appVersion,
+        apiUrl: environment.apiUrl,
+      });
+      this._lastResult.set({ status: 'skipped', reason: 'disabled' });
+      this._currentVersion.set(null);
+      return;
+    }
+
     await this.ensureUpdaterLoaded();
     const updater = this.updaterInstance;
     if (!updater) {
@@ -166,6 +186,10 @@ export class LiveUpdateService {
   async checkForUpdate(_updater?: LiveUpdaterPlugin | null): Promise<LiveUpdateCheckResult> {
     if (!Capacitor.isNativePlatform()) {
       return { status: 'skipped', reason: 'not-native' };
+    }
+
+    if (this.isLocalDevelopmentBuild) {
+      return { status: 'skipped', reason: 'disabled' };
     }
 
     this._checking.set(true);
@@ -263,6 +287,7 @@ export class LiveUpdateService {
    */
   async getManifest(): Promise<LiveUpdateManifest | null> {
     if (!Capacitor.isNativePlatform()) return null;
+    if (this.isLocalDevelopmentBuild) return null;
     try {
       const platform = Capacitor.getPlatform() as LiveUpdatePlatform;
       return await this.fetchManifest(platform, this.channel);
@@ -278,6 +303,9 @@ export class LiveUpdateService {
    */
   async downloadAndApplyNow(): Promise<void> {
     if (!Capacitor.isNativePlatform()) throw new Error('Not running on a native platform');
+    if (this.isLocalDevelopmentBuild) {
+      throw new Error('OTA is disabled for local development builds');
+    }
     await this.ensureUpdaterLoaded();
     const updater = this.updaterInstance;
     if (!updater) throw new Error('Capgo updater plugin not available');

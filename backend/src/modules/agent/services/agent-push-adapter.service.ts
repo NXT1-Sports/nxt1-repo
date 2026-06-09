@@ -111,6 +111,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
         data: {
           sessionId: intent.sessionId,
           operationId: intent.operationId,
+          entityId: intent.operationId,
           ...(intent.threadId ? { threadId: intent.threadId } : {}),
           ...(intent.imageUrl ? { imageUrl: intent.imageUrl } : {}),
           ...(intent.videoUrl ? { videoUrl: intent.videoUrl } : {}),
@@ -129,6 +130,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
           ...(intent.imageUrl ? { imageUrl: intent.imageUrl } : {}),
           ...(intent.videoUrl ? { videoUrl: intent.videoUrl } : {}),
         },
+        idempotencyKey: sanitizeIdempotencyKey(`agent_task_completed_${intent.operationId}`),
       };
     case AGENT_PUSH_INTENT_KINDS.TASK_FAILED:
       return {
@@ -140,6 +142,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
         data: {
           sessionId: intent.sessionId,
           operationId: intent.operationId,
+          entityId: intent.operationId,
           ...(intent.threadId ? { threadId: intent.threadId } : {}),
           failed: 'true',
         },
@@ -153,6 +156,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
           failed: true,
           errorMessage: intent.errorMessage,
         },
+        idempotencyKey: sanitizeIdempotencyKey(`agent_task_failed_${intent.operationId}`),
       };
     case AGENT_PUSH_INTENT_KINDS.NEEDS_INPUT:
       return {
@@ -203,6 +207,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
         deepLink: '/agent-x?tab=playbook',
         data: {
           operationId: intent.operationId,
+          entityId: intent.operationId,
           tab: 'playbook',
         },
         source: { userName: 'Agent X' },
@@ -213,6 +218,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
           operationId: intent.operationId,
           mode: 'playbook',
         },
+        idempotencyKey: sanitizeIdempotencyKey(`agent_playbook_ready_${intent.operationId}`),
       };
     case AGENT_PUSH_INTENT_KINDS.BRIEFING_READY:
       return {
@@ -223,6 +229,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
         deepLink: '/agent-x',
         data: {
           operationId: intent.operationId,
+          entityId: intent.operationId,
         },
         source: { userName: 'Agent X' },
         metadata: {
@@ -232,6 +239,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
           operationId: intent.operationId,
           mode: 'briefing',
         },
+        idempotencyKey: sanitizeIdempotencyKey(`agent_briefing_ready_${intent.operationId}`),
       };
     case AGENT_PUSH_INTENT_KINDS.WEEKLY_RECAP_READY:
       return {
@@ -240,6 +248,10 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
         title: intent.title,
         body: intent.body,
         deepLink: '/agent-x',
+        data: {
+          operationId: intent.operationId,
+          entityId: intent.operationId,
+        },
         source: { userName: 'Agent X' },
         metadata: {
           agentId: 'weekly_recap',
@@ -248,6 +260,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
           operationId: intent.operationId,
           recapNumber: intent.recapNumber,
         },
+        idempotencyKey: sanitizeIdempotencyKey(`agent_weekly_recap_ready_${intent.operationId}`),
       };
     case AGENT_PUSH_INTENT_KINDS.PLAYBOOK_NUDGE:
       return {
@@ -256,7 +269,12 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
         title: intent.title,
         body: intent.body,
         deepLink: '/agent-x?tab=playbook',
-        data: { tab: 'playbook', nudge: 'playbook-progress', operationId: intent.operationId },
+        data: {
+          tab: 'playbook',
+          nudge: 'playbook-progress',
+          operationId: intent.operationId,
+          entityId: intent.operationId,
+        },
         source: { userName: 'Agent X' },
         metadata: {
           agentId: 'playbook_nudge',
@@ -265,6 +283,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
           mode: 'playbook',
           operationId: intent.operationId,
         },
+        idempotencyKey: sanitizeIdempotencyKey(`agent_playbook_nudge_${intent.operationId}`),
       };
     case AGENT_PUSH_INTENT_KINDS.SCHEDULED_EXECUTION_COMPLETED:
       return {

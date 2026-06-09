@@ -20,10 +20,29 @@ describe('agent-push-adapter.service', () => {
     expect(payload.data).toMatchObject({
       sessionId: 'session-1',
       operationId: 'op-1',
+      entityId: 'op-1',
       threadId: 'thread-1',
       imageUrl: 'https://cdn.example.com/image.jpg',
     });
     expect(payload.mediaType).toBe('image');
+    expect(payload.idempotencyKey).toBe('agent_task_completed_op-1');
+  });
+
+  it('maps briefing ready intent to a deterministic per-operation agent action payload', () => {
+    const payload = toDispatchInput({
+      kind: 'agent_briefing_ready',
+      userId: 'user-1',
+      operationId: 'briefing-op-1',
+      title: 'Daily Briefing Ready',
+      body: 'Your morning briefing is ready.',
+    });
+
+    expect(payload.type).toBe('agent_action');
+    expect(payload.data).toMatchObject({
+      operationId: 'briefing-op-1',
+      entityId: 'briefing-op-1',
+    });
+    expect(payload.idempotencyKey).toBe('agent_briefing_ready_briefing-op-1');
   });
 
   it('maps needs approval intent to high-priority dynamic alert payload', () => {

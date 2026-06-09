@@ -614,8 +614,10 @@ export class AgentXComponent {
     }
 
     const connectedSources = mapToConnectedSources(request.linkSources.links);
+    const disconnectedSignInProviders = request.disconnectedSignInProviders ?? [];
     const result = await this.getEditProfileApi().updateSection(user.uid, 'connected-sources', {
       connectedSources,
+      ...(disconnectedSignInProviders.length > 0 ? { disconnectedSignInProviders } : {}),
     });
 
     if (result.success) {
