@@ -154,10 +154,45 @@ function verifyBundleId(configPath, expectedId, platform) {
 const expectedIosBundleId = 'com.nxt1sports.nxt1';
 const expectedAndroidBundleId = 'com.nxt1sports.app.twa';
 
+// ─── Auto-correct appId in capacitor.config.ts ────────────────────────────────
+// The appId must always contain the exact expected string literals.
+// If someone accidentally commits wrong appId values, this restores them.
+const capacitorTsPath = path.join(projectRoot, 'capacitor.config.ts');
+let appIdFixed = true;
+if (fs.existsSync(capacitorTsPath)) {
+  try {
+    let capTs = fs.readFileSync(capacitorTsPath, 'utf8');
+    const expectedAppIdLine = `appId: platform === 'android' ? '${expectedAndroidBundleId}' : '${expectedIosBundleId}'`;
+    // Match the appId line regardless of what values are currently there
+    const appIdPattern = /appId:\s*platform\s*===\s*'android'\s*\?\s*'[^']*'\s*:\s*'[^']*'/;
+    if (appIdPattern.test(capTs)) {
+      const current = capTs.match(appIdPattern)[0];
+      if (current !== expectedAppIdLine) {
+        capTs = capTs.replace(appIdPattern, expectedAppIdLine);
+        fs.writeFileSync(capacitorTsPath, capTs);
+        log(`🔧 capacitor.config.ts: appId restored to correct values`, colors.yellow);
+        log(`   Android: ${expectedAndroidBundleId}`, colors.yellow);
+        log(`   iOS:     ${expectedIosBundleId}`, colors.yellow);
+      } else {
+        log(`✅ capacitor.config.ts: appId values are correct`, colors.green);
+      }
+    } else {
+      log(
+        `⚠️  capacitor.config.ts: appId pattern not recognised — skipping auto-correct`,
+        colors.yellow
+      );
+    }
+  } catch (err) {
+    log(`❌ Failed to verify/fix appId in capacitor.config.ts: ${err.message}`, colors.red);
+    appIdFixed = false;
+  }
+}
+
 // Verify configurations
 const iOSValid = verifyBundleId(iOSTargets[0], expectedIosBundleId, 'ios');
 const androidValid = verifyBundleId(androidTarget, expectedAndroidBundleId, 'android');
-const configValid = iOSCopied && androidCopied && iOSValid && androidValid && iOSUrlSchemeValid;
+const configValid =
+  iOSCopied && androidCopied && iOSValid && androidValid && iOSUrlSchemeValid && appIdFixed;
 
 if (configValid) {
   log(`🎉 Environment: ${firebaseEnv} (IOS Bundle ID: ${expectedIosBundleId})`, colors.green);
@@ -172,6 +207,7 @@ if (configValid) {
   if (!iOSValid) log(`❌ iOS Bundle ID mismatch in ${firebaseEnv}`, colors.red);
   if (!androidValid) log(`❌ Android Package Name mismatch in ${firebaseEnv}`, colors.red);
   if (!iOSUrlSchemeValid) log(`❌ iOS Google URL scheme mismatch in ${firebaseEnv}`, colors.red);
+  if (!appIdFixed) log(`❌ capacitor.config.ts appId could not be verified`, colors.red);
   process.exit(1);
 }
 
@@ -183,12 +219,21 @@ log(`🚀 Ready for ${buildEnv} build!`, colors.bright);
 //   • App.entitlements       → aps-environment (iOS push notifications)
 const isProduction = firebaseEnv === 'production';
 
-// 1. Update capacitor.config.json — android.webContentsDebuggingEnabled
-const capacitorConfigPath = path.join(projectRoot, 'capacitor.config.json');
-if (fs.existsSync(capacitorConfigPath)) {
+// 1. Update capacitor config — android.webContentsDebuggingEnabled
+// Supports both capacitor.config.json (legacy) and capacitor.config.ts (current)
+const capacitorConfigJsonPath = path.join(projectRoot, 'capacitor.config.json');
+const capacitorConfigTsPath = path.join(projectRoot, 'capacitor.config.ts');
+const capacitorConfigPath = fs.existsSync(capacitorConfigJsonPath)
+  ? capacitorConfigJsonPath
+  : fs.existsSync(capacitorConfigTsPath)
+    ? capacitorConfigTsPath
+    : null;
+
+if (capacitorConfigPath) {
   try {
     const capacitorConfig = fs.readFileSync(capacitorConfigPath, 'utf8');
-    const debuggingFlagPattern = /("webContentsDebuggingEnabled"\s*:\s*)(true|false)/;
+    // Match both JSON ("key": value) and TypeScript (key: value) syntax
+    const debuggingFlagPattern = /("?webContentsDebuggingEnabled"?\s*:\s*)(true|false)/;
     if (!debuggingFlagPattern.test(capacitorConfig)) {
       throw new Error('webContentsDebuggingEnabled was not found');
     }
@@ -199,16 +244,17 @@ if (fs.existsSync(capacitorConfigPath)) {
       fs.writeFileSync(capacitorConfigPath, nextCapacitorConfig);
     }
 
+    const configFileName = path.basename(capacitorConfigPath);
     log(
-      `✅ capacitor.config.json: webContentsDebuggingEnabled = ${!isProduction} (${firebaseEnv})`,
+      `✅ ${configFileName}: webContentsDebuggingEnabled = ${!isProduction} (${firebaseEnv})`,
       isProduction ? colors.green : colors.yellow
     );
   } catch (err) {
-    log(`❌ Failed to update capacitor.config.json: ${err.message}`, colors.red);
+    log(`❌ Failed to update capacitor config: ${err.message}`, colors.red);
     process.exit(1);
   }
 } else {
-  log(`⚠️  capacitor.config.json not found`, colors.yellow);
+  log(`⚠️  Neither capacitor.config.json nor capacitor.config.ts found`, colors.yellow);
   process.exit(1);
 }
 
