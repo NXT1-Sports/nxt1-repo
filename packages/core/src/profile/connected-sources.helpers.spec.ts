@@ -200,23 +200,17 @@ describe('buildLinkSourcesFormData', () => {
     });
   });
 
-  it('should add firebase and email sign-in providers without duplicates', () => {
+  it('should ignore firebase-only sign-in providers after a backend disconnect', () => {
     const result = buildLinkSourcesFormData({
       firebaseProviders: [{ providerId: 'google.com' }],
       connectedEmails: [
-        { provider: 'gmail', isActive: true },
+        { provider: 'gmail', isActive: false },
         { provider: 'microsoft', isActive: true },
       ],
     });
 
     expect(result).toEqual({
       links: [
-        {
-          platform: 'google',
-          connected: true,
-          connectionType: 'signin',
-          scopeType: 'global',
-        },
         {
           platform: 'microsoft',
           connected: true,

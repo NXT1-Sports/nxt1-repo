@@ -1064,11 +1064,13 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
     if (result.linkSources && result.updatedLinks) {
       const connectedSources = mapToConnectedSources(result.linkSources.links);
+      const disconnectedSignInProviders = result.disconnectedSignInProviders ?? [];
       const saveResult = await this.editProfileApiService.updateSection(
         user.uid,
         'connected-sources',
         {
           connectedSources,
+          ...(disconnectedSignInProviders.length > 0 ? { disconnectedSignInProviders } : {}),
         }
       );
 

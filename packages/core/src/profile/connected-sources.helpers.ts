@@ -250,17 +250,13 @@ export function buildLinkSourcesFormData(options: {
   readonly firebaseProviders?: readonly FirebaseProviderLike[] | null;
 }): LinkSourcesFormDataLike | null {
   const linkedSources = mapConnectedSourcesToLinkSources(options.connectedSources ?? []);
-  const firebaseSigninLinks = mapFirebaseProvidersToLinkSources(options.firebaseProviders ?? []);
-  // Do NOT pass firebaseSigninLinks platforms as exclusions — connectedEmails entries carry
-  // the actual connected account email (e.g. sonngoc.dev@gmail.com) which may differ from
-  // the Firebase sign-in email (e.g. ngocsonxx98@gmail.com). mergeLinkSources will
-  // deduplicate by key, with connectedEmails (incoming) winning over firebaseSigninLinks.
+  // Connected account persistence lives in connectedEmails. Do not derive a connected
+  // sign-in row from Firebase providerData alone, or a disconnected Google/Microsoft
+  // account reappears immediately after refresh when the user is still signed into NXT1
+  // with that provider.
   const emailSigninLinks = mapConnectedEmailsToLinkSources(options.connectedEmails ?? []);
 
-  const links = mergeLinkSources(
-    mergeLinkSources(linkedSources, firebaseSigninLinks),
-    emailSigninLinks
-  );
+  const links = mergeLinkSources(linkedSources, emailSigninLinks);
 
   return links.length > 0 ? { links } : null;
 }

@@ -542,7 +542,14 @@ export class DevSettingsComponent {
   readonly otaFailureCount = signal(0);
   readonly otaLastCheckedAt = signal<string | null>(null);
   readonly otaPlatform = signal(Capacitor.getPlatform());
-  readonly otaChannel = signal(environment.production ? 'production' : 'staging');
+  readonly otaChannel = signal(
+    !environment.production &&
+      (environment.appVersion.includes('-dev') || environment.apiUrl.startsWith('http://'))
+      ? 'disabled (local dev)'
+      : environment.production
+        ? 'production'
+        : 'staging'
+  );
 
   readonly otaLastResultText = computed(() => {
     const r = this.liveUpdate.lastResult();
