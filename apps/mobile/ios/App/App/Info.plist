@@ -99,13 +99,10 @@
 	<!-- URL Schemes for OAuth Callbacks (Google Sign-In, Deep Links) -->
 	<key>CFBundleURLTypes</key>
 	<array>
-		<!-- Google Sign-In URL Schemes (REVERSED_CLIENT_ID for both staging and production) -->
+		<!-- Google Sign-In URL Scheme (active Firebase environment) -->
 		<dict>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<!-- Active GoogleService-Info.plist (nxt1 staging v2) -->
-				<string>com.googleusercontent.apps.1099429444442-n4nnpevnqm8on4dp91il0f6rl39e3nvs</string>
-				<!-- Active GoogleService-Info.plist (nxt1 production v2) -->
 				<string>com.googleusercontent.apps.112256620070-hhqncoijt5f2or5218dmtq43moa6vgup</string>
 			</array>
 			<key>CFBundleURLName</key>
