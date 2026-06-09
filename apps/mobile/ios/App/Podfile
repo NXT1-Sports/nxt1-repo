@@ -81,6 +81,10 @@ target 'App' do
   capacitor_pods
   # Add your Pods here
   pod 'CapacitorFirebaseAuthentication/Google', :path => '../../../../node_modules/@capacitor-firebase/authentication'
+  # Force FirebaseAnalytics subspec so Swift files can import FirebaseCore/FirebaseAnalytics.
+  # The default 'Lite' subspec (set by cap sync) has no Firebase deps but the Swift source
+  # files unconditionally import them — this line survives cap sync rewrites.
+  pod 'CapacitorFirebaseAnalytics/AnalyticsWithoutAdIdSupport', :path => '../../../../node_modules/@capacitor-firebase/analytics'
 end
 
 post_install do |installer|
