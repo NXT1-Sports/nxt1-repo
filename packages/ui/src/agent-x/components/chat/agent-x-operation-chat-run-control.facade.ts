@@ -496,6 +496,7 @@ export class AgentXOperationChatRunControlFacade {
         }
       }
 
+      this.attachmentsFacade.clearVideoUploadProgress();
       this.transportFacade.beginResponseTurn('send');
 
       await this.transportFacade.callAgentChat(

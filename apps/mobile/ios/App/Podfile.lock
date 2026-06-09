@@ -37,12 +37,10 @@ PODS:
     - IONFilesystemLib (~> 1.1.1)
   - CapacitorFirebaseAnalytics (8.3.0):
     - Capacitor
-    - CapacitorFirebaseAnalytics/Lite (= 8.3.0)
+    - CapacitorFirebaseAnalytics/AnalyticsWithoutAdIdSupport (= 8.3.0)
   - CapacitorFirebaseAnalytics/AnalyticsWithoutAdIdSupport (8.3.0):
     - Capacitor
     - FirebaseAnalytics/Core (~> 12.7.0)
-  - CapacitorFirebaseAnalytics/Lite (8.3.0):
-    - Capacitor
   - CapacitorFirebaseAuthentication (8.3.0):
     - Capacitor
     - CapacitorFirebaseAuthentication/Lite (= 8.3.0)
@@ -411,7 +409,7 @@ SPEC CHECKSUMS:
   CapacitorDevice: 14cba6f88d1c3074cbf825fea977c8c526453ff8
   CapacitorDialog: 854c5dac405081cae697c177ca43bcaa95ae67bf
   CapacitorFilesystem: 2db285a1ac6e475cc27cae2e1bea999000f9e2be
-  CapacitorFirebaseAnalytics: 0cdb216fd543a6a1e0ef1c83f9b5c8ed744c634d
+  CapacitorFirebaseAnalytics: 842759b1ae2dd78429cdcd2c9063b6dd61ea34fe
   CapacitorFirebaseAuthentication: d1f4c78c96f2669351781692071260ac79573876
   CapacitorFirebaseCrashlytics: a1402adcf140e3a7df4ae8cd145decf32883ef6a
   CapacitorFirebaseMessaging: d48c9156ee96e166416f1d910cb8de53143cea5f
@@ -466,6 +464,6 @@ SPEC CHECKSUMS:
   Version: de5907f2c5d0f3cf21708db7801d1d5401139486
   ZIPFoundation: dfd3d681c4053ff7e2f7350bc4e53b5dba3f5351
 
-PODFILE CHECKSUM: 79ae3ccbdcbfdb837cdddc86080fdb7d9ab52784
+PODFILE CHECKSUM: b6d966ad0fd9e3fa28a877d3e44840ba3ccc91a0
 
 COCOAPODS: 1.16.2

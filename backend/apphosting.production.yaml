@@ -95,10 +95,10 @@ env:
     availability:
       - RUNTIME
   - variable: SLACK_NEW_ATHLETES_WEBHOOK_URL
-    secret: STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL
+    secret: SLACK_NEW_ATHLETES_WEBHOOK_URL
     availability:
       - RUNTIME
   - variable: SLACK_NEW_TEAMS_WEBHOOK_URL
-    secret: STAGING_SLACK_NEW_TEAMS_WEBHOOK_URL
+    secret: SLACK_NEW_TEAMS_WEBHOOK_URL
     availability:
       - RUNTIME

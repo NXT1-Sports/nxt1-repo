@@ -31,6 +31,23 @@ begin
 rescue => _e
   puts "⚠️  CapgoNativePurchases patch skipped: #{_e.message}"
 end
+
+begin
+  _analytics_podspec = File.join(NODE_MODULES, '@capacitor-firebase/analytics/CapacitorFirebaseAnalytics.podspec')
+  if File.exist?(_analytics_podspec)
+    _content = File.read(_analytics_podspec)
+    if _content.include?("s.default_subspec = 'Lite'")
+      _patched = _content.gsub(
+        "s.default_subspec = 'Lite'",
+        "s.default_subspec = 'AnalyticsWithoutAdIdSupport'"
+      )
+      File.write(_analytics_podspec, _patched)
+      puts '✅ Patched CapacitorFirebaseAnalytics.podspec (default subspec -> AnalyticsWithoutAdIdSupport)'
+    end
+  end
+rescue => _e
+  puts "⚠️  CapacitorFirebaseAnalytics patch skipped: #{_e.message}"
+end
 # ────────────────────────────────────────────────────────────────────────────
 
 require File.join(NODE_MODULES, '@capacitor/ios/scripts/pods_helpers')
@@ -98,6 +115,7 @@ post_install do |installer|
       config.build_settings['GCC_WARN_ABOUT_DEPRECATED_FUNCTIONS'] = 'NO'
       # Silence double-quoted include warnings in Firebase framework headers
       config.build_settings['CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER'] = 'NO'
+      config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
       
       # Disable code signing for all Pod targets — they don't support provisioning
       # profiles and must not inherit the ad-hoc/app-store profile set on the main App target.

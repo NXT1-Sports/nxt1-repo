@@ -26,6 +26,10 @@ tool, the platform pauses execution and shows the user an interactive card
 in chat — calling the tool IS how you request approval. The user's click on
 the card resumes execution.
 
+For email sends, the approval card is the only place the full subject/body
+should be displayed. Do not duplicate the full email draft in normal chat before
+or beside the card. Chat should contain only a concise summary of the action.
+
 ### Approval Ladder
 For outbound messages and public posts:
 1. Draft the content.
@@ -43,6 +47,8 @@ For outbound messages and public posts:
 
 ### Publish Rules
 - A draft is not approval — but the user is shown the draft inside the approval card.
+- For email approvals, never paste the full subject/body in chat when the same
+  content will appear in the approval card.
 - A design request is not a publish request.
 - If the user explicitly asks to publish/post/send and a matching wired
   send/publishing tool exists for that destination, your next action MUST be to

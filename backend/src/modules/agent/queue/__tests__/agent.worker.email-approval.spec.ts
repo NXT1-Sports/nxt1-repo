@@ -139,6 +139,110 @@ describe('AgentWorker :: Approval Cards', () => {
       expect(card.payload.emailData.subject).toBe('Gmail Campaign Update');
       expect(card.payload.actions[1].label).toBe('Send All');
     });
+
+    it('should render email approval card for wrapped Google Workspace Gmail reply', () => {
+      const card = renderApprovalCard({
+        toolName: 'run_google_workspace_tool',
+        toolInput: {
+          toolName: 'gmail_reply_to_email',
+          arguments: {
+            email_id: 'message-123',
+            reply_body: '<p>Thanks coach, I appreciate it.</p>',
+          },
+        },
+      });
+
+      expect(card.type).toBe('confirmation');
+      expect(card.title).toBe('Review and Approve Email Reply');
+      expect(card.payload.variant).toBe('email');
+      expect(card.payload.emailData.body).toBe('<p>Thanks coach, I appreciate it.</p>');
+      expect(card.payload.actions[1].label).toBe('Send');
+    });
+
+    it('should render email approval card for wrapped Google Workspace Gmail draft send', () => {
+      const card = renderApprovalCard({
+        toolName: 'run_google_workspace_tool',
+        toolInput: {
+          toolName: 'gmail_send_draft',
+          arguments: { draft_id: 'draft-123' },
+        },
+      });
+
+      expect(card.type).toBe('confirmation');
+      expect(card.title).toBe('Review and Approve Email Draft');
+      expect(card.payload.variant).toBe('email');
+      expect(card.payload.emailData.subject).toBe('Gmail draft draft-123');
+      expect(card.payload.actions[1].label).toBe('Send Draft');
+    });
+
+    it('should render email approval card for wrapped Google Workspace draft creation', () => {
+      const card = renderApprovalCard({
+        toolName: 'run_google_workspace_tool',
+        toolInput: {
+          toolName: 'create_gmail_draft',
+          arguments: {
+            to: 'coach@example.com',
+            subject: 'Draft only',
+            body: '<p>Draft body.</p>',
+          },
+        },
+      });
+
+      expect(card.type).toBe('confirmation');
+      expect(card.title).toBe('Review and Approve Email Draft');
+      expect(card.payload.variant).toBe('email');
+      expect(card.payload.emailData.toEmail).toBe('coach@example.com');
+      expect(card.payload.emailData.subject).toBe('Draft only');
+      expect(card.payload.actions[1].label).toBe('Create Draft');
+    });
+  });
+
+  describe('provider wrapper email approvals', () => {
+    it('should render email approval card for Microsoft 365 mail sends', () => {
+      const card = renderApprovalCard({
+        toolName: 'run_microsoft_365_tool',
+        toolInput: {
+          toolName: 'send-mail',
+          arguments: {
+            message: {
+              subject: 'Outlook update',
+              body: { content: '<p>Here is the update.</p>' },
+              toRecipients: [
+                { emailAddress: { address: 'coach1@example.com' } },
+                { emailAddress: { address: 'coach2@example.com' } },
+              ],
+            },
+          },
+        },
+      });
+
+      expect(card.type).toBe('confirmation');
+      expect(card.title).toBe('Review and Approve Emails (2 recipients)');
+      expect(card.payload.variant).toBe('email-batch');
+      expect(card.payload.emailData.recipients).toEqual([
+        'coach1@example.com',
+        'coach2@example.com',
+      ]);
+      expect(card.payload.emailData.subject).toBe('Outlook update');
+      expect(card.payload.actions[1].label).toBe('Send All');
+    });
+
+    it('should render email approval card for NXT1 fallback sends', () => {
+      const card = renderApprovalCard({
+        toolName: 'send_email_via_nxt1',
+        toolInput: {
+          toEmail: 'coach@example.com',
+          subject: 'Fallback update',
+          bodyHtml: '<p>NXT1 fallback send.</p>',
+        },
+      });
+
+      expect(card.type).toBe('confirmation');
+      expect(card.title).toBe('Review and Approve Email');
+      expect(card.payload.variant).toBe('email');
+      expect(card.payload.emailData.toEmail).toBe('coach@example.com');
+      expect(card.payload.actions[1].label).toBe('Send');
+    });
   });
 
   describe('batch email (batch_send_email)', () => {

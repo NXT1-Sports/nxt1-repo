@@ -11,7 +11,7 @@
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                         APPLICATIONS                            │
 ├─────────────────┬─────────────────┬─────────────────────────────┤
@@ -86,7 +86,7 @@ npm run mobile:android
 
 ## Project Structure
 
-```
+```text
 monorepo/
 ├── packages/
 │   ├── core/                 # @nxt1/core - Shared TypeScript library

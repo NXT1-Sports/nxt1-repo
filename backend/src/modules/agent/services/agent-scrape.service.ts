@@ -41,6 +41,19 @@ export interface ScrapeLinkedAccountsResult {
 
 type ScrapeLinkedAccountOperation = ScrapeLinkedAccountsResult['operations'][number];
 
+const INTERNAL_LINKED_ACCOUNT_PLATFORMS = new Set(['nxt1']);
+
+export function filterLinkedAccountsForScrape(
+  linkedAccounts: readonly LinkedAccount[]
+): readonly LinkedAccount[] {
+  return linkedAccounts.filter((account) => {
+    const platform = account.platform.trim().toLowerCase();
+    const profileUrl = account.profileUrl.trim();
+    if (!platform || !profileUrl) return false;
+    return !INTERNAL_LINKED_ACCOUNT_PLATFORMS.has(platform);
+  });
+}
+
 let queueService: import('../queue/queue.service.js').AgentQueueService | null = null;
 let jobRepository: import('../queue/job.repository.js').AgentJobRepository | null = null;
 let chatService: import('./agent-chat.service.js').AgentChatService | null = null;
@@ -71,6 +84,8 @@ export async function enqueueLinkedAccountScrape(
   input: ScrapeLinkedAccountsInput,
   environment: 'staging' | 'production' = 'production'
 ): Promise<ScrapeLinkedAccountsResult | null> {
+  const linkedAccounts = filterLinkedAccountsForScrape(input.linkedAccounts);
+
   if (!queueService || !jobRepository) {
     logger.warn('[Scrape] Agent queue not initialized — skipping linked account scrape', {
       userId: input.userId,
@@ -78,8 +93,11 @@ export async function enqueueLinkedAccountScrape(
     return null;
   }
 
-  if (input.linkedAccounts.length === 0) {
-    logger.info('[Scrape] No linked accounts to scrape', { userId: input.userId });
+  if (linkedAccounts.length === 0) {
+    logger.info('[Scrape] No external linked accounts to scrape', {
+      userId: input.userId,
+      originalCount: input.linkedAccounts.length,
+    });
     return null;
   }
 
@@ -101,8 +119,8 @@ export async function enqueueLinkedAccountScrape(
     // ─── Chunk into 2-account pairs (fan-out parallelism) ──────────────────────
     const CHUNK_SIZE = 2;
     const chunks: (typeof input.linkedAccounts)[] = [];
-    for (let i = 0; i < input.linkedAccounts.length; i += CHUNK_SIZE) {
-      chunks.push(input.linkedAccounts.slice(i, i + CHUNK_SIZE));
+    for (let i = 0; i < linkedAccounts.length; i += CHUNK_SIZE) {
+      chunks.push(linkedAccounts.slice(i, i + CHUNK_SIZE));
     }
 
     // ─── Create ONE shared thread for the entire scrape session ────────────
@@ -110,7 +128,7 @@ export async function enqueueLinkedAccountScrape(
     // regardless of how many fan-out chunk operations run underneath.
     // Chunks 2..N are tagged with parentOperationId so downstream surfaces
     // can treat them as child operations of the first chunk.
-    const allPlatforms = input.linkedAccounts
+    const allPlatforms = linkedAccounts
       .map((a) => a.platform.trim())
       .filter(Boolean)
       .join(', ');
@@ -254,7 +272,7 @@ export async function enqueueLinkedAccountScrape(
     logger.info('[Scrape] All linked account scrape jobs enqueued', {
       userId: input.userId,
       operationIds,
-      totalAccounts: input.linkedAccounts.length,
+      totalAccounts: linkedAccounts.length,
       jobCount: operationIds.length,
       chunksCreated: chunks.length,
       accountsPerChunk: CHUNK_SIZE,

@@ -123,7 +123,10 @@ describe('ssr-route-seo', () => {
       profileFirstName: 'Yadon',
       profileLastName: 'Urbieta',
     });
-    expect(metadata?.description).toContain('Quarterback in Football');
+    expect(metadata?.description).toContain('Yadon Urbieta is a 2027 quarterback');
+    expect(metadata?.description).toContain(
+      "Watch highlights, view stats, and explore this athlete's profile on NXT1 Sports."
+    );
   });
 
   it('rewrites social image and profile tags for public athlete profiles', () => {

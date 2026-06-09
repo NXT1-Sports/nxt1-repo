@@ -74,4 +74,79 @@ describe('buildSseStreamCallback', () => {
     expect(streamRef.invokedTools).toEqual(['search_college_coaches']);
     expect(streamRef.successfulTools).toEqual(['search_college_coaches']);
   });
+
+  it('keeps repeated tool calls as distinct live steps when step ids are absent', () => {
+    const { writes, response } = createResponseRecorder();
+    const streamRef: SseStreamRef = {
+      invokedTools: [],
+      successfulTools: [],
+      model: '',
+      tokenUsage: undefined,
+      pendingAutoOpenPanel: null,
+    };
+
+    const onStreamEvent = buildSseStreamCallback(response, streamRef);
+
+    onStreamEvent({
+      type: 'step_active',
+      toolName: 'read_identity_details',
+      message: 'Reading identity details',
+    });
+    onStreamEvent({
+      type: 'tool_result',
+      toolName: 'read_identity_details',
+      toolSuccess: true,
+      // Deliberately omit message to exercise fallback label handling.
+    });
+    onStreamEvent({
+      type: 'step_active',
+      toolName: 'read_identity_details',
+      message: 'Reading identity details',
+    });
+    onStreamEvent({
+      type: 'tool_result',
+      toolName: 'read_identity_details',
+      toolSuccess: true,
+      message: 'Reading identity details',
+    });
+
+    const stepPayloads = parseStepPayloads(writes);
+    expect(stepPayloads).toHaveLength(4);
+
+    const firstId = stepPayloads[0]['id'];
+    const secondId = stepPayloads[2]['id'];
+
+    expect(firstId).toBeTypeOf('string');
+    expect(secondId).toBeTypeOf('string');
+    expect(firstId).not.toBe(secondId);
+
+    expect(stepPayloads[0]).toEqual(
+      expect.objectContaining({
+        id: firstId,
+        label: 'Reading identity details',
+        status: 'active',
+      })
+    );
+    expect(stepPayloads[1]).toEqual(
+      expect.objectContaining({
+        id: firstId,
+        label: 'Read Identity Details',
+        status: 'success',
+      })
+    );
+    expect(stepPayloads[2]).toEqual(
+      expect.objectContaining({
+        id: secondId,
+        label: 'Reading identity details',
+        status: 'active',
+      })
+    );
+    expect(stepPayloads[3]).toEqual(
+      expect.objectContaining({
+        id: secondId,
+        label: 'Reading identity details',
+        status: 'success',
+      })
+    );
+  });
 });

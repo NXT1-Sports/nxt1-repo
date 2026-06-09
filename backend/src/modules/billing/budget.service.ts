@@ -4225,7 +4225,9 @@ export async function expireStaleHolds(db: Firestore): Promise<number> {
  */
 export const REFERRAL_REWARD_CENTS = 500; // $5.00
 export const MAX_REFERRAL_REWARDS = 20;
-export const NEW_USER_MAX_AGE_MINUTES = 30;
+// Allow enough time for a real signup + onboarding session before we reject
+// a referral as "not new".
+export const NEW_USER_MAX_AGE_MINUTES = 24 * 60;
 
 /** Firestore collection that holds global app configuration knobs. */
 const APP_CONFIG_COLLECTION = 'AppConfig';

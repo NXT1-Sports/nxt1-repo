@@ -2573,7 +2573,7 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     const withFavicons = linkedSources.flatMap((source) => {
       const platform = source.platform.trim();
       const profileUrl = source.profileUrl.trim();
-      if (!platform || !profileUrl || platform.toLowerCase() === 'nxt1') {
+      if (!platform || !profileUrl || !this.isSelectableAttachmentSourcePlatform(platform)) {
         return [];
       }
 
@@ -2599,6 +2599,9 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       if (!link.connected) {
         continue;
       }
+      if (!this.isSelectableAttachmentSourcePlatform(link.platform)) {
+        continue;
+      }
 
       const inferredSource: ConnectedAppSource = {
         platform: link.platform,
@@ -2621,6 +2624,10 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       (user as { connectedAccounts?: Record<string, unknown> } | null)?.connectedAccounts ?? {};
     if (connectedAccounts && typeof connectedAccounts === 'object') {
       for (const [platform, accountRaw] of Object.entries(connectedAccounts)) {
+        if (!this.isSelectableAttachmentSourcePlatform(platform)) {
+          continue;
+        }
+
         const account =
           accountRaw && typeof accountRaw === 'object'
             ? (accountRaw as Record<string, unknown>)
@@ -2653,6 +2660,10 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     }
 
     for (const platform of this.firecrawlSignedInPlatforms()) {
+      if (!this.isSelectableAttachmentSourcePlatform(platform)) {
+        continue;
+      }
+
       const normalizedPlatform = platform.toLowerCase();
       const inferredSource: ConnectedAppSource = {
         platform: normalizedPlatform,
@@ -2711,6 +2722,10 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       return 'twitter';
     }
     return normalized;
+  }
+
+  private isSelectableAttachmentSourcePlatform(platform: string): boolean {
+    return this.normalizeAttachmentPlatformKey(platform) !== 'nxt1';
   }
 
   private resolveAttachmentProfileUrl(platform: string, url?: string): string {

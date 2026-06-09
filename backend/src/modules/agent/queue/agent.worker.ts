@@ -424,7 +424,70 @@ function extractEmailApprovalDraft(
 } | null {
   type EmailBatchRecipient = { toEmail: string; variables: Record<string, unknown> };
 
-  if (toolName === 'send_email') {
+  const readString = (record: Record<string, unknown>, keys: readonly string[]): string => {
+    for (const key of keys) {
+      const value = record[key];
+      if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+    }
+    return '';
+  };
+
+  const readBodyContent = (value: unknown): string => {
+    if (typeof value === 'string' && value.trim().length > 0) return value;
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return '';
+    const record = value as Record<string, unknown>;
+    return readString(record, ['content', 'html', 'bodyHtml', 'body', 'text']);
+  };
+
+  const collectRecipientEmails = (value: unknown, depth = 0): string[] => {
+    if (depth > 3 || value == null) return [];
+    if (typeof value === 'string' && value.trim().length > 0) return [value.trim()];
+    if (Array.isArray(value))
+      return value.flatMap((entry) => collectRecipientEmails(entry, depth + 1));
+    if (typeof value !== 'object') return [];
+
+    const record = value as Record<string, unknown>;
+    const direct = readString(record, ['address', 'email', 'toEmail', 'recipientEmail']);
+    const nested = [
+      record['emailAddress'],
+      record['recipient'],
+      record['to'],
+      record['toRecipients'],
+      record['recipients'],
+    ].flatMap((entry) => collectRecipientEmails(entry, depth + 1));
+
+    return [...(direct ? [direct] : []), ...nested];
+  };
+
+  const uniqueRecipients = (recipients: readonly string[]): string[] => [
+    ...new Set(recipients.map((recipient) => recipient.trim()).filter(Boolean)),
+  ];
+
+  const buildEmailDraft = (params: {
+    readonly subject: string;
+    readonly body: string;
+    readonly recipients: readonly string[];
+    readonly title?: string;
+    readonly approveLabel?: string;
+  }) => {
+    const recipients = uniqueRecipients(params.recipients);
+    return {
+      title:
+        params.title ??
+        (recipients.length > 1
+          ? `Review and Approve Emails (${recipients.length} recipients)`
+          : 'Review and Approve Email'),
+      variant: recipients.length > 1 ? ('email-batch' as const) : ('email' as const),
+      subject: params.subject,
+      body: params.body,
+      ...(recipients[0] ? { toEmail: recipients[0] } : {}),
+      recipients,
+      recipientsCount: Math.max(recipients.length, 1),
+      approveLabel: params.approveLabel ?? (recipients.length > 1 ? 'Send All' : 'Send'),
+    };
+  };
+
+  if (toolName === 'send_email' || toolName === 'send_email_via_nxt1') {
     const subject = typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '';
     const body =
       (typeof toolInput['bodyHtml'] === 'string' && toolInput['bodyHtml']) ||
@@ -442,6 +505,16 @@ function extractEmailApprovalDraft(
       recipientsCount: 1,
       approveLabel: 'Send',
     };
+  }
+
+  if (toolName === 'create_gmail_draft') {
+    return buildEmailDraft({
+      subject: readString(toolInput, ['subject']),
+      body: readString(toolInput, ['body']),
+      recipients: collectRecipientEmails(toolInput['to']),
+      title: 'Review and Approve Email Draft',
+      approveLabel: 'Create Draft',
+    });
   }
 
   if (toolName === 'gmail_send_email') {
@@ -469,10 +542,38 @@ function extractEmailApprovalDraft(
     };
   }
 
+  if (toolName === 'gmail_reply_to_email') {
+    return buildEmailDraft({
+      subject: 'Gmail reply',
+      body: readString(toolInput, ['reply_body', 'body']),
+      recipients: [],
+      title: 'Review and Approve Email Reply',
+      approveLabel: toolInput['send'] === false ? 'Save Draft' : 'Send',
+    });
+  }
+
+  if (toolName === 'gmail_send_draft') {
+    const draftId = readString(toolInput, ['draft_id', 'draftId', 'id']);
+    return buildEmailDraft({
+      subject: draftId ? `Gmail draft ${draftId}` : 'Gmail draft',
+      body: '',
+      recipients: [],
+      title: 'Review and Approve Email Draft',
+      approveLabel: 'Send Draft',
+    });
+  }
+
   if (toolName === 'run_google_workspace_tool') {
     const nestedToolName =
       typeof toolInput['toolName'] === 'string' ? toolInput['toolName'].trim() : '';
-    if (nestedToolName !== 'gmail_send_email') return null;
+    if (
+      nestedToolName !== 'gmail_send_email' &&
+      nestedToolName !== 'create_gmail_draft' &&
+      nestedToolName !== 'gmail_reply_to_email' &&
+      nestedToolName !== 'gmail_send_draft'
+    ) {
+      return null;
+    }
 
     const args =
       toolInput['arguments'] &&
@@ -480,10 +581,46 @@ function extractEmailApprovalDraft(
       !Array.isArray(toolInput['arguments'])
         ? (toolInput['arguments'] as Record<string, unknown>)
         : {};
-    return extractEmailApprovalDraft('gmail_send_email', args);
+    return extractEmailApprovalDraft(nestedToolName, args);
   }
 
-  if (toolName === 'batch_send_email') {
+  if (toolName === 'run_microsoft_365_tool') {
+    const nestedToolName =
+      typeof toolInput['toolName'] === 'string' ? toolInput['toolName'].trim().toLowerCase() : '';
+    if (!/(send|reply|forward|draft)/i.test(nestedToolName)) return null;
+
+    const args =
+      toolInput['arguments'] &&
+      typeof toolInput['arguments'] === 'object' &&
+      !Array.isArray(toolInput['arguments'])
+        ? (toolInput['arguments'] as Record<string, unknown>)
+        : {};
+    const message =
+      args['message'] && typeof args['message'] === 'object' && !Array.isArray(args['message'])
+        ? (args['message'] as Record<string, unknown>)
+        : {};
+    const recipients = uniqueRecipients([
+      ...collectRecipientEmails(args['to']),
+      ...collectRecipientEmails(args['toEmail']),
+      ...collectRecipientEmails(args['recipient']),
+      ...collectRecipientEmails(args['recipients']),
+      ...collectRecipientEmails(args['toRecipients']),
+      ...collectRecipientEmails(message['toRecipients']),
+    ]);
+    const body =
+      readString(args, ['bodyHtml', 'body', 'content', 'messageBody', 'replyBody']) ||
+      readBodyContent(args['body']) ||
+      readBodyContent(message['body']);
+
+    return buildEmailDraft({
+      subject: readString(args, ['subject', 'title']) || readString(message, ['subject', 'title']),
+      body,
+      recipients,
+      approveLabel: recipients.length > 1 ? 'Send All' : 'Send',
+    });
+  }
+
+  if (toolName === 'batch_send_email' || toolName === 'batch_send_email_via_nxt1') {
     const subject =
       (typeof toolInput['subjectTemplate'] === 'string' && toolInput['subjectTemplate']) ||
       (typeof toolInput['subject'] === 'string' ? toolInput['subject'] : '') ||
@@ -2112,7 +2249,8 @@ export class AgentWorker {
                     threadId,
                     userId: payload.userId,
                     role: 'assistant',
-                    content: partialSnapshot.content || `[${controlledMessage}]`,
+                    // Persist only actual streamed prose; avoid UI-facing control placeholders.
+                    content: partialSnapshot.content || '',
                     origin: payload.origin,
                     agentId: 'router',
                     operationId: payload.operationId,

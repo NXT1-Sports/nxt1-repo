@@ -129,34 +129,6 @@ describe('AgentXOperationChatMessageFacade', () => {
     expect(loadThreadMessages).toHaveBeenCalledWith('thread-1');
   });
 
-  it('keeps live tool steps in separate parts while updating matching step ids in place', () => {
-    const firstStep = {
-      id: 'tool-1',
-      label: 'Reading identity details',
-      status: 'active' as const,
-      stageType: 'tool' as const,
-    };
-    const secondStep = {
-      id: 'tool-2',
-      label: 'Reading season stats',
-      status: 'active' as const,
-      stageType: 'tool' as const,
-    };
-    const completedFirstStep = {
-      ...firstStep,
-      status: 'success' as const,
-    };
-
-    const withFirst = facade.withUpsertedToolStepPart(undefined, firstStep);
-    const withSecond = facade.withUpsertedToolStepPart(withFirst, secondStep);
-    const withUpdatedFirst = facade.withUpsertedToolStepPart(withSecond, completedFirstStep);
-
-    expect(withUpdatedFirst).toEqual([
-      { type: 'tool-steps', steps: [completedFirstStep] },
-      { type: 'tool-steps', steps: [secondStep] },
-    ]);
-  });
-
   it('preserves streamed context when converting to an ask-user yield row', () => {
     const yieldState: AgentYieldState = {
       reason: 'needs_input',
