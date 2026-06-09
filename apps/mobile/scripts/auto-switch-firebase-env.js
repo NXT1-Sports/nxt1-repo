@@ -19,6 +19,57 @@ function log(message, color = colors.reset) {
   console.log(`${color}${message}${colors.reset}`);
 }
 
+function readPlistValue(plistPath, key) {
+  if (!fs.existsSync(plistPath)) return null;
+
+  const content = fs.readFileSync(plistPath, 'utf8');
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = content.match(
+    new RegExp(`<key>${escapedKey}<\\/key>\\s*<string>([^<]+)<\\/string>`)
+  );
+  return match?.[1] ?? null;
+}
+
+function updateIosGoogleUrlScheme(infoPlistPath, reversedClientId, activeFirebaseEnv) {
+  if (!fs.existsSync(infoPlistPath)) {
+    log(`⚠️  iOS Info.plist not found at ${infoPlistPath}`, colors.yellow);
+    return false;
+  }
+
+  if (!reversedClientId) {
+    log(`❌ Missing REVERSED_CLIENT_ID for ${activeFirebaseEnv}`, colors.red);
+    return false;
+  }
+
+  const googleUrlType = [
+    '\t\t<dict>',
+    '\t\t\t<key>CFBundleURLSchemes</key>',
+    '\t\t\t<array>',
+    `\t\t\t\t<string>${reversedClientId}</string>`,
+    '\t\t\t</array>',
+    '\t\t\t<key>CFBundleURLName</key>',
+    '\t\t\t<string>Google Sign-In</string>',
+    '\t\t</dict>',
+  ].join('\n');
+
+  const googleUrlTypePattern =
+    /\t\t<dict>\n\t\t\t<key>CFBundleURLSchemes<\/key>\n\t\t\t<array>[\s\S]*?\n\t\t\t<\/array>\n\t\t\t<key>CFBundleURLName<\/key>\n\t\t\t<string>Google Sign-In<\/string>\n\t\t<\/dict>/;
+
+  const content = fs.readFileSync(infoPlistPath, 'utf8');
+  if (!googleUrlTypePattern.test(content)) {
+    log(`❌ Could not locate Google Sign-In URL type in ${infoPlistPath}`, colors.red);
+    return false;
+  }
+
+  const nextContent = content.replace(googleUrlTypePattern, googleUrlType);
+  fs.writeFileSync(infoPlistPath, nextContent);
+  log(
+    `✅ Info.plist: Google Sign-In URL scheme = ${reversedClientId} (${activeFirebaseEnv})`,
+    colors.green
+  );
+  return true;
+}
+
 // Get build environment from command line argument
 const buildEnv = process.argv[2] || 'development';
 
@@ -48,6 +99,7 @@ const iOSTargets = [
   path.join(projectRoot, 'ios', 'App', 'GoogleService-Info.plist'),
 ];
 
+let iOSCopied = false;
 if (fs.existsSync(iOSSource)) {
   iOSTargets.forEach((target) => {
     const targetDir = path.dirname(target);
@@ -56,21 +108,28 @@ if (fs.existsSync(iOSSource)) {
     }
     fs.copyFileSync(iOSSource, target);
   });
+  iOSCopied = true;
   log(`✅ iOS: Switched to ${firebaseEnv}`, colors.green);
 } else {
   log(`⚠️  iOS: ${firebaseEnv} config not found`, colors.yellow);
 }
 
+const iOSInfoPlistPath = path.join(projectRoot, 'ios', 'App', 'App', 'Info.plist');
+const reversedClientId = readPlistValue(iOSSource, 'REVERSED_CLIENT_ID');
+const iOSUrlSchemeValid = updateIosGoogleUrlScheme(iOSInfoPlistPath, reversedClientId, firebaseEnv);
+
 // Switch Android configuration
 const androidSource = path.join(configDir, firebaseEnv, 'android', 'google-services.json');
 const androidTarget = path.join(projectRoot, 'android', 'app', 'google-services.json');
 
+let androidCopied = false;
 if (fs.existsSync(androidSource)) {
   const targetDir = path.dirname(androidTarget);
   if (!fs.existsSync(targetDir)) {
     fs.mkdirSync(targetDir, { recursive: true });
   }
   fs.copyFileSync(androidSource, androidTarget);
+  androidCopied = true;
   log(`✅ Android: Switched to ${firebaseEnv}`, colors.green);
 } else {
   log(`⚠️  Android: ${firebaseEnv} config not found`, colors.yellow);
@@ -98,16 +157,22 @@ const expectedAndroidBundleId = 'com.nxt1sports.app.twa';
 // Verify configurations
 const iOSValid = verifyBundleId(iOSTargets[0], expectedIosBundleId, 'ios');
 const androidValid = verifyBundleId(androidTarget, expectedAndroidBundleId, 'android');
+const configValid = iOSCopied && androidCopied && iOSValid && androidValid && iOSUrlSchemeValid;
 
-if (iOSValid && androidValid) {
+if (configValid) {
   log(`🎉 Environment: ${firebaseEnv} (IOS Bundle ID: ${expectedIosBundleId})`, colors.green);
   log(
     `🎉 Environment: ${firebaseEnv} Android (Bundle ID: ${expectedAndroidBundleId})`,
     colors.green
   );
 } else {
+  if (!iOSCopied) log(`❌ iOS Firebase config was not copied for ${firebaseEnv}`, colors.red);
+  if (!androidCopied)
+    log(`❌ Android Firebase config was not copied for ${firebaseEnv}`, colors.red);
   if (!iOSValid) log(`❌ iOS Bundle ID mismatch in ${firebaseEnv}`, colors.red);
   if (!androidValid) log(`❌ Android Package Name mismatch in ${firebaseEnv}`, colors.red);
+  if (!iOSUrlSchemeValid) log(`❌ iOS Google URL scheme mismatch in ${firebaseEnv}`, colors.red);
+  process.exit(1);
 }
 
 log(`🚀 Ready for ${buildEnv} build!`, colors.bright);
@@ -122,19 +187,29 @@ const isProduction = firebaseEnv === 'production';
 const capacitorConfigPath = path.join(projectRoot, 'capacitor.config.json');
 if (fs.existsSync(capacitorConfigPath)) {
   try {
-    const capConfig = JSON.parse(fs.readFileSync(capacitorConfigPath, 'utf8'));
-    if (!capConfig.android) capConfig.android = {};
-    capConfig.android.webContentsDebuggingEnabled = !isProduction;
-    fs.writeFileSync(capacitorConfigPath, JSON.stringify(capConfig, null, 2) + '\n');
+    const capacitorConfig = fs.readFileSync(capacitorConfigPath, 'utf8');
+    const debuggingFlagPattern = /("webContentsDebuggingEnabled"\s*:\s*)(true|false)/;
+    if (!debuggingFlagPattern.test(capacitorConfig)) {
+      throw new Error('webContentsDebuggingEnabled was not found');
+    }
+
+    const nextCapacitorConfig = capacitorConfig.replace(debuggingFlagPattern, `$1${!isProduction}`);
+
+    if (nextCapacitorConfig !== capacitorConfig) {
+      fs.writeFileSync(capacitorConfigPath, nextCapacitorConfig);
+    }
+
     log(
       `✅ capacitor.config.json: webContentsDebuggingEnabled = ${!isProduction} (${firebaseEnv})`,
       isProduction ? colors.green : colors.yellow
     );
   } catch (err) {
     log(`❌ Failed to update capacitor.config.json: ${err.message}`, colors.red);
+    process.exit(1);
   }
 } else {
   log(`⚠️  capacitor.config.json not found`, colors.yellow);
+  process.exit(1);
 }
 
 // 2. Update App.entitlements — aps-environment
