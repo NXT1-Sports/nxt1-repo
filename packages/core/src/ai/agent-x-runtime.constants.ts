@@ -39,6 +39,9 @@ export const AGENT_X_RUNTIME_CONFIG = {
     threadIdResolveWaitMs: 8_000,
   },
   videoUpload: {
+    provisionMaxAttempts: 3,
+    provisionRetryDelayMs: 900,
+    provisionRequestTimeoutMs: 12_000,
     directPutMaxAttempts: 2,
     directPutRetryDelayMs: 700,
     directPutTimeoutMs: 180_000,

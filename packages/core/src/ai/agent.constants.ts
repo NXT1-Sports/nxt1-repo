@@ -482,8 +482,11 @@ export const AGENT_APPROVAL_TOOL_GROUPS = {
   communication: [
     'send_email',
     'batch_send_email',
+    'send_email_via_nxt1',
+    'batch_send_email_via_nxt1',
     'gmail_send_email',
     'create_gmail_draft',
+    'gmail_send_draft',
     'gmail_reply_to_email',
   ],
   profileWrites: [],

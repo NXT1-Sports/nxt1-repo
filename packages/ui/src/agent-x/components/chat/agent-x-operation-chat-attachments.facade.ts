@@ -167,8 +167,6 @@ interface BackgroundUploadRecord {
 const BACKGROUND_UPLOAD_CONCURRENCY = 3;
 const MESSAGE_ATTACHMENT_SYNC_RETRY_MS =
   AGENT_X_RUNTIME_CONFIG.attachmentTransport.messageSyncRetryMs;
-const PRE_SEND_BACKGROUND_UPLOAD_WAIT_MS =
-  AGENT_X_RUNTIME_CONFIG.attachmentTransport.preSendBackgroundUploadWaitMs;
 const VIDEO_UPLOAD_PROGRESS_SETTLE_MS = 420;
 const TEAM_FILM_REVIEW_MANAGER_ROLES = new Set([
   'coach',
@@ -293,6 +291,12 @@ export class AgentXOperationChatAttachmentsFacade {
 
     clearTimeout(this.videoUploadBatchClearTimer);
     this.videoUploadBatchClearTimer = null;
+  }
+
+  clearVideoUploadProgress(): void {
+    this.cancelVideoUploadBatchClear();
+    this.videoUploadBatchEntries.clear();
+    this.publishVideoUploadBatchState();
   }
 
   removePendingFile(index: number): void {
@@ -726,42 +730,17 @@ export class AgentXOperationChatAttachmentsFacade {
   ): Promise<AgentXAttachment[]> {
     const records = files.map((pending) => this.ensureBackgroundUpload(pending, authToken));
 
-    // Wait briefly for in-flight background uploads so the initial chat request
-    // carries attachment URLs whenever they are ready at send time.
-    const pendingRecords = records.filter(
-      (record) => !record.attachment && record.status !== 'failed'
-    );
-    if (pendingRecords.length > 0) {
-      await Promise.all(
-        pendingRecords.map((record) =>
-          this.waitForBackgroundUpload(record, PRE_SEND_BACKGROUND_UPLOAD_WAIT_MS)
-        )
-      );
-    }
+    await Promise.all(records.map((record) => record.resultPromise));
 
     const readyAttachments = files
       .map((pending) => this.backgroundUploads.get(pending.id)?.attachment ?? null)
       .filter((attachment): attachment is AgentXAttachment => attachment !== null);
 
-    // Last-chance guarantee: if any attachment is still missing (queued/uploading/failed),
-    // retry those files synchronously in the send path so the chat request does not lose media context.
-    const readyIds = new Set(readyAttachments.map((attachment) => attachment.id));
-    const missingFiles = files.filter((pending) => !readyIds.has(pending.id));
-    if (missingFiles.length === 0) {
-      return readyAttachments;
+    if (readyAttachments.length === files.length) {
+      this.clearVideoUploadProgress();
     }
 
-    const host = this.requireHost();
-    this.logger.info('Completing pending attachment uploads in send gate', {
-      contextId: host.contextId(),
-      totalFiles: files.length,
-      readyCount: readyAttachments.length,
-      missingCount: missingFiles.length,
-      missingNames: missingFiles.map((file) => file.file.name),
-    });
-
-    const fallbackAttachments = await this.uploadFiles(missingFiles, authToken);
-    return [...readyAttachments, ...fallbackAttachments];
+    return readyAttachments;
   }
 
   private async waitForBackgroundUpload(

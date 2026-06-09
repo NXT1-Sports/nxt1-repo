@@ -29,6 +29,24 @@ describe('approval-gate.service', () => {
     expect(requirement?.actionSummary).toContain('Send an email');
   });
 
+  it('requires approval for fallback NXT1 email tools', () => {
+    const service = new ApprovalGateService({} as Firestore);
+
+    const singleRequirement = service.getApprovalRequirement('send_email_via_nxt1', {
+      toEmail: 'coach@example.com',
+      subject: 'Fallback send',
+    });
+    const batchRequirement = service.getApprovalRequirement('batch_send_email_via_nxt1', {
+      recipients: [{ toEmail: 'coach-a@example.com' }, { toEmail: 'coach-b@example.com' }],
+      subjectTemplate: 'Fallback batch',
+    });
+
+    expect(singleRequirement).not.toBeNull();
+    expect(singleRequirement?.reasonCode).toBe('send_email');
+    expect(batchRequirement).not.toBeNull();
+    expect(batchRequirement?.reasonCode).toBe('send_email');
+  });
+
   it('requires approval for Microsoft 365 mail mutations', () => {
     const service = new ApprovalGateService({} as Firestore);
 
@@ -66,6 +84,43 @@ describe('approval-gate.service', () => {
     expect(requirement?.actionSummary).toContain('Send 2 Gmail emails');
     expect(requirement?.actionSummary).toContain('Recruiting update');
   });
+
+  it.each([
+    {
+      toolName: 'create_gmail_draft',
+      expectedSummary: 'Create a Gmail draft',
+      args: {
+        to: 'coach@example.com',
+        subject: 'Draft update',
+        body: '<p>Draft body.</p>',
+      },
+    },
+    {
+      toolName: 'gmail_send_draft',
+      expectedSummary: 'Send a Gmail draft',
+      args: { draft_id: 'draft-123' },
+    },
+    {
+      toolName: 'gmail_reply_to_email',
+      expectedSummary: 'Send a Gmail reply',
+      args: { email_id: 'message-123', reply_body: '<p>Reply body.</p>' },
+    },
+  ])(
+    'requires approval for wrapped Google Workspace $toolName',
+    ({ toolName, expectedSummary, args }) => {
+      const service = new ApprovalGateService({} as Firestore);
+
+      const requirement = service.getApprovalRequirement('run_google_workspace_tool', {
+        toolName,
+        arguments: args,
+      });
+
+      expect(requirement).not.toBeNull();
+      expect(requirement?.policy.toolName).toBe('run_google_workspace_tool');
+      expect(requirement?.reasonCode).toBe('send_email');
+      expect(requirement?.actionSummary).toContain(expectedSummary);
+    }
+  );
 
   it('does not require approval for Google Workspace Gmail reads through the generic runner', () => {
     const service = new ApprovalGateService({} as Firestore);

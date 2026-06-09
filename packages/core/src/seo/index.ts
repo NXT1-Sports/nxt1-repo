@@ -716,6 +716,18 @@ function getCompactProfilePosition(profile: ShareableProfile): string | undefine
   return canonicalPosition;
 }
 
+function getProfileStateAbbreviation(location?: string): string | undefined {
+  if (!location) return undefined;
+
+  const normalizedLocation = location.trim();
+  if (!normalizedLocation) return undefined;
+
+  const stateMatch = normalizedLocation.match(/(?:^|,\s*)([a-z]{2})(?:\s+\d{5}(?:-\d{4})?)?$/i);
+  if (!stateMatch?.[1]) return undefined;
+
+  return stateMatch[1].toUpperCase();
+}
+
 function buildProfileTitle(profile: ShareableProfile): string {
   const parts = [profile.athleteName];
   const compactPosition = getCompactProfilePosition(profile);
@@ -743,32 +755,35 @@ function buildProfileDescription(profile: ShareableProfile): string {
     return profile.description;
   }
 
-  const parts: string[] = [];
-
-  if (canonicalPosition && profile.sport) {
-    parts.push(`${canonicalPosition} in ${formatSportDisplayName(profile.sport)}`);
-  } else if (canonicalPosition) {
-    parts.push(canonicalPosition);
-  } else if (profile.sport) {
-    parts.push(`${formatSportDisplayName(profile.sport)} athlete`);
-  }
-
-  if (profile.school) {
-    parts.push(`at ${profile.school}`);
-  }
-
-  if (profile.location) {
-    parts.push(`from ${profile.location}`);
-  }
+  const descriptorParts: string[] = [];
 
   if (profile.classYear) {
-    parts.push(`graduating in ${profile.classYear}`);
+    descriptorParts.push(String(profile.classYear));
   }
 
-  const base =
-    parts.length > 0 ? `${profile.athleteName} is a ${parts.join(' ')}` : profile.athleteName;
+  if (canonicalPosition) {
+    descriptorParts.push(canonicalPosition.toLowerCase());
+  } else if (profile.sport) {
+    descriptorParts.push(`${formatSportDisplayName(profile.sport).toLowerCase()} athlete`);
+  } else {
+    descriptorParts.push('athlete');
+  }
 
-  return `${base}. View highlights, stats, and recruiting information on NXT1 Sports.`;
+  const descriptor = descriptorParts.join(' ');
+  const stateAbbreviation = getProfileStateAbbreviation(profile.location);
+  const schoolWithState = profile.school
+    ? stateAbbreviation
+      ? `${profile.school} (${stateAbbreviation})`
+      : profile.school
+    : undefined;
+
+  const base = schoolWithState
+    ? `${profile.athleteName} is a ${descriptor} at ${schoolWithState}`
+    : profile.location
+      ? `${profile.athleteName} is a ${descriptor} from ${profile.location}`
+      : `${profile.athleteName} is a ${descriptor}`;
+
+  return `${base}. Watch highlights, view stats, and explore this athlete's profile on NXT1 Sports.`;
 }
 
 /**

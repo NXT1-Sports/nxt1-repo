@@ -146,6 +146,9 @@ jobs:
         working-directory: apps/mobile
         run: node scripts/auto-switch-firebase-env.js ${{ env.BUILD_PROFILE }}
 
+      # Keep iOS on copy, not sync: @capacitor-firebase/analytics requires an
+      # explicit CocoaPods subspec in Podfile, and cap sync regenerates that
+      # file back to the plugin's Lite default.
       - name: Sync Capacitor web assets to iOS
         working-directory: apps/mobile
         env:

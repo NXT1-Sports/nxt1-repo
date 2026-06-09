@@ -26,6 +26,7 @@ import { CoachGamePlanAndAdjustmentsSkill } from '../strategy/coach-game-plan-an
 import { OpponentScoutingPacketSkill } from '../evaluation/opponent-scouting-packet.skill.js';
 import { LineupRotationOptimizerSkill } from '../strategy/lineup-rotation-optimizer.skill.js';
 import { PlayDesignSimulationSkill } from '../strategy/play-design-simulation.skill.js';
+import { CommunicationApprovalAndSafetySkill } from '../compliance/communication-approval-and-safety.skill.js';
 
 class EmptyContextSkill extends BaseSkill {
   readonly name = 'empty_context';
@@ -176,6 +177,21 @@ describe('BaseSkill.matchIntent', () => {
     );
     expect(new PlayDesignSimulationSkill().getPromptContext()).toContain('Simulation Checklist');
     expect(new PredictivePerformanceAnalysisSkill().getPromptContext()).toContain('Scenario Bands');
+  });
+
+  it('should keep full email drafts inside the approval card', () => {
+    const outreachPrompt = new OutreachCopywritingSkill().getPromptContext();
+    const compliancePrompt = new CommunicationApprovalAndSafetySkill().getPromptContext();
+
+    expect(outreachPrompt).toContain('The approval card is the single source of truth');
+    expect(outreachPrompt).toContain('do NOT print the full subject/body in chat');
+    expect(outreachPrompt).toContain('Posting the full email body in chat');
+    expect(outreachPrompt).not.toContain('Show the subject and body in your reply');
+    expect(outreachPrompt).not.toContain('display the subject + body inline');
+
+    expect(compliancePrompt).toContain('the approval card is the only place');
+    expect(compliancePrompt).toContain('Do not duplicate the full email draft');
+    expect(compliancePrompt).toContain('never paste the full subject/body in chat');
   });
 });
 

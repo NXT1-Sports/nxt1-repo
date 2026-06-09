@@ -128,8 +128,8 @@ jobs:
           upsert_optional_env_var \
             "SLACK_AGENT_ALERT_WEBHOOK_URL" \
             "${{ secrets.SLACK_AGENT_ALERT_WEBHOOK_URL }}"
-          signup_athletes_webhook="${{ secrets['STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL'] || secrets['SLACK_NEW_ATHLETES_WEBHOOK_URL'] }}"
-          signup_teams_webhook="${{ secrets['STAGING_SLACK_NEW_TEAMS_WEBHOOK_URL'] || secrets['SLACK_NEW_TEAMS_WEBHOOK_URL'] }}"
+          signup_athletes_webhook="${{ secrets['SLACK_NEW_ATHLETES_WEBHOOK_URL'] || secrets['STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL'] }}"
+          signup_teams_webhook="${{ secrets['SLACK_NEW_TEAMS_WEBHOOK_URL'] || secrets['STAGING_SLACK_NEW_TEAMS_WEBHOOK_URL'] }}"
           upsert_optional_env_var \
             "SLACK_NEW_ATHLETES_WEBHOOK_URL" \
             "$signup_athletes_webhook"

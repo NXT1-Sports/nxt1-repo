@@ -81,6 +81,7 @@ const GOOGLE_WORKSPACE_GMAIL_APPROVAL_POLICY: AgentApprovalPolicy = {
 };
 
 const GOOGLE_WORKSPACE_GMAIL_SEND_TOOLS = new Set([
+  'create_gmail_draft',
   'gmail_send_email',
   'gmail_send_draft',
   'gmail_reply_to_email',
@@ -211,14 +212,22 @@ function resolveGoogleWorkspaceGmailApprovalRequirement(
   ];
   const subject = firstNonEmptyString(args['subject']);
 
-  const actionSummaryBase =
-    nestedToolName === 'gmail_send_draft'
-      ? 'Send a Gmail draft'
-      : recipients.length > 1
-        ? `Send ${recipients.length} Gmail emails`
-        : recipients.length === 1
-          ? `Send a Gmail email to ${recipients[0]}`
-          : 'Send a Gmail email';
+  const actionSummaryBase = (() => {
+    if (nestedToolName === 'create_gmail_draft') {
+      return recipients.length === 1
+        ? `Create a Gmail draft to ${recipients[0]}`
+        : 'Create a Gmail draft';
+    }
+
+    if (nestedToolName === 'gmail_send_draft') return 'Send a Gmail draft';
+    if (nestedToolName === 'gmail_reply_to_email') return 'Send a Gmail reply';
+
+    return recipients.length > 1
+      ? `Send ${recipients.length} Gmail emails`
+      : recipients.length === 1
+        ? `Send a Gmail email to ${recipients[0]}`
+        : 'Send a Gmail email';
+  })();
 
   return {
     policy: GOOGLE_WORKSPACE_GMAIL_APPROVAL_POLICY,
@@ -272,7 +281,7 @@ export class ApprovalGateService {
       );
     };
 
-    if (toolName === 'send_email') {
+    if (toolName === 'send_email' || toolName === 'send_email_via_nxt1') {
       return {
         userId: toolInput['userId'],
         toEmail: toolInput['toEmail'] ?? toolInput['to'],
@@ -285,7 +294,7 @@ export class ApprovalGateService {
       };
     }
 
-    if (toolName === 'batch_send_email') {
+    if (toolName === 'batch_send_email' || toolName === 'batch_send_email_via_nxt1') {
       const rawRecipients = Array.isArray(toolInput['recipients']) ? toolInput['recipients'] : [];
       const recipients = rawRecipients
         .map((recipient) => {

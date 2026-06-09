@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { buildLinkedAccountScrapeObjective } from '../agent-scrape.service.js';
+import {
+  buildLinkedAccountScrapeObjective,
+  filterLinkedAccountsForScrape,
+} from '../agent-scrape.service.js';
 
 interface LinkedAccount {
   readonly platform: string;
@@ -26,6 +29,19 @@ describe('Agent Scrape Pipeline — Onboarding Single-Job Behavior', () => {
 
     expect(objective).toContain('offers');
     expect(objective).not.toContain('context only');
+  });
+
+  it('filters internal nxt1 sources out of scrape jobs', () => {
+    const filtered = filterLinkedAccountsForScrape([
+      { platform: 'maxpreps', profileUrl: 'https://www.maxpreps.com/al/hoover/' },
+      { platform: 'nxt1', profileUrl: 'http://localhost:4200/profile/team-1' },
+      { platform: 'hudl', profileUrl: 'https://fan.hudl.com/usa/al/hoover/' },
+    ]);
+
+    expect(filtered).toEqual([
+      { platform: 'maxpreps', profileUrl: 'https://www.maxpreps.com/al/hoover/' },
+      { platform: 'hudl', profileUrl: 'https://fan.hudl.com/usa/al/hoover/' },
+    ]);
   });
 
   it('keeps all linked accounts in one intent payload', () => {

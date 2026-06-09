@@ -6132,12 +6132,16 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         firebaseProviders: user?.firebaseProviders ?? [],
       })?.links ?? [];
 
-    const withFavicons = linkedSources.map((source) => {
+    const withFavicons = linkedSources.flatMap((source) => {
+      if (!this.isSelectableAttachmentSourcePlatform(source.platform)) {
+        return [];
+      }
+
       const favicon =
         (source as { faviconUrl?: string }).faviconUrl ??
         getPlatformFaviconUrl(source.platform.toLowerCase()) ??
         undefined;
-      return { ...source, faviconUrl: favicon } as ConnectedAppSource;
+      return [{ ...source, faviconUrl: favicon } as ConnectedAppSource];
     });
 
     const attachmentSourcesMap = new Map<string, ConnectedAppSource>();
@@ -6148,6 +6152,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
     for (const link of linkSources) {
       if (!link.connected) {
+        continue;
+      }
+      if (!this.isSelectableAttachmentSourcePlatform(link.platform)) {
         continue;
       }
 
@@ -6172,6 +6179,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       (user as { connectedAccounts?: Record<string, unknown> } | null)?.connectedAccounts ?? {};
     if (connectedAccounts && typeof connectedAccounts === 'object') {
       for (const [platform, accountRaw] of Object.entries(connectedAccounts)) {
+        if (!this.isSelectableAttachmentSourcePlatform(platform)) {
+          continue;
+        }
+
         const account =
           accountRaw && typeof accountRaw === 'object'
             ? (accountRaw as Record<string, unknown>)
@@ -6204,6 +6215,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     }
 
     for (const platform of this.firecrawlSignedInPlatforms()) {
+      if (!this.isSelectableAttachmentSourcePlatform(platform)) {
+        continue;
+      }
+
       const normalizedPlatform = platform.toLowerCase();
       const inferredSource: ConnectedAppSource = {
         platform: normalizedPlatform,
@@ -6265,6 +6280,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       return 'twitter';
     }
     return normalized;
+  }
+
+  private isSelectableAttachmentSourcePlatform(platform: string): boolean {
+    return this.normalizeAttachmentPlatformKey(platform) !== 'nxt1';
   }
 
   private resolveAttachmentProfileUrl(platform: string, url?: string): string {
