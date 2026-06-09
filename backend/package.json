@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/backend",
-  "version": "1.43.47",
+  "version": "1.43.48",
   "description": "NXT1 Backend API Server",
   "private": true,
   "type": "module",
