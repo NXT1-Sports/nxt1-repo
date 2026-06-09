@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/design-tokens",
-  "version": "5.43.43",
+  "version": "5.43.44",
   "description": "NXT1 Enterprise Design Token System - CSS-only, JSON source of truth",
   "type": "module",
   "main": "dist/js/tokens.mjs",
