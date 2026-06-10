@@ -3049,6 +3049,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (videoIndexes.length > 0) {
       const lastVideoIndex = videoIndexes[videoIndexes.length - 1] ?? 0;
       const lastVideo = normalized[lastVideoIndex];
+      const lastVideoHasThumb =
+        typeof lastVideo.thumbnailUrl === 'string' && lastVideo.thumbnailUrl.trim().length > 0;
 
       const thumbnailCandidateIndex = normalized.findIndex(
         (attachment, index) =>
@@ -3057,11 +3059,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           /thumb|thumbnail|preview[-_ ]?frame/i.test(attachment.name)
       );
 
-      if (thumbnailCandidateIndex >= 0) {
-        const thumbnailAttachment = normalized[thumbnailCandidateIndex];
-        const lastVideoHasThumb =
-          typeof lastVideo.thumbnailUrl === 'string' && lastVideo.thumbnailUrl.trim().length > 0;
+      const fallbackPosterIndex =
+        thumbnailCandidateIndex >= 0
+          ? thumbnailCandidateIndex
+          : normalized.findIndex(
+              (attachment, index) => index !== lastVideoIndex && attachment.type === 'image'
+            );
 
+      if (fallbackPosterIndex >= 0) {
+        const thumbnailAttachment = normalized[fallbackPosterIndex];
         if (!lastVideoHasThumb) {
           normalized[lastVideoIndex] = {
             ...lastVideo,
@@ -3069,7 +3075,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           };
         }
 
-        normalized.splice(thumbnailCandidateIndex, 1);
+        if (thumbnailCandidateIndex >= 0) {
+          normalized.splice(thumbnailCandidateIndex, 1);
+        }
       }
     }
 

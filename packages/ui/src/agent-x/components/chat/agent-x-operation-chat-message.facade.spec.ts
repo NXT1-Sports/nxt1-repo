@@ -247,4 +247,60 @@ describe('AgentXOperationChatMessageFacade', () => {
       },
     ]);
   });
+
+  it('attaches a late approval confirmation card to the existing yield row', () => {
+    const yieldState: AgentYieldState = {
+      reason: 'needs_approval',
+      promptToUser: 'Review this email before sending.',
+      agentId: 'router',
+      approvalId: 'approval-1',
+      pendingToolCall: {
+        toolName: 'send_email',
+        toolCallId: 'tool-1',
+        toolInput: {
+          operationId: 'op-1',
+          toEmail: 'john@nxt1sports.com',
+          subject: 'Check Out NXT 1 Sports',
+        },
+      },
+      messages: [],
+    };
+
+    const approvalCard: AgentXRichCard = {
+      type: 'confirmation',
+      agentId: 'router',
+      title: 'Review Email Draft',
+      payload: {
+        approvalId: 'approval-1',
+        toolCallId: 'tool-1',
+        operationId: 'op-1',
+        actions: [
+          { id: 'reject', label: 'Reject', variant: 'secondary' },
+          { id: 'approve', label: 'Send', variant: 'primary' },
+        ],
+      },
+    };
+
+    facade.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: 'I drafted an email for your review.',
+        timestamp: new Date('2026-05-04T19:00:00.000Z'),
+      },
+    ]);
+
+    facade.upsertInlineYieldMessage(yieldState, 'op-1');
+    facade.attachStreamedCard('typing', approvalCard, 'op-1', false);
+
+    const yieldMessage = facade
+      .messages()
+      .find((message) => message.yieldState?.approvalId === 'approval-1');
+    const typingMessage = facade.messages().find((message) => message.id === 'typing');
+
+    expect(yieldMessage?.cards).toEqual([approvalCard]);
+    expect(yieldMessage?.parts).toEqual([{ type: 'card', card: approvalCard }]);
+    expect(typingMessage?.cards ?? []).toEqual([]);
+    expect(typingMessage?.parts ?? []).toEqual([]);
+  });
 });

@@ -21,6 +21,7 @@
  */
 
 import { Injectable, inject } from '@angular/core';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { Observable, Subject } from 'rxjs';
 import { AGENT_X_API_BASE_URL } from './agent-x-job.service';
 import {
@@ -114,6 +115,8 @@ interface NativeFirebaseStorageApi {
     callback: (event?: NativeFirebaseUploadEvent, error?: unknown) => void
   ): Promise<string>;
 }
+
+const IOS_DIRECT_SIGNED_PUT_MAX_BYTES = 64 * 1024 * 1024;
 
 const RETRYABLE_VIDEO_PROVISION_ERROR_CODES = new Set([
   'REQUEST_TIMEOUT',
@@ -777,6 +780,15 @@ export class AgentXVideoUploadService {
     const uploadedViaNative = await this._nativeFirebasePut(file, storagePath, onProgress);
     if (uploadedViaNative) return;
 
+    const uploadedViaNativeHttp = await this._nativeIosSignedPut(file, uploadUrl, onProgress);
+    if (uploadedViaNativeHttp) return;
+
+    if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios') {
+      throw new Error(
+        'iOS video upload could not use either native Firebase Storage or native signed PUT'
+      );
+    }
+
     // Native Firebase path did not handle the upload (returned false).
     // Falling through to the XHR path. On web this is expected. On native
     // Capacitor this may indicate plugin/config issues, and large files can
@@ -818,6 +830,47 @@ export class AgentXVideoUploadService {
     throw lastError instanceof Error ? lastError : new Error('Video upload failed after retry');
   }
 
+  private async _nativeIosSignedPut(
+    file: File,
+    uploadUrl: string,
+    onProgress: (percent: number) => void
+  ): Promise<boolean> {
+    if (file.size > IOS_DIRECT_SIGNED_PUT_MAX_BYTES) {
+      return false;
+    }
+
+    if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios') {
+      return false;
+    }
+
+    this.logger.info('Using native iOS signed PUT path for Agent X video upload', {
+      name: file.name,
+      sizeBytes: file.size,
+      mimeType: file.type,
+    });
+
+    onProgress(5);
+    const rawBase64 = await this._fileToRawBase64(file);
+    onProgress(20);
+
+    const response = await CapacitorHttp.request({
+      method: 'PUT',
+      url: uploadUrl,
+      headers: { 'Content-Type': file.type || 'video/mp4' },
+      data: rawBase64,
+      dataType: 'file',
+      readTimeout: AGENT_X_RUNTIME_CONFIG.videoUpload.directPutTimeoutMs,
+      connectTimeout: 30_000,
+    });
+
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(`Native iOS signed PUT failed with status ${response.status}`);
+    }
+
+    onProgress(100);
+    return true;
+  }
+
   /**
    * Upload a video file to Firebase Storage via the native Capacitor SDK.
    *
@@ -832,9 +885,8 @@ export class AgentXVideoUploadService {
    *      is the sole platform discriminator — it cannot be defeated by Angular
    *      build optimisations or bridge initialisation timing races.
    *
-   *   2. Writes the browser `File` object (as a `Blob`) to the Capacitor cache
-   *      filesystem. In Capacitor 6+, Blob data is streamed natively without
-   *      base64 overhead.
+   *   2. Writes the browser `File` object to the Capacitor cache filesystem as
+   *      base64. Native Capacitor Filesystem only accepts Blob data on web.
    *
    *   3. Uploads from the local `file://` URI via
    *      `@capacitor-firebase/storage.uploadFile()`, which calls
@@ -958,42 +1010,11 @@ export class AgentXVideoUploadService {
     onProgress(2);
 
     try {
-      // Attempt Blob write first (Capacitor 8 supports native Blob transfer via WKWebView binary channel).
-      // If the platform does not support Blob (Capacitor emits an error), fall back to base64.
-      // NOTE: base64 for large files will pass ~17 MB through the bridge on iOS which may also
-      // fail — but we log the error so production crashes are visible.
-      try {
-        await Filesystem.writeFile({
-          path: tempFileName,
-          data: file as Blob,
-          directory: Directory.Cache,
-        });
-      } catch (blobWriteErr) {
-        this.logger.warn(
-          '[_nativeFirebasePut] Blob writeFile failed; retrying with base64 encoding',
-          {
-            error: blobWriteErr instanceof Error ? blobWriteErr.message : String(blobWriteErr),
-            name: file.name,
-            sizeBytes: file.size,
-          }
-        );
-        // Convert Blob → base64 string for older Capacitor / iOS configurations.
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const result = reader.result as string;
-            // FileReader.readAsDataURL returns "data:<mime>;base64,<data>" — strip the prefix.
-            resolve(result.substring(result.indexOf(',') + 1));
-          };
-          reader.onerror = () => reject(new Error('FileReader error during base64 conversion'));
-          reader.readAsDataURL(file);
-        });
-        await Filesystem.writeFile({
-          path: tempFileName,
-          data: base64,
-          directory: Directory.Cache,
-        });
-      }
+      await Filesystem.writeFile({
+        path: tempFileName,
+        data: await this._fileToRawBase64(file),
+        directory: Directory.Cache,
+      });
 
       const { uri: fileUri } = await Filesystem.getUri({
         path: tempFileName,
@@ -1061,6 +1082,23 @@ export class AgentXVideoUploadService {
         });
       });
     }
+  }
+
+  private _fileToRawBase64(file: File): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result;
+        if (typeof result !== 'string') {
+          reject(new Error('Failed to convert file to base64'));
+          return;
+        }
+        const separatorIndex = result.indexOf(',');
+        resolve(separatorIndex >= 0 ? result.substring(separatorIndex + 1) : result);
+      };
+      reader.onerror = () => reject(new Error('FileReader error during base64 conversion'));
+      reader.readAsDataURL(file);
+    });
   }
 
   /**
