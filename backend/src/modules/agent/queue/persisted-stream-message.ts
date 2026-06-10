@@ -93,9 +93,10 @@ function toRichCard(value: unknown, fallbackAgentId?: string): AgentXRichCard | 
 }
 
 export class PersistedAssistantStreamBuilder {
-  private content = '';
   private readonly steps: AgentXToolStep[] = [];
   private readonly parts: AgentXMessagePart[] = [];
+  private readonly partAgentIds: Array<string | undefined> = [];
+  private readonly failedCoordinatorAgentIds = new Set<string>();
   private readonly pendingStepIds = new Map<string, string[]>();
   private stepSeq = 0;
 
@@ -105,10 +106,12 @@ export class PersistedAssistantStreamBuilder {
         if (!event.thinkingText) return;
         const text = sanitizeAgentOutputText(event.thinkingText);
         const last = this.parts[this.parts.length - 1];
-        if (last?.type === 'thinking') {
+        const lastAgentId = this.partAgentIds[this.partAgentIds.length - 1];
+        if (last?.type === 'thinking' && lastAgentId === event.agentId) {
           this.parts[this.parts.length - 1] = { type: 'thinking', content: last.content + text };
         } else {
           this.parts.push({ type: 'thinking', content: text });
+          this.partAgentIds.push(event.agentId);
         }
         return;
       }
@@ -116,12 +119,13 @@ export class PersistedAssistantStreamBuilder {
       case 'delta': {
         if (!event.text) return;
         const text = sanitizeAgentOutputText(event.text);
-        this.content += text;
         const last = this.parts[this.parts.length - 1];
-        if (last?.type === 'text') {
+        const lastAgentId = this.partAgentIds[this.partAgentIds.length - 1];
+        if (last?.type === 'text' && lastAgentId === event.agentId) {
           this.parts[this.parts.length - 1] = { type: 'text', content: last.content + text };
         } else {
           this.parts.push({ type: 'text', content: text });
+          this.partAgentIds.push(event.agentId);
         }
         return;
       }
@@ -139,6 +143,7 @@ export class PersistedAssistantStreamBuilder {
       }
 
       case 'tool_result': {
+        this.recordFailedCoordinatorFromToolResult(event);
         const label = this.resolveStepLabel(event);
         if (!label) return;
         const stepId = this.resolveCompletedStepId(event, 'tool');
@@ -177,6 +182,7 @@ export class PersistedAssistantStreamBuilder {
         const card = toRichCard(rawCard, event.agentId);
         if (card) {
           this.parts.push({ type: 'card', card });
+          this.partAgentIds.push(event.agentId);
         }
         return;
       }
@@ -187,10 +193,20 @@ export class PersistedAssistantStreamBuilder {
   }
 
   snapshot(): PersistedAssistantStreamSnapshot {
+    const parts = this.parts.filter((part, index) => {
+      if (part.type !== 'text' && part.type !== 'thinking') return true;
+      const agentId = this.partAgentIds[index];
+      return !agentId || !this.failedCoordinatorAgentIds.has(agentId);
+    });
+    const content = parts
+      .filter((part): part is Extract<AgentXMessagePart, { type: 'text' }> => part.type === 'text')
+      .map((part) => part.content)
+      .join('');
+
     return {
-      content: this.content,
+      content,
       steps: [...this.steps],
-      parts: [...this.parts],
+      parts,
     };
   }
 
@@ -325,5 +341,30 @@ export class PersistedAssistantStreamBuilder {
     }
 
     this.parts.push({ type: 'tool-steps', steps: [step] });
+    this.partAgentIds.push(step.agentId);
+  }
+
+  private recordFailedCoordinatorFromToolResult(event: StreamEvent): void {
+    if (event.type !== 'tool_result') return;
+    if (event.toolName !== 'delegate_to_coordinator') return;
+    if (event.toolSuccess !== false) return;
+    const result = event.toolResult;
+    if (!result || typeof result !== 'object') return;
+
+    const data =
+      result['data'] && typeof result['data'] === 'object'
+        ? (result['data'] as Record<string, unknown>)
+        : result;
+    const coordinatorId = data['coordinator_id'];
+    const followUpRequired = data['follow_up_required'];
+    const userAlreadyReceivedResponse = data['user_already_received_response'];
+
+    if (
+      typeof coordinatorId === 'string' &&
+      followUpRequired === true &&
+      userAlreadyReceivedResponse !== true
+    ) {
+      this.failedCoordinatorAgentIds.add(coordinatorId);
+    }
   }
 }

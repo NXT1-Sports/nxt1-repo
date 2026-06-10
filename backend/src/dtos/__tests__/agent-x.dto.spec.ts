@@ -126,4 +126,48 @@ describe('Agent X selected context DTO validation', () => {
     expect(errors).toHaveLength(0);
     expect(dto.selectedContexts?.[0]?.summary?.length ?? 0).toBeLessThanOrEqual(600);
   });
+
+  it('accepts Firebase video thumbnails as data-image payloads on chat attachments', async () => {
+    const dto = plainToClass(AgentChatRequestDto, {
+      message: 'Use this film clip.',
+      attachments: [
+        {
+          id: '8a645788-9f51-4434-b5e9-c43a9d2c4c4d',
+          url: 'https://storage.googleapis.com/bucket/highlight.mp4',
+          storagePath: 'Users/user-1/threads/thread-1/media/video/highlight.mp4',
+          name: 'highlight.mp4',
+          mimeType: 'video/mp4',
+          type: 'video',
+          sizeBytes: 4096,
+          thumbnailUrl: 'data:image/jpeg;base64,AAAA',
+        },
+      ],
+    });
+
+    const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+
+    expect(errors).toHaveLength(0);
+  });
+
+  it('rejects non-image data urls on chat attachment thumbnails', async () => {
+    const dto = plainToClass(AgentChatRequestDto, {
+      message: 'Use this film clip.',
+      attachments: [
+        {
+          id: '8a645788-9f51-4434-b5e9-c43a9d2c4c4d',
+          url: 'https://storage.googleapis.com/bucket/highlight.mp4',
+          storagePath: 'Users/user-1/threads/thread-1/media/video/highlight.mp4',
+          name: 'highlight.mp4',
+          mimeType: 'video/mp4',
+          type: 'video',
+          sizeBytes: 4096,
+          thumbnailUrl: 'data:text/plain;base64,AAAA',
+        },
+      ],
+    });
+
+    const errors = await validate(dto, { whitelist: true, forbidNonWhitelisted: true });
+
+    expect(errors.length).toBeGreaterThan(0);
+  });
 });
