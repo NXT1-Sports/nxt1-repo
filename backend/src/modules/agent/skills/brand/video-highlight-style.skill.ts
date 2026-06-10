@@ -47,6 +47,9 @@ export class VideoHighlightStyleSkill extends BaseSkill {
 ### Tool Orchestration (Required)
 Use concrete tool pipelines for production-grade outputs:
 
+- Default to an animated branded opener for highlight reels when the user wants the strongest branded/cinematic/coaching-facing deliverable and has not explicitly asked for a raw cut, simple merge, or no intro.
+- If the user explicitly asks for no intro, a plain merge, or source clips only, skip the opener and do not force Runway.
+
 1. **Create/animate intro cards**
 - Use generate_graphic for title cards, commitment cards, and stat cards.
 - Use runway_generate_video to animate static cards into motion openers with visible camera movement, parallax, kinetic typography, athlete/profile reveal, light sweeps, depth, and a clean final frame. The opener should feel like a premium sports broadcast package, not a still image exported as video.

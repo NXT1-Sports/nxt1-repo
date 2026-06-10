@@ -476,6 +476,327 @@ describe('Agent X Routes', () => {
     });
   });
 
+  it('should normalize legacy batch email approval payloads before resuming direct approvals', async () => {
+    const jobRepository = createMockJobRepository({
+      operationId: 'op-original',
+      userId: 'test-user',
+      intent: 'Send a recruiting email campaign',
+      threadId: 'thread-123',
+      yieldState: {
+        reason: 'needs_approval',
+        promptToUser: 'Review this batch email before sending.',
+        agentId: 'strategy_coordinator',
+        messages: [{ role: 'user', content: 'Draft a recruiting email campaign' }],
+        pendingToolCall: {
+          toolName: 'batch_send_email',
+          toolInput: {
+            recipients: [{ toEmail: 'old@example.com', variables: {} }],
+            subjectTemplate: 'Old subject',
+            bodyHtmlTemplate: '<p>Old body</p>',
+          },
+          toolCallId: 'tool-1',
+        },
+        approvalId: 'approval-batch-legacy',
+        yieldedAt: '2026-04-12T00:00:00.000Z',
+        expiresAt: '2099-04-13T00:00:00.000Z',
+      },
+      status: 'awaiting_approval',
+    });
+    const chatService = {
+      addMessage: vi.fn().mockResolvedValue(true),
+      clearThreadPausedYieldState: vi.fn().mockResolvedValue(true),
+    };
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    __seedMockFirestoreDocument('AgentApprovalRequests/approval-batch-legacy', {
+      userId: 'test-user',
+      status: 'pending',
+      operationId: 'op-original',
+      toolName: 'batch_send_email',
+      toolInput: {
+        recipients: 'coach@example.com, staff@example.com',
+        subject: 'Updated subject',
+        bodyHtml: '<p>Updated body</p>',
+      },
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/approvals/approval-batch-legacy/resolve')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        decision: 'approved',
+        toolInput: {
+          recipients: 'coach@example.com, staff@example.com',
+          subject: 'Updated subject',
+          bodyHtml: '<p>Updated body</p>',
+        },
+      });
+
+    expect(response.status).toBe(202);
+    expect(response.body.success).toBe(true);
+
+    const resumedPayload = vi.mocked(jobRepository.create).mock.calls[0][0] as {
+      context?: {
+        yieldState?: {
+          pendingToolCall?: {
+            toolInput?: Record<string, unknown>;
+          };
+        };
+      };
+    };
+
+    expect(resumedPayload.context?.yieldState?.pendingToolCall?.toolInput).toMatchObject({
+      recipients: [
+        { toEmail: 'coach@example.com', variables: {} },
+        { toEmail: 'staff@example.com', variables: {} },
+      ],
+      subjectTemplate: 'Updated subject',
+      bodyHtmlTemplate: '<p>Updated body</p>',
+    });
+
+    expect(__getMockFirestoreDocument('AgentApprovalRequests/approval-batch-legacy')).toMatchObject(
+      {
+        status: 'approved',
+        resolvedBy: 'test-user',
+        toolInput: {
+          recipients: [
+            { toEmail: 'coach@example.com', variables: {} },
+            { toEmail: 'staff@example.com', variables: {} },
+          ],
+          subjectTemplate: 'Updated subject',
+          bodyHtmlTemplate: '<p>Updated body</p>',
+        },
+      }
+    );
+  });
+
+  it('should normalize legacy batch email approval payloads on thread action approvals', async () => {
+    const jobRepository = createMockJobRepository({
+      operationId: 'op-original',
+      userId: 'test-user',
+      intent: 'Send a recruiting email campaign',
+      threadId: 'thread-123',
+      yieldState: {
+        reason: 'needs_approval',
+        promptToUser: 'Review this batch email before sending.',
+        agentId: 'strategy_coordinator',
+        messages: [{ role: 'user', content: 'Draft a recruiting email campaign' }],
+        pendingToolCall: {
+          toolName: 'batch_send_email',
+          toolInput: {
+            recipients: [{ toEmail: 'old@example.com', variables: {} }],
+            subjectTemplate: 'Old subject',
+            bodyHtmlTemplate: '<p>Old body</p>',
+          },
+          toolCallId: 'tool-1',
+        },
+        approvalId: 'approval-thread-batch-legacy',
+        yieldedAt: '2026-04-12T00:00:00.000Z',
+        expiresAt: '2099-04-13T00:00:00.000Z',
+      },
+      status: 'awaiting_approval',
+    });
+    const chatService = {
+      addMessage: vi.fn().mockResolvedValue(true),
+      clearThreadPausedYieldState: vi.fn().mockResolvedValue(true),
+    };
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    __seedMockFirestoreDocument('AgentApprovalRequests/approval-thread-batch-legacy', {
+      userId: 'test-user',
+      status: 'pending',
+      operationId: 'op-original',
+      toolName: 'batch_send_email',
+      toolInput: {
+        recipients: 'coach@example.com, staff@example.com',
+        subject: 'Updated subject',
+        bodyHtml: '<p>Updated body</p>',
+      },
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/threads/thread-123/actions')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        actionType: 'approval_decision',
+        decision: 'approved',
+        operationIdHint: 'op-original',
+        toolInput: {
+          recipients: 'coach@example.com, staff@example.com',
+          subject: 'Updated subject',
+          bodyHtml: '<p>Updated body</p>',
+        },
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+
+    const resumedPayload = vi.mocked(jobRepository.create).mock.calls[0][0] as {
+      context?: {
+        approvalId?: string;
+        yieldState?: {
+          pendingToolCall?: {
+            toolInput?: Record<string, unknown>;
+          };
+        };
+      };
+    };
+
+    expect(resumedPayload.context?.approvalId).toBe('approval-thread-batch-legacy');
+    expect(resumedPayload.context?.yieldState?.pendingToolCall?.toolInput).toMatchObject({
+      recipients: [
+        { toEmail: 'coach@example.com', variables: {} },
+        { toEmail: 'staff@example.com', variables: {} },
+      ],
+      subjectTemplate: 'Updated subject',
+      bodyHtmlTemplate: '<p>Updated body</p>',
+    });
+
+    expect(
+      __getMockFirestoreDocument('AgentApprovalRequests/approval-thread-batch-legacy')
+    ).toMatchObject({
+      status: 'approved',
+      resolvedBy: 'test-user',
+      toolInput: {
+        recipients: [
+          { toEmail: 'coach@example.com', variables: {} },
+          { toEmail: 'staff@example.com', variables: {} },
+        ],
+        subjectTemplate: 'Updated subject',
+        bodyHtmlTemplate: '<p>Updated body</p>',
+      },
+    });
+  });
+
+  it('should close rejected approvals with an assistant acknowledgment', async () => {
+    const jobRepository = createMockJobRepository({
+      operationId: 'op-original',
+      userId: 'test-user',
+      intent: 'Send a recruiting email',
+      threadId: 'thread-123',
+      yieldState: {
+        reason: 'needs_approval',
+        promptToUser: 'Review this email before sending.',
+        agentId: 'strategy_coordinator',
+        messages: [{ role: 'user', content: 'Draft an email' }],
+        pendingToolCall: {
+          toolName: 'batch_send_email',
+          toolInput: {
+            recipients: [{ toEmail: 'coach@example.com' }, { toEmail: 'staff@example.com' }],
+            subject: 'Updated subject',
+          },
+          toolCallId: 'tool-1',
+        },
+        approvalId: 'approval-123',
+        yieldedAt: '2026-04-12T00:00:00.000Z',
+        expiresAt: '2099-04-13T00:00:00.000Z',
+      },
+      status: 'awaiting_approval',
+    });
+    const chatService = {
+      addMessage: vi.fn().mockResolvedValue(true),
+      clearThreadPausedYieldState: vi.fn().mockResolvedValue(true),
+    };
+
+    setAgentDependencies({
+      queueService: {
+        enqueue: vi.fn().mockResolvedValue('job-123'),
+      } as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    __seedMockFirestoreDocument('AgentApprovalRequests/approval-123', {
+      userId: 'test-user',
+      status: 'pending',
+      operationId: 'op-original',
+      toolInput: {
+        recipients: [{ toEmail: 'coach@example.com' }, { toEmail: 'staff@example.com' }],
+        subject: 'Updated subject',
+      },
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/approvals/approval-123/resolve')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        decision: 'rejected',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data).toMatchObject({ decision: 'rejected', resumed: false });
+    expect(jobRepository.markCancelled).toHaveBeenCalledWith('op-original');
+    expect(chatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-123',
+        userId: 'test-user',
+        role: 'assistant',
+        content: "Understood. I won't send those emails.",
+        operationId: 'op-original',
+        idempotencyKey: 'op-original:assistant_rejected_approval',
+        semanticPhase: 'assistant_final',
+      })
+    );
+    expect(chatService.clearThreadPausedYieldState).toHaveBeenCalledWith('thread-123');
+    expect(__getMockFirestoreDocument('AgentApprovalRequests/approval-123')).toMatchObject({
+      status: 'rejected',
+      resolvedBy: 'test-user',
+    });
+  });
+
   it('should enqueue chat and stream replayed yield events from persisted history', async () => {
     const jobRepository = createMockJobRepository({
       userId: 'test-user',

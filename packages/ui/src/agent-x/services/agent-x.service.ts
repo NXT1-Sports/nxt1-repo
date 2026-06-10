@@ -78,6 +78,32 @@ import type { ConnectedAppSource } from '../components/modals/agent-x-attachment
 /** sessionStorage key for in-flight operation drop-recovery. */
 const AGENT_X_PENDING_OP_KEY = 'nxt1_pending_agent_op';
 const AGENT_X_PENDING_PLAYBOOK_OP_KEY = 'nxt1_pending_playbook_op';
+const VIDEO_ATTACHMENT_THUMBNAIL_MAX_EDGE_PX = 320;
+
+function resolveThumbnailDimensions(
+  sourceWidth: number,
+  sourceHeight: number
+): {
+  readonly width: number;
+  readonly height: number;
+} {
+  const safeWidth = Math.max(1, Math.round(sourceWidth) || 320);
+  const safeHeight = Math.max(1, Math.round(sourceHeight) || 180);
+  const maxEdge = Math.max(safeWidth, safeHeight);
+
+  if (maxEdge <= VIDEO_ATTACHMENT_THUMBNAIL_MAX_EDGE_PX) {
+    return {
+      width: safeWidth,
+      height: safeHeight,
+    };
+  }
+
+  const scale = VIDEO_ATTACHMENT_THUMBNAIL_MAX_EDGE_PX / maxEdge;
+  return {
+    width: Math.max(1, Math.round(safeWidth * scale)),
+    height: Math.max(1, Math.round(safeHeight * scale)),
+  };
+}
 const AGENT_X_PENDING_GOALS_KEY = 'nxt1_pending_agent_goals';
 const AGENT_X_PENDING_STARTUP_MESSAGE_KEY = 'nxt1_pending_startup_message';
 const AGENT_X_WEEKLY_TASKS_GOAL_ID = 'recurring';
@@ -1276,20 +1302,22 @@ export class AgentXService {
 
       const captureFrame = () => {
         try {
-          const w = video.videoWidth || 320;
-          const h = video.videoHeight || 180;
+          const { width, height } = resolveThumbnailDimensions(
+            video.videoWidth || 320,
+            video.videoHeight || 180
+          );
           const canvas = document.createElement('canvas');
-          canvas.width = w;
-          canvas.height = h;
+          canvas.width = width;
+          canvas.height = height;
           const ctx = canvas.getContext('2d');
           if (!ctx) {
             cleanup();
             reject(new Error('Canvas 2D context unavailable'));
             return;
           }
-          ctx.drawImage(video, 0, 0, w, h);
+          ctx.drawImage(video, 0, 0, width, height);
           cleanup();
-          resolve(canvas.toDataURL('image/jpeg', 0.75));
+          resolve(canvas.toDataURL('image/jpeg', 0.68));
         } catch (err) {
           cleanup();
           reject(err);

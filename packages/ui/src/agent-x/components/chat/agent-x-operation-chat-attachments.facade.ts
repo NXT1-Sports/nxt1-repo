@@ -3,12 +3,12 @@ import {
   Injectable,
   PLATFORM_ID,
   computed,
-  effect,
   inject,
   runInInjectionContext,
   signal,
   type WritableSignal,
 } from '@angular/core';
+import { Capacitor } from '@capacitor/core';
 import { isPlatformBrowser } from '@angular/common';
 import {
   AGENT_X_ALLOWED_MIME_TYPES,
@@ -164,10 +164,11 @@ interface BackgroundUploadRecord {
   removed: boolean;
 }
 
-const BACKGROUND_UPLOAD_CONCURRENCY = 3;
+const BACKGROUND_UPLOAD_CONCURRENCY = 4;
 const MESSAGE_ATTACHMENT_SYNC_RETRY_MS =
   AGENT_X_RUNTIME_CONFIG.attachmentTransport.messageSyncRetryMs;
 const VIDEO_UPLOAD_PROGRESS_SETTLE_MS = 420;
+const VIDEO_ATTACHMENT_THUMBNAIL_MAX_EDGE_PX = 320;
 const TEAM_FILM_REVIEW_MANAGER_ROLES = new Set([
   'coach',
   'director',
@@ -188,6 +189,31 @@ export function canAutoCreateTeamFilmReview(role: string | null | undefined): bo
     .toLowerCase()
     .replace(/[\s_]+/g, '-');
   return TEAM_FILM_REVIEW_MANAGER_ROLES.has(normalizedRole);
+}
+
+function resolveThumbnailDimensions(
+  sourceWidth: number,
+  sourceHeight: number
+): {
+  readonly width: number;
+  readonly height: number;
+} {
+  const safeWidth = Math.max(1, Math.round(sourceWidth) || 320);
+  const safeHeight = Math.max(1, Math.round(sourceHeight) || 180);
+  const maxEdge = Math.max(safeWidth, safeHeight);
+
+  if (maxEdge <= VIDEO_ATTACHMENT_THUMBNAIL_MAX_EDGE_PX) {
+    return {
+      width: safeWidth,
+      height: safeHeight,
+    };
+  }
+
+  const scale = VIDEO_ATTACHMENT_THUMBNAIL_MAX_EDGE_PX / maxEdge;
+  return {
+    width: Math.max(1, Math.round(safeWidth * scale)),
+    height: Math.max(1, Math.round(safeHeight * scale)),
+  };
 }
 
 @Injectable()
@@ -816,7 +842,7 @@ export class AgentXOperationChatAttachmentsFacade {
         initialIndex: viewer.initialIndex,
         showShare: false,
         source: 'agent-x-pending',
-        presentation: 'overlay',
+        presentation: this.resolveMediaViewerPresentation(),
       })
       .finally(() => viewer.cleanup());
   }
@@ -845,10 +871,14 @@ export class AgentXOperationChatAttachmentsFacade {
       items: mediaItems,
       initialIndex: Math.max(0, Math.min(index, mediaItems.length - 1)),
       source: 'agent-x-chat',
-      // Force overlay so the Agent X bottom sheet stays open beneath the viewer.
-      // Default bottom-sheet path calls dismiss() first which would close Agent X.
-      presentation: 'overlay',
+      presentation: this.resolveMediaViewerPresentation(),
     });
+  }
+
+  private resolveMediaViewerPresentation(): 'overlay' | 'bottom-sheet' {
+    // Native iOS video playback is more reliable through the Ionic bottom-sheet
+    // presentation than the web overlay path.
+    return Capacitor.isNativePlatform() ? 'bottom-sheet' : 'overlay';
   }
 
   private resolveActiveTeamId(): string | null {
@@ -1041,17 +1071,21 @@ export class AgentXOperationChatAttachmentsFacade {
         'seeked',
         () => {
           try {
+            const { width, height } = resolveThumbnailDimensions(
+              video.videoWidth || 320,
+              video.videoHeight || 240
+            );
             const canvas = document.createElement('canvas');
-            canvas.width = video.videoWidth || 320;
-            canvas.height = video.videoHeight || 240;
+            canvas.width = width;
+            canvas.height = height;
             const ctx = canvas.getContext('2d');
             if (!ctx) {
               cleanup();
               reject(new Error('Canvas 2D context unavailable'));
               return;
             }
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+            ctx.drawImage(video, 0, 0, width, height);
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.68);
             cleanup();
             resolve(dataUrl);
           } catch (err) {
@@ -1263,9 +1297,7 @@ export class AgentXOperationChatAttachmentsFacade {
     const maxUploadAttempts = AGENT_X_RUNTIME_CONFIG.attachmentTransport.uploadMaxAttempts;
     const formData = new FormData();
     formData.append('file', pending.file);
-    const threadId = await this.waitForThreadId(
-      AGENT_X_RUNTIME_CONFIG.attachmentTransport.threadIdResolveWaitMs
-    );
+    const threadId = host.resolveActiveThreadId();
     if (threadId) {
       formData.append('threadId', threadId);
     }
@@ -1331,9 +1363,7 @@ export class AgentXOperationChatAttachmentsFacade {
     authToken: string
   ): Promise<AgentXAttachment | null> {
     const host = this.requireHost();
-    const threadId = await this.waitForThreadId(
-      AGENT_X_RUNTIME_CONFIG.attachmentTransport.threadIdResolveWaitMs
-    );
+    const threadId = host.resolveActiveThreadId();
 
     try {
       this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'uploading', 0);
@@ -1461,43 +1491,6 @@ export class AgentXOperationChatAttachmentsFacade {
       });
       this.toast.error('Video uploaded, but could not add it to Film Review Library.');
     }
-  }
-
-  /**
-   * Waits for the SSE `onThread` event to resolve the threadId for the current
-   * chat session, up to `timeoutMs`. Returns immediately if the threadId is
-   * already known (existing thread or already-fired onThread). Falls back to
-   * null on timeout — uploads then land in the unbound path as before.
-   */
-  private waitForThreadId(timeoutMs: number): Promise<string | null> {
-    const host = this.requireHost();
-    const immediate = host.resolveActiveThreadId();
-    if (immediate) return Promise.resolve(immediate);
-
-    return new Promise<string | null>((resolve) => {
-      let settled = false;
-      let effectRef: ReturnType<typeof effect> | null = null;
-
-      const settle = (id: string | null): void => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(deadlineId);
-        effectRef?.destroy();
-        resolve(id);
-      };
-
-      const deadlineId = setTimeout(() => settle(null), timeoutMs);
-
-      effectRef = runInInjectionContext(this.injector, () =>
-        effect(() => {
-          // Reading resolvedThreadId() here registers it as a signal dependency.
-          // The effect re-runs the moment onThread sets the signal, resolving
-          // the promise with the correct threadId before any upload fires.
-          const id = host.resolveActiveThreadId();
-          if (id) settle(id);
-        })
-      );
-    });
   }
 
   private async syncAttachmentToPersistedMessage(

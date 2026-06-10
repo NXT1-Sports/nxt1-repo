@@ -461,6 +461,16 @@ describe('agent-app-config', () => {
     expect(action?.executionPrompt).toContain('preserve the full clip or full play window');
     expect(action?.executionPrompt).toContain('Use tight 3-7 second best-moment cuts only');
     expect(action?.executionPrompt).toContain('do not stop for confirmation');
+    expect(action?.executionPrompt).toContain(
+      'strongest branded, cinematic, coach-ready, or recruiting-ready highlight reel'
+    );
+    expect(action?.executionPrompt).toContain('animate that still with runway_generate_video');
+    expect(action?.executionPrompt).toContain(
+      'does not ask for a raw/simple cut, a clean merge only, or no intro'
+    );
+    expect(action?.executionPrompt).toContain(
+      'did not explicitly ask for no intro or a plain merge, do not silently drop it'
+    );
   });
 
   it('builds a detailed fallback execution prompt when an action label is sent but the action id misses', () => {

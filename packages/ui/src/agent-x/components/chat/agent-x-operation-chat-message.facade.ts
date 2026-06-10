@@ -1005,9 +1005,11 @@ export class AgentXOperationChatMessageFacade {
     clearText: boolean
   ): void {
     const yieldPayload = this.extractYieldStateFromCard(card);
+    const incomingKey = yieldPayload
+      ? this.yieldIdentityKey(yieldPayload)
+      : this.cardPayloadYieldIdentityKey(card);
 
     if (yieldPayload) {
-      const incomingKey = this.yieldIdentityKey(yieldPayload);
       const operationId = this.resolveCardOperationId(fallbackOperationId, yieldPayload);
 
       // Route the yield through the canonical upsert: this either creates
@@ -1063,6 +1065,67 @@ export class AgentXOperationChatMessageFacade {
           return message;
         })
       );
+
+      return;
+    }
+
+    if (incomingKey) {
+      this.messages.update((messages) => {
+        const targetIndex = this.findYieldMessageIndexByIdentity(messages, incomingKey);
+        if (targetIndex < 0) {
+          return messages.map((message) => {
+            if (message.id !== streamingId) return message;
+            const baseParts = clearText ? [] : (message.parts ?? []);
+            return {
+              ...message,
+              ...(clearText ? { content: '' } : {}),
+              cards: [...(message.cards ?? []), card],
+              parts: [...baseParts, { type: 'card', card }],
+            };
+          });
+        }
+
+        return messages.map((message, index) => {
+          if (index === targetIndex) {
+            const existingCards = message.cards ?? [];
+            const existingParts = message.parts ?? [];
+            const cardAlreadyPresent = existingCards.some(
+              (existing) => this.cardPayloadYieldIdentityKey(existing) === incomingKey
+            );
+            if (cardAlreadyPresent) return message;
+
+            return {
+              ...message,
+              cards: [...existingCards, card],
+              parts: [...existingParts, { type: 'card', card }],
+            };
+          }
+
+          if (message.id === streamingId) {
+            const filterCard = (existing: AgentXRichCard): boolean =>
+              this.cardPayloadYieldIdentityKey(existing) !== incomingKey;
+            const nextCards = message.cards?.filter(filterCard);
+            const nextParts = message.parts?.filter(
+              (part) => part.type !== 'card' || filterCard(part.card)
+            );
+
+            const cardsChanged = (message.cards?.length ?? 0) !== (nextCards?.length ?? 0);
+            const partsChanged = (message.parts?.length ?? 0) !== (nextParts?.length ?? 0);
+            if (!cardsChanged && !partsChanged) {
+              return clearText ? { ...message, content: '' } : message;
+            }
+
+            return {
+              ...message,
+              ...(clearText ? { content: '' } : {}),
+              ...(message.cards ? { cards: nextCards } : {}),
+              ...(message.parts ? { parts: nextParts } : {}),
+            };
+          }
+
+          return message;
+        });
+      });
 
       return;
     }
@@ -1202,6 +1265,19 @@ export class AgentXOperationChatMessageFacade {
       return true;
     }
     return false;
+  }
+
+  private findYieldMessageIndexByIdentity(
+    messages: readonly OperationMessage[],
+    incomingKey: string
+  ): number {
+    if (!incomingKey) return -1;
+
+    return messages.findIndex((message) => {
+      const yieldKey = this.yieldIdentityKey(message.yieldState);
+      if (yieldKey && yieldKey === incomingKey) return true;
+      return this.assistantRowHasYieldIdentity(message, incomingKey);
+    });
   }
 
   updateInlineYieldMessageState(

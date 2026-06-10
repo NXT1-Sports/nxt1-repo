@@ -206,6 +206,18 @@ export class AgentXOperationChatYieldFacade {
           source: 'operation-chat',
         });
 
+        if (event.decision === 'reject') {
+          this.messageFacade.settleActiveToolSteps('error');
+          this.messageFacade.pushMessage({
+            id: `approval-rejected:${operationId}`,
+            role: 'assistant',
+            content: resolveApprovalRejectedText(approvedToolName ?? ''),
+            timestamp: new Date(),
+            operationId,
+          });
+          this.requireHost().activeYieldState.set(null);
+        }
+
         if (event.decision === 'approve' && result.resumed && result.operationId) {
           await this.attachToResumedOperation({
             operationId: result.operationId,
@@ -596,4 +608,18 @@ export class AgentXOperationChatYieldFacade {
       this.host.yieldResolved.set(true);
     }, 300);
   }
+}
+
+function resolveApprovalRejectedText(toolName: string): string {
+  const normalizedToolName = toolName.trim().toLowerCase();
+
+  if (normalizedToolName === 'batch_send_email') {
+    return "Understood. I won't send those emails.";
+  }
+
+  if (/email|gmail|outlook|mail/.test(normalizedToolName)) {
+    return "Understood. I won't send that email.";
+  }
+
+  return "Understood. I won't proceed with that action.";
 }
