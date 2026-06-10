@@ -20,7 +20,7 @@
     "build:watch": "tsc --watch",
     "test": "vitest run",
     "test:agent-tools": "vitest run src/modules/agent/agents/__tests__/tool-policy-governance.spec.ts src/modules/agent/agents/__tests__/tool-policy-governance-inverse.spec.ts src/modules/agent/agents/__tests__/tool-exposure.agent.spec.ts src/modules/agent/agents/__tests__/agent-workflows.integration.spec.ts src/modules/agent/__tests__/agent.router.spec.ts",
-    "test:agent-tools:report": "vitest run --reporter=default --reporter=json --outputFile=../reports/agent-tools-vitest.json src/modules/agent/agents/__tests__/tool-policy-governance.spec.ts src/modules/agent/agents/__tests__/tool-policy-governance-inverse.spec.ts src/modules/agent/agents/__tests__/tool-exposure.agent.spec.ts src/modules/agent/agents/__tests__/agent-workflows.integration.spec.ts src/modules/agent/__tests__/agent.router.spec.ts",
+    "test:agent-tools:report": "npm run test:agent-tools -- --reporter=default --reporter=json --outputFile=../reports/agent-tools-vitest.json",
     "test:watch": "vitest",
     "lint": "eslint src --ext .ts,.js",
     "lint:fix": "eslint src --ext .ts,.js --fix",
