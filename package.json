@@ -41,6 +41,8 @@
     "dev:backend": "turbo run dev --filter=@nxt1/backend",
     "dev:all": "turbo run dev --filter=@nxt1/web --filter=@nxt1/mobile --filter=@nxt1/backend",
     "test": "turbo run test",
+    "test:agent-tools": "npm run test:agent-tools --workspace=@nxt1/backend",
+    "test:agent-tools:report": "npm run test:agent-tools:report --workspace=@nxt1/backend",
     "test:web": "turbo run test --filter=@nxt1/web",
     "test:core": "turbo run test --filter=@nxt1/core",
     "test:watch": "npm run test:watch --workspace=@nxt1/core",

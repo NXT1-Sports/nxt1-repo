@@ -52,6 +52,12 @@ Run these tests before merge:
 5. `backend/src/modules/agent/__tests__/agent.router.spec.ts` (capability
    snapshot alignment)
 
+Convenience commands:
+
+- `npm run test:agent-tools`
+- `npm run test:agent-tools:report` (writes JSON report to
+  `reports/agent-tools-vitest.json`)
+
 ## Change Policy
 
 When adding a new tool, update registration, ownership, and tests in the same
