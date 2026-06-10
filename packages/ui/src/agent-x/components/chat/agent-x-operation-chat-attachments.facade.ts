@@ -216,6 +216,25 @@ function resolveThumbnailDimensions(
   };
 }
 
+const DATA_IMAGE_URL_RE = /^data:image\/(?:jpeg|jpg|png|webp);base64,[a-z0-9+/=]+$/i;
+
+export function resolvePersistedVideoThumbnailUrl(
+  uploadedThumbnailUrl?: string | null,
+  pendingPreviewUrl?: string | null
+): string | undefined {
+  const normalizedUploadedThumbnailUrl = uploadedThumbnailUrl?.trim();
+  if (normalizedUploadedThumbnailUrl) {
+    return normalizedUploadedThumbnailUrl;
+  }
+
+  const normalizedPendingPreviewUrl = pendingPreviewUrl?.trim();
+  if (normalizedPendingPreviewUrl && DATA_IMAGE_URL_RE.test(normalizedPendingPreviewUrl)) {
+    return normalizedPendingPreviewUrl;
+  }
+
+  return undefined;
+}
+
 @Injectable()
 export class AgentXOperationChatAttachmentsFacade {
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
@@ -683,6 +702,11 @@ export class AgentXOperationChatAttachmentsFacade {
             });
         });
 
+        const persistedThumbnailUrl = resolvePersistedVideoThumbnailUrl(
+          videoResult.thumbnailUrl,
+          pending.previewUrl
+        );
+
         uploaded.push({
           id: pending.id,
           url: videoResult.url,
@@ -696,7 +720,7 @@ export class AgentXOperationChatAttachmentsFacade {
           ...(videoResult.readyToStream !== undefined
             ? { readyToStream: videoResult.readyToStream }
             : {}),
-          ...(videoResult.thumbnailUrl ? { thumbnailUrl: videoResult.thumbnailUrl } : {}),
+          ...(persistedThumbnailUrl ? { thumbnailUrl: persistedThumbnailUrl } : {}),
           name: pending.file.name,
           mimeType: pending.file.type,
           type: 'video',
@@ -1407,6 +1431,11 @@ export class AgentXOperationChatAttachmentsFacade {
           });
       });
 
+      const persistedThumbnailUrl = resolvePersistedVideoThumbnailUrl(
+        result.thumbnailUrl,
+        pending.previewUrl
+      );
+
       const attachment: AgentXAttachment = {
         id: pending.id,
         url: result.streamUrl,
@@ -1414,7 +1443,7 @@ export class AgentXOperationChatAttachmentsFacade {
         ...(result.cloudflareVideoId ? { cloudflareVideoId: result.cloudflareVideoId } : {}),
         ...(result.cloudflareStatus ? { cloudflareStatus: result.cloudflareStatus } : {}),
         ...(result.readyToStream !== undefined ? { readyToStream: result.readyToStream } : {}),
-        ...(result.thumbnailUrl ? { thumbnailUrl: result.thumbnailUrl } : {}),
+        ...(persistedThumbnailUrl ? { thumbnailUrl: persistedThumbnailUrl } : {}),
         name: pending.file.name,
         mimeType: pending.file.type,
         type: 'video',

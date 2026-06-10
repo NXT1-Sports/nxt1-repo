@@ -3,6 +3,7 @@ import {
   buildVideoUploadBatchProgressState,
   buildVideoUploadProgressDetail,
   canAutoCreateTeamFilmReview,
+  resolvePersistedVideoThumbnailUrl,
 } from './agent-x-operation-chat-attachments.facade';
 
 describe('canAutoCreateTeamFilmReview', () => {
@@ -80,5 +81,28 @@ describe('buildVideoUploadProgressDetail', () => {
         overallPercent: 47,
       })
     ).toBe('1 of 3 videos uploaded • 2 still uploading');
+  });
+});
+
+describe('resolvePersistedVideoThumbnailUrl', () => {
+  it('prefers an uploaded remote thumbnail when present', () => {
+    expect(
+      resolvePersistedVideoThumbnailUrl(
+        'https://storage.googleapis.com/bucket/highlight-thumb.jpg',
+        'data:image/jpeg;base64,AAAA'
+      )
+    ).toBe('https://storage.googleapis.com/bucket/highlight-thumb.jpg');
+  });
+
+  it('falls back to a generated data-image thumbnail for Firebase uploads', () => {
+    expect(resolvePersistedVideoThumbnailUrl(undefined, 'data:image/jpeg;base64,AAAA')).toBe(
+      'data:image/jpeg;base64,AAAA'
+    );
+  });
+
+  it('ignores non-image preview urls', () => {
+    expect(resolvePersistedVideoThumbnailUrl(undefined, 'blob:https://example.com/file')).toBe(
+      undefined
+    );
   });
 });
