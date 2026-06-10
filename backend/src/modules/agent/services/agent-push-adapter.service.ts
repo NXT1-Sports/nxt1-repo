@@ -29,6 +29,17 @@ function sanitizeIdempotencyKey(key: string): string {
   return key.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 100);
 }
 
+function resolveDateKey(value?: string): string {
+  if (isNonEmpty(value)) {
+    const parsed = new Date(value.trim());
+    if (!Number.isNaN(parsed.getTime())) {
+      return parsed.toISOString().slice(0, 10);
+    }
+  }
+
+  return new Date().toISOString().slice(0, 10);
+}
+
 function validateIntent(intent: AgentPushIntent): void {
   requireNonEmpty(intent.userId, 'userId');
   requireNonEmpty(intent.operationId, 'operationId');
@@ -220,7 +231,8 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
         },
         idempotencyKey: sanitizeIdempotencyKey(`agent_playbook_ready_${intent.operationId}`),
       };
-    case AGENT_PUSH_INTENT_KINDS.BRIEFING_READY:
+    case AGENT_PUSH_INTENT_KINDS.BRIEFING_READY: {
+      const briefingDateKey = resolveDateKey(intent.briefingDate);
       return {
         userId: intent.userId,
         type: NOTIFICATION_TYPES.AGENT_ACTION,
@@ -229,7 +241,8 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
         deepLink: '/agent-x',
         data: {
           operationId: intent.operationId,
-          entityId: intent.operationId,
+          entityId: `briefing_${briefingDateKey}`,
+          briefingDate: briefingDateKey,
         },
         source: { userName: 'Agent X' },
         metadata: {
@@ -237,10 +250,14 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
           resultTitle: intent.title,
           resultSummary: intent.body,
           operationId: intent.operationId,
+          briefingDate: briefingDateKey,
           mode: 'briefing',
         },
-        idempotencyKey: sanitizeIdempotencyKey(`agent_briefing_ready_${intent.operationId}`),
+        idempotencyKey: sanitizeIdempotencyKey(
+          `agent_briefing_ready_${intent.userId}_${briefingDateKey}`
+        ),
       };
+    }
     case AGENT_PUSH_INTENT_KINDS.WEEKLY_RECAP_READY:
       return {
         userId: intent.userId,

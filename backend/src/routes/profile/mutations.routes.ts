@@ -1,3 +1,4 @@
+import { notifyTeamJoined } from '../../services/communications/team-join-notifications.js';
 /**
  * @fileoverview Profile — mutation routes.
  *
@@ -555,7 +556,43 @@ router.post(
         });
 
         provisionedTeamIds = provisionResult.teamIds;
+        provisionedTeamIds = provisionResult.teamIds;
         provisionedTeam = provisionResult.sportTeamMap.get(newSport.sport.trim().toLowerCase());
+
+        for (const transition of provisionResult.membershipTransitions) {
+          const teamDoc = await db.collection('Teams').doc(transition.teamId).get();
+          const resolvedTeamName =
+            (teamDoc.data()?.['teamName'] as string | undefined)?.trim() || transition.sport;
+
+          void notifyTeamJoined(db, {
+            teamId: transition.teamId,
+            teamName: resolvedTeamName,
+            organizationId: transition.organizationId,
+            joinerUid: userId,
+            joinerName:
+              [
+                (currentData['firstName'] as string | undefined) ?? '',
+                (currentData['lastName'] as string | undefined) ?? '',
+              ]
+                .map((value) => value.trim())
+                .filter(Boolean)
+                .join(' ') ||
+              ((currentData['displayName'] as string | undefined) ?? 'Someone'),
+            joinerAvatarUrl:
+              ((currentData['profileImgs'] as string[] | undefined) ?? [])[0] ?? null,
+            pending: transition.pending,
+          }).catch((err) =>
+            logger.error(
+              '[Profile] Failed to dispatch provisioned add-sport membership notification',
+              {
+                error: err instanceof Error ? err.message : String(err),
+                teamId: transition.teamId,
+                userId,
+                sport: transition.sport,
+              }
+            )
+          );
+        }
 
         if (provisionedTeam) {
           const primarySelection = teamSelection.teams[0];
@@ -1007,9 +1044,27 @@ router.delete(
       return;
     }
 
+    const removedSport = sports[sportIndex];
     const updatedSports = sports
       .filter((_, idx) => idx !== sportIndex)
       .map((s, idx) => ({ ...s, order: idx }));
+
+    const removedTeamId = removedSport?.team?.teamId?.trim();
+    const removedSportName = removedSport?.sport?.trim().toLowerCase();
+    if (removedTeamId) {
+      const rosterEntryService = createRosterEntryService(db);
+      const existingMembership = await rosterEntryService.getActiveOrPendingRosterEntry(
+        userId,
+        removedTeamId
+      );
+
+      if (
+        existingMembership?.id &&
+        (!removedSportName || existingMembership.sport?.trim().toLowerCase() === removedSportName)
+      ) {
+        await rosterEntryService.removeFromTeam(existingMembership.id);
+      }
+    }
 
     await userRef.update({ sports: updatedSports, updatedAt: FieldValue.serverTimestamp() });
 

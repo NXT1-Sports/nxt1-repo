@@ -144,6 +144,23 @@ describe('notifyTeamJoined', () => {
     expect(notificationWrites[0]?.data).toMatchObject({
       type: NOTIFICATION_TYPES.TEAM_JOIN_REQUEST,
       title: 'Ava Runner requested to join Varsity',
+      data: {
+        type: NOTIFICATION_TYPES.TEAM_JOIN_REQUEST,
+        deepLink: '/activity?manageMembersTeamId=team_1&filter=pending',
+        teamId: 'team_1',
+        manageMembersTeamId: 'team_1',
+        manageMembersFilter: 'pending',
+      },
+    });
+
+    const activityWrite = writes.find((write) => write.path.includes('/activity/'));
+    expect(activityWrite?.data).toMatchObject({
+      deepLink: '/activity?manageMembersTeamId=team_1&filter=pending',
+      metadata: {
+        navigationTarget: 'manage-members',
+        teamId: 'team_1',
+        initialFilter: 'pending',
+      },
     });
   });
 });
@@ -180,7 +197,7 @@ describe('notifyMembershipApproved', () => {
       body: 'Your request to join Varsity was accepted.',
       data: {
         type: NOTIFICATION_TYPES.TEAM_MEMBER_JOINED,
-        deepLink: '/team/team_1',
+        deepLink: '',
         teamId: 'team_1',
         approvedBy: 'coach_1',
       },
@@ -188,7 +205,7 @@ describe('notifyMembershipApproved', () => {
     expect(activityWrite?.data).toMatchObject({
       title: "You're on Varsity",
       body: 'Your request to join Varsity was accepted.',
-      deepLink: '/team/team_1',
+      deepLink: '',
       source: { teamName: 'Varsity' },
     });
   });

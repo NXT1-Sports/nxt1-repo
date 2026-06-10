@@ -29,7 +29,7 @@ vi.mock('../roster-entry.service.js', () => ({
   },
 }));
 
-import { incrementTeamPageView, updateTeamCode } from '../team-code.service.js';
+import { getUserTeams, incrementTeamPageView, updateTeamCode } from '../team-code.service.js';
 
 function createMockTeamDb(teamId: string, teamData: Record<string, unknown>) {
   const currentTeam = { ...teamData };
@@ -152,5 +152,79 @@ describe('updateTeamCode', () => {
 
     expect(update).not.toHaveBeenCalled();
     expect(currentTeam).toMatchObject({ teamName: 'Blocked Team' });
+  });
+});
+
+describe('getUserTeams', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.cache.get.mockResolvedValue(null);
+    mocks.cache.set.mockResolvedValue(undefined);
+    mocks.cache.del.mockResolvedValue(undefined);
+  });
+
+  it('returns active and pending teams from roster entries', async () => {
+    const teamDocs = new Map([
+      [
+        'team-1',
+        {
+          teamCode: 'TEAM001',
+          teamName: 'Alcoa Football',
+          teamType: 'high-school',
+          sport: 'Football',
+          isActive: true,
+        },
+      ],
+      [
+        'team-2',
+        {
+          teamCode: 'TEAM002',
+          teamName: 'Alcoa Basketball',
+          teamType: 'high-school',
+          sport: 'Basketball',
+          isActive: true,
+        },
+      ],
+    ]);
+
+    const db = {
+      collection: vi.fn((name: string) => {
+        if (name === 'RosterEntries') {
+          return {
+            where: vi.fn((_field: string, _op: string, _value: unknown) => ({
+              where: vi.fn((_field2: string, _op2: string, _value2: unknown) => ({
+                get: vi.fn().mockResolvedValue({
+                  docs: [
+                    { data: () => ({ teamId: 'team-1' }) },
+                    { data: () => ({ teamId: 'team-2' }) },
+                    { data: () => ({ teamId: 'team-2' }) },
+                  ],
+                }),
+              })),
+            })),
+          };
+        }
+
+        if (name === 'Teams') {
+          return {
+            doc: vi.fn((id: string) => ({
+              get: vi.fn().mockResolvedValue({
+                exists: teamDocs.has(id),
+                id,
+                data: () => teamDocs.get(id),
+              }),
+            })),
+          };
+        }
+
+        throw new Error(`Unexpected collection: ${name}`);
+      }),
+    };
+
+    const result = await getUserTeams(db as never, 'user-1');
+
+    expect(result.cached).toBe(false);
+    expect(result.teams.map((team) => team.id)).toEqual(['team-1', 'team-2']);
+    expect(mocks.cache.set).toHaveBeenCalled();
   });
 });

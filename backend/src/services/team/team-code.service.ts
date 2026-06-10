@@ -1144,13 +1144,26 @@ export async function getUserTeams(
     return { teams: cached, cached: true };
   }
 
-  const snapshot = await db
-    .collection('Teams')
-    .where('memberIds', 'array-contains', userId)
-    .where('isActive', '==', true)
+  const rosterSnapshot = await db
+    .collection('RosterEntries')
+    .where('userId', '==', userId)
+    .where('status', 'in', [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING])
     .get();
 
-  const teams = snapshot.docs.map(docToTeamCode);
+  const teamIds = Array.from(
+    new Set(
+      rosterSnapshot.docs
+        .map((doc) => doc.data()?.['teamId'])
+        .filter((teamId): teamId is string => typeof teamId === 'string' && teamId.length > 0)
+    )
+  );
+
+  const teamDocs = await Promise.all(
+    teamIds.map((teamId) => db.collection('Teams').doc(teamId).get())
+  );
+  const teams = teamDocs
+    .filter((doc) => doc.exists && doc.data()?.['isActive'] === true)
+    .map((doc) => docToTeamCode(doc));
 
   // Cache result
   await cache.set(cacheKey, teams, { ttl: TEAM_CACHE_TTL });

@@ -72,6 +72,12 @@ export interface ProvisionOnboardingProgramsResult {
   organizationIds: string[];
   /** Maps lowercase sport name → resolved team/org for backfilling User.sports[].team */
   sportTeamMap: Map<string, { teamId: string; organizationId: string; orgName: string }>;
+  membershipTransitions: Array<{
+    teamId: string;
+    organizationId: string;
+    sport: string;
+    pending: boolean;
+  }>;
 }
 
 export function normalizeProgramType(value?: string): ProgramType {
@@ -444,7 +450,7 @@ async function ensureRosterEntry(
   program: ProvisioningProgramRecord,
   teamId: string,
   sportName: string
-): Promise<void> {
+): Promise<{ created: boolean; pending: boolean }> {
   const rosterEntryService = createRosterEntryService(input.db);
   // Directors and coaches are active immediately (they own/manage the program).
   // Only athletes start as pending (require coach approval).
@@ -468,7 +474,10 @@ async function ensureRosterEntry(
         ...(rosterTitle ? { title: rosterTitle } : {}),
         ...(input.role === 'athlete' ? { positions: rosterPositions ?? [] } : {}),
       });
-      return;
+      return {
+        created: false,
+        pending: rosterStatus === RosterEntryStatus.PENDING,
+      };
     }
 
     await rosterEntryService.createRosterEntry({
@@ -502,6 +511,10 @@ async function ensureRosterEntry(
       profileImgs: input.updateData.profileImgs ?? input.currentUser?.profileImgs ?? [],
       classOf: input.updateData.athlete?.classOf,
     });
+    return {
+      created: true,
+      pending: rosterStatus === RosterEntryStatus.PENDING,
+    };
   } catch (err) {
     logger.warn('[OnboardingProgramProvisioning] Failed to sync roster entry', {
       userId: input.userId,
@@ -526,6 +539,7 @@ export async function provisionOnboardingPrograms(
       createdTeamIds: [],
       organizationIds: [],
       sportTeamMap: new Map(),
+      membershipTransitions: [],
     };
   }
 
@@ -537,6 +551,7 @@ export async function provisionOnboardingPrograms(
     string,
     { teamId: string; organizationId: string; orgName: string }
   >();
+  const membershipTransitions: ProvisionOnboardingProgramsResult['membershipTransitions'] = [];
 
   for (const program of programs) {
     for (const sportName of sportsToProvision) {
@@ -551,7 +566,15 @@ export async function provisionOnboardingPrograms(
           createdTeamIds.add(team.teamId);
         }
 
-        await ensureRosterEntry(input, program, team.teamId, sportName);
+        const rosterTransition = await ensureRosterEntry(input, program, team.teamId, sportName);
+        if (rosterTransition.created) {
+          membershipTransitions.push({
+            teamId: team.teamId,
+            organizationId: program.organizationId,
+            sport: sportName,
+            pending: rosterTransition.pending,
+          });
+        }
 
         // Track first resolved team per-sport for backfilling User.sports[].team
         const sportKey = sportName.toLowerCase();
@@ -578,5 +601,6 @@ export async function provisionOnboardingPrograms(
     createdTeamIds: Array.from(createdTeamIds),
     organizationIds: Array.from(new Set(programs.map((program) => program.organizationId))),
     sportTeamMap,
+    membershipTransitions,
   };
 }

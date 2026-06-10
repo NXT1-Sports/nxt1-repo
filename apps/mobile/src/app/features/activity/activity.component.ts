@@ -15,7 +15,14 @@
  * - User context from AuthFlowService
  */
 
-import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  inject,
+  computed,
+  afterNextRender,
+} from '@angular/core';
+import { ActivatedRoute } from '@angular/router';
 import { IonHeader, IonContent, IonToolbar, NavController } from '@ionic/angular/standalone';
 import {
   ActivityShellComponent,
@@ -26,6 +33,7 @@ import {
   AgentXOperationChatComponent,
   type ActivityUser,
 } from '@nxt1/ui';
+import { ManageTeamMembershipModalService } from '@nxt1/ui/manage-team';
 import type { ActivityItem, InboxEmailProvider, AgentTaskActivityMetadata } from '@nxt1/core';
 import { AuthFlowService } from '../../core/services/auth/auth-flow.service';
 import { MobileEmailConnectionService } from '../../core/services/api/email-connection.service';
@@ -84,10 +92,16 @@ export class ActivityComponent {
   private readonly authFlow = inject(AuthFlowService);
   private readonly profileService = inject(ProfileService);
   private readonly sidenavService = inject(NxtSidenavService);
+  private readonly route = inject(ActivatedRoute);
   private readonly navController = inject(NavController);
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly logger = inject(NxtLoggingService).child('ActivityComponent');
   private readonly emailConnection = inject(MobileEmailConnectionService);
+  private readonly membershipModal = inject(ManageTeamMembershipModalService);
+
+  constructor() {
+    afterNextRender(() => this.openManageMembersFromQuery());
+  }
 
   /**
    * Transform auth user to ActivityUser interface.
@@ -142,6 +156,10 @@ export class ActivityComponent {
     // Normalize deep link: canonical route is /agent-x.
     const normalizedLink = item.deepLink.replace(/^\/agent(?=[/?]|$)/, '/agent-x');
 
+    if (this.openManageMembersFromActivityItem(item, normalizedLink)) {
+      return;
+    }
+
     const threadId = this.resolveAgentThreadId(item, normalizedLink);
     if (this.shouldOpenAgentThread(item, normalizedLink, threadId)) {
       this.logger.info('Opening agent task from activity in bottom sheet', {
@@ -168,6 +186,73 @@ export class ActivityComponent {
     }
 
     void this.navController.navigateForward(normalizedLink);
+  }
+
+  private openManageMembersFromQuery(): void {
+    const query = this.route.snapshot.queryParamMap;
+    const teamId = query.get('manageMembersTeamId');
+    if (!teamId) {
+      return;
+    }
+
+    const initialFilter = this.resolveManageMembersFilter(query.get('filter'));
+    void this.membershipModal.open({ teamId, initialFilter }).catch((err) => {
+      this.logger.error('Failed to open manage members from activity deep link', err, {
+        teamId,
+        initialFilter,
+      });
+    });
+  }
+
+  private openManageMembersFromActivityItem(item: ActivityItem, deepLink: string): boolean {
+    const request = this.resolveManageMembersRequest(item, deepLink);
+    if (!request) {
+      return false;
+    }
+
+    void this.membershipModal.open(request);
+    return true;
+  }
+
+  private resolveManageMembersRequest(
+    item: ActivityItem,
+    deepLink: string
+  ): { teamId: string; initialFilter: 'roster' | 'staff' | 'pending' | null } | null {
+    const metadata = item.metadata ?? {};
+    const metadataTarget = metadata['navigationTarget'];
+    const metadataTeamId = metadata['teamId'];
+    if (metadataTarget === 'manage-members' && typeof metadataTeamId === 'string') {
+      return {
+        teamId: metadataTeamId,
+        initialFilter: this.resolveManageMembersFilter(metadata['initialFilter']),
+      };
+    }
+
+    if (!deepLink.startsWith('/manage-team') && !deepLink.startsWith('/activity')) {
+      return null;
+    }
+
+    try {
+      const url = new URL(deepLink, 'https://nxt1.local');
+      const teamId = url.searchParams.get('manageMembersTeamId') ?? url.searchParams.get('teamId');
+      if (!teamId) {
+        return null;
+      }
+
+      return {
+        teamId,
+        initialFilter: this.resolveManageMembersFilter(
+          url.searchParams.get('filter') ?? url.searchParams.get('tab')
+        ),
+      };
+    } catch {
+      this.logger.warn('Failed to parse manage members deep link', { deepLink });
+      return null;
+    }
+  }
+
+  private resolveManageMembersFilter(value: unknown): 'roster' | 'staff' | 'pending' | null {
+    return value === 'pending' || value === 'staff' || value === 'roster' ? value : 'roster';
   }
 
   /**
