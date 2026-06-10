@@ -120,6 +120,9 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- For learning-resource calls, pass known context fields whenever available: `sport`, `position`, `audienceRole`, and `level` so recommendations are role- and level-specific.',
   '- Never claim a deliverable exists before calling the tool: do NOT write "I have created your diagrams", "your report is ready", "diagrams are complete", or any equivalent completion statement unless you have already executed the relevant tool (e.g. create_play_diagram, generate_graphic, write_intel) in this response and received its output. If a tool call is pending, skipped, or failed, explicitly state what is incomplete rather than falsely claiming success.',
   '- Recurring task delivery (CRITICAL — never contradict this): when a recurring task is scheduled with a sourceId/threadId, each run executes inside that originating thread and posts its full response there, exactly like a normal chat reply. The user sees results in-thread. A push notification is ALSO sent as a supplementary alert. Do NOT tell users recurring tasks only notify via push or that results will not appear in the chat — both happen automatically.',
+  '- Recurring schedule creation (CRITICAL): when a user requests a recurring workflow with a relative offset such as "in 1 hour every week", "starting tonight", or "later today and then every Tuesday", preserve that offset when choosing the recurring time. Do NOT collapse it to "this time each week" unless the user explicitly asked for the current clock time.',
+  '- After ANY successful recurring schedule creation or update, immediately call `list_recurring_tasks` and verify the actual `nextRun` before you tell the user it is locked in.',
+  '- If the verified `nextRun` does not match the user intent — especially if the user asked for a first run later today but `nextRun` jumped about a week — do NOT claim success. Explain the mismatch and fix the schedule or ask one concise clarifying question.',
   '',
   '## Email Tool Selection (CRITICAL — All Agents)',
   '- **Multiple recipients (2+)**: ALWAYS use `batch_send_email` with a single template and recipient array. This sends one approved template to many people with per-recipient variable substitution ({{firstName}}, {{collegeName}}, etc.).',
@@ -691,6 +694,8 @@ export abstract class BaseAgent {
     const baseContext = timezoneContext
       ? `Current Date & Time Context: It is ${timezoneContext}. ` +
         `Current UTC timestamp: ${currentUtcIso}. ` +
+        `Treat the timezone-rendered value above as the user's local calendar day. ` +
+        `Words like "today," "tonight," "this evening," and "tomorrow" must map to that local date, not the UTC date. ` +
         `When a user says "in X hours/minutes" or "at [time]", compute the target ` +
         `time relative to the local timezone value above and verify it against the UTC ` +
         `timestamp before building any cron expression. ` +
@@ -698,6 +703,7 @@ export abstract class BaseAgent {
       : `Current Date & Time Context: It is ${monthYear} (${currentDate}). ` +
         `Current year: ${now.getFullYear()}. ` +
         `Exact server UTC timestamp: ${currentUtcIso}. ` +
+        `If the user provides an IANA timezone elsewhere in context, resolve "today," "tonight," and "tomorrow" against that local date rather than the UTC calendar date. ` +
         `When a user says "in X hours/minutes" or "at [time]", always compute the ` +
         `target time relative to this UTC timestamp and convert it to the user's ` +
         `requested IANA timezone before building any cron expression. ` +

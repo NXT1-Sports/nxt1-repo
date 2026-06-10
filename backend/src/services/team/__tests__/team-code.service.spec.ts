@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
     del: vi.fn(),
   },
   getActiveOrPendingRosterEntry: vi.fn(),
+  removeFromTeam: vi.fn(),
 }));
 
 vi.mock('../../core/cache.service.js', () => ({
@@ -26,10 +27,16 @@ vi.mock('../../../utils/logger.js', () => ({
 vi.mock('../roster-entry.service.js', () => ({
   RosterEntryService: class MockRosterEntryService {
     getActiveOrPendingRosterEntry = mocks.getActiveOrPendingRosterEntry;
+    removeFromTeam = mocks.removeFromTeam;
   },
 }));
 
-import { getUserTeams, incrementTeamPageView, updateTeamCode } from '../team-code.service.js';
+import {
+  getUserTeams,
+  incrementTeamPageView,
+  removeMember,
+  updateTeamCode,
+} from '../team-code.service.js';
 
 function createMockTeamDb(teamId: string, teamData: Record<string, unknown>) {
   const currentTeam = { ...teamData };
@@ -74,6 +81,7 @@ describe('incrementTeamPageView', () => {
     mocks.cache.set.mockResolvedValue(undefined);
     mocks.cache.del.mockResolvedValue(undefined);
     mocks.getActiveOrPendingRosterEntry.mockReset();
+    mocks.removeFromTeam.mockReset();
   });
 
   it('does not mutate Teams documents when a page view is recorded', async () => {
@@ -105,6 +113,7 @@ describe('updateTeamCode', () => {
     mocks.cache.set.mockResolvedValue(undefined);
     mocks.cache.del.mockResolvedValue(undefined);
     mocks.getActiveOrPendingRosterEntry.mockReset();
+    mocks.removeFromTeam.mockReset();
   });
 
   it('allows roster directors to update team settings', async () => {
@@ -152,6 +161,44 @@ describe('updateTeamCode', () => {
 
     expect(update).not.toHaveBeenCalled();
     expect(currentTeam).toMatchObject({ teamName: 'Blocked Team' });
+  });
+
+  it('removes roster-backed members even when legacy team.members is stale', async () => {
+    const { db } = createMockTeamDb('team-789', {
+      teamCode: 'TEAM789',
+      teamName: 'Roster Backed Team',
+      teamType: 'high-school',
+      sport: 'Football',
+      members: [],
+    });
+
+    mocks.getActiveOrPendingRosterEntry.mockImplementation(async (userId: string) => {
+      if (userId === 'director-1') {
+        return {
+          id: 'entry-director',
+          userId,
+          teamId: 'team-789',
+          role: 'director',
+          status: 'active',
+        };
+      }
+
+      if (userId === 'athlete-1') {
+        return {
+          id: 'entry-athlete',
+          userId,
+          teamId: 'team-789',
+          role: 'athlete',
+          status: 'active',
+        };
+      }
+
+      return null;
+    });
+
+    await removeMember(db as never, 'team-789', 'athlete-1', 'director-1');
+
+    expect(mocks.removeFromTeam).toHaveBeenCalledWith('entry-athlete');
   });
 });
 

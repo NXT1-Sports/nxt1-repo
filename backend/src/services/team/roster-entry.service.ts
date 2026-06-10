@@ -713,7 +713,7 @@ export class RosterEntryService {
     await batch.commit();
 
     // Bidirectional sync — clear sports[n].team on user doc
-    await this.syncUserSportTeamField(entry.userId, entry.sport, null);
+    await this.syncUserSportTeamField(entry.userId, entry.sport, null, entry.teamId);
 
     await this.invalidateCaches(entry.userId, entry.teamId, entry.organizationId, entryId);
   }
@@ -1031,7 +1031,8 @@ export class RosterEntryService {
   private async syncUserSportTeamField(
     userId: string,
     sport: string | undefined,
-    teamId: string | null
+    teamId: string | null,
+    matchTeamId?: string
   ): Promise<void> {
     if (!userId || !sport) return;
 
@@ -1048,22 +1049,37 @@ export class RosterEntryService {
       if (sports.length === 0) return;
 
       const normalizedSport = sport.trim().toLowerCase();
-      let matchedIndex = -1;
-      for (let i = 0; i < sports.length; i++) {
-        const s = sports[i];
-        const sportName = typeof s['sport'] === 'string' ? s['sport'].trim().toLowerCase() : '';
-        if (sportName === normalizedSport) {
-          matchedIndex = i;
-          break;
-        }
-      }
+      const normalizedMatchTeamId = matchTeamId?.trim();
+      const matchedIndexes = sports
+        .map((sportEntry, index) => ({ sportEntry, index }))
+        .filter(({ sportEntry }) => {
+          const sportName =
+            typeof sportEntry['sport'] === 'string' ? sportEntry['sport'].trim().toLowerCase() : '';
+          const existingTeam =
+            typeof sportEntry['team'] === 'object' && sportEntry['team'] !== null
+              ? (sportEntry['team'] as Record<string, unknown>)
+              : undefined;
+          const existingTeamId =
+            typeof existingTeam?.['teamId'] === 'string' ? existingTeam['teamId'].trim() : '';
 
-      if (matchedIndex === -1) return;
+          if (normalizedMatchTeamId && existingTeamId === normalizedMatchTeamId) {
+            return true;
+          }
+
+          if (teamId === null && normalizedMatchTeamId) {
+            return !existingTeamId && sportName === normalizedSport;
+          }
+
+          return sportName === normalizedSport;
+        })
+        .map(({ index }) => index);
+
+      if (matchedIndexes.length === 0) return;
 
       // Firestore does not support partial array element updates directly —
       // we overwrite the full array with the one field changed.
       const updatedSports = sports.map((s, idx) => {
-        if (idx !== matchedIndex) return s;
+        if (!matchedIndexes.includes(idx)) return s;
         if (teamId === null) {
           const { team: _removed, ...rest } = s as Record<string, unknown> & { team?: unknown };
           void _removed;

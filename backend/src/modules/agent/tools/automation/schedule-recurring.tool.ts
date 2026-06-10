@@ -8,7 +8,6 @@
  * All users have access — usage is metered via the billing system.
  *
  * Security:
- * - Enforces minimum interval of 1 hour to prevent runaway costs.
  * - Enforces per-user cap of 10 active schedules.
  */
 
@@ -16,7 +15,7 @@ import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firesto
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import type { AgentToolCategory, AgentJobPayload } from '@nxt1/core';
 import type { AgentQueueService } from '../../queue/queue.service.js';
-import { MIN_RECURRING_INTERVAL_MS, MAX_RECURRING_JOBS_PER_USER } from '../../queue/queue.types.js';
+import { MAX_RECURRING_JOBS_PER_USER } from '../../queue/queue.types.js';
 import { logger } from '../../../../utils/logger.js';
 import { z } from 'zod';
 
@@ -44,39 +43,30 @@ const ScheduleRecurringTaskInputSchema = z.object({
       message: 'timezone must be a valid IANA timezone (for example, America/Chicago)',
     }),
   sourceId: z.string().trim().min(1).optional(),
+  firstRunAt: z.string().trim().min(1).optional(),
 });
 
-/**
- * Parse a cron expression and estimate the minimum interval in ms
- * between two consecutive firings. Returns Infinity if unparseable.
- * Only handles standard 5-field cron (`m h dom mon dow`).
- */
-function estimateCronIntervalMs(cron: string): number {
-  const parts = cron.trim().split(/\s+/);
-  if (parts.length < 5) return Infinity;
-
-  const [minute, hour] = parts;
-
-  // Every-N-minutes shorthand: */N * * * *
-  const everyMin = minute?.match(/^\*\/(\d+)$/);
-  if (everyMin) return parseInt(everyMin[1], 10) * 60 * 1000;
-
-  // Every-N-hours shorthand: 0 */N * * *
-  const everyHour = hour?.match(/^\*\/(\d+)$/);
-  if (everyHour && (minute === '0' || minute === '*')) {
-    return parseInt(everyHour[1], 10) * 60 * 60 * 1000;
+function parseFutureFirstRunAt(
+  firstRunAt: string | undefined
+): { iso: string; delayMs: number; repeatStartDate: string } | { error: string } | null {
+  if (!firstRunAt) return null;
+  const parsedMs = Date.parse(firstRunAt);
+  if (!Number.isFinite(parsedMs)) {
+    return { error: 'firstRunAt must be a valid ISO-8601 timestamp.' };
   }
 
-  // Wildcard minute = every minute
-  if (minute === '*' && hour === '*') return 60 * 1000;
-
-  // Fixed hour = at most once per day
-  if (hour !== '*' && !hour?.includes('/') && !hour?.includes(',')) {
-    return 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  if (parsedMs <= now) {
+    return { error: 'firstRunAt must be in the future.' };
   }
 
-  // Default: assume at least hourly
-  return 60 * 60 * 1000;
+  return {
+    iso: new Date(parsedMs).toISOString(),
+    delayMs: parsedMs - now,
+    // Start the steady-state cron after the delayed initial run so BullMQ does
+    // not enqueue a duplicate execution at the same minute.
+    repeatStartDate: new Date(parsedMs + 60_000).toISOString(),
+  };
 }
 
 // ─── Tool ───────────────────────────────────────────────────────────────────
@@ -88,7 +78,11 @@ export class ScheduleRecurringTaskTool extends BaseTool {
     'Provide a human-readable action summary (what to do each time), a standard cron expression, ' +
     'and an IANA timezone (for example America/Chicago). ' +
     'Optionally include sourceId to override the originating thread ID used for recurring context hydration. ' +
-    'The minimum allowed interval is 1 hour. ' +
+    'Optionally include firstRunAt as an ISO-8601 timestamp when the first send should happen later today or at a specific future time before the recurring cadence continues. ' +
+    'This tool is for recurring automations only, not one-time delayed runs later today or tomorrow. ' +
+    'Do not use date-pinned cron expressions to imitate a one-off schedule. ' +
+    'For recurring requests with a relative offset such as "in 1 hour each week", build the cron for the offset time (one hour from now in the user timezone), not the current clock time. ' +
+    'After creating the schedule, call list_recurring_tasks and verify the nextRun matches the requested first occurrence before confirming success to the user. ' +
     'Each run executes inside the originating thread and posts its full reply there (identical to a normal chat response), AND sends a push notification as a supplementary alert. ' +
     'When confirming the schedule to the user, always state that results will appear in this thread each time the task runs.';
 
@@ -129,21 +123,14 @@ export class ScheduleRecurringTaskTool extends BaseTool {
     const userId = context.userId;
     const targetEnvironment = context.environment === 'production' ? 'production' : 'staging';
 
-    const { actionSummary, cronExpression, timezone, sourceId } = parsed.data;
+    const { actionSummary, cronExpression, timezone, sourceId, firstRunAt } = parsed.data;
     const resolvedSourceId = sourceId?.trim() || context?.threadId?.trim() || undefined;
-
-    // ── 1. Validate cron frequency ────────────────────────────────────
-    const intervalMs = estimateCronIntervalMs(cronExpression);
-    if (intervalMs < MIN_RECURRING_INTERVAL_MS) {
-      return {
-        success: false,
-        error:
-          `The cron expression "${cronExpression}" would execute more frequently than once per hour. ` +
-          'The minimum interval for recurring tasks is 1 hour. Please use a less frequent schedule.',
-      };
+    const parsedFirstRun = parseFutureFirstRunAt(firstRunAt);
+    if (parsedFirstRun && 'error' in parsedFirstRun) {
+      return { success: false, error: parsedFirstRun.error };
     }
 
-    // ── 2. Enforce per-user schedule cap (Firestore is source of truth) ──
+    // ── 1. Enforce per-user schedule cap (Firestore is source of truth) ──
     const existingCount = await this.countUserTasks(userId);
     if (existingCount >= MAX_RECURRING_JOBS_PER_USER) {
       return {
@@ -154,7 +141,7 @@ export class ScheduleRecurringTaskTool extends BaseTool {
       };
     }
 
-    // ── 3. Build the recurring job payload ───────────────────────────
+    // ── 2. Build the recurring job payload ───────────────────────────
     const ts = Date.now();
     const jobName = `recv:${userId}:${ts}`;
     const operationId = `recurring-${userId}-${ts}`;
@@ -176,15 +163,57 @@ export class ScheduleRecurringTaskTool extends BaseTool {
         : { context: { timezone } }),
     };
 
-    // ── 4. Enqueue via BullMQ then persist durable metadata ──────────
+    // ── 3. Enqueue via BullMQ then persist durable metadata ──────────
     try {
       const key = await this.queueService.enqueueRecurring(
         jobName,
         cronExpression,
         timezone,
         payload,
+        parsedFirstRun ? { startDate: parsedFirstRun.repeatStartDate } : undefined,
         targetEnvironment
       );
+
+      let initialRunJobId: string | undefined;
+      if (parsedFirstRun) {
+        const initialOperationId = `recurring-initial-${userId}-${ts}`;
+        const initialPayload: AgentJobPayload = {
+          operationId: initialOperationId,
+          userId,
+          intent: actionSummary,
+          displayIntent: actionSummary,
+          sessionId: `scheduled-${userId}`,
+          origin: 'system_cron',
+          ...(resolvedSourceId
+            ? {
+                context: {
+                  sourceId: resolvedSourceId,
+                  threadId: resolvedSourceId,
+                  timezone,
+                  recurringTaskKey: key,
+                  recurringInitialRun: true,
+                },
+              }
+            : {
+                context: {
+                  timezone,
+                  recurringTaskKey: key,
+                  recurringInitialRun: true,
+                },
+              }),
+        };
+
+        try {
+          initialRunJobId = await this.queueService.enqueueDelayed(
+            initialPayload,
+            parsedFirstRun.delayMs,
+            targetEnvironment
+          );
+        } catch (initialErr) {
+          await this.queueService.removeRecurringJob(key).catch(() => false);
+          throw initialErr;
+        }
+      }
 
       // Firestore is the durable source of truth for recurring task metadata.
       // Redis is ephemeral — it must NEVER be used for persistent business data.
@@ -197,6 +226,8 @@ export class ScheduleRecurringTaskTool extends BaseTool {
           cronExpression,
           timezone,
           ...(resolvedSourceId ? { sourceId: resolvedSourceId } : {}),
+          ...(parsedFirstRun ? { firstRunAt: parsedFirstRun.iso } : {}),
+          ...(initialRunJobId ? { initialRunJobId } : {}),
           jobName,
           createdAt: FieldValue.serverTimestamp(),
           environment: targetEnvironment,
@@ -208,6 +239,7 @@ export class ScheduleRecurringTaskTool extends BaseTool {
         cronExpression,
         timezone,
         ...(resolvedSourceId ? { sourceId: resolvedSourceId } : {}),
+        ...(parsedFirstRun ? { firstRunAt: parsedFirstRun.iso, initialRunJobId } : {}),
         actionSummary,
         environment: targetEnvironment,
       });
@@ -220,6 +252,9 @@ export class ScheduleRecurringTaskTool extends BaseTool {
           cronExpression,
           timezone,
           ...(resolvedSourceId ? { sourceId: resolvedSourceId } : {}),
+          ...(parsedFirstRun
+            ? { firstRunAt: parsedFirstRun.iso, nextRun: parsedFirstRun.iso }
+            : {}),
           message:
             `Recurring task scheduled successfully. Action "${actionSummary}" will run on schedule: ` +
             `${cronExpression} (${timezone}).`,

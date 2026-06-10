@@ -155,6 +155,16 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain(
       'use `delegate_to_coordinator` with coordinatorId=`recruiting_coordinator`'
     );
+    expect(prompt).toContain('Recurring scheduling rule (CRITICAL)');
+    expect(prompt).toContain(
+      'Never claim a task was scheduled unless the relevant recurring tool actually returned success'
+    );
+    expect(prompt).toContain('There is no separate one-time delayed execution tool');
+    expect(prompt).toContain(
+      'Do not emulate a one-time delay by inventing date-pinned cron expressions'
+    );
+    expect(prompt).toContain('preserve that requested offset when selecting the recurring time');
+    expect(prompt).toContain('verify the actual nextRun with `list_recurring_tasks`');
     expect(prompt).toContain('Memory persistence rule');
     expect(prompt).toContain('call `save_memory` immediately');
     expect(prompt).toContain('Router analytics rule');

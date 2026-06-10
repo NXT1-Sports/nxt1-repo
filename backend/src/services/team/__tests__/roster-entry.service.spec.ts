@@ -75,10 +75,12 @@ function applyUpdate(
 
 function createMockFirestore(
   initialRosterEntries?: Record<string, Record<string, unknown>>,
-  initialTeams?: Record<string, Record<string, unknown>>
+  initialTeams?: Record<string, Record<string, unknown>>,
+  initialUsers?: Record<string, Record<string, unknown>>
 ) {
   const rosterEntries = new Map(Object.entries(initialRosterEntries ?? {}));
   const teams = new Map(Object.entries(initialTeams ?? {}));
+  const users = new Map(Object.entries(initialUsers ?? {}));
 
   const createDocSnapshot = (
     collectionName: string,
@@ -97,7 +99,11 @@ function createMockFirestore(
       createDocSnapshot(
         collectionName,
         id,
-        collectionName === 'Teams' ? teams.get(id) : rosterEntries.get(id)
+        collectionName === 'Teams'
+          ? teams.get(id)
+          : collectionName === 'Users'
+            ? users.get(id)
+            : rosterEntries.get(id)
       ),
     set: async (payload) => {
       if (collectionName === 'RosterEntries') {
@@ -107,6 +113,11 @@ function createMockFirestore(
 
       if (collectionName === 'Teams') {
         teams.set(id, applyUpdate({}, payload));
+        return;
+      }
+
+      if (collectionName === 'Users') {
+        users.set(id, applyUpdate({}, payload));
       }
     },
     update: async (payload) => {
@@ -119,6 +130,12 @@ function createMockFirestore(
       if (collectionName === 'Teams') {
         const existing = teams.get(id) ?? {};
         teams.set(id, applyUpdate(existing, payload));
+        return;
+      }
+
+      if (collectionName === 'Users') {
+        const existing = users.get(id) ?? {};
+        users.set(id, applyUpdate(existing, payload));
       }
     },
   });
@@ -181,11 +198,7 @@ function createMockFirestore(
 
       if (name === 'Users') {
         return {
-          doc: (_id: string) => ({
-            get: async () => ({ exists: false, id: 'user-missing', data: () => undefined }),
-            set: async () => undefined,
-            update: async () => undefined,
-          }),
+          doc: (id: string) => createDocRef(name, id),
         };
       }
 
@@ -197,6 +210,7 @@ function createMockFirestore(
     db,
     rosterEntries,
     teams,
+    users,
   };
 }
 
@@ -495,5 +509,56 @@ describe('RosterEntryService', () => {
 
     expect(rosterEntries.get('entry-1')).toMatchObject({ status: RosterEntryStatus.REMOVED });
     expect(teams.get('team-1')).toMatchObject({ athleteMember: 3, panelMember: 2 });
+  });
+
+  it('clears only the removed team affiliation when multiple sports share the same sport', async () => {
+    const { db, users } = createMockFirestore(
+      {
+        'entry-2': {
+          userId: 'athlete-1',
+          teamId: 'team-2',
+          organizationId: 'org-1',
+          role: 'athlete',
+          sport: 'Football',
+          status: RosterEntryStatus.ACTIVE,
+          joinedAt: new Date().toISOString(),
+        },
+      },
+      {
+        'team-2': {
+          athleteMember: 2,
+          panelMember: 1,
+        },
+      },
+      {
+        'athlete-1': {
+          sports: [
+            {
+              sport: 'Football',
+              team: { teamId: 'team-1', name: 'First Team' },
+            },
+            {
+              sport: 'Football',
+              team: { teamId: 'team-2', name: 'Second Team' },
+            },
+          ],
+        },
+      }
+    );
+    const service = new RosterEntryService(db as never);
+
+    await service.removeFromTeam('entry-2');
+
+    expect(users.get('athlete-1')).toMatchObject({
+      sports: [
+        {
+          sport: 'Football',
+          team: { teamId: 'team-1', name: 'First Team' },
+        },
+        {
+          sport: 'Football',
+        },
+      ],
+    });
   });
 });

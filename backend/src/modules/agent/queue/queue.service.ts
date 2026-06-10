@@ -104,6 +104,31 @@ export class AgentQueueService {
   }
 
   /**
+   * Add a new agent job to the queue with a delay before execution.
+   * Used for the initial run of recurring schedules that should start later
+   * today before the steady-state cron takes over.
+   */
+  async enqueueDelayed(
+    payload: AgentJobPayload,
+    delayMs: number,
+    environment: 'staging' | 'production' = 'production'
+  ): Promise<string> {
+    const jobData: AgentQueueJobData = {
+      kind: 'agent',
+      payload,
+      enqueuedAt: new Date().toISOString(),
+      environment,
+    };
+
+    const job = await this.queue.add(payload.operationId, jobData, {
+      jobId: payload.operationId,
+      delay: Math.max(0, delayMs),
+    });
+
+    return job.id ?? payload.operationId;
+  }
+
+  /**
    * Add a new asynchronous playbook generation job to the queue.
    * @param input - Minimal job identity payload used by the worker.
    * @param environment - Which Firestore the job document lives in (staging vs production).
@@ -319,6 +344,7 @@ export class AgentQueueService {
     cronExpression: string,
     timezone: string,
     payload: AgentJobPayload,
+    options?: { startDate?: string | number | Date },
     environment: 'staging' | 'production' = 'production'
   ): Promise<string> {
     const jobData: AgentQueueJobData = {
@@ -331,8 +357,17 @@ export class AgentQueueService {
     // IMPORTANT: Do NOT set jobId on a repeatable job. BullMQ v5 auto-generates
     // per-execution IDs. A fixed jobId causes every subsequent execution to
     // collide with the previous one, resulting in skipped or stalled jobs.
+    const repeatOptions: Record<string, unknown> = {
+      pattern: cronExpression,
+      tz: timezone,
+    };
+    if (options?.startDate) {
+      repeatOptions['startDate'] =
+        options.startDate instanceof Date ? options.startDate.getTime() : options.startDate;
+    }
+
     await this.queue.add(jobName, jobData, {
-      repeat: { pattern: cronExpression, tz: timezone },
+      repeat: repeatOptions as NonNullable<JobsOptions['repeat']>,
     });
 
     // BullMQ derives a deterministic key from queue prefix + name + pattern.
