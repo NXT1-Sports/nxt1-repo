@@ -32,6 +32,33 @@ import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-messa
 import { AgentXOperationChatTransportFacade } from './agent-x-operation-chat-transport.facade';
 import { AgentXOperationChatAttachmentsFacade } from './agent-x-operation-chat-attachments.facade';
 
+const VIDEO_ATTACHMENT_THUMBNAIL_MAX_EDGE_PX = 320;
+
+function resolveThumbnailDimensions(
+  sourceWidth: number,
+  sourceHeight: number
+): {
+  readonly width: number;
+  readonly height: number;
+} {
+  const safeWidth = Math.max(1, Math.round(sourceWidth) || 320);
+  const safeHeight = Math.max(1, Math.round(sourceHeight) || 180);
+  const maxEdge = Math.max(safeWidth, safeHeight);
+
+  if (maxEdge <= VIDEO_ATTACHMENT_THUMBNAIL_MAX_EDGE_PX) {
+    return {
+      width: safeWidth,
+      height: safeHeight,
+    };
+  }
+
+  const scale = VIDEO_ATTACHMENT_THUMBNAIL_MAX_EDGE_PX / maxEdge;
+  return {
+    width: Math.max(1, Math.round(safeWidth * scale)),
+    height: Math.max(1, Math.round(safeHeight * scale)),
+  };
+}
+
 type OperationStatus =
   | 'processing'
   | 'complete'
@@ -2425,10 +2452,9 @@ export class AgentXOperationChatSessionFacade {
           : [...persistedRows, ...preservedInlineYieldRows]
       );
 
-      // Async canvas thumbnails for video attachments loaded from history.
-      // History messages from the backend never carry a thumbnailUrl — generate
-      // a JPEG preview frame client-side so the attachment strip renders a
-      // static image instead of a blank <video> element on iOS.
+      // Async canvas thumbnails for any history video attachment that still
+      // lacks a poster URL so the strip does not fall back to a blank <video>
+      // frame on iOS after a refresh.
       this.generateThumbnailsForHistoryVideos(persistedRows);
 
       const enqueueWaitingEntry = this.operationEventService.getEnqueueWaitingEntry(threadId);
@@ -3868,10 +3894,10 @@ export class AgentXOperationChatSessionFacade {
           resolve(result);
         };
 
-        // loadedmetadata fires with preload="metadata" or "auto" once duration
-        // and dimensions are known. We then seek to the first frame.
+        // loadeddata is more reliable than loadedmetadata on iOS for decoding
+        // an actual drawable frame before we seek and paint to canvas.
         video.addEventListener(
-          'loadedmetadata',
+          'loadeddata',
           () => {
             video.currentTime = Math.min(1, video.duration * 0.25) || 0;
           },
@@ -3882,17 +3908,21 @@ export class AgentXOperationChatSessionFacade {
           'seeked',
           () => {
             try {
+              const { width, height } = resolveThumbnailDimensions(
+                video.videoWidth || 320,
+                video.videoHeight || 240
+              );
               const canvas = document.createElement('canvas');
-              canvas.width = video.videoWidth || 320;
-              canvas.height = video.videoHeight || 240;
+              canvas.width = width;
+              canvas.height = height;
               const ctx = canvas.getContext('2d');
               if (!ctx) {
                 cleanup();
                 done(null);
                 return;
               }
-              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-              const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+              ctx.drawImage(video, 0, 0, width, height);
+              const dataUrl = canvas.toDataURL('image/jpeg', 0.68);
               cleanup();
               done(dataUrl);
             } catch {

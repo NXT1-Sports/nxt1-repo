@@ -871,7 +871,9 @@ export class AgentXOperationChatAttachmentsFacade {
       items: mediaItems,
       initialIndex: Math.max(0, Math.min(index, mediaItems.length - 1)),
       source: 'agent-x-chat',
-      presentation: this.resolveMediaViewerPresentation(),
+      // Preserve the previous mobile chat-strip behavior so Agent X stays open
+      // beneath the viewer instead of dismissing into a native sheet.
+      presentation: 'overlay',
     });
   }
 
