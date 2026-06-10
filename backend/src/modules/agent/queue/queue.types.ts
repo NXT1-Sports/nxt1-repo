@@ -49,9 +49,6 @@ export const RETRY_BACKOFF_MS = 5_000 as const;
 /** Maximum number of active recurring schedules per user. */
 export const MAX_RECURRING_JOBS_PER_USER = 10 as const;
 
-/** Minimum interval between recurring job executions (1 hour in ms). */
-export const MIN_RECURRING_INTERVAL_MS = 3_600_000 as const;
-
 /** Delayed idle window before a thread is summarized into memory (1 hour in ms). */
 export const THREAD_SUMMARIZATION_DELAY_MS = 3_600_000 as const;
 

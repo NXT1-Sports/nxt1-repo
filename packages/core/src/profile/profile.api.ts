@@ -118,7 +118,9 @@ export interface UpdateProfileRequest {
 
 export interface UpdateSportProfileRequest {
   sportIndex: number;
-  updates: Partial<SportProfile>;
+  updates: Partial<SportProfile> & {
+    teamSelection?: TeamSelectionFormData;
+  };
 }
 
 export interface AddSportRequest extends Partial<SportProfile> {

@@ -180,6 +180,14 @@ class FakeAgent extends BaseAgent {
     ).buildRuntimeTemporalContext(intent, context);
   }
 
+  callWithConfiguredSystemPrompt(basePrompt: string): string {
+    return (
+      this as unknown as {
+        withConfiguredSystemPrompt: (prompt: string) => string;
+      }
+    ).withConfiguredSystemPrompt(basePrompt);
+  }
+
   callSummarizeMiddleExchangesWithLlm(
     middleExchanges: readonly LLMMessage[][],
     llm: { complete: (...args: unknown[]) => Promise<{ content: string | null }> },
@@ -516,7 +524,23 @@ describe('BaseAgent runtime date guardrail', () => {
     expect(temporalContext).toContain('Wednesday, June 3, 2026');
     expect(temporalContext).toContain('10:48 PM CDT');
     expect(temporalContext).toContain('2026-06-04T03:48:00.000Z');
+    expect(temporalContext).toContain(
+      'Words like "today," "tonight," "this evening," and "tomorrow" must map to that local date, not the UTC date'
+    );
     expect(temporalContext).not.toContain('June 4, 2026, 10:48 PM CDT');
+  });
+
+  it('includes recurring schedule verification guidance in the shared contract', () => {
+    const agent = new FakeAgent();
+    const prompt = agent.callWithConfiguredSystemPrompt(agent.getSystemPrompt());
+
+    expect(prompt).toContain('Recurring schedule creation (CRITICAL)');
+    expect(prompt).toContain(
+      'After ANY successful recurring schedule creation or update, immediately call `list_recurring_tasks`'
+    );
+    expect(prompt).toContain(
+      'if the user asked for a first run later today but `nextRun` jumped about a week'
+    );
   });
 });
 

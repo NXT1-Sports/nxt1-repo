@@ -10,7 +10,9 @@ describe('update-recurring.tool', () => {
   it('replaces an existing recurring task with updated schedule', async () => {
     const queueService = {
       enqueueRecurring: vi.fn().mockResolvedValue('repeat:key:new'),
+      enqueueDelayed: vi.fn(),
       removeRecurringJob: vi.fn().mockResolvedValue(true),
+      cancel: vi.fn().mockResolvedValue(true),
     };
 
     const oldDocGet = vi.fn().mockResolvedValue({
@@ -60,6 +62,7 @@ describe('update-recurring.tool', () => {
         displayIntent: 'Old summary',
         origin: 'system_cron',
       }),
+      undefined,
       'staging'
     );
     expect(queueService.removeRecurringJob).toHaveBeenCalledWith('repeat:key:old');
@@ -70,7 +73,9 @@ describe('update-recurring.tool', () => {
   it('rejects update when recurring task key is not owned by user', async () => {
     const queueService = {
       enqueueRecurring: vi.fn(),
+      enqueueDelayed: vi.fn(),
       removeRecurringJob: vi.fn(),
+      cancel: vi.fn(),
     };
 
     const db = {
@@ -95,7 +100,9 @@ describe('update-recurring.tool', () => {
   it('treats cancel intent as true cancellation instead of replacement scheduling', async () => {
     const queueService = {
       enqueueRecurring: vi.fn(),
+      enqueueDelayed: vi.fn(),
       removeRecurringJob: vi.fn().mockResolvedValue(true),
+      cancel: vi.fn().mockResolvedValue(true),
     };
 
     const oldDocDelete = vi.fn().mockResolvedValue(undefined);
@@ -109,6 +116,7 @@ describe('update-recurring.tool', () => {
               actionSummary: 'Old summary',
               cronExpression: '0 8 * * 1',
               timezone: 'America/Chicago',
+              initialRunJobId: 'recurring-initial-old',
             }),
           }),
           delete: oldDocDelete,
@@ -127,7 +135,145 @@ describe('update-recurring.tool', () => {
 
     expect(result.success).toBe(true);
     expect(queueService.removeRecurringJob).toHaveBeenCalledWith('repeat:key:old');
+    expect(queueService.cancel).toHaveBeenCalledWith('recurring-initial-old');
     expect(oldDocDelete).toHaveBeenCalled();
     expect(queueService.enqueueRecurring).not.toHaveBeenCalled();
+  });
+
+  it('replaces an existing recurring task with an explicit firstRunAt', async () => {
+    const queueService = {
+      enqueueRecurring: vi.fn().mockResolvedValue('repeat:key:new'),
+      enqueueDelayed: vi.fn().mockResolvedValue('recurring-initial-user-1-123'),
+      removeRecurringJob: vi.fn().mockResolvedValue(true),
+      cancel: vi.fn().mockResolvedValue(true),
+    };
+
+    const oldDocDelete = vi.fn().mockResolvedValue(undefined);
+    const newDocSet = vi.fn().mockResolvedValue(undefined);
+    const db = {
+      collection: vi.fn(() => ({
+        doc: vi.fn((id: string) => {
+          if (id === 'repeat:key:old') {
+            return {
+              get: vi.fn().mockResolvedValue({
+                exists: true,
+                data: () => ({
+                  userId: 'user-1',
+                  actionSummary: 'Old summary',
+                  cronExpression: '0 8 * * 1',
+                  timezone: 'America/Chicago',
+                  sourceId: 'thread-1',
+                  initialRunJobId: 'recurring-initial-old',
+                }),
+              }),
+              delete: oldDocDelete,
+            };
+          }
+          return { set: newDocSet, delete: vi.fn().mockResolvedValue(undefined) };
+        }),
+      })),
+    } as unknown as Firestore;
+
+    const tool = new UpdateRecurringTaskTool(queueService as never, db);
+    const firstRunAt = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+
+    const result = await tool.execute(
+      {
+        userId: 'user-1',
+        key: 'repeat:key:old',
+        cronExpression: '0 22 * * 2',
+        firstRunAt,
+      },
+      { userId: 'user-1', environment: 'staging' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(queueService.enqueueRecurring).toHaveBeenCalledWith(
+      expect.stringMatching(/^recv:user-1:/),
+      '0 22 * * 2',
+      'America/Chicago',
+      expect.any(Object),
+      {
+        startDate: new Date(Date.parse(firstRunAt) + 60_000).toISOString(),
+      },
+      'staging'
+    );
+    expect(queueService.enqueueDelayed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          recurringTaskKey: 'repeat:key:new',
+          recurringInitialRun: true,
+        }),
+      }),
+      expect.any(Number),
+      'staging'
+    );
+    expect(queueService.cancel).toHaveBeenCalledWith('recurring-initial-old');
+    expect(newDocSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        firstRunAt,
+        initialRunJobId: 'recurring-initial-user-1-123',
+      })
+    );
+  });
+
+  it('allows updating a recurring task to a sub-hour cadence', async () => {
+    const queueService = {
+      enqueueRecurring: vi.fn().mockResolvedValue('repeat:key:new'),
+      enqueueDelayed: vi.fn(),
+      removeRecurringJob: vi.fn().mockResolvedValue(true),
+      cancel: vi.fn().mockResolvedValue(true),
+    };
+
+    const oldDocDelete = vi.fn().mockResolvedValue(undefined);
+    const newDocSet = vi.fn().mockResolvedValue(undefined);
+    const db = {
+      collection: vi.fn(() => ({
+        doc: vi.fn((id: string) => {
+          if (id === 'repeat:key:old') {
+            return {
+              get: vi.fn().mockResolvedValue({
+                exists: true,
+                data: () => ({
+                  userId: 'user-1',
+                  actionSummary: 'Old summary',
+                  cronExpression: '0 8 * * 1',
+                  timezone: 'America/Chicago',
+                  sourceId: 'thread-1',
+                }),
+              }),
+              delete: oldDocDelete,
+            };
+          }
+          return { set: newDocSet, delete: vi.fn().mockResolvedValue(undefined) };
+        }),
+      })),
+    } as unknown as Firestore;
+
+    const tool = new UpdateRecurringTaskTool(queueService as never, db);
+
+    const result = await tool.execute(
+      {
+        userId: 'user-1',
+        key: 'repeat:key:old',
+        cronExpression: '*/5 * * * *',
+      },
+      { userId: 'user-1', environment: 'staging' }
+    );
+
+    expect(result.success).toBe(true);
+    expect(queueService.enqueueRecurring).toHaveBeenCalledWith(
+      expect.stringMatching(/^recv:user-1:/),
+      '*/5 * * * *',
+      'America/Chicago',
+      expect.any(Object),
+      undefined,
+      'staging'
+    );
+    expect(newDocSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cronExpression: '*/5 * * * *',
+      })
+    );
   });
 });

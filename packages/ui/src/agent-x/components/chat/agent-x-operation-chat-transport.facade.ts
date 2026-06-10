@@ -725,6 +725,7 @@ export class AgentXOperationChatTransportFacade {
               host.setOperationStatus('error');
               host.setActivityPhase('failed', opMessage || null);
             } else if (event.status === 'paused') {
+              this.agentXService.clearDropRecoveryOp();
               host.setOperationStatus('paused');
               host.setActivityPhase('paused', opMessage || null);
             } else if (event.status === 'awaiting_input') {

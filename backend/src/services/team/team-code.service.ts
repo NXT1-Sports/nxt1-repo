@@ -744,20 +744,23 @@ export async function removeMember(
   removedBy: string
 ): Promise<TeamCode> {
   const { team } = await getTeamCodeById(db, teamId, false);
+  const rosterService = new RosterEntryService(db);
+  const removerEntry = await rosterService.getActiveOrPendingRosterEntry(removedBy, teamId);
+  const removerLegacyRole = team.members?.find((m: TeamMember) => m.id === removedBy)?.role;
+  const removerRole = normalizeTeamEditorRole(removerEntry?.role ?? removerLegacyRole);
 
-  // Check permissions
-  const remover = team.members?.find((m: TeamMember) => m.id === removedBy);
-  if (!canManageTeam(remover)) {
+  if (!TEAM_SETTINGS_EDITOR_ROLES.has(removerRole)) {
     throw forbiddenError('admin');
   }
 
+  const rosterEntry = await rosterService.getActiveOrPendingRosterEntry(userId, teamId);
   const memberToRemove = team.members?.find((m: TeamMember) => m.id === userId);
-  if (!memberToRemove) {
+  if (!rosterEntry && !memberToRemove) {
     throw notFoundError('member');
   }
 
   // Prevent removing last admin
-  if (memberToRemove.role === ROLE.admin) {
+  if (memberToRemove?.role === ROLE.admin) {
     const adminCount = team.members?.filter((m) => m.role === ROLE.admin).length ?? 0;
     if (adminCount <= 1) {
       throw conflictError('Cannot remove the last administrator');
@@ -765,17 +768,8 @@ export async function removeMember(
   }
 
   // V2: Remove via RosterEntry (soft-delete), no more memberIds[] writes.
-  const rosterService = new RosterEntryService(db);
-  const rosterSnap = await db
-    .collection('RosterEntries')
-    .where('teamId', '==', teamId)
-    .where('userId', '==', userId)
-    .where('status', 'in', [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING])
-    .limit(1)
-    .get();
-
-  if (!rosterSnap.empty) {
-    await rosterService.removeFromTeam(rosterSnap.docs[0].id);
+  if (rosterEntry?.id) {
+    await rosterService.removeFromTeam(rosterEntry.id);
   }
 
   // Invalidate cache

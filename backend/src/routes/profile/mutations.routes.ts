@@ -22,7 +22,7 @@ import * as teamCodeService from '../../services/team/team-code.service.js';
 import { mergeConnectedSources, normalizeConnectedPlatform } from '@nxt1/core/profile';
 import { asyncHandler, sendError } from '@nxt1/core/errors/express';
 import { validationError, notFoundError, forbiddenError } from '@nxt1/core/errors';
-import type { ConnectedSource, SportProfile, UserRole } from '@nxt1/core';
+import type { ConnectedSource, SportProfile, TeamType, UserRole } from '@nxt1/core';
 import type { UpdateSportProfileRequest } from '@nxt1/core';
 import type { TeamSelectionFormData } from '@nxt1/core/api';
 import { RosterEntryStatus } from '@nxt1/core/models';
@@ -384,7 +384,9 @@ router.put(
       return;
     }
 
-    const { sportIndex, updates } = req.body as UpdateSportProfileRequest;
+    const { sportIndex, updates } = req.body as Omit<UpdateSportProfileRequest, 'updates'> & {
+      updates: Partial<SportProfile> & { teamSelection?: TeamSelectionFormData };
+    };
 
     if (
       sportIndex === undefined ||
@@ -424,7 +426,140 @@ router.put(
       return;
     }
 
-    const updatedSport: SportProfile = { ...sports[sportIndex], ...updates } as SportProfile;
+    const userRole = (currentData['role'] as string | undefined) ?? 'athlete';
+    const managedRole: ManagedUserRole =
+      userRole === 'coach' || userRole === 'director' ? userRole : 'athlete';
+    const requestedTeamSelection =
+      updates.teamSelection &&
+      Array.isArray(updates.teamSelection.teams) &&
+      updates.teamSelection.teams.length > 0
+        ? updates.teamSelection
+        : undefined;
+    const updatesWithoutTeamSelection = { ...updates } as Partial<SportProfile> & {
+      teamSelection?: TeamSelectionFormData;
+    };
+    delete updatesWithoutTeamSelection.teamSelection;
+
+    const updatedSport: SportProfile = {
+      ...sports[sportIndex],
+      ...updatesWithoutTeamSelection,
+    } as SportProfile;
+
+    if (requestedTeamSelection) {
+      const location = currentData['location'] as { city?: string; state?: string } | undefined;
+      const fallbackCoachTitle =
+        sports.find((entry) => entry.team?.title)?.team?.title ||
+        (currentData['coachTitle'] as string | undefined);
+
+      try {
+        const provisionResult = await provisionOnboardingPrograms({
+          db,
+          userId,
+          role: managedRole,
+          sports: [updatedSport],
+          currentUser: {
+            firstName: (currentData['firstName'] as string | undefined) ?? '',
+            lastName: (currentData['lastName'] as string | undefined) ?? '',
+            displayName: (currentData['displayName'] as string | undefined) ?? undefined,
+            email: (currentData['email'] as string | undefined) ?? undefined,
+            contact: {
+              phone:
+                (currentData['contact'] as { phone?: string } | undefined)?.phone ??
+                (currentData['phoneNumber'] as string | undefined),
+            },
+            profileImgs: (currentData['profileImgs'] as string[] | undefined) ?? [],
+          },
+          updateData: {
+            firstName: (currentData['firstName'] as string | undefined) ?? '',
+            lastName: (currentData['lastName'] as string | undefined) ?? '',
+            profileImgs: (currentData['profileImgs'] as string[] | undefined) ?? [],
+            coachTitle: fallbackCoachTitle,
+            athlete:
+              typeof currentData['classOf'] === 'number'
+                ? { classOf: currentData['classOf'] as number }
+                : undefined,
+            location: location
+              ? {
+                  city: location.city,
+                  state: location.state,
+                }
+              : undefined,
+          },
+          teamSelection: {
+            teams: requestedTeamSelection.teams ? [...requestedTeamSelection.teams] : undefined,
+          },
+        });
+
+        const provisionedTeam = provisionResult.sportTeamMap.get(
+          updatedSport.sport.trim().toLowerCase()
+        );
+
+        if (provisionedTeam) {
+          const primarySelection = requestedTeamSelection.teams[0];
+          updatedSport.team = {
+            ...(updatedSport.team ?? {}),
+            name: provisionedTeam.orgName,
+            teamId: provisionedTeam.teamId,
+            organizationId: provisionedTeam.organizationId,
+            type: (updatedSport.team?.type ||
+              primarySelection?.teamType ||
+              (managedRole === 'athlete' ? 'high-school' : 'organization')) as TeamType,
+          };
+        }
+
+        for (const transition of provisionResult.membershipTransitions) {
+          const teamDoc = await db.collection('Teams').doc(transition.teamId).get();
+          const resolvedTeamName =
+            (teamDoc.data()?.['teamName'] as string | undefined)?.trim() || transition.sport;
+
+          void notifyTeamJoined(db, {
+            teamId: transition.teamId,
+            teamName: resolvedTeamName,
+            organizationId: transition.organizationId,
+            joinerUid: userId,
+            joinerName:
+              [
+                (currentData['firstName'] as string | undefined) ?? '',
+                (currentData['lastName'] as string | undefined) ?? '',
+              ]
+                .map((value) => value.trim())
+                .filter(Boolean)
+                .join(' ') ||
+              ((currentData['displayName'] as string | undefined) ?? 'Someone'),
+            joinerAvatarUrl:
+              ((currentData['profileImgs'] as string[] | undefined) ?? [])[0] ?? null,
+            pending: transition.pending,
+          }).catch((err) =>
+            logger.error('[Profile] Failed to dispatch updated-sport membership notification', {
+              error: err instanceof Error ? err.message : String(err),
+              teamId: transition.teamId,
+              userId,
+              sport: transition.sport,
+              sportIndex,
+            })
+          );
+        }
+      } catch (err) {
+        logger.error('[Profile] Failed to provision selected organization for updated sport', {
+          error: err,
+          userId,
+          sport: updatedSport.sport,
+          sportIndex,
+        });
+        sendError(
+          res,
+          validationError([
+            {
+              field: 'teamSelection',
+              message: 'Failed to connect this sport to the selected organization.',
+              rule: 'server',
+            },
+          ])
+        );
+        return;
+      }
+    }
+
     const updatedSports = [...sports];
     updatedSports[sportIndex] = updatedSport;
 

@@ -1616,6 +1616,18 @@ function buildRecurringTaskPayload(userId: string, actionSummary: string, source
   };
 }
 
+function parsePendingInitialRunAt(data: Record<string, unknown>): string | null {
+  const firstRunAt = readRecurringTaskString(data, 'firstRunAt');
+  if (!firstRunAt) return null;
+  const parsedMs = Date.parse(firstRunAt);
+  if (!Number.isFinite(parsedMs) || parsedMs <= Date.now()) return null;
+  return new Date(parsedMs).toISOString();
+}
+
+function readRecurringTaskInitialJobId(data: Record<string, unknown>): string | undefined {
+  return readRecurringTaskString(data, 'initialRunJobId');
+}
+
 // ─── GET /jobs/:operationId ─────────────────────────────────────────────────
 
 router.get('/jobs/:operationId', appGuard, async (req: Request, res: Response) => {
@@ -1922,10 +1934,18 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
           const sourceId = resolveRecurringTaskSourceId(data);
           const resolvedTitle = sourceId ? (threadTitleById.get(sourceId)?.trim() ?? '') : '';
           const createdAt = data['createdAt'] as TimestampLike | undefined;
-          const nextRunIso =
+          const repeatableNextRunIso =
             typeof repeatable?.nextRun === 'number'
               ? new Date(repeatable.nextRun).toISOString()
               : null;
+          const pendingFirstRunAt = parsePendingInitialRunAt(data);
+          const initialRunJobId = readRecurringTaskInitialJobId(data);
+          const pendingInitialRun =
+            pendingFirstRunAt && initialRunJobId && queueService
+              ? await queueService.getJobStatus(initialRunJobId).catch(() => null)
+              : null;
+          const nextRunIso =
+            pendingInitialRun?.status === 'queued' ? pendingFirstRunAt : repeatableNextRunIso;
 
           entries.push({
             id: `schedule:${doc.id}`,
@@ -3868,10 +3888,23 @@ router.patch(
       const timezone = readRecurringTaskString(data, 'timezone') ?? 'UTC';
       const jobName = readRecurringTaskString(data, 'jobName') ?? `recv:${user.uid}:${Date.now()}`;
       const sourceId = resolveRecurringTaskSourceId(data);
+      const firstRunAt = parsePendingInitialRunAt(data);
+      const existingInitialRunJobId = readRecurringTaskInitialJobId(data);
       const previousTitle = readRecurringTaskString(data, 'actionSummary') ?? 'Scheduled task';
 
       const previousPayload = buildRecurringTaskPayload(user.uid, previousTitle, sourceId);
       const nextPayload = buildRecurringTaskPayload(user.uid, nextTitle, sourceId);
+      const nextDocData: Record<string, unknown> = {
+        ...data,
+        userId: user.uid,
+        actionSummary: nextTitle,
+        title: nextTitle,
+        cronExpression,
+        timezone,
+        jobName,
+        ...(sourceId ? { sourceId } : {}),
+        updatedAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+      };
 
       const removed = await queueService.removeRecurringJob(taskKey);
       if (!removed) {
@@ -3888,8 +3921,43 @@ router.patch(
           cronExpression,
           timezone,
           nextPayload,
+          firstRunAt
+            ? { startDate: new Date(Date.parse(firstRunAt) + 60_000).toISOString() }
+            : undefined,
           'production'
         );
+
+        if (firstRunAt) {
+          const initialPayload = {
+            ...nextPayload,
+            operationId: `recurring-initial-${user.uid}-${Date.now()}`,
+            context: {
+              ...(typeof nextPayload.context === 'object' && nextPayload.context
+                ? nextPayload.context
+                : {}),
+              timezone,
+              recurringTaskKey: nextKey,
+              recurringInitialRun: true,
+            },
+          };
+          const delayMs = Math.max(0, Date.parse(firstRunAt) - Date.now());
+          const nextInitialRunJobId = await queueService.enqueueDelayed(
+            initialPayload,
+            delayMs,
+            'production'
+          );
+          if (existingInitialRunJobId) {
+            await queueService.cancel(existingInitialRunJobId).catch(() => false);
+          }
+          (nextDocData as Record<string, unknown>)['initialRunJobId'] = nextInitialRunJobId;
+          (nextDocData as Record<string, unknown>)['firstRunAt'] = firstRunAt;
+        } else {
+          if (existingInitialRunJobId) {
+            await queueService.cancel(existingInitialRunJobId).catch(() => false);
+          }
+          nextDocData['initialRunJobId'] = firebaseAdmin.firestore.FieldValue.delete();
+          nextDocData['firstRunAt'] = firebaseAdmin.firestore.FieldValue.delete();
+        }
       } catch (enqueueErr) {
         try {
           await queueService.enqueueRecurring(
@@ -3897,6 +3965,9 @@ router.patch(
             cronExpression,
             timezone,
             previousPayload,
+            firstRunAt
+              ? { startDate: new Date(Date.parse(firstRunAt) + 60_000).toISOString() }
+              : undefined,
             'production'
           );
         } catch (rollbackErr) {
@@ -3909,18 +3980,6 @@ router.patch(
 
         throw enqueueErr;
       }
-
-      const nextDocData = {
-        ...data,
-        userId: user.uid,
-        actionSummary: nextTitle,
-        title: nextTitle,
-        cronExpression,
-        timezone,
-        jobName,
-        ...(sourceId ? { sourceId } : {}),
-        updatedAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
-      };
 
       if (nextKey === taskKey) {
         await docRef.set(nextDocData, { merge: true });
@@ -3994,6 +4053,10 @@ router.post(
           taskKey,
         });
 
+        const initialRunJobId = readRecurringTaskInitialJobId(data);
+        if (initialRunJobId) {
+          await queueService.cancel(initialRunJobId).catch(() => false);
+        }
         res.status(409).json({
           success: false,
           error:
