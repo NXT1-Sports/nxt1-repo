@@ -3031,6 +3031,87 @@ export function evictBillingResolutionCache(userId: string): void {
   billingResolutionCache.delete(userId);
 }
 
+async function resolveIndividualBillingTarget(
+  db: Firestore,
+  userId: string,
+  target: BillingTargetReference,
+  options?: { persist?: boolean }
+): Promise<ResolvedBillingTarget> {
+  billingResolutionCache.delete(userId);
+
+  if (options?.persist) {
+    await setActiveBillingTarget(db, userId, target);
+  }
+
+  await ensureNormalizedBillingOwner(db, target);
+  const ctx = await getBillingStateForTarget(db, userId, target);
+  if (!ctx) {
+    throw new Error(`Personal billing context not found for ${userId}`);
+  }
+
+  return {
+    type: 'individual',
+    billingUserId: userId,
+    context: ctx,
+    organizationId: target.organizationId,
+    teamIds: target.teamId ? [target.teamId] : undefined,
+  };
+}
+
+async function hasActiveAccessToOrganizationBillingTarget(
+  db: Firestore,
+  userId: string,
+  organizationId: string,
+  role: string | undefined
+): Promise<boolean> {
+  const organizationAdminIds = await getOrganizationAdminIds(db, organizationId);
+  if (organizationAdminIds.length === 0) {
+    return false;
+  }
+
+  if (organizationAdminIds.includes(userId)) {
+    return true;
+  }
+
+  const orgDoc = await db.collection('Organizations').doc(organizationId).get();
+  const ownerId = orgDoc.data()?.['ownerId'];
+  if ((role === 'director' || role === 'coach') && ownerId === userId) {
+    return true;
+  }
+
+  const rosterSnap = await db
+    .collection('RosterEntries')
+    .where('userId', '==', userId)
+    .where('status', '==', 'active')
+    .get();
+
+  if (rosterSnap.empty) {
+    return false;
+  }
+
+  const rosterDocs = rosterSnap.docs.map((doc) => doc.data());
+  if (rosterDocs.some((doc) => doc['organizationId'] === organizationId)) {
+    return true;
+  }
+
+  const teamIds = Array.from(
+    new Set(
+      rosterDocs
+        .map((doc) => doc['teamId'])
+        .filter((teamId): teamId is string => typeof teamId === 'string' && teamId.length > 0)
+    )
+  );
+
+  if (teamIds.length === 0) {
+    return false;
+  }
+
+  const teamDocs = await Promise.all(
+    teamIds.map((teamId) => db.collection('Teams').doc(teamId).get())
+  );
+  return teamDocs.some((teamDoc) => teamDoc.data()?.['organizationId'] === organizationId);
+}
+
 /**
  * Called immediately after a coach/director's organization is created during
  * onboarding.  Writes the org billing target to the user's `Users` doc and
@@ -3076,82 +3157,103 @@ export async function resolveBillingTarget(
     storedTarget.ownerType === 'organization' && typeof storedTarget.organizationId === 'string';
   const shouldUsePersonalBilling =
     options?.billingMode === 'personal' || (!options?.billingMode && hasStoredPersonalSelection);
+  let userRole: string | undefined;
+  let hasLoadedUserRole = false;
+  const loadUserRole = async (): Promise<string | undefined> => {
+    if (!hasLoadedUserRole) {
+      const userDoc = await db.collection('Users').doc(userId).get();
+      userRole = userDoc.data()?.['role'] as string | undefined;
+      hasLoadedUserRole = true;
+    }
+
+    return userRole;
+  };
 
   if (shouldUsePersonalBilling) {
-    billingResolutionCache.delete(userId);
-    const personalTarget = buildPersonalBillingTarget(
-      userId,
-      storedTarget.organizationId,
-      storedTarget.teamId
-    );
-    await ensureNormalizedBillingOwner(db, personalTarget);
-    const ctx = await getBillingStateForTarget(db, userId, personalTarget);
-    if (!ctx) {
-      throw new Error(`Personal billing context not found for ${userId}`);
-    }
-    return {
-      type: 'individual',
-      billingUserId: userId,
-      context: ctx,
-      organizationId: personalTarget.organizationId,
-      teamIds: personalTarget.teamId ? [personalTarget.teamId] : undefined,
-    };
+    const storedOrganizationId =
+      typeof storedTarget.organizationId === 'string' ? storedTarget.organizationId : undefined;
+    const shouldStripOrganizationContext = storedOrganizationId
+      ? !(await hasActiveAccessToOrganizationBillingTarget(
+          db,
+          userId,
+          storedOrganizationId,
+          await loadUserRole()
+        ))
+      : false;
+
+    const personalTarget = shouldStripOrganizationContext
+      ? buildPersonalBillingTarget(userId, undefined, undefined, 'personal', true)
+      : buildPersonalBillingTarget(
+          userId,
+          storedTarget.organizationId,
+          storedTarget.teamId,
+          'personal',
+          true
+        );
+
+    return resolveIndividualBillingTarget(db, userId, personalTarget, {
+      persist: shouldStripOrganizationContext,
+    });
   }
 
   if (storedTarget.ownerType === 'organization' && storedTarget.organizationId) {
-    const organizationAdminIds = await getOrganizationAdminIds(db, storedTarget.organizationId);
+    const stillHasAccessToStoredOrg = await hasActiveAccessToOrganizationBillingTarget(
+      db,
+      userId,
+      storedTarget.organizationId,
+      await loadUserRole()
+    );
 
-    if (organizationAdminIds.length === 0) {
+    if (!stillHasAccessToStoredOrg) {
       const personalTarget = buildPersonalBillingTarget(
         userId,
-        storedTarget.organizationId,
-        storedTarget.teamId
+        undefined,
+        undefined,
+        'personal',
+        true
       );
-      await ensureNormalizedBillingOwner(db, personalTarget);
-      await setActiveBillingTarget(db, userId, personalTarget);
       logger.info(
-        '[resolveBillingTarget] Stored org billing target has no admins; falling back to personal',
+        '[resolveBillingTarget] Stored org billing target is no longer valid; falling back to personal',
         {
           userId,
           organizationId: storedTarget.organizationId,
         }
       );
-    } else {
-      const orgTarget = buildOrganizationBillingTarget(
-        storedTarget.organizationId,
-        storedTarget.teamId,
-        'organization'
-      );
-      const billingOwnerUid = await getOrganizationBillingOwnerUid(db, storedTarget.organizationId);
-      await ensureNormalizedBillingOwner(
-        db,
-        orgTarget,
-        billingOwnerUid ? { billingOwnerUid } : undefined
-      );
-      const ctx = await getBillingStateForTarget(db, userId, orgTarget);
-      if (!ctx) {
-        throw new Error(
-          `Organization billing context not found for ${storedTarget.organizationId}`
-        );
-      }
-
-      const teamsSnap = await db
-        .collection('Teams')
-        .where('organizationId', '==', storedTarget.organizationId)
-        .get();
-      const teamIds = teamsSnap.docs.map((doc) => doc.id);
-      if (storedTarget.teamId && !teamIds.includes(storedTarget.teamId)) {
-        teamIds.push(storedTarget.teamId);
-      }
-
-      return {
-        type: 'organization',
-        billingUserId: `org:${storedTarget.organizationId}`,
-        context: ctx,
-        organizationId: storedTarget.organizationId,
-        teamIds,
-      };
+      return resolveIndividualBillingTarget(db, userId, personalTarget, { persist: true });
     }
+
+    const orgTarget = buildOrganizationBillingTarget(
+      storedTarget.organizationId,
+      storedTarget.teamId,
+      'organization'
+    );
+    const billingOwnerUid = await getOrganizationBillingOwnerUid(db, storedTarget.organizationId);
+    await ensureNormalizedBillingOwner(
+      db,
+      orgTarget,
+      billingOwnerUid ? { billingOwnerUid } : undefined
+    );
+    const ctx = await getBillingStateForTarget(db, userId, orgTarget);
+    if (!ctx) {
+      throw new Error(`Organization billing context not found for ${storedTarget.organizationId}`);
+    }
+
+    const teamsSnap = await db
+      .collection('Teams')
+      .where('organizationId', '==', storedTarget.organizationId)
+      .get();
+    const teamIds = teamsSnap.docs.map((doc) => doc.id);
+    if (storedTarget.teamId && !teamIds.includes(storedTarget.teamId)) {
+      teamIds.push(storedTarget.teamId);
+    }
+
+    return {
+      type: 'organization',
+      billingUserId: `org:${storedTarget.organizationId}`,
+      context: ctx,
+      organizationId: storedTarget.organizationId,
+      teamIds,
+    };
   }
 
   // ── Check resolution cache (mapping only, NOT the live context) ──
@@ -3182,9 +3284,7 @@ export async function resolveBillingTarget(
   }
 
   // ── Read user role ──
-  const userDoc = await db.collection('Users').doc(userId).get();
-  const userData = userDoc.data();
-  const role = userData?.['role'] as string | undefined;
+  const role = await loadUserRole();
 
   // ── Try to resolve to an organization (directors always, others via roster) ──
   const orgTarget = await resolveUserOrgTarget(db, userId, role);
@@ -3252,12 +3352,24 @@ export async function resolveBillingTarget(
   }
 
   // ── Fallback: individual billing ──
-  const ctx = await ensureUserBillingState(db, userId);
-  const target: ResolvedBillingTarget = {
-    type: 'individual',
-    billingUserId: userId,
-    context: ctx,
-  };
+  if (
+    storedTarget.organizationId ||
+    storedTarget.teamId ||
+    storedTarget.ownerType === 'organization'
+  ) {
+    return resolveIndividualBillingTarget(
+      db,
+      userId,
+      buildPersonalBillingTarget(userId, undefined, undefined, 'personal', true),
+      { persist: true }
+    );
+  }
+
+  const target = await resolveIndividualBillingTarget(
+    db,
+    userId,
+    buildPersonalBillingTarget(userId)
+  );
 
   billingResolutionCache.set(userId, {
     type: 'individual',

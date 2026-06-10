@@ -168,6 +168,14 @@ describe('provisionOnboardingPrograms roster sync', () => {
 
     expect(result.teamIds).toEqual(['legacy-akron-east-football']);
     expect(result.createdTeamIds).toEqual([]);
+    expect(result.membershipTransitions).toEqual([
+      {
+        teamId: 'legacy-akron-east-football',
+        organizationId: 'org-1',
+        sport: 'Football',
+        pending: false,
+      },
+    ]);
     expect(createTeamCodeMock).not.toHaveBeenCalled();
     expect(incrementTeamCountMock).not.toHaveBeenCalled();
     expect(createRosterEntryMock).toHaveBeenCalledWith(
@@ -304,6 +312,41 @@ describe('provisionOnboardingPrograms roster sync', () => {
       })
     );
     expect(createRosterEntryMock).not.toHaveBeenCalled();
+  });
+
+  it('returns only newly created membership transitions for athlete onboarding', async () => {
+    const db = createMockDb();
+
+    const result = await provisionOnboardingPrograms({
+      db: db as never,
+      userId: 'athlete-1',
+      role: 'athlete',
+      sports: [
+        {
+          sport: 'Football',
+          order: 0,
+          positions: ['QB'],
+          team: { type: 'high-school', name: 'Alcoa' },
+        },
+      ],
+      currentUser: { email: 'athlete@test.com' },
+      updateData: {
+        firstName: 'Peyton',
+        lastName: 'Manning',
+      },
+      teamSelection: {
+        teams: [{ id: 'org-1', name: 'Alcoa', organizationId: 'org-1', teamType: 'high-school' }],
+      },
+    });
+
+    expect(result.membershipTransitions).toEqual([
+      {
+        teamId: 'team-1',
+        organizationId: 'org-1',
+        sport: 'Football',
+        pending: true,
+      },
+    ]);
   });
 
   it('fails provisioning when roster synchronization fails', async () => {

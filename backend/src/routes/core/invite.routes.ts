@@ -1223,6 +1223,7 @@ router.post(
               body: joinedAsPending
                 ? 'Your request is pending admin approval.'
                 : `Welcome to ${team.teamName ?? teamJoined ?? 'your team'}!`,
+              deepLink: '',
               data: team.id ? { teamId: team.id } : undefined,
               source: { teamName: team.teamName ?? teamJoined },
             }).catch((err) =>

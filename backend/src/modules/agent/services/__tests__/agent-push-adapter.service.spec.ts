@@ -28,21 +28,44 @@ describe('agent-push-adapter.service', () => {
     expect(payload.idempotencyKey).toBe('agent_task_completed_op-1');
   });
 
-  it('maps briefing ready intent to a deterministic per-operation agent action payload', () => {
+  it('maps briefing ready intent to a deterministic per-user daily agent action payload', () => {
     const payload = toDispatchInput({
       kind: 'agent_briefing_ready',
       userId: 'user-1',
       operationId: 'briefing-op-1',
       title: 'Daily Briefing Ready',
       body: 'Your morning briefing is ready.',
+      briefingDate: '2026-06-09T15:00:00.000Z',
     });
 
     expect(payload.type).toBe('agent_action');
     expect(payload.data).toMatchObject({
       operationId: 'briefing-op-1',
-      entityId: 'briefing-op-1',
+      entityId: 'briefing_2026-06-09',
+      briefingDate: '2026-06-09',
     });
-    expect(payload.idempotencyKey).toBe('agent_briefing_ready_briefing-op-1');
+    expect(payload.idempotencyKey).toBe('agent_briefing_ready_user-1_2026-06-09');
+  });
+
+  it('dedupes repeated briefing ready intents for the same user and day', () => {
+    const firstPayload = toDispatchInput({
+      kind: 'agent_briefing_ready',
+      userId: 'user-1',
+      operationId: 'briefing-op-1',
+      title: 'Daily Briefing Ready',
+      body: 'First briefing copy.',
+      briefingDate: '2026-06-09T15:00:00.000Z',
+    });
+    const retryPayload = toDispatchInput({
+      kind: 'agent_briefing_ready',
+      userId: 'user-1',
+      operationId: 'briefing-op-2',
+      title: 'Daily Briefing Ready',
+      body: 'Updated briefing copy.',
+      briefingDate: '2026-06-09T15:01:00.000Z',
+    });
+
+    expect(retryPayload.idempotencyKey).toBe(firstPayload.idempotencyKey);
   });
 
   it('maps needs approval intent to high-priority dynamic alert payload', () => {

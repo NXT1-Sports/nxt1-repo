@@ -1491,6 +1491,7 @@ export class AgentGenerationService {
         body:
           briefingPreviewText ||
           `Agent X prepared ${briefingInsights.length} insights for your day.`,
+        briefingDate: generatedAt,
       });
     } catch (notifErr) {
       logger.warn('Failed to dispatch briefing generation notification', {

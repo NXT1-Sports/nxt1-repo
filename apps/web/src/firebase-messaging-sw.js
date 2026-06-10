@@ -87,7 +87,7 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
 
-  const deepLink = event.notification.data?.deepLink || '/';
+  const deepLink = event.notification.data?.deepLink || '/activity';
 
   event.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {

@@ -902,6 +902,7 @@ router.post(
       type: NOTIFICATION_TYPES.TEAM_JOIN_REQUEST,
       title: `You joined ${team.teamName}`,
       body: `Welcome to ${team.teamName}!`,
+      deepLink: '',
       data: team.id ? { teamId: team.id } : undefined,
       source: { teamName: team.teamName },
     }).catch((err) =>

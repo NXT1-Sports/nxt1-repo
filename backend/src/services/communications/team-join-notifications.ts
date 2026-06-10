@@ -131,18 +131,30 @@ export async function notifyTeamJoined(
       ? `Tap to review and approve the request.`
       : `A new member is now on your roster.`;
 
+    const initialFilter = pending ? 'pending' : 'roster';
+    const deepLink = `/activity?manageMembersTeamId=${encodeURIComponent(
+      teamId
+    )}&filter=${initialFilter}`;
     const idempotencyKey = `team_joined_${teamId}_${joinerUid}_${pending ? 'pending' : 'active'}`;
 
     const dispatched = await dispatchToMany(db, recipients, {
       type,
       title,
       body,
+      deepLink,
       data: {
         teamId,
+        manageMembersTeamId: teamId,
+        manageMembersFilter: initialFilter,
         ...(organizationId ? { organizationId } : {}),
         joinerUid,
         pending: String(pending),
         ...(inviterUid ? { inviterUid } : {}),
+      },
+      metadata: {
+        navigationTarget: 'manage-members',
+        teamId,
+        initialFilter,
       },
       source: {
         userId: joinerUid,
@@ -195,7 +207,7 @@ export async function notifyMembershipApproved(
       type: NOTIFICATION_TYPES.TEAM_MEMBER_JOINED,
       title: `You're on ${teamName}`,
       body: `Your request to join ${teamName} was accepted.`,
-      deepLink: `/team/${teamId}`,
+      deepLink: '',
       data: {
         teamId,
         approvedBy,

@@ -694,11 +694,23 @@ export class RosterEntryService {
 
     const entry = await this.getRosterEntryById(entryId);
 
-    await this.db.collection(this.COLLECTION).doc(entryId).update({
+    if (entry.status === RosterEntryStatus.REMOVED) {
+      await this.invalidateCaches(entry.userId, entry.teamId, entry.organizationId, entryId);
+      return;
+    }
+
+    const counterField = normalizeRole(entry.role) === 'athlete' ? 'athleteMember' : 'panelMember';
+    const batch = this.db.batch();
+    batch.update(this.db.collection(this.COLLECTION).doc(entryId), {
       status: RosterEntryStatus.REMOVED,
       leftAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
+    batch.update(this.db.collection('Teams').doc(entry.teamId), {
+      [counterField]: FieldValue.increment(-1),
+    });
+
+    await batch.commit();
 
     // Bidirectional sync — clear sports[n].team on user doc
     await this.syncUserSportTeamField(entry.userId, entry.sport, null);

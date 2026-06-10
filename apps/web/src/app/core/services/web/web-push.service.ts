@@ -446,14 +446,14 @@ export class WebPushService {
   }
 
   private openManageMembersModal(deepLink: string): boolean {
-    if (!deepLink.startsWith('/manage-team')) {
+    if (!deepLink.startsWith('/manage-team') && !deepLink.startsWith('/activity')) {
       return false;
     }
 
     try {
       const url = new URL(deepLink, 'https://nxt1.local');
-      const teamId = url.searchParams.get('teamId');
-      const tab = url.searchParams.get('tab');
+      const teamId = url.searchParams.get('manageMembersTeamId') ?? url.searchParams.get('teamId');
+      const tab = url.searchParams.get('filter') ?? url.searchParams.get('tab');
       if (!teamId) {
         return false;
       }
