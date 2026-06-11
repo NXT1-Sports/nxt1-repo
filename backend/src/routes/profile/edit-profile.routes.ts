@@ -577,27 +577,32 @@ function sectionToFirestoreUpdate(
           }
           targetSport.positions = Array.from(normalized);
         }
-        if (!targetSport.team) {
-          targetSport.team = { type: TEAM_TYPES.HIGH_SCHOOL, name: '' };
-        }
         if (data.teamName !== undefined) {
-          targetSport.team.name = data.teamName || '';
+          const normalizedTeamName = data.teamName.trim();
+          if (!normalizedTeamName) {
+            delete targetSport.team;
+          } else {
+            targetSport.team = {
+              ...(targetSport.team ?? { type: TEAM_TYPES.HIGH_SCHOOL }),
+              name: normalizedTeamName,
+            };
+          }
         }
-        if (data.teamType !== undefined) {
+        if (targetSport.team && data.teamType !== undefined) {
           const validTypes = Object.values(TEAM_TYPES) as string[];
           const incoming = data.teamType || TEAM_TYPES.HIGH_SCHOOL;
           targetSport.team.type = validTypes.includes(incoming)
             ? (incoming as TeamType)
             : TEAM_TYPES.HIGH_SCHOOL;
         }
-        if (data.teamOrganizationId !== undefined) {
+        if (targetSport.team && data.teamOrganizationId !== undefined) {
           targetSport.team.organizationId = data.teamOrganizationId || undefined;
         }
 
         logger.debug('[EditProfile] Updating team info', {
-          teamName: targetSport.team.name,
-          teamType: targetSport.team.type,
-          organizationId: targetSport.team.organizationId,
+          teamName: targetSport.team?.name,
+          teamType: targetSport.team?.type,
+          organizationId: targetSport.team?.organizationId,
         });
       }
 
