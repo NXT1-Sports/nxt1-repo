@@ -124,7 +124,7 @@ jobs:
         run: npm run build
 
       - name: Deploy to Firebase (Staging)
-        uses: w9jds/firebase-action@v15.19.1
+        uses: w9jds/firebase-action@v15.17.0
         with:
           args: deploy --only ${{ github.event.inputs.functions && format('functions:{0}', github.event.inputs.functions) || 'functions' }} --project nxt-1-staging-v2 --force
         env:
@@ -177,7 +177,7 @@ jobs:
         run: npm run build
 
       - name: Deploy to Firebase (Production)
-        uses: w9jds/firebase-action@v15.19.1
+        uses: w9jds/firebase-action@v15.17.0
         with:
           args: deploy --only ${{ github.event.inputs.functions && format('functions:{0}', github.event.inputs.functions) || 'functions' }} --project nxt-1-v2 --force
         env:

@@ -85,7 +85,7 @@ jobs:
         run: npm run build:staging
 
       - name: Deploy to Firebase Hosting Staging
-        uses: w9jds/firebase-action@v15.19.1
+        uses: w9jds/firebase-action@v15.17.0
         with:
           args: deploy --only hosting -P staging --force
         env:
