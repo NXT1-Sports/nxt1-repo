@@ -279,7 +279,11 @@ export async function notifyMembershipRemoved(
     }
 
     const teamSnap = await db.collection('Teams').doc(teamId).get();
-    const managerUserId = (teamSnap.data()?.['createdBy'] as string | undefined) ?? null;
+    const rawManagerUserId = teamSnap.data()?.['createdBy'];
+    const managerUserId =
+      typeof rawManagerUserId === 'string' && rawManagerUserId.trim().length > 0
+        ? rawManagerUserId.trim()
+        : null;
 
     if (managerUserId && managerUserId !== removedBy && managerUserId !== userId) {
       const memberName = input.memberName?.trim() || 'A member';

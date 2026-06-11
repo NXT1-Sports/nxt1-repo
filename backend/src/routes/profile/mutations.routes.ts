@@ -210,20 +210,22 @@ async function removePreviousSportMembership(options: {
       userId: options.userId,
       sport: options.sport,
     });
-    void notifyMembershipRemoved(options.db, {
-      teamId: options.teamId,
-      userId: options.userId,
-      removedBy: options.userId,
-      teamName: options.teamName,
-      memberName: options.memberName,
-    }).catch((err) =>
+    try {
+      await notifyMembershipRemoved(options.db, {
+        teamId: options.teamId,
+        userId: options.userId,
+        removedBy: options.userId,
+        teamName: options.teamName,
+        memberName: options.memberName,
+      });
+    } catch (err) {
       logger.error('[Profile] Failed to dispatch membership removal notification', {
         error: err instanceof Error ? err.message : String(err),
         teamId: options.teamId,
         userId: options.userId,
         sport: options.sport,
-      })
-    );
+      });
+    }
   }
 }
 
@@ -1363,20 +1365,22 @@ router.delete(
           userId,
           sport: removedSport?.sport,
         });
-        void notifyMembershipRemoved(db, {
-          teamId: removedTeamId,
-          userId,
-          removedBy: userId,
-          teamName: removedSport?.team?.name,
-          memberName: buildProfileJoinerIdentity(currentData).joinerName,
-        }).catch((err) =>
+        try {
+          await notifyMembershipRemoved(db, {
+            teamId: removedTeamId,
+            userId,
+            removedBy: userId,
+            teamName: removedSport?.team?.name,
+            memberName: buildProfileJoinerIdentity(currentData).joinerName,
+          });
+        } catch (err) {
           logger.error('[Profile] Failed to dispatch removed-sport membership notification', {
             error: err instanceof Error ? err.message : String(err),
             teamId: removedTeamId,
             userId,
             sport: removedSport?.sport,
-          })
-        );
+          });
+        }
       }
     }
 

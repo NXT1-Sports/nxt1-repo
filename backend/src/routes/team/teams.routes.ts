@@ -68,6 +68,7 @@ import {
   canGenerateTeamIntelForUser,
   canManageTeamMembershipForRole,
 } from '../../services/team/team-intel-permissions.js';
+import { invalidateProfileCaches } from '../profile/shared.js';
 
 export {
   canGenerateTeamIntelForUser,
@@ -100,6 +101,24 @@ function validateRequired(value: unknown, fieldName: string): void {
     throw validationError([
       { field: fieldName, message: `${fieldName} is required`, rule: 'required' },
     ]);
+  }
+}
+
+async function invalidateMemberProfileCache(
+  db: Firestore,
+  userId: string,
+  logContext: Record<string, unknown>
+): Promise<void> {
+  try {
+    const userSnap = await db.collection('Users').doc(userId).get();
+    const unicode = userSnap.data()?.['unicode'];
+    await invalidateProfileCaches(userId, typeof unicode === 'string' ? unicode : undefined);
+  } catch (err) {
+    logger.warn('[Teams API] Failed to invalidate member profile cache', {
+      userId,
+      ...logContext,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
@@ -1030,6 +1049,11 @@ router.delete(
     const { team: existingTeam } = await teamCodeService.getTeamCodeById(db, String(id));
 
     await teamCodeService.removeMember(db, String(id), String(targetUserId), removerId);
+    await invalidateMemberProfileCache(db, String(targetUserId), {
+      teamId: id,
+      removedBy: removerId,
+      source: 'legacy-team-member-remove',
+    });
 
     logger.info('[Teams API] Member removed', { teamId: id, targetUserId });
 
@@ -1880,6 +1904,12 @@ router.delete(
     const rosterService = new RosterEntryService(db);
     const entry = await rosterService.getRosterEntryById(entryId);
     await rosterService.removeFromTeam(entryId);
+    await invalidateMemberProfileCache(db, entry.userId, {
+      teamId,
+      entryId,
+      removedBy: requesterId,
+      source: 'membership-remove',
+    });
     const { team } = await teamCodeService.getTeamCodeById(db, teamId, false);
     await invalidateTeamProfileCache(teamId, team.slug ?? undefined, team.teamCode ?? undefined);
 
@@ -1923,6 +1953,12 @@ router.post(
     const approved = await rosterService.approveRosterEntry({
       entryId,
       approvedBy: requesterId,
+    });
+    await invalidateMemberProfileCache(db, approved.userId, {
+      teamId,
+      entryId,
+      approvedBy: requesterId,
+      source: 'membership-approve',
     });
     const { team } = await teamCodeService.getTeamCodeById(db, teamId, false);
     await invalidateTeamProfileCache(teamId, team.slug ?? undefined, team.teamCode ?? undefined);

@@ -154,20 +154,22 @@ async function removePreviousSportMembership(options: {
       userId: options.userId,
       sport: options.sport,
     });
-    void notifyMembershipRemoved(options.db, {
-      teamId: options.teamId,
-      userId: options.userId,
-      removedBy: options.userId,
-      teamName: options.teamName,
-      memberName: options.memberName,
-    }).catch((err) =>
+    try {
+      await notifyMembershipRemoved(options.db, {
+        teamId: options.teamId,
+        userId: options.userId,
+        removedBy: options.userId,
+        teamName: options.teamName,
+        memberName: options.memberName,
+      });
+    } catch (err) {
       logger.error('[EditProfile] Failed to dispatch membership removal notification', {
         error: err instanceof Error ? err.message : String(err),
         teamId: options.teamId,
         userId: options.userId,
         sport: options.sport,
-      })
-    );
+      });
+    }
   }
 }
 
