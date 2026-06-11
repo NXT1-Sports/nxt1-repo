@@ -168,4 +168,72 @@ describe('AgentChatService', () => {
       { upsert: true }
     );
   });
+
+  it('replaces short fresh placeholder titles with generated titles', async () => {
+    const service = new AgentChatService();
+
+    vi.mocked(AgentThreadModel.findOne).mockReturnValueOnce(
+      leanExecResult({
+        _id: 'thread-123',
+        userId: 'user-123',
+        title: 'Create',
+        category: 'general',
+        lastAgentId: null,
+        lastMessageAt: '2026-06-11T19:57:18.000Z',
+        messageCount: 1,
+        archived: false,
+        createdAt: '2026-06-11T19:57:17.000Z',
+        updatedAt: '2026-06-11T19:57:18.000Z',
+      }) as never
+    );
+    vi.mocked(AgentThreadModel.updateOne).mockReturnValueOnce(
+      execResult({ modifiedCount: 1 }) as never
+    );
+
+    const result = await service.applyGeneratedThreadTitle(
+      'thread-123',
+      'user-123',
+      'Create Highlight Reel from uploaded clips',
+      'Create Highlight Reel'
+    );
+
+    expect(result).toBe('Create Highlight Reel');
+    expect(AgentThreadModel.updateOne).toHaveBeenCalledWith(
+      { _id: 'thread-123', userId: 'user-123' },
+      expect.objectContaining({
+        $set: expect.objectContaining({
+          title: 'Create Highlight Reel',
+        }),
+      })
+    );
+  });
+
+  it('does not replace short manual titles on established threads', async () => {
+    const service = new AgentChatService();
+
+    vi.mocked(AgentThreadModel.findOne).mockReturnValueOnce(
+      leanExecResult({
+        _id: 'thread-456',
+        userId: 'user-123',
+        title: 'Create',
+        category: 'general',
+        lastAgentId: null,
+        lastMessageAt: '2026-06-11T19:57:18.000Z',
+        messageCount: 3,
+        archived: false,
+        createdAt: '2026-06-11T19:57:17.000Z',
+        updatedAt: '2026-06-11T19:57:18.000Z',
+      }) as never
+    );
+
+    const result = await service.applyGeneratedThreadTitle(
+      'thread-456',
+      'user-123',
+      'Create Highlight Reel from uploaded clips',
+      'Create Highlight Reel'
+    );
+
+    expect(result).toBeNull();
+    expect(AgentThreadModel.updateOne).not.toHaveBeenCalled();
+  });
 });

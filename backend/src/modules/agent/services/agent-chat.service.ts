@@ -509,10 +509,24 @@ export class AgentChatService {
     const currentTitle = normalize(thread.title);
     const trimmedUserMessage = normalize(userMessage);
     const promptPrefix80 = normalize(userMessage.trim().slice(0, 80));
+    const lowerCurrentTitle = currentTitle.toLowerCase();
+    const lowerPromptPrefix80 = promptPrefix80.toLowerCase();
+    const isWholeWordPromptPrefix =
+      lowerPromptPrefix80 === lowerCurrentTitle ||
+      lowerPromptPrefix80.startsWith(`${lowerCurrentTitle} `) ||
+      lowerPromptPrefix80.startsWith(`${lowerCurrentTitle}:`) ||
+      lowerPromptPrefix80.startsWith(`${lowerCurrentTitle} -`) ||
+      lowerPromptPrefix80.startsWith(`${lowerCurrentTitle} (`);
+    const isShortFreshPlaceholder =
+      currentTitle.length > 0 &&
+      currentTitle.length < 20 &&
+      thread.messageCount <= 1 &&
+      isWholeWordPromptPrefix;
     const isRawPromptTitle =
       currentTitle.length === 0 ||
       currentTitle === promptPrefix80 ||
-      (currentTitle.length >= 20 && trimmedUserMessage.startsWith(currentTitle));
+      ((currentTitle.length >= 20 || isShortFreshPlaceholder) &&
+        trimmedUserMessage.startsWith(currentTitle));
 
     if (!isRawPromptTitle) {
       logger.debug('[AgentChatService] Skipping title overwrite — already labeled', {
