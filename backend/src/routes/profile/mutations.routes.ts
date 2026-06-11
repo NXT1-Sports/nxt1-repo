@@ -39,6 +39,7 @@ import {
   type UserFirestoreDoc,
   docToUser,
 } from './shared.js';
+import { invalidateTeamProfileCache } from '../../services/core/cache.service.js';
 
 const router = Router();
 const POSTS_COLLECTION = 'Posts';
@@ -205,20 +206,44 @@ async function removePreviousSportMembership(options: {
       existingMembership.sport?.trim().toLowerCase() === options.sport.trim().toLowerCase())
   ) {
     await options.rosterEntryService.removeFromTeam(existingMembership.id);
-    void notifyMembershipRemoved(options.db, {
-      teamId: options.teamId,
+    await invalidateRemovedTeamProfileCache(options.db, options.teamId, {
       userId: options.userId,
-      removedBy: options.userId,
-      teamName: options.teamName,
-      memberName: options.memberName,
-    }).catch((err) =>
+      sport: options.sport,
+    });
+    try {
+      await notifyMembershipRemoved(options.db, {
+        teamId: options.teamId,
+        userId: options.userId,
+        removedBy: options.userId,
+        teamName: options.teamName,
+        memberName: options.memberName,
+      });
+    } catch (err) {
       logger.error('[Profile] Failed to dispatch membership removal notification', {
         error: err instanceof Error ? err.message : String(err),
         teamId: options.teamId,
         userId: options.userId,
         sport: options.sport,
-      })
-    );
+      });
+    }
+  }
+}
+
+async function invalidateRemovedTeamProfileCache(
+  db: FirebaseFirestore.Firestore,
+  teamId: string,
+  logContext: Record<string, unknown>
+): Promise<void> {
+  try {
+    const teamSnap = await db.collection('Teams').doc(teamId).get();
+    const teamData = teamSnap.data() as { slug?: string; teamCode?: string } | undefined;
+    await invalidateTeamProfileCache(teamId, teamData?.slug, teamData?.teamCode);
+  } catch (err) {
+    logger.warn('[Profile] Failed to invalidate removed team profile cache', {
+      teamId,
+      ...logContext,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
@@ -1336,20 +1361,26 @@ router.delete(
         (!removedSportName || existingMembership.sport?.trim().toLowerCase() === removedSportName)
       ) {
         await rosterEntryService.removeFromTeam(existingMembership.id);
-        void notifyMembershipRemoved(db, {
-          teamId: removedTeamId,
+        await invalidateRemovedTeamProfileCache(db, removedTeamId, {
           userId,
-          removedBy: userId,
-          teamName: removedSport?.team?.name,
-          memberName: buildProfileJoinerIdentity(currentData).joinerName,
-        }).catch((err) =>
+          sport: removedSport?.sport,
+        });
+        try {
+          await notifyMembershipRemoved(db, {
+            teamId: removedTeamId,
+            userId,
+            removedBy: userId,
+            teamName: removedSport?.team?.name,
+            memberName: buildProfileJoinerIdentity(currentData).joinerName,
+          });
+        } catch (err) {
           logger.error('[Profile] Failed to dispatch removed-sport membership notification', {
             error: err instanceof Error ? err.message : String(err),
             teamId: removedTeamId,
             userId,
             sport: removedSport?.sport,
-          })
-        );
+          });
+        }
       }
     }
 

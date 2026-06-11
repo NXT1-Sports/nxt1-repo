@@ -7,6 +7,7 @@ import {
   extractGoogleWorkspaceErrorMessage,
   extractGoogleWorkspacePayload,
   filterGoogleWorkspaceToolDefinitions,
+  getGoogleWorkspaceToolMetadata,
   isGoogleWorkspaceAllowedToolName,
 } from './shared.js';
 import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
@@ -23,6 +24,12 @@ import {
 const GOOGLE_WORKSPACE_TOOL_TIMEOUT_MS = 90_000;
 const GOOGLE_WORKSPACE_SESSION_IDLE_TTL_MS = 2 * 60 * 1_000;
 const GOOGLE_WORKSPACE_MAX_SESSIONS = 100;
+const GOOGLE_WORKSPACE_AUDITED_EMAIL_MUTATION_TOOLS = new Set([
+  'create_gmail_draft',
+  'gmail_send_draft',
+  'gmail_reply_to_email',
+  'gmail_send_email',
+]);
 
 interface GoogleWorkspaceSessionEntry {
   readonly bridge: GoogleWorkspaceMcpBridgeService;
@@ -36,6 +43,24 @@ interface GoogleWorkspaceSessionEntry {
 function isAuthenticationError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /401|403|unauthorized|forbidden|invalid token|bearer/i.test(message.toLowerCase());
+}
+
+function logGoogleWorkspaceEmailMutation(params: {
+  phase: 'dispatch' | 'completed';
+  context: ToolExecutionContext;
+  toolName: string;
+  userId: string;
+  googleEmail: string;
+}): void {
+  logger.info(`[GoogleWorkspaceMCP] Approval-bound Gmail mutation ${params.phase}`, {
+    userId: params.userId,
+    sessionId: params.context.sessionId ?? null,
+    threadId: params.context.threadId ?? null,
+    operationId: params.context.operationId ?? null,
+    approvalId: params.context.approvalId ?? null,
+    toolName: params.toolName,
+    googleEmail: params.googleEmail,
+  });
 }
 
 export class GoogleWorkspaceMcpSessionService {
@@ -103,6 +128,9 @@ export class GoogleWorkspaceMcpSessionService {
     }
 
     const session = await this.getSession(context);
+    const metadata = getGoogleWorkspaceToolMetadata(toolName);
+    const shouldAuditEmailMutation =
+      metadata.service === 'gmail' && GOOGLE_WORKSPACE_AUDITED_EMAIL_MUTATION_TOOLS.has(toolName);
     if (this.isRichDocsTextMutation(toolName, args)) {
       try {
         const data = await this.executeRichDocsTextMutation(toolName, args, session);
@@ -116,6 +144,15 @@ export class GoogleWorkspaceMcpSessionService {
     const preparedArgs = this.prepareToolArguments(toolName, args);
     const enrichedArgs = this.injectGoogleEmail(preparedArgs, session.googleEmail);
     try {
+      if (shouldAuditEmailMutation) {
+        logGoogleWorkspaceEmailMutation({
+          phase: 'dispatch',
+          context,
+          toolName,
+          userId: context.userId,
+          googleEmail: session.googleEmail,
+        });
+      }
       const result = await session.bridge.executeTool(toolName, enrichedArgs, {
         timeoutMs: GOOGLE_WORKSPACE_TOOL_TIMEOUT_MS,
         signal: context.signal,
@@ -130,6 +167,15 @@ export class GoogleWorkspaceMcpSessionService {
           }
         );
       }
+      if (shouldAuditEmailMutation) {
+        logGoogleWorkspaceEmailMutation({
+          phase: 'completed',
+          context,
+          toolName,
+          userId: context.userId,
+          googleEmail: session.googleEmail,
+        });
+      }
       return extractGoogleWorkspacePayload(result);
     } catch (error) {
       if (session.cacheKey && isAuthenticationError(error)) {
@@ -142,6 +188,15 @@ export class GoogleWorkspaceMcpSessionService {
         const retrySession = await this.getSession(context, false);
         const retryEnrichedArgs = this.injectGoogleEmail(preparedArgs, retrySession.googleEmail);
         try {
+          if (shouldAuditEmailMutation) {
+            logGoogleWorkspaceEmailMutation({
+              phase: 'dispatch',
+              context,
+              toolName,
+              userId: context.userId,
+              googleEmail: retrySession.googleEmail,
+            });
+          }
           const retryResult = await retrySession.bridge.executeTool(toolName, retryEnrichedArgs, {
             timeoutMs: GOOGLE_WORKSPACE_TOOL_TIMEOUT_MS,
             signal: context.signal,
@@ -156,6 +211,15 @@ export class GoogleWorkspaceMcpSessionService {
                 metadata: { toolName, retried: true },
               }
             );
+          }
+          if (shouldAuditEmailMutation) {
+            logGoogleWorkspaceEmailMutation({
+              phase: 'completed',
+              context,
+              toolName,
+              userId: context.userId,
+              googleEmail: retrySession.googleEmail,
+            });
           }
           return extractGoogleWorkspacePayload(retryResult);
         } finally {

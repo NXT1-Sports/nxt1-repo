@@ -319,6 +319,13 @@ export class BatchSendEmailTool extends BaseTool {
             recipientName: recipient.recipientName,
             recipientKind: recipient.recipientKind,
             recipientOrgName: recipient.recipientOrgName,
+            auditContext: {
+              toolName: this.name,
+              approvalId: context?.approvalId,
+              operationId: context?.operationId,
+              threadId: context?.threadId,
+              sessionId: context?.sessionId,
+            },
           }
         );
 

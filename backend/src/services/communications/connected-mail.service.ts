@@ -69,6 +69,14 @@ interface SyncResult {
   errors: number;
 }
 
+interface AgentEmailAuditContext {
+  readonly toolName?: string;
+  readonly approvalId?: string;
+  readonly operationId?: string;
+  readonly threadId?: string;
+  readonly sessionId?: string;
+}
+
 // ─── Token Helpers ──────────────────────────────────────────────────────────
 
 /**
@@ -843,6 +851,7 @@ export async function sendEmailViaProvider(
     recipientName?: string;
     recipientKind?: string;
     recipientOrgName?: string;
+    auditContext?: AgentEmailAuditContext;
   }
 ): Promise<{
   success: boolean;
@@ -865,13 +874,51 @@ export async function sendEmailViaProvider(
     recipientKind: options?.recipientKind,
     recipientOrgName: options?.recipientOrgName,
   });
+  const auditContext = options?.auditContext;
+
+  logger.info('[ConnectedMail] Dispatching provider email send', {
+    userId,
+    provider,
+    to,
+    toolName: auditContext?.toolName ?? null,
+    approvalId: auditContext?.approvalId ?? null,
+    operationId: auditContext?.operationId ?? null,
+    threadId: auditContext?.threadId ?? null,
+    sessionId: auditContext?.sessionId ?? null,
+  });
 
   if (provider === 'gmail') {
     const result = await sendGmailMessage(accessToken, to, subject, trackedBody);
+    logger.info('[ConnectedMail] Provider email send completed', {
+      userId,
+      provider,
+      to,
+      trackingId,
+      externalMessageId: result.externalMessageId ?? null,
+      externalThreadId: result.externalThreadId ?? null,
+      toolName: auditContext?.toolName ?? null,
+      approvalId: auditContext?.approvalId ?? null,
+      operationId: auditContext?.operationId ?? null,
+      threadId: auditContext?.threadId ?? null,
+      sessionId: auditContext?.sessionId ?? null,
+    });
     return { ...result, trackingId };
   }
 
   const result = await sendMicrosoftMessage(accessToken, to, subject, trackedBody);
+  logger.info('[ConnectedMail] Provider email send completed', {
+    userId,
+    provider,
+    to,
+    trackingId,
+    externalMessageId: result.externalMessageId ?? null,
+    externalThreadId: result.externalThreadId ?? null,
+    toolName: auditContext?.toolName ?? null,
+    approvalId: auditContext?.approvalId ?? null,
+    operationId: auditContext?.operationId ?? null,
+    threadId: auditContext?.threadId ?? null,
+    sessionId: auditContext?.sessionId ?? null,
+  });
   return { ...result, trackingId };
 }
 

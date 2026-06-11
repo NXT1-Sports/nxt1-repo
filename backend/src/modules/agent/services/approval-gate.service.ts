@@ -68,7 +68,6 @@ const MICROSOFT_365_MAIL_APPROVAL_POLICY: AgentApprovalPolicy = {
   autoApproveOnExpiry: false,
   expiryMs: 86_400_000,
   riskLevel: 'high',
-  sessionTrustGroup: 'email',
 };
 
 const GOOGLE_WORKSPACE_GMAIL_APPROVAL_POLICY: AgentApprovalPolicy = {
@@ -77,7 +76,6 @@ const GOOGLE_WORKSPACE_GMAIL_APPROVAL_POLICY: AgentApprovalPolicy = {
   autoApproveOnExpiry: false,
   expiryMs: 86_400_000,
   riskLevel: 'high',
-  sessionTrustGroup: 'email',
 };
 
 const GOOGLE_WORKSPACE_GMAIL_SEND_TOOLS = new Set([

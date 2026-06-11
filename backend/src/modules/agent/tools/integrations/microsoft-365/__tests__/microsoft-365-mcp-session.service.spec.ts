@@ -1,5 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ToolExecutionContext } from '../../../base.tool.js';
+
+const { loggerInfoMock, loggerWarnMock, loggerErrorMock } = vi.hoisted(() => ({
+  loggerInfoMock: vi.fn(),
+  loggerWarnMock: vi.fn(),
+  loggerErrorMock: vi.fn(),
+}));
+
+vi.mock('../../../../../../utils/logger.js', () => ({
+  logger: {
+    info: loggerInfoMock,
+    warn: loggerWarnMock,
+    error: loggerErrorMock,
+  },
+}));
+
 import { Microsoft365McpSessionService } from '../microsoft-365-mcp-session.service.js';
 
 function createContext(overrides?: Partial<ToolExecutionContext>): ToolExecutionContext {
@@ -48,5 +63,63 @@ describe('Microsoft365McpSessionService', () => {
     ).rejects.toThrow('Missing Microsoft credentials');
 
     expect(bridge.executeTool).toHaveBeenCalledTimes(1);
+  });
+
+  it('logs approval metadata for mail mutations', async () => {
+    const service = new Microsoft365McpSessionService({} as never, 'http://127.0.0.1:3000/mcp');
+    const bridge = {
+      executeTool: vi.fn().mockResolvedValue({ isError: false, structuredContent: { ok: true } }),
+      listToolDefinitions: vi.fn().mockResolvedValue([
+        {
+          name: 'send-mail',
+          description: 'Send an Outlook email',
+          inputSchema: { type: 'object' },
+        },
+      ]),
+      disconnect: vi.fn().mockResolvedValue(undefined),
+    };
+
+    vi.spyOn(service as never, 'getSession').mockResolvedValue({
+      bridge,
+      userId: 'test-user-123',
+      microsoftEmail: 'coach@example.com',
+      environment: 'staging',
+      lastUsedAtMs: Date.now(),
+      cacheKey: null,
+    });
+    vi.spyOn(service as never, 'releaseEphemeralSession').mockResolvedValue(undefined);
+
+    await service.executeAllowedTool(
+      'send-mail',
+      {
+        message: {
+          subject: 'Update',
+          body: { content: '<p>Body</p>' },
+          toRecipients: [{ emailAddress: { address: 'coach@example.com' } }],
+        },
+      },
+      createContext({ approvalId: 'approval-123', operationId: 'op-1', threadId: 'thread-1' })
+    );
+
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      '[Microsoft365MCP] Approval-bound mail mutation dispatch',
+      expect.objectContaining({
+        approvalId: 'approval-123',
+        operationId: 'op-1',
+        threadId: 'thread-1',
+        toolName: 'send-mail',
+        microsoftEmail: 'coach@example.com',
+      })
+    );
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      '[Microsoft365MCP] Approval-bound mail mutation completed',
+      expect.objectContaining({
+        approvalId: 'approval-123',
+        operationId: 'op-1',
+        threadId: 'thread-1',
+        toolName: 'send-mail',
+        microsoftEmail: 'coach@example.com',
+      })
+    );
   });
 });

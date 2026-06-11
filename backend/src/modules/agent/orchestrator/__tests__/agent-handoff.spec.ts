@@ -281,7 +281,7 @@ describe('Agent handoff and tool narrowing', () => {
       displayName: 'Test Athlete',
       sport: 'football',
     };
-    const enrichedIntent = contextService.enrichIntentWithContext(
+    contextService.enrichIntentWithContext(
       'Create Highlight Reel from uploaded video',
       userContext,
       {

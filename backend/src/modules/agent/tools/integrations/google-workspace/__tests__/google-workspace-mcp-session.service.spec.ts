@@ -1,15 +1,28 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ToolExecutionContext } from '../../../base.tool.js';
 
-const { axiosGetMock, axiosPostMock } = vi.hoisted(() => ({
-  axiosGetMock: vi.fn(),
-  axiosPostMock: vi.fn(),
-}));
+const { axiosGetMock, axiosPostMock, loggerInfoMock, loggerWarnMock, loggerErrorMock } = vi.hoisted(
+  () => ({
+    axiosGetMock: vi.fn(),
+    axiosPostMock: vi.fn(),
+    loggerInfoMock: vi.fn(),
+    loggerWarnMock: vi.fn(),
+    loggerErrorMock: vi.fn(),
+  })
+);
 
 vi.mock('axios', () => ({
   default: {
     get: axiosGetMock,
     post: axiosPostMock,
+  },
+}));
+
+vi.mock('../../../../../../utils/logger.js', () => ({
+  logger: {
+    info: loggerInfoMock,
+    warn: loggerWarnMock,
+    error: loggerErrorMock,
   },
 }));
 
@@ -105,6 +118,70 @@ describe('GoogleWorkspaceMcpSessionService', () => {
     const calledArgs = bridge.executeTool.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(String(calledArgs['body'] ?? '')).toContain('<ul');
     expect(String(calledArgs['body'] ?? '')).not.toContain('# Hello');
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      '[GoogleWorkspaceMCP] Approval-bound Gmail mutation dispatch',
+      expect.objectContaining({
+        userId: 'test-user-123',
+        approvalId: null,
+        toolName: 'gmail_send_email',
+        googleEmail: 'coach@example.com',
+      })
+    );
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      '[GoogleWorkspaceMCP] Approval-bound Gmail mutation completed',
+      expect.objectContaining({
+        userId: 'test-user-123',
+        approvalId: null,
+        toolName: 'gmail_send_email',
+        googleEmail: 'coach@example.com',
+      })
+    );
+  });
+
+  it('logs approval metadata for wrapped Gmail mutations', async () => {
+    const service = new GoogleWorkspaceMcpSessionService({} as never, 'http://127.0.0.1:8000/mcp');
+    const bridge = {
+      executeTool: vi.fn().mockResolvedValue({ isError: false, structuredContent: { ok: true } }),
+      disconnect: vi.fn().mockResolvedValue(undefined),
+    };
+
+    vi.spyOn(service as never, 'getSession').mockResolvedValue({
+      bridge,
+      userId: 'test-user-123',
+      googleEmail: 'coach@example.com',
+      environment: 'staging',
+      lastUsedAtMs: Date.now(),
+      cacheKey: null,
+    });
+    vi.spyOn(service as never, 'releaseEphemeralSession').mockResolvedValue(undefined);
+
+    await service.executeAllowedTool(
+      'gmail_reply_to_email',
+      {
+        email_id: 'message-123',
+        reply_body: '<p>Thanks coach.</p>',
+      },
+      createContext({ approvalId: 'approval-789', operationId: 'op-1', threadId: 'thread-1' })
+    );
+
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      '[GoogleWorkspaceMCP] Approval-bound Gmail mutation dispatch',
+      expect.objectContaining({
+        approvalId: 'approval-789',
+        operationId: 'op-1',
+        threadId: 'thread-1',
+        toolName: 'gmail_reply_to_email',
+      })
+    );
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      '[GoogleWorkspaceMCP] Approval-bound Gmail mutation completed',
+      expect.objectContaining({
+        approvalId: 'approval-789',
+        operationId: 'op-1',
+        threadId: 'thread-1',
+        toolName: 'gmail_reply_to_email',
+      })
+    );
   });
 
   it('normalizes docs text to readable plain text before MCP execution', async () => {

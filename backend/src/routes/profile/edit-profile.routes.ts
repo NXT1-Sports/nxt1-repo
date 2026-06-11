@@ -33,6 +33,7 @@ import {
   notifyMembershipRemoved,
   notifyTeamJoined,
 } from '../../services/communications/team-join-notifications.js';
+import { invalidateTeamProfileCache } from '../../services/core/cache.service.js';
 import {
   createProfileWriteAccessService,
   type ProfileWriteAccessGrant,
@@ -149,20 +150,44 @@ async function removePreviousSportMembership(options: {
       existingMembership.sport?.trim().toLowerCase() === options.sport.trim().toLowerCase())
   ) {
     await options.rosterEntryService.removeFromTeam(existingMembership.id);
-    void notifyMembershipRemoved(options.db, {
-      teamId: options.teamId,
+    await invalidateRemovedTeamProfileCache(options.db, options.teamId, {
       userId: options.userId,
-      removedBy: options.userId,
-      teamName: options.teamName,
-      memberName: options.memberName,
-    }).catch((err) =>
+      sport: options.sport,
+    });
+    try {
+      await notifyMembershipRemoved(options.db, {
+        teamId: options.teamId,
+        userId: options.userId,
+        removedBy: options.userId,
+        teamName: options.teamName,
+        memberName: options.memberName,
+      });
+    } catch (err) {
       logger.error('[EditProfile] Failed to dispatch membership removal notification', {
         error: err instanceof Error ? err.message : String(err),
         teamId: options.teamId,
         userId: options.userId,
         sport: options.sport,
-      })
-    );
+      });
+    }
+  }
+}
+
+async function invalidateRemovedTeamProfileCache(
+  db: FirebaseFirestore.Firestore,
+  teamId: string,
+  logContext: Record<string, unknown>
+): Promise<void> {
+  try {
+    const teamSnap = await db.collection('Teams').doc(teamId).get();
+    const teamData = teamSnap.data() as { slug?: string; teamCode?: string } | undefined;
+    await invalidateTeamProfileCache(teamId, teamData?.slug, teamData?.teamCode);
+  } catch (err) {
+    logger.warn('[EditProfile] Failed to invalidate removed team profile cache', {
+      teamId,
+      ...logContext,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
@@ -554,27 +579,32 @@ function sectionToFirestoreUpdate(
           }
           targetSport.positions = Array.from(normalized);
         }
-        if (!targetSport.team) {
-          targetSport.team = { type: TEAM_TYPES.HIGH_SCHOOL, name: '' };
-        }
         if (data.teamName !== undefined) {
-          targetSport.team.name = data.teamName || '';
+          const normalizedTeamName = data.teamName.trim();
+          if (!normalizedTeamName) {
+            delete targetSport.team;
+          } else {
+            targetSport.team = {
+              ...(targetSport.team ?? { type: TEAM_TYPES.HIGH_SCHOOL }),
+              name: normalizedTeamName,
+            };
+          }
         }
-        if (data.teamType !== undefined) {
+        if (targetSport.team && data.teamType !== undefined) {
           const validTypes = Object.values(TEAM_TYPES) as string[];
           const incoming = data.teamType || TEAM_TYPES.HIGH_SCHOOL;
           targetSport.team.type = validTypes.includes(incoming)
             ? (incoming as TeamType)
             : TEAM_TYPES.HIGH_SCHOOL;
         }
-        if (data.teamOrganizationId !== undefined) {
+        if (targetSport.team && data.teamOrganizationId !== undefined) {
           targetSport.team.organizationId = data.teamOrganizationId || undefined;
         }
 
         logger.debug('[EditProfile] Updating team info', {
-          teamName: targetSport.team.name,
-          teamType: targetSport.team.type,
-          organizationId: targetSport.team.organizationId,
+          teamName: targetSport.team?.name,
+          teamType: targetSport.team?.type,
+          organizationId: targetSport.team?.organizationId,
         });
       }
 

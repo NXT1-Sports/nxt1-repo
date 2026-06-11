@@ -29,6 +29,7 @@ export interface ToolExecutionContext {
   readonly operationId?: string;
   readonly threadId?: string;
   readonly sessionId?: string;
+  readonly approvalId?: string;
   readonly allowedEntityGroups?: readonly AgentToolEntityGroup[];
   readonly allowedToolNames?: readonly string[];
   readonly signal?: AbortSignal;
