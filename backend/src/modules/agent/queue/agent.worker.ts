@@ -29,6 +29,7 @@
  */
 
 import { Worker, Job, UnrecoverableError } from 'bullmq';
+import { getFirestore } from 'firebase-admin/firestore';
 import type {
   AgentIdentifier,
   AgentJobPayload,
@@ -985,7 +986,7 @@ export class AgentWorker {
   private getUserFirestore(
     job: Job<AgentQueueJobData, AgentQueueJobResult>
   ): FirebaseFirestore.Firestore | undefined {
-    return job.data.environment === 'staging' ? this.stagingFirestore : undefined;
+    return job.data.environment === 'staging' ? this.stagingFirestore : getFirestore();
   }
 
   private async getAgentConfigFirestore(
@@ -995,7 +996,6 @@ export class AgentWorker {
       return this.stagingFirestore;
     }
 
-    const { getFirestore } = await import('firebase-admin/firestore');
     return getFirestore();
   }
 
@@ -1006,7 +1006,6 @@ export class AgentWorker {
     if (job.data.environment === 'staging' && this.stagingFirestore) {
       return this.stagingFirestore;
     }
-    const { getFirestore } = await import('firebase-admin/firestore');
     return getFirestore();
   }
 
