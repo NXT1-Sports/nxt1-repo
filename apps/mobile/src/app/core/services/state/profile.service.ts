@@ -230,7 +230,7 @@ export class ProfileService implements OnDestroy, IProfileService {
 
     // Invalidate transport-level profile cache before the refetch.
     await this.api.invalidateCache(targetUid);
-    await this.fetchProfile(targetUid);
+    await this.fetchProfile(targetUid, true);
   }
 
   /**
@@ -299,12 +299,12 @@ export class ProfileService implements OnDestroy, IProfileService {
   /**
    * Fetch profile from backend
    */
-  private async fetchProfile(uid: string): Promise<void> {
+  private async fetchProfile(uid: string, bypassCache = false): Promise<void> {
     this._state.set('loading');
     this._error.set(null);
 
     try {
-      const response = await this.api.getProfile(uid);
+      const response = await this.api.getProfile(uid, bypassCache);
 
       this.logger.debug('Profile API response', {
         hasSuccess: 'success' in response,

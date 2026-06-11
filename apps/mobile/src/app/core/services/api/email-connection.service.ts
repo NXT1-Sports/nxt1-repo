@@ -134,6 +134,29 @@ export class MobileEmailConnectionService {
     return user?.connectedEmails?.find((e) => e.provider === providerId && e.isActive)?.email;
   }
 
+  private async _refreshUntilConnectedEmail(
+    platform: 'google' | 'microsoft',
+    userId: string,
+    options: { attempts?: number; delayMs?: number } = {}
+  ): Promise<string | undefined> {
+    const attempts = options.attempts ?? 8;
+    const delayMs = options.delayMs ?? 750;
+
+    for (let attempt = 0; attempt < attempts; attempt++) {
+      if (attempt > 0) {
+        await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
+      }
+
+      await this.profileService.refresh(userId);
+      const connectedEmail = this._getConnectedEmail(platform);
+      if (connectedEmail !== undefined) {
+        return connectedEmail;
+      }
+    }
+
+    return undefined;
+  }
+
   // ============================================
   // GOOGLE OAUTH (connect-only, no Firebase sign-in)
   // ============================================
@@ -267,11 +290,9 @@ export class MobileEmailConnectionService {
         clearTimeout(timeout);
         cleanup();
 
-        // Give the backend a brief moment to finish writing the token if the
-        // redirect fired but the deep-link delivery was slightly delayed.
-        await new Promise<void>((r) => setTimeout(r, 600));
-        await this.profileService.refresh(userId);
-        const connectedEmail = this._getConnectedEmail('google');
+        // iOS fires browserFinished when the user taps Done on the success page.
+        // The backend write may still be settling, so poll the fresh profile briefly.
+        const connectedEmail = await this._refreshUntilConnectedEmail('google', userId);
         if (connectedEmail !== undefined) {
           // Token was saved — backend succeeded even though the deep-link didn't arrive.
           this.logger.info('Google OAuth: browserFinished fallback detected success', { userId });
@@ -295,7 +316,14 @@ export class MobileEmailConnectionService {
       // token before the browser was closed (e.g. timeout fired, or the user tapped
       // Done on iOS). This guarantees the cache is never stale when the sheet reopens.
       try {
-        await this.profileService.refresh(userId);
+        const connectedEmail = await this._refreshUntilConnectedEmail('google', userId, {
+          attempts: 3,
+          delayMs: 500,
+        });
+        if (connectedEmail !== undefined) {
+          this.logger.info('Google OAuth: recovered success after error path', { userId });
+          return;
+        }
       } catch {
         /* ignore */
       }
@@ -494,10 +522,9 @@ export class MobileEmailConnectionService {
         clearTimeout(timeout);
         cleanup();
 
-        // Give the backend a brief moment to finish writing the token.
-        await new Promise<void>((r) => setTimeout(r, 600));
-        await this.profileService.refresh(userId);
-        const connectedEmail = this._getConnectedEmail('microsoft');
+        // iOS fires browserFinished when the user taps Done on the success page.
+        // The backend write may still be settling, so poll the fresh profile briefly.
+        const connectedEmail = await this._refreshUntilConnectedEmail('microsoft', userId);
         if (connectedEmail !== undefined) {
           this.logger.info('Microsoft OAuth: browserFinished fallback detected success', {
             userId,
@@ -521,7 +548,14 @@ export class MobileEmailConnectionService {
       // Always refresh on failure too — the backend may have saved the token before
       // the browser closed, so the cache must be cleared for the next sheet open.
       try {
-        await this.profileService.refresh(userId);
+        const connectedEmail = await this._refreshUntilConnectedEmail('microsoft', userId, {
+          attempts: 3,
+          delayMs: 500,
+        });
+        if (connectedEmail !== undefined) {
+          this.logger.info('Microsoft OAuth: recovered success after error path', { userId });
+          return;
+        }
       } catch {
         /* ignore */
       }
