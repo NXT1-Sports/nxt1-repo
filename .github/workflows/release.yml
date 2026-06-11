@@ -37,8 +37,13 @@ permissions:
   contents: write
   pull-requests: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   NODE_VERSION: '22'
+  NPM_VERSION: '11.12.1'
 
 jobs:
   release:
@@ -59,6 +64,11 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
+
+      - name: Enable Corepack and npm
+        run: |
+          corepack enable
+          corepack prepare npm@${{ env.NPM_VERSION }} --activate
 
       - name: Configure Git
         run: |
