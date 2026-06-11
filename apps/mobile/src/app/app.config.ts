@@ -85,6 +85,7 @@ import {
   AnalyticsService,
   PerformanceService,
 } from './core/services';
+import { AuthFlowService } from './core/services/auth/auth-flow.service';
 
 import { mobileAuthInterceptor } from './core/infrastructure/interceptors/auth.interceptor';
 import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
@@ -438,13 +439,17 @@ export const appConfig: ApplicationConfig = {
     {
       provide: CONNECTED_ACCOUNTS_OAUTH_HANDLER,
       useFactory:
-        (emailSvc: MobileEmailConnectionService, auth: Auth) =>
-        (platform: 'google' | 'microsoft') => {
+        (emailSvc: MobileEmailConnectionService, authFlow: AuthFlowService, auth: Auth) =>
+        async (platform: 'google' | 'microsoft') => {
           const uid = auth.currentUser?.uid;
-          if (!uid) return Promise.resolve({ success: false });
-          return emailSvc.connectForLinkedAccounts(platform, uid);
+          if (!uid) return { success: false };
+          const result = await emailSvc.connectForLinkedAccounts(platform, uid);
+          if (result.success) {
+            await authFlow.refreshUserProfile();
+          }
+          return result;
         },
-      deps: [MobileEmailConnectionService, Auth],
+      deps: [MobileEmailConnectionService, AuthFlowService, Auth],
     },
 
     // ============================================

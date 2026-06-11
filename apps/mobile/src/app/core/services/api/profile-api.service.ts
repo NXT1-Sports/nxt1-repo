@@ -77,8 +77,20 @@ export class ProfileApiService {
   /**
    * Get user profile by ID.
    */
-  async getProfile(userId: string): Promise<ApiResponse<User>> {
-    return this.api.getProfile(userId);
+  async getProfile(userId: string, bypassCache = false): Promise<ApiResponse<User>> {
+    if (!bypassCache) {
+      return this.api.getProfile(userId);
+    }
+
+    return this.http.get<ApiResponse<User>>(
+      `${environment.apiUrl}/auth/profile/${encodeURIComponent(userId)}`,
+      {
+        headers: {
+          'Cache-Control': 'no-cache',
+          'X-No-Cache': '1',
+        },
+      }
+    );
   }
 
   /**
