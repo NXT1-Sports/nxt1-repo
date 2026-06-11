@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Firestore } from 'firebase-admin/firestore';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
-import { notifyMembershipApproved, notifyTeamJoined } from '../team-join-notifications.js';
+import {
+  notifyMembershipApproved,
+  notifyMembershipRemoved,
+  notifyTeamJoined,
+} from '../team-join-notifications.js';
 
 vi.mock('../../../utils/logger.js', () => ({
   logger: {
@@ -207,6 +211,79 @@ describe('notifyMembershipApproved', () => {
       body: 'Your request to join Varsity was accepted.',
       deepLink: '',
       source: { teamName: 'Varsity' },
+    });
+  });
+});
+
+describe('notifyMembershipRemoved', () => {
+  it('notifies the removed member and the team creator on admin removal', async () => {
+    const { db, writes } = createMockFirestore({
+      Teams: {
+        team_1: {
+          teamName: 'Varsity',
+          createdBy: 'owner_1',
+        },
+      },
+    });
+
+    const result = await notifyMembershipRemoved(db, {
+      teamId: 'team_1',
+      userId: 'athlete_1',
+      removedBy: 'coach_1',
+      memberName: 'Ava Runner',
+    });
+
+    const notificationWrites = writes.filter((write) => write.path.startsWith('Notifications/'));
+
+    expect(result).toEqual({ removedUserNotified: true, managerNotified: true });
+    expect(notificationWrites.map((write) => write.data.userId)).toEqual(
+      expect.arrayContaining(['athlete_1', 'owner_1'])
+    );
+    expect(notificationWrites).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          data: expect.objectContaining({
+            userId: 'athlete_1',
+            type: NOTIFICATION_TYPES.TEAM_MEMBER_LEFT,
+            title: 'You were removed from Varsity',
+          }),
+        }),
+        expect.objectContaining({
+          data: expect.objectContaining({
+            userId: 'owner_1',
+            type: NOTIFICATION_TYPES.TEAM_MEMBER_LEFT,
+            title: 'A member was removed from your team',
+          }),
+        }),
+      ])
+    );
+  });
+
+  it('notifies only the team creator when a member leaves on their own', async () => {
+    const { db, writes } = createMockFirestore({
+      Teams: {
+        team_1: {
+          teamName: 'Varsity',
+          createdBy: 'owner_1',
+        },
+      },
+    });
+
+    const result = await notifyMembershipRemoved(db, {
+      teamId: 'team_1',
+      userId: 'athlete_1',
+      removedBy: 'athlete_1',
+      memberName: 'Ava Runner',
+    });
+
+    const notificationWrites = writes.filter((write) => write.path.startsWith('Notifications/'));
+
+    expect(result).toEqual({ removedUserNotified: false, managerNotified: true });
+    expect(notificationWrites.map((write) => write.data.userId)).toEqual(['owner_1']);
+    expect(notificationWrites[0]?.data).toMatchObject({
+      type: NOTIFICATION_TYPES.TEAM_MEMBER_LEFT,
+      title: 'A member left your team',
+      body: 'Ava Runner left Varsity.',
     });
   });
 });

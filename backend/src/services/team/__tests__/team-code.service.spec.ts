@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ROLE } from '@nxt1/core/models';
 
 const mocks = vi.hoisted(() => ({
   cache: {
@@ -7,6 +8,7 @@ const mocks = vi.hoisted(() => ({
     del: vi.fn(),
   },
   getActiveOrPendingRosterEntry: vi.fn(),
+  createRosterEntry: vi.fn(),
   removeFromTeam: vi.fn(),
 }));
 
@@ -27,11 +29,13 @@ vi.mock('../../../utils/logger.js', () => ({
 vi.mock('../roster-entry.service.js', () => ({
   RosterEntryService: class MockRosterEntryService {
     getActiveOrPendingRosterEntry = mocks.getActiveOrPendingRosterEntry;
+    createRosterEntry = mocks.createRosterEntry;
     removeFromTeam = mocks.removeFromTeam;
   },
 }));
 
 import {
+  joinTeam,
   getUserTeams,
   incrementTeamPageView,
   removeMember,
@@ -81,6 +85,7 @@ describe('incrementTeamPageView', () => {
     mocks.cache.set.mockResolvedValue(undefined);
     mocks.cache.del.mockResolvedValue(undefined);
     mocks.getActiveOrPendingRosterEntry.mockReset();
+    mocks.createRosterEntry.mockReset();
     mocks.removeFromTeam.mockReset();
   });
 
@@ -103,6 +108,194 @@ describe('incrementTeamPageView', () => {
     await incrementTeamPageView(db as never, 'team-123');
 
     expect(updateMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('joinTeam', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.cache.get.mockResolvedValue(null);
+    mocks.cache.set.mockResolvedValue(undefined);
+    mocks.cache.del.mockResolvedValue(undefined);
+    mocks.getActiveOrPendingRosterEntry.mockReset();
+    mocks.createRosterEntry.mockReset();
+    mocks.removeFromTeam.mockReset();
+  });
+
+  it('creates an active roster entry for the joining user', async () => {
+    mocks.getActiveOrPendingRosterEntry.mockResolvedValue(null);
+    mocks.createRosterEntry.mockResolvedValue({ id: 'entry-1' });
+
+    const db = {
+      collection: vi.fn((name: string) => {
+        if (name === 'Teams') {
+          return {
+            where: vi.fn((_field: string, _op: string, _value: unknown) => ({
+              where: vi.fn((_field2: string, _op2: string, _value2: unknown) => ({
+                limit: vi.fn(() => ({
+                  get: vi.fn().mockResolvedValue({
+                    empty: false,
+                    docs: [
+                      {
+                        id: 'team-1',
+                        exists: true,
+                        data: () => ({
+                          teamCode: 'ALCOA1',
+                          teamName: 'Alcoa Football',
+                          teamType: 'high-school',
+                          sport: 'Football',
+                          organizationId: 'org-1',
+                          isActive: true,
+                        }),
+                      },
+                    ],
+                  }),
+                })),
+              })),
+            })),
+            doc: vi.fn((id: string) => ({
+              get: vi.fn().mockResolvedValue({
+                exists: true,
+                id,
+                data: () => ({
+                  teamCode: 'ALCOA1',
+                  teamName: 'Alcoa Football',
+                  teamType: 'high-school',
+                  sport: 'Football',
+                  organizationId: 'org-1',
+                  isActive: true,
+                }),
+              }),
+            })),
+          };
+        }
+
+        if (name === 'RosterEntries') {
+          return {
+            where: vi.fn((_field: string, _op: string, _value: unknown) => ({
+              where: vi.fn((_field2: string, _op2: string, _value2: unknown) => ({
+                where: vi.fn((_field3: string, _op3: string, _value3: unknown) => ({
+                  limit: vi.fn(() => ({
+                    get: vi.fn().mockResolvedValue({ empty: true, docs: [] }),
+                  })),
+                })),
+              })),
+            })),
+          };
+        }
+
+        throw new Error(`Unexpected collection: ${name}`);
+      }),
+    };
+
+    const team = await joinTeam(db as never, {
+      userId: 'athlete-1',
+      teamCode: 'ALCOA1',
+      role: ROLE.athlete,
+      userProfile: {
+        firstName: 'Peyton',
+        lastName: 'Manning',
+        email: 'peyton@test.com',
+      },
+    });
+
+    expect(team.id).toBe('team-1');
+    expect(mocks.createRosterEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'athlete-1',
+        teamId: 'team-1',
+        organizationId: 'org-1',
+        role: 'athlete',
+        sport: 'Football',
+        status: 'active',
+      })
+    );
+  });
+
+  it('creates a pending roster entry when a staff role joins by team code', async () => {
+    mocks.getActiveOrPendingRosterEntry.mockResolvedValue(null);
+    mocks.createRosterEntry.mockResolvedValue({ id: 'entry-2' });
+
+    const db = {
+      collection: vi.fn((name: string) => {
+        if (name === 'Teams') {
+          return {
+            where: vi.fn((_field: string, _op: string, _value: unknown) => ({
+              where: vi.fn((_field2: string, _op2: string, _value2: unknown) => ({
+                limit: vi.fn(() => ({
+                  get: vi.fn().mockResolvedValue({
+                    empty: false,
+                    docs: [
+                      {
+                        id: 'team-1',
+                        exists: true,
+                        data: () => ({
+                          teamCode: 'ALCOA1',
+                          teamName: 'Alcoa Football',
+                          teamType: 'high-school',
+                          sport: 'Football',
+                          organizationId: 'org-1',
+                          isActive: true,
+                        }),
+                      },
+                    ],
+                  }),
+                })),
+              })),
+            })),
+            doc: vi.fn((id: string) => ({
+              get: vi.fn().mockResolvedValue({
+                exists: true,
+                id,
+                data: () => ({
+                  teamCode: 'ALCOA1',
+                  teamName: 'Alcoa Football',
+                  teamType: 'high-school',
+                  sport: 'Football',
+                  organizationId: 'org-1',
+                  isActive: true,
+                }),
+              }),
+            })),
+          };
+        }
+
+        if (name === 'RosterEntries') {
+          return {
+            where: vi.fn((_field: string, _op: string, _value: unknown) => ({
+              where: vi.fn((_field2: string, _op2: string, _value2: unknown) => ({
+                where: vi.fn((_field3: string, _op3: string, _value3: unknown) => ({
+                  limit: vi.fn(() => ({
+                    get: vi.fn().mockResolvedValue({ empty: true, docs: [] }),
+                  })),
+                })),
+              })),
+            })),
+          };
+        }
+
+        throw new Error(`Unexpected collection: ${name}`);
+      }),
+    };
+
+    await joinTeam(db as never, {
+      userId: 'coach-1',
+      teamCode: 'ALCOA1',
+      role: ROLE.coach,
+      userProfile: {
+        firstName: 'Pat',
+        lastName: 'Summitt',
+        email: 'pat@test.com',
+      },
+    });
+
+    expect(mocks.createRosterEntry).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'coach-1',
+        role: 'coach',
+        status: 'pending',
+      })
+    );
   });
 });
 

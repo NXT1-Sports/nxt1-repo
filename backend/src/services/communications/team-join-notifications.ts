@@ -86,6 +86,19 @@ export interface NotifyMembershipApprovedResult {
   readonly notificationId: string | null;
 }
 
+export interface NotifyMembershipRemovedInput {
+  readonly teamId: string;
+  readonly userId: string;
+  readonly removedBy: string;
+  readonly teamName?: string;
+  readonly memberName?: string;
+}
+
+export interface NotifyMembershipRemovedResult {
+  readonly removedUserNotified: boolean;
+  readonly managerNotified: boolean;
+}
+
 // ============================================
 // SERVICE
 // ============================================
@@ -232,6 +245,76 @@ export async function notifyMembershipApproved(
       error: err instanceof Error ? err.message : String(err),
     });
     return { dispatched: false, notificationId: null };
+  }
+}
+
+/**
+ * Notify the removed member and, when relevant, the team owner/creator that a
+ * membership ended. Used for both admin removals and self-leave flows.
+ */
+export async function notifyMembershipRemoved(
+  db: Firestore,
+  input: NotifyMembershipRemovedInput
+): Promise<NotifyMembershipRemovedResult> {
+  const { teamId, userId, removedBy } = input;
+
+  try {
+    const teamName = input.teamName ?? (await resolveTeamName(db, teamId)) ?? 'the team';
+    const isSelfLeave = userId === removedBy;
+    let removedUserNotified = false;
+    let managerNotified = false;
+
+    if (!isSelfLeave) {
+      await dispatch(db, {
+        userId,
+        type: NOTIFICATION_TYPES.TEAM_MEMBER_LEFT,
+        title: `You were removed from ${teamName}`,
+        body: `Your membership in ${teamName} was updated by a team admin.`,
+        deepLink: '/activity',
+        data: { teamId, removedBy },
+        source: { teamName },
+        idempotencyKey: `team_member_removed_${teamId}_${userId}_${removedBy}`,
+      });
+      removedUserNotified = true;
+    }
+
+    const teamSnap = await db.collection('Teams').doc(teamId).get();
+    const managerUserId = (teamSnap.data()?.['createdBy'] as string | undefined) ?? null;
+
+    if (managerUserId && managerUserId !== removedBy && managerUserId !== userId) {
+      const memberName = input.memberName?.trim() || 'A member';
+      await dispatch(db, {
+        userId: managerUserId,
+        type: NOTIFICATION_TYPES.TEAM_MEMBER_LEFT,
+        title: isSelfLeave ? 'A member left your team' : 'A member was removed from your team',
+        body: isSelfLeave
+          ? `${memberName} left ${teamName}.`
+          : `${memberName} was removed from ${teamName}.`,
+        deepLink: '/activity',
+        data: { teamId, memberUserId: userId, removedBy },
+        source: { teamName },
+        idempotencyKey: `team_member_left_manager_${teamId}_${userId}_${isSelfLeave ? 'self' : 'admin'}`,
+      });
+      managerNotified = true;
+    }
+
+    logger.info('[notifyMembershipRemoved] Dispatched membership removal notification', {
+      teamId,
+      userId,
+      removedBy,
+      removedUserNotified,
+      managerNotified,
+    });
+
+    return { removedUserNotified, managerNotified };
+  } catch (err) {
+    logger.error('[notifyMembershipRemoved] Failed to dispatch membership removal notification', {
+      teamId,
+      userId,
+      removedBy,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { removedUserNotified: false, managerNotified: false };
   }
 }
 

@@ -1143,9 +1143,9 @@ router.post(
                     .limit(1)
                     .get();
                   if (!existingSnap.empty) {
-                    await existingSnap.docs[0].ref.update({
-                      status: RosterEntryStatus.ACTIVE,
-                      updatedAt: new Date().toISOString(),
+                    await rosterService.approveRosterEntry({
+                      entryId: existingSnap.docs[0].id,
+                      approvedBy: inviterId ?? userId,
                     });
                     logger.info(
                       '[POST /invite/accept] Upgraded existing PENDING RosterEntry to ACTIVE',
@@ -1216,7 +1216,9 @@ router.post(
             // Dispatch writes the activity feed doc and the push queue doc atomically.
             void dispatch(db, {
               userId,
-              type: NOTIFICATION_TYPES.TEAM_JOIN_REQUEST,
+              type: joinedAsPending
+                ? NOTIFICATION_TYPES.TEAM_JOIN_REQUEST
+                : NOTIFICATION_TYPES.TEAM_MEMBER_JOINED,
               title: joinedAsPending
                 ? `Request sent to join ${team.teamName ?? teamJoined ?? 'the team'}`
                 : `You joined ${team.teamName ?? teamJoined ?? 'your team'}`,

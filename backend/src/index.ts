@@ -465,8 +465,10 @@ async function setupApplication() {
     { path: '/helicone', rateLimitType: 'billing', handler: heliconeRoutes },
     // Usage dashboard routes
     { path: '/usage', rateLimitType: 'api', handler: usageRoutes },
-    // Apple IAP wallet routes
-    { path: '/iap', rateLimitType: 'billing', handler: iapRoutes },
+    // Apple IAP verification runs after StoreKit has already completed the charge.
+    // Keep abuse protection, but do not subject wallet credit confirmation to the
+    // same strict billing limiter used for checkout/session creation flows.
+    { path: '/iap', rateLimitType: 'lenient', handler: iapRoutes },
     // Cloudflare Stream video processing webhooks
     { path: '/cloudflare-webhook', rateLimitType: 'api', handler: cloudflareWebhookRoutes },
     // Team profile routes

@@ -284,9 +284,9 @@ export const OPERATIONS_LOG_TEST_IDS = {
                       </span>
                     }
 
-                    <div class="log-entry-content">
-                      <h4 class="log-entry-title">{{ entry.title }}</h4>
-                      <div class="log-entry-meta">
+                    <div class="log-entry-content log-entry-content--scheduled">
+                      <h4 class="log-entry-title log-entry-title--scheduled">{{ entry.title }}</h4>
+                      <div class="log-entry-meta log-entry-meta--scheduled">
                         <span class="log-entry-time">{{ formatTime(entry.timestamp) }}</span>
                         @if (entry.duration) {
                           <span class="log-entry-duration">

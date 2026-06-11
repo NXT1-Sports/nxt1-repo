@@ -1096,6 +1096,31 @@ describe('AgentWorker', () => {
       }
       if (operationId === 'op-parent-1') {
         return { operationId, status: 'running' };
+
+        it('uses the explicit error message when a failed result only says task completed', async () => {
+          const payload = makePayload();
+          const job = makeMockJob(payload);
+
+          mockRouter.run.mockResolvedValue({
+            summary: 'Task completed.',
+            success: false,
+            errorMessage: 'Media production did not produce a final video URL.',
+            data: {
+              operationStatus: 'failed',
+            },
+          } satisfies AgentOperationResult);
+
+          await capturedProcessor!(job);
+
+          expect(mockJobRepo.markFailed).toHaveBeenCalledWith(
+            'op-worker-test',
+            'Media production did not produce a final video URL.'
+          );
+          expect(mockJobRepo.markFailed).not.toHaveBeenCalledWith(
+            'op-worker-test',
+            'Task completed.'
+          );
+        });
       }
       return null;
     });

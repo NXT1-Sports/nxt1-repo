@@ -81,7 +81,6 @@ import type { AgentXPendingFile } from '../../types/agent-x-pending-file';
           (keydown.enter)="onEnterPress($event)"
           [placeholder]="placeholder()"
           rows="1"
-          [maxlength]="1000"
           class="message-input"
         ></textarea>
 

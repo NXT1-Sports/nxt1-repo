@@ -13,6 +13,7 @@
 import express from 'express';
 import request from 'supertest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { NOTIFICATION_TYPES } from '@nxt1/core';
 import { RosterEntryService } from '../../services/team/roster-entry.service.js';
 
 // ─── Mock heavy dependencies BEFORE importing the route ───────────────────────
@@ -437,6 +438,7 @@ describe('POST /invite/accept — org-ownership guard', () => {
         expect.anything(),
         expect.objectContaining({
           userId: 'athlete-user-id',
+          type: NOTIFICATION_TYPES.TEAM_MEMBER_JOINED,
         })
       );
     });
@@ -512,6 +514,7 @@ describe('POST /invite/accept — org-ownership guard', () => {
         expect.anything(),
         expect.objectContaining({
           userId: 'athlete-user-id',
+          type: NOTIFICATION_TYPES.TEAM_MEMBER_JOINED,
         })
       );
     });

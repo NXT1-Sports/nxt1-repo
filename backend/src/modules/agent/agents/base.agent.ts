@@ -177,10 +177,6 @@ const PROGRESS_COMMENTARY_COUNT_PATTERN =
   /\b(?:processed|completed|handled|ran|executed)\s+\d+\s+tool\s+calls?\b/i;
 const BRAND_MEDIA_DELEGATION_PATTERN =
   /\b(ffmpeg|merge(?:d|s|ing)?|video|highlight|reel|clip|trim|subtitle|hudl|twitter|instagram|stage[_\s-]?media|analyze[_\s-]?video)\b/i;
-const MEDIA_SOURCE_PATTERN =
-  /\b(attached|uploaded|source|video\s*clips?|clips?|videoattachments?|cloudflarevideoid|hudl|youtube|instagram|twitter|x\.com|firebasestorage|storage\.googleapis|signed\s+url|video\s+url|\.mp4|\.mov|\.m4v|\.webm)\b/i;
-const MEDIA_PRODUCTION_PATTERN =
-  /\b(create|make|generate|produce|build|cut|edit|clip|trim|assemble|merge)\b[\s\S]{0,140}\b(highlight|reel|video|promo|teaser|recap|best\s+moments?)\b|\b(highlight|reel|video|promo|teaser|recap|best\s+moments?)\b[\s\S]{0,140}\b(create|make|generate|produce|build|cut|edit|clip|trim|assemble|merge)\b/i;
 
 /** Artifact field names promoted from tool results for cross-coordinator handoff. */
 const ARTIFACT_KEYS = [
@@ -1012,8 +1008,7 @@ export abstract class BaseAgent {
       effectiveRouting,
       onStreamEvent,
       approvalGate,
-      requiresComputeFirst,
-      intent
+      requiresComputeFirst
     );
   }
 
@@ -1336,8 +1331,7 @@ export abstract class BaseAgent {
       routing,
       onStreamEvent,
       approvalGate,
-      requiresComputeFirst,
-      this.extractLatestUserText(messages)
+      requiresComputeFirst
     );
   }
 
@@ -1367,8 +1361,7 @@ export abstract class BaseAgent {
     routing: ModelRoutingConfig,
     onStreamEvent?: OnStreamEvent,
     approvalGate?: ApprovalGateService,
-    requiresComputeFirst: boolean = false,
-    taskIntent: string = this.extractLatestUserText(messages)
+    requiresComputeFirst: boolean = false
   ): Promise<AgentOperationResult> {
     // ── ReAct Loop ────────────────────────────────────────────────────────
     const toolExecutionMeta = new Map<
@@ -1687,26 +1680,13 @@ export abstract class BaseAgent {
           'fileUrl',
           'downloadUrl',
         ] as const;
-        const VIDEO_DELIVERABLE_DATA_KEYS = [
-          'videoUrl',
-          'outputUrl',
-          'downloadUrl',
-          'exportUrl',
-          'url',
-          'fileUrl',
-          'cloudflareVideoId',
-          'storagePath',
-        ] as const;
+
         const hasDeliverableArtifact = ARTIFACT_DATA_KEYS.some(
           (key) =>
             typeof extractedToolData[key] === 'string' &&
             (extractedToolData[key] as string).trim().length > 0
         );
-        const hasVideoDeliverableArtifact = VIDEO_DELIVERABLE_DATA_KEYS.some(
-          (key) =>
-            typeof extractedToolData[key] === 'string' &&
-            (extractedToolData[key] as string).trim().length > 0
-        );
+
         const artifactToolInvocations = toolCallRecords.filter((record) =>
           TERMINAL_ARTIFACT_TOOL_FAILURES.has(record.toolName)
         );
@@ -1717,17 +1697,10 @@ export abstract class BaseAgent {
         // FAIL only when an artifact was REQUESTED but NEVER produced.
         const deliverableMissing =
           artifactToolWasAttempted && !anyArtifactToolSucceeded && !hasDeliverableArtifact;
-        const mediaDeliverableMissing =
-          this.requiresConcreteMediaDeliverable(taskIntent) && !hasVideoDeliverableArtifact;
-        const runLoopSuccess = !deliverableMissing && !mediaDeliverableMissing;
+
+        const runLoopSuccess = !deliverableMissing;
         const runLoopErrorMessage = !runLoopSuccess
           ? (() => {
-              if (mediaDeliverableMissing) {
-                return (
-                  'Media production did not produce a final video URL. ' +
-                  'Run the required analyze_video and FFmpeg media tools before marking the highlight workflow complete.'
-                );
-              }
               const lastFailedArtifact = [...artifactToolInvocations]
                 .reverse()
                 .find((record) => record.status !== 'success');
@@ -3101,14 +3074,6 @@ export abstract class BaseAgent {
       return `Completed: ${toolNames[0]}.`;
     }
     return `Completed ${successRecords.length} step${successRecords.length > 1 ? 's' : ''}: ${toolNames.join(', ')}.`;
-  }
-
-  private requiresConcreteMediaDeliverable(intent: string): boolean {
-    if (this.id !== 'brand_coordinator') return false;
-
-    const normalizedIntent = intent.replace(/\s+/g, ' ').trim();
-    if (!MEDIA_PRODUCTION_PATTERN.test(normalizedIntent)) return false;
-    return MEDIA_SOURCE_PATTERN.test(normalizedIntent);
   }
 
   private resolveDelegationShortCircuitSummary(
