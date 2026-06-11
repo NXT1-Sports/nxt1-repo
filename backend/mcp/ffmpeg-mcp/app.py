@@ -60,6 +60,7 @@ FFMPEG_MERGE_DIRECT_LIMIT = _positive_int_env("FFMPEG_MERGE_DIRECT_LIMIT", 6)
 FFMPEG_MERGE_BATCH_SIZE = _positive_int_env("FFMPEG_MERGE_BATCH_SIZE", 4)
 FFMPEG_MERGE_TIMEOUT_SECONDS = _positive_int_env("FFMPEG_MERGE_TIMEOUT_SECONDS", 900)
 FFMPEG_MERGE_INTRO_MAX_SECONDS = _positive_int_env("FFMPEG_MERGE_INTRO_MAX_SECONDS", 4)
+MIN_PLAYABLE_TRIM_DURATION_SECONDS = 0.5
 
 # Tool argument keys that represent input file paths or arrays of paths
 _URL_INPUT_KEYS = {"input_path", "subtitle_path"}
@@ -455,6 +456,21 @@ def _time_arg_seconds(value) -> float | None:
 
 def _format_seconds(value: float) -> str:
     return f"{max(value, 0.0):.3f}"
+
+
+def _normalize_trim_duration_seconds(value: float | None) -> float | None:
+    if value is None:
+        return None
+    if value <= 0:
+        return MIN_PLAYABLE_TRIM_DURATION_SECONDS
+    if value >= MIN_PLAYABLE_TRIM_DURATION_SECONDS:
+        return value
+    print(
+        "[ffmpeg-mcp] Clamping trim duration "
+        f"from {value:.3f}s to {MIN_PLAYABLE_TRIM_DURATION_SECONDS:.3f}s",
+        flush=True,
+    )
+    return MIN_PLAYABLE_TRIM_DURATION_SECONDS
 
 
 def _escape_drawtext_text(value: str) -> str:
@@ -1129,11 +1145,11 @@ def _run_trim_video_resilient(args: dict) -> dict:
         raise RuntimeError("trim_video requires input_path and output_path")
 
     start_seconds = _time_arg_seconds(args.get("start_time")) or 0.0
-    duration_seconds = _positive_float_arg(args.get("duration"))
+    duration_seconds = _normalize_trim_duration_seconds(_positive_float_arg(args.get("duration")))
     end_seconds = _time_arg_seconds(args.get("end_time"))
 
     if duration_seconds is None and end_seconds is not None:
-        duration_seconds = max(end_seconds - start_seconds, 0.1)
+        duration_seconds = _normalize_trim_duration_seconds(end_seconds - start_seconds)
 
     cmd = [
         "ffmpeg",
