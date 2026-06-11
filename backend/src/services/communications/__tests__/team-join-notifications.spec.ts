@@ -287,6 +287,40 @@ describe('notifyMembershipRemoved', () => {
     });
   });
 
+  it('dispatches TEAM_MEMBER_LEFT only to Teams.createdBy when athlete self-removes via a fallback-resolved teamId', async () => {
+    // Simulates the scenario where the athlete's sports[n].team had no teamId
+    // (only name + organizationId) and the teamId was recovered via
+    // resolvePreviousTeamIdFromRoster() before calling notifyMembershipRemoved.
+    const { db, writes } = createMockFirestore({
+      Teams: {
+        fallback_team_1: {
+          teamName: 'Varsity Basketball',
+          createdBy: 'director_uid',
+        },
+      },
+    });
+
+    const result = await notifyMembershipRemoved(db, {
+      teamId: 'fallback_team_1',
+      userId: 'athlete_uid',
+      removedBy: 'athlete_uid', // self-leave
+      memberName: 'Jordan Smith',
+    });
+
+    const notificationWrites = writes.filter((w) => w.path.startsWith('Notifications/'));
+
+    expect(result).toEqual({ removedUserNotified: false, managerNotified: true });
+    expect(notificationWrites).toHaveLength(1);
+    expect(notificationWrites[0]?.data).toMatchObject({
+      userId: 'director_uid',
+      type: NOTIFICATION_TYPES.TEAM_MEMBER_LEFT,
+      title: 'A member left your team',
+      body: 'Jordan Smith left Varsity Basketball.',
+    });
+    // Athlete must NOT receive a notification for their own self-leave
+    expect(notificationWrites.map((w) => w.data.userId)).not.toContain('athlete_uid');
+  });
+
   it('does not notify active team directors when a member leaves on their own unless they created the team', async () => {
     const { db, writes } = createMockFirestore({
       Teams: {
