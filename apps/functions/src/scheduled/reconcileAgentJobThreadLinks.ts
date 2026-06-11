@@ -10,6 +10,7 @@ import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { logger } from 'firebase-functions/v2';
 import * as admin from 'firebase-admin';
+import { postBackendCronJson } from './utils/backendCronRequest';
 
 const CRON_SECRET = defineSecret('CRON_SECRET');
 const BACKEND_URL = defineString('BACKEND_URL');
@@ -20,6 +21,22 @@ interface ReconcileFailureDetails {
   readonly reason: string;
   readonly status?: number;
   readonly body?: string;
+}
+
+function parseBackendFailureMessage(message: string): ReconcileFailureDetails {
+  const match = /backend returned\s+(\d+)(?:\s+(.*))?$/i.exec(message);
+  if (!match) {
+    return { reason: message };
+  }
+
+  const status = Number(match[1]);
+  const body = match[2]?.trim();
+
+  return {
+    reason: 'backend_non_ok',
+    status: Number.isFinite(status) ? status : undefined,
+    body: body && body.length > 0 ? body : undefined,
+  };
 }
 
 async function recordSuccess(): Promise<void> {
@@ -88,35 +105,24 @@ export const reconcileAgentJobThreadLinks = onSchedule(
   async () => {
     logger.info('Starting agent job-thread link reconciliation');
 
-    const url = `${BACKEND_URL.value()}/api/v1/agent-x/cron/reconcile-job-thread-links`;
-
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-cron-secret': CRON_SECRET.value(),
-        },
+      const result = await postBackendCronJson<{ data?: Record<string, unknown> }>({
+        backendBaseUrl: BACKEND_URL.value(),
+        endpointPath: '/api/v1/agent-x/cron/reconcile-job-thread-links',
+        cronSecret: CRON_SECRET.value(),
+        jobName: 'reconcileAgentJobThreadLinks',
+        timeoutMs: 20_000,
+        maxAttempts: 3,
       });
 
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        logger.warn('Backend returned non-OK response', {
-          status: response.status,
-          body: body.slice(0, 500),
-        });
-        await handleFailure({
-          reason: 'backend_non_ok',
-          status: response.status,
-          body,
-        });
+      if (!result) {
+        await handleFailure({ reason: 'backend_unavailable' });
         return;
       }
 
-      const result = (await response.json()) as { data?: Record<string, unknown> };
       await recordSuccess();
       logger.info('Agent job-thread link reconciliation completed', {
-        result: result.data ?? null,
+        result: result.data.data ?? null,
       });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
@@ -127,7 +133,7 @@ export const reconcileAgentJobThreadLinks = onSchedule(
         throw error;
       }
 
-      await handleFailure({ reason: error.message });
+      await handleFailure(parseBackendFailureMessage(error.message));
     }
   }
 );

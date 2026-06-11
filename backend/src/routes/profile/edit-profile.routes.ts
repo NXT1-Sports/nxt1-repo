@@ -173,6 +173,31 @@ async function removePreviousSportMembership(options: {
   }
 }
 
+async function resolvePreviousTeamIdFromRoster(options: {
+  readonly rosterEntryService: ReturnType<typeof createRosterEntryService>;
+  readonly userId: string;
+  readonly sport?: string;
+  readonly organizationId?: string | null;
+}): Promise<string | null> {
+  const entries = await options.rosterEntryService.getUserTeams({
+    userId: options.userId,
+    status: [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING],
+  });
+
+  const normalizedSport = options.sport?.trim().toLowerCase();
+  const normalizedOrganizationId = options.organizationId?.trim();
+
+  const match = entries.find((entry) => {
+    const sportMatches = !normalizedSport || entry.sport?.trim().toLowerCase() === normalizedSport;
+    const orgMatches =
+      !normalizedOrganizationId || entry.organizationId?.trim() === normalizedOrganizationId;
+
+    return sportMatches && orgMatches;
+  });
+
+  return match?.teamId?.trim() || null;
+}
+
 async function invalidateRemovedTeamProfileCache(
   db: FirebaseFirestore.Firestore,
   teamId: string,
@@ -960,10 +985,29 @@ router.put(
     const isAthleteSportsInfo = typedSectionId === 'sports-info' && !isTeamRole;
     const previousSportRecord =
       isAthleteSportsInfo && sportIndex !== undefined ? user.sports?.[sportIndex] : undefined;
-    const previousTeamId = previousSportRecord?.team?.teamId?.trim() || null;
+    let previousTeamId = previousSportRecord?.team?.teamId?.trim() || null;
     const previousOrganizationId = previousSportRecord?.team?.organizationId?.trim() || null;
     const previousSportName = previousSportRecord?.sport?.trim();
     const previousTeamName = previousSportRecord?.team?.name?.trim() || undefined;
+    const rosterEntryService = createRosterEntryService(db);
+
+    if (isAthleteSportsInfo && sportIndex !== undefined && !previousTeamId) {
+      previousTeamId = await resolvePreviousTeamIdFromRoster({
+        rosterEntryService,
+        userId: uid,
+        sport: previousSportName,
+        organizationId: previousOrganizationId,
+      });
+
+      if (previousTeamId) {
+        logger.info('[EditProfile] Resolved previous team from roster entry fallback', {
+          userId: uid,
+          sportIndex,
+          sport: previousSportName,
+          previousTeamId,
+        });
+      }
+    }
     let membershipTransitions: ProfileMembershipTransition[] = [];
     if (
       !accessGrant.isSelfWrite &&
@@ -1315,7 +1359,6 @@ router.put(
       });
     }
 
-    const rosterEntryService = createRosterEntryService(db);
     const updatedSportRecord =
       isAthleteSportsInfo && sportIndex !== undefined
         ? updatedUser.sports?.[sportIndex]
