@@ -1,7 +1,8 @@
+import { createHash } from 'node:crypto';
 import { FieldValue, type Firestore } from 'firebase-admin/firestore';
 import type { SportProfile, TeamTypeApi, UserRole } from '@nxt1/core';
 import { RosterEntryStatus } from '@nxt1/core/models';
-import * as teamCodeService from '../team/team-code.service.js';
+import { buildTeamSlug } from '../team/team-code.service.js';
 import { createOrganizationService } from '../team/organization.service.js';
 import { createRosterEntryService } from '../team/roster-entry.service.js';
 import { resolveRosterPositions } from '../team/roster-sport-profile.service.js';
@@ -10,6 +11,8 @@ import { logger } from '../../utils/logger.js';
 import { initOrganizationBillingTargetForUser } from '../../modules/billing/budget.service.js';
 
 type ProgramType = 'high-school' | 'middle-school' | 'club' | 'college' | 'juco' | 'organization';
+
+const PROVISIONING_LOCKS_COLLECTION = 'ProvisioningLocks';
 
 export interface OnboardingProgramSelection {
   id: string;
@@ -167,18 +170,6 @@ function getRosterTitleForSport(
   return normalizedFallback ? normalizedFallback : undefined;
 }
 
-async function generateUniqueTeamCode(db: Firestore): Promise<string> {
-  for (let attempt = 0; attempt < 8; attempt++) {
-    const candidate = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const { team } = await teamCodeService.getTeamCodeByCode(db, candidate, false);
-    if (!team) {
-      return candidate;
-    }
-  }
-
-  return `${Date.now().toString(36).slice(-6)}`.toUpperCase();
-}
-
 function normalizeLookupValue(value: unknown): string {
   return typeof value === 'string' ? value.trim().toLowerCase() : '';
 }
@@ -204,12 +195,352 @@ function doesTeamMatchSportAndLevel(
   );
 }
 
-async function findExistingTeamIdForSport(
+function buildProvisioningLockId(
+  kind: 'organization' | 'team',
+  parts: readonly (string | undefined)[]
+): string {
+  const normalized = parts.map((part) => normalizeLookupValue(part)).join('|');
+  const digest = createHash('sha256').update(normalized).digest('hex');
+  return `${kind}_${digest}`;
+}
+
+function getOrganizationLocationValue(
+  data: FirebaseFirestore.DocumentData,
+  field: 'city' | 'state'
+): string {
+  const location = data['location'];
+  if (!location || typeof location !== 'object') {
+    return '';
+  }
+
+  return normalizeLookupValue((location as Record<string, unknown>)[field]);
+}
+
+function isProvisionableOrganizationCandidate(data: FirebaseFirestore.DocumentData): boolean {
+  const status = normalizeLookupValue(data['status']);
+  return (
+    data['isActive'] !== false &&
+    status !== 'merged' &&
+    status !== 'inactive' &&
+    status !== 'suspended'
+  );
+}
+
+function scoreOrganizationCandidate(data: FirebaseFirestore.DocumentData): number {
+  let score = 0;
+  if (data['isClaimed'] === true) score += 4;
+  if (typeof data['ownerId'] === 'string' && data['ownerId'].trim().length > 0) score += 3;
+  if (Array.isArray(data['admins']) && data['admins'].length > 0) score += 3;
+  if (typeof data['teamCount'] === 'number') score += Math.min(data['teamCount'], 3);
+  return score;
+}
+
+function chooseOrganizationCandidate(
+  docs: readonly FirebaseFirestore.QueryDocumentSnapshot[],
+  input: { nameLower: string; teamType: TeamTypeApi; city: string; state: string }
+): FirebaseFirestore.QueryDocumentSnapshot | null {
+  const matches = docs.filter((doc) => {
+    const data = doc.data();
+    if (!isProvisionableOrganizationCandidate(data)) {
+      return false;
+    }
+
+    const docNameLower = normalizeLookupValue(data['nameLower'] ?? data['name']);
+    if (docNameLower !== input.nameLower) {
+      return false;
+    }
+
+    const docType = normalizeLookupValue(data['type'] ?? 'organization');
+    if (input.teamType && docType && docType !== normalizeLookupValue(input.teamType)) {
+      return false;
+    }
+
+    if (input.state && getOrganizationLocationValue(data, 'state') !== input.state) {
+      return false;
+    }
+
+    if (input.city && getOrganizationLocationValue(data, 'city') !== input.city) {
+      return false;
+    }
+
+    return true;
+  });
+
+  if (matches.length === 0) {
+    return null;
+  }
+
+  matches.sort(
+    (left, right) =>
+      scoreOrganizationCandidate(right.data()) - scoreOrganizationCandidate(left.data())
+  );
+  return matches[0] ?? null;
+}
+
+function scoreTeamCandidate(data: FirebaseFirestore.DocumentData): number {
+  let score = 0;
+  if (typeof data['panelMember'] === 'number') score += data['panelMember'];
+  if (typeof data['athleteMember'] === 'number') score += data['athleteMember'];
+  if (Array.isArray(data['memberIds'])) score += data['memberIds'].length;
+  if (typeof data['slug'] === 'string' && data['slug'].trim().length > 0) score += 1;
+  return score;
+}
+
+function chooseTeamCandidate(
+  docs: readonly FirebaseFirestore.QueryDocumentSnapshot[],
+  normalizedSportName: string,
+  requestedLevel: string
+): FirebaseFirestore.QueryDocumentSnapshot | null {
+  const matches = docs.filter((doc) =>
+    doesTeamMatchSportAndLevel(doc.data(), normalizedSportName, requestedLevel)
+  );
+
+  if (matches.length === 0) {
+    return null;
+  }
+
+  matches.sort((left, right) => scoreTeamCandidate(right.data()) - scoreTeamCandidate(left.data()));
+  return matches[0] ?? null;
+}
+
+async function generateUniqueTeamCodeInTransaction(
+  db: Firestore,
+  transaction: FirebaseFirestore.Transaction
+): Promise<string> {
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const candidate = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const existing = await transaction.get(
+      db.collection('Teams').where('teamCode', '==', candidate).limit(1)
+    );
+    if (existing.empty) {
+      return candidate;
+    }
+  }
+
+  return `${Date.now().toString(36).slice(-6)}`.toUpperCase();
+}
+
+async function generateUniqueTeamSlugInTransaction(
+  db: Firestore,
+  transaction: FirebaseFirestore.Transaction,
+  teamName: string
+): Promise<string> {
+  const base = buildTeamSlug(teamName);
+  if (!base) {
+    throw new Error('Team name produces an empty slug');
+  }
+
+  const existingBase = await transaction.get(
+    db.collection('Teams').where('slug', '==', base).limit(1)
+  );
+  if (existingBase.empty) {
+    return base;
+  }
+
+  for (let index = 2; index <= 99; index += 1) {
+    const candidate = `${base}-${index}`;
+    const existing = await transaction.get(
+      db.collection('Teams').where('slug', '==', candidate).limit(1)
+    );
+    if (existing.empty) {
+      return candidate;
+    }
+  }
+
+  return `${base}-${Date.now().toString(36).slice(-5)}`;
+}
+
+async function ensureDraftProgramOrganization(
+  input: ProvisionOnboardingProgramsInput,
+  program: OnboardingProgramSelection,
+  teamType: TeamTypeApi,
+  city: string,
+  state: string,
+  rawName: string
+): Promise<(ProvisioningProgramRecord & { created: boolean }) | null> {
+  const normalizedName = await normalizeProgramName(rawName, input.db);
+  const nameLower = normalizeLookupValue(normalizedName);
+  const cityLower = normalizeLookupValue(city);
+  const stateLower = normalizeLookupValue(state);
+  const isPrivilegedRole = input.role === 'coach' || input.role === 'director';
+  const lockRef = input.db
+    .collection(PROVISIONING_LOCKS_COLLECTION)
+    .doc(buildProvisioningLockId('organization', [nameLower, teamType, cityLower, stateLower]));
+
+  let resolved: (ProvisioningProgramRecord & { created: boolean }) | null = null;
+
+  await input.db.runTransaction(async (transaction) => {
+    const lockSnap = await transaction.get(lockRef);
+    const lockedOrganizationId = normalizeLookupValue(lockSnap.data()?.['organizationId']);
+
+    if (lockedOrganizationId) {
+      const lockedOrgRef = input.db.collection('Organizations').doc(lockedOrganizationId);
+      const lockedOrgSnap = await transaction.get(lockedOrgRef);
+      if (lockedOrgSnap.exists) {
+        const data = lockedOrgSnap.data() ?? {};
+        resolved = {
+          organizationId: lockedOrgSnap.id,
+          name: (data['name'] as string) ?? normalizedName,
+          teamType,
+          city,
+          state,
+          created: false,
+        };
+        return;
+      }
+    }
+
+    const existingOrganizations = await transaction.get(
+      input.db.collection('Organizations').where('nameLower', '==', nameLower).limit(20)
+    );
+    const existingOrg = chooseOrganizationCandidate(existingOrganizations.docs, {
+      nameLower,
+      teamType,
+      city: cityLower,
+      state: stateLower,
+    });
+
+    if (existingOrg) {
+      const data = existingOrg.data();
+      transaction.set(lockRef, {
+        kind: 'organization',
+        organizationId: existingOrg.id,
+        nameLower,
+        teamType,
+        city: cityLower,
+        state: stateLower,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      resolved = {
+        organizationId: existingOrg.id,
+        name: (data['name'] as string) ?? normalizedName,
+        teamType,
+        city,
+        state,
+        created: false,
+      };
+      return;
+    }
+
+    const organizationRef = input.db.collection('Organizations').doc();
+    const admins =
+      !input.role || !isPrivilegedRole || !input.userId || program.isDraft === false
+        ? []
+        : [
+            {
+              userId: input.userId,
+              role: input.role,
+              addedAt: new Date(),
+            },
+          ];
+
+    transaction.set(organizationRef, {
+      name: normalizedName,
+      nameLower,
+      type: normalizeProgramType(program.teamType || input.createTeamProfile?.teamType),
+      status: 'active',
+      location: {
+        address: '',
+        city,
+        state,
+        zipCode: '',
+        country: 'USA',
+      },
+      logoUrl: null,
+      primaryColor: null,
+      secondaryColor: null,
+      mascot: input.createTeamProfile?.mascot ?? null,
+      level: null,
+      admins,
+      ownerId: admins.length > 0 ? input.userId : '',
+      isClaimed: isPrivilegedRole,
+      source: 'user_generated',
+      teamCount: 0,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      createdBy: input.userId || '',
+    });
+
+    transaction.set(lockRef, {
+      kind: 'organization',
+      organizationId: organizationRef.id,
+      nameLower,
+      teamType,
+      city: cityLower,
+      state: stateLower,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    resolved = {
+      organizationId: organizationRef.id,
+      name: normalizedName,
+      teamType,
+      city,
+      state,
+      created: true,
+    };
+  });
+
+  if (!resolved) {
+    return null;
+  }
+
+  const resolvedProgram = resolved as ProvisioningProgramRecord & { created: boolean };
+
+  if (isPrivilegedRole) {
+    if (!resolvedProgram.created) {
+      try {
+        await createOrganizationService(input.db).addAdmin({
+          organizationId: resolvedProgram.organizationId,
+          userId: input.userId,
+          role: input.role as 'director' | 'coach',
+          addedBy: input.userId,
+        });
+      } catch (err) {
+        logger.warn('[OnboardingProgramProvisioning] Failed to add as org admin after org reuse', {
+          organizationId: resolvedProgram.organizationId,
+          role: input.role,
+          error: err,
+        });
+      }
+    }
+
+    try {
+      await initOrganizationBillingTargetForUser(
+        input.db,
+        input.userId,
+        resolvedProgram.organizationId
+      );
+    } catch (billingErr) {
+      logger.warn(
+        '[OnboardingProgramProvisioning] Failed to set org billing target after org provisioning',
+        {
+          error: billingErr,
+          userId: input.userId,
+          organizationId: resolvedProgram.organizationId,
+        }
+      );
+    }
+  }
+
+  if (resolvedProgram.created) {
+    logger.info('[OnboardingProgramProvisioning] Created ghost program', {
+      organizationId: resolvedProgram.organizationId,
+      name: resolvedProgram.name,
+    });
+  }
+
+  return resolvedProgram;
+}
+
+async function ensureProvisionedTeamForSport(
   input: ProvisionOnboardingProgramsInput,
   program: ProvisioningProgramRecord,
   sportName: string,
   level?: string
-): Promise<string | null> {
+): Promise<{ teamId: string; created: boolean } | null> {
   const normalizedSportName = normalizeLookupValue(sportName);
   const requestedLevel = normalizeLookupValue(level);
 
@@ -217,42 +548,103 @@ async function findExistingTeamIdForSport(
     return null;
   }
 
-  const teamsCollection = input.db.collection('Teams');
-  const exactSportSnapshot = await teamsCollection
-    .where('organizationId', '==', program.organizationId)
-    .where('sport', '==', sportName)
-    .where('isActive', '==', true)
-    .get();
+  const lockRef = input.db
+    .collection(PROVISIONING_LOCKS_COLLECTION)
+    .doc(
+      buildProvisioningLockId('team', [program.organizationId, normalizedSportName, requestedLevel])
+    );
 
-  const exactSportDoc = exactSportSnapshot.docs.find((doc) =>
-    doesTeamMatchSportAndLevel(doc.data(), normalizedSportName, requestedLevel)
-  );
-  if (exactSportDoc) {
-    return exactSportDoc.id;
+  let resolved: { teamId: string; created: boolean } | null = null;
+
+  await input.db.runTransaction(async (transaction) => {
+    const lockSnap = await transaction.get(lockRef);
+    const lockedTeamId = normalizeLookupValue(lockSnap.data()?.['teamId']);
+
+    if (lockedTeamId) {
+      const lockedTeamRef = input.db.collection('Teams').doc(lockedTeamId);
+      const lockedTeamSnap = await transaction.get(lockedTeamRef);
+      if (lockedTeamSnap.exists) {
+        resolved = { teamId: lockedTeamSnap.id, created: false };
+        return;
+      }
+    }
+
+    const teamsSnapshot = await transaction.get(
+      input.db.collection('Teams').where('organizationId', '==', program.organizationId)
+    );
+    const existingTeam = chooseTeamCandidate(
+      teamsSnapshot.docs,
+      normalizedSportName,
+      requestedLevel
+    );
+
+    if (existingTeam) {
+      transaction.set(lockRef, {
+        kind: 'team',
+        organizationId: program.organizationId,
+        teamId: existingTeam.id,
+        sport: normalizedSportName,
+        level: requestedLevel,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      resolved = { teamId: existingTeam.id, created: false };
+      return;
+    }
+
+    const baseName = program.name.trim();
+    const teamName = sportName ? `${baseName} ${sportName}` : baseName;
+    const teamRef = input.db.collection('Teams').doc();
+    const teamCode = await generateUniqueTeamCodeInTransaction(input.db, transaction);
+    const slug = await generateUniqueTeamSlugInTransaction(input.db, transaction, teamName);
+
+    transaction.set(teamRef, {
+      teamCode: teamCode.toUpperCase(),
+      teamName,
+      teamType: program.teamType,
+      sport: sportName,
+      slug,
+      athleteMember: 0,
+      panelMember: 0,
+      isActive: true,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+      level: level ?? '',
+      division: '',
+      conference: '',
+      organizationId: program.organizationId,
+      source: 'user_generated',
+      createdBy: input.userId,
+    });
+
+    transaction.update(input.db.collection('Organizations').doc(program.organizationId), {
+      teamCount: FieldValue.increment(1),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    transaction.set(lockRef, {
+      kind: 'team',
+      organizationId: program.organizationId,
+      teamId: teamRef.id,
+      sport: normalizedSportName,
+      level: requestedLevel,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    resolved = { teamId: teamRef.id, created: true };
+  });
+
+  const resolvedTeam = resolved as { teamId: string; created: boolean } | null;
+
+  if (resolvedTeam?.created) {
+    logger.info('[OnboardingProgramProvisioning] Created ghost sport team', {
+      teamId: resolvedTeam.teamId,
+      organizationId: program.organizationId,
+      sportName,
+    });
   }
 
-  const legacySportSnapshot = await teamsCollection
-    .where('organizationId', '==', program.organizationId)
-    .where('sportName', '==', sportName)
-    .where('isActive', '==', true)
-    .get();
-
-  const legacySportDoc = legacySportSnapshot.docs.find((doc) =>
-    doesTeamMatchSportAndLevel(doc.data(), normalizedSportName, requestedLevel)
-  );
-  if (legacySportDoc) {
-    return legacySportDoc.id;
-  }
-
-  const organizationTeamsSnapshot = await teamsCollection
-    .where('organizationId', '==', program.organizationId)
-    .get();
-
-  const normalizedSportDoc = organizationTeamsSnapshot.docs.find((doc) =>
-    doesTeamMatchSportAndLevel(doc.data(), normalizedSportName, requestedLevel)
-  );
-
-  return normalizedSportDoc?.id ?? null;
+  return resolvedTeam;
 }
 
 async function resolvePrograms(
@@ -278,55 +670,25 @@ async function resolvePrograms(
 
     if (isDraftProgram) {
       try {
-        const normalizedName = await normalizeProgramName(rawName, input.db);
-        const isPrivilegedRole = input.role === 'coach' || input.role === 'director';
-        const org = await organizationService.createOrganization({
-          name: normalizedName,
-          type: normalizeProgramType(program.teamType || input.createTeamProfile?.teamType),
-          createdBy: input.userId,
-          creatorRole: isPrivilegedRole ? (input.role as 'director' | 'coach') : undefined,
-          location: {
-            address: '',
-            city,
-            state,
-            zipCode: '',
-            country: 'USA',
-          },
-          mascot: input.createTeamProfile?.mascot,
-          isClaimed: isPrivilegedRole,
-          source: 'user_generated',
-          skipAdmins: !isPrivilegedRole,
-        });
+        const org = await ensureDraftProgramOrganization(
+          input,
+          program,
+          teamType,
+          city,
+          state,
+          rawName
+        );
 
-        if (!org.id) {
+        if (!org?.organizationId) {
           continue;
         }
 
         programs.push({
-          organizationId: org.id,
+          organizationId: org.organizationId,
           name: org.name,
           teamType,
           city,
           state,
-        });
-
-        // For coaches/directors, set the newly created org as their active
-        // billing target and evict the resolution cache so the very next
-        // billing call routes to org billing instead of defaulting to personal.
-        if (isPrivilegedRole) {
-          try {
-            await initOrganizationBillingTargetForUser(input.db, input.userId, org.id);
-          } catch (billingErr) {
-            logger.warn(
-              '[OnboardingProgramProvisioning] Failed to set org billing target after org creation',
-              { error: billingErr, userId: input.userId, organizationId: org.id }
-            );
-          }
-        }
-
-        logger.info('[OnboardingProgramProvisioning] Created ghost program', {
-          organizationId: org.id,
-          name: org.name,
         });
       } catch (err) {
         logger.error('[OnboardingProgramProvisioning] Failed to create ghost program', {
@@ -393,56 +755,7 @@ async function ensureTeamForSport(
   const sport = input.sports.find((s) => s.sport?.toLowerCase() === sportName.toLowerCase());
   const level = sport?.level;
 
-  const existingTeamId = await findExistingTeamIdForSport(input, program, sportName, level);
-  if (existingTeamId) {
-    return { teamId: existingTeamId, created: false };
-  }
-
-  const teamCode = await generateUniqueTeamCode(input.db);
-  // Team name is "OrgName SportName" (e.g. "Brownsburg Basketball")
-  const baseName = program.name.trim();
-  const teamName = sportName ? `${baseName} ${sportName}` : baseName;
-
-  const team = await teamCodeService.createTeamCode(input.db, {
-    teamCode,
-    teamName,
-    teamType: program.teamType,
-    sport: sportName,
-    createdBy: input.userId,
-    creatorRole: input.role,
-    creatorName:
-      [input.updateData.firstName, input.updateData.lastName].filter(Boolean).join(' ') ||
-      undefined,
-    creatorEmail: input.currentUser?.email?.trim() || undefined,
-    creatorPhoneNumber: input.currentUser?.contact?.phone?.trim() || undefined,
-    level: level ?? '',
-  });
-
-  if (!team.id) {
-    throw new Error('Created team is missing an id');
-  }
-
-  await input.db.collection('Teams').doc(team.id).update({
-    organizationId: program.organizationId,
-    source: 'user_generated',
-    updatedAt: FieldValue.serverTimestamp(),
-  });
-
-  await createOrganizationService(input.db)
-    .incrementTeamCount(program.organizationId)
-    .catch(() => {
-      logger.warn('[OnboardingProgramProvisioning] Failed to increment org team count', {
-        organizationId: program.organizationId,
-      });
-    });
-
-  logger.info('[OnboardingProgramProvisioning] Created ghost sport team', {
-    teamId: team.id,
-    organizationId: program.organizationId,
-    sportName,
-  });
-
-  return { teamId: team.id, created: true };
+  return ensureProvisionedTeamForSport(input, program, sportName, level);
 }
 
 async function ensureRosterEntry(

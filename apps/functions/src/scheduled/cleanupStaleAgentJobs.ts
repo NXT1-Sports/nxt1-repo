@@ -14,6 +14,7 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { logger } from 'firebase-functions/v2';
+import { postBackendCronJson } from './utils/backendCronRequest';
 
 const CRON_SECRET = defineSecret('CRON_SECRET');
 const BACKEND_URL = defineString('BACKEND_URL');
@@ -38,38 +39,29 @@ export const cleanupStaleAgentJobs = onSchedule(
   async () => {
     logger.info('Starting stale agent job cleanup sweep');
 
-    const url = `${BACKEND_URL.value()}/api/v1/agent-x/cron/cleanup-stale-jobs`;
-
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Cron-Secret': CRON_SECRET.value(),
-        },
-      });
-
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        // Use warn (not error) so the scheduler wrapper doesn't create a
-        // duplicate Error Reporting group — the outer catch logs the single
-        // authoritative error entry.
-        logger.warn('Backend returned non-OK response', {
-          status: response.status,
-          body: body.slice(0, 500),
-        });
-        throw new Error(`Stale job cleanup: backend returned ${response.status}`);
-      }
-
-      const result = (await response.json()) as {
+      const result = await postBackendCronJson<{
         data?: {
           scanned: number;
           markedFailed: number;
           cancelled: number;
           failedToUpdate: number;
         };
-      };
-      logger.info('Stale agent job cleanup completed', { result: result.data });
+      }>({
+        backendBaseUrl: BACKEND_URL.value(),
+        endpointPath: '/api/v1/agent-x/cron/cleanup-stale-jobs',
+        cronSecret: CRON_SECRET.value(),
+        jobName: 'cleanupStaleAgentJobs',
+        timeoutMs: 20_000,
+        maxAttempts: 3,
+      });
+
+      if (!result) {
+        logger.warn('Stale agent job cleanup skipped due to transient backend outage');
+        return;
+      }
+
+      logger.info('Stale agent job cleanup completed', { result: result.data.data });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       logger.error('Stale agent job cleanup failed', { error: error.message });

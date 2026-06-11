@@ -1,9 +1,9 @@
 /**
  * @fileoverview Agent X Operations Log — Bottom Sheet History Component
  * @module @nxt1/ui/agent-x
- * @version 1.0.0
- *
- * Displays the last 30 days of Agent X operations in a scrollable,
+                    <div class="log-entry-content">
+                      <h4 class="log-entry-title">{{ entry.title }}</h4>
+                      <div class="log-entry-meta">
  * day-grouped list. Opens inside NxtBottomSheetService.openSheet().
  *
  * Features:

@@ -60,7 +60,7 @@ describe('approval-gate.service', () => {
 
     expect(requirement).not.toBeNull();
     expect(requirement?.policy.toolName).toBe('run_microsoft_365_tool');
-    expect(requirement?.policy.sessionTrustGroup).toBe('email');
+    expect(requirement?.policy.sessionTrustGroup).toBeUndefined();
     expect(requirement?.actionSummary).toContain('Send 2 Outlook emails');
     expect(requirement?.actionSummary).toContain('Recruiting update');
   });
@@ -79,7 +79,7 @@ describe('approval-gate.service', () => {
 
     expect(requirement).not.toBeNull();
     expect(requirement?.policy.toolName).toBe('run_google_workspace_tool');
-    expect(requirement?.policy.sessionTrustGroup).toBe('email');
+    expect(requirement?.policy.sessionTrustGroup).toBeUndefined();
     expect(requirement?.reasonCode).toBe('send_email');
     expect(requirement?.actionSummary).toContain('Send 2 Gmail emails');
     expect(requirement?.actionSummary).toContain('Recruiting update');

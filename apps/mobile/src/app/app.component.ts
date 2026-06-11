@@ -44,28 +44,24 @@ import { filter } from 'rxjs/operators';
             <h1>{{ accessGateTitle() }}</h1>
             <p>{{ accessGateMessage() }}</p>
 
-            @if (requiresBiometricUnlock()) {
-              <div class="app-access-actions">
-                <button
-                  type="button"
-                  class="app-access-primary"
-                  [disabled]="unlockInProgress()"
-                  (click)="onRetryUnlock()"
-                >
-                  {{ unlockInProgress() ? 'Checking...' : 'Use ' + biometricLabel() }}
-                </button>
-                <button
-                  type="button"
-                  class="app-access-secondary"
-                  [disabled]="unlockInProgress()"
-                  (click)="onSignOutFromGate()"
-                >
-                  Sign Out
-                </button>
-              </div>
-            } @else {
-              <div class="app-access-loading"></div>
-            }
+            <div class="app-access-actions">
+              <button
+                type="button"
+                class="app-access-primary"
+                [disabled]="unlockInProgress()"
+                (click)="onRetryUnlock()"
+              >
+                {{ unlockInProgress() ? 'Checking...' : 'Use ' + biometricLabel() }}
+              </button>
+              <button
+                type="button"
+                class="app-access-secondary"
+                [disabled]="unlockInProgress()"
+                (click)="onSignOutFromGate()"
+              >
+                Sign Out
+              </button>
+            </div>
           </div>
         </div>
       }
@@ -161,22 +157,6 @@ import { filter } from 'rxjs/operators';
       .app-access-secondary[disabled] {
         opacity: 0.6;
       }
-
-      .app-access-loading {
-        width: 40px;
-        height: 40px;
-        margin: 24px auto 0;
-        border-radius: 50%;
-        border: 3px solid rgba(255, 255, 255, 0.14);
-        border-top-color: #c2ff00;
-        animation: app-access-spin 0.9s linear infinite;
-      }
-
-      @keyframes app-access-spin {
-        to {
-          transform: rotate(360deg);
-        }
-      }
     `,
   ],
 })
@@ -214,17 +194,13 @@ export class AppComponent {
   protected readonly unlockInProgress = signal(false);
   protected readonly unlockError = signal<string | null>(null);
   protected readonly biometricLabel = computed(() => this.biometric.biometryName());
-  protected readonly showAccessGate = computed(() => !this.accessResolved());
-  protected readonly accessGateTitle = computed(() =>
-    this.requiresBiometricUnlock() ? 'Unlock NXT1' : 'Starting NXT1'
+  protected readonly showAccessGate = computed(
+    () => this.requiresBiometricUnlock() && !this.accessResolved()
   );
-  protected readonly accessGateMessage = computed(() => {
-    if (!this.requiresBiometricUnlock()) {
-      return 'Restoring your account and preparing the app.';
-    }
-
-    return this.unlockError() ?? `Use ${this.biometricLabel()} to continue.`;
-  });
+  protected readonly accessGateTitle = computed(() => 'Unlock NXT1');
+  protected readonly accessGateMessage = computed(
+    () => this.unlockError() ?? `Use ${this.biometricLabel()} to continue.`
+  );
 
   constructor() {
     // Register Apple IAP on iOS so compatible buy-credits sheets can offer

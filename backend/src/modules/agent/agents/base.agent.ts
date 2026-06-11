@@ -3444,6 +3444,7 @@ export abstract class BaseAgent {
       ...(sessionContext?.operationId && { operationId: sessionContext.operationId }),
       ...(sessionContext?.threadId && { threadId: sessionContext.threadId }),
       ...(sessionContext?.sessionId && { sessionId: sessionContext.sessionId }),
+      ...(sessionContext?.approvalId && { approvalId: sessionContext.approvalId }),
       ...(sessionContext?.allowedToolNames && {
         allowedToolNames: sessionContext.allowedToolNames,
       }),
