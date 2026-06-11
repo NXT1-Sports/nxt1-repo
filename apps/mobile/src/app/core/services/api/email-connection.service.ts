@@ -201,58 +201,105 @@ export class MobileEmailConnectionService {
       const callbackPrefix = `${environment.appScheme}://oauth/callback`;
       this.logger.debug('Opening backend-generated Google OAuth URL', { callbackPrefix });
 
-      await new Promise<void>((resolve, reject) => {
-        let resolved = false;
-        let listenerHandle: Awaited<ReturnType<typeof App.addListener>> | null = null;
-
-        const timeout = setTimeout(
-          () => {
-            if (!resolved) {
-              resolved = true;
-              void listenerHandle?.remove();
-              reject(new Error('Google authentication timed out. Please try again.'));
-            }
-          },
-          5 * 60 * 1000
-        );
-
-        void (async () => {
-          listenerHandle = await App.addListener('appUrlOpen', (data: { url: string }) => {
-            this.logger.debug('Received app URL open event', { url: data.url });
-
-            if (!resolved && data.url.startsWith(callbackPrefix)) {
-              resolved = true;
-              clearTimeout(timeout);
-              void listenerHandle?.remove();
-              void Browser.close();
-
-              const url = new URL(data.url);
-              const success = url.searchParams.get('success') === 'true';
-              const message = url.searchParams.get('message') ?? '';
-
-              if (success) {
-                resolve();
-              } else {
-                reject(
-                  new Error(
-                    message.toLowerCase().includes('cancel') || message === 'Connection cancelled'
-                      ? 'Google authentication was canceled'
-                      : `Google authentication failed: ${message}`
-                  )
-                );
-              }
-            }
-          });
-        })();
-
-        void Browser.open({
-          url: oauthUrl,
-          presentationStyle: 'popover',
-        });
+      // Pre-allocate resolve/reject so listeners registered before Browser.open() can call them.
+      let resolveFn!: () => void;
+      let rejectFn!: (err: Error) => void;
+      const connectPromise = new Promise<void>((res, rej) => {
+        resolveFn = res;
+        rejectFn = rej;
       });
 
+      let resolved = false;
+      let appUrlHandle: Awaited<ReturnType<typeof App.addListener>> | null = null;
+      let browserFinishedHandle: Awaited<ReturnType<typeof Browser.addListener>> | null = null;
+
+      const cleanup = (andClosesBrowser = false) => {
+        void appUrlHandle?.remove();
+        appUrlHandle = null;
+        void browserFinishedHandle?.remove();
+        browserFinishedHandle = null;
+        if (andClosesBrowser) void Browser.close();
+      };
+
+      const timeout = setTimeout(
+        () => {
+          if (!resolved) {
+            resolved = true;
+            cleanup(true); // always close the browser so the user isn't left stuck
+            rejectFn(new Error('Google authentication timed out. Please try again.'));
+          }
+        },
+        5 * 60 * 1000
+      );
+
+      // Register appUrlOpen BEFORE opening the browser to eliminate any race condition.
+      appUrlHandle = await App.addListener('appUrlOpen', (data: { url: string }) => {
+        this.logger.debug('Received app URL open event (Google)', { url: data.url });
+        if (!resolved && data.url.startsWith(callbackPrefix)) {
+          resolved = true;
+          clearTimeout(timeout);
+          cleanup(true); // close browser
+
+          const url = new URL(data.url);
+          const success = url.searchParams.get('success') === 'true';
+          const message = url.searchParams.get('message') ?? '';
+
+          if (success) {
+            resolveFn();
+          } else {
+            rejectFn(
+              new Error(
+                message.toLowerCase().includes('cancel') || message === 'Connection cancelled'
+                  ? 'Google authentication was canceled'
+                  : `Google authentication failed: ${message}`
+              )
+            );
+          }
+        }
+      });
+
+      // Fallback: if the deep-link never fires (browser closed manually on Android or
+      // the custom-scheme redirect was not intercepted by the OS), check whether the
+      // backend already saved the token by refreshing the profile.
+      browserFinishedHandle = await Browser.addListener('browserFinished', async () => {
+        if (resolved) return; // already handled by appUrlOpen
+        resolved = true;
+        clearTimeout(timeout);
+        cleanup();
+
+        // Give the backend a brief moment to finish writing the token if the
+        // redirect fired but the deep-link delivery was slightly delayed.
+        await new Promise<void>((r) => setTimeout(r, 600));
+        await this.profileService.refresh(userId);
+        const connectedEmail = this._getConnectedEmail('google');
+        if (connectedEmail !== undefined) {
+          // Token was saved — backend succeeded even though the deep-link didn't arrive.
+          this.logger.info('Google OAuth: browserFinished fallback detected success', { userId });
+          resolveFn();
+        } else {
+          rejectFn(new Error('Google authentication was canceled'));
+        }
+      });
+
+      // Open the browser AFTER listeners are registered.
+      await Browser.open({ url: oauthUrl, presentationStyle: 'popover' });
+
+      await connectPromise;
+
       this.logger.info('Google account connected successfully', { userId });
-      await this.profileService.load(userId);
+      // Use refresh (not load) so the mobile-side HTTP cache is cleared and the
+      // newly connected email is immediately visible in the UI.
+      await this.profileService.refresh(userId);
+    } catch (err: unknown) {
+      // Always refresh the profile even on failure: the backend may have saved the
+      // token before the browser was closed (e.g. timeout fired, or the user tapped
+      // Done on iOS). This guarantees the cache is never stale when the sheet reopens.
+      try {
+        await this.profileService.refresh(userId);
+      } catch {
+        /* ignore */
+      }
+      throw err;
     } finally {
       clearTimeout(lockTimeout);
       this.isGoogleOAuthConnecting = false;
@@ -328,8 +375,9 @@ export class MobileEmailConnectionService {
       email: result.user?.email,
     });
 
-    // Reload profile to update connectedEmails in UI
-    await this.profileService.load(userId);
+    // Use refresh (not load) to clear the mobile-side HTTP cache so the
+    // newly connected Gmail entry is immediately visible in the UI.
+    await this.profileService.refresh(userId);
   }
 
   // ============================================
@@ -363,78 +411,122 @@ export class MobileEmailConnectionService {
     // Ask the backend for the OAuth URL — the backend uses its own HTTPS redirect_uri
     // registered in Azure AD. The backend will redirect back to
     // `${appScheme}://oauth/callback` after exchanging tokens.
-    const connectUrlEndpoint = `${environment.apiUrl}/auth/microsoft/connect-url?mobileScheme=${encodeURIComponent(environment.appScheme)}`;
-    const connectUrlRes = await fetch(connectUrlEndpoint, {
-      headers: { Authorization: `Bearer ${idToken}` },
-    });
-    if (!connectUrlRes.ok) {
-      const errBody = await connectUrlRes.json().catch(() => null);
-      throw new Error(
-        (errBody as { message?: string } | null)?.message ??
-          `Failed to get Microsoft OAuth URL (${connectUrlRes.status})`
-      );
-    }
-    const { url: oauthUrl } = (await connectUrlRes.json()) as { url: string };
+    try {
+      const connectUrlEndpoint = `${environment.apiUrl}/auth/microsoft/connect-url?mobileScheme=${encodeURIComponent(environment.appScheme)}`;
+      const connectUrlRes = await fetch(connectUrlEndpoint, {
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      if (!connectUrlRes.ok) {
+        const errBody = await connectUrlRes.json().catch(() => null);
+        throw new Error(
+          (errBody as { message?: string } | null)?.message ??
+            `Failed to get Microsoft OAuth URL (${connectUrlRes.status})`
+        );
+      }
+      const { url: oauthUrl } = (await connectUrlRes.json()) as { url: string };
 
-    const callbackPrefix = `${environment.appScheme}://oauth/callback`;
-    this.logger.debug('Opening backend-generated Microsoft OAuth URL', { callbackPrefix });
+      const callbackPrefix = `${environment.appScheme}://oauth/callback`;
+      this.logger.debug('Opening backend-generated Microsoft OAuth URL', { callbackPrefix });
 
-    // Set up app URL listener for redirect callback
-    await new Promise<void>((resolve, reject) => {
+      // Pre-allocate resolve/reject so listeners registered before Browser.open() can call them.
+      let resolveFn!: () => void;
+      let rejectFn!: (err: Error) => void;
+      const connectPromise = new Promise<void>((res, rej) => {
+        resolveFn = res;
+        rejectFn = rej;
+      });
+
       let resolved = false;
-      let listenerHandle: Awaited<ReturnType<typeof App.addListener>> | null = null;
+      let appUrlHandle: Awaited<ReturnType<typeof App.addListener>> | null = null;
+      let browserFinishedHandle: Awaited<ReturnType<typeof Browser.addListener>> | null = null;
+
+      const cleanup = (andClosesBrowser = false) => {
+        void appUrlHandle?.remove();
+        appUrlHandle = null;
+        void browserFinishedHandle?.remove();
+        browserFinishedHandle = null;
+        if (andClosesBrowser) void Browser.close();
+      };
 
       const timeout = setTimeout(
         () => {
           if (!resolved) {
             resolved = true;
-            void listenerHandle?.remove();
-            reject(new Error('Microsoft authentication timed out. Please try again.'));
+            cleanup(true); // always close the browser so the user isn't left stuck
+            rejectFn(new Error('Microsoft authentication timed out. Please try again.'));
           }
         },
-        5 * 60 * 1000 // 5 minutes
+        5 * 60 * 1000
       );
 
-      void (async () => {
-        listenerHandle = await App.addListener('appUrlOpen', (data: { url: string }) => {
-          this.logger.debug('Received app URL open event', { url: data.url });
+      // Register appUrlOpen BEFORE opening the browser to eliminate any race condition.
+      appUrlHandle = await App.addListener('appUrlOpen', (data: { url: string }) => {
+        this.logger.debug('Received app URL open event (Microsoft)', { url: data.url });
+        if (!resolved && data.url.startsWith(callbackPrefix)) {
+          resolved = true;
+          clearTimeout(timeout);
+          cleanup(true); // close browser
 
-          if (!resolved && data.url.startsWith(callbackPrefix)) {
-            resolved = true;
-            clearTimeout(timeout);
-            void listenerHandle?.remove();
-            void Browser.close();
+          const url = new URL(data.url);
+          const success = url.searchParams.get('success') === 'true';
+          const message = url.searchParams.get('message') ?? '';
 
-            const url = new URL(data.url);
-            const success = url.searchParams.get('success') === 'true';
-            const message = url.searchParams.get('message') ?? '';
-
-            if (success) {
-              resolve();
-            } else {
-              reject(
-                new Error(
-                  message.toLowerCase().includes('cancel') || message === 'Connection cancelled'
-                    ? 'Microsoft authentication was canceled'
-                    : `Microsoft authentication failed: ${message}`
-                )
-              );
-            }
+          if (success) {
+            resolveFn();
+          } else {
+            rejectFn(
+              new Error(
+                message.toLowerCase().includes('cancel') || message === 'Connection cancelled'
+                  ? 'Microsoft authentication was canceled'
+                  : `Microsoft authentication failed: ${message}`
+              )
+            );
           }
-        });
-      })();
-
-      // Open system browser for OAuth
-      void Browser.open({
-        url: oauthUrl,
-        presentationStyle: 'popover',
+        }
       });
-    });
 
-    this.logger.info('Microsoft connected successfully', { userId });
+      // Fallback: if the deep-link never fires (browser closed manually on Android or
+      // the custom-scheme redirect was not intercepted by the OS), check whether the
+      // backend already saved the token by refreshing the profile.
+      browserFinishedHandle = await Browser.addListener('browserFinished', async () => {
+        if (resolved) return; // already handled by appUrlOpen
+        resolved = true;
+        clearTimeout(timeout);
+        cleanup();
 
-    // Reload profile to update connectedEmails in UI
-    await this.profileService.load(userId);
+        // Give the backend a brief moment to finish writing the token.
+        await new Promise<void>((r) => setTimeout(r, 600));
+        await this.profileService.refresh(userId);
+        const connectedEmail = this._getConnectedEmail('microsoft');
+        if (connectedEmail !== undefined) {
+          this.logger.info('Microsoft OAuth: browserFinished fallback detected success', {
+            userId,
+          });
+          resolveFn();
+        } else {
+          rejectFn(new Error('Microsoft authentication was canceled'));
+        }
+      });
+
+      // Open the browser AFTER listeners are registered.
+      await Browser.open({ url: oauthUrl, presentationStyle: 'popover' });
+
+      await connectPromise;
+
+      this.logger.info('Microsoft connected successfully', { userId });
+      // Use refresh (not load) so the mobile-side HTTP cache is cleared and the
+      // newly connected email is immediately visible in the UI.
+      await this.profileService.refresh(userId);
+    } catch (err: unknown) {
+      // Always refresh on failure too — the backend may have saved the token before
+      // the browser closed, so the cache must be cleared for the next sheet open.
+      try {
+        await this.profileService.refresh(userId);
+      } catch {
+        /* ignore */
+      }
+      throw err;
+    }
   }
 
   // ============================================

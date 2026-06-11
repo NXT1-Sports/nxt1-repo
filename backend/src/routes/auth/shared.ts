@@ -428,16 +428,20 @@ export function encodeOAuthState(uid: string, origin: string, mobileScheme?: str
 
 /**
  * Build a minimal HTML page that redirects the mobile browser (SFSafariViewController on iOS,
- * Chrome Custom Tab on Android) to a custom URL scheme via JavaScript.
+ * Chrome Custom Tab on Android) back to the app after OAuth completes.
  *
- * Why not `res.redirect()`?
- * iOS 12+ blocks HTTP 302 redirects to custom URL schemes inside SFSafariViewController —
- * the browser just hangs, `appUrlOpen` never fires, and the user is stuck.
- * A JS-initiated navigation (`window.location.href = 'nxt1sports://...'`) bypasses this
- * restriction on both iOS and Android, and triggers `application:openURL:options:` (iOS) /
- * the intent system (Android) so Capacitor's `appUrlOpen` fires correctly.
+ * Strategy:
+ * - Immediately tries `window.location.href = 'nxt1sports://...'`.
+ *   On Android Chrome Custom Tab (after the nxt1sports intent-filter is registered in
+ *   AndroidManifest.xml) this fires an intent, brings the app to the foreground, and our
+ *   `appUrlOpen` listener closes the Custom Tab programmatically.
+ * - On iOS 12+ SFSafariViewController, Apple blocks ALL navigation to custom URL schemes
+ *   (HTTP 302 redirects AND JavaScript).  The JS call above silently fails, so after 1.5 s
+ *   the page switches to a plain-language instruction: "Tap Done to return to NXT1."
+ *   The user taps the native "Done" button → SFSafariViewController closes →
+ *   `browserFinished` fires → our fallback handler refreshes the profile and resolves.
  */
-export function buildMobileOAuthCallbackHtml(deepLink: string): string {
+export function buildMobileOAuthCallbackHtml(deepLink: string, success: boolean): string {
   // Escape for safe embedding inside a JS string literal (no template injection)
   const escaped = deepLink
     .replace(/\\/g, '\\\\')
@@ -445,24 +449,66 @@ export function buildMobileOAuthCallbackHtml(deepLink: string): string {
     .replace(/</g, '\\u003c')
     .replace(/>/g, '\\u003e');
 
+  const titleText = success ? 'Connected!' : 'Authentication failed';
+  const bodyText = success
+    ? 'Your account has been connected. Tap <strong>Done</strong> (iOS) or <strong>✕</strong> (Android) to return to NXT1.'
+    : 'Authentication was not completed. Tap <strong>Done</strong> or <strong>✕</strong> to close this window and try again.';
+  const iconColor = success ? '#22c55e' : '#ef4444';
+  const icon = success ? '✓' : '✕';
+
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width,initial-scale=1"/>
-  <title>Connecting…</title>
+  <title>${titleText}</title>
   <style>
-    body{margin:0;display:flex;align-items:center;justify-content:center;
-         min-height:100vh;font-family:system-ui,sans-serif;background:#0a0a0a;color:#fff;}
-    p{font-size:1rem;opacity:.7;}
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{display:flex;align-items:center;justify-content:center;min-height:100vh;
+         font-family:system-ui,-apple-system,sans-serif;background:#0a0a0a;color:#fff;
+         padding:24px;text-align:center}
+    .card{max-width:340px;width:100%}
+    .icon{width:56px;height:56px;border-radius:50%;background:${iconColor};
+          display:flex;align-items:center;justify-content:center;
+          font-size:28px;font-weight:700;margin:0 auto 20px}
+    h1{font-size:1.25rem;font-weight:700;margin-bottom:12px}
+    p{font-size:.95rem;line-height:1.5;opacity:.8}
+    .spinner{width:40px;height:40px;border:3px solid rgba(255,255,255,.15);
+             border-top-color:#fff;border-radius:50%;
+             animation:spin .8s linear infinite;margin:0 auto 16px}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    #auto{transition:opacity .3s}
+    #manual{display:none;animation:fadein .4s ease}
+    @keyframes fadein{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
   </style>
 </head>
 <body>
-  <p>Connecting to NXT1…</p>
+  <div class="card">
+    <div id="auto">
+      <div class="spinner"></div>
+      <p>Returning to NXT1&hellip;</p>
+    </div>
+    <div id="manual">
+      <div class="icon">${icon}</div>
+      <h1>${titleText}</h1>
+      <p>${bodyText}</p>
+    </div>
+  </div>
   <script>
-    // JS-initiated navigation works in SFSafariViewController (iOS 12+).
-    // A plain HTTP 302 redirect to a custom scheme is silently blocked by iOS.
+    // Try JS-initiated navigation first.
+    // Android Chrome Custom Tab: fires an intent, app opens, Custom Tab closes.
+    // iOS SFSafariViewController: silently blocked — page stays here.
     window.location.href = '${escaped}';
+
+    // If we are still on this page after 1.5 s the custom-scheme navigation was
+    // blocked (iOS SFSafariViewController).  Show the manual-close instruction so
+    // the user knows to tap the native "Done" button to return to the app.
+    setTimeout(function() {
+      var auto = document.getElementById('auto');
+      var manual = document.getElementById('manual');
+      if (auto) auto.style.display = 'none';
+      if (manual) manual.style.display = 'block';
+    }, 1500);
   </script>
 </body>
 </html>`;

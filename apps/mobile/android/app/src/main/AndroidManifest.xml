@@ -49,7 +49,45 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="nxt1" />
             </intent-filter>
+
+            <!-- Custom URL Scheme (nxt1sports://) for OAuth callbacks (Google, Microsoft) -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="nxt1sports" />
+            </intent-filter>
         </activity>
+
+        <activity
+            android:name="com.microsoft.identity.client.BrowserTabActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="msauth"
+                    android:host="${applicationId}"
+                    android:path="${msauthRedirectPath}" />
+            </intent-filter>
+        </activity>
+
+        <!-- Keep the transitive YubiKit prompt private; launching it without
+             library-provided extras can crash during activity startup. -->
+        <activity
+            android:name="com.yubico.yubikit.android.ui.YubiKeyPromptActivity"
+            android:exported="false"
+            tools:replace="android:exported" />
+
+        <!-- IAP is iOS-only. Remove ProxyBillingActivity from the merged manifest
+             to prevent a crash (NPE on null PendingIntent) that occurs when
+             Android attempts to restore or launch this activity on Android devices.
+             The @capgo/native-purchases plugin registers this activity via the
+             Play Billing library, but it must never run on this Android build. -->
+        <activity
+            android:name="com.android.billingclient.api.ProxyBillingActivity"
+            tools:node="remove" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

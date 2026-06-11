@@ -294,12 +294,12 @@ router.get(
     const renderResult = (success: boolean, message: string, provider = 'google') => {
       const params = new URLSearchParams({ provider, success: String(success), message });
       if (mobileScheme && ALLOWED_MOBILE_SCHEMES.has(mobileScheme)) {
-        // Use JS-initiated navigation instead of HTTP 302 redirect.
-        // iOS 12+ SFSafariViewController silently blocks HTTP redirects to custom URL schemes;
-        // a JS window.location navigation is the only reliable way to trigger appUrlOpen.
+        // Android: JS window.location fires an intent → appUrlOpen closes the Custom Tab.
+        // iOS: custom-scheme JS is blocked; page shows "Tap Done" after 1.5 s →
+        //      browserFinished fallback resolves/rejects in the mobile app.
         const deepLink = `${mobileScheme}://oauth/callback?${params.toString()}`;
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        res.send(buildMobileOAuthCallbackHtml(deepLink));
+        res.send(buildMobileOAuthCallbackHtml(deepLink, success));
       } else {
         const frontendUrl =
           stateOrigin && isAllowedOrigin(stateOrigin, req.isStaging)
@@ -547,12 +547,9 @@ router.get(
         message,
       });
       if (mobileScheme && ALLOWED_MOBILE_SCHEMES.has(mobileScheme)) {
-        // Use JS-initiated navigation instead of HTTP 302 redirect.
-        // iOS 12+ SFSafariViewController silently blocks HTTP redirects to custom URL schemes;
-        // a JS window.location navigation is the only reliable way to trigger appUrlOpen.
         const deepLink = `${mobileScheme}://oauth/callback?${params.toString()}`;
         res.setHeader('Content-Type', 'text/html; charset=utf-8');
-        res.send(buildMobileOAuthCallbackHtml(deepLink));
+        res.send(buildMobileOAuthCallbackHtml(deepLink, success));
       } else {
         const frontendUrl =
           stateOrigin && isAllowedOrigin(stateOrigin, req.isStaging)

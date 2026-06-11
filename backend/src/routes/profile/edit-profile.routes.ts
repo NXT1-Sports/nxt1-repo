@@ -848,10 +848,10 @@ router.put(
     // Map section data to Firestore updates
     const updates = sectionToFirestoreUpdate(typedSectionId, sectionData, user, sportIndex);
 
-    // For 'connected-sources', also handle sign-in connection deactivations.
+    // For 'connected-sources', also handle sign-in connection removals.
     // Frontend sends disconnectedSignInProviders[] when the user removes a Google/Microsoft
-    // sign-in connection. We set connectedEmails[x].isActive = false for those providers
-    // so the disconnected state persists across page refreshes.
+    // sign-in connection. We remove the matching entries from connectedEmails so the
+    // disconnected state persists across page refreshes.
     if (
       typedSectionId === 'connected-sources' &&
       Array.isArray(sectionData?.['disconnectedSignInProviders']) &&
