@@ -1880,6 +1880,8 @@ router.delete(
     const rosterService = new RosterEntryService(db);
     const entry = await rosterService.getRosterEntryById(entryId);
     await rosterService.removeFromTeam(entryId);
+    const { team } = await teamCodeService.getTeamCodeById(db, teamId, false);
+    await invalidateTeamProfileCache(teamId, team.slug ?? undefined, team.teamCode ?? undefined);
 
     void notifyMembershipRemoved(db, {
       teamId,
@@ -1922,6 +1924,8 @@ router.post(
       entryId,
       approvedBy: requesterId,
     });
+    const { team } = await teamCodeService.getTeamCodeById(db, teamId, false);
+    await invalidateTeamProfileCache(teamId, team.slug ?? undefined, team.teamCode ?? undefined);
 
     const raw = approved as unknown as Record<string, unknown>;
     const item = mapRosterEntryToEditorItem(entryId, raw);

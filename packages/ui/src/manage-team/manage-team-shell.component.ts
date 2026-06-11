@@ -1007,7 +1007,7 @@ export class ManageTeamShellComponent implements OnInit {
     if (result.changed) {
       this.membershipChanged.set(true);
       // Reload the team to reflect updated roster/staff counts in the shell
-      void this.service.loadTeam(teamIdValue as string);
+      void this.service.loadTeam(teamIdValue as string, { forceRefresh: true });
     }
   }
 

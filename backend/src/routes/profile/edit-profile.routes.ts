@@ -33,6 +33,7 @@ import {
   notifyMembershipRemoved,
   notifyTeamJoined,
 } from '../../services/communications/team-join-notifications.js';
+import { invalidateTeamProfileCache } from '../../services/core/cache.service.js';
 import {
   createProfileWriteAccessService,
   type ProfileWriteAccessGrant,
@@ -149,6 +150,10 @@ async function removePreviousSportMembership(options: {
       existingMembership.sport?.trim().toLowerCase() === options.sport.trim().toLowerCase())
   ) {
     await options.rosterEntryService.removeFromTeam(existingMembership.id);
+    await invalidateRemovedTeamProfileCache(options.db, options.teamId, {
+      userId: options.userId,
+      sport: options.sport,
+    });
     void notifyMembershipRemoved(options.db, {
       teamId: options.teamId,
       userId: options.userId,
@@ -163,6 +168,24 @@ async function removePreviousSportMembership(options: {
         sport: options.sport,
       })
     );
+  }
+}
+
+async function invalidateRemovedTeamProfileCache(
+  db: FirebaseFirestore.Firestore,
+  teamId: string,
+  logContext: Record<string, unknown>
+): Promise<void> {
+  try {
+    const teamSnap = await db.collection('Teams').doc(teamId).get();
+    const teamData = teamSnap.data() as { slug?: string; teamCode?: string } | undefined;
+    await invalidateTeamProfileCache(teamId, teamData?.slug, teamData?.teamCode);
+  } catch (err) {
+    logger.warn('[EditProfile] Failed to invalidate removed team profile cache', {
+      teamId,
+      ...logContext,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 

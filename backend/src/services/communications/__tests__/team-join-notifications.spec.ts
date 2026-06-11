@@ -286,4 +286,48 @@ describe('notifyMembershipRemoved', () => {
       body: 'Ava Runner left Varsity.',
     });
   });
+
+  it('does not notify active team directors when a member leaves on their own unless they created the team', async () => {
+    const { db, writes } = createMockFirestore({
+      Teams: {
+        team_1: {
+          teamName: 'Varsity',
+          createdBy: 'owner_1',
+        },
+      },
+      RosterEntries: {
+        director_entry: {
+          teamId: 'team_1',
+          userId: 'director_1',
+          role: 'director',
+          status: 'active',
+        },
+        athlete_entry: {
+          teamId: 'team_1',
+          userId: 'athlete_1',
+          role: 'athlete',
+          status: 'active',
+        },
+      },
+    });
+
+    const result = await notifyMembershipRemoved(db, {
+      teamId: 'team_1',
+      userId: 'athlete_1',
+      removedBy: 'athlete_1',
+      memberName: 'Ava Runner',
+    });
+
+    const notificationWrites = writes.filter((write) => write.path.startsWith('Notifications/'));
+
+    expect(result).toEqual({ removedUserNotified: false, managerNotified: true });
+    expect(notificationWrites.map((write) => write.data.userId)).toEqual(['owner_1']);
+    expect(notificationWrites).toHaveLength(1);
+    expect(notificationWrites[0]?.data).toMatchObject({
+      userId: 'owner_1',
+      type: NOTIFICATION_TYPES.TEAM_MEMBER_LEFT,
+      title: 'A member left your team',
+      body: 'Ava Runner left Varsity.',
+    });
+  });
 });
