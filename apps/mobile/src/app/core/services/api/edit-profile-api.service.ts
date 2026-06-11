@@ -8,6 +8,7 @@
 
 import { Injectable, inject } from '@angular/core';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
+import { CACHE_KEYS } from '@nxt1/core/cache';
 import { createEditProfileApi, type EditProfileApi } from '@nxt1/core/edit-profile';
 import { createFileUploadApi } from '@nxt1/core';
 import type {
@@ -18,7 +19,14 @@ import type {
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { normalizeImageFileForUpload } from '@nxt1/ui';
 import { CapacitorHttpAdapter } from '../../infrastructure';
+import { MobileCacheService } from '../infrastructure/cache.service';
 import { environment } from '../../../../environments/environment';
+
+interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+}
 
 /** Convert a File or Blob to a base64 data URL (data:mime;base64,...). */
 function fileToDataUrl(file: File | Blob): Promise<string> {
@@ -44,12 +52,24 @@ function fileToDataUrl(file: File | Blob): Promise<string> {
 @Injectable({ providedIn: 'root' })
 export class EditProfileApiService {
   private readonly http = inject(CapacitorHttpAdapter);
+  private readonly mobileCache = inject(MobileCacheService);
   private readonly logger = inject(NxtLoggingService).child('EditProfileApiService');
   private readonly api: EditProfileApi;
   private readonly uploadApi = createFileUploadApi(this.http as never, environment.apiUrl);
+  private readonly httpCacheKeyPrefix = `${CACHE_KEYS.API_RESPONSE}mobile-http:`;
 
   constructor() {
     this.api = createEditProfileApi(this.http, environment.apiUrl);
+  }
+
+  async invalidateCache(userId: string): Promise<void> {
+    await Promise.all([
+      this.mobileCache.clear(`${this.httpCacheKeyPrefix}*profile*${userId}*`),
+      this.mobileCache.clear(`${this.httpCacheKeyPrefix}*auth/profile*${userId}*`),
+      this.mobileCache.clear(`${this.httpCacheKeyPrefix}*auth/profile/me*`),
+      this.mobileCache.clear(`*profile*${userId}*`),
+      this.mobileCache.clear(`*auth/profile/me*`),
+    ]);
   }
 
   /**
@@ -66,7 +86,28 @@ export class EditProfileApiService {
     error?: string;
   }> {
     try {
-      const data = await this.api.getProfile(userId, sportIndex);
+      const params: Record<string, string | number> = { _: Date.now() };
+      if (sportIndex !== undefined) {
+        params['sportIndex'] = sportIndex;
+      }
+
+      const response = await this.http.get<ApiResponse<EditProfileData>>(
+        `${environment.apiUrl}/profile/${encodeURIComponent(userId)}/edit`,
+        {
+          params,
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            Pragma: 'no-cache',
+            'X-No-Cache': '1',
+          },
+        }
+      );
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? 'Failed to load profile');
+      }
+
+      const data = response.data;
       return { success: true, data };
     } catch (err) {
       return {
@@ -91,6 +132,7 @@ export class EditProfileApiService {
   }> {
     try {
       const result = await this.api.updateProfile(userId, data);
+      await this.invalidateCache(userId);
       return { success: true, data: result };
     } catch (err) {
       return {
@@ -119,6 +161,7 @@ export class EditProfileApiService {
   }> {
     try {
       const result = await this.api.updateSection(userId, sectionId, data, sportIndex);
+      await this.invalidateCache(userId);
       return { success: true, data: result };
     } catch (err) {
       return {
@@ -143,6 +186,7 @@ export class EditProfileApiService {
   }> {
     try {
       const data = await this.api.updateActiveSportIndex(userId, activeSportIndex);
+      await this.invalidateCache(userId);
       return { success: true, data };
     } catch (err) {
       return {
@@ -167,6 +211,7 @@ export class EditProfileApiService {
   }> {
     try {
       const data = await this.api.uploadPhoto(userId, file);
+      await this.invalidateCache(userId);
       return { success: true, data };
     } catch (err) {
       return {

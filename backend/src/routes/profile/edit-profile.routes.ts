@@ -173,24 +173,40 @@ async function removePreviousSportMembership(options: {
   }
 }
 
-async function resolvePreviousTeamIdFromRoster(options: {
+export async function resolvePreviousTeamIdFromRoster(options: {
   readonly rosterEntryService: ReturnType<typeof createRosterEntryService>;
   readonly userId: string;
   readonly sport?: string;
   readonly organizationId?: string | null;
 }): Promise<string | null> {
+  // Normalize early so the guard can use them.
+  const normalizedSport = options.sport?.trim().toLowerCase() || null;
+  const normalizedOrganizationId = options.organizationId?.trim() || null;
+
+  // Without at least one discriminator we cannot safely pick the right roster
+  // entry when the athlete is on multiple teams — bail out to avoid notifying
+  // the wrong team director.
+  if (!normalizedSport && !normalizedOrganizationId) {
+    logger.warn(
+      '[EditProfile] resolvePreviousTeamIdFromRoster: skipping — no sport or organizationId to match against',
+      {
+        userId: options.userId,
+      }
+    );
+    return null;
+  }
+
   const entries = await options.rosterEntryService.getUserTeams({
     userId: options.userId,
     status: [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING],
   });
 
-  const normalizedSport = options.sport?.trim().toLowerCase();
-  const normalizedOrganizationId = options.organizationId?.trim();
-
   const match = entries.find((entry) => {
-    const sportMatches = !normalizedSport || entry.sport?.trim().toLowerCase() === normalizedSport;
+    const sportMatches =
+      !normalizedSport || (entry.sport?.trim().toLowerCase() ?? '') === normalizedSport;
     const orgMatches =
-      !normalizedOrganizationId || entry.organizationId?.trim() === normalizedOrganizationId;
+      !normalizedOrganizationId ||
+      (entry.organizationId?.trim() ?? '') === normalizedOrganizationId;
 
     return sportMatches && orgMatches;
   });

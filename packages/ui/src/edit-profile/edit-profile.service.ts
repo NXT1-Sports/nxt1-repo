@@ -225,6 +225,9 @@ export class EditProfileService {
 
     // Clear previous data to avoid showing stale data
     this._formData.set(null);
+    this._rawUserData.set(null);
+    this._dirtyFields.set(new Set());
+    this._validationErrors.set({});
     this._isLoading.set(true);
     this._error.set(null);
 

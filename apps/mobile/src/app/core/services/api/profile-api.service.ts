@@ -85,6 +85,7 @@ export class ProfileApiService {
     return this.http.get<ApiResponse<User>>(
       `${environment.apiUrl}/auth/profile/${encodeURIComponent(userId)}`,
       {
+        params: { _: Date.now() },
         headers: {
           'Cache-Control': 'no-cache',
           'X-No-Cache': '1',
@@ -100,8 +101,18 @@ export class ProfileApiService {
     return this.api.getProfileByUnicode(unicode);
   }
 
-  async getMe(): Promise<ApiResponse<User>> {
-    return this.api.getMe();
+  async getMe(bypassCache = false): Promise<ApiResponse<User>> {
+    if (!bypassCache) {
+      return this.api.getMe();
+    }
+
+    return this.http.get<ApiResponse<User>>(`${environment.apiUrl}/auth/profile/me`, {
+      params: { _: Date.now() },
+      headers: {
+        'Cache-Control': 'no-cache',
+        'X-No-Cache': '1',
+      },
+    });
   }
 
   // ============================================
