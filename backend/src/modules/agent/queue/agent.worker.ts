@@ -701,11 +701,15 @@ export function buildInlineYieldCard(params: {
     };
     approvalId?: string;
   };
+  yieldState?: AgentYieldState;
   operationId: string;
   threadId?: string;
 }): AgentXRichCard | null {
   const { yieldPayload, operationId, threadId } = params;
   const { reason, promptToUser, agentId, pendingToolCall, approvalId } = yieldPayload;
+  const yieldPayloadFields = {
+    ...(params.yieldState ? { yieldState: params.yieldState } : {}),
+  };
 
   // ── Approval cards ────────────────────────────────────────────────────
   if (reason === 'needs_approval' && pendingToolCall && approvalId) {
@@ -734,6 +738,7 @@ export function buildInlineYieldCard(params: {
           approvalId,
           toolCallId: pendingToolCall.toolCallId,
           operationId,
+          ...yieldPayloadFields,
         },
       };
     }
@@ -762,6 +767,7 @@ export function buildInlineYieldCard(params: {
             approvalId,
             toolCallId: pendingToolCall.toolCallId,
             operationId,
+            ...yieldPayloadFields,
           },
         };
       }
@@ -840,6 +846,7 @@ export function buildInlineYieldCard(params: {
             approvalId,
             toolCallId: pendingToolCall.toolCallId,
             operationId,
+            ...yieldPayloadFields,
           },
         };
       }
@@ -875,6 +882,7 @@ export function buildInlineYieldCard(params: {
         approvalId,
         toolCallId: pendingToolCall.toolCallId,
         operationId,
+        ...yieldPayloadFields,
       },
     };
   }
@@ -897,6 +905,7 @@ export function buildInlineYieldCard(params: {
         question: promptToUser,
         ...(threadId ? { threadId } : {}),
         operationId,
+        ...yieldPayloadFields,
       },
     };
   }
@@ -2390,6 +2399,7 @@ export class AgentWorker {
         try {
           const inlineCard = buildInlineYieldCard({
             yieldPayload,
+            yieldState,
             operationId: payload.operationId,
             threadId,
           });
