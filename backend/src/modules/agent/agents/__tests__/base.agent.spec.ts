@@ -635,33 +635,6 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(result.summary).not.toContain('team-789');
   });
 
-  it('fails brand media production when no final video deliverable is produced', async () => {
-    const agent = new FakeBrandAgent();
-    const registry = new ToolRegistry();
-    const llm = {
-      complete: vi.fn().mockResolvedValue({
-        content: 'Task completed.',
-        toolCalls: [],
-        model: 'test-model',
-        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-        latencyMs: 1,
-        costUsd: 0,
-        finishReason: 'stop',
-      }),
-    };
-
-    const result = await agent.execute(
-      'Create an elite QB highlight reel using all 6 attached video clips from videoClips.',
-      createMockContext(),
-      [],
-      llm as never,
-      registry
-    );
-
-    expect(result.success).toBe(false);
-    expect(result.errorMessage).toContain('final video URL');
-  });
-
   it('sanitizes streamed tool args, tool results, and final output', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();

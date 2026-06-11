@@ -74,6 +74,10 @@ function mapRoleToRosterUserRole(role: ROLE): UserRole {
   }
 }
 
+function roleRequiresPendingApproval(role: ROLE): boolean {
+  return role !== ROLE.athlete;
+}
+
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
@@ -674,6 +678,34 @@ export async function joinTeam(db: Firestore, input: JoinTeamInput): Promise<Tea
   // capacity check has been intentionally removed.
 
   const role = input.role ?? ROLE.athlete;
+  const rosterService = new RosterEntryService(db);
+  const rosterStatus = roleRequiresPendingApproval(role)
+    ? RosterEntryStatus.PENDING
+    : RosterEntryStatus.ACTIVE;
+  const teamSport =
+    ((team as unknown as Record<string, unknown>)['sport'] as string | undefined) ??
+    team.sport ??
+    team.sportName ??
+    '';
+
+  await rosterService.createRosterEntry({
+    userId: input.userId,
+    teamId: team.id!,
+    organizationId: team.organizationId ?? '',
+    role: mapRoleToRosterUserRole(role),
+    sport: teamSport,
+    status: rosterStatus,
+    firstName: input.userProfile.firstName,
+    lastName: input.userProfile.lastName,
+    displayName: [input.userProfile.firstName, input.userProfile.lastName]
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .join(' '),
+    unicode: input.userId,
+    profileCode: input.userId,
+    email: input.userProfile.email,
+    phoneNumber: input.userProfile.phoneNumber,
+  });
 
   // V2: Membership tracked via RosterEntry docs only.
   // No more memberIds[] writes on the Team doc.
@@ -683,7 +715,12 @@ export async function joinTeam(db: Firestore, input: JoinTeamInput): Promise<Tea
   await invalidateTeamCache(team.id!, team.teamCode, team.unicode);
   await cache.del(CACHE_KEYS.USER_TEAMS(input.userId));
 
-  logger.info('User joined team', { userId: input.userId, teamId: team.id, role });
+  logger.info('User joined team', {
+    userId: input.userId,
+    teamId: team.id,
+    role,
+    status: rosterStatus,
+  });
 
   const { team: updatedTeam } = await getTeamCodeById(db, team.id!, false);
   return updatedTeam;

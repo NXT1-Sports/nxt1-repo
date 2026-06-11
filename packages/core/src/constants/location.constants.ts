@@ -191,6 +191,23 @@ export function getStateByName(name: string): USState | undefined {
 }
 
 /**
+ * Resolve a state string (full name like "Texas" or abbreviation like "TX")
+ * to a 2-letter uppercase abbreviation. Returns undefined if unresolved.
+ */
+export function resolveStateToAbbreviation(value: string | undefined | null): string | undefined {
+  if (!value?.trim()) return undefined;
+
+  const trimmed = value.trim();
+  const upper = trimmed.toUpperCase();
+
+  if (upper.length === 2 && US_STATES.some((state) => state.abbreviation === upper)) {
+    return upper;
+  }
+
+  return getStateByName(trimmed)?.abbreviation;
+}
+
+/**
  * Get country by code
  */
 export function getCountryByCode(code: string): Country | undefined {

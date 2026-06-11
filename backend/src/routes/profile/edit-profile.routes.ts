@@ -10,6 +10,7 @@ import { Router, type Router as ExpressRouter, type Request, type Response } fro
 import multer from 'multer';
 import sharp from 'sharp';
 import { getStorage } from 'firebase-admin/storage';
+import { RosterEntryStatus } from '@nxt1/core/models';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
 import { asyncHandler } from '@nxt1/core/errors/express';
@@ -27,6 +28,11 @@ import { mapToConnectedSources } from '@nxt1/core/profile';
 import { invalidateProfileCaches } from './shared.js';
 import { enqueueWelcomeGraphicIfReady } from '../../modules/agent/services/agent-welcome.service.js';
 import { createRosterEntryService } from '../../services/team/roster-entry.service.js';
+import { provisionOnboardingPrograms } from '../../services/platform/onboarding-program-provisioning.service.js';
+import {
+  notifyMembershipRemoved,
+  notifyTeamJoined,
+} from '../../services/communications/team-join-notifications.js';
 import {
   createProfileWriteAccessService,
   type ProfileWriteAccessGrant,
@@ -59,6 +65,106 @@ const DELEGATED_EDITABLE_SECTIONS = new Set<EditProfileSectionId>([
   'academics',
   'physical',
 ]);
+
+type ProfileMembershipTransition = {
+  teamId: string;
+  organizationId: string;
+  sport: string;
+  pending: boolean;
+};
+
+function buildProfileJoinerIdentity(userData: Record<string, unknown>): {
+  joinerName: string;
+  joinerAvatarUrl: string | null;
+} {
+  const joinerName =
+    [
+      (userData['firstName'] as string | undefined) ?? '',
+      (userData['lastName'] as string | undefined) ?? '',
+    ]
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .join(' ') ||
+    ((userData['displayName'] as string | undefined) ?? 'Someone');
+
+  const joinerAvatarUrl = ((userData['profileImgs'] as string[] | undefined) ?? [])[0] ?? null;
+
+  return {
+    joinerName,
+    joinerAvatarUrl,
+  };
+}
+
+async function dispatchProfileTeamJoinNotification(options: {
+  readonly db: FirebaseFirestore.Firestore;
+  readonly userId: string;
+  readonly userData: Record<string, unknown>;
+  readonly teamId: string;
+  readonly organizationId?: string;
+  readonly sport?: string;
+  readonly pending: boolean;
+  readonly logContext: Record<string, unknown>;
+  readonly errorMessage: string;
+}): Promise<void> {
+  const { joinerName, joinerAvatarUrl } = buildProfileJoinerIdentity(options.userData);
+  const teamDoc = await options.db.collection('Teams').doc(options.teamId).get();
+  const resolvedTeamName =
+    (teamDoc.data()?.['teamName'] as string | undefined)?.trim() || options.sport || 'your team';
+
+  await notifyTeamJoined(options.db, {
+    teamId: options.teamId,
+    teamName: resolvedTeamName,
+    organizationId: options.organizationId,
+    joinerUid: options.userId,
+    joinerName,
+    joinerAvatarUrl,
+    pending: options.pending,
+  }).catch((err) =>
+    logger.error(options.errorMessage, {
+      error: err instanceof Error ? err.message : String(err),
+      teamId: options.teamId,
+      userId: options.userId,
+      ...options.logContext,
+    })
+  );
+}
+
+async function removePreviousSportMembership(options: {
+  readonly db: FirebaseFirestore.Firestore;
+  readonly rosterEntryService: ReturnType<typeof createRosterEntryService>;
+  readonly userId: string;
+  readonly teamId: string;
+  readonly sport?: string;
+  readonly teamName?: string;
+  readonly memberName?: string;
+}): Promise<void> {
+  const existingMembership = await options.rosterEntryService.getActiveOrPendingRosterEntry(
+    options.userId,
+    options.teamId
+  );
+
+  if (
+    existingMembership?.id &&
+    (!options.sport ||
+      existingMembership.sport?.trim().toLowerCase() === options.sport.trim().toLowerCase())
+  ) {
+    await options.rosterEntryService.removeFromTeam(existingMembership.id);
+    void notifyMembershipRemoved(options.db, {
+      teamId: options.teamId,
+      userId: options.userId,
+      removedBy: options.userId,
+      teamName: options.teamName,
+      memberName: options.memberName,
+    }).catch((err) =>
+      logger.error('[EditProfile] Failed to dispatch membership removal notification', {
+        error: err instanceof Error ? err.message : String(err),
+        teamId: options.teamId,
+        userId: options.userId,
+        sport: options.sport,
+      })
+    );
+  }
+}
 
 // ============================================
 // MULTER CONFIGURATION FOR FILE UPLOADS
@@ -820,6 +926,15 @@ router.put(
     const sportIndex = DELEGATED_EDITABLE_SECTIONS.has(typedSectionId)
       ? resolveEditableSportIndex(user, requestedSportIndex, accessGrant)
       : requestedSportIndex;
+    const isTeamRole = user.role === 'coach' || user.role === 'director';
+    const isAthleteSportsInfo = typedSectionId === 'sports-info' && !isTeamRole;
+    const previousSportRecord =
+      isAthleteSportsInfo && sportIndex !== undefined ? user.sports?.[sportIndex] : undefined;
+    const previousTeamId = previousSportRecord?.team?.teamId?.trim() || null;
+    const previousOrganizationId = previousSportRecord?.team?.organizationId?.trim() || null;
+    const previousSportName = previousSportRecord?.sport?.trim();
+    const previousTeamName = previousSportRecord?.team?.name?.trim() || undefined;
+    let membershipTransitions: ProfileMembershipTransition[] = [];
     if (
       !accessGrant.isSelfWrite &&
       typedSectionId === 'sports-info' &&
@@ -847,6 +962,104 @@ router.put(
 
     // Map section data to Firestore updates
     const updates = sectionToFirestoreUpdate(typedSectionId, sectionData, user, sportIndex);
+
+    if (isAthleteSportsInfo && sportIndex !== undefined) {
+      const sportsInfo = sectionData as EditProfileSportsInfo;
+      const requestedOrganizationId = sportsInfo.teamOrganizationId?.trim() || null;
+      const updatedSports = Array.isArray(updates['sports'])
+        ? (updates['sports'] as SportProfile[])
+        : undefined;
+      const targetSport = updatedSports?.[sportIndex];
+
+      if (
+        requestedOrganizationId &&
+        targetSport?.sport?.trim() &&
+        (requestedOrganizationId !== previousOrganizationId || !previousTeamId)
+      ) {
+        const userRecord = user as unknown as Record<string, unknown>;
+        const userContact = (userRecord['contact'] as { phone?: string } | undefined)?.phone;
+
+        try {
+          const provisionResult = await provisionOnboardingPrograms({
+            db,
+            userId: uid,
+            role: 'athlete',
+            sports: [targetSport],
+            currentUser: {
+              firstName: user.firstName ?? '',
+              lastName: user.lastName ?? '',
+              displayName: user.displayName ?? undefined,
+              email: user.email ?? undefined,
+              contact: {
+                phone:
+                  userContact ?? (userRecord['phoneNumber'] as string | undefined) ?? undefined,
+              },
+              profileImgs: user.profileImgs ?? [],
+            },
+            updateData: {
+              firstName: user.firstName ?? '',
+              lastName: user.lastName ?? '',
+              profileImgs: user.profileImgs ?? [],
+              athlete: typeof user.classOf === 'number' ? { classOf: user.classOf } : undefined,
+              location: user.location
+                ? {
+                    city: user.location.city,
+                    state: user.location.state,
+                  }
+                : undefined,
+            },
+            teamSelection: {
+              teams: [
+                {
+                  id: requestedOrganizationId,
+                  organizationId: requestedOrganizationId,
+                  name: sportsInfo.teamName ?? targetSport.team?.name ?? '',
+                  teamType: sportsInfo.teamType ?? targetSport.team?.type ?? TEAM_TYPES.HIGH_SCHOOL,
+                },
+              ],
+            },
+          });
+
+          membershipTransitions = provisionResult.membershipTransitions;
+
+          const provisionedTeam = provisionResult.sportTeamMap.get(
+            targetSport.sport.trim().toLowerCase()
+          );
+
+          if (provisionedTeam) {
+            const teamDoc = await db.collection('Teams').doc(provisionedTeam.teamId).get();
+            const teamData = teamDoc.data();
+            const resolvedTeamName =
+              (teamData?.['teamName'] as string | undefined)?.trim() ||
+              sportsInfo.teamName?.trim() ||
+              provisionedTeam.orgName;
+            const resolvedTeamCode = (teamData?.['teamCode'] as string | undefined)?.trim();
+
+            targetSport.team = {
+              ...(targetSport.team ?? {}),
+              name: resolvedTeamName,
+              teamId: provisionedTeam.teamId,
+              organizationId: provisionedTeam.organizationId,
+              type: (targetSport.team?.type ?? TEAM_TYPES.HIGH_SCHOOL) as TeamType,
+              ...(resolvedTeamCode ? { teamCode: resolvedTeamCode } : {}),
+            };
+            updates['sports'] = updatedSports;
+          }
+        } catch (err) {
+          logger.error('[EditProfile] Failed to provision athlete sports-info team transition', {
+            userId: uid,
+            sportIndex,
+            organizationId: requestedOrganizationId,
+            error: err,
+          });
+          throw fieldError(
+            'teamOrganizationId',
+            'Failed to connect this sport to the selected organization.',
+            'team_selection_failed'
+          );
+        }
+      }
+    }
 
     // For 'connected-sources', also handle sign-in connection removals.
     // Frontend sends disconnectedSignInProviders[] when the user removes a Google/Microsoft
@@ -896,7 +1109,6 @@ router.put(
     });
 
     // For coach/director roles, connected sources belong on the Team doc, not User doc
-    const isTeamRole = user.role === 'coach' || user.role === 'director';
     const activeSportData =
       user.sports?.[sportIndex ?? user.activeSportIndex ?? 0] ?? user.sports?.[0];
     const teamId = (user.teamCode as { teamId?: string })?.teamId ?? activeSportData?.team?.teamId;
@@ -1074,10 +1286,70 @@ router.put(
     }
 
     const rosterEntryService = createRosterEntryService(db);
+    const updatedSportRecord =
+      isAthleteSportsInfo && sportIndex !== undefined
+        ? updatedUser.sports?.[sportIndex]
+        : undefined;
+    const nextTeamId = updatedSportRecord?.team?.teamId?.trim() || null;
+
+    if (isAthleteSportsInfo && previousTeamId && previousTeamId !== nextTeamId) {
+      await removePreviousSportMembership({
+        db,
+        rosterEntryService,
+        userId: uid,
+        teamId: previousTeamId,
+        sport: previousSportName,
+        teamName: previousTeamName,
+        memberName: buildProfileJoinerIdentity(user as unknown as Record<string, unknown>)
+          .joinerName,
+      });
+    }
+
     await rosterEntryService.syncUserProfileToRosterEntries(
       uid,
       updatedDoc.data() as Record<string, unknown>
     );
+
+    if (isAthleteSportsInfo) {
+      const notifiedTeamIds = new Set<string>();
+
+      for (const transition of membershipTransitions) {
+        notifiedTeamIds.add(transition.teamId);
+        void dispatchProfileTeamJoinNotification({
+          db,
+          userId: uid,
+          userData: updatedUserData,
+          teamId: transition.teamId,
+          organizationId: transition.organizationId,
+          sport: transition.sport,
+          pending: transition.pending,
+          logContext: { sectionId, sportIndex, sport: transition.sport },
+          errorMessage: '[EditProfile] Failed to dispatch sports-info membership notification',
+        });
+      }
+
+      if (nextTeamId && nextTeamId !== previousTeamId && !notifiedTeamIds.has(nextTeamId)) {
+        const currentMembership = await rosterEntryService.getActiveOrPendingRosterEntry(
+          uid,
+          nextTeamId
+        );
+
+        if (currentMembership) {
+          void dispatchProfileTeamJoinNotification({
+            db,
+            userId: uid,
+            userData: updatedUserData,
+            teamId: nextTeamId,
+            organizationId: updatedSportRecord?.team?.organizationId,
+            sport: updatedSportRecord?.sport,
+            pending: currentMembership.status === RosterEntryStatus.PENDING,
+            logContext: { sectionId, sportIndex, fallback: true },
+            errorMessage:
+              '[EditProfile] Failed to dispatch fallback sports-info membership notification',
+          });
+        }
+      }
+    }
 
     // ─── Deferred welcome graphic ──────────────────────────────────────────
     // Generate a welcome graphic the FIRST time the user adds a relevant image:

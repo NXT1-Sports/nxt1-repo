@@ -173,6 +173,9 @@ function createMockFirestore(
       const operations: Array<() => Promise<void>> = [];
 
       return {
+        set: (ref: MockDocRef, payload: Record<string, unknown>) => {
+          operations.push(() => ref.set(payload));
+        },
         update: (ref: MockDocRef, payload: Record<string, unknown>) => {
           operations.push(() => ref.update(payload));
         },
@@ -293,6 +296,56 @@ describe('RosterEntryService', () => {
       positions: ['QB', 'Safety'],
       status: RosterEntryStatus.PENDING,
       displayName: 'Peyton Manning',
+    });
+  });
+
+  it('syncs the user sport team field when an active roster entry is created', async () => {
+    const { db, users } = createMockFirestore(
+      undefined,
+      {
+        'team-1': {
+          teamName: 'Alcoa Football',
+          teamType: 'high-school',
+          organizationId: 'org-1',
+          teamCode: 'ALCOA1',
+          athleteMember: 1,
+          panelMember: 0,
+        },
+      },
+      {
+        'athlete-1': {
+          sports: [{ sport: 'Football', order: 0 }],
+        },
+      }
+    );
+    const service = new RosterEntryService(db as never);
+
+    await service.createRosterEntry({
+      userId: 'athlete-1',
+      teamId: 'team-1',
+      organizationId: 'org-1',
+      role: 'athlete',
+      sport: 'Football',
+      status: RosterEntryStatus.ACTIVE,
+      firstName: 'Peyton',
+      lastName: 'Manning',
+      email: 'peyton@test.com',
+    });
+
+    expect(users.get('athlete-1')).toMatchObject({
+      sports: [
+        {
+          sport: 'Football',
+          order: 0,
+          team: {
+            teamId: 'team-1',
+            organizationId: 'org-1',
+            name: 'Alcoa Football',
+            type: 'high-school',
+            teamCode: 'ALCOA1',
+          },
+        },
+      ],
     });
   });
 

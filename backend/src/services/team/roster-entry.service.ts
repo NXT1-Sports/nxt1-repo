@@ -454,6 +454,10 @@ export class RosterEntryService {
 
     logger.info('[RosterEntryService] Roster entry created', { entryId: docRef.id });
 
+    if ((entryData['status'] as RosterEntryStatus | undefined) === RosterEntryStatus.ACTIVE) {
+      await this.syncUserSportTeamField(input.userId, normalizedSport, input.teamId, input.teamId);
+    }
+
     // Invalidate caches
     await this.invalidateCaches(input.userId, input.teamId, input.organizationId);
 
@@ -1046,6 +1050,29 @@ export class RosterEntryService {
         ? (userData['sports'] as Record<string, unknown>[])
         : [];
 
+      let syncedTeamData: Record<string, unknown> | null = null;
+      if (teamId !== null) {
+        const teamSnap = await this.db.collection('Teams').doc(teamId).get();
+        const teamData = teamSnap.data() as Record<string, unknown> | undefined;
+        syncedTeamData = {
+          teamId,
+          ...(typeof teamData?.['organizationId'] === 'string' && teamData['organizationId'].trim()
+            ? { organizationId: teamData['organizationId'].trim() }
+            : {}),
+          ...(typeof teamData?.['teamName'] === 'string' && teamData['teamName'].trim()
+            ? { name: teamData['teamName'].trim() }
+            : typeof teamData?.['name'] === 'string' && teamData['name'].trim()
+              ? { name: teamData['name'].trim() }
+              : {}),
+          ...(typeof teamData?.['teamType'] === 'string' && teamData['teamType'].trim()
+            ? { type: teamData['teamType'].trim() }
+            : {}),
+          ...(typeof teamData?.['teamCode'] === 'string' && teamData['teamCode'].trim()
+            ? { teamCode: teamData['teamCode'].trim() }
+            : {}),
+        };
+      }
+
       if (sports.length === 0) return;
 
       const normalizedSport = sport.trim().toLowerCase();
@@ -1085,7 +1112,19 @@ export class RosterEntryService {
           void _removed;
           return rest;
         }
-        return { ...s, team: { teamId } };
+
+        const existingTeam =
+          typeof s['team'] === 'object' && s['team'] !== null
+            ? (s['team'] as Record<string, unknown>)
+            : {};
+
+        return {
+          ...s,
+          team: {
+            ...existingTeam,
+            ...(syncedTeamData ?? { teamId }),
+          },
+        };
       });
 
       await userRef.update({

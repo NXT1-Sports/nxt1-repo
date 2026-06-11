@@ -3440,6 +3440,33 @@ export class AgentWorker {
   }
 
   private resolveResultSummary(result: AgentOperationResult): string {
+    if (result.success === false) {
+      if (typeof result.errorMessage === 'string' && result.errorMessage.length > 0) {
+        return result.errorMessage;
+      }
+
+      if (
+        typeof result.summary === 'string' &&
+        result.summary.length > 0 &&
+        !/^task completed\.?$/i.test(result.summary.trim())
+      ) {
+        return result.summary;
+      }
+
+      if (typeof result.data === 'object' && result.data !== null) {
+        const response = (result.data as Record<string, unknown>)['response'];
+        if (
+          typeof response === 'string' &&
+          response.length > 0 &&
+          !/^task completed\.?$/i.test(response.trim())
+        ) {
+          return response;
+        }
+      }
+
+      return 'Task failed.';
+    }
+
     if (typeof result.summary === 'string' && result.summary.length > 0) {
       return result.summary;
     }

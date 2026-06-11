@@ -13,7 +13,7 @@ import type {
   ExploreSortOption,
   ExploreTabCounts,
 } from './explore.types';
-import { US_STATES } from '../constants/location.constants';
+import { US_STATES, resolveStateToAbbreviation } from '../constants/location.constants';
 import { DEFAULT_SPORTS, formatSportDisplayName } from '../constants/sport.constants';
 
 // ============================================
@@ -416,23 +416,9 @@ export const EXPLORE_FILTER_STATE_OPTIONS: readonly string[] = US_STATES.map(
 );
 
 /**
- * Resolve a state string (full name like "Texas" or abbreviation like "TX")
- * to a 2-letter uppercase abbreviation. Returns undefined if unresolved.
+ * Re-export the shared location resolver for existing Explore imports.
  */
-export function resolveStateToAbbreviation(value: string | undefined | null): string | undefined {
-  if (!value?.trim()) return undefined;
-  const trimmed = value.trim();
-
-  // Already a valid 2-letter abbreviation?
-  const upper = trimmed.toUpperCase();
-  if (upper.length === 2 && US_STATES.some((s) => s.abbreviation === upper)) {
-    return upper;
-  }
-
-  // Try matching by full name (case-insensitive)
-  const byName = US_STATES.find((s) => s.name.toLowerCase() === trimmed.toLowerCase());
-  return byName?.abbreviation;
-}
+export { resolveStateToAbbreviation };
 
 /**
  * Radius filter configuration.
