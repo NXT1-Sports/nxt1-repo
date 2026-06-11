@@ -35,6 +35,7 @@ import {
   encodeOAuthState,
   decodeOAuthState,
   ALLOWED_MOBILE_SCHEMES,
+  buildMobileOAuthCallbackHtml,
 } from './shared.js';
 
 const router: RouterType = Router();
@@ -293,7 +294,12 @@ router.get(
     const renderResult = (success: boolean, message: string, provider = 'google') => {
       const params = new URLSearchParams({ provider, success: String(success), message });
       if (mobileScheme && ALLOWED_MOBILE_SCHEMES.has(mobileScheme)) {
-        res.redirect(`${mobileScheme}://oauth/callback?${params.toString()}`);
+        // Use JS-initiated navigation instead of HTTP 302 redirect.
+        // iOS 12+ SFSafariViewController silently blocks HTTP redirects to custom URL schemes;
+        // a JS window.location navigation is the only reliable way to trigger appUrlOpen.
+        const deepLink = `${mobileScheme}://oauth/callback?${params.toString()}`;
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(buildMobileOAuthCallbackHtml(deepLink));
       } else {
         const frontendUrl =
           stateOrigin && isAllowedOrigin(stateOrigin, req.isStaging)
@@ -541,7 +547,12 @@ router.get(
         message,
       });
       if (mobileScheme && ALLOWED_MOBILE_SCHEMES.has(mobileScheme)) {
-        res.redirect(`${mobileScheme}://oauth/callback?${params.toString()}`);
+        // Use JS-initiated navigation instead of HTTP 302 redirect.
+        // iOS 12+ SFSafariViewController silently blocks HTTP redirects to custom URL schemes;
+        // a JS window.location navigation is the only reliable way to trigger appUrlOpen.
+        const deepLink = `${mobileScheme}://oauth/callback?${params.toString()}`;
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(buildMobileOAuthCallbackHtml(deepLink));
       } else {
         const frontendUrl =
           stateOrigin && isAllowedOrigin(stateOrigin, req.isStaging)

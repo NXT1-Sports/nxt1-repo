@@ -426,6 +426,48 @@ export function encodeOAuthState(uid: string, origin: string, mobileScheme?: str
   ).toString('base64url');
 }
 
+/**
+ * Build a minimal HTML page that redirects the mobile browser (SFSafariViewController on iOS,
+ * Chrome Custom Tab on Android) to a custom URL scheme via JavaScript.
+ *
+ * Why not `res.redirect()`?
+ * iOS 12+ blocks HTTP 302 redirects to custom URL schemes inside SFSafariViewController —
+ * the browser just hangs, `appUrlOpen` never fires, and the user is stuck.
+ * A JS-initiated navigation (`window.location.href = 'nxt1sports://...'`) bypasses this
+ * restriction on both iOS and Android, and triggers `application:openURL:options:` (iOS) /
+ * the intent system (Android) so Capacitor's `appUrlOpen` fires correctly.
+ */
+export function buildMobileOAuthCallbackHtml(deepLink: string): string {
+  // Escape for safe embedding inside a JS string literal (no template injection)
+  const escaped = deepLink
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Connecting…</title>
+  <style>
+    body{margin:0;display:flex;align-items:center;justify-content:center;
+         min-height:100vh;font-family:system-ui,sans-serif;background:#0a0a0a;color:#fff;}
+    p{font-size:1rem;opacity:.7;}
+  </style>
+</head>
+<body>
+  <p>Connecting to NXT1…</p>
+  <script>
+    // JS-initiated navigation works in SFSafariViewController (iOS 12+).
+    // A plain HTTP 302 redirect to a custom scheme is silently blocked by iOS.
+    window.location.href = '${escaped}';
+  </script>
+</body>
+</html>`;
+}
+
 /** Decode state — supports both legacy plain-uid and new base64url JSON. */
 export function decodeOAuthState(state: string): {
   uid: string;
