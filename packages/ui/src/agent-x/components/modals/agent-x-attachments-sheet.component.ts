@@ -56,6 +56,11 @@ export interface NativeAttachmentFile extends File {
 
 export type AttachmentSelectedFile = File | NativeAttachmentFile;
 
+const ALL_ATTACHMENT_ACCEPT =
+  'image/*,video/*,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,text/plain,text/csv,application/pdf,application/msword,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const NATIVE_DOCUMENT_ACCEPT =
+  '.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,text/plain,text/csv,application/pdf,application/msword,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
 @Component({
   selector: 'nxt1-agent-x-attachments-sheet',
   standalone: true,
@@ -102,9 +107,11 @@ export type AttachmentSelectedFile = File | NativeAttachmentFile;
               <nxt1-icon name="plusCircle" [size]="28" />
             </div>
             <div class="option-info">
-              <span class="option-title">Upload File</span>
+              <span class="option-title">{{
+                isNativePlatform ? 'Browse Files' : 'Upload File'
+              }}</span>
               <span class="option-subtitle">{{
-                isNativePlatform ? 'Document or fallback picker' : 'Photo, video, or document'
+                isNativePlatform ? 'Documents from your files' : 'Photo, video, or document'
               }}</span>
             </div>
             <nxt1-icon name="chevronRight" [size]="20" className="option-arrow" />
@@ -114,7 +121,7 @@ export type AttachmentSelectedFile = File | NativeAttachmentFile;
             type="file"
             hidden
             multiple
-            accept="image/*,video/*,.pdf,.doc,.docx"
+            [attr.accept]="fileInputAccept"
             (change)="onFileSelected($event)"
             aria-label="Select files"
           />
@@ -409,6 +416,9 @@ export type AttachmentSelectedFile = File | NativeAttachmentFile;
 export class AgentXAttachmentsSheetComponent {
   protected readonly testIds = TEST_IDS.AGENT_X_ATTACHMENTS_SHEET;
   protected readonly isNativePlatform = Capacitor.isNativePlatform();
+  protected readonly fileInputAccept = this.isNativePlatform
+    ? NATIVE_DOCUMENT_ACCEPT
+    : ALL_ATTACHMENT_ACCEPT;
 
   private readonly modalCtrl = inject(ModalController);
   private readonly haptics = inject(HapticsService);
