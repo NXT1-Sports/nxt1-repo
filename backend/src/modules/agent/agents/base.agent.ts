@@ -75,6 +75,7 @@ import {
 } from '../services/model-context-window.service.js';
 import { getOperationMemoryService } from '../services/operation-memory.service.js';
 import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
+import { resolveThreadReplayMaxTokens } from '../memory/replay-budget.js';
 import { logger } from '../../../utils/logger.js';
 
 type PdfParseRuntimeModule = {
@@ -211,6 +212,7 @@ const PRIOR_MEDIA_RECALL_PATTERN =
   /\b(that|the|earlier|previous|last|my|your)\s+(video|film|clip|image|photo|picture|recording|footage|highlight|reel|intro|slide|graphic)\b/i;
 
 type SessionImageAttachment = NonNullable<AgentSessionContext['attachments']>[number];
+type SessionVideoAttachment = NonNullable<AgentSessionContext['videoAttachments']>[number];
 
 // ─── Context Window Budget ────────────────────────────────────────────────────
 
@@ -614,6 +616,24 @@ export abstract class BaseAgent {
     );
   }
 
+  private isVideoAttachment(attachment: SessionImageAttachment): boolean {
+    return attachment.mimeType.toLowerCase().startsWith('video/');
+  }
+
+  private formatVideoAttachmentRef(video: SessionVideoAttachment): string {
+    const metadata = [
+      video.storagePath ? `storagePath: ${video.storagePath}` : null,
+      video.cloudflareVideoId ? `cloudflareVideoId: ${video.cloudflareVideoId}` : null,
+      video.cloudflareStatus ? `cloudflareStatus: ${video.cloudflareStatus}` : null,
+      typeof video.readyToStream === 'boolean'
+        ? `readyToStream: ${String(video.readyToStream)}`
+        : null,
+      video.thumbnailUrl ? `thumbnailUrl: ${video.thumbnailUrl}` : null,
+    ].filter((part): part is string => typeof part === 'string');
+    const metadataPart = metadata.length > 0 ? ` | ${metadata.join(' | ')}` : '';
+    return `[Attached video: ${video.name} — ${video.url}${metadataPart}]`;
+  }
+
   protected withConfiguredSystemPrompt(
     basePrompt: string,
     templateValues?: Readonly<Record<string, string | undefined>>
@@ -850,21 +870,12 @@ export abstract class BaseAgent {
     // Add video references
     if (context.videoAttachments?.length) {
       const videoRefs = context.videoAttachments
-        .map((v) => {
-          const metadata = [
-            v.storagePath ? `storagePath: ${v.storagePath}` : null,
-            v.cloudflareVideoId ? `cloudflareVideoId: ${v.cloudflareVideoId}` : null,
-            v.cloudflareStatus ? `cloudflareStatus: ${v.cloudflareStatus}` : null,
-            typeof v.readyToStream === 'boolean'
-              ? `readyToStream: ${String(v.readyToStream)}`
-              : null,
-            v.thumbnailUrl ? `thumbnailUrl: ${v.thumbnailUrl}` : null,
-          ].filter((part): part is string => typeof part === 'string');
-          const metadataPart = metadata.length > 0 ? ` | ${metadata.join(' | ')}` : '';
-          return `[Attached video: ${v.name} — ${v.url}${metadataPart}]`;
-        })
+        .filter((v) => !intentText.includes(v.url))
+        .map((v) => this.formatVideoAttachmentRef(v))
         .join('\n');
-      intentText = `${intent}\n\n${videoRefs}`;
+      if (videoRefs.length > 0) {
+        intentText = `${intentText}\n\n${videoRefs}`;
+      }
     }
 
     // Only map image attachments to vision content
@@ -892,7 +903,7 @@ export abstract class BaseAgent {
     // PDFs: sent natively to OpenRouter, not extracted
     // Other docs (CSV, etc.): extracted and appended as text
     const nonImageAttachments = (context.attachments ?? []).filter(
-      (a) => !a.mimeType.startsWith('image/')
+      (a) => !a.mimeType.startsWith('image/') && !this.isVideoAttachment(a)
     );
 
     const nonPdfAttachments = nonImageAttachments.filter(
@@ -1087,7 +1098,9 @@ export abstract class BaseAgent {
         const { getThreadMessageReplayService } =
           await import('../memory/thread-message-replay.service.js');
         const replayed = await getThreadMessageReplayService().loadAsLLMMessages(context.threadId, {
-          maxTokens: 50_000,
+          maxTokens: resolveThreadReplayMaxTokens({
+            videoAttachments: context.videoAttachments,
+          }),
         });
         messages = [...replayed] as LLMMessage[];
         // The pendingAssistantMessage is the in-flight assistant turn

@@ -1964,6 +1964,64 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(llmOptions?.tier).toBe('vision_analysis');
   });
 
+  it('does not duplicate video refs already injected by the chat route', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const llm = {
+      complete: vi.fn().mockResolvedValue({
+        content: 'Processed video.',
+        toolCalls: [],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'stop',
+      }),
+    };
+    const videoUrl = 'https://storage.googleapis.com/nxt1-test/highlight-source.mp4';
+
+    await agent.execute(
+      `Make a highlight reel\n\n[Attached video: highlight-source.mp4 — ${videoUrl} | cloudflareVideoId: cf-highlight-123]`,
+      {
+        ...createMockContext(),
+        attachments: [
+          {
+            url: videoUrl,
+            mimeType: 'video/mp4',
+            name: 'highlight-source.mp4',
+            storagePath: 'Users/user-123/uploads/highlight-source.mp4',
+          },
+        ],
+        videoAttachments: [
+          {
+            url: videoUrl,
+            mimeType: 'video/mp4',
+            name: 'highlight-source.mp4',
+            storagePath: 'Users/user-123/uploads/highlight-source.mp4',
+            cloudflareVideoId: 'cf-highlight-123',
+          },
+        ],
+      },
+      [],
+      llm as never,
+      registry
+    );
+
+    const completeMessages = vi.mocked(llm.complete).mock.calls[0]?.[0] as Array<{
+      role: string;
+      content: unknown;
+    }>;
+    const userMessage = completeMessages.find((message) => message.role === 'user');
+    const textBody =
+      typeof userMessage?.content === 'string'
+        ? userMessage.content
+        : JSON.stringify(userMessage?.content);
+
+    expect(textBody.match(/\[Attached video:/g) ?? []).toHaveLength(1);
+    expect(textBody).toContain(videoUrl);
+    expect(textBody).not.toContain('[Attached document: video/mp4');
+  });
+
   it('extracts CSV attachment content and appends parsed preview to user intent text', async () => {
     vi.stubGlobal(
       'fetch',

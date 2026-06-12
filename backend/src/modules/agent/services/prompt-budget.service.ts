@@ -9,11 +9,12 @@
  *
  * Degradation order (deterministic, applied in sequence until under budget):
  *   1. Truncate oldest tool-result observations to 25% of their length.
- *   2. Drop oldest exchanges (kept verbatim window unchanged).
- *   3. Inject a single `[Earlier in this thread]` system note placeholder
+ *   2. Truncate oversized non-system messages.
+ *   3. Drop oldest exchanges (kept verbatim window unchanged).
+ *   4. Inject a single `[Earlier in this thread]` system note placeholder
  *      summarising the dropped content (caller may overwrite with a real
  *      LLM-generated summary via {@link ThreadHistorySummarizerService}).
- *   4. Throw `PROMPT_BUDGET_EXCEEDED` — surfaces to the user as
+ *   5. Throw `PROMPT_BUDGET_EXCEEDED` — surfaces to the user as
  *      "this conversation has grown too large; start a new thread".
  *
  * Token estimate: char-count / 4 + 4 per message (rough Anthropic/OpenAI
@@ -28,6 +29,17 @@ import { logger } from '../../../utils/logger.js';
 const TRUNCATE_OBSERVATION_RATIO = 0.25;
 const TRUNCATE_MARKER = '\n…[truncated by budget governor]';
 const SUMMARY_PLACEHOLDER_PREFIX = '[Earlier in this thread]';
+
+function truncateMiddle(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  const marker = '\n...[middle truncated by budget governor]...\n';
+  if (maxChars <= marker.length + 200) {
+    return text.slice(0, Math.max(0, maxChars - TRUNCATE_MARKER.length)) + TRUNCATE_MARKER;
+  }
+  const headChars = Math.floor((maxChars - marker.length) * 0.65);
+  const tailChars = maxChars - marker.length - headChars;
+  return `${text.slice(0, headChars)}${marker}${text.slice(-tailChars)}`;
+}
 
 export interface PromptBudgetConfig {
   readonly maxPromptTokens: number;
@@ -153,21 +165,41 @@ export class PromptBudgetService {
       return this.report(degradationsApplied, tokensBefore, messages, agentId, operationId);
     }
 
-    // Step 2 — Drop oldest exchanges. Keep system + initial user-intent +
-    // last 8 messages (~3-4 last exchanges) at minimum.
+    // Step 2 — Truncate oversized non-system messages. Thread-as-truth prompts
+    // are shaped as [system, ...history, current user], so the current request
+    // is often the final user message rather than messages[1]. Preserve both
+    // the start and end of long user messages so attachment refs appended near
+    // the bottom survive.
+    let truncatedLargeMessages = false;
+    for (let i = 1; i < messages.length; i++) {
+      const msg = messages[i];
+      if (!msg || msg.role === 'tool') continue;
+      if (typeof msg.content === 'string' && msg.content.length > cfg.maxMessageChars) {
+        messages[i] = { ...msg, content: truncateMiddle(msg.content, cfg.maxMessageChars) };
+        truncatedLargeMessages = true;
+      }
+    }
+    if (truncatedLargeMessages) degradationsApplied.push('truncate_large_messages');
+    if (this.estimateTokens(messages) <= cfg.maxPromptTokens) {
+      return this.report(degradationsApplied, tokensBefore, messages, agentId, operationId);
+    }
+
+    // Step 3 — Drop oldest exchanges. Keep system + last 8 messages (~3-4 last
+    // exchanges) at minimum. Do not pin messages[1]: with canonical replay,
+    // that is usually old thread history, not the current user request.
     if (messages.length > 4) {
       const KEEP_TAIL = 8;
-      const head = messages.slice(0, 2);
+      const system = messages.slice(0, 1);
       const tail = messages.slice(-KEEP_TAIL);
       messages.length = 0;
-      messages.push(...head, ...tail);
+      messages.push(...system, ...tail);
       degradationsApplied.push('drop_oldest_exchanges');
     }
     if (this.estimateTokens(messages) <= cfg.maxPromptTokens) {
       return this.report(degradationsApplied, tokensBefore, messages, agentId, operationId);
     }
 
-    // Step 3 — Inject placeholder summary note. Caller may overwrite this
+    // Step 4 — Inject placeholder summary note. Caller may overwrite this
     // with a real LLM-generated summary via ThreadHistorySummarizerService.
     const hasSummary = messages.some(
       (m) =>
