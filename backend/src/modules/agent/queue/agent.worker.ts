@@ -347,37 +347,6 @@ function humanizeToolName(toolName: string): string {
     .replace(/^./, (c) => c.toUpperCase());
 }
 
-function extractToolResultStepMetadata(
-  toolResult: Record<string, unknown> | undefined
-): Record<string, unknown> {
-  if (!toolResult) return {};
-
-  const metadata: Record<string, unknown> = {};
-  for (const key of ['heavyTaskOperationId', 'threadId', 'parentOperationId'] as const) {
-    const value = toolResult[key];
-    if (typeof value === 'string' && value.trim().length > 0) {
-      metadata[key] = value.trim();
-    }
-  }
-
-  return metadata;
-}
-
-function buildStepEventMetadata(
-  event: Pick<StreamEvent, 'metadata' | 'toolName' | 'toolResult'>
-): Record<string, unknown> | undefined {
-  const metadata: Record<string, unknown> = {
-    ...((event.metadata as Record<string, unknown> | undefined) ?? {}),
-    ...extractToolResultStepMetadata(event.toolResult),
-  };
-
-  if (typeof event.toolName === 'string' && event.toolName.trim().length > 0) {
-    metadata['toolName'] = event.toolName.trim();
-  }
-
-  return Object.keys(metadata).length > 0 ? metadata : undefined;
-}
-
 function buildGenericApprovalTitle(toolName: string): string {
   if (toolName.startsWith('delete_')) return 'Confirm Deletion';
   if (DESTRUCTIVE_TOOLS.has(toolName)) return 'Confirm Destructive Action';
@@ -3535,7 +3504,6 @@ export class AgentWorker {
     threadId?: string
   ): { event: string; data: unknown } | null {
     const seqPayload = typeof event.seq === 'number' ? { seq: event.seq } : {};
-    const stepMetadata = buildStepEventMetadata(event);
     switch (event.type) {
       case 'card':
         return {
@@ -3621,7 +3589,6 @@ export class AgentWorker {
             agentId: event.agentId,
             stageType: event.stageType,
             stage: event.stage,
-            ...(stepMetadata ? { metadata: stepMetadata } : {}),
             status: 'active',
             icon: event.icon,
           },
@@ -3636,7 +3603,6 @@ export class AgentWorker {
             agentId: event.agentId,
             stageType: event.stageType,
             stage: event.stage,
-            ...(stepMetadata ? { metadata: stepMetadata } : {}),
             status: 'success',
             icon: event.icon,
           },
@@ -3651,7 +3617,6 @@ export class AgentWorker {
             agentId: event.agentId,
             stageType: event.stageType,
             stage: event.stage,
-            ...(stepMetadata ? { metadata: stepMetadata } : {}),
             status: 'error',
             icon: event.icon,
           },
@@ -3672,7 +3637,6 @@ export class AgentWorker {
             agentId: event.agentId,
             stageType: event.stageType,
             stage: event.stage,
-            ...(stepMetadata ? { metadata: stepMetadata } : {}),
             status: event.toolSuccess ? 'success' : 'error',
             icon: event.icon,
           },
