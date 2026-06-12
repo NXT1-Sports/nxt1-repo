@@ -9,6 +9,8 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   validateJobOrigin,
   isScheduledOrigin,
+  shouldHideRecurringExecutionJob,
+  shouldHideRecurringSourceThread,
   mapJobStatus,
   inferCategory,
   iconForCategory,
@@ -56,6 +58,99 @@ describe('isScheduledOrigin', () => {
       expect(isScheduledOrigin(origin)).toBe(false);
     }
   );
+});
+
+describe('shouldHideRecurringExecutionJob', () => {
+  it('hides system-cron jobs when an active recurring task key already represents them', () => {
+    expect(
+      shouldHideRecurringExecutionJob({
+        origin: 'system_cron',
+        recurringTaskKey: 'repeat:key:1',
+        activeRecurringTaskKeys: new Set(['repeat:key:1']),
+        activeRecurringSourceIds: new Set(),
+      })
+    ).toBe(true);
+  });
+
+  it('hides system-cron jobs when they carry a recurring task key even after the schedule doc is gone', () => {
+    expect(
+      shouldHideRecurringExecutionJob({
+        origin: 'system_cron',
+        recurringTaskKey: 'repeat:key:1',
+        activeRecurringTaskKeys: new Set(),
+        activeRecurringSourceIds: new Set(),
+      })
+    ).toBe(true);
+  });
+
+  it('hides system-cron jobs when their source thread is already represented by an active recurring task', () => {
+    expect(
+      shouldHideRecurringExecutionJob({
+        origin: 'system_cron',
+        threadId: 'thread-123',
+        activeRecurringTaskKeys: new Set(),
+        activeRecurringSourceIds: new Set(['thread-123']),
+      })
+    ).toBe(true);
+  });
+
+  it('hides initial recurring-run artifacts even before the repeat key is patched to the job row', () => {
+    expect(
+      shouldHideRecurringExecutionJob({
+        origin: 'system_cron',
+        context: { recurringInitialRun: true },
+        activeRecurringTaskKeys: new Set(),
+        activeRecurringSourceIds: new Set(),
+      })
+    ).toBe(true);
+  });
+
+  it('hides system-cron jobs that still carry recurring thread context after cancellation', () => {
+    expect(
+      shouldHideRecurringExecutionJob({
+        origin: 'system_cron',
+        threadId: 'thread-123',
+        context: {
+          threadId: 'thread-123',
+          timezone: 'America/New_York',
+        },
+        activeRecurringTaskKeys: new Set(),
+        activeRecurringSourceIds: new Set(),
+      })
+    ).toBe(true);
+  });
+
+  it('does not hide non-scheduled jobs', () => {
+    expect(
+      shouldHideRecurringExecutionJob({
+        origin: 'user',
+        recurringTaskKey: 'repeat:key:1',
+        threadId: 'thread-123',
+        activeRecurringTaskKeys: new Set(['repeat:key:1']),
+        activeRecurringSourceIds: new Set(['thread-123']),
+      })
+    ).toBe(false);
+  });
+});
+
+describe('shouldHideRecurringSourceThread', () => {
+  it('hides fallback thread rows when an active recurring task already represents the thread', () => {
+    expect(
+      shouldHideRecurringSourceThread({
+        threadId: 'thread-123',
+        activeRecurringSourceIds: new Set(['thread-123']),
+      })
+    ).toBe(true);
+  });
+
+  it('does not hide unrelated thread rows', () => {
+    expect(
+      shouldHideRecurringSourceThread({
+        threadId: 'thread-999',
+        activeRecurringSourceIds: new Set(['thread-123']),
+      })
+    ).toBe(false);
+  });
 });
 
 // ─── mapJobStatus ───────────────────────────────────────────────────────────

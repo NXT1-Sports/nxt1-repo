@@ -183,6 +183,7 @@ const BRAND_MEDIA_DELEGATION_PATTERN =
 const ARTIFACT_KEYS = [
   'imageUrl',
   'logoUrl',
+  'model',
   'storagePath',
   'cloudflareVideoId',
   'videoUrl',
@@ -1270,13 +1271,20 @@ export abstract class BaseAgent {
 
       let toolSuccess: boolean;
       let toolResult: Record<string, unknown> | undefined;
+      let toolError: string | undefined;
       try {
         const parsed = JSON.parse(observation) as Record<string, unknown>;
         toolSuccess = parsed['success'] === true;
+        toolError =
+          typeof parsed['error'] === 'string' && parsed['error'].trim().length > 0
+            ? sanitizeAgentOutputText(parsed['error'])
+            : undefined;
         toolResult =
           typeof parsed['data'] === 'object' && parsed['data'] !== null
             ? sanitizeAgentPayload(parsed['data'] as Record<string, unknown>)
-            : undefined;
+            : toolError
+              ? { error: toolError }
+              : undefined;
       } catch {
         toolSuccess = observation.length > 0;
       }
@@ -1289,6 +1297,7 @@ export abstract class BaseAgent {
         stageType: 'tool',
         toolSuccess,
         toolResult,
+        error: !toolSuccess ? toolError : undefined,
         icon: this.resolveToolStepIcon(pendingToolCall.function.name),
         message: this.resolveToolInvocationLabel(
           pendingToolCall.function.name,
@@ -2004,13 +2013,20 @@ export abstract class BaseAgent {
         if (onStreamEvent) {
           let toolSuccess: boolean;
           let toolResult: Record<string, unknown> | undefined;
+          let toolError: string | undefined;
           try {
             const parsed = JSON.parse(observation) as Record<string, unknown>;
             toolSuccess = parsed['success'] === true;
+            toolError =
+              typeof parsed['error'] === 'string' && parsed['error'].trim().length > 0
+                ? sanitizeAgentOutputText(parsed['error'])
+                : undefined;
             toolResult =
               typeof parsed['data'] === 'object' && parsed['data'] !== null
                 ? sanitizeAgentPayload(parsed['data'] as Record<string, unknown>)
-                : undefined;
+                : toolError
+                  ? { error: toolError }
+                  : undefined;
           } catch {
             toolSuccess = observation.length > 0;
           }
@@ -2022,6 +2038,7 @@ export abstract class BaseAgent {
             stageType: 'tool',
             toolSuccess,
             toolResult,
+            error: !toolSuccess ? toolError : undefined,
             icon: this.resolveToolStepIcon(toolCall.function.name),
             message: this.resolveToolInvocationLabel(
               toolCall.function.name,

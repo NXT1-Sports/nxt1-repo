@@ -91,6 +91,23 @@ class FakeGenerateThumbnailTool extends BaseTool {
   }
 }
 
+class FakeFailTool extends BaseTool {
+  readonly name = 'analyze_video';
+  readonly description = 'Returns a structured failure.';
+  readonly parameters = z.object({});
+  readonly isMutation = false;
+  readonly category = 'media' as const;
+  readonly entityGroup = 'user_tools' as const;
+  override readonly allowedAgents = ['performance_coordinator'] as const;
+
+  async execute(): Promise<ToolResult> {
+    return {
+      success: false,
+      error: 'OpenAI image API error 500: upstream image model unavailable.',
+    };
+  }
+}
+
 class FakeAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'strategy_coordinator';
   readonly name: string = 'Fake Agent';
@@ -1569,6 +1586,76 @@ describe('BaseAgent identifier scrubbing', () => {
           toolName: 'delegate_task',
           toolSuccess: true,
           toolResult: { delegated: true },
+        }),
+      ])
+    );
+  });
+
+  it('persists structured tool errors in tool_result events', async () => {
+    const agent = new FakePerformanceAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeFailTool());
+
+    const events: Array<Record<string, unknown>> = [];
+    let callCount = 0;
+    const llm = {
+      completeStream: vi.fn().mockImplementation(async () => {
+        callCount += 1;
+
+        if (callCount === 1) {
+          return {
+            content: 'I will try the image tool first.',
+            toolCalls: [
+              {
+                id: 'call_fail_graphic',
+                type: 'function',
+                function: {
+                  name: 'analyze_video',
+                  arguments: JSON.stringify({}),
+                },
+              },
+            ],
+            model: 'test-model',
+            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            latencyMs: 1,
+            costUsd: 0,
+            finishReason: 'tool_calls',
+          };
+        }
+
+        return {
+          content: 'The image tool failed and I need another path.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        };
+      }),
+    };
+
+    await agent.execute(
+      'Create a graphic',
+      createMockContext(),
+      [],
+      llm as never,
+      registry,
+      undefined,
+      (event) => events.push(event as unknown as Record<string, unknown>)
+    );
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'tool_result',
+          stepId: 'call_fail_graphic',
+          toolName: 'analyze_video',
+          toolSuccess: false,
+          error: 'OpenAI image API error 500: upstream image model unavailable.',
+          toolResult: {
+            error: 'OpenAI image API error 500: upstream image model unavailable.',
+          },
         }),
       ])
     );

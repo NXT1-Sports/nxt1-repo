@@ -116,6 +116,8 @@ export interface AgentArtifactHandoff {
   readonly imageUrl?: string;
   readonly diagramUrl?: string;
   readonly logoUrl?: string;
+  /** Provider/model slug used to generate the artifact when available. */
+  readonly model?: string;
   readonly storagePath?: string;
   readonly cloudflareVideoId?: string;
   readonly videoUrl?: string;

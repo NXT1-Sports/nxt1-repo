@@ -40,7 +40,7 @@ import type {
   LLMStreamDelta,
   LLMStreamResult,
 } from './llm.types.js';
-import { IMAGE_GENERATION_TIMEOUT_MS } from './llm.types.js';
+import { IMAGE_GENERATION_TIMEOUT_MS, resolveSafeImageGenerationModel } from './llm.types.js';
 import {
   resolveModelFallbackChain,
   resolveModelForTier,
@@ -496,9 +496,48 @@ export class OpenRouterService {
   async generateImage(options: ImageGenerationOptions): Promise<ImageGenerationResult> {
     await this.ensureAgentConfigLoaded();
 
-    const result = this.shouldUseDirectOpenAiImages()
-      ? await this.generateImageWithOpenAi(options)
-      : await this.generateImageWithOpenRouter(options);
+    let result: ImageGenerationResult;
+    if (this.shouldUseDirectOpenAiImages()) {
+      try {
+        result = await this.generateImageWithOpenAi(options);
+      } catch (error) {
+        if (options.signal?.aborted) {
+          throw error;
+        }
+
+        const fallbackModel = this.resolveDirectOpenAiImageFallbackModel();
+        logger.warn('[OpenRouter] Direct OpenAI image generation failed, retrying via OpenRouter', {
+          requestedFallbackModel: fallbackModel,
+          error: error instanceof Error ? error.message : String(error),
+        });
+
+        try {
+          result = await this.generateImageWithOpenRouter({
+            ...options,
+            modelOverride: fallbackModel,
+          });
+        } catch (fallbackError) {
+          const primaryMessage = error instanceof Error ? error.message : String(error);
+          const fallbackMessage =
+            fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+
+          throw new AgentEngineError(
+            'IMAGE_GENERATION_FALLBACK_FAILED',
+            `OpenAI image generation failed: ${primaryMessage}. OpenRouter fallback (${fallbackModel}) failed: ${fallbackMessage}`,
+            {
+              cause: fallbackError instanceof Error ? fallbackError : undefined,
+              metadata: {
+                fallbackModel,
+                primaryError: primaryMessage,
+                fallbackError: fallbackMessage,
+              },
+            }
+          );
+        }
+      }
+    } else {
+      result = await this.generateImageWithOpenRouter(options);
+    }
 
     // Emit telemetry
     this.telemetryCallback?.({
@@ -1309,6 +1348,23 @@ export class OpenRouterService {
 
   private shouldUseDirectOpenAiImages(): boolean {
     return Boolean(this.openAiApiKey || getHeliconeApiKey());
+  }
+
+  private resolveDirectOpenAiImageFallbackModel(): string {
+    const candidates = [
+      ...resolveModelFallbackChain('image_generation'),
+      resolveModelForTier('image_generation'),
+      'google/gemini-3-pro-image-preview',
+    ];
+
+    for (const candidate of candidates) {
+      const safeModel = resolveSafeImageGenerationModel(candidate);
+      if (!safeModel.startsWith('openai/')) {
+        return safeModel;
+      }
+    }
+
+    return resolveSafeImageGenerationModel(resolveModelForTier('image_generation'));
   }
 
   private isRetryable(error: Error): boolean {

@@ -23,6 +23,10 @@ import { z } from 'zod';
 
 const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
 
+function normalizeComparableString(value: string | undefined): string {
+  return value?.trim().toLowerCase() ?? '';
+}
+
 function isValidIanaTimezone(value: string): boolean {
   try {
     new Intl.DateTimeFormat('en-US', { timeZone: value });
@@ -128,6 +132,39 @@ export class ScheduleRecurringTaskTool extends BaseTool {
     const parsedFirstRun = parseFutureFirstRunAt(firstRunAt);
     if (parsedFirstRun && 'error' in parsedFirstRun) {
       return { success: false, error: parsedFirstRun.error };
+    }
+
+    const existingTask = await this.findExactExistingTask({
+      userId,
+      actionSummary,
+      cronExpression,
+      timezone,
+      sourceId: resolvedSourceId,
+      firstRunAt: parsedFirstRun?.iso,
+    });
+    if (existingTask) {
+      logger.info('Recurring task already exists; reusing existing schedule', {
+        userId,
+        key: existingTask.key,
+        cronExpression,
+        timezone,
+        ...(resolvedSourceId ? { sourceId: resolvedSourceId } : {}),
+      });
+
+      return {
+        success: true,
+        data: {
+          key: existingTask.key,
+          actionSummary,
+          cronExpression,
+          timezone,
+          ...(resolvedSourceId ? { sourceId: resolvedSourceId } : {}),
+          duplicate: true,
+          message:
+            `Recurring task already scheduled. Reusing existing schedule for ` +
+            `"${actionSummary}" on ${cronExpression} (${timezone}).`,
+        },
+      };
     }
 
     // ── 1. Enforce per-user schedule cap (Firestore is source of truth) ──
@@ -282,5 +319,70 @@ export class ScheduleRecurringTaskTool extends BaseTool {
       .count()
       .get();
     return snap.data().count;
+  }
+
+  private async findExactExistingTask(params: {
+    userId: string;
+    actionSummary: string;
+    cronExpression: string;
+    timezone: string;
+    sourceId?: string;
+    firstRunAt?: string;
+  }): Promise<{ key: string } | null> {
+    const query = this.db
+      .collection(RECURRING_TASKS_COLLECTION)
+      .where('userId', '==', params.userId) as {
+      get?: () => Promise<{
+        empty?: boolean;
+        docs?: ReadonlyArray<{
+          id: string;
+          data(): Record<string, unknown>;
+        }>;
+      }>;
+    };
+
+    if (typeof query.get !== 'function') {
+      return null;
+    }
+
+    const snapshot = await query.get();
+    const docs = snapshot.docs ?? [];
+    const requestedSourceId = params.sourceId?.trim() || null;
+    const requestedFirstRunAt = params.firstRunAt?.trim() || null;
+
+    for (const doc of docs) {
+      const data = doc.data();
+      const existingSourceId =
+        typeof data['sourceId'] === 'string' && data['sourceId'].trim().length > 0
+          ? data['sourceId'].trim()
+          : null;
+      const existingFirstRunAt =
+        typeof data['firstRunAt'] === 'string' && data['firstRunAt'].trim().length > 0
+          ? new Date(Date.parse(data['firstRunAt'].trim())).toISOString()
+          : null;
+
+      if (
+        normalizeComparableString(data['actionSummary'] as string | undefined) !==
+        normalizeComparableString(params.actionSummary)
+      ) {
+        continue;
+      }
+      if ((data['cronExpression'] as string | undefined)?.trim() !== params.cronExpression) {
+        continue;
+      }
+      if ((data['timezone'] as string | undefined)?.trim() !== params.timezone) {
+        continue;
+      }
+      if (existingSourceId !== requestedSourceId) {
+        continue;
+      }
+      if (existingFirstRunAt !== requestedFirstRunAt) {
+        continue;
+      }
+
+      return { key: doc.id };
+    }
+
+    return null;
   }
 }

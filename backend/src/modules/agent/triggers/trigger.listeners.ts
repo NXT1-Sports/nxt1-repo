@@ -37,6 +37,7 @@ import { db as appDb } from '../../../utils/firebase.js';
 const WEEKLY_RECAP_DISPATCH_COLLECTION = 'AgentWeeklyRecapDispatches';
 const WEEKLY_RECAP_BATCH_SIZE = 20;
 const WEEKLY_RECAP_ACTIVITY_LOOKBACK_DAYS = 14;
+const WEEKLY_RECAP_MINIMUM_ACCOUNT_AGE_DAYS = 7;
 
 interface WeeklyRecapRunResult {
   readonly totalUsers: number;
@@ -44,6 +45,7 @@ interface WeeklyRecapRunResult {
   readonly enqueued: number;
   readonly skippedAlreadyDispatched: number;
   readonly skippedEmailOptOut: number;
+  readonly skippedNewAccount: number;
   readonly failed: number;
   readonly weekKey: string;
 }
@@ -140,11 +142,27 @@ function isWeeklyRecapEmailEligible(
 ): data is Record<string, unknown> & { email: string } {
   const preferences = data['preferences'] as Record<string, unknown> | undefined;
   const notifications = preferences?.['notifications'] as Record<string, unknown> | undefined;
-  return (
-    typeof data['email'] === 'string' &&
-    data['email'].trim().length > 0 &&
-    notifications?.['email'] !== false
-  );
+  const createdAt = data['createdAt'] as unknown;
+
+  // Email must be valid and not opted out
+  if (
+    typeof data['email'] !== 'string' ||
+    data['email'].trim().length === 0 ||
+    notifications?.['email'] === false
+  ) {
+    return false;
+  }
+
+  // Account must be at least 7 days old (prevents sending recap 1 day after signup)
+  if (createdAt instanceof Date || typeof createdAt === 'string' || typeof createdAt === 'number') {
+    const accountAgeMs = Date.now() - new Date(createdAt).getTime();
+    const accountAgeDays = accountAgeMs / (24 * 60 * 60 * 1000);
+    if (accountAgeDays < WEEKLY_RECAP_MINIMUM_ACCOUNT_AGE_DAYS) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 async function getWeeklyRecapActiveUserIds(
@@ -615,6 +633,7 @@ export async function runWeeklyRecaps(): Promise<WeeklyRecapRunResult> {
   const weekKey = getWeeklyRecapWeekKey();
   let totalUsers = 0;
   let skippedEmailOptOut = 0;
+  let skippedNewAccount = 0;
   let eligibleUsers: WeeklyRecapEligibleUser[];
 
   try {
@@ -633,6 +652,7 @@ export async function runWeeklyRecaps(): Promise<WeeklyRecapRunResult> {
         enqueued: 0,
         skippedAlreadyDispatched: 0,
         skippedEmailOptOut: 0,
+        skippedNewAccount: 0,
         failed: 0,
         weekKey,
       };
@@ -651,6 +671,21 @@ export async function runWeeklyRecaps(): Promise<WeeklyRecapRunResult> {
       }
 
       const data = doc.data() as Record<string, unknown>;
+      const createdAt = data['createdAt'] as unknown;
+
+      // Check account age separately to track it
+      if (
+        createdAt instanceof Date ||
+        typeof createdAt === 'string' ||
+        typeof createdAt === 'number'
+      ) {
+        const accountAgeMs = Date.now() - new Date(createdAt).getTime();
+        const accountAgeDays = accountAgeMs / (24 * 60 * 60 * 1000);
+        if (accountAgeDays < WEEKLY_RECAP_MINIMUM_ACCOUNT_AGE_DAYS) {
+          skippedNewAccount++;
+          return users;
+        }
+      }
 
       if (!isWeeklyRecapEmailEligible(data)) {
         skippedEmailOptOut++;
@@ -670,6 +705,7 @@ export async function runWeeklyRecaps(): Promise<WeeklyRecapRunResult> {
       enqueued: 0,
       skippedAlreadyDispatched: 0,
       skippedEmailOptOut,
+      skippedNewAccount,
       failed: 1,
       weekKey,
     };
@@ -679,6 +715,7 @@ export async function runWeeklyRecaps(): Promise<WeeklyRecapRunResult> {
     logger.info('[TriggerListener] No active email-eligible users for weekly recaps', {
       totalUsers,
       skippedEmailOptOut,
+      skippedNewAccount,
       weekKey,
       lookbackDays: WEEKLY_RECAP_ACTIVITY_LOOKBACK_DAYS,
     });
@@ -688,6 +725,7 @@ export async function runWeeklyRecaps(): Promise<WeeklyRecapRunResult> {
       enqueued: 0,
       skippedAlreadyDispatched: 0,
       skippedEmailOptOut,
+      skippedNewAccount,
       failed: 0,
       weekKey,
     };
@@ -703,6 +741,7 @@ export async function runWeeklyRecaps(): Promise<WeeklyRecapRunResult> {
     enqueued: outcomes.filter((outcome) => outcome === 'enqueued').length,
     skippedAlreadyDispatched: outcomes.filter((outcome) => outcome === 'already_dispatched').length,
     skippedEmailOptOut,
+    skippedNewAccount,
     failed: outcomes.filter((outcome) => outcome === 'failed').length,
     weekKey,
   };

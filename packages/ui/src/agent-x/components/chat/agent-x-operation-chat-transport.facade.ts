@@ -59,6 +59,12 @@ type OperationStatus =
 
 const SELECTED_CONTEXT_SUMMARY_MAX_CHARS = 600;
 const OPERATION_COMPLETE_DONE_FALLBACK_MS = 5_000;
+const OPERATIONS_LOG_REFRESH_DELAYS_MS = [0, 1_000, 2_500, 5_000] as const;
+const RECURRING_TOOL_NAMES = new Set([
+  'schedule_recurring_task',
+  'update_recurring_task',
+  'cancel_recurring_task',
+]);
 
 function truncateSelectedContextSummary(summary: string): string {
   const trimmed = summary.trim();
@@ -69,6 +75,10 @@ function truncateSelectedContextSummary(summary: string): string {
     return trimmed.slice(0, SELECTED_CONTEXT_SUMMARY_MAX_CHARS);
   }
   return `${trimmed.slice(0, SELECTED_CONTEXT_SUMMARY_MAX_CHARS - 3)}...`;
+}
+
+function isRecurringToolName(toolName: string): boolean {
+  return RECURRING_TOOL_NAMES.has(toolName.trim().toLowerCase());
 }
 
 export interface BatchEmailRecipientStatus {
@@ -634,6 +644,19 @@ export class AgentXOperationChatTransportFacade {
                   );
                 }
               }
+            }
+
+            if (
+              event.status === 'success' &&
+              normalizedToolName &&
+              isRecurringToolName(normalizedToolName)
+            ) {
+              const activeThreadId = host.resolveActiveThreadId()?.trim() || undefined;
+              this.operationEventService.emitOperationsLogRefreshRequested(
+                'operations-log',
+                activeThreadId,
+                OPERATIONS_LOG_REFRESH_DELAYS_MS
+              );
             }
 
             if (event.stageType !== 'tool') return;
