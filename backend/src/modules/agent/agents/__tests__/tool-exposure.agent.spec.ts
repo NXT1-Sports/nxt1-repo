@@ -122,9 +122,18 @@ describe('Agent tool exposure regressions', () => {
       'External social publishing is not wired yet. Do NOT use `write_timeline_post`'
     );
     expect(prompt).toContain(
-      'When the user asks to add/upload/save attached videos to an athlete profile'
+      'If the user only uploads or attaches an image or video without explicitly asking to save it'
+    );
+    expect(prompt).toContain('First ask what they want to do with the file');
+    expect(prompt).toContain(
+      'Only when the user explicitly asks to add/upload/save attached videos to an athlete profile'
+    );
+    expect(prompt).toContain(
+      'Only when the user explicitly asks to add/upload/save attached photos or images to an athlete profile'
     );
     expect(prompt).toContain('Do NOT call `stage_media` first for an already-attached video');
+    expect(prompt).toContain('First call `analyze_image` with the attached image URL(s)');
+    expect(prompt).toContain('source: "agent_x_upload"');
     expect(prompt).toContain('No timeline fallback for profile videos');
   });
 

@@ -698,6 +698,111 @@ export class AgentXOperationChatSessionFacade {
     return deduped;
   }
 
+  private isResolvedApprovalYieldRow(message: OperationMessage): boolean {
+    return (
+      message.yieldState?.reason === 'needs_approval' &&
+      (message.yieldCardState === 'resolved' || (message.yieldResolvedText ?? '').trim().length > 0)
+    );
+  }
+
+  private shouldPreserveInlineYieldRowDuringReload(params: {
+    readonly message: OperationMessage;
+    readonly messageIndex: number;
+    readonly allExistingMessages: readonly OperationMessage[];
+    readonly reorderedMapped: readonly OperationMessage[];
+    readonly answeredYieldOperationIdsInPersisted: ReadonlySet<string>;
+  }): boolean {
+    const { message, messageIndex, allExistingMessages, reorderedMapped } = params;
+    if (message.id === 'typing') return false;
+    if (!message.yieldState) return false;
+    if (reorderedMapped.some((persisted) => persisted.id === message.id)) return false;
+
+    const operationId = typeof message.operationId === 'string' ? message.operationId.trim() : '';
+    const isResolvedApprovalYield = this.isResolvedApprovalYieldRow(message);
+    const hasLaterPersistedUserForSameOperation =
+      operationId.length > 0 &&
+      reorderedMapped.some(
+        (persisted) =>
+          persisted.role === 'user' &&
+          persisted.operationId === operationId &&
+          persisted.timestamp.getTime() >= message.timestamp.getTime()
+      );
+
+    if (isResolvedApprovalYield && hasLaterPersistedUserForSameOperation) return false;
+    if (
+      operationId &&
+      params.answeredYieldOperationIdsInPersisted.has(operationId) &&
+      !isResolvedApprovalYield
+    ) {
+      return false;
+    }
+
+    const hasPersistedSameOperation =
+      operationId.length > 0 &&
+      reorderedMapped.some(
+        (persisted) =>
+          typeof persisted.operationId === 'string' && persisted.operationId === operationId
+      );
+    if (hasPersistedSameOperation && !isResolvedApprovalYield) return false;
+
+    const hadLocalUserReplyAfter = allExistingMessages
+      .slice(messageIndex + 1)
+      .some((candidate) => candidate.role === 'user');
+    if (hadLocalUserReplyAfter && !isResolvedApprovalYield) return false;
+
+    if (
+      (message.yieldCardState === 'resolved' || (message.yieldResolvedText ?? '').trim()) &&
+      !isResolvedApprovalYield
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private mergePreservedInlineYieldRows(
+    persistedRows: readonly OperationMessage[],
+    preservedInlineYieldRows: readonly OperationMessage[]
+  ): OperationMessage[] {
+    const merged = [...persistedRows];
+
+    for (const row of preservedInlineYieldRows) {
+      if (merged.some((message) => message.id === row.id)) continue;
+
+      const operationId = typeof row.operationId === 'string' ? row.operationId.trim() : '';
+      if (!operationId) {
+        merged.push(row);
+        continue;
+      }
+
+      const finalIndex = merged.findIndex(
+        (message) =>
+          message.operationId === operationId &&
+          message.role === 'assistant' &&
+          message.semanticPhase === 'assistant_final'
+      );
+      if (finalIndex >= 0) {
+        merged.splice(finalIndex, 0, row);
+        continue;
+      }
+
+      let lastSameOperationIndex = -1;
+      for (let index = 0; index < merged.length; index += 1) {
+        if (merged[index]?.operationId === operationId) {
+          lastSameOperationIndex = index;
+        }
+      }
+
+      if (lastSameOperationIndex >= 0) {
+        merged.splice(lastSameOperationIndex + 1, 0, row);
+      } else {
+        merged.push(row);
+      }
+    }
+
+    return merged;
+  }
+
   /**
    * Pair-by-arrival reorder.
    *
@@ -717,10 +822,40 @@ export class AgentXOperationChatSessionFacade {
    */
   private reorderTurnsByPairing(messages: readonly OperationMessage[]): OperationMessage[] {
     const result: OperationMessage[] = [];
+    const deferredAssistantFinals = new Set<string>();
     // Track each user's landing index in `result` and how many assistants
     // have been attached after it. A user's "block" occupies indices
     // [idx, idx + assistantCount].
     const userSlots: Array<{ idx: number; assistantCount: number; operationId?: string }> = [];
+
+    const normalizeOperationId = (message: OperationMessage): string =>
+      message.operationId?.trim() ?? '';
+
+    const userRowsByOperationId = new Map<string, OperationMessage[]>();
+    for (const message of messages) {
+      if (message.role !== 'user') continue;
+      const operationId = normalizeOperationId(message);
+      if (!operationId) continue;
+      userRowsByOperationId.set(operationId, [
+        ...(userRowsByOperationId.get(operationId) ?? []),
+        message,
+      ]);
+    }
+
+    const shouldDeferAssistantFinal = (
+      message: OperationMessage,
+      currentIndex: number
+    ): boolean => {
+      if (message.role !== 'assistant' || message.semanticPhase !== 'assistant_final') return false;
+      const operationId = normalizeOperationId(message);
+      if (!operationId) return false;
+      return messages
+        .slice(currentIndex + 1)
+        .some(
+          (candidate) =>
+            candidate.role === 'user' && normalizeOperationId(candidate) === operationId
+        );
+    };
 
     const attachAfter = (
       slot: { idx: number; assistantCount: number },
@@ -735,7 +870,12 @@ export class AgentXOperationChatSessionFacade {
       }
     };
 
-    for (const msg of messages) {
+    for (const [messageIndex, msg] of messages.entries()) {
+      if (shouldDeferAssistantFinal(msg, messageIndex)) {
+        deferredAssistantFinals.add(msg.id);
+        continue;
+      }
+
       if (msg.role === 'user') {
         result.push(msg);
         userSlots.push({
@@ -775,6 +915,24 @@ export class AgentXOperationChatSessionFacade {
       }
 
       result.push(msg);
+    }
+
+    for (const msg of messages) {
+      if (!deferredAssistantFinals.has(msg.id)) continue;
+
+      const operationId = normalizeOperationId(msg);
+      const targetUser = userRowsByOperationId.get(operationId)?.at(-1);
+      const target = targetUser
+        ? userSlots.find(
+            (slot) => slot.operationId === operationId && result[slot.idx]?.id === targetUser.id
+          )
+        : undefined;
+
+      if (target) {
+        attachAfter(target, msg);
+      } else {
+        result.push(msg);
+      }
     }
 
     return result;
@@ -2351,6 +2509,7 @@ export class AgentXOperationChatSessionFacade {
             operationId: typeof message.operationId === 'string' ? message.operationId : undefined,
             content: effectiveContent,
             timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
+            ...(message.semanticPhase ? { semanticPhase: message.semanticPhase } : {}),
             ...(persistedSteps.length > 0 ? { steps: persistedSteps } : {}),
             ...(persistedParts.length > 0 ? { parts: persistedParts } : {}),
             ...(persistedCards.length > 0 ? { cards: persistedCards } : {}),
@@ -2394,39 +2553,13 @@ export class AgentXOperationChatSessionFacade {
       );
       const preservedInlineYieldRows = existingMessages.filter(
         (message, messageIndex, allExistingMessages) => {
-          if (message.id === 'typing') return false;
-          if (!message.yieldState) return false;
-          if (reorderedMapped.some((persisted) => persisted.id === message.id)) return false;
-
-          // Do not re-append stale ask_user rows that were already answered.
-          // Re-appending them after persisted history shifts their index and can
-          // make them appear pending again (showing "Waiting for your reply…"
-          // even though a user reply already exists in the timeline).
-          const operationId =
-            typeof message.operationId === 'string' ? message.operationId.trim() : '';
-          if (operationId && answeredYieldOperationIdsInPersisted.has(operationId)) return false;
-          if (
-            operationId &&
-            reorderedMapped.some(
-              (persisted) =>
-                typeof persisted.operationId === 'string' && persisted.operationId === operationId
-            )
-          ) {
-            return false;
-          }
-
-          // If this yield already had a user reply in the pre-rehydrate local
-          // timeline, treat it as answered and do not preserve it.
-          const hadLocalUserReplyAfter = allExistingMessages
-            .slice(messageIndex + 1)
-            .some((candidate) => candidate.role === 'user');
-          if (hadLocalUserReplyAfter) return false;
-
-          // Also skip explicit resolved rows.
-          if (message.yieldCardState === 'resolved') return false;
-          if ((message.yieldResolvedText ?? '').trim().length > 0) return false;
-
-          return true;
+          return this.shouldPreserveInlineYieldRowDuringReload({
+            message,
+            messageIndex,
+            allExistingMessages,
+            reorderedMapped,
+            answeredYieldOperationIdsInPersisted,
+          });
         }
       );
       // Note: no need to merge in-memory yieldCardState onto reloaded rows.
@@ -2482,10 +2615,12 @@ export class AgentXOperationChatSessionFacade {
           });
         }
       }
+      const mergedRows = this.mergePreservedInlineYieldRows(
+        persistedRows,
+        preservedInlineYieldRows
+      );
       this.messageFacade.messages.set(
-        preserveTyping && existingTyping
-          ? [...persistedRows, ...preservedInlineYieldRows, existingTyping]
-          : [...persistedRows, ...preservedInlineYieldRows]
+        preserveTyping && existingTyping ? [...mergedRows, existingTyping] : mergedRows
       );
 
       // Async canvas thumbnails for any history video attachment that still

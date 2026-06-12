@@ -452,6 +452,16 @@ describe('Agent X Routes', () => {
 
     expect(response.status).toBe(202);
     expect(response.body.success).toBe(true);
+    expect(chatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-123',
+        userId: 'test-user',
+        role: 'user',
+        origin: 'user',
+        operationId: 'op-original',
+        content: 'Send an email to coach@example.com with subject "Updated subject".',
+      })
+    );
     expect(chatService.clearThreadPausedYieldState).toHaveBeenCalledWith('thread-123');
     expect(queueService.enqueue).toHaveBeenCalledTimes(1);
     expect(jobRepository.create).toHaveBeenCalledTimes(1);
@@ -670,6 +680,16 @@ describe('Agent X Routes', () => {
 
     expect(response.status).toBe(200);
     expect(response.body.success).toBe(true);
+    expect(chatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-123',
+        userId: 'test-user',
+        role: 'user',
+        origin: 'user',
+        operationId: 'op-original',
+        content: 'Send 2 emails with subject "Updated subject".',
+      })
+    );
 
     const resumedPayload = vi.mocked(jobRepository.create).mock.calls[0][0] as {
       context?: {

@@ -148,6 +148,13 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain('single objective sentence as the handoff payload');
     expect(prompt).toContain('Ask User Decision Matrix (CRITICAL)');
     expect(prompt).toContain('Do NOT call `ask_user` for data already present in task context');
+    expect(prompt).toContain('Bare attachment intent rule (CRITICAL)');
+    expect(prompt).toContain(
+      'If the user only uploads or attaches an image, video, or document without explicitly asking to save it'
+    );
+    expect(prompt).toContain(
+      'ask what they want to do with the file before delegating or mutating anything'
+    );
     // Decision boundary: direct lookup vs. delegate for recruiting
     expect(prompt).toContain('Simple factual lookup');
     expect(prompt).toContain('use `search_colleges` or `search_college_coaches` directly');

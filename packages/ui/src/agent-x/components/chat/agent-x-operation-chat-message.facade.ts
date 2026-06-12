@@ -282,6 +282,7 @@ export class AgentXOperationChatMessageFacade {
         message.id === params.streamingId
           ? {
               ...message,
+              id: this.uid(),
               isTyping: false,
               content: hasVisibleContent
                 ? message.content
@@ -369,6 +370,12 @@ export class AgentXOperationChatMessageFacade {
         return { ...message, content: message.content + delta, isTyping: false, parts: nextParts };
       })
     );
+  }
+
+  retireActiveTypingCarrier(operationId?: string): void {
+    this.flushPendingTypingDelta();
+
+    this.messages.update((messages) => this.retireTypingCarrier(messages, operationId));
   }
 
   drainBufferedTypingDelta(): string {
@@ -720,6 +727,8 @@ export class AgentXOperationChatMessageFacade {
   }
 
   upsertInlineYieldMessage(yieldState: AgentYieldState, operationId: string): void {
+    this.flushPendingTypingDelta();
+
     const messageId = this.inlineYieldMessageId(yieldState, operationId);
     const incomingKey = this.yieldIdentityKey(yieldState);
     const promptText = this.normalizeYieldPrompt(yieldState.promptToUser);
@@ -736,12 +745,6 @@ export class AgentXOperationChatMessageFacade {
         const actions = payload['actions'];
         return Array.isArray(actions) && actions.length > 0;
       };
-      const messageHasVisiblePayload = (message: OperationMessage): boolean =>
-        (message.content ?? '').trim().length > 0 ||
-        (message.attachments?.length ?? 0) > 0 ||
-        (message.steps?.length ?? 0) > 0 ||
-        (message.parts?.length ?? 0) > 0 ||
-        (message.cards?.length ?? 0) > 0;
       const typingIndex = messages.findIndex((message) => message.id === 'typing');
       const typingMessage = typingIndex >= 0 ? messages[typingIndex] : undefined;
       const carriedParts = typingMessage?.parts?.filter(
@@ -785,7 +788,9 @@ export class AgentXOperationChatMessageFacade {
         : {};
 
       const clearTypingCarrier = (rows: readonly OperationMessage[]): OperationMessage[] => {
-        if (!hasCarriedTypingPayload) return [...rows];
+        if (!typingMessage) return [...rows];
+
+        if (!hasCarriedTypingPayload) return rows.filter((message) => message.id !== 'typing');
 
         if (cardOnlyYield) {
           // For ask_user interruptions, commit the streamed typing payload as
@@ -802,21 +807,7 @@ export class AgentXOperationChatMessageFacade {
           );
         }
 
-        // For approval interruptions, preserve prior stream context while
-        // neutralizing the typing sentinel.
-        return rows.map((message) =>
-          message.id !== 'typing'
-            ? message
-            : {
-                ...message,
-                content: '',
-                attachments: [],
-                cards: [],
-                parts: [],
-                steps: [],
-                isTyping: false,
-              }
-        );
+        return rows.filter((message) => message.id !== 'typing');
       };
 
       // Resolve the existing row in priority order:
@@ -891,8 +882,7 @@ export class AgentXOperationChatMessageFacade {
               yieldCardState: existing.yieldCardState ?? 'idle',
             }
           : {
-              ...existing,
-              ...(!messageHasVisiblePayload(existing) ? carriedTypingPayload : {}),
+              ...this.withMergedVisiblePayload(existing, carriedTypingPayload),
               id: messageId,
               yieldState,
               operationId: operationId || existing.operationId,
@@ -918,17 +908,15 @@ export class AgentXOperationChatMessageFacade {
             ];
           }
 
-          const withoutExisting = clearTypingCarrier(messages).filter(
-            (_, index) => index !== existingIndex
+          const withoutExistingAndTyping = messages.filter(
+            (_, index) => index !== existingIndex && index !== typingIndex
           );
-          const nextTypingIndex = withoutExisting.findIndex((message) => message.id === 'typing');
-          if (nextTypingIndex >= 0) {
-            return [
-              ...withoutExisting.slice(0, nextTypingIndex + 1),
-              updated,
-              ...withoutExisting.slice(nextTypingIndex + 1),
-            ];
-          }
+          const insertAt = Math.max(0, typingIndex - (existingIndex < typingIndex ? 1 : 0));
+          return [
+            ...withoutExistingAndTyping.slice(0, insertAt),
+            updated,
+            ...withoutExistingAndTyping.slice(insertAt),
+          ];
         }
 
         return clearTypingCarrier(messages).map((message, index) =>
@@ -975,12 +963,164 @@ export class AgentXOperationChatMessageFacade {
         ];
       }
 
-      return clearTypingCarrier([
-        ...messages.slice(0, typingIndex + 1),
-        yieldMessage,
-        ...messages.slice(typingIndex + 1),
-      ]);
+      return [...messages.slice(0, typingIndex), yieldMessage, ...messages.slice(typingIndex + 1)];
     });
+  }
+
+  private retireTypingCarrier(
+    messages: readonly OperationMessage[],
+    operationId?: string
+  ): OperationMessage[] {
+    const typingIndex = messages.findIndex((message) => message.id === 'typing');
+    if (typingIndex < 0) return [...messages];
+
+    const typingMessage = messages[typingIndex];
+    if (!this.messageHasVisiblePayload(typingMessage)) {
+      return messages.filter((_, index) => index !== typingIndex);
+    }
+
+    if (this.isTypingPayloadAlreadyCarried(messages, typingIndex, typingMessage)) {
+      return messages.filter((_, index) => index !== typingIndex);
+    }
+
+    return messages.map((message, index) =>
+      index === typingIndex
+        ? {
+            ...typingMessage,
+            id: this.committedTypingMessageId(typingMessage, operationId),
+            isTyping: false,
+          }
+        : message
+    );
+  }
+
+  private messageHasVisiblePayload(message: OperationMessage): boolean {
+    return (
+      message.content.trim().length > 0 ||
+      (message.attachments?.length ?? 0) > 0 ||
+      (message.steps?.length ?? 0) > 0 ||
+      (message.parts?.length ?? 0) > 0 ||
+      (message.cards?.length ?? 0) > 0
+    );
+  }
+
+  private committedTypingMessageId(message: OperationMessage, operationId?: string): string {
+    const idScope = operationId?.trim() || message.operationId?.trim() || 'local';
+    const timestampMs = message.timestamp?.getTime() ?? Date.now();
+    return `${idScope}:assistant_committed:${timestampMs}`;
+  }
+
+  private isTypingPayloadAlreadyCarried(
+    messages: readonly OperationMessage[],
+    typingIndex: number,
+    typingMessage: OperationMessage
+  ): boolean {
+    return messages.some(
+      (message, index) =>
+        index !== typingIndex &&
+        message.role === 'assistant' &&
+        !message.isTyping &&
+        this.messageCarriesSameVisiblePayload(message, typingMessage)
+    );
+  }
+
+  private messageCarriesSameVisiblePayload(
+    message: OperationMessage,
+    typingMessage: OperationMessage
+  ): boolean {
+    const typingText = this.normalizeYieldPrompt(typingMessage.content);
+    const messageText = this.normalizeYieldPrompt(message.content);
+
+    return (
+      (!typingText || messageText === typingText) &&
+      this.containsAllByKey(
+        message.attachments,
+        typingMessage.attachments,
+        (attachment) => `${attachment.url}:${attachment.type}:${attachment.name}`
+      ) &&
+      this.containsAllByKey(message.steps, typingMessage.steps, (step) => step.id) &&
+      this.containsAllByKey(message.cards, typingMessage.cards, (card) => this.cardKey(card)) &&
+      this.containsAllByKey(message.parts, typingMessage.parts, (part) => this.partKey(part))
+    );
+  }
+
+  private withMergedVisiblePayload(
+    message: OperationMessage,
+    payload: Partial<OperationMessage>
+  ): OperationMessage {
+    const payloadContent = this.normalizeYieldPrompt(payload.content);
+    const messageContent = this.normalizeYieldPrompt(message.content);
+    const content = !payloadContent || messageContent ? message.content : (payload.content ?? '');
+
+    return {
+      ...message,
+      content,
+      ...(payload.attachments?.length
+        ? {
+            attachments: this.appendMissingByKey(
+              message.attachments,
+              payload.attachments,
+              (attachment) => `${attachment.url}:${attachment.type}:${attachment.name}`
+            ),
+          }
+        : {}),
+      ...(payload.steps?.length
+        ? { steps: this.appendMissingByKey(message.steps, payload.steps, (step) => step.id) }
+        : {}),
+      ...(payload.cards?.length
+        ? {
+            cards: this.appendMissingByKey(message.cards, payload.cards, (card) =>
+              this.cardKey(card)
+            ),
+          }
+        : {}),
+      ...(payload.parts?.length
+        ? {
+            parts: this.appendMissingByKey(message.parts, payload.parts, (part) =>
+              this.partKey(part)
+            ),
+          }
+        : {}),
+    };
+  }
+
+  private appendMissingByKey<T>(
+    existing: readonly T[] | undefined,
+    incoming: readonly T[],
+    keyFor: (value: T) => string
+  ): T[] {
+    const next = [...(existing ?? [])];
+    const seen = new Set(next.map(keyFor));
+    for (const value of incoming) {
+      const key = keyFor(value);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      next.push(value);
+    }
+    return next;
+  }
+
+  private containsAllByKey<T>(
+    existing: readonly T[] | undefined,
+    incoming: readonly T[] | undefined,
+    keyFor: (value: T) => string
+  ): boolean {
+    if (!incoming?.length) return true;
+    const existingKeys = new Set((existing ?? []).map(keyFor));
+    return incoming.every((value) => existingKeys.has(keyFor(value)));
+  }
+
+  private cardKey(card: AgentXRichCard): string {
+    return this.cardPayloadYieldIdentityKey(card) || JSON.stringify(card);
+  }
+
+  private partKey(part: AgentXMessagePart): string {
+    if (part.type === 'card') return `card:${this.cardKey(part.card)}`;
+    if (part.type === 'text') return `text:${this.normalizeYieldPrompt(part.content)}`;
+    if (part.type === 'tool-steps') {
+      return `tool-steps:${part.steps.map((step) => step.id).join('|')}`;
+    }
+    return JSON.stringify(part);
   }
 
   /**

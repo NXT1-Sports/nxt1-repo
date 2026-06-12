@@ -2615,6 +2615,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       activeYieldState: this.activeYieldState,
       yieldResolved: this.yieldResolved,
       resolvedThreadId: this._resolvedThreadId,
+      loadThreadMessages: (threadId) => this.sessionFacade.loadThreadMessages(threadId),
       getCurrentOperationId: () => this._currentOperationId,
       setCurrentOperationId: (operationId) => {
         this._currentOperationId = operationId;

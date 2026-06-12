@@ -974,10 +974,6 @@ export const OPERATIONS_LOG_TEST_IDS = {
         margin-bottom: 6px;
         font-size: 14px;
         font-weight: 700;
-        white-space: normal;
-        display: -webkit-box;
-        -webkit-box-orient: vertical;
-        -webkit-line-clamp: 2;
       }
 
       .log-entry-status {
@@ -2726,6 +2722,7 @@ export class AgentXOperationsLogComponent {
           contextTitle: entry.title,
           contextIcon: entry.icon,
           contextType: 'operation',
+          resumeOperationId: resolvedOperationId,
           // Only pass operationStatus='processing' when there is a real Firestore
           // operationId to subscribe to. MongoDB-thread-only entries have no
           // AgentJobs document and must not trigger a Firestore subscription.
