@@ -3,6 +3,7 @@ import type { AgentYieldState } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type {
   AgentXAttachment,
+  AgentXAttachmentStub,
   AgentXSelectedAction,
   AgentXSelectedContext,
   AgentXToolStep,
@@ -25,6 +26,7 @@ import { AgentXOperationChatTransportFacade } from './agent-x-operation-chat-tra
 import type { MessageAttachment, OperationMessage } from './agent-x-operation-chat.models';
 
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
+const PENDING_ATTACHMENTS_RESOLVE_TIMEOUT_MS = 180_000;
 
 type OperationChatStatus =
   | 'processing'
@@ -416,6 +418,8 @@ export class AgentXOperationChatRunControlFacade {
 
     try {
       let readyAttachments: AgentXAttachment[] = [];
+      let pendingAttachmentStubs: readonly AgentXAttachmentStub[] = [];
+      let onWaitingForAttachments: ((operationId: string) => Promise<void>) | undefined;
       let authToken: string | null = null;
       if (files.length > 0) {
         authToken = (await this.getAuthToken?.().catch(() => null)) ?? null;
@@ -425,11 +429,27 @@ export class AgentXOperationChatRunControlFacade {
             selectedFileCount: files.length,
           });
 
-          readyAttachments = await this.attachmentsFacade.prepareAttachmentsForSend(
-            files,
-            authToken
-          );
-          if (readyAttachments.length !== files.length) {
+          const hasNativeVideo = files.some((file) => file.isVideo && !!file.nativeUri);
+          if (hasNativeVideo) {
+            const immediate = this.attachmentsFacade.prepareForImmediateSend(files, authToken);
+            readyAttachments = immediate.ready;
+            pendingAttachmentStubs = immediate.stubs;
+            onWaitingForAttachments = async (operationId: string): Promise<void> => {
+              const attachments = await this.attachmentsFacade.awaitPendingUploads(
+                files,
+                authToken!,
+                PENDING_ATTACHMENTS_RESOLVE_TIMEOUT_MS
+              );
+              await this.resolvePendingAttachments(operationId, attachments, authToken!);
+            };
+          } else {
+            readyAttachments = await this.attachmentsFacade.prepareAttachmentsForSend(
+              files,
+              authToken
+            );
+          }
+
+          if (!hasNativeVideo && readyAttachments.length !== files.length) {
             const failedCount = files.length - readyAttachments.length;
             this.logger.warn('Blocking chat send because some attachments failed to upload', {
               contextId: host.contextId(),
@@ -505,7 +525,13 @@ export class AgentXOperationChatRunControlFacade {
         selectedAction ?? undefined,
         idempotencyKey,
         pendingSources.length > 0 ? pendingSources : undefined,
-        pendingSelectedContexts.length > 0 ? pendingSelectedContexts : undefined
+        pendingSelectedContexts.length > 0 ? pendingSelectedContexts : undefined,
+        pendingAttachmentStubs.length > 0 && onWaitingForAttachments
+          ? {
+              stubs: pendingAttachmentStubs,
+              onWaitingForAttachments,
+            }
+          : undefined
       );
       await this.haptics.notification('success');
     } catch (error) {
@@ -581,6 +607,29 @@ export class AgentXOperationChatRunControlFacade {
       ...(source ? { contextSource: source } : {}),
       ...(context.summary ? { contextSummary: context.summary } : {}),
     };
+  }
+
+  private async resolvePendingAttachments(
+    operationId: string,
+    attachments: readonly AgentXAttachment[],
+    authToken: string
+  ): Promise<void> {
+    const response = await fetch(
+      `${this.baseUrl}/agent-x/chat/pending-attachments/${encodeURIComponent(operationId)}`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ attachments }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => `HTTP ${response.status}`);
+      throw new Error(`Failed to resolve pending attachments: ${errorText}`);
+    }
   }
 
   async onRetryErrorMessage(errorMessage: OperationMessage): Promise<void> {

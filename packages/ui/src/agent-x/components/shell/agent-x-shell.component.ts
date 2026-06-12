@@ -2309,6 +2309,9 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     const initialFiles = servicePendingFiles.map((f) => ({
       id: crypto.randomUUID(),
       file: f.file,
+      ...(f.nativeUri ? { nativeUri: f.nativeUri } : {}),
+      ...(f.nativeWebPath ? { nativeWebPath: f.nativeWebPath } : {}),
+      ...(f.sizeBytes ? { sizeBytes: f.sizeBytes } : {}),
       previewUrl: f.previewUrl,
       isImage: f.type === 'image',
       isVideo: f.type === 'video',
@@ -2441,6 +2444,9 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     const initialFiles = servicePendingFiles.map((f) => ({
       id: crypto.randomUUID(),
       file: f.file,
+      ...(f.nativeUri ? { nativeUri: f.nativeUri } : {}),
+      ...(f.nativeWebPath ? { nativeWebPath: f.nativeWebPath } : {}),
+      ...(f.sizeBytes ? { sizeBytes: f.sizeBytes } : {}),
       previewUrl: f.previewUrl,
       isImage: f.type === 'image',
       isVideo: f.type === 'video',

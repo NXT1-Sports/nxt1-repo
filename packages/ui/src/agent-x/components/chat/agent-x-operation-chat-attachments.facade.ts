@@ -41,7 +41,9 @@ import {
 import { AgentXService } from '../../services/agent-x.service';
 import {
   AgentXAttachmentsSheetComponent,
+  type AttachmentSelectedFile,
   type ConnectedAppSource,
+  type NativeAttachmentFile,
 } from '../modals/agent-x-attachments-sheet.component';
 import { buildPendingAttachmentViewer } from '../../utils/pending-attachments-viewer.util';
 import type {
@@ -72,6 +74,15 @@ interface VideoUploadBatchEntry {
   readonly fileName: string;
   readonly status: BackgroundUploadStatus;
   readonly percent: number;
+}
+
+interface UploadedVideoResult {
+  readonly url: string;
+  readonly storagePath?: string;
+  readonly cloudflareVideoId?: string;
+  readonly cloudflareStatus?: string;
+  readonly readyToStream?: boolean;
+  readonly thumbnailUrl?: string;
 }
 
 export interface VideoUploadBatchProgressState {
@@ -165,6 +176,8 @@ interface BackgroundUploadRecord {
 }
 
 const BACKGROUND_UPLOAD_CONCURRENCY = 4;
+const NATIVE_VIDEO_UPLOAD_MAX_ATTEMPTS = 3;
+const NATIVE_VIDEO_UPLOAD_RETRY_DELAY_MS = 1_200;
 const MESSAGE_ATTACHMENT_SYNC_RETRY_MS =
   AGENT_X_RUNTIME_CONFIG.attachmentTransport.messageSyncRetryMs;
 const VIDEO_UPLOAD_PROGRESS_SETTLE_MS = 420;
@@ -403,10 +416,10 @@ export class AgentXOperationChatAttachmentsFacade {
     });
 
     await modal.present();
-    const result = await modal.onWillDismiss<File[] | ConnectedAppSource>();
+    const result = await modal.onWillDismiss<AttachmentSelectedFile[] | ConnectedAppSource>();
 
     if (result.data && result.role === 'files-selected') {
-      this.stageFiles(result.data as File[]);
+      this.stageFiles(result.data as AttachmentSelectedFile[]);
       return;
     }
 
@@ -663,44 +676,7 @@ export class AgentXOperationChatAttachmentsFacade {
     for (const pending of videoFiles) {
       try {
         this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'uploading', 0);
-        const threadId = host.resolveActiveThreadId();
-        const videoResult = await new Promise<{
-          url: string;
-          storagePath?: string;
-          cloudflareVideoId?: string;
-          cloudflareStatus?: string;
-          readyToStream?: boolean;
-          thumbnailUrl?: string;
-        }>((resolve, reject) => {
-          this.videoUploadService
-            .uploadVideo(pending.file, authToken, { threadId, transport: 'firebase' })
-            .subscribe({
-              next: (progress) => {
-                if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
-                  this.setVideoUploadBatchEntry(
-                    pending.id,
-                    pending.file.name,
-                    'uploading',
-                    progress.percent
-                  );
-                }
-                if (progress.phase === 'complete' && progress.streamUrl) {
-                  this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'complete', 100);
-                  resolve({
-                    url: progress.streamUrl,
-                    storagePath: progress.storagePath,
-                    cloudflareVideoId: progress.cloudflareVideoId,
-                    cloudflareStatus: progress.cloudflareStatus,
-                    readyToStream: progress.readyToStream,
-                    thumbnailUrl: progress.thumbnailUrl,
-                  });
-                } else if (progress.phase === 'error') {
-                  reject(new Error(progress.errorMessage ?? 'Video upload failed'));
-                }
-              },
-              error: (error) => reject(error),
-            });
-        });
+        const videoResult = await this.uploadPendingVideoWithRetry(pending, authToken);
 
         const persistedThumbnailUrl = resolvePersistedVideoThumbnailUrl(
           videoResult.thumbnailUrl,
@@ -724,7 +700,7 @@ export class AgentXOperationChatAttachmentsFacade {
           name: pending.file.name,
           mimeType: pending.file.type,
           type: 'video',
-          sizeBytes: pending.file.size,
+          sizeBytes: pending.sizeBytes ?? pending.file.size,
         });
       } catch (error) {
         this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'failed', 100);
@@ -732,7 +708,7 @@ export class AgentXOperationChatAttachmentsFacade {
         this.logger.error('Video upload failed', error, {
           contextId: host.contextId(),
           fileName: pending.file.name,
-          fileSize: pending.file.size,
+          fileSize: pending.sizeBytes ?? pending.file.size,
           errorMessage,
         });
         this.breadcrumb.trackUserAction('agent-x-video-upload-error', {
@@ -782,9 +758,38 @@ export class AgentXOperationChatAttachmentsFacade {
 
     await Promise.all(records.map((record) => record.resultPromise));
 
-    const readyAttachments = files
+    let readyAttachments = files
       .map((pending) => this.backgroundUploads.get(pending.id)?.attachment ?? null)
       .filter((attachment): attachment is AgentXAttachment => attachment !== null);
+
+    if (readyAttachments.length !== files.length) {
+      const retryFiles = files.filter(
+        (pending) => !this.backgroundUploads.get(pending.id)?.attachment
+      );
+      if (retryFiles.length > 0) {
+        this.logger.warn('Retrying incomplete attachment uploads before blocking send', {
+          contextId: this.requireHost().contextId(),
+          retryCount: retryFiles.length,
+          retryNames: retryFiles.map((pending) => pending.file.name),
+        });
+        for (const pending of retryFiles) {
+          this.backgroundUploads.delete(pending.id);
+          if (pending.isVideo) {
+            this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'queued', 0);
+          }
+        }
+        await new Promise((resolve) => setTimeout(resolve, NATIVE_VIDEO_UPLOAD_RETRY_DELAY_MS));
+
+        const retryRecords = retryFiles.map((pending) =>
+          this.ensureBackgroundUpload(pending, authToken)
+        );
+        await Promise.all(retryRecords.map((record) => record.resultPromise));
+
+        readyAttachments = files
+          .map((pending) => this.backgroundUploads.get(pending.id)?.attachment ?? null)
+          .filter((attachment): attachment is AgentXAttachment => attachment !== null);
+      }
+    }
 
     if (readyAttachments.length === files.length) {
       this.clearVideoUploadProgress();
@@ -970,6 +975,20 @@ export class AgentXOperationChatAttachmentsFacade {
     }
   }
 
+  /**
+   * Kick off background uploads for files that were loaded directly into
+   * `pendingFiles` (e.g. initialFiles passed into a new session) without going
+   * through `stageFiles()`. On a cold-start session the auth token may not be
+   * available immediately, but `primePendingUploads` already guards against that
+   * and is a no-op when the token is absent — the upload will start on send.
+   * Calling this eagerly maximises the chance that uploads are ready before the
+   * user hits send.
+   */
+  primeInitialFiles(files: readonly PendingFile[]): void {
+    if (files.length === 0) return;
+    void this.primePendingUploads(files);
+  }
+
   clearPendingFiles(): void {
     for (const pending of this.pendingFiles()) {
       if (pending.previewUrl) {
@@ -981,10 +1000,10 @@ export class AgentXOperationChatAttachmentsFacade {
   }
 
   private fileSignature(file: File): string {
-    return `${file.name}|${file.size}|${file.lastModified}|${file.type}`;
+    return `${file.name}|${resolveAttachmentFileSize(file)}|${file.lastModified}|${file.type}`;
   }
 
-  stageFiles(files: readonly File[]): number {
+  stageFiles(files: readonly AttachmentSelectedFile[]): number {
     const host = this.requireHost();
     if (files.length === 0) return 0;
 
@@ -994,13 +1013,16 @@ export class AgentXOperationChatAttachmentsFacade {
     );
     const nextPending: PendingFile[] = [];
 
-    for (const file of files) {
+    for (const selectedFile of files) {
+      const nativeMetadata = getNativeAttachmentMetadata(selectedFile);
+      const file = normalizeAttachmentFile(unwrapSelectedFile(selectedFile), nativeMetadata);
+      const sizeBytes = resolveAttachmentFileSize(file);
       const signature = this.fileSignature(file);
       if (knownFileSignatures.has(signature)) {
         this.logger.info('Skipped duplicate operation chat file', {
           contextId: host.contextId(),
           fileName: file.name,
-          fileSize: file.size,
+          fileSize: sizeBytes,
           mimeType: file.type,
         });
         continue;
@@ -1019,13 +1041,13 @@ export class AgentXOperationChatAttachmentsFacade {
       const maxFileSize = file.type.startsWith('video/')
         ? AGENT_X_MAX_VIDEO_FILE_SIZE
         : AGENT_X_MAX_FILE_SIZE;
-      if (file.size > maxFileSize) {
+      if (sizeBytes > maxFileSize) {
         const maxMb = Math.round(maxFileSize / (1024 * 1024));
         this.toast.error(`${file.name} exceeds the ${maxMb}MB limit`);
         this.logger.warn('Rejected oversized operation chat file', {
           contextId: host.contextId(),
           fileName: file.name,
-          sizeBytes: file.size,
+          sizeBytes,
           maxSizeBytes: maxFileSize,
         });
         continue;
@@ -1036,9 +1058,12 @@ export class AgentXOperationChatAttachmentsFacade {
       nextPending.push({
         id: crypto.randomUUID(),
         file,
+        ...(nativeMetadata.nativeUri ? { nativeUri: nativeMetadata.nativeUri } : {}),
+        ...(nativeMetadata.nativeWebPath ? { nativeWebPath: nativeMetadata.nativeWebPath } : {}),
+        ...(nativeMetadata.nativeSizeBytes ? { sizeBytes: nativeMetadata.nativeSizeBytes } : {}),
         // Videos: start null, canvas thumbnail is set async below.
         // Images: blob URL is fine as <img src> renders it directly.
-        previewUrl: isImage ? URL.createObjectURL(file) : null,
+        previewUrl: isImage ? URL.createObjectURL(file) : (nativeMetadata.thumbnailDataUrl ?? null),
         isImage,
         isVideo,
       });
@@ -1048,7 +1073,9 @@ export class AgentXOperationChatAttachmentsFacade {
     if (nextPending.length > 0) {
       this.pendingFiles.update((previous) => [...previous, ...nextPending]);
       void this.primePendingUploads(nextPending);
-      for (const pending of nextPending.filter((p) => p.isVideo)) {
+      for (const pending of nextPending.filter(
+        (p) => p.isVideo && p.previewUrl === null && p.file.size > 0
+      )) {
         void this.generateAndSetVideoThumbnail(pending);
       }
     }
@@ -1173,7 +1200,7 @@ export class AgentXOperationChatAttachmentsFacade {
           id: pending.id,
           name: pending.file.name,
           mimeType: pending.file.type,
-          sizeBytes: pending.file.size,
+          sizeBytes: pending.sizeBytes ?? pending.file.size,
           type: resolveAttachmentType(pending.file.type),
         });
       }
@@ -1190,10 +1217,14 @@ export class AgentXOperationChatAttachmentsFacade {
    *
    * Returns only successfully uploaded attachments (failed / timed-out are
    * silently omitted — the backend's timeout message covers the failure case).
+   *
+   * If a background upload already failed (e.g. due to a cold-start Capacitor
+   * bridge race on the first new-session upload), the failed record is discarded
+   * and the upload is restarted once with the current auth token before waiting.
    */
   async awaitPendingUploads(
     files: readonly PendingFile[],
-    _authToken: string,
+    authToken: string,
     timeoutMs: number
   ): Promise<AgentXAttachment[]> {
     // Only process files that have an active upload record in backgroundUploads.
@@ -1204,8 +1235,19 @@ export class AgentXOperationChatAttachmentsFacade {
     // second upload, so we deliberately skip them here.
     const activeEntries: Array<{ pending: PendingFile; record: BackgroundUploadRecord }> = [];
     for (const pending of files) {
-      const record = this.backgroundUploads.get(pending.id);
+      let record = this.backgroundUploads.get(pending.id);
       if (record) {
+        // If the first-attempt upload failed (e.g. Capacitor bridge cold-start
+        // race on a new session), restart it once so the backend's
+        // waiting_for_attachments window is fully utilised before giving up.
+        if (record.status === 'failed' && !record.attachment && !record.removed) {
+          this.logger.info('Restarting failed background video upload in awaitPendingUploads', {
+            pendingId: pending.id,
+            fileName: pending.file.name,
+          });
+          this.backgroundUploads.delete(pending.id);
+          record = this.ensureBackgroundUpload(pending, authToken);
+        }
         activeEntries.push({ pending, record });
       }
     }
@@ -1217,6 +1259,48 @@ export class AgentXOperationChatAttachmentsFacade {
       await Promise.all(
         pendingRecords.map((record) => this.waitForBackgroundUpload(record, timeoutMs))
       );
+    }
+
+    // Second-chance restart: some uploads may have been 'uploading' when
+    // awaitPendingUploads was called (so they were not restarted above), but
+    // then exhausted all their own retries and settled as 'failed' during the
+    // wait. This is the classic Capacitor cold-start race — the native Firebase
+    // Storage SDK fails its first N attempts (bridge not fully warm) but succeeds
+    // once the bridge has been used for a few seconds. At this point several
+    // seconds have passed so the bridge is ready; restart and wait once more.
+    const failedDuringWait = activeEntries.filter(({ pending }) => {
+      const rec = this.backgroundUploads.get(pending.id);
+      return rec !== undefined && rec.status === 'failed' && !rec.attachment && !rec.removed;
+    });
+    if (failedDuringWait.length > 0) {
+      this.logger.info(
+        'Restarting uploads that failed during awaitPendingUploads wait (Capacitor cold-start race)',
+        {
+          count: failedDuringWait.length,
+          fileNames: failedDuringWait.map(({ pending }) => pending.file.name),
+        }
+      );
+      for (const { pending } of failedDuringWait) {
+        this.backgroundUploads.delete(pending.id);
+        if (pending.isVideo) {
+          this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'queued', 0);
+        }
+        this.ensureBackgroundUpload(pending, authToken);
+      }
+      const restartedRecords = failedDuringWait
+        .map(({ pending }) => this.backgroundUploads.get(pending.id))
+        .filter(
+          (r): r is BackgroundUploadRecord =>
+            r !== undefined && !r.attachment && r.status !== 'failed'
+        );
+      if (restartedRecords.length > 0) {
+        // Cap the restart timeout so we don't block indefinitely on a persistently
+        // broken environment. 60 s is generous for a warm-bridge retry.
+        const restartTimeoutMs = Math.min(timeoutMs, 60_000);
+        await Promise.all(
+          restartedRecords.map((record) => this.waitForBackgroundUpload(record, restartTimeoutMs))
+        );
+      }
     }
 
     const result = activeEntries
@@ -1268,6 +1352,9 @@ export class AgentXOperationChatAttachmentsFacade {
         if (pending.isVideo) {
           this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'uploading', 0);
         }
+        if (pending.isVideo && pending.nativeUri) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
         const attachment = await this.uploadPendingFile(pending, authToken);
         activeRecord.attachment = attachment;
         activeRecord.status = attachment ? 'complete' : 'failed';
@@ -1312,6 +1399,84 @@ export class AgentXOperationChatAttachmentsFacade {
     return pending.isVideo
       ? this.uploadVideoFile(pending, authToken)
       : this.uploadNonVideoFile(pending, authToken);
+  }
+
+  private async uploadPendingVideoWithRetry(
+    pending: PendingFile,
+    authToken: string
+  ): Promise<UploadedVideoResult> {
+    const host = this.requireHost();
+    const maxAttempts = pending.nativeUri ? NATIVE_VIDEO_UPLOAD_MAX_ATTEMPTS : 1;
+    let lastError: unknown = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        // Re-resolve threadId on every attempt: in a new session the threadId
+        // is null when the first attempt starts (SSE hasn't returned the
+        // server-assigned threadId yet), but it may be available by the time a
+        // retry runs, giving the backend a proper storage path.
+        const threadId = host.resolveActiveThreadId();
+        return await new Promise<UploadedVideoResult>((resolve, reject) => {
+          const subscription = this.videoUploadService
+            .uploadVideo(pending.file, authToken, {
+              threadId,
+              nativeUri: pending.nativeUri,
+              nativeWebPath: pending.nativeWebPath,
+              sizeBytes: pending.sizeBytes,
+            })
+            .subscribe({
+              next: (progress) => {
+                if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
+                  this.setVideoUploadBatchEntry(
+                    pending.id,
+                    pending.file.name,
+                    'uploading',
+                    progress.percent
+                  );
+                }
+                if (progress.phase === 'complete' && progress.streamUrl) {
+                  this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'complete', 100);
+                  resolve({
+                    url: progress.streamUrl,
+                    storagePath: progress.storagePath,
+                    cloudflareVideoId: progress.cloudflareVideoId,
+                    cloudflareStatus: progress.cloudflareStatus,
+                    readyToStream: progress.readyToStream,
+                    thumbnailUrl: progress.thumbnailUrl,
+                  });
+                  subscription.unsubscribe();
+                } else if (progress.phase === 'error') {
+                  reject(new Error(progress.errorMessage ?? 'Video upload failed'));
+                  subscription.unsubscribe();
+                }
+              },
+              error: (error) => {
+                reject(error);
+                subscription.unsubscribe();
+              },
+            });
+        });
+      } catch (error) {
+        lastError = error;
+        if (attempt >= maxAttempts) {
+          break;
+        }
+
+        this.logger.warn('Native video upload attempt failed; retrying full upload pipeline', {
+          contextId: host.contextId(),
+          fileName: pending.file.name,
+          attempt,
+          maxAttempts,
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+        this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'uploading', 0);
+        await new Promise((resolve) =>
+          setTimeout(resolve, NATIVE_VIDEO_UPLOAD_RETRY_DELAY_MS * attempt)
+        );
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error('Video upload failed');
   }
 
   private async uploadNonVideoFile(
@@ -1389,47 +1554,10 @@ export class AgentXOperationChatAttachmentsFacade {
     authToken: string
   ): Promise<AgentXAttachment | null> {
     const host = this.requireHost();
-    const threadId = host.resolveActiveThreadId();
 
     try {
       this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'uploading', 0);
-      const result = await new Promise<{
-        streamUrl: string;
-        storagePath?: string;
-        cloudflareVideoId?: string;
-        cloudflareStatus?: string;
-        readyToStream?: boolean;
-        thumbnailUrl?: string;
-      }>((resolve, reject) => {
-        this.videoUploadService
-          .uploadVideo(pending.file, authToken, { threadId, transport: 'firebase' })
-          .subscribe({
-            next: (progress) => {
-              if (progress.phase === 'uploading' || progress.phase === 'provisioning') {
-                this.setVideoUploadBatchEntry(
-                  pending.id,
-                  pending.file.name,
-                  'uploading',
-                  progress.percent
-                );
-              }
-              if (progress.phase === 'complete' && progress.streamUrl) {
-                this.setVideoUploadBatchEntry(pending.id, pending.file.name, 'complete', 100);
-                resolve({
-                  streamUrl: progress.streamUrl,
-                  storagePath: progress.storagePath,
-                  cloudflareVideoId: progress.cloudflareVideoId,
-                  cloudflareStatus: progress.cloudflareStatus,
-                  readyToStream: progress.readyToStream,
-                  thumbnailUrl: progress.thumbnailUrl,
-                });
-              } else if (progress.phase === 'error') {
-                reject(new Error(progress.errorMessage ?? 'Video upload failed'));
-              }
-            },
-            error: (error) => reject(error),
-          });
-      });
+      const result = await this.uploadPendingVideoWithRetry(pending, authToken);
 
       const persistedThumbnailUrl = resolvePersistedVideoThumbnailUrl(
         result.thumbnailUrl,
@@ -1438,7 +1566,7 @@ export class AgentXOperationChatAttachmentsFacade {
 
       const attachment: AgentXAttachment = {
         id: pending.id,
-        url: result.streamUrl,
+        url: result.url,
         ...(result.storagePath ? { storagePath: result.storagePath } : {}),
         ...(result.cloudflareVideoId ? { cloudflareVideoId: result.cloudflareVideoId } : {}),
         ...(result.cloudflareStatus ? { cloudflareStatus: result.cloudflareStatus } : {}),
@@ -1447,7 +1575,7 @@ export class AgentXOperationChatAttachmentsFacade {
         name: pending.file.name,
         mimeType: pending.file.type,
         type: 'video',
-        sizeBytes: pending.file.size,
+        sizeBytes: pending.sizeBytes ?? pending.file.size,
       };
 
       await this.autoCreateFilmReviewFromUploadedVideo(attachment);
@@ -1669,4 +1797,80 @@ export class AgentXOperationChatAttachmentsFacade {
 
     return this.host;
   }
+}
+
+function unwrapSelectedFile(selectedFile: AttachmentSelectedFile): File {
+  return isWrappedNativeAttachment(selectedFile) ? selectedFile.file : selectedFile;
+}
+
+function getNativeAttachmentMetadata(
+  selectedFile: AttachmentSelectedFile
+): Pick<
+  NativeAttachmentFile,
+  'nativeUri' | 'nativeWebPath' | 'nativeSizeBytes' | 'thumbnailDataUrl'
+> {
+  const source = (
+    isWrappedNativeAttachment(selectedFile) ? selectedFile.file : selectedFile
+  ) as NativeAttachmentFile;
+  return {
+    ...(source.nativeUri ? { nativeUri: source.nativeUri } : {}),
+    ...(source.nativeWebPath ? { nativeWebPath: source.nativeWebPath } : {}),
+    ...(source.nativeSizeBytes ? { nativeSizeBytes: source.nativeSizeBytes } : {}),
+    ...(source.thumbnailDataUrl ? { thumbnailDataUrl: source.thumbnailDataUrl } : {}),
+  };
+}
+
+function isWrappedNativeAttachment(
+  value: AttachmentSelectedFile
+): value is NativeAttachmentFile & { readonly file: File } {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'file' in value &&
+    (value as { readonly file?: unknown }).file instanceof File
+  );
+}
+
+function normalizeAttachmentFile(
+  file: File,
+  metadata: Pick<
+    NativeAttachmentFile,
+    'nativeUri' | 'nativeWebPath' | 'nativeSizeBytes' | 'thumbnailDataUrl'
+  >
+): File {
+  const normalizedType = normalizeAttachmentMimeType(file.type);
+  if (!normalizedType || normalizedType === file.type) {
+    return file;
+  }
+
+  return Object.assign(
+    new File([file], file.name, { type: normalizedType, lastModified: file.lastModified }),
+    {
+      ...(metadata.nativeUri ? { nativeUri: metadata.nativeUri } : {}),
+      ...(metadata.nativeWebPath ? { nativeWebPath: metadata.nativeWebPath } : {}),
+      ...(metadata.nativeSizeBytes ? { nativeSizeBytes: metadata.nativeSizeBytes } : {}),
+      ...(metadata.thumbnailDataUrl ? { thumbnailDataUrl: metadata.thumbnailDataUrl } : {}),
+    }
+  );
+}
+
+function resolveAttachmentFileSize(file: File): number {
+  const nativeSizeBytes = (file as NativeAttachmentFile).nativeSizeBytes;
+  return typeof nativeSizeBytes === 'number' && nativeSizeBytes > 0 ? nativeSizeBytes : file.size;
+}
+
+function normalizeAttachmentMimeType(mimeType: string): string | null {
+  const normalized = mimeType.split(';')[0]?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (
+    normalized === 'video/mov' ||
+    normalized === 'video/qt' ||
+    normalized === 'video/x-quicktime'
+  ) {
+    return 'video/quicktime';
+  }
+  if (normalized === 'image/jpg') {
+    return 'image/jpeg';
+  }
+  return normalized;
 }
