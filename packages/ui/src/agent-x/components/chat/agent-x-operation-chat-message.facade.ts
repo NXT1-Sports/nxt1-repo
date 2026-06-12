@@ -390,6 +390,45 @@ export class AgentXOperationChatMessageFacade {
     return delta;
   }
 
+  private normalizeMessageText(value: string | undefined | null): string {
+    return (value ?? '').replace(/\s+/g, ' ').trim();
+  }
+
+  private isPlainDuplicateAssistantPrelude(
+    previous: OperationMessage,
+    current: OperationMessage
+  ): boolean {
+    if (previous.role !== 'assistant' || current.role !== 'assistant') return false;
+    if (previous.yieldState || current.yieldState) return false;
+    if (previous.cards?.length || previous.attachments?.length) return false;
+
+    const previousText = this.normalizeMessageText(previous.content);
+    const currentText = this.normalizeMessageText(current.content);
+    if (!previousText || !currentText) return false;
+    if (previousText !== currentText && !currentText.startsWith(previousText)) return false;
+
+    const previousOperationId = previous.operationId?.trim() ?? '';
+    const currentOperationId = current.operationId?.trim() ?? '';
+    return (
+      !previousOperationId || !currentOperationId || previousOperationId === currentOperationId
+    );
+  }
+
+  private removeDuplicateAssistantPreludeBeforeCommittedTyping(
+    rows: readonly OperationMessage[],
+    committedId: string
+  ): OperationMessage[] {
+    const committedIndex = rows.findIndex((message) => message.id === committedId);
+    if (committedIndex <= 0) return [...rows];
+
+    const committed = rows[committedIndex];
+    const previous = rows[committedIndex - 1];
+    if (!committed || !previous) return [...rows];
+    if (!this.isPlainDuplicateAssistantPrelude(previous, committed)) return [...rows];
+
+    return rows.filter((_, index) => index !== committedIndex - 1);
+  }
+
   clearPendingTypingDelta(): void {
     this.pendingTypingDelta = '';
     if (this.pendingTypingFlushFrame !== null && typeof cancelAnimationFrame === 'function') {
@@ -732,7 +771,8 @@ export class AgentXOperationChatMessageFacade {
     const messageId = this.inlineYieldMessageId(yieldState, operationId);
     const incomingKey = this.yieldIdentityKey(yieldState);
     const promptText = this.normalizeYieldPrompt(yieldState.promptToUser);
-    const cardOnlyYield = yieldState.reason === 'needs_input';
+    const separatesTypingPayload =
+      yieldState.reason === 'needs_input' || yieldState.reason === 'needs_approval';
 
     this.messages.update((messages) => {
       const isActionableApprovalCard = (card: AgentXRichCard): boolean => {
@@ -792,18 +832,21 @@ export class AgentXOperationChatMessageFacade {
 
         if (!hasCarriedTypingPayload) return rows.filter((message) => message.id !== 'typing');
 
-        if (cardOnlyYield) {
-          // For ask_user interruptions, commit the streamed typing payload as
-          // a regular assistant bubble so prose/tool-steps/parts remain visible
-          // above the yield bubble. The yield bubble itself carries only the
-          // question text (via promptToUser → messageContentForBubble fallback).
+        if (separatesTypingPayload) {
+          // For interruptions, commit the streamed typing payload as a regular
+          // assistant bubble so prose/tool-steps/parts remain visible above the
+          // yield bubble. The yield bubble carries only the action affordance.
           // The committed id is stable per typing timestamp so subsequent
           // yields in the same operation don't collide.
           const committedId = `${operationId || 'op'}:assistant_partial:${
             typingMessage?.timestamp?.getTime() ?? Date.now()
           }`;
-          return rows.map((message) =>
+          const committedRows = rows.map((message) =>
             message.id !== 'typing' ? message : { ...message, id: committedId, isTyping: false }
+          );
+          return this.removeDuplicateAssistantPreludeBeforeCommittedTyping(
+            committedRows,
+            committedId
           );
         }
 
@@ -871,10 +914,13 @@ export class AgentXOperationChatMessageFacade {
         const existing = messages[existingIndex];
         const preservedYieldCards = [...yieldOnlyCards(existing), ...yieldOnlyCards(typingMessage)];
         const preservedYieldParts = [...yieldOnlyParts(existing), ...yieldOnlyParts(typingMessage)];
-        const updated: OperationMessage = cardOnlyYield
+        const updated: OperationMessage = separatesTypingPayload
           ? {
               ...existing,
               id: messageId,
+              content: '',
+              attachments: undefined,
+              steps: undefined,
               ...(preservedYieldCards.length > 0 ? { cards: preservedYieldCards } : { cards: [] }),
               ...(preservedYieldParts.length > 0 ? { parts: preservedYieldParts } : { parts: [] }),
               yieldState,
@@ -892,14 +938,19 @@ export class AgentXOperationChatMessageFacade {
         // Replace any live typing row with the canonical yield row so the card
         // occupies the active SSE position rather than appearing below stream prose.
         if (typingIndex >= 0) {
-          if (cardOnlyYield) {
+          if (separatesTypingPayload) {
             // clearTypingCarrier commits the typing row in-place as a regular
             // assistant bubble; the yield row must go AFTER that committed
-            // row so the streamed prose stays visible above the question.
-            const withoutExisting = clearTypingCarrier(messages).filter(
-              (_, index) => index !== existingIndex
-            );
-            const adjustedTypingIndex = existingIndex < typingIndex ? typingIndex - 1 : typingIndex;
+            // row so the streamed prose stays visible above the prompt/card.
+            const committedRows = clearTypingCarrier(messages);
+            const withoutExisting =
+              existingIndex === typingIndex
+                ? committedRows
+                : committedRows.filter((_, index) => index !== existingIndex);
+            const adjustedTypingIndex =
+              existingIndex !== typingIndex && existingIndex < typingIndex
+                ? typingIndex - 1
+                : typingIndex;
             const insertAt = adjustedTypingIndex + 1;
             return [
               ...withoutExisting.slice(0, insertAt),
@@ -924,11 +975,11 @@ export class AgentXOperationChatMessageFacade {
         );
       }
 
-      const yieldMessage: OperationMessage = cardOnlyYield
+      const yieldMessage: OperationMessage = separatesTypingPayload
         ? {
-            // For ask_user: yield bubble carries ONLY the question (no prose,
-            // no tool steps, no parts). The streamed prose lives in the
-            // committed assistant bubble that clearTypingCarrier produces.
+            // Yield bubble carries only the interactive affordance. The streamed
+            // prose/tool output lives in the committed assistant bubble that
+            // clearTypingCarrier produces.
             id: messageId,
             role: 'assistant',
             content: '',
@@ -952,7 +1003,7 @@ export class AgentXOperationChatMessageFacade {
         return [...messages, yieldMessage];
       }
 
-      if (cardOnlyYield) {
+      if (separatesTypingPayload) {
         // clearTypingCarrier commits the typing row in-place as a regular
         // assistant bubble; yield goes AFTER it so streamed prose stays above.
         const committed = clearTypingCarrier(messages);

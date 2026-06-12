@@ -811,11 +811,17 @@ async function persistApprovedActionAsUserMessage(params: {
     await chatService.addMessage({
       threadId: params.threadId,
       userId: params.userId,
-      role: 'user',
-      content: approvalCopy.actionSummary,
-      origin: 'user',
+      role: 'system',
+      content: `Approved action: ${approvalCopy.actionSummary}`,
+      origin: 'agent_chain',
       agentId: normalizeAgentIdentifier(params.agentId),
       operationId: params.operationId,
+      resultData: {
+        eventType: 'approval_decision',
+        decision: 'approved',
+        actionSummary: approvalCopy.actionSummary,
+        hiddenFromTranscript: true,
+      },
       idempotencyKey: `${params.operationId}:user_approved_action`,
     });
   } catch (chatErr) {

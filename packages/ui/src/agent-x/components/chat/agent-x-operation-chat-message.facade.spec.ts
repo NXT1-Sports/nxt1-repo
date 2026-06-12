@@ -236,10 +236,21 @@ describe('AgentXOperationChatMessageFacade', () => {
     const yieldMessage = facade
       .messages()
       .find((message) => message.yieldState?.approvalId === 'approval-1');
+    const committedProse = facade
+      .messages()
+      .find(
+        (message) =>
+          message.role === 'assistant' &&
+          !message.yieldState &&
+          message.content === "I'll execute both steps in order."
+      );
 
     expect(yieldMessage).toBeDefined();
-    expect(yieldMessage?.content).toBe("I'll execute both steps in order.");
-    expect(yieldMessage?.steps ?? []).toEqual([
+    expect(yieldMessage?.content).toBe('');
+    expect(yieldMessage?.steps ?? []).toEqual([]);
+    expect(committedProse).toBeDefined();
+    expect(committedProse?.isTyping).toBe(false);
+    expect(committedProse?.steps ?? []).toEqual([
       {
         id: 'tool-search',
         label: 'Search college database',
@@ -248,6 +259,75 @@ describe('AgentXOperationChatMessageFacade', () => {
       },
     ]);
     expect(facade.messages().some((message) => message.id === 'typing')).toBe(false);
+  });
+
+  it('removes a duplicate plain assistant prelude when committing approval typing output', () => {
+    const yieldState: AgentYieldState = {
+      reason: 'needs_approval',
+      promptToUser: 'Review and approve this email draft before sending.',
+      agentId: 'router',
+      approvalId: 'approval-dedupe-1',
+      pendingToolCall: {
+        toolName: 'send_email',
+        toolCallId: 'tool-dedupe-1',
+        toolInput: {
+          operationId: 'op-dedupe-1',
+          toEmail: 'john@nxt1sports.com',
+          subject: 'College Football Program Search Results',
+        },
+      },
+      messages: [],
+    };
+
+    facade.messages.set([
+      {
+        id: 'assistant-prelude-duplicate',
+        role: 'assistant',
+        content: 'Searching 5 football colleges for a QB in the 2028 class now...',
+        operationId: 'op-dedupe-1',
+        timestamp: new Date('2026-06-12T20:00:00.000Z'),
+      },
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: 'Searching 5 football colleges for a QB in the 2028 class now...',
+        operationId: 'op-dedupe-1',
+        timestamp: new Date('2026-06-12T20:00:01.000Z'),
+        parts: [
+          {
+            type: 'text',
+            content: 'Searching 5 football colleges for a QB in the 2028 class now...',
+          },
+        ],
+        steps: [
+          {
+            id: 'tool-search-colleges',
+            label: 'Searching college database: Football',
+            status: 'success',
+            stageType: 'tool',
+          },
+        ],
+      },
+    ]);
+
+    facade.upsertInlineYieldMessage(yieldState, 'op-dedupe-1');
+
+    const messages = facade.messages();
+    const duplicatePreludeRows = messages.filter(
+      (message) =>
+        message.content === 'Searching 5 football colleges for a QB in the 2028 class now...'
+    );
+    const committedRow = duplicatePreludeRows.find((message) => !message.yieldState);
+    const yieldMessage = messages.find(
+      (message) => message.yieldState?.approvalId === 'approval-dedupe-1'
+    );
+
+    expect(duplicatePreludeRows).toHaveLength(1);
+    expect(committedRow?.steps?.map((step) => step.id)).toEqual(['tool-search-colleges']);
+    expect(committedRow?.parts).toEqual([
+      { type: 'text', content: 'Searching 5 football colleges for a QB in the 2028 class now...' },
+    ]);
+    expect(yieldMessage?.content).toBe('');
   });
 
   it('flushes pending typing and leaves no stale typing row after approval yield conversion', () => {
@@ -282,13 +362,23 @@ describe('AgentXOperationChatMessageFacade', () => {
     const yieldMessage = facade
       .messages()
       .find((message) => message.yieldState?.approvalId === 'approval-flush-1');
+    const committedProse = facade
+      .messages()
+      .find(
+        (message) =>
+          message.role === 'assistant' &&
+          !message.yieldState &&
+          message.content === 'I drafted the schedule request. Please review it before I continue.'
+      );
 
-    expect(yieldMessage?.content).toBe(
+    expect(committedProse?.content).toBe(
       'I drafted the schedule request. Please review it before I continue.'
     );
-    expect(yieldMessage?.parts).toEqual([
+    expect(committedProse?.parts).toEqual([
       { type: 'text', content: ' Please review it before I continue.' },
     ]);
+    expect(yieldMessage?.content).toBe('');
+    expect(yieldMessage?.parts ?? []).toEqual([]);
     expect(facade.messages().some((message) => message.id === 'typing')).toBe(false);
   });
 
@@ -495,5 +585,73 @@ describe('AgentXOperationChatMessageFacade', () => {
     expect(yieldMessage?.parts).toEqual([{ type: 'card', card: approvalCard }]);
     expect(typingMessage?.cards ?? []).toEqual([]);
     expect(typingMessage?.parts ?? []).toEqual([]);
+  });
+
+  it('keeps streamed tool output when approval card arrives before yield operation', () => {
+    const yieldState: AgentYieldState = {
+      reason: 'needs_approval',
+      promptToUser: 'Review this email before sending.',
+      agentId: 'router',
+      approvalId: 'approval-card-first-1',
+      pendingToolCall: {
+        toolName: 'send_email',
+        toolCallId: 'tool-card-first-1',
+        toolInput: {
+          operationId: 'op-card-first-1',
+          toEmail: 'john@nxt1sports.com',
+          subject: 'Football College Search Results',
+        },
+      },
+      messages: [],
+    };
+    const approvalCard: AgentXRichCard = {
+      type: 'confirmation',
+      agentId: 'router',
+      title: 'Review Email Draft',
+      payload: {
+        yieldState,
+        approvalId: 'approval-card-first-1',
+        toolCallId: 'tool-card-first-1',
+        operationId: 'op-card-first-1',
+        actions: [{ id: 'approve', label: 'Send', variant: 'primary' }],
+      },
+    };
+
+    facade.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: 'Got the 5 colleges. Now sending the email with the results.',
+        timestamp: new Date('2026-06-12T19:00:00.000Z'),
+        steps: [
+          {
+            id: 'tool-search',
+            label: 'Searching college database: Football',
+            status: 'success',
+            stageType: 'tool',
+          },
+        ],
+      },
+    ]);
+
+    facade.attachStreamedCard('typing', approvalCard, 'op-card-first-1', true);
+    facade.upsertInlineYieldMessage(yieldState, 'op-card-first-1');
+
+    const messages = facade.messages();
+    const committedOutput = messages.find(
+      (message) =>
+        message.role === 'assistant' &&
+        !message.yieldState &&
+        message.content === 'Got the 5 colleges. Now sending the email with the results.'
+    );
+    const approvalYield = messages.find(
+      (message) => message.yieldState?.approvalId === 'approval-card-first-1'
+    );
+
+    expect(committedOutput).toBeDefined();
+    expect(committedOutput?.steps?.map((step) => step.id)).toEqual(['tool-search']);
+    expect(approvalYield?.content).toBe('');
+    expect(approvalYield?.cards).toEqual([approvalCard]);
+    expect(messages.indexOf(approvalYield!)).toBeGreaterThan(messages.indexOf(committedOutput!));
   });
 });

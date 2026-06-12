@@ -456,10 +456,17 @@ describe('Agent X Routes', () => {
       expect.objectContaining({
         threadId: 'thread-123',
         userId: 'test-user',
-        role: 'user',
-        origin: 'user',
+        role: 'system',
+        origin: 'agent_chain',
         operationId: 'op-original',
-        content: 'Send an email to coach@example.com with subject "Updated subject".',
+        content:
+          'Approved action: Send an email to coach@example.com with subject "Updated subject".',
+        resultData: expect.objectContaining({
+          eventType: 'approval_decision',
+          decision: 'approved',
+          actionSummary: 'Send an email to coach@example.com with subject "Updated subject".',
+          hiddenFromTranscript: true,
+        }),
       })
     );
     expect(chatService.clearThreadPausedYieldState).toHaveBeenCalledWith('thread-123');
@@ -684,10 +691,16 @@ describe('Agent X Routes', () => {
       expect.objectContaining({
         threadId: 'thread-123',
         userId: 'test-user',
-        role: 'user',
-        origin: 'user',
+        role: 'system',
+        origin: 'agent_chain',
         operationId: 'op-original',
-        content: 'Send 2 emails with subject "Updated subject".',
+        content: 'Approved action: Send 2 emails with subject "Updated subject".',
+        resultData: expect.objectContaining({
+          eventType: 'approval_decision',
+          decision: 'approved',
+          actionSummary: 'Send 2 emails with subject "Updated subject".',
+          hiddenFromTranscript: true,
+        }),
       })
     );
 
