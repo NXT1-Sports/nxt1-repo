@@ -1689,6 +1689,11 @@ export class AgentWorker {
       (await this.resolveScheduledRunThreadId(job, scheduledRunContext, billingDb));
 
     await this.ensureJobDocumentExists(repo, payload);
+    if (scheduledRunContext) {
+      await repo.patchContext(payload.operationId, {
+        recurringTaskKey: scheduledRunContext.scheduleId,
+      });
+    }
 
     // Create a job-scoped AbortController before any execution gating so the
     // cancel endpoint can also abort queued child operations while they wait

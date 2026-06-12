@@ -33,10 +33,13 @@ describe('AgentXOperationChatTransportFacade', () => {
   const streamRegistryMock = {
     abort: vi.fn(),
     markError: vi.fn(),
+    upsertStep: vi.fn(),
+    appendCard: vi.fn(),
   };
 
   const operationEventServiceMock = {
     emitOperationStatusUpdated: vi.fn(),
+    emitOperationsLogRefreshRequested: vi.fn(),
   };
 
   const agentXServiceMock = {
@@ -51,6 +54,8 @@ describe('AgentXOperationChatTransportFacade', () => {
     clearPendingTypingDelta: vi.fn(),
     flushPendingTypingDelta: vi.fn(),
     queueTypingDelta: vi.fn(),
+    drainBufferedTypingDelta: vi.fn().mockReturnValue(''),
+    withUpsertedToolStepPart: vi.fn().mockImplementation((parts) => parts),
     attachStreamedCard: vi.fn(),
     finalizeStreamedAssistantMessage: vi.fn(),
     replaceTyping: vi.fn(),
@@ -158,5 +163,28 @@ describe('AgentXOperationChatTransportFacade', () => {
     });
 
     await expect(pendingStream).rejects.toThrow('Stop test stream');
+  });
+
+  it('requests an operations log refresh when cancel_recurring_task succeeds', async () => {
+    facade.sendViaStream(
+      { message: 'Stop the recurring PDF task' } as AgentXChatRequest,
+      'token-123'
+    );
+
+    callbacks.onStep?.({
+      id: 'step-1',
+      label: 'Cancelled recurring task',
+      stageType: 'tool',
+      status: 'success',
+      metadata: {
+        toolName: 'cancel_recurring_task',
+      },
+    } as never);
+
+    expect(operationEventServiceMock.emitOperationsLogRefreshRequested).toHaveBeenCalledWith(
+      'operations-log',
+      'thread-1',
+      [0, 1000, 2500, 5000]
+    );
   });
 });

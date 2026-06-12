@@ -110,6 +110,7 @@ const MENU_ESTIMATED_WIDTH_PX = 208;
 const MENU_ESTIMATED_HEIGHT_PX = 220;
 const MONGO_OBJECT_ID_RE = /^[a-f0-9]{24}$/i;
 const ENQUEUE_HYDRATION_REFRESH_DELAYS_MS = [0, 1_000, 2_500, 5_000, 10_000] as const;
+const OPERATIONS_LOG_REFRESH_DELAYS_MS = [0, 1_000, 2_500, 5_000] as const;
 
 // ============================================
 // COMPONENT
@@ -1471,6 +1472,15 @@ export class AgentXOperationsLogComponent {
   /** Active enqueue hydration timers keyed by threadId. */
   private readonly _enqueueHydrationTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+  /** Retry cursor for shared operations-log refresh requests. */
+  private readonly _operationsLogRefreshAttempts = new Map<string, number>();
+
+  /** Active shared refresh timers keyed by request scope. */
+  private readonly _operationsLogRefreshTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  /** Initial recurring-task state snapshot for each refresh request. */
+  private readonly _operationsLogRefreshRecurringTargets = new Map<string, boolean | null>();
+
   /** ThreadId of the entry currently open in a chat sheet/panel. Drives the selected highlight. */
   private readonly _selectedThreadId = signal<string | null>(null);
 
@@ -1600,6 +1610,13 @@ export class AgentXOperationsLogComponent {
       }
       this._enqueueHydrationTimers.clear();
       this._enqueueHydrationAttempts.clear();
+
+      for (const timer of this._operationsLogRefreshTimers.values()) {
+        clearTimeout(timer);
+      }
+      this._operationsLogRefreshTimers.clear();
+      this._operationsLogRefreshAttempts.clear();
+      this._operationsLogRefreshRecurringTargets.clear();
     });
 
     // Subscribe to real-time title updates from the Agent X SSE stream.
@@ -1804,11 +1821,95 @@ export class AgentXOperationsLogComponent {
           }
         }
       });
+
+    this.operationEventService.operationsLogRefreshRequested$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((evt) => {
+        this.logger.debug('Received operations log refresh request', {
+          source: evt.source,
+          threadId: evt.threadId,
+          retryDelaysMs: evt.retryDelaysMs,
+        });
+        this.requestOperationsLogRefresh(
+          evt.threadId,
+          evt.retryDelaysMs ?? OPERATIONS_LOG_REFRESH_DELAYS_MS
+        );
+      });
   }
 
   /** Public refresh — callable from parent via viewChild. */
   async refresh(): Promise<void> {
     await this.silentRefresh();
+  }
+
+  private clearOperationsLogRefreshState(refreshKey: string): void {
+    const timer = this._operationsLogRefreshTimers.get(refreshKey);
+    if (timer) {
+      clearTimeout(timer);
+      this._operationsLogRefreshTimers.delete(refreshKey);
+    }
+    this._operationsLogRefreshAttempts.delete(refreshKey);
+    this._operationsLogRefreshRecurringTargets.delete(refreshKey);
+  }
+
+  private requestOperationsLogRefresh(
+    threadId: string | undefined,
+    retryDelaysMs: readonly number[]
+  ): void {
+    const resolvedThreadId = threadId?.trim() || null;
+    const refreshKey = resolvedThreadId ? `thread:${resolvedThreadId}` : 'global';
+
+    this.clearOperationsLogRefreshState(refreshKey);
+    this._operationsLogRefreshAttempts.set(refreshKey, 0);
+    this._operationsLogRefreshRecurringTargets.set(
+      refreshKey,
+      resolvedThreadId ? this.hasRecurringTaskForThread(resolvedThreadId) : null
+    );
+    this.scheduleOperationsLogRefresh(refreshKey, resolvedThreadId, retryDelaysMs);
+  }
+
+  private scheduleOperationsLogRefresh(
+    refreshKey: string,
+    threadId: string | null,
+    retryDelaysMs: readonly number[]
+  ): void {
+    const attempt = this._operationsLogRefreshAttempts.get(refreshKey) ?? 0;
+    if (attempt >= retryDelaysMs.length) {
+      this.clearOperationsLogRefreshState(refreshKey);
+      return;
+    }
+
+    const delay = retryDelaysMs[attempt] ?? 0;
+    const timer = setTimeout(() => {
+      this._operationsLogRefreshTimers.delete(refreshKey);
+      void this.silentRefresh()
+        .catch((error) => {
+          this.logger.warn('Operations log refresh request failed', {
+            refreshKey,
+            threadId,
+            attempt,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(() => {
+          if (threadId) {
+            const initialRecurringState =
+              this._operationsLogRefreshRecurringTargets.get(refreshKey) ?? null;
+            if (
+              initialRecurringState !== null &&
+              this.hasRecurringTaskForThread(threadId) !== initialRecurringState
+            ) {
+              this.clearOperationsLogRefreshState(refreshKey);
+              return;
+            }
+          }
+
+          this._operationsLogRefreshAttempts.set(refreshKey, attempt + 1);
+          this.scheduleOperationsLogRefresh(refreshKey, threadId, retryDelaysMs);
+        });
+    }, delay);
+
+    this._operationsLogRefreshTimers.set(refreshKey, timer);
   }
 
   /**
@@ -1979,7 +2080,7 @@ export class AgentXOperationsLogComponent {
           }
         }
 
-        this._operations.set(entries);
+        this._operations.set(this.normalizeOperations(entries));
         this.emitOutOfBandThreadRefreshes(previousEntries, entries);
       }
     } catch {
@@ -2000,7 +2101,7 @@ export class AgentXOperationsLogComponent {
       const response = await firstValueFrom(this.http.get<OperationsLogResponse>(url));
 
       if (response.success && response.data) {
-        this._operations.set(response.data);
+        this._operations.set(this.normalizeOperations(response.data));
         this.logger.info('Operations log loaded', { count: response.data.length });
         this.breadcrumb.trackStateChange('operations-log: loaded', { count: response.data.length });
       } else {
@@ -2039,6 +2140,34 @@ export class AgentXOperationsLogComponent {
       return err.error?.message ?? `Request failed (${err.status})`;
     }
     return err instanceof Error ? err.message : 'Failed to load operations';
+  }
+
+  private normalizeOperations(entries: readonly OperationLogEntry[]): readonly OperationLogEntry[] {
+    const scheduledThreadIds = new Set<string>();
+
+    for (const entry of entries) {
+      if (entry.isScheduled !== true) {
+        continue;
+      }
+
+      const threadId = this.getManageableThreadId(entry);
+      if (threadId) {
+        scheduledThreadIds.add(threadId);
+      }
+    }
+
+    if (scheduledThreadIds.size === 0) {
+      return entries;
+    }
+
+    return entries.filter((entry) => {
+      if (entry.isScheduled === true) {
+        return true;
+      }
+
+      const threadId = this.getManageableThreadId(entry);
+      return !threadId || !scheduledThreadIds.has(threadId);
+    });
   }
 
   /** Set active filter with haptic and tracking. */

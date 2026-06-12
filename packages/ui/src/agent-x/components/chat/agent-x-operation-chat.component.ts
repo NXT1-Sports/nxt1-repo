@@ -96,7 +96,10 @@ import {
   type AgentXPanelHintKind,
 } from './agent-x-operation-chat-hint.facade';
 import { AgentXOperationChatHintDockComponent } from './agent-x-operation-chat-hint-dock.component';
-import type { OperationEventSubscription } from '../../services/agent-x-operation-event.service';
+import {
+  AgentXOperationEventService,
+  type OperationEventSubscription,
+} from '../../services/agent-x-operation-event.service';
 import { NxtPlatformIconComponent } from '../../../components/platform-icon/platform-icon.component';
 import { NxtDragDropDirective } from '../../../services/gesture';
 import {
@@ -128,6 +131,7 @@ export type { OperationQuickAction } from './agent-x-operation-chat.types';
 
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
 const ACTIVITY_GAP_TIMEOUT_MS = AGENT_X_RUNTIME_CONFIG.clientRecovery.activityGapTimeoutMs;
+const OPERATIONS_LOG_REFRESH_DELAYS_MS = [0, 1_000, 2_500, 5_000] as const;
 const TECHNICAL_PROGRESS_PATTERN =
   /(\blatency\b|\bp95\b|\bp99\b|\btokens?\b|\btps\b|\bthroughput\b|\bwatermark\b|\bseq\b|\bsse\b|\bfirestore\b|\bidempotency\b|\b\d+(?:\.\d+)?\s*ms\b)/i;
 const CONTEXT_READY_PROGRESS_PATTERN = /^context\s+(?:ready|loaded)\b[.!?]?/i;
@@ -1722,6 +1726,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   protected readonly attachmentsFacade = inject(AgentXOperationChatAttachmentsFacade);
   private readonly sessionFacade = inject(AgentXOperationChatSessionFacade);
   private readonly transportFacade = inject(AgentXOperationChatTransportFacade);
+  private readonly operationEventService = inject(AgentXOperationEventService);
   protected readonly yieldFacade = inject(AgentXOperationChatYieldFacade);
   protected readonly recurringFacade = inject(AgentXOperationChatRecurringFacade);
   protected readonly hintFacade = inject(AgentXOperationChatHintFacade);
@@ -2194,6 +2199,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Whether the activity state machine currently considers the run in-flight. */
   protected readonly isActivityInFlight = computed(() => {
+    if (this.isTerminalOperationStatus()) {
+      return false;
+    }
+
     switch (this._activityPhase()) {
       case 'sending':
       case 'connected':
@@ -2237,6 +2246,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * even after earlier assistant text has already rendered.
    */
   protected readonly showThinking = computed(() => {
+    if (this.isTerminalOperationStatus()) {
+      return false;
+    }
+
     const phase = this._activityPhase();
 
     switch (phase) {
@@ -2341,6 +2354,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     () =>
       (this.inputValue().trim().length > 0 || this.pendingFiles().length > 0) && !this._loading()
   );
+
+  private emitOperationsLogRefreshRequest(): void {
+    const resolvedThreadId = this.sessionFacade.resolveActiveThreadId()?.trim() || undefined;
+    this.operationEventService.emitOperationsLogRefreshRequested(
+      'chat-response-complete',
+      resolvedThreadId,
+      OPERATIONS_LOG_REFRESH_DELAYS_MS
+    );
+  }
 
   /** Human-readable label for the context type badge. */
   protected readonly contextTypeLabel = computed(() => {
@@ -2497,7 +2519,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       markActivityPulse: (label) => {
         this.markActivityPulse(label);
       },
-      emitResponseComplete: () => this.responseComplete.emit(),
+      emitResponseComplete: () => {
+        this.emitOperationsLogRefreshRequest();
+        this.responseComplete.emit();
+      },
       subscribeToFirestoreJobEvents: (operationId: string, startAfterSeq?: number) =>
         this.sessionFacade.subscribeToFirestoreJobEvents(operationId, startAfterSeq),
       reconcileOperationFromStoredEvents: (operationId: string) => {
@@ -2827,6 +2852,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   }
 
   private isInFlightPhase(phase: ChatActivityPhase): boolean {
+    if (this.isTerminalOperationStatus()) {
+      return false;
+    }
+
     return (
       phase === 'sending' ||
       phase === 'connected' ||
@@ -2846,6 +2875,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
     this.activityGapTimer = setTimeout(() => {
       this.activityGapTimer = null;
+      if (this.isTerminalOperationStatus()) {
+        this.setActivityPhase(this.terminalActivityPhase());
+        return;
+      }
       if (!this.isInFlightPhase(this._activityPhase())) {
         return;
       }
@@ -2866,6 +2899,23 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
       this.armActivityGapTimer();
     }, ACTIVITY_GAP_TIMEOUT_MS);
+  }
+
+  private isTerminalOperationStatus(): boolean {
+    return (
+      this.operationStatus === 'complete' ||
+      this.operationStatus === 'error' ||
+      this.operationStatus === 'cancelled'
+    );
+  }
+
+  private terminalActivityPhase(): Extract<
+    ChatActivityPhase,
+    'completed' | 'failed' | 'cancelled'
+  > {
+    if (this.operationStatus === 'error') return 'failed';
+    if (this.operationStatus === 'cancelled') return 'cancelled';
+    return 'completed';
   }
 
   private clearActivityGapTimer(): void {

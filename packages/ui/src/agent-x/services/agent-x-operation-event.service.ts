@@ -72,6 +72,13 @@ export interface ThreadMessagesUpdatedEvent {
   readonly status?: OperationLogStatus;
 }
 
+/** Emitted when the operations log should re-fetch backend-only session state. */
+export interface OperationsLogRefreshRequestedEvent {
+  readonly source: 'chat-response-complete' | 'operations-log';
+  readonly threadId?: string;
+  readonly retryDelaysMs?: readonly number[];
+}
+
 /** Emitted when an operation's status changes during the /chat SSE stream. */
 export interface OperationStatusUpdatedEvent {
   readonly threadId: string;
@@ -435,6 +442,10 @@ export class AgentXOperationEventService {
   private readonly _threadMessagesUpdated$ = new Subject<ThreadMessagesUpdatedEvent>();
   readonly threadMessagesUpdated$ = this._threadMessagesUpdated$.asObservable();
 
+  private readonly _operationsLogRefreshRequested$ =
+    new Subject<OperationsLogRefreshRequestedEvent>();
+  readonly operationsLogRefreshRequested$ = this._operationsLogRefreshRequested$.asObservable();
+
   /**
    * Observable that emits when an operation's status changes during the /chat SSE stream.
    * The operations log component subscribes to this to update entry statuses in real-time
@@ -635,6 +646,32 @@ export class AgentXOperationEventService {
         source,
         ...(normalizedOperationId ? { operationId: normalizedOperationId } : {}),
         ...(status ? { status } : {}),
+      })
+    );
+  }
+
+  /**
+   * Emit a refresh request so operations-log consumers can re-fetch recurring
+   * task metadata and other backend-only session state that does not arrive over SSE.
+   */
+  emitOperationsLogRefreshRequested(
+    source: 'chat-response-complete' | 'operations-log' = 'chat-response-complete',
+    threadId?: string,
+    retryDelaysMs?: readonly number[]
+  ): void {
+    const resolvedThreadId = threadId?.trim() || undefined;
+
+    this.logger.debug('Emitting operations log refresh request', {
+      source,
+      threadId: resolvedThreadId,
+      retryDelaysMs,
+    });
+
+    this.ngZone.run(() =>
+      this._operationsLogRefreshRequested$.next({
+        source,
+        ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
+        ...(retryDelaysMs ? { retryDelaysMs: [...retryDelaysMs] } : {}),
       })
     );
   }

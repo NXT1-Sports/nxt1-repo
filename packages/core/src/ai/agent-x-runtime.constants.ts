@@ -12,7 +12,7 @@ export const AGENT_X_RUNTIME_CONFIG = {
     pollBackoffMaxMs: 30_000,
     fallbackAlertThresholdMs: 30_000,
     idleTimeoutMs: 10 * 60 * 1_000,
-    attachmentWaitTimeoutMs: 90_000,
+    attachmentWaitTimeoutMs: 300_000,
     liveBufferMaxEvents: 500,
   },
   operationQueue: {

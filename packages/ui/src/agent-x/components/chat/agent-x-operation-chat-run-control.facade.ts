@@ -8,6 +8,7 @@ import type {
   AgentXSelectedContext,
   AgentXToolStep,
 } from '@nxt1/core/ai';
+import { AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
 import { HapticsService } from '../../../services/haptics/haptics.service';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtLoggingService } from '../../../services/logging/logging.service';
@@ -27,7 +28,10 @@ import { AgentXOperationChatTransportFacade } from './agent-x-operation-chat-tra
 import type { MessageAttachment, OperationMessage } from './agent-x-operation-chat.models';
 
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
-const PENDING_ATTACHMENTS_RESOLVE_TIMEOUT_MS = 180_000;
+const PENDING_ATTACHMENTS_RESOLVE_TIMEOUT_MS = Math.max(
+  0,
+  AGENT_X_RUNTIME_CONFIG.operationStream.attachmentWaitTimeoutMs - 5_000
+);
 
 type OperationChatStatus =
   | 'processing'

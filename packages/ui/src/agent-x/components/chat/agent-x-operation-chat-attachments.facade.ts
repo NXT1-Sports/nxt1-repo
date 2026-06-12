@@ -1227,6 +1227,7 @@ export class AgentXOperationChatAttachmentsFacade {
     authToken: string,
     timeoutMs: number
   ): Promise<AgentXAttachment[]> {
+    const waitDeadlineMs = Date.now() + timeoutMs;
     // Only process files that have an active upload record in backgroundUploads.
     // Files whose records are missing were either:
     //   - ready attachments already included in the original chat request, or
@@ -1294,12 +1295,15 @@ export class AgentXOperationChatAttachmentsFacade {
             r !== undefined && !r.attachment && r.status !== 'failed'
         );
       if (restartedRecords.length > 0) {
-        // Cap the restart timeout so we don't block indefinitely on a persistently
-        // broken environment. 60 s is generous for a warm-bridge retry.
-        const restartTimeoutMs = Math.min(timeoutMs, 60_000);
-        await Promise.all(
-          restartedRecords.map((record) => this.waitForBackgroundUpload(record, restartTimeoutMs))
-        );
+        // Cap the restart timeout so the resolve POST still reaches the backend
+        // before its attachment waiter expires.
+        const remainingWaitMs = Math.max(0, waitDeadlineMs - Date.now());
+        const restartTimeoutMs = Math.min(remainingWaitMs, 60_000);
+        if (restartTimeoutMs > 0) {
+          await Promise.all(
+            restartedRecords.map((record) => this.waitForBackgroundUpload(record, restartTimeoutMs))
+          );
+        }
       }
     }
 

@@ -182,6 +182,7 @@ describe('AgentWorker', () => {
     markYielded: vi.fn().mockResolvedValue(undefined),
     markCompleted: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
+    patchContext: vi.fn().mockResolvedValue(undefined),
     create: vi.fn().mockResolvedValue(undefined),
     getById: vi.fn().mockResolvedValue(null),
     writeJobEvent: vi.fn().mockResolvedValue(undefined),
@@ -195,6 +196,7 @@ describe('AgentWorker', () => {
     markYielded: vi.fn().mockResolvedValue(undefined),
     markCompleted: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
+    patchContext: vi.fn().mockResolvedValue(undefined),
     create: vi.fn().mockResolvedValue(undefined),
     getById: vi.fn().mockResolvedValue(null),
     writeJobEvent: vi.fn().mockResolvedValue(undefined),
@@ -444,6 +446,9 @@ describe('AgentWorker', () => {
       'staging',
       expect.anything()
     );
+    expect(mockJobRepo.patchContext).toHaveBeenCalledWith('repeat:key:1777381200000', {
+      recurringTaskKey: 'repeat:key',
+    });
   });
 
   it('should persist scheduled assistant responses to the originating thread via sourceId fallback', async () => {

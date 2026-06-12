@@ -369,6 +369,106 @@ describe('OpenRouterService', () => {
     expect(result.costUsd).toBeCloseTo(0.000546, 8);
   });
 
+  it('should fall back to Gemini via OpenRouter when direct OpenAI image generation fails', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'openai-key-456');
+    setCachedAgentAppConfig({
+      ...DEFAULT_AGENT_APP_CONFIG,
+      modelRouting: {
+        ...DEFAULT_AGENT_APP_CONFIG.modelRouting,
+        catalogue: {
+          ...DEFAULT_AGENT_APP_CONFIG.modelRouting.catalogue,
+          image_generation: 'openai/gpt-5.4-image-2',
+        },
+        fallbackChains: {
+          ...DEFAULT_AGENT_APP_CONFIG.modelRouting.fallbackChains,
+          image_generation: ['google/gemini-3-pro-image-preview'],
+        },
+      },
+    });
+
+    const openAiService = new OpenRouterService({
+      hydrateAgentConfig: async () => undefined,
+    });
+
+    fetchSpy
+      .mockResolvedValueOnce(
+        new Response('upstream image model unavailable', {
+          status: 500,
+          headers: { 'Content-Type': 'text/plain' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            model: 'google/gemini-3-pro-image-preview',
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content: 'Fallback image result',
+                  images: [
+                    {
+                      image_url: {
+                        url: 'data:image/png;base64,ZmFrZS1nZW1pbmktaW1hZ2U=',
+                      },
+                    },
+                  ],
+                },
+                finish_reason: 'stop',
+              },
+            ],
+            usage: {
+              prompt_tokens: 21,
+              completion_tokens: 9,
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      );
+
+    const result = await openAiService.generateImage({
+      prompt: 'Create an athlete commitment graphic',
+      referenceImageUrl: 'https://example.com/athlete.png',
+      additionalImageUrls: ['https://example.com/logo.png'],
+    });
+
+    const [firstUrl, firstOptions] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(firstUrl).toBe('https://api.openai.com/v1/responses');
+    const firstBody = JSON.parse(firstOptions.body as string);
+    expect(firstBody.tools).toEqual([{ type: 'image_generation', action: 'edit' }]);
+    expect(firstBody.input[0].content).toEqual([
+      { type: 'input_text', text: 'Create an athlete commitment graphic' },
+      { type: 'input_image', image_url: 'https://example.com/athlete.png' },
+      { type: 'input_image', image_url: 'https://example.com/logo.png' },
+    ]);
+
+    const [secondUrl, secondOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+    expect(secondUrl).toBe('https://openrouter.ai/api/v1/chat/completions');
+    const secondBody = JSON.parse(secondOptions.body as string);
+    expect(secondBody.model).toBe('google/gemini-3-pro-image-preview');
+    expect(secondBody.modalities).toEqual(['text', 'image']);
+    expect(secondBody.messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: 'https://example.com/athlete.png' } },
+          { type: 'image_url', image_url: { url: 'https://example.com/logo.png' } },
+          { type: 'text', text: 'Create an athlete commitment graphic' },
+        ],
+      },
+    ]);
+
+    expect(result.model).toBe('google/gemini-3-pro-image-preview');
+    expect(result.imageBase64).toBe('ZmFrZS1nZW1pbmktaW1hZ2U=');
+    expect(result.textContent).toBe('Fallback image result');
+    expect(result.usage.inputTokens).toBe(21);
+    expect(result.usage.outputTokens).toBe(9);
+  });
+
   // ─── Tool Calls ─────────────────────────────────────────────────────────
 
   it('should parse tool calls from the response', async () => {

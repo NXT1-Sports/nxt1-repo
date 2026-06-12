@@ -337,4 +337,66 @@ describe('schedule-recurring.tool', () => {
       })
     );
   });
+
+  it('reuses an existing exact recurring schedule instead of creating a duplicate', async () => {
+    const queueService = {
+      enqueueRecurring: vi.fn(),
+      enqueueDelayed: vi.fn(),
+    };
+
+    const countGet = vi.fn().mockResolvedValue({ data: () => ({ count: 1 }) });
+    const listGet = vi.fn().mockResolvedValue({
+      empty: false,
+      docs: [
+        {
+          id: 'repeat:key:existing',
+          data: () => ({
+            userId: 'user-1',
+            actionSummary: 'Recruiting Improvement Weekly Task Setup',
+            cronExpression: '0 9 * * 1',
+            timezone: 'America/Chicago',
+            sourceId: 'thread-123',
+          }),
+        },
+      ],
+    });
+    const set = vi.fn().mockResolvedValue(undefined);
+    const doc = vi.fn(() => ({ set }));
+    const db = {
+      collection: vi.fn(() => ({
+        where: vi.fn(() => ({
+          count: vi.fn(() => ({ get: countGet })),
+          get: listGet,
+        })),
+        doc,
+      })),
+    } as unknown as Firestore;
+
+    const tool = new ScheduleRecurringTaskTool(queueService as never, db);
+
+    const result = await tool.execute(
+      {
+        actionSummary: 'Recruiting Improvement Weekly Task Setup',
+        cronExpression: '0 9 * * 1',
+        timezone: 'America/Chicago',
+        sourceId: 'thread-123',
+      },
+      {
+        userId: 'user-1',
+        environment: 'staging',
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual(
+      expect.objectContaining({
+        key: 'repeat:key:existing',
+        duplicate: true,
+      })
+    );
+    expect(queueService.enqueueRecurring).not.toHaveBeenCalled();
+    expect(queueService.enqueueDelayed).not.toHaveBeenCalled();
+    expect(doc).not.toHaveBeenCalled();
+    expect(set).not.toHaveBeenCalled();
+  });
 });

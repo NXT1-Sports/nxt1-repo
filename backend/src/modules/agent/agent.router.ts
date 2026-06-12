@@ -52,6 +52,7 @@ import { PrimaryAgent } from './agents/primary.agent.js';
 import { AgentRouterResumeService } from './orchestrator/agent-router-resume.service.js';
 import { AgentRouterTelemetryService } from './orchestrator/agent-router-telemetry.service.js';
 import { getThreadMessageReplayService } from './memory/thread-message-replay.service.js';
+import { resolveThreadReplayMaxTokens } from './memory/replay-budget.js';
 import { logger } from '../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -463,8 +464,12 @@ export class AgentRouter {
       sessionContext?.conversationHistory;
     if (threadId) {
       try {
+        const replayMaxTokens = resolveThreadReplayMaxTokens({
+          intent,
+          videoAttachments,
+        });
         const replayed = await getThreadMessageReplayService().loadAsLLMMessages(threadId, {
-          maxTokens: 50_000,
+          maxTokens: replayMaxTokens,
         });
         // Map LLMMessage[] → AgentSessionMessage[]. The widened
         // AgentSessionMessage shape carries `toolCallId` and
@@ -480,6 +485,7 @@ export class AgentRouter {
         logger.info('[AgentRouter] Replayed canonical thread history', {
           threadId,
           messageCount: canonicalHistory.length,
+          replayMaxTokens,
         });
       } catch (err) {
         logger.warn('[AgentRouter] Thread replay failed — falling back to session memory', {

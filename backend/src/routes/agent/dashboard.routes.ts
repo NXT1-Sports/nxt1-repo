@@ -59,6 +59,8 @@ import {
 import {
   validateJobOrigin,
   isScheduledOrigin,
+  shouldHideRecurringExecutionJob,
+  shouldHideRecurringSourceThread,
   mapJobStatus,
   inferCategory,
   iconForCategory,
@@ -1783,6 +1785,39 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       }
     }
 
+    let recurringTasksSnapshot: {
+      empty: boolean;
+      docs: FirestoreDocLike[];
+    } | null = null;
+    const activeRecurringTaskKeys = new Set<string>();
+    const activeRecurringSourceIds = new Set<string>();
+
+    try {
+      const snapshot = await db
+        .collection(RECURRING_TASKS_COLLECTION)
+        .where('userId', '==', user.uid)
+        .orderBy('createdAt', 'desc')
+        .limit(limit)
+        .get();
+
+      recurringTasksSnapshot = {
+        empty: snapshot.empty,
+        docs: snapshot.docs as FirestoreDocLike[],
+      };
+
+      for (const doc of recurringTasksSnapshot.docs) {
+        activeRecurringTaskKeys.add(doc.id);
+        const data = doc.data();
+        const sourceId = resolveRecurringTaskSourceId(data);
+        if (sourceId) activeRecurringSourceIds.add(sourceId);
+      }
+    } catch (recurringErr) {
+      logger.warn('Failed to prefetch recurring tasks for operations log filtering', {
+        userId: user.uid,
+        error: recurringErr instanceof Error ? recurringErr.message : String(recurringErr),
+      });
+    }
+
     // ── Deduplicate by threadId (professional-app pattern) ────────────────
     // jobs[] is ordered by createdAt DESC from Firestore, so the first job
     // seen for a threadId is the most recent and represents the conversation's
@@ -1864,6 +1899,23 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       const completedAt = job['completedAt'] as TimestampLike | undefined | null;
       const result = job['result'] as { summary?: string } | null | undefined;
       const jobOrigin = validateJobOrigin(job['origin']);
+
+      if (
+        shouldHideRecurringExecutionJob({
+          origin: jobOrigin,
+          recurringTaskKey:
+            typeof job['recurringTaskKey'] === 'string'
+              ? (job['recurringTaskKey'] as string)
+              : null,
+          threadId,
+          context: jobContext,
+          activeRecurringTaskKeys,
+          activeRecurringSourceIds,
+        })
+      ) {
+        continue;
+      }
+
       const isScheduled = isScheduledOrigin(jobOrigin);
 
       // Prefer the thread's title (user-meaningful conversation label) over
@@ -1896,14 +1948,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     }
 
     try {
-      const recurringTasksSnapshot = await db
-        .collection(RECURRING_TASKS_COLLECTION)
-        .where('userId', '==', user.uid)
-        .orderBy('createdAt', 'desc')
-        .limit(limit)
-        .get();
-
-      if (!recurringTasksSnapshot.empty) {
+      if (recurringTasksSnapshot && !recurringTasksSnapshot.empty) {
         const repeatables: RepeatableJobDescriptor[] = queueService
           ? ((await queueService.getAllRepeatableJobs()) as RepeatableJobDescriptor[])
           : [];
@@ -1917,7 +1962,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
           ])
         );
 
-        for (const doc of recurringTasksSnapshot.docs as FirestoreDocLike[]) {
+        for (const doc of recurringTasksSnapshot.docs) {
           const data = doc.data();
           const repeatable = repeatableMap.get(doc.id);
           const explicitTitle = readRecurringTaskString(data, 'title');
@@ -2001,7 +2046,16 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
         }
 
         for (const thread of activeThreads) {
-          if (!thread.id || representedThreadIds.has(thread.id)) continue;
+          if (
+            !thread.id ||
+            representedThreadIds.has(thread.id) ||
+            shouldHideRecurringSourceThread({
+              threadId: thread.id,
+              activeRecurringSourceIds,
+            })
+          ) {
+            continue;
+          }
 
           const category = inferCategory(thread.title);
           const resolvedOperationId = threadIdToOperationId.get(thread.id);

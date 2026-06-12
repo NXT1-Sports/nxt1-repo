@@ -58,6 +58,13 @@ type OperationStatus =
   | null;
 
 const SELECTED_CONTEXT_SUMMARY_MAX_CHARS = 600;
+const OPERATION_COMPLETE_DONE_FALLBACK_MS = 5_000;
+const OPERATIONS_LOG_REFRESH_DELAYS_MS = [0, 1_000, 2_500, 5_000] as const;
+const RECURRING_TOOL_NAMES = new Set([
+  'schedule_recurring_task',
+  'update_recurring_task',
+  'cancel_recurring_task',
+]);
 
 function truncateSelectedContextSummary(summary: string): string {
   const trimmed = summary.trim();
@@ -68,6 +75,10 @@ function truncateSelectedContextSummary(summary: string): string {
     return trimmed.slice(0, SELECTED_CONTEXT_SUMMARY_MAX_CHARS);
   }
   return `${trimmed.slice(0, SELECTED_CONTEXT_SUMMARY_MAX_CHARS - 3)}...`;
+}
+
+function isRecurringToolName(toolName: string): boolean {
+  return RECURRING_TOOL_NAMES.has(toolName.trim().toLowerCase());
 }
 
 export interface BatchEmailRecipientStatus {
@@ -178,6 +189,7 @@ export class AgentXOperationChatTransportFacade {
   private responseCompleteEmitted = false;
   private deltaLatencySamples: number[] = [];
   private destroyed = false;
+  private operationCompleteFallbackTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     // Per-component facade: when the host component is destroyed, mark this
@@ -185,6 +197,7 @@ export class AgentXOperationChatTransportFacade {
     // emit on a torn-down OutputRef (NG0953).
     inject(DestroyRef).onDestroy(() => {
       this.destroyed = true;
+      this.clearOperationCompleteFallbackTimer();
       this.host = null;
     });
   }
@@ -431,6 +444,7 @@ export class AgentXOperationChatTransportFacade {
     }
     host.getActiveStream()?.abort();
     host.setActiveStream(null);
+    this.clearOperationCompleteFallbackTimer();
 
     const streamingId = 'typing';
 
@@ -632,6 +646,19 @@ export class AgentXOperationChatTransportFacade {
               }
             }
 
+            if (
+              event.status === 'success' &&
+              normalizedToolName &&
+              isRecurringToolName(normalizedToolName)
+            ) {
+              const activeThreadId = host.resolveActiveThreadId()?.trim() || undefined;
+              this.operationEventService.emitOperationsLogRefreshRequested(
+                'operations-log',
+                activeThreadId,
+                OPERATIONS_LOG_REFRESH_DELAYS_MS
+              );
+            }
+
             if (event.stageType !== 'tool') return;
 
             const deltaToFlush = this.messageFacade.drainBufferedTypingDelta();
@@ -721,20 +748,32 @@ export class AgentXOperationChatTransportFacade {
               // backends emit lifecycle `complete` slightly before the stream
               // closes.
               host.setActivityPhase('waiting_delta', opMessage || null);
+              this.scheduleOperationCompleteDoneFallback({
+                operationId:
+                  event.operationId ?? host.getCurrentOperationId() ?? pendingOperationId,
+                threadId: event.threadId || host.resolvedThreadId(),
+                streamingId,
+                resolve,
+              });
             } else if (event.status === 'failed') {
+              this.clearOperationCompleteFallbackTimer();
               host.setOperationStatus('error');
               host.setActivityPhase('failed', opMessage || null);
             } else if (event.status === 'paused') {
+              this.clearOperationCompleteFallbackTimer();
               this.agentXService.clearDropRecoveryOp();
               host.setOperationStatus('paused');
               host.setActivityPhase('paused', opMessage || null);
             } else if (event.status === 'awaiting_input') {
+              this.clearOperationCompleteFallbackTimer();
               host.setOperationStatus('awaiting_input');
               host.setActivityPhase('awaiting_input', opMessage || null);
             } else if (event.status === 'awaiting_approval') {
+              this.clearOperationCompleteFallbackTimer();
               host.setOperationStatus('awaiting_approval');
               host.setActivityPhase('awaiting_approval', opMessage || null);
             } else if (event.status === 'running' || event.status === 'queued') {
+              this.clearOperationCompleteFallbackTimer();
               host.setOperationStatus('processing');
               host.setActivityPhase('connected', opMessage || null);
             }
@@ -864,6 +903,7 @@ export class AgentXOperationChatTransportFacade {
           },
 
           onStreamReplaced: (event) => {
+            this.clearOperationCompleteFallbackTimer();
             this.messageFacade.flushPendingTypingDelta();
             host.setActivityPhase('reconnecting', 'Reconnecting...');
             host.setActiveStream(null);
@@ -889,6 +929,7 @@ export class AgentXOperationChatTransportFacade {
           ...(onWaitingForAttachments ? { onWaitingForAttachments } : {}),
 
           onDone: (event) => {
+            this.clearOperationCompleteFallbackTimer();
             this.messageFacade.flushPendingTypingDelta();
             host.latestProgressLabel.set(null);
             host.batchEmailProgress.set(null);
@@ -994,6 +1035,7 @@ export class AgentXOperationChatTransportFacade {
           },
 
           onError: (event) => {
+            this.clearOperationCompleteFallbackTimer();
             const threadId = host.resolvedThreadId();
             if (threadId) {
               this.streamRegistry.markError(
@@ -1111,6 +1153,7 @@ export class AgentXOperationChatTransportFacade {
     }
     this.responseTurnId += 1;
     this.responseCompleteEmitted = false;
+    this.clearOperationCompleteFallbackTimer();
     host.latestProgressLabel.set(null);
     this.logger.debug('Response turn started', {
       turnId: this.responseTurnId,
@@ -1144,6 +1187,92 @@ export class AgentXOperationChatTransportFacade {
 
     this.responseCompleteEmitted = true;
     host.emitResponseComplete();
+  }
+
+  private scheduleOperationCompleteDoneFallback(params: {
+    operationId: string | null | undefined;
+    threadId: string | null | undefined;
+    streamingId: string;
+    resolve: () => void;
+  }): void {
+    this.clearOperationCompleteFallbackTimer();
+    const scheduledTurnId = this.responseTurnId;
+    this.operationCompleteFallbackTimer = setTimeout(() => {
+      this.operationCompleteFallbackTimer = null;
+      const host = this.getHostOrSkip('operation-complete-done-fallback');
+      if (!host || this.destroyed || this.responseTurnId !== scheduledTurnId) {
+        return;
+      }
+      if (this.responseCompleteEmitted) {
+        return;
+      }
+
+      const operationId = params.operationId?.trim() || host.getCurrentOperationId();
+      const threadId = params.threadId?.trim() || host.resolvedThreadId();
+      const shouldResumeBackgroundStream = this.shouldResumeEnqueueBackgroundStream(
+        threadId,
+        operationId
+      );
+      if (shouldResumeBackgroundStream && operationId) {
+        host.setOperationStatus('processing');
+        host.setCurrentOperationId(operationId);
+        host.loading.set(true);
+        host.setActivityPhase('reconnecting', 'Connecting to background job...');
+        host.getActiveStream()?.abort();
+        host.setActiveStream(null);
+        host.getShadowFirestoreSub()?.unsubscribe();
+        host.setShadowFirestoreSub(null);
+        host.subscribeToFirestoreJobEvents(operationId, 0);
+        this.agentXService.clearDropRecoveryOp();
+        this.logger.warn(
+          'SSE done missing after enqueue operation complete; resumed background Firestore stream',
+          {
+            operationId,
+            threadId,
+          }
+        );
+        params.resolve();
+        return;
+      }
+
+      if (threadId) {
+        this.streamRegistry.markDone(threadId, { threadId }, operationId);
+      }
+
+      this.messageFacade.flushPendingTypingDelta();
+      host.latestProgressLabel.set(null);
+      host.batchEmailProgress.set(null);
+      this.messageFacade.finalizeStreamedAssistantMessage({
+        streamingId: params.streamingId,
+        success: true,
+        threadId: threadId ?? undefined,
+        source: 'sse-operation-complete-fallback',
+      });
+      host.getActiveStream()?.abort();
+      host.setActiveStream(null);
+      host.getShadowFirestoreSub()?.unsubscribe();
+      host.setShadowFirestoreSub(null);
+      host.setActivityPhase('completed');
+      host.loading.set(false);
+      this.agentXService.clearDropRecoveryOp();
+      this.logger.warn(
+        'SSE done missing after operation complete; finalized from lifecycle event',
+        {
+          operationId,
+          threadId,
+        }
+      );
+      this.emitResponseCompleteOnce('sse-operation-complete-fallback');
+      params.resolve();
+    }, OPERATION_COMPLETE_DONE_FALLBACK_MS);
+  }
+
+  private clearOperationCompleteFallbackTimer(): void {
+    if (this.operationCompleteFallbackTimer === null) {
+      return;
+    }
+    clearTimeout(this.operationCompleteFallbackTimer);
+    this.operationCompleteFallbackTimer = null;
   }
 
   recordDeltaLatency(emittedAt?: string): void {
