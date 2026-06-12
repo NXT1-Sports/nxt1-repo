@@ -127,6 +127,10 @@ const NATIVE_UPLOAD_RETRY_DELAY_MS = 900;
 const NATIVE_UPLOAD_START_TIMEOUT_MS = 45_000;
 const NATIVE_WEB_PATH_FALLBACK_MAX_ATTEMPTS = 3;
 const NATIVE_WEB_PATH_FALLBACK_RETRY_DELAY_MS = 700;
+const NATIVE_UPLOAD_PROGRESS_FLOOR_PERCENT = 5;
+const NATIVE_UPLOAD_PROGRESS_SOFT_CAP_PERCENT = 98;
+const NATIVE_UPLOAD_PROGRESS_TICK_MS = 180;
+const FAST_UPLOAD_MIN_VISIBLE_MS = 650;
 
 const RETRYABLE_VIDEO_PROVISION_ERROR_CODES = new Set([
   'REQUEST_TIMEOUT',
@@ -178,6 +182,79 @@ export function shouldUseCloudflareUpload(fileSize: number): boolean {
   return fileSize >= AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES;
 }
 
+export function stepNativeUploadDisplayPercent(input: {
+  readonly displayedPercent: number;
+  readonly actualProgress: number | null;
+  readonly idleMs: number;
+}): number {
+  const displayedPercent = Math.max(
+    0,
+    Math.min(NATIVE_UPLOAD_PROGRESS_SOFT_CAP_PERCENT, Math.round(input.displayedPercent))
+  );
+  const actualProgress =
+    typeof input.actualProgress === 'number' && Number.isFinite(input.actualProgress)
+      ? Math.max(0, Math.min(1, input.actualProgress))
+      : null;
+  const idleMs = Math.max(0, Math.round(input.idleMs));
+
+  const actualTargetPercent =
+    actualProgress === null
+      ? NATIVE_UPLOAD_PROGRESS_FLOOR_PERCENT
+      : Math.round(
+          NATIVE_UPLOAD_PROGRESS_FLOOR_PERCENT +
+            Math.pow(actualProgress, 0.72) *
+              (NATIVE_UPLOAD_PROGRESS_SOFT_CAP_PERCENT - NATIVE_UPLOAD_PROGRESS_FLOOR_PERCENT - 1)
+        );
+
+  const baseLeadPercent = actualTargetPercent < 25 ? 10 : actualTargetPercent < 60 ? 7 : 4;
+  const idleLeadPercent = Math.min(actualTargetPercent < 60 ? 12 : 6, Math.floor(idleMs / 900));
+  const syntheticTargetPercent = Math.min(
+    NATIVE_UPLOAD_PROGRESS_SOFT_CAP_PERCENT,
+    actualTargetPercent + baseLeadPercent + idleLeadPercent
+  );
+
+  if (syntheticTargetPercent <= displayedPercent) {
+    return displayedPercent;
+  }
+
+  const gap = syntheticTargetPercent - displayedPercent;
+  const maxStepPercent = actualTargetPercent < 25 ? 3 : actualTargetPercent < 70 ? 4 : 2;
+  const nextStepPercent = Math.min(maxStepPercent, Math.max(1, Math.round(gap * 0.35)));
+
+  return Math.min(syntheticTargetPercent, displayedPercent + nextStepPercent);
+}
+
+export function smoothFastUploadPercent(input: {
+  readonly previousPercent: number;
+  readonly rawPercent: number;
+  readonly elapsedMs: number;
+}): number {
+  const previousPercent = Math.max(0, Math.min(99, Math.round(input.previousPercent)));
+  const rawPercent = Math.max(0, Math.min(99, Math.round(input.rawPercent)));
+  const elapsedMs = Math.max(0, Math.round(input.elapsedMs));
+
+  const visibleCap =
+    elapsedMs < 120
+      ? 18
+      : elapsedMs < 240
+        ? 34
+        : elapsedMs < 360
+          ? 52
+          : elapsedMs < 480
+            ? 68
+            : elapsedMs < 600
+              ? 82
+              : elapsedMs < 720
+                ? 92
+                : 99;
+
+  return Math.max(previousPercent, Math.min(rawPercent, visibleCap));
+}
+
+export function resolveFastUploadCompletionDelayMs(elapsedMs: number): number {
+  return Math.max(0, FAST_UPLOAD_MIN_VISIBLE_MS - Math.max(0, Math.round(elapsedMs)));
+}
+
 // ============================================
 // SERVICE
 // ============================================
@@ -197,6 +274,7 @@ export class AgentXVideoUploadService {
     options?: VideoUploadOptions
   ): Observable<VideoUploadProgress> {
     const subject = new Subject<VideoUploadProgress>();
+    const progressEmitter = this._createUploadProgressEmitter(subject);
     const threadId = options?.threadId?.trim() ? options.threadId.trim() : null;
     const nativeUri = options?.nativeUri?.trim() ? options.nativeUri.trim() : undefined;
     const nativeWebPath = options?.nativeWebPath?.trim() ? options.nativeWebPath.trim() : undefined;
@@ -209,18 +287,18 @@ export class AgentXVideoUploadService {
         ? this._doFirebaseUpload(
             file,
             authToken,
-            subject,
+            progressEmitter,
             threadId,
             nativeUri,
             nativeWebPath,
             sizeBytes
           )
         : !nativeUri && shouldUseCloudflareUpload(sizeBytes)
-          ? this._doCloudflareTusUpload(file, authToken, subject, threadId)
+          ? this._doCloudflareTusUpload(file, authToken, progressEmitter, threadId)
           : this._doFirebaseUpload(
               file,
               authToken,
-              subject,
+              progressEmitter,
               threadId,
               nativeUri,
               nativeWebPath,
@@ -230,8 +308,7 @@ export class AgentXVideoUploadService {
     uploadTask.catch((err) => {
       const msg = err instanceof Error ? err.message : 'Video upload failed';
       this.logger.error('Unhandled video upload error', err, { name: file.name });
-      subject.next({ phase: 'error', percent: 0, errorMessage: msg });
-      subject.complete();
+      progressEmitter.fail(msg);
     });
 
     return subject.asObservable();
@@ -241,10 +318,87 @@ export class AgentXVideoUploadService {
   // PRIVATE
   // ---------------------------------------------------------------
 
+  private _createUploadProgressEmitter(subject: Subject<VideoUploadProgress>): {
+    provisioning(): void;
+    uploading(percent: number): void;
+    complete(payload: Omit<VideoUploadProgress, 'phase' | 'percent'>): Promise<void>;
+    fail(message: string): void;
+  } {
+    let uploadStartedAt: number | null = null;
+    let lastUploadPercent = 0;
+    let settled = false;
+
+    const emit = (event: VideoUploadProgress): void => {
+      if (settled) {
+        return;
+      }
+      subject.next(event);
+    };
+
+    return {
+      provisioning: (): void => {
+        emit({ phase: 'provisioning', percent: 0 });
+      },
+      uploading: (percent: number): void => {
+        if (settled) {
+          return;
+        }
+        if (uploadStartedAt === null) {
+          uploadStartedAt = Date.now();
+        }
+        const displayPercent = smoothFastUploadPercent({
+          previousPercent: lastUploadPercent,
+          rawPercent: percent,
+          elapsedMs: Date.now() - uploadStartedAt,
+        });
+        if (displayPercent <= lastUploadPercent && percent !== 100) {
+          return;
+        }
+        lastUploadPercent = displayPercent;
+        emit({ phase: 'uploading', percent: displayPercent });
+      },
+      complete: async (payload): Promise<void> => {
+        if (settled) {
+          return;
+        }
+        if (uploadStartedAt !== null) {
+          const delayMs = resolveFastUploadCompletionDelayMs(Date.now() - uploadStartedAt);
+          if (delayMs > 0) {
+            const targetPercent = Math.max(lastUploadPercent, Math.min(95, lastUploadPercent + 18));
+            if (targetPercent > lastUploadPercent) {
+              lastUploadPercent = targetPercent;
+              emit({ phase: 'uploading', percent: targetPercent });
+            }
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          }
+        }
+        if (settled) {
+          return;
+        }
+        settled = true;
+        subject.next({ phase: 'complete', percent: 100, ...payload });
+        subject.complete();
+      },
+      fail: (message: string): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        subject.next({ phase: 'error', percent: 0, errorMessage: message });
+        subject.complete();
+      },
+    };
+  }
+
   private async _doFirebaseUpload(
     file: File,
     authToken: string,
-    subject: Subject<VideoUploadProgress>,
+    progressEmitter: {
+      provisioning(): void;
+      uploading(percent: number): void;
+      complete(payload: Omit<VideoUploadProgress, 'phase' | 'percent'>): Promise<void>;
+      fail(message: string): void;
+    },
     threadId: string | null,
     nativeUri: string | undefined,
     nativeWebPath: string | undefined,
@@ -260,7 +414,7 @@ export class AgentXVideoUploadService {
       name: file.name,
       sizeBytes,
     });
-    subject.next({ phase: 'provisioning', percent: 0 });
+    progressEmitter.provisioning();
 
     let uploadUrl: string;
     let readUrl: string;
@@ -287,14 +441,13 @@ export class AgentXVideoUploadService {
         name: file.name,
         phase: 'provisioning',
       });
-      subject.next({ phase: 'error', percent: 0, errorMessage: msg });
-      subject.complete();
+      progressEmitter.fail(msg);
       return;
     }
 
     // ── Step 2: PUT directly to GCS signed URL ────────────────────────────
     // XHR is used instead of fetch because it exposes upload.onprogress events.
-    subject.next({ phase: 'uploading', percent: 0 });
+    progressEmitter.uploading(0);
     this.breadcrumb.trackStateChange('agent-x-video-upload:uploading', {
       name: file.name,
       storagePath,
@@ -309,7 +462,7 @@ export class AgentXVideoUploadService {
             uploadUrl,
             storagePath,
             (percent) => {
-              subject.next({ phase: 'uploading', percent });
+              progressEmitter.uploading(percent);
             },
             nativeUri,
             nativeWebPath,
@@ -327,7 +480,7 @@ export class AgentXVideoUploadService {
           uploadUrl,
           storagePath,
           (percent) => {
-            subject.next({ phase: 'uploading', percent });
+            progressEmitter.uploading(percent);
           },
           nativeUri,
           nativeWebPath,
@@ -350,13 +503,10 @@ export class AgentXVideoUploadService {
         storageBackend: 'firebase',
       });
 
-      subject.next({
-        phase: 'complete',
-        percent: 100,
+      await progressEmitter.complete({
         streamUrl: readUrl,
         storagePath,
       });
-      subject.complete();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Video upload to storage failed';
       this.logger.error('Firebase Storage PUT failed', err, {
@@ -370,8 +520,7 @@ export class AgentXVideoUploadService {
         phase: 'uploading',
         storagePath,
       });
-      subject.next({ phase: 'error', percent: 0, errorMessage: msg });
-      subject.complete();
+      progressEmitter.fail(msg);
     }
   }
 
@@ -542,7 +691,12 @@ export class AgentXVideoUploadService {
   private async _doCloudflareTusUpload(
     file: File,
     authToken: string,
-    subject: Subject<VideoUploadProgress>,
+    progressEmitter: {
+      provisioning(): void;
+      uploading(percent: number): void;
+      complete(payload: Omit<VideoUploadProgress, 'phase' | 'percent'>): Promise<void>;
+      fail(message: string): void;
+    },
     threadId: string | null
   ): Promise<void> {
     this.logger.info('Provisioning Cloudflare Stream TUS upload for Agent X video', {
@@ -555,7 +709,7 @@ export class AgentXVideoUploadService {
       name: file.name,
       sizeBytes: file.size,
     });
-    subject.next({ phase: 'provisioning', percent: 0 });
+    progressEmitter.provisioning();
 
     let cloudflareVideoId: string | null = null;
 
@@ -565,7 +719,7 @@ export class AgentXVideoUploadService {
         () =>
           this._tusUpload(file, authToken, threadId, {
             onProgress: (percent) => {
-              subject.next({ phase: 'uploading', percent });
+              progressEmitter.uploading(percent);
             },
             onProvisioned: (nextCloudflareVideoId) => {
               cloudflareVideoId = nextCloudflareVideoId;
@@ -578,7 +732,7 @@ export class AgentXVideoUploadService {
                 name: file.name,
                 cloudflareVideoId: nextCloudflareVideoId,
               });
-              subject.next({ phase: 'uploading', percent: 0 });
+              progressEmitter.uploading(0);
             },
           }),
         {
@@ -590,7 +744,7 @@ export class AgentXVideoUploadService {
       ) ??
         this._tusUpload(file, authToken, threadId, {
           onProgress: (percent) => {
-            subject.next({ phase: 'uploading', percent });
+            progressEmitter.uploading(percent);
           },
           onProvisioned: (nextCloudflareVideoId) => {
             cloudflareVideoId = nextCloudflareVideoId;
@@ -603,7 +757,7 @@ export class AgentXVideoUploadService {
               name: file.name,
               cloudflareVideoId: nextCloudflareVideoId,
             });
-            subject.next({ phase: 'uploading', percent: 0 });
+            progressEmitter.uploading(0);
           },
         }));
 
@@ -633,16 +787,13 @@ export class AgentXVideoUploadService {
         storageBackend: 'cloudflare',
       });
 
-      subject.next({
-        phase: 'complete',
-        percent: 100,
+      await progressEmitter.complete({
         streamUrl,
         cloudflareVideoId,
         cloudflareStatus: finalized.status,
         readyToStream: finalized.readyToStream,
         ...(finalized.thumbnailUrl ? { thumbnailUrl: finalized.thumbnailUrl } : {}),
       });
-      subject.complete();
     } catch (err) {
       const msg = this._extractTusErrorMessage(err);
       this.logger.error('Cloudflare Stream upload failed', err, {
@@ -656,8 +807,7 @@ export class AgentXVideoUploadService {
         phase: 'cloudflare-uploading',
         ...(cloudflareVideoId ? { cloudflareVideoId } : {}),
       });
-      subject.next({ phase: 'error', percent: 0, errorMessage: msg });
-      subject.complete();
+      progressEmitter.fail(msg);
     }
   }
 
@@ -1282,9 +1432,11 @@ export class AgentXVideoUploadService {
     return new Promise<void>((resolve, reject) => {
       let settled = false;
       let sawNativeEvent = false;
+      const progressSmoother = this._createNativeUploadProgressSmoother(onProgress);
       const startupTimer = setTimeout(() => {
         if (!sawNativeEvent && !settled) {
           settled = true;
+          progressSmoother.destroy();
           reject(new Error('Native Firebase upload did not start'));
         }
       }, NATIVE_UPLOAD_START_TIMEOUT_MS);
@@ -1294,6 +1446,7 @@ export class AgentXVideoUploadService {
         }
         settled = true;
         clearTimeout(startupTimer);
+        progressSmoother.destroy();
         callback();
       };
 
@@ -1313,8 +1466,7 @@ export class AgentXVideoUploadService {
               sawNativeEvent = true;
               const progress = this._resolveNativeUploadProgress(event);
               if (typeof progress === 'number') {
-                const percent = 5 + Math.round(progress * 95);
-                onProgress(Math.min(percent, event.completed ? 100 : 99));
+                progressSmoother.report(progress);
               }
               if (event.completed) {
                 settle(() => resolve());
@@ -1334,6 +1486,56 @@ export class AgentXVideoUploadService {
           );
         });
     });
+  }
+
+  private _createNativeUploadProgressSmoother(onProgress: (percent: number) => void): {
+    report(actualProgress: number): void;
+    destroy(): void;
+  } {
+    let displayedPercent = NATIVE_UPLOAD_PROGRESS_FLOOR_PERCENT;
+    let actualProgress: number | null = null;
+    let lastActualUpdateAt = Date.now();
+    let lastEmittedPercent = -1;
+
+    const emitPercent = (percent: number): void => {
+      const normalizedPercent = Math.max(
+        0,
+        Math.min(NATIVE_UPLOAD_PROGRESS_SOFT_CAP_PERCENT, Math.round(percent))
+      );
+      if (normalizedPercent <= lastEmittedPercent) {
+        return;
+      }
+      lastEmittedPercent = normalizedPercent;
+      onProgress(normalizedPercent);
+    };
+
+    emitPercent(displayedPercent);
+
+    const tick = (): void => {
+      const nextPercent = stepNativeUploadDisplayPercent({
+        displayedPercent,
+        actualProgress,
+        idleMs: Date.now() - lastActualUpdateAt,
+      });
+      if (nextPercent <= displayedPercent) {
+        return;
+      }
+      displayedPercent = nextPercent;
+      emitPercent(displayedPercent);
+    };
+
+    const interval = setInterval(tick, NATIVE_UPLOAD_PROGRESS_TICK_MS);
+
+    return {
+      report(nextActualProgress: number): void {
+        actualProgress = Math.max(0, Math.min(1, nextActualProgress));
+        lastActualUpdateAt = Date.now();
+        tick();
+      },
+      destroy(): void {
+        clearInterval(interval);
+      },
+    };
   }
 
   private _resolveNativeUploadProgress(event: NativeFirebaseUploadEvent): number | null {
