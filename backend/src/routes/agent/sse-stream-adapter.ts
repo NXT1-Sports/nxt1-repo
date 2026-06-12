@@ -138,22 +138,6 @@ function extractMediaPayloads(toolResult: Record<string, unknown>): readonly Sse
   return media;
 }
 
-function extractToolResultStepMetadata(
-  toolResult: Record<string, unknown> | undefined
-): Record<string, unknown> {
-  if (!toolResult) return {};
-
-  const metadata: Record<string, unknown> = {};
-  for (const key of ['heavyTaskOperationId', 'threadId', 'parentOperationId']) {
-    const value = toolResult[key];
-    if (typeof value === 'string' && value.trim().length > 0) {
-      metadata[key] = value.trim();
-    }
-  }
-
-  return metadata;
-}
-
 function toStepPayload(
   event: StreamEvent,
   status: 'active' | 'success' | 'error'
@@ -280,7 +264,6 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
         const succeeded = event.toolSuccess !== false;
         const enrichedMetadata = {
           ...((event.metadata as Record<string, unknown> | undefined) ?? {}),
-          ...extractToolResultStepMetadata(event.toolResult),
         };
         const payload = toStepPayload(
           { ...event, stepId, metadata: enrichedMetadata },
