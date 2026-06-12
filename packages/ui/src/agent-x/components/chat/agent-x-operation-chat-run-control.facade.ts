@@ -18,6 +18,7 @@ import {
   AGENT_X_AUTH_TOKEN_FACTORY,
   AgentXJobService,
 } from '../../services/agent-x-job.service';
+import { AgentXService } from '../../services/agent-x.service';
 import { AgentXStreamRegistryService } from '../../services/agent-x-stream-registry.service';
 import { AgentXOperationEventService } from '../../services/agent-x-operation-event.service';
 import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-message.facade';
@@ -90,6 +91,7 @@ export interface AgentXOperationChatRunControlFacadeHost {
 
 @Injectable({ providedIn: 'root' })
 export class AgentXOperationChatRunControlFacade {
+  private readonly agentXService = inject(AgentXService);
   private readonly baseUrl = inject(AGENT_X_API_BASE_URL);
   private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
   private readonly jobService = inject(AgentXJobService);
@@ -178,6 +180,11 @@ export class AgentXOperationChatRunControlFacade {
       pausedOperationId = currentOperationId;
       void this.firePauseRequest(currentOperationId);
     }
+
+    // Clear the stream recovery marker immediately so a user-initiated pause
+    // cannot be reopened on the next app resume before the backend emits its
+    // formal paused status update.
+    this.agentXService.clearDropRecoveryOp();
 
     this.transitionInFlightMessages('Paused');
     host.loading.set(false);
