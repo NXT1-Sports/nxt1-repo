@@ -2194,6 +2194,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Whether the activity state machine currently considers the run in-flight. */
   protected readonly isActivityInFlight = computed(() => {
+    if (this.isTerminalOperationStatus()) {
+      return false;
+    }
+
     switch (this._activityPhase()) {
       case 'sending':
       case 'connected':
@@ -2237,6 +2241,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * even after earlier assistant text has already rendered.
    */
   protected readonly showThinking = computed(() => {
+    if (this.isTerminalOperationStatus()) {
+      return false;
+    }
+
     const phase = this._activityPhase();
 
     switch (phase) {
@@ -2827,6 +2835,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   }
 
   private isInFlightPhase(phase: ChatActivityPhase): boolean {
+    if (this.isTerminalOperationStatus()) {
+      return false;
+    }
+
     return (
       phase === 'sending' ||
       phase === 'connected' ||
@@ -2846,6 +2858,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
     this.activityGapTimer = setTimeout(() => {
       this.activityGapTimer = null;
+      if (this.isTerminalOperationStatus()) {
+        this.setActivityPhase(this.terminalActivityPhase());
+        return;
+      }
       if (!this.isInFlightPhase(this._activityPhase())) {
         return;
       }
@@ -2866,6 +2882,23 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
       this.armActivityGapTimer();
     }, ACTIVITY_GAP_TIMEOUT_MS);
+  }
+
+  private isTerminalOperationStatus(): boolean {
+    return (
+      this.operationStatus === 'complete' ||
+      this.operationStatus === 'error' ||
+      this.operationStatus === 'cancelled'
+    );
+  }
+
+  private terminalActivityPhase(): Extract<
+    ChatActivityPhase,
+    'completed' | 'failed' | 'cancelled'
+  > {
+    if (this.operationStatus === 'error') return 'failed';
+    if (this.operationStatus === 'cancelled') return 'cancelled';
+    return 'completed';
   }
 
   private clearActivityGapTimer(): void {

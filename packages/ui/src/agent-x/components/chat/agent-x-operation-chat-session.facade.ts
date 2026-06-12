@@ -1899,8 +1899,6 @@ export class AgentXOperationChatSessionFacade {
             host.markActivityPulse(message);
           },
           onOperation: (event) => {
-            if (!holdUntilDone) return;
-
             const refreshThreadId =
               options?.threadIdForCompletionRefresh?.trim() ||
               event.threadId?.trim() ||
@@ -1923,7 +1921,22 @@ export class AgentXOperationChatSessionFacade {
               host.getActiveFirestoreSub()?.unsubscribe();
               host.setActiveFirestoreSub(null);
               void this.haptics.notification('success');
-              this.transportFacade.emitResponseCompleteOnce('firestore-operation-complete-enqueue');
+              this.messageFacade.flushPendingTypingDelta();
+
+              if (!holdUntilDone) {
+                this.normalizeTypingAssistantMediaMarkdown();
+                this.messageFacade.finalizeStreamedAssistantMessage({
+                  streamingId: 'typing',
+                  success: true,
+                  source: 'firestore-operation-complete',
+                });
+              }
+
+              this.transportFacade.emitResponseCompleteOnce(
+                holdUntilDone
+                  ? 'firestore-operation-complete-enqueue'
+                  : 'firestore-operation-complete'
+              );
 
               if (refreshThreadId) {
                 void this.loadThreadMessages(refreshThreadId);
@@ -1951,8 +1964,17 @@ export class AgentXOperationChatSessionFacade {
               host.loading.set(false);
               host.getActiveFirestoreSub()?.unsubscribe();
               host.setActiveFirestoreSub(null);
+              if (!holdUntilDone) {
+                this.messageFacade.finalizeStreamedAssistantMessage({
+                  streamingId: 'typing',
+                  success: false,
+                  source: 'firestore-operation-cancelled',
+                });
+              }
               this.transportFacade.emitResponseCompleteOnce(
-                'firestore-operation-cancelled-enqueue'
+                holdUntilDone
+                  ? 'firestore-operation-cancelled-enqueue'
+                  : 'firestore-operation-cancelled'
               );
               return;
             }
@@ -1963,13 +1985,23 @@ export class AgentXOperationChatSessionFacade {
               host.latestProgressLabel.set(null);
               host.setActivityPhase('failed', errorMessage);
               host.setOperationStatus('error');
-              this.messageFacade.pushMessage({
-                id: host.uid(),
-                role: 'assistant',
-                content: errorMessage,
-                timestamp: new Date(),
-                error: true,
-              });
+              if (holdUntilDone) {
+                this.messageFacade.pushMessage({
+                  id: host.uid(),
+                  role: 'assistant',
+                  content: errorMessage,
+                  timestamp: new Date(),
+                  error: true,
+                });
+              } else {
+                this.messageFacade.replaceTyping({
+                  id: host.uid(),
+                  role: 'assistant',
+                  content: errorMessage,
+                  timestamp: new Date(),
+                  error: true,
+                });
+              }
               this.operationEventService.emitOperationStatusUpdated(
                 refreshThreadId || operationId,
                 'error',
@@ -1981,7 +2013,9 @@ export class AgentXOperationChatSessionFacade {
               host.getActiveFirestoreSub()?.unsubscribe();
               host.setActiveFirestoreSub(null);
               void this.haptics.notification('error');
-              this.transportFacade.emitResponseCompleteOnce('firestore-operation-error-enqueue');
+              this.transportFacade.emitResponseCompleteOnce(
+                holdUntilDone ? 'firestore-operation-error-enqueue' : 'firestore-operation-error'
+              );
               this.logger.error(
                 'Background enqueue operation failed from lifecycle event',
                 new Error(errorMessage),

@@ -808,14 +808,11 @@ export class AgentXVideoUploadService {
    * PUT the video to Firebase Storage, selecting the upload channel at runtime.
    *
    *   Native Capacitor (iOS / Android)
-   *     → `_nativeFirebasePut()` — writes the File to the Capacitor cache
-   *       filesystem and uploads via `@capacitor-firebase/storage.uploadFile()`,
-   *       calling `storageRef.putFile(from: URL)` on the native Firebase Storage
-   *       SDK. This completely bypasses the WKWebView HTTP bridge, which cannot
-   *       perform cross-origin PUT requests to `storage.googleapis.com` on iOS
-   *       without the `com.apple.runningboard.assertions.webkit` entitlement.
+   *     → `_nativeIosSignedPut()` — uploads to the backend-issued signed URL
+   *       through CapacitorHttp first. This bypasses Firebase Storage client
+   *       rules/auth state, which can drift from the app's API auth token.
    *
-   *       Detection is behavioural, not heuristic: `_nativeFirebasePut()` probes
+   *       If that cannot handle the selected media, `_nativeFirebasePut()` probes
    *       the Capacitor Filesystem plugin to check whether it returns a native
    *       `file://` URI. On web the plugin returns a virtual URI and the method
    *       returns `false`, falling through to the XHR path below. This approach
@@ -834,9 +831,37 @@ export class AgentXVideoUploadService {
     nativeWebPath: string | undefined,
     sizeBytes: number
   ): Promise<void> {
-    // Try the native Firebase Storage SDK first. On native Capacitor (iOS/Android)
-    // the Filesystem probe confirms `file://` URIs and the upload proceeds natively.
-    // On web the probe returns a virtual URI → method returns false → fall through.
+    const nativeSignedPutFile =
+      file.size > 0
+        ? file
+        : await this._tryCreateNativeWebPathFallbackFile(file, nativeWebPath, sizeBytes);
+
+    // Prefer the backend-issued signed URL on iOS. It avoids Firebase Storage
+    // client auth/rules entirely, eliminating "Missing or insufficient permissions"
+    // from the primary upload path.
+    if (nativeSignedPutFile) {
+      try {
+        const uploadedViaNativeSignedPut = await this._nativeIosSignedPut(
+          nativeSignedPutFile,
+          uploadUrl,
+          onProgress,
+          sizeBytes
+        );
+        if (uploadedViaNativeSignedPut) return;
+      } catch (signedPutErr) {
+        this.logger.warn('Native signed PUT failed; falling back to Firebase/native web paths', {
+          name: file.name,
+          sizeBytes,
+          mimeType: file.type,
+          storagePath,
+          error: signedPutErr instanceof Error ? signedPutErr.message : String(signedPutErr),
+        });
+        onProgress(0);
+      }
+    }
+
+    // Fallback: try the native Firebase Storage SDK. This keeps Android/native
+    // URI support available when a local File cannot be materialized.
     const uploadedViaNative = await this._nativeFirebasePut(
       file,
       storagePath,
@@ -853,15 +878,7 @@ export class AgentXVideoUploadService {
       );
     }
 
-    const uploadedViaNativeHttp = await this._nativeIosSignedPut(
-      file,
-      uploadUrl,
-      onProgress,
-      sizeBytes
-    );
-    if (uploadedViaNativeHttp) return;
-
-    if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios') {
+    if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios' && !nativeSignedPutFile) {
       throw new Error(
         'iOS video upload could not use either native Firebase Storage or native signed PUT'
       );
@@ -882,12 +899,13 @@ export class AgentXVideoUploadService {
     );
 
     // Web path: XHR with retry for granular progress events.
+    const xhrFile = nativeSignedPutFile ?? file;
     const maxAttempts = AGENT_X_RUNTIME_CONFIG.videoUpload.directPutMaxAttempts;
     let lastError: unknown = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
-        await this._xhrPut(file, uploadUrl, onProgress);
+        await this._xhrPut(xhrFile, uploadUrl, onProgress);
         return;
       } catch (error) {
         lastError = error;
