@@ -3518,8 +3518,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (msg.id === 'typing' && !this.hasRenderableMessagePayload(msg) && !this.showThinking()) {
       return true;
     }
+    if (this.isPersistedApprovalDecisionEventMessage(msg)) return true;
     if (this.isLegacyApprovalResolutionMessage(msg)) return true;
     return false;
+  }
+
+  private isPersistedApprovalDecisionEventMessage(msg: OperationMessage): boolean {
+    return (
+      typeof msg.idempotencyKey === 'string' && msg.idempotencyKey.endsWith(':user_approved_action')
+    );
   }
 
   private hasPendingAskUserYieldMessage(): boolean {

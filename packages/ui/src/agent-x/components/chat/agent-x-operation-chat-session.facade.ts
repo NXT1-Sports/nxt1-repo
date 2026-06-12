@@ -163,6 +163,24 @@ export class AgentXOperationChatSessionFacade {
     return (value ?? '').replace(/\s+/g, ' ').trim();
   }
 
+  private messageContentCoveredBy(
+    candidate: string | undefined,
+    container: string | undefined
+  ): boolean {
+    const normalizedCandidate = this.normalizeMessageContent(candidate);
+    const normalizedContainer = this.normalizeMessageContent(container);
+    if (!normalizedCandidate || !normalizedContainer) return false;
+    if (normalizedCandidate === normalizedContainer) return true;
+    return normalizedCandidate.length >= 24 && normalizedContainer.includes(normalizedCandidate);
+  }
+
+  private agentMessageDisplayText(message: Pick<AgentMessage, 'content' | 'parts'>): string {
+    const textParts = (message.parts ?? [])
+      .filter((part): part is Extract<AgentXMessagePart, { type: 'text' }> => part.type === 'text')
+      .map((part) => part.content);
+    return this.normalizeMessageContent([message.content, ...textParts].join(' '));
+  }
+
   /**
    * Returns true when the error string represents a client-side connectivity
    * failure (SSE stall, network drop, stream cut) rather than a real backend
@@ -225,6 +243,14 @@ export class AgentXOperationChatSessionFacade {
     return steps.map((step) => `${step.id}|${step.label}|${step.status}`).join('||');
   }
 
+  private messageToolSteps(message: OperationMessage): readonly AgentXToolStep[] {
+    const steps: AgentXToolStep[] = [...(message.steps ?? [])];
+    for (const part of message.parts ?? []) {
+      if (part.type === 'tool-steps') steps.push(...part.steps);
+    }
+    return steps;
+  }
+
   private cardSignature(cards: readonly AgentXRichCard[] | undefined): string {
     if (!cards || cards.length === 0) return '';
     return cards.map((card) => JSON.stringify(card)).join('||');
@@ -250,19 +276,55 @@ export class AgentXOperationChatSessionFacade {
     if (message.role !== 'assistant') return false;
     if (message.yieldState || this.messageHasYieldCard(message)) return false;
 
-    const messageOperationId = message.operationId?.trim() ?? '';
-    if (messageOperationId && replay.operationIds.has(messageOperationId)) return true;
-
     const messageContent = this.normalizeMessageContent(message.content);
     const replayContent = this.normalizeMessageContent(replay.content);
     if (messageContent && replayContent) {
       if (messageContent === replayContent) return true;
       if (messageContent.length >= 24 && replayContent.includes(messageContent)) return true;
+      if (replayContent.length >= 24 && messageContent.includes(replayContent)) return true;
     }
 
-    const messageSteps = this.stepSignature(message.steps);
+    const messageSteps = this.stepSignature(this.messageToolSteps(message));
     const replaySteps = this.stepSignature(replay.steps);
-    return !!messageSteps && messageSteps === replaySteps;
+    if (messageSteps && messageSteps === replaySteps) return true;
+
+    const messageOperationId = message.operationId?.trim() ?? '';
+    return (
+      !!messageOperationId &&
+      replay.operationIds.has(messageOperationId) &&
+      message.semanticPhase !== 'assistant_tool_call'
+    );
+  }
+
+  private shouldDropPersistedRowForActiveTyping(
+    message: OperationMessage,
+    params: {
+      readonly liveOperationId: string;
+      readonly existingTyping: OperationMessage;
+      readonly replayOperationIds: ReadonlySet<string>;
+    }
+  ): boolean {
+    if (
+      this.shouldDropLiveReplayAssistantRow(message, {
+        operationIds: params.replayOperationIds,
+        content: params.existingTyping.content,
+        steps: this.messageToolSteps(params.existingTyping),
+      })
+    ) {
+      return true;
+    }
+
+    if (message.role !== 'assistant' || message.operationId !== params.liveOperationId) {
+      return false;
+    }
+    if (message.semanticPhase === 'assistant_tool_call') return false;
+
+    // Keep interruption rows (ask_user/approval) for the live operation.
+    // Dropping all assistant rows for the active operation causes the
+    // pending action card to disappear on session re-entry.
+    if (message.yieldState || this.messageHasYieldCard(message)) return false;
+
+    return true;
   }
 
   private inferMediaTypeFromUrl(url: string): 'image' | 'video' | null {
@@ -698,6 +760,48 @@ export class AgentXOperationChatSessionFacade {
     return deduped;
   }
 
+  private normalizePartTextContent(value: string | undefined | null): string {
+    return (value ?? '').replace(/\s+/g, ' ').trim();
+  }
+
+  private shouldAppendContentAsTextPart(
+    cleanContent: string,
+    persistedParts: readonly AgentXMessagePart[]
+  ): boolean {
+    const normalizedContent = this.normalizePartTextContent(cleanContent);
+    if (!normalizedContent) return false;
+
+    for (const part of persistedParts) {
+      if (part.type !== 'text') continue;
+      const normalizedPart = this.normalizePartTextContent(part.content);
+      if (!normalizedPart) continue;
+      if (normalizedPart === normalizedContent) return false;
+      if (normalizedPart.includes(normalizedContent)) return false;
+    }
+
+    return true;
+  }
+
+  private isPersistedApprovalDecisionEvent(message: AgentMessage): boolean {
+    const eventType = message.resultData?.['eventType'];
+    if (eventType === 'approval_decision') return true;
+
+    const idempotencyKey = message.idempotencyKey;
+    return typeof idempotencyKey === 'string' && idempotencyKey.endsWith(':user_approved_action');
+  }
+
+  private isPersistedApprovalDecisionOperationMessage(message: OperationMessage): boolean {
+    return (
+      typeof message.idempotencyKey === 'string' &&
+      message.idempotencyKey.endsWith(':user_approved_action')
+    );
+  }
+
+  private isVisibleYieldAnswerMessage(message: AgentMessage): boolean {
+    if (this.isPersistedApprovalDecisionEvent(message)) return true;
+    return message.role === 'user' && !!message.content?.trim();
+  }
+
   private isResolvedApprovalYieldRow(message: OperationMessage): boolean {
     return (
       message.yieldState?.reason === 'needs_approval' &&
@@ -719,16 +823,23 @@ export class AgentXOperationChatSessionFacade {
 
     const operationId = typeof message.operationId === 'string' ? message.operationId.trim() : '';
     const isResolvedApprovalYield = this.isResolvedApprovalYieldRow(message);
-    const hasLaterPersistedUserForSameOperation =
+    const hasLaterPersistedAnswerForSameOperation =
       operationId.length > 0 &&
       reorderedMapped.some(
         (persisted) =>
-          persisted.role === 'user' &&
           persisted.operationId === operationId &&
+          (persisted.role === 'user' || persisted.yieldResolvedText === 'Approved') &&
           persisted.timestamp.getTime() >= message.timestamp.getTime()
       );
 
-    if (isResolvedApprovalYield && hasLaterPersistedUserForSameOperation) return false;
+    if (isResolvedApprovalYield && hasLaterPersistedAnswerForSameOperation) return false;
+    if (
+      isResolvedApprovalYield &&
+      operationId &&
+      params.answeredYieldOperationIdsInPersisted.has(operationId)
+    ) {
+      return false;
+    }
     if (
       operationId &&
       params.answeredYieldOperationIdsInPersisted.has(operationId) &&
@@ -1018,11 +1129,10 @@ export class AgentXOperationChatSessionFacade {
     const answeredYieldOpIds = new Set<string>();
     for (const item of items) {
       if (
-        item.role === 'user' &&
         typeof item.operationId === 'string' &&
         item.operationId.trim() &&
         assistantYieldOpIds.has(item.operationId.trim()) &&
-        item.content?.trim()
+        this.isVisibleYieldAnswerMessage(item)
       ) {
         answeredYieldOpIds.add(item.operationId.trim());
       }
@@ -1093,8 +1203,9 @@ export class AgentXOperationChatSessionFacade {
     {
       let lastChatPrefixedOpId: string | null = null;
       for (const item of items) {
-        if (item.role === 'user') {
-          // A real user turn resets tracking; yield replies keep it active.
+        if (item.role === 'user' || this.isPersistedApprovalDecisionEvent(item)) {
+          // A real user turn resets tracking; yield replies and approval
+          // decision events keep it active.
           const opId = item.operationId?.trim() ?? '';
           if (!answeredYieldOpIds.has(opId)) {
             lastChatPrefixedOpId = null;
@@ -1244,6 +1355,46 @@ export class AgentXOperationChatSessionFacade {
       }
     }
 
+    // ── Pass 2f: suppress duplicate approval prelude rows ──────────────────
+    // Pending approval often persists both:
+    //   - assistant_tool_call: prose + tool progress from Mongo/history
+    //   - assistant_partial: same prose + confirmation card from Firestore/SSE
+    // Keep both only when their prose differs. If the partial/card row already
+    // carries the same sentence, the tool_call is duplicate UI noise.
+    const duplicateApprovalToolCallSuppressedIds = new Set<string>();
+    {
+      const approvalPartialTextByOp = new Map<string, string>();
+      for (const item of items) {
+        if (
+          item.role === 'assistant' &&
+          item.semanticPhase === 'assistant_partial' &&
+          item.operationId &&
+          approvalYieldedOpIds.has(item.operationId) &&
+          !finalOperationIds.has(item.operationId)
+        ) {
+          const text = this.agentMessageDisplayText(item);
+          if (text) approvalPartialTextByOp.set(item.operationId, text);
+        }
+      }
+
+      for (const item of items) {
+        if (
+          item.role !== 'assistant' ||
+          item.semanticPhase !== 'assistant_tool_call' ||
+          !item.operationId ||
+          !approvalYieldedOpIds.has(item.operationId) ||
+          finalOperationIds.has(item.operationId)
+        ) {
+          continue;
+        }
+
+        const approvalPartialText = approvalPartialTextByOp.get(item.operationId);
+        if (this.messageContentCoveredBy(this.agentMessageDisplayText(item), approvalPartialText)) {
+          duplicateApprovalToolCallSuppressedIds.add(item.id);
+        }
+      }
+    }
+
     // ── Pass 3: legacy rows (no semanticPhase) ───────────────────────────
     // Collect operationIds that appear on multiple untagged assistant rows.
     const legacyMultiMap = new Map<string, AgentMessage[]>();
@@ -1275,7 +1426,9 @@ export class AgentXOperationChatSessionFacade {
     }
 
     return items.filter((item) => {
-      // All non-assistant messages (user, system) pass through without suppression.
+      if (this.isPersistedApprovalDecisionEvent(item)) return false;
+
+      // All other non-assistant messages (user, system) pass through without suppression.
       // ask_user reply messages (role='user', operationId set) show as normal user
       // bubbles — the previous design of suppressing them and showing the text inside
       // a "resolved yield card" was broken because nxt1-chat-bubble never renders
@@ -1302,9 +1455,10 @@ export class AgentXOperationChatSessionFacade {
       // session reload.
       if (item.operationId && finalOperationIds.has(item.operationId)) {
         if (yieldedOperationIds.has(item.operationId)) {
-          return (
-            item.semanticPhase === 'assistant_final' || item.semanticPhase === 'assistant_tool_call'
-          );
+          if (item.semanticPhase === 'assistant_tool_call') {
+            return !completedApprovalToolCallSuppressedIds.has(item.id);
+          }
+          return item.semanticPhase === 'assistant_final';
         }
         return item.semanticPhase === 'assistant_final';
       }
@@ -1353,6 +1507,10 @@ export class AgentXOperationChatSessionFacade {
 
       // Suppress earlier tool_call rows for completed approval ops (keep only last).
       if (completedApprovalToolCallSuppressedIds.has(item.id)) return false;
+
+      // Suppress pending approval tool_call rows already represented by the
+      // approval partial/card row.
+      if (duplicateApprovalToolCallSuppressedIds.has(item.id)) return false;
 
       // If a partial snapshot exists for this in-flight operation (and no
       // final/yield exists), prefer partial over tool_call so only one
@@ -2350,10 +2508,13 @@ export class AgentXOperationChatSessionFacade {
         ) {
           const opId = item.operationId.trim();
           const reply = items.find(
-            (r) => r.role === 'user' && r.operationId === opId && r.content?.trim()
+            (r) => r.operationId === opId && this.isVisibleYieldAnswerMessage(r)
           );
-          if (reply?.content?.trim()) {
-            yieldReplyByOpId.set(opId, reply.content.trim());
+          if (reply) {
+            yieldReplyByOpId.set(
+              opId,
+              this.isPersistedApprovalDecisionEvent(reply) ? 'Approved' : reply.content.trim()
+            );
           }
         }
       }
@@ -2364,6 +2525,7 @@ export class AgentXOperationChatSessionFacade {
         // Phase J (thread-as-truth): tool/system rows are persisted
         // for backend replay only — they must not render as chat
         // bubbles. Filter them out at the boundary.
+        .filter((message) => !this.isPersistedApprovalDecisionEvent(message))
         .filter(
           (message): message is typeof message & { role: 'user' | 'assistant' } =>
             message.role === 'user' || message.role === 'assistant'
@@ -2448,14 +2610,11 @@ export class AgentXOperationChatSessionFacade {
           // only the card into `parts` and stores the full content string
           // separately, prepending the text would flip the layout to
           // text → card on rehydrate. Appending preserves the live order.
-          if (persistedParts.length > 0 && cleanContent.length > 0) {
-            const hasTextPart = persistedParts.some((p) => p.type === 'text');
-            if (!hasTextPart) {
-              persistedParts = [
-                ...persistedParts,
-                { type: 'text' as const, content: cleanContent },
-              ];
-            }
+          if (
+            persistedParts.length > 0 &&
+            this.shouldAppendContentAsTextPart(cleanContent, persistedParts)
+          ) {
+            persistedParts = [...persistedParts, { type: 'text' as const, content: cleanContent }];
           }
 
           // Derive the `cards` array from card-type parts so render methods
@@ -2509,6 +2668,7 @@ export class AgentXOperationChatSessionFacade {
             operationId: typeof message.operationId === 'string' ? message.operationId : undefined,
             content: effectiveContent,
             timestamp: message.createdAt ? new Date(message.createdAt) : new Date(),
+            ...(message.idempotencyKey ? { idempotencyKey: message.idempotencyKey } : {}),
             ...(message.semanticPhase ? { semanticPhase: message.semanticPhase } : {}),
             ...(persistedSteps.length > 0 ? { steps: persistedSteps } : {}),
             ...(persistedParts.length > 0 ? { parts: persistedParts } : {}),
@@ -2541,16 +2701,24 @@ export class AgentXOperationChatSessionFacade {
       // resolveCanonicalAssistantRows suppresses the partial on next reload.
       const existingMessages = this.messageFacade.messages();
       const existingTyping = existingMessages.find((m) => m.id === 'typing');
-      const answeredYieldOperationIdsInPersisted = new Set(
-        reorderedMapped
+      const answeredYieldOperationIdsInPersisted = new Set([
+        ...items
           .filter(
             (message) =>
-              message.role === 'user' &&
+              this.isVisibleYieldAnswerMessage(message) &&
               typeof message.operationId === 'string' &&
               message.operationId.trim().length > 0
           )
-          .map((message) => message.operationId!.trim())
-      );
+          .map((message) => message.operationId!.trim()),
+        ...reorderedMapped
+          .filter(
+            (message) =>
+              (message.role === 'user' || message.yieldResolvedText === 'Approved') &&
+              typeof message.operationId === 'string' &&
+              message.operationId.trim().length > 0
+          )
+          .map((message) => message.operationId!.trim()),
+      ]);
       const preservedInlineYieldRows = existingMessages.filter(
         (message, messageIndex, allExistingMessages) => {
           return this.shouldPreserveInlineYieldRowDuringReload({
@@ -2577,16 +2745,18 @@ export class AgentXOperationChatSessionFacade {
             (m) => m.role === 'assistant' && m.operationId === liveOperationId
           ).length;
 
-          persistedRows = reorderedMapped.filter((m) => {
-            if (m.role !== 'assistant' || m.operationId !== liveOperationId) return true;
+          const liveReplayOperationIds = new Set([liveOperationId]);
+          const existingTypingOperationId = existingTyping.operationId?.trim() ?? '';
+          if (existingTypingOperationId) liveReplayOperationIds.add(existingTypingOperationId);
 
-            // Keep interruption rows (ask_user/approval) for the live operation.
-            // Dropping all assistant rows for the active operation causes the
-            // pending action card to disappear on session re-entry.
-            if (m.yieldState || this.messageHasYieldCard(m)) return true;
-
-            return false;
-          });
+          persistedRows = reorderedMapped.filter(
+            (m) =>
+              !this.shouldDropPersistedRowForActiveTyping(m, {
+                liveOperationId,
+                existingTyping,
+                replayOperationIds: liveReplayOperationIds,
+              })
+          );
 
           const hasPersistedYieldAssistantForLiveOperation =
             this.hasYieldedAssistantRowForOperation(persistedRows, liveOperationId);
@@ -2596,7 +2766,9 @@ export class AgentXOperationChatSessionFacade {
           // is continuing — preserve the typing bubble so the live stream
           // response remains visible.
           const isYieldAnsweredForLiveOp = reorderedMapped.some(
-            (m) => m.role === 'user' && m.operationId === liveOperationId
+            (m) =>
+              m.operationId === liveOperationId &&
+              (m.role === 'user' || this.isPersistedApprovalDecisionOperationMessage(m))
           );
           if (hasPersistedYieldAssistantForLiveOperation && !isYieldAnsweredForLiveOp) {
             preserveTyping = false;

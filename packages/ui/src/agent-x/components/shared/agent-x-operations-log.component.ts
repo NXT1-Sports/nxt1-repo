@@ -2041,6 +2041,15 @@ export class AgentXOperationsLogComponent {
               }
             }
 
+            // Preserve the live Firestore operation id for thread-backed rows.
+            // Scheduled cards come back from HTTP without the currently running
+            // AgentJobs id, but mobile needs that id to attach the bottom sheet
+            // chat to the active recurring run instead of only replaying saved
+            // thread history.
+            if (liveOperationId && (!httpOperationId || liveRepresentsDifferentOperation)) {
+              merged = { ...merged, operationId: liveOperationId };
+            }
+
             // Merge SSE-generated title — beats HTTP when HTTP still shows raw intent
             if (sseTitle && merged.title !== sseTitle) {
               merged = { ...merged, title: sseTitle };

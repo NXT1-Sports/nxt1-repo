@@ -18,6 +18,10 @@ type Canonicalizer = {
     persistedRows: readonly OperationMessage[],
     preservedInlineYieldRows: readonly OperationMessage[]
   ): OperationMessage[];
+  shouldAppendContentAsTextPart(
+    cleanContent: string,
+    persistedParts: NonNullable<AgentMessage['parts']>
+  ): boolean;
   isPauseYieldSupersededByLaterTurn(
     yieldState: NonNullable<AgentMessage['resultData']>['yieldState'],
     items: readonly AgentMessage[]
@@ -42,6 +46,14 @@ type Canonicalizer = {
       readonly operationIds: ReadonlySet<string>;
       readonly content: string;
       readonly steps: readonly AgentXToolStep[];
+    }
+  ): boolean;
+  shouldDropPersistedRowForActiveTyping(
+    message: OperationMessage,
+    params: {
+      readonly liveOperationId: string;
+      readonly existingTyping: OperationMessage;
+      readonly replayOperationIds: ReadonlySet<string>;
     }
   ): boolean;
   hasMongoFinalForOperation(items: readonly AgentMessage[], operationId: string | null): boolean;
@@ -216,7 +228,14 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
       },
     ];
 
-    const shouldPreserve = facade.shouldPreserveInlineYieldRowDuringReload({
+    const shouldPreserveBeforeHistoryCatchesUp = facade.shouldPreserveInlineYieldRowDuringReload({
+      message: resolvedApprovalRow,
+      messageIndex: 1,
+      allExistingMessages: [persistedRows[0]!, resolvedApprovalRow],
+      reorderedMapped: persistedRows,
+      answeredYieldOperationIdsInPersisted: new Set(),
+    });
+    const shouldDropAfterHistoryCatchesUp = facade.shouldPreserveInlineYieldRowDuringReload({
       message: resolvedApprovalRow,
       messageIndex: 1,
       allExistingMessages: [persistedRows[0]!, resolvedApprovalRow],
@@ -225,13 +244,38 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     });
     const merged = facade.mergePreservedInlineYieldRows(persistedRows, [resolvedApprovalRow]);
 
-    expect(shouldPreserve).toBe(true);
+    expect(shouldPreserveBeforeHistoryCatchesUp).toBe(true);
+    expect(shouldDropAfterHistoryCatchesUp).toBe(false);
     expect(merged.map((message) => message.id)).toEqual([
       'user-initial-email',
       'assistant-pre-approval',
       'yield:approval-email-123',
       'assistant-final-email-sent',
     ]);
+  });
+
+  it('does not append duplicate content when persisted parts already include the assistant text', () => {
+    expect(
+      facade.shouldAppendContentAsTextPart('Email sent successfully.', [
+        { type: 'tool-steps', steps: [] },
+        { type: 'text', content: 'Email sent successfully.' },
+      ])
+    ).toBe(false);
+
+    expect(
+      facade.shouldAppendContentAsTextPart('Email sent successfully.', [
+        { type: 'tool-steps', steps: [] },
+      ])
+    ).toBe(true);
+  });
+
+  it('appends persisted content when existing text parts only contain an earlier subset', () => {
+    expect(
+      facade.shouldAppendContentAsTextPart('Early prose. Later summary.', [
+        { type: 'text', content: 'Early prose.' },
+        { type: 'tool-steps', steps: [] },
+      ])
+    ).toBe(true);
   });
 
   it('treats manual pause metadata as stale once a later turn supersedes it', () => {
@@ -673,6 +717,137 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
         replay
       )
     ).toBe(true);
+
+    expect(
+      facade.shouldDropLiveReplayAssistantRow(
+        {
+          id: 'persisted-sibling-op-same-prose',
+          role: 'assistant',
+          operationId: 'mongo-parent-op',
+          content:
+            'Data coordinator is extracting profile information and reviewing distilled sections sequentially.',
+          timestamp: new Date('2026-06-08T12:25:35.000Z'),
+          parts: [
+            {
+              type: 'tool-steps',
+              steps: [
+                {
+                  id: 'tool-search-colleges',
+                  label: 'Searching college database: Football',
+                  status: 'success',
+                  stageType: 'tool',
+                },
+              ],
+            },
+          ],
+        },
+        {
+          operationIds: new Set(['firestore-live-op']),
+          content:
+            'Data coordinator is extracting profile information and reviewing distilled sections sequentially.',
+          steps: [
+            {
+              id: 'tool-search-colleges',
+              label: 'Searching college database: Football',
+              status: 'success',
+              stageType: 'tool',
+            },
+          ],
+        }
+      )
+    ).toBe(true);
+
+    expect(
+      facade.shouldDropLiveReplayAssistantRow(
+        {
+          id: 'persisted-sibling-op-with-longer-prose',
+          role: 'assistant',
+          operationId: 'mongo-parent-op',
+          content:
+            'Searching 5 football colleges for a QB in the 2028 class now. Got the 5 colleges.',
+          timestamp: new Date('2026-06-08T12:25:36.000Z'),
+        },
+        {
+          operationIds: new Set(['firestore-live-op']),
+          content: 'Searching 5 football colleges for a QB in the 2028 class now.',
+          steps: [] as AgentXToolStep[],
+        }
+      )
+    ).toBe(true);
+
+    expect(
+      facade.shouldDropLiveReplayAssistantRow(
+        {
+          id: 'distinct-pre-approval-context',
+          role: 'assistant',
+          operationId: 'firestore-live-op',
+          content:
+            'Found 5 matching college programs with division, conference, GPA averages, acceptance rates, and direct links.',
+          timestamp: new Date('2026-06-08T12:25:37.000Z'),
+          semanticPhase: 'assistant_tool_call',
+        },
+        {
+          operationIds: new Set(['firestore-live-op']),
+          content: 'Sending an email to john@nxt1sports.com.',
+          steps: [] as AgentXToolStep[],
+        }
+      )
+    ).toBe(false);
+  });
+
+  it('preserves distinct same-operation tool_call context while dropping duplicated active typing rows', () => {
+    const existingTyping: OperationMessage = {
+      id: 'typing',
+      role: 'assistant',
+      operationId: 'firestore-live-op',
+      content: 'Sending an email to john@nxt1sports.com.',
+      timestamp: new Date('2026-06-08T12:26:00.000Z'),
+      steps: [
+        {
+          id: 'tool-send-email',
+          label: 'Sending email john@nxt1sports.com',
+          status: 'active',
+          stageType: 'tool',
+        },
+      ],
+    };
+
+    expect(
+      facade.shouldDropPersistedRowForActiveTyping(
+        {
+          id: 'persisted-distinct-context',
+          role: 'assistant',
+          operationId: 'firestore-live-op',
+          content:
+            'Found 5 matching college programs with division, conference, GPA averages, acceptance rates, and direct links.',
+          timestamp: new Date('2026-06-08T12:25:58.000Z'),
+          semanticPhase: 'assistant_tool_call',
+        },
+        {
+          liveOperationId: 'firestore-live-op',
+          existingTyping,
+          replayOperationIds: new Set(['firestore-live-op']),
+        }
+      )
+    ).toBe(false);
+
+    expect(
+      facade.shouldDropPersistedRowForActiveTyping(
+        {
+          id: 'persisted-duplicate-partial',
+          role: 'assistant',
+          operationId: 'firestore-live-op',
+          content: 'Sending an email to john@nxt1sports.com.',
+          timestamp: new Date('2026-06-08T12:25:59.000Z'),
+          semanticPhase: 'assistant_partial',
+        },
+        {
+          liveOperationId: 'firestore-live-op',
+          existingTyping,
+          replayOperationIds: new Set(['firestore-live-op']),
+        }
+      )
+    ).toBe(true);
   });
 
   it('promotes persisted graphic URLs into image media and strips the raw URL from prose', () => {
@@ -918,6 +1093,76 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(ids).toContain('partial-1');
   });
 
+  it('suppresses duplicate tool_call prose when pending approval partial already carries it', () => {
+    const duplicateText =
+      'Searching 5 football colleges for a QB in the 2028 class now. Got the 5 colleges. Now sending the email.';
+    const items: readonly AgentMessage[] = [
+      assistantMessage('tool-duplicate-approval', 'assistant_tool_call', {
+        operationId: 'op-approval-duplicate',
+        content: duplicateText,
+      }),
+      assistantMessage('partial-approval-card', 'assistant_partial', {
+        operationId: 'op-approval-duplicate',
+        content: duplicateText,
+        parts: [
+          { type: 'text', content: duplicateText },
+          {
+            type: 'card',
+            card: {
+              type: 'confirmation',
+              agentId: 'router' as never,
+              title: 'Review and Confirm',
+              payload: {
+                yieldState: { reason: 'needs_approval', operationId: 'op-approval-duplicate' },
+              },
+            },
+          },
+        ],
+      }),
+    ];
+
+    const canonical = facade.resolveCanonicalAssistantRows(items);
+    const ids = canonical.map((message) => message.id);
+
+    expect(ids).not.toContain('tool-duplicate-approval');
+    expect(ids).toContain('partial-approval-card');
+  });
+
+  it('keeps distinct tool_call context when pending approval partial only repeats a subset', () => {
+    const approvalSentence = 'Now sending the email to john@nxt1sports.com.';
+    const items: readonly AgentMessage[] = [
+      assistantMessage('tool-distinct-approval', 'assistant_tool_call', {
+        operationId: 'op-approval-distinct',
+        content:
+          'Found 5 matching college programs with division, conference, GPA averages, acceptance rates, and direct links. Now sending the email to john@nxt1sports.com.',
+      }),
+      assistantMessage('partial-approval-card-subset', 'assistant_partial', {
+        operationId: 'op-approval-distinct',
+        content: approvalSentence,
+        parts: [
+          { type: 'text', content: approvalSentence },
+          {
+            type: 'card',
+            card: {
+              type: 'confirmation',
+              agentId: 'router' as never,
+              title: 'Review and Confirm',
+              payload: {
+                yieldState: { reason: 'needs_approval', operationId: 'op-approval-distinct' },
+              },
+            },
+          },
+        ],
+      }),
+    ];
+
+    const canonical = facade.resolveCanonicalAssistantRows(items);
+    const ids = canonical.map((message) => message.id);
+
+    expect(ids).toContain('tool-distinct-approval');
+    expect(ids).toContain('partial-approval-card-subset');
+  });
+
   // ── Regression: Bug B ─────────────────────────────────────────────────────
   // Completed approval flow should preserve pre-approval tool_call context
   // alongside assistant_final on reload.
@@ -945,6 +1190,37 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(ids).not.toContain('yield-1');
     expect(ids).toContain('tool-1');
     expect(ids).toContain('final-1');
+  });
+
+  it('keeps only the last pre-approval tool_call alongside assistant_final on reload', () => {
+    const items: readonly AgentMessage[] = [
+      assistantMessage('tool-early-approval-final', 'assistant_tool_call', {
+        operationId: 'op-approval-final-collapse',
+        content: 'Searching football colleges...',
+      }),
+      assistantMessage('tool-last-approval-final', 'assistant_tool_call', {
+        operationId: 'op-approval-final-collapse',
+        content: 'Found 5 colleges. Sending email after approval.',
+      }),
+      assistantMessage('yield-approval-final', 'assistant_yield', {
+        operationId: 'op-approval-final-collapse',
+        content: 'Review and approve this email before sending.',
+        resultData: {
+          yieldState: { reason: 'needs_approval', operationId: 'op-approval-final-collapse' },
+        },
+      }),
+      assistantMessage('final-approval-collapse', 'assistant_final', {
+        operationId: 'op-approval-final-collapse',
+        content: 'Email sent successfully.',
+      }),
+    ];
+
+    const canonical = facade.resolveCanonicalAssistantRows(items);
+    const ids = canonical.map((message) => message.id);
+
+    expect(ids).not.toContain('tool-early-approval-final');
+    expect(ids).toContain('tool-last-approval-final');
+    expect(ids).toContain('final-approval-collapse');
   });
 
   // ── Regression: Bug B (old sessions — no stored reason) ───────────────────
