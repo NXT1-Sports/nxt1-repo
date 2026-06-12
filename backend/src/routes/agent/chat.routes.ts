@@ -20,6 +20,7 @@ import {
   ChatAttachmentDto,
 } from '../../dtos/agent-x.dto.js';
 import type {
+  AgentIdentifier,
   AgentJobPayload,
   AgentJobOrigin,
   AgentOperationStatus,
@@ -30,7 +31,12 @@ import type {
   AgentXSelectedAction,
 } from '@nxt1/core';
 import { normalizeConnectedPlatform } from '@nxt1/core/profile';
-import { AGENT_X_REQUEST_HEADERS, AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
+import {
+  AGENT_DESCRIPTORS,
+  AGENT_X_REQUEST_HEADERS,
+  AGENT_X_RUNTIME_CONFIG,
+  resolveAgentApprovalCopy,
+} from '@nxt1/core/ai';
 import {
   STREAM_TERMINAL_EVENTS,
   type PubSubUnsubscribe,
@@ -74,6 +80,19 @@ import {
 } from './chat-context.helpers.js';
 
 const router = Router();
+
+const AGENT_IDENTIFIER_SET = new Set<AgentIdentifier>(
+  Object.keys(AGENT_DESCRIPTORS) as AgentIdentifier[]
+);
+
+function normalizeAgentIdentifier(value: unknown): AgentIdentifier | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim();
+  if (!normalized) return undefined;
+  return AGENT_IDENTIFIER_SET.has(normalized as AgentIdentifier)
+    ? (normalized as AgentIdentifier)
+    : undefined;
+}
 
 interface AgentXCompactWarmContext {
   readonly userId: string;
@@ -766,6 +785,45 @@ async function finalizeRejectedApproval(params: {
       threadId: params.threadId,
       operationId: params.operationId,
       error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+async function persistApprovedActionAsUserMessage(params: {
+  userId: string;
+  threadId?: string | null;
+  operationId: string;
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  agentId?: string;
+  logContext: 'thread_action' | 'approval_resolve';
+}): Promise<void> {
+  if (!params.threadId || !chatService || !params.toolName) {
+    return;
+  }
+
+  try {
+    const approvalCopy = resolveAgentApprovalCopy({
+      toolName: params.toolName,
+      toolInput: params.toolInput ?? {},
+    });
+
+    await chatService.addMessage({
+      threadId: params.threadId,
+      userId: params.userId,
+      role: 'user',
+      content: approvalCopy.actionSummary,
+      origin: 'user',
+      agentId: normalizeAgentIdentifier(params.agentId),
+      operationId: params.operationId,
+      idempotencyKey: `${params.operationId}:user_approved_action`,
+    });
+  } catch (chatErr) {
+    logger.warn('Failed to persist approved action summary to MongoDB', {
+      error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+      userId: params.userId,
+      operationId: params.operationId,
+      logContext: params.logContext,
     });
   }
 }
@@ -3406,6 +3464,16 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
       approvalYieldState.pendingToolCall.toolCallId
     );
 
+    await persistApprovedActionAsUserMessage({
+      userId: user.uid,
+      threadId,
+      operationId,
+      toolName: approvalYieldState.pendingToolCall.toolName,
+      toolInput: resolvedToolInput ?? approvalYieldState.pendingToolCall.toolInput,
+      agentId: approvalYieldState.agentId,
+      logContext: 'thread_action',
+    });
+
     const resumedPayload: AgentJobPayload = {
       operationId: crypto.randomUUID(),
       userId: user.uid,
@@ -3713,6 +3781,16 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       normalizeYieldMessages(yieldState.messages),
       yieldState.pendingToolCall.toolCallId
     );
+
+    await persistApprovedActionAsUserMessage({
+      userId: user.uid,
+      threadId,
+      operationId,
+      toolName: yieldState.pendingToolCall.toolName,
+      toolInput: resolvedToolInput ?? yieldState.pendingToolCall.toolInput,
+      agentId: yieldState.agentId,
+      logContext: 'approval_resolve',
+    });
 
     const resumedPayload: AgentJobPayload = {
       operationId: crypto.randomUUID(),

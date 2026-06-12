@@ -108,6 +108,8 @@ const TERMINAL_ARTIFACT_TOOL_FAILURES = new Set([
 
 const SHARED_PERSISTENCE_CONTRACT = [
   '## Shared Persistence Contract (CRITICAL)',
+  '- Bare file uploads are not implicit saves: if the user only uploads or attaches an image, video, or document without explicitly asking to save it, post it, analyze it, edit it, send it, or add it to a profile/library, do NOT perform a write or externally visible mutation automatically.',
+  '- For ambiguous attachment-only messages, first ask what the user wants to do with the file, offer concrete options when helpful, then call `ask_user` and wait. Only persist, publish, send, or mutate after the user explicitly asks for that action.',
   '- Long-term memory: call `save_memory` immediately when the user states a durable preference, goal, recruiting constraint, performance baseline, recurring workflow preference, or brand/compliance constraint that should persist across sessions.',
   '- Save concise third-person facts only. Do not save transient chat, drafts, internal reasoning, duplicate facts, or one-off tool errors.',
   '- Analytics logging: after any successful user-visible mutation, saved artifact, outbound communication, imported dataset, published content, generated deliverable, or completed workflow milestone, call `track_analytics_event` before your final reply.',

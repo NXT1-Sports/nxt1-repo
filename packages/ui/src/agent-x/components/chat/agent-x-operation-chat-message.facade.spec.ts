@@ -124,8 +124,9 @@ describe('AgentXOperationChatMessageFacade', () => {
     });
 
     const [message] = facade.messages();
-    expect(message.id).toBe('typing');
+    expect(message.id).not.toBe('typing');
     expect(message.content).toBe('Resumed. Waiting for synced updates from Agent X…');
+    expect(message.isTyping).toBe(false);
     expect(loadThreadMessages).toHaveBeenCalledWith('thread-1');
   });
 
@@ -246,6 +247,198 @@ describe('AgentXOperationChatMessageFacade', () => {
         stageType: 'tool',
       },
     ]);
+    expect(facade.messages().some((message) => message.id === 'typing')).toBe(false);
+  });
+
+  it('flushes pending typing and leaves no stale typing row after approval yield conversion', () => {
+    const yieldState: AgentYieldState = {
+      reason: 'needs_approval',
+      promptToUser: 'Review and approve this scheduled email.',
+      agentId: 'router',
+      approvalId: 'approval-flush-1',
+      pendingToolCall: {
+        toolName: 'schedule_email',
+        toolCallId: 'tool-flush-1',
+        toolInput: {
+          toEmail: 'john@nxt1sports.com',
+          scheduledFor: '2026-06-12T19:00:00.000Z',
+        },
+      },
+      messages: [],
+    };
+
+    facade.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: 'I drafted the schedule request.',
+        timestamp: new Date('2026-06-12T18:00:00.000Z'),
+      },
+    ]);
+    facade.queueTypingDelta(' Please review it before I continue.');
+
+    facade.upsertInlineYieldMessage(yieldState, 'op-flush-1');
+
+    const yieldMessage = facade
+      .messages()
+      .find((message) => message.yieldState?.approvalId === 'approval-flush-1');
+
+    expect(yieldMessage?.content).toBe(
+      'I drafted the schedule request. Please review it before I continue.'
+    );
+    expect(yieldMessage?.parts).toEqual([
+      { type: 'text', content: ' Please review it before I continue.' },
+    ]);
+    expect(facade.messages().some((message) => message.id === 'typing')).toBe(false);
+  });
+
+  it('allows fresh resumed typing after an approval yield resolves and appends resumed delta after yield', () => {
+    const yieldState: AgentYieldState = {
+      reason: 'needs_approval',
+      promptToUser: 'Review this email before sending.',
+      agentId: 'router',
+      approvalId: 'approval-resume-1',
+      pendingToolCall: {
+        toolName: 'send_email',
+        toolCallId: 'tool-resume-1',
+        toolInput: {
+          operationId: 'op-resume-1',
+          toEmail: 'john@nxt1sports.com',
+          subject: 'Check Out NXT 1 Sports',
+        },
+      },
+      messages: [],
+    };
+
+    facade.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: 'I drafted an email for your review.',
+        timestamp: new Date('2026-06-12T18:00:00.000Z'),
+      },
+    ]);
+
+    facade.upsertInlineYieldMessage(yieldState, 'op-resume-1');
+    facade.updateInlineYieldMessageState('op-resume-1', 'resolved', 'Approved');
+    facade.pushMessage({
+      id: 'typing',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date('2026-06-12T18:01:00.000Z'),
+      isTyping: true,
+    });
+    facade.queueTypingDelta('Sending the approved email now.');
+    facade.flushPendingTypingDelta();
+
+    const messages = facade.messages();
+    const yieldIndex = messages.findIndex(
+      (message) => message.yieldState?.approvalId === 'approval-resume-1'
+    );
+    const typingIndex = messages.findIndex((message) => message.id === 'typing');
+
+    expect(yieldIndex).toBeGreaterThanOrEqual(0);
+    expect(typingIndex).toBeGreaterThan(yieldIndex);
+    expect(messages[typingIndex]?.content).toBe('Sending the approved email now.');
+  });
+
+  it('removes an empty stale typing row so new typing is not deduped', () => {
+    facade.messages.set([
+      {
+        id: 'yield:approval-empty-1',
+        role: 'assistant',
+        content: 'I drafted an email for your review.',
+        timestamp: new Date('2026-06-12T18:00:00.000Z'),
+      },
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: '',
+        timestamp: new Date('2026-06-12T18:01:00.000Z'),
+        isTyping: false,
+      },
+    ]);
+
+    facade.retireActiveTypingCarrier('op-empty-1');
+    facade.pushMessage({
+      id: 'typing',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date('2026-06-12T18:02:00.000Z'),
+      isTyping: true,
+    });
+
+    const typingMessages = facade.messages().filter((message) => message.id === 'typing');
+    expect(typingMessages).toHaveLength(1);
+    expect(typingMessages[0]?.isTyping).toBe(true);
+    expect(typingMessages[0]?.timestamp.toISOString()).toBe('2026-06-12T18:02:00.000Z');
+  });
+
+  it('removes a stale typing row when its visible payload is already carried', () => {
+    facade.messages.set([
+      {
+        id: 'yield:approval-carried-1',
+        role: 'assistant',
+        content: 'I drafted an email for your review.',
+        timestamp: new Date('2026-06-12T18:00:00.000Z'),
+        steps: [
+          {
+            id: 'tool-search',
+            label: 'Search contacts',
+            status: 'success',
+            stageType: 'tool',
+          },
+        ],
+      },
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: 'I drafted an email for your review.',
+        timestamp: new Date('2026-06-12T18:01:00.000Z'),
+        isTyping: false,
+        steps: [
+          {
+            id: 'tool-search',
+            label: 'Search contacts',
+            status: 'success',
+            stageType: 'tool',
+          },
+        ],
+      },
+    ]);
+
+    facade.retireActiveTypingCarrier('op-carried-1');
+    facade.pushMessage({
+      id: 'typing',
+      role: 'assistant',
+      content: '',
+      timestamp: new Date('2026-06-12T18:02:00.000Z'),
+      isTyping: true,
+    });
+
+    const messages = facade.messages();
+    expect(messages.filter((message) => message.id === 'yield:approval-carried-1')).toHaveLength(1);
+    expect(messages.filter((message) => message.id === 'typing')).toHaveLength(1);
+    expect(messages.at(-1)?.id).toBe('typing');
+  });
+
+  it('commits a visible stale typing row when its payload is not carried elsewhere', () => {
+    facade.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: 'I am still finishing the approved email.',
+        timestamp: new Date('2026-06-12T18:03:00.000Z'),
+        isTyping: true,
+      },
+    ]);
+
+    facade.retireActiveTypingCarrier('op-visible-1');
+
+    const [message] = facade.messages();
+    expect(message.id).toBe('op-visible-1:assistant_committed:1781287380000');
+    expect(message.content).toBe('I am still finishing the approved email.');
+    expect(message.isTyping).toBe(false);
   });
 
   it('attaches a late approval confirmation card to the existing yield row', () => {

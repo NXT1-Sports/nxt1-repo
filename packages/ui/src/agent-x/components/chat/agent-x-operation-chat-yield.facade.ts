@@ -35,6 +35,7 @@ export interface AgentXOperationChatYieldFacadeHost {
   readonly activeYieldState: WritableSignal<AgentYieldState | null>;
   readonly yieldResolved: WritableSignal<boolean>;
   readonly resolvedThreadId: WritableSignal<string | null>;
+  loadThreadMessages(threadId: string): Promise<void>;
   getCurrentOperationId(): string | null;
   setCurrentOperationId(operationId: string | null): void;
   getActiveStream(): AbortController | null;
@@ -358,12 +359,14 @@ export class AgentXOperationChatYieldFacade {
     host.setCurrentOperationId(result.operationId);
     host.activeYieldState.set(null);
     this.transportFacade.beginResponseTurn('resume-yielded');
+    this.messageFacade.retireActiveTypingCarrier(result.operationId);
 
     this.messageFacade.pushMessage({
       id: 'typing',
       role: 'assistant',
       content: '',
       timestamp: new Date(),
+      operationId: result.operationId,
       isTyping: true,
     });
     host.loading.set(true);
@@ -534,6 +537,27 @@ export class AgentXOperationChatYieldFacade {
       this.logger.info('Approval resumed without live stream attachment', {
         operationId: trimmedOperationId,
       });
+      if (params.threadId) {
+        host.resolvedThreadId.set(params.threadId);
+      }
+      host.setCurrentOperationId(trimmedOperationId);
+      host.activeYieldState.set(null);
+      this.messageFacade.retireActiveTypingCarrier(trimmedOperationId);
+
+      const refreshThreadId =
+        params.threadId?.trim() || host.resolvedThreadId()?.trim() || host.threadId().trim();
+      if (refreshThreadId) {
+        await host.loadThreadMessages(refreshThreadId).catch((error) => {
+          this.logger.error(
+            'Failed to refresh thread after approval resumed without stream',
+            error,
+            {
+              operationId: trimmedOperationId,
+              threadId: refreshThreadId,
+            }
+          );
+        });
+      }
       return;
     }
 
@@ -554,12 +578,14 @@ export class AgentXOperationChatYieldFacade {
     host.setCurrentOperationId(trimmedOperationId);
     host.activeYieldState.set(null);
     this.transportFacade.beginResponseTurn('attach-resumed-operation');
+    this.messageFacade.retireActiveTypingCarrier(trimmedOperationId);
 
     this.messageFacade.pushMessage({
       id: 'typing',
       role: 'assistant',
       content: '',
       timestamp: new Date(),
+      operationId: trimmedOperationId,
       isTyping: true,
     });
     host.loading.set(true);

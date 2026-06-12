@@ -7,6 +7,17 @@ import type { OperationMessage } from './agent-x-operation-chat.models';
 type Canonicalizer = {
   resolveCanonicalAssistantRows(items: readonly AgentMessage[]): readonly AgentMessage[];
   reorderTurnsByPairing(messages: readonly OperationMessage[]): OperationMessage[];
+  shouldPreserveInlineYieldRowDuringReload(params: {
+    readonly message: OperationMessage;
+    readonly messageIndex: number;
+    readonly allExistingMessages: readonly OperationMessage[];
+    readonly reorderedMapped: readonly OperationMessage[];
+    readonly answeredYieldOperationIdsInPersisted: ReadonlySet<string>;
+  }): boolean;
+  mergePreservedInlineYieldRows(
+    persistedRows: readonly OperationMessage[],
+    preservedInlineYieldRows: readonly OperationMessage[]
+  ): OperationMessage[];
   isPauseYieldSupersededByLaterTurn(
     yieldState: NonNullable<AgentMessage['resultData']>['yieldState'],
     items: readonly AgentMessage[]
@@ -102,6 +113,124 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
       'user-old-paused',
       'user-new',
       'assistant-new',
+    ]);
+  });
+
+  it('keeps approval reply above the final assistant result when completion timestamp rehydrates first', () => {
+    const initialUser: OperationMessage = {
+      id: 'user-initial-email',
+      role: 'user',
+      content: 'Send a test email in two minutes and wait for approval.',
+      operationId: 'op-email-approval',
+      timestamp: new Date('2026-06-12T18:00:00.000Z'),
+    };
+    const preApprovalContext: OperationMessage = {
+      id: 'assistant-pre-approval',
+      role: 'assistant',
+      content: 'I scheduled the email and need your approval before sending.',
+      operationId: 'op-email-approval',
+      timestamp: new Date('2026-06-12T18:00:15.000Z'),
+      semanticPhase: 'assistant_tool_call',
+    };
+    const finalResult: OperationMessage = {
+      id: 'assistant-final-email-sent',
+      role: 'assistant',
+      content: 'The approved smoke test email was sent successfully.',
+      operationId: 'op-email-approval',
+      timestamp: new Date('2026-06-12T18:00:20.000Z'),
+      semanticPhase: 'assistant_final',
+    };
+    const approvalReply: OperationMessage = {
+      id: 'user-approval-reply',
+      role: 'user',
+      content: 'Send a test email to john@nxt1sports.com with subject Agent approved smoke test.',
+      operationId: 'op-email-approval',
+      timestamp: new Date('2026-06-12T18:00:25.000Z'),
+    };
+
+    const reordered = facade.reorderTurnsByPairing([
+      initialUser,
+      preApprovalContext,
+      finalResult,
+      approvalReply,
+    ]);
+
+    expect(reordered.map((message) => message.id)).toEqual([
+      'user-initial-email',
+      'assistant-pre-approval',
+      'user-approval-reply',
+      'assistant-final-email-sent',
+    ]);
+  });
+
+  it('preserves resolved approval yield rows during completion reload until persisted approval history catches up', () => {
+    const resolvedApprovalRow: OperationMessage = {
+      id: 'yield:approval-email-123',
+      role: 'assistant',
+      content: '',
+      operationId: 'op-email-approval',
+      timestamp: new Date('2026-06-12T18:00:15.000Z'),
+      yieldState: {
+        reason: 'needs_approval',
+        promptToUser: 'Review this email before sending.',
+        agentId: 'strategy_coordinator',
+        messages: [],
+        pendingToolCall: {
+          toolName: 'send_email',
+          toolCallId: 'tool-email-1',
+          toolInput: {
+            toEmail: 'john@nxt1sports.com',
+            subject: 'Agent approved smoke test',
+          },
+        },
+        approvalId: 'approval-email-123',
+        yieldedAt: '2026-06-12T18:00:15.000Z',
+        expiresAt: '2026-06-13T18:00:15.000Z',
+      },
+      yieldCardState: 'resolved',
+      yieldResolvedText: 'Approved',
+    };
+    const persistedRows: readonly OperationMessage[] = [
+      {
+        id: 'user-initial-email',
+        role: 'user',
+        content: 'Send a test email and wait for approval.',
+        operationId: 'op-email-approval',
+        timestamp: new Date('2026-06-12T18:00:00.000Z'),
+      },
+      {
+        id: 'assistant-pre-approval',
+        role: 'assistant',
+        content: 'I need approval before sending this email.',
+        operationId: 'op-email-approval',
+        timestamp: new Date('2026-06-12T18:00:10.000Z'),
+        semanticPhase: 'assistant_tool_call',
+      },
+      {
+        id: 'assistant-final-email-sent',
+        role: 'assistant',
+        content: 'The approved email was sent successfully.',
+        operationId: 'op-email-resumed',
+        timestamp: new Date('2026-06-12T18:00:25.000Z'),
+        semanticPhase: 'assistant_final',
+      },
+    ];
+
+    const shouldPreserve = facade.shouldPreserveInlineYieldRowDuringReload({
+      message: resolvedApprovalRow,
+      messageIndex: 1,
+      allExistingMessages: [persistedRows[0]!, resolvedApprovalRow],
+      reorderedMapped: persistedRows,
+      answeredYieldOperationIdsInPersisted: new Set(['op-email-approval']),
+    });
+    const merged = facade.mergePreservedInlineYieldRows(persistedRows, [resolvedApprovalRow]);
+
+    expect(shouldPreserve).toBe(true);
+    expect(merged.map((message) => message.id)).toEqual([
+      'user-initial-email',
+      'assistant-pre-approval',
+      'yield:approval-email-123',
+      'assistant-final-email-sent',
     ]);
   });
 
