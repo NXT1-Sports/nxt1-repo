@@ -73,7 +73,10 @@ import { AGENT_X_API_BASE_URL, AGENT_X_AUTH_TOKEN_FACTORY } from './agent-x-job.
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import type { AgentXPendingFile } from '../types/agent-x-pending-file';
-import type { ConnectedAppSource } from '../components/modals/agent-x-attachments-sheet.component';
+import type {
+  ConnectedAppSource,
+  NativeAttachmentFile,
+} from '../components/modals/agent-x-attachments-sheet.component';
 
 /** sessionStorage key for in-flight operation drop-recovery. */
 const AGENT_X_PENDING_OP_KEY = 'nxt1_pending_agent_op';
@@ -1182,7 +1185,11 @@ export class AgentXService {
     let acceptedOtherCount = 0;
     let totalAcceptedBytes = 0;
 
-    for (const file of files) {
+    for (const selectedFile of files) {
+      const nativeMetadata = getNativeAttachmentMetadata(selectedFile);
+      const file = normalizeAttachmentFile(selectedFile, nativeMetadata);
+      const sizeBytes = resolveAttachmentFileSize(file);
+
       if (!AGENT_X_ALLOWED_MIME_TYPES.includes(file.type)) {
         this.toast.error(`Unsupported file type: ${file.name}`);
         this.logger.warn('Rejected unsupported file type', { name: file.name, type: file.type });
@@ -1192,21 +1199,24 @@ export class AgentXService {
       const isVideoFile = file.type.startsWith('video/');
       const maxSize = isVideoFile ? AGENT_X_MAX_VIDEO_FILE_SIZE : AGENT_X_MAX_FILE_SIZE;
       const maxLabel = formatFileSizeLabel(maxSize);
-      if (file.size > maxSize) {
+      if (sizeBytes > maxSize) {
         this.toast.error(`File too large: ${file.name} (max ${maxLabel})`);
-        this.logger.warn('Rejected oversized file', { name: file.name, sizeBytes: file.size });
+        this.logger.warn('Rejected oversized file', { name: file.name, sizeBytes });
         continue;
       }
 
       if (!isPlatformBrowser(this.platformId)) {
         const pending: AgentXPendingFile = {
           file,
+          ...(nativeMetadata.nativeUri ? { nativeUri: nativeMetadata.nativeUri } : {}),
+          ...(nativeMetadata.nativeWebPath ? { nativeWebPath: nativeMetadata.nativeWebPath } : {}),
+          ...(nativeMetadata.nativeSizeBytes ? { sizeBytes: nativeMetadata.nativeSizeBytes } : {}),
           previewUrl: null,
           type: resolveAttachmentType(file.type),
         };
         this._pendingFiles.update((list) => [...list, pending]);
         acceptedCount += 1;
-        totalAcceptedBytes += file.size;
+        totalAcceptedBytes += sizeBytes;
         switch (pending.type) {
           case 'video':
             acceptedVideoCount += 1;
@@ -1228,37 +1238,45 @@ export class AgentXService {
         // Add file immediately with no preview, then replace with canvas thumbnail
         const pending: AgentXPendingFile = {
           file,
-          previewUrl: null,
+          ...(nativeMetadata.nativeUri ? { nativeUri: nativeMetadata.nativeUri } : {}),
+          ...(nativeMetadata.nativeWebPath ? { nativeWebPath: nativeMetadata.nativeWebPath } : {}),
+          ...(nativeMetadata.nativeSizeBytes ? { sizeBytes: nativeMetadata.nativeSizeBytes } : {}),
+          previewUrl: nativeMetadata.thumbnailDataUrl ?? null,
           type: resolveAttachmentType(file.type),
         };
         this._pendingFiles.update((list) => [...list, pending]);
         acceptedCount += 1;
         acceptedVideoCount += 1;
-        totalAcceptedBytes += file.size;
+        totalAcceptedBytes += sizeBytes;
         this.logger.debug('File staged (video thumbnail pending)', { name: file.name });
-        void this.generateVideoThumbnail(file)
-          .then((thumbnailDataUrl) => {
-            this._pendingFiles.update((list) =>
-              list.map((p) =>
-                p.file === file && p.previewUrl === null
-                  ? { ...p, previewUrl: thumbnailDataUrl }
-                  : p
-              )
-            );
-          })
-          .catch(() => {
-            this.logger.warn('Video thumbnail generation failed', { name: file.name });
-          });
+        if (file.size > 0 && pending.previewUrl === null) {
+          void this.generateVideoThumbnail(file)
+            .then((thumbnailDataUrl) => {
+              this._pendingFiles.update((list) =>
+                list.map((p) =>
+                  p.file === file && p.previewUrl === null
+                    ? { ...p, previewUrl: thumbnailDataUrl }
+                    : p
+                )
+              );
+            })
+            .catch(() => {
+              this.logger.warn('Video thumbnail generation failed', { name: file.name });
+            });
+        }
       } else {
         const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
         const pending: AgentXPendingFile = {
           file,
+          ...(nativeMetadata.nativeUri ? { nativeUri: nativeMetadata.nativeUri } : {}),
+          ...(nativeMetadata.nativeWebPath ? { nativeWebPath: nativeMetadata.nativeWebPath } : {}),
+          ...(nativeMetadata.nativeSizeBytes ? { sizeBytes: nativeMetadata.nativeSizeBytes } : {}),
           previewUrl,
           type: resolveAttachmentType(file.type),
         };
         this._pendingFiles.update((list) => [...list, pending]);
         acceptedCount += 1;
-        totalAcceptedBytes += file.size;
+        totalAcceptedBytes += sizeBytes;
         if (pending.type === 'image') {
           acceptedImageCount += 1;
         } else if (pending.type === 'doc') {
@@ -2559,4 +2577,63 @@ function resolveCurrentTimeZone(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function getNativeAttachmentMetadata(
+  file: File
+): Pick<
+  NativeAttachmentFile,
+  'nativeUri' | 'nativeWebPath' | 'nativeSizeBytes' | 'thumbnailDataUrl'
+> {
+  const source = file as NativeAttachmentFile;
+  return {
+    ...(source.nativeUri ? { nativeUri: source.nativeUri } : {}),
+    ...(source.nativeWebPath ? { nativeWebPath: source.nativeWebPath } : {}),
+    ...(source.nativeSizeBytes ? { nativeSizeBytes: source.nativeSizeBytes } : {}),
+    ...(source.thumbnailDataUrl ? { thumbnailDataUrl: source.thumbnailDataUrl } : {}),
+  };
+}
+
+function normalizeAttachmentFile(
+  file: File,
+  metadata: Pick<
+    NativeAttachmentFile,
+    'nativeUri' | 'nativeWebPath' | 'nativeSizeBytes' | 'thumbnailDataUrl'
+  >
+): File {
+  const normalizedType = normalizeAttachmentMimeType(file.type);
+  if (!normalizedType || normalizedType === file.type) {
+    return file;
+  }
+
+  return Object.assign(
+    new File([file], file.name, { type: normalizedType, lastModified: file.lastModified }),
+    {
+      ...(metadata.nativeUri ? { nativeUri: metadata.nativeUri } : {}),
+      ...(metadata.nativeWebPath ? { nativeWebPath: metadata.nativeWebPath } : {}),
+      ...(metadata.nativeSizeBytes ? { nativeSizeBytes: metadata.nativeSizeBytes } : {}),
+      ...(metadata.thumbnailDataUrl ? { thumbnailDataUrl: metadata.thumbnailDataUrl } : {}),
+    }
+  );
+}
+
+function resolveAttachmentFileSize(file: File): number {
+  const nativeSizeBytes = (file as NativeAttachmentFile).nativeSizeBytes;
+  return typeof nativeSizeBytes === 'number' && nativeSizeBytes > 0 ? nativeSizeBytes : file.size;
+}
+
+function normalizeAttachmentMimeType(mimeType: string): string | null {
+  const normalized = mimeType.split(';')[0]?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (
+    normalized === 'video/mov' ||
+    normalized === 'video/qt' ||
+    normalized === 'video/x-quicktime'
+  ) {
+    return 'video/quicktime';
+  }
+  if (normalized === 'image/jpg') {
+    return 'image/jpeg';
+  }
+  return normalized;
 }

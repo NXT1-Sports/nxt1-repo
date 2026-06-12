@@ -5,7 +5,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { buildInlineYieldCard } from '../agent.worker';
-import type { AgentYieldReason } from '@nxt1/core';
+import type { AgentYieldReason, AgentYieldState } from '@nxt1/core';
 
 describe('AgentWorker :: Approval Cards', () => {
   const baseYieldArgs = {
@@ -21,18 +21,29 @@ describe('AgentWorker :: Approval Cards', () => {
     toolName: string;
     toolInput: Record<string, unknown>;
   }) {
+    const yieldState: AgentYieldState = {
+      reason: baseYieldArgs.reason,
+      promptToUser: baseYieldArgs.promptToUser,
+      agentId: baseYieldArgs.agentId,
+      messages: [],
+      pendingToolCall: {
+        toolName: pendingToolCall.toolName,
+        toolInput: pendingToolCall.toolInput,
+        toolCallId: 'tool-call-1',
+      },
+      approvalId: baseYieldArgs.approvalId,
+      yieldedAt: '2026-06-12T00:00:00.000Z',
+      expiresAt: '2026-06-13T00:00:00.000Z',
+    };
     const card = buildInlineYieldCard({
       yieldPayload: {
         reason: baseYieldArgs.reason,
         promptToUser: baseYieldArgs.promptToUser,
         agentId: baseYieldArgs.agentId,
         approvalId: baseYieldArgs.approvalId,
-        pendingToolCall: {
-          toolName: pendingToolCall.toolName,
-          toolInput: pendingToolCall.toolInput,
-          toolCallId: 'tool-call-1',
-        },
+        pendingToolCall: yieldState.pendingToolCall,
       },
+      yieldState,
       operationId: baseYieldArgs.operationId,
       threadId: 'thread-1',
     });
@@ -61,6 +72,16 @@ describe('AgentWorker :: Approval Cards', () => {
       expect(card.payload.emailData.subject).toBe('Schedule Update');
       expect(card.payload.actions[0].label).toBe('Reject');
       expect(card.payload.actions[1].label).toBe('Send');
+      expect(card.payload.yieldState).toEqual(
+        expect.objectContaining({
+          reason: 'needs_approval',
+          approvalId: 'approval-123',
+          pendingToolCall: expect.objectContaining({
+            toolName: 'send_email',
+            toolCallId: 'tool-call-1',
+          }),
+        })
+      );
     });
 
     it('should handle missing optional email fields gracefully', () => {

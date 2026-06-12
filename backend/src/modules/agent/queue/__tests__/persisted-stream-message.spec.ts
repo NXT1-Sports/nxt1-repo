@@ -143,4 +143,66 @@ describe('PersistedAssistantStreamBuilder', () => {
       },
     ]);
   });
+
+  it('preserves yield state embedded in confirmation cards', () => {
+    const builder = new PersistedAssistantStreamBuilder();
+
+    builder.process({
+      type: 'card',
+      agentId: 'recruiting_coordinator',
+      cardData: {
+        type: 'confirmation',
+        agentId: 'recruiting_coordinator',
+        title: 'Review and Approve Email',
+        payload: {
+          message: 'Review this email before sending.',
+          variant: 'email',
+          actions: [
+            { id: 'reject', label: 'Reject', variant: 'secondary' },
+            { id: 'approve', label: 'Send', variant: 'primary' },
+          ],
+          approvalId: 'approval-123',
+          toolCallId: 'tool-call-1',
+          operationId: 'op-456',
+          yieldState: {
+            reason: 'needs_approval',
+            promptToUser: 'Review this email before sending.',
+            agentId: 'recruiting_coordinator',
+            messages: [],
+            pendingToolCall: {
+              toolName: 'send_email',
+              toolInput: { toEmail: 'coach@example.com', subject: 'Hello' },
+              toolCallId: 'tool-call-1',
+            },
+            approvalId: 'approval-123',
+            yieldedAt: '2026-06-12T00:00:00.000Z',
+            expiresAt: '2026-06-13T00:00:00.000Z',
+          },
+        },
+      },
+    });
+
+    const snapshot = builder.snapshot();
+    const cardPart = snapshot.parts.find((part) => part.type === 'card');
+
+    expect(cardPart).toEqual(
+      expect.objectContaining({
+        type: 'card',
+        card: expect.objectContaining({
+          type: 'confirmation',
+          payload: expect.objectContaining({
+            approvalId: 'approval-123',
+            yieldState: expect.objectContaining({
+              reason: 'needs_approval',
+              approvalId: 'approval-123',
+              pendingToolCall: expect.objectContaining({
+                toolName: 'send_email',
+                toolCallId: 'tool-call-1',
+              }),
+            }),
+          }),
+        }),
+      })
+    );
+  });
 });

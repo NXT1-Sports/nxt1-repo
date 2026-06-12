@@ -176,10 +176,7 @@ export class PersistedAssistantStreamBuilder {
       }
 
       case 'card': {
-        const rawCard = event.cardData
-          ? sanitizeAgentPayload(event.cardData as unknown as Record<string, unknown>)
-          : null;
-        const card = toRichCard(rawCard, event.agentId);
+        const card = toRichCard(event.cardData, event.agentId);
         if (card) {
           this.parts.push({ type: 'card', card });
           this.partAgentIds.push(event.agentId);

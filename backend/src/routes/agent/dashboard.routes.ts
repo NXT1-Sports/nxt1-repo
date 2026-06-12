@@ -4712,7 +4712,7 @@ router.post('/upload/promote', appGuard, async (req: Request, res: Response) => 
 // uses the returned read URL as the attachment URL — which MediaTransportResolver
 // already treats as isDirectlyPortable (no Cloudflare re-encoding wait).
 //
-// Body: { fileName: string, mimeType: string, fileSize: number, threadId?: string }
+// Body: { fileName: string, mimeType: string, fileSize: number, threadId?: string, nativeUpload?: boolean }
 // Returns: { uploadUrl, readUrl, storagePath, expiresAt }
 router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res: Response) => {
   try {
@@ -4722,11 +4722,12 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
       return;
     }
 
-    const { fileName, mimeType, fileSize, threadId } = req.body as {
+    const { fileName, mimeType, fileSize, threadId, nativeUpload } = req.body as {
       fileName?: unknown;
       mimeType?: unknown;
       fileSize?: unknown;
       threadId?: unknown;
+      nativeUpload?: unknown;
     };
 
     // ── Validate inputs ───────────────────────────────────────────────────
@@ -4746,7 +4747,8 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
       res.status(400).json({ success: false, error: 'fileSize must be a positive number' });
       return;
     }
-    if (fileSize >= AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES) {
+    const isNativeUpload = nativeUpload === true;
+    if (!isNativeUpload && fileSize >= AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES) {
       res.status(413).json({
         success: false,
         error: `Videos ${formatSizeLabel(AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES)} and larger must use Cloudflare Stream TUS.`,
@@ -4810,6 +4812,7 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
       threadId: resolvedThreadId ?? 'unbound',
       mimeType,
       fileSize,
+      nativeUpload: isNativeUpload,
       storagePath,
       uploadExpiresAt: new Date(uploadExpiresAtMs).toISOString(),
       readExpiresAt: new Date(readExpiresAtMs).toISOString(),

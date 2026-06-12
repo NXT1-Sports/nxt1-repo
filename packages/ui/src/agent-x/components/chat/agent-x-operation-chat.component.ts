@@ -2111,6 +2111,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   protected readonly promptInputPendingFiles = computed<readonly AgentXPendingFile[]>(() =>
     this.pendingFiles().map((pf) => ({
       file: pf.file,
+      ...(pf.nativeUri ? { nativeUri: pf.nativeUri } : {}),
+      ...(pf.nativeWebPath ? { nativeWebPath: pf.nativeWebPath } : {}),
+      ...(pf.sizeBytes ? { sizeBytes: pf.sizeBytes } : {}),
       previewUrl: pf.previewUrl,
       type: resolveAttachmentType(pf.file.type),
     }))

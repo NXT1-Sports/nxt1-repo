@@ -1267,7 +1267,9 @@ export class AgentXOperationChatSessionFacade {
     }
 
     if (host.initialFiles().length > 0) {
-      this.attachmentsFacade.pendingFiles.set([...host.initialFiles()]);
+      const initialFiles = [...host.initialFiles()];
+      this.attachmentsFacade.pendingFiles.set(initialFiles);
+      this.attachmentsFacade.primeInitialFiles(initialFiles);
     }
 
     if (host.initialConnectedSources().length > 0) {

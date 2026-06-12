@@ -29,6 +29,7 @@
  */
 
 import { Worker, Job, UnrecoverableError } from 'bullmq';
+import { getFirestore } from 'firebase-admin/firestore';
 import type {
   AgentIdentifier,
   AgentJobPayload,
@@ -701,11 +702,15 @@ export function buildInlineYieldCard(params: {
     };
     approvalId?: string;
   };
+  yieldState?: AgentYieldState;
   operationId: string;
   threadId?: string;
 }): AgentXRichCard | null {
   const { yieldPayload, operationId, threadId } = params;
   const { reason, promptToUser, agentId, pendingToolCall, approvalId } = yieldPayload;
+  const yieldPayloadFields = {
+    ...(params.yieldState ? { yieldState: params.yieldState } : {}),
+  };
 
   // ── Approval cards ────────────────────────────────────────────────────
   if (reason === 'needs_approval' && pendingToolCall && approvalId) {
@@ -734,6 +739,7 @@ export function buildInlineYieldCard(params: {
           approvalId,
           toolCallId: pendingToolCall.toolCallId,
           operationId,
+          ...yieldPayloadFields,
         },
       };
     }
@@ -762,6 +768,7 @@ export function buildInlineYieldCard(params: {
             approvalId,
             toolCallId: pendingToolCall.toolCallId,
             operationId,
+            ...yieldPayloadFields,
           },
         };
       }
@@ -840,6 +847,7 @@ export function buildInlineYieldCard(params: {
             approvalId,
             toolCallId: pendingToolCall.toolCallId,
             operationId,
+            ...yieldPayloadFields,
           },
         };
       }
@@ -875,6 +883,7 @@ export function buildInlineYieldCard(params: {
         approvalId,
         toolCallId: pendingToolCall.toolCallId,
         operationId,
+        ...yieldPayloadFields,
       },
     };
   }
@@ -897,6 +906,7 @@ export function buildInlineYieldCard(params: {
         question: promptToUser,
         ...(threadId ? { threadId } : {}),
         operationId,
+        ...yieldPayloadFields,
       },
     };
   }
@@ -976,7 +986,7 @@ export class AgentWorker {
   private getUserFirestore(
     job: Job<AgentQueueJobData, AgentQueueJobResult>
   ): FirebaseFirestore.Firestore | undefined {
-    return job.data.environment === 'staging' ? this.stagingFirestore : undefined;
+    return job.data.environment === 'staging' ? this.stagingFirestore : getFirestore();
   }
 
   private async getAgentConfigFirestore(
@@ -986,7 +996,6 @@ export class AgentWorker {
       return this.stagingFirestore;
     }
 
-    const { getFirestore } = await import('firebase-admin/firestore');
     return getFirestore();
   }
 
@@ -997,7 +1006,6 @@ export class AgentWorker {
     if (job.data.environment === 'staging' && this.stagingFirestore) {
       return this.stagingFirestore;
     }
-    const { getFirestore } = await import('firebase-admin/firestore');
     return getFirestore();
   }
 
@@ -2390,6 +2398,7 @@ export class AgentWorker {
         try {
           const inlineCard = buildInlineYieldCard({
             yieldPayload,
+            yieldState,
             operationId: payload.operationId,
             threadId,
           });
