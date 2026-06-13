@@ -49,6 +49,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
+import { interval } from 'rxjs';
 
 import { NxtIconComponent } from '../../components/icon';
 import { NxtStateViewComponent } from '../../components/state-view';
@@ -159,6 +160,7 @@ export interface AgentXUser {
 
 export interface AgentXConnectedAccountsSaveRequest {
   readonly linkSources: LinkSourcesFormData;
+  readonly disconnectedSignInProviders?: readonly string[];
   readonly requestResync?: boolean;
   readonly resyncSources?: readonly ConnectedAccountsResyncSource[];
 }
@@ -4570,6 +4572,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly platform = inject(NxtPlatformService);
   private readonly selectedCoordinatorLabel = signal<string | null>(null);
   private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
+  private readonly activeThreadRefreshKeys = new Set<string>();
   protected readonly mobileComposerCanSend = computed(() => this.agentX.canSend());
   private desktopSessionCounter = 0;
 
@@ -4607,6 +4610,25 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
           this.activeDesktopSession.set({ ...current, contextTitle: evt.title });
         }
       });
+
+    this.operationEventService.threadMessagesUpdated$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((evt) => {
+        const current = this.activeDesktopSession();
+        const activeThreadId = current?.threadId?.trim() ?? '';
+        if (!activeThreadId || activeThreadId !== evt.threadId) return;
+
+        this.requestActiveThreadRefresh(evt.threadId, evt.source, evt.operationId, evt.status);
+      });
+
+    interval(60_000)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe(() => {
+        const threadId = this.activeDesktopSession()?.threadId?.trim() ?? '';
+        if (!threadId || !this.operationsLog()?.hasRecurringTaskForThread(threadId)) return;
+
+        this.requestActiveThreadRefresh(threadId, 'recurring-poll');
+      });
   }
 
   ngOnDestroy(): void {
@@ -4618,6 +4640,47 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     if (this.liveView.activeSession()) {
       this.liveView.closePanel();
     }
+  }
+
+  @HostListener('window:focus')
+  protected onWindowFocus(): void {
+    const threadId = this.activeDesktopSession()?.threadId?.trim() ?? '';
+    if (!threadId || !this.operationsLog()?.hasRecurringTaskForThread(threadId)) return;
+
+    this.requestActiveThreadRefresh(threadId, 'window-focus');
+  }
+
+  private requestActiveThreadRefresh(
+    threadId: string,
+    source: string,
+    operationId?: string,
+    status?: string
+  ): void {
+    const refreshKey = operationId?.trim() ? `${threadId}:${operationId.trim()}` : threadId;
+    if (this.activeThreadRefreshKeys.has(refreshKey)) return;
+
+    this.activeThreadRefreshKeys.add(refreshKey);
+    void this.agentX
+      .refreshThread(threadId)
+      .then(() => {
+        this.logger.info('Refreshed active thread after background update', {
+          threadId,
+          operationId,
+          source,
+          status,
+        });
+      })
+      .catch((err: unknown) => {
+        this.logger.error('Failed to refresh active thread after background update', err, {
+          threadId,
+          operationId,
+          source,
+          status,
+        });
+      })
+      .finally(() => {
+        this.activeThreadRefreshKeys.delete(refreshKey);
+      });
   }
 
   /** Agent X SVG logo path data for inline icon rendering. */
@@ -5721,6 +5784,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     if (result.linkSources) {
       this.connectedAccountsSave.emit({
         linkSources: result.linkSources,
+        disconnectedSignInProviders: result.disconnectedSignInProviders ?? [],
         requestResync: result.resync === true,
         resyncSources: result.sources ?? [],
       });
@@ -5901,6 +5965,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     const initialFiles = servicePendingFiles.map((f) => ({
       id: crypto.randomUUID(),
       file: f.file,
+      ...(f.nativeUri ? { nativeUri: f.nativeUri } : {}),
+      ...(f.nativeWebPath ? { nativeWebPath: f.nativeWebPath } : {}),
+      ...(f.sizeBytes ? { sizeBytes: f.sizeBytes } : {}),
       previewUrl: f.previewUrl,
       isImage: f.type === 'image',
       isVideo: f.type === 'video',
@@ -6536,6 +6603,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     const initialFiles = servicePendingFiles.map((f) => ({
       id: crypto.randomUUID(),
       file: f.file,
+      ...(f.nativeUri ? { nativeUri: f.nativeUri } : {}),
+      ...(f.nativeWebPath ? { nativeWebPath: f.nativeWebPath } : {}),
+      ...(f.sizeBytes ? { sizeBytes: f.sizeBytes } : {}),
       previewUrl: f.previewUrl,
       isImage: f.type === 'image',
       isVideo: f.type === 'video',
@@ -6611,6 +6681,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     const initialFiles = servicePendingFiles.map((f) => ({
       id: crypto.randomUUID(),
       file: f.file,
+      ...(f.nativeUri ? { nativeUri: f.nativeUri } : {}),
+      ...(f.nativeWebPath ? { nativeWebPath: f.nativeWebPath } : {}),
+      ...(f.sizeBytes ? { sizeBytes: f.sizeBytes } : {}),
       previewUrl: f.previewUrl,
       isImage: f.type === 'image',
       isVideo: f.type === 'video',
@@ -6758,12 +6831,16 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         firebaseProviders: user?.firebaseProviders ?? [],
       })?.links ?? [];
 
-    const withFavicons = linkedSources.map((source) => {
+    const withFavicons = linkedSources.flatMap((source) => {
+      if (!this.isSelectableAttachmentSourcePlatform(source.platform)) {
+        return [];
+      }
+
       const favicon =
         (source as { faviconUrl?: string }).faviconUrl ??
         getPlatformFaviconUrl(source.platform.toLowerCase()) ??
         undefined;
-      return { ...source, faviconUrl: favicon } as ConnectedAppSource;
+      return [{ ...source, faviconUrl: favicon } as ConnectedAppSource];
     });
 
     const attachmentSourcesMap = new Map<string, ConnectedAppSource>();
@@ -6774,6 +6851,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
     for (const link of linkSources) {
       if (!link.connected) {
+        continue;
+      }
+      if (!this.isSelectableAttachmentSourcePlatform(link.platform)) {
         continue;
       }
 
@@ -6798,6 +6878,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       (user as { connectedAccounts?: Record<string, unknown> } | null)?.connectedAccounts ?? {};
     if (connectedAccounts && typeof connectedAccounts === 'object') {
       for (const [platform, accountRaw] of Object.entries(connectedAccounts)) {
+        if (!this.isSelectableAttachmentSourcePlatform(platform)) {
+          continue;
+        }
+
         const account =
           accountRaw && typeof accountRaw === 'object'
             ? (accountRaw as Record<string, unknown>)
@@ -6830,6 +6914,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     }
 
     for (const platform of this.firecrawlSignedInPlatforms()) {
+      if (!this.isSelectableAttachmentSourcePlatform(platform)) {
+        continue;
+      }
+
       const normalizedPlatform = platform.toLowerCase();
       const inferredSource: ConnectedAppSource = {
         platform: normalizedPlatform,
@@ -6891,6 +6979,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       return 'twitter';
     }
     return normalized;
+  }
+
+  private isSelectableAttachmentSourcePlatform(platform: string): boolean {
+    return this.normalizeAttachmentPlatformKey(platform) !== 'nxt1';
   }
 
   private resolveAttachmentProfileUrl(platform: string, url?: string): string {

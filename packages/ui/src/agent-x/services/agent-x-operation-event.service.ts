@@ -64,6 +64,21 @@ export interface ThreadTitleUpdatedEvent {
   readonly operationId?: string;
 }
 
+/** Emitted when persisted thread messages changed and the open thread should refresh. */
+export interface ThreadMessagesUpdatedEvent {
+  readonly threadId: string;
+  readonly source: 'chat' | 'enqueue' | 'operations-log';
+  readonly operationId?: string;
+  readonly status?: OperationLogStatus;
+}
+
+/** Emitted when the operations log should re-fetch backend-only session state. */
+export interface OperationsLogRefreshRequestedEvent {
+  readonly source: 'chat-response-complete' | 'operations-log';
+  readonly threadId?: string;
+  readonly retryDelaysMs?: readonly number[];
+}
+
 /** Emitted when an operation's status changes during the /chat SSE stream. */
 export interface OperationStatusUpdatedEvent {
   readonly threadId: string;
@@ -424,6 +439,13 @@ export class AgentXOperationEventService {
   private readonly _titleUpdated$ = new Subject<ThreadTitleUpdatedEvent>();
   readonly titleUpdated$ = this._titleUpdated$.asObservable();
 
+  private readonly _threadMessagesUpdated$ = new Subject<ThreadMessagesUpdatedEvent>();
+  readonly threadMessagesUpdated$ = this._threadMessagesUpdated$.asObservable();
+
+  private readonly _operationsLogRefreshRequested$ =
+    new Subject<OperationsLogRefreshRequestedEvent>();
+  readonly operationsLogRefreshRequested$ = this._operationsLogRefreshRequested$.asObservable();
+
   /**
    * Observable that emits when an operation's status changes during the /chat SSE stream.
    * The operations log component subscribes to this to update entry statuses in real-time
@@ -594,6 +616,62 @@ export class AgentXOperationEventService {
         source,
         ...(normalizedOperationId ? { operationId: normalizedOperationId } : {}),
         ...(title ? { title } : {}),
+      })
+    );
+  }
+
+  /**
+   * Emit a thread-messages-updated event so the shell can refresh an already-open
+   * thread after an out-of-band background completion lands in persisted storage.
+   */
+  emitThreadMessagesUpdated(
+    threadId: string,
+    source: 'chat' | 'enqueue' | 'operations-log' = 'chat',
+    operationId?: string,
+    status?: OperationLogStatus
+  ): void {
+    const resolvedThreadId = threadId.trim();
+    if (!resolvedThreadId) return;
+
+    const normalizedOperationId = operationId?.trim() || undefined;
+    this.logger.debug('Emitting thread messages update', {
+      threadId: resolvedThreadId,
+      operationId: normalizedOperationId,
+      source,
+      status,
+    });
+    this.ngZone.run(() =>
+      this._threadMessagesUpdated$.next({
+        threadId: resolvedThreadId,
+        source,
+        ...(normalizedOperationId ? { operationId: normalizedOperationId } : {}),
+        ...(status ? { status } : {}),
+      })
+    );
+  }
+
+  /**
+   * Emit a refresh request so operations-log consumers can re-fetch recurring
+   * task metadata and other backend-only session state that does not arrive over SSE.
+   */
+  emitOperationsLogRefreshRequested(
+    source: 'chat-response-complete' | 'operations-log' = 'chat-response-complete',
+    threadId?: string,
+    retryDelaysMs?: readonly number[]
+  ): void {
+    const resolvedThreadId = threadId?.trim() || undefined;
+
+    this.logger.debug('Emitting operations log refresh request', {
+      source,
+      threadId: resolvedThreadId,
+      retryDelaysMs,
+    });
+
+    this.ngZone.run(() =>
+      this._operationsLogRefreshRequested$.next({
+        source,
+        ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
+        ...(retryDelaysMs ? { retryDelaysMs: [...retryDelaysMs] } : {}),
       })
     );
   }

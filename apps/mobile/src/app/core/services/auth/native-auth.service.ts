@@ -32,7 +32,7 @@
  * @module @nxt1/mobile/features/auth
  */
 import { Injectable, inject } from '@angular/core';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import {
   SignInWithApple,
   SignInWithAppleOptions,
@@ -48,6 +48,12 @@ import { environment } from 'src/environments/environment';
 
 /** Timeout for native auth operations (ms) */
 const NATIVE_AUTH_TIMEOUT = 60000;
+
+interface NativeConfigPlugin {
+  getMicrosoftAuthConfig(): Promise<{ androidKeyHash?: string }>;
+}
+
+const NativeConfig = registerPlugin<NativeConfigPlugin>('NativeConfig');
 
 /**
  * Native Auth Service
@@ -337,6 +343,7 @@ export class NativeAuthService {
     try {
       this.logger.info('Starting Microsoft Sign-In via native MSAL SDK');
       await this.haptics.selection();
+      const keyHash = await this.getMicrosoftAndroidKeyHash();
 
       // Use MSAL directly to get native Microsoft tokens.
       // Firebase credential exchange is handled by FirebaseAuthService via
@@ -346,13 +353,14 @@ export class NativeAuthService {
       // Clear cached MSAL session first to force the account picker UI.
       // Without this, MSAL silently reuses the cached account and skips the picker.
       try {
-        await MsAuthPlugin.logout({ clientId: environment.msClientId });
+        await MsAuthPlugin.logout({ clientId: environment.msClientId, keyHash });
       } catch {
         // Ignore logout errors — no cached account is fine
       }
 
       const result = await MsAuthPlugin.login({
         clientId: environment.msClientId,
+        keyHash,
         // Use only User.Read for sign-in. MSAL automatically includes openid/profile/email
         // OIDC scopes so the idToken contains preferred_username/name claims.
         // Mail.Send and Mail.Read are admin-consent scopes that cannot be combined
@@ -401,6 +409,22 @@ export class NativeAuthService {
       this.logger.error('Microsoft Sign-In error', error);
       throw error;
     }
+  }
+
+  private async getMicrosoftAndroidKeyHash(): Promise<string | undefined> {
+    if (Capacitor.getPlatform() !== 'android') {
+      return undefined;
+    }
+
+    const config = await NativeConfig.getMicrosoftAuthConfig();
+    const keyHash = config.androidKeyHash?.trim();
+    if (!keyHash) {
+      throw new Error(
+        'Microsoft Sign-In is missing Android key hash configuration. Set msauthKeyHash in apps/mobile/android/gradle.properties to the Azure-registered signature hash.'
+      );
+    }
+
+    return keyHash;
   }
 
   // ============================================

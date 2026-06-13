@@ -116,6 +116,8 @@ export interface AgentArtifactHandoff {
   readonly imageUrl?: string;
   readonly diagramUrl?: string;
   readonly logoUrl?: string;
+  /** Provider/model slug used to generate the artifact when available. */
+  readonly model?: string;
   readonly storagePath?: string;
   readonly cloudflareVideoId?: string;
   readonly videoUrl?: string;
@@ -375,6 +377,8 @@ export interface AgentSessionContext {
   readonly environment?: 'staging' | 'production';
   /** Public app origin for environment-aware NXT1 URLs, including localhost during development. */
   readonly appBaseUrl?: string;
+  /** User/client IANA timezone for deterministic relative-date and schedule calculations. */
+  readonly timezone?: string;
   /** The job/operation ID — threaded into LLM calls as Helicone-Property-Job-Id for cost tracking. */
   readonly operationId?: string;
   /** The MongoDB thread ID for the current conversation. Used by tools for thread-scoped storage. */

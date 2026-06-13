@@ -454,6 +454,10 @@ export class RosterEntryService {
 
     logger.info('[RosterEntryService] Roster entry created', { entryId: docRef.id });
 
+    if ((entryData['status'] as RosterEntryStatus | undefined) === RosterEntryStatus.ACTIVE) {
+      await this.syncUserSportTeamField(input.userId, normalizedSport, input.teamId, input.teamId);
+    }
+
     // Invalidate caches
     await this.invalidateCaches(input.userId, input.teamId, input.organizationId);
 
@@ -694,14 +698,26 @@ export class RosterEntryService {
 
     const entry = await this.getRosterEntryById(entryId);
 
-    await this.db.collection(this.COLLECTION).doc(entryId).update({
+    if (entry.status === RosterEntryStatus.REMOVED) {
+      await this.invalidateCaches(entry.userId, entry.teamId, entry.organizationId, entryId);
+      return;
+    }
+
+    const counterField = normalizeRole(entry.role) === 'athlete' ? 'athleteMember' : 'panelMember';
+    const batch = this.db.batch();
+    batch.update(this.db.collection(this.COLLECTION).doc(entryId), {
       status: RosterEntryStatus.REMOVED,
       leftAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     });
+    batch.update(this.db.collection('Teams').doc(entry.teamId), {
+      [counterField]: FieldValue.increment(-1),
+    });
+
+    await batch.commit();
 
     // Bidirectional sync — clear sports[n].team on user doc
-    await this.syncUserSportTeamField(entry.userId, entry.sport, null);
+    await this.syncUserSportTeamField(entry.userId, entry.sport, null, entry.teamId);
 
     await this.invalidateCaches(entry.userId, entry.teamId, entry.organizationId, entryId);
   }
@@ -1019,7 +1035,8 @@ export class RosterEntryService {
   private async syncUserSportTeamField(
     userId: string,
     sport: string | undefined,
-    teamId: string | null
+    teamId: string | null,
+    matchTeamId?: string
   ): Promise<void> {
     if (!userId || !sport) return;
 
@@ -1033,31 +1050,81 @@ export class RosterEntryService {
         ? (userData['sports'] as Record<string, unknown>[])
         : [];
 
+      let syncedTeamData: Record<string, unknown> | null = null;
+      if (teamId !== null) {
+        const teamSnap = await this.db.collection('Teams').doc(teamId).get();
+        const teamData = teamSnap.data() as Record<string, unknown> | undefined;
+        syncedTeamData = {
+          teamId,
+          ...(typeof teamData?.['organizationId'] === 'string' && teamData['organizationId'].trim()
+            ? { organizationId: teamData['organizationId'].trim() }
+            : {}),
+          ...(typeof teamData?.['teamName'] === 'string' && teamData['teamName'].trim()
+            ? { name: teamData['teamName'].trim() }
+            : typeof teamData?.['name'] === 'string' && teamData['name'].trim()
+              ? { name: teamData['name'].trim() }
+              : {}),
+          ...(typeof teamData?.['teamType'] === 'string' && teamData['teamType'].trim()
+            ? { type: teamData['teamType'].trim() }
+            : {}),
+          ...(typeof teamData?.['teamCode'] === 'string' && teamData['teamCode'].trim()
+            ? { teamCode: teamData['teamCode'].trim() }
+            : {}),
+        };
+      }
+
       if (sports.length === 0) return;
 
       const normalizedSport = sport.trim().toLowerCase();
-      let matchedIndex = -1;
-      for (let i = 0; i < sports.length; i++) {
-        const s = sports[i];
-        const sportName = typeof s['sport'] === 'string' ? s['sport'].trim().toLowerCase() : '';
-        if (sportName === normalizedSport) {
-          matchedIndex = i;
-          break;
-        }
-      }
+      const normalizedMatchTeamId = matchTeamId?.trim();
+      const matchedIndexes = sports
+        .map((sportEntry, index) => ({ sportEntry, index }))
+        .filter(({ sportEntry }) => {
+          const sportName =
+            typeof sportEntry['sport'] === 'string' ? sportEntry['sport'].trim().toLowerCase() : '';
+          const existingTeam =
+            typeof sportEntry['team'] === 'object' && sportEntry['team'] !== null
+              ? (sportEntry['team'] as Record<string, unknown>)
+              : undefined;
+          const existingTeamId =
+            typeof existingTeam?.['teamId'] === 'string' ? existingTeam['teamId'].trim() : '';
 
-      if (matchedIndex === -1) return;
+          if (normalizedMatchTeamId && existingTeamId === normalizedMatchTeamId) {
+            return true;
+          }
+
+          if (teamId === null && normalizedMatchTeamId) {
+            return !existingTeamId && sportName === normalizedSport;
+          }
+
+          return sportName === normalizedSport;
+        })
+        .map(({ index }) => index);
+
+      if (matchedIndexes.length === 0) return;
 
       // Firestore does not support partial array element updates directly —
       // we overwrite the full array with the one field changed.
       const updatedSports = sports.map((s, idx) => {
-        if (idx !== matchedIndex) return s;
+        if (!matchedIndexes.includes(idx)) return s;
         if (teamId === null) {
           const { team: _removed, ...rest } = s as Record<string, unknown> & { team?: unknown };
           void _removed;
           return rest;
         }
-        return { ...s, team: { teamId } };
+
+        const existingTeam =
+          typeof s['team'] === 'object' && s['team'] !== null
+            ? (s['team'] as Record<string, unknown>)
+            : {};
+
+        return {
+          ...s,
+          team: {
+            ...existingTeam,
+            ...(syncedTeamData ?? { teamId }),
+          },
+        };
       });
 
       await userRef.update({

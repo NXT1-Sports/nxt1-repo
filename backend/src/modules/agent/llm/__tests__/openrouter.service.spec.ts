@@ -167,6 +167,55 @@ describe('OpenRouterService', () => {
     expect(body.model).toBe('openai/gpt-4o');
   });
 
+  it('should keep explicit free model overrides at zero estimated cost', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ...MOCK_RESPONSE,
+          model: 'nvidia/nemotron-3-super-120b-a12b-20230311:free',
+          usage: {
+            prompt_tokens: 438,
+            completion_tokens: 700,
+            total_tokens: 1138,
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    const result = await service.complete([{ role: 'user', content: 'test' }], {
+      tier: 'task_automation',
+      modelOverride: 'nvidia/nemotron-3-super-120b-a12b:free',
+    });
+
+    expect(result.model).toBe('nvidia/nemotron-3-super-120b-a12b-20230311:free');
+    expect(result.costUsd).toBe(0);
+  });
+
+  it('should trust API-reported zero cost', async () => {
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ...MOCK_RESPONSE,
+          usage: {
+            prompt_tokens: 438,
+            completion_tokens: 700,
+            total_tokens: 1138,
+            cost: 0,
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    const result = await service.complete([{ role: 'user', content: 'test' }], {
+      tier: 'task_automation',
+      modelOverride: 'openai/gpt-4o',
+    });
+
+    expect(result.costUsd).toBe(0);
+  });
+
   it('should honor runtime model routing from cached agent config', async () => {
     setCachedAgentAppConfig({
       ...DEFAULT_AGENT_APP_CONFIG,
@@ -249,6 +298,175 @@ describe('OpenRouterService', () => {
     expect(fetchSpy).toHaveBeenCalledWith(imageUrl, {
       signal: undefined,
     });
+  });
+
+  it('should prefer direct OpenAI image generation when OPENAI_API_KEY is present', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'openai-key-456');
+    vi.stubEnv('HELICONE_API_KEY', 'helicone-key-789');
+    const openAiService = new OpenRouterService({
+      hydrateAgentConfig: async () => undefined,
+    });
+
+    fetchSpy.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          model: 'gpt-5.5',
+          output: [
+            {
+              type: 'image_generation_call',
+              result: 'ZmFrZS1pbWFnZS1iYXNlNjQ=',
+              revised_prompt: 'A tiny cat sitting in studio light.',
+            },
+          ],
+          usage: {
+            prompt_tokens: 12,
+            completion_tokens: 34,
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }
+      )
+    );
+
+    const result = await openAiService.generateImage({
+      prompt: 'A tiny cat',
+      referenceImageUrl: 'https://example.com/ref.png',
+      additionalImageUrls: ['https://example.com/logo.png'],
+      telemetryContext: {
+        operationId: 'op-image-123',
+        userId: 'user-123',
+        agentId: 'brand_coordinator',
+        feature: 'generate-graphic',
+      },
+    });
+
+    const [url, options] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://ai-gateway.helicone.ai/v1/responses');
+    expect((options.headers as Record<string, string>)['Authorization']).toBe(
+      'Bearer helicone-key-789'
+    );
+    expect((options.headers as Record<string, string>)['Helicone-Session-Id']).toBe('op-image-123');
+    expect((options.headers as Record<string, string>)['Helicone-Property-feature']).toBe(
+      'generate-graphic'
+    );
+
+    const body = JSON.parse(options.body as string);
+    expect(body.model).toBe('gpt-5.5/openai');
+    expect(body.tools).toEqual([{ type: 'image_generation', action: 'edit' }]);
+    expect(body.input[0].content).toEqual([
+      { type: 'input_text', text: 'A tiny cat' },
+      { type: 'input_image', image_url: 'https://example.com/ref.png' },
+      { type: 'input_image', image_url: 'https://example.com/logo.png' },
+    ]);
+
+    expect(result.imageBase64).toBe('ZmFrZS1pbWFnZS1iYXNlNjQ=');
+    expect(result.textContent).toBe('A tiny cat sitting in studio light.');
+    expect(result.model).toBe('openai/gpt-5.5');
+    expect(result.usage.inputTokens).toBe(12);
+    expect(result.usage.outputTokens).toBe(34);
+    expect(result.costUsd).toBeCloseTo(0.000546, 8);
+  });
+
+  it('should fall back to Gemini via OpenRouter when direct OpenAI image generation fails', async () => {
+    vi.stubEnv('OPENAI_API_KEY', 'openai-key-456');
+    setCachedAgentAppConfig({
+      ...DEFAULT_AGENT_APP_CONFIG,
+      modelRouting: {
+        ...DEFAULT_AGENT_APP_CONFIG.modelRouting,
+        catalogue: {
+          ...DEFAULT_AGENT_APP_CONFIG.modelRouting.catalogue,
+          image_generation: 'openai/gpt-5.4-image-2',
+        },
+        fallbackChains: {
+          ...DEFAULT_AGENT_APP_CONFIG.modelRouting.fallbackChains,
+          image_generation: ['google/gemini-3-pro-image-preview'],
+        },
+      },
+    });
+
+    const openAiService = new OpenRouterService({
+      hydrateAgentConfig: async () => undefined,
+    });
+
+    fetchSpy
+      .mockResolvedValueOnce(
+        new Response('upstream image model unavailable', {
+          status: 500,
+          headers: { 'Content-Type': 'text/plain' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            model: 'google/gemini-3-pro-image-preview',
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content: 'Fallback image result',
+                  images: [
+                    {
+                      image_url: {
+                        url: 'data:image/png;base64,ZmFrZS1nZW1pbmktaW1hZ2U=',
+                      },
+                    },
+                  ],
+                },
+                finish_reason: 'stop',
+              },
+            ],
+            usage: {
+              prompt_tokens: 21,
+              completion_tokens: 9,
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          }
+        )
+      );
+
+    const result = await openAiService.generateImage({
+      prompt: 'Create an athlete commitment graphic',
+      referenceImageUrl: 'https://example.com/athlete.png',
+      additionalImageUrls: ['https://example.com/logo.png'],
+    });
+
+    const [firstUrl, firstOptions] = fetchSpy.mock.calls[0] as [string, RequestInit];
+    expect(firstUrl).toBe('https://api.openai.com/v1/responses');
+    const firstBody = JSON.parse(firstOptions.body as string);
+    expect(firstBody.tools).toEqual([{ type: 'image_generation', action: 'edit' }]);
+    expect(firstBody.input[0].content).toEqual([
+      { type: 'input_text', text: 'Create an athlete commitment graphic' },
+      { type: 'input_image', image_url: 'https://example.com/athlete.png' },
+      { type: 'input_image', image_url: 'https://example.com/logo.png' },
+    ]);
+
+    const [secondUrl, secondOptions] = fetchSpy.mock.calls[1] as [string, RequestInit];
+    expect(secondUrl).toBe('https://openrouter.ai/api/v1/chat/completions');
+    const secondBody = JSON.parse(secondOptions.body as string);
+    expect(secondBody.model).toBe('google/gemini-3-pro-image-preview');
+    expect(secondBody.modalities).toEqual(['text', 'image']);
+    expect(secondBody.messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: 'https://example.com/athlete.png' } },
+          { type: 'image_url', image_url: { url: 'https://example.com/logo.png' } },
+          { type: 'text', text: 'Create an athlete commitment graphic' },
+        ],
+      },
+    ]);
+
+    expect(result.model).toBe('google/gemini-3-pro-image-preview');
+    expect(result.imageBase64).toBe('ZmFrZS1nZW1pbmktaW1hZ2U=');
+    expect(result.textContent).toBe('Fallback image result');
+    expect(result.usage.inputTokens).toBe(21);
+    expect(result.usage.outputTokens).toBe(9);
   });
 
   // ─── Tool Calls ─────────────────────────────────────────────────────────

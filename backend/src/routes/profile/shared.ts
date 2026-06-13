@@ -25,6 +25,28 @@ export { teamCodeService };
 export const USERS_COLLECTION = 'Users';
 export const PLAYER_STATS_COLLECTION = 'PlayerStats';
 
+export function resolvePublicStorageBucket(): string {
+  const productionBucket = process.env['FIREBASE_STORAGE_BUCKET'] ?? '';
+  const stagingBucket = process.env['STAGING_FIREBASE_STORAGE_BUCKET'] ?? '';
+  const runtimeEnv = (process.env['NODE_ENV'] ?? process.env['APP_ENV'] ?? '').toLowerCase();
+  const projectId = (
+    process.env['GOOGLE_CLOUD_PROJECT'] ??
+    process.env['GCLOUD_PROJECT'] ??
+    process.env['FIREBASE_PROJECT_ID'] ??
+    ''
+  ).toLowerCase();
+
+  if (runtimeEnv === 'staging' || projectId.includes('staging')) {
+    return stagingBucket || productionBucket;
+  }
+
+  if (runtimeEnv === 'production') {
+    return productionBucket;
+  }
+
+  return productionBucket || stagingBucket;
+}
+
 function toPublicStorageUrl(value: unknown): string | undefined {
   if (typeof value !== 'string') return undefined;
   const raw = value.trim();
@@ -47,18 +69,7 @@ function toPublicStorageUrl(value: unknown): string | undefined {
     try {
       const parsed = new URL(raw);
       if (parsed.hostname === 'firebasestorage.googleapis.com') {
-        const pathMatch = parsed.pathname.match(/^\/v0\/b\/([^/]+)\/o\/(.+)$/);
-        if (!pathMatch) return raw;
-
-        const bucket = decodeURIComponent(pathMatch[1] ?? '').trim();
-        const encodedObjectPath = pathMatch[2] ?? '';
-        const objectPath = decodeURIComponent(encodedObjectPath).replace(/^\/+/, '');
-        if (!bucket || !objectPath) return raw;
-
-        return `https://storage.googleapis.com/${bucket}/${objectPath
-          .split('/')
-          .map((segment) => encodeURIComponent(segment))
-          .join('/')}`;
+        return raw;
       }
     } catch {
       return raw;
@@ -69,8 +80,7 @@ function toPublicStorageUrl(value: unknown): string | undefined {
 
   // Legacy raw storage paths persisted in user docs (e.g., Users/<uid>/profile/avatar.jpg)
   if (!raw.includes('/')) return raw;
-  const bucket =
-    process.env['STAGING_FIREBASE_STORAGE_BUCKET'] ?? process.env['FIREBASE_STORAGE_BUCKET'] ?? '';
+  const bucket = resolvePublicStorageBucket();
   const objectPath = raw.replace(/^\/+/, '');
   if (!bucket || !objectPath) return raw;
 

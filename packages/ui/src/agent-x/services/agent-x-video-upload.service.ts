@@ -21,6 +21,7 @@
  */
 
 import { Injectable, inject } from '@angular/core';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { Observable, Subject } from 'rxjs';
 import { AGENT_X_API_BASE_URL } from './agent-x-job.service';
 import {
@@ -78,7 +79,12 @@ interface VideoProvisionResponse {
     readonly storagePath: string;
     readonly expiresAt: string;
   };
-  readonly error?: string;
+  readonly error?:
+    | string
+    | {
+        readonly code?: string;
+        readonly message?: string;
+      };
 }
 
 interface CloudflareFinalizeResponse {
@@ -92,10 +98,15 @@ type VideoUploadTransport = 'auto' | 'firebase';
 interface VideoUploadOptions {
   readonly threadId?: string | null;
   readonly transport?: VideoUploadTransport;
+  readonly nativeUri?: string;
+  readonly nativeWebPath?: string;
+  readonly sizeBytes?: number;
 }
 
 interface NativeFirebaseUploadEvent {
   readonly progress?: number;
+  readonly bytesTransferred?: number;
+  readonly totalBytes?: number;
   readonly completed?: boolean;
 }
 
@@ -110,8 +121,138 @@ interface NativeFirebaseStorageApi {
   ): Promise<string>;
 }
 
+const NATIVE_BASE64_FALLBACK_MAX_BYTES = 32 * 1024 * 1024;
+const NATIVE_UPLOAD_MAX_ATTEMPTS = 2;
+const NATIVE_UPLOAD_RETRY_DELAY_MS = 900;
+const NATIVE_UPLOAD_START_TIMEOUT_MS = 45_000;
+const NATIVE_WEB_PATH_FALLBACK_MAX_ATTEMPTS = 3;
+const NATIVE_WEB_PATH_FALLBACK_RETRY_DELAY_MS = 700;
+const NATIVE_UPLOAD_PROGRESS_FLOOR_PERCENT = 5;
+const NATIVE_UPLOAD_PROGRESS_SOFT_CAP_PERCENT = 98;
+const NATIVE_UPLOAD_PROGRESS_TICK_MS = 180;
+const FAST_UPLOAD_MIN_VISIBLE_MS = 650;
+
+const RETRYABLE_VIDEO_PROVISION_ERROR_CODES = new Set([
+  'REQUEST_TIMEOUT',
+  'STORAGE_TIMEOUT',
+  'ETIMEDOUT',
+  'ECONNRESET',
+  'EAI_AGAIN',
+  'UNAVAILABLE',
+  'DEADLINE_EXCEEDED',
+]);
+
+export function isRetryableVideoProvisionFailure(input: {
+  readonly httpStatus?: number;
+  readonly errorCode?: string;
+  readonly errorMessage?: string;
+}): boolean {
+  const { httpStatus, errorCode, errorMessage } = input;
+
+  if (
+    typeof httpStatus === 'number' &&
+    (httpStatus === 408 || httpStatus === 429 || httpStatus >= 500)
+  ) {
+    return true;
+  }
+
+  const normalizedErrorCode = errorCode?.trim().toUpperCase();
+  if (normalizedErrorCode && RETRYABLE_VIDEO_PROVISION_ERROR_CODES.has(normalizedErrorCode)) {
+    return true;
+  }
+
+  const normalizedMessage = (errorMessage ?? '').trim().toLowerCase();
+  return (
+    normalizedMessage.includes('timed out') ||
+    normalizedMessage.includes('timeout') ||
+    normalizedMessage.includes('temporary') ||
+    normalizedMessage.includes('temporarily unavailable') ||
+    normalizedMessage.includes('try again') ||
+    normalizedMessage.includes('network error')
+  );
+}
+
+interface VideoProvisionResult {
+  readonly uploadUrl: string;
+  readonly readUrl: string;
+  readonly storagePath: string;
+}
+
 export function shouldUseCloudflareUpload(fileSize: number): boolean {
   return fileSize >= AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES;
+}
+
+export function stepNativeUploadDisplayPercent(input: {
+  readonly displayedPercent: number;
+  readonly actualProgress: number | null;
+  readonly idleMs: number;
+}): number {
+  const displayedPercent = Math.max(
+    0,
+    Math.min(NATIVE_UPLOAD_PROGRESS_SOFT_CAP_PERCENT, Math.round(input.displayedPercent))
+  );
+  const actualProgress =
+    typeof input.actualProgress === 'number' && Number.isFinite(input.actualProgress)
+      ? Math.max(0, Math.min(1, input.actualProgress))
+      : null;
+  const idleMs = Math.max(0, Math.round(input.idleMs));
+
+  const actualTargetPercent =
+    actualProgress === null
+      ? NATIVE_UPLOAD_PROGRESS_FLOOR_PERCENT
+      : Math.round(
+          NATIVE_UPLOAD_PROGRESS_FLOOR_PERCENT +
+            Math.pow(actualProgress, 0.72) *
+              (NATIVE_UPLOAD_PROGRESS_SOFT_CAP_PERCENT - NATIVE_UPLOAD_PROGRESS_FLOOR_PERCENT - 1)
+        );
+
+  const baseLeadPercent = actualTargetPercent < 25 ? 10 : actualTargetPercent < 60 ? 7 : 4;
+  const idleLeadPercent = Math.min(actualTargetPercent < 60 ? 12 : 6, Math.floor(idleMs / 900));
+  const syntheticTargetPercent = Math.min(
+    NATIVE_UPLOAD_PROGRESS_SOFT_CAP_PERCENT,
+    actualTargetPercent + baseLeadPercent + idleLeadPercent
+  );
+
+  if (syntheticTargetPercent <= displayedPercent) {
+    return displayedPercent;
+  }
+
+  const gap = syntheticTargetPercent - displayedPercent;
+  const maxStepPercent = actualTargetPercent < 25 ? 3 : actualTargetPercent < 70 ? 4 : 2;
+  const nextStepPercent = Math.min(maxStepPercent, Math.max(1, Math.round(gap * 0.35)));
+
+  return Math.min(syntheticTargetPercent, displayedPercent + nextStepPercent);
+}
+
+export function smoothFastUploadPercent(input: {
+  readonly previousPercent: number;
+  readonly rawPercent: number;
+  readonly elapsedMs: number;
+}): number {
+  const previousPercent = Math.max(0, Math.min(99, Math.round(input.previousPercent)));
+  const rawPercent = Math.max(0, Math.min(99, Math.round(input.rawPercent)));
+  const elapsedMs = Math.max(0, Math.round(input.elapsedMs));
+
+  const visibleCap =
+    elapsedMs < 120
+      ? 18
+      : elapsedMs < 240
+        ? 34
+        : elapsedMs < 360
+          ? 52
+          : elapsedMs < 480
+            ? 68
+            : elapsedMs < 600
+              ? 82
+              : elapsedMs < 720
+                ? 92
+                : 99;
+
+  return Math.max(previousPercent, Math.min(rawPercent, visibleCap));
+}
+
+export function resolveFastUploadCompletionDelayMs(elapsedMs: number): number {
+  return Math.max(0, FAST_UPLOAD_MIN_VISIBLE_MS - Math.max(0, Math.round(elapsedMs)));
 }
 
 // ============================================
@@ -133,19 +274,41 @@ export class AgentXVideoUploadService {
     options?: VideoUploadOptions
   ): Observable<VideoUploadProgress> {
     const subject = new Subject<VideoUploadProgress>();
+    const progressEmitter = this._createUploadProgressEmitter(subject);
     const threadId = options?.threadId?.trim() ? options.threadId.trim() : null;
+    const nativeUri = options?.nativeUri?.trim() ? options.nativeUri.trim() : undefined;
+    const nativeWebPath = options?.nativeWebPath?.trim() ? options.nativeWebPath.trim() : undefined;
+    const sizeBytes =
+      typeof options?.sizeBytes === 'number' && options.sizeBytes > 0
+        ? options.sizeBytes
+        : file.size;
     const uploadTask =
       options?.transport === 'firebase'
-        ? this._doFirebaseUpload(file, authToken, subject, threadId)
-        : shouldUseCloudflareUpload(file.size)
-          ? this._doCloudflareTusUpload(file, authToken, subject, threadId)
-          : this._doFirebaseUpload(file, authToken, subject, threadId);
+        ? this._doFirebaseUpload(
+            file,
+            authToken,
+            progressEmitter,
+            threadId,
+            nativeUri,
+            nativeWebPath,
+            sizeBytes
+          )
+        : !nativeUri && shouldUseCloudflareUpload(sizeBytes)
+          ? this._doCloudflareTusUpload(file, authToken, progressEmitter, threadId)
+          : this._doFirebaseUpload(
+              file,
+              authToken,
+              progressEmitter,
+              threadId,
+              nativeUri,
+              nativeWebPath,
+              sizeBytes
+            );
 
     uploadTask.catch((err) => {
       const msg = err instanceof Error ? err.message : 'Video upload failed';
       this.logger.error('Unhandled video upload error', err, { name: file.name });
-      subject.next({ phase: 'error', percent: 0, errorMessage: msg });
-      subject.complete();
+      progressEmitter.fail(msg);
     });
 
     return subject.asObservable();
@@ -155,57 +318,116 @@ export class AgentXVideoUploadService {
   // PRIVATE
   // ---------------------------------------------------------------
 
+  private _createUploadProgressEmitter(subject: Subject<VideoUploadProgress>): {
+    provisioning(): void;
+    uploading(percent: number): void;
+    complete(payload: Omit<VideoUploadProgress, 'phase' | 'percent'>): Promise<void>;
+    fail(message: string): void;
+  } {
+    let uploadStartedAt: number | null = null;
+    let lastUploadPercent = 0;
+    let settled = false;
+
+    const emit = (event: VideoUploadProgress): void => {
+      if (settled) {
+        return;
+      }
+      subject.next(event);
+    };
+
+    return {
+      provisioning: (): void => {
+        emit({ phase: 'provisioning', percent: 0 });
+      },
+      uploading: (percent: number): void => {
+        if (settled) {
+          return;
+        }
+        if (uploadStartedAt === null) {
+          uploadStartedAt = Date.now();
+        }
+        const displayPercent = smoothFastUploadPercent({
+          previousPercent: lastUploadPercent,
+          rawPercent: percent,
+          elapsedMs: Date.now() - uploadStartedAt,
+        });
+        if (displayPercent <= lastUploadPercent && percent !== 100) {
+          return;
+        }
+        lastUploadPercent = displayPercent;
+        emit({ phase: 'uploading', percent: displayPercent });
+      },
+      complete: async (payload): Promise<void> => {
+        if (settled) {
+          return;
+        }
+        if (uploadStartedAt !== null) {
+          const delayMs = resolveFastUploadCompletionDelayMs(Date.now() - uploadStartedAt);
+          if (delayMs > 0) {
+            const targetPercent = Math.max(lastUploadPercent, Math.min(95, lastUploadPercent + 18));
+            if (targetPercent > lastUploadPercent) {
+              lastUploadPercent = targetPercent;
+              emit({ phase: 'uploading', percent: targetPercent });
+            }
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+          }
+        }
+        if (settled) {
+          return;
+        }
+        settled = true;
+        subject.next({ phase: 'complete', percent: 100, ...payload });
+        subject.complete();
+      },
+      fail: (message: string): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        subject.next({ phase: 'error', percent: 0, errorMessage: message });
+        subject.complete();
+      },
+    };
+  }
+
   private async _doFirebaseUpload(
     file: File,
     authToken: string,
-    subject: Subject<VideoUploadProgress>,
-    threadId: string | null
+    progressEmitter: {
+      provisioning(): void;
+      uploading(percent: number): void;
+      complete(payload: Omit<VideoUploadProgress, 'phase' | 'percent'>): Promise<void>;
+      fail(message: string): void;
+    },
+    threadId: string | null,
+    nativeUri: string | undefined,
+    nativeWebPath: string | undefined,
+    sizeBytes: number
   ): Promise<void> {
     // ── Step 1: Provision signed upload URL from backend ──────────────────
     this.logger.info('Provisioning Firebase Storage video upload URL', {
       name: file.name,
-      sizeBytes: file.size,
+      sizeBytes,
       mimeType: file.type,
     });
     this.breadcrumb.trackStateChange('agent-x-video-upload:provisioning', {
       name: file.name,
-      sizeBytes: file.size,
+      sizeBytes,
     });
-    subject.next({ phase: 'provisioning', percent: 0 });
+    progressEmitter.provisioning();
 
     let uploadUrl: string;
     let readUrl: string;
     let storagePath: string;
 
     try {
-      const response = await fetch(`${this.baseUrl}${AGENT_X_ENDPOINTS.VIDEO_UPLOAD_PROVISION}`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          fileName: file.name,
-          mimeType: file.type,
-          fileSize: file.size,
-          ...(threadId ? { threadId } : {}),
-        }),
+      const provisioned = await this._provisionVideoUploadWithRetry(file, authToken, threadId, {
+        sizeBytes,
+        nativeUpload: !!nativeUri,
       });
-
-      if (!response.ok) {
-        const errText = await response.text().catch(() => `HTTP ${response.status}`);
-        throw new Error(`Provisioning failed: ${errText}`);
-      }
-
-      const provision = (await response.json()) as VideoProvisionResponse;
-
-      if (!provision.success || !provision.data) {
-        throw new Error(provision.error ?? 'Failed to provision video upload URL');
-      }
-
-      uploadUrl = provision.data.uploadUrl;
-      readUrl = provision.data.readUrl;
-      storagePath = provision.data.storagePath;
+      uploadUrl = provisioned.uploadUrl;
+      readUrl = provisioned.readUrl;
+      storagePath = provisioned.storagePath;
 
       this.logger.info('Firebase Storage video upload URL provisioned', {
         storagePath,
@@ -219,14 +441,13 @@ export class AgentXVideoUploadService {
         name: file.name,
         phase: 'provisioning',
       });
-      subject.next({ phase: 'error', percent: 0, errorMessage: msg });
-      subject.complete();
+      progressEmitter.fail(msg);
       return;
     }
 
     // ── Step 2: PUT directly to GCS signed URL ────────────────────────────
     // XHR is used instead of fetch because it exposes upload.onprogress events.
-    subject.next({ phase: 'uploading', percent: 0 });
+    progressEmitter.uploading(0);
     this.breadcrumb.trackStateChange('agent-x-video-upload:uploading', {
       name: file.name,
       storagePath,
@@ -236,9 +457,17 @@ export class AgentXVideoUploadService {
       await (this.performance?.trace(
         TRACE_NAMES.VIDEO_UPLOAD,
         () =>
-          this._xhrPutWithRetry(file, uploadUrl, storagePath, (percent) => {
-            subject.next({ phase: 'uploading', percent });
-          }),
+          this._xhrPutWithRetry(
+            file,
+            uploadUrl,
+            storagePath,
+            (percent) => {
+              progressEmitter.uploading(percent);
+            },
+            nativeUri,
+            nativeWebPath,
+            sizeBytes
+          ),
         {
           attributes: {
             [ATTRIBUTE_NAMES.FEATURE_NAME]: 'agent-x-video-upload',
@@ -246,14 +475,22 @@ export class AgentXVideoUploadService {
           },
         }
       ) ??
-        this._xhrPutWithRetry(file, uploadUrl, storagePath, (percent) => {
-          subject.next({ phase: 'uploading', percent });
-        }));
+        this._xhrPutWithRetry(
+          file,
+          uploadUrl,
+          storagePath,
+          (percent) => {
+            progressEmitter.uploading(percent);
+          },
+          nativeUri,
+          nativeWebPath,
+          sizeBytes
+        ));
 
       this.logger.info('Video uploaded to Firebase Storage', {
         storagePath,
         name: file.name,
-        sizeBytes: file.size,
+        sizeBytes,
       });
       this.breadcrumb.trackStateChange('agent-x-video-upload:complete', {
         name: file.name,
@@ -262,23 +499,20 @@ export class AgentXVideoUploadService {
       this.analytics?.trackEvent(APP_EVENTS.VIDEO_UPLOADED, {
         source: 'agent-x-chat',
         mimeType: file.type,
-        sizeBytes: file.size,
+        sizeBytes,
         storageBackend: 'firebase',
       });
 
-      subject.next({
-        phase: 'complete',
-        percent: 100,
+      await progressEmitter.complete({
         streamUrl: readUrl,
         storagePath,
       });
-      subject.complete();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Video upload to storage failed';
       this.logger.error('Firebase Storage PUT failed', err, {
         name: file.name,
         storagePath,
-        sizeBytes: file.size,
+        sizeBytes,
         mimeType: file.type,
       });
       this.breadcrumb.trackStateChange('agent-x-video-upload:error', {
@@ -286,15 +520,183 @@ export class AgentXVideoUploadService {
         phase: 'uploading',
         storagePath,
       });
-      subject.next({ phase: 'error', percent: 0, errorMessage: msg });
-      subject.complete();
+      progressEmitter.fail(msg);
     }
+  }
+
+  private async _provisionVideoUploadWithRetry(
+    file: File,
+    authToken: string,
+    threadId: string | null,
+    options: { readonly sizeBytes: number; readonly nativeUpload: boolean }
+  ): Promise<VideoProvisionResult> {
+    const runtimeVideoUploadConfig =
+      AGENT_X_RUNTIME_CONFIG.videoUpload as typeof AGENT_X_RUNTIME_CONFIG.videoUpload & {
+        readonly provisionMaxAttempts?: number;
+        readonly provisionRetryDelayMs?: number;
+      };
+    const maxAttempts = runtimeVideoUploadConfig.provisionMaxAttempts ?? 3;
+    let lastError: unknown = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        return await this._requestVideoProvision(file, authToken, threadId, options);
+      } catch (error) {
+        lastError = error;
+        const retryable = this._isRetryableProvisioningError(error);
+
+        if (!retryable || attempt >= maxAttempts) {
+          throw error;
+        }
+
+        this.logger.warn(
+          'Retrying Firebase Storage video upload provisioning after transient failure',
+          {
+            name: file.name,
+            attempt,
+            maxAttempts,
+            error: error instanceof Error ? error.message : String(error),
+          }
+        );
+
+        await new Promise((resolve) =>
+          setTimeout(resolve, (runtimeVideoUploadConfig.provisionRetryDelayMs ?? 900) * attempt)
+        );
+      }
+    }
+
+    throw lastError instanceof Error
+      ? lastError
+      : new Error('Failed to provision Firebase Storage video upload URL');
+  }
+
+  private async _requestVideoProvision(
+    file: File,
+    authToken: string,
+    threadId: string | null,
+    options: { readonly sizeBytes: number; readonly nativeUpload: boolean }
+  ): Promise<VideoProvisionResult> {
+    const controller = new AbortController();
+    const runtimeVideoUploadConfig =
+      AGENT_X_RUNTIME_CONFIG.videoUpload as typeof AGENT_X_RUNTIME_CONFIG.videoUpload & {
+        readonly provisionRequestTimeoutMs?: number;
+      };
+    const timeoutMs = runtimeVideoUploadConfig.provisionRequestTimeoutMs ?? 12_000;
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}${AGENT_X_ENDPOINTS.VIDEO_UPLOAD_PROVISION}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          fileName: file.name,
+          mimeType: file.type,
+          fileSize: options.sizeBytes,
+          ...(options.nativeUpload ? { nativeUpload: true } : {}),
+          ...(threadId ? { threadId } : {}),
+        }),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw this._toProvisioningError(
+          `Provisioning request timed out after ${Math.round(timeoutMs / 1000)} seconds`,
+          true
+        );
+      }
+
+      const message = error instanceof Error ? error.message : String(error);
+      throw this._toProvisioningError(`Provisioning request failed: ${message}`, true);
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    if (!response.ok) {
+      const errText = await response.text().catch(() => `HTTP ${response.status}`);
+      const retryable = isRetryableVideoProvisionFailure({
+        httpStatus: response.status,
+        errorMessage: errText,
+      });
+      throw this._toProvisioningError(`Provisioning failed: ${errText}`, retryable);
+    }
+
+    const provision = (await response.json()) as VideoProvisionResponse;
+    if (!provision.success || !provision.data) {
+      const details = this._extractProvisionErrorDetails(provision.error);
+      const retryable = isRetryableVideoProvisionFailure({
+        httpStatus: response.status,
+        errorCode: details.code,
+        errorMessage: details.message,
+      });
+      throw this._toProvisioningError(details.message, retryable);
+    }
+
+    return {
+      uploadUrl: provision.data.uploadUrl,
+      readUrl: provision.data.readUrl,
+      storagePath: provision.data.storagePath,
+    };
+  }
+
+  private _toProvisioningError(message: string, retryable: boolean): Error {
+    const error = new Error(message) as Error & { retryable?: boolean };
+    error.retryable = retryable;
+    return error;
+  }
+
+  private _isRetryableProvisioningError(error: unknown): boolean {
+    if (error && typeof error === 'object') {
+      const typed = error as { retryable?: unknown; message?: unknown };
+      if (typed.retryable === true) {
+        return true;
+      }
+      if (typeof typed.message === 'string') {
+        return isRetryableVideoProvisionFailure({ errorMessage: typed.message });
+      }
+    }
+    return false;
+  }
+
+  private _extractProvisionErrorDetails(error: VideoProvisionResponse['error']): {
+    readonly code?: string;
+    readonly message: string;
+  } {
+    if (!error) {
+      return { message: 'Failed to provision video upload URL' };
+    }
+
+    if (typeof error === 'string') {
+      return { message: error };
+    }
+
+    const code = error.code?.trim();
+    const message = error.message?.trim();
+    if (code && message) {
+      return { code, message: `${code}: ${message}` };
+    }
+    if (message) {
+      return { code, message };
+    }
+    if (code) {
+      return { code, message: code };
+    }
+
+    return { message: 'Failed to provision video upload URL' };
   }
 
   private async _doCloudflareTusUpload(
     file: File,
     authToken: string,
-    subject: Subject<VideoUploadProgress>,
+    progressEmitter: {
+      provisioning(): void;
+      uploading(percent: number): void;
+      complete(payload: Omit<VideoUploadProgress, 'phase' | 'percent'>): Promise<void>;
+      fail(message: string): void;
+    },
     threadId: string | null
   ): Promise<void> {
     this.logger.info('Provisioning Cloudflare Stream TUS upload for Agent X video', {
@@ -307,7 +709,7 @@ export class AgentXVideoUploadService {
       name: file.name,
       sizeBytes: file.size,
     });
-    subject.next({ phase: 'provisioning', percent: 0 });
+    progressEmitter.provisioning();
 
     let cloudflareVideoId: string | null = null;
 
@@ -317,7 +719,7 @@ export class AgentXVideoUploadService {
         () =>
           this._tusUpload(file, authToken, threadId, {
             onProgress: (percent) => {
-              subject.next({ phase: 'uploading', percent });
+              progressEmitter.uploading(percent);
             },
             onProvisioned: (nextCloudflareVideoId) => {
               cloudflareVideoId = nextCloudflareVideoId;
@@ -330,7 +732,7 @@ export class AgentXVideoUploadService {
                 name: file.name,
                 cloudflareVideoId: nextCloudflareVideoId,
               });
-              subject.next({ phase: 'uploading', percent: 0 });
+              progressEmitter.uploading(0);
             },
           }),
         {
@@ -342,7 +744,7 @@ export class AgentXVideoUploadService {
       ) ??
         this._tusUpload(file, authToken, threadId, {
           onProgress: (percent) => {
-            subject.next({ phase: 'uploading', percent });
+            progressEmitter.uploading(percent);
           },
           onProvisioned: (nextCloudflareVideoId) => {
             cloudflareVideoId = nextCloudflareVideoId;
@@ -355,7 +757,7 @@ export class AgentXVideoUploadService {
               name: file.name,
               cloudflareVideoId: nextCloudflareVideoId,
             });
-            subject.next({ phase: 'uploading', percent: 0 });
+            progressEmitter.uploading(0);
           },
         }));
 
@@ -385,16 +787,13 @@ export class AgentXVideoUploadService {
         storageBackend: 'cloudflare',
       });
 
-      subject.next({
-        phase: 'complete',
-        percent: 100,
+      await progressEmitter.complete({
         streamUrl,
         cloudflareVideoId,
         cloudflareStatus: finalized.status,
         readyToStream: finalized.readyToStream,
         ...(finalized.thumbnailUrl ? { thumbnailUrl: finalized.thumbnailUrl } : {}),
       });
-      subject.complete();
     } catch (err) {
       const msg = this._extractTusErrorMessage(err);
       this.logger.error('Cloudflare Stream upload failed', err, {
@@ -408,8 +807,7 @@ export class AgentXVideoUploadService {
         phase: 'cloudflare-uploading',
         ...(cloudflareVideoId ? { cloudflareVideoId } : {}),
       });
-      subject.next({ phase: 'error', percent: 0, errorMessage: msg });
-      subject.complete();
+      progressEmitter.fail(msg);
     }
   }
 
@@ -560,14 +958,11 @@ export class AgentXVideoUploadService {
    * PUT the video to Firebase Storage, selecting the upload channel at runtime.
    *
    *   Native Capacitor (iOS / Android)
-   *     → `_nativeFirebasePut()` — writes the File to the Capacitor cache
-   *       filesystem and uploads via `@capacitor-firebase/storage.uploadFile()`,
-   *       calling `storageRef.putFile(from: URL)` on the native Firebase Storage
-   *       SDK. This completely bypasses the WKWebView HTTP bridge, which cannot
-   *       perform cross-origin PUT requests to `storage.googleapis.com` on iOS
-   *       without the `com.apple.runningboard.assertions.webkit` entitlement.
+   *     → `_nativeIosSignedPut()` — uploads to the backend-issued signed URL
+   *       through CapacitorHttp first. This bypasses Firebase Storage client
+   *       rules/auth state, which can drift from the app's API auth token.
    *
-   *       Detection is behavioural, not heuristic: `_nativeFirebasePut()` probes
+   *       If that cannot handle the selected media, `_nativeFirebasePut()` probes
    *       the Capacitor Filesystem plugin to check whether it returns a native
    *       `file://` URI. On web the plugin returns a virtual URI and the method
    *       returns `false`, falling through to the XHR path below. This approach
@@ -581,13 +976,63 @@ export class AgentXVideoUploadService {
     file: File,
     uploadUrl: string,
     storagePath: string,
-    onProgress: (percent: number) => void
+    onProgress: (percent: number) => void,
+    nativeUri: string | undefined,
+    nativeWebPath: string | undefined,
+    sizeBytes: number
   ): Promise<void> {
-    // Try the native Firebase Storage SDK first. On native Capacitor (iOS/Android)
-    // the Filesystem probe confirms `file://` URIs and the upload proceeds natively.
-    // On web the probe returns a virtual URI → method returns false → fall through.
-    const uploadedViaNative = await this._nativeFirebasePut(file, storagePath, onProgress);
+    const nativeSignedPutFile =
+      file.size > 0
+        ? file
+        : await this._tryCreateNativeWebPathFallbackFile(file, nativeWebPath, sizeBytes);
+
+    // Prefer the backend-issued signed URL on iOS. It avoids Firebase Storage
+    // client auth/rules entirely, eliminating "Missing or insufficient permissions"
+    // from the primary upload path.
+    if (nativeSignedPutFile) {
+      try {
+        const uploadedViaNativeSignedPut = await this._nativeIosSignedPut(
+          nativeSignedPutFile,
+          uploadUrl,
+          onProgress,
+          sizeBytes
+        );
+        if (uploadedViaNativeSignedPut) return;
+      } catch (signedPutErr) {
+        this.logger.warn('Native signed PUT failed; falling back to Firebase/native web paths', {
+          name: file.name,
+          sizeBytes,
+          mimeType: file.type,
+          storagePath,
+          error: signedPutErr instanceof Error ? signedPutErr.message : String(signedPutErr),
+        });
+        onProgress(0);
+      }
+    }
+
+    // Fallback: try the native Firebase Storage SDK. This keeps Android/native
+    // URI support available when a local File cannot be materialized.
+    const uploadedViaNative = await this._nativeFirebasePut(
+      file,
+      storagePath,
+      onProgress,
+      nativeUri,
+      nativeWebPath,
+      sizeBytes
+    );
     if (uploadedViaNative) return;
+
+    if (nativeUri && file.size === 0) {
+      throw new Error(
+        'Native video upload failed before fallback; selected media is only available through the device URI. Please retry the upload.'
+      );
+    }
+
+    if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios' && !nativeSignedPutFile) {
+      throw new Error(
+        'iOS video upload could not use either native Firebase Storage or native signed PUT'
+      );
+    }
 
     // Native Firebase path did not handle the upload (returned false).
     // Falling through to the XHR path. On web this is expected. On native
@@ -597,19 +1042,20 @@ export class AgentXVideoUploadService {
       '[_xhrPutWithRetry] Using XHR upload fallback after native Firebase path returned false.',
       {
         name: file.name,
-        sizeBytes: file.size,
+        sizeBytes,
         mimeType: file.type,
         storagePath,
       }
     );
 
     // Web path: XHR with retry for granular progress events.
+    const xhrFile = nativeSignedPutFile ?? file;
     const maxAttempts = AGENT_X_RUNTIME_CONFIG.videoUpload.directPutMaxAttempts;
     let lastError: unknown = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
-        await this._xhrPut(file, uploadUrl, onProgress);
+        await this._xhrPut(xhrFile, uploadUrl, onProgress);
         return;
       } catch (error) {
         lastError = error;
@@ -630,6 +1076,48 @@ export class AgentXVideoUploadService {
     throw lastError instanceof Error ? lastError : new Error('Video upload failed after retry');
   }
 
+  private async _nativeIosSignedPut(
+    file: File,
+    uploadUrl: string,
+    onProgress: (percent: number) => void,
+    sizeBytes: number
+  ): Promise<boolean> {
+    if (sizeBytes > NATIVE_BASE64_FALLBACK_MAX_BYTES) {
+      return false;
+    }
+
+    if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios') {
+      return false;
+    }
+
+    this.logger.info('Using native iOS signed PUT path for Agent X video upload', {
+      name: file.name,
+      sizeBytes,
+      mimeType: file.type,
+    });
+
+    onProgress(5);
+    const rawBase64 = await this._fileToRawBase64(file);
+    onProgress(20);
+
+    const response = await CapacitorHttp.request({
+      method: 'PUT',
+      url: uploadUrl,
+      headers: { 'Content-Type': file.type || 'video/mp4' },
+      data: rawBase64,
+      dataType: 'file',
+      readTimeout: AGENT_X_RUNTIME_CONFIG.videoUpload.directPutTimeoutMs,
+      connectTimeout: 30_000,
+    });
+
+    if (response.status < 200 || response.status >= 300) {
+      throw new Error(`Native iOS signed PUT failed with status ${response.status}`);
+    }
+
+    onProgress(100);
+    return true;
+  }
+
   /**
    * Upload a video file to Firebase Storage via the native Capacitor SDK.
    *
@@ -644,9 +1132,8 @@ export class AgentXVideoUploadService {
    *      is the sole platform discriminator — it cannot be defeated by Angular
    *      build optimisations or bridge initialisation timing races.
    *
-   *   2. Writes the browser `File` object (as a `Blob`) to the Capacitor cache
-   *      filesystem. In Capacitor 6+, Blob data is streamed natively without
-   *      base64 overhead.
+   *   2. Writes the browser `File` object to the Capacitor cache filesystem as
+   *      base64. Native Capacitor Filesystem only accepts Blob data on web.
    *
    *   3. Uploads from the local `file://` URI via
    *      `@capacitor-firebase/storage.uploadFile()`, which calls
@@ -663,7 +1150,10 @@ export class AgentXVideoUploadService {
   private async _nativeFirebasePut(
     file: File,
     storagePath: string,
-    onProgress: (percent: number) => void
+    onProgress: (percent: number) => void,
+    nativeUri: string | undefined,
+    nativeWebPath: string | undefined,
+    sizeBytes: number
   ): Promise<boolean> {
     // Dynamic imports — present on native Capacitor (hoisted to root node_modules).
     let filesystemMod: typeof import('@capacitor/filesystem');
@@ -700,7 +1190,7 @@ export class AgentXVideoUploadService {
           {
             error: importErrMessage,
             name: file.name,
-            sizeBytes: file.size,
+            sizeBytes,
           }
         );
       } else {
@@ -709,7 +1199,7 @@ export class AgentXVideoUploadService {
           {
             error: importErrMessage,
             name: file.name,
-            sizeBytes: file.size,
+            sizeBytes,
           }
         );
       }
@@ -717,6 +1207,72 @@ export class AgentXVideoUploadService {
     }
 
     const { Filesystem, Directory } = filesystemMod;
+
+    if (nativeUri && Capacitor.isNativePlatform()) {
+      const uploadUri = this._normalizeNativeFileUri(nativeUri);
+      try {
+        this.logger.info('Uploading native media URI via Firebase Storage SDK', {
+          name: file.name,
+          nativeUri: uploadUri,
+          sizeBytes,
+          storagePath,
+        });
+        this.breadcrumb.trackStateChange('agent-x-video-upload:native-uri-put-start', {
+          name: file.name,
+          sizeBytes,
+          storagePath,
+        });
+        onProgress(2);
+        await this._uploadNativeFirebaseUriWithRetry(
+          firebaseStorageApi,
+          storagePath,
+          uploadUri,
+          file.type,
+          onProgress
+        );
+        return true;
+      } catch (nativeUriErr) {
+        this.logger.warn('Native media URI upload failed; falling back to cache-file upload', {
+          name: file.name,
+          nativeUri: uploadUri,
+          sizeBytes,
+          storagePath,
+          error: nativeUriErr instanceof Error ? nativeUriErr.message : String(nativeUriErr),
+        });
+        this.breadcrumb.trackStateChange('agent-x-video-upload:native-uri-put-fallback', {
+          name: file.name,
+          sizeBytes,
+          storagePath,
+        });
+        onProgress(0);
+        if (file.size === 0) {
+          const webPathFallbackFile = await this._tryCreateNativeWebPathFallbackFile(
+            file,
+            nativeWebPath,
+            sizeBytes
+          );
+          if (webPathFallbackFile) {
+            this.logger.info('Retrying native Firebase upload from WebView-readable media path', {
+              name: file.name,
+              sizeBytes,
+              storagePath,
+            });
+            return this._nativeFirebasePut(
+              webPathFallbackFile,
+              storagePath,
+              onProgress,
+              undefined,
+              undefined,
+              sizeBytes
+            );
+          }
+          return false;
+        }
+        if (sizeBytes > NATIVE_BASE64_FALLBACK_MAX_BYTES) {
+          return false;
+        }
+      }
+    }
 
     // ── Native environment probe ─────────────────────────────────────────────
     // On native Capacitor, `Filesystem.getUri()` returns a `file://` URI
@@ -735,7 +1291,7 @@ export class AgentXVideoUploadService {
         {
           error: probeErr instanceof Error ? probeErr.message : String(probeErr),
           name: file.name,
-          sizeBytes: file.size,
+          sizeBytes,
         }
       );
       return false;
@@ -749,6 +1305,16 @@ export class AgentXVideoUploadService {
       return false;
     }
 
+    if (sizeBytes > NATIVE_BASE64_FALLBACK_MAX_BYTES) {
+      this.logger.warn('Skipping native cache-file upload fallback for large video', {
+        name: file.name,
+        sizeBytes,
+        maxBytes: NATIVE_BASE64_FALLBACK_MAX_BYTES,
+        storagePath,
+      });
+      return false;
+    }
+
     // ── Native upload ────────────────────────────────────────────────────────
     // Sanitise the file name for the temp path (strip chars unsafe on iOS/Android).
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -757,12 +1323,12 @@ export class AgentXVideoUploadService {
     this.logger.info('Writing video to device cache for native Firebase upload', {
       name: file.name,
       tempFileName,
-      sizeBytes: file.size,
+      sizeBytes,
       storagePath,
     });
     this.breadcrumb.trackStateChange('agent-x-video-upload:native-firebase-put-start', {
       name: file.name,
-      sizeBytes: file.size,
+      sizeBytes,
       storagePath,
     });
 
@@ -770,42 +1336,11 @@ export class AgentXVideoUploadService {
     onProgress(2);
 
     try {
-      // Attempt Blob write first (Capacitor 8 supports native Blob transfer via WKWebView binary channel).
-      // If the platform does not support Blob (Capacitor emits an error), fall back to base64.
-      // NOTE: base64 for large files will pass ~17 MB through the bridge on iOS which may also
-      // fail — but we log the error so production crashes are visible.
-      try {
-        await Filesystem.writeFile({
-          path: tempFileName,
-          data: file as Blob,
-          directory: Directory.Cache,
-        });
-      } catch (blobWriteErr) {
-        this.logger.warn(
-          '[_nativeFirebasePut] Blob writeFile failed; retrying with base64 encoding',
-          {
-            error: blobWriteErr instanceof Error ? blobWriteErr.message : String(blobWriteErr),
-            name: file.name,
-            sizeBytes: file.size,
-          }
-        );
-        // Convert Blob → base64 string for older Capacitor / iOS configurations.
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const result = reader.result as string;
-            // FileReader.readAsDataURL returns "data:<mime>;base64,<data>" — strip the prefix.
-            resolve(result.substring(result.indexOf(',') + 1));
-          };
-          reader.onerror = () => reject(new Error('FileReader error during base64 conversion'));
-          reader.readAsDataURL(file);
-        });
-        await Filesystem.writeFile({
-          path: tempFileName,
-          data: base64,
-          directory: Directory.Cache,
-        });
-      }
+      await Filesystem.writeFile({
+        path: tempFileName,
+        data: await this._fileToRawBase64(file),
+        directory: Directory.Cache,
+      });
 
       const { uri: fileUri } = await Filesystem.getUri({
         path: tempFileName,
@@ -821,44 +1356,13 @@ export class AgentXVideoUploadService {
       // 5 % reserved for the cache-write phase; 5–100 % for the upload itself.
       onProgress(5);
 
-      await new Promise<void>((resolve, reject) => {
-        firebaseStorageApi
-          .uploadFile(
-            {
-              path: storagePath,
-              uri: fileUri,
-              metadata: { contentType: file.type },
-            },
-            (event: NativeFirebaseUploadEvent | undefined, error: unknown) => {
-              if (error) {
-                reject(error instanceof Error ? error : new Error(String(error)));
-                return;
-              }
-              if (event) {
-                if (typeof event.progress === 'number') {
-                  // Map 0–1 Firebase progress to our 5–100 % range.
-                  const percent = 5 + Math.round(event.progress * 95);
-                  onProgress(Math.min(percent, event.completed ? 100 : 99));
-                }
-                if (event.completed) {
-                  resolve();
-                }
-              }
-            }
-          )
-          .catch((uploadSetupErr: unknown) => {
-            // uploadFile() returns a Promise<CallbackId>. If the native plugin rejects
-            // this Promise (e.g. plugin unavailable, bridge error) the rejection would
-            // otherwise be swallowed inside the Promise executor and cause a hang.
-            reject(
-              uploadSetupErr instanceof Error
-                ? uploadSetupErr
-                : new Error(
-                    `FirebaseStorage.uploadFile() setup rejected: ${String(uploadSetupErr)}`
-                  )
-            );
-          });
-      });
+      await this._uploadNativeFirebaseUriWithRetry(
+        firebaseStorageApi,
+        storagePath,
+        fileUri,
+        file.type,
+        onProgress
+      );
 
       return true;
     } finally {
@@ -873,6 +1377,260 @@ export class AgentXVideoUploadService {
         });
       });
     }
+  }
+
+  private async _uploadNativeFirebaseUriWithRetry(
+    firebaseStorageApi: NativeFirebaseStorageApi,
+    storagePath: string,
+    fileUri: string,
+    contentType: string,
+    onProgress: (percent: number) => void
+  ): Promise<void> {
+    let lastError: unknown = null;
+    const maxAttempts = Capacitor.isNativePlatform() ? NATIVE_UPLOAD_MAX_ATTEMPTS : 1;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        await this._uploadNativeFirebaseUriOnce(
+          firebaseStorageApi,
+          storagePath,
+          fileUri,
+          contentType,
+          onProgress
+        );
+        return;
+      } catch (error) {
+        lastError = error;
+        if (attempt >= maxAttempts) {
+          break;
+        }
+
+        this.logger.warn(
+          'Retrying native Firebase Storage video upload after first-attempt failure',
+          {
+            storagePath,
+            attempt,
+            maxAttempts,
+            error: error instanceof Error ? error.message : String(error),
+          }
+        );
+        onProgress(0);
+        await new Promise((resolve) => setTimeout(resolve, NATIVE_UPLOAD_RETRY_DELAY_MS * attempt));
+      }
+    }
+
+    throw lastError instanceof Error ? lastError : new Error('Native Firebase video upload failed');
+  }
+
+  private _uploadNativeFirebaseUriOnce(
+    firebaseStorageApi: NativeFirebaseStorageApi,
+    storagePath: string,
+    fileUri: string,
+    contentType: string,
+    onProgress: (percent: number) => void
+  ): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let sawNativeEvent = false;
+      const progressSmoother = this._createNativeUploadProgressSmoother(onProgress);
+      const startupTimer = setTimeout(() => {
+        if (!sawNativeEvent && !settled) {
+          settled = true;
+          progressSmoother.destroy();
+          reject(new Error('Native Firebase upload did not start'));
+        }
+      }, NATIVE_UPLOAD_START_TIMEOUT_MS);
+      const settle = (callback: () => void): void => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(startupTimer);
+        progressSmoother.destroy();
+        callback();
+      };
+
+      firebaseStorageApi
+        .uploadFile(
+          {
+            path: storagePath,
+            uri: fileUri,
+            metadata: { contentType },
+          },
+          (event: NativeFirebaseUploadEvent | undefined, error: unknown) => {
+            if (error) {
+              settle(() => reject(error instanceof Error ? error : new Error(String(error))));
+              return;
+            }
+            if (event) {
+              sawNativeEvent = true;
+              const progress = this._resolveNativeUploadProgress(event);
+              if (typeof progress === 'number') {
+                progressSmoother.report(progress);
+              }
+              if (event.completed) {
+                settle(() => resolve());
+              }
+            }
+          }
+        )
+        .catch((uploadSetupErr: unknown) => {
+          settle(() =>
+            reject(
+              uploadSetupErr instanceof Error
+                ? uploadSetupErr
+                : new Error(
+                    `FirebaseStorage.uploadFile() setup rejected: ${String(uploadSetupErr)}`
+                  )
+            )
+          );
+        });
+    });
+  }
+
+  private _createNativeUploadProgressSmoother(onProgress: (percent: number) => void): {
+    report(actualProgress: number): void;
+    destroy(): void;
+  } {
+    let displayedPercent = NATIVE_UPLOAD_PROGRESS_FLOOR_PERCENT;
+    let actualProgress: number | null = null;
+    let lastActualUpdateAt = Date.now();
+    let lastEmittedPercent = -1;
+
+    const emitPercent = (percent: number): void => {
+      const normalizedPercent = Math.max(
+        0,
+        Math.min(NATIVE_UPLOAD_PROGRESS_SOFT_CAP_PERCENT, Math.round(percent))
+      );
+      if (normalizedPercent <= lastEmittedPercent) {
+        return;
+      }
+      lastEmittedPercent = normalizedPercent;
+      onProgress(normalizedPercent);
+    };
+
+    emitPercent(displayedPercent);
+
+    const tick = (): void => {
+      const nextPercent = stepNativeUploadDisplayPercent({
+        displayedPercent,
+        actualProgress,
+        idleMs: Date.now() - lastActualUpdateAt,
+      });
+      if (nextPercent <= displayedPercent) {
+        return;
+      }
+      displayedPercent = nextPercent;
+      emitPercent(displayedPercent);
+    };
+
+    const interval = setInterval(tick, NATIVE_UPLOAD_PROGRESS_TICK_MS);
+
+    return {
+      report(nextActualProgress: number): void {
+        actualProgress = Math.max(0, Math.min(1, nextActualProgress));
+        lastActualUpdateAt = Date.now();
+        tick();
+      },
+      destroy(): void {
+        clearInterval(interval);
+      },
+    };
+  }
+
+  private _resolveNativeUploadProgress(event: NativeFirebaseUploadEvent): number | null {
+    if (
+      typeof event.bytesTransferred === 'number' &&
+      typeof event.totalBytes === 'number' &&
+      Number.isFinite(event.bytesTransferred) &&
+      Number.isFinite(event.totalBytes) &&
+      event.totalBytes > 0
+    ) {
+      return Math.max(0, Math.min(1, event.bytesTransferred / event.totalBytes));
+    }
+
+    return typeof event.progress === 'number' && Number.isFinite(event.progress)
+      ? Math.max(0, Math.min(1, event.progress))
+      : null;
+  }
+
+  private async _tryCreateNativeWebPathFallbackFile(
+    originalFile: File,
+    nativeWebPath: string | undefined,
+    sizeBytes: number
+  ): Promise<File | null> {
+    if (!nativeWebPath) {
+      return null;
+    }
+    if (sizeBytes > NATIVE_BASE64_FALLBACK_MAX_BYTES) {
+      this.logger.warn('Skipping native webPath fallback for large video', {
+        name: originalFile.name,
+        sizeBytes,
+        maxBytes: NATIVE_BASE64_FALLBACK_MAX_BYTES,
+      });
+      return null;
+    }
+
+    let lastError: unknown = null;
+    for (let attempt = 1; attempt <= NATIVE_WEB_PATH_FALLBACK_MAX_ATTEMPTS; attempt += 1) {
+      try {
+        const response = await fetch(nativeWebPath);
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        const blob = await response.blob();
+        if (blob.size <= 0) {
+          throw new Error('webPath returned an empty video blob');
+        }
+        return new File([blob], originalFile.name, {
+          type: originalFile.type || blob.type || 'video/mp4',
+          lastModified: originalFile.lastModified,
+        });
+      } catch (error) {
+        lastError = error;
+        if (attempt < NATIVE_WEB_PATH_FALLBACK_MAX_ATTEMPTS) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, NATIVE_WEB_PATH_FALLBACK_RETRY_DELAY_MS * attempt)
+          );
+        }
+      }
+    }
+
+    this.logger.warn('Native webPath fallback file creation failed', {
+      name: originalFile.name,
+      sizeBytes,
+      attempts: NATIVE_WEB_PATH_FALLBACK_MAX_ATTEMPTS,
+      error: lastError instanceof Error ? lastError.message : String(lastError),
+    });
+    return null;
+  }
+
+  private _normalizeNativeFileUri(uri: string): string {
+    const trimmed = uri.trim();
+    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) {
+      return encodeURI(trimmed);
+    }
+    if (trimmed.startsWith('/')) {
+      return encodeURI(`file://${trimmed}`);
+    }
+    return trimmed;
+  }
+
+  private _fileToRawBase64(file: File): Promise<string> {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = reader.result;
+        if (typeof result !== 'string') {
+          reject(new Error('Failed to convert file to base64'));
+          return;
+        }
+        const separatorIndex = result.indexOf(',');
+        resolve(separatorIndex >= 0 ? result.substring(separatorIndex + 1) : result);
+      };
+      reader.onerror = () => reject(new Error('FileReader error during base64 conversion'));
+      reader.readAsDataURL(file);
+    });
   }
 
   /**

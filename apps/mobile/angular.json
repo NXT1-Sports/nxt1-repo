@@ -38,16 +38,6 @@
                 "output": "/assets"
               },
               {
-                "glob": "**/*",
-                "input": "../../packages/design-tokens/assets/logo",
-                "output": "/assets/shared/logo"
-              },
-              {
-                "glob": "**/*",
-                "input": "../../packages/design-tokens/assets/images",
-                "output": "/assets/shared/images"
-              },
-              {
                 "glob": "**/*.svg",
                 "input": "node_modules/ionicons/dist/ionicons/svg",
                 "output": "./svg"
@@ -59,6 +49,7 @@
               "scriptjs",
               "dijkstrajs",
               "qrcode",
+              "url-parse",
               ""
             ]
           },
@@ -72,7 +63,7 @@
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "42kb",
+                  "maximumWarning": "44kb",
                   "maximumError": "55kb"
                 }
               ],
@@ -103,7 +94,7 @@
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "42kb",
+                  "maximumWarning": "44kb",
                   "maximumError": "55kb"
                 }
               ],

@@ -91,6 +91,23 @@ class FakeGenerateThumbnailTool extends BaseTool {
   }
 }
 
+class FakeFailTool extends BaseTool {
+  readonly name = 'analyze_video';
+  readonly description = 'Returns a structured failure.';
+  readonly parameters = z.object({});
+  readonly isMutation = false;
+  readonly category = 'media' as const;
+  readonly entityGroup = 'user_tools' as const;
+  override readonly allowedAgents = ['performance_coordinator'] as const;
+
+  async execute(): Promise<ToolResult> {
+    return {
+      success: false,
+      error: 'OpenAI image API error 500: upstream image model unavailable.',
+    };
+  }
+}
+
 class FakeAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'strategy_coordinator';
   readonly name: string = 'Fake Agent';
@@ -167,6 +184,25 @@ class FakeAgent extends BaseAgent {
         }) => Promise<void>;
       }
     ).compressMessageHistoryIfNeeded(params);
+  }
+
+  callBuildRuntimeTemporalContext(intent: string, context?: AgentSessionContext): string {
+    return (
+      this as unknown as {
+        buildRuntimeTemporalContext: (
+          intentArg: string,
+          contextArg?: AgentSessionContext
+        ) => string;
+      }
+    ).buildRuntimeTemporalContext(intent, context);
+  }
+
+  callWithConfiguredSystemPrompt(basePrompt: string): string {
+    return (
+      this as unknown as {
+        withConfiguredSystemPrompt: (prompt: string) => string;
+      }
+    ).withConfiguredSystemPrompt(basePrompt);
   }
 
   callSummarizeMiddleExchangesWithLlm(
@@ -488,8 +524,41 @@ function createMockContext(): AgentSessionContext {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   resetOperationMemoryServiceForTests();
   setCachedAgentAppConfig(DEFAULT_AGENT_APP_CONFIG);
+});
+
+describe('BaseAgent runtime date guardrail', () => {
+  it('uses session timezone when formatting current date near UTC midnight', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-04T03:48:00.000Z'));
+
+    const agent = new FakeAgent();
+    const context = { ...createMockContext(), timezone: 'America/Chicago' };
+    const temporalContext = agent.callBuildRuntimeTemporalContext('what time is it', context);
+
+    expect(temporalContext).toContain('Wednesday, June 3, 2026');
+    expect(temporalContext).toContain('10:48 PM CDT');
+    expect(temporalContext).toContain('2026-06-04T03:48:00.000Z');
+    expect(temporalContext).toContain(
+      'Words like "today," "tonight," "this evening," and "tomorrow" must map to that local date, not the UTC date'
+    );
+    expect(temporalContext).not.toContain('June 4, 2026, 10:48 PM CDT');
+  });
+
+  it('includes recurring schedule verification guidance in the shared contract', () => {
+    const agent = new FakeAgent();
+    const prompt = agent.callWithConfiguredSystemPrompt(agent.getSystemPrompt());
+
+    expect(prompt).toContain('Recurring schedule creation (CRITICAL)');
+    expect(prompt).toContain(
+      'After ANY successful recurring schedule creation or update, immediately call `list_recurring_tasks`'
+    );
+    expect(prompt).toContain(
+      'if the user asked for a first run later today but `nextRun` jumped about a week'
+    );
+  });
 });
 
 describe('BaseAgent identifier scrubbing', () => {
@@ -695,6 +764,17 @@ describe('BaseAgent identifier scrubbing', () => {
     });
 
     expect(label).toBe('Reviewing playbook file');
+  });
+
+  it('uses section-specific labels for distilled profile reads', () => {
+    const agent = new FakeAgent();
+
+    const label = agent['resolveToolInvocationLabel']('read_distilled_section', {
+      url: 'https://www.maxpreps.com/athletes/example',
+      section: 'seasonStats',
+    });
+
+    expect(label).toBe('Reading season stats');
   });
 
   it('normalizes ffmpeg trim labels without surfacing clip offsets', () => {
@@ -1511,6 +1591,76 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
+  it('persists structured tool errors in tool_result events', async () => {
+    const agent = new FakePerformanceAgent();
+    const registry = new ToolRegistry();
+    registry.register(new FakeFailTool());
+
+    const events: Array<Record<string, unknown>> = [];
+    let callCount = 0;
+    const llm = {
+      completeStream: vi.fn().mockImplementation(async () => {
+        callCount += 1;
+
+        if (callCount === 1) {
+          return {
+            content: 'I will try the image tool first.',
+            toolCalls: [
+              {
+                id: 'call_fail_graphic',
+                type: 'function',
+                function: {
+                  name: 'analyze_video',
+                  arguments: JSON.stringify({}),
+                },
+              },
+            ],
+            model: 'test-model',
+            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            latencyMs: 1,
+            costUsd: 0,
+            finishReason: 'tool_calls',
+          };
+        }
+
+        return {
+          content: 'The image tool failed and I need another path.',
+          toolCalls: [],
+          model: 'test-model',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          latencyMs: 1,
+          costUsd: 0,
+          finishReason: 'stop',
+        };
+      }),
+    };
+
+    await agent.execute(
+      'Create a graphic',
+      createMockContext(),
+      [],
+      llm as never,
+      registry,
+      undefined,
+      (event) => events.push(event as unknown as Record<string, unknown>)
+    );
+
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'tool_result',
+          stepId: 'call_fail_graphic',
+          toolName: 'analyze_video',
+          toolSuccess: false,
+          error: 'OpenAI image API error 500: upstream image model unavailable.',
+          toolResult: {
+            error: 'OpenAI image API error 500: upstream image model unavailable.',
+          },
+        }),
+      ])
+    );
+  });
+
   it('treats ask_user as an exclusive yield tool when sibling tools are co-emitted', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();
@@ -1899,6 +2049,64 @@ describe('BaseAgent identifier scrubbing', () => {
     );
 
     expect(llmOptions?.tier).toBe('vision_analysis');
+  });
+
+  it('does not duplicate video refs already injected by the chat route', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const llm = {
+      complete: vi.fn().mockResolvedValue({
+        content: 'Processed video.',
+        toolCalls: [],
+        model: 'test-model',
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        latencyMs: 1,
+        costUsd: 0,
+        finishReason: 'stop',
+      }),
+    };
+    const videoUrl = 'https://storage.googleapis.com/nxt1-test/highlight-source.mp4';
+
+    await agent.execute(
+      `Make a highlight reel\n\n[Attached video: highlight-source.mp4 — ${videoUrl} | cloudflareVideoId: cf-highlight-123]`,
+      {
+        ...createMockContext(),
+        attachments: [
+          {
+            url: videoUrl,
+            mimeType: 'video/mp4',
+            name: 'highlight-source.mp4',
+            storagePath: 'Users/user-123/uploads/highlight-source.mp4',
+          },
+        ],
+        videoAttachments: [
+          {
+            url: videoUrl,
+            mimeType: 'video/mp4',
+            name: 'highlight-source.mp4',
+            storagePath: 'Users/user-123/uploads/highlight-source.mp4',
+            cloudflareVideoId: 'cf-highlight-123',
+          },
+        ],
+      },
+      [],
+      llm as never,
+      registry
+    );
+
+    const completeMessages = vi.mocked(llm.complete).mock.calls[0]?.[0] as Array<{
+      role: string;
+      content: unknown;
+    }>;
+    const userMessage = completeMessages.find((message) => message.role === 'user');
+    const textBody =
+      typeof userMessage?.content === 'string'
+        ? userMessage.content
+        : JSON.stringify(userMessage?.content);
+
+    expect(textBody.match(/\[Attached video:/g) ?? []).toHaveLength(1);
+    expect(textBody).toContain(videoUrl);
+    expect(textBody).not.toContain('[Attached document: video/mp4');
   });
 
   it('extracts CSV attachment content and appends parsed preview to user intent text', async () => {

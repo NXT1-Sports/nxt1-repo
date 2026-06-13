@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { provideBrowserAuthProviders } from '../../core/providers/browser-auth.providers';
 import {
   guestGuard,
   onboardingInProgressGuard,
@@ -22,51 +23,57 @@ import {
  * - Matches mobile's AUTH_ROUTES structure
  */
 export const AUTH_ROUTES: Routes = [
-  // Main unified auth page (only for guests)
   {
     path: '',
-    loadComponent: () => import('./pages/auth/auth.component').then((m) => m.AuthComponent),
-    canActivate: [guestGuard],
-    title: 'Sign In | NXT1 Sports',
-  },
+    providers: [provideBrowserAuthProviders()],
+    children: [
+      // Main unified auth page (only for guests)
+      {
+        path: '',
+        loadComponent: () => import('./pages/auth/auth.component').then((m) => m.AuthComponent),
+        canActivate: [guestGuard],
+        title: 'Sign In | NXT1 Sports',
+      },
 
-  // Password reset (only for guests)
-  {
-    path: 'forgot-password',
-    loadComponent: () =>
-      import('./pages/forgot-password/forgot-password.component').then(
-        (m) => m.ForgotPasswordComponent
-      ),
-    canActivate: [guestGuard],
-    title: 'Reset Password | NXT1 Sports',
-  },
+      // Password reset (only for guests)
+      {
+        path: 'forgot-password',
+        loadComponent: () =>
+          import('./pages/forgot-password/forgot-password.component').then(
+            (m) => m.ForgotPasswordComponent
+          ),
+        canActivate: [guestGuard],
+        title: 'Reset Password | NXT1 Sports',
+      },
 
-  // Email verification flow - requires auth but email NOT verified
-  {
-    path: 'verify-email',
-    loadComponent: () =>
-      import('./pages/verify-email/verify-email.component').then((m) => m.VerifyEmailComponent),
-    canActivate: [emailVerificationGuard],
-    title: 'Verify Email | NXT1 Sports',
-  },
+      // Email verification flow - requires auth but email NOT verified
+      {
+        path: 'verify-email',
+        loadComponent: () =>
+          import('./pages/verify-email/verify-email.component').then((m) => m.VerifyEmailComponent),
+        canActivate: [emailVerificationGuard],
+        title: 'Verify Email | NXT1 Sports',
+      },
 
-  // Onboarding flow - requires auth but must NOT have completed onboarding
-  {
-    path: 'onboarding',
-    loadComponent: () =>
-      import('./pages/onboarding/onboarding.component').then((m) => m.OnboardingComponent),
-    canActivate: [onboardingInProgressGuard],
-    title: 'Complete Your Profile | NXT1 Sports',
-  },
+      // Onboarding flow - requires auth but must NOT have completed onboarding
+      {
+        path: 'onboarding',
+        loadComponent: () =>
+          import('./pages/onboarding/onboarding.component').then((m) => m.OnboardingComponent),
+        canActivate: [onboardingInProgressGuard],
+        title: 'Complete Your Profile | NXT1 Sports',
+      },
 
-  // Congratulations page - shown after onboarding completion
-  {
-    path: 'onboarding/congratulations',
-    loadComponent: () =>
-      import('./pages/onboarding-congratulations/onboarding-congratulations.component').then(
-        (m) => m.OnboardingCongratulationsComponent
-      ),
-    canActivate: [authGuard],
-    title: 'Welcome to NXT1! | NXT1 Sports',
+      // Congratulations page - shown after onboarding completion
+      {
+        path: 'onboarding/congratulations',
+        loadComponent: () =>
+          import('./pages/onboarding-congratulations/onboarding-congratulations.component').then(
+            (m) => m.OnboardingCongratulationsComponent
+          ),
+        canActivate: [authGuard],
+        title: 'Welcome to NXT1! | NXT1 Sports',
+      },
+    ],
   },
 ];

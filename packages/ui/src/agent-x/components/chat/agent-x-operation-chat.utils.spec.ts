@@ -6,6 +6,7 @@ import {
   normalizeOperationChatMediaUrl,
   resolveCoordinatorActionId,
   resolveCoordinatorChipId,
+  stripDistilledSectionTransitionLines,
 } from './agent-x-operation-chat.utils';
 
 describe('buildOperationChatInputPlaceholder', () => {
@@ -35,6 +36,36 @@ describe('operation chat media URL helpers', () => {
     );
 
     expect([...urls]).toEqual(['https://cdn.nxt1.test/final.mp4']);
+  });
+});
+
+describe('stripDistilledSectionTransitionLines', () => {
+  it('removes accidental distilled-section transition lines from assistant summaries', () => {
+    const content = [
+      'Identity details loaded; preparing profile updates.',
+      '',
+      'Sport details loaded; preparing profile updates.',
+      '',
+      "**Sync complete.** Billy Baca's MaxPreps account has been synced.",
+      '',
+      '**What was written:**',
+      '- Core identity and team details.',
+    ].join('\n');
+
+    expect(stripDistilledSectionTransitionLines(content)).toBe(
+      [
+        "**Sync complete.** Billy Baca's MaxPreps account has been synced.",
+        '',
+        '**What was written:**',
+        '- Core identity and team details.',
+      ].join('\n')
+    );
+  });
+
+  it('preserves normal streamed text unchanged', () => {
+    const content = '\n**Sync complete.**\n- Season stats were updated.\n';
+
+    expect(stripDistilledSectionTransitionLines(content)).toBe(content);
   });
 });
 

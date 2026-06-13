@@ -60,6 +60,7 @@ FFMPEG_MERGE_DIRECT_LIMIT = _positive_int_env("FFMPEG_MERGE_DIRECT_LIMIT", 6)
 FFMPEG_MERGE_BATCH_SIZE = _positive_int_env("FFMPEG_MERGE_BATCH_SIZE", 4)
 FFMPEG_MERGE_TIMEOUT_SECONDS = _positive_int_env("FFMPEG_MERGE_TIMEOUT_SECONDS", 900)
 FFMPEG_MERGE_INTRO_MAX_SECONDS = _positive_int_env("FFMPEG_MERGE_INTRO_MAX_SECONDS", 4)
+MIN_PLAYABLE_TRIM_DURATION_SECONDS = 0.5
 
 # Tool argument keys that represent input file paths or arrays of paths
 _URL_INPUT_KEYS = {"input_path", "subtitle_path"}
@@ -457,6 +458,29 @@ def _format_seconds(value: float) -> str:
     return f"{max(value, 0.0):.3f}"
 
 
+def _normalize_trim_duration_seconds(value: float | None) -> float | None:
+    if value is None:
+        return None
+    if value <= 0:
+        return MIN_PLAYABLE_TRIM_DURATION_SECONDS
+    if value >= MIN_PLAYABLE_TRIM_DURATION_SECONDS:
+        return value
+    print(
+        "[ffmpeg-mcp] Clamping trim duration "
+        f"from {value:.3f}s to {MIN_PLAYABLE_TRIM_DURATION_SECONDS:.3f}s",
+        flush=True,
+    )
+    return MIN_PLAYABLE_TRIM_DURATION_SECONDS
+
+
+def _escape_drawtext_text(value: str) -> str:
+    escaped = value.replace("\\", r"\\")
+    escaped = escaped.replace(":", r"\:")
+    escaped = escaped.replace("'", r"\'")
+    escaped = escaped.replace("%", r"\%")
+    return escaped.replace("\n", r"\n")
+
+
 def _looks_like_intro_source(source: str | None) -> bool:
     if not source:
         return False
@@ -743,6 +767,109 @@ def _run_convert_with_optional_silent_audio(args: dict) -> dict:
     }
 
 
+def _run_add_text_overlay_resilient(args: dict) -> dict:
+    input_path = str(args.get("input_path") or "").strip()
+    output_path = str(args.get("output_path") or "").strip()
+    text = str(args.get("text") or "").strip()
+
+    if not input_path or not output_path:
+        raise RuntimeError("add_text_overlay requires input_path and output_path")
+    if not text:
+        raise RuntimeError("add_text_overlay requires text")
+
+    font_size = int(args.get("font_size") or 48)
+    font_color = str(args.get("font_color") or "white").strip() or "white"
+    x_expr = str(args.get("x") or "(w-text_w)/2").strip() or "(w-text_w)/2"
+    y_expr = str(args.get("y") or "(h-text_h)/2").strip() or "(h-text_h)/2"
+    start_time = _time_arg_seconds(args.get("start_time"))
+    end_time = _time_arg_seconds(args.get("end_time"))
+    box = _truthy(args.get("box"))
+    box_color = str(args.get("box_color") or "black@0.6").strip() or "black@0.6"
+
+    drawtext_parts = [
+        f"text='{_escape_drawtext_text(text)}'",
+        f"fontsize={max(font_size, 1)}",
+        f"fontcolor={font_color}",
+        f"x={x_expr}",
+        f"y={y_expr}",
+        f"box={1 if box else 0}",
+    ]
+
+    if box:
+        drawtext_parts.append(f"boxcolor={box_color}")
+
+    if start_time is not None and end_time is not None:
+        if end_time <= start_time:
+            raise RuntimeError("add_text_overlay requires end_time to be greater than start_time")
+        drawtext_parts.append(
+            f"enable='between(t,{_format_seconds(start_time)},{_format_seconds(end_time)})'"
+        )
+    elif start_time is not None:
+        drawtext_parts.append(f"enable='gte(t,{_format_seconds(start_time)})'")
+    elif end_time is not None:
+        drawtext_parts.append(f"enable='lte(t,{_format_seconds(end_time)})'")
+
+    filter_complex = f"[0:v:0]drawtext={':'.join(drawtext_parts)},format=yuv420p[outv]"
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-fflags",
+        "+genpts",
+        "-i",
+        input_path,
+        "-filter_complex",
+        filter_complex,
+        "-map",
+        "[outv]",
+        "-map",
+        "0:a?",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-movflags",
+        "+faststart",
+        "-avoid_negative_ts",
+        "make_zero",
+        output_path,
+    ]
+
+    result = subprocess.run(cmd, capture_output=True, timeout=600)
+    if result.returncode != 0:
+        err = result.stderr.decode(errors="replace")[-1200:]
+        raise RuntimeError(f"FFmpeg add_text_overlay failed: {err}")
+
+    _assert_valid_video_output(output_path)
+
+    response = {
+        "success": True,
+        "output_path": output_path,
+        "text": text,
+        "fontSize": font_size,
+        "fontColor": font_color,
+        "x": x_expr,
+        "y": y_expr,
+        "box": box,
+        "boxColor": box_color,
+    }
+    if start_time is not None:
+        response["startTime"] = start_time
+    if end_time is not None:
+        response["endTime"] = end_time
+    return response
+
+
 def _upload_to_gcs(local_path: str, upload_prefix: str | None = None) -> str:
     """
     Upload a local file to Firebase Storage and return a Firebase download URL.
@@ -1018,11 +1145,11 @@ def _run_trim_video_resilient(args: dict) -> dict:
         raise RuntimeError("trim_video requires input_path and output_path")
 
     start_seconds = _time_arg_seconds(args.get("start_time")) or 0.0
-    duration_seconds = _positive_float_arg(args.get("duration"))
+    duration_seconds = _normalize_trim_duration_seconds(_positive_float_arg(args.get("duration")))
     end_seconds = _time_arg_seconds(args.get("end_time"))
 
     if duration_seconds is None and end_seconds is not None:
-        duration_seconds = max(end_seconds - start_seconds, 0.1)
+        duration_seconds = _normalize_trim_duration_seconds(end_seconds - start_seconds)
 
     cmd = [
         "ffmpeg",
@@ -1460,6 +1587,50 @@ class FfmpegUrlMiddleware:
                     except Exception:
                         pass
                 print(f"[ffmpeg-mcp] Silent-audio conversion failed: {exc}", flush=True)
+                print(traceback.format_exc(), flush=True)
+                err_payload = {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": f"Error: {exc}"}],
+                        "isError": True,
+                    },
+                }
+                sse = f"event: message\ndata: {json.dumps(err_payload)}\n\n".encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": [(b"content-type", b"text/event-stream"),
+                                         (b"content-length", str(len(sse)).encode())]})
+                await send({"type": "http.response.body", "body": sse, "more_body": False})
+                return
+
+        if tool_name == "add_text_overlay":
+            try:
+                payload = _run_add_text_overlay_resilient(modified_args)
+                response_body = json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}],
+                    },
+                }).encode()
+                final_body = _postprocess_response(response_body, output_map, temp_inputs, body.get("id"))
+                await send({
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(final_body)).encode()),
+                    ],
+                })
+                await send({"type": "http.response.body", "body": final_body, "more_body": False})
+                return
+            except Exception as exc:
+                for tmp in temp_inputs:
+                    try:
+                        Path(tmp).unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                print(f"[ffmpeg-mcp] Resilient add_text_overlay failed: {exc}", flush=True)
                 print(traceback.format_exc(), flush=True)
                 err_payload = {
                     "jsonrpc": "2.0",

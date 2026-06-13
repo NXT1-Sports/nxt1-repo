@@ -37,6 +37,7 @@ export default defineConfig({
     include: ['src/**/*.{test,spec}.ts', 'src/**/__tests__/**/*.ts'],
     exclude: ['**/node_modules/**', '**/dist/**'],
     passWithNoTests: true,
+    fileParallelism: false,
     setupFiles: ['reflect-metadata', './src/test-setup.ts'],
     coverage: {
       provider: 'v8',

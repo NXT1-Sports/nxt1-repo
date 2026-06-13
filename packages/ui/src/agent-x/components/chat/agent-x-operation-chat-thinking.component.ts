@@ -43,6 +43,7 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
             <span
               class="thinking-block__progress-fill"
               [style.transform]="'scaleX(' + progressScale + ')'"
+              [style.transition]="progressTransition"
             ></span>
           </div>
         }
@@ -162,6 +163,10 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
         font-size: 10px;
         font-weight: 700;
         letter-spacing: 0.02em;
+        transition:
+          background-color 260ms ease,
+          color 260ms ease,
+          opacity 260ms ease;
       }
 
       .thinking-block__detail {
@@ -196,7 +201,7 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
           var(--thinking-upload-fill-end) 100%
         );
         box-shadow: 0 0 0 1px color-mix(in srgb, var(--op-primary) 24%, transparent);
-        transition: transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+        transition: transform 520ms cubic-bezier(0.16, 1, 0.3, 1);
         will-change: transform;
       }
 
@@ -271,22 +276,43 @@ import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
 export class AgentXOperationChatThinkingComponent {
   @Input() label: string | null = null;
   @Input() detail: string | null = null;
-  @Input() progressPercent: number | null = null;
+
+  private _progressPercent: number | null = null;
+  private _normalizedProgress = 0;
+  private _progressTransition = 'transform 520ms cubic-bezier(0.16, 1, 0.3, 1)';
+
+  @Input()
+  set progressPercent(value: number | null) {
+    this._progressPercent = value;
+
+    const nextProgress =
+      value === null || Number.isNaN(value) ? 0 : Math.max(0, Math.min(100, Math.round(value)));
+    const delta = Math.abs(nextProgress - this._normalizedProgress);
+    const durationMs =
+      delta >= 30 ? 760 : delta >= 18 ? 620 : delta >= 8 ? 500 : delta >= 3 ? 380 : 280;
+
+    this._normalizedProgress = nextProgress;
+    this._progressTransition = `transform ${durationMs}ms cubic-bezier(0.16, 1, 0.3, 1)`;
+  }
+
+  get progressPercent(): number | null {
+    return this._progressPercent;
+  }
 
   protected get showUploadProgress(): boolean {
     return this.progressPercent !== null;
   }
 
   protected get normalizedProgress(): number {
-    if (this.progressPercent === null || Number.isNaN(this.progressPercent)) {
-      return 0;
-    }
-
-    return Math.max(0, Math.min(100, Math.round(this.progressPercent)));
+    return this._normalizedProgress;
   }
 
   protected get progressScale(): string {
     return `${this.normalizedProgress / 100}`;
+  }
+
+  protected get progressTransition(): string {
+    return this._progressTransition;
   }
 
   protected get displayDetail(): string | null {

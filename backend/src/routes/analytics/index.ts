@@ -19,6 +19,7 @@ import {
   type DispatchNotificationInput,
   type UserPreferences,
 } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 
 /** Cache key matches the pattern used by settings.routes.ts */
 const buildPrefsCacheKey = (uid: string) => `user:prefs:${uid}`;
@@ -194,6 +195,10 @@ function buildTrackingNotificationIdempotencyKey(input: {
     ? createHash('sha256').update(input.normalizedUrl).digest('hex').slice(0, 16)
     : 'none';
 
+  // Debounce notifications per recipient/event per 1 hour to prevent push spam
+  // and ensure repeated opens over consecutive days trigger new notifications.
+  const timeBucket = Math.floor(Date.now() / (60 * 60 * 1000));
+
   return [
     'email-engagement',
     input.eventType,
@@ -201,6 +206,7 @@ function buildTrackingNotificationIdempotencyKey(input: {
     input.sourceRecordId,
     input.recipientKey,
     urlDigest,
+    timeBucket,
   ].join(':');
 }
 
@@ -343,6 +349,8 @@ async function trackCommunicationOrEngagementEvent(
   });
 
   const domain = surface === 'email' || surface === 'message' ? 'communication' : 'engagement';
+  const canonicalEventName =
+    eventType === 'email_opened' ? APP_EVENTS.EMAIL_OPENED : APP_EVENTS.LINK_CLICKED;
   const normalizedUrl = destination ? `${destination.origin}${destination.pathname}` : null;
   const db = req.firebase?.db;
 
@@ -355,8 +363,9 @@ async function trackCommunicationOrEngagementEvent(
     actorUserId: viewerUserId ?? null,
     sessionId: sessionId ?? null,
     threadId: threadId ?? null,
-    tags: [surface, attributionConfidence, eventType].filter(Boolean),
+    tags: [surface, attributionConfidence, canonicalEventName].filter(Boolean),
     payload: {
+      eventName: canonicalEventName,
       surface,
       messageId,
       threadId,

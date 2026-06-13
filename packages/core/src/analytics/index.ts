@@ -115,6 +115,7 @@ export {
   type PurchaseEventParams,
   type BeginCheckoutEventParams,
   type GenerateLeadEventParams,
+  type QualifyLeadEventParams,
   type ViewItemEventParams,
   type ExceptionEventParams,
 

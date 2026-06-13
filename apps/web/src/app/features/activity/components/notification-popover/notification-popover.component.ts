@@ -496,28 +496,50 @@ export class NotificationPopoverComponent {
   protected onItemClick(item: ActivityItem): void {
     this.logger.debug('Item clicked', { id: item.id, type: item.type });
     this.close();
+    if (this.openManageMembersFromActivityItem(item)) {
+      return;
+    }
+
     if (item.deepLink) {
-      if (this.openManageMembersModal(item.deepLink)) {
+      if (this.openManageMembersModal(item.deepLink, item)) {
         return;
       }
       this.router.navigateByUrl(item.deepLink);
     }
   }
 
-  private openManageMembersModal(deepLink: string): boolean {
-    if (!deepLink.startsWith('/manage-team')) {
+  private openManageMembersFromActivityItem(item: ActivityItem): boolean {
+    const metadata = item.metadata ?? {};
+    const navigationTarget = metadata['navigationTarget'];
+    const teamId = metadata['teamId'];
+    if (navigationTarget !== 'manage-members' || typeof teamId !== 'string') {
+      return false;
+    }
+
+    void this.membershipModal.open({
+      teamId,
+      initialFilter: this.resolveManageMembersFilter(metadata['initialFilter']),
+    });
+    return true;
+  }
+
+  private openManageMembersModal(deepLink: string, item?: ActivityItem): boolean {
+    if (!deepLink.startsWith('/manage-team') && !deepLink.startsWith('/activity')) {
       return false;
     }
 
     try {
       const url = new URL(deepLink, 'https://nxt1.local');
-      const teamId = url.searchParams.get('teamId');
-      const tab = url.searchParams.get('tab');
+      const teamId =
+        url.searchParams.get('manageMembersTeamId') ??
+        url.searchParams.get('teamId') ??
+        (typeof item?.metadata?.['teamId'] === 'string' ? item.metadata['teamId'] : null);
+      const tab = url.searchParams.get('filter') ?? url.searchParams.get('tab');
       if (!teamId) {
         return false;
       }
 
-      const initialFilter = tab === 'pending' ? 'pending' : tab === 'staff' ? 'staff' : 'roster';
+      const initialFilter = this.resolveManageMembersFilter(tab);
 
       void this.membershipModal.open({ teamId, initialFilter });
       return true;
@@ -527,6 +549,10 @@ export class NotificationPopoverComponent {
       });
       return false;
     }
+  }
+
+  private resolveManageMembersFilter(value: unknown): 'roster' | 'staff' | 'pending' | null {
+    return value === 'pending' || value === 'staff' || value === 'roster' ? value : 'roster';
   }
 
   protected onActionClick(item: ActivityItem): void {

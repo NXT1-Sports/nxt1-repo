@@ -13,7 +13,7 @@ name: Deploy Mobile
 
 on:
   push:
-    branches: [main, production]
+    branches: [production]
     paths:
       - 'apps/mobile/**'
       - 'packages/core/**'
@@ -93,12 +93,7 @@ jobs:
         run: npm ci
 
       - name: Build mobile web assets
-        run: |
-          if [ "${{ needs.setup.outputs.profile }}" == "production" ]; then
-            npm run build:mobile
-          else
-            npm run build:mobile:staging
-          fi
+        run: npm run build:mobile
         env:
           NODE_OPTIONS: --max_old_space_size=4096
 
@@ -151,8 +146,13 @@ jobs:
         working-directory: apps/mobile
         run: node scripts/auto-switch-firebase-env.js ${{ env.BUILD_PROFILE }}
 
+      # Keep iOS on copy, not sync: @capacitor-firebase/analytics requires an
+      # explicit CocoaPods subspec in Podfile, and cap sync regenerates that
+      # file back to the plugin's Lite default.
       - name: Sync Capacitor web assets to iOS
         working-directory: apps/mobile
+        env:
+          BUILD_PLATFORM: ios
         run: npx cap copy ios
 
       - name: Setup Ruby
@@ -188,9 +188,6 @@ jobs:
           retry pod update IONGeolocationLib --no-repo-update
           retry pod install --repo-update
 
-      - name: Install Fastlane
-        run: gem install fastlane -N
-
       - name: Write App Store Connect API key
         env:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
@@ -219,7 +216,7 @@ jobs:
           APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: 120
-        run: fastlane release
+        run: bundle exec fastlane release
 
       - name: Upload gym build log on failure
         if: failure()
@@ -243,7 +240,7 @@ jobs:
           APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
           APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
           APP_STORE_CONNECT_API_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
-        run: fastlane upload_testflight
+        run: bundle exec fastlane upload_testflight
 
       # Submit for App Store review — DISABLED (uncomment when ready)
       # - name: Submit to App Store
@@ -306,15 +303,16 @@ jobs:
 
       - name: Sync Capacitor plugins and web assets to Android
         working-directory: apps/mobile
+        env:
+          BUILD_PLATFORM: android
         run: npx cap sync android
 
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
-
-      - name: Install Fastlane
-        run: gem install fastlane -N
+          bundler-cache: true
+          working-directory: apps/mobile/android
 
       - name: Setup Android signing
         env:
@@ -339,9 +337,9 @@ jobs:
         working-directory: apps/mobile/android
         run: |
           if [ "$BUILD_PROFILE" == "production" ]; then
-            fastlane release
+            bundle exec fastlane release
           else
-            fastlane release_staging
+            bundle exec fastlane release_staging
           fi
 
       - name: Save AAB artifact
@@ -355,10 +353,10 @@ jobs:
       - name: Upload to Play Store Internal Track
         if: env.BUILD_PROFILE == 'staging'
         working-directory: apps/mobile/android
-        run: fastlane upload_internal
+        run: bundle exec fastlane upload_internal
 
-      # Upload to Play Store Production — promote from internal track
+      # Upload to Play Store Production — upload the newly built production AAB
       - name: Upload to Play Store Production
         if: env.BUILD_PROFILE == 'production'
         working-directory: apps/mobile/android
-        run: fastlane promote_to_production
+        run: bundle exec fastlane upload_production

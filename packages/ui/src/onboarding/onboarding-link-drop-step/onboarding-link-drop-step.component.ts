@@ -180,6 +180,24 @@ function sportNameToKey(sportName: string): string {
     .replace(/\s+/g, '_');
 }
 
+function dedupeSelectedSports(sports: readonly string[]): string[] {
+  const seen = new Set<string>();
+  const distinct: string[] = [];
+
+  for (const sport of sports) {
+    const normalized = sport.trim();
+    if (!normalized) continue;
+
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+
+    seen.add(key);
+    distinct.push(normalized);
+  }
+
+  return distinct;
+}
+
 function isCustomPlatform(platform: string): boolean {
   return platform.startsWith(CUSTOM_LINK_PREFIX);
 }
@@ -457,7 +475,7 @@ function isPinnedSigninPlatform(platformId: string): boolean {
       <!-- Sport filter: only when 2+ sports and link mode -->
       @if (showSportFilter()) {
         <div class="nxt1-sport-filter" [attr.data-testid]="testIds.SPORT_FILTER">
-          @for (sport of selectedSports(); track sport) {
+          @for (sport of distinctSelectedSports(); track sport) {
             <button
               type="button"
               class="nxt1-sport-pill"
@@ -792,9 +810,13 @@ export class OnboardingLinkDropStepComponent {
     return map;
   });
 
+  protected readonly distinctSelectedSports = computed(() =>
+    dedupeSelectedSports(this.selectedSports())
+  );
+
   /** Show sport filter when 2+ sports and in link mode */
   protected readonly showSportFilter = computed(() => {
-    return this.selectedSports().length >= 2 && this.activeMode() === 'link';
+    return this.distinctSelectedSports().length >= 2 && this.activeMode() === 'link';
   });
 
   /** Whether to show team-scope hint (coaches/directors) */
@@ -805,7 +827,7 @@ export class OnboardingLinkDropStepComponent {
 
   /** Currently active sport key (resolved from signal or first sport) */
   private readonly _activeSportKey = computed((): string | null => {
-    const sports = this.selectedSports();
+    const sports = this.distinctSelectedSports();
     if (sports.length === 0) return null;
     const active = this.activeSport();
     // Use active or default to first
@@ -815,7 +837,7 @@ export class OnboardingLinkDropStepComponent {
 
   /** Active sport display name — for when we need the actual display name */
   private readonly _activeSportName = computed((): string | null => {
-    const sports = this.selectedSports();
+    const sports = this.distinctSelectedSports();
     if (sports.length === 0) return null;
     const active = this.activeSport();
     return active && sports.includes(active) ? active : sports[0];
@@ -826,7 +848,7 @@ export class OnboardingLinkDropStepComponent {
    * Returns the same flat shape as v3, with scope context embedded in each source.
    */
   readonly platformGroups = computed((): PlatformGroup[] => {
-    const sports = this.selectedSports();
+    const sports = this.distinctSelectedSports();
     const role = this.role();
     const connMap = this._connectedMap();
     const mode = this.activeMode();
@@ -942,7 +964,7 @@ export class OnboardingLinkDropStepComponent {
   constructor() {
     // Auto-select first sport when sports change
     effect(() => {
-      const sports = this.selectedSports();
+      const sports = this.distinctSelectedSports();
       const current = this.activeSport();
       if (sports.length > 0 && (!current || !sports.includes(current))) {
         this.activeSport.set(sports[0]);

@@ -150,6 +150,7 @@ async function sendCompletedSignupSlackAlert(
   try {
     const delivered = await sendSlackAlert({
       target: isTeamSignup ? 'signup_team' : 'signup_athlete',
+      environment: input.environment,
       severity: 'info',
       title: isTeamSignup ? 'New Team / Staff Signup' : 'New Athlete Signup',
       summary: `${displayName} completed onboarding and is ready for follow-up inside NXT1.`,

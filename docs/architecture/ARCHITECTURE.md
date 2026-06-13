@@ -21,7 +21,7 @@ design decisions, and patterns.
 
 The architecture is designed to maximize code sharing across all platforms:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                    @nxt1/core (100%)                        │
 │   Types, Models, Validation, Helpers, API Functions         │
@@ -55,7 +55,7 @@ The architecture is designed to maximize code sharing across all platforms:
 
 ### 3. Layered Architecture
 
-```
+```text
 ┌──────────────────────────────────────────────────────────────┐
 │                    PRESENTATION LAYER                         │
 │     Components (Angular/Ionic) - UI rendering, user input     │
@@ -80,7 +80,7 @@ The architecture is designed to maximize code sharing across all platforms:
 The core library contains **zero platform dependencies** - pure TypeScript that
 works everywhere:
 
-```
+```text
 packages/core/src/
 ├── index.ts              # Root barrel export
 ├── constants/            # Sport definitions, roles, notification types
@@ -117,7 +117,7 @@ packages/core/src/
 
 The UI library contains **shared Angular/Ionic components** for web and mobile:
 
-```
+```text
 packages/ui/src/
 ├── index.ts              # Root barrel export
 ├── components/           # Reusable primitives (icon, logo, avatar, etc.)
@@ -177,7 +177,7 @@ types, and APIs shared.
 
 ### Folder Structure
 
-```
+```text
 packages/ui/src/[feature]/
 ├── index.ts                    ← Main barrel export
 ├── [feature]-shell.component.ts (optional shared shell)
@@ -189,7 +189,7 @@ packages/ui/src/[feature]/
 
 ### Example: Help Center
 
-```
+```text
 packages/ui/src/help-center/
 ├── _shared/
 │   ├── help-center.service.ts  ← Signal-based state, search, filtering
@@ -353,7 +353,7 @@ export class FeatureShellMobileComponent {
 
 ### Decision Tree: When to Use Adaptive Design
 
-```
+```text
 Is it a feature with complex UI?
 │
 ├─ YES ─────────────────────────────────────────────────────┐
@@ -379,8 +379,7 @@ utilities │ ├── date.helpers.ts # Date utilities │ └── async.hel
 utilities └── validation/ ├── index.ts # Re-exports all validators └──
 user.validation.ts # User input validation
 
-````
-
+````markdown
 ### API Factory Pattern
 
 API functions are created as **factories** that receive an HTTP adapter:
@@ -405,6 +404,7 @@ export function createAuthApi(http: HttpAdapter, baseUrl: string) {
     },
   };
 }
+```
 ````
 
 **Usage in Angular:**
@@ -523,7 +523,7 @@ Code that must be different per platform:
 - Event types and enums
 - Request/response shapes
 
-**Example: NetworkService**
+#### Example: NetworkService
 
 ```typescript
 // ✅ CORRECT: Shared types in @nxt1/core
@@ -581,7 +581,7 @@ NXT1 uses a comprehensive three-tier caching system for optimal performance:
 
 ### Architecture Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                    WEB APPLICATION                           │
 ├─────────────────────────────────────────────────────────────┤
@@ -801,7 +801,7 @@ async register() {
 
 ### Build Order
 
-```
+```text
 @nxt1/core       ──► @nxt1/web
                  ──► @nxt1/mobile
                  ──► @nxt1/backend
@@ -998,4 +998,4 @@ import { User, formatDate } from '@nxt1/core';
 
 ---
 
-_Last updated: April 2026_
+Last updated: April 2026.

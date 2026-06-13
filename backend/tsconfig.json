@@ -17,7 +17,6 @@
     "isolatedModules": false,
     "noEmit": false,
     "types": ["node"],
-    "baseUrl": ".",
     "paths": {
       "@nxt1/core": ["../packages/core/dist/index.d.ts"],
       "@nxt1/core/errors/express": [

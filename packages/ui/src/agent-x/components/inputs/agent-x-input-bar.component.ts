@@ -176,7 +176,6 @@ interface PendingConnectedSource {
           (ngModelChange)="messageChange.emit($event)"
           (focus)="onInputFocus()"
           [placeholder]="placeholder()"
-          [maxlength]="1000"
           (keydown.enter)="onEnterKey($event)"
           (paste)="onPaste($event)"
         ></textarea>

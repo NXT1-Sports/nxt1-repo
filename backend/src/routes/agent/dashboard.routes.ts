@@ -60,6 +60,8 @@ import {
 import {
   validateJobOrigin,
   isScheduledOrigin,
+  shouldHideRecurringExecutionJob,
+  shouldHideRecurringSourceThread,
   mapJobStatus,
   inferCategory,
   iconForCategory,
@@ -1743,6 +1745,18 @@ function buildRecurringTaskPayload(userId: string, actionSummary: string, source
   };
 }
 
+function parsePendingInitialRunAt(data: Record<string, unknown>): string | null {
+  const firstRunAt = readRecurringTaskString(data, 'firstRunAt');
+  if (!firstRunAt) return null;
+  const parsedMs = Date.parse(firstRunAt);
+  if (!Number.isFinite(parsedMs) || parsedMs <= Date.now()) return null;
+  return new Date(parsedMs).toISOString();
+}
+
+function readRecurringTaskInitialJobId(data: Record<string, unknown>): string | undefined {
+  return readRecurringTaskString(data, 'initialRunJobId');
+}
+
 // ─── GET /jobs/:operationId ─────────────────────────────────────────────────
 
 router.get('/jobs/:operationId', appGuard, async (req: Request, res: Response) => {
@@ -1898,6 +1912,39 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       }
     }
 
+    let recurringTasksSnapshot: {
+      empty: boolean;
+      docs: FirestoreDocLike[];
+    } | null = null;
+    const activeRecurringTaskKeys = new Set<string>();
+    const activeRecurringSourceIds = new Set<string>();
+
+    try {
+      const snapshot = await db
+        .collection(RECURRING_TASKS_COLLECTION)
+        .where('userId', '==', user.uid)
+        .orderBy('createdAt', 'desc')
+        .limit(limit)
+        .get();
+
+      recurringTasksSnapshot = {
+        empty: snapshot.empty,
+        docs: snapshot.docs as FirestoreDocLike[],
+      };
+
+      for (const doc of recurringTasksSnapshot.docs) {
+        activeRecurringTaskKeys.add(doc.id);
+        const data = doc.data();
+        const sourceId = resolveRecurringTaskSourceId(data);
+        if (sourceId) activeRecurringSourceIds.add(sourceId);
+      }
+    } catch (recurringErr) {
+      logger.warn('Failed to prefetch recurring tasks for operations log filtering', {
+        userId: user.uid,
+        error: recurringErr instanceof Error ? recurringErr.message : String(recurringErr),
+      });
+    }
+
     // ── Deduplicate by threadId (professional-app pattern) ────────────────
     // jobs[] is ordered by createdAt DESC from Firestore, so the first job
     // seen for a threadId is the most recent and represents the conversation's
@@ -1919,7 +1966,11 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
 
     for (const job of jobs) {
       const operationId = (job['operationId'] as string) ?? '';
-      const jobContext = (job as typeof job & { context?: unknown }).context;
+      const replayContext = job.replayPayload?.context;
+      const jobContext =
+        replayContext && typeof replayContext === 'object'
+          ? replayContext
+          : (job as typeof job & { context?: unknown }).context;
       const jobMode =
         jobContext && typeof jobContext === 'object' && 'mode' in jobContext
           ? typeof (jobContext as { mode?: unknown }).mode === 'string'
@@ -1975,6 +2026,23 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       const completedAt = job['completedAt'] as TimestampLike | undefined | null;
       const result = job['result'] as { summary?: string } | null | undefined;
       const jobOrigin = validateJobOrigin(job['origin']);
+
+      if (
+        shouldHideRecurringExecutionJob({
+          origin: jobOrigin,
+          recurringTaskKey:
+            typeof job['recurringTaskKey'] === 'string'
+              ? (job['recurringTaskKey'] as string)
+              : null,
+          threadId,
+          context: jobContext,
+          activeRecurringTaskKeys,
+          activeRecurringSourceIds,
+        })
+      ) {
+        continue;
+      }
+
       const isScheduled = isScheduledOrigin(jobOrigin);
 
       // Prefer the thread's title (user-meaningful conversation label) over
@@ -2007,14 +2075,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     }
 
     try {
-      const recurringTasksSnapshot = await db
-        .collection(RECURRING_TASKS_COLLECTION)
-        .where('userId', '==', user.uid)
-        .orderBy('createdAt', 'desc')
-        .limit(limit)
-        .get();
-
-      if (!recurringTasksSnapshot.empty) {
+      if (recurringTasksSnapshot && !recurringTasksSnapshot.empty) {
         const repeatables: RepeatableJobDescriptor[] = queueService
           ? ((await queueService.getAllRepeatableJobs()) as RepeatableJobDescriptor[])
           : [];
@@ -2028,7 +2089,7 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
           ])
         );
 
-        for (const doc of recurringTasksSnapshot.docs as FirestoreDocLike[]) {
+        for (const doc of recurringTasksSnapshot.docs) {
           const data = doc.data();
           const repeatable = repeatableMap.get(doc.id);
           const explicitTitle = readRecurringTaskString(data, 'title');
@@ -2045,10 +2106,18 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
           const sourceId = resolveRecurringTaskSourceId(data);
           const resolvedTitle = sourceId ? (threadTitleById.get(sourceId)?.trim() ?? '') : '';
           const createdAt = data['createdAt'] as TimestampLike | undefined;
-          const nextRunIso =
+          const repeatableNextRunIso =
             typeof repeatable?.nextRun === 'number'
               ? new Date(repeatable.nextRun).toISOString()
               : null;
+          const pendingFirstRunAt = parsePendingInitialRunAt(data);
+          const initialRunJobId = readRecurringTaskInitialJobId(data);
+          const pendingInitialRun =
+            pendingFirstRunAt && initialRunJobId && queueService
+              ? await queueService.getJobStatus(initialRunJobId).catch(() => null)
+              : null;
+          const nextRunIso =
+            pendingInitialRun?.status === 'queued' ? pendingFirstRunAt : repeatableNextRunIso;
 
           entries.push({
             id: `schedule:${doc.id}`,
@@ -2104,7 +2173,16 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
         }
 
         for (const thread of activeThreads) {
-          if (!thread.id || representedThreadIds.has(thread.id)) continue;
+          if (
+            !thread.id ||
+            representedThreadIds.has(thread.id) ||
+            shouldHideRecurringSourceThread({
+              threadId: thread.id,
+              activeRecurringSourceIds,
+            })
+          ) {
+            continue;
+          }
 
           const category = inferCategory(thread.title);
           const resolvedOperationId = threadIdToOperationId.get(thread.id);
@@ -3991,10 +4069,23 @@ router.patch(
       const timezone = readRecurringTaskString(data, 'timezone') ?? 'UTC';
       const jobName = readRecurringTaskString(data, 'jobName') ?? `recv:${user.uid}:${Date.now()}`;
       const sourceId = resolveRecurringTaskSourceId(data);
+      const firstRunAt = parsePendingInitialRunAt(data);
+      const existingInitialRunJobId = readRecurringTaskInitialJobId(data);
       const previousTitle = readRecurringTaskString(data, 'actionSummary') ?? 'Scheduled task';
 
       const previousPayload = buildRecurringTaskPayload(user.uid, previousTitle, sourceId);
       const nextPayload = buildRecurringTaskPayload(user.uid, nextTitle, sourceId);
+      const nextDocData: Record<string, unknown> = {
+        ...data,
+        userId: user.uid,
+        actionSummary: nextTitle,
+        title: nextTitle,
+        cronExpression,
+        timezone,
+        jobName,
+        ...(sourceId ? { sourceId } : {}),
+        updatedAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+      };
 
       const removed = await queueService.removeRecurringJob(taskKey);
       if (!removed) {
@@ -4011,8 +4102,43 @@ router.patch(
           cronExpression,
           timezone,
           nextPayload,
+          firstRunAt
+            ? { startDate: new Date(Date.parse(firstRunAt) + 60_000).toISOString() }
+            : undefined,
           'production'
         );
+
+        if (firstRunAt) {
+          const initialPayload = {
+            ...nextPayload,
+            operationId: `recurring-initial-${user.uid}-${Date.now()}`,
+            context: {
+              ...(typeof nextPayload.context === 'object' && nextPayload.context
+                ? nextPayload.context
+                : {}),
+              timezone,
+              recurringTaskKey: nextKey,
+              recurringInitialRun: true,
+            },
+          };
+          const delayMs = Math.max(0, Date.parse(firstRunAt) - Date.now());
+          const nextInitialRunJobId = await queueService.enqueueDelayed(
+            initialPayload,
+            delayMs,
+            'production'
+          );
+          if (existingInitialRunJobId) {
+            await queueService.cancel(existingInitialRunJobId).catch(() => false);
+          }
+          (nextDocData as Record<string, unknown>)['initialRunJobId'] = nextInitialRunJobId;
+          (nextDocData as Record<string, unknown>)['firstRunAt'] = firstRunAt;
+        } else {
+          if (existingInitialRunJobId) {
+            await queueService.cancel(existingInitialRunJobId).catch(() => false);
+          }
+          nextDocData['initialRunJobId'] = firebaseAdmin.firestore.FieldValue.delete();
+          nextDocData['firstRunAt'] = firebaseAdmin.firestore.FieldValue.delete();
+        }
       } catch (enqueueErr) {
         try {
           await queueService.enqueueRecurring(
@@ -4020,6 +4146,9 @@ router.patch(
             cronExpression,
             timezone,
             previousPayload,
+            firstRunAt
+              ? { startDate: new Date(Date.parse(firstRunAt) + 60_000).toISOString() }
+              : undefined,
             'production'
           );
         } catch (rollbackErr) {
@@ -4032,18 +4161,6 @@ router.patch(
 
         throw enqueueErr;
       }
-
-      const nextDocData = {
-        ...data,
-        userId: user.uid,
-        actionSummary: nextTitle,
-        title: nextTitle,
-        cronExpression,
-        timezone,
-        jobName,
-        ...(sourceId ? { sourceId } : {}),
-        updatedAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
-      };
 
       if (nextKey === taskKey) {
         await docRef.set(nextDocData, { merge: true });
@@ -4117,6 +4234,10 @@ router.post(
           taskKey,
         });
 
+        const initialRunJobId = readRecurringTaskInitialJobId(data);
+        if (initialRunJobId) {
+          await queueService.cancel(initialRunJobId).catch(() => false);
+        }
         res.status(409).json({
           success: false,
           error:
@@ -4331,20 +4452,6 @@ router.post('/goals', appGuard, validateBody(SetGoalsDto), async (req: Request, 
     contextBuilder?.invalidateContext(user.uid).catch(() => {
       /* non-critical */
     });
-
-    // Goals changed — regenerate the action plan immediately so the user
-    // sees a fresh playbook that reflects their new goals. fire-and-forget
-    // (non-blocking — the HTTP response returns instantly).
-    if (goals.length > 0) {
-      getGenerationService()
-        .generateWeeklyPlaybook(user.uid, true)
-        .catch((err) =>
-          logger.warn('Playbook regeneration after goal update failed', {
-            userId: user.uid,
-            error: err instanceof Error ? err.message : String(err),
-          })
-        );
-    }
 
     res.json({ success: true });
   } catch (err) {
@@ -4786,7 +4893,7 @@ router.post('/upload/promote', appGuard, async (req: Request, res: Response) => 
 // uses the returned read URL as the attachment URL — which MediaTransportResolver
 // already treats as isDirectlyPortable (no Cloudflare re-encoding wait).
 //
-// Body: { fileName: string, mimeType: string, fileSize: number, threadId?: string }
+// Body: { fileName: string, mimeType: string, fileSize: number, threadId?: string, nativeUpload?: boolean }
 // Returns: { uploadUrl, readUrl, storagePath, expiresAt }
 router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res: Response) => {
   try {
@@ -4796,11 +4903,12 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
       return;
     }
 
-    const { fileName, mimeType, fileSize, threadId } = req.body as {
+    const { fileName, mimeType, fileSize, threadId, nativeUpload } = req.body as {
       fileName?: unknown;
       mimeType?: unknown;
       fileSize?: unknown;
       threadId?: unknown;
+      nativeUpload?: unknown;
     };
 
     // ── Validate inputs ───────────────────────────────────────────────────
@@ -4820,7 +4928,8 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
       res.status(400).json({ success: false, error: 'fileSize must be a positive number' });
       return;
     }
-    if (fileSize >= AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES) {
+    const isNativeUpload = nativeUpload === true;
+    if (!isNativeUpload && fileSize >= AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES) {
       res.status(413).json({
         success: false,
         error: `Videos ${formatSizeLabel(AGENT_X_VIDEO_CLOUDFLARE_THRESHOLD_BYTES)} and larger must use Cloudflare Stream TUS.`,
@@ -4884,6 +4993,7 @@ router.post('/upload/video', appGuard, uploadRateLimit, async (req: Request, res
       threadId: resolvedThreadId ?? 'unbound',
       mimeType,
       fileSize,
+      nativeUpload: isNativeUpload,
       storagePath,
       uploadExpiresAt: new Date(uploadExpiresAtMs).toISOString(),
       readExpiresAt: new Date(readExpiresAtMs).toISOString(),

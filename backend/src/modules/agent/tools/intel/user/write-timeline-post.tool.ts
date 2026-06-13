@@ -69,9 +69,10 @@ function extractMentions(content: string): string[] {
 export class WriteTimelinePostTool extends BaseTool {
   readonly name = 'write_timeline_post';
   readonly description =
-    "Create a new post on the user's timeline/feed. " +
+    "Create a new post on the user's NXT1 timeline/feed. " +
     'Use this to publish scraped content, AI-generated graphics, highlight announcements, ' +
-    "achievement updates, or any content to the user's social feed. " +
+    "achievement updates, or any content to the user's NXT1 profile feed. " +
+    'This tool does not publish to Instagram, TikTok, X/Twitter, Facebook, LinkedIn, YouTube, Threads, Snapchat, or any external social network. ' +
     'Supports images (up to 10 prepared media URLs) and a single video URL. ' +
     'Content is automatically sanitized. Do NOT include hashtags in the content — NXT1 does not use hashtags.\n\n' +
     'Post types:\n' +

@@ -52,6 +52,7 @@ import { PrimaryAgent } from './agents/primary.agent.js';
 import { AgentRouterResumeService } from './orchestrator/agent-router-resume.service.js';
 import { AgentRouterTelemetryService } from './orchestrator/agent-router-telemetry.service.js';
 import { getThreadMessageReplayService } from './memory/thread-message-replay.service.js';
+import { resolveThreadReplayMaxTokens } from './memory/replay-budget.js';
 import { logger } from '../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
@@ -408,6 +409,10 @@ export class AgentRouter {
       typeof (contextObj as Record<string, unknown>)['mode'] === 'string'
         ? ((contextObj as Record<string, unknown>)['mode'] as string)
         : undefined;
+    const timezone =
+      typeof (contextObj as Record<string, unknown>)['timezone'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['timezone'] as string)
+        : undefined;
     const attachments = Array.isArray((contextObj as Record<string, unknown>)['attachments'])
       ? ((contextObj as Record<string, unknown>)['attachments'] as readonly {
           url: string;
@@ -459,8 +464,12 @@ export class AgentRouter {
       sessionContext?.conversationHistory;
     if (threadId) {
       try {
+        const replayMaxTokens = resolveThreadReplayMaxTokens({
+          intent,
+          videoAttachments,
+        });
         const replayed = await getThreadMessageReplayService().loadAsLLMMessages(threadId, {
-          maxTokens: 50_000,
+          maxTokens: replayMaxTokens,
         });
         // Map LLMMessage[] → AgentSessionMessage[]. The widened
         // AgentSessionMessage shape carries `toolCallId` and
@@ -476,6 +485,7 @@ export class AgentRouter {
         logger.info('[AgentRouter] Replayed canonical thread history', {
           threadId,
           messageCount: canonicalHistory.length,
+          replayMaxTokens,
         });
       } catch (err) {
         logger.warn('[AgentRouter] Thread replay failed — falling back to session memory', {
@@ -494,6 +504,7 @@ export class AgentRouter {
       typeof rawContextObj['appBaseUrl'] === 'string'
         ? String(rawContextObj['appBaseUrl'])
         : undefined,
+      timezone,
       signal,
       mode,
       attachments,
@@ -773,6 +784,7 @@ export class AgentRouter {
     threadId?: string,
     environment?: 'staging' | 'production',
     appBaseUrl?: string,
+    timezone?: string,
     signal?: AbortSignal,
     mode?: string,
     attachments?: readonly {
@@ -800,6 +812,7 @@ export class AgentRouter {
       threadId,
       environment,
       appBaseUrl,
+      timezone,
       signal,
       mode,
       attachments,

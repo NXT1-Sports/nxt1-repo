@@ -14,9 +14,6 @@ import { AppComponent } from './app/app.component';
 import { appConfig } from './app/app.config';
 import { environment } from './environments/environment';
 
-// Import Crashlytics for early initialization
-import { CrashlyticsService } from './app/core/services/infrastructure/crashlytics.service';
-
 // Icons: Each @nxt1/ui component registers its own icons via addIcons() in its constructor.
 // No global registration needed — this avoids bundling all 1,357 ionicon SVG paths (~800 KB).
 
@@ -70,67 +67,6 @@ if (environment.production) {
 // Note: Ionicons are bundled with @ionic/angular web components
 // No need to configure SVG paths for Capacitor
 
-// ============================================
-// CRASHLYTICS - Initialize early to catch startup crashes
-// ============================================
-
-/**
- * Initialize Crashlytics before Angular bootstrap to capture any early errors.
- * This is critical for debugging startup issues on native platforms.
- */
-async function initializeCrashlytics(): Promise<void> {
-  try {
-    const crashlytics = new CrashlyticsService();
-    await crashlytics.initialize({
-      enabled: environment.production,
-      debug: !environment.production,
-      collectNavigationBreadcrumbs: true,
-      collectHttpBreadcrumbs: true,
-      initialCustomKeys: {
-        app_version: environment.appVersion || '1.0.0',
-        environment: environment.production ? 'production' : 'development',
-        platform: Capacitor.getPlatform(),
-      },
-    });
-
-    // Check if we crashed on previous execution
-    const didCrash = await crashlytics.didCrashOnPreviousExecution();
-    if (didCrash) {
-      console.log('[Bootstrap] App crashed on previous execution - reports will be sent');
-    }
-
-    console.log('[Bootstrap] Crashlytics initialized successfully');
-  } catch (error) {
-    // Error code -203 is common on iOS simulator or first run - not critical
-    // App continues without Crashlytics in this case
-    const errorCode = (error as { code?: number })?.code;
-    if (errorCode === -203) {
-      console.log(
-        '[Bootstrap] Crashlytics unavailable (code -203) - continuing without crash reporting'
-      );
-    } else {
-      console.warn('[Bootstrap] Crashlytics initialization error (non-fatal):', error);
-    }
-  }
-}
-
-// Initialize Crashlytics, then bootstrap Angular
-initializeCrashlytics()
-  .then(() => bootstrapApplication(AppComponent, appConfig))
-  .catch((err) => {
-    console.error('[Bootstrap] Bootstrap error:', err);
-    // Try to record error if Crashlytics was initialized
-    try {
-      const crashlytics = new CrashlyticsService();
-      if (crashlytics.isReady()) {
-        crashlytics.recordException({
-          message: err.message || 'Bootstrap failed',
-          stacktrace: err.stack,
-          severity: 'fatal',
-          category: 'javascript',
-        });
-      }
-    } catch {
-      // Ignore - already logging to console
-    }
-  });
+bootstrapApplication(AppComponent, appConfig).catch((err) => {
+  console.error('[Bootstrap] Bootstrap error:', err);
+});

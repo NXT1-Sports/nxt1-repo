@@ -144,6 +144,13 @@ export class SendEmailTool extends BaseTool {
           recipientName: parsed.data.recipientName,
           recipientKind: parsed.data.recipientKind,
           recipientOrgName: parsed.data.recipientOrgName,
+          auditContext: {
+            toolName: this.name,
+            approvalId: context?.approvalId,
+            operationId: context?.operationId,
+            threadId: context?.threadId,
+            sessionId: context?.sessionId,
+          },
         }
       );
       logger.info('Email sent via agent tool', {

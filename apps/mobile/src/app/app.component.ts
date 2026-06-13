@@ -6,7 +6,7 @@
  * Uses NativeAppService for all native features (StatusBar, SplashScreen, Keyboard, etc.)
  */
 
-import { Component, afterNextRender, inject, effect } from '@angular/core';
+import { Component, afterNextRender, inject, effect, signal, computed } from '@angular/core';
 import { Router, NavigationEnd } from '@angular/router';
 import { IonApp, IonRouterOutlet, Platform, NavController } from '@ionic/angular/standalone';
 import { NxtPlatformService } from '@nxt1/ui/services/platform';
@@ -37,8 +37,128 @@ import { filter } from 'rxjs/operators';
   template: `
     <ion-app>
       <ion-router-outlet></ion-router-outlet>
+      @if (showAccessGate()) {
+        <div class="app-access-gate">
+          <div class="app-access-card">
+            <div class="app-access-brand">NXT1</div>
+            <h1>{{ accessGateTitle() }}</h1>
+            <p>{{ accessGateMessage() }}</p>
+
+            <div class="app-access-actions">
+              <button
+                type="button"
+                class="app-access-primary"
+                [disabled]="unlockInProgress()"
+                (click)="onRetryUnlock()"
+              >
+                {{ unlockInProgress() ? 'Checking...' : 'Use ' + biometricLabel() }}
+              </button>
+              <button
+                type="button"
+                class="app-access-secondary"
+                [disabled]="unlockInProgress()"
+                (click)="onSignOutFromGate()"
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+      }
     </ion-app>
   `,
+  styles: [
+    `
+      :host,
+      ion-app {
+        background:
+          radial-gradient(circle at top, rgba(194, 255, 0, 0.14), transparent 30%), #050505;
+      }
+
+      .app-access-gate {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: rgba(5, 5, 5, 0.94);
+        backdrop-filter: blur(14px);
+      }
+
+      .app-access-card {
+        width: min(100%, 360px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 28px;
+        padding: 28px 24px;
+        background: linear-gradient(180deg, rgba(19, 19, 19, 0.96), rgba(9, 9, 9, 0.98));
+        box-shadow: 0 24px 72px rgba(0, 0, 0, 0.45);
+        text-align: center;
+        color: #f5f5f5;
+      }
+
+      .app-access-brand {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 68px;
+        height: 34px;
+        margin-bottom: 18px;
+        border-radius: 999px;
+        background: rgba(194, 255, 0, 0.14);
+        color: #c2ff00;
+        font-size: 0.78rem;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+      }
+
+      .app-access-card h1 {
+        margin: 0;
+        font-size: 1.7rem;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+      }
+
+      .app-access-card p {
+        margin: 12px 0 0;
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 0.98rem;
+        line-height: 1.45;
+      }
+
+      .app-access-actions {
+        display: grid;
+        gap: 12px;
+        margin-top: 24px;
+      }
+
+      .app-access-primary,
+      .app-access-secondary {
+        width: 100%;
+        border: 0;
+        border-radius: 18px;
+        padding: 14px 16px;
+        font: inherit;
+        font-weight: 600;
+      }
+
+      .app-access-primary {
+        background: #c2ff00;
+        color: #0a0a0a;
+      }
+
+      .app-access-secondary {
+        background: rgba(255, 255, 255, 0.08);
+        color: #f5f5f5;
+      }
+
+      .app-access-primary[disabled],
+      .app-access-secondary[disabled] {
+        opacity: 0.6;
+      }
+    `,
+  ],
 })
 export class AppComponent {
   private readonly router = inject(Router);
@@ -66,6 +186,21 @@ export class AppComponent {
 
   /** Track if we've performed initial navigation */
   private hasPerformedInitialNavigation = false;
+  /** Prevent duplicate initial access resolution */
+  private hasStartedInitialAccess = false;
+
+  protected readonly accessResolved = signal(false);
+  protected readonly requiresBiometricUnlock = signal(false);
+  protected readonly unlockInProgress = signal(false);
+  protected readonly unlockError = signal<string | null>(null);
+  protected readonly biometricLabel = computed(() => this.biometric.biometryName());
+  protected readonly showAccessGate = computed(
+    () => this.requiresBiometricUnlock() && !this.accessResolved()
+  );
+  protected readonly accessGateTitle = computed(() => 'Unlock NXT1');
+  protected readonly accessGateMessage = computed(
+    () => this.unlockError() ?? `Use ${this.biometricLabel()} to continue.`
+  );
 
   constructor() {
     // Register Apple IAP on iOS so compatible buy-credits sheets can offer
@@ -96,16 +231,12 @@ export class AppComponent {
         return;
       }
 
-      // Skip if we already navigated
-      if (this.hasPerformedInitialNavigation) {
+      if (this.hasStartedInitialAccess) {
         return;
       }
 
-      // Mark as navigated
-      this.hasPerformedInitialNavigation = true;
-
-      // Perform initial navigation based on auth state
-      this.handleInitialNavigation(user);
+      this.hasStartedInitialAccess = true;
+      void this.resolveInitialAccess(user);
     });
 
     // Use afterNextRender for proper SSR safety (though mobile doesn't have SSR, good practice)
@@ -199,6 +330,115 @@ export class AppComponent {
     }
   }
 
+  private async resolveInitialAccess(user: ReturnType<typeof this.authFlow.user>): Promise<void> {
+    const unlocked = await this.unlockSessionIfNeeded(user);
+    if (!unlocked) {
+      return;
+    }
+
+    this.accessResolved.set(true);
+
+    if (!this.hasPerformedInitialNavigation) {
+      this.hasPerformedInitialNavigation = true;
+      this.handleInitialNavigation(user);
+    }
+  }
+
+  private async unlockSessionIfNeeded(
+    user: ReturnType<typeof this.authFlow.user>
+  ): Promise<boolean> {
+    const requiresUnlock = await this.shouldRequireBiometricUnlock(user);
+    this.requiresBiometricUnlock.set(requiresUnlock);
+
+    if (!requiresUnlock) {
+      this.unlockError.set(null);
+      return true;
+    }
+
+    return this.promptForBiometricUnlock();
+  }
+
+  private async shouldRequireBiometricUnlock(
+    user: ReturnType<typeof this.authFlow.user>
+  ): Promise<boolean> {
+    if (!user) {
+      return false;
+    }
+
+    await this.biometric.initialize();
+    await this.biometric.loadEnrollmentStatus();
+
+    return this.biometric.isAvailable() && this.biometric.isEnrolled();
+  }
+
+  private async promptForBiometricUnlock(): Promise<boolean> {
+    if (this.unlockInProgress()) {
+      return false;
+    }
+
+    this.unlockInProgress.set(true);
+    this.unlockError.set(null);
+
+    try {
+      const result = await this.biometric.authenticate({
+        reason: `Use ${this.biometricLabel()} to unlock NXT1`,
+        title: 'Unlock NXT1',
+      });
+
+      if (!result.success) {
+        this.unlockError.set(result.error ?? `Use ${this.biometricLabel()} to continue.`);
+        return false;
+      }
+
+      return true;
+    } finally {
+      this.unlockInProgress.set(false);
+    }
+  }
+
+  protected async onRetryUnlock(): Promise<void> {
+    const unlocked = await this.promptForBiometricUnlock();
+    if (!unlocked) {
+      return;
+    }
+
+    this.accessResolved.set(true);
+
+    if (!this.hasPerformedInitialNavigation) {
+      this.hasPerformedInitialNavigation = true;
+      this.handleInitialNavigation(this.authFlow.user());
+    }
+  }
+
+  protected async onSignOutFromGate(): Promise<void> {
+    try {
+      await this.authFlow.signOut();
+    } finally {
+      this.requiresBiometricUnlock.set(false);
+      this.unlockError.set(null);
+      this.accessResolved.set(true);
+    }
+  }
+
+  private async reLockOnResumeIfNeeded(): Promise<void> {
+    if (!this.hasPerformedInitialNavigation || !this.authFlow.user()) {
+      return;
+    }
+
+    const requiresUnlock = await this.shouldRequireBiometricUnlock(this.authFlow.user());
+    if (!requiresUnlock) {
+      return;
+    }
+
+    this.requiresBiometricUnlock.set(true);
+    this.accessResolved.set(false);
+
+    const unlocked = await this.promptForBiometricUnlock();
+    if (unlocked) {
+      this.accessResolved.set(true);
+    }
+  }
+
   /**
    * Initialize native platform features
    */
@@ -243,6 +483,7 @@ export class AppComponent {
           this.logger.debug('Resumed');
           // Refresh network status when app resumes
           this.network.checkStatus();
+          void this.reLockOnResumeIfNeeded();
           // Refresh FCM silently on every resume when the user is authenticated.
           // Using `!== false` (not `=== true`) so users with hasCompletedOnboarding:
           // undefined (e.g. legacy accounts) also get their token refreshed.

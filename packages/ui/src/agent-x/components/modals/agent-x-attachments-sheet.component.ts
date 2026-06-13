@@ -20,6 +20,7 @@ import {
   ElementRef,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Capacitor } from '@capacitor/core';
 import { ModalController } from '@ionic/angular/standalone';
 import { NxtSheetHeaderComponent } from '../../../components/bottom-sheet/sheet-header.component';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
@@ -46,6 +47,20 @@ export interface AttachmentSheetResult {
   readonly source?: ConnectedAppSource;
 }
 
+export interface NativeAttachmentFile extends File {
+  readonly nativeUri?: string;
+  readonly nativeWebPath?: string;
+  readonly nativeSizeBytes?: number;
+  readonly thumbnailDataUrl?: string;
+}
+
+export type AttachmentSelectedFile = File | NativeAttachmentFile;
+
+const ALL_ATTACHMENT_ACCEPT =
+  'image/*,video/*,.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,text/plain,text/csv,application/pdf,application/msword,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+const NATIVE_DOCUMENT_ACCEPT =
+  '.pdf,.txt,.csv,.doc,.docx,.xls,.xlsx,text/plain,text/csv,application/pdf,application/msword,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
 @Component({
   selector: 'nxt1-agent-x-attachments-sheet',
   standalone: true,
@@ -65,18 +80,39 @@ export interface AttachmentSheetResult {
         <!-- File Upload Section -->
         <section class="attachment-section">
           <h3 class="section-label">Upload</h3>
+          @if (isNativePlatform) {
+            <button
+              type="button"
+              class="attachment-option"
+              (click)="onSelectNativeMedia()"
+              [attr.data-testid]="testIds.FILE_UPLOAD_BTN"
+            >
+              <div class="option-icon-wrapper">
+                <nxt1-icon name="image" [size]="28" />
+              </div>
+              <div class="option-info">
+                <span class="option-title">Photo or Video</span>
+                <span class="option-subtitle">Choose from your library</span>
+              </div>
+              <nxt1-icon name="chevronRight" [size]="20" className="option-arrow" />
+            </button>
+          }
           <button
             type="button"
             class="attachment-option"
             (click)="onSelectFile()"
-            [attr.data-testid]="testIds.FILE_UPLOAD_BTN"
+            [attr.data-testid]="isNativePlatform ? null : testIds.FILE_UPLOAD_BTN"
           >
             <div class="option-icon-wrapper">
               <nxt1-icon name="plusCircle" [size]="28" />
             </div>
             <div class="option-info">
-              <span class="option-title">Upload File</span>
-              <span class="option-subtitle">Photo, video, or document</span>
+              <span class="option-title">{{
+                isNativePlatform ? 'Browse Files' : 'Upload File'
+              }}</span>
+              <span class="option-subtitle">{{
+                isNativePlatform ? 'Documents from your files' : 'Photo, video, or document'
+              }}</span>
             </div>
             <nxt1-icon name="chevronRight" [size]="20" className="option-arrow" />
           </button>
@@ -85,7 +121,7 @@ export interface AttachmentSheetResult {
             type="file"
             hidden
             multiple
-            accept="image/*,video/*,.pdf,.doc,.docx"
+            [attr.accept]="fileInputAccept"
             (change)="onFileSelected($event)"
             aria-label="Select files"
           />
@@ -204,6 +240,10 @@ export interface AttachmentSheetResult {
         transition:
           background 0.15s ease,
           border-color 0.15s ease;
+      }
+
+      .attachment-option + .attachment-option {
+        margin-top: 10px;
       }
 
       .attachment-option:active {
@@ -375,6 +415,10 @@ export interface AttachmentSheetResult {
 })
 export class AgentXAttachmentsSheetComponent {
   protected readonly testIds = TEST_IDS.AGENT_X_ATTACHMENTS_SHEET;
+  protected readonly isNativePlatform = Capacitor.isNativePlatform();
+  protected readonly fileInputAccept = this.isNativePlatform
+    ? NATIVE_DOCUMENT_ACCEPT
+    : ALL_ATTACHMENT_ACCEPT;
 
   private readonly modalCtrl = inject(ModalController);
   private readonly haptics = inject(HapticsService);
@@ -400,6 +444,15 @@ export class AgentXAttachmentsSheetComponent {
     this.fileInput?.nativeElement.click();
   }
 
+  protected async onSelectNativeMedia(): Promise<void> {
+    await this.haptics.impact('light');
+    const selected = await this.pickNativeMedia();
+    if (selected.length > 0) {
+      this.fileSelected.emit(selected);
+      await this.modalCtrl.dismiss(selected, 'files-selected');
+    }
+  }
+
   /** Handle file selection. */
   protected async onFileSelected(event: Event): Promise<void> {
     const input = event.target as HTMLInputElement;
@@ -410,6 +463,77 @@ export class AgentXAttachmentsSheetComponent {
       await this.modalCtrl.dismiss(files, 'files-selected');
     }
     input.value = '';
+  }
+
+  private async pickNativeMedia(): Promise<NativeAttachmentFile[]> {
+    try {
+      const { Camera, MediaType, MediaTypeSelection } = await import('@capacitor/camera');
+      const result = await Camera.chooseFromGallery({
+        mediaType: MediaTypeSelection.All,
+        allowMultipleSelection: true,
+        includeMetadata: true,
+        presentationStyle: 'fullscreen',
+      });
+
+      const selected: NativeAttachmentFile[] = [];
+      for (const media of result.results) {
+        if (!media.webPath) continue;
+
+        const formatHint =
+          media.metadata?.format ??
+          extensionFromPath(media.uri) ??
+          extensionFromPath(media.webPath) ??
+          undefined;
+        const mimeType = resolveNativeMediaMimeType(
+          media.type === MediaType.Video ? 'video' : 'image',
+          undefined,
+          formatHint
+        );
+        const createdAt = media.metadata?.creationDate
+          ? new Date(media.metadata.creationDate).getTime()
+          : Date.now();
+        const fileName = `nxt1-media-${createdAt}.${extensionFromMimeType(mimeType)}`;
+        const file =
+          media.type === MediaType.Video && media.uri && media.metadata?.size
+            ? new File([], fileName, {
+                type: mimeType,
+                lastModified: Number.isFinite(createdAt) ? createdAt : Date.now(),
+              })
+            : await this.fileFromWebPath(media.webPath, fileName, mimeType, createdAt);
+
+        selected.push(
+          Object.assign(file, {
+            ...(media.uri ? { nativeUri: media.uri } : {}),
+            ...(media.webPath ? { nativeWebPath: media.webPath } : {}),
+            ...(media.metadata?.size ? { nativeSizeBytes: media.metadata.size } : {}),
+            ...(media.thumbnail
+              ? { thumbnailDataUrl: `data:image/jpeg;base64,${media.thumbnail}` }
+              : {}),
+          })
+        );
+      }
+
+      return selected;
+    } catch (error) {
+      console.warn('[AgentXAttachmentsSheet] Native media picker failed', error);
+      return [];
+    }
+  }
+
+  private async fileFromWebPath(
+    webPath: string,
+    fileName: string,
+    fallbackMimeType: string,
+    createdAt: number
+  ): Promise<File> {
+    const response = await fetch(webPath);
+    const blob = await response.blob();
+    const mimeType =
+      blob.type && blob.type !== 'application/octet-stream' ? blob.type : fallbackMimeType;
+    return new File([blob], fileName, {
+      type: mimeType,
+      lastModified: Number.isFinite(createdAt) ? createdAt : Date.now(),
+    });
   }
 
   /** Select connected source. */
@@ -424,4 +548,87 @@ export class AgentXAttachmentsSheetComponent {
     await this.haptics.impact('light');
     await this.modalCtrl.dismiss(null, 'manage-connected-apps');
   }
+}
+
+function normalizeMediaFormat(format: string | undefined, fallback: string): string {
+  const normalized = format?.trim().toLowerCase();
+  if (!normalized) return fallback;
+  return normalized === 'jpg' ? 'jpeg' : normalized;
+}
+
+function inferVideoMimeType(format: string | undefined): string {
+  const normalized = normalizeMediaFormat(format, 'mp4');
+  if (
+    normalized === 'mov' ||
+    normalized === 'quicktime' ||
+    normalized.includes('quicktime') ||
+    normalized.includes('quicktime-movie')
+  ) {
+    return 'video/quicktime';
+  }
+  if (normalized === 'qt' || normalized === 'x-quicktime') return 'video/quicktime';
+  if (normalized === 'avi') return 'video/x-msvideo';
+  if (normalized === 'wmv') return 'video/x-ms-wmv';
+  if (normalized === '3gp') return 'video/3gpp';
+  if (normalized === '3g2') return 'video/3gpp2';
+  return `video/${normalized}`;
+}
+
+function resolveNativeMediaMimeType(
+  mediaKind: 'image' | 'video',
+  blobType: string | undefined,
+  metadataFormat: string | undefined
+): string {
+  if (mediaKind === 'video') {
+    const metadataMimeType = inferVideoMimeType(metadataFormat);
+    if (metadataMimeType === 'video/quicktime') return metadataMimeType;
+    return normalizeVideoMimeType(blobType) ?? metadataMimeType;
+  }
+
+  return (
+    normalizeImageMimeType(blobType) ?? `image/${normalizeMediaFormat(metadataFormat, 'jpeg')}`
+  );
+}
+
+function normalizeVideoMimeType(mimeType: string | undefined): string | null {
+  const normalized = normalizeMimeType(mimeType);
+  if (!normalized || normalized === 'application/octet-stream') return null;
+  if (
+    normalized === 'video/mov' ||
+    normalized === 'video/qt' ||
+    normalized === 'video/x-quicktime'
+  ) {
+    return 'video/quicktime';
+  }
+  return normalized;
+}
+
+function normalizeImageMimeType(mimeType: string | undefined): string | null {
+  const normalized = normalizeMimeType(mimeType);
+  if (!normalized || normalized === 'application/octet-stream') return null;
+  if (normalized === 'image/jpg') return 'image/jpeg';
+  return normalized;
+}
+
+function normalizeMimeType(mimeType: string | undefined): string | null {
+  const normalized = mimeType?.split(';')[0]?.trim().toLowerCase();
+  return normalized || null;
+}
+
+function extensionFromPath(path: string | undefined): string | null {
+  if (!path) return null;
+  const cleanPath = decodeURIComponent(path.split(/[?#]/)[0] ?? '')
+    .trim()
+    .toLowerCase();
+  const fileName = cleanPath.split('/').pop();
+  const extension = fileName?.includes('.') ? fileName.split('.').pop() : null;
+  return extension || null;
+}
+
+function extensionFromMimeType(mimeType: string): string {
+  const normalized = mimeType.trim().toLowerCase();
+  if (normalized === 'image/jpeg') return 'jpg';
+  if (normalized === 'video/quicktime') return 'mov';
+  const subtype = normalized.split('/')[1]?.split(';')[0]?.trim();
+  return subtype || 'bin';
 }

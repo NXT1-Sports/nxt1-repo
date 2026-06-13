@@ -39,6 +39,8 @@ import { Preferences } from '@capacitor/preferences';
 
 /** Storage key for biometric enrollment status */
 const BIOMETRIC_ENROLLMENT_KEY = 'nxt1_biometric_enrolled';
+/** Storage key for whether credential-backed biometric sign-in is configured */
+const BIOMETRIC_CREDENTIAL_LOGIN_KEY = 'nxt1_biometric_credential_login';
 /** Server identifier for credential storage */
 const CREDENTIALS_SERVER = 'nxt1-auth';
 
@@ -98,6 +100,7 @@ export class BiometricService {
   private _isAvailable = signal(false);
   private _biometryType = signal<BiometricType>('none');
   private _isEnrolled = signal(false);
+  private _hasCredentialLogin = signal(false);
   private _isInitialized = false;
 
   // ============================================
@@ -113,8 +116,13 @@ export class BiometricService {
   /** Whether user has enrolled for biometric login */
   readonly isEnrolled = computed(() => this._isEnrolled());
 
-  /** Whether biometric is ready for login (available AND enrolled) */
-  readonly isReadyForLogin = computed(() => this._isAvailable() && this._isEnrolled());
+  /** Whether biometric can replay stored credentials on the auth screen */
+  readonly hasCredentialLogin = computed(() => this._hasCredentialLogin());
+
+  /** Whether biometric is ready for credential-backed login on the auth screen */
+  readonly isReadyForLogin = computed(
+    () => this._isAvailable() && this._isEnrolled() && this._hasCredentialLogin()
+  );
 
   /** Human-readable name for the biometric type */
   readonly biometryName = computed(() => {
@@ -345,12 +353,49 @@ export class BiometricService {
     if (!isPlatformBrowser(this.platformId)) return;
 
     try {
-      const { value } = await Preferences.get({ key: BIOMETRIC_ENROLLMENT_KEY });
-      this._isEnrolled.set(value === 'true');
-      console.debug('[BiometricService] Enrollment status loaded:', value === 'true');
+      const [enrollment, credentialLogin] = await Promise.all([
+        Preferences.get({ key: BIOMETRIC_ENROLLMENT_KEY }),
+        Preferences.get({ key: BIOMETRIC_CREDENTIAL_LOGIN_KEY }),
+      ]);
+
+      this._isEnrolled.set(enrollment.value === 'true');
+      this._hasCredentialLogin.set(credentialLogin.value === 'true');
+      console.debug('[BiometricService] Enrollment status loaded:', {
+        enrolled: enrollment.value === 'true',
+        credentialLogin: credentialLogin.value === 'true',
+      });
     } catch (error) {
       console.debug('[BiometricService] Failed to load enrollment status:', error);
       this._isEnrolled.set(false);
+      this._hasCredentialLogin.set(false);
+    }
+  }
+
+  /**
+   * Prompt user to enable biometric unlock for the current persisted session.
+   *
+   * Unlike credential-backed login, this does not require or store the user's
+   * password. It simply verifies biometrics now and marks the device/session as
+   * protected so the app can require Face ID / Touch ID on future launches.
+   */
+  async promptDeviceUnlockEnrollment(): Promise<{ enrolled: boolean; reason?: string }> {
+    const authResult = await this.authenticate({
+      reason: 'Verify your identity to enable biometric unlock',
+      title: 'Enable Biometric Unlock',
+    });
+
+    if (!authResult.success) {
+      const reason =
+        authResult.errorCode === BIOMETRIC_ERROR_CODES.USER_CANCELLED ? 'cancelled' : 'failed';
+      return { enrolled: false, reason };
+    }
+
+    try {
+      await this.markEnrolled({ credentialLogin: false });
+      return { enrolled: true };
+    } catch (error) {
+      console.error('[BiometricService] Failed to save unlock enrollment status:', error);
+      return { enrolled: false, reason: 'storage_failed' };
     }
   }
 
@@ -387,7 +432,7 @@ export class BiometricService {
 
     // Save enrollment status
     try {
-      await this.markEnrolled();
+      await this.markEnrolled({ credentialLogin: true });
       return { enrolled: true };
     } catch (error) {
       console.error('[BiometricService] Failed to save enrollment status:', error);
@@ -401,9 +446,14 @@ export class BiometricService {
    * Called internally by `promptNativeEnrollment` or externally when
    * the caller manages the native prompt + credential storage separately.
    */
-  async markEnrolled(): Promise<void> {
+  async markEnrolled(options?: { credentialLogin?: boolean }): Promise<void> {
     await Preferences.set({ key: BIOMETRIC_ENROLLMENT_KEY, value: 'true' });
+    await Preferences.set({
+      key: BIOMETRIC_CREDENTIAL_LOGIN_KEY,
+      value: options?.credentialLogin ? 'true' : 'false',
+    });
     this._isEnrolled.set(true);
+    this._hasCredentialLogin.set(options?.credentialLogin === true);
     console.debug('[BiometricService] User enrolled for biometric login');
   }
 
@@ -443,14 +493,19 @@ export class BiometricService {
       await this.deleteCredentials(CREDENTIALS_SERVER);
 
       // Remove enrollment flag
-      await Preferences.remove({ key: BIOMETRIC_ENROLLMENT_KEY });
+      await Promise.all([
+        Preferences.remove({ key: BIOMETRIC_ENROLLMENT_KEY }),
+        Preferences.remove({ key: BIOMETRIC_CREDENTIAL_LOGIN_KEY }),
+      ]);
       this._isEnrolled.set(false);
+      this._hasCredentialLogin.set(false);
 
       console.debug('[BiometricService] Enrollment cleared');
     } catch (error) {
       console.error('[BiometricService] Failed to clear enrollment:', error);
       // Still update local state
       this._isEnrolled.set(false);
+      this._hasCredentialLogin.set(false);
     }
   }
 

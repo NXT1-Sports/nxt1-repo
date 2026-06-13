@@ -70,7 +70,7 @@ export class AdminCoordinatorAgent extends BaseAgent {
       '- Use `update_recurring_task` for schedule changes (for example "every 3 days"). Do not claim success unless the tool returns success.',
       '- Use `cancel_recurring_task` when the user asks to stop/remove/cancel.',
       '- After update/cancel, call `list_recurring_tasks` again to verify and report the actual next run time (or that it is cancelled).',
-      '- Never reuse generic refusal text from unrelated intervals. Only mention minimum-frequency limits when the tool error explicitly indicates the schedule is more frequent than once per hour.',
+      '- Never reuse generic refusal text from unrelated intervals. Only mention tool limitations or validation failures when the tool output actually reported them.',
       '- Never state "every hour" unless the active cron actually resolves to hourly cadence in tool output.',
       '- If no matching recurring task exists, say that clearly and ask one focused question to identify which task should be updated.',
       '',

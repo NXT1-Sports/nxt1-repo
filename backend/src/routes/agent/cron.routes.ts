@@ -11,7 +11,7 @@
 import { Router, type Request, type Response } from 'express';
 import { cronGuard } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
-import { llmService, queueService } from './shared.js';
+import { chatService, llmService, queueService } from './shared.js';
 import { AgentLinkReconciliationService } from '../../modules/agent/services/agent-link-reconciliation.service.js';
 import { AgentEphemeralStateService } from '../../modules/agent/services/agent-ephemeral-state.service.js';
 import { AgentJobAutoResolverService } from '../../modules/agent/services/agent-job-auto-resolver.service.js';
@@ -20,6 +20,196 @@ import { getCloudflareAnalyticsSyncService } from '../../services/platform/cloud
 import { sendSlackAlert } from '../../services/platform/alert.service.js';
 
 const router = Router();
+
+const activeCronRuns = new Set<string>();
+const STALE_QUEUED_THRESHOLD_MS = 100 * 60 * 1000;
+const STALE_SYSTEM_CRON_YIELDED_THRESHOLD_MS = 72 * 60 * 60 * 1000;
+const STALE_USER_YIELDED_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
+const STALE_YIELDED_STATUSES = ['paused', 'awaiting_input', 'awaiting_approval'] as const;
+
+type CleanupStaleJobsRepository = Pick<AgentJobRepository, 'markFailed' | 'markCancelled'>;
+
+interface CleanupStaleAgentJobsArgs {
+  db: import('firebase-admin').firestore.Firestore;
+  now?: Date;
+  limitPerStatus?: number;
+  jobRepository?: CleanupStaleJobsRepository;
+  clearThreadPausedYieldState?: (threadId: string) => Promise<unknown>;
+}
+
+interface CleanupStaleAgentJobsResult {
+  scanned: number;
+  queuedScanned: number;
+  yieldedScanned: number;
+  markedFailed: number;
+  cancelled: number;
+  cancelledSystemCronYielded: number;
+  cancelledUserYielded: number;
+  skippedYielded: number;
+  failedToUpdate: number;
+  threadStateClearFailures: number;
+}
+
+function toTimestampMs(value: unknown): number | null {
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value.getTime() : null;
+  if (typeof value === 'string' || typeof value === 'number') {
+    const parsed = new Date(value).getTime();
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  if (
+    value &&
+    typeof value === 'object' &&
+    'toDate' in value &&
+    typeof (value as { toDate?: unknown }).toDate === 'function'
+  ) {
+    const parsed = (value as { toDate: () => Date }).toDate().getTime();
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+async function queryStaleJobsByStatus(
+  db: import('firebase-admin').firestore.Firestore,
+  status: (typeof STALE_YIELDED_STATUSES)[number] | 'queued',
+  cutoff: Date,
+  limitPerStatus: number
+): Promise<import('firebase-admin').firestore.QueryDocumentSnapshot[]> {
+  const snapshot = await db
+    .collection('AgentJobs')
+    .where('status', '==', status)
+    .where('createdAt', '<', cutoff)
+    .limit(limitPerStatus)
+    .get();
+
+  return snapshot.docs;
+}
+
+export async function cleanupStaleAgentJobs({
+  db,
+  now = new Date(),
+  limitPerStatus = 100,
+  jobRepository = new AgentJobRepository(db),
+  clearThreadPausedYieldState = async (threadId: string) => {
+    if (!chatService) return;
+    await chatService.clearThreadPausedYieldState(threadId);
+  },
+}: CleanupStaleAgentJobsArgs): Promise<CleanupStaleAgentJobsResult> {
+  const queuedCutoff = new Date(now.getTime() - STALE_QUEUED_THRESHOLD_MS);
+  const yieldedQueryCutoff = new Date(now.getTime() - STALE_SYSTEM_CRON_YIELDED_THRESHOLD_MS);
+  const userYieldedCutoffMs = now.getTime() - STALE_USER_YIELDED_THRESHOLD_MS;
+
+  const queuedDocs = await queryStaleJobsByStatus(db, 'queued', queuedCutoff, limitPerStatus);
+  const yieldedDocs = (
+    await Promise.all(
+      STALE_YIELDED_STATUSES.map((status) =>
+        queryStaleJobsByStatus(db, status, yieldedQueryCutoff, limitPerStatus)
+      )
+    )
+  ).flat();
+
+  let markedFailed = 0;
+  let cancelled = 0;
+  let cancelledSystemCronYielded = 0;
+  let cancelledUserYielded = 0;
+  let skippedYielded = 0;
+  let failedToUpdate = 0;
+  let threadStateClearFailures = 0;
+
+  for (const doc of queuedDocs) {
+    try {
+      await jobRepository.markFailed(doc.id, 'Job timed out - no activity for over 100 minutes');
+      markedFailed += 1;
+    } catch (markErr) {
+      logger.error('Failed to mark stale queued job as failed', {
+        operationId: doc.id,
+        error: markErr instanceof Error ? markErr.message : String(markErr),
+      });
+      failedToUpdate += 1;
+    }
+  }
+
+  for (const doc of yieldedDocs) {
+    const job = doc.data() as {
+      createdAt?: unknown;
+      origin?: string | null;
+      threadId?: string | null;
+    };
+    const createdAtMs = toTimestampMs(job.createdAt);
+    const isSystemCron = job.origin === 'system_cron';
+    const isUserExpired =
+      job.origin === 'user' && createdAtMs !== null && createdAtMs <= userYieldedCutoffMs;
+
+    if (!isSystemCron && !isUserExpired) {
+      skippedYielded += 1;
+      continue;
+    }
+
+    const cancellationMessage = isSystemCron
+      ? 'Operation auto-cancelled after waiting more than 72 hours for scheduled follow-up.'
+      : 'Operation auto-cancelled after waiting more than 7 days for user follow-up.';
+
+    try {
+      await jobRepository.markCancelled(doc.id, { message: cancellationMessage });
+      cancelled += 1;
+      if (isSystemCron) {
+        cancelledSystemCronYielded += 1;
+      } else {
+        cancelledUserYielded += 1;
+      }
+    } catch (markErr) {
+      logger.error('Failed to cancel stale yielded job', {
+        operationId: doc.id,
+        error: markErr instanceof Error ? markErr.message : String(markErr),
+      });
+      failedToUpdate += 1;
+      continue;
+    }
+
+    if (typeof job.threadId !== 'string' || job.threadId.length === 0) continue;
+
+    try {
+      await clearThreadPausedYieldState(job.threadId);
+    } catch (clearErr) {
+      logger.warn('Failed to clear paused yield state for stale yielded job', {
+        operationId: doc.id,
+        threadId: job.threadId,
+        error: clearErr instanceof Error ? clearErr.message : String(clearErr),
+      });
+      threadStateClearFailures += 1;
+    }
+  }
+
+  return {
+    scanned: queuedDocs.length + yieldedDocs.length,
+    queuedScanned: queuedDocs.length,
+    yieldedScanned: yieldedDocs.length,
+    markedFailed,
+    cancelled,
+    cancelledSystemCronYielded,
+    cancelledUserYielded,
+    skippedYielded,
+    failedToUpdate,
+    threadStateClearFailures,
+  };
+}
+
+function runCronTaskInBackground(taskKey: string, task: () => Promise<void>): boolean {
+  if (activeCronRuns.has(taskKey)) {
+    logger.warn('CRON task already running, skipping duplicate kickoff', { taskKey });
+    return false;
+  }
+
+  activeCronRuns.add(taskKey);
+  void (async () => {
+    try {
+      await task();
+    } finally {
+      activeCronRuns.delete(taskKey);
+    }
+  })();
+
+  return true;
+}
 
 // ─── POST /cron/daily-briefings ───────────────────────────────────────────
 
@@ -39,32 +229,48 @@ router.post('/cron/daily-briefings', cronGuard, async (_req: Request, res: Respo
 // Cloud Scheduler: every Monday at 8:00 AM  (cron: 0 8 * * 1)
 
 router.post('/cron/weekly-playbooks', cronGuard, async (_req: Request, res: Response) => {
-  try {
-    const { runWeeklyPlaybooks } =
-      await import('../../modules/agent/triggers/trigger.listeners.js');
-    await runWeeklyPlaybooks();
-    res.json({ success: true, message: 'Weekly playbooks completed' });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('CRON weekly playbooks failed', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Weekly playbooks failed' });
-  }
+  const started = runCronTaskInBackground('weekly-playbooks', async () => {
+    try {
+      const { runWeeklyPlaybooks } =
+        await import('../../modules/agent/triggers/trigger.listeners.js');
+      await runWeeklyPlaybooks();
+      logger.info('CRON weekly playbooks completed');
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('CRON weekly playbooks failed', { error: error.message, stack: error.stack });
+    }
+  });
+
+  res.json({
+    success: true,
+    message: started ? 'Weekly playbooks started' : 'Weekly playbooks already running',
+    status: started ? 'running' : 'already_running',
+  });
 });
 
 // ─── POST /cron/suggested-actions ────────────────────────────────────────
 // Cloud Scheduler: every Sunday at 9:00 AM  (cron: 0 9 * * 0)
 
 router.post('/cron/suggested-actions', cronGuard, async (_req: Request, res: Response) => {
-  try {
-    const { runWeeklySuggestedActions } =
-      await import('../../modules/agent/triggers/trigger.listeners.js');
-    await runWeeklySuggestedActions();
-    res.json({ success: true, message: 'Weekly suggested actions completed' });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('CRON suggested-actions failed', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Suggested actions failed' });
-  }
+  const started = runCronTaskInBackground('suggested-actions', async () => {
+    try {
+      const { runWeeklySuggestedActions } =
+        await import('../../modules/agent/triggers/trigger.listeners.js');
+      await runWeeklySuggestedActions();
+      logger.info('CRON suggested-actions completed');
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('CRON suggested-actions failed', { error: error.message, stack: error.stack });
+    }
+  });
+
+  res.json({
+    success: true,
+    message: started
+      ? 'Weekly suggested actions started'
+      : 'Weekly suggested actions already running',
+    status: started ? 'running' : 'already_running',
+  });
 });
 
 // ─── POST /cron/playbook-nudge ────────────────────────────────────────────
@@ -72,37 +278,45 @@ router.post('/cron/suggested-actions', cronGuard, async (_req: Request, res: Res
 // Sends a personalized mid-week progress check-in push for active playbooks.
 
 router.post('/cron/playbook-nudge', cronGuard, async (_req: Request, res: Response) => {
-  try {
-    const { runPlaybookNudge } = await import('../../modules/agent/triggers/trigger.listeners.js');
-    await runPlaybookNudge();
-    res.json({ success: true, message: 'Playbook nudge dispatched' });
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('CRON playbook-nudge failed', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Playbook nudge failed' });
-  }
+  const started = runCronTaskInBackground('playbook-nudge', async () => {
+    try {
+      const { runPlaybookNudge } =
+        await import('../../modules/agent/triggers/trigger.listeners.js');
+      await runPlaybookNudge();
+      logger.info('CRON playbook-nudge completed');
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('CRON playbook-nudge failed', { error: error.message, stack: error.stack });
+    }
+  });
+
+  res.json({
+    success: true,
+    message: started ? 'Playbook nudge started' : 'Playbook nudge already running',
+    status: started ? 'running' : 'already_running',
+  });
 });
 
 // ─── POST /cron/weekly-recaps ─────────────────────────────────────────────
 // Cloud Scheduler: every Friday at 9:00 AM  (cron: 0 9 * * 5)
 
 router.post('/cron/weekly-recaps', cronGuard, async (_req: Request, res: Response) => {
-  // Respond immediately — enqueuing jobs across all eligible users can take
-  // longer than the 30-second global server timeout. The actual recap
-  // generation happens asynchronously via the BullMQ job worker.
-  res.json({ success: true, message: 'Weekly recaps started', status: 'running' });
-
-  // Fire-and-forget background job
-  (async () => {
+  const started = runCronTaskInBackground('weekly-recaps', async () => {
     try {
       const { runWeeklyRecaps } = await import('../../modules/agent/triggers/trigger.listeners.js');
-      await runWeeklyRecaps();
-      logger.info('CRON weekly-recaps completed');
+      const result = await runWeeklyRecaps();
+      logger.info('CRON weekly-recaps completed', { ...result });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       logger.error('CRON weekly recaps failed', { error: error.message, stack: error.stack });
     }
-  })();
+  });
+
+  res.json({
+    success: true,
+    message: started ? 'Weekly recaps started' : 'Weekly recaps already running',
+    status: started ? 'running' : 'already_running',
+  });
 });
 
 // ─── POST /cron/summarize-threads ─────────────────────────────────────────
@@ -229,7 +443,7 @@ router.post('/cron/cleanup-thread-media', cronGuard, async (_req: Request, res: 
 });
 
 // ─── POST /cron/cleanup-stale-jobs ────────────────────────────────────────
-// Marks queued jobs that have been stuck for >100 minutes as failed.
+// Marks stale queued jobs as failed and retires stale yielded jobs.
 // Called every 15 minutes by the cleanupStaleAgentJobs Cloud Function.
 
 router.post('/cron/cleanup-stale-jobs', cronGuard, async (req: Request, res: Response) => {
@@ -243,66 +457,21 @@ router.post('/cron/cleanup-stale-jobs', cronGuard, async (req: Request, res: Res
       return;
     }
 
-    const STALE_THRESHOLD_MS = 100 * 60 * 1000; // 100 minutes
-    const cutoff = new Date(Date.now() - STALE_THRESHOLD_MS);
+    logger.info('CRON cleanup-stale-jobs starting', {
+      queuedThresholdMinutes: STALE_QUEUED_THRESHOLD_MS / 60_000,
+      systemCronYieldedThresholdHours: STALE_SYSTEM_CRON_YIELDED_THRESHOLD_MS / 3_600_000,
+      userYieldedThresholdHours: STALE_USER_YIELDED_THRESHOLD_MS / 3_600_000,
+    });
 
-    logger.info('CRON cleanup-stale-jobs starting', { cutoff: cutoff.toISOString() });
-
-    let snapshot;
-    try {
-      snapshot = await db
-        .collection('AgentJobs')
-        .where('status', '==', 'queued')
-        .where('createdAt', '<', cutoff)
-        .limit(100)
-        .get();
-    } catch (queryErr) {
-      logger.error('Failed to query stale jobs', {
-        error: queryErr instanceof Error ? queryErr.message : String(queryErr),
-        cutoff: cutoff.toISOString(),
-      });
-      res.status(500).json({ success: false, error: 'Failed to query stale jobs' });
-      return;
-    }
-
-    if (snapshot.size === 0) {
-      logger.info('CRON cleanup-stale-jobs completed', {
-        scanned: 0,
-        markedFailed: 0,
-        cutoff: cutoff.toISOString(),
-      });
-      res.json({ success: true, data: { scanned: 0, markedFailed: 0 } });
-      return;
-    }
-
-    let updated = 0;
-    let failed = 0;
-    const docs = snapshot.docs;
-    const jobRepository = new AgentJobRepository(db);
-
-    for (const doc of docs) {
-      try {
-        await jobRepository.markFailed(doc.id, 'Job timed out — no activity for over 100 minutes');
-        updated += 1;
-      } catch (markErr) {
-        logger.error('Failed to mark stale job as failed', {
-          operationId: doc.id,
-          error: markErr instanceof Error ? markErr.message : String(markErr),
-        });
-        failed += 1;
-      }
-    }
+    const result = await cleanupStaleAgentJobs({ db });
 
     logger.info('CRON cleanup-stale-jobs completed', {
-      scanned: snapshot.size,
-      markedFailed: updated,
-      failedToUpdate: failed,
-      cutoff: cutoff.toISOString(),
+      ...result,
     });
 
     res.json({
       success: true,
-      data: { scanned: snapshot.size, markedFailed: updated, failedToUpdate: failed },
+      data: result,
     });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));

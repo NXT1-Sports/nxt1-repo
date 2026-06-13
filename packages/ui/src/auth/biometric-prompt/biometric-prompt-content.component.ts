@@ -589,7 +589,7 @@ export class BiometricPromptContentComponent {
   }
 
   private async triggerHaptic(): Promise<void> {
-    if (!this.platform.isNative()) return;
+    if (!this.platform.isNative() || this.platform.isAndroid()) return;
     try {
       await Haptics.impact({ style: ImpactStyle.Light });
     } catch {

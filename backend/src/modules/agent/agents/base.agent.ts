@@ -54,7 +54,7 @@ import { AgentEngineError } from '../exceptions/agent-engine.error.js';
 import type { ApprovalGateService } from '../services/approval-gate.service.js';
 import { ASK_USER_CONTEXT_KEY, type AskUserToolContext } from '../tools/system/ask-user.tool.js';
 import { parse as parseCsv } from 'csv-parse/sync';
-import pdfParse from 'pdf-parse';
+import * as pdfParseModule from 'pdf-parse';
 import { isToolAllowedByPatterns } from './tool-policy.js';
 import { getEffectiveAgentToolPolicy } from './tool-policy.js';
 import {
@@ -75,7 +75,17 @@ import {
 } from '../services/model-context-window.service.js';
 import { getOperationMemoryService } from '../services/operation-memory.service.js';
 import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
+import { resolveThreadReplayMaxTokens } from '../memory/replay-budget.js';
 import { logger } from '../../../utils/logger.js';
+
+type PdfParseRuntimeModule = {
+  PDFParse: new (options: { data: Uint8Array | Buffer }) => {
+    getText(): Promise<{ text?: string }>;
+    destroy(): Promise<void>;
+  };
+};
+
+const pdfParseRuntime = pdfParseModule as unknown as PdfParseRuntimeModule;
 
 /** Maximum tool-calling iterations before we force the agent to respond. */
 const MAX_ITERATIONS = 20;
@@ -84,12 +94,22 @@ const TERMINAL_ARTIFACT_TOOL_FAILURES = new Set([
   'generate_graphic',
   'create_play_diagram',
   'generate_highlight_reel',
+  'ffmpeg_trim_video',
+  'ffmpeg_merge_videos',
+  'ffmpeg_generate_thumbnail',
+  'ffmpeg_convert_video',
+  'ffmpeg_compress_video',
+  'ffmpeg_resize_video',
+  'ffmpeg_add_text_overlay',
+  'ffmpeg_burn_subtitles',
   'export_video',
   'write_intel',
 ]);
 
 const SHARED_PERSISTENCE_CONTRACT = [
   '## Shared Persistence Contract (CRITICAL)',
+  '- Bare file uploads are not implicit saves: if the user only uploads or attaches an image, video, or document without explicitly asking to save it, post it, analyze it, edit it, send it, or add it to a profile/library, do NOT perform a write or externally visible mutation automatically.',
+  '- For ambiguous attachment-only messages, first ask what the user wants to do with the file, offer concrete options when helpful, then call `ask_user` and wait. Only persist, publish, send, or mutate after the user explicitly asks for that action.',
   '- Long-term memory: call `save_memory` immediately when the user states a durable preference, goal, recruiting constraint, performance baseline, recurring workflow preference, or brand/compliance constraint that should persist across sessions.',
   '- Save concise third-person facts only. Do not save transient chat, drafts, internal reasoning, duplicate facts, or one-off tool errors.',
   '- Analytics logging: after any successful user-visible mutation, saved artifact, outbound communication, imported dataset, published content, generated deliverable, or completed workflow milestone, call `track_analytics_event` before your final reply.',
@@ -103,6 +123,9 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- For learning-resource calls, pass known context fields whenever available: `sport`, `position`, `audienceRole`, and `level` so recommendations are role- and level-specific.',
   '- Never claim a deliverable exists before calling the tool: do NOT write "I have created your diagrams", "your report is ready", "diagrams are complete", or any equivalent completion statement unless you have already executed the relevant tool (e.g. create_play_diagram, generate_graphic, write_intel) in this response and received its output. If a tool call is pending, skipped, or failed, explicitly state what is incomplete rather than falsely claiming success.',
   '- Recurring task delivery (CRITICAL — never contradict this): when a recurring task is scheduled with a sourceId/threadId, each run executes inside that originating thread and posts its full response there, exactly like a normal chat reply. The user sees results in-thread. A push notification is ALSO sent as a supplementary alert. Do NOT tell users recurring tasks only notify via push or that results will not appear in the chat — both happen automatically.',
+  '- Recurring schedule creation (CRITICAL): when a user requests a recurring workflow with a relative offset such as "in 1 hour every week", "starting tonight", or "later today and then every Tuesday", preserve that offset when choosing the recurring time. Do NOT collapse it to "this time each week" unless the user explicitly asked for the current clock time.',
+  '- After ANY successful recurring schedule creation or update, immediately call `list_recurring_tasks` and verify the actual `nextRun` before you tell the user it is locked in.',
+  '- If the verified `nextRun` does not match the user intent — especially if the user asked for a first run later today but `nextRun` jumped about a week — do NOT claim success. Explain the mismatch and fix the schedule or ask one concise clarifying question.',
   '',
   '## Email Tool Selection (CRITICAL — All Agents)',
   '- **Multiple recipients (2+)**: ALWAYS use `batch_send_email` with a single template and recipient array. This sends one approved template to many people with per-recipient variable substitution ({{firstName}}, {{collegeName}}, etc.).',
@@ -110,6 +133,7 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- **NEVER loop** `send_email` multiple times. If a user asks you to send the same email to more than one person, construct a recipients array and call `batch_send_email` ONCE instead of calling `send_email` in a loop.',
   '- **Connected provider check first**: Before calling any email tool, verify the injected connected-account context shows an active Gmail or Microsoft connection. If no provider is connected, tell the user to connect Gmail or Outlook in Settings → Email, then call the email tool.',
   '- **No platform fallback**: If no provider is connected, do not attempt fallback sending. Ask the user to connect Gmail or Outlook in Settings → Email first.',
+  '- **Approval card preview only**: When you call an email send tool, do not paste the full subject/body/template in normal chat. The approval card is the single place where the user reviews and edits the full email. Chat should only summarize recipient count, target names, and that the draft is in the approval card.',
 ].join('\n');
 
 /**
@@ -161,6 +185,7 @@ const BRAND_MEDIA_DELEGATION_PATTERN =
 const ARTIFACT_KEYS = [
   'imageUrl',
   'logoUrl',
+  'model',
   'storagePath',
   'cloudflareVideoId',
   'videoUrl',
@@ -190,6 +215,7 @@ const PRIOR_MEDIA_RECALL_PATTERN =
   /\b(that|the|earlier|previous|last|my|your)\s+(video|film|clip|image|photo|picture|recording|footage|highlight|reel|intro|slide|graphic)\b/i;
 
 type SessionImageAttachment = NonNullable<AgentSessionContext['attachments']>[number];
+type SessionVideoAttachment = NonNullable<AgentSessionContext['videoAttachments']>[number];
 
 // ─── Context Window Budget ────────────────────────────────────────────────────
 
@@ -424,7 +450,9 @@ export abstract class BaseAgent {
 
     if (mimeType === 'application/pdf') {
       try {
-        const parsed = await pdfParse(attachmentBuffer);
+        const parser = new pdfParseRuntime.PDFParse({ data: attachmentBuffer });
+        const parsed = await parser.getText();
+        await parser.destroy();
         const extracted = this.trimAttachmentText(parsed.text ?? '');
         if (!extracted) return null;
         return `[Attachment Extract: ${attachmentName} (${mimeType})]\n${extracted}`;
@@ -591,6 +619,24 @@ export abstract class BaseAgent {
     );
   }
 
+  private isVideoAttachment(attachment: SessionImageAttachment): boolean {
+    return attachment.mimeType.toLowerCase().startsWith('video/');
+  }
+
+  private formatVideoAttachmentRef(video: SessionVideoAttachment): string {
+    const metadata = [
+      video.storagePath ? `storagePath: ${video.storagePath}` : null,
+      video.cloudflareVideoId ? `cloudflareVideoId: ${video.cloudflareVideoId}` : null,
+      video.cloudflareStatus ? `cloudflareStatus: ${video.cloudflareStatus}` : null,
+      typeof video.readyToStream === 'boolean'
+        ? `readyToStream: ${String(video.readyToStream)}`
+        : null,
+      video.thumbnailUrl ? `thumbnailUrl: ${video.thumbnailUrl}` : null,
+    ].filter((part): part is string => typeof part === 'string');
+    const metadataPart = metadata.length > 0 ? ` | ${metadata.join(' | ')}` : '';
+    return `[Attached video: ${video.name} — ${video.url}${metadataPart}]`;
+  }
+
   protected withConfiguredSystemPrompt(
     basePrompt: string,
     templateValues?: Readonly<Record<string, string | undefined>>
@@ -652,14 +698,14 @@ export abstract class BaseAgent {
     }
   }
 
-  private buildRuntimeTemporalContext(intent: string): string {
+  private buildRuntimeTemporalContext(intent: string, context?: AgentSessionContext): string {
     const now = new Date();
     const monthYear = now.toLocaleString('en-US', { month: 'long', year: 'numeric' });
     const currentDate = now.toISOString().slice(0, 10);
     // Include the exact UTC timestamp so the LLM can compute relative times like
     // "in 1 hour" or "at 3 PM" without hallucinating the current clock time.
     const currentUtcIso = now.toISOString();
-    const timezone = this.extractTimezoneFromIntent(intent);
+    const timezone = context?.timezone?.trim() || this.extractTimezoneFromIntent(intent);
     const sport = this.extractSportFromIntent(intent);
 
     const timezoneContext = timezone ? this.formatCurrentTimeForTimezone(now, timezone) : null;
@@ -667,6 +713,8 @@ export abstract class BaseAgent {
     const baseContext = timezoneContext
       ? `Current Date & Time Context: It is ${timezoneContext}. ` +
         `Current UTC timestamp: ${currentUtcIso}. ` +
+        `Treat the timezone-rendered value above as the user's local calendar day. ` +
+        `Words like "today," "tonight," "this evening," and "tomorrow" must map to that local date, not the UTC date. ` +
         `When a user says "in X hours/minutes" or "at [time]", compute the target ` +
         `time relative to the local timezone value above and verify it against the UTC ` +
         `timestamp before building any cron expression. ` +
@@ -674,6 +722,7 @@ export abstract class BaseAgent {
       : `Current Date & Time Context: It is ${monthYear} (${currentDate}). ` +
         `Current year: ${now.getFullYear()}. ` +
         `Exact server UTC timestamp: ${currentUtcIso}. ` +
+        `If the user provides an IANA timezone elsewhere in context, resolve "today," "tonight," and "tomorrow" against that local date rather than the UTC calendar date. ` +
         `When a user says "in X hours/minutes" or "at [time]", always compute the ` +
         `target time relative to this UTC timestamp and convert it to the user's ` +
         `requested IANA timezone before building any cron expression. ` +
@@ -807,7 +856,7 @@ export abstract class BaseAgent {
         '- If tool data is incomplete, ask a concise clarification question.';
     }
 
-    systemContent += `\n\n## Runtime Date Guardrail\n${this.buildRuntimeTemporalContext(intent)}`;
+    systemContent += `\n\n## Runtime Date Guardrail\n${this.buildRuntimeTemporalContext(intent, context)}`;
 
     systemContent += delegationRule;
     systemContent +=
@@ -824,21 +873,12 @@ export abstract class BaseAgent {
     // Add video references
     if (context.videoAttachments?.length) {
       const videoRefs = context.videoAttachments
-        .map((v) => {
-          const metadata = [
-            v.storagePath ? `storagePath: ${v.storagePath}` : null,
-            v.cloudflareVideoId ? `cloudflareVideoId: ${v.cloudflareVideoId}` : null,
-            v.cloudflareStatus ? `cloudflareStatus: ${v.cloudflareStatus}` : null,
-            typeof v.readyToStream === 'boolean'
-              ? `readyToStream: ${String(v.readyToStream)}`
-              : null,
-            v.thumbnailUrl ? `thumbnailUrl: ${v.thumbnailUrl}` : null,
-          ].filter((part): part is string => typeof part === 'string');
-          const metadataPart = metadata.length > 0 ? ` | ${metadata.join(' | ')}` : '';
-          return `[Attached video: ${v.name} — ${v.url}${metadataPart}]`;
-        })
+        .filter((v) => !intentText.includes(v.url))
+        .map((v) => this.formatVideoAttachmentRef(v))
         .join('\n');
-      intentText = `${intent}\n\n${videoRefs}`;
+      if (videoRefs.length > 0) {
+        intentText = `${intentText}\n\n${videoRefs}`;
+      }
     }
 
     // Only map image attachments to vision content
@@ -866,7 +906,7 @@ export abstract class BaseAgent {
     // PDFs: sent natively to OpenRouter, not extracted
     // Other docs (CSV, etc.): extracted and appended as text
     const nonImageAttachments = (context.attachments ?? []).filter(
-      (a) => !a.mimeType.startsWith('image/')
+      (a) => !a.mimeType.startsWith('image/') && !this.isVideoAttachment(a)
     );
 
     const nonPdfAttachments = nonImageAttachments.filter(
@@ -1061,7 +1101,9 @@ export abstract class BaseAgent {
         const { getThreadMessageReplayService } =
           await import('../memory/thread-message-replay.service.js');
         const replayed = await getThreadMessageReplayService().loadAsLLMMessages(context.threadId, {
-          maxTokens: 50_000,
+          maxTokens: resolveThreadReplayMaxTokens({
+            videoAttachments: context.videoAttachments,
+          }),
         });
         messages = [...replayed] as LLMMessage[];
         // The pendingAssistantMessage is the in-flight assistant turn
@@ -1231,13 +1273,20 @@ export abstract class BaseAgent {
 
       let toolSuccess: boolean;
       let toolResult: Record<string, unknown> | undefined;
+      let toolError: string | undefined;
       try {
         const parsed = JSON.parse(observation) as Record<string, unknown>;
         toolSuccess = parsed['success'] === true;
+        toolError =
+          typeof parsed['error'] === 'string' && parsed['error'].trim().length > 0
+            ? sanitizeAgentOutputText(parsed['error'])
+            : undefined;
         toolResult =
           typeof parsed['data'] === 'object' && parsed['data'] !== null
             ? sanitizeAgentPayload(parsed['data'] as Record<string, unknown>)
-            : undefined;
+            : toolError
+              ? { error: toolError }
+              : undefined;
       } catch {
         toolSuccess = observation.length > 0;
       }
@@ -1250,6 +1299,7 @@ export abstract class BaseAgent {
         stageType: 'tool',
         toolSuccess,
         toolResult,
+        error: !toolSuccess ? toolError : undefined,
         icon: this.resolveToolStepIcon(pendingToolCall.function.name),
         message: this.resolveToolInvocationLabel(
           pendingToolCall.function.name,
@@ -1654,11 +1704,13 @@ export abstract class BaseAgent {
           'fileUrl',
           'downloadUrl',
         ] as const;
+
         const hasDeliverableArtifact = ARTIFACT_DATA_KEYS.some(
           (key) =>
             typeof extractedToolData[key] === 'string' &&
             (extractedToolData[key] as string).trim().length > 0
         );
+
         const artifactToolInvocations = toolCallRecords.filter((record) =>
           TERMINAL_ARTIFACT_TOOL_FAILURES.has(record.toolName)
         );
@@ -1669,6 +1721,7 @@ export abstract class BaseAgent {
         // FAIL only when an artifact was REQUESTED but NEVER produced.
         const deliverableMissing =
           artifactToolWasAttempted && !anyArtifactToolSucceeded && !hasDeliverableArtifact;
+
         const runLoopSuccess = !deliverableMissing;
         const runLoopErrorMessage = !runLoopSuccess
           ? (() => {
@@ -1962,13 +2015,20 @@ export abstract class BaseAgent {
         if (onStreamEvent) {
           let toolSuccess: boolean;
           let toolResult: Record<string, unknown> | undefined;
+          let toolError: string | undefined;
           try {
             const parsed = JSON.parse(observation) as Record<string, unknown>;
             toolSuccess = parsed['success'] === true;
+            toolError =
+              typeof parsed['error'] === 'string' && parsed['error'].trim().length > 0
+                ? sanitizeAgentOutputText(parsed['error'])
+                : undefined;
             toolResult =
               typeof parsed['data'] === 'object' && parsed['data'] !== null
                 ? sanitizeAgentPayload(parsed['data'] as Record<string, unknown>)
-                : undefined;
+                : toolError
+                  ? { error: toolError }
+                  : undefined;
           } catch {
             toolSuccess = observation.length > 0;
           }
@@ -1980,6 +2040,7 @@ export abstract class BaseAgent {
             stageType: 'tool',
             toolSuccess,
             toolResult,
+            error: !toolSuccess ? toolError : undefined,
             icon: this.resolveToolStepIcon(toolCall.function.name),
             message: this.resolveToolInvocationLabel(
               toolCall.function.name,
@@ -3415,6 +3476,7 @@ export abstract class BaseAgent {
       ...(sessionContext?.operationId && { operationId: sessionContext.operationId }),
       ...(sessionContext?.threadId && { threadId: sessionContext.threadId }),
       ...(sessionContext?.sessionId && { sessionId: sessionContext.sessionId }),
+      ...(sessionContext?.approvalId && { approvalId: sessionContext.approvalId }),
       ...(sessionContext?.allowedToolNames && {
         allowedToolNames: sessionContext.allowedToolNames,
       }),
@@ -5086,6 +5148,10 @@ export abstract class BaseAgent {
       return this.resolveScrapeWebpageLabel(inputOrArgs);
     }
 
+    if (toolName === 'read_distilled_section') {
+      return this.resolveReadDistilledSectionLabel(inputOrArgs);
+    }
+
     const baseLabel = this.humanizeToolName(toolName);
     if (
       toolName === 'ffmpeg_trim_video' ||
@@ -5096,6 +5162,31 @@ export abstract class BaseAgent {
     }
     const descriptor = this.resolveToolInvocationDescriptor(inputOrArgs);
     return descriptor ? `${baseLabel}: ${descriptor}` : baseLabel;
+  }
+
+  private resolveReadDistilledSectionLabel(inputOrArgs?: Record<string, unknown> | string): string {
+    const input =
+      typeof inputOrArgs === 'string'
+        ? this.parseToolCallInput(inputOrArgs)
+        : inputOrArgs && typeof inputOrArgs === 'object' && !Array.isArray(inputOrArgs)
+          ? inputOrArgs
+          : null;
+
+    const section = typeof input?.['section'] === 'string' ? input['section'].trim() : '';
+    const sectionLabels: Record<string, string> = {
+      identity: 'Reading identity details',
+      academics: 'Reading academic details',
+      sportInfo: 'Reading sport details',
+      team: 'Reading team details',
+      coach: 'Reading coach details',
+      metrics: 'Reading combine metrics',
+      seasonStats: 'Reading season stats',
+      schedule: 'Reading schedule details',
+      recruiting: 'Reading recruiting activity',
+      awards: 'Reading career awards',
+    };
+
+    return sectionLabels[section] ?? 'Reading imported profile details';
   }
 
   private resolveScrapeWebpageLabel(inputOrArgs?: Record<string, unknown> | string): string {

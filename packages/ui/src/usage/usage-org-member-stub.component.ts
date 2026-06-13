@@ -11,7 +11,7 @@
  */
 
 import { Component, ChangeDetectionStrategy, inject, computed } from '@angular/core';
-import { formatPrice } from '@nxt1/core';
+
 import { TEST_IDS } from '@nxt1/core/testing';
 import { HapticsService } from '../services/haptics';
 import { UsageService } from './usage.service';
@@ -101,39 +101,6 @@ import { UsageService } from './usage.service';
         </div>
         <div class="stub-period">{{ periodLabel() }}</div>
       </div>
-
-      <!-- ── Usage card ────────────────────────────────────────────────── -->
-      @if (overview()) {
-        <div class="stub-card">
-          <div class="stub-card-row">
-            <span class="stub-card-label">Spent this period</span>
-            <span class="stub-card-value">{{ usageFormatted() }}</span>
-          </div>
-
-          @if (budgetLimit() > 0) {
-            <div class="stub-budget">
-              <div
-                class="stub-progress-track"
-                role="progressbar"
-                [attr.aria-valuenow]="percentUsed()"
-                aria-valuemin="0"
-                aria-valuemax="100"
-              >
-                <div
-                  class="stub-progress-fill"
-                  [style.width.%]="progressWidth()"
-                  [class.stub-progress-fill--warning]="percentUsed() >= 80"
-                  [class.stub-progress-fill--danger]="percentUsed() >= 100"
-                ></div>
-              </div>
-              <div class="stub-budget-meta">
-                <span class="stub-budget-used">{{ percentUsed() }}% used</span>
-                <span class="stub-budget-limit">of {{ budgetFormatted() }} team budget</span>
-              </div>
-            </div>
-          }
-        </div>
-      }
     </section>
   `,
   styles: [
@@ -324,19 +291,7 @@ export class UsageOrgMemberStubComponent {
 
   protected readonly overview = computed(() => this.svc.overview());
 
-  protected readonly usageFormatted = computed(() =>
-    formatPrice(this.svc.overview()?.currentMeteredUsage ?? 0)
-  );
-
   protected readonly periodLabel = computed(() => this.svc.overview()?.period.label ?? '');
-
-  protected readonly budgetLimit = computed(() => this.svc.budgets()[0]?.budgetLimit ?? 0);
-
-  protected readonly budgetFormatted = computed(() => formatPrice(this.budgetLimit()));
-
-  protected readonly percentUsed = computed(() => this.svc.budgets()[0]?.percentUsed ?? 0);
-
-  protected readonly progressWidth = computed(() => Math.min(100, this.percentUsed()));
 
   protected async onSwitchToPersonalBilling(): Promise<void> {
     await this.haptics.impact('medium');

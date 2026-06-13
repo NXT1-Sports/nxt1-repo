@@ -31,7 +31,7 @@
 
 import { Injectable, inject, PLATFORM_ID } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
-import { isCapacitor } from '@nxt1/core';
+import { isCapacitor, isAndroid } from '@nxt1/core';
 import { NxtLoggingService } from '../logging/logging.service';
 import { NxtToastService } from '../toast/toast.service';
 import { HapticsService } from '../haptics/haptics.service';
@@ -131,7 +131,7 @@ export class NxtMediaService {
       let result: SaveImageResult;
 
       if (isCapacitor()) {
-        result = await this.saveToGallery(options.data, fullFileName, format);
+        result = await this.saveToGallery(options.data, fullFileName, format, options.album);
       } else {
         result = await this.saveViaDownload(options.data, fullFileName, format);
       }
@@ -172,7 +172,8 @@ export class NxtMediaService {
 
     try {
       const { MediaPlugin } = await this.loadMediaPlugin();
-      await MediaPlugin.savePhoto({ path: url });
+      const albumIdentifier = await this.getOrCreateAlbumIdentifier('NXT1');
+      await MediaPlugin.savePhoto({ path: url, albumIdentifier });
       await this.haptics.notification('success');
       this.logger.info('Image saved to camera roll from URL');
       return { success: true, path: 'Photos' };
@@ -226,7 +227,8 @@ export class NxtMediaService {
   private async saveToGallery(
     data: string | Blob,
     fileName: string,
-    format: MediaImageFormat
+    format: MediaImageFormat,
+    album?: string
   ): Promise<SaveImageResult> {
     const { Filesystem, Directory } = await import('@capacitor/filesystem');
 
@@ -250,7 +252,8 @@ export class NxtMediaService {
     // Attempt to save to the photo gallery via the Media plugin
     try {
       const { MediaPlugin } = await this.loadMediaPlugin();
-      await MediaPlugin.savePhoto({ path: fileUri });
+      const albumIdentifier = await this.getOrCreateAlbumIdentifier(album ?? 'NXT1');
+      await MediaPlugin.savePhoto({ path: fileUri, albumIdentifier });
 
       // Clean up temp file
       await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => {
@@ -449,7 +452,8 @@ export class NxtMediaService {
 
       try {
         const { MediaPlugin } = await this.loadMediaPlugin();
-        await MediaPlugin.savePhoto({ path: fileUri });
+        const albumIdentifier = await this.getOrCreateAlbumIdentifier(album ?? 'NXT1');
+        await MediaPlugin.savePhoto({ path: fileUri, albumIdentifier });
         // Clean up — best effort
         await Filesystem.deleteFile({ path: fileUri, directory: Directory.Cache }).catch(
           (cleanupErr: unknown) => {
@@ -534,7 +538,8 @@ export class NxtMediaService {
 
       try {
         const { MediaPlugin } = await this.loadMediaPlugin();
-        await MediaPlugin.saveVideo({ path: fileUri });
+        const albumIdentifier = await this.getOrCreateAlbumIdentifier('NXT1');
+        await MediaPlugin.saveVideo({ path: fileUri, albumIdentifier });
       } finally {
         // Clean up temp file whether save succeeded or failed
         await Filesystem.deleteFile({ path: fileName, directory: Directory.Cache }).catch(() => {
@@ -560,6 +565,9 @@ export class NxtMediaService {
     MediaPlugin: {
       savePhoto: (opts: { path: string; albumIdentifier?: string }) => Promise<void>;
       saveVideo: (opts: { path: string; albumIdentifier?: string }) => Promise<void>;
+      getAlbums: () => Promise<{ albums: Array<{ identifier: string; name: string }> }>;
+      createAlbum: (opts: { name: string }) => Promise<void>;
+      getAlbumsPath: () => Promise<{ path: string }>;
     };
   }> {
     // Dynamic import of optional peer dependency — caught at runtime if not installed
@@ -567,5 +575,68 @@ export class NxtMediaService {
     const mod = (await import('@capacitor-community/media' as string)) as any;
     const MediaPlugin = mod.Media ?? mod.default ?? mod;
     return { MediaPlugin };
+  }
+
+  /**
+   * On Android, `albumIdentifier` is required by the @capacitor-community/media
+   * plugin (v6+). This helper resolves the album folder path for a named album,
+   * creating it if it does not exist.
+   *
+   * Strategy (Android):
+   * 1. Try getAlbums() — returns existing albums with their folder path as identifier.
+   * 2. If not found, call createAlbum() then retry getAlbums().
+   * 3. Fallback: use getAlbumsPath() to get the base pictures directory and
+   *    construct the path directly. This covers the case where an empty album
+   *    is not yet indexed by the Android MediaStore and doesn't appear in getAlbums().
+   *
+   * On iOS, albumIdentifier is optional — returns undefined to allow add-only
+   * permissions (NSPhotoLibraryAddUsageDescription) without requesting full access.
+   */
+  private async getOrCreateAlbumIdentifier(albumName: string): Promise<string | undefined> {
+    if (!isAndroid()) return undefined;
+
+    const { MediaPlugin } = await this.loadMediaPlugin();
+
+    const findInAlbums = async (): Promise<string | undefined> => {
+      try {
+        const { albums } = await MediaPlugin.getAlbums();
+        return albums.find((a) => a.name === albumName)?.identifier;
+      } catch {
+        return undefined;
+      }
+    };
+
+    // 1. Try to find existing album
+    let identifier = await findInAlbums();
+    if (identifier) return identifier;
+
+    // 2. Create the album (safe to call even if it already exists)
+    try {
+      await MediaPlugin.createAlbum({ name: albumName });
+    } catch {
+      // Album likely already exists — ignore
+    }
+
+    // 3. Try getAlbums() again after creation
+    identifier = await findInAlbums();
+    if (identifier) return identifier;
+
+    // 4. Fallback: construct the path from getAlbumsPath().
+    //    On Android, the albumIdentifier IS the folder path. An empty album may
+    //    not appear in getAlbums() because the MediaStore hasn't scanned it yet,
+    //    but savePhoto/saveVideo still accept an explicit path.
+    try {
+      const { path } = await MediaPlugin.getAlbumsPath();
+      if (path) {
+        const base = path.endsWith('/') ? path : `${path}/`;
+        return `${base}${albumName}`;
+      }
+    } catch {
+      this.logger.warn('getAlbumsPath() unavailable', { albumName });
+    }
+
+    this.logger.warn('Could not resolve Android album identifier', { albumName });
+    // Returning undefined will cause the plugin to reject — throw a clear message
+    throw new Error(`Could not find or create album "${albumName}" on this device`);
   }
 }

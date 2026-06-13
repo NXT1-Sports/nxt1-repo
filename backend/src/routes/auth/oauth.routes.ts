@@ -35,6 +35,7 @@ import {
   encodeOAuthState,
   decodeOAuthState,
   ALLOWED_MOBILE_SCHEMES,
+  buildMobileOAuthCallbackHtml,
 } from './shared.js';
 
 const router: RouterType = Router();
@@ -293,7 +294,12 @@ router.get(
     const renderResult = (success: boolean, message: string, provider = 'google') => {
       const params = new URLSearchParams({ provider, success: String(success), message });
       if (mobileScheme && ALLOWED_MOBILE_SCHEMES.has(mobileScheme)) {
-        res.redirect(`${mobileScheme}://oauth/callback?${params.toString()}`);
+        // Android: JS window.location fires an intent → appUrlOpen closes the Custom Tab.
+        // iOS: custom-scheme JS is blocked; page shows "Tap Done" after 1.5 s →
+        //      browserFinished fallback resolves/rejects in the mobile app.
+        const deepLink = `${mobileScheme}://oauth/callback?${params.toString()}`;
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(buildMobileOAuthCallbackHtml(deepLink, success));
       } else {
         const frontendUrl =
           stateOrigin && isAllowedOrigin(stateOrigin, req.isStaging)
@@ -541,7 +547,9 @@ router.get(
         message,
       });
       if (mobileScheme && ALLOWED_MOBILE_SCHEMES.has(mobileScheme)) {
-        res.redirect(`${mobileScheme}://oauth/callback?${params.toString()}`);
+        const deepLink = `${mobileScheme}://oauth/callback?${params.toString()}`;
+        res.setHeader('Content-Type', 'text/html; charset=utf-8');
+        res.send(buildMobileOAuthCallbackHtml(deepLink, success));
       } else {
         const frontendUrl =
           stateOrigin && isAllowedOrigin(stateOrigin, req.isStaging)

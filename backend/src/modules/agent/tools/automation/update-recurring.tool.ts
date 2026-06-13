@@ -10,7 +10,6 @@ import { getFirestore, FieldValue, type Firestore } from 'firebase-admin/firesto
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../base.tool.js';
 import type { AgentToolCategory, AgentJobPayload } from '@nxt1/core';
 import type { AgentQueueService } from '../../queue/queue.service.js';
-import { MIN_RECURRING_INTERVAL_MS } from '../../queue/queue.types.js';
 import { logger } from '../../../../utils/logger.js';
 import { z } from 'zod';
 
@@ -28,25 +27,6 @@ function isValidIanaTimezone(value: string): boolean {
   }
 }
 
-function estimateCronIntervalMs(cron: string): number {
-  const parts = cron.trim().split(/\s+/);
-  if (parts.length < 5) return Infinity;
-
-  const [minute, hour] = parts;
-  const everyMin = minute?.match(/^\*\/(\d+)$/);
-  if (everyMin) return parseInt(everyMin[1], 10) * 60 * 1000;
-
-  const everyHour = hour?.match(/^\*\/(\d+)$/);
-  if (everyHour && (minute === '0' || minute === '*')) {
-    return parseInt(everyHour[1], 10) * 60 * 60 * 1000;
-  }
-
-  if (minute === '*' && hour === '*') return 60 * 1000;
-  if (hour !== '*' && !hour?.includes('/') && !hour?.includes(',')) return 24 * 60 * 60 * 1000;
-
-  return 60 * 60 * 1000;
-}
-
 const UpdateRecurringTaskInputSchema = z.object({
   userId: z.string().trim().min(1),
   key: z.string().trim().min(1),
@@ -61,13 +41,35 @@ const UpdateRecurringTaskInputSchema = z.object({
     })
     .optional(),
   sourceId: z.string().trim().min(1).optional(),
+  firstRunAt: z.string().trim().min(1).optional(),
 });
+
+function parseFutureFirstRunAt(
+  firstRunAt: string | undefined
+): { iso: string; delayMs: number; repeatStartDate: string } | { error: string } | null {
+  if (!firstRunAt) return null;
+  const parsedMs = Date.parse(firstRunAt);
+  if (!Number.isFinite(parsedMs)) {
+    return { error: 'firstRunAt must be a valid ISO-8601 timestamp.' };
+  }
+
+  const now = Date.now();
+  if (parsedMs <= now) {
+    return { error: 'firstRunAt must be in the future.' };
+  }
+
+  return {
+    iso: new Date(parsedMs).toISOString(),
+    delayMs: parsedMs - now,
+    repeatStartDate: new Date(parsedMs + 60_000).toISOString(),
+  };
+}
 
 export class UpdateRecurringTaskTool extends BaseTool {
   readonly name = 'update_recurring_task';
   readonly description =
     'Update an existing recurring scheduled task by key. ' +
-    'Provide the key and any fields to change (actionSummary, cronExpression, timezone, sourceId). ' +
+    'Provide the key and any fields to change (actionSummary, cronExpression, timezone, sourceId, firstRunAt). ' +
     'The tool replaces the old schedule to prevent duplicate recurring tasks.';
 
   readonly parameters = UpdateRecurringTaskInputSchema;
@@ -97,7 +99,9 @@ export class UpdateRecurringTaskTool extends BaseTool {
       };
     }
 
-    const { userId, key, actionSummary, cronExpression, timezone, sourceId } = parsed.data;
+    const { userId, key, actionSummary, cronExpression, timezone, sourceId, firstRunAt } =
+      parsed.data;
+    const targetEnvironment = context?.environment === 'production' ? 'production' : 'staging';
 
     try {
       const existingDoc = await this.db.collection(RECURRING_TASKS_COLLECTION).doc(key).get();
@@ -113,12 +117,19 @@ export class UpdateRecurringTaskTool extends BaseTool {
       // If the caller intent is to stop/cancel the recurring automation, execute
       // a true cancel flow instead of trying to fake-disable via invalid cron.
       if (typeof actionSummary === 'string' && CANCEL_INTENT_RE.test(actionSummary)) {
+        const existingInitialRunJobId =
+          typeof existing['initialRunJobId'] === 'string'
+            ? (existing['initialRunJobId'] as string)
+            : undefined;
         const removed = await this.queueService.removeRecurringJob(key).catch(() => false);
         if (!removed) {
           logger.warn('Recurring BullMQ key not found during update-cancel flow', {
             userId,
             key,
           });
+        }
+        if (existingInitialRunJobId) {
+          await this.queueService.cancel(existingInitialRunJobId).catch(() => false);
         }
         await this.db
           .collection(RECURRING_TASKS_COLLECTION)
@@ -154,21 +165,32 @@ export class UpdateRecurringTaskTool extends BaseTool {
         (typeof existing['sourceId'] === 'string' && existing['sourceId'].trim().length > 0
           ? (existing['sourceId'] as string)
           : context?.threadId?.trim() || undefined);
+      const existingFirstRunAt =
+        typeof existing['firstRunAt'] === 'string' ? (existing['firstRunAt'] as string) : undefined;
+      const existingInitialRunJobId =
+        typeof existing['initialRunJobId'] === 'string'
+          ? (existing['initialRunJobId'] as string)
+          : undefined;
+
+      let nextFirstRunRaw: string | undefined;
+      if (firstRunAt) {
+        nextFirstRunRaw = firstRunAt;
+      } else if (!cronExpression && !timezone && existingFirstRunAt) {
+        const parsedExistingMs = Date.parse(existingFirstRunAt);
+        if (Number.isFinite(parsedExistingMs) && parsedExistingMs > Date.now()) {
+          nextFirstRunRaw = existingFirstRunAt;
+        }
+      }
+
+      const parsedFirstRun = parseFutureFirstRunAt(nextFirstRunRaw);
+      if (parsedFirstRun && 'error' in parsedFirstRun) {
+        return { success: false, error: parsedFirstRun.error };
+      }
 
       if (!nextActionSummary || !nextCronExpression || !nextTimezone) {
         return {
           success: false,
           error: 'Unable to resolve full recurring task data to perform update.',
-        };
-      }
-
-      const intervalMs = estimateCronIntervalMs(nextCronExpression);
-      if (intervalMs < MIN_RECURRING_INTERVAL_MS) {
-        return {
-          success: false,
-          error:
-            `The cron expression "${nextCronExpression}" would execute more frequently than once per hour. ` +
-            'The minimum interval for recurring tasks is 1 hour. Please use a less frequent schedule.',
         };
       }
 
@@ -187,9 +209,10 @@ export class UpdateRecurringTaskTool extends BaseTool {
               context: {
                 sourceId: nextSourceId,
                 threadId: nextSourceId,
+                timezone: nextTimezone,
               },
             }
-          : {}),
+          : { context: { timezone: nextTimezone } }),
       };
 
       const replacementKey = await this.queueService.enqueueRecurring(
@@ -197,8 +220,50 @@ export class UpdateRecurringTaskTool extends BaseTool {
         nextCronExpression,
         nextTimezone,
         payload,
-        'production'
+        parsedFirstRun ? { startDate: parsedFirstRun.repeatStartDate } : undefined,
+        targetEnvironment
       );
+
+      let replacementInitialRunJobId: string | undefined;
+      if (parsedFirstRun) {
+        const initialOperationId = `recurring-initial-${userId}-${ts}`;
+        const initialPayload: AgentJobPayload = {
+          operationId: initialOperationId,
+          userId,
+          intent: nextActionSummary,
+          displayIntent: nextActionSummary,
+          sessionId: `scheduled-${userId}`,
+          origin: 'system_cron',
+          ...(nextSourceId
+            ? {
+                context: {
+                  sourceId: nextSourceId,
+                  threadId: nextSourceId,
+                  timezone: nextTimezone,
+                  recurringTaskKey: replacementKey,
+                  recurringInitialRun: true,
+                },
+              }
+            : {
+                context: {
+                  timezone: nextTimezone,
+                  recurringTaskKey: replacementKey,
+                  recurringInitialRun: true,
+                },
+              }),
+        };
+
+        try {
+          replacementInitialRunJobId = await this.queueService.enqueueDelayed(
+            initialPayload,
+            parsedFirstRun.delayMs,
+            targetEnvironment
+          );
+        } catch (initialErr) {
+          await this.queueService.removeRecurringJob(replacementKey).catch(() => false);
+          throw initialErr;
+        }
+      }
 
       await this.db
         .collection(RECURRING_TASKS_COLLECTION)
@@ -209,11 +274,17 @@ export class UpdateRecurringTaskTool extends BaseTool {
           cronExpression: nextCronExpression,
           timezone: nextTimezone,
           ...(nextSourceId ? { sourceId: nextSourceId } : {}),
+          ...(parsedFirstRun ? { firstRunAt: parsedFirstRun.iso } : {}),
+          ...(replacementInitialRunJobId ? { initialRunJobId: replacementInitialRunJobId } : {}),
           jobName,
           createdAt: FieldValue.serverTimestamp(),
-          environment: 'production',
+          environment: targetEnvironment,
           replacedFromKey: key,
         });
+
+      if (existingInitialRunJobId) {
+        await this.queueService.cancel(existingInitialRunJobId).catch(() => false);
+      }
 
       // Remove the old schedule now that replacement is live.
       const removedOld = await this.queueService.removeRecurringJob(key).catch(() => false);
@@ -236,6 +307,7 @@ export class UpdateRecurringTaskTool extends BaseTool {
         replacementKey,
         cronExpression: nextCronExpression,
         timezone: nextTimezone,
+        environment: targetEnvironment,
       });
 
       return {
@@ -247,6 +319,9 @@ export class UpdateRecurringTaskTool extends BaseTool {
           cronExpression: nextCronExpression,
           timezone: nextTimezone,
           ...(nextSourceId ? { sourceId: nextSourceId } : {}),
+          ...(parsedFirstRun
+            ? { firstRunAt: parsedFirstRun.iso, nextRun: parsedFirstRun.iso }
+            : {}),
           message:
             `Recurring task updated successfully. New key: ${replacementKey}. ` +
             `Action "${nextActionSummary}" will run on schedule ${nextCronExpression} (${nextTimezone}).`,

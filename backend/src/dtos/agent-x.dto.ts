@@ -30,6 +30,8 @@ import { Transform, Type } from 'class-transformer';
 import { AGENT_X_MAX_VIDEO_FILE_SIZE } from '@nxt1/core';
 
 const SELECTED_CONTEXT_SUMMARY_MAX_CHARS = 600;
+const ATTACHMENT_THUMBNAIL_URL_RE =
+  /^(https:\/\/\S+|data:image\/(?:jpeg|jpg|png|webp);base64,[a-z0-9+/=]+)$/i;
 
 function clampSelectedContextSummary(value: unknown): unknown {
   if (typeof value !== 'string') {
@@ -153,7 +155,10 @@ export class ChatAttachmentDto {
   cloudflareVideoId?: string;
 
   /** Poster image for Cloudflare-backed video attachments. */
-  @IsUrl({ protocols: ['https'], require_protocol: true })
+  @IsString()
+  @Matches(ATTACHMENT_THUMBNAIL_URL_RE, {
+    message: 'thumbnailUrl must be an https URL or data:image base64 payload',
+  })
   @IsOptional()
   thumbnailUrl?: string;
 

@@ -297,7 +297,7 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
             (keydown.enter)="onEnterPress($event)"
             placeholder="Message Agent X"
             rows="1"
-            [maxlength]="1000"
+            [maxlength]="100000"
           ></textarea>
           <button
             type="button"

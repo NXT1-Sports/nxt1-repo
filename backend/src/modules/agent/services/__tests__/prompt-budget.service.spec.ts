@@ -48,28 +48,45 @@ describe('PromptBudgetService', () => {
     expect(truncated).toContain('[truncated by budget governor]');
   });
 
-  it('Step 2: drops oldest exchanges when truncation alone is insufficient', () => {
+  it('Step 2: truncates oversized non-system messages and preserves attachment refs', () => {
+    const videoRef = '[Attached video: clip.mp4 - https://cdn.example.com/clip.mp4]';
     const messages: LLMMessage[] = [
       { role: 'system', content: 'sys' },
-      { role: 'user', content: 'initial intent' },
+      { role: 'user', content: `${bigContent(20_000)}\n${videoRef}` },
     ];
-    // 40 small turns; tail of 8 stays under a 600-token budget.
+
+    const result = svc.applyBudget(messages, { ...TINY_CFG, maxPromptTokens: 1_200 }, 'router');
+
+    expect(result.degradationsApplied).toContain('truncate_large_messages');
+    expect(String(messages[1]?.content)).toContain('[middle truncated by budget governor]');
+    expect(String(messages[1]?.content)).toContain(videoRef);
+  });
+
+  it('Step 3: drops oldest exchanges while keeping the current user request in the tail', () => {
+    const messages: LLMMessage[] = [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'old thread opener that should be dropped' },
+    ];
+    // 40 small turns; tail of 8 plus the current request stays under budget.
     for (let i = 0; i < 20; i++) {
       messages.push({ role: 'assistant', content: bigContent(200) });
       messages.push({ role: 'user', content: bigContent(200) });
     }
+    messages.push({ role: 'user', content: 'current video request' });
     const before = messages.length;
 
-    const result = svc.applyBudget(messages, { ...TINY_CFG, maxPromptTokens: 600 }, 'router');
+    const result = svc.applyBudget(messages, { ...TINY_CFG, maxPromptTokens: 700 }, 'router');
 
     expect(result.degradationsApplied).toContain('drop_oldest_exchanges');
     expect(messages.length).toBeLessThan(before);
-    // System + initial user message must be preserved.
     expect(messages[0]?.role).toBe('system');
-    expect(messages[1]?.content).toBe('initial intent');
+    expect(messages.map((message) => message.content)).not.toContain(
+      'old thread opener that should be dropped'
+    );
+    expect(messages[messages.length - 1]?.content).toBe('current video request');
   });
 
-  it('Step 3: injects [Earlier in this thread] placeholder when ladder is exhausted', () => {
+  it('Step 4: injects [Earlier in this thread] placeholder when ladder is exhausted', () => {
     const messages: LLMMessage[] = [
       { role: 'system', content: 'sys' },
       { role: 'user', content: 'initial intent' },
@@ -94,7 +111,7 @@ describe('PromptBudgetService', () => {
     expect(placeholder).toBeDefined();
   });
 
-  it('Step 4: throws PromptBudgetExceededError when ladder is exhausted', () => {
+  it('Step 5: throws PromptBudgetExceededError when ladder is exhausted', () => {
     const messages: LLMMessage[] = [
       { role: 'system', content: bigContent(100_000) },
       { role: 'user', content: bigContent(100_000) },

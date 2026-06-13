@@ -1,6 +1,6 @@
 {
   "name": "nxt1-workspace",
-  "version": "1.43.2",
+  "version": "1.59.2",
   "private": true,
   "description": "NXT1 Sports Intelligence Platform - Monorepo",
   "repository": {
@@ -19,6 +19,7 @@
     "backend"
   ],
   "scripts": {
+    "ci": "npm run CI",
     "CI": "npm run format:check && npm run lint && npm run typecheck && npm run build && npm run test",
     "start": "node apps/web/dist/nxt1-web/server/server.mjs",
     "apphosting:build": "turbo run build --filter=@nxt1/web",

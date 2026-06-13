@@ -78,15 +78,8 @@ import {
   type SectionNavItem,
   type SectionNavChangeEvent,
 } from '../components/section-nav-web';
-
-const ATHLETE_INTEL_NAV_FALLBACK_ITEMS: readonly SectionNavItem[] = [
-  { id: 'agent_x_brief', label: 'Agent Overview' },
-  { id: 'athletic_measurements', label: 'Measurements' },
-  { id: 'season_stats', label: 'Stats' },
-  { id: 'recruiting_activity', label: 'Recruiting' },
-  { id: 'academic_profile', label: 'Academics' },
-  { id: 'awards_honors', label: 'Awards' },
-] as const;
+import { APP_EVENTS } from '@nxt1/core/analytics';
+import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
 import { NxtBottomSheetService, SHEET_PRESETS } from '../components/bottom-sheet';
@@ -112,6 +105,15 @@ import { ProfileScheduleComponent } from './components/profile-schedule.componen
 import { ProfileOffersComponent } from './profile-offers.component';
 import { ProfileEventsComponent } from './profile-events.component';
 import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/assets';
+
+const ATHLETE_INTEL_NAV_FALLBACK_ITEMS: readonly SectionNavItem[] = [
+  { id: 'agent_x_brief', label: 'Agent Overview' },
+  { id: 'athletic_measurements', label: 'Measurements' },
+  { id: 'season_stats', label: 'Stats' },
+  { id: 'recruiting_activity', label: 'Recruiting' },
+  { id: 'academic_profile', label: 'Academics' },
+  { id: 'awards_honors', label: 'Awards' },
+] as const;
 
 /**
  * User info passed from parent (web / mobile wrapper).
@@ -623,6 +625,7 @@ export class ProfileShellComponent implements OnInit {
   protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
   protected readonly profile = inject(ProfileService);
   private readonly toast = inject(NxtToastService);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly logger = inject(NxtLoggingService).child('ProfileShell');
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly modal = inject(NxtModalService);
@@ -781,9 +784,7 @@ export class ProfileShellComponent implements OnInit {
         {
           id: 'stats',
           label: 'Stats',
-          badge:
-            this.profile.polymorphicTimeline().filter((i) => i.feedType === 'STAT').length ||
-            undefined,
+          badge: this.profile.statsSectionBadge(),
         },
         {
           id: 'awards',
@@ -1119,10 +1120,19 @@ export class ProfileShellComponent implements OnInit {
       offerId: offer.id,
       category: offer.category,
     });
+    if (offer.category === 'commitment') {
+      this.analytics?.trackEvent(APP_EVENTS.COMMITMENT_ANNOUNCED, {
+        activity_id: offer.id,
+        source: 'profile-shell',
+      });
+    }
   }
 
   protected onAddOffer(): void {
     this.logger.debug('Add offer');
+    this.analytics?.trackEvent(APP_EVENTS.OFFER_ADDED, {
+      source: 'profile-shell',
+    });
   }
 
   protected onTeamClick(team: ProfileTeamAffiliation): void {

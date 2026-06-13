@@ -52,7 +52,8 @@ import {
   type OnboardingStepId,
   type OnboardingStep,
 } from '@nxt1/core/api';
-import { APP_EVENTS } from '@nxt1/core/analytics';
+import { APP_EVENTS, FIREBASE_EVENTS } from '@nxt1/core/analytics';
+import type { OnboardingProfileData } from '@nxt1/core/auth';
 import { AnalyticsService } from '..';
 
 /**
@@ -386,6 +387,52 @@ export class OnboardingAnalyticsService implements OnDestroy {
     // Clear session - onboarding complete
     this.session = null;
     this.currentStepTiming = null;
+  }
+
+  /**
+   * Track a GA4 qualified lead when a coach/director completes onboarding
+   * with an organization or team context.
+   */
+  trackQualifiedOrganizationLead(profileData: OnboardingProfileData): void {
+    if (!this.isBrowser) return;
+
+    const userType = profileData.userType;
+    if (userType !== 'coach' && userType !== 'director') return;
+
+    const selectedTeam = profileData.teamSelection?.teams?.[0];
+    const sportTeam = profileData.sports?.find(
+      (entry) => entry.team?.name || entry.team?.teamId
+    )?.team;
+    const organizationName =
+      profileData.organization ??
+      profileData.createTeamProfile?.programName ??
+      selectedTeam?.name ??
+      sportTeam?.name;
+    const teamId = selectedTeam?.id ?? sportTeam?.teamId;
+
+    if (!organizationName && !teamId && !selectedTeam?.organizationId) return;
+
+    const leadSource = profileData.createTeamProfile
+      ? 'program_created'
+      : selectedTeam
+        ? 'program_selected'
+        : profileData.organization
+          ? 'organization_profile'
+          : 'team_profile';
+
+    const leadParams = {
+      lead_source: leadSource,
+      user_role: userType,
+      organization_id: selectedTeam?.organizationId,
+      organization_name: organizationName,
+      team_id: teamId,
+      team_name: selectedTeam?.name ?? sportTeam?.name,
+      sport: selectedTeam?.sport ?? profileData.sports?.[0]?.sport,
+      method: 'onboarding_complete',
+    };
+
+    this.analytics.trackEvent(FIREBASE_EVENTS.GENERATE_LEAD, leadParams);
+    this.analytics.trackEvent(FIREBASE_EVENTS.QUALIFY_LEAD, leadParams);
   }
 
   /**

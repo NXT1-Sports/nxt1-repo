@@ -488,7 +488,7 @@ export class ShareService {
    */
   private async triggerHaptic(): Promise<void> {
     try {
-      if (this.platform.is('capacitor')) {
+      if (this.platform.is('capacitor') && !this.platform.is('android')) {
         await Haptics.impact({ style: ImpactStyle.Light });
       }
     } catch {

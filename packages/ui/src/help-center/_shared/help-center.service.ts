@@ -28,7 +28,7 @@ import { HELP_CATEGORIES, HELP_QUICK_ACTIONS } from '@nxt1/core';
 import { NxtLoggingService } from '../../services/logging';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 import { NxtBreadcrumbService } from '../../services/breadcrumb';
-import { APP_EVENTS } from '@nxt1/core/analytics';
+import { APP_EVENTS, FIREBASE_EVENTS } from '@nxt1/core/analytics';
 
 // ============================================
 // INJECTION TOKEN
@@ -298,6 +298,10 @@ export class HelpCenterService {
           results: response.data.results?.length ?? 0,
           total: response.data.total,
         });
+        const searchParams = {
+          search_term: query,
+        };
+        this.analytics?.trackEvent(FIREBASE_EVENTS.SEARCH, searchParams);
         this.analytics?.trackEvent(APP_EVENTS.HELP_CENTER_SEARCHED, {
           search_query: query,
           result_count: response.data.results?.length ?? 0,

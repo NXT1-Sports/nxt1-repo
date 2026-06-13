@@ -284,6 +284,7 @@ export class NxtAgentXWelcomeHeaderComponent implements OnInit {
     "Hi, I'm Agent X — the execution engine for athletes, coaches, directors, and programs. I build the briefings, creative, film packages, and intelligence that keep your operation moving."
   );
   readonly typingSpeedMs = input(24);
+  readonly animateOnLoad = input(true);
   protected readonly commandInput = signal('');
   private readonly _commandPlaceholder = signal<string>(this.commandPlaceholderPhrases[0]);
   protected readonly commandPlaceholder = computed(() => this._commandPlaceholder());
@@ -292,6 +293,11 @@ export class NxtAgentXWelcomeHeaderComponent implements OnInit {
   readonly displayText = computed(() => this._displayText());
 
   ngOnInit(): void {
+    if (!this.animateOnLoad()) {
+      this._displayText.set(this.message());
+      return;
+    }
+
     if (!isPlatformBrowser(this.platformId)) {
       this._displayText.set(this.message());
       return;

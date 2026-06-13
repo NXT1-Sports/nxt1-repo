@@ -224,6 +224,13 @@ export class ConnectedAccountsSheetComponent implements OnInit {
   private readonly _latestLinkSources = signal<LinkSourcesFormData | null>(null);
   private readonly _hasChanges = signal(false);
   private readonly _firecrawlLabel = signal<string>('');
+  /**
+   * Incrementally accumulated sign-in providers that were disconnected during this session.
+   * Updated in onLinkSourcesChange() by comparing incoming state against the immediately
+   * previous state, so we never need to diff against the original _linkSourcesData input
+   * (which may not be available if the signal input wasn't set via Ionic componentProps).
+   */
+  private readonly _disconnectedSignInProviders = signal<readonly string[]>([]);
 
   protected readonly testIds = LINK_SOURCES_TEST_IDS;
   readonly hasChanges = computed(() => this._hasChanges());
@@ -248,6 +255,26 @@ export class ConnectedAccountsSheetComponent implements OnInit {
   }
 
   onLinkSourcesChange(data: LinkSourcesFormData): void {
+    // Detect sign-in disconnections by comparing the incoming state against the
+    // immediately-previous state. This is more reliable than diffing against the
+    // original _linkSourcesData input, which may not be initialised on Android when
+    // Ionic's componentProps mechanism doesn't correctly set signal inputs.
+    const previous = this._latestLinkSources() ?? this._linkSourcesData();
+    const previousSignIns = new Set<string>(
+      (previous?.links ?? [])
+        .filter((l) => l.connected && l.connectionType === 'signin')
+        .map((l) => l.platform)
+    );
+    const incomingSignIns = new Set<string>(
+      data.links.filter((l) => l.connected && l.connectionType === 'signin').map((l) => l.platform)
+    );
+    const newlyDisconnected = Array.from(previousSignIns).filter((p) => !incomingSignIns.has(p));
+    if (newlyDisconnected.length > 0) {
+      this._disconnectedSignInProviders.update((prev) => [
+        ...new Set([...prev, ...newlyDisconnected]),
+      ]);
+    }
+
     this._latestLinkSources.set(data);
     this._hasChanges.set(true);
     this.logger.info('Connected accounts updated', {
@@ -409,20 +436,11 @@ export class ConnectedAccountsSheetComponent implements OnInit {
     const linkSources = this._latestLinkSources() ?? this._linkSourcesData() ?? undefined;
     const connectedLinks = linkSources?.links.filter((link) => link.connected) ?? [];
 
-    // Compute which sign-in providers were connected at sheet open but are no longer connected.
-    const originalSignIns = new Set<string>(
-      (this._linkSourcesData()?.links ?? [])
-        .filter((l) => l.connected && l.connectionType === 'signin')
-        .map((l) => l.platform)
-    );
-    const currentSignIns = new Set<string>(
-      (linkSources?.links ?? [])
-        .filter((l) => l.connected && l.connectionType === 'signin')
-        .map((l) => l.platform)
-    );
-    const disconnectedSignInProviders = Array.from(originalSignIns).filter(
-      (p) => !currentSignIns.has(p)
-    );
+    // Use the incrementally accumulated set of disconnected sign-in providers.
+    // This is more reliable than diffing _linkSourcesData vs _latestLinkSources because
+    // _linkSourcesData may be null on Android when Ionic's componentProps fails to
+    // initialise the signal input.
+    const disconnectedSignInProviders = this._disconnectedSignInProviders();
 
     return {
       sources: connectedLinks.map((link) => ({

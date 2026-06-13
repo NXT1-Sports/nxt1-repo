@@ -55,6 +55,16 @@ import {
   type PaymentLogDocument,
 } from '../../models/billing/payment-log.model.js';
 import { resolveBillableFeatures } from '../../modules/billing/feature-resolution.service.js';
+import {
+  buildBillingDeductionUsageEventDocuments,
+  getOpaqueUsageEventOperationIds,
+  getUsageEventLineKey,
+  getUsageEventLineKeys,
+  type BillingDeductionFallbackLine,
+  type BillingDeductionFallbackLock,
+} from './usage-breakdown-fallback.js';
+
+const BILLING_DEDUCTION_LOCK_COLLECTION = 'BillingDeductions';
 
 /** Normalize PaymentLog status (Firestore: 'PAID'/'FAILED'/…) to TransactionStatus ('completed'/'failed'/…) */
 function normalizePaymentStatus(status: unknown): string {
@@ -240,6 +250,368 @@ function getAuthoritativeUsageTotalCents(
   return Number.isFinite(currentPeriodSpend) ? Math.max(0, currentPeriodSpend) : eventTotalCents;
 }
 
+function toDateOrNull(value: unknown): Date | null {
+  if (!value) return null;
+  if (value instanceof Date) return value;
+  if (typeof value === 'string') {
+    const parsed = new Date(value);
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  const timestampLike = value as Record<string, unknown>;
+  if (typeof timestampLike['toDate'] === 'function') {
+    const parsed = (timestampLike['toDate'] as () => Date)();
+    return Number.isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  return null;
+}
+
+function readStringField(data: Record<string, unknown>, key: string): string | undefined {
+  const value = data[key];
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+}
+
+function readNumberField(data: Record<string, unknown>, key: string): number | undefined {
+  const value = data[key];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+function readStringArrayField(data: Record<string, unknown>, key: string): string[] | undefined {
+  const value = data[key];
+  if (!Array.isArray(value)) return undefined;
+
+  const strings = value.filter((entry): entry is string => typeof entry === 'string');
+  return strings.length > 0 ? strings : undefined;
+}
+
+function readBillingDeductionChargeBreakdown(
+  data: Record<string, unknown>
+): BillingDeductionFallbackLine[] | undefined {
+  const value = data['chargeBreakdown'];
+  if (!Array.isArray(value)) return undefined;
+
+  const lines = value
+    .filter(
+      (entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object'
+    )
+    .map((entry) => ({
+      ...(typeof entry['feature'] === 'string' ? { feature: entry['feature'] } : {}),
+      ...(typeof entry['rawCostUsd'] === 'number' && Number.isFinite(entry['rawCostUsd'])
+        ? { rawCostUsd: entry['rawCostUsd'] }
+        : {}),
+      chargeAmountCents:
+        typeof entry['chargeAmountCents'] === 'number' &&
+        Number.isFinite(entry['chargeAmountCents'])
+          ? entry['chargeAmountCents']
+          : 0,
+      ...(typeof entry['quantity'] === 'number' && Number.isFinite(entry['quantity'])
+        ? { quantity: entry['quantity'] }
+        : {}),
+      ...(typeof entry['multiplier'] === 'number' && Number.isFinite(entry['multiplier'])
+        ? { multiplier: entry['multiplier'] }
+        : {}),
+      ...(typeof entry['overrideSource'] === 'string'
+        ? { overrideSource: entry['overrideSource'] }
+        : {}),
+    }))
+    .filter((line) => line.chargeAmountCents > 0);
+
+  return lines.length > 0 ? lines : undefined;
+}
+
+function normalizeBillingDeductionLock(
+  id: string,
+  data: Record<string, unknown>
+): BillingDeductionFallbackLock | null {
+  if (data['status'] !== 'charged') return null;
+
+  const chargedAt = toDateOrNull(data['chargedAt']);
+  const userId = readStringField(data, 'userId');
+  const chargeAmountCents = readNumberField(data, 'chargeAmountCents');
+
+  if (!chargedAt || !userId || !chargeAmountCents || chargeAmountCents <= 0) {
+    return null;
+  }
+
+  const billedOwnerType = readStringField(data, 'billedOwnerType');
+
+  return {
+    operationId: readStringField(data, 'operationId') ?? id,
+    userId,
+    ...(readStringField(data, 'holdId') ? { holdId: readStringField(data, 'holdId') } : {}),
+    ...(readStringField(data, 'teamId') ? { teamId: readStringField(data, 'teamId') } : {}),
+    ...(readStringField(data, 'organizationId')
+      ? { organizationId: readStringField(data, 'organizationId') }
+      : {}),
+    ...(billedOwnerType === 'individual' || billedOwnerType === 'organization'
+      ? { billedOwnerType }
+      : {}),
+    ...(readStringField(data, 'billedOwnerId')
+      ? { billedOwnerId: readStringField(data, 'billedOwnerId') }
+      : {}),
+    chargedAt,
+    chargeAmountCents,
+    ...(readNumberField(data, 'rawCostUsd') !== undefined
+      ? { rawCostUsd: readNumberField(data, 'rawCostUsd') }
+      : {}),
+    ...(readStringField(data, 'primaryFeature')
+      ? { primaryFeature: readStringField(data, 'primaryFeature') }
+      : {}),
+    ...(readStringArrayField(data, 'billableFeatures')
+      ? { billableFeatures: readStringArrayField(data, 'billableFeatures') }
+      : {}),
+    ...(readBillingDeductionChargeBreakdown(data)
+      ? { chargeBreakdown: readBillingDeductionChargeBreakdown(data) }
+      : {}),
+    ...(readStringField(data, 'via') ? { via: readStringField(data, 'via') } : {}),
+  };
+}
+
+interface OrganizationRosterAttribution {
+  readonly memberUserIds: ReadonlySet<string>;
+  readonly teamIdByUserId: ReadonlyMap<string, string>;
+}
+
+interface WalletHoldAttribution {
+  readonly ownerType?: 'individual' | 'organization';
+  readonly ownerId?: string;
+  readonly organizationId?: string;
+  readonly teamId?: string;
+}
+
+async function fetchOrganizationRosterAttribution(
+  db: Firestore,
+  teamIds: readonly string[]
+): Promise<OrganizationRosterAttribution> {
+  const teamIdSetByUserId = new Map<string, Set<string>>();
+
+  for (let index = 0; index < teamIds.length; index += 30) {
+    const chunk = teamIds.slice(index, index + 30);
+    if (chunk.length === 0) continue;
+
+    const snap = await db.collection('RosterEntries').where('teamId', 'in', chunk).get();
+    for (const doc of snap.docs) {
+      const data = doc.data();
+      if (data['status'] !== 'active') continue;
+
+      const userId = typeof data['userId'] === 'string' ? data['userId'] : undefined;
+      const teamId = typeof data['teamId'] === 'string' ? data['teamId'] : undefined;
+      if (!userId || !teamId) continue;
+
+      const existing = teamIdSetByUserId.get(userId) ?? new Set<string>();
+      existing.add(teamId);
+      teamIdSetByUserId.set(userId, existing);
+    }
+  }
+
+  const teamIdByUserId = new Map<string, string>();
+  for (const [userId, userTeamIds] of teamIdSetByUserId.entries()) {
+    if (userTeamIds.size === 1) {
+      teamIdByUserId.set(userId, Array.from(userTeamIds)[0]!);
+    }
+  }
+
+  return {
+    memberUserIds: new Set(teamIdSetByUserId.keys()),
+    teamIdByUserId,
+  };
+}
+
+function normalizeIndividualBillingUserIds(billingUserId: string): ReadonlySet<string> {
+  const normalized = billingUserId.startsWith('individual:')
+    ? billingUserId.slice('individual:'.length)
+    : billingUserId;
+  return new Set([billingUserId, normalized, `individual:${normalized}`]);
+}
+
+function readWalletHoldAttribution(data: Record<string, unknown>): WalletHoldAttribution {
+  const ownerType = readStringField(data, 'ownerType');
+  const ownerId = readStringField(data, 'ownerId');
+  const organizationId = readStringField(data, 'organizationId');
+  const teamId = readStringField(data, 'teamId');
+
+  return {
+    ...(ownerType === 'individual' || ownerType === 'organization' ? { ownerType } : {}),
+    ...(ownerId ? { ownerId } : {}),
+    ...(organizationId ? { organizationId } : {}),
+    ...(teamId ? { teamId } : {}),
+  };
+}
+
+async function fetchWalletHoldAttributions(
+  db: Firestore,
+  locks: readonly BillingDeductionFallbackLock[]
+): Promise<ReadonlyMap<string, WalletHoldAttribution>> {
+  const holdIds = Array.from(
+    new Set(locks.map((lock) => lock.holdId).filter((holdId): holdId is string => Boolean(holdId)))
+  );
+
+  if (holdIds.length === 0) {
+    return new Map();
+  }
+
+  const entries = await Promise.all(
+    holdIds.map(async (holdId) => {
+      const snap = await db.collection(COLLECTIONS.WALLET_HOLDS).doc(holdId).get();
+      if (!snap.exists) {
+        return null;
+      }
+
+      return [holdId, readWalletHoldAttribution(snap.data() ?? {})] as const;
+    })
+  );
+
+  return new Map(
+    entries.filter((entry): entry is readonly [string, WalletHoldAttribution] => Boolean(entry))
+  );
+}
+
+function withWalletHoldAttribution(
+  lock: BillingDeductionFallbackLock,
+  walletHoldAttributions: ReadonlyMap<string, WalletHoldAttribution>
+): BillingDeductionFallbackLock {
+  const holdAttribution = lock.holdId ? walletHoldAttributions.get(lock.holdId) : undefined;
+  if (!holdAttribution) {
+    return lock;
+  }
+
+  const organizationId = lock.organizationId ?? holdAttribution.organizationId;
+  const ownerId = holdAttribution.ownerId ?? organizationId;
+  const billedOwnerType = lock.billedOwnerType ?? holdAttribution.ownerType;
+  const billedOwnerId =
+    lock.billedOwnerId ??
+    (billedOwnerType === 'organization' && ownerId
+      ? `org:${ownerId}`
+      : billedOwnerType === 'individual' && ownerId
+        ? ownerId
+        : undefined);
+
+  return {
+    ...lock,
+    ...(holdAttribution.teamId && !lock.teamId ? { teamId: holdAttribution.teamId } : {}),
+    ...(organizationId ? { organizationId } : {}),
+    ...(billedOwnerType ? { billedOwnerType } : {}),
+    ...(billedOwnerId ? { billedOwnerId } : {}),
+  };
+}
+
+function isBillingDeductionLockInScope(
+  lock: BillingDeductionFallbackLock,
+  target: ResolvedBillingTarget,
+  rosterAttribution: OrganizationRosterAttribution
+): boolean {
+  if (target.type === 'organization') {
+    const teamIds = new Set(target.teamIds ?? []);
+    const orgBilledOwnerIds = new Set([target.organizationId, `org:${target.organizationId}`]);
+    const explicitlyOrgBilled =
+      lock.billedOwnerType === 'organization' &&
+      (lock.organizationId === target.organizationId ||
+        (lock.billedOwnerId ? orgBilledOwnerIds.has(lock.billedOwnerId) : false));
+
+    return Boolean(
+      explicitlyOrgBilled ||
+      (lock.organizationId && lock.organizationId === target.organizationId) ||
+      (lock.teamId && teamIds.has(lock.teamId)) ||
+      (!lock.billedOwnerType &&
+        lock.via === 'deductOrgWallet' &&
+        rosterAttribution.memberUserIds.has(lock.userId))
+    );
+  }
+
+  const userIds = normalizeIndividualBillingUserIds(target.billingUserId);
+  const isExplicitlyIndividualBilled =
+    lock.billedOwnerType === 'individual' &&
+    (!lock.billedOwnerId || userIds.has(lock.billedOwnerId));
+  const isLegacyPersonalBilled = !lock.billedOwnerType && !lock.organizationId;
+
+  return (
+    userIds.has(lock.userId) &&
+    lock.via !== 'deductOrgWallet' &&
+    (isExplicitlyIndividualBilled || isLegacyPersonalBilled)
+  );
+}
+
+function withResolvedFallbackAttribution(
+  lock: BillingDeductionFallbackLock,
+  target: ResolvedBillingTarget,
+  rosterAttribution: OrganizationRosterAttribution
+): BillingDeductionFallbackLock {
+  if (target.type !== 'organization') {
+    return lock;
+  }
+
+  const inferredTeamId = lock.teamId ?? rosterAttribution.teamIdByUserId.get(lock.userId);
+  const inferredOrganizationId = lock.organizationId ?? target.organizationId;
+
+  return {
+    ...lock,
+    ...(inferredTeamId ? { teamId: inferredTeamId } : {}),
+    ...(inferredOrganizationId ? { organizationId: inferredOrganizationId } : {}),
+    billedOwnerType: lock.billedOwnerType ?? 'organization',
+    billedOwnerId: lock.billedOwnerId ?? `org:${target.organizationId}`,
+  };
+}
+
+async function fetchBillingDeductionFallbackUsageEvents(
+  db: Firestore,
+  target: ResolvedBillingTarget,
+  startDate: Date,
+  endDate: Date,
+  eventsDocs: readonly UsageEventDocument[]
+): Promise<UsageEventDocument[]> {
+  const opaqueExistingOperationIds = getOpaqueUsageEventOperationIds(eventsDocs);
+  const existingLineKeys = getUsageEventLineKeys(eventsDocs);
+  const rosterAttribution =
+    target.type === 'organization'
+      ? await fetchOrganizationRosterAttribution(db, target.teamIds ?? [])
+      : { memberUserIds: new Set<string>(), teamIdByUserId: new Map<string, string>() };
+
+  const snap = await db
+    .collection(BILLING_DEDUCTION_LOCK_COLLECTION)
+    .where('chargedAt', '>=', startDate)
+    .where('chargedAt', '<=', endDate)
+    .get();
+
+  const locks = snap.docs
+    .map((doc) => normalizeBillingDeductionLock(doc.id, doc.data()))
+    .filter((lock): lock is BillingDeductionFallbackLock => Boolean(lock));
+  const walletHoldAttributions = await fetchWalletHoldAttributions(db, locks);
+
+  const fallbackEvents: UsageEventDocument[] = [];
+  for (const lockWithoutHoldAttribution of locks) {
+    const lock = withWalletHoldAttribution(lockWithoutHoldAttribution, walletHoldAttributions);
+    if (!lock || opaqueExistingOperationIds.has(lock.operationId)) continue;
+    if (!isBillingDeductionLockInScope(lock, target, rosterAttribution)) continue;
+
+    const lockFallbackEvents = buildBillingDeductionUsageEventDocuments(
+      withResolvedFallbackAttribution(lock, target, rosterAttribution)
+    ).filter((eventDoc) => {
+      const lineKey = getUsageEventLineKey(eventDoc);
+      return !lineKey || !existingLineKeys.has(lineKey);
+    });
+
+    fallbackEvents.push(...lockFallbackEvents);
+  }
+
+  if (fallbackEvents.length > 0) {
+    logger.warn(
+      '[usage-breakdown] Using BillingDeductions fallback rows for missing usage events',
+      {
+        targetType: target.type,
+        billingUserId: target.billingUserId,
+        organizationId: target.type === 'organization' ? target.organizationId : undefined,
+        timeframeStart: startDate.toISOString(),
+        timeframeEnd: endDate.toISOString(),
+        fallbackEventCount: fallbackEvents.length,
+        fallbackTotalCents: fallbackEvents.reduce((sum, doc) => sum + getUsageEventCost(doc), 0),
+      }
+    );
+  }
+
+  return fallbackEvents;
+}
+
 function reconcileChartDataToAuthoritativeTotal(
   chartData: UsageChartDataPoint[],
   authoritativeTotalCents: number,
@@ -263,63 +635,12 @@ function reconcileChartDataToAuthoritativeTotal(
   return chartData;
 }
 
-function createAdjustmentLineItem(deltaCents: number): UsageBreakdownLineItem {
-  const label = deltaCents >= 0 ? 'Recent wallet activity' : 'Billing adjustment';
-  return {
-    sku: label,
-    units: '1',
-    pricePerUnit: `$${(deltaCents / 100).toFixed(2)}`,
-    grossAmount: deltaCents,
-    billedAmount: deltaCents,
-  };
-}
-
-function createAdjustmentTeam(
-  target: ResolvedBillingTarget,
-  dateKey: string,
-  deltaCents: number
-): UsageBreakdownTeam {
-  const teamId = target.context.teamId ?? target.teamIds?.[0] ?? 'billing-adjustment';
-  const lineItem = createAdjustmentLineItem(deltaCents);
-  return {
-    teamId: `billing-adjustment:${dateKey}:${teamId}`,
-    teamName: 'Billing sync',
-    grossAmount: deltaCents,
-    billedAmount: deltaCents,
-    users: [
-      {
-        userId: `billing-adjustment:${target.billingUserId}`,
-        userName: 'Recent wallet activity',
-        grossAmount: deltaCents,
-        billedAmount: deltaCents,
-        lineItems: [lineItem],
-      },
-    ],
-  };
-}
-
-function applyBreakdownAdjustment(
-  row: UsageBreakdownRow,
-  target: ResolvedBillingTarget,
-  deltaCents: number
-): UsageBreakdownRow {
-  const hasTeams = row.teams && row.teams.length > 0;
-  return {
-    ...row,
-    grossAmount: row.grossAmount + deltaCents,
-    billedAmount: row.billedAmount + deltaCents,
-    lineItems: hasTeams ? row.lineItems : [...row.lineItems, createAdjustmentLineItem(deltaCents)],
-    teams: hasTeams
-      ? [...(row.teams ?? []), createAdjustmentTeam(target, row.date, deltaCents)]
-      : row.teams,
-  };
-}
-
 function reconcileBreakdownRowsToAuthoritativeTotal(
   rows: UsageBreakdownRow[],
   target: ResolvedBillingTarget,
   authoritativeTotalCents: number,
-  timeframe: string
+  timeframe: string,
+  context: { readonly userId: string; readonly start: Date; readonly end: Date }
 ): UsageBreakdownRow[] {
   if (!isCurrentMonthTimeframe(timeframe)) {
     return rows;
@@ -331,27 +652,20 @@ function reconcileBreakdownRowsToAuthoritativeTotal(
     return rows;
   }
 
-  const todayKey = toLocalDateKey(new Date());
-  const todayIndex = rows.findIndex((row) => row.date === todayKey);
+  logger.warn('[usage-breakdown] Authoritative ledger mismatch after BillingDeductions fallback', {
+    userId: context.userId,
+    targetType: target.type,
+    billingUserId: target.billingUserId,
+    organizationId: target.type === 'organization' ? target.organizationId : undefined,
+    timeframe,
+    timeframeStart: context.start.toISOString(),
+    timeframeEnd: context.end.toISOString(),
+    authoritativeTotalCents,
+    breakdownTotalCents: eventTotalCents,
+    deltaCents,
+  });
 
-  if (todayIndex >= 0) {
-    rows[todayIndex] = applyBreakdownAdjustment(rows[todayIndex]!, target, deltaCents);
-    return rows;
-  }
-
-  const adjustmentRow: UsageBreakdownRow = {
-    date: todayKey,
-    dateLabel: formatDateLabel(new Date(todayKey + 'T00:00:00')),
-    grossAmount: deltaCents,
-    billedAmount: deltaCents,
-    lineItems: target.type === 'organization' ? [] : [createAdjustmentLineItem(deltaCents)],
-    teams:
-      target.type === 'organization'
-        ? [createAdjustmentTeam(target, todayKey, deltaCents)]
-        : undefined,
-  };
-
-  return [adjustmentRow, ...rows].sort((left, right) => right.date.localeCompare(left.date));
+  return rows;
 }
 
 /** Map UsageFeature enum to product category */
@@ -540,7 +854,9 @@ function getUsageEventLineItems(
   // New per-call ledger rows already carry explicit line-level feature metadata.
   // Treat these rows as atomic billed lines and do not derive sub-actions.
   if (lineFeature) {
-    return [{ feature: lineFeature, cost, qty: doc.quantity }];
+    return [
+      { feature: lineFeature, cost, qty: getNumberMetadata(meta, 'lineQuantity') ?? doc.quantity },
+    ];
   }
 
   if (legacyItemizedOperationKey) {
@@ -714,7 +1030,11 @@ async function buildBreakdownRows(
       const snap = await db.collection('Teams').where('__name__', 'in', chunk).get();
       for (const d of snap.docs) {
         const td = d.data();
-        const tName = (td['teamName'] as string) ?? '';
+        const tName =
+          (td['teamName'] as string) ??
+          (td['name'] as string) ??
+          (td['displayName'] as string) ??
+          '';
         const sport = (td['sport'] as string) ?? (td['sportName'] as string) ?? '';
         const label = tName || sport || d.id;
         teamNames.set(d.id, label);
@@ -898,9 +1218,20 @@ async function fetchUsageEvents(
     );
   }
 
+  const normalizedBillingUserId = target.billingUserId.startsWith('individual:')
+    ? target.billingUserId.slice('individual:'.length)
+    : target.billingUserId;
+  const personalBilledOwnerIds = Array.from(
+    new Set([
+      target.billingUserId,
+      normalizedBillingUserId,
+      `individual:${normalizedBillingUserId}`,
+    ])
+  );
+
   const billedOwnerFilter = {
     billedOwnerType: 'individual',
-    billedOwnerId: target.billingUserId,
+    billedOwnerId: { $in: personalBilledOwnerIds },
   };
 
   // Legacy fallback: include rows for this user that are NOT org-settled.
@@ -1075,6 +1406,14 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     ]);
 
     const { isOrgAdmin, isTeamAdmin } = adminResult;
+    const fallbackEventsDocs = await fetchBillingDeductionFallbackUsageEvents(
+      db,
+      target,
+      start,
+      end,
+      eventsDocs
+    );
+    const usageDocs = [...eventsDocs, ...fallbackEventsDocs];
 
     // Org member = on org billing but NOT a billing admin of any kind.
     // Hoisted early so payment-method fetch and dashboard masking both use it.
@@ -1086,7 +1425,7 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
     const collapsedLegacyOperationKeys = new Set<string>();
     let eventUsageCents = 0;
 
-    for (const doc of eventsDocs) {
+    for (const doc of usageDocs) {
       const dateKey = toLocalDateKey(doc.createdAt);
       const lineItems = getUsageEventLineItems(doc, dateKey, collapsedLegacyOperationKeys);
       const cost = lineItems.reduce((sum, lineItem) => sum + lineItem.cost, 0);
@@ -1177,10 +1516,11 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
 
     // Build breakdown rows (daily — org-aware with team/user names)
     const breakdownRows = reconcileBreakdownRowsToAuthoritativeTotal(
-      await buildBreakdownRows(db, eventsDocs, target),
+      await buildBreakdownRows(db, usageDocs, target),
       target,
       totalUsageCents,
-      timeframe
+      timeframe,
+      { userId, start, end }
     );
 
     // Payment history from the already-fetched paymentLogsSnap (parallelized above)
@@ -1416,12 +1756,22 @@ router.get('/chart', appGuard, async (req: Request, res: Response) => {
     const target = await resolveBillingTarget(db, userId);
 
     const eventsDocs = await fetchUsageEvents(db, target, start, end, false);
+    const fallbackEventsDocs = await fetchBillingDeductionFallbackUsageEvents(
+      db,
+      target,
+      start,
+      end,
+      eventsDocs
+    );
+    const usageDocs = [...eventsDocs, ...fallbackEventsDocs];
 
     const dailyUsage = new Map<string, number>();
+    const collapsedLegacyOperationKeys = new Set<string>();
     let eventUsageCents = 0;
-    for (const doc of eventsDocs) {
+    for (const doc of usageDocs) {
       const dateKey = toLocalDateKey(doc.createdAt);
-      const cost = getUsageEventCost(doc);
+      const lineItems = getUsageEventLineItems(doc, dateKey, collapsedLegacyOperationKeys);
+      const cost = lineItems.reduce((sum, lineItem) => sum + lineItem.cost, 0);
       eventUsageCents += cost;
       dailyUsage.set(dateKey, (dailyUsage.get(dateKey) ?? 0) + cost);
     }
@@ -1481,18 +1831,27 @@ router.get('/breakdown', appGuard, async (req: Request, res: Response) => {
     const target = await resolveBillingTarget(db, userId);
 
     const eventsDocs = await fetchUsageEvents(db, target, start, end, true);
+    const fallbackEventsDocs = await fetchBillingDeductionFallbackUsageEvents(
+      db,
+      target,
+      start,
+      end,
+      eventsDocs
+    );
+    const usageDocs = [...eventsDocs, ...fallbackEventsDocs];
 
-    const eventUsageCents = eventsDocs.reduce((sum, doc) => sum + getUsageEventCost(doc), 0);
+    const eventUsageCents = usageDocs.reduce((sum, doc) => sum + getUsageEventCost(doc), 0);
     const authoritativeTotalCents = getAuthoritativeUsageTotalCents(
       target,
       timeframe,
       eventUsageCents
     );
     const breakdownRows = reconcileBreakdownRowsToAuthoritativeTotal(
-      await buildBreakdownRows(db, eventsDocs, target),
+      await buildBreakdownRows(db, usageDocs, target),
       target,
       authoritativeTotalCents,
-      timeframe
+      timeframe,
+      { userId, start, end }
     );
 
     return res.json({ success: true, data: breakdownRows });

@@ -23,13 +23,6 @@ import { logger } from 'firebase-functions/v2';
 const db = admin.firestore();
 const messaging = admin.messaging();
 
-// Keep functions self-contained because workspace packages are unavailable in Cloud Build / Cloud Run.
-const DEFAULT_NOTIFICATION_CADENCE_CAPS = {
-  maxPushesPerDay: 6,
-  minIntervalMinutes: 120,
-  maxMarketingPushesPerDay: 2,
-} as const;
-
 interface TokenData {
   token: string;
   platform: string;
@@ -147,47 +140,6 @@ function getDayKey(timezone?: string, now: Date = new Date()): string {
   }
 }
 
-function exceedsCadenceCap(
-  preferences: UserNotificationPreferences,
-  stats: PushDeliveryStats | undefined,
-  treatAsMarketing: boolean,
-  now: Date = new Date()
-): boolean {
-  if (!stats) {
-    return false;
-  }
-
-  const caps = preferences.cadenceCaps ?? DEFAULT_NOTIFICATION_CADENCE_CAPS;
-  const lastSentAt = treatAsMarketing ? stats.lastMarketingSentAt : stats.lastSentAt;
-  if (
-    typeof caps.minIntervalMinutes === 'number' &&
-    lastSentAt &&
-    now.getTime() - lastSentAt.toDate().getTime() < caps.minIntervalMinutes * 60 * 1000
-  ) {
-    return true;
-  }
-
-  const dayKey = getDayKey(preferences.quietHours?.timezone, now);
-  if (
-    typeof caps.maxPushesPerDay === 'number' &&
-    stats.dayKey === dayKey &&
-    (stats.dailyCount ?? 0) >= caps.maxPushesPerDay
-  ) {
-    return true;
-  }
-
-  if (
-    treatAsMarketing &&
-    typeof caps.maxMarketingPushesPerDay === 'number' &&
-    stats.marketingDayKey === dayKey &&
-    (stats.marketingDailyCount ?? 0) >= caps.maxMarketingPushesPerDay
-  ) {
-    return true;
-  }
-
-  return false;
-}
-
 async function updatePushDeliveryStats(
   userId: string,
   preferences: UserNotificationPreferences,
@@ -281,9 +233,6 @@ export const onNotificationCreatedV3 = onDocumentCreated(
         const prefs = userData?.['preferences']?.['notifications'] as
           | UserNotificationPreferences
           | undefined;
-        const pushDeliveryStats = userData?.['lifecycle']?.['push']?.['delivery'] as
-          | PushDeliveryStats
-          | undefined;
         const treatAsMarketing =
           deliveryPolicy.treatAsMarketing === true || category === 'marketing';
 
@@ -311,27 +260,6 @@ export const onNotificationCreatedV3 = onDocumentCreated(
         if (deliveryPolicy.respectQuietHours !== false && prefs && isQuietHours(prefs)) {
           logger.info('Push skipped due to quiet hours', { userId, notificationId });
           await updateStatus(notificationId, 'skipped', 'Quiet hours');
-          return;
-        }
-
-        if (
-          deliveryPolicy.respectCadenceCap !== false &&
-          prefs &&
-          exceedsCadenceCap(
-            prefs,
-            {
-              dayKey: pushDeliveryStats?.dayKey,
-              dailyCount: pushDeliveryStats?.dailyCount,
-              marketingDayKey: pushDeliveryStats?.marketingDayKey,
-              marketingDailyCount: pushDeliveryStats?.marketingDailyCount,
-              lastSentAt: toTimestamp(pushDeliveryStats?.lastSentAt) ?? undefined,
-              lastMarketingSentAt: toTimestamp(pushDeliveryStats?.lastMarketingSentAt) ?? undefined,
-            },
-            treatAsMarketing
-          )
-        ) {
-          logger.info('Push skipped due to cadence cap', { userId, notificationId });
-          await updateStatus(notificationId, 'skipped', 'Cadence cap');
           return;
         }
       }

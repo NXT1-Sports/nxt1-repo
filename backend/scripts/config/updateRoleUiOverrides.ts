@@ -14,7 +14,7 @@ import { resolve } from 'path';
 // (ESM static imports are hoisted before any code executes, so loadDotenv() would be too late)
 loadDotenv({ path: resolve(process.cwd(), '.env') });
 
-const { stagingDb } = await import('../src/utils/firebase-staging.js');
+const { stagingDb } = await import('../../src/utils/firebase-staging.js');
 
 // ---------------------------------------------------------------------------
 // Prompt text generators
@@ -748,8 +748,36 @@ const ROLE_OVERRIDES: Record<
           'Strategy Coordinator'
         ),
       ],
-      // Athlete has NO scheduled strategy actions
-      scheduledActions: [],
+      scheduledActions: [
+        sched(
+          'strategy-weekly-brief',
+          'Weekly Athlete Game Plan',
+          'Build personal game plans, film-study priorities, and weekly execution plans',
+          'calendar',
+          'Strategy Coordinator'
+        ),
+        sched(
+          'strategy-monday-plan',
+          'Monday Priority Reset',
+          'Reset your focus, training priorities, and decision points for the week',
+          'calendar',
+          'Strategy Coordinator'
+        ),
+        sched(
+          'strategy-midweek-adjust',
+          'Midweek Adjustment Brief',
+          'Review progress and make film-study or training adjustments midweek',
+          'analytics',
+          'Strategy Coordinator'
+        ),
+        sched(
+          'strategy-weekend-review',
+          'Weekend Progress Review',
+          'Review what improved, what stalled, and what to carry into next week',
+          'clipboard',
+          'Strategy Coordinator'
+        ),
+      ],
     },
   },
 

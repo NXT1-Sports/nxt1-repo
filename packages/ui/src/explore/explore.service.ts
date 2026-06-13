@@ -46,7 +46,7 @@ import {
   isFeedTab,
   resolveStateToAbbreviation,
 } from '@nxt1/core';
-import { APP_EVENTS } from '@nxt1/core/analytics';
+import { APP_EVENTS, FIREBASE_EVENTS } from '@nxt1/core/analytics';
 import { HapticsService } from '../services/haptics/haptics.service';
 import { NxtToastService } from '../services/toast/toast.service';
 import { NxtLoggingService } from '../services/logging/logging.service';
@@ -229,6 +229,10 @@ export class ExploreService {
       }
 
       this.logger.info('Search completed', { query, tab, count: this._items().length });
+      const searchParams = {
+        search_term: query,
+      };
+      this.analytics?.trackEvent(FIREBASE_EVENTS.SEARCH, searchParams);
       this.analytics?.trackEvent(APP_EVENTS.EXPLORE_SEARCHED, {
         search_term: query,
         tab,

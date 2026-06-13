@@ -1231,28 +1231,12 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
   });
 
   ngOnInit(): void {
-    const currentSportIndex = this.profile.activeSportIndex();
-    const requestedSportIndex = this.sportIndex ?? 0;
-
-    // Always reload if sportIndex has changed, or if no data exists
-    if (
-      !this.profile.formData() ||
-      (!this.profile.isLoading() && currentSportIndex !== requestedSportIndex)
-    ) {
-      this.logger.info('🔄 [Edit Profile Shell] Triggering profile reload', {
-        reason: !this.profile.formData() ? 'no-data' : 'sport-index-changed',
-        currentSportIndex,
-        requestedSportIndex,
-      });
-      void this.loadProfile();
-    } else {
-      this.logger.info('🔄 [Edit Profile Shell] Skipping reload', {
-        hasData: !!this.profile.formData(),
-        isLoading: this.profile.isLoading(),
-        currentSportIndex,
-        requestedSportIndex,
-      });
-    }
+    this.logger.info('🔄 [Edit Profile Shell] Triggering profile reload', {
+      reason: 'shell-opened',
+      currentSportIndex: this.profile.activeSportIndex(),
+      requestedSportIndex: this.sportIndex ?? 0,
+    });
+    void this.loadProfile();
   }
 
   protected async loadProfile(): Promise<void> {
@@ -1929,6 +1913,10 @@ export class EditProfileShellComponent implements OnInit, OnDestroy {
     }
 
     if (uploadedUrls.length > 0) {
+      this.analytics?.trackEvent(APP_EVENTS.PROFILE_PHOTO_UPDATED, {
+        source: 'edit-profile-shell',
+        uploaded_count: uploadedUrls.length,
+      });
       this.toast.success(`Uploaded ${uploadedUrls.length} image(s)`);
     }
 

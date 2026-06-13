@@ -73,15 +73,46 @@ import { AGENT_X_API_BASE_URL, AGENT_X_AUTH_TOKEN_FACTORY } from './agent-x-job.
 import { HttpClient } from '@angular/common/http';
 import { firstValueFrom } from 'rxjs';
 import type { AgentXPendingFile } from '../types/agent-x-pending-file';
-import type { ConnectedAppSource } from '../components/modals/agent-x-attachments-sheet.component';
+import type {
+  ConnectedAppSource,
+  NativeAttachmentFile,
+} from '../components/modals/agent-x-attachments-sheet.component';
 
 /** sessionStorage key for in-flight operation drop-recovery. */
 const AGENT_X_PENDING_OP_KEY = 'nxt1_pending_agent_op';
 const AGENT_X_PENDING_PLAYBOOK_OP_KEY = 'nxt1_pending_playbook_op';
+const VIDEO_ATTACHMENT_THUMBNAIL_MAX_EDGE_PX = 320;
+
+function resolveThumbnailDimensions(
+  sourceWidth: number,
+  sourceHeight: number
+): {
+  readonly width: number;
+  readonly height: number;
+} {
+  const safeWidth = Math.max(1, Math.round(sourceWidth) || 320);
+  const safeHeight = Math.max(1, Math.round(sourceHeight) || 180);
+  const maxEdge = Math.max(safeWidth, safeHeight);
+
+  if (maxEdge <= VIDEO_ATTACHMENT_THUMBNAIL_MAX_EDGE_PX) {
+    return {
+      width: safeWidth,
+      height: safeHeight,
+    };
+  }
+
+  const scale = VIDEO_ATTACHMENT_THUMBNAIL_MAX_EDGE_PX / maxEdge;
+  return {
+    width: Math.max(1, Math.round(safeWidth * scale)),
+    height: Math.max(1, Math.round(safeHeight * scale)),
+  };
+}
+const AGENT_X_PENDING_GOALS_KEY = 'nxt1_pending_agent_goals';
 const AGENT_X_PENDING_STARTUP_MESSAGE_KEY = 'nxt1_pending_startup_message';
 const AGENT_X_WEEKLY_TASKS_GOAL_ID = 'recurring';
 const AGENT_X_WEEKLY_TASKS_GOAL_LABEL = 'Weekly Tasks';
 const SELECTED_CONTEXT_SUMMARY_MAX_CHARS = 600;
+const PENDING_PLAYBOOK_OPERATION_MAX_AGE_MS = 6 * 60 * 60 * 1000;
 
 function truncateSelectedContextSummary(summary: string): string {
   const trimmed = summary.trim();
@@ -256,6 +287,7 @@ export class AgentXService {
   private readonly _goalHistory = signal<CompletedGoalRecord[]>([]);
   private readonly _goalHistoryLoading = signal(false);
   private readonly _goalHistoryError = signal<string | null>(null);
+  private _playbookPollingInFlight = false;
   private _playbookResumePollingInFlight = false;
 
   // ============================================
@@ -915,12 +947,30 @@ export class AgentXService {
    * chat state so the user sees the full conversation.
    */
   async loadThread(threadId: string): Promise<void> {
-    if (!threadId || this._currentThreadId() === threadId) return;
+    await this.hydrateThread(threadId, false);
+  }
+
+  /**
+   * Force-refresh the currently open thread after background work appends
+   * persisted messages outside the active chat session lifecycle.
+   */
+  async refreshThread(threadId: string): Promise<void> {
+    await this.hydrateThread(threadId, true);
+  }
+
+  private async hydrateThread(threadId: string, forceRefresh: boolean): Promise<void> {
+    if (!threadId || (!forceRefresh && this._currentThreadId() === threadId)) return;
     // Guard against concurrent loads — let the in-flight request finish
     if (this._isLoading()) return;
 
-    this.logger.info('Loading thread from deep link', { threadId });
-    this.breadcrumb.trackStateChange('agent-x:loading-thread', { threadId });
+    this.logger.info(
+      forceRefresh ? 'Refreshing persisted thread' : 'Loading thread from deep link',
+      {
+        threadId,
+        forceRefresh,
+      }
+    );
+    this.breadcrumb.trackStateChange('agent-x:loading-thread', { threadId, forceRefresh });
     this._isLoading.set(true);
 
     try {
@@ -962,6 +1012,12 @@ export class AgentXService {
         threadId,
         messageCount: messages.length,
         hasPendingYield: !!latestPausedYieldState,
+        forceRefresh,
+      });
+      this.analytics?.trackEvent(APP_EVENTS.AGENT_THREAD_REPLAY_LOADED, {
+        threadId,
+        messageCount: messages.length,
+        source: forceRefresh ? 'refresh' : 'load',
       });
     } catch (err) {
       this.logger.error('Failed to load thread', err, { threadId });
@@ -1129,7 +1185,11 @@ export class AgentXService {
     let acceptedOtherCount = 0;
     let totalAcceptedBytes = 0;
 
-    for (const file of files) {
+    for (const selectedFile of files) {
+      const nativeMetadata = getNativeAttachmentMetadata(selectedFile);
+      const file = normalizeAttachmentFile(selectedFile, nativeMetadata);
+      const sizeBytes = resolveAttachmentFileSize(file);
+
       if (!AGENT_X_ALLOWED_MIME_TYPES.includes(file.type)) {
         this.toast.error(`Unsupported file type: ${file.name}`);
         this.logger.warn('Rejected unsupported file type', { name: file.name, type: file.type });
@@ -1139,21 +1199,24 @@ export class AgentXService {
       const isVideoFile = file.type.startsWith('video/');
       const maxSize = isVideoFile ? AGENT_X_MAX_VIDEO_FILE_SIZE : AGENT_X_MAX_FILE_SIZE;
       const maxLabel = formatFileSizeLabel(maxSize);
-      if (file.size > maxSize) {
+      if (sizeBytes > maxSize) {
         this.toast.error(`File too large: ${file.name} (max ${maxLabel})`);
-        this.logger.warn('Rejected oversized file', { name: file.name, sizeBytes: file.size });
+        this.logger.warn('Rejected oversized file', { name: file.name, sizeBytes });
         continue;
       }
 
       if (!isPlatformBrowser(this.platformId)) {
         const pending: AgentXPendingFile = {
           file,
+          ...(nativeMetadata.nativeUri ? { nativeUri: nativeMetadata.nativeUri } : {}),
+          ...(nativeMetadata.nativeWebPath ? { nativeWebPath: nativeMetadata.nativeWebPath } : {}),
+          ...(nativeMetadata.nativeSizeBytes ? { sizeBytes: nativeMetadata.nativeSizeBytes } : {}),
           previewUrl: null,
           type: resolveAttachmentType(file.type),
         };
         this._pendingFiles.update((list) => [...list, pending]);
         acceptedCount += 1;
-        totalAcceptedBytes += file.size;
+        totalAcceptedBytes += sizeBytes;
         switch (pending.type) {
           case 'video':
             acceptedVideoCount += 1;
@@ -1175,37 +1238,45 @@ export class AgentXService {
         // Add file immediately with no preview, then replace with canvas thumbnail
         const pending: AgentXPendingFile = {
           file,
-          previewUrl: null,
+          ...(nativeMetadata.nativeUri ? { nativeUri: nativeMetadata.nativeUri } : {}),
+          ...(nativeMetadata.nativeWebPath ? { nativeWebPath: nativeMetadata.nativeWebPath } : {}),
+          ...(nativeMetadata.nativeSizeBytes ? { sizeBytes: nativeMetadata.nativeSizeBytes } : {}),
+          previewUrl: nativeMetadata.thumbnailDataUrl ?? null,
           type: resolveAttachmentType(file.type),
         };
         this._pendingFiles.update((list) => [...list, pending]);
         acceptedCount += 1;
         acceptedVideoCount += 1;
-        totalAcceptedBytes += file.size;
+        totalAcceptedBytes += sizeBytes;
         this.logger.debug('File staged (video thumbnail pending)', { name: file.name });
-        void this.generateVideoThumbnail(file)
-          .then((thumbnailDataUrl) => {
-            this._pendingFiles.update((list) =>
-              list.map((p) =>
-                p.file === file && p.previewUrl === null
-                  ? { ...p, previewUrl: thumbnailDataUrl }
-                  : p
-              )
-            );
-          })
-          .catch(() => {
-            this.logger.warn('Video thumbnail generation failed', { name: file.name });
-          });
+        if (file.size > 0 && pending.previewUrl === null) {
+          void this.generateVideoThumbnail(file)
+            .then((thumbnailDataUrl) => {
+              this._pendingFiles.update((list) =>
+                list.map((p) =>
+                  p.file === file && p.previewUrl === null
+                    ? { ...p, previewUrl: thumbnailDataUrl }
+                    : p
+                )
+              );
+            })
+            .catch(() => {
+              this.logger.warn('Video thumbnail generation failed', { name: file.name });
+            });
+        }
       } else {
         const previewUrl = file.type.startsWith('image/') ? URL.createObjectURL(file) : null;
         const pending: AgentXPendingFile = {
           file,
+          ...(nativeMetadata.nativeUri ? { nativeUri: nativeMetadata.nativeUri } : {}),
+          ...(nativeMetadata.nativeWebPath ? { nativeWebPath: nativeMetadata.nativeWebPath } : {}),
+          ...(nativeMetadata.nativeSizeBytes ? { sizeBytes: nativeMetadata.nativeSizeBytes } : {}),
           previewUrl,
           type: resolveAttachmentType(file.type),
         };
         this._pendingFiles.update((list) => [...list, pending]);
         acceptedCount += 1;
-        totalAcceptedBytes += file.size;
+        totalAcceptedBytes += sizeBytes;
         if (pending.type === 'image') {
           acceptedImageCount += 1;
         } else if (pending.type === 'doc') {
@@ -1249,20 +1320,22 @@ export class AgentXService {
 
       const captureFrame = () => {
         try {
-          const w = video.videoWidth || 320;
-          const h = video.videoHeight || 180;
+          const { width, height } = resolveThumbnailDimensions(
+            video.videoWidth || 320,
+            video.videoHeight || 180
+          );
           const canvas = document.createElement('canvas');
-          canvas.width = w;
-          canvas.height = h;
+          canvas.width = width;
+          canvas.height = height;
           const ctx = canvas.getContext('2d');
           if (!ctx) {
             cleanup();
             reject(new Error('Canvas 2D context unavailable'));
             return;
           }
-          ctx.drawImage(video, 0, 0, w, h);
+          ctx.drawImage(video, 0, 0, width, height);
           cleanup();
-          resolve(canvas.toDataURL('image/jpeg', 0.75));
+          resolve(canvas.toDataURL('image/jpeg', 0.68));
         } catch (err) {
           cleanup();
           reject(err);
@@ -1679,23 +1752,36 @@ export class AgentXService {
 
       if (response.success && response.data) {
         const { briefing, playbook, coordinators } = response.data;
+        const dashboardGoals = [...playbook.goals];
+        const pendingGoals = this.readPendingGoals();
+        const hydratedGoals = dashboardGoals.length > 0 ? dashboardGoals : pendingGoals;
+
+        if (dashboardGoals.length > 0) {
+          this.clearPendingGoals();
+        } else if (pendingGoals.length > 0) {
+          this.logger.warn('Dashboard returned empty goals; preserving pending saved goals', {
+            pendingGoalCount: pendingGoals.length,
+            playbookItems: playbook.items.length,
+          });
+        }
+
         this._briefingInsights.set([...briefing.insights]);
         this._briefingPreviewText.set(briefing.previewText);
         this._weeklyPlaybook.set([...playbook.items]);
         this._activePlaybookId.set(playbook.id ?? null);
         this.resetCategoryFilter();
-        this._goals.set([...playbook.goals]);
+        this._goals.set(hydratedGoals);
         this._playbookGeneratedAt.set(playbook.generatedAt);
-        this._canRegenerate.set(playbook.canRegenerate);
+        this._canRegenerate.set(playbook.canRegenerate || hydratedGoals.length > 0);
         this._coordinators.set([...coordinators]);
         this._dashboardLoaded.set(true);
 
         this.logger.info('Dashboard loaded', {
-          goalCount: playbook.goals.length,
+          goalCount: hydratedGoals.length,
           playbookItems: playbook.items.length,
         });
         this.analytics?.trackEvent(APP_EVENTS.AGENT_X_DASHBOARD_VIEWED, {
-          hasGoals: playbook.goals.length > 0,
+          hasGoals: hydratedGoals.length > 0,
           hasPlaybook: playbook.items.length > 0,
         });
       }
@@ -1716,6 +1802,7 @@ export class AgentXService {
   async setGoals(goals: AgentDashboardGoal[]): Promise<boolean> {
     this.logger.info('Setting Agent X goals', { count: goals.length });
     this.breadcrumb.trackStateChange('agent-x:goals-setting');
+    this.persistPendingGoals(goals);
 
     try {
       const response = await firstValueFrom(
@@ -1736,10 +1823,12 @@ export class AgentXService {
         });
         return true;
       }
+      this.clearPendingGoals();
       this.toast.error(response.error ?? 'Failed to save goals');
       return false;
     } catch (err) {
       this.logger.error('Failed to set goals', err);
+      this.clearPendingGoals();
       this.toast.error('Failed to save goals');
       return false;
     }
@@ -1881,8 +1970,66 @@ export class AgentXService {
    */
   async generatePlaybook(force = false): Promise<void> {
     if (this._goals().length === 0) {
+      const pendingGoals = this.readPendingGoals();
+      if (pendingGoals.length > 0) {
+        this.logger.info('Restoring pending goals before playbook generation', {
+          goalCount: pendingGoals.length,
+        });
+        this._goals.set(pendingGoals);
+        this._canRegenerate.set(true);
+      }
+    }
+
+    if (this._goals().length === 0) {
       this.toast.info('Set your goals first to generate a playbook');
       return;
+    }
+
+    const pendingPlaybookRequest = this.readPendingPlaybookRequest();
+    const pendingOperationId = pendingPlaybookRequest.operationId;
+    if (pendingOperationId) {
+      if (this._playbookPollingInFlight) {
+        this.toast.info('Your playbook is still generating');
+        return;
+      }
+
+      this._playbookGenerating.set(true);
+      this._playbookPollingInFlight = true;
+      this.logger.info('Reattaching to pending playbook generation', {
+        operationId: pendingOperationId,
+        force,
+      });
+
+      try {
+        const pollResult = await this.pollPlaybookGenerationStatus(pendingOperationId);
+        if (!pollResult.success) {
+          if (!pollResult.timedOut) {
+            this.clearPendingPlaybookOperation();
+            this.toast.error(pollResult.error ?? 'Playbook generation failed');
+          } else {
+            this.toast.info('Your playbook is still generating');
+          }
+          return;
+        }
+
+        this.clearPendingPlaybookOperation();
+        await this.applyPlaybookPollResult(pollResult.playbook, true);
+        this._canRegenerate.set(true);
+        this.toast.success('Weekly playbook generated!');
+        return;
+      } catch (err) {
+        this.logger.error('Failed to reattach to pending playbook generation', err, {
+          operationId: pendingOperationId,
+        });
+        if (this.isNotFoundError(err)) {
+          this.clearPendingPlaybookOperation();
+        }
+        this.toast.error('Failed to check playbook generation');
+        return;
+      } finally {
+        this._playbookPollingInFlight = false;
+        this._playbookGenerating.set(false);
+      }
     }
 
     this._playbookGenerating.set(true);
@@ -1896,9 +2043,13 @@ export class AgentXService {
         error?: string;
       };
 
+      const idempotencyKey = pendingPlaybookRequest.idempotencyKey ?? this.generateId();
+      this.persistPendingPlaybookOperation(null, idempotencyKey);
+
       const enqueueResponse = await firstValueFrom(
         this.http.post<PlaybookEnqueueResponse>(`${this.baseUrl}/agent-x/playbook/generate`, {
           force,
+          idempotencyKey,
         })
       );
 
@@ -1909,8 +2060,9 @@ export class AgentXService {
 
       const operationId = enqueueResponse.data.operationId;
       this.logger.info('Playbook generation queued', { operationId, force });
-      this.persistPendingPlaybookOperation(operationId);
+      this.persistPendingPlaybookOperation(operationId, idempotencyKey);
 
+      this._playbookPollingInFlight = true;
       const pollResult = await this.pollPlaybookGenerationStatus(operationId);
       if (!pollResult.success) {
         // Keep the pending marker on timeout so refresh can resume background polling.
@@ -1934,6 +2086,7 @@ export class AgentXService {
       this.logger.error('Failed to generate playbook', err);
       this.toast.error('Failed to generate playbook');
     } finally {
+      this._playbookPollingInFlight = false;
       this._playbookGenerating.set(false);
     }
   }
@@ -2014,7 +2167,18 @@ export class AgentXService {
   ): Promise<void> {
     if (playbook) {
       const newItems = playbook.items as ShellWeeklyPlaybookItem[];
+      const generatedGoals = [...playbook.goals];
+      const pendingGoals = this.readPendingGoals();
+      const hydratedGoals = generatedGoals.length > 0 ? generatedGoals : pendingGoals;
+
       this._activePlaybookId.set(playbook.id ?? null);
+      if (hydratedGoals.length > 0) {
+        this._goals.set(hydratedGoals);
+        this._canRegenerate.set(true);
+      }
+      if (generatedGoals.length > 0) {
+        this.clearPendingGoals();
+      }
 
       // Forced regenerations should immediately reflect the server-generated
       // playbook, even when IDs are reused. This fixes the stale UI case where
@@ -2039,28 +2203,121 @@ export class AgentXService {
     await this.loadDashboard();
   }
 
-  private persistPendingPlaybookOperation(operationId: string): void {
+  private persistPendingPlaybookOperation(
+    operationId: string | null,
+    idempotencyKey?: string
+  ): void {
     if (!isPlatformBrowser(this.platformId)) return;
     try {
+      const payload: { operationId?: string; idempotencyKey?: string; savedAt: number } = {
+        savedAt: Date.now(),
+      };
+      if (operationId) payload.operationId = operationId;
+      if (idempotencyKey) payload.idempotencyKey = idempotencyKey;
+
+      sessionStorage.setItem(AGENT_X_PENDING_PLAYBOOK_OP_KEY, JSON.stringify(payload));
+    } catch {
+      // Non-blocking best-effort persistence.
+    }
+  }
+
+  private persistPendingGoals(goals: readonly AgentDashboardGoal[]): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+    try {
+      if (goals.length === 0) {
+        this.clearPendingGoals();
+        return;
+      }
+
       sessionStorage.setItem(
-        AGENT_X_PENDING_PLAYBOOK_OP_KEY,
-        JSON.stringify({ operationId, savedAt: Date.now() })
+        AGENT_X_PENDING_GOALS_KEY,
+        JSON.stringify({ goals, savedAt: Date.now() })
       );
     } catch {
       // Non-blocking best-effort persistence.
     }
   }
 
-  private readPendingPlaybookOperation(): string | null {
-    if (!isPlatformBrowser(this.platformId)) return null;
+  private readPendingGoals(): AgentDashboardGoal[] {
+    if (!isPlatformBrowser(this.platformId)) return [];
+    try {
+      const raw = sessionStorage.getItem(AGENT_X_PENDING_GOALS_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as { goals?: unknown; savedAt?: unknown };
+      const savedAt = typeof parsed.savedAt === 'number' ? parsed.savedAt : 0;
+      if (savedAt > 0 && Date.now() - savedAt > PENDING_PLAYBOOK_OPERATION_MAX_AGE_MS) {
+        this.clearPendingGoals();
+        return [];
+      }
+
+      if (!Array.isArray(parsed.goals)) return [];
+      return parsed.goals.flatMap((goal): AgentDashboardGoal[] => {
+        if (!goal || typeof goal !== 'object') return [];
+        const candidate = goal as Record<string, unknown>;
+        const id = typeof candidate['id'] === 'string' ? candidate['id'].trim() : '';
+        const text = typeof candidate['text'] === 'string' ? candidate['text'].trim() : '';
+        const category =
+          typeof candidate['category'] === 'string' ? candidate['category'].trim() : 'custom';
+        if (!id || !text) return [];
+
+        return [
+          {
+            id,
+            text,
+            category: category || 'custom',
+            ...(typeof candidate['icon'] === 'string' ? { icon: candidate['icon'] } : {}),
+            createdAt:
+              typeof candidate['createdAt'] === 'string'
+                ? candidate['createdAt']
+                : new Date().toISOString(),
+          },
+        ];
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  private clearPendingGoals(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+    try {
+      sessionStorage.removeItem(AGENT_X_PENDING_GOALS_KEY);
+    } catch {
+      // Non-blocking best-effort cleanup.
+    }
+  }
+
+  private readPendingPlaybookRequest(): {
+    operationId: string | null;
+    idempotencyKey: string | null;
+  } {
+    if (!isPlatformBrowser(this.platformId)) return { operationId: null, idempotencyKey: null };
     try {
       const raw = sessionStorage.getItem(AGENT_X_PENDING_PLAYBOOK_OP_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as { operationId?: unknown };
-      return typeof parsed.operationId === 'string' ? parsed.operationId : null;
+      if (!raw) return { operationId: null, idempotencyKey: null };
+      const parsed = JSON.parse(raw) as {
+        operationId?: unknown;
+        idempotencyKey?: unknown;
+        savedAt?: unknown;
+      };
+
+      const savedAt = typeof parsed.savedAt === 'number' ? parsed.savedAt : 0;
+      if (savedAt > 0 && Date.now() - savedAt > PENDING_PLAYBOOK_OPERATION_MAX_AGE_MS) {
+        this.clearPendingPlaybookOperation();
+        return { operationId: null, idempotencyKey: null };
+      }
+
+      return {
+        operationId: typeof parsed.operationId === 'string' ? parsed.operationId : null,
+        idempotencyKey: typeof parsed.idempotencyKey === 'string' ? parsed.idempotencyKey : null,
+      };
     } catch {
-      return null;
+      return { operationId: null, idempotencyKey: null };
     }
+  }
+
+  private readPendingPlaybookOperation(): string | null {
+    return this.readPendingPlaybookRequest().operationId;
   }
 
   private clearPendingPlaybookOperation(): void {
@@ -2074,12 +2331,13 @@ export class AgentXService {
 
   private async resumePendingPlaybookGenerationFromStorage(): Promise<void> {
     if (!isPlatformBrowser(this.platformId)) return;
-    if (this._playbookGenerating()) return;
+    if (this._playbookPollingInFlight) return;
     if (this._playbookResumePollingInFlight) return;
 
     const operationId = this.readPendingPlaybookOperation();
     if (!operationId) return;
 
+    this._playbookPollingInFlight = true;
     this._playbookResumePollingInFlight = true;
     this._playbookGenerating.set(true);
     this.logger.info('Resuming pending playbook generation polling', { operationId });
@@ -2107,10 +2365,18 @@ export class AgentXService {
         operationId,
         error: err instanceof Error ? err.message : String(err),
       });
+      if (this.isNotFoundError(err)) {
+        this.clearPendingPlaybookOperation();
+      }
     } finally {
+      this._playbookPollingInFlight = false;
       this._playbookGenerating.set(false);
       this._playbookResumePollingInFlight = false;
     }
+  }
+
+  private isNotFoundError(err: unknown): boolean {
+    return typeof err === 'object' && err !== null && (err as { status?: unknown }).status === 404;
   }
 
   /**
@@ -2311,4 +2577,63 @@ function resolveCurrentTimeZone(): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+function getNativeAttachmentMetadata(
+  file: File
+): Pick<
+  NativeAttachmentFile,
+  'nativeUri' | 'nativeWebPath' | 'nativeSizeBytes' | 'thumbnailDataUrl'
+> {
+  const source = file as NativeAttachmentFile;
+  return {
+    ...(source.nativeUri ? { nativeUri: source.nativeUri } : {}),
+    ...(source.nativeWebPath ? { nativeWebPath: source.nativeWebPath } : {}),
+    ...(source.nativeSizeBytes ? { nativeSizeBytes: source.nativeSizeBytes } : {}),
+    ...(source.thumbnailDataUrl ? { thumbnailDataUrl: source.thumbnailDataUrl } : {}),
+  };
+}
+
+function normalizeAttachmentFile(
+  file: File,
+  metadata: Pick<
+    NativeAttachmentFile,
+    'nativeUri' | 'nativeWebPath' | 'nativeSizeBytes' | 'thumbnailDataUrl'
+  >
+): File {
+  const normalizedType = normalizeAttachmentMimeType(file.type);
+  if (!normalizedType || normalizedType === file.type) {
+    return file;
+  }
+
+  return Object.assign(
+    new File([file], file.name, { type: normalizedType, lastModified: file.lastModified }),
+    {
+      ...(metadata.nativeUri ? { nativeUri: metadata.nativeUri } : {}),
+      ...(metadata.nativeWebPath ? { nativeWebPath: metadata.nativeWebPath } : {}),
+      ...(metadata.nativeSizeBytes ? { nativeSizeBytes: metadata.nativeSizeBytes } : {}),
+      ...(metadata.thumbnailDataUrl ? { thumbnailDataUrl: metadata.thumbnailDataUrl } : {}),
+    }
+  );
+}
+
+function resolveAttachmentFileSize(file: File): number {
+  const nativeSizeBytes = (file as NativeAttachmentFile).nativeSizeBytes;
+  return typeof nativeSizeBytes === 'number' && nativeSizeBytes > 0 ? nativeSizeBytes : file.size;
+}
+
+function normalizeAttachmentMimeType(mimeType: string): string | null {
+  const normalized = mimeType.split(';')[0]?.trim().toLowerCase();
+  if (!normalized) return null;
+  if (
+    normalized === 'video/mov' ||
+    normalized === 'video/qt' ||
+    normalized === 'video/x-quicktime'
+  ) {
+    return 'video/quicktime';
+  }
+  if (normalized === 'image/jpg') {
+    return 'image/jpeg';
+  }
+  return normalized;
 }

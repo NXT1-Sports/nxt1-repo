@@ -76,4 +76,133 @@ describe('PersistedAssistantStreamBuilder', () => {
       },
     ]);
   });
+
+  it('omits failed coordinator draft deltas from persisted assistant content', () => {
+    const builder = new PersistedAssistantStreamBuilder();
+
+    builder.process({
+      type: 'delta',
+      agentId: 'router',
+      text: 'Routing this to Brand Coordinator. ',
+    });
+    builder.process({
+      type: 'delta',
+      agentId: 'brand_coordinator',
+      text: 'STEP 1: Add text overlay. Calling ffmpeg_add_text_overlay: { "name": "ffmpeg_add_text_overlay" }',
+    });
+    builder.process({
+      type: 'thinking',
+      agentId: 'brand_coordinator',
+      thinkingText: 'I will fake a tool call as text.',
+    });
+    builder.process({
+      type: 'tool_result',
+      agentId: 'router',
+      toolName: 'delegate_to_coordinator',
+      toolSuccess: false,
+      toolResult: {
+        success: false,
+        data: {
+          coordinator_id: 'brand_coordinator',
+          user_already_received_response: false,
+          follow_up_required: true,
+        },
+      },
+      message: 'Routing to specialist coordinator: Brand & Media Coordinator',
+    });
+    builder.process({
+      type: 'delta',
+      agentId: 'router',
+      text: 'Let me recover this directly.',
+    });
+
+    const snapshot = builder.snapshot();
+
+    expect(snapshot.content).toBe(
+      'Routing this to Brand Coordinator. Let me recover this directly.'
+    );
+    expect(snapshot.content).not.toContain('STEP 1');
+    expect(snapshot.content).not.toContain('ffmpeg_add_text_overlay');
+    expect(snapshot.parts).toEqual([
+      {
+        type: 'text',
+        content: 'Routing this to Brand Coordinator. ',
+      },
+      {
+        type: 'tool-steps',
+        steps: [
+          expect.objectContaining({
+            label: 'Routing to specialist coordinator: Brand & Media Coordinator',
+            status: 'error',
+          }),
+        ],
+      },
+      {
+        type: 'text',
+        content: 'Let me recover this directly.',
+      },
+    ]);
+  });
+
+  it('preserves yield state embedded in confirmation cards', () => {
+    const builder = new PersistedAssistantStreamBuilder();
+
+    builder.process({
+      type: 'card',
+      agentId: 'recruiting_coordinator',
+      cardData: {
+        type: 'confirmation',
+        agentId: 'recruiting_coordinator',
+        title: 'Review and Approve Email',
+        payload: {
+          message: 'Review this email before sending.',
+          variant: 'email',
+          actions: [
+            { id: 'reject', label: 'Reject', variant: 'secondary' },
+            { id: 'approve', label: 'Send', variant: 'primary' },
+          ],
+          approvalId: 'approval-123',
+          toolCallId: 'tool-call-1',
+          operationId: 'op-456',
+          yieldState: {
+            reason: 'needs_approval',
+            promptToUser: 'Review this email before sending.',
+            agentId: 'recruiting_coordinator',
+            messages: [],
+            pendingToolCall: {
+              toolName: 'send_email',
+              toolInput: { toEmail: 'coach@example.com', subject: 'Hello' },
+              toolCallId: 'tool-call-1',
+            },
+            approvalId: 'approval-123',
+            yieldedAt: '2026-06-12T00:00:00.000Z',
+            expiresAt: '2026-06-13T00:00:00.000Z',
+          },
+        },
+      },
+    });
+
+    const snapshot = builder.snapshot();
+    const cardPart = snapshot.parts.find((part) => part.type === 'card');
+
+    expect(cardPart).toEqual(
+      expect.objectContaining({
+        type: 'card',
+        card: expect.objectContaining({
+          type: 'confirmation',
+          payload: expect.objectContaining({
+            approvalId: 'approval-123',
+            yieldState: expect.objectContaining({
+              reason: 'needs_approval',
+              approvalId: 'approval-123',
+              pendingToolCall: expect.objectContaining({
+                toolName: 'send_email',
+                toolCallId: 'tool-call-1',
+              }),
+            }),
+          }),
+        }),
+      })
+    );
+  });
 });

@@ -30,6 +30,7 @@ import {
   type OnboardingProgramSelection,
   type OnboardingCreateTeamProfile,
 } from '../../services/platform/onboarding-program-provisioning.service.js';
+import { notifyTeamJoined } from '../../services/communications/team-join-notifications.js';
 import { createRosterEntryService } from '../../services/team/roster-entry.service.js';
 import { enqueueLinkedAccountScrape } from '../../modules/agent/services/agent-scrape.service.js';
 import { enqueueWelcomeGraphicIfReady } from '../../modules/agent/services/agent-welcome.service.js';
@@ -442,7 +443,45 @@ router.post(
         | undefined,
     });
 
-    const { teamIds, createdTeamIds, sportTeamMap } = provisionResult;
+    const { teamIds, createdTeamIds, sportTeamMap, membershipTransitions } = provisionResult;
+
+    for (const transition of membershipTransitions) {
+      const teamDoc = await db.collection('Teams').doc(transition.teamId).get();
+      const resolvedTeamName =
+        (teamDoc.data()?.['teamName'] as string | undefined)?.trim() ||
+        transition.sport ||
+        'your team';
+
+      void notifyTeamJoined(db, {
+        teamId: transition.teamId,
+        teamName: resolvedTeamName,
+        organizationId: transition.organizationId,
+        joinerUid: userId,
+        joinerName:
+          [
+            updateData.firstName ?? currentUser?.firstName ?? '',
+            updateData.lastName ?? currentUser?.lastName ?? '',
+          ]
+            .map((value) => value?.trim() ?? '')
+            .filter(Boolean)
+            .join(' ') ||
+          ((currentUser as Record<string, unknown> | undefined)?.['displayName'] as
+            | string
+            | undefined) ||
+          'Someone',
+        joinerAvatarUrl: updateData.profileImgs?.[0] ?? currentUser?.profileImgs?.[0] ?? null,
+        pending: transition.pending,
+      }).catch((err) =>
+        logger.error(
+          '[POST /profile/onboarding] Failed to dispatch provisioned membership notification',
+          {
+            error: err instanceof Error ? err.message : String(err),
+            teamId: transition.teamId,
+            userId,
+          }
+        )
+      );
+    }
 
     // Backfill sports[].team with relational IDs
     if (sportTeamMap.size > 0 && Array.isArray(updateData.sports)) {

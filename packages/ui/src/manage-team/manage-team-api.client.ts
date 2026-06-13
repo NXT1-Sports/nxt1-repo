@@ -62,6 +62,10 @@ interface ApiResponse<T> {
   error?: string;
 }
 
+interface ManageTeamFetchOptions {
+  readonly forceRefresh?: boolean;
+}
+
 function parseApiTextResponse<T>(raw: string): ApiResponse<T> {
   const trimmed = raw.trim();
   if (!trimmed) {
@@ -89,7 +93,10 @@ export class ManageTeamApiClient {
    * Fetch team data by ID and map to ManageTeamFormData.
    * Uses the existing /teams/by-id/:id endpoint.
    */
-  async getTeamForEditing(teamId: string): Promise<{
+  async getTeamForEditing(
+    teamId: string,
+    options: ManageTeamFetchOptions = {}
+  ): Promise<{
     formData: ManageTeamFormData;
     completion: TeamCompletionData;
     connectedSources: readonly ConnectedSource[];
@@ -101,8 +108,22 @@ export class ManageTeamApiClient {
     this.logger.info('Fetching team for editing', { teamId });
 
     try {
-      const url = `${this.baseUrl}/teams/by-id/${encodeURIComponent(teamId)}`;
-      const rawResponse = await firstValueFrom(this.http.get(url, { responseType: 'text' }));
+      const cacheBust = options.forceRefresh ? `?_=${Date.now()}` : '';
+      const url = `${this.baseUrl}/teams/by-id/${encodeURIComponent(teamId)}${cacheBust}`;
+      const rawResponse = await firstValueFrom(
+        this.http.get(url, {
+          responseType: 'text',
+          ...(options.forceRefresh
+            ? {
+                headers: {
+                  'Cache-Control': 'no-cache, no-store, must-revalidate',
+                  Pragma: 'no-cache',
+                  'X-No-Cache': '1',
+                },
+              }
+            : {}),
+        })
+      );
       const response = parseApiTextResponse<TeamProfilePageData>(rawResponse);
 
       if (!response.success || !response.data) {

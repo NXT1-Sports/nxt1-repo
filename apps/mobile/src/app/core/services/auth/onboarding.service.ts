@@ -1017,6 +1017,7 @@ export class OnboardingService {
         }
       );
       this.logger.info('Profile data saved successfully');
+      this.analytics.trackQualifiedOrganizationLead(profileData);
 
       const allScrapeJobIds =
         result.scrapeJobIds ?? (result.scrapeJobId ? [result.scrapeJobId] : []);

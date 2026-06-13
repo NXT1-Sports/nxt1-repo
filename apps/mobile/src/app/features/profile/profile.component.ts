@@ -313,6 +313,7 @@ export class ProfileComponent {
    * Cleared by onRefreshRequest() to allow forced re-fetch on pull-to-refresh.
    */
   private _lastFetchedKey: string | null = null;
+  private lastOwnProfileRefreshAt = 0;
   /** Whether current user is viewing their own profile */
   protected readonly isOwnProfile = signal(false);
 
@@ -558,7 +559,7 @@ export class ProfileComponent {
                 _isOwnProfile: true,
               });
             }
-            return from(this.profileApiService.getMe()).pipe(
+            return from(this.profileApiService.getMe(true)).pipe(
               map((res) => ({ ...res, _isOwnProfile: true }))
             );
           }
@@ -575,7 +576,7 @@ export class ProfileComponent {
 
           // Case 3: Firebase UID (20-32 alphanum chars, mixed case) — lookup by userId
           if (/^[a-zA-Z0-9]{20,32}$/.test(param) && /[a-zA-Z]/.test(param) && /[0-9]/.test(param)) {
-            return from(this.profileApiService.getProfile(param)).pipe(
+            return from(this.profileApiService.getProfile(param, param === authUser?.uid)).pipe(
               map((res) => ({
                 ...res,
                 _isOwnProfile: !!(res.success && res.data && res.data.id === authUser?.uid),
@@ -709,6 +710,44 @@ export class ProfileComponent {
         replaceUrl: true,
       });
     });
+  }
+
+  ionViewWillEnter(): void {
+    const authUser = this.authService.user();
+    const param = this.routeParam();
+    const viewingOwnProfile =
+      !!authUser?.uid && (!param || param === authUser.uid || this.isOwnProfile());
+
+    if (!viewingOwnProfile) {
+      return;
+    }
+
+    const now = Date.now();
+    if (now - this.lastOwnProfileRefreshAt < 1500) {
+      return;
+    }
+    this.lastOwnProfileRefreshAt = now;
+
+    void this.refreshOwnProfileFromNetwork('ion-view-will-enter');
+  }
+
+  private async refreshOwnProfileFromNetwork(source: string): Promise<void> {
+    const authUser = this.authService.user();
+    if (!authUser?.uid) {
+      return;
+    }
+
+    try {
+      this.logger.debug('Refreshing own profile from network', { source, userId: authUser.uid });
+      await this.profileApiService.invalidateCache(authUser.uid);
+      this._lastFetchedKey = null;
+      await this.onRefreshRequest();
+    } catch (err) {
+      this.logger.warn('Failed to refresh own profile from network', {
+        source,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 
   // ============================================
@@ -1053,7 +1092,7 @@ export class ProfileComponent {
         this.uiProfileService.startLoading();
 
         // Use getMe() for own profile — same endpoint as the initial load
-        const response = await this.profileApiService.getMe();
+        const response = await this.profileApiService.getMe(true);
         if (response.success && response.data) {
           const profile = response.data;
           this.fetchedProfile.set(profile);
@@ -1187,6 +1226,11 @@ export class ProfileComponent {
       user.primarySport?.name?.toLowerCase()
     );
 
+    this.analyticsService.trackEvent(APP_EVENTS.PROFILE_QR_SCANNED, {
+      profile_id: profileId,
+      is_own_profile: this.uiProfileService.isOwnProfile(),
+    });
+
     await this.qrCode.open({
       url: qrUrl,
       displayName: user.displayName || `${user.firstName} ${user.lastName}`.trim() || 'Athlete',
@@ -1213,6 +1257,11 @@ export class ProfileComponent {
 
     const profileId = this.profileUnicode() || user.profileCode || user.uid;
     if (!profileId) return;
+
+    this.analyticsService.trackEvent(APP_EVENTS.PROFILE_SHARED, {
+      profile_id: profileId,
+      is_own_profile: this.uiProfileService.isOwnProfile(),
+    });
 
     await this.shareService.shareProfile(
       {
@@ -1274,9 +1323,14 @@ export class ProfileComponent {
       let response: { success: boolean; data?: User; error?: string };
 
       if (!param && authUser?.uid) {
-        response = await this.profileApiService.getMe();
+        await this.profileApiService.invalidateCache(authUser.uid);
+        response = await this.profileApiService.getMe(true);
       } else if (profile?.id) {
-        response = await this.profileApiService.getProfile(profile.id);
+        const bypassCache = this.isOwnProfile() || profile.id === authUser?.uid;
+        if (bypassCache) {
+          await this.profileApiService.invalidateCache(profile.id);
+        }
+        response = await this.profileApiService.getProfile(profile.id, bypassCache);
       } else {
         return;
       }
@@ -1388,11 +1442,13 @@ export class ProfileComponent {
 
     if (result.linkSources && result.updatedLinks) {
       const connectedSources = mapToConnectedSources(result.linkSources.links);
+      const disconnectedSignInProviders = result.disconnectedSignInProviders ?? [];
       const saveResult = await this.editProfileApiService.updateSection(
         user.uid,
         'connected-sources',
         {
           connectedSources,
+          ...(disconnectedSignInProviders.length > 0 ? { disconnectedSignInProviders } : {}),
         }
       );
 

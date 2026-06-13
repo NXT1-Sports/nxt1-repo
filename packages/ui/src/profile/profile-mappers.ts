@@ -33,7 +33,7 @@ import type {
   RecruitingActivity,
   ProfileSeasonGameLog,
 } from '@nxt1/core';
-import { isTeamRole, getPositionAbbreviation } from '@nxt1/core';
+import { isTeamRole, getPositionAbbreviation, resolveStateToAbbreviation } from '@nxt1/core';
 import { getPlatformFaviconUrl } from '@nxt1/core/platforms';
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -238,7 +238,9 @@ export function userToProfilePageData(user: User, isOwnProfile: boolean): Profil
 
   // ── Location — "City, State" string ───────────────────────────────────────
   const location = user.location
-    ? [user.location.city, user.location.state].filter(Boolean).join(', ')
+    ? [user.location.city, resolveStateToAbbreviation(user.location.state) ?? user.location.state]
+        .filter(Boolean)
+        .join(', ')
     : undefined;
 
   // ── School (from active sport's team) ────────────────────────────────────

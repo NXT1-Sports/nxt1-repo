@@ -132,13 +132,29 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain('delegate to `data_coordinator`');
     expect(prompt).toContain('delegate to `strategy_coordinator`');
     expect(prompt).toContain('NEVER call `generate_graphic` directly from router');
+    expect(prompt).toContain('External social publishing boundary');
+    expect(prompt).toContain('Do NOT promise external publishing');
+    expect(prompt).toContain(
+      'Only delegate posting to `data_coordinator` when the destination is explicitly the NXT1 timeline/feed'
+    );
     expect(prompt).toContain('Live-view film requests are coordinator-owned');
     expect(prompt).toContain(
       'NEVER call `create_play_diagram`, `write_playbooks`, `save_gameplan`, `list_gameplans`, `get_gameplan`, or film review tools'
     );
+    expect(prompt).toContain('clear user-requested play/drill diagram generation');
+    expect(prompt).toContain(
+      'delegate to `strategy_coordinator` immediately and do not ask permission first'
+    );
     expect(prompt).toContain('single objective sentence as the handoff payload');
     expect(prompt).toContain('Ask User Decision Matrix (CRITICAL)');
     expect(prompt).toContain('Do NOT call `ask_user` for data already present in task context');
+    expect(prompt).toContain('Bare attachment intent rule (CRITICAL)');
+    expect(prompt).toContain(
+      'If the user only uploads or attaches an image, video, or document without explicitly asking to save it'
+    );
+    expect(prompt).toContain(
+      'ask what they want to do with the file before delegating or mutating anything'
+    );
     // Decision boundary: direct lookup vs. delegate for recruiting
     expect(prompt).toContain('Simple factual lookup');
     expect(prompt).toContain('use `search_colleges` or `search_college_coaches` directly');
@@ -146,6 +162,16 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain(
       'use `delegate_to_coordinator` with coordinatorId=`recruiting_coordinator`'
     );
+    expect(prompt).toContain('Recurring scheduling rule (CRITICAL)');
+    expect(prompt).toContain(
+      'Never claim a task was scheduled unless the relevant recurring tool actually returned success'
+    );
+    expect(prompt).toContain('There is no separate one-time delayed execution tool');
+    expect(prompt).toContain(
+      'Do not emulate a one-time delay by inventing date-pinned cron expressions'
+    );
+    expect(prompt).toContain('preserve that requested offset when selecting the recurring time');
+    expect(prompt).toContain('verify the actual nextRun with `list_recurring_tasks`');
     expect(prompt).toContain('Memory persistence rule');
     expect(prompt).toContain('call `save_memory` immediately');
     expect(prompt).toContain('Router analytics rule');

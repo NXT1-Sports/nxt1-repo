@@ -393,20 +393,54 @@ async function cleanupOrganizations(
 }
 
 async function deleteUserStorage(userId: string): Promise<void> {
-  try {
-    await bucket.deleteFiles({ prefix: `Users/${userId}/` });
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    // GCS returns different 'not found' strings depending on the SDK version
-    // and bucket configuration — treat both as "no files to delete".
-    if (
-      message.includes('No such object') ||
-      message.includes('The specified key does not exist')
-    ) {
-      return;
-    }
+  const maxAttempts = 3;
 
-    throw error;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await bucket.deleteFiles({ prefix: `Users/${userId}/` });
+      return;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const code =
+        typeof error === 'object' && error !== null && 'code' in error
+          ? (error as { code?: number | string }).code
+          : undefined;
+
+      // GCS returns different 'not found' strings depending on the SDK version
+      // and bucket configuration — treat both as "no files to delete".
+      if (
+        message.includes('No such object') ||
+        message.includes('The specified key does not exist')
+      ) {
+        return;
+      }
+
+      const retryable =
+        code === 500 ||
+        code === 503 ||
+        code === '500' ||
+        code === '503' ||
+        message.includes('We encountered an internal error. Please try again.') ||
+        message.includes('Service Unavailable') ||
+        message.includes('ETIMEDOUT') ||
+        message.includes('ECONNRESET');
+
+      if (!retryable) {
+        throw error;
+      }
+
+      if (attempt === maxAttempts) {
+        logger.warn('Transient storage cleanup failure; leaving storage for later cleanup', {
+          userId,
+          attempt,
+          code,
+          error: message,
+        });
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, 1_000 * attempt));
+    }
   }
 }
 

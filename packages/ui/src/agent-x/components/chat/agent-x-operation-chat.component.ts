@@ -75,6 +75,7 @@ import { AgentXMessageUndoComponent } from './agent-x-message-undo.component';
 import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-message.facade';
 import {
   AgentXOperationChatAttachmentsFacade,
+  buildVideoUploadProgressDetail,
   type VideoUploadBatchProgressState,
 } from './agent-x-operation-chat-attachments.facade';
 import { AgentXOperationChatRunControlFacade } from './agent-x-operation-chat-run-control.facade';
@@ -95,7 +96,10 @@ import {
   type AgentXPanelHintKind,
 } from './agent-x-operation-chat-hint.facade';
 import { AgentXOperationChatHintDockComponent } from './agent-x-operation-chat-hint-dock.component';
-import type { OperationEventSubscription } from '../../services/agent-x-operation-event.service';
+import {
+  AgentXOperationEventService,
+  type OperationEventSubscription,
+} from '../../services/agent-x-operation-event.service';
 import { NxtPlatformIconComponent } from '../../../components/platform-icon/platform-icon.component';
 import { NxtDragDropDirective } from '../../../services/gesture';
 import {
@@ -127,6 +131,7 @@ export type { OperationQuickAction } from './agent-x-operation-chat.types';
 
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
 const ACTIVITY_GAP_TIMEOUT_MS = AGENT_X_RUNTIME_CONFIG.clientRecovery.activityGapTimeoutMs;
+const OPERATIONS_LOG_REFRESH_DELAYS_MS = [0, 1_000, 2_500, 5_000] as const;
 const TECHNICAL_PROGRESS_PATTERN =
   /(\blatency\b|\bp95\b|\bp99\b|\btokens?\b|\btps\b|\bthroughput\b|\bwatermark\b|\bseq\b|\bsse\b|\bfirestore\b|\bidempotency\b|\b\d+(?:\.\d+)?\s*ms\b)/i;
 const CONTEXT_READY_PROGRESS_PATTERN = /^context\s+(?:ready|loaded)\b[.!?]?/i;
@@ -200,6 +205,7 @@ type YieldStateSource =
     <div
       class="operation-chat-shell"
       nxtDragDrop
+      (focusin)="onFocusWithinChat($event)"
       (dragStateChange)="attachmentsFacade.onDragStateChange($event)"
       (filesDropped)="attachmentsFacade.onFilesDropped($event)"
       (selectedContextsDropped)="attachmentsFacade.addPendingSelectedContexts($event)"
@@ -1721,6 +1727,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   protected readonly attachmentsFacade = inject(AgentXOperationChatAttachmentsFacade);
   private readonly sessionFacade = inject(AgentXOperationChatSessionFacade);
   private readonly transportFacade = inject(AgentXOperationChatTransportFacade);
+  private readonly operationEventService = inject(AgentXOperationEventService);
   protected readonly yieldFacade = inject(AgentXOperationChatYieldFacade);
   protected readonly recurringFacade = inject(AgentXOperationChatRecurringFacade);
   protected readonly hintFacade = inject(AgentXOperationChatHintFacade);
@@ -1742,6 +1749,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Timers used for post-focus scroll corrections while keyboard animates in. */
   private focusScrollTimers: ReturnType<typeof setTimeout>[] = [];
+
+  /** Last focus zone inside the sheet, used to keep keyboard auto-scroll targeted. */
+  private lastFocusedZone: 'composer' | 'action-card' | 'other' = 'other';
 
   /** Operation ID from the backend — used for explicit cancel endpoint. */
   private _currentOperationId: string | null = null;
@@ -2001,21 +2011,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Secondary upload detail for file name / batch completion counts. */
   protected readonly videoUploadDetail = computed(() => {
-    const uploadBatch = this._videoUploadBatch();
-    if (!uploadBatch) return null;
-
-    if (uploadBatch.totalFiles <= 1) {
-      return uploadBatch.currentFileName;
-    }
-
-    const completionText = `${uploadBatch.completedFiles} of ${uploadBatch.totalFiles} uploaded`;
-    if (uploadBatch.failedFiles > 0) {
-      return `${completionText} • ${uploadBatch.failedFiles} failed`;
-    }
-    if (uploadBatch.activeFiles > 1) {
-      return `${completionText} • ${uploadBatch.activeFiles} in progress`;
-    }
-    return completionText;
+    return buildVideoUploadProgressDetail(this._videoUploadBatch());
   });
 
   /** Most recent backend progress commentary message (stage/subphase/metric). */
@@ -2121,6 +2117,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   protected readonly promptInputPendingFiles = computed<readonly AgentXPendingFile[]>(() =>
     this.pendingFiles().map((pf) => ({
       file: pf.file,
+      ...(pf.nativeUri ? { nativeUri: pf.nativeUri } : {}),
+      ...(pf.nativeWebPath ? { nativeWebPath: pf.nativeWebPath } : {}),
+      ...(pf.sizeBytes ? { sizeBytes: pf.sizeBytes } : {}),
       previewUrl: pf.previewUrl,
       type: resolveAttachmentType(pf.file.type),
     }))
@@ -2201,6 +2200,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Whether the activity state machine currently considers the run in-flight. */
   protected readonly isActivityInFlight = computed(() => {
+    if (this.isTerminalOperationStatus()) {
+      return false;
+    }
+
     switch (this._activityPhase()) {
       case 'sending':
       case 'connected':
@@ -2244,6 +2247,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * even after earlier assistant text has already rendered.
    */
   protected readonly showThinking = computed(() => {
+    if (this.isTerminalOperationStatus()) {
+      return false;
+    }
+
     const phase = this._activityPhase();
 
     switch (phase) {
@@ -2351,6 +2358,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     () =>
       (this.inputValue().trim().length > 0 || this.pendingFiles().length > 0) && !this._loading()
   );
+
+  private emitOperationsLogRefreshRequest(): void {
+    const resolvedThreadId = this.sessionFacade.resolveActiveThreadId()?.trim() || undefined;
+    this.operationEventService.emitOperationsLogRefreshRequested(
+      'chat-response-complete',
+      resolvedThreadId,
+      OPERATIONS_LOG_REFRESH_DELAYS_MS
+    );
+  }
 
   /** Human-readable label for the context type badge. */
   protected readonly contextTypeLabel = computed(() => {
@@ -2507,7 +2523,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       markActivityPulse: (label) => {
         this.markActivityPulse(label);
       },
-      emitResponseComplete: () => this.responseComplete.emit(),
+      emitResponseComplete: () => {
+        this.emitOperationsLogRefreshRequest();
+        this.responseComplete.emit();
+      },
       subscribeToFirestoreJobEvents: (operationId: string, startAfterSeq?: number) =>
         this.sessionFacade.subscribeToFirestoreJobEvents(operationId, startAfterSeq),
       reconcileOperationFromStoredEvents: (operationId: string) => {
@@ -2600,6 +2619,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       activeYieldState: this.activeYieldState,
       yieldResolved: this.yieldResolved,
       resolvedThreadId: this._resolvedThreadId,
+      loadThreadMessages: (threadId) => this.sessionFacade.loadThreadMessages(threadId),
       getCurrentOperationId: () => this._currentOperationId,
       setCurrentOperationId: (operationId) => {
         this._currentOperationId = operationId;
@@ -2645,43 +2665,31 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     });
 
     // Track live view status for hint facade.
-    // This effect invokes facade methods that may write signals.
-    effect(
-      () => {
-        const hasLiveView = this._hasActiveLiveView();
-        if (hasLiveView) {
-          this.hintFacade.markLiveViewActive();
-        } else {
-          this.hintFacade.markLiveViewInactive();
-        }
-      },
-      { allowSignalWrites: true }
-    );
+    effect(() => {
+      const hasLiveView = this._hasActiveLiveView();
+      if (hasLiveView) {
+        this.hintFacade.markLiveViewActive();
+      } else {
+        this.hintFacade.markLiveViewInactive();
+      }
+    });
 
-    // Panel hints are written to signal state in the hint facade.
-    effect(
-      () => {
-        const activePanel = this._activeContextPanel();
-        if (activePanel) {
-          this.hintFacade.showPanelHint(activePanel);
-        }
-      },
-      { allowSignalWrites: true }
-    );
+    effect(() => {
+      const activePanel = this._activeContextPanel();
+      if (activePanel) {
+        this.hintFacade.showPanelHint(activePanel);
+      }
+    });
 
-    // First user run hint lifecycle writes facade signal state.
-    effect(
-      () => {
-        const hasUserSent = this.hasUserSent();
-        if (hasUserSent && !this.firstUserRunHintArmed) {
-          this.firstUserRunHintArmed = true;
-          this.hintFacade.armFirstUserRunHint();
-        }
+    effect(() => {
+      const hasUserSent = this.hasUserSent();
+      if (hasUserSent && !this.firstUserRunHintArmed) {
+        this.firstUserRunHintArmed = true;
+        this.hintFacade.armFirstUserRunHint();
+      }
 
-        this.hintFacade.setFirstUserRunActive(this.isInFlightPhase(this._activityPhase()));
-      },
-      { allowSignalWrites: true }
-    );
+      this.hintFacade.setFirstUserRunActive(this.isInFlightPhase(this._activityPhase()));
+    });
   }
 
   private yieldSourcePriority(source: YieldStateSource): number {
@@ -2849,6 +2857,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   }
 
   private isInFlightPhase(phase: ChatActivityPhase): boolean {
+    if (this.isTerminalOperationStatus()) {
+      return false;
+    }
+
     return (
       phase === 'sending' ||
       phase === 'connected' ||
@@ -2868,6 +2880,10 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
     this.activityGapTimer = setTimeout(() => {
       this.activityGapTimer = null;
+      if (this.isTerminalOperationStatus()) {
+        this.setActivityPhase(this.terminalActivityPhase());
+        return;
+      }
       if (!this.isInFlightPhase(this._activityPhase())) {
         return;
       }
@@ -2888,6 +2904,23 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
       this.armActivityGapTimer();
     }, ACTIVITY_GAP_TIMEOUT_MS);
+  }
+
+  private isTerminalOperationStatus(): boolean {
+    return (
+      this.operationStatus === 'complete' ||
+      this.operationStatus === 'error' ||
+      this.operationStatus === 'cancelled'
+    );
+  }
+
+  private terminalActivityPhase(): Extract<
+    ChatActivityPhase,
+    'completed' | 'failed' | 'cancelled'
+  > {
+    if (this.operationStatus === 'error') return 'failed';
+    if (this.operationStatus === 'cancelled') return 'cancelled';
+    return 'completed';
   }
 
   private clearActivityGapTimer(): void {
@@ -2942,10 +2975,39 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       safeAreaCssVar: '--footer-safe-area',
       keyboardOffsetTrimPx: -6,
       onKeyboardShow: () => {
-        // When keyboard opens, scroll to bottom to show all content
+        // Keep composer replies visible, but do not yank approval-card editors off-screen.
+        if (!this.shouldAutoScrollForKeyboard()) {
+          return;
+        }
+
         this.scrollToBottom({ behavior: 'auto' });
       },
     });
+  }
+
+  /** Track which editable region owns focus so keyboard lift only scrolls the composer. */
+  protected onFocusWithinChat(event: FocusEvent): void {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      this.lastFocusedZone = 'other';
+      return;
+    }
+
+    if (target.closest('nxt1-agent-x-input-bar')) {
+      this.lastFocusedZone = 'composer';
+      return;
+    }
+
+    if (target.closest('nxt1-agent-action-card')) {
+      this.lastFocusedZone = 'action-card';
+      return;
+    }
+
+    this.lastFocusedZone = 'other';
+  }
+
+  private shouldAutoScrollForKeyboard(): boolean {
+    return this.lastFocusedZone === 'composer';
   }
 
   /** Ensure latest messages remain visible when the input receives focus. */
@@ -3045,6 +3107,8 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (videoIndexes.length > 0) {
       const lastVideoIndex = videoIndexes[videoIndexes.length - 1] ?? 0;
       const lastVideo = normalized[lastVideoIndex];
+      const lastVideoHasThumb =
+        typeof lastVideo.thumbnailUrl === 'string' && lastVideo.thumbnailUrl.trim().length > 0;
 
       const thumbnailCandidateIndex = normalized.findIndex(
         (attachment, index) =>
@@ -3053,11 +3117,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           /thumb|thumbnail|preview[-_ ]?frame/i.test(attachment.name)
       );
 
-      if (thumbnailCandidateIndex >= 0) {
-        const thumbnailAttachment = normalized[thumbnailCandidateIndex];
-        const lastVideoHasThumb =
-          typeof lastVideo.thumbnailUrl === 'string' && lastVideo.thumbnailUrl.trim().length > 0;
+      const fallbackPosterIndex =
+        thumbnailCandidateIndex >= 0
+          ? thumbnailCandidateIndex
+          : normalized.findIndex(
+              (attachment, index) => index !== lastVideoIndex && attachment.type === 'image'
+            );
 
+      if (fallbackPosterIndex >= 0) {
+        const thumbnailAttachment = normalized[fallbackPosterIndex];
         if (!lastVideoHasThumb) {
           normalized[lastVideoIndex] = {
             ...lastVideo,
@@ -3065,7 +3133,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           };
         }
 
-        normalized.splice(thumbnailCandidateIndex, 1);
+        if (thumbnailCandidateIndex >= 0) {
+          normalized.splice(thumbnailCandidateIndex, 1);
+        }
       }
     }
 
@@ -3456,8 +3526,15 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     if (msg.id === 'typing' && !this.hasRenderableMessagePayload(msg) && !this.showThinking()) {
       return true;
     }
+    if (this.isPersistedApprovalDecisionEventMessage(msg)) return true;
     if (this.isLegacyApprovalResolutionMessage(msg)) return true;
     return false;
+  }
+
+  private isPersistedApprovalDecisionEventMessage(msg: OperationMessage): boolean {
+    return (
+      typeof msg.idempotencyKey === 'string' && msg.idempotencyKey.endsWith(':user_approved_action')
+    );
   }
 
   private hasPendingAskUserYieldMessage(): boolean {

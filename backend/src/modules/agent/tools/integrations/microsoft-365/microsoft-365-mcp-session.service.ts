@@ -33,6 +33,30 @@ function isAuthenticationError(error: unknown): boolean {
   return /401|403|unauthorized|forbidden|invalid token|bearer/i.test(message.toLowerCase());
 }
 
+function shouldAuditMicrosoft365MailMutation(
+  metadata: ReturnType<typeof getMicrosoft365ToolMetadataFromCatalog>
+): boolean {
+  return metadata.service === 'mail' && metadata.isMutation;
+}
+
+function logMicrosoft365MailMutation(params: {
+  phase: 'dispatch' | 'completed';
+  context: ToolExecutionContext;
+  toolName: string;
+  userId: string;
+  microsoftEmail: string;
+}): void {
+  logger.info(`[Microsoft365MCP] Approval-bound mail mutation ${params.phase}`, {
+    userId: params.userId,
+    sessionId: params.context.sessionId ?? null,
+    threadId: params.context.threadId ?? null,
+    operationId: params.context.operationId ?? null,
+    approvalId: params.context.approvalId ?? null,
+    toolName: params.toolName,
+    microsoftEmail: params.microsoftEmail,
+  });
+}
+
 export class Microsoft365McpSessionService {
   private readonly sessions = new Map<string, Microsoft365SessionEntry>();
 
@@ -108,6 +132,7 @@ export class Microsoft365McpSessionService {
     try {
       const tools = await this.listAvailableTools(context);
       const metadata = getMicrosoft365ToolMetadataFromCatalog(tools, toolName);
+      const shouldAuditMailMutation = shouldAuditMicrosoft365MailMutation(metadata);
 
       context.emitStage?.(metadata.isMutation ? 'submitting_job' : 'fetching_data', {
         source: 'microsoft_365',
@@ -116,6 +141,16 @@ export class Microsoft365McpSessionService {
         toolName,
         icon: metadata.service === 'mail' ? 'email' : 'document',
       });
+
+      if (shouldAuditMailMutation) {
+        logMicrosoft365MailMutation({
+          phase: 'dispatch',
+          context,
+          toolName,
+          userId: context.userId,
+          microsoftEmail: session.microsoftEmail,
+        });
+      }
 
       const result = await session.bridge.executeTool(toolName, args, {
         timeoutMs: MICROSOFT_365_TOOL_TIMEOUT_MS,
@@ -133,6 +168,16 @@ export class Microsoft365McpSessionService {
         );
       }
 
+      if (shouldAuditMailMutation) {
+        logMicrosoft365MailMutation({
+          phase: 'completed',
+          context,
+          toolName,
+          userId: context.userId,
+          microsoftEmail: session.microsoftEmail,
+        });
+      }
+
       return extractMicrosoft365Payload(result);
     } catch (error) {
       if (session.cacheKey && isAuthenticationError(error)) {
@@ -146,6 +191,20 @@ export class Microsoft365McpSessionService {
 
         const retrySession = await this.getSession(context, false);
         try {
+          const retryTools = await this.listAvailableTools(context);
+          const retryMetadata = getMicrosoft365ToolMetadataFromCatalog(retryTools, toolName);
+          const shouldAuditRetryMailMutation = shouldAuditMicrosoft365MailMutation(retryMetadata);
+
+          if (shouldAuditRetryMailMutation) {
+            logMicrosoft365MailMutation({
+              phase: 'dispatch',
+              context,
+              toolName,
+              userId: context.userId,
+              microsoftEmail: retrySession.microsoftEmail,
+            });
+          }
+
           const retryResult = await retrySession.bridge.executeTool(toolName, args, {
             timeoutMs: MICROSOFT_365_TOOL_TIMEOUT_MS,
             signal: context.signal,
@@ -159,6 +218,16 @@ export class Microsoft365McpSessionService {
                 metadata: { toolName, retried: true },
               }
             );
+          }
+
+          if (shouldAuditRetryMailMutation) {
+            logMicrosoft365MailMutation({
+              phase: 'completed',
+              context,
+              toolName,
+              userId: context.userId,
+              microsoftEmail: retrySession.microsoftEmail,
+            });
           }
 
           return extractMicrosoft365Payload(retryResult);

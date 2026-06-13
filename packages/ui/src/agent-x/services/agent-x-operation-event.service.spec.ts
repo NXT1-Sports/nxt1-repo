@@ -146,6 +146,52 @@ describe('AgentXOperationEventService stored operation state', () => {
   });
 });
 
+describe('AgentXOperationEventService thread message refresh events', () => {
+  it('emits thread message refresh events with normalized ids', () => {
+    const service = createService();
+    const events: Array<{
+      threadId: string;
+      source: string;
+      operationId?: string;
+      status?: string;
+    }> = [];
+
+    service.threadMessagesUpdated$.subscribe((event) => events.push(event));
+
+    service.emitThreadMessagesUpdated('thread-1', 'operations-log', ' op-1 ', 'complete');
+
+    expect(events).toEqual([
+      {
+        threadId: 'thread-1',
+        source: 'operations-log',
+        operationId: 'op-1',
+        status: 'complete',
+      },
+    ]);
+  });
+
+  it('emits operations log refresh requests with normalized ids', () => {
+    const service = createService();
+    const events: Array<{
+      source: string;
+      threadId?: string;
+      retryDelaysMs?: readonly number[];
+    }> = [];
+
+    service.operationsLogRefreshRequested$.subscribe((event) => events.push(event));
+
+    service.emitOperationsLogRefreshRequested('chat-response-complete', ' thread-1 ', [0, 1000]);
+
+    expect(events).toEqual([
+      {
+        source: 'chat-response-complete',
+        threadId: 'thread-1',
+        retryDelaysMs: [0, 1000],
+      },
+    ]);
+  });
+});
+
 describe('AgentXOperationEventService sequence cursor subscriptions', () => {
   beforeEach(() => {
     localStorage.clear();

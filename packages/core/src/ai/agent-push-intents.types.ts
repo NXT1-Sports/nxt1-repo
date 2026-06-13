@@ -86,6 +86,7 @@ export interface AgentBriefingReadyIntent extends AgentPushIntentBase {
   readonly kind: typeof AGENT_PUSH_INTENT_KINDS.BRIEFING_READY;
   readonly title: string;
   readonly body: string;
+  readonly briefingDate?: string;
 }
 
 export interface AgentWeeklyRecapReadyIntent extends AgentPushIntentBase {

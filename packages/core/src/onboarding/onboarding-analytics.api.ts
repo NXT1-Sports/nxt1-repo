@@ -139,7 +139,7 @@ export function toAnalyticsUserType(userType: OnboardingUserType): ViewerType {
   const mapping: Record<OnboardingUserType, ViewerType> = {
     athlete: 'athlete',
     coach: 'coach',
-    director: 'coach', // Directors map to coach viewer type
+    director: 'director',
   };
   return mapping[userType] ?? 'anonymous';
 }

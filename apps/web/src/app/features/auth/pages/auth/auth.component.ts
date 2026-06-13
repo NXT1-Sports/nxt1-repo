@@ -42,14 +42,17 @@ import {
   AuthTeamCodeBannerComponent,
   type TeamCodeValidationState,
 } from '@nxt1/ui/auth/auth-team-code';
-import { AuthFlowService, AuthApiService } from '../../../../core/services/auth';
+import { AuthFlowService } from '../../../../core/services/auth/auth-flow.service';
+import { AuthApiService } from '../../../../core/services/auth/auth-api.service';
 import { AuthNavigationService } from '@nxt1/ui/services/auth-navigation';
+import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
 import { SeoService } from '../../../../core/services';
 import { NxtToastService } from '@nxt1/ui/services/toast';
 import { isValidTeamCode } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import type { ValidatedTeamInfo } from '@nxt1/core';
-import { PENDING_REFERRAL_KEY, type PendingReferral } from '../../../join/join.component';
+import { PENDING_REFERRAL_KEY, type PendingReferral } from '../../../join/pending-referral';
 import { ILogger } from '@nxt1/core/logging';
 
 @Component({
@@ -188,6 +191,7 @@ import { ILogger } from '@nxt1/core/logging';
 })
 export class AuthComponent implements OnInit {
   protected readonly authFlow = inject(AuthFlowService);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly authApi = inject(AuthApiService);
   private readonly router = inject(Router);
   private readonly nav = inject(AuthNavigationService);
@@ -541,6 +545,10 @@ export class AuthComponent implements OnInit {
    * Clear validated team code
    */
   onClearTeamCode(): void {
+    this.analytics?.trackEvent(APP_EVENTS.TEAM_CODE_LEFT, {
+      team_code: this.validatedTeam()?.code ?? this.teamCodeInput,
+      source: 'auth-web',
+    });
     this.teamCodeInput = '';
     this.validatedTeam.set(null);
     this.teamCodeError.set(null);

@@ -6,6 +6,10 @@ def keystoreProperties = new Properties()
 if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
 }
+def msAuthAndroidKeyHash = (project.findProperty("msauthKeyHash") ?: "").toString()
+def msAuthRedirectPath = msAuthAndroidKeyHash
+    ? "/" + java.net.URLEncoder.encode(msAuthAndroidKeyHash, "UTF-8")
+    : "/__missing_msauth_key_hash__"
 
 android {
     namespace "com.nxt1sports.app.twa"
@@ -14,9 +18,13 @@ android {
         applicationId "com.nxt1sports.app.twa"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 837
+        versionCode 1302
         versionName "5.0.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        manifestPlaceholders = [
+            msauthRedirectPath: msAuthRedirectPath
+        ]
+        resValue "string", "msauth_android_key_hash", msAuthAndroidKeyHash
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61

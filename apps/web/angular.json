@@ -38,16 +38,6 @@
               },
               {
                 "glob": "**/*",
-                "input": "../../packages/design-tokens/assets/logo",
-                "output": "/assets/shared/logo"
-              },
-              {
-                "glob": "**/*",
-                "input": "../../packages/design-tokens/assets/images",
-                "output": "/assets/shared/images"
-              },
-              {
-                "glob": "**/*",
                 "input": "src/.well-known",
                 "output": "/.well-known"
               },
@@ -81,6 +71,9 @@
               "pngjs",
               "@grpc/grpc-js",
               "@grpc/proto-loader",
+              "debug",
+              "is-glob",
+              "micromatch",
               "url-parse",
               "is-stream",
               "lodash.throttle",

@@ -152,18 +152,12 @@ export function normalizeGeneratedPlaybookItems(
     );
   }
 
-  if (recurringItems.length !== PLAYBOOK_RECURRING_ITEMS_PER_PLAN) {
-    return null;
-  }
-
   const orderedGoalItems: ShellWeeklyPlaybookItem[] = [];
   for (const goal of activeGoals) {
     const bucket = goalBuckets.get(goal.id) ?? [];
-    if (bucket.length !== PLAYBOOK_GOAL_ITEMS_PER_GOAL) {
-      return null;
-    }
     orderedGoalItems.push(...bucket);
   }
 
-  return [...recurringItems, ...orderedGoalItems];
+  const allItems = [...recurringItems, ...orderedGoalItems];
+  return allItems.length > 0 ? allItems : null;
 }

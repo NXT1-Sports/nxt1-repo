@@ -20,8 +20,11 @@
 # -- Required Secrets -------------------------------------------------
 #   SSH_PRIVATE_KEY  - Contents of ~/.ssh/nxt1-ci (passphrase-free)
 #   SUDO_PASS        - sudo password for ngocsonxx98
-#   SLACK_NEW_ATHLETES_WEBHOOK_URL - Dedicated signup alerts for athlete signups
-#   SLACK_NEW_TEAMS_WEBHOOK_URL    - Dedicated signup alerts for team/staff signups
+#   SLACK_ALERT_WEBHOOK_URL      - Generic backend Slack webhook fallback
+#   SLACK_AGENT_ALERT_WEBHOOK_URL - Dedicated Agent X job alert webhook
+#   SLACK_NEW_ATHLETES_WEBHOOK_URL  - Production signup webhook for athlete signups
+#   SLACK_NEW_TEAMS_WEBHOOK_URL     - Production signup webhook for team/staff signups
+#   (Optional legacy fallback) STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL / STAGING_SLACK_NEW_TEAMS_WEBHOOK_URL
 # =============================================================================
 
 name: Deploy Backend
@@ -121,11 +124,19 @@ jobs:
             "AGENT_JOB_RESOLUTION_EMAILS_ENABLED" \
             "true"
           upsert_optional_env_var \
+            "SLACK_ALERT_WEBHOOK_URL" \
+            "${{ secrets.SLACK_ALERT_WEBHOOK_URL }}"
+          upsert_optional_env_var \
+            "SLACK_AGENT_ALERT_WEBHOOK_URL" \
+            "${{ secrets.SLACK_AGENT_ALERT_WEBHOOK_URL }}"
+          signup_athletes_webhook="${{ secrets['SLACK_NEW_ATHLETES_WEBHOOK_URL'] || secrets['STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL'] }}"
+          signup_teams_webhook="${{ secrets['SLACK_NEW_TEAMS_WEBHOOK_URL'] || secrets['STAGING_SLACK_NEW_TEAMS_WEBHOOK_URL'] }}"
+          upsert_optional_env_var \
             "SLACK_NEW_ATHLETES_WEBHOOK_URL" \
-            "${{ secrets['SLACK_NEW_ATHLETES_WEBHOOK_URL'] }}"
+            "$signup_athletes_webhook"
           upsert_optional_env_var \
             "SLACK_NEW_TEAMS_WEBHOOK_URL" \
-            "${{ secrets['SLACK_NEW_TEAMS_WEBHOOK_URL'] }}"
+            "$signup_teams_webhook"
           echo 'AGENT_JOB_CUSTOMER_RECOVERY_EMAILS_ENABLED=true'
           echo 'AGENT_JOB_RESOLUTION_EMAILS_ENABLED=true'
 

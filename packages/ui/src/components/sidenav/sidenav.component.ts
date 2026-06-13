@@ -522,23 +522,25 @@ import { AGENT_X_LOGO_PATH, AGENT_X_LOGO_POLYGON } from '@nxt1/design-tokens/ass
           }
         </nav>
 
-        <!-- Sessions Panel (Agent X) -->
-        <div class="nxt1-sidenav-sessions">
-          <div class="nxt1-sidenav-sessions__header">
-            <div class="nxt1-sidenav-sessions__title-row">
-              <div class="nxt1-sidenav-sessions__title-group">
-                <h3 class="nxt1-sidenav-sessions__title">Sessions</h3>
-                <p class="nxt1-sidenav-sessions__subtitle">Recent agent runs</p>
+        @if (user()) {
+          <!-- Sessions Panel (Agent X) -->
+          <div class="nxt1-sidenav-sessions">
+            <div class="nxt1-sidenav-sessions__header">
+              <div class="nxt1-sidenav-sessions__title-row">
+                <div class="nxt1-sidenav-sessions__title-group">
+                  <h3 class="nxt1-sidenav-sessions__title">Sessions</h3>
+                  <p class="nxt1-sidenav-sessions__subtitle">Recent agent runs</p>
+                </div>
               </div>
             </div>
+            <nxt1-agent-x-operations-log
+              [embedded]="true"
+              [selectEntryOnTap]="false"
+              [animationResetKey]="sessionsLogAnimationKey()"
+              (entryTap)="onLogEntryTap($event)"
+            />
           </div>
-          <nxt1-agent-x-operations-log
-            [embedded]="true"
-            [selectEntryOnTap]="false"
-            [animationResetKey]="sessionsLogAnimationKey()"
-            (entryTap)="onLogEntryTap($event)"
-          />
-        </div>
+        }
       </ion-content>
 
       <!-- FAB overlay — spans full menu height so the slide-up panel is never clipped -->

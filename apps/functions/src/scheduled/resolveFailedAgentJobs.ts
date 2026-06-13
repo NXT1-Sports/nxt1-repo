@@ -10,6 +10,7 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { logger } from 'firebase-functions/v2';
+import { postBackendCronJson } from './utils/backendCronRequest';
 
 const CRON_SECRET = defineSecret('CRON_SECRET');
 const BACKEND_URL = defineString('BACKEND_URL');
@@ -25,27 +26,8 @@ export const resolveFailedAgentJobs = onSchedule(
   async () => {
     logger.info('Starting failed agent job resolver sweep');
 
-    const url = `${BACKEND_URL.value()}/api/v1/agent-x/cron/resolve-failed-jobs`;
-
     try {
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Cron-Secret': CRON_SECRET.value(),
-        },
-      });
-
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        logger.warn('Backend returned non-OK response', {
-          status: response.status,
-          body: body.slice(0, 500),
-        });
-        throw new Error(`Failed job resolver: backend returned ${response.status}`);
-      }
-
-      const result = (await response.json()) as {
+      const result = await postBackendCronJson<{
         data?: {
           scanned: number;
           eligible: number;
@@ -54,8 +36,21 @@ export const resolveFailedAgentJobs = onSchedule(
           failed: number;
           skipped: number;
         };
-      };
-      logger.info('Failed agent job resolver completed', { result: result.data });
+      }>({
+        backendBaseUrl: BACKEND_URL.value(),
+        endpointPath: '/api/v1/agent-x/cron/resolve-failed-jobs',
+        cronSecret: CRON_SECRET.value(),
+        jobName: 'resolveFailedAgentJobs',
+        timeoutMs: 20_000,
+        maxAttempts: 2,
+      });
+
+      if (!result) {
+        logger.warn('Failed agent job resolver skipped due to transient backend outage');
+        return;
+      }
+
+      logger.info('Failed agent job resolver completed', { result: result.data.data });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
       logger.error('Failed agent job resolver failed', { error: error.message });

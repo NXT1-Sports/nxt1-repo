@@ -451,16 +451,20 @@ describe('buildProfileSeoConfig', () => {
   describe('page metadata', () => {
     it('should generate title with name, position, and class year', () => {
       expect(config.page.title).toContain('John Smith');
-      expect(config.page.title).toContain('Quarterback');
+      expect(config.page.title).toContain('QB');
+      expect(config.page.title).not.toContain('Quarterback');
       expect(config.page.title).toContain('Class of 2027');
       expect(config.page.title).toContain('NXT1 Sports');
     });
 
     it('should generate description with athlete details', () => {
       expect(config.page.description).toContain('John Smith');
-      expect(config.page.description).toContain('Quarterback');
-      expect(config.page.description).toContain('Football');
+      expect(config.page.description).toContain('quarterback');
       expect(config.page.description).toContain('Lincoln High School');
+      expect(config.page.description).toContain('(TX)');
+      expect(config.page.description).toContain(
+        "Watch highlights, view stats, and explore this athlete's profile on NXT1 Sports."
+      );
     });
 
     it('should set canonical URL correctly', () => {
@@ -544,6 +548,16 @@ describe('buildProfileSeoConfig', () => {
   });
 
   describe('edge cases', () => {
+    it('should normalize lowercase positions while keeping readable metadata', () => {
+      const lowercasePosition = { ...mockProfile, position: 'quarterback' };
+      const result = buildProfileSeoConfig(lowercasePosition);
+
+      expect(result.page.title).toContain('QB');
+      expect(result.page.description).toContain('quarterback');
+      expect(result.page.keywords).toContain('Quarterback');
+      expect(result.structuredData?.['jobTitle']).toBe('Quarterback');
+    });
+
     it('should handle profile without position', () => {
       const noPosition = { ...mockProfile, position: undefined };
       const result = buildProfileSeoConfig(noPosition);

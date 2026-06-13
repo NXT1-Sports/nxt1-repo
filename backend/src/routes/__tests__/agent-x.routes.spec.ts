@@ -6,6 +6,7 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import app, {
+  __getMockFirestoreWrites,
   __getMockFirestoreDocument,
   __resetMockFirestore,
   __seedMockFirestoreDocument,
@@ -451,6 +452,23 @@ describe('Agent X Routes', () => {
 
     expect(response.status).toBe(202);
     expect(response.body.success).toBe(true);
+    expect(chatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-123',
+        userId: 'test-user',
+        role: 'system',
+        origin: 'agent_chain',
+        operationId: 'op-original',
+        content:
+          'Approved action: Send an email to coach@example.com with subject "Updated subject".',
+        resultData: expect.objectContaining({
+          eventType: 'approval_decision',
+          decision: 'approved',
+          actionSummary: 'Send an email to coach@example.com with subject "Updated subject".',
+          hiddenFromTranscript: true,
+        }),
+      })
+    );
     expect(chatService.clearThreadPausedYieldState).toHaveBeenCalledWith('thread-123');
     expect(queueService.enqueue).toHaveBeenCalledTimes(1);
     expect(jobRepository.create).toHaveBeenCalledTimes(1);
@@ -472,6 +490,343 @@ describe('Agent X Routes', () => {
       status: 'approved',
       resolvedBy: 'test-user',
       toolInput: editedToolInput,
+    });
+  });
+
+  it('should normalize legacy batch email approval payloads before resuming direct approvals', async () => {
+    const jobRepository = createMockJobRepository({
+      operationId: 'op-original',
+      userId: 'test-user',
+      intent: 'Send a recruiting email campaign',
+      threadId: 'thread-123',
+      yieldState: {
+        reason: 'needs_approval',
+        promptToUser: 'Review this batch email before sending.',
+        agentId: 'strategy_coordinator',
+        messages: [{ role: 'user', content: 'Draft a recruiting email campaign' }],
+        pendingToolCall: {
+          toolName: 'batch_send_email',
+          toolInput: {
+            recipients: [{ toEmail: 'old@example.com', variables: {} }],
+            subjectTemplate: 'Old subject',
+            bodyHtmlTemplate: '<p>Old body</p>',
+          },
+          toolCallId: 'tool-1',
+        },
+        approvalId: 'approval-batch-legacy',
+        yieldedAt: '2026-04-12T00:00:00.000Z',
+        expiresAt: '2099-04-13T00:00:00.000Z',
+      },
+      status: 'awaiting_approval',
+    });
+    const chatService = {
+      addMessage: vi.fn().mockResolvedValue(true),
+      clearThreadPausedYieldState: vi.fn().mockResolvedValue(true),
+    };
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    __seedMockFirestoreDocument('AgentApprovalRequests/approval-batch-legacy', {
+      userId: 'test-user',
+      status: 'pending',
+      operationId: 'op-original',
+      toolName: 'batch_send_email',
+      toolInput: {
+        recipients: 'coach@example.com, staff@example.com',
+        subject: 'Updated subject',
+        bodyHtml: '<p>Updated body</p>',
+      },
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/approvals/approval-batch-legacy/resolve')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        decision: 'approved',
+        toolInput: {
+          recipients: 'coach@example.com, staff@example.com',
+          subject: 'Updated subject',
+          bodyHtml: '<p>Updated body</p>',
+        },
+      });
+
+    expect(response.status).toBe(202);
+    expect(response.body.success).toBe(true);
+
+    const resumedPayload = vi.mocked(jobRepository.create).mock.calls[0][0] as {
+      context?: {
+        yieldState?: {
+          pendingToolCall?: {
+            toolInput?: Record<string, unknown>;
+          };
+        };
+      };
+    };
+
+    expect(resumedPayload.context?.yieldState?.pendingToolCall?.toolInput).toMatchObject({
+      recipients: [
+        { toEmail: 'coach@example.com', variables: {} },
+        { toEmail: 'staff@example.com', variables: {} },
+      ],
+      subjectTemplate: 'Updated subject',
+      bodyHtmlTemplate: '<p>Updated body</p>',
+    });
+
+    expect(__getMockFirestoreDocument('AgentApprovalRequests/approval-batch-legacy')).toMatchObject(
+      {
+        status: 'approved',
+        resolvedBy: 'test-user',
+        toolInput: {
+          recipients: [
+            { toEmail: 'coach@example.com', variables: {} },
+            { toEmail: 'staff@example.com', variables: {} },
+          ],
+          subjectTemplate: 'Updated subject',
+          bodyHtmlTemplate: '<p>Updated body</p>',
+        },
+      }
+    );
+  });
+
+  it('should normalize legacy batch email approval payloads on thread action approvals', async () => {
+    const jobRepository = createMockJobRepository({
+      operationId: 'op-original',
+      userId: 'test-user',
+      intent: 'Send a recruiting email campaign',
+      threadId: 'thread-123',
+      yieldState: {
+        reason: 'needs_approval',
+        promptToUser: 'Review this batch email before sending.',
+        agentId: 'strategy_coordinator',
+        messages: [{ role: 'user', content: 'Draft a recruiting email campaign' }],
+        pendingToolCall: {
+          toolName: 'batch_send_email',
+          toolInput: {
+            recipients: [{ toEmail: 'old@example.com', variables: {} }],
+            subjectTemplate: 'Old subject',
+            bodyHtmlTemplate: '<p>Old body</p>',
+          },
+          toolCallId: 'tool-1',
+        },
+        approvalId: 'approval-thread-batch-legacy',
+        yieldedAt: '2026-04-12T00:00:00.000Z',
+        expiresAt: '2099-04-13T00:00:00.000Z',
+      },
+      status: 'awaiting_approval',
+    });
+    const chatService = {
+      addMessage: vi.fn().mockResolvedValue(true),
+      clearThreadPausedYieldState: vi.fn().mockResolvedValue(true),
+    };
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    __seedMockFirestoreDocument('AgentApprovalRequests/approval-thread-batch-legacy', {
+      userId: 'test-user',
+      status: 'pending',
+      operationId: 'op-original',
+      toolName: 'batch_send_email',
+      toolInput: {
+        recipients: 'coach@example.com, staff@example.com',
+        subject: 'Updated subject',
+        bodyHtml: '<p>Updated body</p>',
+      },
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/threads/thread-123/actions')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        actionType: 'approval_decision',
+        decision: 'approved',
+        operationIdHint: 'op-original',
+        toolInput: {
+          recipients: 'coach@example.com, staff@example.com',
+          subject: 'Updated subject',
+          bodyHtml: '<p>Updated body</p>',
+        },
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(chatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-123',
+        userId: 'test-user',
+        role: 'system',
+        origin: 'agent_chain',
+        operationId: 'op-original',
+        content: 'Approved action: Send 2 emails with subject "Updated subject".',
+        resultData: expect.objectContaining({
+          eventType: 'approval_decision',
+          decision: 'approved',
+          actionSummary: 'Send 2 emails with subject "Updated subject".',
+          hiddenFromTranscript: true,
+        }),
+      })
+    );
+
+    const resumedPayload = vi.mocked(jobRepository.create).mock.calls[0][0] as {
+      context?: {
+        approvalId?: string;
+        yieldState?: {
+          pendingToolCall?: {
+            toolInput?: Record<string, unknown>;
+          };
+        };
+      };
+    };
+
+    expect(resumedPayload.context?.approvalId).toBe('approval-thread-batch-legacy');
+    expect(resumedPayload.context?.yieldState?.pendingToolCall?.toolInput).toMatchObject({
+      recipients: [
+        { toEmail: 'coach@example.com', variables: {} },
+        { toEmail: 'staff@example.com', variables: {} },
+      ],
+      subjectTemplate: 'Updated subject',
+      bodyHtmlTemplate: '<p>Updated body</p>',
+    });
+
+    expect(
+      __getMockFirestoreDocument('AgentApprovalRequests/approval-thread-batch-legacy')
+    ).toMatchObject({
+      status: 'approved',
+      resolvedBy: 'test-user',
+      toolInput: {
+        recipients: [
+          { toEmail: 'coach@example.com', variables: {} },
+          { toEmail: 'staff@example.com', variables: {} },
+        ],
+        subjectTemplate: 'Updated subject',
+        bodyHtmlTemplate: '<p>Updated body</p>',
+      },
+    });
+  });
+
+  it('should close rejected approvals with an assistant acknowledgment', async () => {
+    const jobRepository = createMockJobRepository({
+      operationId: 'op-original',
+      userId: 'test-user',
+      intent: 'Send a recruiting email',
+      threadId: 'thread-123',
+      yieldState: {
+        reason: 'needs_approval',
+        promptToUser: 'Review this email before sending.',
+        agentId: 'strategy_coordinator',
+        messages: [{ role: 'user', content: 'Draft an email' }],
+        pendingToolCall: {
+          toolName: 'batch_send_email',
+          toolInput: {
+            recipients: [{ toEmail: 'coach@example.com' }, { toEmail: 'staff@example.com' }],
+            subject: 'Updated subject',
+          },
+          toolCallId: 'tool-1',
+        },
+        approvalId: 'approval-123',
+        yieldedAt: '2026-04-12T00:00:00.000Z',
+        expiresAt: '2099-04-13T00:00:00.000Z',
+      },
+      status: 'awaiting_approval',
+    });
+    const chatService = {
+      addMessage: vi.fn().mockResolvedValue(true),
+      clearThreadPausedYieldState: vi.fn().mockResolvedValue(true),
+    };
+
+    setAgentDependencies({
+      queueService: {
+        enqueue: vi.fn().mockResolvedValue('job-123'),
+      } as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    __seedMockFirestoreDocument('AgentApprovalRequests/approval-123', {
+      userId: 'test-user',
+      status: 'pending',
+      operationId: 'op-original',
+      toolInput: {
+        recipients: [{ toEmail: 'coach@example.com' }, { toEmail: 'staff@example.com' }],
+        subject: 'Updated subject',
+      },
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/approvals/approval-123/resolve')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        decision: 'rejected',
+      });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data).toMatchObject({ decision: 'rejected', resumed: false });
+    expect(jobRepository.markCancelled).toHaveBeenCalledWith('op-original');
+    expect(chatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-123',
+        userId: 'test-user',
+        role: 'assistant',
+        content: "Understood. I won't send those emails.",
+        operationId: 'op-original',
+        idempotencyKey: 'op-original:assistant_rejected_approval',
+        semanticPhase: 'assistant_final',
+      })
+    );
+    expect(chatService.clearThreadPausedYieldState).toHaveBeenCalledWith('thread-123');
+    expect(__getMockFirestoreDocument('AgentApprovalRequests/approval-123')).toMatchObject({
+      status: 'rejected',
+      resolvedBy: 'test-user',
     });
   });
 
@@ -961,7 +1316,7 @@ describe('Agent X Routes', () => {
     expect(298).toBeGreaterThanOrEqual(estimatedCents);
   });
 
-  it.skip('should block chat on org hard-stop budget cap when resolved billing target is organization', async () => {
+  it('should block chat on org hard-stop budget cap when resolved billing target is organization', async () => {
     const now = new Date();
     const periodKey = now.toISOString().slice(0, 7);
     const timestamp = { seconds: Math.floor(now.getTime() / 1000), nanoseconds: 0 };
@@ -1004,8 +1359,8 @@ describe('Agent X Routes', () => {
     });
 
     __seedMockFirestoreDocument(`PeriodLedgers/org:org-1:${periodKey}`, {
-      monthlyBudget: 0,
-      currentPeriodSpend: 0,
+      monthlyBudget: 100,
+      currentPeriodSpend: 100,
       periodStart,
       periodEnd,
       notified50: false,
@@ -1083,6 +1438,106 @@ describe('Agent X Routes', () => {
       },
     });
 
+    expect(jobRepository.create).not.toHaveBeenCalled();
+    expect(queueService.enqueue).not.toHaveBeenCalled();
+  });
+
+  it('should block background enqueue on org hard-stop budget cap before creating a job', async () => {
+    const now = new Date();
+    const periodKey = now.toISOString().slice(0, 7);
+    const timestamp = { seconds: Math.floor(now.getTime() / 1000), nanoseconds: 0 };
+    const periodStart = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)
+    ).toISOString();
+    const periodEnd = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999)
+    ).toISOString();
+
+    __seedMockFirestoreDocument('Users/test-user', {
+      role: 'athlete',
+      activeBillingTarget: {
+        ownerId: 'org-1',
+        ownerType: 'organization',
+        organizationId: 'org-1',
+        source: 'organization',
+      },
+    });
+    __seedMockFirestoreDocument('Organizations/org-1', {
+      admins: [{ userId: 'test-user', role: 'director' }],
+      ownerId: 'test-user',
+    });
+    __seedMockFirestoreDocument('Wallets/org:org-1', {
+      balanceCents: 100_00,
+      pendingHoldsCents: 0,
+      iapLowBalanceNotified: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    __seedMockFirestoreDocument('BillingPreferences/org:org-1', {
+      hardStop: true,
+      paymentProvider: 'iap',
+      budgetInterval: 'monthly',
+      budgetAlertsEnabled: true,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    __seedMockFirestoreDocument(`PeriodLedgers/org:org-1:${periodKey}`, {
+      monthlyBudget: 100,
+      currentPeriodSpend: 100,
+      periodStart,
+      periodEnd,
+      notified50: false,
+      notified80: false,
+      notified100: false,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+
+    const jobRepository = createMockJobRepository();
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+      isHealthy: vi.fn().mockResolvedValue(true),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: {
+        addMessage: vi.fn(),
+        createThread: vi.fn().mockResolvedValue({ id: 'thread-123' }),
+        getThread: vi.fn().mockResolvedValue(null),
+      } as never,
+      contextBuilder: {
+        buildContext: vi.fn().mockResolvedValue({}),
+        compressToPrompt: vi.fn().mockReturnValue(''),
+        getRecentThreadHistory: vi.fn().mockResolvedValue(''),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/enqueue')
+      .set('Authorization', 'Bearer test-token')
+      .send({ intent: 'Build my recruiting plan' });
+
+    expect(response.status).toBe(402);
+    expect(response.body).toMatchObject({
+      success: false,
+      code: 'BUDGET_EXCEEDED',
+      billing: {
+        title: 'Budget Limit Reached',
+        payload: {
+          reason: 'limit_reached',
+          description: expect.stringContaining('budget of $1.00 reached'),
+        },
+      },
+    });
     expect(jobRepository.create).not.toHaveBeenCalled();
     expect(queueService.enqueue).not.toHaveBeenCalled();
   });
@@ -1254,6 +1709,114 @@ describe('Agent X Routes', () => {
       label: 'Game Plan',
     });
     expect(Object.getPrototypeOf(selectedAction ?? null)).toBe(Object.prototype);
+  });
+
+  it('should preserve attached video context for selected highlight reel quick action', async () => {
+    const jobRepository = createMockJobRepository();
+    jobRepository.getById.mockResolvedValue({
+      operationId: 'chat-op-highlight-action',
+      threadId: 'thread-123',
+      userId: 'test-user',
+      status: 'awaiting_input',
+    });
+    jobRepository.getJobEvents.mockResolvedValue([
+      {
+        seq: 1,
+        type: 'done',
+        message: 'Awaiting input',
+        status: 'awaiting_input',
+      },
+    ]);
+    const chatService = {
+      addMessage: vi.fn(),
+      createThread: vi.fn().mockResolvedValue({ id: 'thread-123' }),
+      getThread: vi.fn().mockResolvedValue(null),
+      generateThreadTitle: vi.fn().mockResolvedValue(null),
+    };
+    const queueService = {
+      enqueue: vi.fn().mockResolvedValue('job-123'),
+      isHealthy: vi.fn().mockResolvedValue(true),
+    };
+
+    setAgentDependencies({
+      queueService: queueService as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      contextBuilder: {
+        buildContext: vi.fn().mockResolvedValue({}),
+        compressToPrompt: vi.fn().mockReturnValue(''),
+        getRecentThreadHistory: vi.fn().mockResolvedValue(''),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/chat')
+      .set('Authorization', 'Bearer test-token')
+      .set('Accept', 'text/event-stream')
+      .send({
+        message: 'Make me a grade A highlight reel from this upload',
+        mode: 'brand',
+        selectedAction: {
+          coordinatorId: 'brand_coordinator',
+          actionId: 'brand-highlight',
+          surface: 'command',
+          label: 'Highlight Video Creator',
+        },
+        attachments: [
+          {
+            id: '76f6f302-83f8-45df-ad86-206a5bdabff3',
+            url: 'https://storage.googleapis.com/nxt1-test/highlight-source.mp4',
+            name: 'highlight-source.mp4',
+            mimeType: 'video/mp4',
+            type: 'video',
+            sizeBytes: 987654,
+            cloudflareVideoId: 'cf-highlight-123',
+          },
+        ],
+      });
+
+    expect(response.status).toBe(200);
+    expect(jobRepository.create).toHaveBeenCalledTimes(1);
+
+    const payload = vi.mocked(jobRepository.create).mock.calls[0]?.[0] as {
+      intent: string;
+      displayIntent: string;
+      context?: {
+        selectedAction?: Record<string, unknown>;
+        videoAttachments?: Array<Record<string, unknown>>;
+      };
+    };
+
+    expect(payload.displayIntent).toBe('Make me a grade A highlight reel from this upload');
+    expect(payload.intent).toContain('finished highlight reel workflow');
+    expect(payload.intent).toContain('ffmpeg_trim_video');
+    expect(payload.intent).toContain('[User request and attached context]');
+    expect(payload.intent).toContain('Make me a grade A highlight reel from this upload');
+    expect(payload.intent).toContain('[Attached video: highlight-source.mp4');
+    expect(payload.intent).toContain('cloudflareVideoId: cf-highlight-123');
+    expect(payload.intent).toContain('Do not ignore attachments');
+    expect(payload.context?.selectedAction).toMatchObject({
+      coordinatorId: 'brand_coordinator',
+      actionId: 'brand-highlight',
+      surface: 'command',
+      label: 'Highlight Video Creator',
+    });
+    expect(payload.context?.videoAttachments?.[0]).toMatchObject({
+      id: '76f6f302-83f8-45df-ad86-206a5bdabff3',
+      url: 'https://storage.googleapis.com/nxt1-test/highlight-source.mp4',
+      name: 'highlight-source.mp4',
+      mimeType: 'video/mp4',
+      type: 'video',
+      sizeBytes: 987654,
+      cloudflareVideoId: 'cf-highlight-123',
+    });
   });
 
   it('should deduplicate /enqueue requests by idempotency key', async () => {
@@ -3049,6 +3612,26 @@ describe('Agent X Routes', () => {
     const sevenDaysSeconds = 7 * 24 * 60 * 60;
     expect(expiresAt!._seconds).toBeGreaterThan(nowSeconds + sevenDaysSeconds - 60);
     expect(expiresAt!._seconds).toBeLessThan(nowSeconds + sevenDaysSeconds + 60);
+  });
+
+  it('should reject playbook generation when the user has no active goals', async () => {
+    __seedMockFirestoreDocument('Users/test-user', {
+      id: 'test-user',
+      role: 'athlete',
+      agentGoals: [],
+    });
+
+    const response = await request(app)
+      .post('/api/v1/agent-x/playbook/generate')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(400);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error).toMatchObject({
+      code: 'VAL_REQUIRED_FIELD',
+      message: 'Set at least one goal before generating a playbook',
+    });
+    expect(__getMockFirestoreWrites()).toHaveLength(0);
   });
 });
 

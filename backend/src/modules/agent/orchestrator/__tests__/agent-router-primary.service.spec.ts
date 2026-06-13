@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { AgentSessionContext } from '@nxt1/core';
+import type { AgentSessionContext, AgentUserContext } from '@nxt1/core';
 import { AgentRouterPrimaryService } from '../agent-router-primary.service.js';
 
 const createSessionContext = (): AgentSessionContext => {
@@ -13,7 +13,10 @@ const createSessionContext = (): AgentSessionContext => {
   };
 };
 
-const createService = (executePlanImpl: (args: Record<string, unknown>) => Promise<unknown>) =>
+const createService = (
+  executePlanImpl: (args: Record<string, unknown>) => Promise<unknown>,
+  options: { resolveUserContext?: (userId: string) => Promise<AgentUserContext> } = {}
+) =>
   new AgentRouterPrimaryService({
     executionService: {
       executePlan: executePlanImpl,
@@ -24,10 +27,88 @@ const createService = (executePlanImpl: (args: Record<string, unknown>) => Promi
     planner: {} as never,
     agents: new Map(),
     resolveToolAccessContext: vi.fn().mockResolvedValue({}),
+    ...(options.resolveUserContext ? { resolveUserContext: options.resolveUserContext } : {}),
     planRepository: {} as never,
   });
 
 describe('AgentRouterPrimaryService', () => {
+  it('streams coordinator start and task lifecycle updates during handoff', async () => {
+    const events: Record<string, unknown>[] = [];
+    const service = createService(async (args) => {
+      const onUpdate = args['onUpdate'] as ((update: Record<string, unknown>) => void) | undefined;
+      onUpdate?.({
+        operationId: 'op-progress',
+        status: 'acting',
+        agentId: 'strategy_coordinator',
+        stageType: 'router',
+        stage: 'agent_thinking',
+        step: {
+          id: 'step-1',
+          timestamp: new Date().toISOString(),
+          status: 'acting',
+          message: 'Running task strategy_coordinator_1: Create a Cover 2 beater diagram',
+          agentId: 'strategy_coordinator',
+          stageType: 'router',
+          stage: 'agent_thinking',
+          payload: { eventType: 'task_started', taskId: 'strategy_coordinator_1' },
+        },
+      });
+
+      return {
+        taskResults: new Map([
+          [
+            'strategy_coordinator_1',
+            {
+              summary: 'Cover 2 beater diagram complete with QB read progression.',
+            },
+          ],
+        ]),
+        mutableTasks: [
+          {
+            id: 'strategy_coordinator_1',
+            status: 'completed',
+            description: 'Create a Cover 2 beater diagram',
+          },
+        ],
+      };
+    });
+
+    const result = await service.runCoordinator(
+      'strategy_coordinator',
+      'Create a Cover 2 beater diagram',
+      {
+        operationId: 'op-progress',
+        userId: 'user-1',
+        enrichedIntent: 'Create a football Cover 2 beater diagram.',
+        sessionContext: createSessionContext(),
+        onStreamEvent: (event) => events.push(event as unknown as Record<string, unknown>),
+      }
+    );
+
+    expect(result.success).toBe(true);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: 'operation',
+          agentId: 'strategy_coordinator',
+          stage: 'routing_to_agent',
+          message: 'Strategy Coordinator is starting...',
+        }),
+        expect.objectContaining({
+          type: 'progress_subphase',
+          agentId: 'strategy_coordinator',
+          stage: 'agent_thinking',
+          message: 'Running task strategy_coordinator_1: Create a Cover 2 beater diagram',
+          metadata: expect.objectContaining({
+            phase: 'coordinator_dispatch',
+            originalEventType: 'task_started',
+            taskId: 'strategy_coordinator_1',
+          }),
+        }),
+      ])
+    );
+  });
+
   it('does not mark userAlreadyReceivedResponse true for progress-only streamed deltas', async () => {
     const service = createService(async (args) => {
       const onStreamEvent = args['onStreamEvent'] as
@@ -207,5 +288,68 @@ describe('AgentRouterPrimaryService', () => {
     expect(result.success).toBe(true);
     expect(result.userAlreadyReceivedResponse).toBe(false);
     expect(result.observation).not.toContain('Returned 7 field(s).');
+  });
+
+  it('enriches coordinator payloads with organization context for brand handoffs', async () => {
+    let capturedTask: { structuredPayload?: Record<string, unknown> } | undefined;
+    const service = createService(
+      async (args) => {
+        const plan = args['plan'] as {
+          tasks: Array<{ structuredPayload?: Record<string, unknown> }>;
+        };
+        capturedTask = plan.tasks[0];
+
+        return {
+          taskResults: new Map([
+            [
+              'brand_coordinator_1',
+              {
+                summary: 'Brand handoff accepted with organization context for color lookup.',
+              },
+            ],
+          ]),
+          mutableTasks: [
+            {
+              id: 'brand_coordinator_1',
+              status: 'completed',
+              description: 'Create a highlight reel',
+            },
+          ],
+        };
+      },
+      {
+        resolveUserContext: vi.fn().mockResolvedValue({
+          userId: 'user-1',
+          role: 'athlete',
+          displayName: 'John Doe',
+          organizationId: 'org-crown-point',
+          teamId: 'team-basketball',
+          teamCode: '2P49TB',
+        } as AgentUserContext),
+      }
+    );
+
+    await service.runCoordinator(
+      'brand_coordinator',
+      'Create a highlight reel',
+      {
+        operationId: 'op-brand-org',
+        userId: 'user-1',
+        enrichedIntent: 'Create an elite highlight reel for Crown Point Bulldogs.',
+        sessionContext: createSessionContext(),
+      },
+      {
+        team: 'Crown Point Bulldogs',
+        sport: 'Basketball Mens',
+      }
+    );
+
+    expect(capturedTask?.structuredPayload).toMatchObject({
+      team: 'Crown Point Bulldogs',
+      sport: 'Basketball Mens',
+      teamId: 'team-basketball',
+      teamCode: '2P49TB',
+      organizationId: 'org-crown-point',
+    });
   });
 });

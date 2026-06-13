@@ -16,6 +16,12 @@ import type { AgentXAttachmentType } from '@nxt1/core';
 export interface AgentXPendingFile {
   /** The browser File object to upload. */
   readonly file: File;
+  /** Native Capacitor URI for direct native uploads when available. */
+  readonly nativeUri?: string;
+  /** WebView-readable native media URL for bounded fallback retries. */
+  readonly nativeWebPath?: string;
+  /** Native media size when the JS File is a lightweight placeholder. */
+  readonly sizeBytes?: number;
   /** Object URL for image previews (revoke on removal). `null` for non-image files. */
   readonly previewUrl: string | null;
   /** Resolved attachment type (image, pdf, csv, etc.). */

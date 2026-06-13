@@ -31,6 +31,8 @@ const mockLogAgentTaskFailure = vi.fn().mockResolvedValue({
   activityId: 'activity-failure-1',
   notificationId: 'notification-failure-1',
 });
+const mockProcessRecapForUser = vi.fn().mockResolvedValue(undefined);
+const mockUpdateWeeklyRecapDispatchStatus = vi.fn().mockResolvedValue(true);
 
 vi.mock('../../../billing/usage-deduction.service.js', () => ({
   executeBillingDeduction: mockExecuteBillingDeduction,
@@ -46,6 +48,11 @@ vi.mock('../../services/agent-activity.service.js', () => ({
   logAgentTaskCompletion: mockLogAgentTaskCompletion,
   logAgentTaskFailure: mockLogAgentTaskFailure,
   deriveBodyFromResult: vi.fn().mockReturnValue('Drafted 5 recruiting emails'),
+}));
+
+vi.mock('../../services/weekly-recap-email.service.js', () => ({
+  processRecapForUser: mockProcessRecapForUser,
+  updateWeeklyRecapDispatchStatus: mockUpdateWeeklyRecapDispatchStatus,
 }));
 
 // ─── Capture the processor callback ────────────────────────────────────────
@@ -175,6 +182,21 @@ describe('AgentWorker', () => {
     markYielded: vi.fn().mockResolvedValue(undefined),
     markCompleted: vi.fn().mockResolvedValue(undefined),
     markFailed: vi.fn().mockResolvedValue(undefined),
+    patchContext: vi.fn().mockResolvedValue(undefined),
+    create: vi.fn().mockResolvedValue(undefined),
+    getById: vi.fn().mockResolvedValue(null),
+    writeJobEvent: vi.fn().mockResolvedValue(undefined),
+    writeJobEventWithAutoSeq: vi.fn().mockResolvedValue(0),
+    allocateEventSeqRange: vi.fn().mockResolvedValue(0),
+    withCollection: vi.fn(),
+  };
+
+  const mockWeeklyRecapJobRepo = {
+    updateProgress: vi.fn().mockResolvedValue(undefined),
+    markYielded: vi.fn().mockResolvedValue(undefined),
+    markCompleted: vi.fn().mockResolvedValue(undefined),
+    markFailed: vi.fn().mockResolvedValue(undefined),
+    patchContext: vi.fn().mockResolvedValue(undefined),
     create: vi.fn().mockResolvedValue(undefined),
     getById: vi.fn().mockResolvedValue(null),
     writeJobEvent: vi.fn().mockResolvedValue(undefined),
@@ -230,7 +252,11 @@ describe('AgentWorker', () => {
       activityId: 'activity-failure-1',
       notificationId: 'notification-failure-1',
     });
+    mockProcessRecapForUser.mockResolvedValue(undefined);
+    mockUpdateWeeklyRecapDispatchStatus.mockResolvedValue(true);
     mockJobRepo.getById.mockResolvedValue(null);
+    mockJobRepo.withCollection.mockReturnValue(mockWeeklyRecapJobRepo);
+    mockWeeklyRecapJobRepo.getById.mockResolvedValue(null);
     mockPubSub.subscriberCount.mockResolvedValue(0);
     capturedProcessor = null;
     // Instantiate worker — this captures the processor
@@ -420,6 +446,177 @@ describe('AgentWorker', () => {
       'staging',
       expect.anything()
     );
+    expect(mockJobRepo.patchContext).toHaveBeenCalledWith('repeat:key:1777381200000', {
+      recurringTaskKey: 'repeat:key',
+    });
+  });
+
+  it('should persist scheduled assistant responses to the originating thread via sourceId fallback', async () => {
+    const payload = makePayload({
+      origin: 'system_cron' as AgentJobOrigin,
+      context: { sourceId: 'thread-recurring-source-only-123' } as Record<string, unknown>,
+      intent: 'Send John a reminder to check out NXT1 Sports',
+      displayIntent: 'Send John a reminder to check out NXT1 Sports',
+    });
+    const job = {
+      ...makeMockJob(payload),
+      id: 'repeat:key:1777381200000',
+      name: 'recv:user-abc:1234567890',
+      repeatJobKey: 'repeat:key',
+    };
+
+    mockRouter.run.mockResolvedValueOnce({
+      ...mockRouterResult,
+      summary: 'Email sent to john@nxt1sports.com',
+    });
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-recurring-source-only-123',
+        role: 'assistant',
+        origin: 'system_cron',
+        operationId: 'repeat:key:1777381200000',
+        content: 'Email sent to john@nxt1sports.com',
+      })
+    );
+  });
+
+  it('should rehydrate old scheduled run thread linkage from RecurringTasks metadata', async () => {
+    const payload = makePayload({
+      origin: 'system_cron' as AgentJobOrigin,
+      operationId: 'recurring-user-abc-1700000000000',
+      context: undefined,
+      intent: 'Send John a reminder to check out NXT1 Sports',
+      displayIntent: 'Send John a reminder to check out NXT1 Sports',
+    });
+    const job = {
+      ...makeMockJob(payload),
+      id: 'repeat:key:1777381200000',
+      name: 'recv:user-abc:1234567890',
+      repeatJobKey: 'repeat:key',
+    };
+
+    const firestoreGetSpy = vi.spyOn(mockFirestoreRef, 'get').mockResolvedValueOnce({
+      ...mockFirestoreSnapshot,
+      exists: true,
+      data: () => ({
+        userId: 'user-abc',
+        sourceId: 'thread-from-recurring-task-doc',
+        jobName: 'recv:user-abc:1234567890',
+      }),
+    });
+
+    mockRouter.run.mockResolvedValueOnce({
+      ...mockRouterResult,
+      summary: 'Email sent to john@nxt1sports.com',
+    });
+
+    await capturedProcessor!(job);
+
+    expect(firestoreGetSpy).toHaveBeenCalled();
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-from-recurring-task-doc',
+        role: 'user',
+        origin: 'system_cron',
+        operationId: 'repeat:key:1777381200000',
+      })
+    );
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-from-recurring-task-doc',
+        role: 'assistant',
+        origin: 'system_cron',
+        operationId: 'repeat:key:1777381200000',
+        content: 'Email sent to john@nxt1sports.com',
+      })
+    );
+  });
+
+  it('should persist weekly recap jobs in the dedicated recap collection', async () => {
+    const payload = makePayload({
+      origin: 'system_cron' as AgentJobOrigin,
+      triggerEvent: {
+        id: 'weekly_recap_2026-W23_user-abc',
+        type: 'weekly_recap',
+        userId: 'user-abc',
+        intent: '',
+        eventData: { weekKey: '2026-W23' },
+        origin: 'system_cron',
+        priority: 'normal',
+        createdAt: '2026-06-05T13:00:00.000Z',
+      },
+    });
+    const job = makeMockJob(payload);
+
+    await capturedProcessor!(job);
+
+    expect(mockJobRepo.withCollection).toHaveBeenCalledWith('AgentWeeklyRecapJobs');
+    expect(mockWeeklyRecapJobRepo.create).toHaveBeenCalledWith(payload);
+    expect(mockWeeklyRecapJobRepo.markCompleted).toHaveBeenCalledWith(
+      'op-worker-test',
+      expect.any(Object)
+    );
+    expect(mockJobRepo.create).not.toHaveBeenCalled();
+  });
+
+  it('should process weekly recap jobs against the job environment Firestore', async () => {
+    const payload = makePayload({
+      origin: 'system_cron' as AgentJobOrigin,
+      triggerEvent: {
+        id: 'weekly_recap_2026-W23_user-abc',
+        type: 'weekly_recap',
+        userId: 'user-abc',
+        intent: '',
+        eventData: { weekKey: '2026-W23' },
+        origin: 'system_cron',
+        priority: 'normal',
+        createdAt: '2026-06-05T13:00:00.000Z',
+      },
+    });
+    const job = makeMockJob(payload, 'staging');
+
+    await capturedProcessor!(job);
+
+    expect(mockProcessRecapForUser).toHaveBeenCalledWith(
+      'user-abc',
+      'Drafted 5 recruiting emails',
+      'op-worker-test',
+      mockFirestore,
+      {
+        recapNumber: undefined,
+        weekLabel: undefined,
+      }
+    );
+  });
+
+  it('should mark weekly recap dispatches failed when the job fails before recap processing', async () => {
+    const payload = makePayload({
+      origin: 'system_cron' as AgentJobOrigin,
+      triggerEvent: {
+        id: 'weekly_recap_2026-W23_user-abc',
+        type: 'weekly_recap',
+        userId: 'user-abc',
+        intent: '',
+        eventData: { weekKey: '2026-W23' },
+        origin: 'system_cron',
+        priority: 'normal',
+        createdAt: '2026-06-05T13:00:00.000Z',
+      },
+    });
+    const job = makeMockJob(payload, 'staging');
+
+    mockRouter.run.mockRejectedValueOnce(new Error('LLM timeout'));
+
+    await expect(capturedProcessor!(job)).rejects.toThrow('LLM timeout');
+
+    expect(mockUpdateWeeklyRecapDispatchStatus).toHaveBeenCalledWith(mockFirestore, {
+      operationId: 'op-worker-test',
+      status: 'failed',
+      error: 'LLM timeout',
+    });
   });
 
   it('should persist streamed parts and tool steps for thread reload hydration', async () => {
@@ -559,6 +756,27 @@ describe('AgentWorker', () => {
     expect(mockExecuteBillingDeduction).not.toHaveBeenCalled();
   });
 
+  it('should pass active team context into billing deduction', async () => {
+    const payload = makePayload({
+      context: {
+        teamId: 'team-football',
+        organizationId: 'org-crown-point',
+      },
+    });
+    const job = makeMockJob(payload);
+
+    await capturedProcessor!(job);
+
+    expect(mockExecuteBillingDeduction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-abc',
+        operationId: 'op-worker-test',
+        teamId: 'team-football',
+        organizationId: 'org-crown-point',
+      })
+    );
+  });
+
   it('should emit a billing-action card when hard-stop hold creation fails for insufficient balance', async () => {
     const payload = makePayload();
     const job = makeMockJob(payload);
@@ -603,7 +821,7 @@ describe('AgentWorker', () => {
     );
   });
 
-  it('should suppress completion push for active user-viewed jobs by default', async () => {
+  it('should dispatch completion push for active user-viewed jobs by default', async () => {
     const payload = makePayload();
     const job = makeMockJob(payload);
 
@@ -614,14 +832,13 @@ describe('AgentWorker', () => {
 
     await capturedProcessor!(job);
 
-    expect(mockLogAgentTaskCompletion).not.toHaveBeenCalled();
+    expect(mockLogAgentTaskCompletion).toHaveBeenCalledTimes(1);
   });
 
-  it('should still dispatch completion push for background jobs that disable active-viewer suppression', async () => {
+  it('should suppress completion push only when active-viewer suppression is explicitly enabled', async () => {
     const payload = makePayload({
-      origin: 'database_event' as AgentJobOrigin,
       notificationPolicy: {
-        suppressPushWhenActivelyViewing: false,
+        suppressPushWhenActivelyViewing: true,
       },
     });
     const job = makeMockJob(payload);
@@ -633,14 +850,7 @@ describe('AgentWorker', () => {
 
     await capturedProcessor!(job);
 
-    expect(mockLogAgentTaskCompletion).toHaveBeenCalledTimes(1);
-    expect(mockLogAgentTaskCompletion).toHaveBeenCalledWith(
-      mockFirestore,
-      expect.objectContaining({
-        userId: payload.userId,
-        job: expect.objectContaining({ operationId: payload.operationId }),
-      })
-    );
+    expect(mockLogAgentTaskCompletion).not.toHaveBeenCalled();
   });
 
   // ── Progress Tracking ─────────────────────────────────────────────────
@@ -891,6 +1101,31 @@ describe('AgentWorker', () => {
       }
       if (operationId === 'op-parent-1') {
         return { operationId, status: 'running' };
+
+        it('uses the explicit error message when a failed result only says task completed', async () => {
+          const payload = makePayload();
+          const job = makeMockJob(payload);
+
+          mockRouter.run.mockResolvedValue({
+            summary: 'Task completed.',
+            success: false,
+            errorMessage: 'Media production did not produce a final video URL.',
+            data: {
+              operationStatus: 'failed',
+            },
+          } satisfies AgentOperationResult);
+
+          await capturedProcessor!(job);
+
+          expect(mockJobRepo.markFailed).toHaveBeenCalledWith(
+            'op-worker-test',
+            'Media production did not produce a final video URL.'
+          );
+          expect(mockJobRepo.markFailed).not.toHaveBeenCalledWith(
+            'op-worker-test',
+            'Task completed.'
+          );
+        });
       }
       return null;
     });

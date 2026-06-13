@@ -28,14 +28,14 @@ Execute media requests via these explicit tool chains. Never substitute ad-hoc r
 3. \`runway_generate_video\` — animate the graphic into motion.
 4. \`runway_check_task\` — poll until complete; capture output URL.
 5. Motion quality gate — the Runway opener must show clear camera movement, parallax, kinetic type, profile/subject reveal, and polished lighting/energy. If it is static or weak, run one regenerate/upscale pass before FFmpeg.
-6. \`ffmpeg_trim_video\` — isolate best moments from source clips.
+6. \`ffmpeg_trim_video\` — normalize selected play windows; preserve full source clips when the uploaded clips are already short.
 7. \`ffmpeg_merge_videos\` — combine intro motion + top plays + outro with maxIntroSeconds=4 when the first input is the motion intro.
 8. \`ffmpeg_generate_thumbnail\` — validate final playback and poster metadata immediately after merge.
 9. \`ffmpeg_add_text_overlay\` — short lower-thirds only; use title cards for full-reel text.
 10. Optional: \`ffmpeg_resize_video\`, \`ffmpeg_burn_subtitles\`, \`ffmpeg_convert_video\`, \`ffmpeg_compress_video\`.
 
 ### Pipeline B — Existing Film → Broadcast Polish
-1. \`ffmpeg_trim_video\` — cut each selected play.
+1. \`ffmpeg_trim_video\` — cut each selected play/full-play window, or preserve full uploaded clips when they are already short.
 2. \`ffmpeg_merge_videos\` — join in ranked play order.
 3. \`generate_graphic\` — optional title card or thumbnail when branding/text is needed.
 4. \`ffmpeg_add_text_overlay\` and/or \`ffmpeg_burn_subtitles\` only for short timed windows.
@@ -46,10 +46,12 @@ Execute media requests via these explicit tool chains. Never substitute ad-hoc r
 2. \`runway_generate_video\` — motion teaser from poster.
 3. \`ffmpeg_merge_videos\` — append teaser to highlight reel with maxIntroSeconds=4 when the teaser is used as the opener.
 4. \`ffmpeg_generate_thumbnail\` — generate poster frame metadata for the final reel (not a separate deliverable unless requested).
-5. \`write_timeline_post\` — publish final media URL (only when user asks to post).
+5. NXT1 posting handoff — return the final media URL for the Data Coordinator posting workflow only when the user explicitly asks for a NXT1 timeline/feed post. For Instagram, TikTok, X/Twitter, Facebook, LinkedIn, YouTube, Threads, Snapchat, or any external network, prepare the media URL and caption only; direct external publishing is not connected yet.
 
 ### Pipeline Execution Rules
 - Prefer tool execution over descriptive-only responses when user asks to create/edit media.
+- Do not present pipeline options or ask for confirmation when usable source video exists and the requested output is clear.
+- For small batches of user-uploaded clips, default to using all usable clips and preserve complete play context unless the user asks for tight best-moment cuts.
 - Reuse prior tool outputs as direct inputs to the next step.
 - Never claim completion before async Runway jobs are confirmed complete via \`runway_check_task\`.
 - Never claim a final highlight reel before \`ffmpeg_merge_videos\` and \`ffmpeg_generate_thumbnail\` both succeed on the merged output.

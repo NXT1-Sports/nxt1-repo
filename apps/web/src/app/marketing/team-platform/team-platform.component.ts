@@ -225,6 +225,7 @@ const PROGRAM_PERSONAS: readonly ProgramPersona[] = [
         subhead="Agent X turns the systems your staff already uses into autonomous operations: film, rosters, content, outreach, briefings, and recruiting execution."
         commandUrl="https://www.maxpreps.com/al/hoover/hoover-buccaneers/football/"
         [headingLevel]="1"
+        [animateOnLoad]="false"
       />
 
       <section class="program-band program-band--staff" aria-labelledby="digital-staff-title">
@@ -242,12 +243,12 @@ const PROGRAM_PERSONAS: readonly ProgramPersona[] = [
 
           <div class="staff-grid" role="list" aria-label="Digital athletic department roles">
             @for (role of staffRoles; track role.id) {
-              <article class="staff-card" role="listitem">
+              <div class="staff-card" role="listitem">
                 <p class="staff-card__eyebrow">{{ role.eyebrow }}</p>
                 <h3>{{ role.title }}</h3>
                 <p class="staff-card__description">{{ role.description }}</p>
                 <p class="staff-card__outcome">{{ role.outcome }}</p>
-              </article>
+              </div>
             }
           </div>
 
@@ -306,11 +307,11 @@ const PROGRAM_PERSONAS: readonly ProgramPersona[] = [
 
           <div class="persona-grid" role="list" aria-label="Program ideal customer profiles">
             @for (persona of personas; track persona.id) {
-              <article class="persona-card" role="listitem">
+              <div class="persona-card" role="listitem">
                 <h3>{{ persona.persona }}</h3>
                 <p class="persona-card__pressure">{{ persona.pressure }}</p>
                 <p class="persona-card__move">{{ persona.nxt1Move }}</p>
-              </article>
+              </div>
             }
           </div>
         </div>

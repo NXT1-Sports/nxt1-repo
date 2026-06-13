@@ -159,6 +159,51 @@ describe('GenerateGraphicTool', () => {
     );
   });
 
+  it('forbids empty photo and logo placeholders when team graphics have no assets', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+
+    llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['CROWN POINT', 'HIGHLIGHTS'] } });
+    llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
+
+    const result = await tool.execute({
+      graphicType: 'team',
+      textRequirements: ['CROWN POINT', 'HIGHLIGHTS'],
+      dimensions: '1920x1080',
+      styleDescription: 'premium red and black broadcast highlight intro',
+      userId: 'user-1',
+    });
+
+    expect(result.success).toBe(false);
+    expect(llm.generateImage).toHaveBeenCalledTimes(1);
+    const prompt = vi.mocked(llm.generateImage).mock.calls[0]?.[0]?.prompt;
+    expect(prompt).toContain('Do NOT create empty photo frames');
+    expect(prompt).toContain('Do NOT create logo boxes');
+    expect(prompt).toContain('No empty photo frames, blank media panels, logo wells');
+    expect(prompt).not.toContain('Logo placeholders/clear zones exist');
+  });
+
+  it('prevents visible empty logo containers when logos will be composited', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+
+    llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['CROWN POINT', 'HIGHLIGHTS'] } });
+    llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
+
+    await tool.execute({
+      graphicType: 'team',
+      textRequirements: ['CROWN POINT', 'HIGHLIGHTS'],
+      dimensions: '1920x1080',
+      styleDescription: 'premium red and black broadcast highlight intro',
+      userId: 'user-1',
+      logoUrls: ['https://image.maxpreps.io/school-mascot/logo.gif'],
+      applyMode: 'logo_overlay',
+    });
+
+    const prompt = vi.mocked(llm.generateImage).mock.calls[0]?.[0]?.prompt;
+    expect(prompt).toContain('Do NOT draw empty logo boxes');
+    expect(prompt).toContain('do not render a visible empty container');
+    expect(prompt).not.toContain('Logo placeholders/clear zones exist');
+  });
+
   it('rejects the legacy subjectImageUrl field', async () => {
     const tool = new GenerateGraphicTool(llm as never);
 

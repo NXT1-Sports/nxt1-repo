@@ -20,6 +20,7 @@ import {
   ChatAttachmentDto,
 } from '../../dtos/agent-x.dto.js';
 import type {
+  AgentIdentifier,
   AgentJobPayload,
   AgentJobOrigin,
   AgentOperationStatus,
@@ -30,7 +31,12 @@ import type {
   AgentXSelectedAction,
 } from '@nxt1/core';
 import { normalizeConnectedPlatform } from '@nxt1/core/profile';
-import { AGENT_X_REQUEST_HEADERS, AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
+import {
+  AGENT_DESCRIPTORS,
+  AGENT_X_REQUEST_HEADERS,
+  AGENT_X_RUNTIME_CONFIG,
+  resolveAgentApprovalCopy,
+} from '@nxt1/core/ai';
 import {
   STREAM_TERMINAL_EVENTS,
   type PubSubUnsubscribe,
@@ -74,6 +80,19 @@ import {
 } from './chat-context.helpers.js';
 
 const router = Router();
+
+const AGENT_IDENTIFIER_SET = new Set<AgentIdentifier>(
+  Object.keys(AGENT_DESCRIPTORS) as AgentIdentifier[]
+);
+
+function normalizeAgentIdentifier(value: unknown): AgentIdentifier | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim();
+  if (!normalized) return undefined;
+  return AGENT_IDENTIFIER_SET.has(normalized as AgentIdentifier)
+    ? (normalized as AgentIdentifier)
+    : undefined;
+}
 
 interface AgentXCompactWarmContext {
   readonly userId: string;
@@ -464,7 +483,10 @@ async function resolveSelectedActionIntent(params: {
       appConfig
     );
 
-    return configuredAction?.executionPrompt ?? params.fallbackIntent;
+    return mergeSelectedActionExecutionPrompt(
+      configuredAction?.executionPrompt,
+      params.fallbackIntent
+    );
   } catch (error) {
     logger.warn('Failed to resolve selected quick action intent; falling back to visible prompt', {
       userId: params.userId,
@@ -475,6 +497,31 @@ async function resolveSelectedActionIntent(params: {
     });
     return params.fallbackIntent;
   }
+}
+
+function mergeSelectedActionExecutionPrompt(
+  executionPrompt: string | null | undefined,
+  fallbackIntent: string
+): string {
+  const trimmedFallback = fallbackIntent.trim();
+  const trimmedPrompt = executionPrompt?.trim();
+
+  if (!trimmedPrompt) {
+    return fallbackIntent;
+  }
+
+  if (!trimmedFallback || trimmedPrompt.includes(trimmedFallback)) {
+    return trimmedPrompt;
+  }
+
+  return [
+    trimmedPrompt,
+    '',
+    '[User request and attached context]',
+    trimmedFallback,
+    '',
+    '[Instruction: Execute the selected action using the user request, selected contexts, and attached media above. Do not ignore attachments or return only a plan when the request asks for a produced deliverable.]',
+  ].join('\n');
 }
 
 function stampAgentXLastActiveAt(db: Firestore, userId: string): void {
@@ -580,6 +627,211 @@ function resolveResumeToolCallId(
 
   const trimmedFallback = typeof fallbackToolCallId === 'string' ? fallbackToolCallId.trim() : '';
   return trimmedFallback || 'ask_user_response';
+}
+
+function resolveRejectedApprovalAssistantText(params: {
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+}): string {
+  const normalizedToolName = params.toolName?.trim().toLowerCase() ?? '';
+  const recipientCount = Array.isArray(params.toolInput?.['recipients'])
+    ? params.toolInput['recipients'].length
+    : 0;
+
+  if (normalizedToolName === 'batch_send_email' || recipientCount > 1) {
+    return "Understood. I won't send those emails.";
+  }
+
+  if (/email|gmail|outlook|mail/.test(normalizedToolName)) {
+    return "Understood. I won't send that email.";
+  }
+
+  return "Understood. I won't proceed with that action.";
+}
+
+function normalizeApprovalResumeToolInput(
+  toolName: unknown,
+  toolInput: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (!toolInput) return undefined;
+
+  const normalizedToolName = typeof toolName === 'string' ? toolName.trim().toLowerCase() : '';
+  if (
+    normalizedToolName !== 'batch_send_email' &&
+    normalizedToolName !== 'batch_send_email_via_nxt1'
+  ) {
+    return toolInput;
+  }
+
+  const normalizeRecipientRecord = (
+    recipient: Record<string, unknown>
+  ): Record<string, unknown> | null => {
+    const toEmail = [recipient['toEmail'], recipient['email'], recipient['to']].find(
+      (value): value is string => typeof value === 'string' && value.trim().length > 0
+    );
+    if (!toEmail) return null;
+
+    const variables =
+      recipient['variables'] &&
+      typeof recipient['variables'] === 'object' &&
+      !Array.isArray(recipient['variables'])
+        ? (recipient['variables'] as Record<string, unknown>)
+        : {};
+
+    return {
+      toEmail: toEmail.trim(),
+      variables,
+      ...(typeof recipient['recipientName'] === 'string' && recipient['recipientName'].trim()
+        ? { recipientName: recipient['recipientName'].trim() }
+        : {}),
+      ...(typeof recipient['name'] === 'string' && recipient['name'].trim()
+        ? { recipientName: recipient['name'].trim() }
+        : {}),
+      ...(typeof recipient['recipientKind'] === 'string' && recipient['recipientKind'].trim()
+        ? { recipientKind: recipient['recipientKind'].trim() }
+        : {}),
+      ...(typeof recipient['recipientOrgName'] === 'string' && recipient['recipientOrgName'].trim()
+        ? { recipientOrgName: recipient['recipientOrgName'].trim() }
+        : {}),
+      ...(typeof recipient['orgName'] === 'string' && recipient['orgName'].trim()
+        ? { recipientOrgName: recipient['orgName'].trim() }
+        : {}),
+    };
+  };
+
+  const normalizeRecipients = (value: unknown): Record<string, unknown>[] => {
+    if (Array.isArray(value)) {
+      return value
+        .flatMap((entry) => normalizeRecipients(entry))
+        .filter(
+          (entry, index, all) =>
+            all.findIndex((candidate) => candidate['toEmail'] === entry['toEmail']) === index
+        );
+    }
+
+    if (typeof value === 'string' && value.trim().length > 0) {
+      return value
+        .split(/[\n,;]+/)
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .map((toEmail) => ({ toEmail, variables: {} }));
+    }
+
+    if (!value || typeof value !== 'object') {
+      return [];
+    }
+
+    const normalized = normalizeRecipientRecord(value as Record<string, unknown>);
+    return normalized ? [normalized] : [];
+  };
+
+  const subjectTemplate = [toolInput['subjectTemplate'], toolInput['subject']].find(
+    (value): value is string => typeof value === 'string' && value.trim().length > 0
+  );
+  const bodyHtmlTemplate = [
+    toolInput['bodyHtmlTemplate'],
+    toolInput['bodyHtml'],
+    toolInput['body'],
+    toolInput['message'],
+  ].find((value): value is string => typeof value === 'string' && value.trim().length > 0);
+  const recipients = normalizeRecipients(toolInput['recipients']);
+  if (
+    recipients.length === 0 &&
+    typeof toolInput['toEmail'] === 'string' &&
+    toolInput['toEmail'].trim()
+  ) {
+    recipients.push({ toEmail: toolInput['toEmail'].trim(), variables: {} });
+  }
+
+  return {
+    ...toolInput,
+    ...(recipients.length > 0 ? { recipients } : {}),
+    ...(subjectTemplate ? { subjectTemplate: subjectTemplate.trim() } : {}),
+    ...(bodyHtmlTemplate ? { bodyHtmlTemplate } : {}),
+  };
+}
+
+async function finalizeRejectedApproval(params: {
+  userId: string;
+  threadId?: string | null;
+  operationId: string;
+  yieldState?: AgentYieldState;
+  resolvedToolInput?: Record<string, unknown>;
+  logContext: 'thread_action' | 'approval_resolve';
+}): Promise<void> {
+  if (!params.threadId || !chatService) {
+    return;
+  }
+
+  try {
+    await chatService.addMessage({
+      threadId: params.threadId,
+      userId: params.userId,
+      role: 'assistant',
+      content: resolveRejectedApprovalAssistantText({
+        toolName: params.yieldState?.pendingToolCall?.toolName,
+        toolInput: params.resolvedToolInput ?? params.yieldState?.pendingToolCall?.toolInput,
+      }),
+      origin: 'agent_chain',
+      agentId: params.yieldState?.agentId,
+      operationId: params.operationId,
+      idempotencyKey: `${params.operationId}:assistant_rejected_approval`,
+      semanticPhase: 'assistant_final',
+    });
+    await chatService.clearThreadPausedYieldState(params.threadId);
+  } catch (err) {
+    logger.warn('Failed to finalize rejected approval state', {
+      logContext: params.logContext,
+      threadId: params.threadId,
+      operationId: params.operationId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+async function persistApprovedActionAsUserMessage(params: {
+  userId: string;
+  threadId?: string | null;
+  operationId: string;
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  agentId?: string;
+  logContext: 'thread_action' | 'approval_resolve';
+}): Promise<void> {
+  if (!params.threadId || !chatService || !params.toolName) {
+    return;
+  }
+
+  try {
+    const approvalCopy = resolveAgentApprovalCopy({
+      toolName: params.toolName,
+      toolInput: params.toolInput ?? {},
+    });
+
+    await chatService.addMessage({
+      threadId: params.threadId,
+      userId: params.userId,
+      role: 'system',
+      content: `Approved action: ${approvalCopy.actionSummary}`,
+      origin: 'agent_chain',
+      agentId: normalizeAgentIdentifier(params.agentId),
+      operationId: params.operationId,
+      resultData: {
+        eventType: 'approval_decision',
+        decision: 'approved',
+        actionSummary: approvalCopy.actionSummary,
+        hiddenFromTranscript: true,
+      },
+      idempotencyKey: `${params.operationId}:user_approved_action`,
+    });
+  } catch (chatErr) {
+    logger.warn('Failed to persist approved action summary to MongoDB', {
+      error: chatErr instanceof Error ? chatErr.message : String(chatErr),
+      userId: params.userId,
+      operationId: params.operationId,
+      logContext: params.logContext,
+    });
+  }
 }
 
 function isPauseResumeToolCallId(toolCallId: string | undefined): boolean {
@@ -3042,28 +3294,48 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
       return;
     }
 
-    const approvalsSnap = await db
-      .collection('AgentApprovalRequests')
-      .where('userId', '==', user.uid)
-      .where('operationId', '==', resolvedOperationId)
-      .where('status', '==', 'pending')
-      .get();
-
-    if (approvalsSnap.empty) {
-      res.status(409).json({ success: false, error: 'No pending approval found for this thread' });
+    const jobDoc = await jobRepository.withDb(db).getById(resolvedOperationId);
+    if (!jobDoc || jobDoc.userId !== user.uid || jobDoc.threadId !== threadIdParam.trim()) {
+      res.status(404).json({ success: false, error: 'Job not found' });
       return;
     }
 
-    let approvalDoc = approvalsSnap.docs[0];
-    if (approvalsSnap.docs.length > 1) {
-      approvalDoc = [...approvalsSnap.docs].sort((a, b) => {
-        const aData = a.data() as Record<string, unknown>;
-        const bData = b.data() as Record<string, unknown>;
-        return toMillis(bData['createdAt']) - toMillis(aData['createdAt']);
-      })[0];
-    }
+    const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
+    const approvalIdFromYield =
+      typeof yieldState?.approvalId === 'string' ? yieldState.approvalId.trim() : '';
 
-    const approvalRef = db.collection('AgentApprovalRequests').doc(approvalDoc.id);
+    let resolvedApprovalId = approvalIdFromYield;
+    let approvalRef = approvalIdFromYield
+      ? db.collection('AgentApprovalRequests').doc(approvalIdFromYield)
+      : null;
+
+    if (!approvalRef) {
+      const approvalsSnap = await db
+        .collection('AgentApprovalRequests')
+        .where('userId', '==', user.uid)
+        .where('operationId', '==', resolvedOperationId)
+        .where('status', '==', 'pending')
+        .get();
+
+      if (approvalsSnap.empty) {
+        res
+          .status(409)
+          .json({ success: false, error: 'No pending approval found for this thread' });
+        return;
+      }
+
+      let approvalDoc = approvalsSnap.docs[0];
+      if (approvalsSnap.docs.length > 1) {
+        approvalDoc = [...approvalsSnap.docs].sort((a, b) => {
+          const aData = a.data() as Record<string, unknown>;
+          const bData = b.data() as Record<string, unknown>;
+          return toMillis(bData['createdAt']) - toMillis(aData['createdAt']);
+        })[0];
+      }
+
+      resolvedApprovalId = approvalDoc.id;
+      approvalRef = db.collection('AgentApprovalRequests').doc(approvalDoc.id);
+    }
     const transactionResult = await db.runTransaction(async (txn) => {
       const approvalSnap = await txn.get(approvalRef);
       if (!approvalSnap.exists) return { code: 404, error: 'Approval request not found' } as const;
@@ -3076,19 +3348,22 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
         return { code: 409, error: `Approval is already "${approvalData['status']}"` } as const;
       }
 
+      const normalizedToolInput = normalizeApprovalResumeToolInput(
+        approvalData['toolName'],
+        body.toolInput ?? approvalData['toolInput']
+      );
+
       txn.update(approvalRef, {
         status: body.decision,
         resolvedAt: new Date().toISOString(),
         resolvedBy: user.uid,
-        ...(body.toolInput ? { toolInput: body.toolInput } : {}),
+        ...(body.toolInput && normalizedToolInput ? { toolInput: normalizedToolInput } : {}),
       });
 
       return {
         code: 200,
         operationId: approvalData['operationId'] as string | undefined,
-        toolInput: (body.toolInput ?? approvalData['toolInput']) as
-          | Record<string, unknown>
-          | undefined,
+        toolInput: normalizedToolInput,
       } as const;
     });
 
@@ -3112,24 +3387,28 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
       return;
     }
 
-    const jobDoc = await jobRepository.withDb(db).getById(operationId);
-    if (!jobDoc) {
-      res.json({
-        success: true,
-        data: {
-          actionType: body.actionType,
-          decision: body.decision,
-          resumed: false,
-          resolvedOperationId,
-        },
-      });
-      return;
+    let approvalJobDoc = jobDoc;
+    if (approvalJobDoc.operationId !== operationId) {
+      const refreshedJobDoc = await jobRepository.withDb(db).getById(operationId);
+      if (!refreshedJobDoc) {
+        res.json({
+          success: true,
+          data: {
+            actionType: body.actionType,
+            decision: body.decision,
+            resumed: false,
+            resolvedOperationId,
+          },
+        });
+        return;
+      }
+      approvalJobDoc = refreshedJobDoc;
     }
 
     if (
-      jobDoc.status === 'cancelled' ||
-      jobDoc.status === 'failed' ||
-      jobDoc.status === 'completed'
+      approvalJobDoc.status === 'cancelled' ||
+      approvalJobDoc.status === 'failed' ||
+      approvalJobDoc.status === 'completed'
     ) {
       res.json({
         success: true,
@@ -3144,22 +3423,19 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
       return;
     }
 
-    const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
-    const threadId = jobDoc.threadId;
+    const approvalYieldState = approvalJobDoc.yieldState as AgentYieldState | undefined;
+    const threadId = approvalJobDoc.threadId;
 
     if (body.decision === 'rejected') {
       await jobRepository.withDb(db).markCancelled(operationId);
-      if (threadId && chatService) {
-        try {
-          await chatService.clearThreadPausedYieldState(threadId);
-        } catch (err) {
-          logger.warn('Failed to clear thread paused yield state on thread action rejection', {
-            threadId,
-            operationId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
+      await finalizeRejectedApproval({
+        userId: user.uid,
+        threadId,
+        operationId,
+        yieldState: approvalYieldState,
+        resolvedToolInput,
+        logContext: 'thread_action',
+      });
 
       res.json({
         success: true,
@@ -3173,7 +3449,7 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
       return;
     }
 
-    if (!yieldState?.pendingToolCall) {
+    if (!approvalYieldState?.pendingToolCall) {
       await jobRepository.withDb(db).markCompleted(operationId, {
         summary: 'Approval granted but no pending action to resume.',
       });
@@ -3190,28 +3466,38 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
     }
 
     const normalizedApprovalMessages = stripToolResultForCallId(
-      normalizeYieldMessages(yieldState.messages),
-      yieldState.pendingToolCall.toolCallId
+      normalizeYieldMessages(approvalYieldState.messages),
+      approvalYieldState.pendingToolCall.toolCallId
     );
+
+    await persistApprovedActionAsUserMessage({
+      userId: user.uid,
+      threadId,
+      operationId,
+      toolName: approvalYieldState.pendingToolCall.toolName,
+      toolInput: resolvedToolInput ?? approvalYieldState.pendingToolCall.toolInput,
+      agentId: approvalYieldState.agentId,
+      logContext: 'thread_action',
+    });
 
     const resumedPayload: AgentJobPayload = {
       operationId: crypto.randomUUID(),
       userId: user.uid,
-      intent: jobDoc.intent,
+      intent: approvalJobDoc.intent,
       sessionId: crypto.randomUUID(),
       origin: 'user' as AgentJobOrigin,
       context: {
         appBaseUrl: resolveRequestAppBaseUrl(req),
         threadId,
         resumedFrom: operationId,
-        approvalId: approvalDoc.id,
+        approvalId: resolvedApprovalId,
         yieldState: {
-          ...yieldState,
+          ...approvalYieldState,
           messages: normalizedApprovalMessages,
-          approvalId: approvalDoc.id,
+          approvalId: resolvedApprovalId,
           pendingToolCall: {
-            ...yieldState.pendingToolCall,
-            toolInput: resolvedToolInput ?? yieldState.pendingToolCall.toolInput,
+            ...approvalYieldState.pendingToolCall,
+            toolInput: resolvedToolInput ?? approvalYieldState.pendingToolCall.toolInput,
           },
         },
       },
@@ -3220,11 +3506,11 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
     await jobRepository.withDb(db).create(resumedPayload);
     await jobRepository.withDb(db).markCompleted(operationId, {
       summary: `Approved — continuing as ${resumedPayload.operationId}`,
-      data: { resumedAs: resumedPayload.operationId, approvalId: approvalDoc.id },
+      data: { resumedAs: resumedPayload.operationId, approvalId: resolvedApprovalId },
     });
 
-    if (body.trustForSession === true && yieldState.pendingToolCall.toolName) {
-      const toolNameForTrust = yieldState.pendingToolCall.toolName;
+    if (body.trustForSession === true && approvalYieldState.pendingToolCall.toolName) {
+      const toolNameForTrust = approvalYieldState.pendingToolCall.toolName;
       try {
         const { ApprovalGateService } =
           await import('../../modules/agent/services/approval-gate.service.js');
@@ -3416,17 +3702,22 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
         } as const;
       }
 
+      const normalizedToolInput = normalizeApprovalResumeToolInput(
+        approvalData['toolName'],
+        toolInput ?? approvalData['toolInput']
+      );
+
       txn.update(approvalRef, {
         status: decision,
         resolvedAt: new Date().toISOString(),
         resolvedBy: user.uid,
-        ...(toolInput ? { toolInput } : {}),
+        ...(toolInput && normalizedToolInput ? { toolInput: normalizedToolInput } : {}),
       });
 
       return {
         code: 200,
         operationId: approvalData['operationId'] as string | undefined,
-        toolInput: (toolInput ?? approvalData['toolInput']) as Record<string, unknown> | undefined,
+        toolInput: normalizedToolInput,
       } as const;
     });
 
@@ -3468,22 +3759,19 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       return;
     }
 
-    const threadId = jobDoc.threadId;
     const yieldState = jobDoc.yieldState as AgentYieldState | undefined;
+    const threadId = jobDoc.threadId;
 
     if (decision === 'rejected') {
       await jobRepository.withDb(db).markCancelled(operationId);
-      if (threadId && chatService) {
-        try {
-          await chatService.clearThreadPausedYieldState(threadId);
-        } catch (err) {
-          logger.warn('Failed to clear thread paused yield state on approval rejection', {
-            threadId,
-            operationId,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
+      await finalizeRejectedApproval({
+        userId: user.uid,
+        threadId,
+        operationId,
+        yieldState,
+        resolvedToolInput,
+        logContext: 'approval_resolve',
+      });
       res.json({ success: true, data: { decision, resumed: false } });
       return;
     }
@@ -3499,6 +3787,16 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       normalizeYieldMessages(yieldState.messages),
       yieldState.pendingToolCall.toolCallId
     );
+
+    await persistApprovedActionAsUserMessage({
+      userId: user.uid,
+      threadId,
+      operationId,
+      toolName: yieldState.pendingToolCall.toolName,
+      toolInput: resolvedToolInput ?? yieldState.pendingToolCall.toolInput,
+      agentId: yieldState.agentId,
+      logContext: 'approval_resolve',
+    });
 
     const resumedPayload: AgentJobPayload = {
       operationId: crypto.randomUUID(),
@@ -3773,6 +4071,38 @@ router.post(
         selectedAction: normalizedSelectedAction,
       });
       stampAgentXLastActiveAt(db, user.uid);
+
+      const estimatedGateCostCents = estimateChatBillingGateCostCents({
+        message: enrichedIntentText,
+        selectedAction: normalizedSelectedAction,
+        attachments,
+      });
+      const enqueueTarget = await resolveBillingTarget(db, user.uid);
+      const enqueueBudgetCheck = await checkBudgetForResolvedTarget(
+        db,
+        enqueueTarget,
+        estimatedGateCostCents
+      );
+
+      if (!enqueueBudgetCheck.allowed) {
+        const billingCode = resolveBillingGateCode({
+          billingEntity: enqueueBudgetCheck.billingEntity,
+          reason: enqueueBudgetCheck.reason,
+        });
+        const billingReason =
+          enqueueBudgetCheck.reason ?? 'Billing is required to continue this request.';
+
+        res.status(402).json({
+          success: false,
+          error: billingReason,
+          code: billingCode,
+          billing: buildBillingGateState(billingCode, billingReason, 'athlete', {
+            estimatedCostCents: estimatedGateCostCents,
+            availableBalanceCents: Math.max(enqueueBudgetCheck.budget, 0),
+          }),
+        });
+        return;
+      }
 
       // Opportunistic healing for previously failed/pending outbox entries.
       void reconcileAgentOutbox(db, environment).catch((err: unknown) => {

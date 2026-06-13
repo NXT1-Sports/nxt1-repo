@@ -45,6 +45,13 @@ type SseMediaPayload = {
   mimeType?: string;
 };
 
+function humanizeToolName(toolName: string): string {
+  return toolName
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase())
+    .trim();
+}
+
 function isHttpUrl(value: string): boolean {
   return /^https?:\/\//i.test(value);
 }
@@ -136,7 +143,12 @@ function toStepPayload(
   status: 'active' | 'success' | 'error'
 ): Record<string, unknown> | null {
   const stepId = typeof event.stepId === 'string' ? event.stepId.trim() : '';
-  const label = typeof event.message === 'string' ? event.message.trim() : '';
+  const explicitLabel = typeof event.message === 'string' ? event.message.trim() : '';
+  const fallbackLabel =
+    typeof event.toolName === 'string' && event.toolName.trim().length > 0
+      ? humanizeToolName(event.toolName)
+      : '';
+  const label = explicitLabel || fallbackLabel;
   if (!stepId || !label) return null;
 
   const toolName =
@@ -166,18 +178,35 @@ function toStepPayload(
 
 class StepIdTracker {
   private counter = 0;
-  private readonly toolToStepId = new Map<string, string>();
+  private readonly pendingStepIds = new Map<string, string[]>();
 
-  getOrCreate(toolName: string): string {
-    const existing = this.toolToStepId.get(toolName);
-    if (existing) return existing;
+  private nextStepId(): string {
     const id = `step-${this.counter++}`;
-    this.toolToStepId.set(toolName, id);
     return id;
   }
 
-  get(toolName: string): string | undefined {
-    return this.toolToStepId.get(toolName);
+  resolveStartedStepId(event: StreamEvent): string | null {
+    if (!event.toolName) return null;
+    if (event.stepId && event.stepId.trim()) {
+      return event.stepId;
+    }
+
+    const stepId = this.nextStepId();
+    const queue = this.pendingStepIds.get(event.toolName) ?? [];
+    queue.push(stepId);
+    this.pendingStepIds.set(event.toolName, queue);
+    return stepId;
+  }
+
+  resolveCompletedStepId(event: StreamEvent): string | null {
+    if (!event.toolName) return null;
+    if (event.stepId && event.stepId.trim()) {
+      return event.stepId;
+    }
+
+    const pending = this.pendingStepIds.get(event.toolName)?.shift();
+    if (pending) return pending;
+    return this.nextStepId();
   }
 }
 
@@ -213,8 +242,8 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
       }
 
       case 'step_active': {
-        if (!event.toolName) return;
-        const stepId = event.stepId ?? stepTracker.getOrCreate(event.toolName);
+        const stepId = stepTracker.resolveStartedStepId(event);
+        if (!stepId) return;
         const payload = toStepPayload({ ...event, stepId }, 'active');
         if (!payload) return;
         try {
@@ -230,11 +259,8 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
       // ── Tool done ─────────────────────────────────────────────────────
       case 'step_done':
       case 'tool_result': {
-        if (!event.toolName) return;
-        const stepId =
-          event.stepId ??
-          stepTracker.get(event.toolName) ??
-          stepTracker.getOrCreate(event.toolName);
+        const stepId = stepTracker.resolveCompletedStepId(event);
+        if (!stepId) return;
         const succeeded = event.toolSuccess !== false;
         const enrichedMetadata = {
           ...((event.metadata as Record<string, unknown> | undefined) ?? {}),
@@ -293,11 +319,8 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
 
       // ── Tool failed ───────────────────────────────────────────────────
       case 'step_error': {
-        if (!event.toolName) return;
-        const stepId =
-          event.stepId ??
-          stepTracker.get(event.toolName) ??
-          stepTracker.getOrCreate(event.toolName);
+        const stepId = stepTracker.resolveCompletedStepId(event);
+        if (!stepId) return;
         const payload = toStepPayload({ ...event, stepId }, 'error');
         if (!payload) return;
         try {

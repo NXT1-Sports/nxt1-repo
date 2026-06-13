@@ -69,6 +69,14 @@ interface SyncResult {
   errors: number;
 }
 
+interface AgentEmailAuditContext {
+  readonly toolName?: string;
+  readonly approvalId?: string;
+  readonly operationId?: string;
+  readonly threadId?: string;
+  readonly sessionId?: string;
+}
+
 // ─── Token Helpers ──────────────────────────────────────────────────────────
 
 /**
@@ -843,6 +851,7 @@ export async function sendEmailViaProvider(
     recipientName?: string;
     recipientKind?: string;
     recipientOrgName?: string;
+    auditContext?: AgentEmailAuditContext;
   }
 ): Promise<{
   success: boolean;
@@ -865,14 +874,87 @@ export async function sendEmailViaProvider(
     recipientKind: options?.recipientKind,
     recipientOrgName: options?.recipientOrgName,
   });
+  const auditContext = options?.auditContext;
+
+  logger.info('[ConnectedMail] Dispatching provider email send', {
+    userId,
+    provider,
+    to,
+    toolName: auditContext?.toolName ?? null,
+    approvalId: auditContext?.approvalId ?? null,
+    operationId: auditContext?.operationId ?? null,
+    threadId: auditContext?.threadId ?? null,
+    sessionId: auditContext?.sessionId ?? null,
+  });
 
   if (provider === 'gmail') {
     const result = await sendGmailMessage(accessToken, to, subject, trackedBody);
+    logger.info('[ConnectedMail] Provider email send completed', {
+      userId,
+      provider,
+      to,
+      trackingId,
+      externalMessageId: result.externalMessageId ?? null,
+      externalThreadId: result.externalThreadId ?? null,
+      toolName: auditContext?.toolName ?? null,
+      approvalId: auditContext?.approvalId ?? null,
+      operationId: auditContext?.operationId ?? null,
+      threadId: auditContext?.threadId ?? null,
+      sessionId: auditContext?.sessionId ?? null,
+    });
     return { ...result, trackingId };
   }
 
   const result = await sendMicrosoftMessage(accessToken, to, subject, trackedBody);
+  logger.info('[ConnectedMail] Provider email send completed', {
+    userId,
+    provider,
+    to,
+    trackingId,
+    externalMessageId: result.externalMessageId ?? null,
+    externalThreadId: result.externalThreadId ?? null,
+    toolName: auditContext?.toolName ?? null,
+    approvalId: auditContext?.approvalId ?? null,
+    operationId: auditContext?.operationId ?? null,
+    threadId: auditContext?.threadId ?? null,
+    sessionId: auditContext?.sessionId ?? null,
+  });
   return { ...result, trackingId };
+}
+
+function sanitizeMimeHeaderValue(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').trim();
+}
+
+function encodeMimeHeaderValue(value: string): string {
+  const sanitized = sanitizeMimeHeaderValue(value);
+  if (!sanitized) return '';
+
+  // Raw RFC 2822 headers must use encoded-word syntax for non-ASCII text.
+  if (!/[^\x20-\x7E]/.test(sanitized)) {
+    return sanitized;
+  }
+
+  return `=?UTF-8?B?${Buffer.from(sanitized, 'utf8').toString('base64')}?=`;
+}
+
+function encodeMimeBodyBase64(value: string): string {
+  const base64 = Buffer.from(value, 'utf8').toString('base64');
+  return base64.match(/.{1,76}/g)?.join('\r\n') ?? '';
+}
+
+export function buildRawGmailMessage(to: string, subject: string, body: string): string {
+  const messageParts = [
+    `To: ${sanitizeMimeHeaderValue(to)}`,
+    `Subject: ${encodeMimeHeaderValue(subject)}`,
+    'MIME-Version: 1.0',
+    'Content-Type: text/html; charset=utf-8',
+    'Content-Transfer-Encoding: base64',
+    '',
+    encodeMimeBodyBase64(body),
+  ];
+
+  return Buffer.from(messageParts.join('\r\n'), 'utf8').toString('base64url');
 }
 
 /**
@@ -884,16 +966,7 @@ async function sendGmailMessage(
   subject: string,
   body: string
 ): Promise<{ success: boolean; externalMessageId?: string; externalThreadId?: string }> {
-  // Construct RFC 2822 message
-  const messageParts = [
-    `To: ${to}`,
-    `Subject: ${subject}`,
-    'MIME-Version: 1.0',
-    'Content-Type: text/html; charset=utf-8',
-    '',
-    body,
-  ];
-  const rawMessage = Buffer.from(messageParts.join('\r\n')).toString('base64url');
+  const rawMessage = buildRawGmailMessage(to, subject, body);
 
   const res = await axios.post(
     'https://gmail.googleapis.com/gmail/v1/users/me/messages/send',

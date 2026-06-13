@@ -2,10 +2,10 @@
   "compileOnSave": false,
   "compilerOptions": {
     "ignoreDeprecations": "5.0",
-    "baseUrl": "./",
     "rootDir": "../..",
     "paths": {
-      "@app/*": ["src/app/*"],
+      "src/*": ["./src/*"],
+      "@app/*": ["./src/app/*"],
       "@nxt1/core": ["../../packages/core/src/index.ts"],
       "@nxt1/core/*": ["../../packages/core/src/*/index.ts"],
       "@nxt1/ui": ["../../packages/ui/src/index.ts"],
@@ -40,7 +40,8 @@
     "strictPropertyInitialization": false,
     "resolveJsonModule": true,
     "skipLibCheck": true,
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    "types": ["node", "vitest/globals"]
   },
   "angularCompilerOptions": {
     "enableI18nLegacyMessageIdFormat": false,

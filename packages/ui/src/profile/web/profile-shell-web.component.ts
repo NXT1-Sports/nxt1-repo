@@ -54,6 +54,8 @@ import {
   getScheduleSeasons,
   formatSportDisplayName,
 } from '@nxt1/core';
+import { APP_EVENTS } from '@nxt1/core/analytics';
+import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
 // NxtPageHeaderComponent removed — web profile uses shell top nav on mobile and page header in wide layouts
 import { NxtIconComponent } from '../../components/icon';
 import { NxtImageComponent } from '../../components/image';
@@ -1533,6 +1535,7 @@ const TEAM_TYPE_ICONS: Readonly<Record<ProfileTeamType, IconName>> = {
 export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestroy {
   protected readonly profile = inject(ProfileService);
   private readonly toast = inject(NxtToastService);
+  private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly logger = inject(NxtLoggingService).child('ProfileShellWeb');
   private readonly bottomSheet = inject(NxtBottomSheetService);
   private readonly modal = inject(NxtModalService);
@@ -1750,9 +1753,7 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
         {
           id: 'stats',
           label: 'Stats',
-          badge:
-            this.profile.polymorphicTimeline().filter((i) => i.feedType === 'STAT').length ||
-            undefined,
+          badge: this.profile.statsSectionBadge(),
         },
         {
           id: 'awards',
@@ -2230,10 +2231,19 @@ export class ProfileShellWebComponent implements OnInit, AfterViewInit, OnDestro
   // Offers
   protected onOfferClick(offer: ProfileRecruitingActivity): void {
     this.logger.debug('Offer click', { offerId: offer.id });
+    if (offer.category === 'commitment') {
+      this.analytics?.trackEvent(APP_EVENTS.COMMITMENT_ANNOUNCED, {
+        activity_id: offer.id,
+        source: 'profile-shell-web',
+      });
+    }
   }
 
   protected onAddOffer(): void {
     this.logger.debug('Add offer');
+    this.analytics?.trackEvent(APP_EVENTS.OFFER_ADDED, {
+      source: 'profile-shell-web',
+    });
   }
 
   // Rankings

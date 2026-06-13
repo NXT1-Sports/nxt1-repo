@@ -83,7 +83,7 @@ export class ConnectedAccountsComponent implements OnInit {
   protected readonly userRole = computed(() => this.auth.user?.()?.role ?? null);
   protected readonly userSports = computed(() => {
     const user = this.auth.user?.();
-    return user?.selectedSports ?? [];
+    return user?.selectedSports ?? user?.sports?.map(({ sport }) => sport).filter(Boolean) ?? [];
   });
 
   protected readonly linkSourcesData = computed<LinkSourcesFormData | null>(() => {

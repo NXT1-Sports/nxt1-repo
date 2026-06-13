@@ -85,15 +85,13 @@ import {
   AnalyticsService,
   PerformanceService,
 } from './core/services';
+import { AuthFlowService } from './core/services/auth/auth-flow.service';
 
 import { mobileAuthInterceptor } from './core/infrastructure/interceptors/auth.interceptor';
 import { NxtLoggingService, LOGGING_CONFIG } from '@nxt1/ui';
 
 import { SETTINGS_PERSISTENCE_ADAPTER, APP_VERSION } from '@nxt1/ui/settings';
-import {
-  CONNECTED_ACCOUNTS_OAUTH_HANDLER,
-  CONNECTED_ACCOUNTS_FIREBASE_USER,
-} from '@nxt1/ui/components/connected-sources';
+import { CONNECTED_ACCOUNTS_OAUTH_HANDLER } from '@nxt1/ui/components/connected-sources';
 import { BROWSER_TRACKING_BASE_URL } from '@nxt1/ui/services/browser';
 
 import { routes } from './app.routes';
@@ -154,6 +152,21 @@ function configureEditProfileApi(
       uploadPhoto: (userId: string, file: File | Blob) => apiService.uploadPhoto(userId, file),
     });
   };
+}
+
+function initializeCrashlytics(crashlytics: CrashlyticsService): () => Promise<void> {
+  return () =>
+    crashlytics.initialize({
+      enabled: environment.production,
+      debug: !environment.production,
+      collectNavigationBreadcrumbs: true,
+      collectHttpBreadcrumbs: true,
+      initialCustomKeys: {
+        app_version: environment.appVersion || '1.0.0',
+        environment: environment.production ? 'production' : 'development',
+        platform: Capacitor.getPlatform(),
+      },
+    });
 }
 
 /**
@@ -420,38 +433,23 @@ export const appConfig: ApplicationConfig = {
     // App version — drives the version string shown in Settings footer
     { provide: APP_VERSION, useFactory: () => environment.appVersion },
 
-    // Firebase provider data for Connected Accounts sheet — enables email display for
-    // already-connected Google / Microsoft accounts without a new OAuth flow.
-    {
-      provide: CONNECTED_ACCOUNTS_FIREBASE_USER,
-      useFactory: (auth: Auth) => () => {
-        const user = auth.currentUser;
-        if (!user) return [];
-        // Only use the email from providerData itself — do NOT fall back to user.email
-        // for Microsoft because user.email is the primary sign-in email (e.g. Google)
-        // and would incorrectly override the real Microsoft email stored in connectedEmails.
-        return user.providerData.map((p) => ({
-          providerId: p.providerId,
-          email: p.email ?? null,
-          displayName: p.displayName,
-        }));
-      },
-      deps: [Auth],
-    },
-
     // OAuth handler for Connected Accounts sheet (settings context)
     // Launches Google/Microsoft account picker and saves tokens to oauthTokens subcollection.
     // Does NOT sign the user in — pure token acquisition via system browser.
     {
       provide: CONNECTED_ACCOUNTS_OAUTH_HANDLER,
       useFactory:
-        (emailSvc: MobileEmailConnectionService, auth: Auth) =>
-        (platform: 'google' | 'microsoft') => {
+        (emailSvc: MobileEmailConnectionService, authFlow: AuthFlowService, auth: Auth) =>
+        async (platform: 'google' | 'microsoft') => {
           const uid = auth.currentUser?.uid;
-          if (!uid) return Promise.resolve({ success: false });
-          return emailSvc.connectForLinkedAccounts(platform, uid);
+          if (!uid) return { success: false };
+          const result = await emailSvc.connectForLinkedAccounts(platform, uid);
+          if (result.success) {
+            await authFlow.refreshUserProfile();
+          }
+          return result;
         },
-      deps: [MobileEmailConnectionService, Auth],
+      deps: [MobileEmailConnectionService, AuthFlowService, Auth],
     },
 
     // ============================================
@@ -463,6 +461,12 @@ export const appConfig: ApplicationConfig = {
       provide: APP_INITIALIZER,
       useFactory: configureEditProfileApi,
       deps: [EditProfileService, EditProfileApiService],
+      multi: true,
+    },
+    {
+      provide: APP_INITIALIZER,
+      useFactory: initializeCrashlytics,
+      deps: [CrashlyticsService],
       multi: true,
     },
   ],

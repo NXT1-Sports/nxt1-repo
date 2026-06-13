@@ -74,6 +74,10 @@ function mapRoleToRosterUserRole(role: ROLE): UserRole {
   }
 }
 
+function roleRequiresPendingApproval(role: ROLE): boolean {
+  return role !== ROLE.athlete;
+}
+
 // ============================================
 // HELPER FUNCTIONS
 // ============================================
@@ -674,6 +678,34 @@ export async function joinTeam(db: Firestore, input: JoinTeamInput): Promise<Tea
   // capacity check has been intentionally removed.
 
   const role = input.role ?? ROLE.athlete;
+  const rosterService = new RosterEntryService(db);
+  const rosterStatus = roleRequiresPendingApproval(role)
+    ? RosterEntryStatus.PENDING
+    : RosterEntryStatus.ACTIVE;
+  const teamSport =
+    ((team as unknown as Record<string, unknown>)['sport'] as string | undefined) ??
+    team.sport ??
+    team.sportName ??
+    '';
+
+  await rosterService.createRosterEntry({
+    userId: input.userId,
+    teamId: team.id!,
+    organizationId: team.organizationId ?? '',
+    role: mapRoleToRosterUserRole(role),
+    sport: teamSport,
+    status: rosterStatus,
+    firstName: input.userProfile.firstName,
+    lastName: input.userProfile.lastName,
+    displayName: [input.userProfile.firstName, input.userProfile.lastName]
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .join(' '),
+    unicode: input.userId,
+    profileCode: input.userId,
+    email: input.userProfile.email,
+    phoneNumber: input.userProfile.phoneNumber,
+  });
 
   // V2: Membership tracked via RosterEntry docs only.
   // No more memberIds[] writes on the Team doc.
@@ -683,7 +715,12 @@ export async function joinTeam(db: Firestore, input: JoinTeamInput): Promise<Tea
   await invalidateTeamCache(team.id!, team.teamCode, team.unicode);
   await cache.del(CACHE_KEYS.USER_TEAMS(input.userId));
 
-  logger.info('User joined team', { userId: input.userId, teamId: team.id, role });
+  logger.info('User joined team', {
+    userId: input.userId,
+    teamId: team.id,
+    role,
+    status: rosterStatus,
+  });
 
   const { team: updatedTeam } = await getTeamCodeById(db, team.id!, false);
   return updatedTeam;
@@ -744,20 +781,23 @@ export async function removeMember(
   removedBy: string
 ): Promise<TeamCode> {
   const { team } = await getTeamCodeById(db, teamId, false);
+  const rosterService = new RosterEntryService(db);
+  const removerEntry = await rosterService.getActiveOrPendingRosterEntry(removedBy, teamId);
+  const removerLegacyRole = team.members?.find((m: TeamMember) => m.id === removedBy)?.role;
+  const removerRole = normalizeTeamEditorRole(removerEntry?.role ?? removerLegacyRole);
 
-  // Check permissions
-  const remover = team.members?.find((m: TeamMember) => m.id === removedBy);
-  if (!canManageTeam(remover)) {
+  if (!TEAM_SETTINGS_EDITOR_ROLES.has(removerRole)) {
     throw forbiddenError('admin');
   }
 
+  const rosterEntry = await rosterService.getActiveOrPendingRosterEntry(userId, teamId);
   const memberToRemove = team.members?.find((m: TeamMember) => m.id === userId);
-  if (!memberToRemove) {
+  if (!rosterEntry && !memberToRemove) {
     throw notFoundError('member');
   }
 
   // Prevent removing last admin
-  if (memberToRemove.role === ROLE.admin) {
+  if (memberToRemove?.role === ROLE.admin) {
     const adminCount = team.members?.filter((m) => m.role === ROLE.admin).length ?? 0;
     if (adminCount <= 1) {
       throw conflictError('Cannot remove the last administrator');
@@ -765,17 +805,8 @@ export async function removeMember(
   }
 
   // V2: Remove via RosterEntry (soft-delete), no more memberIds[] writes.
-  const rosterService = new RosterEntryService(db);
-  const rosterSnap = await db
-    .collection('RosterEntries')
-    .where('teamId', '==', teamId)
-    .where('userId', '==', userId)
-    .where('status', 'in', [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING])
-    .limit(1)
-    .get();
-
-  if (!rosterSnap.empty) {
-    await rosterService.removeFromTeam(rosterSnap.docs[0].id);
+  if (rosterEntry?.id) {
+    await rosterService.removeFromTeam(rosterEntry.id);
   }
 
   // Invalidate cache
@@ -1144,13 +1175,26 @@ export async function getUserTeams(
     return { teams: cached, cached: true };
   }
 
-  const snapshot = await db
-    .collection('Teams')
-    .where('memberIds', 'array-contains', userId)
-    .where('isActive', '==', true)
+  const rosterSnapshot = await db
+    .collection('RosterEntries')
+    .where('userId', '==', userId)
+    .where('status', 'in', [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING])
     .get();
 
-  const teams = snapshot.docs.map(docToTeamCode);
+  const teamIds = Array.from(
+    new Set(
+      rosterSnapshot.docs
+        .map((doc) => doc.data()?.['teamId'])
+        .filter((teamId): teamId is string => typeof teamId === 'string' && teamId.length > 0)
+    )
+  );
+
+  const teamDocs = await Promise.all(
+    teamIds.map((teamId) => db.collection('Teams').doc(teamId).get())
+  );
+  const teams = teamDocs
+    .filter((doc) => doc.exists && doc.data()?.['isActive'] === true)
+    .map((doc) => docToTeamCode(doc));
 
   // Cache result
   await cache.set(cacheKey, teams, { ttl: TEAM_CACHE_TTL });

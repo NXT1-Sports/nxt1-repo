@@ -4,7 +4,8 @@
 # Deploys Cloud Functions when changes are pushed to main.
 #
 # Architecture:
-#   - Firebase App Hosting handles web (Angular SSR) and backend (Express)
+#   - Firebase App Hosting handles web (Angular SSR)
+#   - Backend (Express API) deploys separately via deploy-backend.yml over SSH/PM2
 #   - This workflow handles Cloud Functions ONLY (firebase deploy --only functions)
 #
 # Trigger paths:

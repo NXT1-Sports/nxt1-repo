@@ -7,6 +7,13 @@ export interface PendingAttachmentViewerFile {
   readonly type?: string;
   readonly isImage?: boolean;
   readonly isVideo?: boolean;
+  /**
+   * WebView-accessible native media path (e.g. `capacitor://localhost/...` on iOS).
+   * Set for native Capacitor gallery picks where `file.size === 0` because the
+   * browser File is a lightweight placeholder and `createObjectURL(file)` would
+   * produce an unplayable empty blob URL.
+   */
+  readonly nativeWebPath?: string;
 }
 
 export interface PendingAttachmentViewerResult {
@@ -48,8 +55,13 @@ export function buildPendingAttachmentViewer(
         url = file.previewUrl;
       } else if (kind === 'video') {
         // previewUrl is a JPEG canvas thumbnail — NOT a playable video.
-        // Always create a real blob URL from the actual file for the viewer.
-        if (objectUrlApi) {
+        // For native Capacitor videos, file.size === 0 (the File is a lightweight
+        // placeholder). createObjectURL on an empty File produces an unplayable
+        // blob URL. Use nativeWebPath (a WebView-accessible capacitor:// URL) when
+        // available so the video can actually play in the viewer.
+        if (file.nativeWebPath && file.file.size === 0) {
+          url = file.nativeWebPath;
+        } else if (objectUrlApi) {
           url = objectUrlApi.createObjectURL(file.file);
           tempObjectUrls.push(url);
         }
@@ -70,7 +82,11 @@ export function buildPendingAttachmentViewer(
           type: kind,
           alt: file.file.name,
           name: file.file.name,
-          size: file.file.size,
+          // For native videos the JS File is a zero-byte placeholder;
+          // propagate the real size so the viewer can show it correctly.
+          size: file.file.size || 0,
+          // Pass the thumbnail as a poster image when available.
+          ...(kind === 'video' && file.previewUrl ? { poster: file.previewUrl } : {}),
         } as MediaViewerItem,
       };
     })

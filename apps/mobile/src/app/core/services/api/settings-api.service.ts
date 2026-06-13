@@ -18,7 +18,6 @@ import { UserCancelledError } from '@nxt1/ui/settings';
 import { CapacitorHttpAdapter } from '../../infrastructure';
 import { environment } from '../../../../environments/environment';
 import { BiometricService } from '../auth/biometric.service';
-import { AuthFlowService } from '../auth/auth-flow.service';
 import { FcmRegistrationService } from '../native/fcm-registration.service';
 import { AnalyticsService } from '../infrastructure/analytics.service';
 
@@ -40,7 +39,6 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
   private readonly http = inject(CapacitorHttpAdapter);
   private readonly baseUrl = environment.apiUrl;
   private readonly biometricService = inject(BiometricService);
-  private readonly authService = inject(AuthFlowService);
   private readonly fcmRegistration = inject(FcmRegistrationService);
   private readonly analyticsService = inject(AnalyticsService);
 
@@ -167,8 +165,8 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
   /**
    * Enable biometric login:
    * 1. Verify the device has biometric hardware.
-   * 2. Reuse the in-session email/password from auth.
-   * 3. Run the same native enrollment flow used on the auth screen.
+   * 2. Run a native biometric verification immediately from Settings.
+   * 3. Mark the current persisted session as biometric-protected on device.
    * 4. Only if everything succeeds, persist `biometricLogin: true` to the backend.
    *
    * Throws `UserCancelledError` if the user dismisses any prompt so the caller
@@ -181,22 +179,7 @@ export class SettingsApiService implements SettingsPersistenceAdapter {
       throw new Error(`${this.biometricService.biometryName()} is not available on this device`);
     }
 
-    // 2. Retrieve authenticated user's email
-    const email = this.authService.user()?.email;
-    if (!email) {
-      throw new Error('No authenticated user email found');
-    }
-
-    // 3. Reuse the most recent email-auth password so settings can use the
-    // same native biometric enrollment path as the auth screen.
-    const password = this.authService.getCachedPassword();
-    if (!password) {
-      throw new Error(
-        `To enable ${this.biometricService.biometryName()}, sign in with your email and password again, then try from Settings.`
-      );
-    }
-
-    const result = await this.biometricService.promptNativeEnrollment(email, password);
+    const result = await this.biometricService.promptDeviceUnlockEnrollment();
     if (!result.enrolled) {
       if (result.reason === 'cancelled') {
         throw new UserCancelledError();

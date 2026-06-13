@@ -169,7 +169,6 @@
       }
     </style>
 
-    <link rel="canonical" href="https://nxt1sports.com/" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta
       name="description"
@@ -222,8 +221,6 @@
       Priority order: preconnect > dns-prefetch > preload
       Only hint origins that are used during initial page load.
     -->
-    <link rel="preconnect" href="https://storage.googleapis.com" crossorigin />
-    <link rel="preconnect" href="https://firebaseinstallations.googleapis.com" crossorigin />
     <link rel="dns-prefetch" href="https://firestore.googleapis.com" />
     <link rel="dns-prefetch" href="https://identitytoolkit.googleapis.com" />
     <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
@@ -231,7 +228,6 @@
     <link rel="dns-prefetch" href="https://a.espncdn.com" />
     <link rel="dns-prefetch" href="https://firebasestorage.googleapis.com" />
     <link rel="dns-prefetch" href="https://nxt1sports.firebasestorage.app" />
-    <link rel="dns-prefetch" href="https://static.hotjar.com" />
 
     <!-- Preload deferred styles as non-render-blocking -->
     <link
@@ -280,6 +276,8 @@
             return;
           }
 
+          removeInteractionListeners();
+
           a = o.getElementsByTagName("head")[0];
           r = o.createElement("script");
           r.async = true;
@@ -289,12 +287,23 @@
           a.appendChild(r);
         };
 
+        const interactionEvents = ["pointerdown", "keydown", "touchstart", "scroll"];
+        const removeInteractionListeners = function () {
+          interactionEvents.forEach(function (eventName) {
+            h.removeEventListener(eventName, loadHotjar);
+          });
+        };
+
+        interactionEvents.forEach(function (eventName) {
+          h.addEventListener(eventName, loadHotjar, { passive: true, once: true });
+        });
+
         if ("requestIdleCallback" in h) {
-          h.requestIdleCallback(loadHotjar, { timeout: 2000 });
+          h.requestIdleCallback(loadHotjar, { timeout: 12000 });
           return;
         }
 
-        h.setTimeout(loadHotjar, 1);
+        h.setTimeout(loadHotjar, 12000);
       })(window, document, "https://static.hotjar.com/c/hotjar-", ".js?sv=");
     </script>
   </head>

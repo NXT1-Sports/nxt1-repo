@@ -163,7 +163,6 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
           ctaLabel="Build Your Agentic Profile"
           ctaRoute="/auth"
           titleId="profile-cta-banner-title"
-          [avatarImages]="ctaAvatars"
         />
       }
     </nxt1-profile-shell-web>
@@ -1065,11 +1064,13 @@ export class ProfileComponent implements OnInit, OnDestroy {
 
     if (result.linkSources && result.updatedLinks) {
       const connectedSources = mapToConnectedSources(result.linkSources.links);
+      const disconnectedSignInProviders = result.disconnectedSignInProviders ?? [];
       const saveResult = await this.editProfileApiService.updateSection(
         user.uid,
         'connected-sources',
         {
           connectedSources,
+          ...(disconnectedSignInProviders.length > 0 ? { disconnectedSignInProviders } : {}),
         }
       );
 
@@ -1190,6 +1191,11 @@ export class ProfileComponent implements OnInit, OnDestroy {
     const meta = this.profileMeta();
     if (!meta) return;
 
+    this.analytics.trackEvent(APP_EVENTS.PROFILE_SHARED, {
+      profile_id: meta.id,
+      is_own_profile: this.isOwnProfile(),
+    });
+
     await this.share.shareProfile(meta, {
       analyticsProps: { is_own_profile: this.isOwnProfile() },
     });
@@ -1248,6 +1254,11 @@ export class ProfileComponent implements OnInit, OnDestroy {
       UTM_CAMPAIGN.PROFILE,
       meta?.sport?.toLowerCase()
     );
+
+    this.analytics.trackEvent(APP_EVENTS.PROFILE_QR_SCANNED, {
+      profile_id: unicode,
+      is_own_profile: this.isOwnProfile(),
+    });
 
     try {
       await this.qrCode.open({

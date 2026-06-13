@@ -27,6 +27,15 @@ const __dirname = dirname(__filename);
  */
 const AUTH_FILE = path.join(__dirname, '.auth', 'user.json');
 
+function normalizePathname(pathname: string): string {
+  const normalized = pathname.replace(/\/+$/, '');
+  return normalized === '' ? '/' : normalized;
+}
+
+function isLoginPath(pathname: string): boolean {
+  return normalizePathname(pathname) === '/auth';
+}
+
 setup('global auth setup', async ({ page }) => {
   // Ensure .auth directory exists
   const authDir = path.dirname(AUTH_FILE);
@@ -83,8 +92,11 @@ setup('global auth setup', async ({ page }) => {
     const submitButton = page.getByRole('button', { name: /sign in|log in|submit/i });
     await submitButton.click();
 
-    // Wait for successful login (redirect away from auth pages)
-    await page.waitForURL((url) => !url.pathname.includes('/auth/'), { timeout: 30_000 });
+    // Wait for successful login to leave the primary login page.
+    // Verified-email and onboarding routes may still live under /auth.
+    await page.waitForURL((url) => !isLoginPath(url.pathname), {
+      timeout: 30_000,
+    });
 
     console.log('✅ Authentication successful');
     console.log(`   Redirected to: ${page.url()}`);

@@ -1,4 +1,5 @@
 import type {
+  AgentMessageSemanticPhase,
   AgentXMessagePart,
   AgentXRichCard,
   AgentXSelectedAction,
@@ -29,6 +30,9 @@ export interface MessageAttachment {
 export interface PendingFile {
   readonly id: string;
   readonly file: File;
+  readonly nativeUri?: string;
+  readonly nativeWebPath?: string;
+  readonly sizeBytes?: number;
   readonly previewUrl: string | null;
   readonly isImage: boolean;
   readonly isVideo: boolean;
@@ -53,6 +57,7 @@ export interface OperationMessage {
   readonly yieldResolvedText?: string;
   readonly selectedAction?: AgentXSelectedAction;
   readonly interruptedReason?: 'paused' | 'cancelled';
+  readonly semanticPhase?: AgentMessageSemanticPhase;
 }
 
 export interface StreamTurnWatermark {

@@ -21,6 +21,7 @@ public class NxtThemePlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "NxtTheme"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "setStyle", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "resetWebViewLayout", returnType: CAPPluginReturnPromise),
     ]
 
     @objc func setStyle(_ call: CAPPluginCall) {
@@ -69,6 +70,39 @@ public class NxtThemePlugin: CAPPlugin, CAPBridgedPlugin {
             print("[NxtThemePlugin] ✅ Applied to \(vcCount) ViewController(s) in chain")
             print("[NxtThemePlugin] ✅ bridge?.viewController = \(String(describing: self.bridge?.viewController))")
             call.resolve()
+        }
+    }
+
+    @objc func resetWebViewLayout(_ call: CAPPluginCall) {
+        // Resolve immediately — the JS caller does not need to wait for retries.
+        call.resolve()
+
+        DispatchQueue.main.async { [weak self] in
+            guard let webView = self?.bridge?.webView else { return }
+
+            func applyReset() {
+                webView.scrollView.contentOffset = .zero
+                webView.scrollView.contentInset = .zero
+                webView.scrollView.scrollIndicatorInsets = .zero
+
+                if let superview = webView.superview {
+                    webView.frame = superview.bounds
+                }
+
+                webView.setNeedsLayout()
+                webView.superview?.setNeedsLayout()
+                webView.layoutIfNeeded()
+                webView.superview?.layoutIfNeeded()
+
+                webView.evaluateJavaScript(
+                    "window.scrollTo(0,0); window.dispatchEvent(new Event('resize'));",
+                    completionHandler: nil
+                )
+            }
+
+            applyReset()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.20) { applyReset() }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.50) { applyReset() }
         }
     }
 }

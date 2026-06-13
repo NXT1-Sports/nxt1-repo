@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildVideoUploadBatchProgressState,
+  buildVideoUploadProgressDetail,
   canAutoCreateTeamFilmReview,
+  resolvePersistedVideoThumbnailUrl,
 } from './agent-x-operation-chat-attachments.facade';
 
 describe('canAutoCreateTeamFilmReview', () => {
@@ -38,5 +40,69 @@ describe('buildVideoUploadBatchProgressState', () => {
 
   it('returns null when there is no active batch', () => {
     expect(buildVideoUploadBatchProgressState([])).toBeNull();
+  });
+});
+
+describe('buildVideoUploadProgressDetail', () => {
+  it('uses professional copy for a single video instead of the raw filename', () => {
+    expect(
+      buildVideoUploadProgressDetail({
+        totalFiles: 1,
+        completedFiles: 0,
+        failedFiles: 0,
+        activeFiles: 1,
+        currentFileName: '02420402042.mp4',
+        overallPercent: 42,
+      })
+    ).toBe('Your video is uploading securely');
+  });
+
+  it('uses polished preparation copy before a single upload starts', () => {
+    expect(
+      buildVideoUploadProgressDetail({
+        totalFiles: 1,
+        completedFiles: 0,
+        failedFiles: 0,
+        activeFiles: 0,
+        currentFileName: '02420402042.mp4',
+        overallPercent: 0,
+      })
+    ).toBeNull();
+  });
+
+  it('keeps batch copy focused on progress counts', () => {
+    expect(
+      buildVideoUploadProgressDetail({
+        totalFiles: 3,
+        completedFiles: 1,
+        failedFiles: 0,
+        activeFiles: 2,
+        currentFileName: 'game-2.mp4',
+        overallPercent: 47,
+      })
+    ).toBe('1 of 3 videos uploaded • 2 still uploading');
+  });
+});
+
+describe('resolvePersistedVideoThumbnailUrl', () => {
+  it('prefers an uploaded remote thumbnail when present', () => {
+    expect(
+      resolvePersistedVideoThumbnailUrl(
+        'https://storage.googleapis.com/bucket/highlight-thumb.jpg',
+        'data:image/jpeg;base64,AAAA'
+      )
+    ).toBe('https://storage.googleapis.com/bucket/highlight-thumb.jpg');
+  });
+
+  it('falls back to a generated data-image thumbnail for Firebase uploads', () => {
+    expect(resolvePersistedVideoThumbnailUrl(undefined, 'data:image/jpeg;base64,AAAA')).toBe(
+      'data:image/jpeg;base64,AAAA'
+    );
+  });
+
+  it('ignores non-image preview urls', () => {
+    expect(resolvePersistedVideoThumbnailUrl(undefined, 'blob:https://example.com/file')).toBe(
+      undefined
+    );
   });
 });

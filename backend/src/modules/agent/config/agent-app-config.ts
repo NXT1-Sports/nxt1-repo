@@ -166,6 +166,19 @@ function command(
   };
 }
 
+const BRAND_HIGHLIGHT_REEL_EXECUTION_PROMPT = [
+  'You are Brand Coordinator executing a finished highlight reel workflow, not a concept brainstorm.',
+  'If a video attachment, Cloudflare video id, storage URL, Hudl/social URL, or recent internal video source is available, use it as source media and produce the strongest deliverable possible now.',
+  'When source video exists and the user asks to create, make, build, or cut a highlight video/reel, do not ask for A/B/C options, style approval, sport confirmation, or pipeline confirmation. Choose the strongest default and execute.',
+  'Required workflow for source video: stage_media when normalization is needed, analyze_video to identify usable play windows and source durations, ffmpeg_trim_video for selected full-play windows or preserved short clips, ffmpeg_merge_videos for the final reel, and ffmpeg_generate_thumbnail on the merged output.',
+  'Default clip policy: when the user uploads a batch of already-short clips, treat them as curated source clips and preserve the full clip or full play window, trimming only obvious dead air. Use tight 3-7 second best-moment cuts only when the user asks for shorts, teasers, top moments, best moments, or gives a short target duration.',
+  'If analysis detects a sport different from profile/team context, use the detected sport only as source-media context for timing and do not stop for confirmation unless the requested overlay text would be misleading.',
+  'By default, when the user asks for the strongest branded, cinematic, coach-ready, or recruiting-ready highlight reel and does not ask for a raw/simple cut, a clean merge only, or no intro, include a branded 3-5 second video-style opener before the gameplay clips. If title-card branding is requested or implied, create the card with generate_graphic, animate that still with runway_generate_video, verify completion with runway_check_task, and merge the resulting motion intro as the first clip.',
+  'Use generate_graphic only for a title card, cover image, or thumbnail. Use runway_generate_video only on a generated still image and not on uploaded game film, Hudl clips, or merged highlight reels. If a generated intro image exists and the user did not explicitly ask for no intro or a plain merge, do not silently drop it or replace it with text burned onto the opening gameplay clip just to keep the merge moving; retry the staged Runway intro path once, then report a clear media-pipeline failure if the opener still cannot be produced.',
+  'Do not return only a storyboard, plan, or list of tools when source video exists. Final response must include produced output URLs or a clear blocking error from the media pipeline.',
+  'If no usable source video is available after checking attached context and recent internal video sources, ask one concise question for the missing clip or URL.',
+].join('\n');
+
 function toSentence(value: string | undefined): string {
   const trimmed = value?.trim();
   if (!trimmed) {
@@ -175,7 +188,24 @@ function toSentence(value: string | undefined): string {
   return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
 }
 
+const BRAND_CREATIVE_ACTION_RE =
+  /\b(graphic|poster|banner|thumbnail|visual|creative|promo|teaser|reel|highlight|media\s+kit|title\s+card|social\s+asset)\b/i;
+
+function shouldUseBrandDiscoveryPrompt(params: {
+  readonly coordinatorId: string;
+  readonly action: Pick<ConfiguredCoordinatorActionChip, 'label' | 'subLabel'>;
+  readonly surface: AgentXSelectedActionSurface;
+}): boolean {
+  if (params.coordinatorId !== 'brand_coordinator' || params.surface === 'scheduled') {
+    return false;
+  }
+
+  const promptSource = `${params.action.label} ${params.action.subLabel ?? ''}`;
+  return BRAND_CREATIVE_ACTION_RE.test(promptSource);
+}
+
 function buildFallbackVisiblePromptText(params: {
+  readonly coordinatorId: string;
   readonly coordinatorName: string;
   readonly coordinatorDescription: string;
   readonly action: Pick<ConfiguredCoordinatorActionChip, 'label' | 'subLabel'>;
@@ -190,7 +220,9 @@ function buildFallbackVisiblePromptText(params: {
   const closing =
     params.surface === 'scheduled'
       ? 'Give me the execution plan, timing, checkpoints, and follow-up actions I should run with.'
-      : 'Give me the clearest deliverable, priorities, and next steps to act on immediately.';
+      : shouldUseBrandDiscoveryPrompt(params)
+        ? 'Start by proposing 3 creative directions, call out any missing audience/platform/copy/style inputs, and only produce the final asset after those are confirmed.'
+        : 'Give me the clearest deliverable, priorities, and next steps to act on immediately.';
 
   return [opening, detail, closing]
     .filter((part): part is string => !!part && part.length > 0)
@@ -200,6 +232,7 @@ function buildFallbackVisiblePromptText(params: {
 function ensureActionPromptText(
   action: ConfiguredCoordinatorActionChip,
   params: {
+    readonly coordinatorId: string;
     readonly coordinatorName: string;
     readonly coordinatorDescription: string;
     readonly surface: AgentXSelectedActionSurface;
@@ -216,6 +249,7 @@ function ensureActionPromptText(
   return {
     ...action,
     promptText: buildFallbackVisiblePromptText({
+      coordinatorId: params.coordinatorId,
       coordinatorName: params.coordinatorName,
       coordinatorDescription: params.coordinatorDescription,
       action,
@@ -274,6 +308,7 @@ function applyCoordinatorPromptTextConfig(
               commands: Object.freeze(
                 override.commands.map((action) =>
                   ensureActionPromptText(action, {
+                    coordinatorId,
                     coordinatorName: coordinatorIdToDescriptorName(coordinatorId),
                     coordinatorDescription: roleDescription,
                     surface: 'command',
@@ -287,6 +322,7 @@ function applyCoordinatorPromptTextConfig(
               scheduledActions: Object.freeze(
                 override.scheduledActions.map((action) =>
                   ensureActionPromptText(action, {
+                    coordinatorId,
                     coordinatorName: coordinatorIdToDescriptorName(coordinatorId),
                     coordinatorDescription: roleDescription,
                     surface: 'scheduled',
@@ -303,6 +339,7 @@ function applyCoordinatorPromptTextConfig(
       commands: Object.freeze(
         coordinator.commands.map((action) =>
           ensureActionPromptText(action, {
+            coordinatorId,
             coordinatorName: coordinatorIdToDescriptorName(coordinatorId),
             coordinatorDescription: coordinator.description,
             surface: 'command',
@@ -312,6 +349,7 @@ function applyCoordinatorPromptTextConfig(
       scheduledActions: Object.freeze(
         coordinator.scheduledActions.map((action) =>
           ensureActionPromptText(action, {
+            coordinatorId,
             coordinatorName: coordinatorIdToDescriptorName(coordinatorId),
             coordinatorDescription: coordinator.description,
             surface: 'scheduled',
@@ -1130,9 +1168,10 @@ export const DEFAULT_COORDINATOR_UI_CONFIG: Readonly<
         command('brand-post', 'Create Brand Post', 'sparkles', 'Generate social-ready creative'),
         command(
           'brand-highlight',
-          'Build Highlight Concept',
+          'Create Highlight Reel',
           'videocam',
-          'Storyboard your next reel'
+          'Cut uploaded film into a finished reel',
+          BRAND_HIGHLIGHT_REEL_EXECUTION_PROMPT
         ),
         command('brand-campaign', 'Launch Campaign Plan', 'rocket', 'Plan content by timeline'),
       ],
@@ -1149,9 +1188,10 @@ export const DEFAULT_COORDINATOR_UI_CONFIG: Readonly<
             ),
             command(
               'brand-highlight',
-              'Build Highlight Concept',
+              'Create Highlight Reel',
               'videocam',
-              'Storyboard your next reel'
+              'Cut uploaded film into a finished reel',
+              BRAND_HIGHLIGHT_REEL_EXECUTION_PROMPT
             ),
             command(
               'brand-campaign',
@@ -1168,9 +1208,10 @@ export const DEFAULT_COORDINATOR_UI_CONFIG: Readonly<
             command('brand-post', 'Create Team Post', 'sparkles', 'Generate team-facing creative'),
             command(
               'brand-highlight',
-              'Build Program Highlight Concept',
+              'Create Program Highlight Reel',
               'videocam',
-              'Showcase your culture and results'
+              'Cut team film into a finished reel',
+              BRAND_HIGHLIGHT_REEL_EXECUTION_PROMPT
             ),
             command(
               'brand-campaign',
@@ -1194,7 +1235,8 @@ export const DEFAULT_COORDINATOR_UI_CONFIG: Readonly<
               'brand-highlight',
               'Build Facilities Showcase',
               'videocam',
-              'Package a premium program story'
+              'Package a premium program story',
+              BRAND_HIGHLIGHT_REEL_EXECUTION_PROMPT
             ),
             command(
               'brand-campaign',
@@ -1864,6 +1906,7 @@ function getCoordinatorActionsForRole(
     commands: Object.freeze(
       (roleUiOverride?.commands ?? coordinator.commands).map((action) =>
         ensureActionPromptText(action, {
+          coordinatorId: coordinator.id,
           coordinatorName: coordinator.name,
           coordinatorDescription: roleUiOverride?.description ?? coordinator.description,
           surface: 'command',
@@ -1873,6 +1916,7 @@ function getCoordinatorActionsForRole(
     scheduledActions: Object.freeze(
       (roleUiOverride?.scheduledActions ?? coordinator.scheduledActions).map((action) =>
         ensureActionPromptText(action, {
+          coordinatorId: coordinator.id,
           coordinatorName: coordinator.name,
           coordinatorDescription: roleUiOverride?.description ?? coordinator.description,
           surface: 'scheduled',

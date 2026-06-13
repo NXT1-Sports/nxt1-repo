@@ -27,7 +27,7 @@ vi.mock('../../config/agent-app-config.js', async (importOriginal) => {
   };
 });
 
-const { AgentGenerationService } = await import('../generation.service.js');
+const { AgentGenerationService, WEEKLY_PLAYBOOK_MODEL } = await import('../generation.service.js');
 
 type DocData = Record<string, unknown>;
 
@@ -258,204 +258,121 @@ const activeGoals: AgentDashboardGoal[] = [
   },
 ];
 
+function createMockLlmResponse() {
+  const items = [
+    {
+      id: 'weekly-1',
+      weekLabel: 'Weekly',
+      title: 'Update roster sheet',
+      summary: 'Refresh your weekly roster materials.',
+      why: 'Consistency keeps your program ready for every contact window.',
+      details: 'Agent X will prepare the updated roster materials for review.',
+      actionLabel: 'Review Draft',
+      goal: { id: 'recurring', label: 'Weekly Tasks' },
+      coordinator: { id: 'admin', label: 'Admin Coordinator', icon: 'sparkles' },
+    },
+    {
+      id: 'weekly-2',
+      weekLabel: 'Weekly',
+      title: 'Check recruiting replies',
+      summary: 'Review inbound recruiting responses.',
+      why: 'Quick follow-up keeps momentum with active conversations.',
+      details: 'Agent X will organize the latest recruiting replies for follow-up.',
+      actionLabel: 'Open Inbox',
+      goal: { id: 'recurring', label: 'Weekly Tasks' },
+      coordinator: { id: 'admin', label: 'Admin Coordinator', icon: 'sparkles' },
+    },
+    {
+      id: 'goal-1a',
+      weekLabel: 'Mon',
+      title: 'Send coach outreach batch',
+      summary: 'Reach out to top recruiting targets.',
+      why: 'Spring evaluation windows are active for your recruiting goals.',
+      details: 'Agent X will draft the next coach outreach batch for approval.',
+      actionLabel: 'Send Emails',
+      goal: { id: 'goal-recruiting', label: 'Get athletes recruited' },
+      coordinator: { id: 'strategy', label: 'Strategy Coordinator', icon: 'trophy-outline' },
+    },
+    {
+      id: 'goal-1b',
+      weekLabel: 'Tue',
+      title: 'Refine target list',
+      summary: 'Prioritize the next recruiting list.',
+      why: 'A tighter target list improves the quality of every outreach cycle.',
+      details: 'Agent X will refine the recruiting target list for this week.',
+      actionLabel: 'View Targets',
+      goal: { id: 'goal-recruiting', label: 'Get athletes recruited' },
+      coordinator: { id: 'strategy', label: 'Strategy Coordinator', icon: 'trophy-outline' },
+    },
+    {
+      id: 'goal-2a',
+      weekLabel: 'Wed',
+      title: 'Review first-half clips',
+      summary: 'Study the first-half possession film.',
+      why: 'Film review gives immediate corrections before next competition.',
+      details: 'Agent X will organize the first-half clips for your review session.',
+      actionLabel: 'Watch Film',
+      goal: { id: 'goal-film', label: 'Review film' },
+      coordinator: { id: 'strategy', label: 'Strategy Coordinator', icon: 'trophy-outline' },
+    },
+    {
+      id: 'goal-2b',
+      weekLabel: 'Thu',
+      title: 'Tag teaching clips',
+      summary: 'Tag the clips that should be kept for teaching.',
+      why: 'Your best clips become reusable teaching material all season.',
+      details: 'Agent X will tag the best teaching clips for your next session.',
+      actionLabel: 'Tag Clips',
+      goal: { id: 'goal-film', label: 'Review film' },
+      coordinator: { id: 'strategy', label: 'Strategy Coordinator', icon: 'trophy-outline' },
+    },
+    {
+      id: 'goal-3a',
+      weekLabel: 'Fri',
+      title: 'Draft content calendar',
+      summary: 'Plan the next week of brand content.',
+      why: 'Consistent posting sharpens your visibility with athletes and families.',
+      details: 'Agent X will draft the next brand content calendar for review.',
+      actionLabel: 'View Calendar',
+      goal: { id: 'goal-brand', label: 'Build brand presence' },
+      coordinator: { id: 'admin', label: 'Admin Coordinator', icon: 'sparkles' },
+    },
+    {
+      id: 'goal-3b',
+      weekLabel: 'Fri',
+      title: 'Prepare social recap',
+      summary: 'Package this week into a social recap.',
+      why: 'Weekly recaps keep your brand visible without reinventing the story.',
+      details: 'Agent X will prepare the weekly social recap assets for review.',
+      actionLabel: 'Review Assets',
+      goal: { id: 'goal-brand', label: 'Build brand presence' },
+      coordinator: { id: 'admin', label: 'Admin Coordinator', icon: 'sparkles' },
+    },
+  ];
+
+  return {
+    content: JSON.stringify({
+      notificationTitle: 'Your recruiting push is ready',
+      notificationBody: 'Update roster sheet · Send coach outreach batch',
+      items,
+    }),
+    parsedOutput: {
+      notificationTitle: 'Your recruiting push is ready',
+      notificationBody: 'Update roster sheet · Send coach outreach batch',
+      items,
+    },
+    toolCalls: [],
+    model: 'test-model',
+    usage: { inputTokens: 100, outputTokens: 100, totalTokens: 200 },
+    latencyMs: 20,
+    costUsd: 0.01,
+    finishReason: 'stop',
+  };
+}
+
 function createMockLlm(): OpenRouterService {
   return {
-    complete: vi.fn().mockResolvedValue({
-      content: JSON.stringify({
-        notificationTitle: 'Your recruiting push is ready',
-        notificationBody: 'Update roster sheet · Send coach outreach batch',
-        items: [
-          {
-            id: 'weekly-1',
-            weekLabel: 'Weekly',
-            title: 'Update roster sheet',
-            summary: 'Refresh your weekly roster materials.',
-            why: 'Consistency keeps your program ready for every contact window.',
-            details: 'Agent X will prepare the updated roster materials for review.',
-            actionLabel: 'Review Draft',
-            goal: { id: 'recurring', label: 'Weekly Tasks' },
-            coordinator: { id: 'admin', label: 'Admin Coordinator', icon: 'sparkles' },
-          },
-          {
-            id: 'weekly-2',
-            weekLabel: 'Weekly',
-            title: 'Check recruiting replies',
-            summary: 'Review inbound recruiting responses.',
-            why: 'Quick follow-up keeps momentum with active conversations.',
-            details: 'Agent X will organize the latest recruiting replies for follow-up.',
-            actionLabel: 'Open Inbox',
-            goal: { id: 'recurring', label: 'Weekly Tasks' },
-            coordinator: { id: 'admin', label: 'Admin Coordinator', icon: 'sparkles' },
-          },
-          {
-            id: 'goal-1a',
-            weekLabel: 'Mon',
-            title: 'Send coach outreach batch',
-            summary: 'Reach out to top recruiting targets.',
-            why: 'Spring evaluation windows are active for your recruiting goals.',
-            details: 'Agent X will draft the next coach outreach batch for approval.',
-            actionLabel: 'Send Emails',
-            goal: { id: 'goal-recruiting', label: 'Get athletes recruited' },
-            coordinator: { id: 'strategy', label: 'Strategy Coordinator', icon: 'trophy-outline' },
-          },
-          {
-            id: 'goal-1b',
-            weekLabel: 'Tue',
-            title: 'Refine target list',
-            summary: 'Prioritize the next recruiting list.',
-            why: 'A tighter target list improves the quality of every outreach cycle.',
-            details: 'Agent X will refine the recruiting target list for this week.',
-            actionLabel: 'View Targets',
-            goal: { id: 'goal-recruiting', label: 'Get athletes recruited' },
-            coordinator: { id: 'strategy', label: 'Strategy Coordinator', icon: 'trophy-outline' },
-          },
-          {
-            id: 'goal-2a',
-            weekLabel: 'Wed',
-            title: 'Review first-half clips',
-            summary: 'Study the first-half possession film.',
-            why: 'Film review gives immediate corrections before next competition.',
-            details: 'Agent X will organize the first-half clips for your review session.',
-            actionLabel: 'Watch Film',
-            goal: { id: 'goal-film', label: 'Review film' },
-            coordinator: { id: 'strategy', label: 'Strategy Coordinator', icon: 'trophy-outline' },
-          },
-          {
-            id: 'goal-2b',
-            weekLabel: 'Thu',
-            title: 'Tag teaching clips',
-            summary: 'Tag the clips that should be kept for teaching.',
-            why: 'Your best clips become reusable teaching material all season.',
-            details: 'Agent X will tag the best teaching clips for your next session.',
-            actionLabel: 'Tag Clips',
-            goal: { id: 'goal-film', label: 'Review film' },
-            coordinator: { id: 'strategy', label: 'Strategy Coordinator', icon: 'trophy-outline' },
-          },
-          {
-            id: 'goal-3a',
-            weekLabel: 'Fri',
-            title: 'Draft content calendar',
-            summary: 'Plan the next week of brand content.',
-            why: 'Consistent posting sharpens your visibility with athletes and families.',
-            details: 'Agent X will draft the next brand content calendar for review.',
-            actionLabel: 'View Calendar',
-            goal: { id: 'goal-brand', label: 'Build brand presence' },
-            coordinator: { id: 'admin', label: 'Admin Coordinator', icon: 'sparkles' },
-          },
-          {
-            id: 'goal-3b',
-            weekLabel: 'Fri',
-            title: 'Prepare social recap',
-            summary: 'Package this week into a social recap.',
-            why: 'Weekly recaps keep your brand visible without reinventing the story.',
-            details: 'Agent X will prepare the weekly social recap assets for review.',
-            actionLabel: 'Review Assets',
-            goal: { id: 'goal-brand', label: 'Build brand presence' },
-            coordinator: { id: 'admin', label: 'Admin Coordinator', icon: 'sparkles' },
-          },
-        ],
-      }),
-      parsedOutput: {
-        notificationTitle: 'Your recruiting push is ready',
-        notificationBody: 'Update roster sheet · Send coach outreach batch',
-        items: [
-          {
-            id: 'weekly-1',
-            weekLabel: 'Weekly',
-            title: 'Update roster sheet',
-            summary: 'Refresh your weekly roster materials.',
-            why: 'Consistency keeps your program ready for every contact window.',
-            details: 'Agent X will prepare the updated roster materials for review.',
-            actionLabel: 'Review Draft',
-            goal: { id: 'recurring', label: 'Weekly Tasks' },
-            coordinator: { id: 'admin', label: 'Admin Coordinator', icon: 'sparkles' },
-          },
-          {
-            id: 'weekly-2',
-            weekLabel: 'Weekly',
-            title: 'Check recruiting replies',
-            summary: 'Review inbound recruiting responses.',
-            why: 'Quick follow-up keeps momentum with active conversations.',
-            details: 'Agent X will organize the latest recruiting replies for follow-up.',
-            actionLabel: 'Open Inbox',
-            goal: { id: 'recurring', label: 'Weekly Tasks' },
-            coordinator: { id: 'admin', label: 'Admin Coordinator', icon: 'sparkles' },
-          },
-          {
-            id: 'goal-1a',
-            weekLabel: 'Mon',
-            title: 'Send coach outreach batch',
-            summary: 'Reach out to top recruiting targets.',
-            why: 'Spring evaluation windows are active for your recruiting goals.',
-            details: 'Agent X will draft the next coach outreach batch for approval.',
-            actionLabel: 'Send Emails',
-            goal: { id: 'goal-recruiting', label: 'Get athletes recruited' },
-            coordinator: { id: 'strategy', label: 'Strategy Coordinator', icon: 'trophy-outline' },
-          },
-          {
-            id: 'goal-1b',
-            weekLabel: 'Tue',
-            title: 'Refine target list',
-            summary: 'Prioritize the next recruiting list.',
-            why: 'A tighter target list improves the quality of every outreach cycle.',
-            details: 'Agent X will refine the recruiting target list for this week.',
-            actionLabel: 'View Targets',
-            goal: { id: 'goal-recruiting', label: 'Get athletes recruited' },
-            coordinator: { id: 'strategy', label: 'Strategy Coordinator', icon: 'trophy-outline' },
-          },
-          {
-            id: 'goal-2a',
-            weekLabel: 'Wed',
-            title: 'Review first-half clips',
-            summary: 'Study the first-half possession film.',
-            why: 'Film review gives immediate corrections before next competition.',
-            details: 'Agent X will organize the first-half clips for your review session.',
-            actionLabel: 'Watch Film',
-            goal: { id: 'goal-film', label: 'Review film' },
-            coordinator: { id: 'strategy', label: 'Strategy Coordinator', icon: 'trophy-outline' },
-          },
-          {
-            id: 'goal-2b',
-            weekLabel: 'Thu',
-            title: 'Tag teaching clips',
-            summary: 'Tag the clips that should be kept for teaching.',
-            why: 'Your best clips become reusable teaching material all season.',
-            details: 'Agent X will tag the best teaching clips for your next session.',
-            actionLabel: 'Tag Clips',
-            goal: { id: 'goal-film', label: 'Review film' },
-            coordinator: { id: 'strategy', label: 'Strategy Coordinator', icon: 'trophy-outline' },
-          },
-          {
-            id: 'goal-3a',
-            weekLabel: 'Fri',
-            title: 'Draft content calendar',
-            summary: 'Plan the next week of brand content.',
-            why: 'Consistent posting sharpens your visibility with athletes and families.',
-            details: 'Agent X will draft the next brand content calendar for review.',
-            actionLabel: 'View Calendar',
-            goal: { id: 'goal-brand', label: 'Build brand presence' },
-            coordinator: { id: 'admin', label: 'Admin Coordinator', icon: 'sparkles' },
-          },
-          {
-            id: 'goal-3b',
-            weekLabel: 'Fri',
-            title: 'Prepare social recap',
-            summary: 'Package this week into a social recap.',
-            why: 'Weekly recaps keep your brand visible without reinventing the story.',
-            details: 'Agent X will prepare the weekly social recap assets for review.',
-            actionLabel: 'Review Assets',
-            goal: { id: 'goal-brand', label: 'Build brand presence' },
-            coordinator: { id: 'admin', label: 'Admin Coordinator', icon: 'sparkles' },
-          },
-        ],
-      },
-      toolCalls: [],
-      model: 'test-model',
-      usage: { inputTokens: 100, outputTokens: 100, totalTokens: 200 },
-      latencyMs: 20,
-      costUsd: 0.01,
-      finishReason: 'stop',
-    }),
+    complete: vi.fn().mockResolvedValue(createMockLlmResponse()),
   } as unknown as OpenRouterService;
 }
 
@@ -504,12 +421,203 @@ describe('AgentGenerationService.generatePlaybook', () => {
     expect(String(userPrompt)).toContain(
       'For EACH active user goal listed above, return EXACTLY 2 items tied to that goal.'
     );
-    expect(llmOptions).toMatchObject({ tier: 'task_automation' });
+    expect(WEEKLY_PLAYBOOK_MODEL).toBe('openai/gpt-oss-120b:free');
+    expect(llmOptions).toMatchObject({
+      tier: 'task_automation',
+      modelOverride: WEEKLY_PLAYBOOK_MODEL,
+    });
 
     const savedPlaybooks = fakeDb.inspectCollection(['Users', 'user-1', 'agent_playbooks']);
     expect(savedPlaybooks).toHaveLength(1);
     expect(savedPlaybooks[0]?.['items']).toHaveLength(8);
 
     expect(dispatchAgentPushMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries on the default automation tier when the free override fails', async () => {
+    const llm = createMockLlm();
+    const completeMock = vi.mocked(llm.complete);
+
+    completeMock.mockReset();
+    completeMock.mockRejectedValueOnce(new Error('free model structured output failed'));
+    completeMock.mockResolvedValueOnce(createMockLlmResponse());
+
+    const contextBuilder = {
+      buildPromptContext: vi.fn().mockResolvedValue({
+        profile: { userId: 'user-1', role: 'coach', displayName: 'Coach Johnson' },
+        memories: { user: [], team: [], organization: [] },
+        recentSyncSummaries: [],
+      }),
+      compressToPrompt: vi.fn().mockReturnValue('compressed-rag-context'),
+    } as unknown as ContextBuilder;
+
+    const fakeDb = new FakeFirestore({
+      userId: 'user-1',
+      userData: {
+        role: 'coach',
+        sport: 'basketball',
+        primarySport: 'basketball',
+        agentGoals: activeGoals,
+      },
+    });
+
+    const service = new AgentGenerationService(llm, contextBuilder);
+
+    const result = await service.generatePlaybook('user-1', fakeDb as unknown as Firestore);
+
+    expect(result.items).toHaveLength(8);
+    expect(completeMock).toHaveBeenCalledTimes(2);
+    expect(completeMock.mock.calls[0]?.[1]).toMatchObject({
+      tier: 'task_automation',
+      modelOverride: WEEKLY_PLAYBOOK_MODEL,
+    });
+    expect(completeMock.mock.calls[1]?.[1]).toMatchObject({
+      tier: 'task_automation',
+      modelOverride: 'anthropic/claude-sonnet-4.5',
+    });
+  });
+
+  it('tries the free model first for queued user-visible playbook jobs with a short timeout', async () => {
+    const llm = createMockLlm();
+    const completeMock = vi.mocked(llm.complete);
+
+    completeMock.mockReset();
+    completeMock.mockResolvedValueOnce(createMockLlmResponse());
+
+    const contextBuilder = {
+      buildPromptContext: vi.fn().mockResolvedValue({
+        profile: { userId: 'user-1', role: 'coach', displayName: 'Coach Johnson' },
+        memories: { user: [], team: [], organization: [] },
+        recentSyncSummaries: [],
+      }),
+      compressToPrompt: vi.fn().mockReturnValue('compressed-rag-context'),
+    } as unknown as ContextBuilder;
+
+    const fakeDb = new FakeFirestore({
+      userId: 'user-1',
+      userData: {
+        role: 'coach',
+        sport: 'basketball',
+        primarySport: 'basketball',
+        agentGoals: activeGoals,
+      },
+    });
+
+    const service = new AgentGenerationService(llm, contextBuilder);
+
+    const result = await service.generatePlaybook(
+      'user-1',
+      fakeDb as unknown as Firestore,
+      'playbook-visible-op'
+    );
+
+    expect(result.items).toHaveLength(8);
+    expect(completeMock).toHaveBeenCalledTimes(1);
+    expect(completeMock.mock.calls[0]?.[1]).toMatchObject({
+      tier: 'task_automation',
+      modelOverride: WEEKLY_PLAYBOOK_MODEL,
+      timeoutMs: 12_000,
+    });
+  });
+
+  it('falls back to Claude Sonnet 4.5 when the queued free playbook attempt fails', async () => {
+    const llm = createMockLlm();
+    const completeMock = vi.mocked(llm.complete);
+
+    completeMock.mockReset();
+    completeMock.mockRejectedValueOnce(new Error('free model timed out'));
+    completeMock.mockResolvedValueOnce(createMockLlmResponse());
+
+    const contextBuilder = {
+      buildPromptContext: vi.fn().mockResolvedValue({
+        profile: { userId: 'user-1', role: 'coach', displayName: 'Coach Johnson' },
+        memories: { user: [], team: [], organization: [] },
+        recentSyncSummaries: [],
+      }),
+      compressToPrompt: vi.fn().mockReturnValue('compressed-rag-context'),
+    } as unknown as ContextBuilder;
+
+    const fakeDb = new FakeFirestore({
+      userId: 'user-1',
+      userData: {
+        role: 'coach',
+        sport: 'basketball',
+        primarySport: 'basketball',
+        agentGoals: activeGoals,
+      },
+    });
+
+    const service = new AgentGenerationService(llm, contextBuilder);
+
+    const result = await service.generatePlaybook(
+      'user-1',
+      fakeDb as unknown as Firestore,
+      'playbook-visible-op'
+    );
+
+    expect(result.items).toHaveLength(8);
+    expect(completeMock).toHaveBeenCalledTimes(2);
+    expect(completeMock.mock.calls[0]?.[1]).toMatchObject({
+      tier: 'task_automation',
+      modelOverride: WEEKLY_PLAYBOOK_MODEL,
+      timeoutMs: 12_000,
+    });
+    expect(completeMock.mock.calls[1]?.[1]).toMatchObject({
+      tier: 'task_automation',
+      modelOverride: 'anthropic/claude-sonnet-4.5',
+    });
+  });
+
+  it('falls back to GPT 5.5 Pro after Claude Sonnet 4.5 fails', async () => {
+    const llm = createMockLlm();
+    const completeMock = vi.mocked(llm.complete);
+
+    completeMock.mockReset();
+    completeMock.mockRejectedValueOnce(new Error('free model timed out'));
+    completeMock.mockRejectedValueOnce(new Error('claude fallback failed'));
+    completeMock.mockResolvedValueOnce(createMockLlmResponse());
+
+    const contextBuilder = {
+      buildPromptContext: vi.fn().mockResolvedValue({
+        profile: { userId: 'user-1', role: 'coach', displayName: 'Coach Johnson' },
+        memories: { user: [], team: [], organization: [] },
+        recentSyncSummaries: [],
+      }),
+      compressToPrompt: vi.fn().mockReturnValue('compressed-rag-context'),
+    } as unknown as ContextBuilder;
+
+    const fakeDb = new FakeFirestore({
+      userId: 'user-1',
+      userData: {
+        role: 'coach',
+        sport: 'basketball',
+        primarySport: 'basketball',
+        agentGoals: activeGoals,
+      },
+    });
+
+    const service = new AgentGenerationService(llm, contextBuilder);
+
+    const result = await service.generatePlaybook(
+      'user-1',
+      fakeDb as unknown as Firestore,
+      'playbook-visible-op'
+    );
+
+    expect(result.items).toHaveLength(8);
+    expect(completeMock).toHaveBeenCalledTimes(3);
+    expect(completeMock.mock.calls[0]?.[1]).toMatchObject({
+      tier: 'task_automation',
+      modelOverride: WEEKLY_PLAYBOOK_MODEL,
+      timeoutMs: 12_000,
+    });
+    expect(completeMock.mock.calls[1]?.[1]).toMatchObject({
+      tier: 'task_automation',
+      modelOverride: 'anthropic/claude-sonnet-4.5',
+    });
+    expect(completeMock.mock.calls[2]?.[1]).toMatchObject({
+      tier: 'task_automation',
+      modelOverride: 'openai/gpt-5.5-pro',
+    });
   });
 });

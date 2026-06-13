@@ -11,9 +11,10 @@
  * Flow on cold start:
  *   1. notifyAppReady() — confirms the previously applied bundle didn't crash.
  *   2. checkForUpdate() — fetches the manifest, applies rollout/native checks.
- *   3. If a new bundle is eligible → download → set as active.
- *   4. The plugin reloads the WebView the next time the app is brought to
- *      foreground (Capgo behaviour) so the new code takes effect cleanly.
+ *   3. On the very first cold start after install, an eligible bundle is
+ *      downloaded and applied immediately via `set()`.
+ *   4. On subsequent launches, eligible bundles are staged via `next()` and
+ *      activated on the next reopen (Capgo behaviour).
  *
  * Failure handling: failure counter persisted in Preferences; after
  * LIVE_UPDATE_MAX_FAILURES consecutive failures we reset to the native bundle
@@ -44,6 +45,11 @@ import type { ILogger } from '@nxt1/core/logging';
 import { environment } from '../../../../environments/environment';
 
 const STATE_KEY = 'nxt1.liveUpdate.state.v1';
+
+interface PersistedLiveUpdateState extends LiveUpdateState {
+  /** Ensures "download + set()" only happens on the first cold start after install. */
+  readonly firstLaunchHandled?: boolean;
+}
 
 interface LiveUpdaterPlugin {
   notifyAppReady(): Promise<void>;
@@ -76,6 +82,16 @@ export class LiveUpdateService {
   readonly updateStaged = computed(() => this._updateStaged());
   readonly currentVersion = computed(() => this._currentVersion());
   readonly lastResult = computed(() => this._lastResult());
+
+  /** Local Xcode/dev bundles should never be replaced by staged OTA content. */
+  readonly otaEnabled = computed(() => !this.isLocalDevelopmentBuild);
+
+  private get isLocalDevelopmentBuild(): boolean {
+    return (
+      !environment.production &&
+      (environment.appVersion.includes('-dev') || environment.apiUrl.startsWith('http://'))
+    );
+  }
 
   /** Resolved channel for the currently running build. */
   private get channel(): LiveUpdateChannel {
@@ -128,6 +144,16 @@ export class LiveUpdateService {
       return;
     }
 
+    if (this.isLocalDevelopmentBuild) {
+      this.logger.info('Skipping OTA for local development build', {
+        appVersion: environment.appVersion,
+        apiUrl: environment.apiUrl,
+      });
+      this._lastResult.set({ status: 'skipped', reason: 'disabled' });
+      this._currentVersion.set(null);
+      return;
+    }
+
     await this.ensureUpdaterLoaded();
     const updater = this.updaterInstance;
     if (!updater) {
@@ -151,11 +177,21 @@ export class LiveUpdateService {
       this._currentVersion.set(null);
     }
 
-    const result = await this.checkForUpdate(updater);
-    this._lastResult.set(result);
+    const forceImmediateOnFirstLaunch = !(await this.hasHandledFirstLaunch());
 
-    if (result.status === 'available') {
-      await this.applyUpdate(updater, result.manifest);
+    try {
+      const result = await this.checkForUpdate(updater);
+      this._lastResult.set(result);
+
+      if (result.status === 'available') {
+        await this.applyUpdate(updater, result.manifest, {
+          immediate: forceImmediateOnFirstLaunch,
+        });
+      }
+    } finally {
+      if (forceImmediateOnFirstLaunch) {
+        await this.markFirstLaunchHandled();
+      }
     }
   }
 
@@ -166,6 +202,10 @@ export class LiveUpdateService {
   async checkForUpdate(_updater?: LiveUpdaterPlugin | null): Promise<LiveUpdateCheckResult> {
     if (!Capacitor.isNativePlatform()) {
       return { status: 'skipped', reason: 'not-native' };
+    }
+
+    if (this.isLocalDevelopmentBuild) {
+      return { status: 'skipped', reason: 'disabled' };
     }
 
     this._checking.set(true);
@@ -263,6 +303,7 @@ export class LiveUpdateService {
    */
   async getManifest(): Promise<LiveUpdateManifest | null> {
     if (!Capacitor.isNativePlatform()) return null;
+    if (this.isLocalDevelopmentBuild) return null;
     try {
       const platform = Capacitor.getPlatform() as LiveUpdatePlatform;
       return await this.fetchManifest(platform, this.channel);
@@ -278,6 +319,9 @@ export class LiveUpdateService {
    */
   async downloadAndApplyNow(): Promise<void> {
     if (!Capacitor.isNativePlatform()) throw new Error('Not running on a native platform');
+    if (this.isLocalDevelopmentBuild) {
+      throw new Error('OTA is disabled for local development builds');
+    }
     await this.ensureUpdaterLoaded();
     const updater = this.updaterInstance;
     if (!updater) throw new Error('Capgo updater plugin not available');
@@ -337,7 +381,8 @@ export class LiveUpdateService {
 
   private async applyUpdate(
     updater: LiveUpdaterPlugin,
-    manifest: LiveUpdateManifest
+    manifest: LiveUpdateManifest,
+    options: { immediate?: boolean } = {}
   ): Promise<void> {
     // Don't burn user's cellular data with bundle downloads.
     try {
@@ -361,12 +406,33 @@ export class LiveUpdateService {
       this.logger.info('OTA download starting', {
         version: manifest.version,
         size: manifest.bundleSize,
+        immediate: options.immediate === true,
       });
       const bundle = await updater.download({
         url: manifest.bundleUrl,
         version: manifest.version,
         checksum: manifest.bundleHash,
       });
+
+      if (options.immediate) {
+        // Persist the first-launch marker before `set()` reloads the WebView.
+        await this.saveState(
+          {
+            currentVersion: manifest.version,
+            lastCheckedAt: new Date().toISOString(),
+            failureCount: 0,
+          },
+          { firstLaunchHandled: true }
+        );
+        this._currentVersion.set(manifest.version);
+        this.logger.info('OTA bundle applying immediately on first launch', {
+          version: manifest.version,
+        });
+        this.toast.info('Installing latest update...');
+        await updater.set({ id: bundle.id });
+        return;
+      }
+
       // Use next() instead of set() so we DON'T destroy the user's current
       // session. The new bundle is applied automatically when the app is
       // backgrounded or killed and reopened (Apple-friendly UX).
@@ -387,6 +453,7 @@ export class LiveUpdateService {
       this.logger.error('OTA apply failed', err, {
         version: manifest.version,
         failureCount,
+        immediate: options.immediate === true,
       });
       await this.saveState({
         ...state,
@@ -429,20 +496,64 @@ export class LiveUpdateService {
   }
 
   private async loadState(): Promise<LiveUpdateState> {
+    const state = await this.loadPersistedState();
+    return {
+      currentVersion: state.currentVersion,
+      lastCheckedAt: state.lastCheckedAt,
+      failureCount: state.failureCount,
+    };
+  }
+
+  private async loadPersistedState(): Promise<PersistedLiveUpdateState> {
     try {
       const { value } = await Preferences.get({ key: STATE_KEY });
-      if (value) return JSON.parse(value) as LiveUpdateState;
+      if (value) {
+        const state = JSON.parse(value) as Partial<PersistedLiveUpdateState>;
+        return {
+          currentVersion: state.currentVersion ?? null,
+          lastCheckedAt: state.lastCheckedAt ?? null,
+          failureCount: state.failureCount ?? 0,
+          firstLaunchHandled: state.firstLaunchHandled === true,
+        };
+      }
     } catch {
       /* fall through */
     }
-    return { currentVersion: null, lastCheckedAt: null, failureCount: 0 };
+    return {
+      currentVersion: null,
+      lastCheckedAt: null,
+      failureCount: 0,
+      firstLaunchHandled: false,
+    };
   }
 
-  private async saveState(state: LiveUpdateState): Promise<void> {
+  private async saveState(
+    state: LiveUpdateState,
+    options: { firstLaunchHandled?: boolean } = {}
+  ): Promise<void> {
     try {
-      await Preferences.set({ key: STATE_KEY, value: JSON.stringify(state) });
+      const existing = await this.loadPersistedState();
+      await Preferences.set({
+        key: STATE_KEY,
+        value: JSON.stringify({
+          ...existing,
+          ...state,
+          firstLaunchHandled: options.firstLaunchHandled ?? existing.firstLaunchHandled ?? false,
+        } satisfies PersistedLiveUpdateState),
+      });
     } catch (err) {
       this.logger.warn('Failed to persist OTA state', { err: String(err) });
     }
+  }
+
+  private async hasHandledFirstLaunch(): Promise<boolean> {
+    const state = await this.loadPersistedState();
+    return state.firstLaunchHandled === true;
+  }
+
+  private async markFirstLaunchHandled(): Promise<void> {
+    const state = await this.loadPersistedState();
+    if (state.firstLaunchHandled) return;
+    await this.saveState(state, { firstLaunchHandled: true });
   }
 }

@@ -77,7 +77,10 @@ describe('OnboardingLinkDropStepComponent', () => {
     })
       .overrideComponent(OnboardingLinkDropStepComponent, {
         remove: { imports: [NxtConnectedSourcesComponent] },
-        add: { imports: [StubNxtConnectedSourcesComponent] },
+        add: {
+          imports: [StubNxtConnectedSourcesComponent],
+          schemas: [CUSTOM_ELEMENTS_SCHEMA],
+        },
       })
       .compileComponents();
 

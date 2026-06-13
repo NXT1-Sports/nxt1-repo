@@ -1616,6 +1616,7 @@ export class OnboardingPage implements OnInit, OnDestroy {
 
       const result = await this.authApi.saveOnboardingProfile(user.uid, profileData);
       this.logger.info('Profile data saved successfully');
+      this.analytics.trackQualifiedOrganizationLead(profileData);
 
       // Start profile generation overlay if backend enqueued scrape jobs
       const allScrapeJobIds =

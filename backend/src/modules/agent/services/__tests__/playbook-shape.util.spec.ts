@@ -76,7 +76,7 @@ describe('playbook-shape.util', () => {
     expect(normalized).toHaveLength(getPlaybookTargetItemCount(activeGoals.length));
   });
 
-  it('returns null when any goal does not have two items', () => {
+  it('returns available items even when a goal does not have the target item count', () => {
     const normalized = normalizeGeneratedPlaybookItems(
       [
         {
@@ -108,6 +108,14 @@ describe('playbook-shape.util', () => {
       activeGoals
     );
 
-    expect(normalized).toBeNull();
+    // It should keep the 5 items it successfully matched rather than failing completely
+    expect(normalized).toHaveLength(5);
+    expect(normalized?.map((item) => item.id)).toEqual([
+      'weekly-1',
+      'weekly-2',
+      'recruiting-1',
+      'film-1',
+      'film-2',
+    ]);
   });
 });

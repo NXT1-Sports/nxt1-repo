@@ -85,29 +85,46 @@ export class ListRecurringTasksTool extends BaseTool {
         ])
       );
 
-      const baseTasks: RecurringJobInfo[] = snap.docs.map((doc) => {
-        const data = doc.data();
-        const repeatable = repeatableMap.get(doc.id);
-        const persistedTimezone = data['timezone'];
-        const resolvedTimezone =
-          typeof persistedTimezone === 'string' && persistedTimezone.length > 0
-            ? persistedTimezone
-            : (repeatable?.timezone ?? 'UTC');
-        return {
-          key: doc.id,
-          actionSummary: data['actionSummary'] as string,
-          cronExpression: data['cronExpression'] as string,
-          timezone: resolvedTimezone,
-          ...(typeof data['sourceId'] === 'string' && data['sourceId'].length > 0
-            ? { sourceId: data['sourceId'] as string }
-            : {}),
-          nextRun:
+      const now = Date.now();
+
+      const baseTasks: RecurringJobInfo[] = await Promise.all(
+        snap.docs.map(async (doc) => {
+          const data = doc.data();
+          const repeatable = repeatableMap.get(doc.id);
+          const persistedTimezone = data['timezone'];
+          const resolvedTimezone =
+            typeof persistedTimezone === 'string' && persistedTimezone.length > 0
+              ? persistedTimezone
+              : (repeatable?.timezone ?? 'UTC');
+          const firstRunAt =
+            typeof data['firstRunAt'] === 'string' && Date.parse(data['firstRunAt']) > now
+              ? new Date(data['firstRunAt']).toISOString()
+              : null;
+          const initialRunJobId =
+            typeof data['initialRunJobId'] === 'string' && data['initialRunJobId'].trim().length > 0
+              ? data['initialRunJobId'].trim()
+              : null;
+          const pendingInitialRun =
+            firstRunAt && initialRunJobId
+              ? await this.queueService.getJobStatus(initialRunJobId).catch(() => null)
+              : null;
+          const repeatableNextRun =
             typeof repeatable?.nextRun === 'number'
               ? new Date(repeatable.nextRun).toISOString()
-              : null,
-          createdAt: (data['createdAt'] as Timestamp).toDate().toISOString(),
-        };
-      });
+              : null;
+          return {
+            key: doc.id,
+            actionSummary: data['actionSummary'] as string,
+            cronExpression: data['cronExpression'] as string,
+            timezone: resolvedTimezone,
+            ...(typeof data['sourceId'] === 'string' && data['sourceId'].length > 0
+              ? { sourceId: data['sourceId'] as string }
+              : {}),
+            nextRun: pendingInitialRun?.status === 'queued' ? firstRunAt : repeatableNextRun,
+            createdAt: (data['createdAt'] as Timestamp).toDate().toISOString(),
+          };
+        })
+      );
 
       const executionSummaries = await Promise.all(
         baseTasks.map(async (task) => ({

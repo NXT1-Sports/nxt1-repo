@@ -35,6 +35,7 @@ export interface AgentXOperationChatYieldFacadeHost {
   readonly activeYieldState: WritableSignal<AgentYieldState | null>;
   readonly yieldResolved: WritableSignal<boolean>;
   readonly resolvedThreadId: WritableSignal<string | null>;
+  loadThreadMessages(threadId: string): Promise<void>;
   getCurrentOperationId(): string | null;
   setCurrentOperationId(operationId: string | null): void;
   getActiveStream(): AbortController | null;
@@ -206,6 +207,18 @@ export class AgentXOperationChatYieldFacade {
           source: 'operation-chat',
         });
 
+        if (event.decision === 'reject') {
+          this.messageFacade.settleActiveToolSteps('error');
+          this.messageFacade.pushMessage({
+            id: `approval-rejected:${operationId}`,
+            role: 'assistant',
+            content: resolveApprovalRejectedText(approvedToolName ?? ''),
+            timestamp: new Date(),
+            operationId,
+          });
+          this.requireHost().activeYieldState.set(null);
+        }
+
         if (event.decision === 'approve' && result.resumed && result.operationId) {
           await this.attachToResumedOperation({
             operationId: result.operationId,
@@ -346,12 +359,14 @@ export class AgentXOperationChatYieldFacade {
     host.setCurrentOperationId(result.operationId);
     host.activeYieldState.set(null);
     this.transportFacade.beginResponseTurn('resume-yielded');
+    this.messageFacade.retireActiveTypingCarrier(result.operationId);
 
     this.messageFacade.pushMessage({
       id: 'typing',
       role: 'assistant',
       content: '',
       timestamp: new Date(),
+      operationId: result.operationId,
       isTyping: true,
     });
     host.loading.set(true);
@@ -522,6 +537,27 @@ export class AgentXOperationChatYieldFacade {
       this.logger.info('Approval resumed without live stream attachment', {
         operationId: trimmedOperationId,
       });
+      if (params.threadId) {
+        host.resolvedThreadId.set(params.threadId);
+      }
+      host.setCurrentOperationId(trimmedOperationId);
+      host.activeYieldState.set(null);
+      this.messageFacade.retireActiveTypingCarrier(trimmedOperationId);
+
+      const refreshThreadId =
+        params.threadId?.trim() || host.resolvedThreadId()?.trim() || host.threadId().trim();
+      if (refreshThreadId) {
+        await host.loadThreadMessages(refreshThreadId).catch((error) => {
+          this.logger.error(
+            'Failed to refresh thread after approval resumed without stream',
+            error,
+            {
+              operationId: trimmedOperationId,
+              threadId: refreshThreadId,
+            }
+          );
+        });
+      }
       return;
     }
 
@@ -542,12 +578,14 @@ export class AgentXOperationChatYieldFacade {
     host.setCurrentOperationId(trimmedOperationId);
     host.activeYieldState.set(null);
     this.transportFacade.beginResponseTurn('attach-resumed-operation');
+    this.messageFacade.retireActiveTypingCarrier(trimmedOperationId);
 
     this.messageFacade.pushMessage({
       id: 'typing',
       role: 'assistant',
       content: '',
       timestamp: new Date(),
+      operationId: trimmedOperationId,
       isTyping: true,
     });
     host.loading.set(true);
@@ -596,4 +634,18 @@ export class AgentXOperationChatYieldFacade {
       this.host.yieldResolved.set(true);
     }, 300);
   }
+}
+
+function resolveApprovalRejectedText(toolName: string): string {
+  const normalizedToolName = toolName.trim().toLowerCase();
+
+  if (normalizedToolName === 'batch_send_email') {
+    return "Understood. I won't send those emails.";
+  }
+
+  if (/email|gmail|outlook|mail/.test(normalizedToolName)) {
+    return "Understood. I won't send that email.";
+  }
+
+  return "Understood. I won't proceed with that action.";
 }
