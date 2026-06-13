@@ -22,6 +22,10 @@ type Canonicalizer = {
     cleanContent: string,
     persistedParts: NonNullable<AgentMessage['parts']>
   ): boolean;
+  resolveSupplementalContentTextPart(
+    cleanContent: string,
+    persistedParts: NonNullable<AgentMessage['parts']>
+  ): string | null;
   isPauseYieldSupersededByLaterTurn(
     yieldState: NonNullable<AgentMessage['resultData']>['yieldState'],
     items: readonly AgentMessage[]
@@ -276,6 +280,34 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
         { type: 'tool-steps', steps: [] },
       ])
     ).toBe(true);
+  });
+
+  it('only appends the missing trailing summary when persisted parts already contain the leading prose', () => {
+    expect(
+      facade.resolveSupplementalContentTextPart(
+        'I will search first. Got the 5 colleges. Now sending the email.',
+        [
+          { type: 'text', content: 'I will search first.' },
+          {
+            type: 'tool-steps',
+            steps: [
+              {
+                id: 'search-football-colleges',
+                label: 'Searching college database: football',
+                status: 'complete',
+                stageType: 'tool',
+              },
+            ],
+          },
+        ]
+      )
+    ).toBe('Got the 5 colleges. Now sending the email.');
+
+    expect(
+      facade.resolveSupplementalContentTextPart('I will search first.', [
+        { type: 'text', content: 'I will search first.' },
+      ])
+    ).toBeNull();
   });
 
   it('treats manual pause metadata as stale once a later turn supersedes it', () => {

@@ -243,7 +243,10 @@ export class AgentXOperationChatSessionFacade {
     return steps.map((step) => `${step.id}|${step.label}|${step.status}`).join('||');
   }
 
-  private messageToolSteps(message: OperationMessage): readonly AgentXToolStep[] {
+  private messageToolSteps(message: {
+    readonly steps?: readonly AgentXToolStep[];
+    readonly parts?: readonly any[];
+  }): readonly AgentXToolStep[] {
     const steps: AgentXToolStep[] = [...(message.steps ?? [])];
     for (const part of message.parts ?? []) {
       if (part.type === 'tool-steps') steps.push(...part.steps);
@@ -276,7 +279,7 @@ export class AgentXOperationChatSessionFacade {
     if (message.role !== 'assistant') return false;
     if (message.yieldState || this.messageHasYieldCard(message)) return false;
 
-    const messageContent = this.normalizeMessageContent(message.content);
+    const messageContent = this.normalizeMessageContent(this.agentMessageDisplayText(message));
     const replayContent = this.normalizeMessageContent(replay.content);
     if (messageContent && replayContent) {
       if (messageContent === replayContent) return true;
@@ -307,7 +310,7 @@ export class AgentXOperationChatSessionFacade {
     if (
       this.shouldDropLiveReplayAssistantRow(message, {
         operationIds: params.replayOperationIds,
-        content: params.existingTyping.content,
+        content: this.agentMessageDisplayText(params.existingTyping),
         steps: this.messageToolSteps(params.existingTyping),
       })
     ) {
@@ -780,6 +783,28 @@ export class AgentXOperationChatSessionFacade {
     }
 
     return true;
+  }
+
+  private resolveSupplementalContentTextPart(
+    cleanContent: string,
+    persistedParts: readonly AgentXMessagePart[]
+  ): string | null {
+    let remainingContent = cleanContent.trim();
+    if (!remainingContent) return null;
+
+    for (const part of persistedParts) {
+      if (part.type !== 'text') break;
+      const partContent = part.content.trim();
+      if (!partContent) continue;
+      if (remainingContent === partContent) return null;
+      if (!remainingContent.startsWith(partContent)) break;
+      remainingContent = remainingContent.slice(partContent.length).trimStart();
+      if (!remainingContent) return null;
+    }
+
+    return this.shouldAppendContentAsTextPart(remainingContent, persistedParts)
+      ? remainingContent
+      : null;
   }
 
   private isPersistedApprovalDecisionEvent(message: AgentMessage): boolean {
@@ -1356,41 +1381,64 @@ export class AgentXOperationChatSessionFacade {
     }
 
     // ── Pass 2f: suppress duplicate approval prelude rows ──────────────────
-    // Pending approval often persists both:
-    //   - assistant_tool_call: prose + tool progress from Mongo/history
-    //   - assistant_partial: same prose + confirmation card from Firestore/SSE
-    // Keep both only when their prose differs. If the partial/card row already
-    // carries the same sentence, the tool_call is duplicate UI noise.
+    // Pending approval often persists multiple tool_call or partial snapshots
+    // as the agent streams out context. If an earlier row's text is fully
+    // contained within a later row for the same operation, the earlier row
+    // is duplicate UI noise and should be suppressed.
     const duplicateApprovalToolCallSuppressedIds = new Set<string>();
     {
-      const approvalPartialTextByOp = new Map<string, string>();
-      for (const item of items) {
-        if (
+      const yieldedAssistantRows = items.filter(
+        (item) =>
           item.role === 'assistant' &&
-          item.semanticPhase === 'assistant_partial' &&
           item.operationId &&
-          approvalYieldedOpIds.has(item.operationId) &&
-          !finalOperationIds.has(item.operationId)
-        ) {
-          const text = this.agentMessageDisplayText(item);
-          if (text) approvalPartialTextByOp.set(item.operationId, text);
-        }
-      }
+          !finalOperationIds.has(item.operationId) &&
+          yieldedOperationIds.has(item.operationId) &&
+          (item.semanticPhase === 'assistant_tool_call' ||
+            item.semanticPhase === 'assistant_partial')
+      );
 
-      for (const item of items) {
-        if (
-          item.role !== 'assistant' ||
-          item.semanticPhase !== 'assistant_tool_call' ||
-          !item.operationId ||
-          !approvalYieldedOpIds.has(item.operationId) ||
-          finalOperationIds.has(item.operationId)
-        ) {
-          continue;
+      for (let i = 0; i < yieldedAssistantRows.length - 1; i++) {
+        const earlier = yieldedAssistantRows[i]!;
+        const earlierText = this.agentMessageDisplayText(earlier);
+
+        // Skip empty rows; they are suppressed elsewhere or don't cause text duplication.
+        if (!earlierText) continue;
+
+        let isCovered = false;
+        for (let j = i + 1; j < yieldedAssistantRows.length; j++) {
+          const later = yieldedAssistantRows[j]!;
+
+          // Do not allow an earlier row to be suppressed by an assistant_partial
+          // that will itself be suppressed. partialSuppressedIds (computed in Pass 2b)
+          // guarantees only the final partial is kept.
+          if (partialSuppressedIds.has(later.id)) continue;
+
+          const laterText = this.agentMessageDisplayText(later);
+
+          if (this.messageContentCoveredBy(earlierText, laterText)) {
+            // Only suppress if the later row also has all the same tools,
+            // or if the earlier row has no tools.
+            const earlierSteps = this.messageToolSteps(earlier);
+            const laterSteps = this.messageToolSteps(later);
+            let hasAllSteps = true;
+            if (earlierSteps.length > 0) {
+              const laterStepIds = new Set(laterSteps.map((s) => s.id));
+              for (const step of earlierSteps) {
+                if (!laterStepIds.has(step.id)) {
+                  hasAllSteps = false;
+                  break;
+                }
+              }
+            }
+            if (hasAllSteps) {
+              isCovered = true;
+              break;
+            }
+          }
         }
 
-        const approvalPartialText = approvalPartialTextByOp.get(item.operationId);
-        if (this.messageContentCoveredBy(this.agentMessageDisplayText(item), approvalPartialText)) {
-          duplicateApprovalToolCallSuppressedIds.add(item.id);
+        if (isCovered) {
+          duplicateApprovalToolCallSuppressedIds.add(earlier.id);
         }
       }
     }
@@ -2036,30 +2084,29 @@ export class AgentXOperationChatSessionFacade {
       replayOperationIds.add(storedHeavyTaskOperationId);
     }
 
+    const typingBubble = {
+      id: 'typing',
+      role: 'assistant' as const,
+      content,
+      timestamp: new Date(),
+      isTyping: !content,
+      operationId,
+      steps: stored.steps.length > 0 ? [...stored.steps] : undefined,
+      parts: stored.parts.length > 0 ? [...stored.parts] : undefined,
+      cards: stored.cards.length > 0 ? [...stored.cards] : undefined,
+    };
+
     this.messageFacade.messages.update((messages) => {
       const filtered = messages.filter(
         (message) =>
           !this.shouldDropLiveReplayAssistantRow(message, {
             operationIds: replayOperationIds,
-            content,
+            content: this.agentMessageDisplayText(typingBubble as any),
             steps: stored.steps,
           })
       );
 
-      return [
-        ...filtered,
-        {
-          id: 'typing',
-          role: 'assistant',
-          content,
-          timestamp: new Date(),
-          isTyping: !content,
-          operationId,
-          steps: stored.steps.length > 0 ? [...stored.steps] : undefined,
-          parts: stored.parts.length > 0 ? [...stored.parts] : undefined,
-          cards: stored.cards.length > 0 ? [...stored.cards] : undefined,
-        },
-      ];
+      return [...filtered, typingBubble];
     });
 
     const activeStep = [...stored.steps].reverse().find((step) => step.status === 'active');
@@ -2610,11 +2657,15 @@ export class AgentXOperationChatSessionFacade {
           // only the card into `parts` and stores the full content string
           // separately, prepending the text would flip the layout to
           // text → card on rehydrate. Appending preserves the live order.
-          if (
-            persistedParts.length > 0 &&
-            this.shouldAppendContentAsTextPart(cleanContent, persistedParts)
-          ) {
-            persistedParts = [...persistedParts, { type: 'text' as const, content: cleanContent }];
+          const supplementalContentTextPart =
+            persistedParts.length > 0
+              ? this.resolveSupplementalContentTextPart(cleanContent, persistedParts)
+              : null;
+          if (supplementalContentTextPart) {
+            persistedParts = [
+              ...persistedParts,
+              { type: 'text' as const, content: supplementalContentTextPart },
+            ];
           }
 
           // Derive the `cards` array from card-type parts so render methods
@@ -3775,27 +3826,25 @@ export class AgentXOperationChatSessionFacade {
           // Without this filter the user sees the preamble twice — once in the
           // persisted bubble, once in the typing bubble — until assistant_final
           // lands and the next render suppresses the partial.
+          const typingBubble = {
+            id: 'typing',
+            role: 'assistant' as const,
+            content: stored.content + replayContentSuffix,
+            timestamp: new Date(),
+            isTyping: !stored.content,
+            steps: stored.steps.length > 0 ? [...stored.steps] : undefined,
+            parts: stored.parts.length > 0 ? [...stored.parts] : undefined,
+            cards: stored.cards.length > 0 ? [...stored.cards] : undefined,
+          };
           const filtered = messages.filter(
             (message) =>
               !this.shouldDropLiveReplayAssistantRow(message, {
                 operationIds: replayOperationIds,
-                content: stored.content + replayContentSuffix,
+                content: this.agentMessageDisplayText(typingBubble as any),
                 steps: stored.steps,
               })
           );
-          return [
-            ...filtered,
-            {
-              id: 'typing',
-              role: 'assistant',
-              content: stored.content + replayContentSuffix,
-              timestamp: new Date(),
-              isTyping: !stored.content,
-              steps: stored.steps.length > 0 ? [...stored.steps] : undefined,
-              parts: stored.parts.length > 0 ? [...stored.parts] : undefined,
-              cards: stored.cards.length > 0 ? [...stored.cards] : undefined,
-            },
-          ];
+          return [...filtered, typingBubble];
         });
         const activeStep = [...stored.steps].reverse().find((step) => step.status === 'active');
         if (activeStep) {
