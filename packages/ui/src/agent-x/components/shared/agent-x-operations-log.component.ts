@@ -970,12 +970,6 @@ export const OPERATIONS_LOG_TEST_IDS = {
         min-width: 0;
       }
 
-      .log-entry-title--scheduled {
-        margin-bottom: 6px;
-        font-size: 14px;
-        font-weight: 700;
-      }
-
       .log-entry-status {
         display: inline-flex;
         align-items: center;
