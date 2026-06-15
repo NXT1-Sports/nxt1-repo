@@ -59,7 +59,13 @@ import { SSR_INITIAL_THEME, SSR_INITIAL_SPORT_THEME } from '@nxt1/ui/services/th
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const DIST_FOLDER = resolve(__dirname, '../browser');
-const INDEX_HTML = join(__dirname, 'index.server.html');
+
+/**
+ * SSR template file - Angular CommonEngine uses this to render the application shell
+ * This is the generated index.csr.html from the browser build, used as the template
+ * for server-side rendering. CommonEngine will inject rendered component tree into <app-root>.
+ */
+const INDEX_HTML = join(DIST_FOLDER, 'index.csr.html');
 
 /** CSR fallback HTML (served when SSR fails) — Angular generates index.csr.html in browser/ */
 const CSR_INDEX = join(DIST_FOLDER, 'index.csr.html');
