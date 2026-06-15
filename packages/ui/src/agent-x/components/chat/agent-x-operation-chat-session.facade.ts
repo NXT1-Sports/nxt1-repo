@@ -748,6 +748,162 @@ export class AgentXOperationChatSessionFacade {
     return deduped;
   }
 
+  private normalizePartTextContent(value: string | undefined | null): string {
+    return (value ?? '').replace(/\s+/g, ' ').trim();
+  }
+
+  private shouldAppendContentAsTextPart(
+    cleanContent: string,
+    persistedParts: readonly AgentXMessagePart[]
+  ): boolean {
+    const normalizedContent = this.normalizePartTextContent(cleanContent);
+    if (!normalizedContent) return false;
+
+    for (const part of persistedParts) {
+      if (part.type !== 'text') continue;
+      const normalizedPart = this.normalizePartTextContent(part.content);
+      if (!normalizedPart) continue;
+      if (normalizedPart === normalizedContent) return false;
+      if (normalizedPart.includes(normalizedContent)) return false;
+    }
+
+    return true;
+  }
+
+  private resolveSupplementalContentTextPart(
+    cleanContent: string,
+    persistedParts: readonly AgentXMessagePart[]
+  ): string | null {
+    let remainingContent = cleanContent.trim();
+    if (!remainingContent) return null;
+
+    for (const part of persistedParts) {
+      if (part.type !== 'text') break;
+      const partContent = part.content.trim();
+      if (!partContent) continue;
+      if (remainingContent === partContent) return null;
+      if (!remainingContent.startsWith(partContent)) break;
+      remainingContent = remainingContent.slice(partContent.length).trimStart();
+      if (!remainingContent) return null;
+    }
+
+    return this.shouldAppendContentAsTextPart(remainingContent, persistedParts)
+      ? remainingContent
+      : null;
+  }
+
+  private isResolvedApprovalYieldRow(message: OperationMessage): boolean {
+    return (
+      message.yieldState?.reason === 'needs_approval' &&
+      (message.yieldCardState === 'resolved' || (message.yieldResolvedText ?? '').trim().length > 0)
+    );
+  }
+
+  private shouldPreserveInlineYieldRowDuringReload(params: {
+    readonly message: OperationMessage;
+    readonly messageIndex: number;
+    readonly allExistingMessages: readonly OperationMessage[];
+    readonly reorderedMapped: readonly OperationMessage[];
+    readonly answeredYieldOperationIdsInPersisted: ReadonlySet<string>;
+  }): boolean {
+    const { message, messageIndex, allExistingMessages, reorderedMapped } = params;
+    if (message.id === 'typing') return false;
+    if (!message.yieldState) return false;
+    if (reorderedMapped.some((persisted) => persisted.id === message.id)) return false;
+
+    const operationId = typeof message.operationId === 'string' ? message.operationId.trim() : '';
+    const isResolvedApprovalYield = this.isResolvedApprovalYieldRow(message);
+    const hasLaterPersistedAnswerForSameOperation =
+      operationId.length > 0 &&
+      reorderedMapped.some(
+        (persisted) =>
+          persisted.operationId === operationId &&
+          (persisted.role === 'user' || persisted.yieldResolvedText === 'Approved') &&
+          persisted.timestamp.getTime() >= message.timestamp.getTime()
+      );
+
+    if (isResolvedApprovalYield && hasLaterPersistedAnswerForSameOperation) return false;
+    if (
+      isResolvedApprovalYield &&
+      operationId &&
+      params.answeredYieldOperationIdsInPersisted.has(operationId)
+    ) {
+      return false;
+    }
+    if (
+      operationId &&
+      params.answeredYieldOperationIdsInPersisted.has(operationId) &&
+      !isResolvedApprovalYield
+    ) {
+      return false;
+    }
+
+    const hasPersistedSameOperation =
+      operationId.length > 0 &&
+      reorderedMapped.some(
+        (persisted) =>
+          typeof persisted.operationId === 'string' && persisted.operationId === operationId
+      );
+    if (hasPersistedSameOperation && !isResolvedApprovalYield) return false;
+
+    const hadLocalUserReplyAfter = allExistingMessages
+      .slice(messageIndex + 1)
+      .some((candidate) => candidate.role === 'user');
+    if (hadLocalUserReplyAfter && !isResolvedApprovalYield) return false;
+
+    if (
+      (message.yieldCardState === 'resolved' || (message.yieldResolvedText ?? '').trim()) &&
+      !isResolvedApprovalYield
+    ) {
+      return false;
+    }
+
+    return true;
+  }
+
+  private mergePreservedInlineYieldRows(
+    persistedRows: readonly OperationMessage[],
+    preservedInlineYieldRows: readonly OperationMessage[]
+  ): OperationMessage[] {
+    const merged = [...persistedRows];
+
+    for (const row of preservedInlineYieldRows) {
+      if (merged.some((message) => message.id === row.id)) continue;
+
+      const operationId = typeof row.operationId === 'string' ? row.operationId.trim() : '';
+      if (!operationId) {
+        merged.push(row);
+        continue;
+      }
+
+      const finalIndex = merged.findIndex(
+        (message) =>
+          message.operationId === operationId &&
+          message.role === 'assistant' &&
+          message.semanticPhase === 'assistant_final'
+      );
+      if (finalIndex >= 0) {
+        merged.splice(finalIndex, 0, row);
+        continue;
+      }
+
+      let lastSameOperationIndex = -1;
+      for (let index = 0; index < merged.length; index += 1) {
+        if (merged[index]?.operationId === operationId) {
+          lastSameOperationIndex = index;
+        }
+      }
+
+      if (lastSameOperationIndex >= 0) {
+        merged.splice(lastSameOperationIndex + 1, 0, row);
+      } else {
+        merged.push(row);
+      }
+    }
+
+    return merged;
+  }
+
   /**
    * Pair-by-arrival reorder.
    *
@@ -771,6 +927,7 @@ export class AgentXOperationChatSessionFacade {
     // have been attached after it. A user's "block" occupies indices
     // [idx, idx + assistantCount].
     const userSlots: Array<{ idx: number; assistantCount: number; operationId?: string }> = [];
+    const deferredFinalAssistants = new Map<string, OperationMessage[]>();
 
     const attachAfter = (
       slot: { idx: number; assistantCount: number },
@@ -785,25 +942,55 @@ export class AgentXOperationChatSessionFacade {
       }
     };
 
-    for (const msg of messages) {
+    for (let index = 0; index < messages.length; index += 1) {
+      const msg = messages[index]!;
       if (msg.role === 'user') {
         result.push(msg);
-        userSlots.push({
+        const slot = {
           idx: result.length - 1,
           assistantCount: 0,
           ...(msg.operationId?.trim() ? { operationId: msg.operationId.trim() } : {}),
-        });
+        };
+        userSlots.push(slot);
+
+        const userOperationId = msg.operationId?.trim() ?? '';
+        if (userOperationId) {
+          const deferred = deferredFinalAssistants.get(userOperationId) ?? [];
+          for (const deferredMessage of deferred) {
+            attachAfter(slot, deferredMessage);
+          }
+          deferredFinalAssistants.delete(userOperationId);
+        }
         continue;
       }
 
       if (msg.role === 'assistant') {
         const assistantOperationId = msg.operationId?.trim() ?? '';
+        const hasLaterSameOperationUser =
+          msg.semanticPhase === 'assistant_final' &&
+          !!assistantOperationId &&
+          messages
+            .slice(index + 1)
+            .some(
+              (candidate) =>
+                candidate.role === 'user' && (candidate.operationId?.trim() ?? '') === assistantOperationId
+            );
+
+        if (hasLaterSameOperationUser) {
+          const existingDeferred = deferredFinalAssistants.get(assistantOperationId) ?? [];
+          deferredFinalAssistants.set(assistantOperationId, [...existingDeferred, msg]);
+          continue;
+        }
+
         // Prefer the user row for the same operation. This prevents a later
         // assistant response from being attached to an older paused turn that
         // never produced a final message.
         let target = assistantOperationId
           ? userSlots.find((s) => s.assistantCount === 0 && s.operationId === assistantOperationId)
           : undefined;
+        if (!target && assistantOperationId) {
+          target = [...userSlots].reverse().find((s) => s.assistantCount === 0);
+        }
         // Fall back to the earliest user with zero assistants attached for
         // older rows that do not have operation ids backfilled.
         target ??= userSlots.find((s) => s.assistantCount === 0);

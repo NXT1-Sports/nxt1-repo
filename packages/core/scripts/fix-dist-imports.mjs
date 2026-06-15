@@ -46,6 +46,10 @@ function rewriteDeclarationImports(content, baseDir) {
   return { content, changed };
 }
 
+function shouldRewriteFile(fileName) {
+  return fileName.endsWith('.d.ts') || fileName.endsWith('.js') || fileName.endsWith('.mjs');
+}
+
 function fixImports(dir) {
   if (!fs.existsSync(dir)) return;
   const files = fs.readdirSync(dir);
@@ -53,7 +57,7 @@ function fixImports(dir) {
     const fullPath = path.join(dir, file);
     if (fs.statSync(fullPath).isDirectory()) {
       fixImports(fullPath);
-    } else if (file.endsWith('.d.ts')) {
+    } else if (shouldRewriteFile(file)) {
       const content = fs.readFileSync(fullPath, 'utf8');
       const result = rewriteDeclarationImports(content, path.dirname(fullPath));
       if (result.changed) {
@@ -64,4 +68,4 @@ function fixImports(dir) {
 }
 
 fixImports(path.join(process.cwd(), 'dist'));
-console.log('✅ Fixed ESM relative import extensions in .d.ts files');
+console.log('✅ Fixed ESM relative import extensions in dist outputs');

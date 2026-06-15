@@ -19,6 +19,7 @@
 import type { Response } from 'express';
 import type { OnStreamEvent, StreamEvent } from '../../modules/agent/queue/event-writer.js';
 import { forceProxyFlush } from './shared.js';
+import { logger } from '../../utils/logger.js';
 
 // ─── Shared mutable ref ────────────────────────────────────────────────────
 
@@ -37,6 +38,12 @@ export interface SseStreamRef {
   tokenUsage: { inputTokens: number; outputTokens: number; model: string } | undefined;
   /** autoOpenPanel payload from tools (e.g. live view, media panel). */
   pendingAutoOpenPanel: Record<string, unknown> | null;
+}
+
+export interface SseStreamDebugConfig {
+  readonly enabled?: boolean;
+  readonly operationId?: string;
+  readonly userId?: string;
 }
 
 type SseMediaPayload = {
@@ -217,7 +224,11 @@ class StepIdTracker {
  * response, and captures runtime state into `streamRef` for the caller
  * to read after the agent run completes.
  */
-export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): OnStreamEvent {
+export function buildSseStreamCallback(
+  res: Response,
+  streamRef: SseStreamRef,
+  debug?: SseStreamDebugConfig
+): OnStreamEvent {
   const stepTracker = new StepIdTracker();
 
   return (event: StreamEvent): void => {
@@ -305,6 +316,23 @@ export function buildSseStreamCallback(res: Response, streamRef: SseStreamRef): 
           // Emit media events (image / video URLs) from common tool-result shapes.
           const mediaPayloads = extractMediaPayloads(event.toolResult);
           for (const media of mediaPayloads) {
+            if (debug?.enabled) {
+              logger.info('Agent X stream output (adapter-media)', {
+                operationId: debug.operationId ?? null,
+                userId: debug.userId ?? null,
+                event: 'media',
+                type: media.type,
+                mediaHost: (() => {
+                  try {
+                    return new URL(media.url).host;
+                  } catch {
+                    return null;
+                  }
+                })(),
+                mimeType: media.mimeType ?? null,
+                sourceTool: event.toolName ?? null,
+              });
+            }
             try {
               res.write(`event: media\ndata: ${JSON.stringify(media)}\n\n`);
               forceProxyFlush(res);

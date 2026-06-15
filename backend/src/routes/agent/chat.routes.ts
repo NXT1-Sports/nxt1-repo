@@ -314,6 +314,67 @@ function resolveRequestAppBaseUrl(req: Request): string {
   });
 }
 
+function isTruthyFlag(value: unknown): boolean {
+  if (typeof value === 'boolean') return value;
+  if (typeof value !== 'string') return false;
+  const normalized = value.trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+}
+
+function isAgentXStreamDebugEnabled(req: Request): boolean {
+  const fromHeader = req.header(AGENT_X_REQUEST_HEADERS.STREAM_DEBUG);
+  if (isTruthyFlag(fromHeader)) return true;
+
+  const queryValue = req.query['streamDebug'];
+  if (Array.isArray(queryValue)) {
+    if (queryValue.some((value) => isTruthyFlag(value))) return true;
+  } else if (isTruthyFlag(queryValue)) {
+    return true;
+  }
+
+  const nodeEnv = (process.env['NODE_ENV'] ?? '').trim().toLowerCase();
+  if (nodeEnv === 'development' || nodeEnv === 'dev' || nodeEnv === 'test') {
+    return true;
+  }
+
+  return isTruthyFlag(process.env['AGENT_X_STREAM_DEBUG_DEFAULT']);
+}
+
+function resolveUrlHost(rawUrl: string | undefined): string | null {
+  if (!rawUrl) return null;
+  try {
+    const parsed = new URL(rawUrl);
+    return parsed.host || null;
+  } catch {
+    return null;
+  }
+}
+
+function summarizeStreamEventForDebug(event: string, payload: unknown): Record<string, unknown> {
+  const record = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+  const content = typeof record['content'] === 'string' ? record['content'] : null;
+  const text = typeof record['text'] === 'string' ? record['text'] : null;
+
+  return {
+    event,
+    seq: typeof record['seq'] === 'number' ? record['seq'] : null,
+    operationId: typeof record['operationId'] === 'string' ? record['operationId'] : null,
+    threadId: typeof record['threadId'] === 'string' ? record['threadId'] : null,
+    status: typeof record['status'] === 'string' ? record['status'] : null,
+    stepId: typeof record['stepId'] === 'string' ? record['stepId'] : null,
+    toolName:
+      typeof record['toolName'] === 'string'
+        ? record['toolName']
+        : typeof (record['metadata'] as Record<string, unknown> | undefined)?.['toolName'] ===
+            'string'
+          ? ((record['metadata'] as Record<string, unknown>)['toolName'] as string)
+          : null,
+    contentLength: content?.length ?? text?.length ?? null,
+    mediaType: typeof record['type'] === 'string' ? record['type'] : null,
+    mediaHost: typeof record['url'] === 'string' ? resolveUrlHost(record['url']) : null,
+  };
+}
+
 function pruneInactiveUserStreams(userId: string, now = Date.now()): number {
   const userStreams = activeUserStreams.get(userId);
   if (!userStreams?.size) return 0;
@@ -1801,6 +1862,7 @@ async function streamOperationToSse(params: {
   afterSeq?: number;
   initialThreadId?: string;
   initialOperationStatus?: AgentXOperationLifecycleStatus;
+  streamDebug?: boolean;
 }): Promise<void> {
   const {
     req,
@@ -1811,6 +1873,7 @@ async function streamOperationToSse(params: {
     afterSeq = -1,
     initialThreadId,
     initialOperationStatus,
+    streamDebug = false,
   } = params;
 
   if (!jobRepository) {
@@ -2062,6 +2125,14 @@ async function streamOperationToSse(params: {
         ...payload,
       };
 
+      if (streamDebug) {
+        logger.info('Agent X stream output (live)', {
+          operationId,
+          userId,
+          ...summarizeStreamEventForDebug(msg.event, normalizedPayload),
+        });
+      }
+
       res.write(`event: ${msg.event}\ndata: ${JSON.stringify(normalizedPayload)}\n\n`);
       if (isTerminal) {
         streamTerminalSeen = true;
@@ -2110,6 +2181,13 @@ async function streamOperationToSse(params: {
   for (const evt of events) {
     const seq = typeof evt.seq === 'number' ? evt.seq : -1;
     if (seq <= afterSeq) continue;
+    if (streamDebug) {
+      logger.info('Agent X stream output (replay)', {
+        operationId,
+        userId,
+        ...summarizeStreamEventForDebug(String(evt.type ?? ''), evt),
+      });
+    }
     emitReplayEvent(res, evt);
     streamObservability.replayCountTotal += 1;
     if (seq > lastSeq) lastSeq = seq;
@@ -2219,6 +2297,13 @@ async function streamOperationToSse(params: {
             streamObservability.seqRegressionDetectedTotal += 1;
           }
           continue;
+        }
+        if (streamDebug) {
+          logger.info('Agent X stream output (fallback-replay)', {
+            operationId,
+            userId,
+            ...summarizeStreamEventForDebug(String(evt.type ?? ''), evt),
+          });
         }
         emitReplayEvent(res, evt);
         lastSeq = Math.max(lastSeq, seq);
@@ -4367,6 +4452,7 @@ router.post(
         selectedAction,
         userContext,
       } = req.body as AgentChatRequestDto;
+      const streamDebug = isAgentXStreamDebugEnabled(req);
       const normalizedSelectedAction = normalizeSelectedActionForPayload(selectedAction);
       const normalizedSelectedContexts = normalizeSelectedContextsForPayload(selectedContexts);
       const idempotencyKey = parseIdempotencyKey(req);
@@ -4407,6 +4493,7 @@ router.post(
           userId: user.uid,
           afterSeq,
           initialThreadId: effectiveThreadId,
+          streamDebug,
         });
         return;
       }
@@ -4518,6 +4605,24 @@ router.post(
           ...(source.faviconUrl ? { faviconUrl: source.faviconUrl } : {}),
         })
       );
+
+      if (streamDebug) {
+        logger.info('Agent X chat stream debug input', {
+          userId: user.uid,
+          threadId: threadId ?? null,
+          messageLength: message.trim().length,
+          idempotencyKeyPresent: Boolean(idempotencyKey),
+          selectedActionSurface: normalizedSelectedAction?.surface ?? null,
+          selectedContextCount: normalizedSelectedContexts.length,
+          connectedSourceCount: connectedSources?.length ?? 0,
+          attachmentCount: allAttachments.length,
+          attachmentHosts: allAttachments
+            .map((attachment) =>
+              typeof attachment.url === 'string' ? resolveUrlHost(attachment.url) : null
+            )
+            .filter((host): host is string => Boolean(host)),
+        });
+      }
 
       let enrichedMessageText = message.trim();
       // Inject connected app sources as context so Agent X knows which platforms the user
@@ -5124,6 +5229,7 @@ router.post(
         afterSeq,
         initialThreadId: effectiveThreadId,
         initialOperationStatus: 'queued',
+        streamDebug,
       });
     } catch (err) {
       const error = err instanceof Error ? err : new Error(String(err));
