@@ -22,6 +22,8 @@ import {
   CACHE_TTL,
   buildProfileByIdCacheKey,
   buildProfileByUnicodeCacheKey,
+  buildLiteProfileByIdCacheKey,
+  buildLiteProfileByUnicodeCacheKey,
   buildProfileSearchCacheKey,
   docToUser,
   docToUserSummary,
@@ -46,6 +48,11 @@ function shouldBypassProfileCache(req: Request): boolean {
   return noCacheQuery === 'true' || noCacheQuery === '1';
 }
 
+function shouldUseLiteProfileLookup(req: Request): boolean {
+  const liteQuery = String(req.query['lite'] ?? '').toLowerCase();
+  return liteQuery === 'true' || liteQuery === '1';
+}
+
 // ─── GET /me ──────────────────────────────────────────────────────────────────
 
 router.get(
@@ -53,7 +60,8 @@ router.get(
   appGuard,
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const userId = req.user!.uid;
-    const cacheKey = buildProfileByIdCacheKey(userId);
+    const lite = shouldUseLiteProfileLookup(req);
+    const cacheKey = lite ? buildLiteProfileByIdCacheKey(userId) : buildProfileByIdCacheKey(userId);
     const cache = getCacheService();
     const bypassCache = shouldBypassProfileCache(req);
 
@@ -74,40 +82,41 @@ router.get(
     }
 
     const rawUser = docToUser(doc.id, doc.data() as UserFirestoreDoc);
-    const hydrationService = getHydrationService(db);
-    const user = await hydrationService.hydrateUser(rawUser);
+    const user = lite ? rawUser : await getHydrationService(db).hydrateUser(rawUser);
 
-    const isTeamRole = user.role === 'coach' || user.role === 'director';
-    const activeSportData = user.sports?.[user.activeSportIndex ?? 0] ?? user.sports?.[0];
-    const teamId =
-      (user as unknown as Record<string, unknown> & { teamCode?: { teamId?: string } }).teamCode
-        ?.teamId ?? activeSportData?.team?.teamId;
-    if (isTeamRole && teamId) {
-      try {
-        const teamDoc = await db.collection('Teams').doc(teamId).get();
-        if (teamDoc.exists) {
-          const teamData = teamDoc.data();
-          if (
-            Array.isArray(teamData?.['connectedSources']) &&
-            teamData['connectedSources'].length > 0
-          ) {
-            user.connectedSources = teamData['connectedSources'];
+    if (!lite) {
+      const isTeamRole = user.role === 'coach' || user.role === 'director';
+      const activeSportData = user.sports?.[user.activeSportIndex ?? 0] ?? user.sports?.[0];
+      const teamId =
+        (user as unknown as Record<string, unknown> & { teamCode?: { teamId?: string } }).teamCode
+          ?.teamId ?? activeSportData?.team?.teamId;
+      if (isTeamRole && teamId) {
+        try {
+          const teamDoc = await db.collection('Teams').doc(teamId).get();
+          if (teamDoc.exists) {
+            const teamData = teamDoc.data();
+            if (
+              Array.isArray(teamData?.['connectedSources']) &&
+              teamData['connectedSources'].length > 0
+            ) {
+              user.connectedSources = teamData['connectedSources'];
+            }
+            if (
+              teamData?.['connectedAccounts'] &&
+              typeof teamData['connectedAccounts'] === 'object' &&
+              !Array.isArray(teamData['connectedAccounts'])
+            ) {
+              (user as unknown as Record<string, unknown>)['connectedAccounts'] =
+                teamData['connectedAccounts'];
+            }
           }
-          if (
-            teamData?.['connectedAccounts'] &&
-            typeof teamData['connectedAccounts'] === 'object' &&
-            !Array.isArray(teamData['connectedAccounts'])
-          ) {
-            (user as unknown as Record<string, unknown>)['connectedAccounts'] =
-              teamData['connectedAccounts'];
-          }
+        } catch (err) {
+          logger.warn('[Profile] /me failed to fetch team connected sources', {
+            userId,
+            teamId,
+            err,
+          });
         }
-      } catch (err) {
-        logger.warn('[Profile] /me failed to fetch team connected sources', {
-          userId,
-          teamId,
-          err,
-        });
       }
     }
 
@@ -124,6 +133,7 @@ router.get(
   optionalAuth,
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { unicode } = req.params as { unicode: string };
+    const lite = shouldUseLiteProfileLookup(req);
 
     if (!unicode?.trim()) {
       sendError(
@@ -133,7 +143,9 @@ router.get(
       return;
     }
 
-    const cacheKey = buildProfileByUnicodeCacheKey(unicode);
+    const cacheKey = lite
+      ? buildLiteProfileByUnicodeCacheKey(unicode)
+      : buildProfileByUnicodeCacheKey(unicode);
     const cache = getCacheService();
 
     const cached = await cache.get<User>(cacheKey);
@@ -158,12 +170,15 @@ router.get(
 
     const doc = snapshot.docs[0]!;
     const rawUser = docToUser(doc.id, doc.data() as UserFirestoreDoc);
-    const hydrationService = getHydrationService(db);
-    const user = await hydrationService.hydrateUser(rawUser);
+    const user = lite ? rawUser : await getHydrationService(db).hydrateUser(rawUser);
 
     await Promise.all([
       cache.set(cacheKey, user, { ttl: CACHE_TTL.PROFILES }),
-      cache.set(buildProfileByIdCacheKey(doc.id), user, { ttl: CACHE_TTL.PROFILES }),
+      cache.set(
+        lite ? buildLiteProfileByIdCacheKey(doc.id) : buildProfileByIdCacheKey(doc.id),
+        user,
+        { ttl: CACHE_TTL.PROFILES }
+      ),
     ]);
 
     logger.debug('[Profile] Unicode cache set', { unicode, userId: doc.id });
@@ -322,6 +337,7 @@ router.get(
   optionalAuth,
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { userId } = req.params as { userId: string };
+    const lite = shouldUseLiteProfileLookup(req);
 
     if (!userId?.trim()) {
       sendError(
@@ -331,7 +347,7 @@ router.get(
       return;
     }
 
-    const cacheKey = buildProfileByIdCacheKey(userId);
+    const cacheKey = lite ? buildLiteProfileByIdCacheKey(userId) : buildProfileByIdCacheKey(userId);
     const cache = getCacheService();
     const bypassCache = shouldBypassProfileCache(req);
 
@@ -352,36 +368,37 @@ router.get(
     }
 
     const rawUser = docToUser(doc.id, doc.data() as UserFirestoreDoc);
-    const hydrationService = getHydrationService(db);
-    const user = await hydrationService.hydrateUser(rawUser);
+    const user = lite ? rawUser : await getHydrationService(db).hydrateUser(rawUser);
 
-    const isTeamRole = user.role === 'coach' || user.role === 'director';
-    const activeSportData = user.sports?.[user.activeSportIndex ?? 0] ?? user.sports?.[0];
-    const teamId =
-      (user as unknown as Record<string, unknown> & { teamCode?: { teamId?: string } }).teamCode
-        ?.teamId ?? activeSportData?.team?.teamId;
-    if (isTeamRole && teamId) {
-      try {
-        const teamDoc = await db.collection('Teams').doc(teamId).get();
-        if (teamDoc.exists) {
-          const teamData = teamDoc.data();
-          if (
-            Array.isArray(teamData?.['connectedSources']) &&
-            teamData['connectedSources'].length > 0
-          ) {
-            user.connectedSources = teamData['connectedSources'];
+    if (!lite) {
+      const isTeamRole = user.role === 'coach' || user.role === 'director';
+      const activeSportData = user.sports?.[user.activeSportIndex ?? 0] ?? user.sports?.[0];
+      const teamId =
+        (user as unknown as Record<string, unknown> & { teamCode?: { teamId?: string } }).teamCode
+          ?.teamId ?? activeSportData?.team?.teamId;
+      if (isTeamRole && teamId) {
+        try {
+          const teamDoc = await db.collection('Teams').doc(teamId).get();
+          if (teamDoc.exists) {
+            const teamData = teamDoc.data();
+            if (
+              Array.isArray(teamData?.['connectedSources']) &&
+              teamData['connectedSources'].length > 0
+            ) {
+              user.connectedSources = teamData['connectedSources'];
+            }
+            if (
+              teamData?.['connectedAccounts'] &&
+              typeof teamData['connectedAccounts'] === 'object' &&
+              !Array.isArray(teamData['connectedAccounts'])
+            ) {
+              (user as unknown as Record<string, unknown>)['connectedAccounts'] =
+                teamData['connectedAccounts'];
+            }
           }
-          if (
-            teamData?.['connectedAccounts'] &&
-            typeof teamData['connectedAccounts'] === 'object' &&
-            !Array.isArray(teamData['connectedAccounts'])
-          ) {
-            (user as unknown as Record<string, unknown>)['connectedAccounts'] =
-              teamData['connectedAccounts'];
-          }
+        } catch (err) {
+          logger.warn('[Profile] Failed to fetch team connected sources', { userId, teamId, err });
         }
-      } catch (err) {
-        logger.warn('[Profile] Failed to fetch team connected sources', { userId, teamId, err });
       }
     }
 
