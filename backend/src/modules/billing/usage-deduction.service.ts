@@ -180,6 +180,65 @@ function supportsFirestoreLock(db: Firestore): boolean {
   return typeof maybeDb.collection === 'function' && typeof maybeDb.runTransaction === 'function';
 }
 
+function supportsFirestoreCollection(db: Firestore): boolean {
+  const maybeDb = db as Partial<Pick<Firestore, 'collection'>>;
+  return typeof maybeDb.collection === 'function';
+}
+
+function getMetadataTeamHint(
+  metadata: Record<string, unknown> | undefined,
+  allowedTeamIds: readonly string[]
+): string | undefined {
+  const allowed = new Set(allowedTeamIds);
+  const keys = ['teamId', 'activeTeamId', 'sourceTeamId'] as const;
+
+  for (const key of keys) {
+    const value = metadata?.[key];
+    if (typeof value === 'string' && value.length > 0) {
+      if (allowed.size === 0 || allowed.has(value)) {
+        return value;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+async function resolveOrgTeamIdFromRoster(
+  db: Firestore,
+  userId: string,
+  teamIds: readonly string[]
+): Promise<string | undefined> {
+  if (!supportsFirestoreCollection(db) || teamIds.length === 0) {
+    return undefined;
+  }
+
+  const matchedTeamIds = new Set<string>();
+
+  for (let index = 0; index < teamIds.length; index += 30) {
+    const chunk = teamIds.slice(index, index + 30);
+    if (chunk.length === 0) continue;
+
+    const snap = await db.collection('RosterEntries').where('teamId', 'in', chunk).get();
+    for (const doc of snap.docs) {
+      const data = doc.data();
+      if (data['status'] !== 'active') continue;
+      if (data['userId'] !== userId) continue;
+
+      const teamId = typeof data['teamId'] === 'string' ? data['teamId'] : undefined;
+      if (teamId) {
+        matchedTeamIds.add(teamId);
+      }
+    }
+  }
+
+  if (matchedTeamIds.size === 1) {
+    return Array.from(matchedTeamIds)[0];
+  }
+
+  return undefined;
+}
+
 interface BillingDeductionLockResult {
   readonly acquired: boolean;
   readonly existingStatus?: string;
@@ -465,6 +524,14 @@ export async function executeBillingDeduction(
       if (target.type === 'organization') {
         billingOrgId = target.organizationId;
         resolvedOrgId = target.organizationId ?? resolvedOrgId;
+
+        if (!resolvedTeamId) {
+          resolvedTeamId =
+            getMetadataTeamHint(metadata, target.teamIds ?? []) ??
+            (await resolveOrgTeamIdFromRoster(db, userId, target.teamIds ?? [])) ??
+            (target.teamIds?.length === 1 ? target.teamIds[0] : undefined);
+        }
+
         if (!resolvedTeamId) {
           logger.warn('[billing] Missing canonical org team attribution for usage event', {
             operationId,

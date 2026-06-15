@@ -947,6 +947,13 @@ async function buildBreakdownRows(
 ): Promise<UsageBreakdownRow[]> {
   const isOrg = target.type === 'organization';
 
+  const orgTeamIds = isOrg ? (target.teamIds ?? []) : [];
+  const orgTeamIdSet = new Set(orgTeamIds);
+  const orgSingleTeamId = orgTeamIds.length === 1 ? orgTeamIds[0] : undefined;
+  const orgRosterAttribution = isOrg
+    ? await fetchOrganizationRosterAttribution(db, orgTeamIds)
+    : { memberUserIds: new Set<string>(), teamIdByUserId: new Map<string, string>() };
+
   // ── Collect unique IDs for name lookups ─────────────────────────
   const userIdSet = new Set<string>();
   const teamIdSet = new Set<string>();
@@ -964,14 +971,42 @@ async function buildBreakdownRows(
   const indDaily = new Map<string, Map<string, FeatureAgg>>();
   const collapsedLegacyOperationKeys = new Set<string>();
 
+  function resolveOrgUsageEventTeamId(doc: UsageEventDocument): string | undefined {
+    const directTeamId = doc.teamId;
+    if (directTeamId && (orgTeamIdSet.size === 0 || orgTeamIdSet.has(directTeamId))) {
+      return directTeamId;
+    }
+
+    const metadata = doc.metadata as Record<string, unknown> | undefined;
+    const metadataKeys = ['teamId', 'activeTeamId', 'sourceTeamId'] as const;
+    for (const key of metadataKeys) {
+      const value = metadata?.[key];
+      if (
+        typeof value === 'string' &&
+        value.length > 0 &&
+        (orgTeamIdSet.size === 0 || orgTeamIdSet.has(value))
+      ) {
+        return value;
+      }
+    }
+
+    const rosterTeamId = orgRosterAttribution.teamIdByUserId.get(doc.userId);
+    if (rosterTeamId) {
+      return rosterTeamId;
+    }
+
+    return orgSingleTeamId;
+  }
+
   for (const doc of eventsDocs) {
     const dateKey = toLocalDateKey(doc.createdAt);
     const lineItems = getUsageEventLineItems(doc, dateKey, collapsedLegacyOperationKeys);
 
     if (isOrg) {
-      const evTeamId = doc.teamId ?? 'unknown';
+      const resolvedTeamId = resolveOrgUsageEventTeamId(doc);
+      const evTeamId = resolvedTeamId ?? 'unknown';
       const evUserId = doc.userId ?? 'unknown';
-      if (evTeamId !== 'unknown') teamIdSet.add(evTeamId);
+      if (resolvedTeamId) teamIdSet.add(resolvedTeamId);
       if (evUserId !== 'unknown') userIdSet.add(evUserId);
 
       if (!orgDaily.has(dateKey)) orgDaily.set(dateKey, new Map());
