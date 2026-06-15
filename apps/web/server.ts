@@ -340,7 +340,6 @@ function optimizePublicMarketingHtml(html: string): string {
         ''
       )
       .replace(/<script\b[^>]*>\s*window\.__jsaction_bootstrap[\s\S]*?<\/script>\s*/gi, '')
-      .replace(/<script\b[^>]*src=["'](?:polyfills|main)-[^"']+\.js["'][^>]*><\/script>\s*/gi, '')
       .replace(
         /<link\b[^>]*href=["']https:\/\/(?:storage\.googleapis\.com|firebaseinstallations\.googleapis\.com|firestore\.googleapis\.com|identitytoolkit\.googleapis\.com|fonts\.googleapis\.com|fonts\.gstatic\.com|a\.espncdn\.com|firebasestorage\.googleapis\.com|nxt1sports\.firebasestorage\.app)["'][^>]*>\s*/gi,
         ''
