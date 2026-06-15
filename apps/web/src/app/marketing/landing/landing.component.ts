@@ -138,7 +138,7 @@ const CTA_AVATARS: readonly CtaAvatarImage[] = [
           <nxt1-immersive-hero variant="sleek" headline="AI Coordinators That Work For You" />
         </section>
 
-        @defer (on viewport) {
+        @defer (on timer(2s); on interaction) {
           <section aria-labelledby="digital-staff-heading">
             <h2 id="digital-staff-heading" class="sr-only">Digital Sports Staff</h2>
             <nxt1-digital-sports-staff-section />

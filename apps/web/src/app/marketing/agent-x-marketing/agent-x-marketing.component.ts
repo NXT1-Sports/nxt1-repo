@@ -87,7 +87,11 @@ const AGENT_X_MARKETING_STRUCTURED_DATA = {
         <nxt1-agent-x-welcome-header [animateOnLoad]="false" />
       </section>
 
-      <nxt1-agent-x-execution-layer-section />
+      @defer (on timer(2s); on interaction) {
+        <nxt1-agent-x-execution-layer-section />
+      } @placeholder {
+        <div class="agent-x-marketing__placeholder" aria-hidden="true"></div>
+      }
 
       @defer (on viewport) {
         <nxt1-agent-x-landing />
