@@ -66,35 +66,7 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
                       <span>{{ getVideoStatusMessage(media.processingStatus) }}</span>
                     </div>
                   </div>
-                } @else if (shouldRenderVideoPlayer(media)) {
-                  <!-- Keep poster visible until the iframe has painted to avoid white flashes -->
-                  @if (media.thumbnailUrl) {
-                    <nxt1-image
-                      [src]="media.thumbnailUrl"
-                      [alt]="media.altText || 'Video thumbnail'"
-                      fit="contain"
-                      [width]="getMediaWidth(media)"
-                      [height]="getMediaHeight(media)"
-                      [useNgOptimizedImage]="false"
-                    />
-                  } @else {
-                    <div
-                      class="post-content__video-placeholder post-content__video-placeholder--loading"
-                    >
-                      <nxt1-icon name="videocam" [size]="48" />
-                    </div>
-                  }
-                  <iframe
-                    class="post-content__video-iframe"
-                    [class.post-content__video-iframe--loaded]="isVideoIframeReady(media.id)"
-                    [src]="getSafeIframeUrl(media.iframeUrl || media.url)"
-                    allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
-                    allowfullscreen
-                    frameborder="0"
-                    (load)="markVideoIframeReady(media.id)"
-                  ></iframe>
                 } @else {
-                  <!-- Inactive: show thumbnail + play button tap target -->
                   @if (media.thumbnailUrl) {
                     <nxt1-image
                       [src]="media.thumbnailUrl"
@@ -109,18 +81,35 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
                       <nxt1-icon name="videocam" [size]="48" />
                     </div>
                   }
-                  <button
-                    type="button"
-                    class="post-content__video-overlay"
-                    [attr.aria-label]="'Play video' + (media.altText ? ': ' + media.altText : '')"
-                    (click)="activateVideo(media.id, $event)"
-                  >
-                    <nxt1-icon name="playCircle" [size]="48" />
-                  </button>
-                  @if (media.duration) {
-                    <span class="post-content__video-duration">{{
-                      formatDuration(media.duration)
-                    }}</span>
+                  @if (shouldRenderVideoPlayer(media)) {
+                    <iframe
+                      class="post-content__video-iframe"
+                      [class.post-content__video-iframe--loaded]="isVideoIframeReady(media.id)"
+                      [src]="getSafeIframeUrl(getVideoPlayerUrl(media))"
+                      allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture"
+                      allowfullscreen
+                      frameborder="0"
+                      (load)="markVideoIframeReady(media.id)"
+                    ></iframe>
+                    @if (!isVideoIframeReady(media.id)) {
+                      <div class="post-content__video-loading" aria-hidden="true">
+                        <div class="post-content__video-loading-spinner"></div>
+                      </div>
+                    }
+                  } @else {
+                    <button
+                      type="button"
+                      class="post-content__video-overlay"
+                      [attr.aria-label]="'Play video' + (media.altText ? ': ' + media.altText : '')"
+                      (click)="activateVideo(media.id, $event)"
+                    >
+                      <nxt1-icon name="playCircle" [size]="48" />
+                    </button>
+                    @if (media.duration) {
+                      <span class="post-content__video-duration">{{
+                        formatDuration(media.duration)
+                      }}</span>
+                    }
                   }
                 }
               }
@@ -372,6 +361,35 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
         }
       }
 
+      .post-content__video-loading {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: rgba(0, 0, 0, 0.24);
+        pointer-events: none;
+      }
+
+      .post-content__video-loading-spinner {
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        border: 3px solid rgba(255, 255, 255, 0.22);
+        border-top-color: rgba(255, 255, 255, 0.92);
+        animation: post-content-video-spin 0.8s linear infinite;
+      }
+
+      @keyframes post-content-video-spin {
+        from {
+          transform: rotate(0deg);
+        }
+
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
       .post-content__video-duration {
         position: absolute;
         bottom: 8px;
@@ -559,6 +577,7 @@ type FeedPostContentMode = 'full' | 'media' | 'body';
 export class FeedPostContentComponent {
   private static readonly FALLBACK_MEDIA_WIDTH = 1200;
   private static readonly FALLBACK_MEDIA_HEIGHT = 675;
+  private static readonly VIDEO_IFRAME_REVEAL_DELAY_MS = 180;
 
   readonly data = input.required<FeedItemPost>();
   readonly mode = input<FeedPostContentMode>('full');
@@ -571,6 +590,7 @@ export class FeedPostContentComponent {
 
   private readonly sanitizer = inject(DomSanitizer);
   private readonly safeIframeUrls = new Map<string, SafeResourceUrl>();
+  private readonly pendingVideoIframeReveal = new Set<string>();
   protected readonly testIds = FEED_CARD_TEST_IDS;
   protected readonly activeMediaIndex = signal(0);
   /** Tracks which video slide is "playing" by media ID. null = thumbnail shown. */
@@ -681,10 +701,20 @@ export class FeedPostContentComponent {
   }
 
   protected markVideoIframeReady(mediaId: string): void {
-    this.videoIframeReady.update((current) => {
-      if (current[mediaId]) return current;
-      return { ...current, [mediaId]: true };
-    });
+    if (this.videoIframeReady()[mediaId] === true || this.pendingVideoIframeReveal.has(mediaId)) {
+      return;
+    }
+
+    this.pendingVideoIframeReveal.add(mediaId);
+
+    setTimeout(() => {
+      this.pendingVideoIframeReveal.delete(mediaId);
+
+      this.videoIframeReady.update((current) => {
+        if (current[mediaId]) return current;
+        return { ...current, [mediaId]: true };
+      });
+    }, FeedPostContentComponent.VIDEO_IFRAME_REVEAL_DELAY_MS);
   }
 
   protected shouldRenderVideoPlayer(media: FeedMedia): boolean {
@@ -707,6 +737,11 @@ export class FeedPostContentComponent {
       : FeedPostContentComponent.FALLBACK_MEDIA_HEIGHT;
   }
 
+  protected getVideoPlayerUrl(media: FeedMedia): string {
+    const baseUrl = this.resolveVideoIframeBaseUrl(media);
+    return this.withVideoPlayerParams(baseUrl, this.shouldRenderVideoPlayer(media));
+  }
+
   /**
    * Bypasses Angular's URL sanitization for trusted Cloudflare Stream iframe URLs.
    * Only called for iframeUrl values constructed by the backend from CF's own CDN.
@@ -718,6 +753,52 @@ export class FeedPostContentComponent {
     const safeUrl = this.sanitizer.bypassSecurityTrustResourceUrl(iframeUrl);
     this.safeIframeUrls.set(iframeUrl, safeUrl);
     return safeUrl;
+  }
+
+  private resolveVideoIframeBaseUrl(media: FeedMedia): string {
+    const cloudflareVideoId = media.cloudflareVideoId?.trim();
+    if (cloudflareVideoId) {
+      return `https://iframe.videodelivery.net/${cloudflareVideoId}`;
+    }
+
+    const candidateUrl = media.iframeUrl?.trim() || media.url;
+
+    try {
+      const parsed = new URL(candidateUrl);
+      if (parsed.hostname === 'iframe.videodelivery.net') return parsed.toString();
+
+      if (parsed.hostname === 'watch.cloudflarestream.com') {
+        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+        return videoId ? `https://iframe.videodelivery.net/${videoId}` : candidateUrl;
+      }
+
+      if (
+        parsed.hostname.endsWith('.cloudflarestream.com') &&
+        parsed.pathname.endsWith('/iframe')
+      ) {
+        return parsed.toString();
+      }
+    } catch {
+      return candidateUrl;
+    }
+
+    return candidateUrl;
+  }
+
+  private withVideoPlayerParams(url: string, autoplay: boolean): string {
+    try {
+      const parsed = new URL(url);
+
+      if (autoplay) {
+        parsed.searchParams.set('autoplay', 'true');
+      } else {
+        parsed.searchParams.delete('autoplay');
+      }
+
+      return parsed.toString();
+    } catch {
+      return url;
+    }
   }
 
   protected formatRelativeTime(dateString: string): string {

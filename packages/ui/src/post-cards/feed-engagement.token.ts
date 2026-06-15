@@ -30,9 +30,9 @@ export interface FeedEngagementAdapter {
   /**
    * Record a view impression. Fire-and-forget.
    * Only called for items with real Firestore Post IDs (feedType === 'POST').
-   * @param postId - Firestore Post document ID
+   * @param itemId - Firestore Post document ID
    */
-  viewPost(postId: string): void;
+  viewPost(itemId: string): void;
 }
 
 // ============================================

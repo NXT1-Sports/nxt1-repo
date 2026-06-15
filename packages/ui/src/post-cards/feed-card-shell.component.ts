@@ -39,6 +39,7 @@ import {
   PLATFORM_ID,
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
+import { Auth } from '@angular/fire/auth';
 import { IonRippleEffect } from '@ionic/angular/standalone';
 import type { FeedItem, FeedAuthor, FeedItemType } from '@nxt1/core';
 import { FEED_CARD_TEST_IDS } from '@nxt1/core/testing';
@@ -567,6 +568,7 @@ export class FeedCardShellComponent {
   private readonly elementRef = inject(ElementRef<HTMLElement>);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly feedEngagement = inject(FEED_ENGAGEMENT, { optional: true });
+  private readonly auth = inject(Auth);
   protected readonly testIds = FEED_CARD_TEST_IDS;
 
   // ============================================
@@ -602,6 +604,8 @@ export class FeedCardShellComponent {
   // ============================================
   // COMPUTED
   // ============================================
+
+  protected readonly currentUserUid = computed(() => this.auth.currentUser?.uid ?? null);
 
   protected readonly ariaLabel = computed(() => {
     const i = this.item();
@@ -690,12 +694,16 @@ export class FeedCardShellComponent {
 
   private setupViewObserver(): void {
     const item = this.item();
+    const currentUserUid = this.currentUserUid();
 
     const observer = new IntersectionObserver(
       (entries) => {
         const entry = entries[0];
         if (entry?.isIntersecting) {
-          this.feedEngagement?.viewPost(item.id);
+          // Skip self-view before hitting the backend
+          if (!(currentUserUid && currentUserUid === item.author.uid)) {
+            this.feedEngagement?.viewPost(item.id);
+          }
           observer.disconnect();
         }
       },
