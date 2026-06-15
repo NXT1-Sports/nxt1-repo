@@ -1,11 +1,32 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentMessage } from '@nxt1/core';
+import type { AgentXToolStep } from '@nxt1/core/ai';
 import { AgentXOperationChatSessionFacade } from './agent-x-operation-chat-session.facade';
 import type { OperationMessage } from './agent-x-operation-chat.models';
 
 type Canonicalizer = {
   resolveCanonicalAssistantRows(items: readonly AgentMessage[]): readonly AgentMessage[];
   reorderTurnsByPairing(messages: readonly OperationMessage[]): OperationMessage[];
+  dedupeConsecutiveAssistantMessages(messages: readonly OperationMessage[]): OperationMessage[];
+  shouldPreserveInlineYieldRowDuringReload(params: {
+    readonly message: OperationMessage;
+    readonly messageIndex: number;
+    readonly allExistingMessages: readonly OperationMessage[];
+    readonly reorderedMapped: readonly OperationMessage[];
+    readonly answeredYieldOperationIdsInPersisted: ReadonlySet<string>;
+  }): boolean;
+  mergePreservedInlineYieldRows(
+    persistedRows: readonly OperationMessage[],
+    preservedInlineYieldRows: readonly OperationMessage[]
+  ): OperationMessage[];
+  shouldAppendContentAsTextPart(
+    cleanContent: string,
+    persistedParts: NonNullable<AgentMessage['parts']>
+  ): boolean;
+  resolveSupplementalContentTextPart(
+    cleanContent: string,
+    persistedParts: NonNullable<AgentMessage['parts']>
+  ): string | null;
   isPauseYieldSupersededByLaterTurn(
     yieldState: NonNullable<AgentMessage['resultData']>['yieldState'],
     items: readonly AgentMessage[]
@@ -23,6 +44,22 @@ type Canonicalizer = {
       parts?: AgentMessage['parts'];
     }>,
     operationId: string
+  ): boolean;
+  shouldDropLiveReplayAssistantRow(
+    message: OperationMessage,
+    replay: {
+      readonly operationIds: ReadonlySet<string>;
+      readonly content: string;
+      readonly steps: readonly AgentXToolStep[];
+    }
+  ): boolean;
+  shouldDropPersistedRowForActiveTyping(
+    message: OperationMessage,
+    params: {
+      readonly liveOperationId: string;
+      readonly existingTyping: OperationMessage;
+      readonly replayOperationIds: ReadonlySet<string>;
+    }
   ): boolean;
   hasMongoFinalForOperation(items: readonly AgentMessage[], operationId: string | null): boolean;
   collectMessageMedia(message: AgentMessage): {
@@ -224,6 +261,29 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     const canonical = facade.resolveCanonicalAssistantRows(items);
 
     expect(canonical.map((message) => message.id)).toEqual(['partial-2']);
+  });
+
+  it('dedupes consecutive assistant replays when chat-prefixed and bare UUID operation ids refer to the same turn', () => {
+    const deduped = facade.dedupeConsecutiveAssistantMessages([
+      {
+        id: 'assistant-local-partial',
+        role: 'assistant',
+        content: "Here's IMG_0194 2.MOV loaded up for you, Coach.",
+        operationId: 'chat-11111111-1111-1111-1111-111111111111',
+        timestamp: new Date('2026-06-15T04:00:00.000Z'),
+        semanticPhase: 'assistant_partial',
+      },
+      {
+        id: 'assistant-persisted-partial',
+        role: 'assistant',
+        content: "Here's IMG_0194 2.MOV loaded up for you, Coach.",
+        operationId: '11111111-1111-1111-1111-111111111111',
+        timestamp: new Date('2026-06-15T04:00:01.000Z'),
+        semanticPhase: 'assistant_partial',
+      },
+    ]);
+
+    expect(deduped.map((message) => message.id)).toEqual(['assistant-local-partial']);
   });
 
   it('suppresses answered assistant_yield rows and shows the user reply as a standalone bubble', () => {
@@ -502,6 +562,191 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(yielded).toBe(true);
   });
 
+  it('drops persisted assistant snapshots already represented by live Firestore replay', () => {
+    const replay = {
+      operationIds: new Set(['parent-op', 'child-op']),
+      content:
+        'Data coordinator is extracting profile information and reviewing distilled sections sequentially.',
+      steps: [] as AgentXToolStep[],
+    };
+
+    expect(
+      facade.shouldDropLiveReplayAssistantRow(
+        {
+          id: 'persisted-without-op',
+          role: 'assistant',
+          content:
+            'Data coordinator is extracting profile information and reviewing distilled sections sequentially.',
+          timestamp: new Date('2026-06-08T12:25:33.000Z'),
+        },
+        replay
+      )
+    ).toBe(true);
+
+    expect(
+      facade.shouldDropLiveReplayAssistantRow(
+        {
+          id: 'persisted-child-op',
+          role: 'assistant',
+          operationId: 'child-op',
+          content: 'Reviewing distilled insights: seasonStats',
+          timestamp: new Date('2026-06-08T12:25:34.000Z'),
+        },
+        replay
+      )
+    ).toBe(true);
+
+    expect(
+      facade.shouldDropLiveReplayAssistantRow(
+        {
+          id: 'persisted-sibling-op-same-prose',
+          role: 'assistant',
+          operationId: 'mongo-parent-op',
+          content:
+            'Data coordinator is extracting profile information and reviewing distilled sections sequentially.',
+          timestamp: new Date('2026-06-08T12:25:35.000Z'),
+          parts: [
+            {
+              type: 'tool-steps',
+              steps: [
+                {
+                  id: 'tool-search-colleges',
+                  label: 'Searching college database: Football',
+                  status: 'success',
+                  stageType: 'tool',
+                },
+              ],
+            },
+          ],
+        },
+        {
+          operationIds: new Set(['firestore-live-op']),
+          content:
+            'Data coordinator is extracting profile information and reviewing distilled sections sequentially.',
+          steps: [
+            {
+              id: 'tool-search-colleges',
+              label: 'Searching college database: Football',
+              status: 'success',
+              stageType: 'tool',
+            },
+          ],
+        }
+      )
+    ).toBe(true);
+
+    expect(
+      facade.shouldDropLiveReplayAssistantRow(
+        {
+          id: 'persisted-sibling-op-with-longer-prose',
+          role: 'assistant',
+          operationId: 'mongo-parent-op',
+          content:
+            'Searching 5 football colleges for a QB in the 2028 class now. Got the 5 colleges.',
+          timestamp: new Date('2026-06-08T12:25:36.000Z'),
+        },
+        {
+          operationIds: new Set(['firestore-live-op']),
+          content: 'Searching 5 football colleges for a QB in the 2028 class now.',
+          steps: [] as AgentXToolStep[],
+        }
+      )
+    ).toBe(true);
+
+    expect(
+      facade.shouldDropLiveReplayAssistantRow(
+        {
+          id: 'distinct-pre-approval-context',
+          role: 'assistant',
+          operationId: 'firestore-live-op',
+          content:
+            'Found 5 matching college programs with division, conference, GPA averages, acceptance rates, and direct links.',
+          timestamp: new Date('2026-06-08T12:25:37.000Z'),
+          semanticPhase: 'assistant_tool_call',
+        },
+        {
+          operationIds: new Set(['firestore-live-op']),
+          content: 'Sending an email to john@nxt1sports.com.',
+          steps: [] as AgentXToolStep[],
+        }
+      )
+    ).toBe(false);
+  });
+
+  it('preserves distinct same-operation tool_call context while dropping duplicated active typing rows', () => {
+    const existingTyping: OperationMessage = {
+      id: 'typing',
+      role: 'assistant',
+      operationId: 'firestore-live-op',
+      content: 'Sending an email to john@nxt1sports.com.',
+      timestamp: new Date('2026-06-08T12:26:00.000Z'),
+      steps: [
+        {
+          id: 'tool-send-email',
+          label: 'Sending email john@nxt1sports.com',
+          status: 'active',
+          stageType: 'tool',
+        },
+      ],
+    };
+
+    expect(
+      facade.shouldDropPersistedRowForActiveTyping(
+        {
+          id: 'persisted-distinct-context',
+          role: 'assistant',
+          operationId: 'firestore-live-op',
+          content:
+            'Found 5 matching college programs with division, conference, GPA averages, acceptance rates, and direct links.',
+          timestamp: new Date('2026-06-08T12:25:58.000Z'),
+          semanticPhase: 'assistant_tool_call',
+        },
+        {
+          liveOperationId: 'firestore-live-op',
+          existingTyping,
+          replayOperationIds: new Set(['firestore-live-op']),
+        }
+      )
+    ).toBe(false);
+
+    expect(
+      facade.shouldDropPersistedRowForActiveTyping(
+        {
+          id: 'persisted-duplicate-partial',
+          role: 'assistant',
+          operationId: 'firestore-live-op',
+          content: 'Sending an email to john@nxt1sports.com.',
+          timestamp: new Date('2026-06-08T12:25:59.000Z'),
+          semanticPhase: 'assistant_partial',
+        },
+        {
+          liveOperationId: 'firestore-live-op',
+          existingTyping,
+          replayOperationIds: new Set(['firestore-live-op']),
+        }
+      )
+    ).toBe(true);
+  });
+
+  it('drops live replay assistant rows when replay uses a bare UUID and the existing row uses the chat-prefixed form', () => {
+    expect(
+      facade.shouldDropLiveReplayAssistantRow(
+        {
+          id: 'assistant-chat-prefixed',
+          role: 'assistant',
+          operationId: 'chat-22222222-2222-2222-2222-222222222222',
+          content: "Here's IMG_0194 2.MOV loaded up for you, Coach.",
+          timestamp: new Date('2026-06-15T04:00:00.000Z'),
+          semanticPhase: 'assistant_partial',
+        },
+        {
+          operationIds: new Set(['22222222-2222-2222-2222-222222222222']),
+          content: "Here's IMG_0194 2.MOV loaded up for you, Coach.",
+          steps: [],
+        }
+      )
+    ).toBe(true);
+  });
   it('promotes persisted graphic URLs into image media and strips the raw URL from prose', () => {
     const graphicUrl =
       'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/users/demo/graphic.png';

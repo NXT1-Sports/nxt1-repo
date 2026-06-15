@@ -27,6 +27,7 @@ import { ANALYTICS_ADAPTER } from '@nxt1/ui/services/analytics';
 import { NxtBreadcrumbService } from '@nxt1/ui/services/breadcrumb';
 import { NxtOverlayService } from '@nxt1/ui/components/overlay';
 import { PostDetailOverlayComponent, type PostDetailInput } from '@nxt1/ui/post-cards';
+import { APP_EVENTS } from '@nxt1/core/analytics';
 import { buildPostSeoConfig } from '@nxt1/core/seo';
 import { SeoService } from '../../core/services';
 import { environment } from '../../../environments/environment';
@@ -253,7 +254,7 @@ export class PostComponent implements OnInit {
       }
 
       this.breadcrumb.trackStateChange('post:loaded', { postId, postType: post.type });
-      this.analytics?.trackEvent('post_viewed', {
+      this.analytics?.trackEvent(APP_EVENTS.POST_VIEWED, {
         post_id: postId,
         post_type: post.type,
       });

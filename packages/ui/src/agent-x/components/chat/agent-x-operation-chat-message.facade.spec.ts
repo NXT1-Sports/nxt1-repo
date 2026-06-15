@@ -324,6 +324,7 @@ describe('AgentXOperationChatMessageFacade', () => {
 
     expect(duplicatePreludeRows).toHaveLength(1);
     expect(committedRow?.steps?.map((step) => step.id)).toEqual(['tool-search-colleges']);
+    expect(committedRow?.semanticPhase).toBe('assistant_partial');
     expect(committedRow?.parts).toEqual([
       { type: 'text', content: 'Searching 5 football colleges for a QB in the 2028 class now...' },
     ]);

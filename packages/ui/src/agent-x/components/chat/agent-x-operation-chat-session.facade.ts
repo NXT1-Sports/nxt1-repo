@@ -135,6 +135,17 @@ export class AgentXOperationChatSessionFacade {
     return (value ?? '').replace(/\s+/g, ' ').trim();
   }
 
+  private agentMessageDisplayText(message: Pick<AgentMessage, 'content' | 'parts'>): string {
+    const partText = (message.parts ?? [])
+      .filter((part): part is Extract<AgentXMessagePart, { type: 'text' }> => part.type === 'text')
+      .map((part) => part.content.trim())
+      .filter((value) => value.length > 0)
+      .join('\n\n')
+      .trim();
+
+    return partText || (message.content ?? '');
+  }
+
   /**
    * Returns true when the error string represents a client-side connectivity
    * failure (SSE stall, network drop, stream cut) rather than a real backend
@@ -197,6 +208,17 @@ export class AgentXOperationChatSessionFacade {
     return steps.map((step) => `${step.id}|${step.label}|${step.status}`).join('||');
   }
 
+  private messageToolSteps(message: {
+    readonly steps?: readonly AgentXToolStep[];
+    readonly parts?: readonly AgentXMessagePart[];
+  }): readonly AgentXToolStep[] {
+    const steps: AgentXToolStep[] = [...(message.steps ?? [])];
+    for (const part of message.parts ?? []) {
+      if (part.type === 'tool-steps') steps.push(...part.steps);
+    }
+    return steps;
+  }
+
   private cardSignature(cards: readonly AgentXRichCard[] | undefined): string {
     if (!cards || cards.length === 0) return '';
     return cards.map((card) => JSON.stringify(card)).join('||');
@@ -210,6 +232,89 @@ export class AgentXOperationChatSessionFacade {
     return attachmentSignature;
   }
 
+  private normalizeReplayOperationId(value: string | null | undefined): string {
+    const trimmed = value?.trim() ?? '';
+    if (!trimmed) return '';
+    if (!trimmed.startsWith('chat-')) return trimmed;
+
+    const bare = trimmed.slice(5);
+    return this.isFirestoreOperationId(bare) ? bare : trimmed;
+  }
+
+  private sameReplayOperation(
+    left: string | null | undefined,
+    right: string | null | undefined
+  ): boolean {
+    const normalizedLeft = this.normalizeReplayOperationId(left);
+    const normalizedRight = this.normalizeReplayOperationId(right);
+    return !!normalizedLeft && normalizedLeft === normalizedRight;
+  }
+
+  private shouldDropLiveReplayAssistantRow(
+    message: OperationMessage,
+    replay: {
+      readonly operationIds: ReadonlySet<string>;
+      readonly content: string;
+      readonly steps: readonly AgentXToolStep[];
+    }
+  ): boolean {
+    if (message.id === 'typing') return true;
+    if (message.role !== 'assistant') return false;
+    if (message.yieldState || this.messageHasYieldCard(message)) return false;
+
+    const messageContent = this.normalizeMessageContent(this.agentMessageDisplayText(message));
+    const replayContent = this.normalizeMessageContent(replay.content);
+    if (messageContent && replayContent) {
+      if (messageContent === replayContent) return true;
+      if (messageContent.length >= 24 && replayContent.includes(messageContent)) return true;
+      if (replayContent.length >= 24 && messageContent.includes(replayContent)) return true;
+    }
+
+    const messageSteps = this.stepSignature(this.messageToolSteps(message));
+    const replaySteps = this.stepSignature(replay.steps);
+    if (messageSteps && messageSteps === replaySteps) return true;
+
+    const replayOperationIds = new Set(
+      [...replay.operationIds].map((operationId) => this.normalizeReplayOperationId(operationId))
+    );
+    const messageOperationId = this.normalizeReplayOperationId(message.operationId);
+    return (
+      !!messageOperationId &&
+      replayOperationIds.has(messageOperationId) &&
+      message.semanticPhase !== 'assistant_tool_call'
+    );
+  }
+
+  private shouldDropPersistedRowForActiveTyping(
+    message: OperationMessage,
+    params: {
+      readonly liveOperationId: string;
+      readonly existingTyping: OperationMessage;
+      readonly replayOperationIds: ReadonlySet<string>;
+    }
+  ): boolean {
+    if (
+      this.shouldDropLiveReplayAssistantRow(message, {
+        operationIds: params.replayOperationIds,
+        content: this.agentMessageDisplayText(params.existingTyping),
+        steps: this.messageToolSteps(params.existingTyping),
+      })
+    ) {
+      return true;
+    }
+
+    if (message.role !== 'assistant' || message.operationId !== params.liveOperationId) {
+      return false;
+    }
+    if (message.semanticPhase === 'assistant_tool_call') return false;
+
+    // Keep interruption rows (ask_user/approval) for the live operation.
+    // Dropping all assistant rows for the active operation causes the
+    // pending action card to disappear on session re-entry.
+    if (message.yieldState || this.messageHasYieldCard(message)) return false;
+
+    return true;
+  }
   private inferMediaTypeFromUrl(url: string): 'image' | 'video' | null {
     const normalizedUrl = this.normalizeDetectedMediaUrl(url);
     const parsed = (() => {
@@ -625,7 +730,7 @@ export class AgentXOperationChatSessionFacade {
         continue;
       }
 
-      const sameOperation = (message.operationId ?? '') === (previous.operationId ?? '');
+      const sameOperation = this.sameReplayOperation(message.operationId, previous.operationId);
       const sameContent =
         this.normalizeMessageContent(message.content) ===
         this.normalizeMessageContent(previous.content);
@@ -3061,14 +3166,22 @@ export class AgentXOperationChatSessionFacade {
             const normalizedFreshContent = this.normalizeMessageContent(
               this.promoteAssistantMediaUrlsToMarkdown(fresh.content)
             );
-            const alreadyPresent = this.messageFacade
-              .messages()
-              .some(
-                (m) =>
-                  m.role === 'assistant' &&
-                  !m.isTyping &&
-                  this.normalizeMessageContent(m.content) === normalizedFreshContent
-              );
+            const replayOperationIds = new Set<string>();
+            const completedOperationId = this.streamRegistry.getOperationIdForThread(threadId);
+            if (completedOperationId) {
+              replayOperationIds.add(completedOperationId);
+            }
+            const alreadyPresent = this.messageFacade.messages().some(
+              (m) =>
+                m.role === 'assistant' &&
+                !m.isTyping &&
+                (this.normalizeMessageContent(m.content) === normalizedFreshContent ||
+                  this.shouldDropLiveReplayAssistantRow(m, {
+                    operationIds: replayOperationIds,
+                    content: fresh.content,
+                    steps: fresh.steps,
+                  }))
+            );
             if (!alreadyPresent) {
               const freshCardsWithoutYield = fresh.cards.filter(
                 (card) => !this.isYieldRichCard(card)
