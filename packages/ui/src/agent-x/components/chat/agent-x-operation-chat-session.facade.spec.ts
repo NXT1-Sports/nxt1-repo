@@ -295,7 +295,7 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
               {
                 id: 'search-football-colleges',
                 label: 'Searching college database: football',
-                status: 'complete',
+                status: 'success',
                 stageType: 'tool',
               },
             ],

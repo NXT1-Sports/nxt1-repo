@@ -31,6 +31,22 @@ function createMockContext(): AgentSessionContext {
   };
 }
 
+type PrimaryDispatcherOverrides = {
+  runCoordinator?: PrimaryDispatcher['runCoordinator'];
+  runPlan?: PrimaryDispatcher['runPlan'];
+  runApprovedPlan?: PrimaryDispatcher['runApprovedPlan'];
+};
+
+function createPrimaryDispatcherMock(
+  overrides: PrimaryDispatcherOverrides = {}
+): PrimaryDispatcher {
+  return {
+    runCoordinator: overrides.runCoordinator ?? vi.fn(),
+    runPlan: overrides.runPlan ?? vi.fn(),
+    runApprovedPlan: overrides.runApprovedPlan ?? vi.fn(),
+  };
+}
+
 class TestPrimaryAgent extends PrimaryAgent {
   async callExecuteTool(
     toolCall: LLMToolCall,
@@ -116,10 +132,7 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
-      runCoordinator: vi.fn(),
-      runPlan: vi.fn(),
-    };
+    const dispatcher = createPrimaryDispatcherMock();
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const prompt = agent.getSystemPrompt(createMockContext());
@@ -188,10 +201,7 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
-      runCoordinator: vi.fn(),
-      runPlan: vi.fn(),
-    };
+    const dispatcher = createPrimaryDispatcherMock();
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const routing = agent.getModelRouting();
@@ -211,10 +221,7 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
-      runCoordinator: vi.fn(),
-      runPlan: vi.fn(),
-    };
+    const dispatcher = createPrimaryDispatcherMock();
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
 
@@ -245,10 +252,7 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
-      runCoordinator: vi.fn(),
-      runPlan: vi.fn(),
-    };
+    const dispatcher = createPrimaryDispatcherMock();
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const prompt = agent.getSystemPrompt(createMockContext());
@@ -271,10 +275,7 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
-      runCoordinator: vi.fn(),
-      runPlan: vi.fn(),
-    };
+    const dispatcher = createPrimaryDispatcherMock();
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = {
@@ -334,10 +335,9 @@ describe('PrimaryAgent delegation control flow', () => {
       resolveDispatch = resolve;
     });
 
-    const dispatcher: PrimaryDispatcher = {
+    const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockReturnValue(dispatchPromise),
-      runPlan: vi.fn(),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = createMockContext();
@@ -415,13 +415,12 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
+    const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockResolvedValue({
         success: true,
         observation: 'Brand coordinator completed the media step.',
       }),
-      runPlan: vi.fn(),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = createMockContext();
@@ -503,10 +502,9 @@ describe('PrimaryAgent delegation control flow', () => {
       resolvePlan = resolve;
     });
 
-    const dispatcher: PrimaryDispatcher = {
-      runCoordinator: vi.fn(),
+    const dispatcher = createPrimaryDispatcherMock({
       runPlan: vi.fn().mockReturnValue(planPromise),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = createMockContext();
@@ -582,7 +580,7 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
+    const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockResolvedValue({
         success: true,
         observation: '## performance_coordinator dispatch result\n- analyzed',
@@ -590,8 +588,7 @@ describe('PrimaryAgent delegation control flow', () => {
           videoUrl: 'https://cdn.example.com/analyzed.mp4',
         },
       }),
-      runPlan: vi.fn(),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = {
@@ -671,13 +668,12 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
+    const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockResolvedValue({
         success: true,
         observation: '## strategy_coordinator dispatch result\n- analyzed',
       }),
-      runPlan: vi.fn(),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = {
@@ -744,13 +740,12 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
+    const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockResolvedValue({
         success: true,
         observation: '## brand_coordinator dispatch result\n- graphic generated',
       }),
-      runPlan: vi.fn(),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = {
@@ -818,13 +813,12 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
+    const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockResolvedValue({
         success: true,
         observation: '## strategy_coordinator dispatch result\n- play diagram created',
       }),
-      runPlan: vi.fn(),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = {
@@ -892,13 +886,12 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
+    const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockResolvedValue({
         success: true,
         observation: '## strategy_coordinator dispatch result\n- game plans listed',
       }),
-      runPlan: vi.fn(),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = {
@@ -965,13 +958,12 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
+    const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockResolvedValue({
         success: true,
         observation: '## strategy_coordinator dispatch result\n- game plan updated',
       }),
-      runPlan: vi.fn(),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = {
@@ -1039,13 +1031,12 @@ describe('PrimaryAgent delegation control flow', () => {
       }),
     } as unknown as CapabilityRegistry;
 
-    const dispatcher: PrimaryDispatcher = {
+    const dispatcher = createPrimaryDispatcherMock({
       runCoordinator: vi.fn().mockResolvedValue({
         success: true,
         observation: '## performance_coordinator dispatch result\n- extracted last clips',
       }),
-      runPlan: vi.fn(),
-    };
+    });
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
     const context = {

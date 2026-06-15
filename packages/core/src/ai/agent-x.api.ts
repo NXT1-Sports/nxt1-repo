@@ -126,6 +126,7 @@ export interface DeleteMessageResult extends AgentMessageActionResult {
 export interface AgentXStreamMessageOptions {
   readonly idempotencyKey?: string;
   readonly appBaseUrl?: string;
+  readonly streamDebug?: boolean;
 }
 
 export type AgentXThreadActionType = 'ask_user_reply' | 'approval_decision';
@@ -827,6 +828,7 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
               ...(options?.appBaseUrl
                 ? { [AGENT_X_REQUEST_HEADERS.APP_BASE_URL]: options.appBaseUrl }
                 : {}),
+              ...(options?.streamDebug ? { [AGENT_X_REQUEST_HEADERS.STREAM_DEBUG]: '1' } : {}),
             },
             body: JSON.stringify(request),
             signal: controller.signal,
