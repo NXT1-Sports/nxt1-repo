@@ -267,6 +267,24 @@ export class AgentXOperationChatSessionFacade {
     return attachmentSignature;
   }
 
+  private normalizeReplayOperationId(value: string | null | undefined): string {
+    const trimmed = value?.trim() ?? '';
+    if (!trimmed) return '';
+    if (!trimmed.startsWith('chat-')) return trimmed;
+
+    const bare = trimmed.slice(5);
+    return this.isFirestoreOperationId(bare) ? bare : trimmed;
+  }
+
+  private sameReplayOperation(
+    left: string | null | undefined,
+    right: string | null | undefined
+  ): boolean {
+    const normalizedLeft = this.normalizeReplayOperationId(left);
+    const normalizedRight = this.normalizeReplayOperationId(right);
+    return !!normalizedLeft && normalizedLeft === normalizedRight;
+  }
+
   private shouldDropLiveReplayAssistantRow(
     message: OperationMessage,
     replay: {
@@ -291,10 +309,13 @@ export class AgentXOperationChatSessionFacade {
     const replaySteps = this.stepSignature(replay.steps);
     if (messageSteps && messageSteps === replaySteps) return true;
 
-    const messageOperationId = message.operationId?.trim() ?? '';
+    const replayOperationIds = new Set(
+      [...replay.operationIds].map((operationId) => this.normalizeReplayOperationId(operationId))
+    );
+    const messageOperationId = this.normalizeReplayOperationId(message.operationId);
     return (
       !!messageOperationId &&
-      replay.operationIds.has(messageOperationId) &&
+      replayOperationIds.has(messageOperationId) &&
       message.semanticPhase !== 'assistant_tool_call'
     );
   }
@@ -745,7 +766,7 @@ export class AgentXOperationChatSessionFacade {
         continue;
       }
 
-      const sameOperation = (message.operationId ?? '') === (previous.operationId ?? '');
+      const sameOperation = this.sameReplayOperation(message.operationId, previous.operationId);
       const sameContent =
         this.normalizeMessageContent(message.content) ===
         this.normalizeMessageContent(previous.content);
@@ -3527,14 +3548,22 @@ export class AgentXOperationChatSessionFacade {
             const normalizedFreshContent = this.normalizeMessageContent(
               this.promoteAssistantMediaUrlsToMarkdown(fresh.content)
             );
-            const alreadyPresent = this.messageFacade
-              .messages()
-              .some(
-                (m) =>
-                  m.role === 'assistant' &&
-                  !m.isTyping &&
-                  this.normalizeMessageContent(m.content) === normalizedFreshContent
-              );
+            const replayOperationIds = new Set<string>();
+            const completedOperationId = this.streamRegistry.getOperationIdForThread(threadId);
+            if (completedOperationId) {
+              replayOperationIds.add(completedOperationId);
+            }
+            const alreadyPresent = this.messageFacade.messages().some(
+              (m) =>
+                m.role === 'assistant' &&
+                !m.isTyping &&
+                (this.normalizeMessageContent(m.content) === normalizedFreshContent ||
+                  this.shouldDropLiveReplayAssistantRow(m, {
+                    operationIds: replayOperationIds,
+                    content: fresh.content,
+                    steps: fresh.steps,
+                  }))
+            );
             if (!alreadyPresent) {
               const freshCardsWithoutYield = fresh.cards.filter(
                 (card) => !this.isYieldRichCard(card)

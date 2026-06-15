@@ -118,7 +118,7 @@ function isInlineVideoPreviewUrl(url: string | null | undefined): boolean {
 
 function normalizeTrackedLink(url: string | null | undefined): string | null {
   if (!url) return null;
-  return extractTrackedDestinationUrl(url) ?? url;
+  return extractRenderableMediaUrlFromLine(url) ?? extractTrackedDestinationUrl(url) ?? url;
 }
 
 function isOpenableHttpUrl(url: string | null | undefined): boolean {
@@ -186,8 +186,9 @@ function createNxtRenderer(): Renderer {
 
   // Images → if src is actually a video URL (model used ![]() with .mp4), render thumb
   renderer.image = ({ href, title, text }) => {
-    const safeHref = escapeAttr(href ?? '');
-    if (isInlineVideoPreviewUrl(href)) {
+    const normalizedHref = normalizeTrackedLink(href) ?? href ?? '';
+    const safeHref = escapeAttr(normalizedHref);
+    if (isInlineVideoPreviewUrl(normalizedHref)) {
       return buildVideoThumb(safeHref, text);
     }
     const titleAttr = title ? ` title="${escapeAttr(title)}"` : '';
@@ -365,8 +366,42 @@ function deindentMediaOnlyLines(source: string): string {
     .join('\n');
 }
 
-export function preprocessMediaPresentationMarkdown(source: string): string {
-  return deindentMediaOnlyLines(unwrapMediaOnlyInlineCode(unwrapMediaOnlyFencedBlocks(source)));
+function normalizeRawVideoHtml(source: string, suppressIncomplete = false): string {
+  const normalized = source.replace(
+    /<video\b[^>]*\bsrc=(['"])(.*?)\1[^>]*>(?:[\s\S]*?<\/video>)?/gi,
+    (match, _quote: string, srcValue: string) => {
+      const normalizedUrl = extractRenderableMediaUrlFromLine(srcValue) ?? srcValue.trim();
+      return inferMediaTypeFromUrl(normalizedUrl) === 'video'
+        ? `[View Video](${normalizedUrl})`
+        : match;
+    }
+  );
+
+  if (!suppressIncomplete) {
+    return normalized;
+  }
+
+  return normalized.replace(/<video\b[\s\S]*$/i, (fragment) => {
+    const srcMatch = /\bsrc=(['"])([\s\S]*)$/i.exec(fragment);
+    const candidateValue = srcMatch?.[2]?.trim() ?? '';
+    const normalizedUrl = extractRenderableMediaUrlFromLine(candidateValue) ?? candidateValue;
+
+    if (inferMediaTypeFromUrl(normalizedUrl) === 'video') {
+      return `[View Video](${normalizedUrl})`;
+    }
+
+    return '';
+  });
+}
+
+export function preprocessMediaPresentationMarkdown(
+  source: string,
+  suppressIncompleteRawVideoHtml = false
+): string {
+  return normalizeRawVideoHtml(
+    deindentMediaOnlyLines(unwrapMediaOnlyInlineCode(unwrapMediaOnlyFencedBlocks(source))),
+    suppressIncompleteRawVideoHtml
+  );
 }
 
 // ─── Marked singleton ──────────────────────────────────────────────────────
@@ -880,7 +915,9 @@ export class NxtMarkdownComponent {
 
     // Convert bare Firebase/Google Storage image URLs to Markdown image syntax
     // so they render as <img> instead of raw yellow link text.
-    const source = preprocessStorageImageUrls(preprocessMediaPresentationMarkdown(normalized));
+    const source = preprocessStorageImageUrls(
+      preprocessMediaPresentationMarkdown(normalized, this.isStreaming())
+    );
 
     // On browser runtimes, wait for DOMPurify before injecting HTML to avoid
     // sanitizer crashes on malformed/partial markdown in older WebViews.

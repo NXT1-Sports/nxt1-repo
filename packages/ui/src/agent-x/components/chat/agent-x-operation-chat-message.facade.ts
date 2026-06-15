@@ -842,7 +842,14 @@ export class AgentXOperationChatMessageFacade {
             typingMessage?.timestamp?.getTime() ?? Date.now()
           }`;
           const committedRows = rows.map((message) =>
-            message.id !== 'typing' ? message : { ...message, id: committedId, isTyping: false }
+            message.id !== 'typing'
+              ? message
+              : {
+                  ...message,
+                  id: committedId,
+                  isTyping: false,
+                  semanticPhase: 'assistant_partial' as const,
+                }
           );
           return this.removeDuplicateAssistantPreludeBeforeCommittedTyping(
             committedRows,

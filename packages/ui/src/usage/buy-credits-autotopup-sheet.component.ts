@@ -34,6 +34,7 @@ import {
   type BuyCreditsTab,
   type CreditPackageUsd,
 } from './buy-credits-flow.shared';
+import { UsageService } from './usage.service';
 
 @Component({
   selector: 'nxt1-buy-credits-autotopup-sheet',
@@ -641,8 +642,12 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
   @Input() initialThresholdCents = 500;
   @Input() initialAutoTopupAmountCents = 1_000;
   @Input() showIapPayButton = false;
+  @Input() organizationId: string | null = null;
+  @Input() hasSavedDefaultMethod = false;
 
   private readonly modalCtrl = inject(ModalController);
+  private readonly usage = inject(UsageService);
+  private lastTrackedCartSelectionKey: string | null = null;
 
   protected readonly testIds = TEST_IDS.USAGE;
   protected readonly packages = CREDIT_PACKAGES_USD;
@@ -736,6 +741,7 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
       const nextValue = previous === usd ? null : usd;
       if (nextValue !== null) {
         this.customAmountUsd.set('');
+        this.trackPackageSelection(nextValue * 100, 'preset');
       }
       return nextValue;
     });
@@ -769,6 +775,13 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
   protected async onBuyWithStripe(): Promise<void> {
     const amountCents = this.selectedBuyAmountCents();
     if (amountCents === null) return;
+
+    this.ensureCartTracked(amountCents, this.selectedPackageUsd() !== null ? 'preset' : 'custom');
+    this.usage.trackCreditCheckoutStarted(amountCents, this.organizationId ?? undefined, {
+      payment_method: 'stripe',
+      checkout_type: this.hasSavedDefaultMethod ? 'direct_charge' : 'hosted_checkout',
+    });
+
     await this.dismiss({ type: 'buy', amountCents }, 'buy');
   }
 
@@ -777,11 +790,37 @@ export class BuyCreditsAutoTopupSheetComponent implements OnInit {
       return;
     }
 
+    const amountCents = this.selectedBuyAmountCents() ?? undefined;
+    if (typeof amountCents === 'number') {
+      this.ensureCartTracked(amountCents, this.selectedPackageUsd() !== null ? 'preset' : 'custom');
+    }
+    this.usage.trackCreditCheckoutStarted(amountCents, this.organizationId ?? undefined, {
+      payment_method: 'apple_pay',
+      checkout_type: 'apple_iap',
+    });
+
     await this.dismiss({ type: 'buy-iap' }, 'buy-iap');
   }
 
   protected formatCents(cents: number): string {
     return formatPrice(cents);
+  }
+
+  private trackPackageSelection(amountCents: number, selectionType: 'preset' | 'custom'): void {
+    const selectionKey = `${selectionType}:${amountCents}`;
+    this.lastTrackedCartSelectionKey = selectionKey;
+    this.usage.trackCreditPackageAddedToCart(amountCents, this.organizationId ?? undefined, {
+      selection_type: selectionType,
+    });
+  }
+
+  private ensureCartTracked(amountCents: number, selectionType: 'preset' | 'custom'): void {
+    const selectionKey = `${selectionType}:${amountCents}`;
+    if (this.lastTrackedCartSelectionKey === selectionKey) {
+      return;
+    }
+
+    this.trackPackageSelection(amountCents, selectionType);
   }
 
   protected async dismiss(data: BuyCreditsAutoTopupResult, role: string): Promise<void> {

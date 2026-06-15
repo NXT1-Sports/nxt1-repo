@@ -7,6 +7,7 @@ import type { OperationMessage } from './agent-x-operation-chat.models';
 type Canonicalizer = {
   resolveCanonicalAssistantRows(items: readonly AgentMessage[]): readonly AgentMessage[];
   reorderTurnsByPairing(messages: readonly OperationMessage[]): OperationMessage[];
+  dedupeConsecutiveAssistantMessages(messages: readonly OperationMessage[]): OperationMessage[];
   shouldPreserveInlineYieldRowDuringReload(params: {
     readonly message: OperationMessage;
     readonly messageIndex: number;
@@ -438,6 +439,29 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     const canonical = facade.resolveCanonicalAssistantRows(items);
 
     expect(canonical.map((message) => message.id)).toEqual(['partial-2']);
+  });
+
+  it('dedupes consecutive assistant replays when chat-prefixed and bare UUID operation ids refer to the same turn', () => {
+    const deduped = facade.dedupeConsecutiveAssistantMessages([
+      {
+        id: 'assistant-local-partial',
+        role: 'assistant',
+        content: "Here's IMG_0194 2.MOV loaded up for you, Coach.",
+        operationId: 'chat-11111111-1111-1111-1111-111111111111',
+        timestamp: new Date('2026-06-15T04:00:00.000Z'),
+        semanticPhase: 'assistant_partial',
+      },
+      {
+        id: 'assistant-persisted-partial',
+        role: 'assistant',
+        content: "Here's IMG_0194 2.MOV loaded up for you, Coach.",
+        operationId: '11111111-1111-1111-1111-111111111111',
+        timestamp: new Date('2026-06-15T04:00:01.000Z'),
+        semanticPhase: 'assistant_partial',
+      },
+    ]);
+
+    expect(deduped.map((message) => message.id)).toEqual(['assistant-local-partial']);
   });
 
   it('suppresses answered assistant_yield rows and shows the user reply as a standalone bubble', () => {
@@ -877,6 +901,26 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
           liveOperationId: 'firestore-live-op',
           existingTyping,
           replayOperationIds: new Set(['firestore-live-op']),
+        }
+      )
+    ).toBe(true);
+  });
+
+  it('drops live replay assistant rows when replay uses a bare UUID and the existing row uses the chat-prefixed form', () => {
+    expect(
+      facade.shouldDropLiveReplayAssistantRow(
+        {
+          id: 'assistant-chat-prefixed',
+          role: 'assistant',
+          operationId: 'chat-22222222-2222-2222-2222-222222222222',
+          content: "Here's IMG_0194 2.MOV loaded up for you, Coach.",
+          timestamp: new Date('2026-06-15T04:00:00.000Z'),
+          semanticPhase: 'assistant_partial',
+        },
+        {
+          operationIds: new Set(['22222222-2222-2222-2222-222222222222']),
+          content: "Here's IMG_0194 2.MOV loaded up for you, Coach.",
+          steps: [],
         }
       )
     ).toBe(true);
