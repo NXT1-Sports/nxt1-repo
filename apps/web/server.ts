@@ -332,10 +332,6 @@ function optimizePublicMarketingHtml(html: string): string {
       // only hydrate what they need on first paint.
       .replace(/<link\b[^>]*rel=["']modulepreload["'][^>]*>\s*/gi, '')
       .replace(
-        /<link\b[^>]*href=["']styles-deferred\.css["'][^>]*>\s*(?:<noscript>[\s\S]*?<\/noscript>)?\s*/gi,
-        ''
-      )
-      .replace(
         /<script\b[^>]*id=["']ng-event-dispatch-contract["'][^>]*>[\s\S]*?<\/script>\s*/gi,
         ''
       )
