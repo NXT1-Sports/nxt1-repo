@@ -167,7 +167,7 @@
     "cross-env": "^10.1.0",
     "firebase": "^12.9.0",
     "rimraf": "^6.1.2",
-    "typescript": "~5.9.3",
+    "typescript": "6.0.3",
     "vitest": "^4.1.5"
   },
   "peerDependencies": {

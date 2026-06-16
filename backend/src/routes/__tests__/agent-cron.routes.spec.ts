@@ -90,7 +90,7 @@ function createMockAgentJobsDb(docs: MockAgentJobDoc[]) {
       expect(name).toBe('AgentJobs');
       return buildQuery();
     },
-  } as unknown as import('firebase-admin').firestore.Firestore;
+  } as unknown as import('firebase-admin/firestore').Firestore;
 }
 
 describe('Agent X Cron Routes Smoke', () => {

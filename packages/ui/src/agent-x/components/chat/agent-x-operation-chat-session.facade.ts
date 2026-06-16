@@ -245,7 +245,7 @@ export class AgentXOperationChatSessionFacade {
 
   private messageToolSteps(message: {
     readonly steps?: readonly AgentXToolStep[];
-    readonly parts?: readonly any[];
+    readonly parts?: readonly AgentXMessagePart[];
   }): readonly AgentXToolStep[] {
     const steps: AgentXToolStep[] = [...(message.steps ?? [])];
     for (const part of message.parts ?? []) {
@@ -2158,7 +2158,9 @@ export class AgentXOperationChatSessionFacade {
         (message) =>
           !this.shouldDropLiveReplayAssistantRow(message, {
             operationIds: replayOperationIds,
-            content: this.agentMessageDisplayText(typingBubble as any),
+            content: this.agentMessageDisplayText(
+              typingBubble as Pick<AgentMessage, 'content' | 'parts'>
+            ),
             steps: stored.steps,
           })
       );
@@ -4019,7 +4021,9 @@ export class AgentXOperationChatSessionFacade {
             (message) =>
               !this.shouldDropLiveReplayAssistantRow(message, {
                 operationIds: replayOperationIds,
-                content: this.agentMessageDisplayText(typingBubble as any),
+                content: this.agentMessageDisplayText(
+                  typingBubble as Pick<AgentMessage, 'content' | 'parts'>
+                ),
                 steps: stored.steps,
               })
           );

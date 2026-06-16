@@ -9,6 +9,7 @@
  */
 
 import { Router, type Request, type Response } from 'express';
+import type { Firestore, QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import { cronGuard } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
 import { chatService, llmService, queueService } from './shared.js';
@@ -30,7 +31,7 @@ const STALE_YIELDED_STATUSES = ['paused', 'awaiting_input', 'awaiting_approval']
 type CleanupStaleJobsRepository = Pick<AgentJobRepository, 'markFailed' | 'markCancelled'>;
 
 interface CleanupStaleAgentJobsArgs {
-  db: import('firebase-admin').firestore.Firestore;
+  db: Firestore;
   now?: Date;
   limitPerStatus?: number;
   jobRepository?: CleanupStaleJobsRepository;
@@ -69,11 +70,11 @@ function toTimestampMs(value: unknown): number | null {
 }
 
 async function queryStaleJobsByStatus(
-  db: import('firebase-admin').firestore.Firestore,
+  db: Firestore,
   status: (typeof STALE_YIELDED_STATUSES)[number] | 'queued',
   cutoff: Date,
   limitPerStatus: number
-): Promise<import('firebase-admin').firestore.QueryDocumentSnapshot[]> {
+): Promise<QueryDocumentSnapshot[]> {
   const snapshot = await db
     .collection('AgentJobs')
     .where('status', '==', status)
@@ -448,9 +449,7 @@ router.post('/cron/cleanup-thread-media', cronGuard, async (_req: Request, res: 
 
 router.post('/cron/cleanup-stale-jobs', cronGuard, async (req: Request, res: Response) => {
   try {
-    const db = (
-      req as typeof req & { firebase?: { db: import('firebase-admin').firestore.Firestore } }
-    ).firebase?.db;
+    const db = (req as typeof req & { firebase?: { db: Firestore } }).firebase?.db;
     if (!db) {
       logger.warn('Firestore context not attached to request');
       res.status(503).json({ success: false, error: 'Firestore not available' });
@@ -493,9 +492,7 @@ router.post('/cron/resolve-failed-jobs', cronGuard, async (req: Request, res: Re
       return;
     }
 
-    const db = (
-      req as typeof req & { firebase?: { db: import('firebase-admin').firestore.Firestore } }
-    ).firebase?.db;
+    const db = (req as typeof req & { firebase?: { db: Firestore } }).firebase?.db;
     if (!db) {
       logger.warn('Firestore context not attached to request');
       res.status(503).json({ success: false, error: 'Firestore not available' });
@@ -526,9 +523,7 @@ router.post('/cron/resolve-failed-jobs', cronGuard, async (req: Request, res: Re
 
 router.post('/cron/reconcile-job-thread-links', cronGuard, async (req: Request, res: Response) => {
   try {
-    const db = (
-      req as typeof req & { firebase?: { db: import('firebase-admin').firestore.Firestore } }
-    ).firebase?.db;
+    const db = (req as typeof req & { firebase?: { db: Firestore } }).firebase?.db;
     if (!db) {
       res.status(503).json({ success: false, error: 'Firestore not available' });
       return;
@@ -745,9 +740,7 @@ router.post(
   cronGuard,
   async (req: Request, res: Response) => {
     try {
-      const db = (
-        req as typeof req & { firebase?: { db: import('firebase-admin').firestore.Firestore } }
-      ).firebase?.db;
+      const db = (req as typeof req & { firebase?: { db: Firestore } }).firebase?.db;
       if (!db) {
         res.status(503).json({ success: false, error: 'Firestore not available' });
         return;

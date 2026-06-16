@@ -1207,7 +1207,6 @@ describe('AgentWorker', () => {
     const payload = makePayload();
     const job = makeMockJob(payload);
 
-    let nextSeq = 1;
     let resolveFirstPersist: (() => void) | null = null;
     const firstPersistPromise = new Promise<void>((resolve) => {
       resolveFirstPersist = resolve;
@@ -1216,9 +1215,7 @@ describe('AgentWorker', () => {
     mockJobRepo.allocateEventSeqRange.mockImplementation(async () => 0);
     mockJobRepo.writeJobEvent
       .mockImplementationOnce(async () => firstPersistPromise)
-      .mockImplementation(async () => {
-        nextSeq += 1;
-      });
+      .mockImplementation(async () => undefined);
 
     mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
       onStreamEvent({ type: 'delta', text: 'hello ' });
