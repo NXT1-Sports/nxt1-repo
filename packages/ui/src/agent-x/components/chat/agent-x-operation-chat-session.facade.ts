@@ -1979,11 +1979,16 @@ export class AgentXOperationChatSessionFacade {
     }
 
     this.messageFacade.messages.update((messages) => {
-      const filtered = messages.filter((message) => {
-        if (message.id === 'typing') return false;
-        if (message.role !== 'assistant' || message.operationId !== operationId) return true;
-        return !!message.yieldState || this.messageHasYieldCard(message);
-      });
+      const filtered = messages.filter(
+        (message) =>
+          !this.shouldDropLiveReplayAssistantRow(message, {
+            operationIds: replayOperationIds,
+            content: this.agentMessageDisplayText(
+              typingBubble as Pick<AgentMessage, 'content' | 'parts'>
+            ),
+            steps: stored.steps,
+          })
+      );
 
       return [
         ...filtered,
@@ -3807,7 +3812,14 @@ export class AgentXOperationChatSessionFacade {
           // persisted bubble, once in the typing bubble — until assistant_final
           // lands and the next render suppresses the partial.
           const filtered = messages.filter(
-            (m) => m.role !== 'assistant' || m.operationId !== operationId
+            (message) =>
+              !this.shouldDropLiveReplayAssistantRow(message, {
+                operationIds: replayOperationIds,
+                content: this.agentMessageDisplayText(
+                  typingBubble as Pick<AgentMessage, 'content' | 'parts'>
+                ),
+                steps: stored.steps,
+              })
           );
           return [
             ...filtered,

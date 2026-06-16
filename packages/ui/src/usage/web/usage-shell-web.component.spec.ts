@@ -10,6 +10,11 @@ import { NxtToastService } from '../../services/toast/toast.service';
 import { UsageService } from '../usage.service';
 import { UsageShellWebComponent } from './usage-shell-web.component';
 
+type UsageShellWebTestAccess = UsageShellWebComponent & {
+  onBuyCredits(): Promise<void>;
+  onManageBilling(): Promise<void>;
+};
+
 describe('UsageShellWebComponent analytics', () => {
   const usageService = {
     trackCreditPurchaseViewed: vi.fn(),
@@ -47,8 +52,9 @@ describe('UsageShellWebComponent analytics', () => {
 
   it('tracks view_item and view_item_list when add credits is opened', async () => {
     const component = createComponent();
+    const testAccess = component as UsageShellWebTestAccess;
 
-    await (component as any).onBuyCredits();
+    await testAccess.onBuyCredits();
 
     expect(usageService.trackCreditPurchaseViewed).toHaveBeenCalledWith('org_123');
     expect(usageService.trackCreditPackageListViewed).toHaveBeenCalledWith('org_123');
@@ -57,8 +63,9 @@ describe('UsageShellWebComponent analytics', () => {
 
   it('tracks add_payment_info when billing management is opened', async () => {
     const component = createComponent();
+    const testAccess = component as UsageShellWebTestAccess;
 
-    await (component as any).onManageBilling();
+    await testAccess.onManageBilling();
 
     expect(usageService.trackPaymentInfoAdded).toHaveBeenCalledWith('usage_manage_billing');
     expect(usageService.openBillingPortal).toHaveBeenCalled();

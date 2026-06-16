@@ -12,6 +12,7 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { createHash, randomUUID } from 'node:crypto';
+import { FieldValue } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { uploadRateLimit } from '../../middleware/rate-limit/rate-limit.middleware.js';
@@ -52,7 +53,6 @@ import {
 } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
 import { getSignedUrlWithTimeout } from '../../utils/gcs-signed-url.js';
-import firebaseAdmin from '../../utils/firebase.js';
 import {
   getAgentAppConfig,
   resolveConfiguredCoordinatorsForRole,
@@ -4084,7 +4084,7 @@ router.patch(
         timezone,
         jobName,
         ...(sourceId ? { sourceId } : {}),
-        updatedAt: firebaseAdmin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       };
 
       const removed = await queueService.removeRecurringJob(taskKey);
@@ -4136,8 +4136,8 @@ router.patch(
           if (existingInitialRunJobId) {
             await queueService.cancel(existingInitialRunJobId).catch(() => false);
           }
-          nextDocData['initialRunJobId'] = firebaseAdmin.firestore.FieldValue.delete();
-          nextDocData['firstRunAt'] = firebaseAdmin.firestore.FieldValue.delete();
+          nextDocData['initialRunJobId'] = FieldValue.delete();
+          nextDocData['firstRunAt'] = FieldValue.delete();
         }
       } catch (enqueueErr) {
         try {

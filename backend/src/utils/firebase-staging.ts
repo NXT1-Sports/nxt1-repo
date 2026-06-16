@@ -3,15 +3,23 @@
  * @module @nxt1/backend
  */
 
-import admin from 'firebase-admin';
-import type { Firestore } from 'firebase-admin/firestore';
-import type { Auth } from 'firebase-admin/auth';
-import type { Storage } from 'firebase-admin/storage';
+import {
+  applicationDefault,
+  cert,
+  getApp,
+  getApps,
+  initializeApp,
+  type App,
+} from 'firebase-admin/app';
+import { getFirestore, type Firestore } from 'firebase-admin/firestore';
+import { getAuth, type Auth } from 'firebase-admin/auth';
+import { getStorage, type Storage } from 'firebase-admin/storage';
 
 // Initialize Firebase Admin for Staging
-let stagingApp: admin.app.App;
+let stagingApp: App;
+const STAGING_APP_NAME = 'staging';
 
-if (!admin.apps.find((app) => app?.name === 'staging')) {
+if (!getApps().find((app) => app?.name === STAGING_APP_NAME)) {
   // Staging — nxt-1-staging-v2
   const projectId = process.env['STAGING_FIREBASE_PROJECT_ID'];
   const clientEmail = process.env['STAGING_FIREBASE_CLIENT_EMAIL'];
@@ -22,24 +30,30 @@ if (!admin.apps.find((app) => app?.name === 'staging')) {
     console.warn('⚠️  STAGING_FIREBASE_PROJECT_ID / CLIENT_EMAIL / PRIVATE_KEY not configured');
   }
 
-  stagingApp = admin.initializeApp(
+  stagingApp = initializeApp(
     {
       credential:
         projectId && clientEmail && privateKey
-          ? admin.credential.cert({ projectId, clientEmail, privateKey })
-          : admin.credential.applicationDefault(),
+          ? cert({ projectId, clientEmail, privateKey })
+          : applicationDefault(),
       storageBucket,
     },
-    'staging'
+    STAGING_APP_NAME
   );
 } else {
-  stagingApp = admin.app('staging');
+  stagingApp = getApp(STAGING_APP_NAME);
 }
 
-export const stagingDb: Firestore = stagingApp.firestore();
-stagingDb.settings({ ignoreUndefinedProperties: true });
-export const stagingAuth: Auth = stagingApp.auth();
-export const stagingStorage: Storage = stagingApp.storage();
+export const stagingDb: Firestore = getFirestore(stagingApp);
+if (typeof (stagingDb as { settings?: unknown }).settings === 'function') {
+  (
+    stagingDb as { settings: (options: { ignoreUndefinedProperties: boolean }) => unknown }
+  ).settings({
+    ignoreUndefinedProperties: true,
+  });
+}
+export const stagingAuth: Auth = getAuth(stagingApp);
+export const stagingStorage: Storage = getStorage(stagingApp);
 
 /**
  * TASK 5 — Social Login / OAuth configuration (Staging)
