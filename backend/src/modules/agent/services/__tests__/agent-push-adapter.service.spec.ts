@@ -98,17 +98,25 @@ describe('agent-push-adapter.service', () => {
       operationId: 'recurring-op-1',
       scheduleId: 'repeat:abc123',
       runId: 'repeat:abc123:1711111111111',
+      threadId: 'thread-42',
       title: 'Scheduled Agent Task Complete',
       body: 'Finished recurring run',
     });
 
     expect(payload.type).toBe('agent_action');
+    expect(payload.deepLink).toBe('/agent-x?thread=thread-42');
     expect(payload.idempotencyKey).toBe('sched_c_repeat_abc123_1711111111111');
     expect(payload.data).toMatchObject({
       scheduleId: 'repeat:abc123',
       runId: 'repeat:abc123:1711111111111',
       scheduledExecutionStatus: 'completed',
+      threadId: 'thread-42',
       entityId: 'repeat:abc123:1711111111111',
+    });
+    expect(payload.metadata).toMatchObject({
+      scheduleId: 'repeat:abc123',
+      runId: 'repeat:abc123:1711111111111',
+      threadId: 'thread-42',
     });
   });
 
@@ -131,8 +139,15 @@ describe('agent-push-adapter.service', () => {
       scheduleId: 'repeat:abc123',
       runId: 'repeat:abc123:1711111111111',
       scheduledExecutionStatus: 'failed',
+      threadId: 'thread-99',
       failed: 'true',
       entityId: 'repeat:abc123:1711111111111',
+    });
+    expect(payload.metadata).toMatchObject({
+      scheduleId: 'repeat:abc123',
+      runId: 'repeat:abc123:1711111111111',
+      threadId: 'thread-99',
+      errorMessage: 'Tool error',
     });
   });
 

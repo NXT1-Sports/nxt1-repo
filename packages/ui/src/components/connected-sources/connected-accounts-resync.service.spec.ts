@@ -61,4 +61,44 @@ describe('buildConnectedAccountsResyncRequest', () => {
     expect(result.intent).toContain('external connected accounts');
     expect(result.intent).toContain('externally linked accounts');
   });
+
+  it('includes Firecrawl sign-in accounts while excluding OAuth-only providers', () => {
+    const result = buildConnectedAccountsResyncRequest([
+      {
+        platform: 'hudl_signin',
+        label: 'Hudl',
+        connected: true,
+        connectionType: 'signin',
+      },
+      {
+        platform: 'google',
+        label: 'Google',
+        connected: true,
+        connectionType: 'signin',
+      },
+      {
+        platform: 'youtube_signin',
+        label: 'YouTube',
+        connected: true,
+        connectionType: 'signin',
+      },
+    ]);
+
+    expect(result.requestedAccounts).toEqual([
+      {
+        platform: 'hudl',
+        label: 'Hudl',
+        username: undefined,
+        url: undefined,
+      },
+      {
+        platform: 'youtube',
+        label: 'YouTube',
+        username: undefined,
+        url: undefined,
+      },
+    ]);
+    expect(result.platformSummary).toBe('Hudl, YouTube');
+    expect(result.intent).toContain('Refresh these linked accounts: Hudl, YouTube.');
+  });
 });

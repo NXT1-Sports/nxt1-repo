@@ -19,6 +19,12 @@ export interface ConnectedAccountsResyncSource {
 }
 
 const INTERNAL_CONNECTED_ACCOUNT_PLATFORMS = new Set(['nxt1']);
+const EXCLUDED_SIGNIN_RESYNC_PLATFORMS = new Set(['google', 'microsoft']);
+
+function normalizeRequestedAccountPlatform(platform: string): string {
+  const normalized = platform.trim().toLowerCase();
+  return normalized.endsWith('_signin') ? normalized.slice(0, -'_signin'.length) : normalized;
+}
 
 export interface ConnectedAccountsResyncRequest {
   readonly requestedAccounts: readonly {
@@ -36,16 +42,30 @@ export function buildConnectedAccountsResyncRequest(
 ): ConnectedAccountsResyncRequest {
   const requestedAccounts = accounts
     .filter((account) => account.connected || !!account.username || !!account.url)
-    // Exclude OAuth sign-in accounts — only URL/username-linked accounts are mentioned in the prompt.
-    .filter((account) => account.connectionType !== 'signin')
+    .map((account) => {
+      const platform = normalizeRequestedAccountPlatform(account.platform);
+      return {
+        platform,
+        label: (account.label ?? platform).trim(),
+        username: account.username,
+        url: account.url,
+        connectionType: account.connectionType,
+      };
+    })
+    .filter((account) => account.platform.length > 0)
+    .filter((account) => !INTERNAL_CONNECTED_ACCOUNT_PLATFORMS.has(account.platform))
+    .filter(
+      (account) =>
+        account.connectionType !== 'signin' ||
+        !EXCLUDED_SIGNIN_RESYNC_PLATFORMS.has(account.platform)
+    )
     .map((account) => ({
-      platform: account.platform.trim(),
-      label: (account.label ?? account.platform).trim(),
+      platform: account.platform,
+      label: account.label,
       username: account.username,
       url: account.url,
     }))
-    .filter((account) => account.platform.length > 0)
-    .filter((account) => !INTERNAL_CONNECTED_ACCOUNT_PLATFORMS.has(account.platform.toLowerCase()));
+    .filter((account) => account.label.length > 0);
 
   const platformSummary = requestedAccounts.map((account) => account.label).join(', ');
   const intent =
