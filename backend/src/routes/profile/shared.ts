@@ -166,14 +166,6 @@ export function buildProfileByUnicodeCacheKey(unicode: string): string {
   return `${PROFILE_CACHE_KEYS.BY_UNICODE}${unicode.toLowerCase()}`;
 }
 
-export function buildLiteProfileByIdCacheKey(userId: string): string {
-  return `${buildProfileByIdCacheKey(userId)}:lite`;
-}
-
-export function buildLiteProfileByUnicodeCacheKey(unicode: string): string {
-  return `${buildProfileByUnicodeCacheKey(unicode)}:lite`;
-}
-
 export function buildProfileSearchCacheKey(params: ProfileSearchParams): string {
   const parts = (Object.keys(params) as Array<keyof ProfileSearchParams>)
     .filter((k) => params[k] !== undefined && params[k] !== null && params[k] !== '')
@@ -200,13 +192,11 @@ export async function invalidateProfileCaches(
 
   const keysToDelete: string[] = [
     buildProfileByIdCacheKey(userId),
-    buildLiteProfileByIdCacheKey(userId),
     USER_CACHE_KEYS.USER_BY_ID(userId),
     buildAgentContextCacheKey(userId),
   ];
   if (unicode) {
     keysToDelete.push(buildProfileByUnicodeCacheKey(unicode));
-    keysToDelete.push(buildLiteProfileByUnicodeCacheKey(unicode));
   }
 
   await Promise.all(keysToDelete.map((k) => cache.del(k)));
