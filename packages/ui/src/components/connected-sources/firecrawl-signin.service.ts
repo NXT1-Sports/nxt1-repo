@@ -40,6 +40,24 @@ export interface FirecrawlSignInRequest {
   readonly loginUrl: string;
 }
 
+export interface FirecrawlMonitorSummary {
+  readonly enabled: boolean;
+  readonly monitorId: string;
+  readonly targetUrl: string;
+  readonly status: string;
+  readonly schedule: {
+    readonly text?: string;
+    readonly cron?: string;
+    readonly timezone?: string;
+  };
+  readonly goal?: string;
+  readonly judgeEnabled?: boolean;
+  readonly metadata?: Record<string, unknown>;
+  readonly createdAt: string;
+  readonly updatedAt: string;
+  readonly lastCheckSummary?: Record<string, unknown>;
+}
+
 interface StartSessionResponse {
   readonly success: boolean;
   readonly code?: string;
@@ -63,6 +81,23 @@ interface CompleteSessionResponse {
     readonly verified: boolean;
   };
 }
+
+interface MonitorListResponse {
+  readonly success: boolean;
+  readonly error?: string;
+  readonly data?: Record<string, FirecrawlMonitorSummary>;
+}
+
+interface MonitorMutationResponse {
+  readonly success: boolean;
+  readonly error?: string;
+  readonly data?: FirecrawlMonitorSummary;
+}
+
+const DEFAULT_MONITOR_SCHEDULE = {
+  cron: '0 0 */3 * *',
+  timezone: 'UTC',
+} as const;
 
 // ─── Service ────────────────────────────────────────────────────────────────
 
@@ -109,6 +144,82 @@ export class FirecrawlSignInService {
     } catch (err) {
       this.logger.warn('Failed to fetch Firecrawl sign-in accounts', { error: err });
       return {};
+    }
+  }
+
+  async fetchMonitorSummaries(): Promise<Record<string, FirecrawlMonitorSummary>> {
+    try {
+      const response = await firstValueFrom(
+        this.http.get<MonitorListResponse>(`${this.baseUrl}/firecrawl/monitors`)
+      );
+      if (response.success && response.data) {
+        return response.data;
+      }
+      return {};
+    } catch (err) {
+      this.logger.warn('Failed to fetch Firecrawl monitor summaries', { error: err });
+      return {};
+    }
+  }
+
+  async enableMonitor(
+    platform: string,
+    targetUrl: string,
+    existingMonitor?: FirecrawlMonitorSummary | null
+  ): Promise<FirecrawlMonitorSummary | null> {
+    const payload = existingMonitor
+      ? { targetUrl, enabled: true }
+      : {
+          targetUrl,
+          schedule: DEFAULT_MONITOR_SCHEDULE,
+          goal: `Monitor my ${platform} account for meaningful updates and notify me through Agent X.`,
+          judgeEnabled: true,
+          metadata: {
+            source: 'connected-accounts',
+          },
+        };
+
+    try {
+      const response = await firstValueFrom(
+        existingMonitor
+          ? this.http.patch<MonitorMutationResponse>(
+              `${this.baseUrl}/firecrawl/monitors/${platform}`,
+              payload
+            )
+          : this.http.post<MonitorMutationResponse>(`${this.baseUrl}/firecrawl/monitors`, {
+              platform,
+              ...payload,
+            })
+      );
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error ?? 'Failed to enable monitor');
+      }
+
+      return response.data;
+    } catch (err) {
+      this.logger.error('Failed to enable Firecrawl monitor', err, {
+        platform,
+        targetUrl,
+      });
+      return null;
+    }
+  }
+
+  async disableMonitor(platform: string): Promise<boolean> {
+    try {
+      const response = await firstValueFrom(
+        this.http.delete<{ success: boolean; error?: string }>(
+          `${this.baseUrl}/firecrawl/monitors/${platform}`
+        )
+      );
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to disable monitor');
+      }
+      return true;
+    } catch (err) {
+      this.logger.error('Failed to disable Firecrawl monitor', err, { platform });
+      return false;
     }
   }
 

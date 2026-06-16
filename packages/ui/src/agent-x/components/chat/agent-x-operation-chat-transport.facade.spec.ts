@@ -32,12 +32,15 @@ describe('AgentXOperationChatTransportFacade', () => {
 
   const streamRegistryMock = {
     abort: vi.fn(),
+    register: vi.fn(),
+    linkOperation: vi.fn(),
     markError: vi.fn(),
     upsertStep: vi.fn(),
     appendCard: vi.fn(),
   };
 
   const operationEventServiceMock = {
+    subscribe: vi.fn().mockReturnValue({ unsubscribe: vi.fn() }),
     emitOperationStatusUpdated: vi.fn(),
     emitOperationsLogRefreshRequested: vi.fn(),
   };
@@ -57,6 +60,7 @@ describe('AgentXOperationChatTransportFacade', () => {
     drainBufferedTypingDelta: vi.fn().mockReturnValue(''),
     withUpsertedToolStepPart: vi.fn().mockImplementation((parts) => parts),
     attachStreamedCard: vi.fn(),
+    stampLatestUserMessageOperationId: vi.fn(),
     finalizeStreamedAssistantMessage: vi.fn(),
     replaceTyping: vi.fn(),
   };
@@ -186,5 +190,31 @@ describe('AgentXOperationChatTransportFacade', () => {
       'thread-1',
       [0, 1000, 2500, 5000]
     );
+  });
+
+  it('stamps the optimistic user message when the stream resolves an operation id', async () => {
+    const pendingStream = facade.sendViaStream(
+      { message: 'Start a fresh request' } as AgentXChatRequest,
+      'token-123',
+      'idem-new'
+    );
+
+    callbacks.onThread?.({
+      threadId: 'thread-1',
+      operationId: 'op-new',
+    } as never);
+
+    expect(messageFacadeMock.stampLatestUserMessageOperationId).toHaveBeenCalledWith({
+      operationId: 'op-new',
+      idempotencyKey: 'idem-new',
+    });
+
+    callbacks.onError({
+      error: 'Stop test stream',
+      status: 400,
+      code: 'TEST_STOP',
+    });
+
+    await expect(pendingStream).rejects.toThrow('Stop test stream');
   });
 });

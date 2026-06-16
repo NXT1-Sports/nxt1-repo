@@ -22,6 +22,7 @@ import {
   webhookRoutes,
   webhookRawBodyMiddleware,
   cloudflareWebhookRoutes,
+  firecrawlMonitorWebhookRoutes,
 } from './routes/platform/webhooks/index.js';
 import usageRoutes from './routes/billing/usage.routes.js';
 import { initializeCacheService } from './services/core/cache.service.js';
@@ -323,6 +324,7 @@ const routeConfigs = [
   ['/billing', billingRoutes],
   ['/webhook', webhookRoutes],
   ['/cloudflare-webhook', cloudflareWebhookRoutes],
+  ['/firecrawl-monitor-webhook', firecrawlMonitorWebhookRoutes],
   ['/usage', usageRoutes],
 ] as const;
 

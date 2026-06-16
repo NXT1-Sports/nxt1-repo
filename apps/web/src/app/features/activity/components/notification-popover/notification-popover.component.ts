@@ -43,8 +43,13 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { isPlatformBrowser, CommonModule } from '@angular/common';
 import { Router, RouterModule, NavigationEnd } from '@angular/router';
 import { filter } from 'rxjs/operators';
-import { type ActivityItem, type InboxEmailProvider } from '@nxt1/core';
+import {
+  type ActivityItem,
+  type AgentTaskActivityMetadata,
+  type InboxEmailProvider,
+} from '@nxt1/core';
 import { ActivityService, ActivityListComponent } from '@nxt1/ui/activity';
+import { AgentXService } from '@nxt1/ui/agent-x';
 import { ManageTeamMembershipModalService } from '@nxt1/ui/manage-team';
 
 import { NxtIconComponent } from '@nxt1/ui/components/icon';
@@ -387,6 +392,7 @@ export class NotificationPopoverComponent {
   private readonly router = inject(Router);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly agentX = inject(AgentXService);
   private readonly logger = inject(NxtLoggingService).child('NotificationPopover');
   private readonly authService = inject(AUTH_SERVICE) as IAuthService;
   private readonly membershipModal = inject(ManageTeamMembershipModalService);
@@ -501,11 +507,28 @@ export class NotificationPopoverComponent {
     }
 
     if (item.deepLink) {
-      if (this.openManageMembersModal(item.deepLink, item)) {
+      const normalizedLink = item.deepLink.replace(/^\/agent(?=[/?]|$)/, '/agent-x');
+      if (this.openManageMembersModal(normalizedLink, item)) {
         return;
       }
-      this.router.navigateByUrl(item.deepLink);
+
+      const startupPrompt = this.resolveAgentStartupPrompt(item, normalizedLink);
+      if (startupPrompt) {
+        this.agentX.queueStartupMessage(startupPrompt);
+      }
+
+      void this.router.navigateByUrl(normalizedLink);
     }
+  }
+
+  private resolveAgentStartupPrompt(item: ActivityItem, deepLink: string): string | null {
+    if (!deepLink.startsWith('/agent-x')) {
+      return null;
+    }
+
+    const metadata = item.metadata as AgentTaskActivityMetadata | undefined;
+    const startupPrompt = metadata?.startupPrompt?.trim();
+    return startupPrompt ? startupPrompt : null;
   }
 
   private openManageMembersFromActivityItem(item: ActivityItem): boolean {

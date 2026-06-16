@@ -31,6 +31,7 @@ import {
   NxtBottomSheetService,
   SHEET_PRESETS,
   AgentXOperationChatComponent,
+  AgentXService,
   type ActivityUser,
 } from '@nxt1/ui';
 import { ManageTeamMembershipModalService } from '@nxt1/ui/manage-team';
@@ -95,6 +96,7 @@ export class ActivityComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly navController = inject(NavController);
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly agentX = inject(AgentXService);
   private readonly logger = inject(NxtLoggingService).child('ActivityComponent');
   private readonly emailConnection = inject(MobileEmailConnectionService);
   private readonly membershipModal = inject(ManageTeamMembershipModalService);
@@ -183,6 +185,11 @@ export class ActivityComponent {
         cssClass: 'agent-x-operation-sheet',
       });
       return;
+    }
+
+    const startupPrompt = this.resolveAgentStartupPrompt(item, normalizedLink);
+    if (startupPrompt) {
+      this.agentX.queueStartupMessage(startupPrompt);
     }
 
     void this.navController.navigateForward(normalizedLink);
@@ -306,5 +313,15 @@ export class ActivityComponent {
 
     const metadata = item.metadata as AgentTaskActivityMetadata | undefined;
     return Boolean(metadata?.operationId?.trim() || metadata?.sessionId?.trim());
+  }
+
+  private resolveAgentStartupPrompt(item: ActivityItem, deepLink: string): string | null {
+    if (!deepLink.startsWith('/agent-x')) {
+      return null;
+    }
+
+    const metadata = item.metadata as AgentTaskActivityMetadata | undefined;
+    const startupPrompt = metadata?.startupPrompt?.trim();
+    return startupPrompt ? startupPrompt : null;
   }
 }

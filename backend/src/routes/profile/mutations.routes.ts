@@ -40,6 +40,7 @@ import {
   docToUser,
 } from './shared.js';
 import { invalidateTeamProfileCache } from '../../services/core/cache.service.js';
+import { ensureFirecrawlMonitorsForConnectedSources } from '../../services/platform/firecrawl-monitor-enrollment.service.js';
 
 const router = Router();
 const POSTS_COLLECTION = 'Posts';
@@ -1158,6 +1159,18 @@ router.post(
             ),
             updatedAt: FieldValue.serverTimestamp(),
           });
+
+          await ensureFirecrawlMonitorsForConnectedSources({
+            db,
+            userId,
+            owner: {
+              ownerType: 'team',
+              ownerId: team.id,
+              userId,
+            },
+            linkedAccounts: scopedIncomingConnectedSources,
+            source: 'add-sport',
+          });
         }
 
         // Sync roster entry profile data
@@ -1218,6 +1231,20 @@ router.post(
         : {}),
       updatedAt: FieldValue.serverTimestamp(),
     });
+
+    if (incomingConnectedSources.length > 0) {
+      await ensureFirecrawlMonitorsForConnectedSources({
+        db,
+        userId,
+        owner: {
+          ownerType: 'user',
+          ownerId: userId,
+          userId,
+        },
+        linkedAccounts: incomingConnectedSources,
+        source: 'add-sport',
+      });
+    }
 
     const rosterEntryService = createRosterEntryService(db);
     await rosterEntryService.syncUserProfileToRosterEntries(userId, {

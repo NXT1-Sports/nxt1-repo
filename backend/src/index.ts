@@ -67,6 +67,7 @@ import {
   sentryWebhookRoutes,
   heliconeRoutes,
   cloudflareWebhookRoutes,
+  firecrawlMonitorWebhookRoutes,
 } from './routes/platform/webhooks/index.js';
 import usageRoutes from './routes/billing/usage.routes.js';
 import iapRoutes from './routes/billing/iap.routes.js';
@@ -472,6 +473,12 @@ async function setupApplication() {
     { path: '/iap', rateLimitType: 'lenient', handler: iapRoutes },
     // Cloudflare Stream video processing webhooks
     { path: '/cloudflare-webhook', rateLimitType: 'api', handler: cloudflareWebhookRoutes },
+    // Firecrawl monitor completion webhooks
+    {
+      path: '/firecrawl-monitor-webhook',
+      rateLimitType: 'api',
+      handler: firecrawlMonitorWebhookRoutes,
+    },
     // Team profile routes
     { path: '/teams', rateLimitType: 'api', handler: teamsRoutes },
     // Universal feed item engagement (share + view impression tracking — all types)

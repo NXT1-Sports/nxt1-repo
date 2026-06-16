@@ -450,6 +450,53 @@ class FakeMicrosoftAgent extends BaseAgent {
   }
 }
 
+class FakeFirecrawlMonitorTool extends BaseTool {
+  readonly description = 'Exercises Firecrawl monitor progress labeling.';
+  readonly parameters = z.object({});
+  readonly isMutation = false;
+  readonly category = 'automation' as const;
+  readonly entityGroup = 'integration_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  constructor(readonly name: string) {
+    super();
+  }
+
+  async execute(): Promise<ToolResult> {
+    return {
+      success: true,
+      data: {
+        ok: true,
+      },
+    };
+  }
+}
+
+class FakeFirecrawlMonitorAgent extends BaseAgent {
+  readonly id: AgentIdentifier = 'strategy_coordinator';
+  readonly name = 'Fake Firecrawl Monitor Agent';
+
+  constructor(private readonly availableTools: readonly string[]) {
+    super();
+  }
+
+  getSystemPrompt(): string {
+    return 'You are a test agent for Firecrawl monitor tools.';
+  }
+
+  getAvailableTools(): readonly string[] {
+    return this.availableTools;
+  }
+
+  getModelRouting(): ModelRoutingConfig {
+    return {
+      tier: 'chat',
+      maxTokens: 200,
+      temperature: 0.2,
+    };
+  }
+}
+
 class FakeBrandAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'brand_coordinator';
   readonly name = 'Fake Brand Agent';
@@ -1866,6 +1913,82 @@ describe('BaseAgent identifier scrubbing', () => {
         }),
       ])
     );
+  });
+
+  it('humanizes Firecrawl monitor progress labels for non-developer phrasing', async () => {
+    const expectations = [
+      ['list_firecrawl_monitors', 'Reviewing page monitors'],
+      ['get_firecrawl_monitor', 'Reviewing monitor details'],
+      ['write_firecrawl_monitor', 'Enabling page monitor'],
+      ['update_firecrawl_monitor', 'Updating monitor settings'],
+      ['delete_firecrawl_monitor', 'Removing page monitor'],
+      ['get_firecrawl_monitor_check', 'Reviewing monitor results'],
+    ] as const;
+
+    for (const [toolName, expectedLabel] of expectations) {
+      const agent = new FakeFirecrawlMonitorAgent([toolName]);
+      const registry = new ToolRegistry();
+      registry.register(new FakeFirecrawlMonitorTool(toolName));
+
+      const events: Array<Record<string, unknown>> = [];
+      let callCount = 0;
+      const llm = {
+        completeStream: vi.fn().mockImplementation(async () => {
+          callCount += 1;
+
+          if (callCount === 1) {
+            return {
+              content: 'Checking monitor status.',
+              toolCalls: [
+                {
+                  id: `call_${toolName}`,
+                  type: 'function',
+                  function: {
+                    name: toolName,
+                    arguments: '{}',
+                  },
+                },
+              ],
+              model: 'test-model',
+              usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+              latencyMs: 1,
+              costUsd: 0,
+              finishReason: 'tool_calls',
+            };
+          }
+
+          return {
+            content: 'Done checking monitor status.',
+            toolCalls: [],
+            model: 'test-model',
+            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            latencyMs: 1,
+            costUsd: 0,
+            finishReason: 'stop',
+          };
+        }),
+      };
+
+      await agent.execute(
+        'Check my monitor settings',
+        createMockContext(),
+        [],
+        llm as never,
+        registry,
+        undefined,
+        (event) => events.push(event as unknown as Record<string, unknown>)
+      );
+
+      expect(events).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'step_active',
+            stepId: `call_${toolName}`,
+            message: expectedLabel,
+          }),
+        ])
+      );
+    }
   });
 
   it('emits one LLM-generated progress commentary for a large single tool burst', async () => {
