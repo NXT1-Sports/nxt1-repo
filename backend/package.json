@@ -105,7 +105,7 @@
     "@google-cloud/pubsub": "^5.2.3",
     "@google/generative-ai": "^0.24.1",
     "@imbsq/runway-mcp": "^1.0.0",
-    "@mendable/firecrawl-js": "^4.25.3",
+    "@mendable/firecrawl-js": "^4.26.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@nxt1/cache": "file:../packages/cache",
     "@nxt1/core": "file:../packages/core",
