@@ -350,7 +350,12 @@ router.post('/cron/summarize-threads', cronGuard, async (_req: Request, res: Res
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('CRON summarize-threads failed', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Thread summarization failed' });
+    res.status(500).json({
+      success: false,
+      error: 'Thread summarization failed',
+      detail: error.message,
+      stack: error.stack,
+    });
   }
 });
 
@@ -381,7 +386,12 @@ router.post('/cron/scan-timeline-posts', cronGuard, async (_req: Request, res: R
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('CRON scan-timeline-posts failed', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Timeline scan failed' });
+    res.status(500).json({
+      success: false,
+      error: 'Timeline scan failed',
+      detail: error.message,
+      stack: error.stack,
+    });
   }
 });
 
@@ -439,7 +449,12 @@ router.post('/cron/cleanup-thread-media', cronGuard, async (_req: Request, res: 
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('CRON cleanup-thread-media failed', { error: error.message, stack: error.stack });
-    res.status(500).json({ success: false, error: 'Thread media cleanup failed' });
+    res.status(500).json({
+      success: false,
+      error: 'Thread media cleanup failed',
+      detail: error.message,
+      stack: error.stack,
+    });
   }
 });
 

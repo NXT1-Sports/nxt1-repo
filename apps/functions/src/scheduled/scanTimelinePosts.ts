@@ -63,7 +63,9 @@ export const scanTimelinePosts = onSchedule(
           status: response.status,
           body: body.slice(0, 500),
         });
-        throw new Error(`Timeline post scan: backend returned ${response.status}`);
+        throw new Error(
+          `Timeline post scan: backend returned ${response.status}: ${body.slice(0, 500)}`
+        );
       }
 
       const result = await response.json();
