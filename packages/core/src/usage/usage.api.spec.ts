@@ -52,6 +52,42 @@ describe('createUsageApi', () => {
     });
   });
 
+  describe('trackSalesFunnelEvent', () => {
+    it('should post wallet funnel events to the backend endpoint', async () => {
+      vi.mocked(http.post).mockResolvedValue({ success: true });
+
+      await api.trackSalesFunnelEvent({
+        eventName: 'begin_checkout',
+        amountCents: 2500,
+        organizationId: 'org_123',
+        paymentMethod: 'stripe',
+        checkoutType: 'hosted_checkout',
+      });
+
+      expect(http.post).toHaveBeenCalledWith('/api/v1/usage/sales-funnel-event', {
+        eventName: 'begin_checkout',
+        amountCents: 2500,
+        organizationId: 'org_123',
+        paymentMethod: 'stripe',
+        checkoutType: 'hosted_checkout',
+      });
+    });
+
+    it('should throw when backend funnel tracking fails', async () => {
+      vi.mocked(http.post).mockResolvedValue({
+        success: false,
+        error: 'Tracking failed',
+      });
+
+      await expect(
+        api.trackSalesFunnelEvent({
+          eventName: 'add_to_cart',
+          amountCents: 1000,
+        })
+      ).rejects.toThrow('Tracking failed');
+    });
+  });
+
   describe('deleteTeamBudget', () => {
     it('should delete a team budget via DELETE with interval query params', async () => {
       vi.mocked(http.delete).mockResolvedValue({ success: true });

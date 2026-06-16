@@ -14,6 +14,7 @@ import { logger } from '../../utils/logger.js';
 import { NOTIFICATION_TYPES } from '@nxt1/core';
 import { addWalletTopUp, addFundsToOrgWallet, getBillingState } from './budget.service.js';
 import { trackBillingPurchaseEvent } from './ga4-revenue.service.js';
+import { sendSalesBillingAlert } from './sales-alert.service.js';
 import {
   createPeriodKey,
   createPeriodLedgerDocumentId,
@@ -133,7 +134,7 @@ export async function handleInvoiceFinalized(
 export async function handleInvoicePaymentSucceeded(
   db: Firestore,
   invoice: Stripe.Invoice,
-  _environment: 'staging' | 'production'
+  environment: 'staging' | 'production'
 ): Promise<void> {
   try {
     logger.info('[handleInvoicePaymentSucceeded] Processing payment success', {
@@ -187,6 +188,29 @@ export async function handleInvoicePaymentSucceeded(
           invoiceId: invoice.id,
           userId,
         });
+      });
+    }
+
+    if (invoice.amount_paid > 0 && invoice.metadata?.['type'] !== 'org_invoice_topup') {
+      await sendSalesBillingAlert({
+        environment,
+        title: 'Stripe Invoice Payment Received',
+        summary: 'A Stripe invoice payment completed successfully.',
+        amountCents: invoice.amount_paid,
+        currency: invoice.currency ?? 'usd',
+        transactionId: invoice.id,
+        userId:
+          typeof userId === 'string' && userId.length > 0
+            ? userId
+            : typeof invoice.customer === 'string'
+              ? invoice.customer
+              : (invoice.customer?.id ?? 'unknown'),
+        paymentType: String(invoice.metadata?.['type'] ?? 'invoice_payment'),
+        billingEntity: invoice.metadata?.['organizationId'] ? 'organization' : 'individual',
+        source: 'stripe_invoice',
+        organizationId: invoice.metadata?.['organizationId'],
+        linkText: invoice.hosted_invoice_url ? 'Open Invoice' : undefined,
+        linkUrl: invoice.hosted_invoice_url,
       });
     }
   } catch (error) {
@@ -1087,6 +1111,20 @@ export async function finalizeWalletCheckoutSession(
           billingEntity: 'organization',
           source: 'stripe_checkout',
         });
+
+        await sendSalesBillingAlert({
+          environment,
+          title: 'Organization Wallet Top-Up Completed',
+          summary: 'An organization wallet top-up completed through Stripe Checkout.',
+          amountCents,
+          currency: session.currency ?? 'usd',
+          transactionId: session.id,
+          userId,
+          paymentType: 'org_wallet_topup',
+          billingEntity: 'organization',
+          source: 'stripe_checkout',
+          organizationId,
+        });
       }
     } else {
       ({ newBalance, alreadyFinalized } = await addWalletTopUp(db, userId, amountCents, 'stripe', {
@@ -1185,6 +1223,21 @@ export async function finalizeWalletCheckoutSession(
           billingEntity: 'individual',
           source: 'stripe_checkout',
         });
+
+        await sendSalesBillingAlert({
+          environment,
+          title: 'Wallet Top-Up Completed',
+          summary: 'A customer wallet top-up completed through Stripe Checkout.',
+          amountCents,
+          currency: session.currency ?? 'usd',
+          transactionId: session.id,
+          userId,
+          paymentType: 'wallet_topup',
+          billingEntity: 'individual',
+          source: 'stripe_checkout',
+          linkText: receiptUrl ? 'Open Receipt' : undefined,
+          linkUrl: receiptUrl,
+        });
       }
     }
 
@@ -1213,7 +1266,11 @@ export async function finalizeWalletCheckoutSession(
  * is paid. This closes the loop for invoice-based top-ups requested via
  * POST /usage/invoice-topup.
  */
-async function handleInvoicePaid(db: Firestore, invoice: Stripe.Invoice): Promise<void> {
+async function handleInvoicePaid(
+  db: Firestore,
+  invoice: Stripe.Invoice,
+  environment: 'staging' | 'production'
+): Promise<void> {
   const metadata = invoice.metadata ?? {};
   if (metadata['type'] !== 'org_invoice_topup') {
     // Not one of our invoice top-ups — ignore
@@ -1270,6 +1327,22 @@ async function handleInvoicePaid(db: Firestore, invoice: Stripe.Invoice): Promis
       userId,
       amountCents,
       newBalance,
+    });
+
+    await sendSalesBillingAlert({
+      environment,
+      title: 'Organization Invoice Payment Received',
+      summary: 'An organization invoice payment completed successfully.',
+      amountCents,
+      currency: invoice.currency ?? 'usd',
+      transactionId: invoice.id,
+      userId: userId || `org:${organizationId}`,
+      paymentType: 'org_invoice_topup',
+      billingEntity: 'organization',
+      source: 'stripe_invoice',
+      organizationId,
+      linkText: invoice.hosted_invoice_url ? 'Open Invoice' : undefined,
+      linkUrl: invoice.hosted_invoice_url,
     });
 
     // Notify all roster members on personal billing override
@@ -1388,7 +1461,7 @@ export async function handleWebhookEvent(
       break;
 
     case 'invoice.paid':
-      await handleInvoicePaid(db, event.data.object as Stripe.Invoice);
+      await handleInvoicePaid(db, event.data.object as Stripe.Invoice, environment);
       break;
 
     case 'customer.subscription.created':

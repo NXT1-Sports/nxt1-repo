@@ -38,6 +38,22 @@ interface ApiResponse<T> {
   readonly error?: string;
 }
 
+type SalesFunnelEventRequest = {
+  readonly eventName:
+    | 'view_item'
+    | 'view_item_list'
+    | 'add_to_cart'
+    | 'begin_checkout'
+    | 'add_payment_info';
+  readonly amountCents?: number;
+  readonly organizationId?: string;
+  readonly paymentMethod?: string;
+  readonly paymentType?: string;
+  readonly checkoutType?: string;
+  readonly selectionType?: string;
+  readonly entryPoint?: string;
+};
+
 // ============================================
 // API FACTORY
 // ============================================
@@ -60,6 +76,7 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
     downloadInvoice: `${baseUrl}${USAGE_API_ENDPOINTS.downloadInvoice}`,
     redeemCoupon: `${baseUrl}${USAGE_API_ENDPOINTS.redeemCoupon}`,
     buyCredits: `${baseUrl}${USAGE_API_ENDPOINTS.buyCredits}`,
+    salesFunnelEvent: `${baseUrl}${USAGE_API_ENDPOINTS.salesFunnelEvent}`,
     confirmCheckout: `${baseUrl}${USAGE_API_ENDPOINTS.confirmCheckout}`,
     budget: `${baseUrl}${USAGE_API_ENDPOINTS.budget}`,
     budgetOrg: `${baseUrl}${USAGE_API_ENDPOINTS.budgetOrg}`,
@@ -276,6 +293,13 @@ export function createUsageApi(http: HttpAdapter, baseUrl: string) {
       const url = (response as { url?: string }).url ?? response.data;
       if (!url) throw new Error('No checkout URL returned');
       return { type: 'redirect', url };
+    },
+
+    async trackSalesFunnelEvent(event: SalesFunnelEventRequest): Promise<void> {
+      const response = await http.post<ApiResponse<void>>(endpoints.salesFunnelEvent, event);
+      if (!response.success) {
+        throw new Error(response.error ?? 'Failed to record sales funnel event');
+      }
     },
 
     async confirmCheckoutSession(

@@ -25,6 +25,7 @@ import { logger } from '../../utils/logger.js';
 import { COLLECTIONS } from './config.js';
 import { getPlatformConfig } from './platform-config.service.js';
 import { getRuntimeEnvironment } from '../../config/runtime-environment.js';
+import { sendSlackAlert } from '../../services/platform/alert.service.js';
 import {
   createBillingOwnerKey,
   createBillingPreferenceDocumentId,
@@ -2257,6 +2258,42 @@ async function triggerAutoTopUpIfEnabled(
         amountCents,
         paymentIntentId: result.paymentIntentId,
       });
+
+      await sendSlackAlert({
+        target: 'sales',
+        environment,
+        severity: 'info',
+        title: orgOptions?.organizationId
+          ? 'Organization Auto Top-Up Completed'
+          : 'Auto Top-Up Completed',
+        summary: orgOptions?.organizationId
+          ? 'An organization auto top-up completed successfully.'
+          : 'A customer auto top-up completed successfully.',
+        fields: [
+          { label: 'Amount', value: `$${(amountCents / 100).toFixed(2)} USD` },
+          { label: 'Payment Type', value: 'auto_wallet_topup' },
+          {
+            label: 'Billing Entity',
+            value: orgOptions?.organizationId ? 'organization' : 'individual',
+          },
+          { label: 'Transaction ID', value: result.paymentIntentId },
+          { label: 'User ID', value: userId },
+          ...(orgOptions?.organizationId
+            ? ([{ label: 'Organization ID', value: orgOptions.organizationId }] as const)
+            : []),
+          { label: 'Source', value: 'auto_topup' },
+          { label: 'Environment', value: environment },
+        ],
+        linkText: result.receiptUrl ? 'Open Receipt' : undefined,
+        linkUrl: result.receiptUrl ?? undefined,
+      }).catch((error: unknown) => {
+        logger.error('[triggerAutoTopUpIfEnabled] Failed to dispatch Slack sales alert', {
+          error,
+          userId,
+          paymentIntentId: result.paymentIntentId,
+        });
+      });
+
       return { status: 'succeeded' };
     } else {
       logger.error('[triggerAutoTopUpIfEnabled] Stripe charge failed', {
