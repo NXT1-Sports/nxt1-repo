@@ -398,17 +398,48 @@ export function getPrimarySport(sports?: SportProfile[]): string | undefined {
 /** Known mobile app URI schemes allowed as OAuth callback targets */
 export const ALLOWED_MOBILE_SCHEMES = new Set(['nxt1sports', 'nxt1app', 'nxt1']);
 
+const DEFAULT_LOCAL_FRONTEND_ORIGINS = [
+  'http://localhost:4200',
+  'http://127.0.0.1:4200',
+  'http://localhost:4201',
+  'http://127.0.0.1:4201',
+  'http://localhost:4300',
+  'http://127.0.0.1:4300',
+  'http://localhost:5000',
+  'http://127.0.0.1:5000',
+] as const;
+
+const DEFAULT_PRODUCTION_FRONTEND_ORIGINS = [
+  'https://nxt1sports.com',
+  'https://www.nxt1sports.com',
+  'https://nxt-1-v2.web.app',
+  'https://nxt-1-v2.firebaseapp.com',
+] as const;
+
+const DEFAULT_STAGING_FRONTEND_ORIGINS = [
+  'https://nxt-1-staging-v2.web.app',
+  'https://nxt-1-staging-v2.firebaseapp.com',
+  'https://staging.nxt1sports.com',
+  'https://nxt1-repo--nxt-1-staging-v2.us-east4.hosted.app',
+  'https://nxt1-repo--nxt-1-staging-v2.us-central1.hosted.app',
+] as const;
+
 /**
  * Returns allowed frontend origins for the current environment.
  */
 export function getAllowedOrigins(isStaging: boolean): string[] {
   const key = isStaging ? 'STAGING_ALLOWED_FRONTEND_ORIGINS' : 'ALLOWED_FRONTEND_ORIGINS';
-  return (
+  const envOrigins =
     process.env[key]
       ?.split(',')
-      .map((o) => o.trim())
-      .filter(Boolean) ?? ['http://localhost:4200', 'http://localhost:4201']
-  );
+      .map((origin) => origin.trim())
+      .filter(Boolean) ?? [];
+
+  const defaults = isStaging
+    ? [...DEFAULT_STAGING_FRONTEND_ORIGINS, ...DEFAULT_LOCAL_FRONTEND_ORIGINS]
+    : [...DEFAULT_PRODUCTION_FRONTEND_ORIGINS, ...DEFAULT_LOCAL_FRONTEND_ORIGINS];
+
+  return [...new Set([...envOrigins, ...defaults])];
 }
 
 export function isAllowedOrigin(origin: string, isStaging: boolean): boolean {

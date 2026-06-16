@@ -209,6 +209,7 @@ const STATIC_ALLOWED_ORIGINS = [
   'https://www.nxt1.com',
   'https://nxt1sports.com',
   'https://www.nxt1sports.com',
+  'https://staging.nxt1sports.com',
   // Firebase App Hosting (staging)
   'https://nxt1-repo--nxt-1-v2.us-east4.hosted.app',
   'https://nxt1-repo--nxt-1-staging-v2.us-central1.hosted.app',

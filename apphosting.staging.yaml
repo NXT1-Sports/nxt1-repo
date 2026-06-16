@@ -33,9 +33,19 @@ env:
   - variable: APP_ENV
     value: 'staging'
 
-  # Backend API URL for proxying sitemap and other XML endpoints (staging backend)
+  # Public staging origin used for SSR redirects and absolute URL generation
+  - variable: PUBLIC_URL
+    value: 'https://staging.nxt1sports.com'
+
+  # Staging backend host for sitemap/XML proxying.
+  # Keep this on the staging App Hosting backend so root-level endpoints like
+  # /sitemap.xml continue to resolve against the staging runtime.
   - variable: BACKEND_URL
     value: 'https://nxt1-repo-backend--nxt-1-staging-v2.us-east4.hosted.app'
+
+  # Explicit staging API base URL so SSR profile lookups hit the same API surface as the browser
+  - variable: BACKEND_API_URL
+    value: 'https://api.nxt1sports.com/api/v1/staging'
 
   # Allow SSR for ALL hosts
   - variable: NG_ALLOWED_HOSTS
