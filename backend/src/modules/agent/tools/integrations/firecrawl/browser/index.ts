@@ -4,6 +4,24 @@
  */
 
 export { FirecrawlProfileService } from './firecrawl-profile.service.js';
+export {
+  FirecrawlMonitorService,
+  FirecrawlMonitorServiceError,
+  type FirecrawlMonitorSchedule,
+  type FirecrawlMonitorSummary,
+  type CreateFirecrawlMonitorInput,
+  type UpdateFirecrawlMonitorInput,
+  type FirecrawlMonitorCheckDetail,
+  type FirecrawlMonitorRegistrationRecord,
+} from './firecrawl-monitor.service.js';
+export {
+  ListFirecrawlMonitorsTool,
+  GetFirecrawlMonitorTool,
+  WriteFirecrawlMonitorTool,
+  UpdateFirecrawlMonitorTool,
+  DeleteFirecrawlMonitorTool,
+  GetFirecrawlMonitorCheckTool,
+} from './firecrawl-monitor.tools.js';
 export { OpenLiveViewTool } from './open-live-view.tool.js';
 export { ReadLiveViewTool } from './read-live-view.tool.js';
 export { CaptureLiveViewScreenshotTool } from './capture-live-view-screenshot.tool.js';

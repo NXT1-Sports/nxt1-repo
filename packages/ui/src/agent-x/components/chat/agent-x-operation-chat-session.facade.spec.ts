@@ -67,6 +67,10 @@ type Canonicalizer = {
     liveOperationId: string | null
   ): boolean;
   hasMongoFinalForOperation(items: readonly AgentMessage[], operationId: string | null): boolean;
+  promoteAssistantMediaUrlsToMarkdown(
+    content: string,
+    media?: { attachments?: OperationMessage['attachments'] }
+  ): string;
   collectMessageMedia(message: AgentMessage): {
     imageUrl?: string;
     videoUrl?: string;
@@ -136,6 +140,106 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
       'user-new',
       'assistant-new',
     ]);
+  });
+
+  it('keeps a new assistant below the later user when the user operationId backfill lags', () => {
+    const pausedUser: OperationMessage = {
+      id: 'user-old-paused',
+      role: 'user',
+      content: 'Make me a graphic with my latest play',
+      operationId: 'chat-paused-old',
+      timestamp: new Date('2026-05-05T12:00:00.000Z'),
+    };
+    const newUserWithoutOperationId: OperationMessage = {
+      id: 'user-new',
+      role: 'user',
+      content: 'Actually write a short caption instead',
+      timestamp: new Date('2026-05-05T12:01:00.000Z'),
+    };
+    const newAssistant: OperationMessage = {
+      id: 'assistant-new',
+      role: 'assistant',
+      content: 'Here is a tight caption for the post.',
+      operationId: 'chat-new-turn',
+      timestamp: new Date('2026-05-05T12:01:30.000Z'),
+    };
+
+    const reordered = facade.reorderTurnsByPairing([
+      pausedUser,
+      newUserWithoutOperationId,
+      newAssistant,
+    ]);
+
+    expect(reordered.map((message) => message.id)).toEqual([
+      'user-old-paused',
+      'user-new',
+      'assistant-new',
+    ]);
+  });
+
+  it('adds poster metadata to assistant markdown video links when thumbnail data exists', () => {
+    const contentUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fclip.mp4?alt=media&token=old';
+    const attachmentUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fclip.mp4?alt=media&token=new';
+    const thumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fthumbnail%2Fclip.jpg?alt=media&token=thumb';
+
+    const result = facade.promoteAssistantMediaUrlsToMarkdown(`[View Video](${contentUrl})`, {
+      attachments: [
+        {
+          url: attachmentUrl,
+          type: 'video',
+          name: 'clip.mp4',
+          thumbnailUrl,
+        },
+      ],
+    });
+
+    expect(result).toBe(`[View Video](${contentUrl}#poster=${encodeURIComponent(thumbnailUrl)})`);
+  });
+
+  it('uses a separate thumbnail image attachment as the markdown video poster fallback', () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fclip.mp4?alt=media&token=video';
+    const thumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fthumbnail%2Fclip.jpg?alt=media&token=thumb';
+
+    const result = facade.promoteAssistantMediaUrlsToMarkdown(`[View Video](${videoUrl})`, {
+      attachments: [
+        {
+          url: videoUrl,
+          type: 'video',
+          name: 'clip.mp4',
+        },
+        {
+          url: thumbnailUrl,
+          type: 'image',
+          name: 'thumbnail.jpg',
+        },
+      ],
+    });
+
+    expect(result).toBe(`[View Video](${videoUrl}#poster=${encodeURIComponent(thumbnailUrl)})`);
+  });
+
+  it('does not add malformed storage thumbnail urls as markdown video posters', () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-media/reels/clip.mp4';
+    const malformedThumbnailUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/raw-base64-path-without-image-extension?X-Goog-Signature=abc';
+
+    const result = facade.promoteAssistantMediaUrlsToMarkdown(`[View Video](${videoUrl})`, {
+      attachments: [
+        {
+          url: videoUrl,
+          type: 'video',
+          name: 'clip.mp4',
+          thumbnailUrl: malformedThumbnailUrl,
+        },
+      ],
+    });
+
+    expect(result).toBe(`[View Video](${videoUrl})`);
   });
 
   it('keeps approval reply above the final assistant result when completion timestamp rehydrates first', () => {

@@ -25,7 +25,7 @@ import {
 } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ActivityShellComponent, type ActivityUser } from '@nxt1/ui/activity';
-import { AgentXOperationChatComponent } from '@nxt1/ui/agent-x';
+import { AgentXOperationChatComponent, AgentXService } from '@nxt1/ui/agent-x';
 import { NxtBottomSheetService, SHEET_PRESETS } from '@nxt1/ui/components/bottom-sheet';
 import { NxtSidenavService } from '@nxt1/ui/components/sidenav';
 import { NxtLoggingService } from '@nxt1/ui/services/logging';
@@ -67,6 +67,7 @@ export class ActivityComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly bottomSheet = inject(NxtBottomSheetService);
+  private readonly agentX = inject(AgentXService);
   private readonly logger = inject(NxtLoggingService).child('ActivityComponent');
   private readonly seo = inject(SeoService);
   private readonly emailConnection = inject(WebEmailConnectionService);
@@ -150,6 +151,11 @@ export class ActivityComponent implements OnInit {
         cssClass: 'agent-x-operation-sheet',
       });
       return;
+    }
+
+    const startupPrompt = this.resolveAgentStartupPrompt(item, normalizedLink);
+    if (startupPrompt) {
+      this.agentX.queueStartupMessage(startupPrompt);
     }
 
     void this.router.navigateByUrl(normalizedLink);
@@ -261,6 +267,16 @@ export class ActivityComponent implements OnInit {
 
     const metadata = item.metadata as AgentTaskActivityMetadata | undefined;
     return Boolean(metadata?.operationId?.trim() || metadata?.sessionId?.trim());
+  }
+
+  private resolveAgentStartupPrompt(item: ActivityItem, deepLink: string): string | null {
+    if (!deepLink.startsWith('/agent-x')) {
+      return null;
+    }
+
+    const metadata = item.metadata as AgentTaskActivityMetadata | undefined;
+    const startupPrompt = metadata?.startupPrompt?.trim();
+    return startupPrompt ? startupPrompt : null;
   }
 
   /**

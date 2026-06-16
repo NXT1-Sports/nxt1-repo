@@ -62,6 +62,14 @@ export interface ConnectedSource {
   readonly addedBy?: string;
   /** True when this source is immutable in the current flow. */
   readonly locked?: boolean;
+  /** Whether Firecrawl monitoring is enabled for this connected source. */
+  readonly monitorEnabled?: boolean;
+  /** Whether this row should render the monitor checkbox. */
+  readonly showMonitorToggle?: boolean;
+  /** Target URL used when enabling or updating monitor coverage for this row. */
+  readonly monitorTargetUrl?: string;
+  /** Whether the monitor checkbox is currently processing. */
+  readonly monitorPending?: boolean;
 }
 
 /**
@@ -162,24 +170,63 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
               </div>
               <div class="nxt1-source-right">
                 @if (source.connected) {
-                  @if (showDisconnectAction(source)) {
-                    <button
-                      type="button"
-                      class="nxt1-source-disconnect"
-                      [attr.data-testid]="testIds.DISCONNECT_BUTTON + '-' + source.platform"
-                      [attr.aria-label]="'Disconnect ' + source.label"
-                      (click)="onDisconnectTap(source, i, $event)"
-                    >
-                      <nxt1-icon name="close" [size]="12" class="nxt1-source-disconnect-icon" />
-                    </button>
+                  @if (source.showMonitorToggle || showDisconnectAction(source)) {
+                    <div class="nxt1-source-actions">
+                      @if (source.showMonitorToggle) {
+                        <button
+                          type="button"
+                          class="nxt1-source-monitor-toggle"
+                          [class.nxt1-source-monitor-toggle--checked]="source.monitorEnabled"
+                          [attr.data-testid]="monitorToggleTestId + '-' + source.platform"
+                          [attr.aria-label]="
+                            (source.monitorEnabled ? 'Disable' : 'Enable') +
+                            ' monitoring for ' +
+                            source.label
+                          "
+                          [disabled]="source.monitorPending"
+                          (click)="onMonitorToggleTap(source, i, $event)"
+                        >
+                          <span class="nxt1-source-monitor-label">Monitor</span>
+                          <span class="nxt1-source-monitor-box">
+                            @if (source.monitorEnabled) {
+                              <nxt1-icon
+                                name="checkmark"
+                                [size]="11"
+                                class="nxt1-source-monitor-check"
+                              />
+                            }
+                          </span>
+                        </button>
+                      }
+                      <div class="nxt1-source-status">
+                        <span class="nxt1-source-username">{{
+                          source.username || 'Connected'
+                        }}</span>
+                        @if (source.addedBy) {
+                          <span class="nxt1-source-added-by">Added by {{ source.addedBy }}</span>
+                        }
+                      </div>
+                      @if (showDisconnectAction(source)) {
+                        <button
+                          type="button"
+                          class="nxt1-source-disconnect"
+                          [attr.data-testid]="testIds.DISCONNECT_BUTTON + '-' + source.platform"
+                          [attr.aria-label]="'Disconnect ' + source.label"
+                          (click)="onDisconnectTap(source, i, $event)"
+                        >
+                          <nxt1-icon name="close" [size]="12" class="nxt1-source-disconnect-icon" />
+                        </button>
+                      }
+                    </div>
+                  } @else {
+                    <div class="nxt1-source-status">
+                      <span class="nxt1-source-username">{{ source.username || 'Connected' }}</span>
+                      @if (source.addedBy) {
+                        <span class="nxt1-source-added-by">Added by {{ source.addedBy }}</span>
+                      }
+                    </div>
+                    <nxt1-icon name="checkmarkCircle" [size]="16" class="nxt1-source-check" />
                   }
-                  <div class="nxt1-source-status">
-                    <span class="nxt1-source-username">{{ source.username || 'Connected' }}</span>
-                    @if (source.addedBy) {
-                      <span class="nxt1-source-added-by">Added by {{ source.addedBy }}</span>
-                    }
-                  </div>
-                  <nxt1-icon name="checkmarkCircle" [size]="16" class="nxt1-source-check" />
                 } @else {
                   <span class="nxt1-source-connect">{{
                     source.actionLabel ?? (source.connectionType === 'signin' ? 'Sign in' : 'Link')
@@ -374,6 +421,13 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
         flex: 1;
       }
 
+      .nxt1-source-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--nxt1-spacing-2);
+        flex-shrink: 0;
+      }
+
       .nxt1-source-username {
         font-family: var(--nxt1-fontFamily-brand);
         font-size: var(--nxt1-fontSize-base);
@@ -390,6 +444,63 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
         font-size: var(--nxt1-fontSize-base);
         font-weight: var(--nxt1-fontWeight-regular);
         color: var(--nxt1-color-text-tertiary);
+      }
+
+      .nxt1-source-monitor-toggle {
+        appearance: none;
+        -webkit-appearance: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: var(--nxt1-spacing-1-5, 0.375rem);
+        margin-right: var(--nxt1-spacing-1-5, 0.375rem);
+        padding: 0;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        flex-shrink: 0;
+      }
+
+      .nxt1-source-monitor-label {
+        font-family: var(--nxt1-fontFamily-brand);
+        font-size: var(--nxt1-fontSize-xs);
+        font-weight: var(--nxt1-fontWeight-medium);
+        color: var(--nxt1-color-text-tertiary);
+        white-space: nowrap;
+      }
+
+      .nxt1-source-monitor-toggle--checked .nxt1-source-monitor-label {
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .nxt1-source-monitor-toggle:disabled {
+        cursor: default;
+        opacity: 0.65;
+      }
+
+      .nxt1-source-monitor-box {
+        width: 18px;
+        height: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+        border: 1px solid var(--nxt1-color-border-strong, rgba(255, 255, 255, 0.28));
+        background: transparent;
+        transition:
+          border-color var(--nxt1-duration-fast) var(--nxt1-easing-out),
+          background var(--nxt1-duration-fast) var(--nxt1-easing-out),
+          color var(--nxt1-duration-fast) var(--nxt1-easing-out);
+      }
+
+      .nxt1-source-monitor-toggle--checked .nxt1-source-monitor-box {
+        background: var(--nxt1-color-primary, #ccff00);
+        border-color: var(--nxt1-color-primary, #ccff00);
+        color: var(--nxt1-color-text-onPrimary, #0a0a0a);
+      }
+
+      .nxt1-source-monitor-check {
+        color: inherit;
       }
 
       .nxt1-source-disconnect {
@@ -462,6 +573,9 @@ export const DEFAULT_PLATFORMS: readonly ConnectedSource[] = [
 })
 export class NxtConnectedSourcesComponent {
   protected readonly testIds = LINK_SOURCES_TEST_IDS;
+  protected readonly monitorToggleTestId =
+    (LINK_SOURCES_TEST_IDS as Record<string, string>)['MONITOR_TOGGLE_BUTTON'] ??
+    'link-sources-monitor-toggle-button';
 
   /** Section title. Defaults to "Connected accounts". */
   readonly title = input('Connected accounts');
@@ -486,6 +600,9 @@ export class NxtConnectedSourcesComponent {
 
   /** Emitted when the connected-state disconnect control is tapped. */
   readonly disconnectTap = output<ConnectedSourceTapEvent>();
+
+  /** Emitted when the monitor checkbox is toggled for a connected source. */
+  readonly monitorToggle = output<ConnectedSourceTapEvent>();
 
   /** Emitted when the user switches the mode toggle. */
   readonly modeChange = output<ConnectionMode>();
@@ -527,6 +644,11 @@ export class NxtConnectedSourcesComponent {
   protected onDisconnectTap(source: ConnectedSource, index: number, event: Event): void {
     event.stopPropagation();
     this.disconnectTap.emit({ source, index });
+  }
+
+  protected onMonitorToggleTap(source: ConnectedSource, index: number, event: Event): void {
+    event.stopPropagation();
+    this.monitorToggle.emit({ source, index });
   }
 
   protected showDisconnectAction(source: ConnectedSource): boolean {

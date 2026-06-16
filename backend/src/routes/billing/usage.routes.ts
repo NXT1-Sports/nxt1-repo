@@ -17,6 +17,7 @@ import {
   RedeemCouponDto,
   BuyCreditsDto,
   ConfirmCheckoutSessionDto,
+  SalesFunnelEventDto,
   AutoTopUpDto,
   BillingModeDto,
   InvoiceTopUpDto,
@@ -63,6 +64,10 @@ import {
   type BillingDeductionFallbackLine,
   type BillingDeductionFallbackLock,
 } from './usage-breakdown-fallback.js';
+import {
+  sendSalesBillingAlert,
+  sendSalesFunnelAlert,
+} from '../../modules/billing/sales-alert.service.js';
 
 const BILLING_DEDUCTION_LOCK_COLLECTION = 'BillingDeductions';
 
@@ -171,6 +176,41 @@ router.use((_req, res, next) => {
   res.setHeader('Expires', '0');
   next();
 });
+
+router.post(
+  '/sales-funnel-event',
+  appGuard,
+  validateBody(SalesFunnelEventDto),
+  async (req: Request, res: Response) => {
+    const userId = req.user!.uid;
+    const {
+      eventName,
+      amountCents,
+      organizationId,
+      paymentMethod,
+      paymentType,
+      checkoutType,
+      selectionType,
+      entryPoint,
+    } = req.body as SalesFunnelEventDto;
+
+    const delivered = await sendSalesFunnelAlert({
+      environment: req.isStaging ? 'staging' : 'production',
+      eventName,
+      userId,
+      amountCents,
+      organizationId,
+      billingEntity: organizationId ? 'organization' : 'individual',
+      paymentMethod,
+      paymentType,
+      checkoutType,
+      selectionType,
+      entryPoint,
+    });
+
+    return res.json({ success: true, delivered });
+  }
+);
 
 // ============================================
 // HELPERS
@@ -2359,6 +2399,21 @@ router.post(
               billingEntity: 'organization',
               source: 'stripe_direct_charge',
             });
+
+            await sendSalesBillingAlert({
+              environment: req.isStaging ? 'staging' : 'production',
+              title: 'Organization Wallet Top-Up Completed',
+              summary: 'An organization wallet top-up completed using a saved default card.',
+              amountCents,
+              transactionId: charge.paymentIntentId,
+              userId,
+              paymentType: 'org_wallet_topup',
+              billingEntity: 'organization',
+              source: 'stripe_direct_charge',
+              organizationId,
+              linkText: charge.receiptUrl ? 'Open Receipt' : undefined,
+              linkUrl: charge.receiptUrl,
+            });
           } else {
             logger.warn(
               '[POST /buy-credits] Missing paymentIntentId for org purchase analytics event',
@@ -2415,6 +2470,20 @@ router.post(
               itemCategory: 'wallet_topup',
               billingEntity: 'individual',
               source: 'stripe_direct_charge',
+            });
+
+            await sendSalesBillingAlert({
+              environment: req.isStaging ? 'staging' : 'production',
+              title: 'Wallet Top-Up Completed',
+              summary: 'A wallet top-up completed using a saved default card.',
+              amountCents,
+              transactionId: charge.paymentIntentId,
+              userId,
+              paymentType: 'wallet_topup',
+              billingEntity: 'individual',
+              source: 'stripe_direct_charge',
+              linkText: charge.receiptUrl ? 'Open Receipt' : undefined,
+              linkUrl: charge.receiptUrl,
             });
           } else {
             logger.warn(

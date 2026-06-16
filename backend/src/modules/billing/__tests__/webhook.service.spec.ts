@@ -7,11 +7,13 @@ const {
   mockAddFundsToOrgWallet,
   mockPaymentLogFindOneAndUpdate,
   mockGetStripeClient,
+  mockSendSlackAlert,
 } = vi.hoisted(() => ({
   mockAddWalletTopUp: vi.fn(),
   mockAddFundsToOrgWallet: vi.fn(),
   mockPaymentLogFindOneAndUpdate: vi.fn().mockResolvedValue(null),
   mockGetStripeClient: vi.fn(),
+  mockSendSlackAlert: vi.fn().mockResolvedValue(true),
 }));
 
 vi.mock('../budget.service.js', () => ({
@@ -42,7 +44,11 @@ vi.mock('../../../services/communications/notification.service.js', () => ({
   dispatch: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { finalizeWalletCheckoutSession } from '../webhook.service.js';
+vi.mock('../../../services/platform/alert.service.js', () => ({
+  sendSlackAlert: mockSendSlackAlert,
+}));
+
+import { finalizeWalletCheckoutSession, handleWebhookEvent } from '../webhook.service.js';
 
 function makeCheckoutSession(
   overrides: Partial<Stripe.Checkout.Session> & {
@@ -65,6 +71,7 @@ describe('finalizeWalletCheckoutSession', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockPaymentLogFindOneAndUpdate.mockResolvedValue(null);
+    mockSendSlackAlert.mockResolvedValue(true);
     mockGetStripeClient.mockReturnValue({
       paymentIntents: { retrieve: vi.fn() },
       customers: { update: vi.fn() },
@@ -112,6 +119,13 @@ describe('finalizeWalletCheckoutSession', () => {
     });
     expect(update.$setOnInsert).not.toHaveProperty('finalizationSource');
     expect(mockGetStripeClient).not.toHaveBeenCalled();
+    expect(mockSendSlackAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: 'sales',
+        environment: 'staging',
+        title: 'Wallet Top-Up Completed',
+      })
+    );
   });
 
   it('writes org checkout PaymentLog updates without duplicating finalizationSource', async () => {
@@ -164,5 +178,56 @@ describe('finalizeWalletCheckoutSession', () => {
       type: 'org_wallet_topup',
     });
     expect(update.$setOnInsert).not.toHaveProperty('finalizationSource');
+    expect(mockSendSlackAlert).not.toHaveBeenCalled();
+  });
+
+  it('sends a sales alert for org invoice top-ups', async () => {
+    const usersCollection = {
+      where: vi.fn().mockReturnThis(),
+      get: vi.fn().mockResolvedValue({ empty: true, docs: [], size: 0 }),
+    };
+    const db = {
+      collection: vi.fn().mockImplementation((name: string) => {
+        if (name === 'Users') {
+          return usersCollection;
+        }
+        throw new Error(`Unexpected collection: ${name}`);
+      }),
+    } as unknown as Firestore;
+
+    mockAddFundsToOrgWallet.mockResolvedValue({ newBalance: 8400 });
+
+    await handleWebhookEvent(
+      db,
+      {
+        id: 'evt_invoice_paid_123',
+        type: 'invoice.paid',
+        data: {
+          object: {
+            id: 'in_org_123',
+            object: 'invoice',
+            customer: 'cus_org_123',
+            currency: 'usd',
+            hosted_invoice_url: 'https://stripe.test/invoices/in_org_123',
+            invoice_pdf: 'https://stripe.test/invoices/in_org_123.pdf',
+            metadata: {
+              type: 'org_invoice_topup',
+              organizationId: 'org_123',
+              userId: 'admin_123',
+              amountCents: '2500',
+            },
+          },
+        },
+      } as unknown as Stripe.Event,
+      'production'
+    );
+
+    expect(mockSendSlackAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: 'sales',
+        environment: 'production',
+        title: 'Organization Invoice Payment Received',
+      })
+    );
   });
 });

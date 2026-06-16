@@ -98,6 +98,27 @@ export class UsageService implements OnDestroy {
     )?.trackEvent(eventName, payload);
   }
 
+  private readExtraString(
+    extra: Record<string, unknown> | undefined,
+    key: string
+  ): string | undefined {
+    const value = extra?.[key];
+    return typeof value === 'string' ? value : undefined;
+  }
+
+  private reportSalesFunnelEvent(
+    event: Parameters<UsageApiService['trackSalesFunnelEvent']>[0]
+  ): void {
+    void this.api.trackSalesFunnelEvent(event).catch((error: unknown) => {
+      this.logger.warn('Failed to report sales funnel event', {
+        eventName: event.eventName,
+        organizationId: event.organizationId,
+        amountCents: event.amountCents,
+        error,
+      });
+    });
+  }
+
   private buildCreditPurchasePayload(
     amountCents?: number,
     organizationId?: string,
@@ -130,6 +151,12 @@ export class UsageService implements OnDestroy {
         entry_point: 'usage_add_credits_cta',
       })
     );
+
+    this.reportSalesFunnelEvent({
+      eventName: 'view_item',
+      organizationId,
+      entryPoint: 'usage_add_credits_cta',
+    });
   }
 
   trackCreditPackageListViewed(organizationId?: string): void {
@@ -148,6 +175,12 @@ export class UsageService implements OnDestroy {
         })),
       })
     );
+
+    this.reportSalesFunnelEvent({
+      eventName: 'view_item_list',
+      organizationId,
+      entryPoint: 'usage_add_credits_cta',
+    });
   }
 
   trackCreditPackageAddedToCart(
@@ -159,6 +192,13 @@ export class UsageService implements OnDestroy {
       FIREBASE_EVENTS.ADD_TO_CART,
       this.buildCreditPurchasePayload(amountCents, organizationId, extra)
     );
+
+    this.reportSalesFunnelEvent({
+      eventName: 'add_to_cart',
+      amountCents,
+      organizationId,
+      selectionType: this.readExtraString(extra, 'selection_type'),
+    });
   }
 
   trackCreditCheckoutStarted(
@@ -170,6 +210,14 @@ export class UsageService implements OnDestroy {
       FIREBASE_EVENTS.BEGIN_CHECKOUT,
       this.buildCreditPurchasePayload(amountCents, organizationId, extra)
     );
+
+    this.reportSalesFunnelEvent({
+      eventName: 'begin_checkout',
+      amountCents,
+      organizationId,
+      paymentMethod: this.readExtraString(extra, 'payment_method'),
+      checkoutType: this.readExtraString(extra, 'checkout_type'),
+    });
   }
 
   trackPaymentInfoAdded(entryPoint: string): void {
@@ -182,6 +230,13 @@ export class UsageService implements OnDestroy {
       entry_point: entryPoint,
       payment_type: defaultMethod?.brand ?? 'stripe_customer_portal',
       has_saved_payment_method: defaultMethod !== null,
+    });
+
+    this.reportSalesFunnelEvent({
+      eventName: 'add_payment_info',
+      organizationId: billingContext?.organizationId,
+      paymentType: defaultMethod?.brand ?? 'stripe_customer_portal',
+      entryPoint,
     });
   }
 

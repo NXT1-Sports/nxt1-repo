@@ -31,7 +31,7 @@ Cloud Run or another server runtime.
 
 ## Directory Structure
 
-```
+```text
 backend/
 ├── .env                          # Environment variables (not committed)
 ├── package.json
@@ -140,7 +140,7 @@ Service tests live in `src/services/__tests__/`.
 
 The largest module — full AI agent orchestration system.
 
-```
+```text
 modules/agent/
 ├── agents/           # 8 specialized agents
 │   ├── base.agent.ts
@@ -267,6 +267,13 @@ production deploy workflow is
 (Johns-MacBook-Pro.local)/Main/NXT1/nxt1-monorepo/.github/workflows/deploy-backend.yml),
 so App Hosting secret references alone do not enable FFmpeg on the live backend.
 
+The same rule applies to Slack billing alerts: production billing traffic only
+receives dedicated sales notifications when `SLACK_SALES_ALERT_WEBHOOK_URL` is
+present on the live SSH/PM2 backend environment. If App Hosting also serves a
+production backend instance, mirror the same secret in
+[backend/apphosting.production.yaml](/Users/johnkeller/My Mac
+(Johns-MacBook-Pro.local)/Main/NXT1/nxt1-monorepo/backend/apphosting.production.yaml).
+
 ### Testing
 
 | Command              | Description             |
@@ -312,5 +319,6 @@ A valid `.env` file is required with:
 - MongoDB connection URI
 - OpenRouter API key
 - Stripe secret key + webhook signing secret
+- Slack sales alert webhook (`SLACK_SALES_ALERT_WEBHOOK_URL`)
 - Redis connection URL
 - Helicone API key

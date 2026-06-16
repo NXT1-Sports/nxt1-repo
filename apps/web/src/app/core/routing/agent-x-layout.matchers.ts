@@ -2,6 +2,7 @@ import { isPlatformBrowser } from '@angular/common';
 import { inject, PLATFORM_ID, TransferState } from '@angular/core';
 import { type CanMatchFn } from '@angular/router';
 import { STORAGE_KEYS } from '@nxt1/core';
+import { AuthFlowService } from '../services/auth/auth-flow.service';
 import { AUTH_TRANSFER_STATE_KEY, type TransferredAuthState } from '../services/auth/ssr-tokens';
 
 const EMPTY_TRANSFERRED_AUTH_STATE: TransferredAuthState = {
@@ -30,9 +31,35 @@ function hasStoredBrowserAuthSnapshot(): boolean {
   }
 }
 
+function getLiveBrowserAuthMatch(): boolean | null {
+  try {
+    const authFlow = inject(AuthFlowService);
+    if (authFlow.isAuthenticated()) {
+      return true;
+    }
+
+    if (authFlow.firebaseUser()?.uid || authFlow.user()?.uid) {
+      return true;
+    }
+
+    if (authFlow.isAuthReady()) {
+      return false;
+    }
+  } catch {
+    // Fall through to storage heuristics when live auth is unavailable.
+  }
+
+  return null;
+}
+
 function matchAgentXLayout(matchesAuthenticatedUser: boolean): ReturnType<CanMatchFn> {
   if (!isPlatformBrowser(inject(PLATFORM_ID))) {
     return hasTransferredAuthUser() === matchesAuthenticatedUser;
+  }
+
+  const liveAuthMatch = getLiveBrowserAuthMatch();
+  if (liveAuthMatch !== null) {
+    return liveAuthMatch === matchesAuthenticatedUser;
   }
 
   return hasStoredBrowserAuthSnapshot() === matchesAuthenticatedUser;

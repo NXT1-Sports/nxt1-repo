@@ -173,6 +173,12 @@ export class AgentXComponent implements OnInit, OnDestroy {
       this.agentX.queuePendingThread({ threadId, title: 'Agent X' });
     }
 
+    const startupPrompt = this.route.snapshot.queryParamMap.get('q')?.trim() ?? '';
+    if (startupPrompt) {
+      this.logger.info('Queuing startup prompt from query param');
+      this.agentX.queueStartupMessage(startupPrompt);
+    }
+
     // Mobile foreground recovery: when the OS resumes the app from background,
     // the SSE stream that was open before backgrounding will have been killed
     // (iOS/Android suspend network for suspended WebViews). If a drop-recovery

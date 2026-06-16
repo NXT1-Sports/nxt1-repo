@@ -180,6 +180,30 @@ describe('extractMediaAttachmentsFromResultData', () => {
     ]);
   });
 
+  it('keeps trim-video thumbnailUrl on the generated video attachment', () => {
+    const attachments = extractMediaAttachmentsFromResultData({
+      toolCallRecords: [
+        {
+          toolName: 'ffmpeg_trim_video',
+          status: 'success',
+          output: {
+            outputUrl: 'https://cdn.example.com/clips/clip-1.mp4',
+            thumbnailUrl: 'https://cdn.example.com/clips/clip-1-thumb.jpg',
+          },
+        },
+      ],
+    });
+
+    expect(attachments).toEqual([
+      {
+        url: 'https://cdn.example.com/clips/clip-1.mp4',
+        name: 'video.mp4',
+        type: 'video',
+        thumbnailUrl: 'https://cdn.example.com/clips/clip-1-thumb.jpg',
+      },
+    ]);
+  });
+
   it('does not expose raw or staged videos when an ffmpeg merge workflow fails', () => {
     const attachments = extractMediaAttachmentsFromResultData({
       videoUrl: 'https://video.twimg.com/ext_tw_video/source.mp4',

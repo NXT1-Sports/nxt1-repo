@@ -35,6 +35,7 @@ import {
   signal,
   afterNextRender,
   effect,
+  untracked,
   ElementRef,
   PLATFORM_ID,
   EnvironmentInjector,
@@ -1999,6 +2000,23 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
     afterNextRender(() => {
       this.agentX.startTitleAnimation();
       this.agentX.loadDashboard();
+
+      const startupMessage = this.agentX.consumeStartupMessage();
+      if (startupMessage) {
+        void this.launchChatFromStartupMessage(startupMessage);
+      }
+    });
+
+    effect(() => {
+      const pendingStartupMessage = this.agentX.pendingStartupMessage();
+      if (!pendingStartupMessage) return;
+
+      untracked(() => {
+        const startupMessage = this.agentX.consumeStartupMessage();
+        if (startupMessage) {
+          void this.launchChatFromStartupMessage(startupMessage);
+        }
+      });
     });
 
     effect(() => {
@@ -2356,6 +2374,12 @@ export class AgentXShellComponent implements OnInit, OnDestroy {
       backdropDismiss: true,
       cssClass: 'agent-x-operation-sheet',
     });
+  }
+
+  private async launchChatFromStartupMessage(message: string): Promise<void> {
+    if (!message.trim()) return;
+
+    await this.openOperationChat('agent-x-chat', 'Agent X', 'bolt', 'command', [], '', '', message);
   }
 
   /**

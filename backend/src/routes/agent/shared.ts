@@ -16,6 +16,7 @@ import {
   AgentGenerationService,
   isLegacyFallbackPlaybook,
 } from '../../modules/agent/services/generation.service.js';
+import { FirecrawlMonitorService } from '../../modules/agent/tools/integrations/firecrawl/browser/firecrawl-monitor.service.js';
 import { FirecrawlProfileService } from '../../modules/agent/tools/integrations/firecrawl/browser/firecrawl-profile.service.js';
 import { LiveViewSessionService } from '../../modules/agent/tools/integrations/firecrawl/browser/live-view-session.service.js';
 import { AGENT_X_ALLOWED_MIME_TYPES, AGENT_X_MAX_FILE_SIZE } from '@nxt1/core';
@@ -157,6 +158,14 @@ let _firecrawlProfileService: FirecrawlProfileService | null = null;
 export function getFirecrawlProfileService(): FirecrawlProfileService {
   if (!_firecrawlProfileService) _firecrawlProfileService = new FirecrawlProfileService();
   return _firecrawlProfileService;
+}
+
+let _firecrawlMonitorService: FirecrawlMonitorService | null = null;
+
+/** Lazy singleton for Firecrawl monitor CRUD. */
+export function getFirecrawlMonitorService(): FirecrawlMonitorService {
+  if (!_firecrawlMonitorService) _firecrawlMonitorService = new FirecrawlMonitorService();
+  return _firecrawlMonitorService;
 }
 
 let _liveViewSessionService: LiveViewSessionService | null = null;

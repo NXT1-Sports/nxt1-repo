@@ -180,6 +180,7 @@ export interface ChatBubbleMediaRequestedEvent {
             <button
               type="button"
               class="bubble-media bubble-media-button bubble-media-button--video"
+              [class.bubble-media-button--has-poster]="videoPartPosterUrl(part)"
               aria-label="Open video"
               (click)="mediaRequested.emit({ url: part.url, type: 'video' })"
             >
@@ -659,6 +660,13 @@ export interface ChatBubbleMediaRequestedEvent {
           linear-gradient(135deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.035)), #10120f;
       }
 
+      .bubble-media-button--video.bubble-media-button--has-poster {
+        width: auto;
+        max-width: min(100%, var(--bubble-media-max-width));
+        aspect-ratio: auto;
+        background: #000;
+      }
+
       .bubble-img {
         display: block;
         width: 100%;
@@ -677,6 +685,15 @@ export interface ChatBubbleMediaRequestedEvent {
         border-radius: 12px;
         object-fit: cover;
         pointer-events: none;
+      }
+
+      .bubble-media-button--has-poster .bubble-video-poster {
+        width: auto;
+        max-width: 100%;
+        height: auto;
+        max-height: min(360px, 70vh);
+        object-fit: contain;
+        background: #000;
       }
 
       .bubble-video-poster--fallback {

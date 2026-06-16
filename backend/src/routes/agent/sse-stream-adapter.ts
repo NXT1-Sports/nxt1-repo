@@ -57,6 +57,7 @@ type SseMediaPayload = {
   type: 'image' | 'video';
   url: string;
   mimeType?: string;
+  thumbnailUrl?: string;
 };
 
 function humanizeToolName(toolName: string): string {
@@ -94,7 +95,8 @@ function maybePushMedia(
   output: SseMediaPayload[],
   urlValue: unknown,
   mimeTypeValue?: unknown,
-  forcedType?: 'image' | 'video'
+  forcedType?: 'image' | 'video',
+  thumbnailUrlValue?: unknown
 ): void {
   if (typeof urlValue !== 'string') return;
   const url = urlValue.trim();
@@ -102,10 +104,19 @@ function maybePushMedia(
   const mimeType = typeof mimeTypeValue === 'string' ? mimeTypeValue : undefined;
   const type = forcedType ?? inferMediaType(url, mimeType);
   if (!type) return;
+  const thumbnailUrl =
+    typeof thumbnailUrlValue === 'string' && isHttpUrl(thumbnailUrlValue.trim())
+      ? thumbnailUrlValue.trim()
+      : undefined;
   const dedupeKey = `${type}|${url}`;
   if (seen.has(dedupeKey)) return;
   seen.add(dedupeKey);
-  output.push({ type, url, ...(mimeType ? { mimeType } : {}) });
+  output.push({
+    type,
+    url,
+    ...(mimeType ? { mimeType } : {}),
+    ...(thumbnailUrl ? { thumbnailUrl } : {}),
+  });
 }
 
 function extractMediaPayloads(toolResult: Record<string, unknown>): readonly SseMediaPayload[] {
@@ -113,11 +124,25 @@ function extractMediaPayloads(toolResult: Record<string, unknown>): readonly Sse
   const media: SseMediaPayload[] = [];
 
   maybePushMedia(seen, media, toolResult['imageUrl'], toolResult['mimeType'], 'image');
-  maybePushMedia(seen, media, toolResult['videoUrl'], toolResult['mimeType'], 'video');
+  maybePushMedia(
+    seen,
+    media,
+    toolResult['videoUrl'],
+    toolResult['mimeType'],
+    'video',
+    toolResult['thumbnailUrl']
+  );
   maybePushMedia(seen, media, toolResult['url'], toolResult['mimeType']);
   maybePushMedia(seen, media, toolResult['publicUrl'], toolResult['mimeType']);
   maybePushMedia(seen, media, toolResult['downloadUrl'], toolResult['mimeType']);
-  maybePushMedia(seen, media, toolResult['outputUrl'], toolResult['mimeType'], 'video');
+  maybePushMedia(
+    seen,
+    media,
+    toolResult['outputUrl'],
+    toolResult['mimeType'],
+    'video',
+    toolResult['thumbnailUrl']
+  );
 
   const imageUrls = toolResult['imageUrls'];
   if (Array.isArray(imageUrls)) {
@@ -134,9 +159,72 @@ function extractMediaPayloads(toolResult: Record<string, unknown>): readonly Sse
     for (const file of files) {
       if (!file || typeof file !== 'object') continue;
       const record = file as Record<string, unknown>;
-      maybePushMedia(seen, media, record['url'], record['mimeType'], undefined);
-      maybePushMedia(seen, media, record['downloadUrl'], record['mimeType'], undefined);
+      maybePushMedia(
+        seen,
+        media,
+        record['url'],
+        record['mimeType'],
+        undefined,
+        record['thumbnailUrl']
+      );
+      maybePushMedia(
+        seen,
+        media,
+        record['downloadUrl'],
+        record['mimeType'],
+        undefined,
+        record['thumbnailUrl']
+      );
     }
+  }
+
+  const attachments = toolResult['attachments'];
+  if (Array.isArray(attachments)) {
+    for (const attachment of attachments) {
+      if (!attachment || typeof attachment !== 'object') continue;
+      const record = attachment as Record<string, unknown>;
+      const forcedType =
+        record['type'] === 'image' || record['type'] === 'video' ? record['type'] : undefined;
+      maybePushMedia(
+        seen,
+        media,
+        record['url'],
+        record['mimeType'],
+        forcedType,
+        record['thumbnailUrl']
+      );
+      maybePushMedia(
+        seen,
+        media,
+        record['downloadUrl'],
+        record['mimeType'],
+        forcedType,
+        record['thumbnailUrl']
+      );
+    }
+  }
+
+  const mediaArtifact = toolResult['mediaArtifact'];
+  if (mediaArtifact && typeof mediaArtifact === 'object' && !Array.isArray(mediaArtifact)) {
+    const record = mediaArtifact as Record<string, unknown>;
+    const forcedType =
+      record['type'] === 'image' || record['type'] === 'video' ? record['type'] : undefined;
+    maybePushMedia(
+      seen,
+      media,
+      record['url'],
+      record['mimeType'],
+      forcedType,
+      record['thumbnailUrl']
+    );
+    maybePushMedia(
+      seen,
+      media,
+      record['downloadUrl'],
+      record['mimeType'],
+      forcedType,
+      record['thumbnailUrl']
+    );
   }
 
   // NOTE: We intentionally do NOT scan `toolResult.markdown` / `text` / `content`
