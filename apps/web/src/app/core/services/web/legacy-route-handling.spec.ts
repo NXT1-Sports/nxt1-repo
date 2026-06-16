@@ -35,6 +35,15 @@ describe('legacy-route-handling', () => {
     ).toBe('https://nxt1sports.com/prospect-profile/87549843');
   });
 
+  it('redirects www and discover hosts to the apex host', () => {
+    expect(buildPreferredHostRedirectUrl('https://www.nxt1sports.com/programs')).toBe(
+      'https://nxt1sports.com/programs'
+    );
+    expect(buildPreferredHostRedirectUrl('https://discover.nxt1sports.com/')).toBe(
+      'https://nxt1sports.com/'
+    );
+  });
+
   it('does not rewrite the primary public host', () => {
     expect(buildPreferredHostRedirectUrl('https://nxt1sports.com/profile/46139975')).toBeNull();
   });
