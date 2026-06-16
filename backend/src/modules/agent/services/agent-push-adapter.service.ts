@@ -40,6 +40,10 @@ function resolveDateKey(value?: string): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function withOptionalThreadId(threadId?: string): { readonly threadId?: string } {
+  return threadId ? { threadId } : {};
+}
+
 function validateIntent(intent: AgentPushIntent): void {
   requireNonEmpty(intent.userId, 'userId');
   requireNonEmpty(intent.operationId, 'operationId');
@@ -314,7 +318,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
           scheduleId: intent.scheduleId,
           runId: intent.runId,
           scheduledExecutionStatus: 'completed',
-          ...(intent.threadId ? { threadId: intent.threadId } : {}),
+          ...withOptionalThreadId(intent.threadId),
           entityId: intent.runId,
         },
         source: { userName: 'Agent X' },
@@ -327,7 +331,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
           scheduleId: intent.scheduleId,
           runId: intent.runId,
           executionStatus: 'completed',
-          ...(intent.threadId ? { threadId: intent.threadId } : {}),
+          ...withOptionalThreadId(intent.threadId),
         },
         idempotencyKey: sanitizeIdempotencyKey(`sched_c_${intent.runId}`),
       };
@@ -343,7 +347,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
           scheduleId: intent.scheduleId,
           runId: intent.runId,
           scheduledExecutionStatus: 'failed',
-          ...(intent.threadId ? { threadId: intent.threadId } : {}),
+          ...withOptionalThreadId(intent.threadId),
           failed: 'true',
           entityId: intent.runId,
         },
@@ -357,7 +361,7 @@ export function toDispatchInput(intent: AgentPushIntent): DispatchNotificationIn
           scheduleId: intent.scheduleId,
           runId: intent.runId,
           executionStatus: 'failed',
-          ...(intent.threadId ? { threadId: intent.threadId } : {}),
+          ...withOptionalThreadId(intent.threadId),
           errorMessage: intent.errorMessage,
         },
         idempotencyKey: sanitizeIdempotencyKey(`sched_f_${intent.runId}`),
