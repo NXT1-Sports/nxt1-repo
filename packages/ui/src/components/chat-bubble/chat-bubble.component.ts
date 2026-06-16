@@ -860,7 +860,6 @@ export class NxtChatBubbleComponent implements AfterViewChecked {
   protected onMarkdownTimestampClicked(timeMs: number): void {
     this.timestampClicked.emit(timeMs);
   }
-
   protected videoPartPosterUrl(part: AgentXMessagePart): string | null {
     if (part.type !== 'video') return null;
 

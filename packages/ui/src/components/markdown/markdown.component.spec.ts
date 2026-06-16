@@ -206,7 +206,6 @@ describe('NxtMarkdownComponent', () => {
     expect(buttons).toHaveLength(1);
     expect(buttons[0]?.textContent).toBe('2:34');
   });
-
   it('unwraps malformed nested media markdown so video previews do not get a literal markdown src', async () => {
     const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
 
