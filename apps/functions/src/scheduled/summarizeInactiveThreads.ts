@@ -58,7 +58,7 @@ export const summarizeInactiveThreads = onSchedule(
           status: response.status,
           body: body.slice(0, 500),
         });
-        throw new Error(`Backend responded with ${response.status}`);
+        throw new Error(`Backend responded with ${response.status}: ${body.slice(0, 500)}`);
       }
 
       const result = await response.json();
