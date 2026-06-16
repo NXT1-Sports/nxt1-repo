@@ -120,6 +120,22 @@ describe('agent-push-adapter.service', () => {
     });
   });
 
+  it('omits thread metadata for scheduled execution completed intents without a thread', () => {
+    const payload = toDispatchInput({
+      kind: 'agent_scheduled_execution_completed',
+      userId: 'user-1',
+      operationId: 'recurring-op-1',
+      scheduleId: 'repeat:abc123',
+      runId: 'repeat:abc123:1711111111111',
+      title: 'Scheduled Agent Task Complete',
+      body: 'Finished recurring run',
+    });
+
+    expect(payload.deepLink).toBe('/agent-x');
+    expect(payload.data).not.toHaveProperty('threadId');
+    expect(payload.metadata).not.toHaveProperty('threadId');
+  });
+
   it('maps scheduled execution failed intent to thread deep link and run-based idempotency key', () => {
     const payload = toDispatchInput({
       kind: 'agent_scheduled_execution_failed',
@@ -149,6 +165,23 @@ describe('agent-push-adapter.service', () => {
       threadId: 'thread-99',
       errorMessage: 'Tool error',
     });
+  });
+
+  it('omits thread metadata for scheduled execution failed intents without a thread', () => {
+    const payload = toDispatchInput({
+      kind: 'agent_scheduled_execution_failed',
+      userId: 'user-1',
+      operationId: 'recurring-op-1',
+      scheduleId: 'repeat:abc123',
+      runId: 'repeat:abc123:1711111111111',
+      title: 'Scheduled Agent Task Failed',
+      body: 'Run failed',
+      errorMessage: 'Tool error',
+    });
+
+    expect(payload.deepLink).toBe('/agent-x');
+    expect(payload.data).not.toHaveProperty('threadId');
+    expect(payload.metadata).not.toHaveProperty('threadId');
   });
 
   it('throws for scheduled execution failure intent missing runId', () => {

@@ -58,7 +58,7 @@ export function buildConnectedAccountsResyncRequest(
         return collected;
       }
 
-      const label = (account.label ?? platform).trim();
+      const label = account.label?.trim() || platform;
       if (!label) {
         return collected;
       }
