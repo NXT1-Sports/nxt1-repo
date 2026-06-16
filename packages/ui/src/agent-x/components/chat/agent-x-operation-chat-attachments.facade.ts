@@ -229,21 +229,16 @@ function resolveThumbnailDimensions(
   };
 }
 
-const DATA_IMAGE_URL_RE = /^data:image\/(?:jpeg|jpg|png|webp);base64,[a-z0-9+/=]+$/i;
-
 export function resolvePersistedVideoThumbnailUrl(
   uploadedThumbnailUrl?: string | null,
   pendingPreviewUrl?: string | null
 ): string | undefined {
   const normalizedUploadedThumbnailUrl = uploadedThumbnailUrl?.trim();
-  if (normalizedUploadedThumbnailUrl) {
+  if (normalizedUploadedThumbnailUrl && /^https:\/\//i.test(normalizedUploadedThumbnailUrl)) {
     return normalizedUploadedThumbnailUrl;
   }
 
-  const normalizedPendingPreviewUrl = pendingPreviewUrl?.trim();
-  if (normalizedPendingPreviewUrl && DATA_IMAGE_URL_RE.test(normalizedPendingPreviewUrl)) {
-    return normalizedPendingPreviewUrl;
-  }
+  void pendingPreviewUrl;
 
   return undefined;
 }

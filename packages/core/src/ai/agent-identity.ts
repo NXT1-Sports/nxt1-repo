@@ -411,6 +411,15 @@ export function extractMediaAttachmentsFromResultData(
   };
 
   const collectFromRecord = (record: Record<string, unknown>): void => {
+    const scalarThumbnailUrl = readNonEmptyString(record['thumbnailUrl']);
+    const scalarVideoUrl = readNonEmptyString(record['videoUrl']);
+    const scalarOutputUrl = readNonEmptyString(record['outputUrl']);
+    const scalarOutputType = scalarOutputUrl ? inferTypeFromUrl(scalarOutputUrl) : undefined;
+    const scalarVideoThumbnailUrl =
+      scalarThumbnailUrl && (scalarVideoUrl || scalarOutputType === 'video')
+        ? scalarThumbnailUrl
+        : undefined;
+
     // Scalar fields: image/video/document outputs commonly emitted by tools.
     if (typeof record['imageUrl'] === 'string') {
       addAttachment({
@@ -440,26 +449,30 @@ export function extractMediaAttachmentsFromResultData(
         type: 'image',
       });
     }
-    if (typeof record['thumbnailUrl'] === 'string') {
+    if (scalarThumbnailUrl && !scalarVideoThumbnailUrl) {
       addAttachment({
-        url: record['thumbnailUrl'],
+        url: scalarThumbnailUrl,
         name: 'thumbnail.jpg',
         type: 'image',
       });
     }
-    if (typeof record['videoUrl'] === 'string') {
+    if (scalarVideoUrl) {
       addAttachment({
-        url: record['videoUrl'],
+        url: scalarVideoUrl,
         name: 'video.mp4',
         type: 'video',
+        ...(scalarVideoThumbnailUrl ? { thumbnailUrl: scalarVideoThumbnailUrl } : {}),
       });
     }
-    if (typeof record['outputUrl'] === 'string') {
-      const outputUrl = record['outputUrl'];
+    if (scalarOutputUrl) {
+      const outputType = scalarOutputType ?? inferTypeFromUrl(scalarOutputUrl);
       addAttachment({
-        url: outputUrl,
-        name: inferTypeFromUrl(outputUrl) === 'image' ? 'image.jpg' : 'video.mp4',
-        type: inferTypeFromUrl(outputUrl),
+        url: scalarOutputUrl,
+        name: outputType === 'image' ? 'image.jpg' : 'video.mp4',
+        type: outputType,
+        ...(outputType === 'video' && scalarVideoThumbnailUrl
+          ? { thumbnailUrl: scalarVideoThumbnailUrl }
+          : {}),
       });
     }
     if (typeof record['pdfUrl'] === 'string') {

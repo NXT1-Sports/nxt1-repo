@@ -1368,6 +1368,8 @@ export interface AgentXStreamMediaEvent {
   readonly type: 'image' | 'video';
   readonly url: string;
   readonly mimeType?: string;
+  /** Optional poster/thumbnail URL for video media. */
+  readonly thumbnailUrl?: string;
 }
 
 /**

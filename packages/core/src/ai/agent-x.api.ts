@@ -1043,6 +1043,10 @@ export function createAgentXApi(http: HttpAdapter, baseUrl: string) {
                         url: media['url'] as string,
                         mimeType:
                           typeof media['mimeType'] === 'string' ? media['mimeType'] : undefined,
+                        thumbnailUrl:
+                          typeof media['thumbnailUrl'] === 'string'
+                            ? media['thumbnailUrl']
+                            : undefined,
                       });
                     }
                     break;

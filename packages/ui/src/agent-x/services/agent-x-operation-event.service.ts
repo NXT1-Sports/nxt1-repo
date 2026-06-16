@@ -486,7 +486,8 @@ export class AgentXOperationEventService {
     const pushCandidate = (
       urlValue: unknown,
       mimeTypeValue?: unknown,
-      forcedType?: 'image' | 'video'
+      forcedType?: 'image' | 'video',
+      thumbnailUrlValue?: unknown
     ) => {
       if (typeof urlValue !== 'string') return;
       const url = urlValue.trim();
@@ -494,18 +495,37 @@ export class AgentXOperationEventService {
       const mimeType = typeof mimeTypeValue === 'string' ? mimeTypeValue : undefined;
       const type = forcedType ?? this.inferMediaType(url, mimeType);
       if (!type) return;
+      const thumbnailUrl =
+        typeof thumbnailUrlValue === 'string' && this.isHttpUrl(thumbnailUrlValue.trim())
+          ? thumbnailUrlValue.trim()
+          : undefined;
       const key = `${type}|${url}`;
       if (seen.has(key)) return;
       seen.add(key);
-      media.push({ type, url, ...(mimeType ? { mimeType } : {}) });
+      media.push({
+        type,
+        url,
+        ...(mimeType ? { mimeType } : {}),
+        ...(thumbnailUrl ? { thumbnailUrl } : {}),
+      });
     };
 
     pushCandidate(toolResult['imageUrl'], toolResult['mimeType'], 'image');
-    pushCandidate(toolResult['videoUrl'], toolResult['mimeType'], 'video');
+    pushCandidate(
+      toolResult['videoUrl'],
+      toolResult['mimeType'],
+      'video',
+      toolResult['thumbnailUrl']
+    );
     pushCandidate(toolResult['url'], toolResult['mimeType']);
     pushCandidate(toolResult['publicUrl'], toolResult['mimeType']);
     pushCandidate(toolResult['downloadUrl'], toolResult['mimeType']);
-    pushCandidate(toolResult['outputUrl'], toolResult['mimeType'], 'video');
+    pushCandidate(
+      toolResult['outputUrl'],
+      toolResult['mimeType'],
+      'video',
+      toolResult['thumbnailUrl']
+    );
 
     const imageUrls = toolResult['imageUrls'];
     if (Array.isArray(imageUrls)) {
@@ -522,8 +542,8 @@ export class AgentXOperationEventService {
       for (const file of files) {
         if (!file || typeof file !== 'object') continue;
         const record = file as Record<string, unknown>;
-        pushCandidate(record['url'], record['mimeType']);
-        pushCandidate(record['downloadUrl'], record['mimeType']);
+        pushCandidate(record['url'], record['mimeType'], undefined, record['thumbnailUrl']);
+        pushCandidate(record['downloadUrl'], record['mimeType'], undefined, record['thumbnailUrl']);
       }
     }
 
@@ -534,8 +554,13 @@ export class AgentXOperationEventService {
         const record = attachment as Record<string, unknown>;
         const forcedType =
           record['type'] === 'image' || record['type'] === 'video' ? record['type'] : undefined;
-        pushCandidate(record['url'], record['mimeType'], forcedType);
-        pushCandidate(record['downloadUrl'], record['mimeType'], forcedType);
+        pushCandidate(record['url'], record['mimeType'], forcedType, record['thumbnailUrl']);
+        pushCandidate(
+          record['downloadUrl'],
+          record['mimeType'],
+          forcedType,
+          record['thumbnailUrl']
+        );
       }
     }
 
@@ -544,8 +569,8 @@ export class AgentXOperationEventService {
       const record = mediaArtifact as Record<string, unknown>;
       const forcedType =
         record['type'] === 'image' || record['type'] === 'video' ? record['type'] : undefined;
-      pushCandidate(record['url'], record['mimeType'], forcedType);
-      pushCandidate(record['downloadUrl'], record['mimeType'], forcedType);
+      pushCandidate(record['url'], record['mimeType'], forcedType, record['thumbnailUrl']);
+      pushCandidate(record['downloadUrl'], record['mimeType'], forcedType, record['thumbnailUrl']);
     }
 
     const markdownOrText = [toolResult['markdown'], toolResult['text'], toolResult['content']]
