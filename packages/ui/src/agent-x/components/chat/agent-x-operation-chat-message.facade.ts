@@ -122,6 +122,47 @@ export class AgentXOperationChatMessageFacade {
     });
   }
 
+  stampLatestUserMessageOperationId(params: {
+    readonly operationId: string;
+    readonly idempotencyKey?: string;
+  }): void {
+    const operationId = params.operationId.trim();
+    if (!operationId) return;
+
+    const findLastMatchingIndex = (
+      messages: readonly OperationMessage[],
+      predicate: (message: OperationMessage) => boolean
+    ): number => {
+      for (let index = messages.length - 1; index >= 0; index -= 1) {
+        const message = messages[index];
+        if (message && predicate(message)) return index;
+      }
+      return -1;
+    };
+
+    this.messages.update((previous) => {
+      const preferredIndex = params.idempotencyKey
+        ? findLastMatchingIndex(
+            previous,
+            (message) => message.role === 'user' && message.idempotencyKey === params.idempotencyKey
+          )
+        : -1;
+      const fallbackIndex = findLastMatchingIndex(
+        previous,
+        (message) => message.role === 'user' && !message.operationId?.trim()
+      );
+      const targetIndex = preferredIndex >= 0 ? preferredIndex : fallbackIndex;
+      if (targetIndex < 0) return previous;
+
+      const target = previous[targetIndex];
+      if (!target || target.operationId === operationId) return previous;
+
+      return previous.map((message, index) =>
+        index === targetIndex ? { ...message, operationId } : message
+      );
+    });
+  }
+
   replaceTyping(message: OperationMessage): void {
     this.clearPendingTypingDelta();
     this.messages.update((previous) => [

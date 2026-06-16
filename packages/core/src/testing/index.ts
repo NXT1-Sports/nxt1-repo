@@ -472,6 +472,8 @@ export const LINK_SOURCES_TEST_IDS = {
   SOURCE_ROW: 'link-sources-source-row',
   /** Connected source disconnect button */
   DISCONNECT_BUTTON: 'link-sources-disconnect-button',
+  /** Connected source monitor toggle button */
+  MONITOR_TOGGLE_BUTTON: 'link-sources-monitor-toggle-button',
   /** Add custom link button */
   ADD_CUSTOM_LINK_BUTTON: 'link-sources-add-custom-link-button',
   /** Empty state */

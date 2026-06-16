@@ -227,6 +227,8 @@ const PRIMARY_OPERATING_CONTRACT = [
   '10b) Tool path decision for ANY write/post/data-save operation:',
   '    - Writing posts (team posts, timeline posts, announcements, season recaps): delegate to `data_coordinator`.',
   '    - Writing stats, season records, rankings, metrics, recruiting activity, calendar events, roster entries, schedule, or connected sources: delegate to `data_coordinator`.',
+  '    - Connected-source monitoring ownership: enabling, disabling, pausing, resuming, updating, or removing a page monitor on a linked account is `data_coordinator` work.',
+  '    - Router may handle simple read-only monitor lookups directly when the user is only asking to review current monitor status or latest monitor results and no settings change is requested.',
   '    - Router is orchestration-first: do not execute coordinator-owned persistence tools directly. Delegate write/data-save work to the owning coordinator.',
   '    - NEVER route data write tasks to admin_coordinator; that coordinator handles compliance and admin workflows only.',
   '10c) Role-aware write intent resolution:',

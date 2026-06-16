@@ -32,11 +32,16 @@ import { NxtIconComponent } from '../icon/icon.component';
 import { NxtLoggingService } from '../../services/logging/logging.service';
 import { NxtBreadcrumbService } from '../../services/breadcrumb/breadcrumb.service';
 import { ANALYTICS_ADAPTER } from '../../services/analytics/analytics-adapter.token';
+import { NxtToastService } from '../../services/toast/toast.service';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import { LINK_SOURCES_TEST_IDS } from '@nxt1/core/testing';
 import type { LinkSourcesFormData, OnboardingUserType, PlatformScope } from '@nxt1/core/api';
 import { OnboardingLinkDropStepComponent } from '../../onboarding/onboarding-link-drop-step';
-import { FirecrawlSignInService, type FirecrawlSignInRequest } from './firecrawl-signin.service';
+import {
+  FirecrawlSignInService,
+  type FirecrawlMonitorSummary,
+  type FirecrawlSignInRequest,
+} from './firecrawl-signin.service';
 import { CONNECTED_ACCOUNTS_OAUTH_HANDLER } from './connected-accounts-modal.service';
 
 /** Result data emitted when the modal is dismissed with changes. */
@@ -110,11 +115,14 @@ export interface ConnectedAccountsModalCloseData {
         <div class="nxt1-ca-body" [class.nxt1-ca-body--hidden]="firecrawlLoading()">
           <nxt1-onboarding-link-drop-step
             [linkSourcesData]="effectiveLinkSources()"
+            [monitorStateByPlatform]="monitorStateByPlatform()"
+            [monitorBusyPlatforms]="monitorBusyPlatforms()"
             [selectedSports]="selectedSports()"
             [role]="role()"
             [scope]="scope()"
             [useOAuth]="true"
             (linkSourcesChange)="onLinkSourcesChange($event)"
+            (monitorToggleRequest)="onMonitorToggle($event)"
             (saveNow)="onSaveNow()"
             (firecrawlSigninRequest)="onFirecrawlSignin($event)"
             (oauthSigninRequest)="onOAuthSigninRequest($event)"
@@ -304,6 +312,7 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
   private readonly logger = inject(NxtLoggingService).child('ConnectedAccountsWebModal');
   private readonly analytics = inject(ANALYTICS_ADAPTER, { optional: true });
   private readonly breadcrumb = inject(NxtBreadcrumbService);
+  private readonly toast = inject(NxtToastService);
   private readonly firecrawlSignIn = inject(FirecrawlSignInService);
   /** Injected by the app (via app.config.ts) to handle Google / Microsoft OAuth popups. */
   private readonly oauthHandler = inject(CONNECTED_ACCOUNTS_OAUTH_HANDLER, { optional: true });
@@ -319,6 +328,8 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
    * so we never need to diff against the original linkSourcesData input.
    */
   private readonly _disconnectedSignInProviders = signal<readonly string[]>([]);
+  private readonly _monitorStateByPlatform = signal<Record<string, FirecrawlMonitorSummary>>({});
+  private readonly _monitorBusyPlatforms = signal<Record<string, boolean>>({});
 
   /**
    * Effective link sources: returns the latest child-emitted state if available,
@@ -329,6 +340,8 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
   protected readonly effectiveLinkSources = computed(
     () => this._latestLinkSources() ?? this.linkSourcesData()
   );
+  protected readonly monitorStateByPlatform = computed(() => this._monitorStateByPlatform());
+  protected readonly monitorBusyPlatforms = computed(() => this._monitorBusyPlatforms());
 
   /** Expose firecrawl loading state for the template */
   protected readonly firecrawlLoading = this.firecrawlSignIn.loading;
@@ -339,6 +352,7 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
 
   ngOnInit(): void {
     this.breadcrumb.trackStateChange('connected-accounts-modal:opened');
+    void this.loadMonitorState();
   }
 
   onLinkSourcesChange(data: LinkSourcesFormData): void {
@@ -368,6 +382,8 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
       source: 'connected-accounts-modal',
       action: 'link-sources-updated',
     });
+    void this.autoEnableMonitorsForNewConnections(previous, data);
+    void this.pruneDisconnectedMonitors(data);
   }
 
   /**
@@ -438,7 +454,143 @@ export class ConnectedAccountsWebModalComponent implements OnInit {
         ],
       });
       this._hasChanges.set(true);
+      void this.loadMonitorState();
     }
+  }
+
+  protected async onMonitorToggle(event: {
+    source: {
+      platform: string;
+      label: string;
+    };
+    enabled: boolean;
+    targetUrl: string;
+  }): Promise<void> {
+    const existingMonitor = this._monitorStateByPlatform()[event.source.platform] ?? null;
+    this.setMonitorBusy(event.source.platform, true);
+
+    try {
+      if (event.enabled) {
+        const summary = await this.firecrawlSignIn.enableMonitor(
+          event.source.platform,
+          event.targetUrl,
+          existingMonitor
+        );
+        if (!summary) {
+          this.toast.error(`Failed to enable monitoring for ${event.source.label}.`);
+          return;
+        }
+
+        this._monitorStateByPlatform.update((state) => ({
+          ...state,
+          [event.source.platform]: summary,
+        }));
+        this.toast.success(`${event.source.label} monitoring enabled`);
+      } else {
+        const success = await this.firecrawlSignIn.disableMonitor(event.source.platform);
+        if (!success) {
+          this.toast.error(`Failed to disable monitoring for ${event.source.label}.`);
+          return;
+        }
+
+        this._monitorStateByPlatform.update((state) => {
+          const next = { ...state };
+          delete next[event.source.platform];
+          return next;
+        });
+        this.toast.success(`${event.source.label} monitoring disabled`);
+      }
+    } finally {
+      this.setMonitorBusy(event.source.platform, false);
+    }
+  }
+
+  private async loadMonitorState(): Promise<void> {
+    const monitors = await this.firecrawlSignIn.fetchMonitorSummaries();
+    this._monitorStateByPlatform.set(monitors);
+  }
+
+  private async pruneDisconnectedMonitors(data: LinkSourcesFormData): Promise<void> {
+    const connectedPlatforms = new Set(
+      data.links.filter((link) => link.connected).map((link) => link.platform)
+    );
+
+    for (const platform of Object.keys(this._monitorStateByPlatform())) {
+      if (connectedPlatforms.has(platform)) {
+        continue;
+      }
+
+      const success = await this.firecrawlSignIn.disableMonitor(platform);
+      if (!success) {
+        continue;
+      }
+
+      this._monitorStateByPlatform.update((state) => {
+        const next = { ...state };
+        delete next[platform];
+        return next;
+      });
+    }
+  }
+
+  private async autoEnableMonitorsForNewConnections(
+    previous: LinkSourcesFormData | null | undefined,
+    next: LinkSourcesFormData
+  ): Promise<void> {
+    const previouslyConnected = new Set(
+      (previous?.links ?? []).filter((link) => link.connected).map((link) => link.platform)
+    );
+
+    const candidates = next.links.filter((link) => {
+      if (!link.connected) return false;
+      if (previouslyConnected.has(link.platform)) return false;
+      if (link.platform === 'google' || link.platform === 'microsoft') return false;
+      if (link.platform.startsWith('custom::')) return false;
+      return typeof link.url === 'string' && link.url.trim().length > 0;
+    });
+
+    for (const link of candidates) {
+      const targetUrl = link.url?.trim();
+      if (!targetUrl) {
+        continue;
+      }
+
+      const existingMonitor = this._monitorStateByPlatform()[link.platform] ?? null;
+      this.setMonitorBusy(link.platform, true);
+
+      try {
+        const summary = await this.firecrawlSignIn.enableMonitor(
+          link.platform,
+          targetUrl,
+          existingMonitor
+        );
+        if (!summary) {
+          this.logger.warn('Connected account saved but monitor auto-enable failed', {
+            platform: link.platform,
+          });
+          continue;
+        }
+
+        this._monitorStateByPlatform.update((state) => ({
+          ...state,
+          [link.platform]: summary,
+        }));
+      } finally {
+        this.setMonitorBusy(link.platform, false);
+      }
+    }
+  }
+
+  private setMonitorBusy(platform: string, busy: boolean): void {
+    this._monitorBusyPlatforms.update((state) => {
+      const next = { ...state };
+      if (busy) {
+        next[platform] = true;
+      } else {
+        delete next[platform];
+      }
+      return next;
+    });
   }
 
   /**

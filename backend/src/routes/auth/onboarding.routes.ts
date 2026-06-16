@@ -50,6 +50,7 @@ import {
   type ConnectedSourceRecord,
 } from './shared.js';
 import { resolveBillingTarget } from '../../modules/billing/index.js';
+import { ensureFirecrawlMonitorsForConnectedSources } from '../../services/platform/firecrawl-monitor-enrollment.service.js';
 
 const router: RouterType = Router();
 
@@ -741,6 +742,42 @@ router.post(
     const firstTeamEntry = sportTeamMap.size > 0 ? sportTeamMap.values().next().value : undefined;
     const resolvedTeamId = firstTeamEntry?.teamId as string | undefined;
     const resolvedOrgId = firstTeamEntry?.organizationId as string | undefined;
+
+    if (teamIds.length > 0 && teamConnectedSources.length > 0) {
+      await Promise.all(
+        teamIds.map((teamId) =>
+          ensureFirecrawlMonitorsForConnectedSources({
+            db,
+            userId,
+            owner: {
+              ownerType: 'team',
+              ownerId: teamId,
+              userId,
+            },
+            linkedAccounts: teamConnectedSources,
+            source: 'onboarding',
+          })
+        )
+      );
+    }
+
+    const postSaveUserConnectedSources = Array.isArray(updateData['connectedSources'])
+      ? (updateData['connectedSources'] as ConnectedSourceRecord[])
+      : [];
+    if (postSaveUserConnectedSources.length > 0) {
+      await ensureFirecrawlMonitorsForConnectedSources({
+        db,
+        userId,
+        owner: {
+          ownerType: 'user',
+          ownerId: userId,
+          userId,
+        },
+        linkedAccounts: postSaveUserConnectedSources,
+        source: 'onboarding',
+      });
+    }
+
     const marketingPreferences = userData?.preferences as
       | {
           notifications?: {

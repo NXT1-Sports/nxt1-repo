@@ -281,6 +281,8 @@ export interface AgentTaskActivityMetadata {
   readonly contextId?: string;
   /** The Agent X mode the task ran under */
   readonly mode?: string;
+  /** Optional startup prompt used to seed a new Agent X conversation */
+  readonly startupPrompt?: string;
   /** Optional rendered image output attached to the completed task */
   readonly imageUrl?: string;
   /** Optional rendered video output attached to the completed task */

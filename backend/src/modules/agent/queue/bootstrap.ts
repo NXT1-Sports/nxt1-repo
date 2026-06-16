@@ -34,6 +34,13 @@ import { ToolRegistry } from '../tools/tool-registry.js';
 import {
   ScrapeAndIndexProfileTool,
   ReadDistilledSectionTool,
+  ListFirecrawlMonitorsTool,
+  GetFirecrawlMonitorTool,
+  WriteFirecrawlMonitorTool,
+  UpdateFirecrawlMonitorTool,
+  DeleteFirecrawlMonitorTool,
+  GetFirecrawlMonitorCheckTool,
+  FirecrawlMonitorService,
   OpenLiveViewTool,
   NavigateLiveViewTool,
   InteractWithLiveViewTool,
@@ -610,6 +617,21 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     logger.info(
       'MCP-bridged Firecrawl tools registered (scrape_webpage, firecrawl_search_web, map_website, extract_web_data, firecrawl_agent_research, extract_page_images)'
     );
+  }
+
+  try {
+    const firecrawlMonitorService = new FirecrawlMonitorService();
+    toolRegistry.register(new ListFirecrawlMonitorsTool(toolFirestore, firecrawlMonitorService));
+    toolRegistry.register(new GetFirecrawlMonitorTool(toolFirestore, firecrawlMonitorService));
+    toolRegistry.register(new WriteFirecrawlMonitorTool(toolFirestore, firecrawlMonitorService));
+    toolRegistry.register(new UpdateFirecrawlMonitorTool(toolFirestore, firecrawlMonitorService));
+    toolRegistry.register(new DeleteFirecrawlMonitorTool(toolFirestore, firecrawlMonitorService));
+    toolRegistry.register(new GetFirecrawlMonitorCheckTool(toolFirestore, firecrawlMonitorService));
+    logger.info(
+      'Firecrawl monitor tools registered (list_firecrawl_monitors, get_firecrawl_monitor, write_firecrawl_monitor, update_firecrawl_monitor, delete_firecrawl_monitor, get_firecrawl_monitor_check)'
+    );
+  } catch {
+    logger.warn('FirecrawlMonitorService init failed — firecrawl monitor tools disabled');
   }
 
   // ── 1d.1. MCP-bridged NXT1 data views (read-only) ────────────────────────

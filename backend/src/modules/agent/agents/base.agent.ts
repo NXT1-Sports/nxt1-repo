@@ -4103,6 +4103,12 @@ export abstract class BaseAgent {
       scrape_webpage: 'Reviewing source page',
       map_website: 'Mapping website structure',
       search_web: 'Searching the web',
+      list_firecrawl_monitors: 'Reviewing page monitors',
+      get_firecrawl_monitor: 'Reviewing monitor details',
+      write_firecrawl_monitor: 'Enabling page monitor',
+      update_firecrawl_monitor: 'Updating monitor settings',
+      delete_firecrawl_monitor: 'Removing page monitor',
+      get_firecrawl_monitor_check: 'Reviewing monitor results',
 
       // Social & Intel
       scrape_instagram: 'Scanning Instagram',

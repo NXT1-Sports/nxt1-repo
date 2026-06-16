@@ -473,7 +473,13 @@ export class AgentXOperationChatTransportFacade {
         {
           onThread: (event) => {
             host.resolvedThreadId.set(event.threadId);
-            if (event.operationId) host.setCurrentOperationId(event.operationId);
+            if (event.operationId) {
+              host.setCurrentOperationId(event.operationId);
+              this.messageFacade.stampLatestUserMessageOperationId({
+                operationId: event.operationId,
+                ...(idempotencyKey ? { idempotencyKey } : {}),
+              });
+            }
             host.setActivityPhase('connected');
             this.logger.debug('Stream thread resolved', { threadId: event.threadId });
 
@@ -737,6 +743,10 @@ export class AgentXOperationChatTransportFacade {
           onOperation: (event) => {
             if (event.operationId) {
               host.setCurrentOperationId(event.operationId);
+              this.messageFacade.stampLatestUserMessageOperationId({
+                operationId: event.operationId,
+                ...(idempotencyKey ? { idempotencyKey } : {}),
+              });
             }
 
             const opMessage = typeof event.message === 'string' ? event.message.trim() : '';

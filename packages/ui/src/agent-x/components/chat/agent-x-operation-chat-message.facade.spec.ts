@@ -106,6 +106,43 @@ describe('AgentXOperationChatMessageFacade', () => {
     expect(loadThreadMessages).not.toHaveBeenCalled();
   });
 
+  it('stamps the pending user message with the resolved operation id', () => {
+    facade.messages.set([
+      {
+        id: 'old-user',
+        role: 'user',
+        content: 'Pause this one',
+        timestamp: new Date('2026-05-05T12:00:00.000Z'),
+        operationId: 'op-old',
+      },
+      {
+        id: 'new-user',
+        role: 'user',
+        content: 'Start a fresh request',
+        timestamp: new Date('2026-05-05T12:01:00.000Z'),
+        idempotencyKey: 'idem-new',
+      },
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: '',
+        timestamp: new Date('2026-05-05T12:01:01.000Z'),
+        isTyping: true,
+      },
+    ]);
+
+    facade.stampLatestUserMessageOperationId({
+      operationId: 'op-new',
+      idempotencyKey: 'idem-new',
+    });
+
+    expect(facade.messages().map((message) => [message.id, message.operationId ?? null])).toEqual([
+      ['old-user', 'op-old'],
+      ['new-user', 'op-new'],
+      ['typing', null],
+    ]);
+  });
+
   it('reloads persisted thread messages when completion has no visible content', () => {
     facade.messages.set([
       {
