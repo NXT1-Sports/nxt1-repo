@@ -2036,7 +2036,7 @@ describe('BaseAgent identifier scrubbing', () => {
 
     // Text body includes video reference but NOT extracted PDF content
     expect(textBody).toContain(
-      '[Attached video: clip.mp4 — https://video.example/clip.mp4 | storagePath: Users/user-123/uploads/clip.mp4 | cloudflareVideoId: cf-video-123]'
+      '[Attached video (already visible to user — do not re-embed): clip.mp4 — https://video.example/clip.mp4 | storagePath: Users/user-123/uploads/clip.mp4 | cloudflareVideoId: cf-video-123]'
     );
 
     // Ensure extracted PDF content is NOT in the text (native path only)
@@ -2045,7 +2045,7 @@ describe('BaseAgent identifier scrubbing', () => {
 
     // Should still have simple PDF reference line
     expect(textBody).toContain(
-      '[Attached document: application/pdf — https://storage.example/report.pdf]'
+      '[Attached document (already visible to user — do not re-embed): application/pdf — https://storage.example/report.pdf]'
     );
 
     expect(llmOptions?.tier).toBe('vision_analysis');
@@ -2068,7 +2068,7 @@ describe('BaseAgent identifier scrubbing', () => {
     const videoUrl = 'https://storage.googleapis.com/nxt1-test/highlight-source.mp4';
 
     await agent.execute(
-      `Make a highlight reel\n\n[Attached video: highlight-source.mp4 — ${videoUrl} | cloudflareVideoId: cf-highlight-123]`,
+      `Make a highlight reel\n\n[Attached video (already visible to user — do not re-embed): highlight-source.mp4 — ${videoUrl} | cloudflareVideoId: cf-highlight-123]`,
       {
         ...createMockContext(),
         attachments: [
@@ -2104,9 +2104,11 @@ describe('BaseAgent identifier scrubbing', () => {
         ? userMessage.content
         : JSON.stringify(userMessage?.content);
 
-    expect(textBody.match(/\[Attached video:/g) ?? []).toHaveLength(1);
+    expect(textBody.match(/\[Attached video \(/g) ?? []).toHaveLength(1);
     expect(textBody).toContain(videoUrl);
-    expect(textBody).not.toContain('[Attached document: video/mp4');
+    expect(textBody).not.toContain(
+      '[Attached document (already visible to user — do not re-embed): video/mp4'
+    );
   });
 
   it('extracts CSV attachment content and appends parsed preview to user intent text', async () => {
@@ -2169,7 +2171,9 @@ describe('BaseAgent identifier scrubbing', () => {
     const textBody = typeof content === 'string' ? content : JSON.stringify(content);
 
     expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(1);
-    expect(textBody).toContain('[Attached document: text/csv');
+    expect(textBody).toContain(
+      '[Attached document (already visible to user — do not re-embed): text/csv'
+    );
     expect(textBody).toContain('[Extracted Attachment Content]');
     expect(textBody).toContain('| name | points | assists |');
     expect(textBody).toContain('| Jordan | 24 | 6 |');
@@ -2234,7 +2238,9 @@ describe('BaseAgent identifier scrubbing', () => {
     const imagePayload = imagePart?.['image_url'] as { url?: string } | undefined;
 
     expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(1);
-    expect(textPart?.text).toContain('[Attached image: image-1');
+    expect(textPart?.text).toContain(
+      '[Attached image (already visible to user — do not re-embed): image-1'
+    );
     expect(textPart?.text).toContain(
       'https://storage.googleapis.com/bucket/path/image.png?X-Goog-Algorithm=GOOG4-RSA-SHA256'
     );

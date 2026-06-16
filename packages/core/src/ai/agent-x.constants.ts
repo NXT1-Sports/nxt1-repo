@@ -145,6 +145,8 @@ export function resolveAttachmentType(mimeType: string): AgentXAttachmentType {
 export const AGENT_X_REQUEST_HEADERS = {
   /** Explicit frontend app origin used when backend is behind a proxy. */
   APP_BASE_URL: 'x-nxt1-app-base-url',
+  /** Opt-in SSE stream observability logging for debugging. */
+  STREAM_DEBUG: 'x-nxt1-stream-debug',
 } as const;
 
 export const AGENT_X_ENDPOINTS = {

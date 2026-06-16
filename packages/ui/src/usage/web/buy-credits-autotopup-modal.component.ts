@@ -29,6 +29,7 @@ import {
   Component,
   ChangeDetectionStrategy,
   OnInit,
+  inject,
   input,
   output,
   signal,
@@ -48,6 +49,7 @@ import {
   type BuyCreditsTab,
   type CreditPackageUsd,
 } from '../buy-credits-flow.shared';
+import { UsageService } from '../usage.service';
 
 // ============================================
 // COMPONENT
@@ -760,6 +762,10 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
   readonly initialThresholdCents = input(500);
   /** Current auto top-up amount in cents — pre-fills the form. */
   readonly initialAutoTopupAmountCents = input(1_000);
+  /** Current org context for analytics attribution. */
+  readonly organizationId = input<string | null>(null);
+  /** Whether a saved payment method allows direct card charging. */
+  readonly hasSavedDefaultMethod = input(false);
 
   // ----------------------------------------
   // Output
@@ -783,6 +789,8 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
   // ----------------------------------------
 
   protected readonly activeTab = signal<BuyCreditsTab>('buy');
+  private readonly usage = inject(UsageService);
+  private lastTrackedCartSelectionKey: string | null = null;
 
   /** Selected credit package dollar amount (null = nothing picked yet). */
   protected readonly selectedPackageUsd = signal<CreditPackageUsd | null>(null);
@@ -859,6 +867,7 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
       const nextValue = prev === usd ? null : usd;
       if (nextValue !== null) {
         this.customAmountUsd.set('');
+        this.trackPackageSelection(nextValue * 100, 'preset');
       }
       return nextValue;
     });
@@ -867,6 +876,13 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
   protected onBuyNow(): void {
     const amountCents = this.selectedBuyAmountCents();
     if (amountCents === null) return;
+
+    this.ensureCartTracked(amountCents, this.selectedPackageUsd() !== null ? 'preset' : 'custom');
+    this.usage.trackCreditCheckoutStarted(amountCents, this.organizationId() ?? undefined, {
+      payment_method: 'stripe',
+      checkout_type: this.hasSavedDefaultMethod() ? 'direct_charge' : 'hosted_checkout',
+    });
+
     this.close.emit({ type: 'buy', amountCents });
   }
 
@@ -893,5 +909,22 @@ export class BuyCreditsAutoTopupModalComponent implements OnInit {
 
   protected formatCents(cents: number): string {
     return formatPrice(cents);
+  }
+
+  private trackPackageSelection(amountCents: number, selectionType: 'preset' | 'custom'): void {
+    const selectionKey = `${selectionType}:${amountCents}`;
+    this.lastTrackedCartSelectionKey = selectionKey;
+    this.usage.trackCreditPackageAddedToCart(amountCents, this.organizationId() ?? undefined, {
+      selection_type: selectionType,
+    });
+  }
+
+  private ensureCartTracked(amountCents: number, selectionType: 'preset' | 'custom'): void {
+    const selectionKey = `${selectionType}:${amountCents}`;
+    if (this.lastTrackedCartSelectionKey === selectionKey) {
+      return;
+    }
+
+    this.trackPackageSelection(amountCents, selectionType);
   }
 }

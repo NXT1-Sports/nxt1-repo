@@ -784,11 +784,19 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
 
   protected async onManageBilling(): Promise<void> {
     this.haptics.impact('light');
+    this.svc.trackPaymentInfoAdded('usage_manage_billing');
     await this.svc.openBillingPortal();
   }
 
   protected async onBuyCredits(): Promise<void> {
     await this.haptics.impact('light');
+    const organizationId = this.svc.isOrgAdmin()
+      ? (this.svc.billingContext()?.organizationId ?? undefined)
+      : undefined;
+
+    this.svc.trackCreditPurchaseViewed(organizationId);
+    this.svc.trackCreditPackageListViewed(organizationId);
+
     const ref = this.overlay.open<BuyCreditsAutoTopupModalComponent, BuyCreditsAutoTopupResult>({
       component: BuyCreditsAutoTopupModalComponent,
       size: 'lg',
@@ -799,6 +807,8 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
         initialAutoTopupEnabled: this.svc.autoTopUpEnabled(),
         initialThresholdCents: this.svc.autoTopUpThresholdCents(),
         initialAutoTopupAmountCents: this.svc.autoTopUpAmountCents(),
+        organizationId,
+        hasSavedDefaultMethod: this.svc.defaultPaymentMethod() !== null,
       },
     });
     const result = await ref.closed;
@@ -806,9 +816,6 @@ export class UsageShellWebComponent implements OnInit, AfterViewInit, OnDestroy 
 
     const data = result.data;
     if (data.type === 'buy') {
-      const organizationId = this.svc.isOrgAdmin()
-        ? (this.svc.billingContext()?.organizationId ?? undefined)
-        : undefined;
       await this.svc.buyCredits(data.amountCents, organizationId);
     } else if (data.type === 'auto-topup') {
       await this.svc.configureAutoTopUp({

@@ -59,7 +59,13 @@ import { SSR_INITIAL_THEME, SSR_INITIAL_SPORT_THEME } from '@nxt1/ui/services/th
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const DIST_FOLDER = resolve(__dirname, '../browser');
-const INDEX_HTML = join(__dirname, 'index.server.html');
+
+/**
+ * SSR template file - Angular CommonEngine uses this to render the application shell
+ * This is the generated index.csr.html from the browser build, used as the template
+ * for server-side rendering. CommonEngine will inject rendered component tree into <app-root>.
+ */
+const INDEX_HTML = join(DIST_FOLDER, 'index.csr.html');
 
 /** CSR fallback HTML (served when SSR fails) — Angular generates index.csr.html in browser/ */
 const CSR_INDEX = join(DIST_FOLDER, 'index.csr.html');
@@ -326,15 +332,10 @@ function optimizePublicMarketingHtml(html: string): string {
       // only hydrate what they need on first paint.
       .replace(/<link\b[^>]*rel=["']modulepreload["'][^>]*>\s*/gi, '')
       .replace(
-        /<link\b[^>]*href=["']styles-deferred\.css["'][^>]*>\s*(?:<noscript>[\s\S]*?<\/noscript>)?\s*/gi,
-        ''
-      )
-      .replace(
         /<script\b[^>]*id=["']ng-event-dispatch-contract["'][^>]*>[\s\S]*?<\/script>\s*/gi,
         ''
       )
       .replace(/<script\b[^>]*>\s*window\.__jsaction_bootstrap[\s\S]*?<\/script>\s*/gi, '')
-      .replace(/<script\b[^>]*src=["'](?:polyfills|main)-[^"']+\.js["'][^>]*><\/script>\s*/gi, '')
       .replace(
         /<link\b[^>]*href=["']https:\/\/(?:storage\.googleapis\.com|firebaseinstallations\.googleapis\.com|firestore\.googleapis\.com|identitytoolkit\.googleapis\.com|fonts\.googleapis\.com|fonts\.gstatic\.com|a\.espncdn\.com|firebasestorage\.googleapis\.com|nxt1sports\.firebasestorage\.app)["'][^>]*>\s*/gi,
         ''

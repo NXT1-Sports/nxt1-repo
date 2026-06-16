@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/ui",
-  "version": "2.59.1",
+  "version": "2.60.10",
   "description": "NXT1 UI - Shared Angular/Ionic components, services, and infrastructure for cross-platform applications (2026 APF)",
   "sideEffects": [
     "*.css"
@@ -44,7 +44,7 @@
     "@nxt1/core": "*",
     "@nxt1/design-tokens": "*",
     "@stripe/stripe-js": "^9.7.0",
-    "dompurify": "^3.4.0",
+    "dompurify": "^3.4.10",
     "hls.js": "^1.6.16",
     "marked": "^18.0.5",
     "zod": "^4.4.3"
@@ -105,10 +105,10 @@
   "devDependencies": {
     "@ionic/angular": "^8.5.0",
     "ionicons": "^8.0.13",
-    "ng-packagr": "^21.0.0",
+    "ng-packagr": "^22.0.0",
     "rxjs": "^7.8.1",
     "tus-js-client": "^4.3.1",
-    "typescript": "~5.9.3"
+    "typescript": "6.0.3"
   },
   "keywords": [
     "angular",

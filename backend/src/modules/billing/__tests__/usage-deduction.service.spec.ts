@@ -555,14 +555,14 @@ describe('executeBillingDeduction', () => {
     );
   });
 
-  it('does not guess an org teamId from the org team list when the billing context is missing one', async () => {
+  it('does not guess an org teamId when multiple org teams are possible', async () => {
     const db = {} as Firestore;
 
     mockResolveBillingTarget.mockResolvedValue({
       type: 'organization',
       billingUserId: 'org:org_missing_team',
       organizationId: 'org_missing_team',
-      teamIds: ['team_wrong_guess'],
+      teamIds: ['team_a', 'team_b'],
       context: { teamId: undefined },
     });
 
@@ -594,6 +594,46 @@ describe('executeBillingDeduction', () => {
     );
     expect(mockRecordUsageEvent).toHaveBeenCalledWith(
       expect.not.objectContaining({ teamId: expect.anything() }),
+      'production'
+    );
+  });
+
+  it('uses the single org team when the billing context omits teamId', async () => {
+    const db = {} as Firestore;
+
+    mockResolveBillingTarget.mockResolvedValue({
+      type: 'organization',
+      billingUserId: 'org:org_single_team',
+      organizationId: 'org_single_team',
+      teamIds: ['team_only'],
+      context: { teamId: undefined },
+    });
+
+    const { executeBillingDeduction } = await import('../usage-deduction.service.js');
+
+    await executeBillingDeduction({
+      db,
+      userId: 'user_single_team',
+      operationId: 'op_single_team',
+      feature: 'briefing-generation',
+      knownCostUsd: 0.75,
+    });
+
+    expect(mockDeductOrgWallet).toHaveBeenCalledWith(
+      db,
+      'org_single_team',
+      'user_single_team',
+      'team_only',
+      175
+    );
+    expect(mockRecordUsageEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user_single_team',
+        teamId: 'team_only',
+        metadata: expect.objectContaining({
+          teamAttributionStatus: 'resolved',
+        }),
+      }),
       'production'
     );
   });

@@ -464,6 +464,7 @@ export class AgentXOperationChatTransportFacade {
     // with `status='success'`, ensuring the localStorage waiting entry is
     // written exactly once even if the backend re-emits the step.
     let enqueueHeavyHandoffMarked = false;
+    let firstDeltaFlushed = false;
 
     return new Promise<void>((resolve, reject) => {
       const appBaseUrl = resolveCurrentAgentXAppBaseUrl();
@@ -530,7 +531,17 @@ export class AgentXOperationChatTransportFacade {
             this.recordDeltaLatency(event.emittedAt);
             host.markActivityPulse();
 
+            const isFirstDelta = !firstDeltaFlushed;
+            if (!firstDeltaFlushed) {
+              firstDeltaFlushed = true;
+            }
             this.messageFacade.queueTypingDelta(event.content);
+            if (isFirstDelta) {
+              // On some native video-upload flows the first SSE chunk can be
+              // the only visible prose for several seconds. Flush immediately
+              // so the typing row does not appear empty/stuck.
+              this.messageFacade.flushPendingTypingDelta();
+            }
           },
 
           onThinking: (event) => {

@@ -39,6 +39,15 @@ function normalizeTrimDuration(duration: string): string {
   return String(MIN_PLAYABLE_TRIM_DURATION_SECONDS);
 }
 
+function buildThumbnailOutputPath(outputPath: string): string {
+  const normalizedOutputPath = outputPath.trim();
+  if (!normalizedOutputPath) {
+    return 'output-thumbnail.jpg';
+  }
+
+  return normalizedOutputPath.replace(/\.[^.]+$/u, '-thumbnail.jpg');
+}
+
 export class FfmpegTrimVideoTool extends BaseTool {
   readonly name = 'ffmpeg_trim_video';
   readonly description =
@@ -73,9 +82,18 @@ export class FfmpegTrimVideoTool extends BaseTool {
     try {
       const result = await this.bridge.trimVideo(parsed.data, context);
       const outputUrl = result.outputUrl ?? result.output_path;
+      const thumbnailUrl = outputUrl
+        ? await this.generateTrimThumbnail(outputUrl, parsed.data.outputPath, context)
+        : null;
+
       return {
         success: true,
-        data: { outputUrl, videoUrl: outputUrl, result },
+        data: {
+          outputUrl,
+          videoUrl: outputUrl,
+          ...(thumbnailUrl ? { thumbnailUrl } : {}),
+          result,
+        },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to trim video';
@@ -84,6 +102,32 @@ export class FfmpegTrimVideoTool extends BaseTool {
         userId: context?.userId,
       });
       return { success: false, error: message };
+    }
+  }
+
+  private async generateTrimThumbnail(
+    trimmedVideoUrl: string,
+    outputPath: string,
+    context?: ToolExecutionContext
+  ): Promise<string | null> {
+    try {
+      const thumbnailResult = await this.bridge.generateThumbnail(
+        {
+          inputPath: trimmedVideoUrl,
+          outputPath: buildThumbnailOutputPath(outputPath),
+          time: '0',
+        },
+        context
+      );
+
+      return thumbnailResult.outputUrl ?? thumbnailResult.output_path ?? null;
+    } catch (error) {
+      logger.warn('[FfmpegTrimVideoTool] Failed to generate trimmed video thumbnail', {
+        error: error instanceof Error ? error.message : String(error),
+        trimmedVideoUrl,
+        userId: context?.userId,
+      });
+      return null;
     }
   }
 

@@ -31,6 +31,8 @@ import { ContextBuilder } from './context-builder.js';
 import { THREAD_SUMMARIZATION_DELAY_MS } from '../queue/queue.types.js';
 import { resolveStructuredOutput } from '../llm/structured-output.js';
 import { logger } from '../../../utils/logger.js';
+import { getRuntimeEnvironment } from '../../../config/runtime-environment.js';
+import { getMongoEnvironmentScope } from '../../../middleware/mongo/mongo-scope.context.js';
 import { z } from 'zod';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -210,7 +212,14 @@ export class MemorySummarizationService {
       .lean();
 
     if (!thread) {
-      logger.warn('[MemorySummarization] Thread not found for summarization', { threadId, userId });
+      logger.info(
+        '[MemorySummarization] Thread not found for summarization (likely archived/deleted/expired)',
+        {
+          threadId,
+          userId,
+          environment: getMongoEnvironmentScope() ?? getRuntimeEnvironment(),
+        }
+      );
       return 0;
     }
 

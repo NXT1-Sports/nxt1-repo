@@ -38,6 +38,7 @@ import { ANALYTICS_ADAPTER } from '../services/analytics/analytics-adapter.token
 import { NxtBreadcrumbService } from '../services/breadcrumb/breadcrumb.service';
 import { NxtBrowserService } from '../services/browser/browser.service';
 import { NxtModalService, type LoadingConfig } from '../services/modal';
+import { CREDIT_PACKAGES_USD } from './buy-credits-flow.shared';
 
 // Re-export so consumers can import UsageSection from '@nxt1/ui/usage' as before
 export type { UsageSection };
@@ -88,36 +89,100 @@ export class UsageService implements OnDestroy {
   /** Interval handle for polling wallet balance every 60 s while the page is active */
   private _balancePollInterval: ReturnType<typeof setInterval> | null = null;
 
-  private trackCreditPurchaseFunnelStep(
-    eventName: string,
-    amountCents: number,
-    organizationId?: string,
-    extra?: Record<string, unknown>
-  ): void {
-    const value = amountCents / 100;
-    const payload: Record<string, unknown> = {
-      currency: 'USD',
-      value,
-      billing_entity: organizationId ? 'organization' : 'individual',
-      organization_id: organizationId,
-      items: [
-        {
-          item_id: 'nxt1_wallet_credits',
-          item_name: 'NXT1 Wallet Credits',
-          item_category: 'wallet_credits',
-          price: value,
-          quantity: 1,
-        },
-      ],
-      ...extra,
-    };
-
+  private trackAnalyticsEvent(eventName: string, payload: Record<string, unknown>): void {
     (
       this.analytics as
         | { trackEvent: (name: string, properties?: Record<string, unknown>) => void }
         | null
         | undefined
     )?.trackEvent(eventName, payload);
+  }
+
+  private buildCreditPurchasePayload(
+    amountCents?: number,
+    organizationId?: string,
+    extra?: Record<string, unknown>
+  ): Record<string, unknown> {
+    const value = typeof amountCents === 'number' ? amountCents / 100 : undefined;
+
+    return {
+      currency: 'USD',
+      ...(typeof value === 'number' ? { value } : {}),
+      billing_entity: organizationId ? 'organization' : 'individual',
+      ...(organizationId ? { organization_id: organizationId } : {}),
+      items: [
+        {
+          item_id: 'nxt1_wallet_credits',
+          item_name: 'NXT1 Wallet Credits',
+          item_category: 'wallet_credits',
+          ...(typeof value === 'number' ? { price: value } : {}),
+          quantity: 1,
+        },
+      ],
+      ...extra,
+    };
+  }
+
+  trackCreditPurchaseViewed(organizationId?: string): void {
+    this.trackAnalyticsEvent(
+      FIREBASE_EVENTS.VIEW_ITEM,
+      this.buildCreditPurchasePayload(undefined, organizationId, {
+        entry_point: 'usage_add_credits_cta',
+      })
+    );
+  }
+
+  trackCreditPackageListViewed(organizationId?: string): void {
+    this.trackAnalyticsEvent(
+      FIREBASE_EVENTS.VIEW_ITEM_LIST,
+      this.buildCreditPurchasePayload(undefined, organizationId, {
+        item_list_id: 'usage_credit_packages',
+        item_list_name: 'Usage Credit Packages',
+        items: CREDIT_PACKAGES_USD.map((usd, index) => ({
+          item_id: `nxt1_wallet_credits_${usd}`,
+          item_name: `NXT1 Wallet Credits $${usd}`,
+          item_category: 'wallet_credits',
+          price: usd,
+          quantity: 1,
+          index,
+        })),
+      })
+    );
+  }
+
+  trackCreditPackageAddedToCart(
+    amountCents: number,
+    organizationId?: string,
+    extra?: Record<string, unknown>
+  ): void {
+    this.trackAnalyticsEvent(
+      FIREBASE_EVENTS.ADD_TO_CART,
+      this.buildCreditPurchasePayload(amountCents, organizationId, extra)
+    );
+  }
+
+  trackCreditCheckoutStarted(
+    amountCents?: number,
+    organizationId?: string,
+    extra?: Record<string, unknown>
+  ): void {
+    this.trackAnalyticsEvent(
+      FIREBASE_EVENTS.BEGIN_CHECKOUT,
+      this.buildCreditPurchasePayload(amountCents, organizationId, extra)
+    );
+  }
+
+  trackPaymentInfoAdded(entryPoint: string): void {
+    const billingContext = this._billingContext();
+    const defaultMethod = this.defaultPaymentMethod();
+
+    this.trackAnalyticsEvent(FIREBASE_EVENTS.ADD_PAYMENT_INFO, {
+      billing_entity: billingContext?.organizationId ? 'organization' : 'individual',
+      ...(billingContext?.organizationId ? { organization_id: billingContext.organizationId } : {}),
+      entry_point: entryPoint,
+      payment_type: defaultMethod?.brand ?? 'stripe_customer_portal',
+      has_saved_payment_method: defaultMethod !== null,
+    });
   }
 
   /** Timeout handles for short-lived force-refresh retries after external billing flows */
@@ -1078,19 +1143,9 @@ export class UsageService implements OnDestroy {
   async buyCredits(amountCents: number, organizationId?: string): Promise<void> {
     this.logger.info('Purchasing credits', { amountCents, organizationId });
     this.breadcrumb.trackStateChange('usage:buying-credits', { amountCents, organizationId });
-    this.trackCreditPurchaseFunnelStep(FIREBASE_EVENTS.VIEW_ITEM, amountCents, organizationId);
-    this.trackCreditPurchaseFunnelStep(FIREBASE_EVENTS.ADD_TO_CART, amountCents, organizationId);
 
     const hasSavedDefaultMethod = this.defaultPaymentMethod() !== null;
     const isNativePlatform = typeof window !== 'undefined' && Capacitor.isNativePlatform();
-    this.trackCreditPurchaseFunnelStep(
-      FIREBASE_EVENTS.BEGIN_CHECKOUT,
-      amountCents,
-      organizationId,
-      {
-        checkout_type: hasSavedDefaultMethod ? 'direct_charge' : 'hosted_checkout',
-      }
-    );
 
     try {
       const result = (await this.runWithSharedLoader(

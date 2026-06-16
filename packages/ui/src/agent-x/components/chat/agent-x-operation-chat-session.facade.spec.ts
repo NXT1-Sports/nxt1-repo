@@ -7,6 +7,7 @@ import type { OperationMessage } from './agent-x-operation-chat.models';
 type Canonicalizer = {
   resolveCanonicalAssistantRows(items: readonly AgentMessage[]): readonly AgentMessage[];
   reorderTurnsByPairing(messages: readonly OperationMessage[]): OperationMessage[];
+  dedupeConsecutiveAssistantMessages(messages: readonly OperationMessage[]): OperationMessage[];
   shouldPreserveInlineYieldRowDuringReload(params: {
     readonly message: OperationMessage;
     readonly messageIndex: number;
@@ -59,6 +60,11 @@ type Canonicalizer = {
       readonly existingTyping: OperationMessage;
       readonly replayOperationIds: ReadonlySet<string>;
     }
+  ): boolean;
+  shouldPreserveTypingAfterThreadReload(
+    existingTyping: OperationMessage,
+    persistedRows: readonly OperationMessage[],
+    liveOperationId: string | null
   ): boolean;
   hasMongoFinalForOperation(items: readonly AgentMessage[], operationId: string | null): boolean;
   collectMessageMedia(message: AgentMessage): {
@@ -294,7 +300,7 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
               {
                 id: 'search-football-colleges',
                 label: 'Searching college database: football',
-                status: 'complete',
+                status: 'success',
                 stageType: 'tool',
               },
             ],
@@ -438,6 +444,29 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     const canonical = facade.resolveCanonicalAssistantRows(items);
 
     expect(canonical.map((message) => message.id)).toEqual(['partial-2']);
+  });
+
+  it('dedupes consecutive assistant replays when chat-prefixed and bare UUID operation ids refer to the same turn', () => {
+    const deduped = facade.dedupeConsecutiveAssistantMessages([
+      {
+        id: 'assistant-local-partial',
+        role: 'assistant',
+        content: "Here's IMG_0194 2.MOV loaded up for you, Coach.",
+        operationId: 'chat-11111111-1111-1111-1111-111111111111',
+        timestamp: new Date('2026-06-15T04:00:00.000Z'),
+        semanticPhase: 'assistant_partial',
+      },
+      {
+        id: 'assistant-persisted-partial',
+        role: 'assistant',
+        content: "Here's IMG_0194 2.MOV loaded up for you, Coach.",
+        operationId: '11111111-1111-1111-1111-111111111111',
+        timestamp: new Date('2026-06-15T04:00:01.000Z'),
+        semanticPhase: 'assistant_partial',
+      },
+    ]);
+
+    expect(deduped.map((message) => message.id)).toEqual(['assistant-local-partial']);
   });
 
   it('suppresses answered assistant_yield rows and shows the user reply as a standalone bubble', () => {
@@ -877,6 +906,80 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
           liveOperationId: 'firestore-live-op',
           existingTyping,
           replayOperationIds: new Set(['firestore-live-op']),
+        }
+      )
+    ).toBe(true);
+  });
+
+  it('drops stale typing bubble when thread reload contains the same-operation final row', () => {
+    const existingTyping: OperationMessage = {
+      id: 'typing',
+      role: 'assistant',
+      operationId: 'chat-local-video-op',
+      content: 'Crown Point Bulldogs — Highlight Video Complete',
+      timestamp: new Date('2026-06-15T18:53:20.000Z'),
+    };
+
+    const persistedFinal: OperationMessage = {
+      id: 'mongo-final',
+      role: 'assistant',
+      operationId: 'chat-local-video-op',
+      semanticPhase: 'assistant_final',
+      content: 'Crown Point Bulldogs — Highlight Video Complete',
+      timestamp: new Date('2026-06-15T18:53:25.000Z'),
+    };
+
+    expect(
+      facade.shouldPreserveTypingAfterThreadReload(
+        existingTyping,
+        [persistedFinal],
+        'chat-local-video-op'
+      )
+    ).toBe(false);
+  });
+
+  it('preserves typing bubble when no same-operation final row exists yet', () => {
+    const existingTyping: OperationMessage = {
+      id: 'typing',
+      role: 'assistant',
+      operationId: 'chat-live-op',
+      content: 'Still working...',
+      timestamp: new Date('2026-06-15T18:53:20.000Z'),
+    };
+
+    const persistedToolCall: OperationMessage = {
+      id: 'mongo-tool-call',
+      role: 'assistant',
+      operationId: 'chat-live-op',
+      semanticPhase: 'assistant_tool_call',
+      content: 'Still working...',
+      timestamp: new Date('2026-06-15T18:53:21.000Z'),
+    };
+
+    expect(
+      facade.shouldPreserveTypingAfterThreadReload(
+        existingTyping,
+        [persistedToolCall],
+        'chat-live-op'
+      )
+    ).toBe(true);
+  });
+
+  it('drops live replay assistant rows when replay uses a bare UUID and the existing row uses the chat-prefixed form', () => {
+    expect(
+      facade.shouldDropLiveReplayAssistantRow(
+        {
+          id: 'assistant-chat-prefixed',
+          role: 'assistant',
+          operationId: 'chat-22222222-2222-2222-2222-222222222222',
+          content: "Here's IMG_0194 2.MOV loaded up for you, Coach.",
+          timestamp: new Date('2026-06-15T04:00:00.000Z'),
+          semanticPhase: 'assistant_partial',
+        },
+        {
+          operationIds: new Set(['22222222-2222-2222-2222-222222222222']),
+          content: "Here's IMG_0194 2.MOV loaded up for you, Coach.",
+          steps: [],
         }
       )
     ).toBe(true);

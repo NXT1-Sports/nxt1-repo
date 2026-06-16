@@ -181,11 +181,15 @@ export class AgentXOperationChatMessageFacade {
 
     if (persistedMessageId) {
       this.messages.update((messages) =>
-        messages.map((message) =>
-          message.id === params.streamingId
-            ? { ...message, id: persistedMessageId, isTyping: false }
-            : message
+        messages.some(
+          (message) => message.id === persistedMessageId && message.id !== params.streamingId
         )
+          ? messages.filter((message) => message.id !== params.streamingId)
+          : messages.map((message) =>
+              message.id === params.streamingId
+                ? { ...message, id: persistedMessageId, isTyping: false }
+                : message
+            )
       );
 
       // Rehydrate the persisted assistant row immediately so final attachments
@@ -842,7 +846,14 @@ export class AgentXOperationChatMessageFacade {
             typingMessage?.timestamp?.getTime() ?? Date.now()
           }`;
           const committedRows = rows.map((message) =>
-            message.id !== 'typing' ? message : { ...message, id: committedId, isTyping: false }
+            message.id !== 'typing'
+              ? message
+              : {
+                  ...message,
+                  id: committedId,
+                  isTyping: false,
+                  semanticPhase: 'assistant_partial' as const,
+                }
           );
           return this.removeDuplicateAssistantPreludeBeforeCommittedTyping(
             committedRows,

@@ -48,6 +48,8 @@ import { AgentThreadModel } from '../../../models/agent/agent-thread.model.js';
 import { AgentMessageModel } from '../../../models/agent/agent-message.model.js';
 import { AgentUploadOutboxModel } from '../../../models/agent/agent-upload-outbox.model.js';
 import { logger } from '../../../utils/logger.js';
+import { getRuntimeEnvironment } from '../../../config/runtime-environment.js';
+import { getMongoEnvironmentScope } from '../../../middleware/mongo/mongo-scope.context.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
 import type { AgentQueueService } from '../queue/queue.service.js';
 import type { SessionMemoryService } from '../memory/session.service.js';
@@ -127,6 +129,10 @@ function deriveFallbackTitle(prompt: string): string {
   // Strip any trailing partial word fragment from the slice cut-off.
   title = title.replace(/\s+\S+$/, (match) => (title.length === 50 ? '' : match));
   return title || prompt.trim().slice(0, 50);
+}
+
+function resolveQueueEnvironment(): 'staging' | 'production' {
+  return getMongoEnvironmentScope() ?? getRuntimeEnvironment();
 }
 
 function extractCardsFromParts(
@@ -715,6 +721,7 @@ export class AgentChatService {
   }): Promise<AgentMessage> {
     const now = new Date().toISOString();
     const normalizedCards = params.cards ?? extractCardsFromParts(params.parts);
+    const isAssistantToolCallPhase = params.semanticPhase === 'assistant_tool_call';
 
     const docFields = {
       threadId: params.threadId,
@@ -815,6 +822,19 @@ export class AgentChatService {
       doc = await AgentMessageModel.create(docFields);
     }
 
+    // Mid-loop assistant tool-call rows exist to preserve replay structure, not to
+    // advance the user-facing thread timeline. Skipping thread metadata churn and
+    // summarization queue work keeps router handoff latency off the hot path.
+    if (isAssistantToolCallPhase) {
+      logger.info('[AgentChatService] Message added', {
+        messageId: doc.id,
+        threadId: params.threadId,
+        role: params.role,
+      });
+
+      return this.toMessage(doc);
+    }
+
     // Update thread metadata (last message time, count, last agent)
     // Must use $set + $inc explicitly — MongoDB rejects mixing bare fields with atomic operators
     const $set: Record<string, unknown> = {
@@ -845,7 +865,12 @@ export class AgentChatService {
 
     if (this.queueService) {
       try {
-        await this.queueService.enqueueThreadSummarization(params.threadId, params.userId);
+        await this.queueService.enqueueThreadSummarization(
+          params.threadId,
+          params.userId,
+          undefined,
+          resolveQueueEnvironment()
+        );
       } catch (err) {
         logger.warn('[AgentChatService] Failed to enqueue idle summarization', {
           threadId: params.threadId,

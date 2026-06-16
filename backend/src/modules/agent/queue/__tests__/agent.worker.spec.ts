@@ -1207,15 +1207,15 @@ describe('AgentWorker', () => {
     const payload = makePayload();
     const job = makeMockJob(payload);
 
-    let nextSeq = 1;
-    let resolveFirstPersist: ((value: number) => void) | null = null;
-    const firstPersistPromise = new Promise<number>((resolve) => {
+    let resolveFirstPersist: (() => void) | null = null;
+    const firstPersistPromise = new Promise<void>((resolve) => {
       resolveFirstPersist = resolve;
     });
 
-    mockJobRepo.writeJobEventWithAutoSeq
+    mockJobRepo.allocateEventSeqRange.mockImplementation(async () => 0);
+    mockJobRepo.writeJobEvent
       .mockImplementationOnce(async () => firstPersistPromise)
-      .mockImplementation(async () => nextSeq++);
+      .mockImplementation(async () => undefined);
 
     mockRouter.run.mockImplementationOnce(async (_p, _onUpdate, _db, onStreamEvent) => {
       onStreamEvent({ type: 'delta', text: 'hello ' });
@@ -1248,10 +1248,10 @@ describe('AgentWorker', () => {
     expect(liveDeltaPublishCount).toBeGreaterThan(0);
 
     await vi.waitFor(() => {
-      expect(mockJobRepo.writeJobEventWithAutoSeq).toHaveBeenCalledTimes(1);
+      expect(mockJobRepo.writeJobEvent).toHaveBeenCalledTimes(1);
     });
 
-    resolveFirstPersist?.(0);
+    resolveFirstPersist?.();
     await processingPromise;
 
     // After persistence completes, non-delta events should also be published

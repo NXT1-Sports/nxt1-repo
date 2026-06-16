@@ -63,6 +63,11 @@ import {
 } from '../utils/platform-identifier-sanitizer.js';
 import { parallelBatch } from '../utils/parallel-batch.js';
 import {
+  formatDocumentAttachmentLabel,
+  formatImageAttachmentLabel,
+  formatVideoAttachmentLabel,
+} from '../utils/format-prompt-attachments.js';
+import {
   getCachedAgentAppConfig,
   resolveAgentSystemPrompt,
   resolveSeasonInfo,
@@ -624,17 +629,15 @@ export abstract class BaseAgent {
   }
 
   private formatVideoAttachmentRef(video: SessionVideoAttachment): string {
-    const metadata = [
-      video.storagePath ? `storagePath: ${video.storagePath}` : null,
-      video.cloudflareVideoId ? `cloudflareVideoId: ${video.cloudflareVideoId}` : null,
-      video.cloudflareStatus ? `cloudflareStatus: ${video.cloudflareStatus}` : null,
-      typeof video.readyToStream === 'boolean'
-        ? `readyToStream: ${String(video.readyToStream)}`
-        : null,
-      video.thumbnailUrl ? `thumbnailUrl: ${video.thumbnailUrl}` : null,
-    ].filter((part): part is string => typeof part === 'string');
-    const metadataPart = metadata.length > 0 ? ` | ${metadata.join(' | ')}` : '';
-    return `[Attached video: ${video.name} — ${video.url}${metadataPart}]`;
+    return formatVideoAttachmentLabel({
+      name: video.name,
+      url: video.url,
+      ...(video.storagePath ? { storagePath: video.storagePath } : {}),
+      ...(video.cloudflareVideoId ? { cloudflareVideoId: video.cloudflareVideoId } : {}),
+      ...(video.cloudflareStatus ? { cloudflareStatus: video.cloudflareStatus } : {}),
+      ...(typeof video.readyToStream === 'boolean' ? { readyToStream: video.readyToStream } : {}),
+      ...(video.thumbnailUrl ? { thumbnailUrl: video.thumbnailUrl } : {}),
+    });
   }
 
   protected withConfiguredSystemPrompt(
@@ -890,8 +893,12 @@ export abstract class BaseAgent {
       const imageRefs = imageAttachments
         .map((attachment, index) => {
           const name = attachment.name?.trim() || `image-${index + 1}`;
-          const annotatedFlag = /-annotated-/i.test(name) ? ' | annotatedFrame: true' : '';
-          return `[Attached image: ${name} — ${attachment.url} | mimeType: ${attachment.mimeType}${annotatedFlag}]`;
+          return formatImageAttachmentLabel({
+            name,
+            url: attachment.url,
+            mimeType: attachment.mimeType,
+            ...(/-annotated-/i.test(name) ? { annotatedFrame: true } : {}),
+          });
         })
         .join('\n');
       intentText = `${intentText}\n\n${imageRefs}\nUse attached image URLs when calling image-analysis tools.`;
@@ -922,7 +929,13 @@ export abstract class BaseAgent {
     // Add simple references for all non-image attachments (for context)
     if (nonImageAttachments.length > 0) {
       const docRefs = nonImageAttachments
-        .map((a) => `[Attached document: ${a.mimeType} — ${a.url}]`)
+        .map((a) =>
+          formatDocumentAttachmentLabel({
+            name: a.name ?? 'document',
+            url: a.url,
+            mimeType: a.mimeType,
+          })
+        )
         .join('\n');
       intentText = `${intentText}\n\n${docRefs}`;
     }
@@ -4314,7 +4327,10 @@ export abstract class BaseAgent {
                 .join(' ')
             : '';
 
-      const annotationRe = /\[Attached (video|file|document): ([^\]]+)\]/g;
+      // Accepts both the legacy `[Attached video: ...]` format and the modern
+      // `[Attached video (already visible to user — do not re-embed): ...]`
+      // format produced by `formatVideoAttachmentLabel`.
+      const annotationRe = /\[Attached (video|file|document)(?:\s+\([^)]*\))?: ([^\]]+)\]/g;
       let match: RegExpExecArray | null;
       while ((match = annotationRe.exec(text)) !== null) {
         const attachType = match[1] === 'video' ? ('video' as const) : ('file' as const);

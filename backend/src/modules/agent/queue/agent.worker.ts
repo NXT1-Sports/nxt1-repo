@@ -45,6 +45,10 @@ import {
   resolveAgentApprovalCopy,
   resolveAgentSuccessNotificationCopy,
   formatApprovalRichPreview,
+  buildAttachmentUrlSet,
+  createStreamingSanitizer,
+  stripEchoedUserAttachments,
+  type StreamingSanitizer,
 } from '@nxt1/core';
 import type { AgentRouter } from '../agent.router.js';
 import type { AgentQueueJobData, AgentQueueJobResult, AgentJobProgress } from './queue.types.js';
@@ -1983,6 +1987,30 @@ export class AgentWorker {
     // to render a live "watch it work" chat experience.
     let pendingAutoOpenPanel: Record<string, unknown> | null = null;
 
+    // ── Echoed-attachment defense (Layer 3) ─────────────────────────────
+    // The system prompt forbids embedding user-provided media URLs back into the
+    // reply, but models occasionally regress. We strip any `<video>` / `<img>` /
+    // markdown image whose URL matches one of the user's own attachments, both
+    // from streaming deltas and from the persisted summary. This is a pure,
+    // tested helper from `@nxt1/core` so the logic is identical on every path.
+    const userAttachmentUrlSet: ReadonlySet<string> = (() => {
+      const ctx = payload.context as Record<string, unknown> | undefined;
+      const collect = (key: string): string[] => {
+        const raw = ctx?.[key];
+        if (!Array.isArray(raw)) return [];
+        const urls: string[] = [];
+        for (const entry of raw) {
+          if (entry && typeof entry === 'object') {
+            const url = (entry as { url?: unknown }).url;
+            if (typeof url === 'string' && url.length > 0) urls.push(url);
+          }
+        }
+        return urls;
+      };
+      return buildAttachmentUrlSet([...collect('attachments'), ...collect('videoAttachments')]);
+    })();
+    const streamingSanitizer: StreamingSanitizer = createStreamingSanitizer(userAttachmentUrlSet);
+
     const eventWriter = new DebouncedEventWriter(
       repo,
       payload.operationId,
@@ -1997,6 +2025,16 @@ export class AgentWorker {
         onLiveEvent: (event) => {
           // Handle deltas and thinking live (token-by-token); all other events go through onPersistedEvent
           if (event.type !== 'delta' && event.type !== 'thinking') return;
+
+          // Defense-in-depth: strip user-attachment URLs from streaming deltas
+          // before they ever leave the worker. The push() may hold a tail
+          // fragment that could start a `<video>` / `![]()` tag; that fragment
+          // is flushed once enough characters arrive (or on terminal event).
+          if (event.type === 'delta' && typeof event.text === 'string') {
+            const safeText = streamingSanitizer.push(event.text);
+            if (safeText.length === 0) return;
+            event = { ...event, text: safeText };
+          }
 
           if (!primaryFirstDeltaLogged && event.agentId === 'router') {
             primaryFirstDeltaLogged = true;
@@ -2819,7 +2857,40 @@ export class AgentWorker {
     // Thread titles are now generated at enqueue time via generateTitleFromPromptOnly
     // in the route handler. No LLM call or blocking needed here — the title_updated
     // SSE event is published by the route immediately after thread creation.
-    const summary = this.resolveResultSummary(result);
+    const rawSummary = this.resolveResultSummary(result);
+    // Strip any echoed user-attachment URLs from the persisted summary so the
+    // saved chat message matches the sanitized live stream. The streaming
+    // sanitizer's residual tail (if any) is also flushed to SSE below before
+    // the terminal `done` event is emitted.
+    const summary =
+      userAttachmentUrlSet.size > 0
+        ? stripEchoedUserAttachments(rawSummary, userAttachmentUrlSet)
+        : rawSummary;
+    const sanitizerTail = streamingSanitizer.flush();
+    if (sanitizerTail.length > 0) {
+      try {
+        const tailSse = this.streamEventToSSE(
+          {
+            type: 'delta',
+            agentId: finalAgentId,
+            text: sanitizerTail,
+            timestamp: new Date().toISOString(),
+          },
+          payload.operationId,
+          payloadThreadId
+        );
+        if (tailSse) {
+          await this.pubsub
+            .publish(payload.operationId, tailSse.event, tailSse.data)
+            .catch(() => undefined);
+        }
+      } catch (tailErr) {
+        logger.warn('Failed to flush streaming sanitizer tail', {
+          operationId: payload.operationId,
+          error: tailErr instanceof Error ? tailErr.message : String(tailErr),
+        });
+      }
+    }
 
     // Flush any pending data/delta events to subscribers, but DEFER the terminal
     // `operation` event until AFTER the Firestore write succeeds. This prevents
@@ -2864,7 +2935,7 @@ export class AgentWorker {
     };
     await job.updateProgress(terminalProgress);
 
-    logger.info('[DEBUGLOG] Final job result before persistence:', {
+    logger.info('Agent job result resolved before persistence', {
       operationId: payload.operationId,
       resultSummary: result.summary,
       operationStatus: resultData?.['operationStatus'],

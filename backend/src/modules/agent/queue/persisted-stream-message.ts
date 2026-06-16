@@ -190,11 +190,59 @@ export class PersistedAssistantStreamBuilder {
   }
 
   snapshot(): PersistedAssistantStreamSnapshot {
-    const parts = this.parts.filter((part, index) => {
-      if (part.type !== 'text' && part.type !== 'thinking') return true;
-      const agentId = this.partAgentIds[index];
-      return !agentId || !this.failedCoordinatorAgentIds.has(agentId);
-    });
+    // Step 1: drop draft text/thinking emitted by coordinators that later
+    // reported failure — those drafts must not leak into the persisted body.
+    const survivingIndices: number[] = [];
+    for (let i = 0; i < this.parts.length; i += 1) {
+      const part = this.parts[i];
+      if (!part) continue;
+      if (part.type !== 'text' && part.type !== 'thinking') {
+        survivingIndices.push(i);
+        continue;
+      }
+      const agentId = this.partAgentIds[i];
+      if (!agentId || !this.failedCoordinatorAgentIds.has(agentId)) {
+        survivingIndices.push(i);
+      }
+    }
+
+    // Step 2: collapse re-emitted answer bodies.
+    //
+    // After a tool call (e.g. ffmpeg merge → card emit), the underlying LLM
+    // commonly restates its full final answer in the next streaming pass —
+    // verbatim or with the previous text wholly contained in the new one.
+    // Without this pass the persisted message body ends up containing the
+    // same answer twice (matching what the user reported: a single Mongo
+    // message rendering the table + video card + "What's in it" section
+    // back-to-back). Keep only the most-complete text per agent.
+    const normalize = (value: string): string => value.replace(/\s+/g, ' ').trim();
+    const dropped = new Set<number>();
+    for (let a = 0; a < survivingIndices.length; a += 1) {
+      const idxA = survivingIndices[a]!;
+      const partA = this.parts[idxA]!;
+      if (partA.type !== 'text') continue;
+      const normalizedA = normalize(partA.content);
+      // Skip trivial fragments (handoff prose, single-token transitions);
+      // they're rarely duplicated and dropping them risks losing context.
+      if (normalizedA.length < 24) continue;
+      const agentA = this.partAgentIds[idxA];
+      for (let b = a + 1; b < survivingIndices.length; b += 1) {
+        const idxB = survivingIndices[b]!;
+        const partB = this.parts[idxB]!;
+        if (partB.type !== 'text') continue;
+        if (this.partAgentIds[idxB] !== agentA) continue;
+        const normalizedB = normalize(partB.content);
+        if (normalizedB.length === 0) continue;
+        if (normalizedB.includes(normalizedA)) {
+          dropped.add(idxA);
+          break;
+        }
+      }
+    }
+
+    const parts = survivingIndices
+      .filter((idx) => !dropped.has(idx))
+      .map((idx) => this.parts[idx]!);
     const content = parts
       .filter((part): part is Extract<AgentXMessagePart, { type: 'text' }> => part.type === 'text')
       .map((part) => part.content)

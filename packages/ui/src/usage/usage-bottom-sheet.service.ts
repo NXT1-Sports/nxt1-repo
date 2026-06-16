@@ -148,6 +148,8 @@ export class UsageBottomSheetService {
     autoTopupThresholdCents: number;
     autoTopupAmountCents: number;
     allowIap: boolean;
+    organizationId?: string;
+    hasSavedDefaultMethod?: boolean;
   }): Promise<{
     amountCents: number | null;
     autoTopup: { enabled: boolean; thresholdCents: number; amountCents: number } | null;
@@ -182,6 +184,8 @@ export class UsageBottomSheetService {
     autoTopupThresholdCents: number;
     autoTopupAmountCents: number;
     allowIap: boolean;
+    organizationId?: string;
+    hasSavedDefaultMethod?: boolean;
   }): Promise<BuyCreditsAutoTopupResult> {
     const result = await this.bottomSheet.openSheet<BuyCreditsAutoTopupResult>({
       component: BuyCreditsAutoTopupSheetComponent,
@@ -190,6 +194,8 @@ export class UsageBottomSheetService {
         initialThresholdCents: opts.autoTopupThresholdCents,
         initialAutoTopupAmountCents: opts.autoTopupAmountCents,
         showIapPayButton: opts.allowIap && this._buyCreditsIapHandler !== null,
+        organizationId: opts.organizationId ?? null,
+        hasSavedDefaultMethod: opts.hasSavedDefaultMethod ?? false,
       },
       ...SHEET_PRESETS.FULL,
       showHandle: true,

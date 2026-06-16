@@ -130,6 +130,55 @@ describe('AgentXOperationChatMessageFacade', () => {
     expect(loadThreadMessages).toHaveBeenCalledWith('thread-1');
   });
 
+  it('drops the streamed row when the persisted final message already exists locally', () => {
+    const persistedMessageId = '507f1f77bcf86cd799439011';
+    const persistedCard: AgentXRichCard = {
+      agentId: 'router',
+      type: 'billing-action',
+      title: 'Action Required',
+      payload: {
+        reason: 'payment_method_required',
+        description: 'Add a payment method to continue.',
+      },
+    };
+
+    facade.messages.set([
+      {
+        id: persistedMessageId,
+        role: 'assistant',
+        content: 'Add a payment method to continue.',
+        timestamp: new Date('2026-06-15T12:00:00.000Z'),
+        cards: [persistedCard],
+      },
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: 'Add a payment method to continue.',
+        timestamp: new Date('2026-06-15T12:00:01.000Z'),
+        cards: [persistedCard],
+      },
+    ]);
+
+    facade.finalizeStreamedAssistantMessage({
+      streamingId: 'typing',
+      messageId: persistedMessageId,
+      success: true,
+      threadId: 'thread-1',
+      source: 'sse-done',
+    });
+
+    expect(facade.messages()).toEqual([
+      {
+        id: persistedMessageId,
+        role: 'assistant',
+        content: 'Add a payment method to continue.',
+        timestamp: new Date('2026-06-15T12:00:00.000Z'),
+        cards: [persistedCard],
+      },
+    ]);
+    expect(loadThreadMessages).toHaveBeenCalledWith('thread-1');
+  });
+
   it('preserves streamed context when converting to an ask-user yield row', () => {
     const yieldState: AgentYieldState = {
       reason: 'needs_input',
@@ -324,6 +373,7 @@ describe('AgentXOperationChatMessageFacade', () => {
 
     expect(duplicatePreludeRows).toHaveLength(1);
     expect(committedRow?.steps?.map((step) => step.id)).toEqual(['tool-search-colleges']);
+    expect(committedRow?.semanticPhase).toBe('assistant_partial');
     expect(committedRow?.parts).toEqual([
       { type: 'text', content: 'Searching 5 football colleges for a QB in the 2028 class now...' },
     ]);

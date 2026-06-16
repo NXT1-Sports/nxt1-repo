@@ -855,22 +855,29 @@ export class UsageShellComponent implements OnInit, OnDestroy {
 
   protected async onBuyCredits(): Promise<void> {
     await this.haptics.impact('light');
+    const organizationId = this.svc.isOrgAdmin()
+      ? (this.svc.billingContext()?.organizationId ?? undefined)
+      : undefined;
+
+    this.svc.trackCreditPurchaseViewed(organizationId);
+
     const handler = this.buyCreditsHandler();
     if (handler) {
       await handler();
       return;
     }
+
+    this.svc.trackCreditPackageListViewed(organizationId);
+
     const { amountCents, autoTopup } = await this.usageBottomSheet.showBuyCreditsWithAutoTopup({
       autoTopupEnabled: this.svc.autoTopUpEnabled(),
       autoTopupThresholdCents: this.svc.autoTopUpThresholdCents(),
       autoTopupAmountCents: this.svc.autoTopUpAmountCents(),
       allowIap: this.svc.isPersonalBillingMode(),
+      organizationId,
+      hasSavedDefaultMethod: this.svc.defaultPaymentMethod() !== null,
     });
     if (amountCents !== null) {
-      // Pass organizationId for org admins so the top-up targets the org wallet
-      const organizationId = this.svc.isOrgAdmin()
-        ? (this.svc.billingContext()?.organizationId ?? undefined)
-        : undefined;
       await this.svc.buyCredits(amountCents, organizationId);
     }
     if (autoTopup !== null) {
@@ -944,6 +951,7 @@ export class UsageShellComponent implements OnInit, OnDestroy {
 
   protected async onManageBilling(): Promise<void> {
     await this.haptics.impact('light');
+    this.svc.trackPaymentInfoAdded('usage_manage_billing');
     await this.svc.openBillingPortal();
   }
 }
