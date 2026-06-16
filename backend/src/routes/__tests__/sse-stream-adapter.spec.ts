@@ -28,6 +28,15 @@ function parseStepPayloads(writes: readonly string[]): Array<Record<string, unkn
     );
 }
 
+function parseMediaPayloads(writes: readonly string[]): Array<Record<string, unknown>> {
+  return writes
+    .filter((chunk) => chunk.startsWith('event: media\n'))
+    .map(
+      (chunk) =>
+        JSON.parse(chunk.slice('event: media\ndata: '.length).trim()) as Record<string, unknown>
+    );
+}
+
 describe('buildSseStreamCallback', () => {
   it('renders canonical step ids and labels while ignoring tool_call placeholder events', () => {
     const { writes, response } = createResponseRecorder();
@@ -148,5 +157,40 @@ describe('buildSseStreamCallback', () => {
         status: 'success',
       })
     );
+  });
+
+  it('includes thumbnailUrl on media events for generated videos', () => {
+    const { writes, response } = createResponseRecorder();
+    const streamRef: SseStreamRef = {
+      invokedTools: [],
+      successfulTools: [],
+      model: '',
+      tokenUsage: undefined,
+      pendingAutoOpenPanel: null,
+    };
+
+    const onStreamEvent = buildSseStreamCallback(response, streamRef);
+
+    onStreamEvent({
+      type: 'tool_result',
+      stepId: 'call_video',
+      toolName: 'ffmpeg_merge_videos',
+      toolSuccess: true,
+      message: 'Merge Videos',
+      toolResult: {
+        outputUrl: 'https://cdn.example.com/generated/highlight.mp4',
+        thumbnailUrl: 'https://cdn.example.com/generated/highlight-thumb.jpg',
+        mimeType: 'video/mp4',
+      },
+    });
+
+    expect(parseMediaPayloads(writes)).toEqual([
+      {
+        type: 'video',
+        url: 'https://cdn.example.com/generated/highlight.mp4',
+        mimeType: 'video/mp4',
+        thumbnailUrl: 'https://cdn.example.com/generated/highlight-thumb.jpg',
+      },
+    ]);
   });
 });
