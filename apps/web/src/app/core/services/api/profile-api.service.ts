@@ -74,7 +74,7 @@ export class ProfileService {
    */
   getMe(): Observable<ApiResponse<User>> {
     return from(
-      this.performance.trace(TRACE_NAMES.PROFILE_LOAD, () => this.api.getMe({ lite: true }), {
+      this.performance.trace(TRACE_NAMES.PROFILE_LOAD, () => this.api.getMe(), {
         attributes: {
           [ATTRIBUTE_NAMES.FEATURE_NAME]: 'profile_me',
         },
@@ -89,7 +89,7 @@ export class ProfileService {
     return from(
       this.performance.trace(
         TRACE_NAMES.PROFILE_LOAD,
-        () => this.api.getProfileByUnicode(unicode, { lite: true }),
+        () => this.api.getProfileByUnicode(unicode),
         {
           attributes: {
             [ATTRIBUTE_NAMES.FEATURE_NAME]: 'profile_view',
@@ -106,16 +106,12 @@ export class ProfileService {
    */
   getProfile(userId: string): Observable<ApiResponse<User>> {
     return from(
-      this.performance.trace(
-        TRACE_NAMES.PROFILE_LOAD,
-        () => this.api.getProfile(userId, { lite: true }),
-        {
-          attributes: {
-            [ATTRIBUTE_NAMES.FEATURE_NAME]: 'profile_view',
-            profile_id: userId,
-          },
-        }
-      )
+      this.performance.trace(TRACE_NAMES.PROFILE_LOAD, () => this.api.getProfile(userId), {
+        attributes: {
+          [ATTRIBUTE_NAMES.FEATURE_NAME]: 'profile_view',
+          profile_id: userId,
+        },
+      })
     );
   }
 

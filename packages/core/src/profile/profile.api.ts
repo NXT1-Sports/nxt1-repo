@@ -166,37 +166,26 @@ export type ProfileApi = ReturnType<typeof createProfileApi>;
  * Create Profile API instance
  */
 export function createProfileApi(http: HttpAdapter, baseUrl: string) {
-  const buildProfileQuery = (lite?: boolean): string => (lite ? '?lite=true' : '');
-
   return {
     /**
      * Get user profile by ID
      */
-    async getProfile(userId: string, options?: { lite?: boolean }): Promise<ApiResponse<User>> {
-      return http.get<ApiResponse<User>>(
-        `${baseUrl}/auth/profile/${userId}${buildProfileQuery(options?.lite)}`
-      );
+    async getProfile(userId: string): Promise<ApiResponse<User>> {
+      return http.get<ApiResponse<User>>(`${baseUrl}/auth/profile/${userId}`);
     },
 
     /**
      * Get current authenticated user's own profile
      */
-    async getMe(options?: { lite?: boolean }): Promise<ApiResponse<User>> {
-      return http.get<ApiResponse<User>>(
-        `${baseUrl}/auth/profile/me${buildProfileQuery(options?.lite)}`
-      );
+    async getMe(): Promise<ApiResponse<User>> {
+      return http.get<ApiResponse<User>>(`${baseUrl}/auth/profile/me`);
     },
 
     /**
      * Get user profile by unicode (shareable profile code)
      */
-    async getProfileByUnicode(
-      unicode: string,
-      options?: { lite?: boolean }
-    ): Promise<ApiResponse<User>> {
-      return http.get<ApiResponse<User>>(
-        `${baseUrl}/auth/profile/unicode/${unicode}${buildProfileQuery(options?.lite)}`
-      );
+    async getProfileByUnicode(unicode: string): Promise<ApiResponse<User>> {
+      return http.get<ApiResponse<User>>(`${baseUrl}/auth/profile/unicode/${unicode}`);
     },
 
     /**
