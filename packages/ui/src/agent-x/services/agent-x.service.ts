@@ -1640,14 +1640,19 @@ export class AgentXService {
   }
 
   private stripPersistedAttachmentAnnotations(content: string): string {
-    return content
-      .replace(/\n\n\[Attached (?:file|video): .+/gs, '')
-      .replace(/\n\n\[Connected sources available[^\]]*\]/gs, '')
-      .replace(
-        /\n\[Instruction: treat these as user-connected sources for this request; do not state they are missing\.\]/gs,
-        ''
-      )
-      .trim();
+    return (
+      content
+        // Strip [Attached video: ...] / [Attached file: ...] annotations, including
+        // the modern "(already visible to user — do not re-embed)" suffix appended
+        // by `formatVideoAttachmentLabel` / `formatFileAttachmentLabel` in the backend.
+        .replace(/\n\n\[Attached (?:file|video)(?:\s+\([^)]*\))?: .+/gs, '')
+        .replace(/\n\n\[Connected sources available[^\]]*\]/gs, '')
+        .replace(
+          /\n\[Instruction: treat these as user-connected sources for this request; do not state they are missing\.\]/gs,
+          ''
+        )
+        .trim()
+    );
   }
 
   private mapPersistedMessageToUi(message: AgentMessage): AgentXMessage {

@@ -129,7 +129,7 @@ function isOpenableHttpUrl(url: string | null | undefined): boolean {
  * Builds an inline video preview with a play-icon overlay.
  * No controls — tapping opens the full media viewer.
  */
-function buildVideoThumb(safeHref: string, label: string): string {
+function buildVideoThumb(safeHref: string, label: string, posterUrl?: string): string {
   const previewSrc = safeHref.includes('#') ? safeHref : `${safeHref}#t=0.001`;
   // Play triangle SVG (circle + triangle)
   const playIcon =
@@ -138,8 +138,13 @@ function buildVideoThumb(safeHref: string, label: string): string {
     `<polygon points="17,13 35,22 17,31" fill="#fff"/>` +
     `</svg>`;
 
+  const posterHtml = posterUrl
+    ? `<img class="md-video-poster" src="${escapeAttr(posterUrl)}" alt="" aria-hidden="true" />`
+    : `<div class="md-video-poster" aria-hidden="true"></div>`;
+
   return (
     `<div class="md-video-wrap" data-md-video-src="${safeHref}" role="button" tabindex="0" aria-label="${escapeAttr(label || 'Play video')}">` +
+    posterHtml +
     `<video class="md-video-preview" src="${previewSrc}" muted playsinline preload="metadata" aria-hidden="true"></video>` +
     `<div class="md-video-play" aria-hidden="true">${playIcon}</div>` +
     `</div>`
@@ -153,7 +158,14 @@ function createNxtRenderer(): Renderer {
   //          if href is a bare image URL (text === href), render inline <img>;
   //          otherwise open in new tab.
   renderer.link = ({ href, title, text }) => {
-    const normalizedHref = normalizeTrackedLink(href);
+    let normalizedHref = normalizeTrackedLink(href);
+
+    let posterUrl = '';
+    if (normalizedHref && normalizedHref.includes('#poster=')) {
+      const parts = normalizedHref.split('#poster=');
+      normalizedHref = parts[0];
+      posterUrl = decodeURIComponent(parts[1] ?? '');
+    }
 
     // Block javascript: protocol to prevent XSS
     const safeHref =
@@ -164,7 +176,7 @@ function createNxtRenderer(): Renderer {
     const displayText = href && normalizedHref && text === href ? normalizedHref : text;
 
     if (isInlineVideoPreviewUrl(normalizedHref)) {
-      return buildVideoThumb(safeHref, displayText);
+      return buildVideoThumb(safeHref, displayText, posterUrl);
     }
 
     // When the AI outputs a bare image URL (e.g. Firebase Storage) the GFM
@@ -186,10 +198,17 @@ function createNxtRenderer(): Renderer {
 
   // Images → if src is actually a video URL (model used ![]() with .mp4), render thumb
   renderer.image = ({ href, title, text }) => {
-    const normalizedHref = normalizeTrackedLink(href) ?? href ?? '';
+    let normalizedHref = normalizeTrackedLink(href) ?? href ?? '';
+    let posterUrl = '';
+    if (normalizedHref.includes('#poster=')) {
+      const parts = normalizedHref.split('#poster=');
+      normalizedHref = parts[0] ?? '';
+      posterUrl = decodeURIComponent(parts[1] ?? '');
+    }
+
     const safeHref = escapeAttr(normalizedHref);
     if (isInlineVideoPreviewUrl(normalizedHref)) {
-      return buildVideoThumb(safeHref, text);
+      return buildVideoThumb(safeHref, text, posterUrl);
     }
     const titleAttr = title ? ` title="${escapeAttr(title)}"` : '';
     const altAttr = escapeAttr(text ?? '');
@@ -724,19 +743,35 @@ const markedInstance = new Marked({
         aspect-ratio: 16 / 9;
         border-radius: var(--nxt1-ui-radius-default, 8px);
         overflow: hidden;
-        background:
-          radial-gradient(circle at 30% 22%, rgba(204, 255, 0, 0.18), transparent 34%),
-          linear-gradient(135deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.035)), #111;
+        background: #000;
         margin: var(--nxt1-spacing-2, 0.5rem) 0;
         cursor: pointer;
       }
 
-      nxt1-markdown .md .md-video-preview {
+      nxt1-markdown .md .md-video-poster {
+        position: absolute;
+        inset: 0;
         display: block;
         width: 100%;
         height: 100%;
         object-fit: cover;
-        background: #000;
+        pointer-events: none;
+      }
+
+      div.md-video-poster {
+        background:
+          radial-gradient(circle at 30% 22%, rgba(204, 255, 0, 0.18), transparent 34%),
+          linear-gradient(135deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.035)), #111;
+      }
+
+      nxt1-markdown .md .md-video-preview {
+        position: absolute;
+        inset: 0;
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        background: transparent;
         pointer-events: none;
       }
 

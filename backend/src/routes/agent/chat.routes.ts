@@ -78,6 +78,10 @@ import {
   enrichIntentWithSelectedContexts,
   normalizeSelectedContextsForPayload,
 } from './chat-context.helpers.js';
+import {
+  formatFileAttachmentLabel,
+  formatVideoAttachmentLabel,
+} from '../../modules/agent/utils/format-prompt-attachments.js';
 
 const router = Router();
 
@@ -1205,20 +1209,11 @@ function buildAttachmentArrays(
     enrichedText = `${enrichedText}\n\n[Connected sources available (confirmed by user for this turn): ${sourceRefs}]\n[Instruction: treat these as user-connected sources for this request; do not state they are missing.]`;
   }
   if (videoAttachments.length > 0) {
-    const videoRefs = videoAttachments
-      .map((v) => {
-        const cloudflareHint = v.cloudflareVideoId
-          ? ` | cloudflareVideoId: ${v.cloudflareVideoId}`
-          : '';
-        return `[Attached video: ${v.name} — ${v.url}${cloudflareHint}]`;
-      })
-      .join('\n');
+    const videoRefs = videoAttachments.map((v) => formatVideoAttachmentLabel(v)).join('\n');
     enrichedText = `${enrichedText}\n\n${videoRefs}`;
   }
   if (fileAttachments.length > 0) {
-    const fileRefs = fileAttachments
-      .map((f) => `[Attached file: ${f.name} (${f.mimeType}) — ${f.url}]`)
-      .join('\n');
+    const fileRefs = fileAttachments.map((f) => formatFileAttachmentLabel(f)).join('\n');
     enrichedText = `${enrichedText}\n\n${fileRefs}`;
   }
 
@@ -4632,20 +4627,11 @@ router.post(
         enrichedMessageText = `${enrichedMessageText}\n\n[Connected sources available (confirmed by user for this turn): ${sourceRefs}]\n[Instruction: treat these as user-connected sources for this request; do not state they are missing.]`;
       }
       if (videoAttachments.length > 0) {
-        const videoRefs = videoAttachments
-          .map((v) => {
-            const cloudflareHint = v.cloudflareVideoId
-              ? ` | cloudflareVideoId: ${v.cloudflareVideoId}`
-              : '';
-            return `[Attached video: ${v.name} — ${v.url}${cloudflareHint}]`;
-          })
-          .join('\n');
+        const videoRefs = videoAttachments.map((v) => formatVideoAttachmentLabel(v)).join('\n');
         enrichedMessageText = `${enrichedMessageText}\n\n${videoRefs}`;
       }
       if (fileAttachments.length > 0) {
-        const fileRefs = fileAttachments
-          .map((f) => `[Attached file: ${f.name} (${f.mimeType}) — ${f.url}]`)
-          .join('\n');
+        const fileRefs = fileAttachments.map((f) => formatFileAttachmentLabel(f)).join('\n');
         enrichedMessageText = `${enrichedMessageText}\n\n${fileRefs}`;
       }
 
@@ -5071,13 +5057,10 @@ router.post(
           };
           if (isVideoAttachment(stub)) {
             videoAttachments.push(agentAttachment);
-            const cloudflareHint = agentAttachment.cloudflareVideoId
-              ? ` | cloudflareVideoId: ${agentAttachment.cloudflareVideoId}`
-              : '';
-            enrichedMessageText += `\n\n[Attached video: ${agentAttachment.name} — ${agentAttachment.url}${cloudflareHint}]`;
+            enrichedMessageText += `\n\n${formatVideoAttachmentLabel(agentAttachment)}`;
           } else {
             fileAttachments.push(agentAttachment);
-            enrichedMessageText += `\n\n[Attached file: ${agentAttachment.name} (${agentAttachment.mimeType}) — ${agentAttachment.url}]`;
+            enrichedMessageText += `\n\n${formatFileAttachmentLabel(agentAttachment)}`;
           }
         }
 

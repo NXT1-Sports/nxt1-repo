@@ -1799,7 +1799,9 @@ describe('Agent X Routes', () => {
     expect(payload.intent).toContain('ffmpeg_trim_video');
     expect(payload.intent).toContain('[User request and attached context]');
     expect(payload.intent).toContain('Make me a grade A highlight reel from this upload');
-    expect(payload.intent).toContain('[Attached video: highlight-source.mp4');
+    expect(payload.intent).toContain(
+      '[Attached video (already visible to user — do not re-embed): highlight-source.mp4'
+    );
     expect(payload.intent).toContain('cloudflareVideoId: cf-highlight-123');
     expect(payload.intent).toContain('Do not ignore attachments');
     expect(payload.context?.selectedAction).toMatchObject({

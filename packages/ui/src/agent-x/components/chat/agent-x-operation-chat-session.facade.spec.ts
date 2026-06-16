@@ -61,6 +61,11 @@ type Canonicalizer = {
       readonly replayOperationIds: ReadonlySet<string>;
     }
   ): boolean;
+  shouldPreserveTypingAfterThreadReload(
+    existingTyping: OperationMessage,
+    persistedRows: readonly OperationMessage[],
+    liveOperationId: string | null
+  ): boolean;
   hasMongoFinalForOperation(items: readonly AgentMessage[], operationId: string | null): boolean;
   collectMessageMedia(message: AgentMessage): {
     imageUrl?: string;
@@ -902,6 +907,60 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
           existingTyping,
           replayOperationIds: new Set(['firestore-live-op']),
         }
+      )
+    ).toBe(true);
+  });
+
+  it('drops stale typing bubble when thread reload contains the same-operation final row', () => {
+    const existingTyping: OperationMessage = {
+      id: 'typing',
+      role: 'assistant',
+      operationId: 'chat-local-video-op',
+      content: 'Crown Point Bulldogs — Highlight Video Complete',
+      timestamp: new Date('2026-06-15T18:53:20.000Z'),
+    };
+
+    const persistedFinal: OperationMessage = {
+      id: 'mongo-final',
+      role: 'assistant',
+      operationId: 'chat-local-video-op',
+      semanticPhase: 'assistant_final',
+      content: 'Crown Point Bulldogs — Highlight Video Complete',
+      timestamp: new Date('2026-06-15T18:53:25.000Z'),
+    };
+
+    expect(
+      facade.shouldPreserveTypingAfterThreadReload(
+        existingTyping,
+        [persistedFinal],
+        'chat-local-video-op'
+      )
+    ).toBe(false);
+  });
+
+  it('preserves typing bubble when no same-operation final row exists yet', () => {
+    const existingTyping: OperationMessage = {
+      id: 'typing',
+      role: 'assistant',
+      operationId: 'chat-live-op',
+      content: 'Still working...',
+      timestamp: new Date('2026-06-15T18:53:20.000Z'),
+    };
+
+    const persistedToolCall: OperationMessage = {
+      id: 'mongo-tool-call',
+      role: 'assistant',
+      operationId: 'chat-live-op',
+      semanticPhase: 'assistant_tool_call',
+      content: 'Still working...',
+      timestamp: new Date('2026-06-15T18:53:21.000Z'),
+    };
+
+    expect(
+      facade.shouldPreserveTypingAfterThreadReload(
+        existingTyping,
+        [persistedToolCall],
+        'chat-live-op'
       )
     ).toBe(true);
   });

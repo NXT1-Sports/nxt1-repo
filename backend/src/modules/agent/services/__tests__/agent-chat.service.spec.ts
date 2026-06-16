@@ -169,6 +169,40 @@ describe('AgentChatService', () => {
     );
   });
 
+  it('fast-paths assistant_tool_call rows without thread metadata or summarization work', async () => {
+    const queueService = {
+      enqueueThreadSummarization: vi.fn().mockResolvedValue('job-1'),
+    };
+    const service = new AgentChatService(queueService as never);
+    const message = {
+      _id: 'msg-tool-call',
+      threadId: '6a20f3b8db16e0ce56f0dbde',
+      userId: 'user-123',
+      role: 'assistant',
+      content: '',
+      origin: 'agent_chain',
+      agentId: 'router',
+      createdAt: '2026-06-15T12:00:00.000Z',
+      semanticPhase: 'assistant_tool_call',
+    };
+
+    vi.mocked(AgentMessageModel.create).mockResolvedValueOnce(message as never);
+
+    const result = await service.addMessage({
+      threadId: '6a20f3b8db16e0ce56f0dbde',
+      userId: 'user-123',
+      role: 'assistant',
+      content: '',
+      origin: 'agent_chain',
+      agentId: 'router',
+      semanticPhase: 'assistant_tool_call',
+    });
+
+    expect(result.id).toBe('msg-tool-call');
+    expect(AgentThreadModel.updateOne).not.toHaveBeenCalled();
+    expect(queueService.enqueueThreadSummarization).not.toHaveBeenCalled();
+  });
+
   it('replaces short fresh placeholder titles with generated titles', async () => {
     const service = new AgentChatService();
 

@@ -821,18 +821,35 @@ BEFORE you answer — your training data is stale.
   (timelines, comparisons, plans). Otherwise prefer plain text.
 - End most replies with the clearest single next action the user can take.
 
-# Handling Tool-Generated Files
+# Handling Media in Replies
 
-- When a tool produces a generated asset, you MUST embed or link it directly in
-  the same response. Use the format that matches the asset type:
-  - **Images** — embed inline: ![description](https://your-url) — renders as a visible image in the chat
-  - **Videos** — embed inline using an HTML video tag: <video src="https://your-url" controls playsinline muted></video> — renders as a playable player in the chat
-  - **PDFs / CSVs / documents** — clickable download link: Download: [filename.ext](https://your-url)
-- If a tool returns multiple assets, embed/link each one separately.
-- Do NOT say "it should appear in the attachment strip" or imply the UI will
-  automatically show anything for you — always include the actual embed or link.
-- Regular web URLs (articles, sources, external links, citations) are fine to
-  include in text as normal.`;
+You will encounter TWO kinds of media URLs in a turn. They are handled OPPOSITELY:
+
+1) TOOL-GENERATED ASSETS (your output — MUST embed)
+   When YOUR tool call produced a new asset in this turn (image, video, PDF),
+   embed or link it so the user can see it:
+   - **Images** — embed inline: ![description](https://your-url)
+   - **Videos** — embed inline as HTML: <video src="https://your-url" controls playsinline muted></video>
+   - **PDFs / CSVs / documents** — clickable download link: Download: [filename.ext](https://your-url)
+   If a tool returns multiple assets, embed/link each one separately.
+
+2) USER-PROVIDED ATTACHMENTS (already on the user's screen — DO NOT embed)
+   When the user message contains "[Attached video: ...]", "[Attached image: ...]",
+   or "[Attached file: ...]" lines (often suffixed with "already visible to user
+   — do not re-embed"), those assets are ALREADY rendered in the chat above
+   your reply. You MUST NOT:
+   - Output a <video> tag, <img> tag, or ![]() markdown that points at
+     the attachment URL.
+   - Restate the raw attachment URL anywhere in your prose.
+   You MAY:
+   - Refer to them by name ("your IMG_0195.MOV clip", "the photo you shared").
+   - Pass their URLs into tool calls (analyze_video, write_athlete_videos, etc.).
+   The "[Attached ...]" lines are context for YOU, not content to repeat to the user.
+
+Do NOT say "it should appear in the attachment strip" or imply the UI will
+automatically show a tool-generated asset — always include the actual embed/link
+for case (1). Regular web URLs (articles, sources, external links, citations)
+are fine to include in prose as normal.`;
 
 // ─── Pure Composer ───────────────────────────────────────────────────────────
 

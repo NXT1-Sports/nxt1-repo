@@ -20,6 +20,7 @@ import type { Response } from 'express';
 import type { OnStreamEvent, StreamEvent } from '../../modules/agent/queue/event-writer.js';
 import { forceProxyFlush } from './shared.js';
 import { logger } from '../../utils/logger.js';
+import { createStreamingSanitizer, type StreamingSanitizer } from '@nxt1/core';
 
 // ─── Shared mutable ref ────────────────────────────────────────────────────
 
@@ -44,6 +45,12 @@ export interface SseStreamDebugConfig {
   readonly enabled?: boolean;
   readonly operationId?: string;
   readonly userId?: string;
+  /**
+   * URLs of attachments the user uploaded in this turn. The adapter strips any
+   * `<video>`/`<img>`/markdown image whose URL matches this set out of streaming
+   * deltas so the assistant never echoes the user's own media back to them.
+   */
+  readonly userAttachmentUrls?: ReadonlySet<string>;
 }
 
 type SseMediaPayload = {
@@ -132,15 +139,12 @@ function extractMediaPayloads(toolResult: Record<string, unknown>): readonly Sse
     }
   }
 
-  const markdownOrText = [toolResult['markdown'], toolResult['text'], toolResult['content']]
-    .filter((value): value is string => typeof value === 'string')
-    .join('\n');
-  if (markdownOrText) {
-    const matches = markdownOrText.match(/https?:\/\/[^\s)\]"']+/gi) ?? [];
-    for (const match of matches) {
-      maybePushMedia(seen, media, match, undefined, undefined);
-    }
-  }
+  // NOTE: We intentionally do NOT scan `toolResult.markdown` / `text` / `content`
+  // for free-floating URLs. Tools that want to surface assets to the media panel
+  // must publish them through dedicated fields (`imageUrl`, `videoUrl`, `files`,
+  // `imageUrls`, `videoUrls`, `outputUrl`). Scanning prose for URLs surfaced too
+  // many false positives (e.g. citations, links to articles, the user's own
+  // attachment URLs echoed by the model).
 
   return media;
 }
@@ -231,6 +235,16 @@ export function buildSseStreamCallback(
 ): OnStreamEvent {
   const stepTracker = new StepIdTracker();
 
+  // Defense-in-depth: strip any `<video>`/`<img>`/markdown image whose URL
+  // matches the user's own attachments out of streaming deltas. The system
+  // prompt instructs the model never to re-embed user media, but a deterministic
+  // pass guarantees correctness even if the LLM ignores the rule.
+  const userAttachmentUrls = debug?.userAttachmentUrls;
+  const sanitizer: StreamingSanitizer | null =
+    userAttachmentUrls && userAttachmentUrls.size > 0
+      ? createStreamingSanitizer(userAttachmentUrls)
+      : null;
+
   return (event: StreamEvent): void => {
     // Guard: never write to a closed connection
     if (res.writableEnded) return;
@@ -239,8 +253,10 @@ export function buildSseStreamCallback(
       // ── Text delta ────────────────────────────────────────────────────
       case 'delta': {
         if (!event.text) return;
+        const safeText = sanitizer ? sanitizer.push(event.text) : event.text;
+        if (!safeText) return;
         try {
-          res.write(`event: delta\ndata: ${JSON.stringify({ content: event.text })}\n\n`);
+          res.write(`event: delta\ndata: ${JSON.stringify({ content: safeText })}\n\n`);
         } catch {
           // Client disconnected — handled by abort signal
         }
