@@ -24,6 +24,9 @@ const SIGNIN_PLATFORM_SUFFIX = '_signin';
 
 function normalizeRequestedAccountPlatform(platform: string): string {
   const normalized = platform.trim().toLowerCase();
+  if (!normalized) {
+    return '';
+  }
   return normalized.endsWith(SIGNIN_PLATFORM_SUFFIX)
     ? normalized.slice(0, -SIGNIN_PLATFORM_SUFFIX.length)
     : normalized;

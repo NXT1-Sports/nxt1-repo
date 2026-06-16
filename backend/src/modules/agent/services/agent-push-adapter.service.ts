@@ -41,7 +41,8 @@ function resolveDateKey(value?: string): string {
 }
 
 function withOptionalThreadId(threadId?: string): { readonly threadId?: string } {
-  return threadId ? { threadId } : {};
+  const normalized = threadId?.trim();
+  return normalized ? { threadId: normalized } : {};
 }
 
 function validateIntent(intent: AgentPushIntent): void {
