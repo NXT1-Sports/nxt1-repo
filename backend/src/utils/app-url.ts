@@ -1,7 +1,19 @@
 import { getRuntimeEnvironment, type RuntimeEnvironment } from '../config/runtime-environment.js';
 
-const DEFAULT_STAGING_APP_URL = 'https://nxt1-repo--nxt-1-staging-v2.us-central1.hosted.app';
+const DEFAULT_STAGING_APP_URL = 'https://nxt-1-staging-v2.web.app';
 const DEFAULT_PRODUCTION_APP_URL = 'https://nxt1sports.com';
+
+const DEFAULT_ALLOWED_ORIGINS = new Set<string>([
+  'https://staging.nxt1sports.com',
+  'https://nxt1sports.com',
+  'https://www.nxt1sports.com',
+  'https://nxt-1-staging-v2.web.app',
+  'https://nxt-1-staging-v2.firebaseapp.com',
+  'https://nxt1-repo--nxt-1-staging-v2.us-east4.hosted.app',
+  'https://nxt1-repo--nxt-1-staging-v2.us-central1.hosted.app',
+  'https://nxt-1-v2.web.app',
+  'https://nxt-1-v2.firebaseapp.com',
+]);
 
 function normalizeBaseUrl(value: string | undefined): string | undefined {
   if (typeof value !== 'string') return undefined;
@@ -96,6 +108,7 @@ function isLocalDevelopmentOrigin(origin: string): boolean {
 
 function isAllowedConfiguredOrigin(origin: string): boolean {
   const allowedOrigins = new Set<string>([
+    ...DEFAULT_ALLOWED_ORIGINS,
     ...parseOriginList(process.env['CORS_ORIGINS']),
     ...parseOriginList(process.env['STAGING_ALLOWED_FRONTEND_ORIGINS']),
   ]);

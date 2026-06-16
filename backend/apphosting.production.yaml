@@ -34,6 +34,14 @@ env:
     value: 'production'
   - variable: BACKEND_URL
     value: 'https://api.nxt1sports.com'
+  - variable: PUBLIC_URL
+    value: 'https://nxt1sports.com'
+  - variable: ALLOWED_FRONTEND_ORIGINS
+    value: 'https://nxt1sports.com,https://www.nxt1sports.com,https://nxt-1-v2.web.app,https://nxt-1-v2.firebaseapp.com'
+  - variable: STAGING_APP_URL
+    value: 'https://staging.nxt1sports.com'
+  - variable: STAGING_ALLOWED_FRONTEND_ORIGINS
+    value: 'https://staging.nxt1sports.com,https://nxt-1-staging-v2.web.app,https://nxt-1-staging-v2.firebaseapp.com,https://nxt1-repo--nxt-1-staging-v2.us-east4.hosted.app,https://nxt1-repo--nxt-1-staging-v2.us-central1.hosted.app'
   - variable: NOTION_SIGNUP_DASHBOARD_ENABLED
     value: 'true'
   - variable: NOTION_SIGNUP_DASHBOARD_DATABASE_ID
