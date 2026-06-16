@@ -36,6 +36,8 @@ import {
 } from '@angular/core';
 import { isPlatformBrowser } from '@angular/common';
 import { DomSanitizer, type SafeHtml, type SafeResourceUrl } from '@angular/platform-browser';
+import type Hls from 'hls.js';
+import type { ErrorData } from 'hls.js';
 import { ModalController } from '@ionic/angular/standalone';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { APP_EVENTS } from '@nxt1/core/analytics';
@@ -186,7 +188,7 @@ import type { MediaImageFormat } from '../../services/media';
         @for (item of items; track item.url; let i = $index) {
           <div class="media-slide" [attr.data-testid]="testIds.SLIDE">
             @if (item.type === 'video') {
-              @if (resolveCloudflareEmbedUrl(item.url); as cloudflareEmbedUrl) {
+              @if (getCloudflareIframeFallbackUrl(item, i); as cloudflareEmbedUrl) {
                 <iframe
                   class="media-video media-video--iframe"
                   [attr.data-testid]="testIds.VIDEO"
@@ -201,7 +203,7 @@ import type { MediaImageFormat } from '../../services/media';
                   class="media-video"
                   [attr.data-slide-index]="i"
                   [attr.data-testid]="testIds.VIDEO"
-                  [src]="item.url"
+                  [src]="getInitialVideoSourceUrl(item, i)"
                   [poster]="item.poster ?? ''"
                   playsinline
                   preload="auto"
@@ -1713,6 +1715,8 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   protected readonly videoDuration = signal(0);
   protected readonly videoIsPlaying = signal(false);
   protected readonly videoPlaybackRate = signal(1);
+  protected readonly inlineVideoFullscreen = signal(false);
+  protected readonly cloudflareNativePlaybackFailed = signal<Record<number, true>>({});
   protected readonly videoPlaybackRates = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
   private readonly _saving = signal(false);
   protected readonly primaryActionBusy = signal(false);
@@ -1728,6 +1732,16 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   private smoothProgressFrameId: number | null = null;
   private pendingSeekFrameId: number | null = null;
   private pendingSeekTime: number | null = null;
+  private currentVideoSourceIndex: number | null = null;
+  private currentVideoSourceUrl: string | null = null;
+  private videoSourceSyncToken = 0;
+  private hls: Hls | null = null;
+  private hlsConstructor: typeof Hls | null = null;
+  private hlsLoadPromise: Promise<typeof Hls | null> | null = null;
+  private _fullscreenChangeHandler: (() => void) | null = null;
+  private _androidFsBackHandler: ((ev: Event) => void) | null = null;
+  private iosViewportResetScrollGuard: (() => void) | null = null;
+  private readonly iosViewportResetTimeoutIds: number[] = [];
 
   protected readonly totalItems = computed(() => this.items.length);
   protected readonly currentItem = computed(() => this.items[this.currentIndex()] ?? null);
@@ -1737,7 +1751,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   protected readonly showCustomVideoControls = computed(() => {
     const item = this.currentItem();
     if (!item || item.type !== 'video') return false;
-    return this.resolveCloudflareEmbedUrl(item.url) === null;
+    return this.resolveNativeVideoUrl(item, this.currentIndex()) !== null;
   });
   protected readonly isPlaybookVariant = computed(() => this.variant === 'playbook-breakdown');
   protected readonly currentBreakdown = computed<MediaViewerBreakdown | null>(
@@ -1790,6 +1804,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
           this.scrollToIndex(clamped, false);
         }
         this.focusViewer();
+        this.scheduleCurrentVideoSourceSync();
         this.syncCurrentVideoStateFromDom();
       });
     }
@@ -1957,6 +1972,17 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.stopSmoothProgressTracking();
     this.cancelPendingVideoSeek();
+    this.destroyHls();
+    this.setInlineVideoFullscreenState(false);
+    this.clearIosViewportResetGuards();
+    this._resetIosViewportShift();
+    if (isPlatformBrowser(this.platformId) && this._fullscreenChangeHandler) {
+      document.removeEventListener('fullscreenchange', this._fullscreenChangeHandler);
+      document.removeEventListener('webkitfullscreenchange', this._fullscreenChangeHandler);
+      document.removeEventListener('webkitendfullscreen', this._fullscreenChangeHandler);
+      this._fullscreenChangeHandler = null;
+    }
+    this._removeAndroidFullscreenBackHandler();
   }
 
   // ── Navigation ─────────────────────────────────────────
@@ -1991,6 +2017,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
       this.pauseAllVideos();
       this.currentIndex.set(clamped);
       this.resetCustomVideoState();
+      this.scheduleCurrentVideoSourceSync();
       this.scheduleCurrentVideoStateSync();
       this.trackNavigation(clamped, 'swipe');
     }
@@ -2460,6 +2487,12 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   }
 
   onMediaError(index: number): void {
+    const item = this.items[index];
+    if (item?.type === 'video' && this.isCloudflarePlaybackUrl(item.url)) {
+      this.onCloudflareNativeVideoError(index);
+      return;
+    }
+
     this.loadErrors.update((errors) => ({ ...errors, [index]: true }));
   }
 
@@ -2470,6 +2503,7 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     this.currentIndex.set(index);
     this.resetCustomVideoState();
     this.scrollToIndex(index, true);
+    this.scheduleCurrentVideoSourceSync();
     this.scheduleCurrentVideoStateSync();
     this.trackNavigation(index, 'arrow');
   }
@@ -2498,6 +2532,91 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     if (!isPlatformBrowser(this.platformId)) return;
     requestAnimationFrame(() => this.syncCurrentVideoStateFromDom());
     setTimeout(() => this.syncCurrentVideoStateFromDom(), 220);
+  }
+
+  private scheduleCurrentVideoSourceSync(): void {
+    if (!isPlatformBrowser(this.platformId)) return;
+
+    const syncToken = ++this.videoSourceSyncToken;
+    setTimeout(() => {
+      if (syncToken !== this.videoSourceSyncToken) return;
+      void this.configureCurrentVideoSource(syncToken);
+    }, 0);
+  }
+
+  private async configureCurrentVideoSource(syncToken: number): Promise<void> {
+    const index = this.currentIndex();
+    const item = this.items[index];
+    if (!item || item.type !== 'video') {
+      this.destroyHls();
+      this.currentVideoSourceIndex = null;
+      this.currentVideoSourceUrl = null;
+      return;
+    }
+
+    const player = this.getCurrentVideoElement();
+    const videoUrl = this.resolveNativeVideoUrl(item, index);
+    if (!player || !videoUrl) {
+      this.destroyHls();
+      this.currentVideoSourceIndex = null;
+      this.currentVideoSourceUrl = null;
+      return;
+    }
+
+    if (
+      this.currentVideoSourceIndex === index &&
+      this.currentVideoSourceUrl === videoUrl &&
+      (!this.isHlsSourceUrl(videoUrl) || this.hls !== null || player.currentSrc === videoUrl)
+    ) {
+      return;
+    }
+
+    this.destroyHls();
+    this.currentVideoSourceIndex = index;
+    this.currentVideoSourceUrl = videoUrl;
+    player.crossOrigin = 'anonymous';
+    player.preload = 'auto';
+
+    if (this.shouldUseDirectVideoSource(item, index, videoUrl)) {
+      if (player.src !== videoUrl) {
+        player.src = videoUrl;
+        player.load();
+      }
+      return;
+    }
+
+    player.removeAttribute('src');
+    player.load();
+
+    if (this.isHlsSourceUrl(videoUrl) && !player.canPlayType('application/vnd.apple.mpegurl')) {
+      const HlsConstructor = await this.loadHlsConstructor();
+      if (syncToken !== this.videoSourceSyncToken) return;
+
+      if (!HlsConstructor?.isSupported()) {
+        this.onCloudflareNativeVideoError(index);
+        return;
+      }
+
+      const hls = new HlsConstructor({ enableWorker: true });
+      this.hls = hls;
+
+      hls.on(HlsConstructor.Events.MEDIA_ATTACHED, () => {
+        if (this.hls !== hls) return;
+        hls.loadSource(videoUrl);
+      });
+
+      hls.on(HlsConstructor.Events.ERROR, (_event: string, data: ErrorData) => {
+        if (data.fatal) {
+          this.onCloudflareNativeVideoError(index);
+        }
+      });
+
+      hls.attachMedia(player);
+      return;
+    }
+
+    player.src = videoUrl;
+    player.load();
   }
 
   private syncCurrentVideoStateFromDom(): void {
@@ -2558,6 +2677,45 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     track.querySelectorAll('video').forEach((video) => {
       if (!video.paused) video.pause();
     });
+  }
+
+  private onCloudflareNativeVideoError(index: number): void {
+    const item = this.items[index];
+    if (!item || item.type !== 'video' || !this.isCloudflarePlaybackUrl(item.url)) {
+      this.loadErrors.update((errors) => ({ ...errors, [index]: true }));
+      return;
+    }
+
+    this.destroyHls();
+    this.currentVideoSourceIndex = null;
+    this.currentVideoSourceUrl = null;
+    this.cloudflareNativePlaybackFailed.update((current) => {
+      if (current[index]) return current;
+      return { ...current, [index]: true };
+    });
+
+    if (index === this.currentIndex()) {
+      this.resetCustomVideoState();
+    }
+  }
+
+  private async loadHlsConstructor(): Promise<typeof Hls | null> {
+    if (this.hlsConstructor) return this.hlsConstructor;
+
+    this.hlsLoadPromise ??= import('hls.js')
+      .then((module) => {
+        this.hlsConstructor = module.default;
+        return module.default;
+      })
+      .catch(() => null);
+
+    return this.hlsLoadPromise;
+  }
+
+  private destroyHls(): void {
+    if (!this.hls) return;
+    this.hls.destroy();
+    this.hls = null;
   }
 
   private startSmoothProgressTracking(): void {
@@ -2649,16 +2807,140 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
+  protected getCloudflareIframeFallbackUrl(
+    item: MediaViewerItem | null | undefined,
+    index: number
+  ): string | null {
+    if (!item || item.type !== 'video' || !this.cloudflareNativePlaybackFailed()[index]) {
+      return null;
+    }
+
+    return this.resolveCloudflareEmbedUrl(item.url);
+  }
+
+  protected getInitialVideoSourceUrl(item: MediaViewerItem, index: number): string | null {
+    const videoUrl = this.resolveNativeVideoUrl(item, index);
+    if (!videoUrl) return null;
+    return this.shouldUseDirectVideoSource(item, index, videoUrl) ? videoUrl : null;
+  }
+
   protected resolveCloudflareEmbedUrl(url: string | null | undefined): string | null {
     if (!url) return null;
     try {
       const parsed = new URL(url);
-      if (parsed.hostname !== 'watch.cloudflarestream.com') return null;
+      if (parsed.hostname === 'iframe.videodelivery.net') {
+        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+        return videoId ? `https://iframe.videodelivery.net/${videoId}` : null;
+      }
+
+      if (
+        parsed.hostname !== 'watch.cloudflarestream.com' &&
+        !parsed.hostname.endsWith('.cloudflarestream.com') &&
+        !parsed.hostname.endsWith('.videodelivery.net')
+      ) {
+        return null;
+      }
+
       const videoId = parsed.pathname.split('/').filter(Boolean)[0];
       if (!videoId) return null;
       return `https://iframe.videodelivery.net/${videoId}`;
     } catch {
       return null;
+    }
+  }
+
+  private resolveNativeVideoUrl(
+    item: MediaViewerItem | null | undefined,
+    index: number
+  ): string | null {
+    if (!item || item.type !== 'video') return null;
+    if (this.cloudflareNativePlaybackFailed()[index] && this.isCloudflarePlaybackUrl(item.url)) {
+      return null;
+    }
+
+    const videoUrl = item.url?.trim();
+    if (!videoUrl) return null;
+
+    try {
+      const parsed = new URL(videoUrl);
+      if (this.isHlsSourceUrl(videoUrl)) return videoUrl;
+
+      if (parsed.hostname === 'watch.cloudflarestream.com') {
+        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+        return videoId ? this.buildCloudflareHlsUrl(videoId) : null;
+      }
+
+      if (parsed.hostname === 'iframe.videodelivery.net') {
+        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+        return videoId ? this.buildCloudflareHlsUrl(videoId) : null;
+      }
+
+      if (parsed.hostname.endsWith('.cloudflarestream.com')) {
+        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+        return videoId ? `${parsed.origin}/${videoId}/manifest/video.m3u8` : null;
+      }
+
+      if (parsed.hostname.endsWith('.videodelivery.net')) {
+        const videoId = parsed.pathname.split('/').filter(Boolean)[0];
+        return videoId ? this.buildCloudflareHlsUrl(videoId) : null;
+      }
+
+      return videoUrl;
+    } catch {
+      return videoUrl;
+    }
+  }
+
+  private shouldUseDirectVideoSource(
+    item: MediaViewerItem,
+    index: number,
+    videoUrl: string
+  ): boolean {
+    if (this.cloudflareNativePlaybackFailed()[index]) return false;
+    if (this.isCloudflarePlaybackUrl(item.url)) return false;
+    return !this.isHlsSourceUrl(videoUrl);
+  }
+
+  private buildCloudflareHlsUrl(videoId: string, sourceUrl?: string): string {
+    const normalizedVideoId = videoId.trim();
+
+    try {
+      const parsed = sourceUrl ? new URL(sourceUrl) : null;
+      if (
+        parsed &&
+        parsed.hostname.endsWith('.cloudflarestream.com') &&
+        parsed.hostname !== 'watch.cloudflarestream.com'
+      ) {
+        return `${parsed.origin}/${normalizedVideoId}/manifest/video.m3u8`;
+      }
+    } catch {
+      /* Fall back to the global Stream delivery host. */
+    }
+
+    return `https://videodelivery.net/${encodeURIComponent(normalizedVideoId)}/manifest/video.m3u8`;
+  }
+
+  private isCloudflarePlaybackUrl(url: string | null | undefined): boolean {
+    if (!url) return false;
+
+    try {
+      const parsed = new URL(url);
+      return (
+        parsed.hostname === 'watch.cloudflarestream.com' ||
+        parsed.hostname === 'iframe.videodelivery.net' ||
+        parsed.hostname.endsWith('.cloudflarestream.com') ||
+        parsed.hostname.endsWith('.videodelivery.net')
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private isHlsSourceUrl(url: string): boolean {
+    try {
+      return new URL(url).pathname.endsWith('/manifest/video.m3u8');
+    } catch {
+      return /\/manifest\/video\.m3u8(?:[?#]|$)/i.test(url);
     }
   }
 
