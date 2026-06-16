@@ -93,6 +93,12 @@ describe('Agent tool exposure regressions', () => {
     const agent = new DataCoordinatorAgent();
 
     expect(agent.getAvailableTools()).not.toContain('map_website');
+    expect(agent.getAvailableTools()).toContain('list_firecrawl_monitors');
+    expect(agent.getAvailableTools()).toContain('get_firecrawl_monitor');
+    expect(agent.getAvailableTools()).toContain('write_firecrawl_monitor');
+    expect(agent.getAvailableTools()).toContain('update_firecrawl_monitor');
+    expect(agent.getAvailableTools()).toContain('delete_firecrawl_monitor');
+    expect(agent.getAvailableTools()).toContain('get_firecrawl_monitor_check');
     expect(agent.getAvailableTools()).toContain('write_timeline_post');
     expect(agent.getAvailableTools()).toContain('write_team_post');
     expect(agent.getAvailableTools()).toContain('write_team_stats');
@@ -110,6 +116,8 @@ describe('Agent tool exposure regressions', () => {
     const agent = new DataCoordinatorAgent();
     const prompt = agent.getSystemPrompt(context);
 
+    expect(prompt).toContain('Own linked-account monitoring workflows for connected sources');
+    expect(prompt).toContain('present outcomes in clean product language');
     expect(prompt).toContain('### Step 0: Map Deep Pages When Needed');
     expect(prompt).toContain('call `map_website` FIRST');
     expect(prompt).toContain('`write_rankings`');

@@ -1090,6 +1090,13 @@ export class AgentXOperationChatSessionFacade {
         let target = assistantOperationId
           ? userSlots.find((s) => s.assistantCount === 0 && s.operationId === assistantOperationId)
           : undefined;
+        // If the assistant row already has a backend operationId but the
+        // matching user row has not been backfilled yet, attach it to the most
+        // recent unmatched user. This keeps a later answer below the later user
+        // instead of filling an older paused slot whose operationId differs.
+        if (!target && assistantOperationId) {
+          target = [...userSlots].reverse().find((s) => s.assistantCount === 0);
+        }
         // Fall back to the earliest user with zero assistants attached for
         // older rows that do not have operation ids backfilled.
         target ??= userSlots.find((s) => s.assistantCount === 0);

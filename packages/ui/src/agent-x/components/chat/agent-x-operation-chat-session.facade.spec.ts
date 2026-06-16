@@ -138,6 +138,41 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     ]);
   });
 
+  it('keeps a new assistant below the later user when the user operationId backfill lags', () => {
+    const pausedUser: OperationMessage = {
+      id: 'user-old-paused',
+      role: 'user',
+      content: 'Make me a graphic with my latest play',
+      operationId: 'chat-paused-old',
+      timestamp: new Date('2026-05-05T12:00:00.000Z'),
+    };
+    const newUserWithoutOperationId: OperationMessage = {
+      id: 'user-new',
+      role: 'user',
+      content: 'Actually write a short caption instead',
+      timestamp: new Date('2026-05-05T12:01:00.000Z'),
+    };
+    const newAssistant: OperationMessage = {
+      id: 'assistant-new',
+      role: 'assistant',
+      content: 'Here is a tight caption for the post.',
+      operationId: 'chat-new-turn',
+      timestamp: new Date('2026-05-05T12:01:30.000Z'),
+    };
+
+    const reordered = facade.reorderTurnsByPairing([
+      pausedUser,
+      newUserWithoutOperationId,
+      newAssistant,
+    ]);
+
+    expect(reordered.map((message) => message.id)).toEqual([
+      'user-old-paused',
+      'user-new',
+      'assistant-new',
+    ]);
+  });
+
   it('keeps approval reply above the final assistant result when completion timestamp rehydrates first', () => {
     const initialUser: OperationMessage = {
       id: 'user-initial-email',

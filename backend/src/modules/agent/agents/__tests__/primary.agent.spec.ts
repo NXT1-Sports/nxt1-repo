@@ -143,6 +143,8 @@ describe('PrimaryAgent delegation control flow', () => {
     expect(prompt).toContain('sketch the likely steps to finish the request');
     expect(prompt).toContain('The router must stay fast. Do NOT perform web research');
     expect(prompt).toContain('delegate to `data_coordinator`');
+    expect(prompt).toContain('Connected-source monitoring ownership');
+    expect(prompt).toContain('Router may handle simple read-only monitor lookups directly');
     expect(prompt).toContain('delegate to `strategy_coordinator`');
     expect(prompt).toContain('NEVER call `generate_graphic` directly from router');
     expect(prompt).toContain('External social publishing boundary');
@@ -228,6 +230,12 @@ describe('PrimaryAgent delegation control flow', () => {
 
     const agent = new TestPrimaryAgent(capabilities, dispatcher);
 
+    expect(agent.getAvailableTools()).toContain('list_firecrawl_monitors');
+    expect(agent.getAvailableTools()).toContain('get_firecrawl_monitor');
+    expect(agent.getAvailableTools()).toContain('get_firecrawl_monitor_check');
+    expect(agent.getAvailableTools()).not.toContain('write_firecrawl_monitor');
+    expect(agent.getAvailableTools()).not.toContain('update_firecrawl_monitor');
+    expect(agent.getAvailableTools()).not.toContain('delete_firecrawl_monitor');
     expect(agent.getAvailableTools()).not.toContain('search_web');
     expect(agent.getAvailableTools()).not.toContain('firecrawl_search_web');
     expect(agent.getAvailableTools()).not.toContain('scrape_webpage');

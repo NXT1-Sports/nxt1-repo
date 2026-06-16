@@ -399,3 +399,10 @@ export async function dispatchAgentPush(
     throw error;
   }
 }
+
+export async function dispatchAgentNotification(
+  db: Firestore,
+  input: DispatchNotificationInput
+): Promise<DispatchResult> {
+  return dispatch(db, input);
+}
