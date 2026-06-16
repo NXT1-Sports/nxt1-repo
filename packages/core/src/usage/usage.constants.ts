@@ -315,6 +315,7 @@ export const USAGE_API_ENDPOINTS = {
   downloadInvoice: '/usage/invoice',
   redeemCoupon: '/usage/coupon/redeem',
   buyCredits: '/usage/buy-credits',
+  salesFunnelEvent: '/usage/sales-funnel-event',
   confirmCheckout: '/usage/checkout/confirm',
   budget: '/billing/budget',
   budgetOrg: '/billing/budget/org',

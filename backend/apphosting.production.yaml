@@ -102,6 +102,10 @@ env:
     secret: SLACK_AGENT_ALERT_WEBHOOK_URL
     availability:
       - RUNTIME
+  - variable: SLACK_SALES_ALERT_WEBHOOK_URL
+    secret: SLACK_SALES_ALERT_WEBHOOK_URL
+    availability:
+      - RUNTIME
   - variable: SLACK_NEW_ATHLETES_WEBHOOK_URL
     secret: SLACK_NEW_ATHLETES_WEBHOOK_URL
     availability:

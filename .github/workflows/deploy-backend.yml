@@ -22,6 +22,7 @@
 #   SUDO_PASS        - sudo password for ngocsonxx98
 #   SLACK_ALERT_WEBHOOK_URL      - Generic backend Slack webhook fallback
 #   SLACK_AGENT_ALERT_WEBHOOK_URL - Dedicated Agent X job alert webhook
+#   SLACK_SALES_ALERT_WEBHOOK_URL - Dedicated sales webhook for successful billing alerts
 #   SLACK_NEW_ATHLETES_WEBHOOK_URL  - Production signup webhook for athlete signups
 #   SLACK_NEW_TEAMS_WEBHOOK_URL     - Production signup webhook for team/staff signups
 #   (Optional legacy fallback) STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL / STAGING_SLACK_NEW_TEAMS_WEBHOOK_URL
@@ -129,6 +130,9 @@ jobs:
           upsert_optional_env_var \
             "SLACK_AGENT_ALERT_WEBHOOK_URL" \
             "${{ secrets.SLACK_AGENT_ALERT_WEBHOOK_URL }}"
+          upsert_optional_env_var \
+            "SLACK_SALES_ALERT_WEBHOOK_URL" \
+            "${{ secrets.SLACK_SALES_ALERT_WEBHOOK_URL }}"
           signup_athletes_webhook="${{ secrets['SLACK_NEW_ATHLETES_WEBHOOK_URL'] || secrets['STAGING_SLACK_NEW_ATHLETES_WEBHOOK_URL'] }}"
           signup_teams_webhook="${{ secrets['SLACK_NEW_TEAMS_WEBHOOK_URL'] || secrets['STAGING_SLACK_NEW_TEAMS_WEBHOOK_URL'] }}"
           upsert_optional_env_var \
