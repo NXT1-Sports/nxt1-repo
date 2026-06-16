@@ -8,7 +8,11 @@ const RETIRED_LEGACY_ROUTE_PATTERNS = [
   /^\/search-videos(?:\/.*)?$/,
 ] as const;
 
-const LEGACY_APP_HOSTS = new Set(['app.nxt1sports.com']);
+const REDIRECT_TO_PRIMARY_HOSTS = new Set([
+  'app.nxt1sports.com',
+  'www.nxt1sports.com',
+  'discover.nxt1sports.com',
+]);
 
 function normalizeRequestPath(requestPath: string): string {
   const withoutQuery = requestPath.split('?')[0]?.split('#')[0] ?? '/';
@@ -43,7 +47,7 @@ export function buildPreferredHostRedirectUrl(
 ): string | null {
   try {
     const url = new URL(fullUrl);
-    if (!LEGACY_APP_HOSTS.has(url.hostname.toLowerCase())) {
+    if (!REDIRECT_TO_PRIMARY_HOSTS.has(url.hostname.toLowerCase())) {
       return null;
     }
 

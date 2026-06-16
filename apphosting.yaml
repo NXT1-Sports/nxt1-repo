@@ -34,6 +34,14 @@ env:
   - variable: BACKEND_URL
     value: 'https://api.nxt1sports.com'
 
+  # Public production origin used for SSR redirects and absolute URL generation
+  - variable: PUBLIC_URL
+    value: 'https://nxt1sports.com'
+
+  # Explicit production API base URL keeps SSR and browser requests aligned
+  - variable: BACKEND_API_URL
+    value: 'https://api.nxt1sports.com/api/v1'
+
   # Allow SSR for ALL hosts (Firebase App Hosting handles security at the load balancer)
   # Using wildcard to avoid host mismatch issues with envoy proxy
   - variable: NG_ALLOWED_HOSTS

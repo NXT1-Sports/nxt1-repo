@@ -30,6 +30,33 @@ describe('app-url', () => {
     expect(result).toBe('https://staging.nxt1.test');
   });
 
+  it('uses the Firebase Hosting staging domain as the default staging app URL', () => {
+    const result = resolveAppBaseUrl({
+      environment: 'staging',
+    });
+
+    expect(result).toBe('https://nxt-1-staging-v2.web.app');
+  });
+
+  it('accepts the staging custom domain without additional env configuration', () => {
+    const result = resolveAppBaseUrl({
+      environment: 'staging',
+      origin: 'https://staging.nxt1sports.com',
+    });
+
+    expect(result).toBe('https://staging.nxt1sports.com');
+  });
+
+  it('prefers STAGING_APP_URL when explicitly configured', () => {
+    vi.stubEnv('STAGING_APP_URL', 'https://staging.nxt1sports.com');
+
+    const result = resolveAppBaseUrl({
+      environment: 'staging',
+    });
+
+    expect(result).toBe('https://staging.nxt1sports.com');
+  });
+
   it('builds absolute URLs from a localhost host-derived base URL', () => {
     const result = toAbsoluteAppUrl('/profile/mens-basketball/ngoc-son/855599', {
       environment: 'staging',

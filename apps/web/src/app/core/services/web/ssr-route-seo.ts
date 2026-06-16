@@ -163,6 +163,26 @@ function replaceLinkTag(html: string, rel: string, href: string): string {
   return replaceOrInsertTag(html, pattern, `<link rel="${rel}" href="${escapedHref}" />`);
 }
 
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function replaceAlternateHreflangTag(html: string, hreflang: string, href: string): string {
+  const escapedHref = escapeHtml(href);
+  const escapedHreflang = escapeHtml(hreflang);
+  const hreflangPattern = escapeRegex(hreflang);
+  const pattern = new RegExp(
+    `<link(?=[^>]*\\brel=["']alternate["'])(?=[^>]*\\bhreflang=["']${hreflangPattern}["'])[^>]*>`,
+    'i'
+  );
+
+  return replaceOrInsertTag(
+    html,
+    pattern,
+    `<link rel="alternate" hreflang="${escapedHreflang}" href="${escapedHref}" />`
+  );
+}
+
 export function resolveServerRouteSeo(
   requestPath: string,
   fullUrl: string
@@ -320,6 +340,14 @@ export function buildNotFoundRouteSeo(fullUrl: string): ServerRouteSeoMetadata {
   };
 }
 
+export function buildNoindexRouteSeo(fullUrl: string): ServerRouteSeoMetadata {
+  return {
+    canonicalUrl: toCanonicalUrl(fullUrl),
+    robots: NOINDEX_ROBOTS,
+    googlebot: NOINDEX_ROBOTS,
+  };
+}
+
 export function isRetiredPulseArticleRoute(requestPath: string): boolean {
   const path = normalizePath(requestPath);
   return /^\/(?:pulse|explore\/pulse)\/[^/]+$/.test(path);
@@ -357,6 +385,8 @@ export function applyServerRouteSeo(html: string, metadata: ServerRouteSeoMetada
   if (metadata.canonicalUrl) {
     updatedHtml = replaceLinkTag(updatedHtml, 'canonical', metadata.canonicalUrl);
     updatedHtml = replaceMetaTag(updatedHtml, 'property', 'og:url', metadata.canonicalUrl);
+    updatedHtml = replaceAlternateHreflangTag(updatedHtml, 'en-US', metadata.canonicalUrl);
+    updatedHtml = replaceAlternateHreflangTag(updatedHtml, 'x-default', metadata.canonicalUrl);
   }
 
   if (metadata.openGraphType) {

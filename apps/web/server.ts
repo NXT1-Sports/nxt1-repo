@@ -32,6 +32,7 @@ import type { ApiResponse } from '@nxt1/core/profile';
 import bootstrap from './src/main.server';
 import {
   applyServerRouteSeo,
+  buildNoindexRouteSeo,
   buildNotFoundRouteSeo,
   buildMissingProfileRouteSeo,
   buildServerProfileRouteSeo,
@@ -296,7 +297,9 @@ async function resolveRequestRouteSeo(
     return staticRouteSeo;
   }
 
-  return isKnownAppRoute(requestPath) ? null : buildNotFoundRouteSeo(fullUrl);
+  return isKnownAppRoute(requestPath)
+    ? buildNoindexRouteSeo(fullUrl)
+    : buildNotFoundRouteSeo(fullUrl);
 }
 
 const STATIC_ASSET_EXTENSIONS = new Set([
@@ -506,6 +509,12 @@ export function createServer(): express.Express {
   // The web app no longer exposes /messages or /ai-scout.
   // Return a 410 so crawlers and caches drop these legacy paths instead of indexing the shell.
   server.get(/^\/(?:messages|ai-scout)(?:\/.*)?$/, (_req: Request, res: Response) => {
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    res.status(410).type('text/plain; charset=utf-8').send('Gone');
+  });
+
+  // /blog is retired and should return a hard 410 (not a soft-404 HTML shell).
+  server.get(/^\/blog(?:\/.*)?$/, (_req: Request, res: Response) => {
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
     res.status(410).type('text/plain; charset=utf-8').send('Gone');
   });
@@ -720,7 +729,13 @@ export function createServer(): express.Express {
 
           const fallbackHtml = readFileSync(CSR_INDEX, 'utf-8');
           const responseHtml = applyServerRouteSeo(fallbackHtml, routeSeo);
-          sendCompressedBody(req, res, 200, responseHtml, 'text/html; charset=utf-8');
+          sendCompressedBody(
+            req,
+            res,
+            routeSeo?.statusCode ?? 200,
+            responseHtml,
+            'text/html; charset=utf-8'
+          );
         } catch (fallbackError) {
           console.error('CSR fallback failed:', fallbackError);
           next(err); // Only use error handler as last resort

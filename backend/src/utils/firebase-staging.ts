@@ -59,7 +59,7 @@ export const stagingStorage: Storage = getStorage(stagingApp);
  * TASK 5 — Social Login / OAuth configuration (Staging)
  *
  * Firebase Console → Authentication → Settings → Authorized domains:
- *   nxt-1-staging-v2.web.app, nxt-1-staging.firebaseapp.com
+ *   staging.nxt1sports.com, nxt-1-staging-v2.web.app, nxt-1-staging-v2.firebaseapp.com
  *
  * Google OAuth callback URL:
  *   https://nxt-1-staging-v2.firebaseapp.com/__/auth/handler

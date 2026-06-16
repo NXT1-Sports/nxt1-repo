@@ -128,13 +128,12 @@ function getAppBaseUrl(isStaging: boolean, origin?: string): string {
   // If the request came from localhost, mirror that origin back so the invite
   // link points at the local dev app (works regardless of NODE_ENV / staging flag).
   // This handles both web (localhost:4200) and mobile (localhost:4300).
-  if (origin && /^https?:\/\/localhost(:\d+)?$/.test(origin)) {
+  if (origin && /^https?:\/\/(?:localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
     return origin;
   }
 
   return isStaging
-    ? (process.env['STAGING_APP_URL'] ??
-        'https://nxt1-repo--nxt-1-staging-v2.us-central1.hosted.app')
+    ? (process.env['STAGING_APP_URL'] ?? 'https://nxt-1-staging-v2.web.app')
     : 'https://nxt1sports.com';
 }
 

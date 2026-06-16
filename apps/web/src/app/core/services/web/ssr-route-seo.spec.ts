@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   applyServerRouteSeo,
+  buildNoindexRouteSeo,
   buildNotFoundRouteSeo,
   buildMissingProfileRouteSeo,
   buildServerProfileRouteSeo,
@@ -15,6 +16,8 @@ const DEFAULT_HTML = `<!doctype html>
     <meta name="description" content="Default description" />
     <meta property="og:title" content="Default title" />
     <meta property="og:description" content="Default description" />
+    <link rel="alternate" hreflang="en-US" href="https://nxt1sports.com/" />
+    <link rel="alternate" hreflang="x-default" href="https://nxt1sports.com/" />
     <meta property="og:url" content="https://nxt1sports.com/" />
     <meta property="og:image" content="https://nxt1sports.com/assets/shared/images/og-image.jpg" />
     <meta property="og:image:width" content="1200" />
@@ -92,6 +95,16 @@ describe('ssr-route-seo', () => {
     expect(metadata.robots).toContain('noindex');
   });
 
+  it('builds a noindex canonical payload for known but non-indexable app routes', () => {
+    const metadata = buildNoindexRouteSeo('https://nxt1sports.com/join/ABC123?ref=test');
+
+    expect(metadata).toMatchObject({
+      canonicalUrl: 'https://nxt1sports.com/join/ABC123',
+    });
+    expect(metadata.robots).toContain('noindex');
+    expect(metadata.googlebot).toContain('noindex');
+  });
+
   it('detects retired pulse article detail routes', () => {
     expect(isRetiredPulseArticleRoute('/pulse/abc123')).toBe(true);
     expect(isRetiredPulseArticleRoute('/explore/pulse/abc123')).toBe(true);
@@ -165,5 +178,9 @@ describe('ssr-route-seo', () => {
     );
     expect(html).toContain('rel="canonical" href="https://nxt1sports.com/terms"');
     expect(html).toContain('property="og:url" content="https://nxt1sports.com/terms"');
+    expect(html).toContain('rel="alternate" hreflang="en-US" href="https://nxt1sports.com/terms"');
+    expect(html).toContain(
+      'rel="alternate" hreflang="x-default" href="https://nxt1sports.com/terms"'
+    );
   });
 });
