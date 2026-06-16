@@ -20,10 +20,13 @@ export interface ConnectedAccountsResyncSource {
 
 const INTERNAL_CONNECTED_ACCOUNT_PLATFORMS = new Set(['nxt1']);
 const EXCLUDED_SIGNIN_RESYNC_PLATFORMS = new Set(['google', 'microsoft']);
+const SIGNIN_PLATFORM_SUFFIX = '_signin';
 
 function normalizeRequestedAccountPlatform(platform: string): string {
   const normalized = platform.trim().toLowerCase();
-  return normalized.endsWith('_signin') ? normalized.slice(0, -'_signin'.length) : normalized;
+  return normalized.endsWith(SIGNIN_PLATFORM_SUFFIX)
+    ? normalized.slice(0, -SIGNIN_PLATFORM_SUFFIX.length)
+    : normalized;
 }
 
 export interface ConnectedAccountsResyncRequest {
@@ -40,32 +43,36 @@ export interface ConnectedAccountsResyncRequest {
 export function buildConnectedAccountsResyncRequest(
   accounts: readonly ConnectedAccountsResyncSource[] = []
 ): ConnectedAccountsResyncRequest {
-  const requestedAccounts = accounts
-    .filter((account) => account.connected || !!account.username || !!account.url)
-    .map((account) => {
+  const requestedAccounts = accounts.reduce<ConnectedAccountsResyncRequest['requestedAccounts']>(
+    (collected, account) => {
+      if (!account.connected && !account.username && !account.url) {
+        return collected;
+      }
+
       const platform = normalizeRequestedAccountPlatform(account.platform);
-      return {
+      if (!platform || INTERNAL_CONNECTED_ACCOUNT_PLATFORMS.has(platform)) {
+        return collected;
+      }
+
+      if (account.connectionType === 'signin' && EXCLUDED_SIGNIN_RESYNC_PLATFORMS.has(platform)) {
+        return collected;
+      }
+
+      const label = (account.label ?? platform).trim();
+      if (!label) {
+        return collected;
+      }
+
+      collected.push({
         platform,
-        label: (account.label ?? platform).trim(),
+        label,
         username: account.username,
         url: account.url,
-        connectionType: account.connectionType,
-      };
-    })
-    .filter((account) => account.platform.length > 0)
-    .filter((account) => !INTERNAL_CONNECTED_ACCOUNT_PLATFORMS.has(account.platform))
-    .filter(
-      (account) =>
-        account.connectionType !== 'signin' ||
-        !EXCLUDED_SIGNIN_RESYNC_PLATFORMS.has(account.platform)
-    )
-    .map((account) => ({
-      platform: account.platform,
-      label: account.label,
-      username: account.username,
-      url: account.url,
-    }))
-    .filter((account) => account.label.length > 0);
+      });
+      return collected;
+    },
+    []
+  );
 
   const platformSummary = requestedAccounts.map((account) => account.label).join(', ');
   const intent =
