@@ -109,7 +109,12 @@ export type AgentXMessagePart =
   | { readonly type: 'tool-steps'; readonly steps: readonly AgentXToolStep[] }
   | { readonly type: 'card'; readonly card: AgentXRichCard }
   | { readonly type: 'image'; readonly url: string; readonly alt?: string }
-  | { readonly type: 'video'; readonly url: string; readonly mimeType?: string }
+  | {
+      readonly type: 'video';
+      readonly url: string;
+      readonly mimeType?: string;
+      readonly thumbnailUrl?: string;
+    }
   /**
    * Extended thinking block emitted by Claude 3.7+ / Gemini 2.5 before the
    * answer. Hidden by default (collapsed) — surfaced as a collapsible panel

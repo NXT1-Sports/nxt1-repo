@@ -3,12 +3,10 @@ import type { AgentYieldState } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
 import type {
   AgentXAttachment,
-  AgentXAttachmentStub,
   AgentXSelectedAction,
   AgentXSelectedContext,
   AgentXToolStep,
 } from '@nxt1/core/ai';
-import { AGENT_X_RUNTIME_CONFIG } from '@nxt1/core/ai';
 import { HapticsService } from '../../../services/haptics/haptics.service';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { NxtLoggingService } from '../../../services/logging/logging.service';
@@ -28,10 +26,6 @@ import { AgentXOperationChatTransportFacade } from './agent-x-operation-chat-tra
 import type { MessageAttachment, OperationMessage } from './agent-x-operation-chat.models';
 
 const PAUSE_RESUME_TOOL_NAME = 'resume_paused_operation';
-const PENDING_ATTACHMENTS_RESOLVE_TIMEOUT_MS = Math.max(
-  0,
-  AGENT_X_RUNTIME_CONFIG.operationStream.attachmentWaitTimeoutMs - 5_000
-);
 
 type OperationChatStatus =
   | 'processing'
@@ -284,7 +278,7 @@ export class AgentXOperationChatRunControlFacade {
     const host = this.requireHost();
     const composerValue = host.inputValue();
     const text = (options?.text ?? composerValue).trim();
-    const files = this.attachmentsFacade.pendingFiles();
+    let files = this.attachmentsFacade.pendingFiles();
     const pendingSources = this.attachmentsFacade.pendingConnectedSources();
     const pendingSelectedContexts = this.attachmentsFacade.pendingSelectedContexts();
     const selectedAction = options?.selectedAction ?? host.getPendingSelectedAction();
@@ -321,7 +315,11 @@ export class AgentXOperationChatRunControlFacade {
     const idempotencyKey = options?.idempotencyKey ?? this.createChatIdempotencyKey();
 
     host.loading.set(true);
-    host.setActivityPhase('sending', 'Sending...');
+    host.setActivityPhase(
+      'sending',
+      files.some((file) => file.isVideo) ? 'Preparing video...' : 'Sending...'
+    );
+    files = [...(await this.attachmentsFacade.waitForVideoThumbnails(files))];
     if (!options?.preserveDraft) {
       host.inputValue.set('');
     }
@@ -377,8 +375,12 @@ export class AgentXOperationChatRunControlFacade {
     const fileDisplayAttachments: MessageAttachment[] = files.map((pendingFile) => ({
       // For video: create a playable blob URL from the actual file.
       // previewUrl is the canvas JPEG thumbnail — NOT a playable video URL.
+      // Native Capacitor gallery picks can be zero-byte placeholder Files, so
+      // fall back to nativeWebPath for the sent-message strip.
       url: pendingFile.isVideo
-        ? URL.createObjectURL(pendingFile.file)
+        ? pendingFile.nativeWebPath && pendingFile.file.size === 0
+          ? pendingFile.nativeWebPath
+          : URL.createObjectURL(pendingFile.file)
         : (pendingFile.previewUrl ?? ''),
       type: pendingFile.isImage ? 'image' : pendingFile.isVideo ? 'video' : 'doc',
       name: pendingFile.file.name,
@@ -405,8 +407,10 @@ export class AgentXOperationChatRunControlFacade {
       ...selectedContextDisplayAttachments,
     ];
 
+    const userMessageId = host.uid();
+
     this.messageFacade.pushMessage({
-      id: host.uid(),
+      id: userMessageId,
       role: 'user',
       content: displayContent,
       timestamp: new Date(),
@@ -429,8 +433,6 @@ export class AgentXOperationChatRunControlFacade {
 
     try {
       let readyAttachments: AgentXAttachment[] = [];
-      let pendingAttachmentStubs: readonly AgentXAttachmentStub[] = [];
-      let onWaitingForAttachments: ((operationId: string) => Promise<void>) | undefined;
       let authToken: string | null = null;
       if (files.length > 0) {
         authToken = (await this.getAuthToken?.().catch(() => null)) ?? null;
@@ -440,27 +442,12 @@ export class AgentXOperationChatRunControlFacade {
             selectedFileCount: files.length,
           });
 
-          const hasNativeVideo = files.some((file) => file.isVideo && !!file.nativeUri);
-          if (hasNativeVideo) {
-            const immediate = this.attachmentsFacade.prepareForImmediateSend(files, authToken);
-            readyAttachments = immediate.ready;
-            pendingAttachmentStubs = immediate.stubs;
-            onWaitingForAttachments = async (operationId: string): Promise<void> => {
-              const attachments = await this.attachmentsFacade.awaitPendingUploads(
-                files,
-                authToken!,
-                PENDING_ATTACHMENTS_RESOLVE_TIMEOUT_MS
-              );
-              await this.resolvePendingAttachments(operationId, attachments, authToken!);
-            };
-          } else {
-            readyAttachments = await this.attachmentsFacade.prepareAttachmentsForSend(
-              files,
-              authToken
-            );
-          }
+          readyAttachments = await this.attachmentsFacade.prepareAttachmentsForSend(
+            files,
+            authToken
+          );
 
-          if (!hasNativeVideo && readyAttachments.length !== files.length) {
+          if (readyAttachments.length !== files.length) {
             const failedCount = files.length - readyAttachments.length;
             this.logger.warn('Blocking chat send because some attachments failed to upload', {
               contextId: host.contextId(),
@@ -496,6 +483,13 @@ export class AgentXOperationChatRunControlFacade {
             });
             return;
           }
+
+          this.replaceOptimisticFileAttachmentUrls(
+            userMessageId,
+            fileDisplayAttachments,
+            readyAttachments,
+            [...sourceDisplayAttachments, ...selectedContextDisplayAttachments]
+          );
         } else {
           this.logger.error('Auth token unavailable — staged attachments cannot be sent to AI', {
             count: files.length,
@@ -537,12 +531,7 @@ export class AgentXOperationChatRunControlFacade {
         idempotencyKey,
         pendingSources.length > 0 ? pendingSources : undefined,
         pendingSelectedContexts.length > 0 ? pendingSelectedContexts : undefined,
-        pendingAttachmentStubs.length > 0 && onWaitingForAttachments
-          ? {
-              stubs: pendingAttachmentStubs,
-              onWaitingForAttachments,
-            }
-          : undefined
+        undefined
       );
       await this.haptics.notification('success');
     } catch (error) {
@@ -566,6 +555,7 @@ export class AgentXOperationChatRunControlFacade {
         });
       }
     } finally {
+      this.attachmentsFacade.clearVideoUploadProgress();
       const activeThreadId = host.resolveActiveThreadId();
       const enqueueWaitingActive =
         !!activeThreadId && !!this.operationEventService.getEnqueueWaitingEntry(activeThreadId);
@@ -620,27 +610,39 @@ export class AgentXOperationChatRunControlFacade {
     };
   }
 
-  private async resolvePendingAttachments(
-    operationId: string,
-    attachments: readonly AgentXAttachment[],
-    authToken: string
-  ): Promise<void> {
-    const response = await fetch(
-      `${this.baseUrl}/agent-x/chat/pending-attachments/${encodeURIComponent(operationId)}`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${authToken}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ attachments }),
-      }
-    );
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => `HTTP ${response.status}`);
-      throw new Error(`Failed to resolve pending attachments: ${errorText}`);
+  private replaceOptimisticFileAttachmentUrls(
+    messageId: string,
+    optimisticFileAttachments: readonly MessageAttachment[],
+    readyAttachments: readonly AgentXAttachment[],
+    trailingAttachments: readonly MessageAttachment[]
+  ): void {
+    if (optimisticFileAttachments.length === 0 || readyAttachments.length === 0) {
+      return;
     }
+
+    const uploadedFileAttachments = optimisticFileAttachments.map((attachment, index) => {
+      const readyAttachment = readyAttachments[index];
+      if (!readyAttachment) {
+        return attachment;
+      }
+
+      const thumbnailUrl = readyAttachment.thumbnailUrl ?? attachment.thumbnailUrl;
+      const nextAttachment: MessageAttachment = {
+        ...attachment,
+        url: readyAttachment.url,
+        name: readyAttachment.name || attachment.name,
+        ...(thumbnailUrl ? { thumbnailUrl } : {}),
+      };
+      return nextAttachment;
+    });
+
+    this.messageFacade.messages.update((messages) =>
+      messages.map((message) =>
+        message.id === messageId
+          ? { ...message, attachments: [...uploadedFileAttachments, ...trailingAttachments] }
+          : message
+      )
+    );
   }
 
   async onRetryErrorMessage(errorMessage: OperationMessage): Promise<void> {

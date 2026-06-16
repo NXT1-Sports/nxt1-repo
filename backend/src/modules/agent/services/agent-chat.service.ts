@@ -721,6 +721,7 @@ export class AgentChatService {
   }): Promise<AgentMessage> {
     const now = new Date().toISOString();
     const normalizedCards = params.cards ?? extractCardsFromParts(params.parts);
+    const isAssistantToolCallPhase = params.semanticPhase === 'assistant_tool_call';
 
     const docFields = {
       threadId: params.threadId,
@@ -819,6 +820,19 @@ export class AgentChatService {
       }
     } else {
       doc = await AgentMessageModel.create(docFields);
+    }
+
+    // Mid-loop assistant tool-call rows exist to preserve replay structure, not to
+    // advance the user-facing thread timeline. Skipping thread metadata churn and
+    // summarization queue work keeps router handoff latency off the hot path.
+    if (isAssistantToolCallPhase) {
+      logger.info('[AgentChatService] Message added', {
+        messageId: doc.id,
+        threadId: params.threadId,
+        role: params.role,
+      });
+
+      return this.toMessage(doc);
     }
 
     // Update thread metadata (last message time, count, last agent)

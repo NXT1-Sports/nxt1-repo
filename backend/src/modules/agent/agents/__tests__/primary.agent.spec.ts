@@ -159,6 +159,9 @@ describe('PrimaryAgent delegation control flow', () => {
       'delegate to `strategy_coordinator` immediately and do not ask permission first'
     );
     expect(prompt).toContain('single objective sentence as the handoff payload');
+    expect(prompt).toContain(
+      'first write ONE short warm sentence to the user in normal chat prose'
+    );
     expect(prompt).toContain('Ask User Decision Matrix (CRITICAL)');
     expect(prompt).toContain('Do NOT call `ask_user` for data already present in task context');
     expect(prompt).toContain('Bare attachment intent rule (CRITICAL)');

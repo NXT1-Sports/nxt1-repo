@@ -1399,6 +1399,42 @@ export class AgentXOperationsLogComponent {
     return `${threadId}:${entry.timestamp}:${entry.status}`;
   }
 
+  private parseEntryTimestamp(entry: Pick<OperationLogEntry, 'timestamp'>): number {
+    const timestamp = Date.parse(entry.timestamp);
+    return Number.isFinite(timestamp) ? timestamp : 0;
+  }
+
+  private isNewerThreadEntry(candidate: OperationLogEntry, current: OperationLogEntry): boolean {
+    const candidateTime = this.parseEntryTimestamp(candidate);
+    const currentTime = this.parseEntryTimestamp(current);
+    if (candidateTime !== currentTime) {
+      return candidateTime > currentTime;
+    }
+
+    if (candidate.status === 'in-progress' && current.status !== 'in-progress') {
+      return true;
+    }
+
+    return Boolean(candidate.operationId && candidate.operationId !== current.operationId);
+  }
+
+  private shouldReplaceThreadRowForEvent(
+    entry: OperationLogEntry,
+    eventTimestamp: string,
+    isTerminalEvent: boolean
+  ): boolean {
+    if (!isTerminalEvent) {
+      return true;
+    }
+
+    const eventTime = Date.parse(eventTimestamp);
+    if (!Number.isFinite(eventTime)) {
+      return true;
+    }
+
+    return eventTime >= this.parseEntryTimestamp(entry);
+  }
+
   private emitOutOfBandThreadRefreshes(
     previousEntries: readonly OperationLogEntry[],
     nextEntries: readonly OperationLogEntry[]
@@ -1674,7 +1710,7 @@ export class AgentXOperationsLogComponent {
           waitingOperationId: enqueueWaitingEntry?.operationId,
         });
         if (evt.source === 'enqueue' || enqueueWaitingActive) {
-          this.scheduleEnqueueHydrationRefresh(evt.threadId);
+          this.scheduleEnqueueHydrationRefresh(evt.threadId, eventOperationId || undefined);
         }
         this.breadcrumb.trackStateChange('operations-log:status-updated', {
           threadId: evt.threadId,
@@ -1683,16 +1719,27 @@ export class AgentXOperationsLogComponent {
         });
         this._operations.update((ops) => {
           const eventThreadId = evt.threadId.trim();
-          const isChatEvent = evt.source === 'chat';
+          const isTerminalEvent = terminalLogStatuses.has(effectiveStatus);
+          const exactOperationIdx = eventOperationId
+            ? ops.findIndex((op) => {
+                const opOperationId = op.operationId?.trim() ?? '';
+                const opThreadId = op.threadId?.trim() ?? '';
+                return (
+                  opOperationId === eventOperationId ||
+                  (!opOperationId && opThreadId === eventThreadId)
+                );
+              })
+            : -1;
+          const threadIdx = ops.findIndex((op) => op.threadId?.trim() === eventThreadId);
+          const threadEntry = threadIdx >= 0 ? ops[threadIdx] : undefined;
+          const shouldReplaceThreadRow =
+            exactOperationIdx < 0 &&
+            !!threadEntry &&
+            (eventOperationId.length > 0 || !isTerminalEvent) &&
+            this.shouldReplaceThreadRowForEvent(threadEntry, evt.timestamp, isTerminalEvent);
+          const idx =
+            exactOperationIdx >= 0 ? exactOperationIdx : shouldReplaceThreadRow ? threadIdx : -1;
 
-          const matchesEvent = (op: OperationLogEntry): boolean =>
-            isChatEvent
-              ? op.threadId === eventThreadId
-              : eventOperationId
-                ? op.operationId === eventOperationId ||
-                  (!op.operationId && op.threadId === eventThreadId)
-                : op.threadId === eventThreadId;
-          const idx = ops.findIndex(matchesEvent);
           if (idx >= 0) {
             const prior = ops[idx];
             if (!prior) return ops;
@@ -1700,6 +1747,7 @@ export class AgentXOperationsLogComponent {
             const resolvedTitle = evt.title?.trim() || prior.title;
             const shouldUpdateOperationId =
               !!eventOperationId && prior.operationId !== eventOperationId;
+            const shouldUpdateTimestamp = prior.timestamp !== evt.timestamp;
             const shouldUpdateTitle = resolvedTitle !== prior.title;
             const isStaleSameOperationRunningEvent =
               terminalLogStatuses.has(prior.status) &&
@@ -1708,21 +1756,32 @@ export class AgentXOperationsLogComponent {
               prior.operationId === eventOperationId;
             const nextStatus = isStaleSameOperationRunningEvent ? prior.status : effectiveStatus;
 
-            if (prior.status === nextStatus && !shouldUpdateOperationId && !shouldUpdateTitle) {
+            if (
+              prior.status === nextStatus &&
+              !shouldUpdateOperationId &&
+              !shouldUpdateTimestamp &&
+              !shouldUpdateTitle
+            ) {
               return ops;
             }
 
-            // Update existing entry's status in place
-            return ops.map((op) =>
-              matchesEvent(op)
-                ? {
-                    ...op,
-                    status: nextStatus,
-                    ...(shouldUpdateOperationId ? { operationId: eventOperationId } : {}),
-                    ...(shouldUpdateTitle ? { title: resolvedTitle } : {}),
-                  }
-                : op
+            const updatedEntry: OperationLogEntry = {
+              ...prior,
+              ...(shouldUpdateOperationId
+                ? { id: eventOperationId, operationId: eventOperationId }
+                : {}),
+              status: nextStatus,
+              timestamp: evt.timestamp,
+              ...(shouldUpdateTitle ? { title: resolvedTitle } : {}),
+            };
+            const remaining = ops.filter(
+              (op, index) => index !== idx && op.threadId?.trim() !== eventThreadId
             );
+            return [updatedEntry, ...remaining];
+          }
+
+          if (threadIdx >= 0 && eventOperationId && isTerminalEvent) {
+            return ops;
           }
 
           // Enqueue jobs are fire-and-forget: only create a row when the event
@@ -1907,10 +1966,18 @@ export class AgentXOperationsLogComponent {
    * Instead, poll-refresh with bounded backoff until the canonical HTTP payload
    * contains the entry, then stop.
    */
-  private scheduleEnqueueHydrationRefresh(threadId: string): void {
+  private scheduleEnqueueHydrationRefresh(threadId: string, operationId?: string): void {
     const resolvedThreadId = threadId.trim();
+    const resolvedOperationId = operationId?.trim() || null;
     if (!resolvedThreadId) return;
-    if (this._operations().some((entry) => entry.threadId === resolvedThreadId)) {
+    const hasHydratedEntry = (): boolean =>
+      this._operations().some(
+        (entry) =>
+          entry.threadId === resolvedThreadId &&
+          (!resolvedOperationId || entry.operationId === resolvedOperationId)
+      );
+
+    if (hasHydratedEntry()) {
       this._enqueueHydrationAttempts.delete(resolvedThreadId);
       const existingTimer = this._enqueueHydrationTimers.get(resolvedThreadId);
       if (existingTimer) {
@@ -1937,13 +2004,13 @@ export class AgentXOperationsLogComponent {
           });
         })
         .finally(() => {
-          if (this._operations().some((entry) => entry.threadId === resolvedThreadId)) {
+          if (hasHydratedEntry()) {
             this._enqueueHydrationAttempts.delete(resolvedThreadId);
             return;
           }
 
           this._enqueueHydrationAttempts.set(resolvedThreadId, attempt + 1);
-          this.scheduleEnqueueHydrationRefresh(resolvedThreadId);
+          this.scheduleEnqueueHydrationRefresh(resolvedThreadId, resolvedOperationId ?? undefined);
         });
     }, delay);
 
@@ -1971,8 +2038,11 @@ export class AgentXOperationsLogComponent {
         // while SSE has already set the entry to "complete"/"error") from
         // overwriting the real terminal state and leaving the spinner stuck.
         if (op.threadId) {
-          liveStatuses.set(op.threadId, op.status);
-          liveEntries.set(op.threadId, op);
+          const existing = liveEntries.get(op.threadId);
+          if (!existing || this.isNewerThreadEntry(op, existing)) {
+            liveStatuses.set(op.threadId, op.status);
+            liveEntries.set(op.threadId, op);
+          }
         }
       }
 

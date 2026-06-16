@@ -181,11 +181,15 @@ export class AgentXOperationChatMessageFacade {
 
     if (persistedMessageId) {
       this.messages.update((messages) =>
-        messages.map((message) =>
-          message.id === params.streamingId
-            ? { ...message, id: persistedMessageId, isTyping: false }
-            : message
+        messages.some(
+          (message) => message.id === persistedMessageId && message.id !== params.streamingId
         )
+          ? messages.filter((message) => message.id !== params.streamingId)
+          : messages.map((message) =>
+              message.id === params.streamingId
+                ? { ...message, id: persistedMessageId, isTyping: false }
+                : message
+            )
       );
 
       // Rehydrate the persisted assistant row immediately so final attachments

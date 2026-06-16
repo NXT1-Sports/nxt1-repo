@@ -205,4 +205,108 @@ describe('PersistedAssistantStreamBuilder', () => {
       })
     );
   });
+
+  it('drops a re-emitted final answer body when the same agent restates it after a card', () => {
+    const builder = new PersistedAssistantStreamBuilder();
+
+    const answerBody =
+      "Crown Point Bulldogs — Highlight Clip COMPLETE.\n\nHere's the breakdown of every cut, overlay, and transition I stitched together so you can play it back from the link below.";
+
+    // Router prelude (different agent — must be preserved).
+    builder.process({
+      type: 'delta',
+      agentId: 'router',
+      text: 'Routing your clip to Brand Coordinator to turn it into an elite highlight video right now.',
+    });
+
+    // Brand coordinator emits its full final answer once.
+    builder.process({
+      type: 'delta',
+      agentId: 'brand_coordinator',
+      text: answerBody,
+    });
+
+    // ffmpeg tool runs and yields a video card.
+    builder.process({
+      type: 'card',
+      agentId: 'brand_coordinator',
+      cardData: {
+        type: 'video',
+        agentId: 'brand_coordinator',
+        title: 'Crown Point Bulldogs — Highlight Clip',
+        payload: {
+          videoUrl: 'https://storage.googleapis.com/example/highlight.mp4',
+          posterUrl: 'https://storage.googleapis.com/example/poster.jpg',
+        },
+      },
+    });
+
+    // LLM restates the same answer in the next streaming pass (the bug).
+    builder.process({
+      type: 'delta',
+      agentId: 'brand_coordinator',
+      text: answerBody,
+    });
+
+    const snapshot = builder.snapshot();
+
+    // The answer body must appear exactly once in the persisted content.
+    const occurrences = snapshot.content.split(answerBody).length - 1;
+    expect(occurrences).toBe(1);
+
+    // Router prelude survives; only the duplicate brand_coordinator body is dropped.
+    expect(snapshot.content).toContain(
+      'Routing your clip to Brand Coordinator to turn it into an elite highlight video right now.'
+    );
+
+    // Parts collapse to: router prelude, card, single coordinator body.
+    const textParts = snapshot.parts.filter((part) => part.type === 'text');
+    expect(textParts).toHaveLength(2);
+    const coordinatorBodies = textParts.filter((part) => part.content === answerBody);
+    expect(coordinatorBodies).toHaveLength(1);
+  });
+
+  it('keeps the most-complete restated answer when the second pass adds detail', () => {
+    const builder = new PersistedAssistantStreamBuilder();
+
+    const draft = 'Highlight ready. Watch it now and let me know what to tweak.';
+    const refined =
+      'Highlight ready. Watch it now and let me know what to tweak. Full breakdown below — overlays, transitions, and timing notes for each cut.';
+
+    builder.process({ type: 'delta', agentId: 'brand_coordinator', text: draft });
+    builder.process({
+      type: 'card',
+      agentId: 'brand_coordinator',
+      cardData: {
+        type: 'video',
+        agentId: 'brand_coordinator',
+        title: 'Highlight',
+        payload: { videoUrl: 'https://example.com/h.mp4' },
+      },
+    });
+    builder.process({ type: 'delta', agentId: 'brand_coordinator', text: refined });
+
+    const snapshot = builder.snapshot();
+    const textParts = snapshot.parts.filter((part) => part.type === 'text');
+
+    expect(textParts).toHaveLength(1);
+    expect((textParts[0] as { content: string }).content).toBe(refined);
+    expect(snapshot.content).toBe(refined);
+  });
+
+  it('does not dedupe text parts emitted by different agents', () => {
+    const builder = new PersistedAssistantStreamBuilder();
+
+    const sharedText =
+      'On it — kicking off the full Crown Point Bulldogs highlight build right now.';
+
+    builder.process({ type: 'delta', agentId: 'router', text: sharedText });
+    builder.process({ type: 'delta', agentId: 'brand_coordinator', text: sharedText });
+
+    const snapshot = builder.snapshot();
+    const textParts = snapshot.parts.filter((part) => part.type === 'text');
+
+    // Different agents — keep both even though content matches.
+    expect(textParts).toHaveLength(2);
+  });
 });

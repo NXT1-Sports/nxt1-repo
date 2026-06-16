@@ -315,6 +315,29 @@ export class AgentXOperationChatSessionFacade {
 
     return true;
   }
+
+  private shouldPreserveTypingAfterThreadReload(
+    existingTyping: OperationMessage,
+    persistedRows: readonly OperationMessage[],
+    liveOperationId: string | null
+  ): boolean {
+    const typingOperationId = existingTyping.operationId?.trim() ?? '';
+    const operationIds = new Set(
+      [liveOperationId?.trim() ?? '', typingOperationId].filter((value) => value.length > 0)
+    );
+
+    if (operationIds.size === 0) return true;
+
+    const hasPersistedFinalForTyping = persistedRows.some(
+      (message) =>
+        message.role === 'assistant' &&
+        message.semanticPhase === 'assistant_final' &&
+        typeof message.operationId === 'string' &&
+        operationIds.has(message.operationId.trim())
+    );
+
+    return !hasPersistedFinalForTyping;
+  }
   private inferMediaTypeFromUrl(url: string): 'image' | 'video' | null {
     const normalizedUrl = this.normalizeDetectedMediaUrl(url);
     const parsed = (() => {
@@ -500,18 +523,23 @@ export class AgentXOperationChatSessionFacade {
   }
 
   private stripPersistedAttachmentAnnotations(content: string): string {
-    return content
-      .replace(/\n\n\[Attached (?:file|video): .+/gs, '')
-      .replace(/\n\n\[Connected sources available[^\]]*\]/gs, '')
-      .replace(
-        /\n\[Instruction: treat these as user-connected sources for this request; do not state they are missing\.\]/gs,
-        ''
-      )
-      .replace(
-        /\s*\[Selected contexts \(confirmed by user for this turn\):[\s\S]*?\n\]\s*\[Instruction: prioritize these contexts while reasoning and cite their timestamps when relevant\.\]/g,
-        ''
-      )
-      .trim();
+    return (
+      content
+        // Strip [Attached video: ...] / [Attached file: ...] annotations, including
+        // the modern "(already visible to user — do not re-embed)" suffix appended
+        // by `formatVideoAttachmentLabel` / `formatFileAttachmentLabel` in the backend.
+        .replace(/\n\n\[Attached (?:file|video)(?:\s+\([^)]*\))?: .+/gs, '')
+        .replace(/\n\n\[Connected sources available[^\]]*\]/gs, '')
+        .replace(
+          /\n\[Instruction: treat these as user-connected sources for this request; do not state they are missing\.\]/gs,
+          ''
+        )
+        .replace(
+          /\s*\[Selected contexts \(confirmed by user for this turn\):[\s\S]*?\n\]\s*\[Instruction: prioritize these contexts while reasoning and cite their timestamps when relevant\.\]/g,
+          ''
+        )
+        .trim()
+    );
   }
 
   private collectMessageMedia(message: AgentMessage): {
@@ -750,6 +778,17 @@ export class AgentXOperationChatSessionFacade {
 
   private normalizePartTextContent(value: string | undefined | null): string {
     return (value ?? '').replace(/\s+/g, ' ').trim();
+  }
+
+  private containsMediaReplaySignal(content: string): boolean {
+    const normalized = content.trim();
+    if (!normalized) return false;
+    return (
+      /\[view video\]\(/i.test(normalized) ||
+      /videodelivery\.net/i.test(normalized) ||
+      /watch\.cloudflarestream\.com/i.test(normalized) ||
+      /\.(mp4|mov|m3u8)(\b|\?|#)/i.test(normalized)
+    );
   }
 
   private shouldAppendContentAsTextPart(
@@ -1115,17 +1154,14 @@ export class AgentXOperationChatSessionFacade {
     const approvalYieldedOpIds = new Set<string>(); // needs_approval only
     for (const item of items) {
       if (item.role !== 'assistant') continue;
-      const opId = typeof item.operationId === 'string' ? item.operationId.trim() : '';
+      const opId = item.operationId?.trim() ?? '';
       if (!opId) continue;
-
       const semanticYield = item.semanticPhase === 'assistant_yield';
-      const persistedYieldState = this.coercePersistedYieldState(item.resultData?.['yieldState']);
-      // Raw reason: works without pendingToolCall so assistant_yield rows
-      // written without the full yieldState shape are still classified.
-      const rawYieldReason = (
-        item.resultData?.['yieldState'] as Record<string, unknown> | undefined
-      )?.['reason'];
-      // Any 'confirmation' card = approval yield (no payload validation needed).
+      const persistedYieldState = this.coercePersistedYieldStateFromMessage(item, []);
+      const rawYieldReason =
+        typeof item.resultData?.['yieldReason'] === 'string'
+          ? (item.resultData['yieldReason'] as string)
+          : undefined;
       const pendingApprovalCard = (item.parts ?? []).some(
         (part) => part.type === 'card' && part.card.type === 'confirmation'
       );
@@ -2462,6 +2498,15 @@ export class AgentXOperationChatSessionFacade {
                   this.stripPersistedAttachmentAnnotations(message.content)
                 );
 
+          const assistantMedia =
+            message.role === 'assistant' ? this.collectMessageMedia(message) : {};
+          const hasAssistantMediaSignal =
+            message.role === 'assistant' &&
+            (Boolean(assistantMedia.videoUrl) ||
+              Boolean(assistantMedia.imageUrl) ||
+              Boolean(assistantMedia.attachments?.length) ||
+              this.containsMediaReplaySignal(cleanContent));
+
           // BUG FIX: Rehydration drops text when cards are present.
           // nxt1-chat-bubble overrides legacy layout to strictly loop over `parts` if any exist.
           // We must ensure `cleanContent` is injected as a 'text' part so it renders.
@@ -2473,14 +2518,37 @@ export class AgentXOperationChatSessionFacade {
           // only the card into `parts` and stores the full content string
           // separately, prepending the text would flip the layout to
           // text → card on rehydrate. Appending preserves the live order.
-          if (persistedParts.length > 0 && cleanContent.length > 0) {
-            const hasTextPart = persistedParts.some((p) => p.type === 'text');
-            if (!hasTextPart) {
-              persistedParts = [
-                ...persistedParts,
-                { type: 'text' as const, content: cleanContent },
-              ];
-            }
+          const hasExistingAssistantTextPart = persistedParts.some(
+            (part) => part.type === 'text' && part.content.trim().length > 0
+          );
+          const supplementalContentTextPart =
+            persistedParts.length > 0
+              ? hasAssistantMediaSignal && hasExistingAssistantTextPart
+                ? null
+                : this.resolveSupplementalContentTextPart(cleanContent, persistedParts)
+              : null;
+          if (supplementalContentTextPart) {
+            persistedParts = [
+              ...persistedParts,
+              { type: 'text' as const, content: supplementalContentTextPart },
+            ];
+          }
+
+          if (hasAssistantMediaSignal) {
+            this.logger.info('[ReloadDiag] mapped assistant media row', {
+              threadId,
+              messageId: message.id,
+              operationId: message.operationId,
+              semanticPhase: message.semanticPhase,
+              cleanContentLength: cleanContent.length,
+              persistedPartCount: persistedParts.length,
+              supplementalContentAppended: Boolean(supplementalContentTextPart),
+              suppressedSupplementalForMedia:
+                hasAssistantMediaSignal && hasExistingAssistantTextPart,
+              videoUrl: assistantMedia.videoUrl ?? null,
+              imageUrl: assistantMedia.imageUrl ?? null,
+              attachmentCount: assistantMedia.attachments?.length ?? 0,
+            });
           }
 
           // Derive the `cards` array from card-type parts so render methods
@@ -2547,6 +2615,39 @@ export class AgentXOperationChatSessionFacade {
         });
 
       const dedupedMapped = this.dedupeConsecutiveAssistantMessages(mapped);
+      const mediaAssistantRowsBefore = mapped.filter(
+        (message) =>
+          message.role === 'assistant' &&
+          (Boolean(
+            message.attachments?.some(
+              (attachment) => attachment.type === 'video' || attachment.type === 'image'
+            )
+          ) ||
+            Boolean(message.attachments?.length) ||
+            this.containsMediaReplaySignal(message.content))
+      );
+      const mediaAssistantRowsAfter = dedupedMapped.filter(
+        (message) =>
+          message.role === 'assistant' &&
+          (Boolean(
+            message.attachments?.some(
+              (attachment) => attachment.type === 'video' || attachment.type === 'image'
+            )
+          ) ||
+            Boolean(message.attachments?.length) ||
+            this.containsMediaReplaySignal(message.content))
+      );
+      if (mediaAssistantRowsBefore.length > 0) {
+        this.logger.info('[ReloadDiag] media assistant dedupe summary', {
+          threadId,
+          mappedCount: mapped.length,
+          dedupedCount: dedupedMapped.length,
+          mediaAssistantRowsBefore: mediaAssistantRowsBefore.length,
+          mediaAssistantRowsAfter: mediaAssistantRowsAfter.length,
+          mappedMediaMessageIds: mediaAssistantRowsBefore.map((message) => message.id),
+          dedupedMediaMessageIds: mediaAssistantRowsAfter.map((message) => message.id),
+        });
+      }
       const reorderedMapped = this.reorderTurnsByPairing(dedupedMapped);
 
       // Preserve any in-flight typing bubble across the persisted-history
@@ -2619,24 +2720,33 @@ export class AgentXOperationChatSessionFacade {
       // need to survive a history reload.
       let persistedRows = reorderedMapped;
       let preserveTyping = !!existingTyping;
+      let liveOperationIdForTyping: string | null = null;
+      let rowsBeforeLiveFilter = reorderedMapped.length;
+      let rowsAfterLiveFilter = reorderedMapped.length;
       if (existingTyping) {
         const liveOperationId = this.streamRegistry.getOperationIdForThread(threadId);
+        liveOperationIdForTyping = liveOperationId ?? null;
+        preserveTyping = this.shouldPreserveTypingAfterThreadReload(
+          existingTyping,
+          reorderedMapped,
+          liveOperationId ?? null
+        );
         if (liveOperationId) {
           const rowsBeforeFilter = reorderedMapped.length;
+          rowsBeforeLiveFilter = rowsBeforeFilter;
           const assistantRowsForLiveOperation = reorderedMapped.filter(
             (m) => m.role === 'assistant' && m.operationId === liveOperationId
           ).length;
 
-          persistedRows = reorderedMapped.filter((m) => {
-            if (m.role !== 'assistant' || m.operationId !== liveOperationId) return true;
-
-            // Keep interruption rows (ask_user/approval) for the live operation.
-            // Dropping all assistant rows for the active operation causes the
-            // pending action card to disappear on session re-entry.
-            if (m.yieldState || this.messageHasYieldCard(m)) return true;
-
-            return false;
-          });
+          persistedRows = reorderedMapped.filter(
+            (m) =>
+              !this.shouldDropPersistedRowForActiveTyping(m, {
+                liveOperationId,
+                existingTyping,
+                replayOperationIds: liveReplayOperationIds,
+              })
+          );
+          rowsAfterLiveFilter = persistedRows.length;
 
           const hasPersistedYieldAssistantForLiveOperation =
             this.hasYieldedAssistantRowForOperation(persistedRows, liveOperationId);
@@ -2665,11 +2775,29 @@ export class AgentXOperationChatSessionFacade {
           });
         }
       }
-      this.messageFacade.messages.set(
-        preserveTyping && existingTyping
-          ? [...persistedRows, ...preservedInlineYieldRows, existingTyping]
-          : [...persistedRows, ...preservedInlineYieldRows]
+      const mergedRows = this.mergePreservedInlineYieldRows(
+        persistedRows,
+        preservedInlineYieldRows
       );
+      const finalRows =
+        preserveTyping && existingTyping ? [...mergedRows, existingTyping] : mergedRows;
+      if (existingTyping || mediaAssistantRowsAfter.length > 0) {
+        this.logger.info('[ReloadDiag] typing merge decision', {
+          threadId,
+          contextId: host.contextId(),
+          hadExistingTyping: Boolean(existingTyping),
+          preserveTyping,
+          existingTypingOperationId: existingTyping?.operationId ?? null,
+          liveOperationId: liveOperationIdForTyping,
+          rowsBeforeLiveFilter,
+          rowsAfterLiveFilter,
+          mergedRowsCount: mergedRows.length,
+          finalRowsCount: finalRows.length,
+          mediaAssistantRowsAfter: mediaAssistantRowsAfter.length,
+          mediaAssistantMessageIdsAfter: mediaAssistantRowsAfter.map((message) => message.id),
+        });
+      }
+      this.messageFacade.messages.set(finalRows);
 
       // Async canvas thumbnails for video attachments loaded from history.
       // History messages from the backend never carry a thumbnailUrl — generate
@@ -3358,17 +3486,40 @@ export class AgentXOperationChatSessionFacade {
             if (completedOperationId) {
               replayOperationIds.add(completedOperationId);
             }
-            const alreadyPresent = this.messageFacade.messages().some(
-              (m) =>
-                m.role === 'assistant' &&
-                !m.isTyping &&
-                (this.normalizeMessageContent(m.content) === normalizedFreshContent ||
-                  this.shouldDropLiveReplayAssistantRow(m, {
-                    operationIds: replayOperationIds,
-                    content: fresh.content,
-                    steps: fresh.steps,
-                  }))
-            );
+            const existingAssistantMatches = this.messageFacade
+              .messages()
+              .filter(
+                (m) =>
+                  m.role === 'assistant' &&
+                  !m.isTyping &&
+                  (this.normalizeMessageContent(m.content) === normalizedFreshContent ||
+                    this.shouldDropLiveReplayAssistantRow(m, {
+                      operationIds: replayOperationIds,
+                      content: fresh.content,
+                      steps: fresh.steps,
+                    }))
+              )
+              .map((m) => ({
+                id: m.id,
+                operationId: m.operationId ?? null,
+                contentLength: (m.content ?? '').length,
+                hasMediaSignal: this.containsMediaReplaySignal(m.content),
+                hasAttachments: Boolean(m.attachments?.length),
+              }));
+            const alreadyPresent = existingAssistantMatches.length > 0;
+            this.logger.info('[ReloadDiag] replay append guard decision', {
+              threadId,
+              contextId: host.contextId(),
+              completedOperationId: completedOperationId ?? null,
+              replayOperationIds: [...replayOperationIds],
+              freshContentLength: fresh.content.length,
+              normalizedFreshContentLength: normalizedFreshContent.length,
+              freshHasMediaSignal: this.containsMediaReplaySignal(fresh.content),
+              freshStepsCount: fresh.steps.length,
+              alreadyPresent,
+              matchedAssistantCount: existingAssistantMatches.length,
+              matchedAssistants: existingAssistantMatches,
+            });
             if (!alreadyPresent) {
               const freshCardsWithoutYield = fresh.cards.filter(
                 (card) => !this.isYieldRichCard(card)

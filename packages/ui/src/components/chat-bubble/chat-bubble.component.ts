@@ -13,7 +13,16 @@
  * ⭐ SHARED — Works on web and mobile ⭐
  */
 
-import { Component, ChangeDetectionStrategy, computed, input, output } from '@angular/core';
+import {
+  Component,
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  computed,
+  inject,
+  input,
+  output,
+  type AfterViewChecked,
+} from '@angular/core';
 import type { AgentXToolStep, AgentXRichCard, AgentXMessagePart } from '@nxt1/core/ai';
 import { AgentXToolStepsComponent } from '../../agent-x/components/shared/agent-x-tool-steps.component';
 import {
@@ -31,6 +40,33 @@ import {
 } from '../markdown/markdown.component';
 import { NxtAgentXExtendedThinkingComponent } from '../../agent-x/components/chat/agent-x-extended-thinking.component';
 import { buildAgentCardThemeStyle } from '../../agent-x/types/agent-x-agent-presentation';
+import { NxtLoggingService } from '../../services/logging';
+
+const CHAT_BUBBLE_VIDEO_POSTER_MAX_EDGE_PX = 640;
+
+function resolveChatBubbleVideoPosterDimensions(
+  sourceWidth: number,
+  sourceHeight: number
+): { width: number; height: number } {
+  const width = Math.max(1, Math.round(sourceWidth || 320));
+  const height = Math.max(1, Math.round(sourceHeight || 180));
+  const maxEdge = Math.max(width, height);
+  if (maxEdge <= CHAT_BUBBLE_VIDEO_POSTER_MAX_EDGE_PX) {
+    return { width, height };
+  }
+
+  const scale = CHAT_BUBBLE_VIDEO_POSTER_MAX_EDGE_PX / maxEdge;
+  return {
+    width: Math.max(1, Math.round(width * scale)),
+    height: Math.max(1, Math.round(height * scale)),
+  };
+}
+
+function readVideoPartThumbnailUrl(part: AgentXMessagePart): string | null {
+  if (part.type !== 'video') return null;
+  const value = (part as { readonly thumbnailUrl?: string }).thumbnailUrl;
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
 
 /** Visual variant controlling sizing, colors, and border‑radius. */
 export type ChatBubbleVariant = 'message' | 'agent-chat' | 'agent-operation' | 'agent-fab';
@@ -151,13 +187,19 @@ export interface ChatBubbleMediaRequestedEvent {
               aria-label="Open video"
               (click)="mediaRequested.emit({ url: part.url, type: 'video' })"
             >
-              <video
-                [src]="part.url"
-                class="bubble-video"
-                muted
-                playsinline
-                preload="metadata"
-              ></video>
+              @if (videoPartPosterUrl(part); as posterUrl) {
+                <img
+                  [src]="posterUrl"
+                  class="bubble-video-poster"
+                  alt="Video thumbnail"
+                  (error)="onVideoPosterError(part, posterUrl)"
+                />
+              } @else {
+                <div
+                  class="bubble-video-poster bubble-video-poster--fallback"
+                  aria-hidden="true"
+                ></div>
+              }
               <span class="bubble-media-play" aria-hidden="true">
                 <nxt1-icon name="playCircle" [size]="38" />
               </span>
@@ -608,7 +650,21 @@ export interface ChatBubbleMediaRequestedEvent {
 
       .bubble-media-button--video {
         aspect-ratio: 16 / 9;
-        background: #000;
+        background:
+          linear-gradient(
+            90deg,
+            transparent 0 19%,
+            rgba(255, 255, 255, 0.055) 19% 20%,
+            transparent 20% 39%,
+            rgba(255, 255, 255, 0.045) 39% 40%,
+            transparent 40% 59%,
+            rgba(255, 255, 255, 0.04) 59% 60%,
+            transparent 60% 79%,
+            rgba(255, 255, 255, 0.035) 79% 80%,
+            transparent 80%
+          ),
+          radial-gradient(circle at 28% 26%, rgba(204, 255, 0, 0.24), transparent 36%),
+          linear-gradient(135deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.035)), #10120f;
       }
 
       .bubble-img {
@@ -621,7 +677,7 @@ export interface ChatBubbleMediaRequestedEvent {
         pointer-events: none;
       }
 
-      .bubble-video {
+      .bubble-video-poster {
         display: block;
         width: 100%;
         max-width: 100%;
@@ -629,6 +685,24 @@ export interface ChatBubbleMediaRequestedEvent {
         border-radius: 12px;
         object-fit: cover;
         pointer-events: none;
+      }
+
+      .bubble-video-poster--fallback {
+        background:
+          linear-gradient(
+            90deg,
+            transparent 0 19%,
+            rgba(255, 255, 255, 0.055) 19% 20%,
+            transparent 20% 39%,
+            rgba(255, 255, 255, 0.045) 39% 40%,
+            transparent 40% 59%,
+            rgba(255, 255, 255, 0.04) 59% 60%,
+            transparent 60% 79%,
+            rgba(255, 255, 255, 0.035) 79% 80%,
+            transparent 80%
+          ),
+          radial-gradient(circle at 28% 26%, rgba(204, 255, 0, 0.24), transparent 36%),
+          linear-gradient(135deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.035)), #10120f;
       }
 
       .bubble-media-play {
@@ -665,7 +739,7 @@ export interface ChatBubbleMediaRequestedEvent {
       }
 
       :host(.own) .bubble-img,
-      :host(.own) .bubble-video {
+      :host(.own) .bubble-video-poster {
         max-width: 100%;
       }
 
@@ -674,7 +748,7 @@ export interface ChatBubbleMediaRequestedEvent {
       }
 
       :host(.variant-agent-fab) .bubble-img,
-      :host(.variant-agent-fab) .bubble-video {
+      :host(.variant-agent-fab) .bubble-video-poster {
         max-width: 100%;
       }
 
@@ -692,7 +766,15 @@ export interface ChatBubbleMediaRequestedEvent {
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class NxtChatBubbleComponent {
+export class NxtChatBubbleComponent implements AfterViewChecked {
+  private readonly cdr = inject(ChangeDetectorRef);
+  private readonly logger = inject(NxtLoggingService).child('NxtChatBubbleComponent');
+  private readonly generatedVideoPosterUrls = new Map<string, string>();
+  private readonly pendingVideoPosterUrls = new Set<string>();
+  private readonly failedVideoPosterUrls = new Set<string>();
+  private readonly failedExplicitThumbnailUrls = new Set<string>();
+  private posterHydrationQueued = false;
+
   /** Visual variant controlling sizing, colors, and border‑radius. */
   readonly variant = input<ChatBubbleVariant>('message');
 
@@ -767,12 +849,41 @@ export class NxtChatBubbleComponent {
   /** Emitted when the user clicks "Try again" on an error bubble. */
   readonly retryRequested = output<void>();
 
+  ngAfterViewChecked(): void {
+    this.queueVideoPosterHydration();
+  }
+
   protected onMarkdownMediaRequested(event: MarkdownMediaRequestedEvent): void {
     this.mediaRequested.emit(event);
   }
 
   protected onMarkdownTimestampClicked(timeMs: number): void {
     this.timestampClicked.emit(timeMs);
+  }
+
+  protected videoPartPosterUrl(part: AgentXMessagePart): string | null {
+    if (part.type !== 'video') return null;
+
+    const explicitThumbnailUrl = readVideoPartThumbnailUrl(part);
+    if (explicitThumbnailUrl && !this.failedExplicitThumbnailUrls.has(explicitThumbnailUrl)) {
+      return explicitThumbnailUrl;
+    }
+
+    return this.generatedVideoPosterUrls.get(part.url) ?? null;
+  }
+
+  protected onVideoPosterError(part: AgentXMessagePart, posterUrl: string): void {
+    if (part.type !== 'video') return;
+
+    const explicitThumbnailUrl = readVideoPartThumbnailUrl(part);
+    if (explicitThumbnailUrl && explicitThumbnailUrl === posterUrl) {
+      this.failedExplicitThumbnailUrls.add(explicitThumbnailUrl);
+      this.logger.warn('Explicit chat bubble video thumbnail failed to load', {
+        videoUrl: part.url,
+        thumbnailUrl: explicitThumbnailUrl,
+      });
+      this.cdr.markForCheck();
+    }
   }
 
   protected cardThemeStyle(card: AgentXRichCard): string {
@@ -793,5 +904,214 @@ export class NxtChatBubbleComponent {
       .join('\n\n')
       .trim();
     return combined || card.title || 'Agent X has a question.';
+  }
+
+  private queueVideoPosterHydration(): void {
+    if (!this.canGenerateClientVideoPosters() || this.posterHydrationQueued) {
+      return;
+    }
+
+    if (!this.parts().some((part) => part.type === 'video')) {
+      return;
+    }
+
+    this.posterHydrationQueued = true;
+    const schedule =
+      typeof requestAnimationFrame === 'function'
+        ? requestAnimationFrame
+        : (callback: FrameRequestCallback) => setTimeout(() => callback(Date.now()), 16);
+
+    schedule(() => {
+      this.posterHydrationQueued = false;
+      this.hydrateVideoPostersForParts();
+    });
+  }
+
+  private canGenerateClientVideoPosters(): boolean {
+    if (
+      typeof document === 'undefined' ||
+      typeof HTMLVideoElement === 'undefined' ||
+      typeof HTMLCanvasElement === 'undefined'
+    ) {
+      return false;
+    }
+
+    const userAgent = typeof navigator === 'undefined' ? '' : navigator.userAgent;
+    return !/jsdom|happy-dom/i.test(userAgent);
+  }
+
+  private hydrateVideoPostersForParts(): void {
+    for (const part of this.parts()) {
+      if (part.type !== 'video') continue;
+      if (readVideoPartThumbnailUrl(part)) continue;
+      if (this.generatedVideoPosterUrls.has(part.url)) continue;
+      if (this.pendingVideoPosterUrls.has(part.url) || this.failedVideoPosterUrls.has(part.url)) {
+        continue;
+      }
+
+      this.pendingVideoPosterUrls.add(part.url);
+      void this.generateVideoPosterFromUrl(part.url)
+        .then((posterUrl) => {
+          if (!posterUrl) {
+            this.failedVideoPosterUrls.add(part.url);
+            this.logger.warn('Failed to generate chat bubble video poster', {
+              videoUrl: part.url,
+              reason: 'empty-result',
+            });
+            return;
+          }
+          this.generatedVideoPosterUrls.set(part.url, posterUrl);
+          this.logger.info('Generated chat bubble video poster', {
+            videoUrl: part.url,
+            posterBytes: posterUrl.length,
+          });
+          this.cdr.markForCheck();
+        })
+        .catch((error) => {
+          const message = error instanceof Error ? error.message : String(error);
+          const errorName =
+            error && typeof error === 'object' && 'name' in error
+              ? String((error as { name?: unknown }).name ?? '')
+              : undefined;
+          this.failedVideoPosterUrls.add(part.url);
+          this.logger.warn('Failed to generate chat bubble video poster', {
+            videoUrl: part.url,
+            errorName,
+            errorMessage: message,
+            likelyCorsTaint:
+              errorName === 'SecurityError' || /taint|cross-origin|insecure/i.test(message),
+          });
+        })
+        .finally(() => {
+          this.pendingVideoPosterUrls.delete(part.url);
+        });
+    }
+  }
+
+  private generateVideoPosterFromUrl(url: string): Promise<string | null> {
+    return new Promise<string | null>((resolve, reject) => {
+      if (typeof document === 'undefined') {
+        resolve(null);
+        return;
+      }
+
+      const video = document.createElement('video');
+      video.crossOrigin = 'anonymous';
+      video.muted = true;
+      video.defaultMuted = true;
+      video.playsInline = true;
+      video.setAttribute('muted', '');
+      video.setAttribute('playsinline', '');
+      video.setAttribute('webkit-playsinline', '');
+      video.preload = 'auto';
+      video.style.cssText =
+        'position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none;';
+      video.src = url;
+
+      const root = document.body ?? document.documentElement;
+      root.appendChild(video);
+
+      let settled = false;
+      const timeoutId = setTimeout(() => {
+        finish(null);
+      }, 6000);
+
+      const cleanup = (): void => {
+        clearTimeout(timeoutId);
+        try {
+          video.pause();
+        } catch {
+          /* ignore */
+        }
+        video.removeAttribute('src');
+        try {
+          video.load();
+        } catch {
+          /* ignore */
+        }
+        if (video.parentNode) {
+          video.parentNode.removeChild(video);
+        }
+      };
+
+      const finish = (result: string | null, error?: unknown): void => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve(result);
+      };
+
+      const captureFrame = (): void => {
+        if (settled) return;
+        try {
+          const { width, height } = resolveChatBubbleVideoPosterDimensions(
+            video.videoWidth || 320,
+            video.videoHeight || 180
+          );
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const context = canvas.getContext('2d');
+          if (!context) {
+            finish(null);
+            return;
+          }
+          context.drawImage(video, 0, 0, width, height);
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.78);
+          finish(dataUrl);
+        } catch (error) {
+          finish(null, error);
+        }
+      };
+
+      const tryCapture = async (): Promise<void> => {
+        if (settled) return;
+        try {
+          const playPromise = video.play();
+          if (playPromise && typeof playPromise.then === 'function') {
+            await playPromise.catch(() => undefined);
+          }
+          await new Promise<void>((done) =>
+            typeof requestAnimationFrame === 'function'
+              ? requestAnimationFrame(() => done())
+              : setTimeout(done, 50)
+          );
+          try {
+            video.pause();
+          } catch {
+            /* ignore */
+          }
+          captureFrame();
+        } catch (error) {
+          finish(null, error);
+        }
+      };
+
+      video.addEventListener(
+        'loadeddata',
+        () => {
+          void tryCapture();
+        },
+        { once: true }
+      );
+
+      video.addEventListener(
+        'error',
+        () => {
+          finish(null, new Error(`Video poster load failed: ${url}`));
+        },
+        { once: true }
+      );
+
+      try {
+        video.load();
+      } catch (error) {
+        finish(null, error);
+      }
+    });
   }
 }

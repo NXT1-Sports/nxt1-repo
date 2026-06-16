@@ -60,8 +60,6 @@ type OperationStatus =
 const SELECTED_CONTEXT_SUMMARY_MAX_CHARS = 600;
 const OPERATION_COMPLETE_DONE_FALLBACK_MS = 5_000;
 const OPERATIONS_LOG_REFRESH_DELAYS_MS = [0, 1_000, 2_500, 5_000] as const;
-const STREAM_DEBUG_STORAGE_KEY = 'nxt1.agentx.stream.debug';
-const STREAM_DEBUG_QUERY_PARAM = 'agentxStreamDebug';
 const RECURRING_TOOL_NAMES = new Set([
   'schedule_recurring_task',
   'update_recurring_task',
@@ -81,12 +79,6 @@ function truncateSelectedContextSummary(summary: string): string {
 
 function isRecurringToolName(toolName: string): boolean {
   return RECURRING_TOOL_NAMES.has(toolName.trim().toLowerCase());
-}
-
-function isTruthyDebugValue(raw: string | null): boolean {
-  if (!raw) return false;
-  const normalized = raw.trim().toLowerCase();
-  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
 export interface BatchEmailRecipientStatus {
@@ -472,31 +464,14 @@ export class AgentXOperationChatTransportFacade {
     // with `status='success'`, ensuring the localStorage waiting entry is
     // written exactly once even if the backend re-emits the step.
     let enqueueHeavyHandoffMarked = false;
+    let firstDeltaFlushed = false;
 
     return new Promise<void>((resolve, reject) => {
       const appBaseUrl = resolveCurrentAgentXAppBaseUrl();
-      const streamDebugEnabled = this.isStreamDebugEnabled();
-      if (streamDebugEnabled) {
-        this.logger.info('Agent X stream debug enabled for request', {
-          contextId: host.contextId(),
-          threadId: host.resolveActiveThreadId(),
-          operationId: request.resumeOperationId ?? pendingOperationId ?? null,
-          attachmentCount: request.attachments?.length ?? 0,
-          attachmentTypes: (request.attachments ?? []).map((attachment) => attachment.type),
-          selectedContextCount: request.selectedContexts?.length ?? 0,
-        });
-      }
       const streamController = this.api.streamMessage(
         request,
         {
           onThread: (event) => {
-            if (streamDebugEnabled) {
-              this.logger.info('Agent X stream event: thread', {
-                threadId: event.threadId,
-                operationId: event.operationId,
-                seq: event.seq,
-              });
-            }
             host.resolvedThreadId.set(event.threadId);
             if (event.operationId) host.setCurrentOperationId(event.operationId);
             host.setActivityPhase('connected');
@@ -551,27 +526,25 @@ export class AgentXOperationChatTransportFacade {
           },
 
           onDelta: (event) => {
-            if (streamDebugEnabled) {
-              this.logger.info('Agent X stream event: delta', {
-                seq: event.seq,
-                contentLength: event.content.length,
-              });
-            }
             const threadId = host.resolvedThreadId();
             if (threadId) this.streamRegistry.appendDelta(threadId, event.content);
             this.recordDeltaLatency(event.emittedAt);
             host.markActivityPulse();
 
+            const isFirstDelta = !firstDeltaFlushed;
+            if (!firstDeltaFlushed) {
+              firstDeltaFlushed = true;
+            }
             this.messageFacade.queueTypingDelta(event.content);
+            if (isFirstDelta) {
+              // On some native video-upload flows the first SSE chunk can be
+              // the only visible prose for several seconds. Flush immediately
+              // so the typing row does not appear empty/stuck.
+              this.messageFacade.flushPendingTypingDelta();
+            }
           },
 
           onThinking: (event) => {
-            if (streamDebugEnabled) {
-              this.logger.info('Agent X stream event: thinking', {
-                seq: event.seq,
-                contentLength: event.content.length,
-              });
-            }
             const threadId = host.resolvedThreadId();
             if (threadId) this.streamRegistry.appendThinking(threadId, event.content);
             // Thinking arrives before deltas — update parts on the typing message
@@ -593,16 +566,6 @@ export class AgentXOperationChatTransportFacade {
           },
 
           onStep: (event: AgentXStreamStepEvent) => {
-            if (streamDebugEnabled) {
-              this.logger.info('Agent X stream event: step', {
-                id: event.id,
-                status: event.status,
-                stageType: event.stageType,
-                toolName:
-                  (event.metadata as Record<string, unknown> | undefined)?.['toolName'] ?? null,
-                seq: event.seq,
-              });
-            }
             const label = event.label.trim();
             if (!label) return;
 
@@ -754,13 +717,6 @@ export class AgentXOperationChatTransportFacade {
           },
 
           onCard: (event: AgentXStreamCardEvent) => {
-            if (streamDebugEnabled) {
-              this.logger.info('Agent X stream event: card', {
-                type: event.type,
-                title: event.title,
-                seq: event.seq,
-              });
-            }
             this.messageFacade.flushPendingTypingDelta();
             const card: AgentXRichCard = {
               type: event.type,
@@ -779,14 +735,6 @@ export class AgentXOperationChatTransportFacade {
           },
 
           onOperation: (event) => {
-            if (streamDebugEnabled) {
-              this.logger.info('Agent X stream event: operation', {
-                operationId: event.operationId,
-                threadId: event.threadId,
-                status: event.status,
-                seq: event.seq,
-              });
-            }
             if (event.operationId) {
               host.setCurrentOperationId(event.operationId);
             }
@@ -851,18 +799,6 @@ export class AgentXOperationChatTransportFacade {
           },
 
           onProgress: (event) => {
-            if (streamDebugEnabled) {
-              this.logger.info('Agent X stream event: progress', {
-                type: event.type,
-                phase:
-                  typeof (event.metadata as Record<string, unknown> | undefined)?.['phase'] ===
-                  'string'
-                    ? ((event.metadata as Record<string, unknown>)['phase'] as string)
-                    : null,
-                messageLength: typeof event.message === 'string' ? event.message.length : 0,
-                seq: event.seq,
-              });
-            }
             const message = typeof event.message === 'string' ? event.message.trim() : '';
 
             // Route batch-email per-recipient progress to a dedicated signal
@@ -957,13 +893,6 @@ export class AgentXOperationChatTransportFacade {
           },
 
           onTitleUpdated: (event) => {
-            if (streamDebugEnabled) {
-              this.logger.info('Agent X stream event: title_updated', {
-                threadId: event.threadId,
-                titleLength: event.title.length,
-                seq: event.seq,
-              });
-            }
             this.operationEventService.emitTitleUpdated(
               event.threadId,
               event.title,
@@ -972,12 +901,6 @@ export class AgentXOperationChatTransportFacade {
           },
 
           onPanel: (event) => {
-            if (streamDebugEnabled) {
-              this.logger.info('Agent X stream event: panel', {
-                type: event.type,
-                hasUrl: typeof event.url === 'string' && event.url.length > 0,
-              });
-            }
             this.agentXService.requestAutoOpenPanel(event);
             this.logger.info('Forwarded panel event to AgentXService (immediate)', {
               type: event.type,
@@ -985,13 +908,6 @@ export class AgentXOperationChatTransportFacade {
           },
 
           onMedia: (event) => {
-            if (streamDebugEnabled) {
-              this.logger.info('Agent X stream event: media', {
-                type: event.type,
-                hasUrl: event.url.trim().length > 0,
-                mimeType: event.mimeType ?? null,
-              });
-            }
             // Keep operation chat bubbles focused on text/tools/cards.
             // Media events can still be consumed by dedicated media panels.
             void event;
@@ -1024,15 +940,6 @@ export class AgentXOperationChatTransportFacade {
           ...(onWaitingForAttachments ? { onWaitingForAttachments } : {}),
 
           onDone: (event) => {
-            if (streamDebugEnabled) {
-              this.logger.info('Agent X stream event: done', {
-                threadId: event.threadId,
-                operationId: event.operationId,
-                messageId: event.messageId,
-                model: event.model,
-                outputTokens: event.usage?.outputTokens,
-              });
-            }
             this.clearOperationCompleteFallbackTimer();
             this.messageFacade.flushPendingTypingDelta();
             host.latestProgressLabel.set(null);
@@ -1139,13 +1046,6 @@ export class AgentXOperationChatTransportFacade {
           },
 
           onError: (event) => {
-            if (streamDebugEnabled) {
-              this.logger.info('Agent X stream event: error', {
-                status: event.status,
-                code: event.code,
-                message: event.error,
-              });
-            }
             this.clearOperationCompleteFallbackTimer();
             const threadId = host.resolvedThreadId();
             if (threadId) {
@@ -1250,7 +1150,6 @@ export class AgentXOperationChatTransportFacade {
         {
           ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(appBaseUrl ? { appBaseUrl } : {}),
-          ...(streamDebugEnabled ? { streamDebug: true } : {}),
         }
       );
 
@@ -1456,44 +1355,6 @@ export class AgentXOperationChatTransportFacade {
 
     this.logger.warn('Skipped transport action before configure()', { action });
     return null;
-  }
-
-  private isStreamDebugEnabled(): boolean {
-    if (!isPlatformBrowser(this.platformId)) {
-      return false;
-    }
-
-    const hostname =
-      typeof globalThis.location?.hostname === 'string' ? globalThis.location.hostname : '';
-    const isDevelopmentHost =
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname === '0.0.0.0' ||
-      hostname.endsWith('.local');
-    if (isDevelopmentHost) {
-      return true;
-    }
-
-    const locationSearch =
-      typeof globalThis.location?.search === 'string' ? globalThis.location.search : '';
-    const queryParamValue = (() => {
-      if (!locationSearch) return null;
-      const params = new URLSearchParams(locationSearch);
-      return params.get(STREAM_DEBUG_QUERY_PARAM);
-    })();
-    if (isTruthyDebugValue(queryParamValue)) {
-      return true;
-    }
-
-    const storageValue = (() => {
-      try {
-        return globalThis.localStorage?.getItem(STREAM_DEBUG_STORAGE_KEY) ?? null;
-      } catch {
-        return null;
-      }
-    })();
-
-    return isTruthyDebugValue(storageValue);
   }
 }
 

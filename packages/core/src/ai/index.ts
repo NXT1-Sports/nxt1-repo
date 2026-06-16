@@ -455,6 +455,14 @@ export {
   sanitizeStorageUrlsFromText,
 } from './agent-identity';
 
+// Echoed-attachment sanitizer (defense-in-depth for the "<video> echo" bug).
+export type { StreamingSanitizer } from './sanitize-assistant-output';
+export {
+  buildAttachmentUrlSet,
+  createStreamingSanitizer,
+  stripEchoedUserAttachments,
+} from './sanitize-assistant-output';
+
 // Welcome graphic prompt builders
 export type {
   AthleteWelcomePromptContext,

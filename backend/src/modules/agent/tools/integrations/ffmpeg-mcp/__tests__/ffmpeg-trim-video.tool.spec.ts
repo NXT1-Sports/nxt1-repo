@@ -12,6 +12,7 @@ const TEST_CONTEXT = {
 describe('FfmpegTrimVideoTool', () => {
   const bridge = {
     trimVideo: vi.fn(),
+    generateThumbnail: vi.fn(),
   };
 
   let tool: FfmpegTrimVideoTool;
@@ -26,6 +27,10 @@ describe('FfmpegTrimVideoTool', () => {
       success: true,
       output_path: '/tmp/output.mp4',
     });
+    bridge.generateThumbnail.mockResolvedValue({
+      success: true,
+      output_path: '/tmp/output-thumbnail.jpg',
+    });
 
     const result = await tool.execute(
       {
@@ -39,7 +44,18 @@ describe('FfmpegTrimVideoTool', () => {
 
     expect(result.success).toBe(true);
     expect(bridge.trimVideo).toHaveBeenCalledTimes(1);
+    expect(bridge.generateThumbnail).toHaveBeenCalledWith(
+      {
+        inputPath: '/tmp/output.mp4',
+        outputPath: '/tmp/output-thumbnail.jpg',
+        time: '0',
+      },
+      TEST_CONTEXT
+    );
     expect((result.data as Record<string, unknown>)['outputUrl']).toBe('/tmp/output.mp4');
+    expect((result.data as Record<string, unknown>)['thumbnailUrl']).toBe(
+      '/tmp/output-thumbnail.jpg'
+    );
   });
 
   it('accepts legacy inputUrl alias and numeric time inputs', async () => {

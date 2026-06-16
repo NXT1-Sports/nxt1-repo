@@ -981,22 +981,44 @@ export class AgentXVideoUploadService {
     nativeWebPath: string | undefined,
     sizeBytes: number
   ): Promise<void> {
-    const nativeSignedPutFile =
-      file.size > 0
-        ? file
-        : await this._tryCreateNativeWebPathFallbackFile(file, nativeWebPath, sizeBytes);
+    let nativeSignedPutFile: File | null = file.size > 0 ? file : null;
+    let nativeSignedPutRawBase64: string | null = null;
+
+    if (!nativeSignedPutFile) {
+      if (nativeUri) {
+        nativeSignedPutRawBase64 = await this._tryReadNativeUriRawBase64(
+          nativeUri,
+          file.name,
+          file.type,
+          sizeBytes
+        );
+      }
+
+      if (!nativeSignedPutRawBase64) {
+        nativeSignedPutFile = await this._tryCreateNativeWebPathFallbackFile(
+          file,
+          nativeWebPath,
+          sizeBytes
+        );
+      }
+    }
 
     // Prefer the backend-issued signed URL on iOS. It avoids Firebase Storage
     // client auth/rules entirely, eliminating "Missing or insufficient permissions"
     // from the primary upload path.
-    if (nativeSignedPutFile) {
+    if (nativeSignedPutFile || nativeSignedPutRawBase64) {
       try {
-        const uploadedViaNativeSignedPut = await this._nativeIosSignedPut(
-          nativeSignedPutFile,
-          uploadUrl,
-          onProgress,
-          sizeBytes
-        );
+        const uploadedViaNativeSignedPut = nativeSignedPutRawBase64
+          ? await this._nativeIosSignedPutRawBase64(
+              nativeSignedPutRawBase64,
+              uploadUrl,
+              onProgress,
+              sizeBytes,
+              file.type || 'video/mp4',
+              file.name,
+              'native-uri'
+            )
+          : await this._nativeIosSignedPut(nativeSignedPutFile!, uploadUrl, onProgress, sizeBytes);
         if (uploadedViaNativeSignedPut) return;
       } catch (signedPutErr) {
         this.logger.warn('Native signed PUT failed; falling back to Firebase/native web paths', {
@@ -1028,7 +1050,12 @@ export class AgentXVideoUploadService {
       );
     }
 
-    if (Capacitor.isNativePlatform() && Capacitor.getPlatform() === 'ios' && !nativeSignedPutFile) {
+    if (
+      Capacitor.isNativePlatform() &&
+      Capacitor.getPlatform() === 'ios' &&
+      !nativeSignedPutFile &&
+      !nativeSignedPutRawBase64
+    ) {
       throw new Error(
         'iOS video upload could not use either native Firebase Storage or native signed PUT'
       );
@@ -1098,12 +1125,52 @@ export class AgentXVideoUploadService {
 
     onProgress(5);
     const rawBase64 = await this._fileToRawBase64(file);
+
+    return this._nativeIosSignedPutRawBase64(
+      rawBase64,
+      uploadUrl,
+      onProgress,
+      sizeBytes,
+      file.type || 'video/mp4',
+      file.name,
+      'file'
+    );
+  }
+
+  private async _nativeIosSignedPutRawBase64(
+    rawBase64: string,
+    uploadUrl: string,
+    onProgress: (percent: number) => void,
+    sizeBytes: number,
+    mimeType: string,
+    fileName: string,
+    source: 'file' | 'native-uri'
+  ): Promise<boolean> {
+    if (sizeBytes > NATIVE_BASE64_FALLBACK_MAX_BYTES) {
+      return false;
+    }
+
+    if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios') {
+      return false;
+    }
+
+    if (source === 'native-uri') {
+      this.logger.info(
+        'Using native iOS signed PUT path for Agent X video upload from native URI',
+        {
+          name: fileName,
+          sizeBytes,
+          mimeType,
+        }
+      );
+    }
+
     onProgress(20);
 
     const response = await CapacitorHttp.request({
       method: 'PUT',
       url: uploadUrl,
-      headers: { 'Content-Type': file.type || 'video/mp4' },
+      headers: { 'Content-Type': mimeType || 'video/mp4' },
       data: rawBase64,
       dataType: 'file',
       readTimeout: AGENT_X_RUNTIME_CONFIG.videoUpload.directPutTimeoutMs,
@@ -1603,6 +1670,45 @@ export class AgentXVideoUploadService {
       error: lastError instanceof Error ? lastError.message : String(lastError),
     });
     return null;
+  }
+
+  private async _tryReadNativeUriRawBase64(
+    nativeUri: string,
+    fileName: string,
+    mimeType: string,
+    sizeBytes: number
+  ): Promise<string | null> {
+    if (!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== 'ios') {
+      return null;
+    }
+    if (sizeBytes > NATIVE_BASE64_FALLBACK_MAX_BYTES) {
+      this.logger.warn('Skipping native URI signed PUT fallback for large video', {
+        name: fileName,
+        sizeBytes,
+        maxBytes: NATIVE_BASE64_FALLBACK_MAX_BYTES,
+      });
+      return null;
+    }
+
+    try {
+      const { Filesystem } = await import('@capacitor/filesystem');
+      const normalizedUri = this._normalizeNativeFileUri(nativeUri);
+      const result = await Filesystem.readFile({ path: normalizedUri });
+      const data = result.data;
+      if (typeof data !== 'string' || data.trim().length === 0) {
+        throw new Error('Filesystem.readFile returned empty data');
+      }
+
+      return data.startsWith('data:') ? data.slice(data.indexOf(',') + 1) : data;
+    } catch (error) {
+      this.logger.warn('Native URI base64 fallback preparation failed', {
+        name: fileName,
+        sizeBytes,
+        mimeType,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
   }
 
   private _normalizeNativeFileUri(uri: string): string {

@@ -120,6 +120,8 @@ export interface EventWriterHooks {
 
 /** How often to flush accumulated delta text to Firestore (ms). */
 const DEFAULT_FLUSH_INTERVAL_MS = 300;
+/** Reserve seq numbers in small batches so non-delta persistence avoids a Firestore transaction per event. */
+const DEFAULT_EVENT_SEQ_LEASE_SIZE = 32;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -156,6 +158,8 @@ export class DebouncedEventWriter {
   private thinkingFlushTimer: ReturnType<typeof setTimeout> | null = null;
   private writeChain: Promise<void> = Promise.resolve();
   private readonly flushIntervalMs: number;
+  private nextLeasedSeq: number | null = null;
+  private remainingLeasedSeqs = 0;
 
   constructor(
     private readonly repo: AgentJobRepository,
@@ -497,18 +501,17 @@ export class DebouncedEventWriter {
     sourceEvent: StreamEvent
   ) {
     const startedAt = Date.now();
-    const seq = await this.repo
-      .writeJobEventWithAutoSeq(this.operationId, jobEvent)
-      .catch((err) => {
-        const message = err instanceof Error ? err.message : String(err);
-        logger.warn('[event-writer] Persist failed', {
-          operationId: this.operationId,
-          type: sourceEvent.type,
-          category: this.classifyWriteFailure(err),
-          error: message,
-        });
-        throw err;
+    const [seq] = await this.reserveSeqRange(1);
+    await this.repo.writeJobEvent(this.operationId, { ...jobEvent, seq }).catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.warn('[event-writer] Persist failed', {
+        operationId: this.operationId,
+        type: sourceEvent.type,
+        category: this.classifyWriteFailure(err),
+        error: message,
       });
+      throw err;
+    });
 
     const durationMs = Date.now() - startedAt;
     this.hooks?.onPersistedEventMetrics?.({
@@ -521,6 +524,31 @@ export class DebouncedEventWriter {
       ...sourceEvent,
       seq,
     });
+  }
+
+  private async reserveSeqRange(count: number): Promise<number[]> {
+    if (!Number.isInteger(count) || count <= 0) return [];
+
+    const reserved: number[] = [];
+
+    while (reserved.length < count) {
+      if (this.remainingLeasedSeqs <= 0 || this.nextLeasedSeq === null) {
+        const leaseCount = Math.max(DEFAULT_EVENT_SEQ_LEASE_SIZE, count - reserved.length);
+        this.nextLeasedSeq = await this.repo.allocateEventSeqRange(this.operationId, leaseCount);
+        this.remainingLeasedSeqs = leaseCount;
+      }
+
+      const nextSeq = this.nextLeasedSeq;
+      if (nextSeq === null) {
+        throw new Error('Event seq lease was not initialized');
+      }
+
+      reserved.push(nextSeq);
+      this.nextLeasedSeq = nextSeq + 1;
+      this.remainingLeasedSeqs -= 1;
+    }
+
+    return reserved;
   }
 
   private classifyWriteFailure(err: unknown): 'quota' | 'auth' | 'network' | 'unknown' {
