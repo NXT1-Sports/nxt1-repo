@@ -129,7 +129,7 @@
     "mongoose": "^9.1.1",
     "multer": "^2.1.1",
     "node-html-markdown": "^2.0.0",
-    "nodemailer": "^8.0.11",
+    "nodemailer": "^9.0.1",
     "pdf-parse": "^2.4.5",
     "pdfmake": "^0.3.11",
     "rate-limit-redis": "^5.0.0",
