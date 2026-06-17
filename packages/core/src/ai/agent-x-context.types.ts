@@ -62,9 +62,11 @@ export interface AgentXSelectedContextAnnotationBounds {
   readonly maxY: number;
 }
 
+export type AgentXSelectedContextAnnotationKind = 'freehand' | 'square' | 'circle';
+
 /** Compact drawing data attached to a selected media context. */
 export interface AgentXSelectedContextAnnotation {
-  readonly kind: 'freehand';
+  readonly kind: AgentXSelectedContextAnnotationKind;
   readonly bounds: AgentXSelectedContextAnnotationBounds;
   readonly strokeCount: number;
   readonly points?: readonly AgentXSelectedContextAnnotationPoint[];
@@ -216,11 +218,17 @@ function isSelectedContextAnnotation(value: unknown): value is AgentXSelectedCon
   if (!isRecord(value)) return false;
 
   return (
-    value['kind'] === 'freehand' &&
+    isSelectedContextAnnotationKind(value['kind']) &&
     isSelectedContextAnnotationBounds(value['bounds']) &&
     isFiniteNonNegativeNumber(value['strokeCount']) &&
     (value['points'] === undefined || isSelectedContextAnnotationPoints(value['points']))
   );
+}
+
+function isSelectedContextAnnotationKind(
+  value: unknown
+): value is AgentXSelectedContextAnnotationKind {
+  return value === 'freehand' || value === 'square' || value === 'circle';
 }
 
 function isSelectedContextAnnotationBounds(
