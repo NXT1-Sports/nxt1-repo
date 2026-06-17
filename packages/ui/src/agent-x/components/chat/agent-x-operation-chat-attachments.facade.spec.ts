@@ -94,9 +94,9 @@ describe('resolvePersistedVideoThumbnailUrl', () => {
     ).toBe('https://storage.googleapis.com/bucket/highlight-thumb.jpg');
   });
 
-  it('falls back to a generated data-image thumbnail for Firebase uploads', () => {
+  it('does not persist generated data-image thumbnails as remote attachment thumbnails', () => {
     expect(resolvePersistedVideoThumbnailUrl(undefined, 'data:image/jpeg;base64,AAAA')).toBe(
-      'data:image/jpeg;base64,AAAA'
+      undefined
     );
   });
 

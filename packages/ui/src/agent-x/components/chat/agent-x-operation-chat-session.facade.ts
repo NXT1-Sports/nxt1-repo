@@ -27,6 +27,7 @@ import type {
   PendingFile,
   OperationMessage,
 } from './agent-x-operation-chat.models';
+import { stripDistilledSectionTransitionLines } from './agent-x-operation-chat.utils';
 import { AgentXOperationChatMessageFacade } from './agent-x-operation-chat-message.facade';
 import { AgentXOperationChatTransportFacade } from './agent-x-operation-chat-transport.facade';
 import { AgentXOperationChatAttachmentsFacade } from './agent-x-operation-chat-attachments.facade';
@@ -384,22 +385,125 @@ export class AgentXOperationChatSessionFacade {
    * Assistant single-source media rendering: convert bare media URLs in prose
    * into markdown so chat bubbles render inline media consistently.
    */
-  private promoteAssistantMediaUrlsToMarkdown(content: string): string {
+  private mediaThumbnailLookup(
+    attachments: readonly NonNullable<OperationMessage['attachments']>[number][] | undefined
+  ): Map<string, string> {
+    const lookup = new Map<string, string>();
+    const attachmentList = attachments ?? [];
+    const videoAttachments = attachmentList.filter((attachment) => attachment.type === 'video');
+    const registerThumbnail = (
+      videoUrl: string,
+      thumbnailUrl: string,
+      options: { readonly overwrite?: boolean } = {}
+    ): void => {
+      const urlKeys = this.mediaUrlLookupKeys(videoUrl);
+      for (const key of urlKeys) {
+        if (options.overwrite || !lookup.has(key)) lookup.set(key, thumbnailUrl);
+      }
+    };
+
+    for (const attachment of videoAttachments) {
+      if (attachment.type !== 'video' || !attachment.thumbnailUrl) continue;
+      registerThumbnail(attachment.url, attachment.thumbnailUrl, { overwrite: true });
+    }
+
+    const fallbackThumbnailImages = attachmentList.filter((attachment) => {
+      if (attachment.type !== 'image' || !attachment.url) return false;
+      const label = `${attachment.name ?? ''} ${attachment.url}`;
+      return /(?:thumb|thumbnail|poster|preview)/i.test(label);
+    });
+
+    if (fallbackThumbnailImages.length > 0) {
+      videoAttachments
+        .filter((attachment) => !attachment.thumbnailUrl)
+        .forEach((attachment, index) => {
+          const fallback =
+            fallbackThumbnailImages[index] ??
+            (fallbackThumbnailImages.length === 1 ? fallbackThumbnailImages[0] : undefined);
+          if (!fallback) return;
+          registerThumbnail(attachment.url, fallback.url);
+        });
+    }
+    return lookup;
+  }
+
+  private mediaUrlLookupKeys(value: string): string[] {
+    const normalized = this.normalizeDetectedMediaUrl(value).replace(/#poster=.*/i, '');
+    const keys = new Set<string>();
+    if (normalized) keys.add(normalized);
+
+    try {
+      const parsed = new URL(normalized);
+      parsed.hash = '';
+      keys.add(parsed.toString());
+
+      if (/(?:firebasestorage|storage)\.googleapis\.com/i.test(parsed.hostname)) {
+        keys.add(`${parsed.origin}${parsed.pathname}`);
+      }
+    } catch {
+      // Ignore malformed URLs; the normalized raw key above is still useful.
+    }
+
+    return [...keys];
+  }
+
+  private thumbnailForMediaUrl(value: string, lookup: ReadonlyMap<string, string>): string | null {
+    for (const key of this.mediaUrlLookupKeys(value)) {
+      const thumbnail = lookup.get(key);
+      if (thumbnail) return thumbnail;
+    }
+    return null;
+  }
+
+  private appendPosterFragment(url: string, thumbnailUrl: string | null): string {
+    if (!this.isRenderableThumbnailUrl(thumbnailUrl) || /#poster=/i.test(url)) return url;
+    return `${url}#poster=${encodeURIComponent(thumbnailUrl)}`;
+  }
+
+  private isRenderableThumbnailUrl(url: string | null | undefined): url is string {
+    const normalized = url?.trim();
+    if (!normalized || normalized.length > 8192) return false;
+    if (/^data:image\//i.test(normalized)) return true;
+    if (!/^https:\/\//i.test(normalized)) return false;
+
+    try {
+      const parsed = new URL(normalized);
+      if (/(?:storage|firebasestorage)\.googleapis\.com/i.test(parsed.hostname)) {
+        const decodedPath = decodeURIComponent(parsed.pathname);
+        return /\.(?:png|jpe?g|webp|gif|avif|bmp|svg)$/i.test(decodedPath);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private promoteAssistantMediaUrlsToMarkdown(
+    content: string,
+    media?: { attachments?: OperationMessage['attachments'] }
+  ): string {
     if (!content.trim()) return content;
 
+    const thumbnailLookup = this.mediaThumbnailLookup(media?.attachments);
     const urlPattern = /https?:\/\/[^\s)\]"'<>]+/gi;
     return content.replace(urlPattern, (rawUrl, offset, source) => {
       const normalizedUrl = this.normalizeDetectedMediaUrl(rawUrl);
       const mediaType = this.inferMediaTypeFromUrl(normalizedUrl);
       if (!mediaType) return rawUrl;
+      const thumbnailUrl =
+        mediaType === 'video' ? this.thumbnailForMediaUrl(normalizedUrl, thumbnailLookup) : null;
+      const renderableUrl =
+        mediaType === 'video'
+          ? this.appendPosterFragment(normalizedUrl, thumbnailUrl)
+          : normalizedUrl;
 
       // Skip URLs already used as markdown link/image targets: ](url)
       const previousChar = offset > 0 ? source[offset - 1] : '';
-      if (previousChar === '(') return rawUrl;
+      if (previousChar === '(') return renderableUrl;
 
       return mediaType === 'video'
-        ? `[View Video](${normalizedUrl})`
-        : `![Generated Image](${normalizedUrl})`;
+        ? `[View Video](${renderableUrl})`
+        : `![Generated Image](${renderableUrl})`;
     });
   }
 
@@ -407,12 +511,15 @@ export class AgentXOperationChatSessionFacade {
     this.messageFacade.messages.update((messages) =>
       messages.map((message) => {
         if (message.id !== 'typing') return message;
-        const normalizedContent = this.promoteAssistantMediaUrlsToMarkdown(message.content);
+        const normalizedContent = this.promoteAssistantMediaUrlsToMarkdown(
+          message.content,
+          message
+        );
         const normalizedParts = (message.parts ?? []).map((part) =>
           part.type === 'text'
             ? {
                 type: 'text' as const,
-                content: this.promoteAssistantMediaUrlsToMarkdown(part.content),
+                content: this.promoteAssistantMediaUrlsToMarkdown(part.content, message),
               }
             : part
         );
@@ -701,44 +808,73 @@ export class AgentXOperationChatSessionFacade {
       messages.map((message) => {
         if (message.id !== 'typing') return message;
 
-        // URL already present in content — nothing to do.
-        if (message.content.includes(media.url)) return message;
-
-        const mediaMarkdown =
-          media.type === 'video'
-            ? `\n\n[View Video](${media.url})`
-            : `\n\n![Generated Image](${media.url})`;
+        const nextAttachment = this.mapStreamMediaEventToAttachment(media, 1);
+        const existingAttachments = message.attachments ?? [];
+        const alreadyAttached = existingAttachments.some(
+          (attachment) =>
+            attachment.type === nextAttachment.type &&
+            this.normalizeDetectedMediaUrl(attachment.url) ===
+              this.normalizeDetectedMediaUrl(nextAttachment.url)
+        );
 
         return {
           ...message,
-          content: message.content + mediaMarkdown,
+          attachments: alreadyAttached
+            ? existingAttachments
+            : [...existingAttachments, nextAttachment],
         };
       })
     );
   }
 
   /**
-   * Build a markdown content suffix from replayed stream media events.
+   * Build attachment-strip items from replayed stream media events.
    * Used on rehydrate when the operation completed before this session connected.
-   * URLs are appended as inline markdown so the chat bubble renders them directly.
+   * Video events keep their explicit thumbnailUrl so mobile does not need to
+   * extract a frame from a remote video inside the native WebView.
    */
-  private buildMediaContentSuffixFromReplayEvents(
+  private buildMediaAttachmentsFromStreamEvents(
     mediaEvents: readonly AgentXStreamMediaEvent[]
-  ): string {
-    if (!mediaEvents.length) return '';
+  ): MessageAttachment[] {
+    if (!mediaEvents.length) return [];
 
     const seen = new Set<string>();
-    const parts: string[] = [];
+    const attachments: MessageAttachment[] = [];
 
-    for (const media of mediaEvents) {
-      if (seen.has(media.url)) continue;
-      seen.add(media.url);
-      parts.push(
-        media.type === 'video' ? `[View Video](${media.url})` : `![Generated Image](${media.url})`
-      );
+    for (const [index, media] of mediaEvents.entries()) {
+      const key = `${media.type}|${this.normalizeDetectedMediaUrl(media.url)}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      attachments.push(this.mapStreamMediaEventToAttachment(media, index + 1));
     }
 
-    return parts.length > 0 ? '\n\n' + parts.join('\n\n') : '';
+    return attachments;
+  }
+
+  private mapStreamMediaEventToAttachment(
+    media: AgentXStreamMediaEvent,
+    ordinal: number
+  ): MessageAttachment {
+    return {
+      url: this.normalizeDetectedMediaUrl(media.url),
+      type: media.type,
+      name: this.streamMediaAttachmentName(media, ordinal),
+      ...(media.thumbnailUrl ? { thumbnailUrl: media.thumbnailUrl.trim() } : {}),
+    };
+  }
+
+  private streamMediaAttachmentName(media: AgentXStreamMediaEvent, ordinal: number): string {
+    try {
+      const pathname = new URL(media.url).pathname;
+      const basename = decodeURIComponent(pathname.split('/').filter(Boolean).pop() ?? '').trim();
+      if (basename) return basename;
+    } catch {
+      // Fall through to stable generated names.
+    }
+
+    return media.type === 'video'
+      ? `generated-video-${ordinal}.mp4`
+      : `generated-image-${ordinal}.jpg`;
   }
 
   private dedupeConsecutiveAssistantMessages(
@@ -1809,8 +1945,10 @@ export class AgentXOperationChatSessionFacade {
     });
 
     const stored = await this.operationEventService.getStoredEventState(operationId);
-    const replayContentSuffix = this.buildMediaContentSuffixFromReplayEvents(stored.media);
-    const content = stored.content + replayContentSuffix;
+    const replayAttachments = this.buildMediaAttachmentsFromStreamEvents(stored.media);
+    const content = this.promoteAssistantMediaUrlsToMarkdown(stored.content, {
+      attachments: replayAttachments,
+    });
     const holdEnqueueUntilDone = this.shouldHoldEnqueueUntilDone(operationId);
     const storedHeavyTaskOperationId = stored.steps
       .map((step) => this.getEnqueueHeavyTaskOperationId(step))
@@ -1871,7 +2009,8 @@ export class AgentXOperationChatSessionFacade {
         content.trim() ||
         stored.parts.length ||
         stored.cards.length ||
-        stored.steps.length
+        stored.steps.length ||
+        replayAttachments.length
       ) {
         this.messageFacade.messages.update((messages) => [
           ...messages,
@@ -1886,6 +2025,7 @@ export class AgentXOperationChatSessionFacade {
             steps: stored.steps.length > 0 ? [...stored.steps] : undefined,
             parts: stored.parts.length > 0 ? [...stored.parts] : undefined,
             cards: stored.cards.length > 0 ? [...stored.cards] : undefined,
+            attachments: replayAttachments.length > 0 ? replayAttachments : undefined,
           },
         ]);
       }
@@ -1919,9 +2059,11 @@ export class AgentXOperationChatSessionFacade {
         (value): value is string => typeof value === 'string' && value.trim().length > 0
       )
     );
-    const typingBubble: Pick<AgentMessage, 'content' | 'parts'> = {
+    const typingBubble: Pick<AgentMessage, 'content' | 'parts' | 'cards' | 'attachments'> = {
       content,
       parts: stored.parts.length > 0 ? [...stored.parts] : undefined,
+      cards: stored.cards.length > 0 ? [...stored.cards] : undefined,
+      attachments: replayAttachments.length > 0 ? replayAttachments : undefined,
     };
 
     this.messageFacade.messages.update((messages) => {
@@ -1948,6 +2090,7 @@ export class AgentXOperationChatSessionFacade {
           steps: stored.steps.length > 0 ? [...stored.steps] : undefined,
           parts: stored.parts.length > 0 ? [...stored.parts] : undefined,
           cards: stored.cards.length > 0 ? [...stored.cards] : undefined,
+          attachments: replayAttachments.length > 0 ? replayAttachments : undefined,
         },
       ];
     });
@@ -2401,6 +2544,8 @@ export class AgentXOperationChatSessionFacade {
               step.label.trim().length > 0 &&
               step.stageType === 'tool'
           );
+          const assistantMedia =
+            message.role === 'assistant' ? this.collectMessageMedia(message) : {};
 
           let persistedParts =
             message.parts?.map((part) =>
@@ -2428,7 +2573,10 @@ export class AgentXOperationChatSessionFacade {
                   : part.type === 'text' && message.role === 'assistant'
                     ? {
                         type: 'text' as const,
-                        content: this.promoteAssistantMediaUrlsToMarkdown(part.content),
+                        content: this.promoteAssistantMediaUrlsToMarkdown(
+                          part.content,
+                          assistantMedia
+                        ),
                       }
                     : part
             ) ?? [];
@@ -2445,12 +2593,13 @@ export class AgentXOperationChatSessionFacade {
                   this.stripPersistedAttachmentAnnotations(message.content),
                   persistedMedia
                 )
-              : this.promoteAssistantMediaUrlsToMarkdown(
-                  this.stripPersistedAttachmentAnnotations(message.content)
+              : stripDistilledSectionTransitionLines(
+                  this.promoteAssistantMediaUrlsToMarkdown(
+                    this.stripPersistedAttachmentAnnotations(message.content),
+                    assistantMedia
+                  )
                 );
 
-          const assistantMedia =
-            message.role === 'assistant' ? this.collectMessageMedia(message) : {};
           const hasAssistantMediaSignal =
             message.role === 'assistant' &&
             (Boolean(assistantMedia.videoUrl) ||
@@ -3627,7 +3776,10 @@ export class AgentXOperationChatSessionFacade {
         // must NOT block subscribing to the current in-flight operation. The done/in-flight
         // branches below correctly dedupe content for the current operationId.
         const stored = await this.operationEventService.getStoredEventState(operationId);
-        const replayContentSuffix = this.buildMediaContentSuffixFromReplayEvents(stored.media);
+        const replayAttachments = this.buildMediaAttachmentsFromStreamEvents(stored.media);
+        const replayContent = this.promoteAssistantMediaUrlsToMarkdown(stored.content, {
+          attachments: replayAttachments,
+        });
         const holdEnqueueUntilDone = this.shouldHoldEnqueueUntilDone(operationId);
         const storedHeavyTaskOperationId = stored.steps
           .map((step) => this.getEnqueueHeavyTaskOperationId(step))
@@ -3682,12 +3834,10 @@ export class AgentXOperationChatSessionFacade {
           // Normalize stored.content (raw Firestore event delta — bare URLs) through the
           // same URL-promotion pipeline that loadThreadMessages applies to assistant messages,
           // so bare-URL vs markdown-URL variants compare equal and we don't inject a duplicate.
-          const normalizedStoredContent = this.normalizeMessageContent(
-            this.promoteAssistantMediaUrlsToMarkdown(stored.content)
-          );
+          const normalizedStoredContent = this.normalizeMessageContent(replayContent);
           if (
             !alreadyHasAssistant &&
-            stored.content &&
+            (stored.content || replayAttachments.length > 0) &&
             !this.messageFacade
               .messages()
               .some(
@@ -3702,12 +3852,13 @@ export class AgentXOperationChatSessionFacade {
               {
                 id: host.uid(),
                 role: 'assistant',
-                content: stored.content + replayContentSuffix,
+                content: replayContent,
                 timestamp: new Date(),
                 isTyping: false,
                 steps: stored.steps.length > 0 ? [...stored.steps] : undefined,
                 parts: stored.parts.length > 0 ? [...stored.parts] : undefined,
                 cards: stored.cards.length > 0 ? [...stored.cards] : undefined,
+                attachments: replayAttachments.length > 0 ? replayAttachments : undefined,
               },
             ]);
           }
@@ -3757,9 +3908,11 @@ export class AgentXOperationChatSessionFacade {
             (value): value is string => typeof value === 'string' && value.trim().length > 0
           )
         );
-        const typingBubble: Pick<AgentMessage, 'content' | 'parts'> = {
+        const typingBubble: Pick<AgentMessage, 'content' | 'parts' | 'cards' | 'attachments'> = {
           content: stored.content + replayContentSuffix,
           parts: stored.parts.length > 0 ? [...stored.parts] : undefined,
+          cards: stored.cards.length > 0 ? [...stored.cards] : undefined,
+          attachments: replayAttachments.length > 0 ? replayAttachments : undefined,
         };
         this.messageFacade.messages.update((messages) => {
           if (messages.some((message) => message.id === 'typing')) return messages;
@@ -3792,6 +3945,7 @@ export class AgentXOperationChatSessionFacade {
               steps: stored.steps.length > 0 ? [...stored.steps] : undefined,
               parts: stored.parts.length > 0 ? [...stored.parts] : undefined,
               cards: stored.cards.length > 0 ? [...stored.cards] : undefined,
+              attachments: replayAttachments.length > 0 ? replayAttachments : undefined,
             },
           ];
         });

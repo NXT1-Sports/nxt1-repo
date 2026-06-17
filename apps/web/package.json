@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/web",
-  "version": "1.62.4",
+  "version": "1.62.21",
   "description": "NXT1 Web Application - Angular + Ionic with SSR",
   "private": true,
   "scripts": {
@@ -47,6 +47,7 @@
     "firebase": "^12.9.0",
     "hls.js": "^1.6.16",
     "http-proxy-middleware": "^4.0.0",
+    "httpxy": "^0.5.1",
     "ionicons": "^8.0.0",
     "rxjs": "~7.8.0",
     "tailwindcss": "^3.4.19",

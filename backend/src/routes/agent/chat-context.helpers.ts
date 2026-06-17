@@ -52,7 +52,7 @@ function normalizeTimeRange(
 function normalizeAnnotation(
   raw: AgentXSelectedContext['annotation'] | undefined
 ): AgentXSelectedContext['annotation'] | undefined {
-  if (!raw || !['freehand', 'square', 'circle'].includes(raw.kind)) {
+  if (!raw || !isSelectedContextAnnotationKind(raw.kind)) {
     return undefined;
   }
 
@@ -90,6 +90,12 @@ function normalizeAnnotation(
         : 1,
     ...(raw.kind === 'freehand' && points?.length ? { points } : {}),
   };
+}
+
+function isSelectedContextAnnotationKind(
+  kind: unknown
+): kind is NonNullable<AgentXSelectedContext['annotation']>['kind'] {
+  return kind === 'freehand' || kind === 'square' || kind === 'circle';
 }
 
 export function normalizeSelectedContextsForPayload(

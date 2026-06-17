@@ -224,12 +224,17 @@ function isSelectedContextAnnotation(value: unknown): value is AgentXSelectedCon
   if (!isRecord(value)) return false;
 
   return (
-    typeof value['kind'] === 'string' &&
-    SELECTED_CONTEXT_ANNOTATION_KINDS.has(value['kind'] as AgentXSelectedContextAnnotationKind) &&
+    isSelectedContextAnnotationKind(value['kind']) &&
     isSelectedContextAnnotationBounds(value['bounds']) &&
     isFiniteNonNegativeNumber(value['strokeCount']) &&
     (value['points'] === undefined || isSelectedContextAnnotationPoints(value['points']))
   );
+}
+
+function isSelectedContextAnnotationKind(
+  value: unknown
+): value is AgentXSelectedContextAnnotationKind {
+  return value === 'freehand' || value === 'square' || value === 'circle';
 }
 
 function isSelectedContextAnnotationBounds(

@@ -276,6 +276,54 @@ describe('AgentXOperationEventService sequence cursor subscriptions', () => {
     expect(reconnectDeltas).toEqual(['fresh']);
     expect(firestoreAdapter.onSnapshot).toHaveBeenCalledTimes(1);
   });
+
+  it('preserves thumbnailUrl on Firestore media events for generated videos', () => {
+    let emitSnapshot: (docs: ReadonlyArray<Record<string, unknown>>) => void = () => undefined;
+    const firestoreAdapter: FirestoreAdapter = {
+      onSnapshot: vi.fn((_path, _orderBy, onNext) => {
+        emitSnapshot = onNext;
+        return () => undefined;
+      }),
+      getDocs: vi.fn().mockResolvedValue([]),
+      getDoc: vi.fn().mockResolvedValue(null),
+    };
+    const service = createService(firestoreAdapter);
+    const mediaEvents: unknown[] = [];
+
+    service.subscribe('op-media-1', {
+      onDelta: vi.fn(),
+      onStep: vi.fn(),
+      onMedia: (event) => mediaEvents.push(event),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    });
+
+    emitSnapshot([
+      {
+        seq: 1,
+        type: 'tool_result',
+        stageType: 'tool',
+        stepId: 'call_video',
+        toolName: 'ffmpeg_merge_videos',
+        toolSuccess: true,
+        message: 'Merge Videos',
+        toolResult: {
+          outputUrl: 'https://cdn.example.com/generated/highlight.mp4',
+          thumbnailUrl: 'https://cdn.example.com/generated/highlight-thumb.jpg',
+          mimeType: 'video/mp4',
+        },
+      },
+    ]);
+
+    expect(mediaEvents).toEqual([
+      {
+        type: 'video',
+        url: 'https://cdn.example.com/generated/highlight.mp4',
+        mimeType: 'video/mp4',
+        thumbnailUrl: 'https://cdn.example.com/generated/highlight-thumb.jpg',
+      },
+    ]);
+  });
 });
 
 function createService(firestoreAdapter?: FirestoreAdapter): AgentXOperationEventService {

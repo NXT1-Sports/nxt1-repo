@@ -42,6 +42,7 @@ import {
   output,
   PLATFORM_ID,
   DestroyRef,
+  ChangeDetectorRef,
 } from '@angular/core';
 import { CommonModule, isPlatformBrowser } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -299,23 +300,41 @@ type YieldStateSource =
                       [class.msg-attachment--app]="att.type === 'app'"
                     >
                       @if (att.type === 'image') {
-                        <img
-                          [src]="att.url"
-                          [alt]="att.name"
-                          class="msg-attachment__thumb"
-                          (click)="
-                            attachmentsFacade.openAttachmentViewer(
-                              messageAttachmentsForStrip(msg),
-                              $index
-                            )
-                          "
-                        />
-                      } @else if (att.type === 'video') {
-                        @if (att.thumbnailUrl) {
+                        @if (attachmentImageUrl(att); as imageUrl) {
                           <img
-                            [src]="att.thumbnailUrl"
+                            [src]="imageUrl"
                             [alt]="att.name"
                             class="msg-attachment__thumb"
+                            (error)="onAttachmentThumbnailError($event, imageUrl)"
+                            (click)="
+                              attachmentsFacade.openAttachmentViewer(
+                                messageAttachmentsForStrip(msg),
+                                $index
+                              )
+                            "
+                          />
+                        } @else {
+                          <button
+                            type="button"
+                            class="msg-attachment__thumb msg-attachment__image-fallback"
+                            [attr.aria-label]="'Open image: ' + att.name"
+                            (click)="
+                              attachmentsFacade.openAttachmentViewer(
+                                messageAttachmentsForStrip(msg),
+                                $index
+                              )
+                            "
+                          >
+                            <nxt1-icon name="image" [size]="18" />
+                          </button>
+                        }
+                      } @else if (att.type === 'video') {
+                        @if (attachmentVideoThumbnailUrl(att); as thumbnailUrl) {
+                          <img
+                            [src]="thumbnailUrl"
+                            [alt]="att.name"
+                            class="msg-attachment__thumb"
+                            (error)="onAttachmentThumbnailError($event, thumbnailUrl)"
                             (click)="
                               attachmentsFacade.openAttachmentViewer(
                                 messageAttachmentsForStrip(msg),
@@ -1299,18 +1318,27 @@ type YieldStateSource =
       .msg-attachment__thumb {
         width: 100%;
         height: 100%;
-        object-fit: cover;
+        object-fit: contain;
         display: block;
         cursor: pointer;
+        background: #000;
       }
 
+      .msg-attachment__image-fallback,
       .msg-attachment__video-fallback {
         appearance: none;
         border: 0;
         padding: 0;
+        color: var(--op-text-secondary, rgba(255, 255, 255, 0.72));
         background:
           radial-gradient(circle at 32% 22%, rgba(204, 255, 0, 0.22), transparent 36%),
           linear-gradient(135deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.035)), #111;
+      }
+
+      .msg-attachment__image-fallback {
+        display: flex;
+        align-items: center;
+        justify-content: center;
       }
 
       /* Inline <video> tile — renders the browser's native first-frame
@@ -1318,6 +1346,7 @@ type YieldStateSource =
          pattern). Sits behind the play-button overlay. */
       .msg-attachment__video-inline {
         background: #000;
+        object-fit: contain;
         pointer-events: auto;
       }
 
@@ -1727,6 +1756,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
   private readonly modalCtrl = inject(ModalController);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly cdr = inject(ChangeDetectorRef);
   protected readonly messageFacade = inject(AgentXOperationChatMessageFacade);
   protected readonly runControlFacade = inject(AgentXOperationChatRunControlFacade);
   protected readonly attachmentsFacade = inject(AgentXOperationChatAttachmentsFacade);
@@ -1743,6 +1773,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   /** Shared keyboard offset binding used by shell and operation chat. */
   private keyboardOffsetBinding?: AgentXKeyboardOffsetBinding;
+  private readonly failedAttachmentThumbnailUrls = new Set<string>();
   /** Active SSE abort controller — cancelled on destroy or when a new message starts. */
   private activeStream: AbortController | null = null;
 
@@ -3097,6 +3128,51 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    *   already renders inline via markdown or structured message parts. This
    *   keeps historical/replayed output from showing a second broken preview.
    */
+  protected attachmentImageUrl(
+    attachment: NonNullable<OperationMessage['attachments']>[number]
+  ): string | null {
+    if (attachment.type !== 'image') return null;
+    const url = attachment.url.trim();
+    if (!this.isRenderableAttachmentThumbnailUrl(url)) return null;
+    if (this.failedAttachmentThumbnailUrls.has(url)) return null;
+    return url;
+  }
+
+  protected attachmentVideoThumbnailUrl(
+    attachment: NonNullable<OperationMessage['attachments']>[number]
+  ): string | null {
+    if (attachment.type !== 'video') return null;
+    const thumbnailUrl = attachment.thumbnailUrl?.trim();
+    if (!this.isRenderableAttachmentThumbnailUrl(thumbnailUrl)) return null;
+    if (this.failedAttachmentThumbnailUrls.has(thumbnailUrl)) return null;
+    return thumbnailUrl;
+  }
+
+  private isRenderableAttachmentThumbnailUrl(url: string | null | undefined): url is string {
+    const normalized = url?.trim();
+    if (!normalized || normalized.length > 8192) return false;
+    if (/^(blob:|data:image\/)/i.test(normalized)) return true;
+    if (!/^https:\/\//i.test(normalized)) return false;
+
+    try {
+      const parsed = new URL(normalized);
+      if (/(?:storage|firebasestorage)\.googleapis\.com/i.test(parsed.hostname)) {
+        const decodedPath = decodeURIComponent(parsed.pathname);
+        return /\.(?:png|jpe?g|webp|gif|avif|bmp|svg)$/i.test(decodedPath);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  protected onAttachmentThumbnailError(event: Event, url: string): void {
+    const fallbackUrl = (event.target as HTMLImageElement | null)?.currentSrc || url;
+    if (fallbackUrl) this.failedAttachmentThumbnailUrls.add(fallbackUrl);
+    if (url) this.failedAttachmentThumbnailUrls.add(url);
+    this.cdr.markForCheck();
+  }
+
   protected messageAttachmentsForStrip(
     msg: OperationMessage
   ): readonly NonNullable<OperationMessage['attachments']>[number][] {

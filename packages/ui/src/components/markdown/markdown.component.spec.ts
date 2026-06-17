@@ -236,6 +236,24 @@ describe('NxtMarkdownComponent', () => {
     expect(videoPreview?.getAttribute('src')).not.toContain('[View Video](');
   });
 
+  it('renders explicit video poster URLs as the visible thumbnail layer', async () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+    const posterUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb.jpg';
+
+    setContent(`[View Video](${videoUrl}#poster=${encodeURIComponent(posterUrl)})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    const poster = nativeEl.querySelector<HTMLImageElement>('img.md-video-poster');
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    expect(videoThumb?.getAttribute('data-md-video-src')).toBe(videoUrl);
+    expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(true);
+    expect(poster?.getAttribute('src')).toBe(posterUrl);
+    expect(videoPreview?.getAttribute('poster')).toBe(posterUrl);
+  });
+
   it('does not expose incomplete raw video HTML as signed-url prose while streaming', async () => {
     const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
 
