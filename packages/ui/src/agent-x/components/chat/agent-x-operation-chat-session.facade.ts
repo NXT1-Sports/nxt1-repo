@@ -2059,11 +2059,10 @@ export class AgentXOperationChatSessionFacade {
         (value): value is string => typeof value === 'string' && value.trim().length > 0
       )
     );
-    const typingBubble: Pick<AgentMessage, 'content' | 'parts' | 'cards' | 'attachments'> = {
+    const typingBubble: Pick<AgentMessage, 'content' | 'parts' | 'cards'> = {
       content,
       parts: stored.parts.length > 0 ? [...stored.parts] : undefined,
       cards: stored.cards.length > 0 ? [...stored.cards] : undefined,
-      attachments: replayAttachments.length > 0 ? replayAttachments : undefined,
     };
 
     this.messageFacade.messages.update((messages) => {
@@ -3908,11 +3907,10 @@ export class AgentXOperationChatSessionFacade {
             (value): value is string => typeof value === 'string' && value.trim().length > 0
           )
         );
-        const typingBubble: Pick<AgentMessage, 'content' | 'parts' | 'cards' | 'attachments'> = {
-          content: stored.content + replayContentSuffix,
+        const typingBubble: Pick<AgentMessage, 'content' | 'parts' | 'cards'> = {
+          content: replayContent,
           parts: stored.parts.length > 0 ? [...stored.parts] : undefined,
           cards: stored.cards.length > 0 ? [...stored.cards] : undefined,
-          attachments: replayAttachments.length > 0 ? replayAttachments : undefined,
         };
         this.messageFacade.messages.update((messages) => {
           if (messages.some((message) => message.id === 'typing')) return messages;
@@ -3939,7 +3937,7 @@ export class AgentXOperationChatSessionFacade {
             {
               id: 'typing',
               role: 'assistant',
-              content: stored.content + replayContentSuffix,
+              content: replayContent,
               timestamp: new Date(),
               isTyping: !stored.content,
               steps: stored.steps.length > 0 ? [...stored.steps] : undefined,

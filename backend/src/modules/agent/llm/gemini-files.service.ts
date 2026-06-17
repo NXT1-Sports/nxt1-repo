@@ -54,6 +54,7 @@ const EXTENSION_TO_MIME: Readonly<Record<string, string>> = {
 
 /** Gemini model used for video analysis (matches the video_analysis tier). */
 const GEMINI_VIDEO_MODEL = 'gemini-3.1-pro-preview';
+const GEMINI_VIDEO_MODEL_MAX_TOTAL_TOKENS = 1_000_000;
 
 /**
  * Gemini 3.1 Pro Preview wholesale pricing (USD per token).
@@ -428,6 +429,25 @@ export class GeminiFilesService {
     );
   }
 
+  private parseTotalTokenCountFromContextCacheError(err: unknown): number | null {
+    const message = err instanceof Error ? err.message : String(err);
+    const match = message.match(/total_token_count=(\d+)/i);
+    if (!match) {
+      return null;
+    }
+
+    const parsed = Number.parseInt(match[1], 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  private buildOversizeVideoAnalysisError(totalTokenCount: number): Error {
+    return new Error(
+      `Video is too large for full Gemini analysis in one request ` +
+        `(${totalTokenCount.toLocaleString()} input tokens exceeds the ${GEMINI_VIDEO_MODEL_MAX_TOTAL_TOKENS.toLocaleString()} token limit for ${GEMINI_VIDEO_MODEL}). ` +
+        'Analyze a shorter play window with timeRange/startSec/endSec, or trim the source video before retrying.'
+    );
+  }
+
   private buildContextCacheKey(
     sourceUrls: readonly string[],
     options?: GeminiVideoAnalysisOptions
@@ -603,6 +623,17 @@ export class GeminiFilesService {
           { cacheKey, error: err instanceof Error ? err.message : String(err) }
         );
         return null;
+      }
+      const totalTokenCount = this.parseTotalTokenCountFromContextCacheError(err);
+      if (totalTokenCount !== null && totalTokenCount > GEMINI_VIDEO_MODEL_MAX_TOTAL_TOKENS) {
+        logger.warn('[GeminiFilesService] Video exceeds Gemini input budget for full analysis', {
+          cacheKey,
+          totalTokenCount,
+          model: GEMINI_VIDEO_MODEL,
+          modelMaxTotalTokens: GEMINI_VIDEO_MODEL_MAX_TOTAL_TOKENS,
+          sourceUrls: uploads.map((upload) => upload.sourceUrl),
+        });
+        throw this.buildOversizeVideoAnalysisError(totalTokenCount);
       }
       if (this.isNonRecoverableContextCacheError(err)) {
         this.disableContextCacheRuntime(err instanceof Error ? err.message : String(err));

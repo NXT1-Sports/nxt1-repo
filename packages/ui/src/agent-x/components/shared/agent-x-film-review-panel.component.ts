@@ -22,8 +22,8 @@ import type Hls from 'hls.js';
 import type { ErrorData } from 'hls.js';
 import {
   getTeamFilmReviewSportTagDefinitions,
-  USER_ROLES,
   type TeamFilmReviewPlayAnnotation,
+  USER_ROLES,
   type TeamFilmReviewPlaySegment,
   type TeamFilmReviewPlayTagValue,
   type TeamFilmReviewSportTagColumnWidth,
@@ -43,7 +43,6 @@ import { TEST_IDS } from '@nxt1/core/testing';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
 import { NxtStateViewComponent } from '../../../components/state-view/state-view.component';
 import { NxtVideoControlsComponent } from '../../../components/video-controls';
-import { VIDEO_CONTROL_TOOLTIP_STYLES } from '../../../components/video-controls/video-control-tooltips.styles';
 import { NxtPlatformService } from '../../../services/platform';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { AgentXContextDragDirective } from '../../directives/agent-x-context-drag.directive';
@@ -99,11 +98,19 @@ type FilmReviewPlaylistFolder = {
   readonly depth: number;
 };
 
+type FilmReviewPlaylistFolderTreeNode = FilmReviewPlaylistFolder & {
+  readonly children: readonly FilmReviewPlaylistFolderTreeNode[];
+};
+
+type FilmReviewOrderByFolder = Record<string, readonly string[]>;
+
 type LocalFilmReviewPlaylistFolder = {
   readonly id: string;
   readonly name: string;
   readonly parentId?: string | null;
 };
+
+type FilmReviewUploadMenuAnchor = 'empty-new' | 'empty-import' | 'library-header';
 
 const FILM_REVIEW_UNASSIGNED_PLAYLIST_ID = 'unassigned-film';
 const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
@@ -112,6 +119,7 @@ const FILM_REVIEW_TIMELINE_DRAG_MIME = 'application/x-nxt1-film-timeline-index';
 const FILM_REVIEW_TIMELINE_COLUMN_DRAG_MIME = 'application/x-nxt1-film-timeline-column-id';
 const FILM_REVIEW_STARTER_PLAYLIST_NAMES = ['Self Scout Playlist', 'Opponent Play list'] as const;
 const FILM_REVIEW_PLAYLIST_STORAGE_PREFIX = 'agent-x-film-playlists';
+const FILM_REVIEW_VIDEO_ORDER_STORAGE_PREFIX = 'agent-x-film-video-order';
 const FILM_REVIEW_COLUMN_ORDER_STORAGE_PREFIX = 'agent-x-film-timeline-columns';
 const FILM_REVIEW_POPOUT_STORAGE_PREFIX = 'nxt1-film-review-popout:';
 const FILM_REVIEW_LIST_INITIAL_LIMIT = 20;
@@ -243,9 +251,8 @@ type DrawInteractionState =
         #videoUploadInput
         type="file"
         class="film-library-file-input"
-        [accept]="acceptedFilmReviewUploadTypes"
+        [accept]="acceptedVideoUploadTypes"
         [attr.data-testid]="testIds.UPLOAD_INPUT"
-        multiple
         (change)="onVideoFilesSelected($event)"
       />
       <input
@@ -309,16 +316,59 @@ type DrawInteractionState =
               <p>No film sessions yet. Upload video to start film review.</p>
             </div>
             <div class="playbooks-list-header-actions">
-              <button
-                type="button"
-                class="btn-new"
-                [disabled]="isUploadingLibraryVideo()"
-                [attr.data-testid]="testIds.UPLOAD_BUTTON"
-                (click)="onChooseVideosClick()"
-              >
-                <nxt1-icon name="plus" [size]="14"></nxt1-icon>
-                New
-              </button>
+              <div class="film-upload-menu-anchor">
+                <button
+                  type="button"
+                  class="btn-new"
+                  [disabled]="isUploadingLibraryVideo()"
+                  [attr.aria-expanded]="isUploadMenuOpen('empty-new')"
+                  aria-haspopup="menu"
+                  [attr.data-testid]="testIds.UPLOAD_BUTTON"
+                  (click)="onChooseVideosClick($event, 'empty-new')"
+                >
+                  <nxt1-icon name="plus" [size]="14"></nxt1-icon>
+                  New
+                </button>
+
+                @if (isUploadMenuOpen('empty-new')) {
+                  <button
+                    type="button"
+                    class="film-list-item__menu-backdrop film-upload-menu-backdrop"
+                    aria-label="Close upload options"
+                    (click)="onMenuBackdropTap()"
+                  ></button>
+                  <div
+                    class="film-list-item__menu film-upload-menu"
+                    role="menu"
+                    [attr.data-testid]="testIds.UPLOAD_MENU"
+                  >
+                    <button
+                      type="button"
+                      class="film-list-item__menu-action film-upload-menu__action film-list-item__menu-action--primary"
+                      role="menuitem"
+                      [attr.data-testid]="testIds.UPLOAD_BATCH_OPTION"
+                      (click)="onChooseBatchClipsClick($event)"
+                    >
+                      <span class="film-upload-menu__text">Batch Clips Recommended</span>
+                      <span class="film-upload-menu__hint"
+                        >Upload multiple cutups or clips at once</span
+                      >
+                    </button>
+                    <button
+                      type="button"
+                      class="film-list-item__menu-action film-upload-menu__action"
+                      role="menuitem"
+                      [attr.data-testid]="testIds.UPLOAD_FULL_OPTION"
+                      (click)="onChooseFullFootageClick($event)"
+                    >
+                      <span class="film-upload-menu__text">Full Footage</span>
+                      <span class="film-upload-menu__hint"
+                        >Upload one full game or practice file</span
+                      >
+                    </button>
+                  </div>
+                }
+              </div>
             </div>
           </div>
 
@@ -353,28 +403,71 @@ type DrawInteractionState =
               />
 
               <div class="playbooks-empty-actions">
-                <button
-                  type="button"
-                  class="btn-empty-action btn-empty-action--primary"
-                  [disabled]="isUploadingLibraryVideo()"
-                  [attr.data-testid]="testIds.UPLOAD_BUTTON"
-                  (click)="onChooseVideosClick()"
-                >
-                  <svg
-                    class="btn-empty-action__icon"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    stroke-width="1.8"
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    aria-hidden="true"
+                <div class="film-upload-menu-anchor">
+                  <button
+                    type="button"
+                    class="btn-empty-action btn-empty-action--primary"
+                    [disabled]="isUploadingLibraryVideo()"
+                    [attr.aria-expanded]="isUploadMenuOpen('empty-import')"
+                    aria-haspopup="menu"
+                    [attr.data-testid]="testIds.UPLOAD_BUTTON"
+                    (click)="onChooseVideosClick($event, 'empty-import')"
                   >
-                    <path d="M23 7l-7 5 7 5V7z" />
-                    <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
-                  </svg>
-                  <span>{{ isUploadingLibraryVideo() ? 'Uploading...' : 'Import Video' }}</span>
-                </button>
+                    <svg
+                      class="btn-empty-action__icon"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.8"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M23 7l-7 5 7 5V7z" />
+                      <rect x="1" y="5" width="15" height="14" rx="2" ry="2" />
+                    </svg>
+                    <span>{{ isUploadingLibraryVideo() ? 'Uploading...' : 'Import Video' }}</span>
+                  </button>
+
+                  @if (isUploadMenuOpen('empty-import')) {
+                    <button
+                      type="button"
+                      class="film-list-item__menu-backdrop film-upload-menu-backdrop"
+                      aria-label="Close upload options"
+                      (click)="onMenuBackdropTap()"
+                    ></button>
+                    <div
+                      class="film-list-item__menu film-upload-menu film-upload-menu--centered"
+                      role="menu"
+                      [attr.data-testid]="testIds.UPLOAD_MENU"
+                    >
+                      <button
+                        type="button"
+                        class="film-list-item__menu-action film-upload-menu__action film-list-item__menu-action--primary"
+                        role="menuitem"
+                        [attr.data-testid]="testIds.UPLOAD_BATCH_OPTION"
+                        (click)="onChooseBatchClipsClick($event)"
+                      >
+                        <span class="film-upload-menu__text">Batch Clips Recommended</span>
+                        <span class="film-upload-menu__hint"
+                          >Upload multiple cutups or clips at once</span
+                        >
+                      </button>
+                      <button
+                        type="button"
+                        class="film-list-item__menu-action film-upload-menu__action"
+                        role="menuitem"
+                        [attr.data-testid]="testIds.UPLOAD_FULL_OPTION"
+                        (click)="onChooseFullFootageClick($event)"
+                      >
+                        <span class="film-upload-menu__text">Full Footage</span>
+                        <span class="film-upload-menu__hint"
+                          >Upload one full game or practice file</span
+                        >
+                      </button>
+                    </div>
+                  }
+                </div>
               </div>
             </div>
           }
@@ -403,19 +496,62 @@ type DrawInteractionState =
                 </h3>
               </div>
               <div class="film-library-header__actions">
-                <button
-                  type="button"
-                  class="btn-new btn-new--secondary"
-                  [disabled]="isUploadingLibraryVideo()"
-                  [attr.data-testid]="testIds.UPLOAD_BUTTON"
-                  (click)="onChooseVideosClick()"
-                >
-                  @if (isUploadingLibraryVideo()) {
-                    Uploading...
-                  } @else {
-                    Upload Film
+                <div class="film-upload-menu-anchor">
+                  <button
+                    type="button"
+                    class="btn-new btn-new--secondary"
+                    [disabled]="isUploadingLibraryVideo()"
+                    [attr.aria-expanded]="isUploadMenuOpen('library-header')"
+                    aria-haspopup="menu"
+                    [attr.data-testid]="testIds.UPLOAD_BUTTON"
+                    (click)="onChooseVideosClick($event, 'library-header')"
+                  >
+                    @if (isUploadingLibraryVideo()) {
+                      Uploading...
+                    } @else {
+                      Upload Film
+                    }
+                  </button>
+
+                  @if (isUploadMenuOpen('library-header')) {
+                    <button
+                      type="button"
+                      class="film-list-item__menu-backdrop film-upload-menu-backdrop"
+                      aria-label="Close upload options"
+                      (click)="onMenuBackdropTap()"
+                    ></button>
+                    <div
+                      class="film-list-item__menu film-upload-menu"
+                      role="menu"
+                      [attr.data-testid]="testIds.UPLOAD_MENU"
+                    >
+                      <button
+                        type="button"
+                        class="film-list-item__menu-action film-upload-menu__action film-list-item__menu-action--primary"
+                        role="menuitem"
+                        [attr.data-testid]="testIds.UPLOAD_BATCH_OPTION"
+                        (click)="onChooseBatchClipsClick($event)"
+                      >
+                        <span class="film-upload-menu__text">Batch Clips Recommended</span>
+                        <span class="film-upload-menu__hint"
+                          >Upload multiple cutups or clips at once</span
+                        >
+                      </button>
+                      <button
+                        type="button"
+                        class="film-list-item__menu-action film-upload-menu__action"
+                        role="menuitem"
+                        [attr.data-testid]="testIds.UPLOAD_FULL_OPTION"
+                        (click)="onChooseFullFootageClick($event)"
+                      >
+                        <span class="film-upload-menu__text">Full Footage</span>
+                        <span class="film-upload-menu__hint"
+                          >Upload one full game or practice file</span
+                        >
+                      </button>
+                    </div>
                   }
-                </button>
+                </div>
                 <button
                   type="button"
                   class="btn-new"
@@ -462,11 +598,25 @@ type DrawInteractionState =
 
             <div
               class="film-library-dropzone"
-              [class.film-library-dropzone--active]="isLibraryDragActive()"
+              [class.film-library-dropzone--active]="
+                isLibraryDragActive() || isRootPlaylistFolderDropActive()
+              "
               [attr.data-testid]="testIds.DROPZONE"
             >
-              <span class="film-library-dropzone__title">Drag videos here</span>
-              <span class="film-library-dropzone__meta">or click Upload Film</span>
+              <span class="film-library-dropzone__title">
+                @if (isRootPlaylistFolderDropActive()) {
+                  Drop playlist here to move it to the top level
+                } @else {
+                  Drag videos here
+                }
+              </span>
+              <span class="film-library-dropzone__meta">
+                @if (isRootPlaylistFolderDropActive()) {
+                  release to remove it from the current folder
+                } @else {
+                  or click Upload Film
+                }
+              </span>
             </div>
 
             @if (isUploadingLibraryVideo()) {
@@ -494,290 +644,200 @@ type DrawInteractionState =
             }
 
             <div class="film-library-list" [attr.data-testid]="testIds.LIST_CONTAINER">
-              @for (folder of playlistFolders(); track folder.id; let isLast = $last) {
-                <section
-                  class="film-playlist-folder"
-                  [class.film-playlist-folder--nested]="folder.depth > 0"
-                  [class.film-playlist-folder--menu-open]="
-                    isPlaylistFolderMenuOpen(folder.id) || isReviewMenuOpenInFolder(folder)
-                  "
-                  [class.film-playlist-folder--drop-target]="
-                    activePlaylistDropTargetId() === folder.id ||
-                    activePlaylistFolderDropTargetId() === folder.id
-                  "
-                  [style.margin-left.px]="folder.depth * 16"
-                  [attr.data-testid]="
-                    folder.isUnassigned
-                      ? testIds.PLAYLIST_UNASSIGNED_FOLDER
-                      : testIds.PLAYLIST_FOLDER
-                  "
-                  (dragover)="onPlaylistFolderDragOver(folder.id, $event)"
-                  (dragleave)="onPlaylistFolderDragLeave(folder.id, $event)"
-                  (drop)="onPlaylistFolderDrop(folder, $event)"
-                >
-                  <div
-                    class="film-playlist-folder__header"
-                    [attr.draggable]="folder.isUnassigned ? null : true"
-                    (dragstart)="onPlaylistFolderDragStart(folder, $event)"
-                    (dragend)="onPlaylistFolderDragEnd()"
-                  >
-                    <button
-                      type="button"
-                      class="film-playlist-folder__toggle"
-                      [attr.aria-expanded]="isPlaylistFolderExpanded(folder.id)"
-                      [attr.data-testid]="testIds.PLAYLIST_FOLDER_TOGGLE"
-                      (click)="togglePlaylistFolder(folder.id, $event)"
-                    >
-                      <span class="film-playlist-folder__chevron" aria-hidden="true">
-                        @if (isPlaylistFolderExpanded(folder.id)) {
-                          <nxt1-icon name="chevronDown" [size]="16"></nxt1-icon>
-                        } @else {
-                          <nxt1-icon name="chevronRight" [size]="16"></nxt1-icon>
-                        }
-                      </span>
-                      <nxt1-icon name="folder" [size]="16" class="film-playlist-folder__icon" />
-                      <span class="film-playlist-folder__name">{{ folder.name }}</span>
-                      <span class="film-playlist-folder__count">{{ folder.reviews.length }}</span>
-                    </button>
+              <ng-container
+                [ngTemplateOutlet]="playlistFolderTreeTemplate"
+                [ngTemplateOutletContext]="{
+                  $implicit: playlistFolderTree(),
+                  isNested: false,
+                  parentId: null,
+                }"
+              ></ng-container>
 
-                    @if (!folder.isUnassigned) {
-                      <div class="film-playlist-folder__menu-anchor">
+              @if (canLoadMoreReviews()) {
+                <div class="film-library-load-more-wrap">
+                  <button
+                    type="button"
+                    class="film-library-load-more"
+                    [disabled]="loading()"
+                    (click)="onLoadMoreReviews()"
+                  >
+                    Load More Videos
+                  </button>
+                </div>
+              }
+            </div>
+
+            <ng-template
+              #playlistFolderTreeTemplate
+              let-folders
+              let-isNested="isNested"
+              let-parentId="parentId"
+            >
+              <div
+                class="film-playlist-folder-list"
+                cdkDropList
+                cdkDropListOrientation="vertical"
+                [cdkDropListData]="folders"
+                [cdkDropListDisabled]="!canReorderPlaylistFolders(folders)"
+                (cdkDropListDropped)="onPlaylistFolderReorder($event, parentId)"
+              >
+                @for (folder of folders; track folder.id) {
+                  <section
+                    class="film-playlist-folder"
+                    cdkDrag
+                    [cdkDragData]="folder"
+                    cdkDragLockAxis="y"
+                    cdkDragPreviewContainer="parent"
+                    [cdkDragDisabled]="folder.isUnassigned"
+                    (cdkDragStarted)="onPlaylistFolderReorderDragStart()"
+                    (cdkDragEnded)="onPlaylistFolderReorderDragEnd()"
+                    [class.film-playlist-folder--nested]="isNested"
+                    [class.film-playlist-folder--menu-open]="
+                      isPlaylistFolderMenuOpen(folder.id) || isReviewMenuOpenInFolder(folder)
+                    "
+                    [class.film-playlist-folder--drop-target]="
+                      !isPlaylistLibraryReorderDragActive() &&
+                      (activePlaylistDropTargetId() === folder.id ||
+                        activePlaylistFolderDropTargetId() === folder.id)
+                    "
+                    [attr.data-testid]="
+                      folder.isUnassigned
+                        ? testIds.PLAYLIST_UNASSIGNED_FOLDER
+                        : testIds.PLAYLIST_FOLDER
+                    "
+                    (dragover)="onPlaylistFolderDragOver(folder.id, $event)"
+                    (dragleave)="onPlaylistFolderDragLeave(folder.id, $event)"
+                    (drop)="onPlaylistFolderDrop(folder, $event)"
+                  >
+                    <div class="film-playlist-folder__header">
+                      @if (!folder.isUnassigned) {
                         <button
                           type="button"
-                          class="film-list-item__menu-btn film-playlist-folder__menu-btn"
-                          aria-label="Playlist options"
-                          [attr.aria-expanded]="isPlaylistFolderMenuOpen(folder.id)"
-                          aria-haspopup="menu"
-                          [attr.data-testid]="testIds.PLAYLIST_FOLDER_MENU"
-                          (click)="onOpenPlaylistFolderMenu($event, folder)"
+                          class="film-playlist-folder__reorder-handle"
+                          cdkDragHandle
+                          aria-label="Reorder playlist"
                         >
-                          <nxt1-icon name="moreHorizontal" [size]="18"></nxt1-icon>
+                          <span class="film-reorder-grip" aria-hidden="true">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                          </span>
                         </button>
-
-                        @if (isPlaylistFolderMenuOpen(folder.id)) {
-                          <div
-                            class="film-list-item__menu-backdrop"
-                            (click)="onMenuBackdropTap()"
-                          ></div>
-                          <div
-                            class="film-list-item__menu film-playlist-folder__menu"
-                            role="menu"
-                            aria-label="Playlist options"
-                            (click)="$event.stopPropagation()"
-                          >
-                            @if (isEditingPlaylistFolder(folder.id)) {
-                              <div class="film-list-item__menu-rename">
-                                <label
-                                  class="film-list-item__menu-label"
-                                  for="film-playlist-folder-rename-{{ folder.id }}"
-                                >
-                                  Rename playlist
-                                </label>
-                                <input
-                                  id="film-playlist-folder-rename-{{ folder.id }}"
-                                  type="text"
-                                  class="film-list-item__menu-input"
-                                  maxlength="80"
-                                  [value]="playlistFolderRenameDraft()"
-                                  (input)="onPlaylistFolderRenameInput($any($event.target).value)"
-                                  (keydown.enter)="onPlaylistFolderRenameConfirm(folder, $event)"
-                                  (keydown.escape)="onPlaylistFolderRenameCancel($event)"
-                                />
-                                <div class="film-list-item__menu-actions">
-                                  <button
-                                    type="button"
-                                    class="film-list-item__menu-action film-list-item__menu-action--primary"
-                                    (click)="onPlaylistFolderRenameConfirm(folder, $event)"
-                                  >
-                                    Save
-                                  </button>
-                                  <button
-                                    type="button"
-                                    class="film-list-item__menu-action"
-                                    (click)="onPlaylistFolderRenameCancel($event)"
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
-                              </div>
-                            } @else if (isDeletingPlaylistFolder(folder.id)) {
-                              <div class="film-list-item__menu-confirm">
-                                <p class="film-list-item__menu-confirm-text">
-                                  @if (folder.reviews.length) {
-                                    Delete this playlist? Film will move to Unassigned Film.
-                                  } @else {
-                                    Delete this empty playlist?
-                                  }
-                                </p>
-                                <div class="film-list-item__menu-actions">
-                                  <button
-                                    type="button"
-                                    class="film-list-item__menu-action film-list-item__menu-action--danger"
-                                    (click)="onPlaylistFolderDeleteConfirm(folder, $event)"
-                                  >
-                                    Delete
-                                  </button>
-                                  <button
-                                    type="button"
-                                    class="film-list-item__menu-action"
-                                    (click)="onPlaylistFolderDeleteCancel($event)"
-                                  >
-                                    Cancel
-                                  </button>
-                                </div>
-                              </div>
-                            } @else {
-                              <button
-                                type="button"
-                                class="film-list-item__menu-action"
-                                role="menuitem"
-                                (click)="onPlaylistFolderRenameStart(folder, $event)"
-                              >
-                                Rename
-                              </button>
-                              <button
-                                type="button"
-                                class="film-list-item__menu-action"
-                                role="menuitem"
-                                (click)="onPlaylistCreateSubfolderStart(folder, $event)"
-                              >
-                                Add subfolder
-                              </button>
-                              <button
-                                type="button"
-                                class="film-list-item__menu-action film-list-item__menu-action--danger"
-                                role="menuitem"
-                                (click)="onPlaylistFolderDeleteStart(folder, $event)"
-                              >
-                                Delete playlist
-                              </button>
-                            }
-                          </div>
-                        }
-                      </div>
-                    }
-                  </div>
-
-                  @if (isPlaylistFolderExpanded(folder.id)) {
-                    <div
-                      class="film-playlist-folder__dropzone"
-                      [attr.data-testid]="testIds.PLAYLIST_FOLDER_DROPZONE"
-                    >
-                      @if (folder.reviews.length === 0) {
-                        <div class="film-playlist-folder__empty">Drop film here</div>
+                      } @else {
+                        <span
+                          class="film-playlist-folder__reorder-spacer"
+                          aria-hidden="true"
+                        ></span>
                       }
 
-                      @for (review of folder.reviews; track review.id) {
-                        <div
-                          class="film-list-item-row"
-                          [class.film-list-item-row--menu-open]="isMenuOpen(review.id)"
-                        >
-                          <button
-                            type="button"
-                            class="film-list-item"
-                            [class.film-list-item--active]="review.id === selectedId()"
-                            [nxtAgentXContextDrag]="buildFilmReviewDragContext(review)"
-                            [attr.data-testid]="testIds.LIST_ITEM"
-                            (click)="onSelectReview(review.id)"
-                            (dragstart)="onReviewPlaylistDragStart(review, $event)"
-                            (dragend)="onReviewPlaylistDragEnd()"
-                          >
-                            <div class="film-list-item__thumbnail">
-                              @if (getVideoThumbnailUrl(review); as thumbnailUrl) {
-                                <img
-                                  [src]="thumbnailUrl"
-                                  [alt]="getReviewDisplayTitle(review)"
-                                  class="film-list-item__thumb-image"
-                                />
-                              } @else {
-                                <div class="film-list-item__thumb-placeholder" aria-hidden="true">
-                                  <nxt1-icon name="videocam" [size]="14"></nxt1-icon>
-                                </div>
-                              }
-                            </div>
-                            <span class="film-list-item__content">
-                              <span class="film-list-item__title">{{
-                                getReviewDisplayTitle(review)
-                              }}</span>
-                              <span class="film-list-item__meta">{{ getReviewMeta(review) }}</span>
-                            </span>
-                          </button>
+                      <button
+                        type="button"
+                        class="film-playlist-folder__toggle"
+                        [attr.draggable]="
+                          folder.isUnassigned || isPlaylistLibraryReorderDragActive() ? null : true
+                        "
+                        [attr.aria-expanded]="isPlaylistFolderExpanded(folder.id)"
+                        [attr.data-testid]="testIds.PLAYLIST_FOLDER_TOGGLE"
+                        (dragstart)="onPlaylistFolderDragStart(folder, $event)"
+                        (dragend)="onPlaylistFolderDragEnd()"
+                        (click)="togglePlaylistFolder(folder.id, $event)"
+                      >
+                        <span class="film-playlist-folder__chevron" aria-hidden="true">
+                          @if (isPlaylistFolderExpanded(folder.id)) {
+                            <nxt1-icon name="chevronDown" [size]="16"></nxt1-icon>
+                          } @else {
+                            <nxt1-icon name="chevronRight" [size]="16"></nxt1-icon>
+                          }
+                        </span>
+                        <nxt1-icon name="folder" [size]="16" class="film-playlist-folder__icon" />
+                        <span class="film-playlist-folder__name">{{ folder.name }}</span>
+                        <span class="film-playlist-folder__count">{{ folder.reviews.length }}</span>
+                      </button>
 
+                      @if (!folder.isUnassigned) {
+                        <div class="film-playlist-folder__menu-anchor">
                           <button
                             type="button"
-                            class="film-list-item__menu-btn"
-                            aria-label="Video options"
-                            [attr.aria-expanded]="isMenuOpen(review.id)"
+                            class="film-list-item__menu-btn film-playlist-folder__menu-btn"
+                            aria-label="Playlist options"
+                            [attr.aria-expanded]="isPlaylistFolderMenuOpen(folder.id)"
                             aria-haspopup="menu"
-                            [attr.data-testid]="testIds.LIST_ITEM_MENU"
-                            (click)="onOpenReviewMenu($event, review)"
+                            [attr.data-testid]="testIds.PLAYLIST_FOLDER_MENU"
+                            (click)="onOpenPlaylistFolderMenu($event, folder)"
                           >
                             <nxt1-icon name="moreHorizontal" [size]="18"></nxt1-icon>
                           </button>
 
-                          @if (isMenuOpen(review.id)) {
+                          @if (isPlaylistFolderMenuOpen(folder.id)) {
                             <div
                               class="film-list-item__menu-backdrop"
                               (click)="onMenuBackdropTap()"
                             ></div>
                             <div
-                              class="film-list-item__menu"
+                              class="film-list-item__menu film-playlist-folder__menu"
                               role="menu"
-                              aria-label="Video options"
+                              aria-label="Playlist options"
                               (click)="$event.stopPropagation()"
                             >
-                              @if (isRenaming(review.id)) {
+                              @if (isEditingPlaylistFolder(folder.id)) {
                                 <div class="film-list-item__menu-rename">
                                   <label
                                     class="film-list-item__menu-label"
-                                    for="film-rename-{{ review.id }}"
+                                    for="film-playlist-folder-rename-{{ folder.id }}"
                                   >
-                                    Rename video
+                                    Rename playlist
                                   </label>
                                   <input
-                                    id="film-rename-{{ review.id }}"
+                                    id="film-playlist-folder-rename-{{ folder.id }}"
                                     type="text"
                                     class="film-list-item__menu-input"
-                                    maxlength="120"
-                                    [value]="renameDraft()"
-                                    (input)="onRenameInput($any($event.target).value)"
-                                    (keydown.enter)="onRenameConfirm(review, $event)"
-                                    (keydown.escape)="onRenameCancel($event)"
+                                    maxlength="80"
+                                    [value]="playlistFolderRenameDraft()"
+                                    (input)="onPlaylistFolderRenameInput($any($event.target).value)"
+                                    (keydown.enter)="onPlaylistFolderRenameConfirm(folder, $event)"
+                                    (keydown.escape)="onPlaylistFolderRenameCancel($event)"
                                   />
                                   <div class="film-list-item__menu-actions">
                                     <button
                                       type="button"
                                       class="film-list-item__menu-action film-list-item__menu-action--primary"
-                                      (click)="onRenameConfirm(review, $event)"
+                                      (click)="onPlaylistFolderRenameConfirm(folder, $event)"
                                     >
                                       Save
                                     </button>
                                     <button
                                       type="button"
                                       class="film-list-item__menu-action"
-                                      (click)="onRenameCancel($event)"
+                                      (click)="onPlaylistFolderRenameCancel($event)"
                                     >
                                       Cancel
                                     </button>
                                   </div>
                                 </div>
-                              } @else if (isDeleteConfirming(review.id)) {
+                              } @else if (isDeletingPlaylistFolder(folder.id)) {
                                 <div class="film-list-item__menu-confirm">
                                   <p class="film-list-item__menu-confirm-text">
-                                    Delete this video?
+                                    @if (folder.reviews.length) {
+                                      Delete this playlist? Film will move to Unassigned Film.
+                                    } @else {
+                                      Delete this empty playlist?
+                                    }
                                   </p>
                                   <div class="film-list-item__menu-actions">
                                     <button
                                       type="button"
                                       class="film-list-item__menu-action film-list-item__menu-action--danger"
-                                      (click)="onDeleteConfirm(review, $event)"
+                                      (click)="onPlaylistFolderDeleteConfirm(folder, $event)"
                                     >
                                       Delete
                                     </button>
                                     <button
                                       type="button"
                                       class="film-list-item__menu-action"
-                                      (click)="onDeleteCancel($event)"
+                                      (click)="onPlaylistFolderDeleteCancel($event)"
                                     >
                                       Cancel
                                     </button>
@@ -788,7 +848,7 @@ type DrawInteractionState =
                                   type="button"
                                   class="film-list-item__menu-action"
                                   role="menuitem"
-                                  (click)="onRenameStart(review, $event)"
+                                  (click)="onPlaylistFolderRenameStart(folder, $event)"
                                 >
                                   Rename
                                 </button>
@@ -796,33 +856,266 @@ type DrawInteractionState =
                                   type="button"
                                   class="film-list-item__menu-action"
                                   role="menuitem"
-                                  (click)="onDeleteStart(review, $event)"
+                                  (click)="onPlaylistCreateSubfolderStart(folder, $event)"
                                 >
-                                  Delete
+                                  Add subfolder
+                                </button>
+                                <button
+                                  type="button"
+                                  class="film-list-item__menu-action film-list-item__menu-action--danger"
+                                  role="menuitem"
+                                  (click)="onPlaylistFolderDeleteStart(folder, $event)"
+                                >
+                                  Delete playlist
                                 </button>
                               }
                             </div>
                           }
                         </div>
                       }
-
-                      @if (isLast && canLoadMoreReviews()) {
-                        <div class="film-library-load-more-wrap">
-                          <button
-                            type="button"
-                            class="film-library-load-more"
-                            [disabled]="loading()"
-                            (click)="onLoadMoreReviews()"
-                          >
-                            Load More Videos
-                          </button>
-                        </div>
-                      }
                     </div>
-                  }
-                </section>
-              }
-            </div>
+
+                    @if (isPlaylistFolderExpanded(folder.id)) {
+                      <div
+                        class="film-playlist-folder__dropzone"
+                        [attr.data-testid]="testIds.PLAYLIST_FOLDER_DROPZONE"
+                      >
+                        @if (
+                          isCreatingPlaylistFolder() && creatingSubfolderParentId() === folder.id
+                        ) {
+                          <div
+                            class="film-playlist-create"
+                            role="group"
+                            aria-label="Create subfolder"
+                          >
+                            <input
+                              type="text"
+                              class="film-playlist-create__input"
+                              placeholder="Subfolder name"
+                              maxlength="80"
+                              [value]="playlistFolderNameDraft()"
+                              [attr.data-testid]="testIds.PLAYLIST_CREATE_INPUT"
+                              (input)="onPlaylistFolderNameInput($any($event.target).value)"
+                              (keydown.enter)="onPlaylistCreateConfirm($event)"
+                              (keydown.escape)="onPlaylistCreateCancel($event)"
+                            />
+                            <button
+                              type="button"
+                              class="film-playlist-create__btn film-playlist-create__btn--primary"
+                              [attr.data-testid]="testIds.PLAYLIST_CREATE_SAVE"
+                              (click)="onPlaylistCreateConfirm($event)"
+                            >
+                              Create
+                            </button>
+                            <button
+                              type="button"
+                              class="film-playlist-create__btn"
+                              (click)="onPlaylistCreateCancel($event)"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        }
+
+                        @if (folder.children.length > 0) {
+                          <div class="film-playlist-folder__children">
+                            <ng-container
+                              [ngTemplateOutlet]="playlistFolderTreeTemplate"
+                              [ngTemplateOutletContext]="{
+                                $implicit: folder.children,
+                                isNested: true,
+                                parentId: folder.id,
+                              }"
+                            ></ng-container>
+                          </div>
+                        }
+
+                        @if (
+                          folder.reviews.length === 0 &&
+                          folder.children.length === 0 &&
+                          creatingSubfolderParentId() !== folder.id
+                        ) {
+                          <div class="film-playlist-folder__empty">Drop film here</div>
+                        }
+
+                        <div
+                          class="film-playlist-folder__review-list"
+                          cdkDropList
+                          cdkDropListOrientation="vertical"
+                          [cdkDropListData]="folder.reviews"
+                          [cdkDropListDisabled]="!canReorderFolderReviews(folder.reviews)"
+                          (cdkDropListDropped)="onFolderReviewReorder(folder, $event)"
+                        >
+                          @for (review of folder.reviews; track review.id) {
+                            <div
+                              class="film-list-item-row"
+                              cdkDrag
+                              [cdkDragData]="review"
+                              cdkDragLockAxis="y"
+                              cdkDragPreviewContainer="parent"
+                              [cdkDragDisabled]="!canReorderFolderReviews(folder.reviews)"
+                              (cdkDragStarted)="onPlaylistReviewReorderDragStart()"
+                              (cdkDragEnded)="onPlaylistReviewReorderDragEnd()"
+                              [class.film-list-item-row--menu-open]="isMenuOpen(review.id)"
+                            >
+                              <button
+                                type="button"
+                                class="film-list-item__reorder-handle"
+                                cdkDragHandle
+                                aria-label="Reorder video"
+                              >
+                                <span class="film-reorder-grip" aria-hidden="true">
+                                  <span></span>
+                                  <span></span>
+                                  <span></span>
+                                  <span></span>
+                                  <span></span>
+                                  <span></span>
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                class="film-list-item"
+                                [class.film-list-item--active]="review.id === selectedId()"
+                                [nxtAgentXContextDrag]="buildFilmReviewDragContext(review)"
+                                [attr.data-testid]="testIds.LIST_ITEM"
+                                (click)="onSelectReview(review.id)"
+                                (dragstart)="onReviewPlaylistDragStart(review, $event)"
+                                (dragend)="onReviewPlaylistDragEnd()"
+                              >
+                                <div class="film-list-item__thumbnail">
+                                  @if (getVideoThumbnailUrl(review); as thumbnailUrl) {
+                                    <img
+                                      [src]="thumbnailUrl"
+                                      [alt]="getReviewDisplayTitle(review)"
+                                      class="film-list-item__thumb-image"
+                                    />
+                                  } @else {
+                                    <div
+                                      class="film-list-item__thumb-placeholder"
+                                      aria-hidden="true"
+                                    >
+                                      <nxt1-icon name="videocam" [size]="14"></nxt1-icon>
+                                    </div>
+                                  }
+                                </div>
+                                <span class="film-list-item__content">
+                                  <span class="film-list-item__title">{{
+                                    getReviewDisplayTitle(review)
+                                  }}</span>
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                class="film-list-item__menu-btn"
+                                aria-label="Video options"
+                                [attr.aria-expanded]="isMenuOpen(review.id)"
+                                aria-haspopup="menu"
+                                [attr.data-testid]="testIds.LIST_ITEM_MENU"
+                                (click)="onOpenReviewMenu($event, review)"
+                              >
+                                <nxt1-icon name="moreHorizontal" [size]="18"></nxt1-icon>
+                              </button>
+
+                              @if (isMenuOpen(review.id)) {
+                                <div
+                                  class="film-list-item__menu-backdrop"
+                                  (click)="onMenuBackdropTap()"
+                                ></div>
+                                <div
+                                  class="film-list-item__menu"
+                                  role="menu"
+                                  aria-label="Video options"
+                                  (click)="$event.stopPropagation()"
+                                >
+                                  @if (isRenaming(review.id)) {
+                                    <div class="film-list-item__menu-rename">
+                                      <label
+                                        class="film-list-item__menu-label"
+                                        for="film-rename-{{ review.id }}"
+                                      >
+                                        Rename video
+                                      </label>
+                                      <input
+                                        id="film-rename-{{ review.id }}"
+                                        type="text"
+                                        class="film-list-item__menu-input"
+                                        maxlength="120"
+                                        [value]="renameDraft()"
+                                        (input)="onRenameInput($any($event.target).value)"
+                                        (keydown.enter)="onRenameConfirm(review, $event)"
+                                        (keydown.escape)="onRenameCancel($event)"
+                                      />
+                                      <div class="film-list-item__menu-actions">
+                                        <button
+                                          type="button"
+                                          class="film-list-item__menu-action film-list-item__menu-action--primary"
+                                          (click)="onRenameConfirm(review, $event)"
+                                        >
+                                          Save
+                                        </button>
+                                        <button
+                                          type="button"
+                                          class="film-list-item__menu-action"
+                                          (click)="onRenameCancel($event)"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    </div>
+                                  } @else if (isDeleteConfirming(review.id)) {
+                                    <div class="film-list-item__menu-confirm">
+                                      <p class="film-list-item__menu-confirm-text">
+                                        Delete this video?
+                                      </p>
+                                      <div class="film-list-item__menu-actions">
+                                        <button
+                                          type="button"
+                                          class="film-list-item__menu-action film-list-item__menu-action--danger"
+                                          (click)="onDeleteConfirm(review, $event)"
+                                        >
+                                          Delete
+                                        </button>
+                                        <button
+                                          type="button"
+                                          class="film-list-item__menu-action"
+                                          (click)="onDeleteCancel($event)"
+                                        >
+                                          Cancel
+                                        </button>
+                                      </div>
+                                    </div>
+                                  } @else {
+                                    <button
+                                      type="button"
+                                      class="film-list-item__menu-action"
+                                      role="menuitem"
+                                      (click)="onRenameStart(review, $event)"
+                                    >
+                                      Rename
+                                    </button>
+                                    <button
+                                      type="button"
+                                      class="film-list-item__menu-action"
+                                      role="menuitem"
+                                      (click)="onDeleteStart(review, $event)"
+                                    >
+                                      Delete
+                                    </button>
+                                  }
+                                </div>
+                              }
+                            </div>
+                          }
+                        </div>
+                      </div>
+                    }
+                  </section>
+                }
+              </div>
+            </ng-template>
           </div>
         } @else {
           @if (selectedReview(); as review) {
@@ -1135,7 +1428,7 @@ type DrawInteractionState =
                         (click)="onAttachFilmBreakdownContext(review)"
                       >
                         <nxt1-icon name="link" [size]="12"></nxt1-icon>
-                        Add Breakdown
+                        {{ attachBreakdownButtonLabel() }}
                       </button>
 
                       <button
@@ -1228,7 +1521,20 @@ type DrawInteractionState =
                           [cdkDropListDisabled]="saving() || hasActiveTimelineFilters()"
                           (cdkDropListDropped)="onTimelineColumnDropSmooth($event)"
                         >
-                          <span class="film-playbook-head__reorder" aria-label="Move"></span>
+                          <span class="film-playbook-head__selection">
+                            <input
+                              type="checkbox"
+                              class="film-playbook-checkbox"
+                              [checked]="areAllFilteredTimelineRowsSelected()"
+                              [indeterminate]="isSomeFilteredTimelineRowsSelected()"
+                              [disabled]="filteredTimelineRows().length === 0"
+                              [attr.data-testid]="timelineSelectAllCheckboxTestId"
+                              aria-label="Select all visible clips"
+                              (click)="$event.stopPropagation()"
+                              (keydown)="$event.stopPropagation()"
+                              (change)="onToggleAllTimelinePlaySelections($event)"
+                            />
+                          </span>
                           @for (column of currentTimelineColumns(); track column.id) {
                             <div
                               class="film-playbook-column-header-wrap"
@@ -1395,6 +1701,9 @@ type DrawInteractionState =
                               [class.film-playbook-row--active]="
                                 row.originalIndex === currentPlayIndex()
                               "
+                              [class.film-playbook-row--selected]="
+                                isTimelinePlaySelected(row.play, row.originalIndex)
+                              "
                               [class.film-playbook-row--editing]="
                                 isEditingTimelinePlay(row.play, row.originalIndex)
                               "
@@ -1428,25 +1737,23 @@ type DrawInteractionState =
                               (drop)="onTimelinePlayDrop($event, review.id, row.originalIndex)"
                               [attr.aria-label]="'Jump to ' + row.play.label"
                             >
-                              <span class="film-playbook-cell film-playbook-cell--reorder">
-                                <button
-                                  type="button"
-                                  class="film-playbook-reorder-handle"
-                                  draggable="true"
-                                  [disabled]="
-                                    saving() ||
-                                    hasActiveTimelineFilters() ||
-                                    isEditingTimelinePlay(row.play, row.originalIndex)
-                                  "
-                                  [attr.data-testid]="testIds.TIMELINE_PLAY_REORDER_HANDLE"
-                                  [attr.aria-label]="'Move ' + row.play.label"
+                              <span class="film-playbook-cell film-playbook-cell--selection">
+                                <input
+                                  type="checkbox"
+                                  class="film-playbook-checkbox"
+                                  [checked]="isTimelinePlaySelected(row.play, row.originalIndex)"
+                                  [attr.data-testid]="timelinePlaySelectCheckboxTestId"
+                                  [attr.aria-label]="'Select ' + row.play.label"
                                   (click)="$event.stopPropagation()"
                                   (keydown)="$event.stopPropagation()"
-                                  (dragstart)="onTimelinePlayDragStart($event, row.originalIndex)"
-                                  (dragend)="onTimelinePlayDragEnd($event)"
-                                >
-                                  <nxt1-icon name="menu" [size]="14"></nxt1-icon>
-                                </button>
+                                  (change)="
+                                    onToggleTimelinePlaySelection(
+                                      row.play,
+                                      row.originalIndex,
+                                      $event
+                                    )
+                                  "
+                                />
                               </span>
                               @for (column of currentTimelineColumns(); track column.id) {
                                 <span
@@ -1812,6 +2119,11 @@ type DrawInteractionState =
         flex-wrap: wrap;
       }
 
+      .film-upload-menu-anchor {
+        position: relative;
+        display: inline-flex;
+      }
+
       .btn-empty-action {
         display: inline-flex;
         align-items: center;
@@ -1986,6 +2298,32 @@ type DrawInteractionState =
         background: color-mix(in srgb, var(--nxt1-color-alpha-primary10) 82%, transparent);
       }
 
+      .film-upload-menu {
+        min-width: min(18.5rem, calc(100vw - 2rem));
+        right: 0;
+      }
+
+      .film-upload-menu--centered {
+        left: 50%;
+        right: auto;
+        transform: translateX(-50%);
+      }
+
+      .film-upload-menu__action {
+        display: grid;
+        gap: 2px;
+      }
+
+      .film-upload-menu__text {
+        font-weight: 700;
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .film-upload-menu__hint {
+        font-size: 0.72rem;
+        color: var(--nxt1-color-text-secondary);
+      }
+
       .film-playlist-create {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto auto;
@@ -2053,9 +2391,13 @@ type DrawInteractionState =
         z-index: 80;
       }
 
+      .film-playlist-folder--nested {
+        background: color-mix(in srgb, var(--nxt1-color-surface-200) 72%, transparent);
+      }
+
       .film-playlist-folder__header {
         display: grid;
-        grid-template-columns: minmax(0, 1fr) 32px;
+        grid-template-columns: 28px minmax(0, 1fr) 32px;
         align-items: center;
         gap: 4px;
         width: 100%;
@@ -2089,6 +2431,54 @@ type DrawInteractionState =
         text-align: left;
         padding: 7px 8px 7px 10px;
         cursor: pointer;
+      }
+
+      .film-playlist-folder__reorder-handle,
+      .film-playlist-folder__reorder-spacer {
+        width: 28px;
+        height: 28px;
+        min-width: 28px;
+        min-height: 28px;
+      }
+
+      .film-playlist-folder__reorder-handle {
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--nxt1-color-text-secondary);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: grab;
+        transition:
+          background 0.16s ease,
+          color 0.16s ease;
+      }
+
+      .film-playlist-folder__reorder-handle:hover,
+      .film-playlist-folder__reorder-handle:focus-visible {
+        background: color-mix(in srgb, var(--nxt1-color-text-primary) 8%, transparent);
+        color: var(--nxt1-color-primary);
+        outline: none;
+      }
+
+      .film-playlist-folder__reorder-handle:active {
+        cursor: grabbing;
+      }
+
+      .film-reorder-grip {
+        display: grid;
+        grid-template-columns: repeat(2, 3px);
+        grid-auto-rows: 3px;
+        gap: 2px;
+      }
+
+      .film-reorder-grip span {
+        width: 3px;
+        height: 3px;
+        border-radius: 999px;
+        background: currentColor;
+        opacity: 0.72;
       }
 
       .film-playlist-folder__toggle:hover {
@@ -2156,6 +2546,20 @@ type DrawInteractionState =
         padding: 0 8px 8px 12px;
         position: relative;
         z-index: 1;
+      }
+
+      .film-playlist-folder__children {
+        display: grid;
+        gap: 8px;
+        margin-left: 12px;
+        padding-left: 12px;
+        border-left: 1px solid color-mix(in srgb, var(--nxt1-color-border-subtle) 86%, transparent);
+      }
+
+      .film-playlist-folder__review-list,
+      .film-playlist-folder-list {
+        display: grid;
+        gap: 8px;
       }
 
       .film-playlist-folder__empty {
@@ -2907,8 +3311,8 @@ type DrawInteractionState =
       }
 
       .film-empty-timeline-actions {
-        display: flex;
-        flex-wrap: wrap;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
         align-items: stretch;
         gap: 10px;
       }
@@ -2930,7 +3334,13 @@ type DrawInteractionState =
       }
 
       .film-empty-timeline-actions .film-generate-btn {
-        flex: 1 1 260px;
+        min-width: 0;
+      }
+
+      @media (max-width: 479px) {
+        .film-empty-timeline-actions {
+          grid-template-columns: minmax(0, 1fr);
+        }
       }
 
       .film-generate-btn--secondary {
@@ -3090,6 +3500,12 @@ type DrawInteractionState =
         text-transform: uppercase;
         letter-spacing: 0.04em;
         color: var(--nxt1-color-text-tertiary);
+      }
+
+      .film-playbook-head__selection {
+        display: flex;
+        align-items: center;
+        justify-content: center;
       }
 
       .film-playbook-column-header {
@@ -3396,6 +3812,10 @@ type DrawInteractionState =
         box-shadow: inset 2px 0 0 0 var(--nxt1-color-primary);
       }
 
+      .film-playbook-row--selected:not(.film-playbook-row--active) {
+        background: linear-gradient(90deg, var(--nxt1-color-alpha-primary10), transparent 48%);
+      }
+
       .film-playbook-row:focus-visible {
         outline: 2px solid var(--nxt1-color-primary);
         outline-offset: -2px;
@@ -3409,46 +3829,24 @@ type DrawInteractionState =
         text-overflow: ellipsis;
       }
 
-      .film-playbook-cell--reorder {
+      .film-playbook-cell--selection {
         display: flex;
         align-items: center;
         justify-content: center;
         overflow: visible;
       }
 
-      .film-playbook-reorder-handle {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 26px;
-        height: 26px;
-        padding: 0;
-        border: 1px solid transparent;
-        border-radius: 7px;
-        background: transparent;
-        color: var(--nxt1-color-text-tertiary);
-        cursor: grab;
-        touch-action: none;
-        transition:
-          background 0.15s ease,
-          border-color 0.15s ease,
-          color 0.15s ease;
+      .film-playbook-checkbox {
+        width: 16px;
+        height: 16px;
+        margin: 0;
+        accent-color: var(--nxt1-color-primary);
+        cursor: pointer;
       }
 
-      .film-playbook-reorder-handle:hover:not(:disabled),
-      .film-playbook-reorder-handle:focus-visible {
-        background: var(--nxt1-color-surface-100);
-        border-color: var(--nxt1-color-border-primary);
-        color: var(--nxt1-color-text-primary);
-      }
-
-      .film-playbook-reorder-handle:active:not(:disabled) {
-        cursor: grabbing;
-      }
-
-      .film-playbook-reorder-handle:disabled {
-        opacity: 0.42;
-        cursor: not-allowed;
+      .film-playbook-checkbox:focus-visible {
+        outline: 2px solid var(--nxt1-color-primary);
+        outline-offset: 2px;
       }
 
       .film-playbook-cell--editable {
@@ -3807,7 +4205,42 @@ type DrawInteractionState =
         }
       }
     `,
-    VIDEO_CONTROL_TOOLTIP_STYLES,
+    `
+      @media (hover: hover) and (pointer: fine) {
+        .video-controls__tooltip-host[data-tooltip]::after {
+          content: attr(data-tooltip);
+          position: absolute;
+          left: 50%;
+          bottom: calc(100% + 8px);
+          z-index: 40;
+          max-width: min(180px, calc(100vw - 24px));
+          padding: 5px 7px;
+          border-radius: var(--nxt1-border-radius-sm, 6px);
+          background: color-mix(in srgb, var(--nxt1-color-bg-primary) 92%, transparent);
+          border: 1px solid var(--nxt1-color-border-default);
+          color: var(--nxt1-color-text-primary);
+          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22);
+          font-size: 10px;
+          font-weight: 700;
+          line-height: 1.1;
+          overflow: hidden;
+          opacity: 0;
+          pointer-events: none;
+          text-overflow: ellipsis;
+          transform: translate(calc(-50% + var(--video-tooltip-offset-x, 0px)), 4px);
+          transition:
+            opacity 0.14s ease,
+            transform 0.14s ease;
+          white-space: nowrap;
+        }
+
+        .video-controls__tooltip-host[data-tooltip]:hover::after,
+        .video-controls__tooltip-host[data-tooltip]:focus-visible::after {
+          opacity: 1;
+          transform: translate(calc(-50% + var(--video-tooltip-offset-x, 0px)), 0);
+        }
+      }
+    `,
     `
       .film-list-item-row {
         position: relative;
@@ -3816,6 +4249,36 @@ type DrawInteractionState =
         gap: 4px;
         z-index: 1;
       }
+
+      .film-list-item__reorder-handle {
+        width: 28px;
+        height: 28px;
+        min-width: 28px;
+        min-height: 28px;
+        border: 0;
+        border-radius: 8px;
+        background: transparent;
+        color: var(--nxt1-color-text-secondary);
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        cursor: grab;
+        transition:
+          background 0.16s ease,
+          color 0.16s ease;
+      }
+
+      .film-list-item__reorder-handle:hover,
+      .film-list-item__reorder-handle:focus-visible {
+        background: color-mix(in srgb, var(--nxt1-color-text-primary) 8%, transparent);
+        color: var(--nxt1-color-primary);
+        outline: none;
+      }
+
+      .film-list-item__reorder-handle:active {
+        cursor: grabbing;
+      }
+
       .film-list-item-row--menu-open {
         z-index: 260;
       }
@@ -3842,6 +4305,26 @@ type DrawInteractionState =
       }
       .film-list-item {
         padding-right: 48px;
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .cdk-drag-preview.film-list-item-row,
+      .cdk-drag-preview.film-playlist-folder {
+        box-sizing: border-box;
+        border-radius: 10px;
+        box-shadow: 0 18px 48px rgba(0, 0, 0, 0.24);
+      }
+
+      .cdk-drag-placeholder {
+        opacity: 0.24;
+      }
+
+      .film-playlist-folder-list.cdk-drop-list-dragging
+        .film-playlist-folder:not(.cdk-drag-placeholder),
+      .film-playlist-folder__review-list.cdk-drop-list-dragging
+        .film-list-item-row:not(.cdk-drag-placeholder) {
+        transition: transform 180ms ease;
       }
       .film-list-item__menu-btn:active {
         background: color-mix(
@@ -4048,6 +4531,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   protected readonly testIds = TEST_IDS.FILM_REVIEW;
   protected readonly attachBreakdownContextTestId = 'film-review-attach-breakdown-context-button';
+  protected readonly timelineSelectAllCheckboxTestId = 'film-review-timeline-select-all-checkbox';
+  protected readonly timelinePlaySelectCheckboxTestId = 'film-review-timeline-play-select-checkbox';
   protected readonly filmReviewReleaseLabel = getAgentXReleaseLabel('filmReview');
   protected readonly reviews = this.service.reviews;
   public readonly selectedId = this.service.selectedId;
@@ -4085,6 +4570,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly drawModeEnabled = signal(false);
   protected readonly selectedDrawTool = signal<DrawAnnotationKind>('freehand');
   protected readonly hasDrawing = signal(false);
+  protected readonly isRootPlaylistFolderDropActive = signal(false);
   protected readonly openMenuReviewId = signal<string | null>(null);
   protected readonly openPlaylistFolderMenuId = signal<string | null>(null);
   protected readonly isCreatingPlaylistFolder = signal(false);
@@ -4094,9 +4580,15 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly deletePlaylistFolderConfirmId = signal<string | null>(null);
   protected readonly playlistFolderRenameDraft = signal('');
   protected readonly localPlaylistFolders = signal<readonly LocalFilmReviewPlaylistFolder[]>([]);
+  protected readonly localReviewOrderByFolder = signal<FilmReviewOrderByFolder>({});
   protected readonly collapsedPlaylistFolderIds = signal<ReadonlySet<string>>(new Set());
   protected readonly draggingReviewId = signal<string | null>(null);
   protected readonly draggingPlaylistFolderId = signal<string | null>(null);
+  protected readonly isPlaylistFolderReorderDragActive = signal(false);
+  protected readonly isPlaylistReviewReorderDragActive = signal(false);
+  protected readonly isPlaylistLibraryReorderDragActive = computed(
+    () => this.isPlaylistFolderReorderDragActive() || this.isPlaylistReviewReorderDragActive()
+  );
   protected readonly activePlaylistDropTargetId = signal<string | null>(null);
   protected readonly activePlaylistFolderDropTargetId = signal<string | null>(null);
   protected readonly renamingReviewId = signal<string | null>(null);
@@ -4106,6 +4598,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly playlistDraft = signal('');
   protected readonly draggingTimelinePlayIndex = signal<number | null>(null);
   protected readonly timelinePlayDropIndicator = signal<TimelinePlayDropIndicator | null>(null);
+  protected readonly selectedTimelinePlayIds = signal<ReadonlySet<string>>(new Set());
   protected readonly timelineColumnOrder = signal<readonly string[]>([]);
   protected readonly draggingTimelineColumnId = signal<string | null>(null);
   protected readonly timelineColumnDropIndicator = signal<TimelineColumnDropIndicator | null>(null);
@@ -4146,6 +4639,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly isLibraryDragActive = signal(false);
   protected readonly isUploadingLibraryVideo = signal(false);
   protected readonly isImportingBreakdown = signal(false);
+  protected readonly openUploadMenuAnchor = signal<FilmReviewUploadMenuAnchor | null>(null);
   protected readonly filmListLimit = signal(FILM_REVIEW_LIST_INITIAL_LIMIT);
   protected readonly libraryVideoUploadPercent = signal<number | null>(null);
   protected readonly libraryUploadCurrentFile = signal(0);
@@ -4153,18 +4647,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly libraryUploadError = signal<string | null>(null);
   protected readonly panelSport = signal('');
   protected readonly playbackRates = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
-  protected readonly acceptedFilmReviewUploadTypes = [
-    ...AGENT_X_ALLOWED_MIME_TYPES.filter(
-      (type) =>
-        type.startsWith('video/') ||
-        type === 'text/csv' ||
-        type === 'application/vnd.ms-excel' ||
-        type === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    ),
-    '.csv',
-    '.xls',
-    '.xlsx',
-  ].join(',');
+  protected readonly acceptedVideoUploadTypes = AGENT_X_ALLOWED_MIME_TYPES.filter((type) =>
+    type.startsWith('video/')
+  ).join(',');
   protected readonly acceptedBreakdownTypes = [
     'text/csv',
     'application/vnd.ms-excel',
@@ -4229,6 +4714,29 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       .filter((chip): chip is TimelineColumnFilterChip => chip !== null)
   );
   protected readonly filteredTimelineCount = computed(() => this.filteredTimelineRows().length);
+  protected readonly selectedFilteredTimelineRowCount = computed(() => {
+    const selectedIds = this.selectedTimelinePlayIds();
+    if (selectedIds.size === 0) return 0;
+
+    return this.filteredTimelineRows().reduce((count, row) => {
+      const playId = this.resolveTimelinePlaySelectionId(row.play, row.originalIndex);
+      return selectedIds.has(playId) ? count + 1 : count;
+    }, 0);
+  });
+  protected readonly areAllFilteredTimelineRowsSelected = computed(() => {
+    const rows = this.filteredTimelineRows();
+    return rows.length > 0 && this.selectedFilteredTimelineRowCount() === rows.length;
+  });
+  protected readonly isSomeFilteredTimelineRowsSelected = computed(() => {
+    const selectedCount = this.selectedFilteredTimelineRowCount();
+    const totalCount = this.filteredTimelineRows().length;
+    return selectedCount > 0 && selectedCount < totalCount;
+  });
+  protected readonly attachBreakdownButtonLabel = computed(() => {
+    const selectedCount = this.selectedFilteredTimelineRowCount();
+    if (selectedCount <= 0) return 'Add Breakdown';
+    return selectedCount === 1 ? 'Add Selected Clip' : `Add ${selectedCount} Clips`;
+  });
   protected readonly canLoadMoreReviews = computed(
     () => !this.loading() && this.service.totalReviewCount() > this.reviews().length
   );
@@ -4244,6 +4752,27 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     () => this.draggingTimelinePlayIndex() !== null
   );
   protected readonly playlistFolders = computed<readonly FilmReviewPlaylistFolder[]>(() => {
+    const localFolders = this.localPlaylistFolders();
+    const reviewOrderByFolder = this.localReviewOrderByFolder();
+    const folderSortOrder = new Map<string, number>();
+    let nextFolderSortOrder = 0;
+    for (const folder of localFolders) {
+      folderSortOrder.set(folder.id, nextFolderSortOrder);
+      nextFolderSortOrder += 1;
+    }
+
+    const ensureFolderSortOrder = (folderId: string): number => {
+      const existingOrder = folderSortOrder.get(folderId);
+      if (typeof existingOrder === 'number') {
+        return existingOrder;
+      }
+
+      const fallbackOrder = nextFolderSortOrder;
+      folderSortOrder.set(folderId, fallbackOrder);
+      nextFolderSortOrder += 1;
+      return fallbackOrder;
+    };
+
     const folders = new Map<
       string,
       {
@@ -4251,6 +4780,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         reviews: FilmListReview[];
         isUnassigned?: boolean;
         parentId?: string | null;
+        sortOrder: number;
       }
     >();
     folders.set(FILM_REVIEW_UNASSIGNED_PLAYLIST_ID, {
@@ -4258,13 +4788,15 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       reviews: [],
       isUnassigned: true,
       parentId: null,
+      sortOrder: Number.MAX_SAFE_INTEGER,
     });
 
-    for (const folder of this.localPlaylistFolders()) {
+    for (const folder of localFolders) {
       folders.set(folder.id, {
         name: folder.name,
         reviews: [],
         parentId: folder.parentId?.trim() || null,
+        sortOrder: ensureFolderSortOrder(folder.id),
       });
     }
 
@@ -4277,10 +4809,44 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         reviews: [],
         isUnassigned: folderId === FILM_REVIEW_UNASSIGNED_PLAYLIST_ID,
         parentId: null,
+        sortOrder: ensureFolderSortOrder(folderId),
       };
       current.reviews.push(review);
       folders.set(folderId, current);
     }
+
+    const orderFolderReviews = (
+      folderId: string,
+      folderReviews: readonly FilmListReview[]
+    ): readonly FilmListReview[] => {
+      if (folderReviews.length <= 1) {
+        return folderReviews;
+      }
+
+      const persistedOrder = reviewOrderByFolder[folderId] ?? [];
+      if (persistedOrder.length === 0) {
+        return folderReviews;
+      }
+
+      const reviewById = new Map(folderReviews.map((review) => [review.id, review] as const));
+      const orderedReviews: FilmListReview[] = [];
+      for (const reviewId of persistedOrder) {
+        const review = reviewById.get(reviewId);
+        if (review) {
+          orderedReviews.push(review);
+          reviewById.delete(reviewId);
+        }
+      }
+
+      for (const review of folderReviews) {
+        if (reviewById.has(review.id)) {
+          orderedReviews.push(review);
+          reviewById.delete(review.id);
+        }
+      }
+
+      return orderedReviews;
+    };
 
     const resolvedFolders: FilmReviewPlaylistFolder[] = [];
     const visited = new Set<string>();
@@ -4294,7 +4860,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       resolvedFolders.push({
         id: folderId,
         name: folder.name,
-        reviews: folder.reviews,
+        reviews: orderFolderReviews(folderId, folder.reviews),
         isUnassigned: folder.isUnassigned,
         parentId: folder.parentId ?? null,
         depth,
@@ -4306,7 +4872,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
             id !== FILM_REVIEW_UNASSIGNED_PLAYLIST_ID &&
             (item.parentId?.trim() ?? null) === folderId
         )
-        .sort((left, right) => left[1].name.localeCompare(right[1].name));
+        .sort(
+          (left, right) =>
+            left[1].sortOrder - right[1].sortOrder || left[1].name.localeCompare(right[1].name)
+        );
 
       for (const [childId] of childFolders) {
         appendFolder(childId, depth + 1);
@@ -4319,7 +4888,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
           id !== FILM_REVIEW_UNASSIGNED_PLAYLIST_ID &&
           (!folder.parentId?.trim() || !folders.has(folder.parentId.trim()))
       )
-      .sort((left, right) => left[1].name.localeCompare(right[1].name));
+      .sort(
+        (left, right) =>
+          left[1].sortOrder - right[1].sortOrder || left[1].name.localeCompare(right[1].name)
+      );
 
     for (const [folderId] of rootFolders) {
       appendFolder(folderId, 0);
@@ -4330,7 +4902,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       resolvedFolders.push({
         id: FILM_REVIEW_UNASSIGNED_PLAYLIST_ID,
         name: unassignedFolder.name,
-        reviews: unassignedFolder.reviews,
+        reviews: orderFolderReviews(FILM_REVIEW_UNASSIGNED_PLAYLIST_ID, unassignedFolder.reviews),
         isUnassigned: true,
         parentId: null,
         depth: 0,
@@ -4339,6 +4911,40 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     return resolvedFolders;
   });
+
+  protected readonly playlistFolderTree = computed<readonly FilmReviewPlaylistFolderTreeNode[]>(
+    () => {
+      const flatFolders = this.playlistFolders();
+      const nodeMap = new Map<
+        string,
+        FilmReviewPlaylistFolder & { children: FilmReviewPlaylistFolderTreeNode[] }
+      >();
+
+      for (const folder of flatFolders) {
+        nodeMap.set(folder.id, {
+          ...folder,
+          children: [],
+        });
+      }
+
+      const roots: FilmReviewPlaylistFolderTreeNode[] = [];
+      for (const folder of flatFolders) {
+        const node = nodeMap.get(folder.id);
+        if (!node) {
+          continue;
+        }
+
+        if (folder.parentId && nodeMap.has(folder.parentId) && !folder.isUnassigned) {
+          nodeMap.get(folder.parentId)?.children.push(node);
+          continue;
+        }
+
+        roots.push(node);
+      }
+
+      return roots;
+    }
+  );
 
   // Timeline play navigation state - using inline type for portability
   protected readonly currentPlayIndex = signal(0);
@@ -4447,6 +5053,32 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
       if (rows.length > 0 && !hasActive) {
         this.currentPlayIndex.set(rows[0]!.originalIndex);
+      }
+    });
+
+    effect(() => {
+      const visibleIds = new Set(
+        this.filteredTimelineRows().map((row) =>
+          this.resolveTimelinePlaySelectionId(row.play, row.originalIndex)
+        )
+      );
+      const currentSelection = this.selectedTimelinePlayIds();
+
+      if (currentSelection.size === 0) return;
+
+      let didChange = false;
+      const nextSelection = new Set<string>();
+
+      for (const playId of currentSelection) {
+        if (visibleIds.has(playId)) {
+          nextSelection.add(playId);
+        } else {
+          didChange = true;
+        }
+      }
+
+      if (didChange) {
+        this.selectedTimelinePlayIds.set(nextSelection);
       }
     });
   }
@@ -4762,7 +5394,29 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     });
   }
 
+  protected onPlaylistFolderReorderDragStart(): void {
+    this.isPlaylistFolderReorderDragActive.set(true);
+    this.clearPlaylistLibraryDropState();
+  }
+
+  protected onPlaylistFolderReorderDragEnd(): void {
+    this.isPlaylistFolderReorderDragActive.set(false);
+  }
+
+  protected onPlaylistReviewReorderDragStart(): void {
+    this.isPlaylistReviewReorderDragActive.set(true);
+    this.clearPlaylistLibraryDropState();
+  }
+
+  protected onPlaylistReviewReorderDragEnd(): void {
+    this.isPlaylistReviewReorderDragActive.set(false);
+  }
+
   protected onReviewPlaylistDragStart(review: FilmListReview, event: DragEvent): void {
+    if (this.isPlaylistLibraryReorderDragActive()) {
+      event.preventDefault();
+      return;
+    }
     this.draggingReviewId.set(review.id);
     event.dataTransfer?.setData(FILM_REVIEW_PLAYLIST_DRAG_MIME, review.id);
   }
@@ -4773,7 +5427,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   protected onPlaylistFolderDragStart(folder: FilmReviewPlaylistFolder, event: DragEvent): void {
-    if (folder.isUnassigned) {
+    if (folder.isUnassigned || this.isPlaylistLibraryReorderDragActive()) {
+      event.preventDefault();
       return;
     }
     this.draggingPlaylistFolderId.set(folder.id);
@@ -4786,9 +5441,50 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected onPlaylistFolderDragEnd(): void {
     this.draggingPlaylistFolderId.set(null);
     this.activePlaylistFolderDropTargetId.set(null);
+    this.isRootPlaylistFolderDropActive.set(false);
+  }
+
+  protected canReorderPlaylistFolders(
+    folders: readonly FilmReviewPlaylistFolderTreeNode[]
+  ): boolean {
+    return folders.filter((folder) => !folder.isUnassigned).length > 1;
+  }
+
+  protected onPlaylistFolderReorder(
+    event: CdkDragDrop<readonly FilmReviewPlaylistFolderTreeNode[]>,
+    parentId: string | null
+  ): void {
+    if (event.previousIndex === event.currentIndex) {
+      return;
+    }
+
+    const nextFolders = [...event.container.data].filter((folder) => !folder.isUnassigned);
+    if (nextFolders.length <= 1) {
+      return;
+    }
+
+    moveItemInArray(nextFolders, event.previousIndex, event.currentIndex);
+    const orderedIds = nextFolders.map((folder) => folder.id);
+
+    this.updateLocalPlaylistFolders((folders) => {
+      const normalizedParentId = parentId?.trim() || null;
+      const siblingById = new Map(
+        folders
+          .filter((folder) => (folder.parentId?.trim() || null) === normalizedParentId)
+          .map((folder) => [folder.id, folder] as const)
+      );
+      const reordered = orderedIds
+        .map((id) => siblingById.get(id))
+        .filter((folder): folder is LocalFilmReviewPlaylistFolder => folder !== undefined);
+      const reorderedIds = new Set(reordered.map((folder) => folder.id));
+      return [...folders.filter((folder) => !reorderedIds.has(folder.id)), ...reordered];
+    });
   }
 
   protected onPlaylistFolderDragOver(folderId: string, event: DragEvent): void {
+    if (this.isPlaylistLibraryReorderDragActive()) {
+      return;
+    }
     const draggingReviewId =
       this.draggingReviewId() ?? event.dataTransfer?.getData(FILM_REVIEW_PLAYLIST_DRAG_MIME) ?? '';
     const draggingFolderId =
@@ -4814,6 +5510,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   protected onPlaylistFolderDragLeave(folderId: string, event: DragEvent): void {
+    if (this.isPlaylistLibraryReorderDragActive()) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     const currentTarget = event.currentTarget;
@@ -4837,6 +5536,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     folder: FilmReviewPlaylistFolder,
     event: DragEvent
   ): Promise<void> {
+    if (this.isPlaylistLibraryReorderDragActive()) {
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
 
@@ -4856,11 +5558,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         return;
       }
 
-      this.updateLocalPlaylistFolders((folders) =>
-        folders.map((item) =>
+      this.updateLocalPlaylistFolders((folders) => {
+        const nextFolders = folders.map((item) =>
           item.id === draggingFolderId ? { ...item, parentId: folder.id } : item
-        )
-      );
+        );
+        return this.moveLocalPlaylistFolderToEnd(nextFolders, draggingFolderId);
+      });
 
       this.collapsedPlaylistFolderIds.update((current) => {
         const next = new Set(current);
@@ -4913,6 +5616,26 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       const message = err instanceof Error ? err.message : 'Failed to move video';
       this.toast.error(message);
     }
+  }
+
+  protected canReorderFolderReviews(reviews: readonly FilmListReview[]): boolean {
+    return reviews.length > 1;
+  }
+
+  protected onFolderReviewReorder(
+    folder: FilmReviewPlaylistFolder,
+    event: CdkDragDrop<readonly FilmListReview[]>
+  ): void {
+    if (event.previousIndex === event.currentIndex) {
+      return;
+    }
+
+    const nextReviews = [...event.container.data];
+    moveItemInArray(nextReviews, event.previousIndex, event.currentIndex);
+    this.persistLocalReviewOrder(
+      folder.id,
+      nextReviews.map((review) => review.id)
+    );
   }
 
   private canMovePlaylistFolderInto(draggingFolderId: string, targetFolderId: string): boolean {
@@ -5085,12 +5808,54 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.deleteConfirmReviewId.set(null);
   }
 
-  protected onChooseVideosClick(): void {
-    this.videoUploadInput?.nativeElement.click();
+  protected isUploadMenuOpen(anchor: FilmReviewUploadMenuAnchor): boolean {
+    return this.openUploadMenuAnchor() === anchor;
+  }
+
+  protected onChooseVideosClick(event: Event, anchor: FilmReviewUploadMenuAnchor): void {
+    event.stopPropagation();
+    event.preventDefault();
+
+    if (this.isUploadingLibraryVideo()) {
+      return;
+    }
+
+    if (this.openUploadMenuAnchor() === anchor) {
+      this.openUploadMenuAnchor.set(null);
+      return;
+    }
+
+    this.resetMenuState();
+    this.openUploadMenuAnchor.set(anchor);
+  }
+
+  protected onChooseBatchClipsClick(event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this.openUploadMenuAnchor.set(null);
+    this.openVideoUploadPicker('batch');
+  }
+
+  protected onChooseFullFootageClick(event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this.openUploadMenuAnchor.set(null);
+    this.openVideoUploadPicker('full');
   }
 
   protected onChooseBreakdownClick(): void {
     this.breakdownUploadInput?.nativeElement.click();
+  }
+
+  private openVideoUploadPicker(mode: 'batch' | 'full'): void {
+    const input = this.videoUploadInput?.nativeElement;
+    if (!input) {
+      return;
+    }
+
+    input.value = '';
+    input.multiple = mode === 'batch';
+    input.click();
   }
 
   protected async onVideoFilesSelected(event: Event): Promise<void> {
@@ -5117,16 +5882,33 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   protected onLibraryDragEnter(event: DragEvent): void {
+    if (this.isPlaylistLibraryReorderDragActive()) {
+      return;
+    }
     event.preventDefault();
+    if (this.getDraggingPlaylistFolderId(event)) {
+      this.isRootPlaylistFolderDropActive.set(true);
+      return;
+    }
     this.isLibraryDragActive.set(true);
   }
 
   protected onLibraryDragOver(event: DragEvent): void {
+    if (this.isPlaylistLibraryReorderDragActive()) {
+      return;
+    }
     event.preventDefault();
+    if (this.getDraggingPlaylistFolderId(event)) {
+      this.isRootPlaylistFolderDropActive.set(true);
+      return;
+    }
     this.isLibraryDragActive.set(true);
   }
 
   protected onLibraryDragLeave(event: DragEvent): void {
+    if (this.isPlaylistLibraryReorderDragActive()) {
+      return;
+    }
     event.preventDefault();
     const currentTarget = event.currentTarget;
     const relatedTarget = event.relatedTarget;
@@ -5141,10 +5923,65 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   protected async onLibraryDrop(event: DragEvent): Promise<void> {
+    if (this.isPlaylistLibraryReorderDragActive()) {
+      return;
+    }
     event.preventDefault();
     this.isLibraryDragActive.set(false);
+    const draggingFolderId = this.getDraggingPlaylistFolderId(event);
+    if (draggingFolderId) {
+      this.draggingPlaylistFolderId.set(null);
+      this.activePlaylistFolderDropTargetId.set(null);
+      this.isRootPlaylistFolderDropActive.set(false);
+
+      this.updateLocalPlaylistFolders((folders) => {
+        const nextFolders = folders.map((item) =>
+          item.id === draggingFolderId ? { ...item, parentId: null } : item
+        );
+        return this.moveLocalPlaylistFolderToEnd(nextFolders, draggingFolderId);
+      });
+      return;
+    }
+
+    this.isRootPlaylistFolderDropActive.set(false);
     const files = event.dataTransfer?.files ? Array.from(event.dataTransfer.files) : [];
     await this.uploadLibraryFiles(files);
+  }
+
+  private getDraggingPlaylistFolderId(event: DragEvent): string {
+    return (
+      this.draggingPlaylistFolderId() ??
+      event.dataTransfer?.getData(FILM_REVIEW_PLAYLIST_FOLDER_DRAG_MIME) ??
+      ''
+    );
+  }
+
+  private clearPlaylistLibraryDropState(): void {
+    this.draggingReviewId.set(null);
+    this.draggingPlaylistFolderId.set(null);
+    this.activePlaylistDropTargetId.set(null);
+    this.activePlaylistFolderDropTargetId.set(null);
+    this.isRootPlaylistFolderDropActive.set(false);
+    this.isLibraryDragActive.set(false);
+  }
+
+  private moveLocalPlaylistFolderToEnd(
+    folders: readonly LocalFilmReviewPlaylistFolder[],
+    folderId: string
+  ): readonly LocalFilmReviewPlaylistFolder[] {
+    const nextFolders = [...folders];
+    const sourceIndex = nextFolders.findIndex((folder) => folder.id === folderId);
+    if (sourceIndex < 0) {
+      return nextFolders;
+    }
+
+    const [movedFolder] = nextFolders.splice(sourceIndex, 1);
+    if (!movedFolder) {
+      return nextFolders;
+    }
+
+    nextFolders.push(movedFolder);
+    return nextFolders;
   }
 
   private async uploadLibraryFiles(files: readonly File[]): Promise<void> {
@@ -5416,6 +6253,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   @HostListener('document:click', ['$event'])
   protected onDocumentClick(event: Event): void {
     if (
+      !this.openUploadMenuAnchor() &&
       !this.openMenuReviewId() &&
       !this.openPlaylistFolderMenuId() &&
       !this.openTimelineColumnMenuId()
@@ -5426,7 +6264,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (
       target instanceof Element &&
       target.closest(
-        '.film-list-item__menu-btn, .film-list-item__menu, .film-list-item__menu-backdrop, .film-playbook-column-menu-btn, .film-playbook-column-menu, .film-playbook-column-menu-backdrop'
+        '.film-list-item__menu-btn, .film-list-item__menu, .film-list-item__menu-backdrop, .film-playbook-column-menu-btn, .film-playbook-column-menu, .film-playbook-column-menu-backdrop, .film-upload-menu-anchor, .film-upload-menu, .film-upload-menu-backdrop'
       )
     ) {
       return;
@@ -5437,6 +6275,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   @HostListener('document:keydown.escape')
   protected onEscapeKey(): void {
     if (
+      this.openUploadMenuAnchor() ||
       this.openMenuReviewId() ||
       this.openPlaylistFolderMenuId() ||
       this.openTimelineColumnMenuId()
@@ -5446,6 +6285,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private resetMenuState(): void {
+    this.openUploadMenuAnchor.set(null);
     this.openMenuReviewId.set(null);
     this.openPlaylistFolderMenuId.set(null);
     this.renamingReviewId.set(null);
@@ -5472,10 +6312,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return 'Game Film';
   }
 
-  protected getReviewMeta(review: FilmListReview): string {
-    return this.formatSportLabel(review.sport) ?? 'Film session';
-  }
-
   public getVideoThumbnailUrl(review: FilmListReview): string | null {
     const explicit = review.thumbnailUrl?.trim();
     return explicit || null;
@@ -5483,19 +6319,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   private getEditablePlaylistName(review: FilmListReview): string {
     return review.playlistName?.trim() ?? '';
-  }
-
-  private formatSportLabel(value?: string): string | null {
-    const normalized = value?.trim();
-    if (!normalized) {
-      return null;
-    }
-
-    return normalized
-      .split(/[_\s-]+/)
-      .filter((part) => part.length > 0)
-      .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
-      .join(' ');
   }
 
   private isRawImportedVideoTitle(title: string, review: FilmListReview): boolean {
@@ -5592,6 +6415,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   private async loadFilmReviews(teamId: string): Promise<void> {
     await this.service.load(teamId, this.panelSport() || undefined, this.filmListLimit());
+    this.localReviewOrderByFolder.set(this.loadPersistedReviewOrder(teamId));
     this.timelineColumnOrder.set(this.loadPersistedTimelineColumnOrder());
     this.collapseAllPlaylistFolders();
   }
@@ -5620,6 +6444,22 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const normalized = this.normalizeLocalPlaylistFolders(updater(this.localPlaylistFolders()));
     this.localPlaylistFolders.set(normalized);
     this.persistLocalPlaylistFolders(normalized);
+  }
+
+  private persistLocalReviewOrder(folderId: string, reviewIds: readonly string[]): void {
+    const teamId = this.teamId?.trim();
+    if (!teamId) {
+      return;
+    }
+
+    const normalizedIds = reviewIds.map((reviewId) => reviewId.trim()).filter(Boolean);
+    const nextOrder = {
+      ...this.localReviewOrderByFolder(),
+      [folderId]: normalizedIds,
+    } satisfies FilmReviewOrderByFolder;
+
+    this.localReviewOrderByFolder.set(nextOrder);
+    this.persistReviewOrder(teamId, nextOrder);
   }
 
   private normalizeLocalPlaylistFolders(
@@ -5701,8 +6541,63 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
   }
 
+  private loadPersistedReviewOrder(teamId: string): FilmReviewOrderByFolder {
+    if (!this.platform.isBrowser()) {
+      return {};
+    }
+
+    try {
+      const raw = localStorage.getItem(this.getReviewOrderStorageKey(teamId));
+      if (!raw) {
+        return {};
+      }
+
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        return {};
+      }
+
+      const normalized: FilmReviewOrderByFolder = {};
+      for (const [folderId, reviewIds] of Object.entries(parsed)) {
+        if (!folderId.trim() || !Array.isArray(reviewIds)) {
+          continue;
+        }
+        normalized[folderId] = reviewIds.filter(
+          (reviewId): reviewId is string =>
+            typeof reviewId === 'string' && reviewId.trim().length > 0
+        );
+      }
+
+      return normalized;
+    } catch {
+      return {};
+    }
+  }
+
+  private persistReviewOrder(teamId: string, order: FilmReviewOrderByFolder): void {
+    if (!this.platform.isBrowser()) {
+      return;
+    }
+
+    try {
+      const hasEntries = Object.values(order).some((reviewIds) => reviewIds.length > 0);
+      if (!hasEntries) {
+        localStorage.removeItem(this.getReviewOrderStorageKey(teamId));
+        return;
+      }
+
+      localStorage.setItem(this.getReviewOrderStorageKey(teamId), JSON.stringify(order));
+    } catch {
+      // Ignore local preference persistence failures.
+    }
+  }
+
   private getPlaylistStorageKey(teamId: string): string {
     return `${FILM_REVIEW_PLAYLIST_STORAGE_PREFIX}:${teamId}`;
+  }
+
+  private getReviewOrderStorageKey(teamId: string): string {
+    return `${FILM_REVIEW_VIDEO_ORDER_STORAGE_PREFIX}:${teamId}`;
   }
 
   public async onSelectReview(reviewId: string): Promise<void> {
@@ -6631,8 +7526,65 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   protected onAttachFilmBreakdownContext(review: FilmReviewDragSource): void {
+    const selectedPlayContexts = this.buildSelectedTimelinePlayContexts(review);
+    if (selectedPlayContexts.length > 0) {
+      this.agentXService.queueSelectedContexts(selectedPlayContexts);
+      this.toast.success(
+        selectedPlayContexts.length === 1
+          ? 'Added selected clip to chat composer'
+          : `Added ${selectedPlayContexts.length} selected clips to chat composer`
+      );
+      return;
+    }
+
     this.agentXService.queueSelectedContext(this.buildFilmReviewDragContext(review));
     this.toast.success('Added film breakdown to chat composer');
+  }
+
+  protected isTimelinePlaySelected(play: FilmTimelinePlay, originalIndex: number): boolean {
+    return this.selectedTimelinePlayIds().has(
+      this.resolveTimelinePlaySelectionId(play, originalIndex)
+    );
+  }
+
+  protected onToggleTimelinePlaySelection(
+    play: FilmTimelinePlay,
+    originalIndex: number,
+    event: Event
+  ): void {
+    event.stopPropagation();
+
+    const input = event.target as HTMLInputElement | null;
+    const playId = this.resolveTimelinePlaySelectionId(play, originalIndex);
+    const isChecked = !!input?.checked;
+
+    this.selectedTimelinePlayIds.update((current) => {
+      const next = new Set(current);
+      if (isChecked) {
+        next.add(playId);
+      } else {
+        next.delete(playId);
+      }
+      return next;
+    });
+  }
+
+  protected onToggleAllTimelinePlaySelections(event: Event): void {
+    event.stopPropagation();
+
+    const input = event.target as HTMLInputElement | null;
+    const isChecked = !!input?.checked;
+
+    if (!isChecked) {
+      this.selectedTimelinePlayIds.set(new Set());
+      return;
+    }
+
+    const nextSelection = new Set<string>();
+    for (const row of this.filteredTimelineRows()) {
+      nextSelection.add(this.resolveTimelinePlaySelectionId(row.play, row.originalIndex));
+    }
+    this.selectedTimelinePlayIds.set(nextSelection);
   }
 
   private buildFilmReviewContextSummary(review: FilmReviewDragSource): string {
@@ -6756,7 +7708,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     fallbackIndex: number
   ): AgentXSelectedContext {
     const reviewTitle = this.getReviewDisplayTitle(review);
-    const playId = play.id || String(play.number ?? fallbackIndex + 1);
+    const playId = this.resolveTimelinePlaySelectionId(play, fallbackIndex);
     const title = `${play.label} @ ${this.formatTime(play.startSec)}`;
     const annotation = this.resolvePlayContextAnnotation(play, fallbackIndex);
     const drawBounds = annotation
@@ -6809,6 +7761,28 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         ...(play.tags ?? {}),
       }),
     };
+  }
+
+  private buildSelectedTimelinePlayContexts(
+    review: FilmReviewDragSource
+  ): readonly AgentXSelectedContext[] {
+    const selectedIds = this.selectedTimelinePlayIds();
+    if (selectedIds.size === 0) return [];
+
+    return this.filteredTimelineRows()
+      .filter((row) =>
+        selectedIds.has(this.resolveTimelinePlaySelectionId(row.play, row.originalIndex))
+      )
+      .map((row) => this.buildFilmPlayDragContext(review, row.play, row.originalIndex));
+  }
+
+  private resolveTimelinePlaySelectionId(play: FilmTimelinePlay, fallbackIndex: number): string {
+    const explicitId = play.id?.trim();
+    if (explicitId) return explicitId;
+
+    const label = play.label.trim().toLowerCase().replace(/\s+/g, '-');
+    const playNumber = play.number ?? fallbackIndex + 1;
+    return `${playNumber}:${label}:${play.startSec}:${play.endSec}`;
   }
 
   private buildDefaultTimelineColumns(
@@ -8997,8 +9971,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     const screenWidth = window.screen.availWidth || window.innerWidth;
     const screenHeight = window.screen.availHeight || window.innerHeight;
-    const popupWidth = Math.min(1280, Math.max(720, Math.round(screenWidth * 0.82)));
-    const popupHeight = Math.min(860, Math.max(560, Math.round(popupWidth * 0.66)));
+    const popupWidth = Math.max(960, Math.round(screenWidth * 0.98));
+    const popupHeight = Math.max(720, Math.round(screenHeight * 0.96));
     const popupLeft = Math.max(0, Math.round((screenWidth - popupWidth) / 2));
     const popupTop = Math.max(0, Math.round((screenHeight - popupHeight) / 2));
     const popupFeatures = [
@@ -9023,6 +9997,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       window.sessionStorage.removeItem(`${FILM_REVIEW_POPOUT_STORAGE_PREFIX}${sessionId}`);
       this.toast.error('Allow pop-ups to open video in a new window.');
       return;
+    }
+
+    try {
+      videoWindow.moveTo(0, 0);
+      videoWindow.resizeTo(screenWidth, screenHeight);
+    } catch {
+      // Ignore browser restrictions on scripted window resizing.
     }
 
     videoWindow.focus();

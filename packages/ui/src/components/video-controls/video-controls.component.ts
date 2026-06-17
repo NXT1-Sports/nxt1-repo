@@ -38,7 +38,7 @@ const NXT_VIDEO_CONTROLS_SHARED_STYLES = `
         position: relative;
         z-index: 1;
         width: 100%;
-        height: 3px;
+        height: var(--nxt-video-controls-seek-track-height, 3px);
         -webkit-appearance: none;
         appearance: none;
         border-radius: 999px;
@@ -55,7 +55,7 @@ const NXT_VIDEO_CONTROLS_SHARED_STYLES = `
       }
 
       .video-controls__seek::-webkit-slider-runnable-track {
-        height: 3px;
+        height: var(--nxt-video-controls-seek-track-height, 3px);
         background: transparent;
         border-radius: 999px;
       }
@@ -63,26 +63,57 @@ const NXT_VIDEO_CONTROLS_SHARED_STYLES = `
       .video-controls__seek::-webkit-slider-thumb {
         -webkit-appearance: none;
         appearance: none;
-        width: 10px;
-        height: 10px;
-        margin-top: -3.5px;
+        width: var(--nxt-video-controls-seek-thumb-size, 10px);
+        height: var(--nxt-video-controls-seek-thumb-size, 10px);
+        margin-top: calc(
+          (
+              var(--nxt-video-controls-seek-track-height, 3px) -
+                var(--nxt-video-controls-seek-thumb-size, 10px)
+            ) / 2
+        );
         border-radius: 50%;
         background: var(--nxt1-color-primary);
         border: 1px solid var(--nxt1-color-border-default);
+        box-shadow: 0 0 0 0 color-mix(in srgb, var(--nxt1-color-primary) 18%, transparent);
+        transition:
+          transform 160ms ease,
+          box-shadow 160ms ease,
+          background-color 160ms ease;
       }
 
       .video-controls__seek::-moz-range-track {
-        height: 3px;
+        height: var(--nxt-video-controls-seek-track-height, 3px);
         background: transparent;
         border-radius: 999px;
       }
 
       .video-controls__seek::-moz-range-thumb {
-        width: 10px;
-        height: 10px;
+        width: var(--nxt-video-controls-seek-thumb-size, 10px);
+        height: var(--nxt-video-controls-seek-thumb-size, 10px);
         border-radius: 50%;
         background: var(--nxt1-color-primary);
         border: 1px solid var(--nxt1-color-border-default);
+        box-shadow: 0 0 0 0 color-mix(in srgb, var(--nxt1-color-primary) 18%, transparent);
+        transition:
+          transform 160ms ease,
+          box-shadow 160ms ease,
+          background-color 160ms ease;
+      }
+
+      .video-controls__seek:hover::-webkit-slider-thumb,
+      .video-controls__seek:focus-visible::-webkit-slider-thumb,
+      .video-controls__seek:active::-webkit-slider-thumb {
+        transform: scale(var(--nxt-video-controls-seek-thumb-hover-scale, 1.12));
+        box-shadow: 0 0 0 var(--nxt-video-controls-seek-thumb-hover-ring-size, 4px)
+          color-mix(in srgb, var(--nxt1-color-primary) 16%, transparent);
+      }
+
+      .video-controls__seek:hover::-moz-range-thumb,
+      .video-controls__seek:focus-visible::-moz-range-thumb,
+      .video-controls__seek:active::-moz-range-thumb {
+        transform: scale(var(--nxt-video-controls-seek-thumb-hover-scale, 1.12));
+        box-shadow: 0 0 0 var(--nxt-video-controls-seek-thumb-hover-ring-size, 4px)
+          color-mix(in srgb, var(--nxt1-color-primary) 16%, transparent);
       }
 
       .video-controls__dock {
@@ -292,6 +323,12 @@ const NXT_VIDEO_CONTROLS_SHARED_STYLES = `
       }
 `;
 
+const VIDEO_CONTROL_TOOLTIP_MAX_WIDTH_PX = 180;
+const VIDEO_CONTROL_TOOLTIP_VIEWPORT_GUTTER_PX = 12;
+const VIDEO_CONTROL_TOOLTIP_MIN_WIDTH_PX = 48;
+const VIDEO_CONTROL_TOOLTIP_ESTIMATED_CHAR_WIDTH_PX = 6.25;
+const VIDEO_CONTROL_TOOLTIP_HORIZONTAL_PADDING_PX = 14;
+
 type DrawSegment = {
   readonly startSec: number;
   readonly endSec: number;
@@ -311,6 +348,8 @@ type DrawEffectMarker = {
     <div
       class="video-controls"
       aria-label="Video controls"
+      (mouseover)="onTooltipHostMouseOver($event)"
+      (focusin)="onTooltipHostFocusIn($event)"
       (pointerdown)="$event.stopPropagation()"
       (pointermove)="$event.stopPropagation()"
       (pointerup)="$event.stopPropagation()"
@@ -654,7 +693,7 @@ type DrawEffectMarker = {
         position: relative;
         z-index: 1;
         width: 100%;
-        height: 3px;
+        height: var(--nxt-video-controls-seek-track-height, 3px);
         -webkit-appearance: none;
         appearance: none;
         border-radius: 999px;
@@ -671,7 +710,7 @@ type DrawEffectMarker = {
       }
 
       .video-controls__seek::-webkit-slider-runnable-track {
-        height: 3px;
+        height: var(--nxt-video-controls-seek-track-height, 3px);
         background: transparent;
         border-radius: 999px;
       }
@@ -679,26 +718,60 @@ type DrawEffectMarker = {
       .video-controls__seek::-webkit-slider-thumb {
         -webkit-appearance: none;
         appearance: none;
-        width: 10px;
-        height: 10px;
-        margin-top: -3.5px;
+        width: var(--nxt-video-controls-seek-thumb-size, 10px);
+        height: var(--nxt-video-controls-seek-thumb-size, 10px);
+        margin-top: calc(
+          (
+              var(--nxt-video-controls-seek-track-height, 3px) - var(
+                  --nxt-video-controls-seek-thumb-size,
+                  10px
+                )
+            ) /
+            2
+        );
         border-radius: 50%;
         background: var(--nxt1-color-primary);
         border: 1px solid var(--nxt1-color-border-default);
+        box-shadow: 0 0 0 0 color-mix(in srgb, var(--nxt1-color-primary) 18%, transparent);
+        transition:
+          transform 160ms ease,
+          box-shadow 160ms ease,
+          background-color 160ms ease;
       }
 
       .video-controls__seek::-moz-range-track {
-        height: 3px;
+        height: var(--nxt-video-controls-seek-track-height, 3px);
         background: transparent;
         border-radius: 999px;
       }
 
       .video-controls__seek::-moz-range-thumb {
-        width: 10px;
-        height: 10px;
+        width: var(--nxt-video-controls-seek-thumb-size, 10px);
+        height: var(--nxt-video-controls-seek-thumb-size, 10px);
         border-radius: 50%;
         background: var(--nxt1-color-primary);
         border: 1px solid var(--nxt1-color-border-default);
+        box-shadow: 0 0 0 0 color-mix(in srgb, var(--nxt1-color-primary) 18%, transparent);
+        transition:
+          transform 160ms ease,
+          box-shadow 160ms ease,
+          background-color 160ms ease;
+      }
+
+      .video-controls__seek:hover::-webkit-slider-thumb,
+      .video-controls__seek:focus-visible::-webkit-slider-thumb,
+      .video-controls__seek:active::-webkit-slider-thumb {
+        transform: scale(var(--nxt-video-controls-seek-thumb-hover-scale, 1.12));
+        box-shadow: 0 0 0 var(--nxt-video-controls-seek-thumb-hover-ring-size, 4px)
+          color-mix(in srgb, var(--nxt1-color-primary) 16%, transparent);
+      }
+
+      .video-controls__seek:hover::-moz-range-thumb,
+      .video-controls__seek:focus-visible::-moz-range-thumb,
+      .video-controls__seek:active::-moz-range-thumb {
+        transform: scale(var(--nxt-video-controls-seek-thumb-hover-scale, 1.12));
+        box-shadow: 0 0 0 var(--nxt-video-controls-seek-thumb-hover-ring-size, 4px)
+          color-mix(in srgb, var(--nxt1-color-primary) 16%, transparent);
       }
 
       .video-controls__effect-markers {
@@ -1188,6 +1261,14 @@ export class NxtVideoControlsComponent {
     this.deleteDrawEffectMarker.emit(markerId);
   }
 
+  protected onTooltipHostMouseOver(event: MouseEvent): void {
+    this.updateTooltipViewportOffset(event.target);
+  }
+
+  protected onTooltipHostFocusIn(event: FocusEvent): void {
+    this.updateTooltipViewportOffset(event.target);
+  }
+
   @HostListener('document:pointermove', ['$event'])
   protected onDocumentPointerMove(event: PointerEvent): void {
     if (!this.activeDrawSegmentDrag) return;
@@ -1243,6 +1324,41 @@ export class NxtVideoControlsComponent {
     const ratio = (event.clientX - rect.left) / rect.width;
     const clampedRatio = Math.max(0, Math.min(1, ratio));
     return clampedRatio * this.seekMax();
+  }
+
+  private updateTooltipViewportOffset(target: EventTarget | null): void {
+    if (typeof window === 'undefined' || !(target instanceof HTMLElement)) return;
+
+    const tooltipHost = target.closest<HTMLElement>('.video-controls__tooltip-host[data-tooltip]');
+    if (!tooltipHost) return;
+
+    const tooltipText = tooltipHost.dataset['tooltip']?.trim();
+    if (!tooltipText) return;
+
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth;
+    if (!viewportWidth) return;
+
+    const rect = tooltipHost.getBoundingClientRect();
+    const estimatedTooltipWidth = Math.min(
+      VIDEO_CONTROL_TOOLTIP_MAX_WIDTH_PX,
+      Math.max(
+        VIDEO_CONTROL_TOOLTIP_MIN_WIDTH_PX,
+        tooltipText.length * VIDEO_CONTROL_TOOLTIP_ESTIMATED_CHAR_WIDTH_PX +
+          VIDEO_CONTROL_TOOLTIP_HORIZONTAL_PADDING_PX
+      )
+    );
+
+    const centeredLeft = rect.left + rect.width / 2 - estimatedTooltipWidth / 2;
+    const centeredRight = rect.left + rect.width / 2 + estimatedTooltipWidth / 2;
+
+    let offsetX = 0;
+    if (centeredLeft < VIDEO_CONTROL_TOOLTIP_VIEWPORT_GUTTER_PX) {
+      offsetX = VIDEO_CONTROL_TOOLTIP_VIEWPORT_GUTTER_PX - centeredLeft;
+    } else if (centeredRight > viewportWidth - VIDEO_CONTROL_TOOLTIP_VIEWPORT_GUTTER_PX) {
+      offsetX = viewportWidth - VIDEO_CONTROL_TOOLTIP_VIEWPORT_GUTTER_PX - centeredRight;
+    }
+
+    tooltipHost.style.setProperty('--video-tooltip-offset-x', `${Math.round(offsetX)}px`);
   }
 
   @HostListener('document:click', ['$event'])

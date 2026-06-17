@@ -262,6 +262,19 @@ export class AnalyzeVideoTool extends BaseTool {
         context
       );
 
+      logger.info('[AnalyzeVideoTool] Analysis transport resolved', {
+        originalUrl: trimmedUrl,
+        preparedUrl: preparedInput.url,
+        resolvedUrl: resolvedInput.url,
+        cloudflareVideoId: preparedInput.cloudflareVideoId,
+        cloudflareDownloadPolicy: preparedInput.cloudflareDownloadPolicy,
+        hasArtifact: Boolean(artifact),
+        artifactSourceType: artifact?.sourceType,
+        artifactAnalysisReady: artifact?.analysisReady,
+        artifactRecommendedNextAction: artifact?.recommendedNextAction,
+        clipApplied: preparedInput.clipApplied ?? null,
+      });
+
       // ── Resolve video URLs ─────────────────────────────────────────
       context?.emitStage?.('fetching_data', {
         icon: 'media',

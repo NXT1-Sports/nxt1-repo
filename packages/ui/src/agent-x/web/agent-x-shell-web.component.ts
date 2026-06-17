@@ -6351,7 +6351,6 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    */
   protected onResponseComplete(): void {
     this.operationsLog()?.refresh();
-    void this.refreshAgentToolPanels('chat-response-complete');
   }
 
   /**

@@ -110,12 +110,6 @@ const SELECTED_CONTEXT_SOURCE_TYPES = new Set<AgentXSelectedContextSourceType>([
   'external',
 ]);
 
-const SELECTED_CONTEXT_ANNOTATION_KINDS = new Set<AgentXSelectedContextAnnotationKind>([
-  'freehand',
-  'square',
-  'circle',
-]);
-
 /** Serialize a selected context for browser drag-and-drop transfer. */
 export function serializeAgentXSelectedContextForDrag(context: AgentXSelectedContext): string {
   return JSON.stringify(context);

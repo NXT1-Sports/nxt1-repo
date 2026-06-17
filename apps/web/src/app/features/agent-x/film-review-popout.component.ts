@@ -301,24 +301,24 @@ const FILM_REVIEW_POPOUT_STORAGE_PREFIX = 'nxt1-film-review-popout:';
       }
 
       .film-popout__workspace {
-        display: grid;
-        place-items: center;
+        display: block;
         min-width: 0;
         min-height: 0;
-        padding: clamp(12px, 2vw, 22px);
+        padding: 0;
+        overflow: hidden;
         background: radial-gradient(circle at top, rgba(15, 23, 42, 0.72), #000 54%);
       }
 
       .film-popout__player-shell {
         position: relative;
-        width: min(100%, 1440px, calc(177.78vh - 164px));
-        aspect-ratio: 16 / 9;
+        width: 100%;
+        height: 100%;
         min-height: 0;
         overflow: hidden;
-        border: 1px solid rgba(148, 163, 184, 0.18);
-        border-radius: 10px;
+        border: 0;
+        border-radius: 0;
         background: #000;
-        box-shadow: 0 30px 70px rgba(0, 0, 0, 0.48);
+        box-shadow: none;
       }
 
       .film-popout__player-shell:fullscreen,
@@ -571,6 +571,10 @@ const FILM_REVIEW_POPOUT_STORAGE_PREFIX = 'nxt1-film-review-popout:';
         left: 10px;
         right: 10px;
         bottom: 10px;
+        --nxt-video-controls-seek-track-height: 4px;
+        --nxt-video-controls-seek-thumb-size: 14px;
+        --nxt-video-controls-seek-thumb-hover-scale: 1.12;
+        --nxt-video-controls-seek-thumb-hover-ring-size: 5px;
         z-index: 3;
       }
 
@@ -594,14 +598,6 @@ const FILM_REVIEW_POPOUT_STORAGE_PREFIX = 'nxt1-film-review-popout:';
       @media (max-width: 760px) {
         .film-popout__header {
           padding-inline: 12px;
-        }
-
-        .film-popout__workspace {
-          padding: 8px;
-        }
-
-        .film-popout__player-shell {
-          width: 100%;
         }
 
         .film-popout__controls {
