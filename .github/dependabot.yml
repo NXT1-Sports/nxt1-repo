@@ -5,6 +5,8 @@ updates:
     schedule:
       interval: 'weekly'
     open-pull-requests-limit: 5
+    ignore:
+      - dependency-name: 'esbuild'
     groups:
       angular:
         patterns:
@@ -30,6 +32,7 @@ updates:
       interval: 'weekly'
     ignore:
       - dependency-name: 'uuid'
+      - dependency-name: 'esbuild'
   - package-ecosystem: 'github-actions'
     directory: '/'
     schedule:
