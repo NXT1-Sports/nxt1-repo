@@ -70,7 +70,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Install dependencies
-        run: npm ci
+        run: npx --yes npm@${{ env.APPHOSTING_LOCK_NPM_VERSION }} ci
 
       - name: Detect release type from commits
         id: detect
