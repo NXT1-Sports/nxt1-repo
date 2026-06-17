@@ -16,6 +16,7 @@ export type {
   AgentXSelectedContextMedia,
   AgentXSelectedContextAnnotationPoint,
   AgentXSelectedContextAnnotationBounds,
+  AgentXSelectedContextAnnotationKind,
   AgentXSelectedContextAnnotation,
   AgentXSelectedContextMetadataValue,
   AgentXSelectedContext,
