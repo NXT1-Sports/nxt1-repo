@@ -39,7 +39,6 @@ permissions:
 
 env:
   NODE_VERSION: '22'
-  APPHOSTING_LOCK_NPM_VERSION: '10.9.2'
 
 jobs:
   release:
@@ -70,7 +69,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Install dependencies
-        run: npx --yes npm@${{ env.APPHOSTING_LOCK_NPM_VERSION }} ci
+        run: npm ci
 
       - name: Detect release type from commits
         id: detect
@@ -126,12 +125,6 @@ jobs:
             TAG="v${NEW_VERSION}"
           fi
           echo "tag=$TAG" >> $GITHUB_OUTPUT
-
-      - name: Normalize lockfile for App Hosting
-        run: |
-          # App Hosting clean installs currently behave like npm 10 and can reject
-          # the workspace lockfile shape produced by npm 11 during version bumps.
-          npx --yes npm@${{ env.APPHOSTING_LOCK_NPM_VERSION }} install --package-lock-only --ignore-scripts
 
       - name: Sync appVersion into environment files
         run: node scripts/dev/sync-version.mjs ${{ steps.version.outputs.new_version }}
