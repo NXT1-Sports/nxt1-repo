@@ -319,8 +319,8 @@ export class SelectedContextAnnotationBoundsDto {
 
 export class SelectedContextAnnotationDto {
   @IsString()
-  @IsIn(['freehand'])
-  kind!: 'freehand';
+  @IsIn(['freehand', 'square', 'circle'])
+  kind!: 'freehand' | 'square' | 'circle';
 
   @ValidateNested()
   @Type(() => SelectedContextAnnotationBoundsDto)
