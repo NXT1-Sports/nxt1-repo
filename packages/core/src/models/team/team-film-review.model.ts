@@ -6,6 +6,7 @@
  */
 
 import type {
+  AgentXSelectedContextAnnotationKind,
   AgentXSelectedContextAnnotationBounds,
   AgentXSelectedContextAnnotationPoint,
 } from '../../ai/agent-x-context.types';
@@ -63,7 +64,7 @@ export interface TeamFilmReviewAnnotation {
 }
 
 export interface TeamFilmReviewPlayAnnotation {
-  readonly kind: 'freehand';
+  readonly kind: AgentXSelectedContextAnnotationKind;
   readonly bounds: AgentXSelectedContextAnnotationBounds;
   readonly strokeCount: number;
   readonly points?: readonly AgentXSelectedContextAnnotationPoint[];

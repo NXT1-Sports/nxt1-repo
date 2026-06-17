@@ -99,7 +99,7 @@ const AnnotationBoundsSchema = z.object({
 });
 
 const PlayAnnotationSchema = z.object({
-  kind: z.literal('freehand'),
+  kind: z.enum(['freehand', 'square', 'circle']),
   bounds: AnnotationBoundsSchema,
   strokeCount: z.number().int().min(1),
   points: z.array(PointSchema).max(1000).optional(),

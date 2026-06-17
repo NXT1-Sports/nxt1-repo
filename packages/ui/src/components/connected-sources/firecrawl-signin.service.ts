@@ -99,6 +99,52 @@ const DEFAULT_MONITOR_SCHEDULE = {
   timezone: 'UTC',
 } as const;
 
+function normalizeMonitorHandle(value: string): string {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  let handle = trimmed.replace(/^@+/, '').replace(/^\/+/, '').replace(/\/+$/, '').trim();
+
+  if (handle.includes('/')) {
+    const parts = handle.split('/').filter(Boolean);
+    handle = parts[parts.length - 1] ?? handle;
+  }
+
+  return handle.replace(/^@+/, '').trim();
+}
+
+function toAbsoluteMonitorTargetUrl(platform: string, targetUrl: string): string {
+  const trimmed = targetUrl.trim();
+  if (!trimmed) return trimmed;
+
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+      return parsed.toString();
+    }
+  } catch {
+    // Fall back to handle-based normalization below.
+  }
+
+  const handle = normalizeMonitorHandle(trimmed);
+  if (!handle) {
+    return trimmed;
+  }
+
+  switch (platform) {
+    case 'instagram':
+      return `https://instagram.com/${handle}`;
+    case 'twitter':
+      return `https://x.com/${handle}`;
+    case 'tiktok':
+      return `https://tiktok.com/@${handle}`;
+    case 'youtube':
+      return `https://youtube.com/@${handle}`;
+    default:
+      return trimmed;
+  }
+}
+
 // ─── Service ────────────────────────────────────────────────────────────────
 
 @Injectable({ providedIn: 'root' })
@@ -167,10 +213,11 @@ export class FirecrawlSignInService {
     targetUrl: string,
     existingMonitor?: FirecrawlMonitorSummary | null
   ): Promise<FirecrawlMonitorSummary | null> {
+    const normalizedTargetUrl = toAbsoluteMonitorTargetUrl(platform, targetUrl);
     const payload = existingMonitor
-      ? { targetUrl, enabled: true }
+      ? { targetUrl: normalizedTargetUrl, enabled: true }
       : {
-          targetUrl,
+          targetUrl: normalizedTargetUrl,
           schedule: DEFAULT_MONITOR_SCHEDULE,
           goal: `Monitor my ${platform} account for meaningful updates and notify me through Agent X.`,
           judgeEnabled: true,
@@ -200,7 +247,8 @@ export class FirecrawlSignInService {
     } catch (err) {
       this.logger.error('Failed to enable Firecrawl monitor', err, {
         platform,
-        targetUrl,
+        targetUrl: normalizedTargetUrl,
+        rawTargetUrl: targetUrl,
       });
       return null;
     }

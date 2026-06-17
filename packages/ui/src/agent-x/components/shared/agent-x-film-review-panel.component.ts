@@ -14,6 +14,7 @@ import {
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { CdkDragDrop, DragDropModule, moveItemInArray } from '@angular/cdk/drag-drop';
 import { OverlayModule, type ConnectedPosition } from '@angular/cdk/overlay';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
@@ -24,6 +25,7 @@ import {
   USER_ROLES,
   type TeamFilmReviewPlayAnnotation,
   type TeamFilmReviewPlaySegment,
+  type TeamFilmReviewPlayTagValue,
   type TeamFilmReviewSportTagColumnWidth,
   type TeamFilmReviewSportTagDefinition,
   type TeamFilmReviewTimelineState,
@@ -77,6 +79,15 @@ type FilmReviewDragSource = FilmListReview & {
   readonly teamId?: string;
   readonly timelineState?: TeamFilmReviewTimelineState;
   readonly timeline?: readonly FilmTimelinePlay[];
+  readonly aiSummary?: string;
+  readonly keyInsights?: readonly string[];
+  readonly breakdownSource?: {
+    readonly provider: 'hudl' | 'csv' | 'manual_import';
+    readonly fileName: string;
+    readonly sheetName?: string;
+    readonly rowCount: number;
+    readonly playCount: number;
+  };
 };
 
 type FilmReviewPlaylistFolder = {
@@ -84,21 +95,27 @@ type FilmReviewPlaylistFolder = {
   readonly name: string;
   readonly reviews: readonly FilmListReview[];
   readonly isUnassigned?: boolean;
+  readonly parentId?: string | null;
+  readonly depth: number;
 };
 
 type LocalFilmReviewPlaylistFolder = {
   readonly id: string;
   readonly name: string;
+  readonly parentId?: string | null;
 };
 
 const FILM_REVIEW_UNASSIGNED_PLAYLIST_ID = 'unassigned-film';
 const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
+const FILM_REVIEW_PLAYLIST_FOLDER_DRAG_MIME = 'application/x-nxt1-film-playlist-folder-id';
 const FILM_REVIEW_TIMELINE_DRAG_MIME = 'application/x-nxt1-film-timeline-index';
 const FILM_REVIEW_TIMELINE_COLUMN_DRAG_MIME = 'application/x-nxt1-film-timeline-column-id';
 const FILM_REVIEW_STARTER_PLAYLIST_NAMES = ['Self Scout Playlist', 'Opponent Play list'] as const;
 const FILM_REVIEW_PLAYLIST_STORAGE_PREFIX = 'agent-x-film-playlists';
 const FILM_REVIEW_COLUMN_ORDER_STORAGE_PREFIX = 'agent-x-film-timeline-columns';
 const FILM_REVIEW_POPOUT_STORAGE_PREFIX = 'nxt1-film-review-popout:';
+const FILM_REVIEW_LIST_INITIAL_LIMIT = 20;
+const FILM_REVIEW_LIST_LIMIT_STEP = 20;
 
 type TimelinePlayDropPlacement = 'before' | 'after';
 type TimelineColumnDropPlacement = 'before' | 'after';
@@ -148,11 +165,66 @@ type DrawEffectMarker = {
   readonly atSec: number;
 };
 
+type DrawAnnotationPoint = {
+  x: number;
+  y: number;
+};
+
+type DrawAnnotationBounds = {
+  minX: number;
+  minY: number;
+  maxX: number;
+  maxY: number;
+};
+
+type DrawAnnotationKind = 'freehand' | 'square' | 'circle';
+
+type EditableDrawAnnotation =
+  | {
+      kind: 'freehand';
+      bounds: DrawAnnotationBounds;
+      strokes: Array<Array<DrawAnnotationPoint>>;
+    }
+  | {
+      kind: 'square' | 'circle';
+      bounds: DrawAnnotationBounds;
+    };
+
+type DrawResizeHandle = 'nw' | 'ne' | 'se' | 'sw';
+
+type DrawHitTarget =
+  | { kind: 'none' }
+  | { kind: 'body' }
+  | { kind: 'handle'; handle: DrawResizeHandle };
+
+type DrawInteractionState =
+  | { mode: 'draw-freehand'; pointerId: number }
+  | {
+      mode: 'draw-shape';
+      pointerId: number;
+      anchor: DrawAnnotationPoint;
+      kind: 'square' | 'circle';
+    }
+  | {
+      mode: 'move';
+      pointerId: number;
+      startPoint: DrawAnnotationPoint;
+      origin: EditableDrawAnnotation;
+    }
+  | {
+      mode: 'resize';
+      pointerId: number;
+      startPoint: DrawAnnotationPoint;
+      origin: EditableDrawAnnotation;
+      handle: DrawResizeHandle;
+    };
+
 @Component({
   selector: 'nxt1-agent-x-film-review-panel',
   standalone: true,
   imports: [
     CommonModule,
+    DragDropModule,
     OverlayModule,
     FormsModule,
     NxtIconComponent,
@@ -333,17 +405,7 @@ type DrawEffectMarker = {
               <div class="film-library-header__actions">
                 <button
                   type="button"
-                  class="film-library-create-btn"
-                  [attr.aria-expanded]="isCreatingPlaylistFolder()"
-                  [attr.data-testid]="testIds.PLAYLIST_CREATE_BUTTON"
-                  (click)="onPlaylistCreateToggle()"
-                >
-                  <nxt1-icon name="plus" [size]="14"></nxt1-icon>
-                  Playlist
-                </button>
-                <button
-                  type="button"
-                  class="film-library-upload-btn"
+                  class="btn-new btn-new--secondary"
                   [disabled]="isUploadingLibraryVideo()"
                   [attr.data-testid]="testIds.UPLOAD_BUTTON"
                   (click)="onChooseVideosClick()"
@@ -354,10 +416,20 @@ type DrawEffectMarker = {
                     Upload Film
                   }
                 </button>
+                <button
+                  type="button"
+                  class="btn-new"
+                  [attr.aria-expanded]="isCreatingPlaylistFolder()"
+                  [attr.data-testid]="testIds.PLAYLIST_CREATE_BUTTON"
+                  (click)="onPlaylistCreateToggle()"
+                >
+                  <nxt1-icon name="plus" [size]="14"></nxt1-icon>
+                  Playlist
+                </button>
               </div>
             </header>
 
-            @if (isCreatingPlaylistFolder()) {
+            @if (isCreatingPlaylistFolder() && !creatingSubfolderParentId()) {
               <div class="film-playlist-create" role="group" aria-label="Create playlist folder">
                 <input
                   type="text"
@@ -422,13 +494,18 @@ type DrawEffectMarker = {
             }
 
             <div class="film-library-list" [attr.data-testid]="testIds.LIST_CONTAINER">
-              @for (folder of playlistFolders(); track folder.id) {
+              @for (folder of playlistFolders(); track folder.id; let isLast = $last) {
                 <section
                   class="film-playlist-folder"
-                  [class.film-playlist-folder--menu-open]="isPlaylistFolderMenuOpen(folder.id)"
-                  [class.film-playlist-folder--drop-target]="
-                    activePlaylistDropTargetId() === folder.id
+                  [class.film-playlist-folder--nested]="folder.depth > 0"
+                  [class.film-playlist-folder--menu-open]="
+                    isPlaylistFolderMenuOpen(folder.id) || isReviewMenuOpenInFolder(folder)
                   "
+                  [class.film-playlist-folder--drop-target]="
+                    activePlaylistDropTargetId() === folder.id ||
+                    activePlaylistFolderDropTargetId() === folder.id
+                  "
+                  [style.margin-left.px]="folder.depth * 16"
                   [attr.data-testid]="
                     folder.isUnassigned
                       ? testIds.PLAYLIST_UNASSIGNED_FOLDER
@@ -438,7 +515,12 @@ type DrawEffectMarker = {
                   (dragleave)="onPlaylistFolderDragLeave(folder.id, $event)"
                   (drop)="onPlaylistFolderDrop(folder, $event)"
                 >
-                  <div class="film-playlist-folder__header">
+                  <div
+                    class="film-playlist-folder__header"
+                    [attr.draggable]="folder.isUnassigned ? null : true"
+                    (dragstart)="onPlaylistFolderDragStart(folder, $event)"
+                    (dragend)="onPlaylistFolderDragEnd()"
+                  >
                     <button
                       type="button"
                       class="film-playlist-folder__toggle"
@@ -555,6 +637,14 @@ type DrawEffectMarker = {
                               </button>
                               <button
                                 type="button"
+                                class="film-list-item__menu-action"
+                                role="menuitem"
+                                (click)="onPlaylistCreateSubfolderStart(folder, $event)"
+                              >
+                                Add subfolder
+                              </button>
+                              <button
+                                type="button"
                                 class="film-list-item__menu-action film-list-item__menu-action--danger"
                                 role="menuitem"
                                 (click)="onPlaylistFolderDeleteStart(folder, $event)"
@@ -593,11 +683,6 @@ type DrawEffectMarker = {
                             (dragend)="onReviewPlaylistDragEnd()"
                           >
                             <div class="film-list-item__thumbnail">
-                              @if (showLibraryThumbnailLoader(review)) {
-                                <div class="film-list-item__thumbnail-loader" aria-hidden="true">
-                                  <span class="film-list-item__thumbnail-shimmer"></span>
-                                </div>
-                              }
                               @if (getVideoThumbnailUrl(review); as thumbnailUrl) {
                                 <img
                                   [src]="thumbnailUrl"
@@ -605,18 +690,9 @@ type DrawEffectMarker = {
                                   class="film-list-item__thumb-image"
                                 />
                               } @else {
-                                <video
-                                  [src]="review.videoUrl"
-                                  class="film-list-item__video"
-                                  [class.film-list-item__video--ready]="
-                                    isLibraryThumbnailReady(review.id)
-                                  "
-                                  muted
-                                  playsinline
-                                  autoplay
-                                  preload="auto"
-                                  (loadeddata)="onLibraryThumbnailLoaded(review.id, $event)"
-                                ></video>
+                                <div class="film-list-item__thumb-placeholder" aria-hidden="true">
+                                  <nxt1-icon name="videocam" [size]="14"></nxt1-icon>
+                                </div>
                               }
                             </div>
                             <span class="film-list-item__content">
@@ -633,8 +709,8 @@ type DrawEffectMarker = {
                             aria-label="Video options"
                             [attr.aria-expanded]="isMenuOpen(review.id)"
                             aria-haspopup="menu"
-                            (click)="onOpenReviewMenu($event, review)"
                             [attr.data-testid]="testIds.LIST_ITEM_MENU"
+                            (click)="onOpenReviewMenu($event, review)"
                           >
                             <nxt1-icon name="moreHorizontal" [size]="18"></nxt1-icon>
                           </button>
@@ -729,6 +805,19 @@ type DrawEffectMarker = {
                           }
                         </div>
                       }
+
+                      @if (isLast && canLoadMoreReviews()) {
+                        <div class="film-library-load-more-wrap">
+                          <button
+                            type="button"
+                            class="film-library-load-more"
+                            [disabled]="loading()"
+                            (click)="onLoadMoreReviews()"
+                          >
+                            Load More Videos
+                          </button>
+                        </div>
+                      }
                     </div>
                   }
                 </section>
@@ -777,6 +866,12 @@ type DrawEffectMarker = {
                       (error)="onPlayerError()"
                     ></video>
 
+                    @if (nativePlayerLoading()) {
+                      <div class="film-player-native-loading" aria-live="polite">
+                        <span class="film-player-native-loading__label">Loading video...</span>
+                      </div>
+                    }
+
                     <canvas
                       #drawCanvas
                       class="film-draw-canvas"
@@ -784,7 +879,6 @@ type DrawEffectMarker = {
                       (pointerdown)="onDrawPointerDown($event)"
                       (pointermove)="onDrawPointerMove($event)"
                       (pointerup)="onDrawPointerUp($event)"
-                      (pointerleave)="onDrawPointerUp($event)"
                       (pointercancel)="onDrawPointerUp($event)"
                       aria-label="Coach drawing overlay"
                     ></canvas>
@@ -874,19 +968,79 @@ type DrawEffectMarker = {
                         <button
                           type="button"
                           class="film-icon-btn video-controls__tooltip-host"
-                          [class.film-icon-btn--primary]="drawModeEnabled()"
-                          (click)="toggleDrawMode()"
+                          [class.film-icon-btn--primary]="isDrawToolActive('freehand')"
+                          (click)="onDrawToolToggle('freehand')"
                           [attr.title]="
-                            drawModeEnabled() ? 'Turn off draw mode' : 'Turn on draw mode'
+                            isDrawToolActive('freehand') ? 'Turn off free draw' : 'Enable free draw'
                           "
                           [attr.data-tooltip]="
-                            drawModeEnabled() ? 'Turn off draw mode' : 'Turn on draw mode'
+                            isDrawToolActive('freehand') ? 'Turn off free draw' : 'Enable free draw'
                           "
                           [attr.aria-label]="
-                            drawModeEnabled() ? 'Disable draw mode' : 'Enable draw mode'
+                            isDrawToolActive('freehand') ? 'Disable free draw' : 'Enable free draw'
                           "
                         >
                           <nxt1-icon name="pencil" [size]="11"></nxt1-icon>
+                        </button>
+                        <button
+                          type="button"
+                          class="film-icon-btn video-controls__tooltip-host"
+                          [class.film-icon-btn--primary]="isDrawToolActive('square')"
+                          (click)="onDrawToolToggle('square')"
+                          [attr.title]="
+                            isDrawToolActive('square')
+                              ? 'Turn off square tool'
+                              : 'Enable square tool'
+                          "
+                          [attr.data-tooltip]="
+                            isDrawToolActive('square')
+                              ? 'Turn off square tool'
+                              : 'Enable square tool'
+                          "
+                          [attr.aria-label]="
+                            isDrawToolActive('square')
+                              ? 'Disable square tool'
+                              : 'Enable square tool'
+                          "
+                        >
+                          <svg
+                            class="film-draw-tool-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            aria-hidden="true"
+                          >
+                            <rect x="5" y="5" width="14" height="14" rx="1.75" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          class="film-icon-btn video-controls__tooltip-host"
+                          [class.film-icon-btn--primary]="isDrawToolActive('circle')"
+                          (click)="onDrawToolToggle('circle')"
+                          [attr.title]="
+                            isDrawToolActive('circle')
+                              ? 'Turn off circle tool'
+                              : 'Enable circle tool'
+                          "
+                          [attr.data-tooltip]="
+                            isDrawToolActive('circle')
+                              ? 'Turn off circle tool'
+                              : 'Enable circle tool'
+                          "
+                          [attr.aria-label]="
+                            isDrawToolActive('circle')
+                              ? 'Disable circle tool'
+                              : 'Enable circle tool'
+                          "
+                        >
+                          <svg
+                            class="film-draw-tool-icon"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            aria-hidden="true"
+                          >
+                            <circle cx="12" cy="12" r="7" />
+                          </svg>
                         </button>
                         @if (drawModeEnabled()) {
                           <button
@@ -976,6 +1130,16 @@ type DrawEffectMarker = {
                     <div class="film-playbook-toolbar">
                       <button
                         type="button"
+                        class="film-playbook-nav-btn film-playbook-nav-btn--attach"
+                        [attr.data-testid]="attachBreakdownContextTestId"
+                        (click)="onAttachFilmBreakdownContext(review)"
+                      >
+                        <nxt1-icon name="link" [size]="12"></nxt1-icon>
+                        Add Breakdown
+                      </button>
+
+                      <button
+                        type="button"
                         class="film-playbook-nav-btn"
                         [disabled]="currentFilteredPlayPosition() <= 1"
                         [attr.data-testid]="testIds.TIMELINE_PLAY_NAV_PREV"
@@ -1055,14 +1219,33 @@ type DrawEffectMarker = {
                       [style.--film-playbook-grid-columns]="currentTimelineGridTemplate()"
                     >
                       <div class="film-playbook-scroll">
-                        <div class="film-playbook-head" role="row">
+                        <div
+                          class="film-playbook-head"
+                          role="row"
+                          cdkDropList
+                          cdkDropListOrientation="horizontal"
+                          [cdkDropListData]="currentTimelineColumns()"
+                          [cdkDropListDisabled]="saving() || hasActiveTimelineFilters()"
+                          (cdkDropListDropped)="onTimelineColumnDropSmooth($event)"
+                        >
                           <span class="film-playbook-head__reorder" aria-label="Move"></span>
                           @for (column of currentTimelineColumns(); track column.id) {
-                            <div class="film-playbook-column-header-wrap">
+                            <div
+                              class="film-playbook-column-header-wrap"
+                              cdkDrag
+                              [cdkDragData]="column.id"
+                              cdkDragPreviewContainer="parent"
+                              [cdkDragDisabled]="saving() || hasActiveTimelineFilters()"
+                              [class.film-playbook-column-header-wrap--dragging]="
+                                column.id === draggingTimelineColumnId()
+                              "
+                              (cdkDragStarted)="onTimelineColumnDragStartSmooth(column.id)"
+                              (cdkDragEnded)="onTimelineColumnDragEndSmooth()"
+                            >
                               <button
                                 type="button"
                                 class="film-playbook-column-header"
-                                draggable="true"
+                                cdkDragHandle
                                 [class.film-playbook-column-header--dragging]="
                                   column.id === draggingTimelineColumnId()
                                 "
@@ -1080,11 +1263,6 @@ type DrawEffectMarker = {
                                 [attr.aria-label]="'Move ' + column.label + ' column'"
                                 (click)="$event.stopPropagation()"
                                 (keydown)="$event.stopPropagation()"
-                                (dragstart)="onTimelineColumnDragStart($event, column.id)"
-                                (dragend)="onTimelineColumnDragEnd($event)"
-                                (dragover)="onTimelineColumnDragOver($event, column.id)"
-                                (dragleave)="onTimelineColumnDragLeave($event, column.id)"
-                                (drop)="onTimelineColumnDrop($event, column.id)"
                               >
                                 <span>{{ column.label }}</span>
                               </button>
@@ -1234,9 +1412,7 @@ type DrawEffectMarker = {
                                   ? null
                                   : buildFilmPlayDragContext(review, row.play, row.originalIndex)
                               "
-                              [nxtAgentXContextDragDisabled]="
-                                isTimelinePlayReorderActive() || hasActiveTimelineFilters()
-                              "
+                              [nxtAgentXContextDragDisabled]="isTimelinePlayReorderActive()"
                               [attr.tabindex]="
                                 isEditingTimelinePlay(row.play, row.originalIndex) ? -1 : 0
                               "
@@ -1342,6 +1518,25 @@ type DrawEffectMarker = {
                                     <span class="film-playbook-label-text">
                                       {{ getTimelineColumnDisplayValue(row.play, column) }}
                                     </span>
+                                  } @else if (column.kind === 'number') {
+                                    <span class="film-playbook-number-with-indicator">
+                                      <span>{{
+                                        getTimelineColumnDisplayValue(row.play, column)
+                                      }}</span>
+                                      @if (row.play.annotation) {
+                                        <span
+                                          class="film-playbook-draw-indicator"
+                                          title="Has drawing annotation"
+                                          aria-label="Has drawing annotation"
+                                        >
+                                          <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+                                            <path
+                                              d="M1.5 12.5C3 10 4.6 9 6 9.5C7.4 10 8.2 12.3 9.7 12.5C11.2 12.7 12.4 9.4 14 9.2C15.8 9 17 10.7 18.5 13"
+                                            />
+                                          </svg>
+                                        </span>
+                                      }
+                                    </span>
                                   } @else {
                                     {{ getTimelineColumnDisplayValue(row.play, column) }}
                                   }
@@ -1354,63 +1549,83 @@ type DrawEffectMarker = {
                     </div>
                   </div>
                 } @else {
-                  <div class="film-empty-timeline-actions">
-                    <button
-                      type="button"
-                      class="film-generate-btn"
-                      [class.film-generate-btn--loading]="review.timelineState === 'generating'"
-                      [disabled]="
-                        saving() || isImportingBreakdown() || review.timelineState === 'generating'
-                      "
-                      [attr.aria-busy]="review.timelineState === 'generating'"
-                      [attr.data-testid]="testIds.GENERATE_TIMELINE_BUTTON"
-                      (click)="onGenerateTimeline(review.id)"
+                  @if (nativePlayerLoading()) {
+                    <div
+                      class="film-empty-timeline-actions film-empty-timeline-actions--loading"
+                      aria-live="polite"
                     >
-                      @if (review.timelineState === 'generating') {
-                        <span class="film-generate-btn__content">
-                          <span
-                            class="film-generate-btn__spinner"
-                            [attr.data-testid]="testIds.TIMELINE_GENERATING_SPINNER"
-                            aria-hidden="true"
-                          ></span>
-                          <span class="film-generate-btn__text">Generating Timeline</span>
-                        </span>
-                        <span class="film-generate-btn__hint"
-                          >Analyzing film and tagging plays...</span
-                        >
-                      } @else if (review.timelineState === 'error') {
-                        <span class="film-generate-btn__content">
-                          <span class="film-generate-btn__text">Retry Timeline</span>
-                        </span>
-                      } @else {
-                        <span class="film-generate-btn__content">
-                          <span class="film-generate-btn__text">Generate Timeline</span>
-                        </span>
-                      }
-                    </button>
+                      <span class="film-generate-btn__spinner" aria-hidden="true"></span>
+                      <span class="film-empty-timeline-actions__loading-text"
+                        >Preparing timeline actions...</span
+                      >
+                    </div>
 
-                    <button
-                      type="button"
-                      class="film-generate-btn film-generate-btn--secondary"
-                      [disabled]="
-                        saving() || isImportingBreakdown() || review.timelineState === 'generating'
-                      "
-                      [attr.data-testid]="testIds.BREAKDOWN_IMPORT_BUTTON"
-                      (click)="onChooseBreakdownClick()"
-                    >
-                      <span class="film-generate-btn__content">
-                        @if (isImportingBreakdown()) {
-                          <span class="film-generate-btn__text">Importing Breakdown...</span>
+                    <p class="film-empty-timeline-hint">
+                      Timeline actions will appear once video is ready.
+                    </p>
+                  } @else {
+                    <div class="film-empty-timeline-actions">
+                      <button
+                        type="button"
+                        class="film-generate-btn"
+                        [class.film-generate-btn--loading]="review.timelineState === 'generating'"
+                        [disabled]="
+                          saving() ||
+                          isImportingBreakdown() ||
+                          review.timelineState === 'generating'
+                        "
+                        [attr.aria-busy]="review.timelineState === 'generating'"
+                        [attr.data-testid]="testIds.GENERATE_TIMELINE_BUTTON"
+                        (click)="onGenerateTimeline(review.id)"
+                      >
+                        @if (review.timelineState === 'generating') {
+                          <span class="film-generate-btn__content">
+                            <span
+                              class="film-generate-btn__spinner"
+                              [attr.data-testid]="testIds.TIMELINE_GENERATING_SPINNER"
+                              aria-hidden="true"
+                            ></span>
+                            <span class="film-generate-btn__text">Generating Timeline</span>
+                          </span>
+                          <span class="film-generate-btn__hint"
+                            >Analyzing film and tagging plays...</span
+                          >
+                        } @else if (review.timelineState === 'error') {
+                          <span class="film-generate-btn__content">
+                            <span class="film-generate-btn__text">Retry Timeline</span>
+                          </span>
                         } @else {
-                          <span class="film-generate-btn__text">Import Breakdown</span>
+                          <span class="film-generate-btn__content">
+                            <span class="film-generate-btn__text">Generate Timeline</span>
+                          </span>
                         }
-                      </span>
-                    </button>
-                  </div>
+                      </button>
 
-                  <p class="film-empty-timeline-hint">
-                    Have a breakdown sheet? Import it to populate the timeline right away.
-                  </p>
+                      <button
+                        type="button"
+                        class="film-generate-btn film-generate-btn--secondary"
+                        [disabled]="
+                          saving() ||
+                          isImportingBreakdown() ||
+                          review.timelineState === 'generating'
+                        "
+                        [attr.data-testid]="testIds.BREAKDOWN_IMPORT_BUTTON"
+                        (click)="onChooseBreakdownClick()"
+                      >
+                        <span class="film-generate-btn__content">
+                          @if (isImportingBreakdown()) {
+                            <span class="film-generate-btn__text">Importing Breakdown...</span>
+                          } @else {
+                            <span class="film-generate-btn__text">Import Breakdown</span>
+                          }
+                        </span>
+                      </button>
+                    </div>
+
+                    <p class="film-empty-timeline-hint">
+                      Have a breakdown sheet? Import it to populate the timeline right away.
+                    </p>
+                  }
 
                   @if (review.timelineState === 'error') {
                     <p class="film-error-message">
@@ -1571,6 +1786,18 @@ type DrawEffectMarker = {
         cursor: not-allowed;
       }
 
+      .btn-new--secondary {
+        border-color: var(--nxt1-color-border-default);
+        background: transparent;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .btn-new--secondary:hover:not(:disabled) {
+        border-color: var(--nxt1-color-border-primary);
+        background: var(--nxt1-color-surface-200);
+        color: var(--nxt1-color-text-primary);
+      }
+
       .playbooks-empty-state {
         display: grid;
         justify-items: center;
@@ -1652,28 +1879,6 @@ type DrawEffectMarker = {
 
       .film-library-header h3 {
         margin: 0;
-      }
-
-      .film-library-upload-btn {
-        border: 1px solid var(--nxt1-color-border-default);
-        border-radius: 999px;
-        background: var(--nxt1-color-surface-100);
-        color: var(--nxt1-color-text-primary);
-        font-size: 12px;
-        font-weight: 700;
-        padding: 8px 12px;
-        cursor: pointer;
-        transition: all 0.18s ease;
-      }
-
-      .film-library-upload-btn:hover:not(:disabled) {
-        border-color: var(--nxt1-color-border-primary);
-        color: var(--nxt1-color-primary);
-      }
-
-      .film-library-upload-btn:disabled {
-        opacity: 0.7;
-        cursor: not-allowed;
       }
 
       .film-library-file-input {
@@ -1767,7 +1972,7 @@ type DrawEffectMarker = {
       .film-library-list {
         display: grid;
         gap: 8px;
-        padding-bottom: 160px;
+        padding-bottom: 16px;
       }
 
       .film-library-header__actions {
@@ -1776,26 +1981,9 @@ type DrawEffectMarker = {
         gap: 8px;
       }
 
-      .film-library-create-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        min-height: 32px;
-        border: 1px solid var(--nxt1-color-border-default);
-        border-radius: 999px;
-        background: var(--nxt1-color-surface-100);
-        color: var(--nxt1-color-text-primary);
-        font-size: 12px;
-        font-weight: 700;
-        padding: 0 11px;
-        cursor: pointer;
-        transition: all 0.18s ease;
-      }
-
-      .film-library-create-btn:hover,
-      .film-library-create-btn[aria-expanded='true'] {
+      .film-library-header__actions .btn-new[aria-expanded='true'] {
         border-color: var(--nxt1-color-border-primary);
-        color: var(--nxt1-color-primary);
+        background: color-mix(in srgb, var(--nxt1-color-alpha-primary10) 82%, transparent);
       }
 
       .film-playlist-create {
@@ -2042,6 +2230,42 @@ type DrawEffectMarker = {
         border-radius: 999px;
         border: 2px solid rgba(255, 255, 255, 0.2);
         border-top-color: rgba(255, 255, 255, 0.84);
+        animation: film-cloudflare-loading-spin 0.8s linear infinite;
+      }
+
+      .film-player-native-loading {
+        position: absolute;
+        inset: 0;
+        z-index: 12;
+        display: grid;
+        place-items: center;
+        border-radius: var(--nxt1-border-radius-md, 10px);
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-bg-primary, var(--nxt1-color-surface-100)) 90%,
+          transparent
+        );
+      }
+
+      .film-player-native-loading__label {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--nxt1-color-text-primary);
+        background: color-mix(in srgb, var(--nxt1-color-surface-200) 86%, transparent);
+      }
+
+      .film-player-native-loading__label::before {
+        content: '';
+        width: 14px;
+        height: 14px;
+        border-radius: 999px;
+        border: 2px solid color-mix(in srgb, var(--nxt1-color-text-secondary) 45%, transparent);
+        border-top-color: var(--nxt1-color-text-primary);
         animation: film-cloudflare-loading-spin 0.8s linear infinite;
       }
 
@@ -2301,6 +2525,13 @@ type DrawEffectMarker = {
         display: inline-flex;
         align-items: center;
         gap: var(--nxt1-spacing-1, 4px);
+      }
+
+      .film-draw-tool-icon {
+        width: 0.85rem;
+        height: 0.85rem;
+        stroke: currentColor;
+        stroke-width: 1.85;
       }
 
       .film-icon-btn.film-top-tool-btn--danger {
@@ -2583,14 +2814,18 @@ type DrawEffectMarker = {
       .film-loading__card {
         border-radius: var(--nxt1-radius-md, 12px);
         min-height: 88px;
-        background: linear-gradient(
-          100deg,
-          var(--agent-surface, rgba(0, 0, 0, 0.03)) 20%,
-          var(--agent-surface-hover, rgba(0, 0, 0, 0.05)) 45%,
-          var(--agent-surface, rgba(0, 0, 0, 0.03)) 70%
+        background: var(
+          --nxt1-skeleton-gradient,
+          linear-gradient(
+            90deg,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 25%,
+            var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.15)) 50%,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 75%
+          )
         );
         background-size: 200% 100%;
-        animation: film-loading-pulse 1.1s ease-in-out infinite;
+        animation: skeleton-shimmer var(--nxt1-skeleton-animation-duration, 1.5s) infinite
+          ease-in-out;
       }
 
       .film-loading__card--viewer {
@@ -2599,15 +2834,6 @@ type DrawEffectMarker = {
 
       .film-loading__card--toolbar {
         min-height: 56px;
-      }
-
-      @keyframes film-loading-pulse {
-        0% {
-          background-position: 100% 50%;
-        }
-        100% {
-          background-position: 0 50%;
-        }
       }
 
       @media (prefers-reduced-motion: reduce) {
@@ -2687,6 +2913,22 @@ type DrawEffectMarker = {
         gap: 10px;
       }
 
+      .film-empty-timeline-actions--loading {
+        align-items: center;
+        justify-content: center;
+        min-height: 52px;
+        padding: 12px 14px;
+        border: 1px solid var(--nxt1-color-border-default);
+        border-radius: 10px;
+        background: var(--nxt1-color-surface-100);
+      }
+
+      .film-empty-timeline-actions__loading-text {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--nxt1-color-text-secondary);
+      }
+
       .film-empty-timeline-actions .film-generate-btn {
         flex: 1 1 260px;
       }
@@ -2747,6 +2989,9 @@ type DrawEffectMarker = {
       }
 
       .film-playbook-nav-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
         flex-shrink: 0;
         padding: 8px 10px;
         border: 1px solid var(--nxt1-color-border-default);
@@ -2762,6 +3007,12 @@ type DrawEffectMarker = {
       .film-playbook-nav-btn:hover:not(:disabled) {
         background: var(--nxt1-color-surface-200);
         border-color: var(--nxt1-color-border-primary);
+      }
+
+      .film-playbook-nav-btn--attach {
+        background: var(--nxt1-color-alpha-primary10);
+        border-color: var(--nxt1-color-border-primary);
+        color: var(--nxt1-color-text-primary);
       }
 
       .film-playbook-nav-btn:disabled {
@@ -2871,6 +3122,19 @@ type DrawEffectMarker = {
         grid-template-columns: minmax(0, 1fr) 22px;
         align-items: center;
         gap: 2px;
+      }
+
+      .film-playbook-head.cdk-drop-list-dragging .film-playbook-column-header-wrap {
+        transition: transform 180ms cubic-bezier(0.2, 0, 0, 1);
+      }
+
+      .film-playbook-column-header-wrap.cdk-drag-placeholder {
+        opacity: 0;
+      }
+
+      .film-playbook-column-header-wrap--dragging,
+      .film-playbook-column-header-wrap.cdk-drag-dragging {
+        opacity: 0.72;
       }
 
       .film-playbook-column-header span {
@@ -3200,6 +3464,34 @@ type DrawEffectMarker = {
         color: var(--nxt1-color-text-primary);
       }
 
+      .film-playbook-number-with-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        min-width: 0;
+      }
+
+      .film-playbook-draw-indicator {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 14px;
+        height: 14px;
+        color: var(--nxt1-color-primary);
+        flex-shrink: 0;
+        margin-left: 2px;
+        transform: translateY(-1px) rotate(-10deg);
+      }
+
+      .film-playbook-draw-indicator svg {
+        width: 14px;
+        height: 14px;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
       .film-playbook-cell--label {
         display: flex;
         align-items: center;
@@ -3369,6 +3661,20 @@ type DrawEffectMarker = {
         object-fit: cover;
       }
 
+      .film-list-item__thumb-placeholder {
+        width: 100%;
+        height: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--nxt1-color-text-secondary);
+        background: linear-gradient(
+          140deg,
+          var(--nxt1-color-surface-100) 0%,
+          var(--nxt1-color-surface-200) 100%
+        );
+      }
+
       .film-list-item__content {
         display: flex;
         flex-direction: column;
@@ -3392,6 +3698,44 @@ type DrawEffectMarker = {
         padding: 0;
         font-size: 11px;
         color: var(--nxt1-color-text-secondary);
+      }
+
+      .film-library-load-more-wrap {
+        display: flex;
+        padding: 6px 0 0;
+      }
+
+      .film-library-load-more-wrap--collapsed {
+        padding: 0 8px 8px;
+      }
+
+      .film-library-load-more {
+        width: 100%;
+        min-height: 38px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--nxt1-color-border-default);
+        background: transparent;
+        color: var(--nxt1-color-text-primary);
+        border-radius: 8px;
+        padding: 7px 14px;
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition:
+          background 0.16s ease,
+          border-color 0.16s ease;
+      }
+
+      .film-library-load-more:hover {
+        border-color: var(--nxt1-color-border-primary);
+        background: var(--nxt1-color-alpha-primary10);
+      }
+
+      .film-library-load-more:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
       }
 
       @media (max-width: 1024px) {
@@ -3429,8 +3773,7 @@ type DrawEffectMarker = {
           padding-left: 12px;
         }
 
-        .film-library-create-btn,
-        .film-library-upload-btn {
+        .film-library-header__actions .btn-new {
           justify-content: center;
           width: 100%;
         }
@@ -3474,7 +3817,7 @@ type DrawEffectMarker = {
         z-index: 1;
       }
       .film-list-item-row--menu-open {
-        z-index: 80;
+        z-index: 260;
       }
       .film-list-item__menu-btn {
         position: absolute;
@@ -3547,7 +3890,7 @@ type DrawEffectMarker = {
         border: 1px solid var(--nxt1-color-border-default);
         background: var(--nxt1-color-surface-100);
         box-shadow: var(--nxt1-navigation-dropdown);
-        z-index: 100;
+        z-index: 320;
         overflow: hidden;
       }
 
@@ -3668,9 +4011,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private isScrubbing = false;
   private wasPlayingBeforeSeek = false;
 
-  private isDrawStrokeInProgress = false;
-  private activeStroke: Array<{ x: number; y: number }> = [];
-  private drawStrokes: Array<Array<{ x: number; y: number }>> = [];
+  private activeStroke: Array<DrawAnnotationPoint> = [];
+  private drawAnnotation: EditableDrawAnnotation | null = null;
+  private drawInteraction: DrawInteractionState | null = null;
+  private readonly drawHandleSizePx = 11;
+  private readonly drawHandleHitPaddingPx = 7;
+  private readonly minimumDrawSelectionSize = 0.008;
   private readonly maxContextAnnotationPoints = 80;
   private readonly maxPersistedAnnotationPoints = 600;
   private readonly drawEffectDurationSec = 1;
@@ -3701,9 +4047,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   @ViewChild('drawCanvas') private drawCanvas?: ElementRef<HTMLCanvasElement>;
 
   protected readonly testIds = TEST_IDS.FILM_REVIEW;
+  protected readonly attachBreakdownContextTestId = 'film-review-attach-breakdown-context-button';
   protected readonly filmReviewReleaseLabel = getAgentXReleaseLabel('filmReview');
   protected readonly reviews = this.service.reviews;
-  protected readonly selectedId = this.service.selectedId;
+  public readonly selectedId = this.service.selectedId;
   protected readonly selectedReview = this.service.selectedReview;
   protected readonly loading = this.service.loading;
   protected readonly saving = this.service.saving;
@@ -3728,6 +4075,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly playerCurrentTime = signal(0);
   protected readonly playerDuration = signal(0);
   protected readonly playbackRate = signal(1);
+  protected readonly nativePlayerLoading = signal(false);
   protected readonly cloudflareIframeLoading = signal(false);
   protected readonly cloudflareNativePlaybackFailed = signal(false);
   protected readonly isInlinePlayOverlayExpanded = signal(true);
@@ -3735,18 +4083,22 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private readonly cloudflareAutoplayRequested = signal(false);
   protected readonly isSeekDragLockActive = signal(false);
   protected readonly drawModeEnabled = signal(false);
+  protected readonly selectedDrawTool = signal<DrawAnnotationKind>('freehand');
   protected readonly hasDrawing = signal(false);
   protected readonly openMenuReviewId = signal<string | null>(null);
   protected readonly openPlaylistFolderMenuId = signal<string | null>(null);
   protected readonly isCreatingPlaylistFolder = signal(false);
   protected readonly playlistFolderNameDraft = signal('');
+  protected readonly creatingSubfolderParentId = signal<string | null>(null);
   protected readonly editingPlaylistFolderId = signal<string | null>(null);
   protected readonly deletePlaylistFolderConfirmId = signal<string | null>(null);
   protected readonly playlistFolderRenameDraft = signal('');
   protected readonly localPlaylistFolders = signal<readonly LocalFilmReviewPlaylistFolder[]>([]);
   protected readonly collapsedPlaylistFolderIds = signal<ReadonlySet<string>>(new Set());
   protected readonly draggingReviewId = signal<string | null>(null);
+  protected readonly draggingPlaylistFolderId = signal<string | null>(null);
   protected readonly activePlaylistDropTargetId = signal<string | null>(null);
+  protected readonly activePlaylistFolderDropTargetId = signal<string | null>(null);
   protected readonly renamingReviewId = signal<string | null>(null);
   protected readonly playlistEditingReviewId = signal<string | null>(null);
   protected readonly deleteConfirmReviewId = signal<string | null>(null);
@@ -3791,11 +4143,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   ];
   protected readonly editingTimelinePlayKey = signal<string | null>(null);
   protected readonly timelinePlayEditDraft = signal('');
-  protected readonly generatedVideoThumbnails = signal<Record<string, string>>({});
-  protected readonly libraryThumbnailReady = signal<Record<string, boolean>>({});
   protected readonly isLibraryDragActive = signal(false);
   protected readonly isUploadingLibraryVideo = signal(false);
   protected readonly isImportingBreakdown = signal(false);
+  protected readonly filmListLimit = signal(FILM_REVIEW_LIST_INITIAL_LIMIT);
   protected readonly libraryVideoUploadPercent = signal<number | null>(null);
   protected readonly libraryUploadCurrentFile = signal(0);
   protected readonly libraryUploadTotalFiles = signal(0);
@@ -3878,6 +4229,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       .filter((chip): chip is TimelineColumnFilterChip => chip !== null)
   );
   protected readonly filteredTimelineCount = computed(() => this.filteredTimelineRows().length);
+  protected readonly canLoadMoreReviews = computed(
+    () => !this.loading() && this.service.totalReviewCount() > this.reviews().length
+  );
   protected readonly currentFilteredPlayPosition = computed(() => {
     const rows = this.filteredTimelineRows();
     const index = rows.findIndex((row) => row.originalIndex === this.currentPlayIndex());
@@ -3892,16 +4246,26 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly playlistFolders = computed<readonly FilmReviewPlaylistFolder[]>(() => {
     const folders = new Map<
       string,
-      { name: string; reviews: FilmListReview[]; isUnassigned?: boolean }
+      {
+        name: string;
+        reviews: FilmListReview[];
+        isUnassigned?: boolean;
+        parentId?: string | null;
+      }
     >();
     folders.set(FILM_REVIEW_UNASSIGNED_PLAYLIST_ID, {
       name: 'Unassigned Film',
       reviews: [],
       isUnassigned: true,
+      parentId: null,
     });
 
     for (const folder of this.localPlaylistFolders()) {
-      folders.set(folder.id, { name: folder.name, reviews: [] });
+      folders.set(folder.id, {
+        name: folder.name,
+        reviews: [],
+        parentId: folder.parentId?.trim() || null,
+      });
     }
 
     for (const review of this.reviews()) {
@@ -3912,23 +4276,87 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         name: folderName,
         reviews: [],
         isUnassigned: folderId === FILM_REVIEW_UNASSIGNED_PLAYLIST_ID,
+        parentId: null,
       };
       current.reviews.push(review);
       folders.set(folderId, current);
     }
 
-    return [...folders.entries()]
-      .map(([id, folder]) => ({ id, ...folder }))
-      .filter((folder) => !folder.isUnassigned || folder.reviews.length > 0 || folders.size === 1)
-      .sort((left, right) => {
-        if (left.isUnassigned) return 1;
-        if (right.isUnassigned) return -1;
-        return left.name.localeCompare(right.name);
+    const resolvedFolders: FilmReviewPlaylistFolder[] = [];
+    const visited = new Set<string>();
+
+    const appendFolder = (folderId: string, depth: number): void => {
+      if (visited.has(folderId)) return;
+      const folder = folders.get(folderId);
+      if (!folder) return;
+
+      visited.add(folderId);
+      resolvedFolders.push({
+        id: folderId,
+        name: folder.name,
+        reviews: folder.reviews,
+        isUnassigned: folder.isUnassigned,
+        parentId: folder.parentId ?? null,
+        depth,
       });
+
+      const childFolders = [...folders.entries()]
+        .filter(
+          ([id, item]) =>
+            id !== FILM_REVIEW_UNASSIGNED_PLAYLIST_ID &&
+            (item.parentId?.trim() ?? null) === folderId
+        )
+        .sort((left, right) => left[1].name.localeCompare(right[1].name));
+
+      for (const [childId] of childFolders) {
+        appendFolder(childId, depth + 1);
+      }
+    };
+
+    const rootFolders = [...folders.entries()]
+      .filter(
+        ([id, folder]) =>
+          id !== FILM_REVIEW_UNASSIGNED_PLAYLIST_ID &&
+          (!folder.parentId?.trim() || !folders.has(folder.parentId.trim()))
+      )
+      .sort((left, right) => left[1].name.localeCompare(right[1].name));
+
+    for (const [folderId] of rootFolders) {
+      appendFolder(folderId, 0);
+    }
+
+    const unassignedFolder = folders.get(FILM_REVIEW_UNASSIGNED_PLAYLIST_ID);
+    if (unassignedFolder && (unassignedFolder.reviews.length > 0 || folders.size === 1)) {
+      resolvedFolders.push({
+        id: FILM_REVIEW_UNASSIGNED_PLAYLIST_ID,
+        name: unassignedFolder.name,
+        reviews: unassignedFolder.reviews,
+        isUnassigned: true,
+        parentId: null,
+        depth: 0,
+      });
+    }
+
+    return resolvedFolders;
   });
 
   // Timeline play navigation state - using inline type for portability
   protected readonly currentPlayIndex = signal(0);
+
+  // Video tab management state
+  protected readonly openVideoTabIds = signal<readonly string[]>([]);
+  public readonly visibleOpenTabs = computed(() => {
+    const reviews = this.reviews();
+    const tabIds = this.openVideoTabIds();
+
+    if (!reviews || reviews.length === 0) {
+      return [];
+    }
+
+    return tabIds
+      .map((id) => reviews.find((r) => r.id === id))
+      .filter((review): review is Exclude<(typeof reviews)[0], undefined> => review !== undefined);
+  });
 
   public isInlineVideoView(): boolean {
     return this.isVideoView();
@@ -3941,6 +4369,14 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   public backToLibrary(): void {
     void this.onBackToLibrary();
+  }
+
+  public async refreshData(): Promise<void> {
+    const teamId = this.teamId?.trim();
+    if (!teamId) return;
+
+    await this.service.load(teamId, this.panelSport() || undefined, this.filmListLimit());
+    this.timelineColumnOrder.set(this.loadPersistedTimelineColumnOrder());
   }
 
   public async seekToTimestampMs(timeMs: number): Promise<void> {
@@ -4082,6 +4518,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     this.localPlaylistFolders.set(this.loadPersistedPlaylistFolders(teamId));
     this.timelineColumnOrder.set(this.loadPersistedTimelineColumnOrder());
+    this.filmListLimit.set(FILM_REVIEW_LIST_INITIAL_LIMIT);
 
     this.isVideoView.set(false);
     this.currentPlayIndex.set(0);
@@ -4102,6 +4539,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.currentPlayIndex.set(0);
     this.timelineColumnFilters.set({});
     this.openTimelineColumnMenuId.set(null);
+    this.filmListLimit.set(FILM_REVIEW_LIST_INITIAL_LIMIT);
     this.destroyHls();
     this.nativeVideoSourceUrl = null;
     this.cloudflareNativePlaybackFailed.set(false);
@@ -4111,6 +4549,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   protected onPlaylistCreateToggle(): void {
     this.isCreatingPlaylistFolder.update((current) => !current);
+    this.creatingSubfolderParentId.set(null);
     this.playlistFolderNameDraft.set('');
   }
 
@@ -4122,6 +4561,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     event?.preventDefault();
     event?.stopPropagation();
     this.isCreatingPlaylistFolder.set(false);
+    this.creatingSubfolderParentId.set(null);
     this.playlistFolderNameDraft.set('');
   }
 
@@ -4135,10 +4575,19 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return;
     }
 
-    const id = this.buildPlaylistFolderId(name);
+    const parentId = this.creatingSubfolderParentId()?.trim() || null;
+    const id = this.buildPlaylistFolderId(name, parentId);
     const existingFolder = this.playlistFolders().find((folder) => folder.id === id) ?? null;
     if (!existingFolder) {
-      this.updateLocalPlaylistFolders((folders) => [...folders, { id, name }]);
+      this.updateLocalPlaylistFolders((folders) => [...folders, { id, name, parentId }]);
+    }
+
+    if (parentId) {
+      this.collapsedPlaylistFolderIds.update((current) => {
+        const next = new Set(current);
+        next.delete(parentId);
+        return next;
+      });
     }
 
     this.collapsedPlaylistFolderIds.update((current) => {
@@ -4147,6 +4596,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return next;
     });
     this.isCreatingPlaylistFolder.set(false);
+    this.creatingSubfolderParentId.set(null);
     this.playlistFolderNameDraft.set('');
   }
 
@@ -4155,6 +4605,16 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     event.stopPropagation();
     this.resetMenuState();
     this.isCreatingPlaylistFolder.set(true);
+    this.creatingSubfolderParentId.set(null);
+    this.playlistFolderNameDraft.set('');
+  }
+
+  protected onPlaylistCreateSubfolderStart(folder: FilmReviewPlaylistFolder, event: Event): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.resetMenuState();
+    this.isCreatingPlaylistFolder.set(true);
+    this.creatingSubfolderParentId.set(folder.id);
     this.playlistFolderNameDraft.set('');
   }
 
@@ -4217,7 +4677,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return;
     }
 
-    const nextId = this.buildPlaylistFolderId(nextName);
+    const nextId = this.buildPlaylistFolderId(nextName, folder.parentId);
     if (nextId === folder.id && nextName === folder.name) {
       this.resetMenuState();
       return;
@@ -4231,7 +4691,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       );
       this.updateLocalPlaylistFolders((folders) => {
         const remaining = folders.filter((item) => item.id !== folder.id && item.id !== nextId);
-        return [...remaining, { id: nextId, name: nextName }];
+        return [...remaining, { id: nextId, name: nextName, parentId: folder.parentId ?? null }];
       });
       this.collapsedPlaylistFolderIds.update((current) => {
         const next = new Set(current);
@@ -4312,11 +4772,45 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.activePlaylistDropTargetId.set(null);
   }
 
+  protected onPlaylistFolderDragStart(folder: FilmReviewPlaylistFolder, event: DragEvent): void {
+    if (folder.isUnassigned) {
+      return;
+    }
+    this.draggingPlaylistFolderId.set(folder.id);
+    event.dataTransfer?.setData(FILM_REVIEW_PLAYLIST_FOLDER_DRAG_MIME, folder.id);
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+    }
+  }
+
+  protected onPlaylistFolderDragEnd(): void {
+    this.draggingPlaylistFolderId.set(null);
+    this.activePlaylistFolderDropTargetId.set(null);
+  }
+
   protected onPlaylistFolderDragOver(folderId: string, event: DragEvent): void {
-    if (!this.draggingReviewId()) return;
+    const draggingReviewId =
+      this.draggingReviewId() ?? event.dataTransfer?.getData(FILM_REVIEW_PLAYLIST_DRAG_MIME) ?? '';
+    const draggingFolderId =
+      this.draggingPlaylistFolderId() ??
+      event.dataTransfer?.getData(FILM_REVIEW_PLAYLIST_FOLDER_DRAG_MIME) ??
+      '';
+
+    if (!draggingReviewId && !draggingFolderId) return;
+
+    if (draggingFolderId && !this.canMovePlaylistFolderInto(draggingFolderId, folderId)) {
+      return;
+    }
+
     event.preventDefault();
     event.stopPropagation();
-    this.activePlaylistDropTargetId.set(folderId);
+
+    if (draggingReviewId) {
+      this.activePlaylistDropTargetId.set(folderId);
+    }
+    if (draggingFolderId) {
+      this.activePlaylistFolderDropTargetId.set(folderId);
+    }
   }
 
   protected onPlaylistFolderDragLeave(folderId: string, event: DragEvent): void {
@@ -4334,6 +4828,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (this.activePlaylistDropTargetId() === folderId) {
       this.activePlaylistDropTargetId.set(null);
     }
+    if (this.activePlaylistFolderDropTargetId() === folderId) {
+      this.activePlaylistFolderDropTargetId.set(null);
+    }
   }
 
   protected async onPlaylistFolderDrop(
@@ -4345,8 +4842,34 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     const reviewId =
       this.draggingReviewId() ?? event.dataTransfer?.getData(FILM_REVIEW_PLAYLIST_DRAG_MIME) ?? '';
+    const draggingFolderId =
+      this.draggingPlaylistFolderId() ??
+      event.dataTransfer?.getData(FILM_REVIEW_PLAYLIST_FOLDER_DRAG_MIME) ??
+      '';
     this.draggingReviewId.set(null);
+    this.draggingPlaylistFolderId.set(null);
     this.activePlaylistDropTargetId.set(null);
+    this.activePlaylistFolderDropTargetId.set(null);
+
+    if (draggingFolderId) {
+      if (!this.canMovePlaylistFolderInto(draggingFolderId, folder.id)) {
+        return;
+      }
+
+      this.updateLocalPlaylistFolders((folders) =>
+        folders.map((item) =>
+          item.id === draggingFolderId ? { ...item, parentId: folder.id } : item
+        )
+      );
+
+      this.collapsedPlaylistFolderIds.update((current) => {
+        const next = new Set(current);
+        next.delete(folder.id);
+        return next;
+      });
+      return;
+    }
+
     if (!reviewId) return;
 
     try {
@@ -4392,6 +4915,40 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
   }
 
+  private canMovePlaylistFolderInto(draggingFolderId: string, targetFolderId: string): boolean {
+    if (!draggingFolderId || !targetFolderId) {
+      return false;
+    }
+    if (
+      draggingFolderId === FILM_REVIEW_UNASSIGNED_PLAYLIST_ID ||
+      targetFolderId === FILM_REVIEW_UNASSIGNED_PLAYLIST_ID
+    ) {
+      return false;
+    }
+    if (draggingFolderId === targetFolderId) {
+      return false;
+    }
+
+    return !this.isPlaylistFolderDescendant(targetFolderId, draggingFolderId);
+  }
+
+  private isPlaylistFolderDescendant(folderId: string, ancestorId: string): boolean {
+    const parentById = new Map<string, string | null>();
+    for (const folder of this.localPlaylistFolders()) {
+      parentById.set(folder.id, folder.parentId?.trim() || null);
+    }
+
+    let current = parentById.get(folderId) ?? null;
+    while (current) {
+      if (current === ancestorId) {
+        return true;
+      }
+      current = parentById.get(current) ?? null;
+    }
+
+    return false;
+  }
+
   protected async onOpenReviewMenu(event: Event, review: FilmListReview): Promise<void> {
     event.stopPropagation();
     event.preventDefault();
@@ -4412,6 +4969,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   protected isMenuOpen(reviewId: string): boolean {
     return this.openMenuReviewId() === reviewId;
+  }
+
+  protected isReviewMenuOpenInFolder(folder: FilmReviewPlaylistFolder): boolean {
+    const openReviewId = this.openMenuReviewId();
+    return !!openReviewId && folder.reviews.some((review) => review.id === openReviewId);
   }
 
   protected isRenaming(reviewId: string): boolean {
@@ -4897,7 +5459,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.openTimelineColumnMenuId.set(null);
   }
 
-  protected getReviewDisplayTitle(review: FilmListReview): string {
+  public getReviewDisplayTitle(review: FilmListReview): string {
     const savedTitle = review.title?.trim();
     if (savedTitle && !this.isRawImportedVideoTitle(savedTitle, review)) {
       return savedTitle;
@@ -4914,20 +5476,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return this.formatSportLabel(review.sport) ?? 'Film session';
   }
 
-  protected getVideoThumbnailUrl(review: FilmListReview): string | null {
+  public getVideoThumbnailUrl(review: FilmListReview): string | null {
     const explicit = review.thumbnailUrl?.trim();
-    if (explicit) return explicit;
-
-    const generated = this.generatedVideoThumbnails()[review.id];
-    return generated?.trim() ? generated : null;
-  }
-
-  protected isLibraryThumbnailReady(reviewId: string): boolean {
-    return this.libraryThumbnailReady()[reviewId] === true;
-  }
-
-  protected showLibraryThumbnailLoader(review: FilmListReview): boolean {
-    return !this.getVideoThumbnailUrl(review) && !this.isLibraryThumbnailReady(review.id);
+    return explicit || null;
   }
 
   private getEditablePlaylistName(review: FilmListReview): string {
@@ -4945,51 +5496,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       .filter((part) => part.length > 0)
       .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
       .join(' ');
-  }
-
-  protected onLibraryThumbnailLoaded(reviewId: string, event: Event): void {
-    this.pauseVideoThumbnail(event);
-    this.libraryThumbnailReady.update((current) => ({
-      ...current,
-      [reviewId]: true,
-    }));
-
-    if (this.generatedVideoThumbnails()[reviewId]) {
-      return;
-    }
-
-    const video = event.target as HTMLVideoElement | null;
-    if (!video || !video.videoWidth || !video.videoHeight) {
-      return;
-    }
-
-    try {
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
-      if (!dataUrl) return;
-
-      this.generatedVideoThumbnails.update((current) => ({
-        ...current,
-        [reviewId]: dataUrl,
-      }));
-    } catch {
-      // Ignore thumbnail capture errors (e.g., CORS-tainted frames).
-    }
-  }
-
-  protected pauseVideoThumbnail(event: Event): void {
-    const video = event.target as HTMLVideoElement | null;
-    if (!video) return;
-
-    video.pause();
-    video.currentTime = 0;
   }
 
   private isRawImportedVideoTitle(title: string, review: FilmListReview): boolean {
@@ -5045,14 +5551,24 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return { id: playlistId, name: playlistName };
   }
 
-  private buildPlaylistFolderId(name: string): string {
+  private buildPlaylistFolderId(name: string, parentId?: string | null): string {
     const normalized = name
       .trim()
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '')
       .slice(0, 72);
-    return normalized ? `playlist-${normalized}` : `playlist-${Date.now()}`;
+    const parentToken = parentId?.trim()
+      ? parentId
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '')
+          .slice(0, 36)
+      : '';
+
+    const baseId = normalized ? `playlist-${normalized}` : `playlist-${Date.now()}`;
+    return parentToken ? `${parentToken}-${baseId}` : baseId;
   }
 
   private ensureStarterPlaylistFolders(): void {
@@ -5075,14 +5591,25 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private async loadFilmReviews(teamId: string): Promise<void> {
-    await this.service.load(teamId, this.panelSport() || undefined);
+    await this.service.load(teamId, this.panelSport() || undefined, this.filmListLimit());
     this.timelineColumnOrder.set(this.loadPersistedTimelineColumnOrder());
     this.collapseAllPlaylistFolders();
   }
 
+  protected onLoadMoreReviews(): void {
+    const teamId = this.teamId?.trim();
+    if (!teamId || this.loading()) return;
+
+    this.filmListLimit.update((current) => current + FILM_REVIEW_LIST_LIMIT_STEP);
+    void this.loadFilmReviews(teamId);
+  }
+
   private collapseAllPlaylistFolders(): void {
-    const folderIds = this.playlistFolders().map((folder) => folder.id);
-    this.collapsedPlaylistFolderIds.set(new Set(folderIds));
+    const ids = new Set<string>([FILM_REVIEW_UNASSIGNED_PLAYLIST_ID]);
+    for (const folder of this.localPlaylistFolders()) {
+      ids.add(folder.id);
+    }
+    this.collapsedPlaylistFolderIds.set(ids);
   }
 
   private updateLocalPlaylistFolders(
@@ -5105,7 +5632,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       if (!id || !name || id === FILM_REVIEW_UNASSIGNED_PLAYLIST_ID) {
         continue;
       }
-      unique.set(id, { id, name });
+      let parentId = folder.parentId?.trim() || null;
+      if (parentId === id || parentId === FILM_REVIEW_UNASSIGNED_PLAYLIST_ID) {
+        parentId = null;
+      }
+      unique.set(id, { id, name, parentId });
     }
     return [...unique.values()];
   }
@@ -5133,7 +5664,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         }
         const id = typeof item.id === 'string' ? item.id : '';
         const name = typeof item.name === 'string' ? item.name : '';
-        parsedFolders.push({ id, name });
+        const parentId =
+          typeof (item as { parentId?: unknown }).parentId === 'string'
+            ? (item as { parentId: string }).parentId.trim() || null
+            : null;
+        parsedFolders.push({ id, name, parentId });
       }
 
       return this.normalizeLocalPlaylistFolders(parsedFolders);
@@ -5170,8 +5705,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return `${FILM_REVIEW_PLAYLIST_STORAGE_PREFIX}:${teamId}`;
   }
 
-  protected async onSelectReview(reviewId: string): Promise<void> {
+  public async onSelectReview(reviewId: string): Promise<void> {
     await this.flushCurrentPlayAnnotationPersistence();
+
+    this.addVideoTab(reviewId);
 
     this.stopSmoothProgressTracking();
     this.isScrubbing = false;
@@ -5193,6 +5730,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.cloudflareStartTimeSec.set(0);
     this.cloudflareAutoplayRequested.set(false);
     this.cloudflareIframeLoading.set(cloudflareEmbedUrl !== null);
+    this.nativePlayerLoading.set(nativeVideoUrl !== null);
     this.playerCurrentTime.set(0);
     this.playerDuration.set(this.resolveReviewDurationSec(selectedReview));
     this.syncSeekUi(0);
@@ -5202,6 +5740,11 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.drawModeEnabled.set(false);
     this.restoreDrawOverlayForPlay(this.selectedReview()?.timeline?.[0] ?? null);
     this.scheduleNativeVideoSourceSync();
+
+    void this.service.ensureReviewDetails(reviewId, this.teamId?.trim() || undefined).then(() => {
+      this.restoreDrawOverlayForPlay(this.selectedReview()?.timeline?.[0] ?? null);
+      this.scheduleNativeVideoSourceSync();
+    });
   }
 
   protected async onBackToLibrary(): Promise<void> {
@@ -5211,6 +5754,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.stopSmoothProgressTracking();
     this.destroyHls();
     this.nativeVideoSourceUrl = null;
+    this.nativePlayerLoading.set(false);
     this.cloudflareIframeLoading.set(false);
     this.cloudflareNativePlaybackFailed.set(false);
     this.cloudflareStartTimeSec.set(0);
@@ -5232,11 +5776,63 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.resetDrawOverlay();
   }
 
+  public addVideoTab(reviewId: string): void {
+    const currentTabs = this.openVideoTabIds();
+    if (!currentTabs.includes(reviewId)) {
+      this.openVideoTabIds.set([...currentTabs, reviewId]);
+    }
+  }
+
+  public closeVideoTab(tabId: string, $event?: Event): void {
+    if ($event) {
+      $event.stopPropagation();
+    }
+    const currentTabs = this.openVideoTabIds();
+    const newTabs = currentTabs.filter((id) => id !== tabId);
+    this.openVideoTabIds.set(newTabs);
+
+    // If the closed tab was selected, select the first remaining tab
+    if (this.selectedId() === tabId && newTabs.length > 0) {
+      void this.onSelectReview(newTabs[0]);
+    } else if (newTabs.length === 0) {
+      // If no tabs left, go back to library
+      void this.onBackToLibrary();
+    }
+  }
+
+  public reorderVideoTabs(draggedTabId: string, targetTabId: string): void {
+    if (!draggedTabId || !targetTabId || draggedTabId === targetTabId) return;
+
+    const currentTabs = [...this.openVideoTabIds()];
+    const draggedIndex = currentTabs.indexOf(draggedTabId);
+    const targetIndex = currentTabs.indexOf(targetTabId);
+    if (draggedIndex < 0 || targetIndex < 0) return;
+
+    currentTabs.splice(draggedIndex, 1);
+    currentTabs.splice(targetIndex, 0, draggedTabId);
+    this.openVideoTabIds.set(currentTabs);
+  }
+
+  public reorderVideoTabsByIndex(previousIndex: number, currentIndex: number): void {
+    if (previousIndex === currentIndex || previousIndex < 0 || currentIndex < 0) return;
+
+    const currentTabs = [...this.openVideoTabIds()];
+    if (previousIndex >= currentTabs.length || currentIndex >= currentTabs.length) return;
+
+    moveItemInArray(currentTabs, previousIndex, currentIndex);
+    this.openVideoTabIds.set(currentTabs);
+  }
+
+  public openVideoFromLibrary(): void {
+    void this.onBackToLibrary();
+  }
+
   ngOnDestroy(): void {
     void this.flushCurrentPlayAnnotationPersistence();
     this.stopSmoothProgressTracking();
     this.destroyHls();
     this.nativeVideoSourceUrl = null;
+    this.nativePlayerLoading.set(false);
     this.cloudflareIframeLoading.set(false);
     this.cloudflareNativePlaybackFailed.set(false);
     this.cloudflareStartTimeSec.set(0);
@@ -5550,6 +6146,24 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     this.timelineColumnOrder.set(nextOrder);
     this.persistTimelineColumnOrder(nextOrder);
+  }
+
+  protected onTimelineColumnDragStartSmooth(columnId: string): void {
+    this.draggingTimelineColumnId.set(columnId);
+    this.timelineColumnDropIndicator.set(null);
+  }
+
+  protected onTimelineColumnDragEndSmooth(): void {
+    this.resetTimelineColumnDragState();
+  }
+
+  protected onTimelineColumnDropSmooth(event: CdkDragDrop<readonly TimelineGridColumn[]>): void {
+    const nextOrder = [...this.currentTimelineColumns().map((column) => column.id)];
+    moveItemInArray(nextOrder, event.previousIndex, event.currentIndex);
+
+    this.timelineColumnOrder.set(nextOrder);
+    this.persistTimelineColumnOrder(nextOrder);
+    this.resetTimelineColumnDragState();
   }
 
   protected onTimelinePlayRowKeydown(
@@ -5977,12 +6591,15 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   protected buildFilmReviewDragContext(review: FilmReviewDragSource): AgentXSelectedContext {
     const title = this.getReviewDisplayTitle(review);
+    const breakdownSummary = this.buildFilmReviewContextSummary(review);
+    const timelinePreview = this.buildFilmReviewContextTimelinePreview(review.timeline ?? []);
+    const breakdownProvider = review.breakdownSource?.provider;
 
     return {
       id: `film-review:${review.id}`,
       kind: 'film_play',
       title,
-      summary: review.opponentName ? `Film review vs ${review.opponentName}` : 'Film review video',
+      summary: breakdownSummary,
       source: {
         type: 'film_review',
         id: review.id,
@@ -6003,8 +6620,134 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         cloudflareVideoId: review.cloudflareVideoId,
         timelineState: review.timelineState,
         playCount: review.timeline?.length ?? null,
+        breakdownProvider,
+        breakdownFileName: review.breakdownSource?.fileName,
+        breakdownSheetName: review.breakdownSource?.sheetName,
+        breakdownRowCount: review.breakdownSource?.rowCount,
+        breakdownPlayCount: review.breakdownSource?.playCount,
+        timelinePreview,
       }),
     };
+  }
+
+  protected onAttachFilmBreakdownContext(review: FilmReviewDragSource): void {
+    this.agentXService.queueSelectedContext(this.buildFilmReviewDragContext(review));
+    this.toast.success('Added film breakdown to chat composer');
+  }
+
+  private buildFilmReviewContextSummary(review: FilmReviewDragSource): string {
+    const summaryParts: string[] = [];
+    const aiSummary = review.aiSummary?.trim();
+    if (aiSummary) {
+      summaryParts.push(aiSummary);
+    }
+
+    const breakdownDetails = this.buildFilmReviewContextBreakdownDetails(review);
+    if (breakdownDetails) {
+      summaryParts.push(breakdownDetails);
+    }
+
+    const timelinePreview = this.buildFilmReviewContextTimelinePreview(review.timeline ?? []);
+    if (timelinePreview) {
+      summaryParts.push(`Sample plays: ${timelinePreview}`);
+    }
+
+    const keyInsight = review.keyInsights?.find(
+      (insight) => typeof insight === 'string' && insight.trim().length > 0
+    );
+    if (keyInsight?.trim()) {
+      summaryParts.push(`Key insight: ${keyInsight.trim()}`);
+    }
+
+    if (!summaryParts.length) {
+      summaryParts.push(
+        review.opponentName ? `Film review vs ${review.opponentName}` : 'Film review video'
+      );
+    }
+
+    return summaryParts.join(' • ').slice(0, 600);
+  }
+
+  private buildFilmReviewContextBreakdownDetails(review: FilmReviewDragSource): string | null {
+    const playCount = review.timeline?.length ?? review.breakdownSource?.playCount ?? 0;
+    const providerLabel = this.getFilmReviewBreakdownProviderLabel(
+      review.breakdownSource?.provider
+    );
+    const detailParts: string[] = [];
+
+    if (providerLabel) {
+      detailParts.push(providerLabel);
+    }
+
+    if (playCount > 0) {
+      detailParts.push(`${playCount} tagged plays`);
+    }
+
+    if (review.breakdownSource?.fileName?.trim()) {
+      detailParts.push(review.breakdownSource.fileName.trim());
+    }
+
+    if (!detailParts.length) {
+      return null;
+    }
+
+    return detailParts.join(' • ');
+  }
+
+  private getFilmReviewBreakdownProviderLabel(
+    provider: NonNullable<FilmReviewDragSource['breakdownSource']>['provider'] | undefined
+  ): string | null {
+    switch (provider) {
+      case 'hudl':
+        return 'Hudl breakdown';
+      case 'csv':
+        return 'CSV breakdown';
+      case 'manual_import':
+        return 'Imported breakdown';
+      default:
+        return null;
+    }
+  }
+
+  private buildFilmReviewContextTimelinePreview(
+    timeline: readonly FilmTimelinePlay[]
+  ): string | null {
+    const preview = timeline
+      .slice(0, 3)
+      .map((play) => this.describeFilmTimelinePlayForContext(play))
+      .filter((value): value is string => value.length > 0)
+      .join(' | ');
+
+    return preview || null;
+  }
+
+  private describeFilmTimelinePlayForContext(play: FilmTimelinePlay): string {
+    const tagPreview = Object.entries(play.tags ?? {})
+      .flatMap(([key, value]) => {
+        const normalized = this.formatFilmReviewContextTagValue(value);
+        return normalized ? [`${key}:${normalized}`] : [];
+      })
+      .slice(0, 3)
+      .join(', ');
+
+    const base = `${play.label} @ ${this.formatTime(play.startSec)}`;
+    return tagPreview ? `${base} (${tagPreview})` : base;
+  }
+
+  private formatFilmReviewContextTagValue(value: TeamFilmReviewPlayTagValue): string {
+    if (typeof value === 'number') {
+      return Number.isInteger(value) ? String(value) : value.toFixed(2);
+    }
+
+    if (typeof value === 'boolean') {
+      return value ? 'yes' : 'no';
+    }
+
+    if (typeof value === 'string') {
+      return value.trim();
+    }
+
+    return '';
   }
 
   protected buildFilmPlayDragContext(
@@ -6358,6 +7101,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected onPlayerLoadedMetadata(): void {
     const player = this.filmPlayer?.nativeElement;
     if (!player) return;
+    this.nativePlayerLoading.set(false);
     this.playerDuration.set(Number.isFinite(player.duration) ? player.duration : 0);
     this.updatePlayerTimeSignal(player.currentTime || 0, true);
     this.syncSeekUi(player.currentTime || 0);
@@ -6372,6 +7116,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   protected onPlayerError(): void {
+    this.nativePlayerLoading.set(false);
     const review = this.selectedReview();
     if (!this.isCloudflarePlaybackReview(review)) return;
 
@@ -6399,6 +7144,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     this.destroyHls();
     this.nativeVideoSourceUrl = videoUrl;
+    this.nativePlayerLoading.set(true);
     player.crossOrigin = 'anonymous';
     player.preload = 'auto';
 
@@ -6467,11 +7213,17 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.renderDrawOverlay();
   }
 
-  protected toggleDrawMode(): void {
-    const enabled = !this.drawModeEnabled();
+  protected isDrawToolActive(kind: DrawAnnotationKind): boolean {
+    return this.drawModeEnabled() && this.selectedDrawTool() === kind;
+  }
+
+  protected onDrawToolToggle(kind: DrawAnnotationKind): void {
+    const enabled = !(this.drawModeEnabled() && this.selectedDrawTool() === kind);
+    this.selectedDrawTool.set(kind);
     this.drawModeEnabled.set(enabled);
-    this.isDrawStrokeInProgress = false;
+    this.drawInteraction = null;
     this.activeStroke = [];
+    this.syncDrawCanvasCursor();
     this.ensureDrawCanvasSize();
     this.renderDrawOverlay();
   }
@@ -6495,28 +7247,132 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.ensureDrawCanvasSize();
 
     const point = this.toNormalizedDrawPoint(event, canvas);
-    this.activeStroke = [point];
-    this.drawStrokes.push(this.activeStroke);
-    this.isDrawStrokeInProgress = true;
+    const hitTarget = this.resolveDrawHitTarget(point, canvas);
+
+    if (this.drawAnnotation && hitTarget.kind === 'handle') {
+      this.drawInteraction = {
+        mode: 'resize',
+        pointerId: event.pointerId,
+        startPoint: point,
+        origin: this.cloneEditableDrawAnnotation(this.drawAnnotation),
+        handle: hitTarget.handle,
+      };
+      canvas.setPointerCapture?.(event.pointerId);
+      this.syncDrawCanvasCursor(point);
+      return;
+    }
+
+    if (this.drawAnnotation && hitTarget.kind === 'body') {
+      this.drawInteraction = {
+        mode: 'move',
+        pointerId: event.pointerId,
+        startPoint: point,
+        origin: this.cloneEditableDrawAnnotation(this.drawAnnotation),
+      };
+      canvas.setPointerCapture?.(event.pointerId);
+      this.syncDrawCanvasCursor(point);
+      return;
+    }
+
     canvas.setPointerCapture?.(event.pointerId);
     this.currentDrawEffectWindow = this.resolveDefaultDrawEffectWindow(
       this.currentPlay(),
       this.playerCurrentTime()
     );
+
+    const selectedTool = this.selectedDrawTool();
+
+    if (selectedTool === 'freehand') {
+      this.activeStroke = [point];
+      this.drawAnnotation = {
+        kind: 'freehand',
+        bounds: this.computeBoundsFromPoints(this.activeStroke),
+        strokes: [this.activeStroke],
+      };
+      this.drawInteraction = { mode: 'draw-freehand', pointerId: event.pointerId };
+    } else {
+      this.activeStroke = [];
+      this.drawAnnotation = {
+        kind: selectedTool,
+        bounds: this.buildShapeBoundsFromAnchor(point, point),
+      };
+      this.drawInteraction = {
+        mode: 'draw-shape',
+        pointerId: event.pointerId,
+        anchor: point,
+        kind: selectedTool,
+      };
+    }
+
     this.hasDrawing.set(true);
+    this.syncDrawCanvasCursor(point);
     this.renderDrawOverlay();
   }
 
   protected onDrawPointerMove(event: PointerEvent): void {
-    if (!this.drawModeEnabled() || !this.isDrawStrokeInProgress || !this.activeStroke.length)
-      return;
+    if (!this.drawModeEnabled()) return;
 
     const canvas = this.drawCanvas?.nativeElement;
     if (!canvas) return;
 
-    event.preventDefault();
     const point = this.toNormalizedDrawPoint(event, canvas);
-    this.activeStroke.push(point);
+    if (!this.drawInteraction) {
+      this.syncDrawCanvasCursor(point);
+      return;
+    }
+
+    event.preventDefault();
+
+    switch (this.drawInteraction.mode) {
+      case 'draw-freehand': {
+        if (this.drawInteraction.pointerId !== event.pointerId || !this.activeStroke.length) {
+          return;
+        }
+
+        this.activeStroke.push(point);
+        if (this.drawAnnotation?.kind === 'freehand') {
+          this.drawAnnotation = {
+            ...this.drawAnnotation,
+            bounds: this.computeBoundsFromPoints(this.drawAnnotation.strokes.flat()),
+          };
+        }
+        break;
+      }
+
+      case 'draw-shape': {
+        if (this.drawInteraction.pointerId !== event.pointerId) return;
+        this.drawAnnotation = {
+          kind: this.drawInteraction.kind,
+          bounds: this.buildShapeBoundsFromAnchor(this.drawInteraction.anchor, point),
+        };
+        break;
+      }
+
+      case 'move': {
+        if (this.drawInteraction.pointerId !== event.pointerId) return;
+        const deltaX = point.x - this.drawInteraction.startPoint.x;
+        const deltaY = point.y - this.drawInteraction.startPoint.y;
+        this.drawAnnotation = this.translateDrawAnnotation(
+          this.drawInteraction.origin,
+          deltaX,
+          deltaY
+        );
+        break;
+      }
+
+      case 'resize': {
+        if (this.drawInteraction.pointerId !== event.pointerId) return;
+        this.drawAnnotation = this.resizeDrawAnnotation(
+          this.drawInteraction.origin,
+          this.drawInteraction.handle,
+          point
+        );
+        break;
+      }
+    }
+
+    this.hasDrawing.set(!!this.drawAnnotation);
+    this.syncDrawCanvasCursor(point);
     this.renderDrawOverlay();
   }
 
@@ -6527,8 +7383,15 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!canvas) return;
 
     canvas.releasePointerCapture?.(event.pointerId);
-    this.isDrawStrokeInProgress = false;
+    if (!this.drawInteraction || this.drawInteraction.pointerId !== event.pointerId) {
+      this.syncDrawCanvasCursor();
+      return;
+    }
+
+    this.drawInteraction = null;
     this.activeStroke = [];
+    this.hasDrawing.set(!!this.drawAnnotation);
+    this.syncDrawCanvasCursor();
     this.scheduleCurrentPlayAnnotationPersistence();
   }
 
@@ -6589,7 +7452,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       metadata: {
         currentTimeSec,
         hasDrawing: this.hasDrawing(),
-        drawStrokeCount: this.drawStrokes.length,
+        drawStrokeCount: this.resolveDrawStrokeCount(),
+        ...(renderedAnnotation ? { drawAnnotationKind: renderedAnnotation.kind } : {}),
         ...(drawBounds ? { drawBounds } : {}),
         ...(renderedDrawBounds ? { renderedDrawBounds } : {}),
         ...(snapshotFile
@@ -6756,11 +7620,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private resetDrawOverlay(): void {
-    this.drawStrokes = [];
+    this.drawAnnotation = null;
     this.activeStroke = [];
-    this.isDrawStrokeInProgress = false;
+    this.drawInteraction = null;
     this.currentDrawEffectWindow = null;
     this.hasDrawing.set(false);
+    this.syncDrawCanvasCursor();
     this.renderDrawOverlay();
   }
 
@@ -6771,24 +7636,26 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return;
     }
 
-    const restoredStrokes = this.restoreAnnotationStrokes(annotation);
-    if (!restoredStrokes.length) {
+    const restoredAnnotation = this.restoreEditableDrawAnnotation(annotation);
+    if (!restoredAnnotation) {
       this.resetDrawOverlay();
       return;
     }
 
-    this.drawStrokes = restoredStrokes;
+    this.drawAnnotation = restoredAnnotation;
     this.activeStroke = [];
-    this.isDrawStrokeInProgress = false;
+    this.drawInteraction = null;
+    this.selectedDrawTool.set(restoredAnnotation.kind);
     this.currentDrawEffectWindow = this.resolveDrawEffectWindowForPlay(play, annotation);
     this.hasDrawing.set(true);
+    this.syncDrawCanvasCursor();
     this.ensureDrawCanvasSize();
     this.renderDrawOverlay();
   }
 
   private restoreAnnotationStrokes(
     annotation: TeamFilmReviewPlayAnnotation
-  ): Array<Array<{ x: number; y: number }>> {
+  ): Array<Array<DrawAnnotationPoint>> {
     const sourceStrokes = annotation.strokes?.length
       ? annotation.strokes
       : annotation.points?.length
@@ -6803,6 +7670,28 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         }))
       )
       .filter((stroke) => stroke.length > 0);
+  }
+
+  private restoreEditableDrawAnnotation(
+    annotation: TeamFilmReviewPlayAnnotation
+  ): EditableDrawAnnotation | null {
+    if (annotation.kind === 'freehand') {
+      const restoredStrokes = this.restoreAnnotationStrokes(annotation);
+      if (!restoredStrokes.length) {
+        return null;
+      }
+
+      return {
+        kind: 'freehand',
+        bounds: this.normalizeDrawBounds(annotation.bounds),
+        strokes: restoredStrokes,
+      };
+    }
+
+    return {
+      kind: annotation.kind,
+      bounds: this.normalizeDrawBounds(annotation.bounds),
+    };
   }
 
   private scheduleCurrentPlayAnnotationPersistence(): void {
@@ -6881,7 +7770,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       kind: annotation.kind,
       bounds: annotation.bounds,
       strokeCount: annotation.strokeCount,
-      points: annotation.points,
+      ...(annotation.points?.length ? { points: annotation.points } : {}),
     };
   }
 
@@ -6892,13 +7781,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return undefined;
     }
 
-    const pointsFromStrokes = annotation.strokes?.flat();
-    const rawPoints =
-      pointsFromStrokes && pointsFromStrokes.length > 0
-        ? pointsFromStrokes
-        : (annotation.points ?? []);
-
-    const points = this.compactDrawPointsFromStrokes([rawPoints], this.maxContextAnnotationPoints);
+    const points =
+      annotation.kind === 'freehand'
+        ? this.compactDrawPointsFromStrokes(
+            [annotation.strokes?.flat() ?? annotation.points ?? []],
+            this.maxContextAnnotationPoints
+          )
+        : [];
 
     return {
       kind: annotation.kind,
@@ -6988,26 +7877,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   private resolveCurrentPlayAnnotation(): TeamFilmReviewPlayAnnotation | null {
     const play = this.currentPlay();
-    if (!play || !this.hasDrawing() || this.drawStrokes.length === 0) {
+    if (!play || !this.hasDrawing() || !this.drawAnnotation) {
       return null;
-    }
-
-    const strokes = this.normalizeDrawStrokesForPersistence();
-    const points = strokes.flat();
-    if (points.length === 0) {
-      return null;
-    }
-
-    let minX = 1;
-    let minY = 1;
-    let maxX = 0;
-    let maxY = 0;
-
-    for (const point of points) {
-      minX = Math.min(minX, point.x);
-      minY = Math.min(minY, point.y);
-      maxX = Math.max(maxX, point.x);
-      maxY = Math.max(maxY, point.y);
     }
 
     const effectWindow =
@@ -7015,14 +7886,34 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       this.resolveDrawEffectWindowForPlay(play, play.annotation) ??
       this.resolveDefaultDrawEffectWindow(play, this.playerCurrentTime());
 
+    if (this.drawAnnotation.kind !== 'freehand') {
+      const bounds = this.normalizeDrawBounds(this.drawAnnotation.bounds);
+      if (
+        bounds.maxX - bounds.minX < this.minimumDrawSelectionSize ||
+        bounds.maxY - bounds.minY < this.minimumDrawSelectionSize
+      ) {
+        return null;
+      }
+
+      return {
+        kind: this.drawAnnotation.kind,
+        bounds,
+        strokeCount: 1,
+        activeFromSec: this.roundPlaybackSecond(effectWindow.startSec),
+        activeUntilSec: this.roundPlaybackSecond(effectWindow.endSec),
+      };
+    }
+
+    const strokes = this.normalizeDrawStrokesForPersistence(this.drawAnnotation.strokes);
+    const points = strokes.flat();
+    if (points.length === 0) {
+      return null;
+    }
+    const bounds = this.computeBoundsFromPoints(points);
+
     return {
       kind: 'freehand',
-      bounds: {
-        minX: this.roundNormalizedPoint(minX),
-        minY: this.roundNormalizedPoint(minY),
-        maxX: this.roundNormalizedPoint(maxX),
-        maxY: this.roundNormalizedPoint(maxY),
-      },
+      bounds,
       strokeCount: strokes.length,
       points: this.compactDrawPointsFromStrokes(strokes, this.maxContextAnnotationPoints),
       strokes,
@@ -7031,8 +7922,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     };
   }
 
-  private normalizeDrawStrokesForPersistence(): readonly (readonly { x: number; y: number }[])[] {
-    const normalizedStrokes = this.drawStrokes
+  private normalizeDrawStrokesForPersistence(
+    strokes: readonly (readonly DrawAnnotationPoint[])[]
+  ): readonly (readonly DrawAnnotationPoint[])[] {
+    const normalizedStrokes = strokes
       .map((stroke) =>
         stroke.map((point) => ({
           x: this.roundNormalizedPoint(point.x),
@@ -7057,9 +7950,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private compactDrawPointsFromStrokes(
-    strokes: readonly (readonly { x: number; y: number }[])[],
+    strokes: readonly (readonly DrawAnnotationPoint[])[],
     maxPoints: number
-  ): readonly { x: number; y: number }[] {
+  ): readonly DrawAnnotationPoint[] {
     const points = strokes.flat();
     if (points.length <= maxPoints) {
       return points;
@@ -7067,6 +7960,274 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     const step = Math.max(1, Math.ceil(points.length / maxPoints));
     return points.filter((_, index) => index % step === 0).slice(0, maxPoints);
+  }
+
+  private resolveDrawStrokeCount(): number {
+    if (!this.drawAnnotation) {
+      return 0;
+    }
+
+    return this.drawAnnotation.kind === 'freehand'
+      ? this.drawAnnotation.strokes.filter((stroke) => stroke.length > 0).length
+      : 1;
+  }
+
+  private computeBoundsFromPoints(points: readonly DrawAnnotationPoint[]): DrawAnnotationBounds {
+    let minX = 1;
+    let minY = 1;
+    let maxX = 0;
+    let maxY = 0;
+
+    for (const point of points) {
+      minX = Math.min(minX, point.x);
+      minY = Math.min(minY, point.y);
+      maxX = Math.max(maxX, point.x);
+      maxY = Math.max(maxY, point.y);
+    }
+
+    return {
+      minX: this.roundNormalizedPoint(minX),
+      minY: this.roundNormalizedPoint(minY),
+      maxX: this.roundNormalizedPoint(maxX),
+      maxY: this.roundNormalizedPoint(maxY),
+    };
+  }
+
+  private buildShapeBoundsFromAnchor(
+    anchor: DrawAnnotationPoint,
+    point: DrawAnnotationPoint
+  ): DrawAnnotationBounds {
+    const deltaX = point.x - anchor.x;
+    const deltaY = point.y - anchor.y;
+    const signX = deltaX >= 0 ? 1 : -1;
+    const signY = deltaY >= 0 ? 1 : -1;
+    const maxAllowedX = signX > 0 ? 1 - anchor.x : anchor.x;
+    const maxAllowedY = signY > 0 ? 1 - anchor.y : anchor.y;
+    const size = Math.min(Math.max(Math.abs(deltaX), Math.abs(deltaY)), maxAllowedX, maxAllowedY);
+
+    return this.normalizeDrawBounds({
+      minX: anchor.x,
+      minY: anchor.y,
+      maxX: anchor.x + signX * size,
+      maxY: anchor.y + signY * size,
+    });
+  }
+
+  private translateDrawAnnotation(
+    annotation: EditableDrawAnnotation,
+    deltaX: number,
+    deltaY: number
+  ): EditableDrawAnnotation {
+    const clampedDeltaX = Math.max(
+      -annotation.bounds.minX,
+      Math.min(deltaX, 1 - annotation.bounds.maxX)
+    );
+    const clampedDeltaY = Math.max(
+      -annotation.bounds.minY,
+      Math.min(deltaY, 1 - annotation.bounds.maxY)
+    );
+
+    if (annotation.kind === 'freehand') {
+      return {
+        kind: 'freehand',
+        bounds: this.translateDrawBounds(annotation.bounds, clampedDeltaX, clampedDeltaY),
+        strokes: annotation.strokes.map((stroke) =>
+          stroke.map((point) => ({
+            x: this.roundNormalizedPoint(point.x + clampedDeltaX),
+            y: this.roundNormalizedPoint(point.y + clampedDeltaY),
+          }))
+        ),
+      };
+    }
+
+    return {
+      kind: annotation.kind,
+      bounds: this.translateDrawBounds(annotation.bounds, clampedDeltaX, clampedDeltaY),
+    };
+  }
+
+  private resizeDrawAnnotation(
+    annotation: EditableDrawAnnotation,
+    handle: DrawResizeHandle,
+    point: DrawAnnotationPoint
+  ): EditableDrawAnnotation {
+    const nextBounds = this.buildResizedDrawBounds(annotation, handle, point);
+    if (annotation.kind === 'freehand') {
+      return {
+        kind: 'freehand',
+        bounds: nextBounds,
+        strokes: this.scaleDrawStrokesToBounds(annotation.strokes, annotation.bounds, nextBounds),
+      };
+    }
+
+    return {
+      kind: annotation.kind,
+      bounds: nextBounds,
+    };
+  }
+
+  private buildResizedDrawBounds(
+    annotation: EditableDrawAnnotation,
+    handle: DrawResizeHandle,
+    point: DrawAnnotationPoint
+  ): DrawAnnotationBounds {
+    const opposite = this.resolveOppositeDrawCorner(annotation.bounds, handle);
+    const rawPoint = {
+      x: this.roundNormalizedPoint(point.x),
+      y: this.roundNormalizedPoint(point.y),
+    };
+
+    if (annotation.kind === 'square' || annotation.kind === 'circle') {
+      const signX = handle === 'ne' || handle === 'se' ? 1 : -1;
+      const signY = handle === 'sw' || handle === 'se' ? 1 : -1;
+      const maxAllowedX = signX > 0 ? 1 - opposite.x : opposite.x;
+      const maxAllowedY = signY > 0 ? 1 - opposite.y : opposite.y;
+      const dx = rawPoint.x - opposite.x;
+      const dy = rawPoint.y - opposite.y;
+      const size = Math.min(
+        Math.max(Math.max(Math.abs(dx), Math.abs(dy)), this.minimumDrawSelectionSize),
+        maxAllowedX,
+        maxAllowedY
+      );
+
+      return this.normalizeDrawBounds({
+        minX: opposite.x,
+        minY: opposite.y,
+        maxX: opposite.x + signX * size,
+        maxY: opposite.y + signY * size,
+      });
+    }
+
+    return this.normalizeDrawBounds({
+      minX: opposite.x,
+      minY: opposite.y,
+      maxX: rawPoint.x,
+      maxY: rawPoint.y,
+    });
+  }
+
+  private scaleDrawStrokesToBounds(
+    strokes: readonly (readonly DrawAnnotationPoint[])[],
+    sourceBounds: DrawAnnotationBounds,
+    targetBounds: DrawAnnotationBounds
+  ): Array<Array<DrawAnnotationPoint>> {
+    const sourceWidth = Math.max(sourceBounds.maxX - sourceBounds.minX, 0.001);
+    const sourceHeight = Math.max(sourceBounds.maxY - sourceBounds.minY, 0.001);
+    const targetWidth = Math.max(targetBounds.maxX - targetBounds.minX, 0.001);
+    const targetHeight = Math.max(targetBounds.maxY - targetBounds.minY, 0.001);
+
+    return strokes.map((stroke) =>
+      stroke.map((point) => ({
+        x: this.roundNormalizedPoint(
+          targetBounds.minX + ((point.x - sourceBounds.minX) / sourceWidth) * targetWidth
+        ),
+        y: this.roundNormalizedPoint(
+          targetBounds.minY + ((point.y - sourceBounds.minY) / sourceHeight) * targetHeight
+        ),
+      }))
+    );
+  }
+
+  private resolveDrawHitTarget(
+    point: DrawAnnotationPoint,
+    canvas: HTMLCanvasElement
+  ): DrawHitTarget {
+    const annotation = this.drawAnnotation;
+    if (!annotation) {
+      return { kind: 'none' };
+    }
+
+    const hitPaddingX =
+      (this.drawHandleSizePx + this.drawHandleHitPaddingPx) / Math.max(canvas.clientWidth, 1);
+    const hitPaddingY =
+      (this.drawHandleSizePx + this.drawHandleHitPaddingPx) / Math.max(canvas.clientHeight, 1);
+    const handles = this.resolveDrawHandlePositions(annotation.bounds);
+
+    for (const [handle, handlePoint] of Object.entries(handles) as Array<
+      [DrawResizeHandle, DrawAnnotationPoint]
+    >) {
+      if (
+        Math.abs(point.x - handlePoint.x) <= hitPaddingX &&
+        Math.abs(point.y - handlePoint.y) <= hitPaddingY
+      ) {
+        return { kind: 'handle', handle };
+      }
+    }
+
+    if (
+      point.x >= annotation.bounds.minX &&
+      point.x <= annotation.bounds.maxX &&
+      point.y >= annotation.bounds.minY &&
+      point.y <= annotation.bounds.maxY
+    ) {
+      return { kind: 'body' };
+    }
+
+    return { kind: 'none' };
+  }
+
+  private resolveDrawHandlePositions(
+    bounds: DrawAnnotationBounds
+  ): Record<DrawResizeHandle, DrawAnnotationPoint> {
+    return {
+      nw: { x: bounds.minX, y: bounds.minY },
+      ne: { x: bounds.maxX, y: bounds.minY },
+      se: { x: bounds.maxX, y: bounds.maxY },
+      sw: { x: bounds.minX, y: bounds.maxY },
+    };
+  }
+
+  private resolveOppositeDrawCorner(
+    bounds: DrawAnnotationBounds,
+    handle: DrawResizeHandle
+  ): DrawAnnotationPoint {
+    switch (handle) {
+      case 'nw':
+        return { x: bounds.maxX, y: bounds.maxY };
+      case 'ne':
+        return { x: bounds.minX, y: bounds.maxY };
+      case 'se':
+        return { x: bounds.minX, y: bounds.minY };
+      case 'sw':
+        return { x: bounds.maxX, y: bounds.minY };
+    }
+  }
+
+  private translateDrawBounds(
+    bounds: DrawAnnotationBounds,
+    deltaX: number,
+    deltaY: number
+  ): DrawAnnotationBounds {
+    return this.normalizeDrawBounds({
+      minX: bounds.minX + deltaX,
+      minY: bounds.minY + deltaY,
+      maxX: bounds.maxX + deltaX,
+      maxY: bounds.maxY + deltaY,
+    });
+  }
+
+  private normalizeDrawBounds(bounds: DrawAnnotationBounds): DrawAnnotationBounds {
+    return {
+      minX: this.roundNormalizedPoint(Math.min(bounds.minX, bounds.maxX)),
+      minY: this.roundNormalizedPoint(Math.min(bounds.minY, bounds.maxY)),
+      maxX: this.roundNormalizedPoint(Math.max(bounds.minX, bounds.maxX)),
+      maxY: this.roundNormalizedPoint(Math.max(bounds.minY, bounds.maxY)),
+    };
+  }
+
+  private cloneEditableDrawAnnotation(annotation: EditableDrawAnnotation): EditableDrawAnnotation {
+    if (annotation.kind === 'freehand') {
+      return {
+        kind: 'freehand',
+        bounds: { ...annotation.bounds },
+        strokes: annotation.strokes.map((stroke) => stroke.map((point) => ({ ...point }))),
+      };
+    }
+
+    return {
+      kind: annotation.kind,
+      bounds: { ...annotation.bounds },
+    };
   }
 
   private roundNormalizedPoint(value: number): number {
@@ -7879,7 +9040,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private toNormalizedDrawPoint(
     event: PointerEvent,
     canvas: HTMLCanvasElement
-  ): { x: number; y: number } {
+  ): DrawAnnotationPoint {
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) {
       return { x: 0, y: 0 };
@@ -7920,7 +9081,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!context) return;
 
     context.clearRect(0, 0, canvas.width, canvas.height);
-    if (!this.drawStrokes.length) return;
+    const annotation = this.drawAnnotation;
+    if (!annotation) return;
     if (!this.drawModeEnabled() && !this.shouldRenderDrawOverlayAtCurrentTime()) return;
 
     const style = getComputedStyle(canvas);
@@ -7933,25 +9095,164 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     context.lineJoin = 'round';
     context.lineWidth = Math.max(2 * ratio, 2);
 
-    for (const stroke of this.drawStrokes) {
-      if (!stroke.length) continue;
-      context.beginPath();
-      context.moveTo(stroke[0].x * canvas.width, stroke[0].y * canvas.height);
+    if (annotation.kind === 'freehand') {
+      for (const stroke of annotation.strokes) {
+        if (!stroke.length) continue;
+        context.beginPath();
+        context.moveTo(stroke[0].x * canvas.width, stroke[0].y * canvas.height);
 
-      for (let i = 1; i < stroke.length; i++) {
-        const point = stroke[i];
-        if (!point) continue;
-        context.lineTo(point.x * canvas.width, point.y * canvas.height);
+        for (let i = 1; i < stroke.length; i++) {
+          const point = stroke[i];
+          if (!point) continue;
+          context.lineTo(point.x * canvas.width, point.y * canvas.height);
+        }
+
+        if (stroke.length === 1) {
+          context.lineTo(stroke[0].x * canvas.width + 0.01, stroke[0].y * canvas.height + 0.01);
+        }
+
+        context.stroke();
       }
-
-      if (stroke.length === 1) {
-        context.lineTo(stroke[0].x * canvas.width + 0.01, stroke[0].y * canvas.height + 0.01);
+    } else {
+      const bounds = this.toCanvasDrawBounds(annotation.bounds, canvas);
+      if (annotation.kind === 'square') {
+        context.strokeRect(bounds.x, bounds.y, bounds.width, bounds.height);
+      } else {
+        context.beginPath();
+        context.ellipse(
+          bounds.x + bounds.width / 2,
+          bounds.y + bounds.height / 2,
+          bounds.width / 2,
+          bounds.height / 2,
+          0,
+          0,
+          Math.PI * 2
+        );
+        context.stroke();
       }
+    }
 
-      context.stroke();
+    if (this.drawModeEnabled()) {
+      this.renderDrawSelectionOverlay(context, annotation.bounds, canvas, strokeColor, ratio);
     }
 
     context.restore();
+  }
+
+  private toCanvasDrawBounds(
+    bounds: DrawAnnotationBounds,
+    canvas: HTMLCanvasElement
+  ): { x: number; y: number; width: number; height: number } {
+    const minX = bounds.minX * canvas.width;
+    const minY = bounds.minY * canvas.height;
+    const maxX = bounds.maxX * canvas.width;
+    const maxY = bounds.maxY * canvas.height;
+    return {
+      x: minX,
+      y: minY,
+      width: Math.max(0, maxX - minX),
+      height: Math.max(0, maxY - minY),
+    };
+  }
+
+  private renderDrawSelectionOverlay(
+    context: CanvasRenderingContext2D,
+    bounds: DrawAnnotationBounds,
+    canvas: HTMLCanvasElement,
+    strokeColor: string,
+    ratio: number
+  ): void {
+    const selection = this.toCanvasDrawBounds(bounds, canvas);
+
+    context.save();
+    context.setLineDash([4 * ratio, 4 * ratio]);
+    context.strokeStyle = strokeColor;
+    context.lineWidth = Math.max(1.5 * ratio, 1);
+    context.strokeRect(selection.x, selection.y, selection.width, selection.height);
+    context.setLineDash([]);
+    this.renderDrawSelectionCornerBadge(context, selection, strokeColor, ratio);
+
+    context.restore();
+  }
+
+  private renderDrawSelectionCornerBadge(
+    context: CanvasRenderingContext2D,
+    selection: { x: number; y: number; width: number; height: number },
+    strokeColor: string,
+    ratio: number
+  ): void {
+    const badgeSize = Math.max(this.drawHandleSizePx * 1.15 * ratio, 12 * ratio);
+    const canvasWidth = context.canvas.width;
+    const badgeX = Math.min(
+      selection.x + selection.width + badgeSize * 0.18,
+      canvasWidth - badgeSize - 2 * ratio
+    );
+    const badgeY = Math.max(selection.y - badgeSize * 0.18, 2 * ratio);
+    const centerX = badgeX + badgeSize / 2;
+    const centerY = badgeY + badgeSize / 2;
+
+    context.save();
+    context.translate(centerX, centerY);
+    context.rotate(-0.18);
+    context.fillStyle = '#ffffff';
+    context.strokeStyle = strokeColor;
+    context.lineWidth = Math.max(1.5 * ratio, 1);
+    context.beginPath();
+    context.arc(0, 0, badgeSize / 2, 0, Math.PI * 2);
+    context.fill();
+    context.stroke();
+
+    context.beginPath();
+    context.moveTo(-badgeSize * 0.26, badgeSize * 0.04);
+    context.bezierCurveTo(
+      -badgeSize * 0.12,
+      -badgeSize * 0.2,
+      badgeSize * 0.08,
+      badgeSize * 0.22,
+      badgeSize * 0.28,
+      -badgeSize * 0.04
+    );
+    context.stroke();
+    context.restore();
+  }
+
+  private syncDrawCanvasCursor(point?: DrawAnnotationPoint): void {
+    const canvas = this.drawCanvas?.nativeElement;
+    if (!canvas) return;
+
+    if (!this.drawModeEnabled()) {
+      canvas.style.cursor = 'default';
+      return;
+    }
+
+    if (this.drawInteraction?.mode === 'move') {
+      canvas.style.cursor = 'grabbing';
+      return;
+    }
+
+    if (this.drawInteraction?.mode === 'resize') {
+      canvas.style.cursor = this.resolveDrawResizeCursor(this.drawInteraction.handle);
+      return;
+    }
+
+    if (point) {
+      const hitTarget = this.resolveDrawHitTarget(point, canvas);
+      if (hitTarget.kind === 'handle') {
+        canvas.style.cursor = this.resolveDrawResizeCursor(hitTarget.handle);
+        return;
+      }
+
+      if (hitTarget.kind === 'body') {
+        canvas.style.cursor = 'grab';
+        return;
+      }
+    }
+
+    canvas.style.cursor = 'crosshair';
+  }
+
+  private resolveDrawResizeCursor(handle: DrawResizeHandle): string {
+    return handle === 'nw' || handle === 'se' ? 'nwse-resize' : 'nesw-resize';
   }
 
   private shouldRenderDrawOverlayAtCurrentTime(): boolean {

@@ -675,10 +675,8 @@ function toFilmReviewSummary(item: TeamFilmReviewDoc): Record<string, unknown> {
     createdBy: item.createdBy,
     updatedBy: item.updatedBy,
     timelineState: item.timelineState,
-    timeline: item.timeline,
     timelineGeneratedAt: item.timelineGeneratedAt,
     timelineError: item.timelineError,
-    downloadPrewarm: item.downloadPrewarm,
     updatedAt: item.updatedAt,
     createdAt: item.createdAt,
   };
@@ -863,6 +861,29 @@ function parseFilmReviewAnnotationPoint(input: unknown): { x: number; y: number 
   return x === null || y === null ? null : { x, y };
 }
 
+function parseFilmReviewAnnotationBounds(input: unknown) {
+  if (!input || typeof input !== 'object') return null;
+
+  const candidate = input as Record<string, unknown>;
+  const minX = parseNormalizedAnnotationCoordinate(candidate['minX']);
+  const minY = parseNormalizedAnnotationCoordinate(candidate['minY']);
+  const maxX = parseNormalizedAnnotationCoordinate(candidate['maxX']);
+  const maxY = parseNormalizedAnnotationCoordinate(candidate['maxY']);
+
+  if (
+    minX === null ||
+    minY === null ||
+    maxX === null ||
+    maxY === null ||
+    maxX < minX ||
+    maxY < minY
+  ) {
+    return null;
+  }
+
+  return { minX, minY, maxX, maxY };
+}
+
 function compactFilmReviewAnnotationPoints(
   points: readonly { x: number; y: number }[]
 ): readonly { x: number; y: number }[] {
@@ -920,8 +941,39 @@ function parseFilmReviewPlayAnnotation(
   if (!input || typeof input !== 'object') return INVALID_FILM_REVIEW_PLAY_ANNOTATION;
 
   const candidate = input as Record<string, unknown>;
-  if (candidate['kind'] !== 'freehand') {
+  const kind = candidate['kind'];
+  if (kind !== 'freehand' && kind !== 'square' && kind !== 'circle') {
     return INVALID_FILM_REVIEW_PLAY_ANNOTATION;
+  }
+
+  const activeFromSec = parseSeconds(candidate['activeFromSec']);
+  const activeUntilSec = parseSeconds(candidate['activeUntilSec']);
+  const timingWindow =
+    activeFromSec !== null && activeUntilSec !== null && activeUntilSec > activeFromSec
+      ? { activeFromSec, activeUntilSec }
+      : activeFromSec !== null
+        ? { activeFromSec }
+        : activeUntilSec !== null
+          ? { activeUntilSec }
+          : {};
+
+  if (kind !== 'freehand') {
+    const bounds = parseFilmReviewAnnotationBounds(candidate['bounds']);
+    if (!bounds) {
+      return INVALID_FILM_REVIEW_PLAY_ANNOTATION;
+    }
+
+    return {
+      kind,
+      bounds,
+      strokeCount:
+        typeof candidate['strokeCount'] === 'number' &&
+        Number.isFinite(candidate['strokeCount']) &&
+        candidate['strokeCount'] > 0
+          ? Math.round(candidate['strokeCount'])
+          : 1,
+      ...timingWindow,
+    } satisfies TeamFilmReviewPlayAnnotation;
   }
 
   const strokes: Array<readonly { x: number; y: number }[]> = [];
@@ -957,17 +1009,6 @@ function parseFilmReviewPlayAnnotation(
   if (flattenedPoints.length === 0) {
     return INVALID_FILM_REVIEW_PLAY_ANNOTATION;
   }
-
-  const activeFromSec = parseSeconds(candidate['activeFromSec']);
-  const activeUntilSec = parseSeconds(candidate['activeUntilSec']);
-  const timingWindow =
-    activeFromSec !== null && activeUntilSec !== null && activeUntilSec > activeFromSec
-      ? { activeFromSec, activeUntilSec }
-      : activeFromSec !== null
-        ? { activeFromSec }
-        : activeUntilSec !== null
-          ? { activeUntilSec }
-          : {};
 
   return {
     kind: 'freehand',
@@ -2912,27 +2953,23 @@ router.get('/film-reviews', appGuard, async (req: Request, res: Response) => {
       candidates = [...byId.values()];
     }
 
-    const bucket = req.firebase?.storage?.bucket() ?? getStorage().bucket();
+    const filteredCandidates = candidates
+      .filter((item) => (includeArchived ? true : item.status !== 'archived'))
+      .filter((item) => (sport ? item.sport.toLowerCase() === sport : true))
+      .sort((a, b) => (a.updatedAt > b.updatedAt ? -1 : 1));
+
     const filtered = await Promise.all(
-      candidates
-        .filter((item) => (includeArchived ? true : item.status !== 'archived'))
-        .filter((item) => (sport ? item.sport.toLowerCase() === sport : true))
-        .sort((a, b) => (a.updatedAt > b.updatedAt ? -1 : 1))
-        .slice(0, limit)
-        .map(async (item) => {
-          const refreshed = await refreshFilmReviewCloudflareState(item, db);
-          return toFilmReviewSummary({
-            ...refreshed,
-            videoUrl: await resolveFilmReviewVideoUrl(refreshed, bucket),
-          });
-        })
+      filteredCandidates.slice(0, limit).map(async (item) => {
+        const refreshed = await refreshFilmReviewCloudflareState(item, db);
+        return toFilmReviewSummary(refreshed);
+      })
     );
 
     res.json({
       success: true,
       data: {
         filmReviews: filtered,
-        count: filtered.length,
+        count: filteredCandidates.length,
       },
     });
   } catch (err) {

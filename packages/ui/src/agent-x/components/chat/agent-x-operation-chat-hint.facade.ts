@@ -8,7 +8,12 @@ import { type AgentXHintDockItem } from './agent-x-operation-chat-hint-dock.comp
  * Manages short-lived, first-open panel hints for the operation chat dock.
  */
 
-export type AgentXPanelHintKind = 'gameplans' | 'playbooks' | 'film-review' | 'diagrams';
+export type AgentXPanelHintKind =
+  | 'gameplans'
+  | 'playbooks'
+  | 'practice-scripts'
+  | 'film-review'
+  | 'diagrams';
 
 const PANEL_HINT_AUTO_DISMISS_MS = 25_000;
 const FIRST_USER_RUN_HINT_DELAY_MS = 10_000;
@@ -34,6 +39,12 @@ const PANEL_HINTS: Record<AgentXPanelHintKind, Omit<AgentXHintDockItem, 'hintKey
     icon: 'book-open',
     title: 'Playbooks',
     description: 'Drag plays, callsheets, or install cards into the composer to brief Agent X.',
+  },
+  'practice-scripts': {
+    icon: 'clipboard-list',
+    title: 'Practice Scripts',
+    description:
+      'Drag a saved practice script into the composer to brief Agent X with period-by-period context.',
   },
   'film-review': {
     icon: 'film',

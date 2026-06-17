@@ -47,6 +47,7 @@ import {
   viewChild,
   DestroyRef,
 } from '@angular/core';
+import { CdkDragDrop, DragDropModule } from '@angular/cdk/drag-drop';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { DomSanitizer, type SafeResourceUrl } from '@angular/platform-browser';
 import { interval } from 'rxjs';
@@ -112,6 +113,7 @@ import { getPlatformFaviconUrl, PLATFORM_FAVICON_DOMAINS } from '@nxt1/core/plat
 import type { ConnectedAppSource } from '../components/modals/agent-x-attachments-sheet.component';
 import { AgentXGameplansPanelComponent } from '../components/shared/agent-x-gameplans-panel.component';
 import { AgentXPlaybooksPanelComponent } from '../components/shared/agent-x-playbooks-panel.component';
+import { AgentXPracticeScriptsPanelComponent } from '../components/shared/agent-x-practice-scripts-panel.component';
 import { AgentXFilmReviewPanelComponent } from '../components/shared/agent-x-film-review-panel.component';
 import { AgentXDiagramsPanelComponent } from '../components/shared/agent-x-diagrams-panel.component';
 import { withAgentXReleaseLabel } from '../utils/agent-x-release-stage.utils';
@@ -200,6 +202,7 @@ type AgentXDesktopResizablePanel =
   | 'action-plan'
   | 'gameplans'
   | 'playbooks'
+  | 'practice-scripts'
   | 'film-review'
   | 'diagrams'
   | 'expanded-panel';
@@ -238,6 +241,7 @@ function sortCoordinatorCategories(
   selector: 'nxt1-agent-x-shell-web',
   standalone: true,
   imports: [
+    DragDropModule,
     NxtIconComponent,
     NxtStateViewComponent,
     AgentXDashboardSkeletonComponent,
@@ -247,6 +251,7 @@ function sortCoordinatorCategories(
     LiveViewLauncherComponent,
     AgentXGameplansPanelComponent,
     AgentXPlaybooksPanelComponent,
+    AgentXPracticeScriptsPanelComponent,
     AgentXFilmReviewPanelComponent,
     AgentXDiagramsPanelComponent,
   ],
@@ -348,6 +353,25 @@ function sortCoordinatorCategories(
                 >
                   <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
                   <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                </svg>
+              } @else if (panelMenuSelection() === 'practice-scripts') {
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M8 3h8" />
+                  <path d="M8 7h8" />
+                  <path d="M8 12h8" />
+                  <path d="M8 17h5" />
+                  <path d="M6 21h12" />
                 </svg>
               } @else if (panelMenuSelection() === 'film-review') {
                 <svg
@@ -505,6 +529,24 @@ function sortCoordinatorCategories(
                   <button
                     type="button"
                     class="header-nav-dropdown-item"
+                    [class.header-nav-dropdown-item--active]="
+                      panelMenuSelection() === 'practice-scripts'
+                    "
+                    role="menuitemradio"
+                    [attr.aria-checked]="panelMenuSelection() === 'practice-scripts'"
+                    (click)="onSelectPanelMenuOption('practice-scripts', $event)"
+                  >
+                    <span>{{ practiceScriptsPanelLabel }}</span>
+                    <nxt1-icon
+                      class="header-nav-dropdown-item-indicator"
+                      name="checkmark"
+                      [size]="14"
+                      aria-hidden="true"
+                    />
+                  </button>
+                  <button
+                    type="button"
+                    class="header-nav-dropdown-item"
                     [class.header-nav-dropdown-item--active]="panelMenuSelection() === 'diagrams'"
                     role="menuitemradio"
                     [attr.aria-checked]="panelMenuSelection() === 'diagrams'"
@@ -636,12 +678,14 @@ function sortCoordinatorCategories(
         !expandedSidePanel() &&
         !showGameplansModal() &&
         !showPlaybooksModal() &&
+        !showPracticeScriptsModal() &&
         !showFilmReviewModal() &&
         !showDiagramsModal()
       "
       [class.agent-main--with-gameplans]="
         (showGameplansModal() ||
           showPlaybooksModal() ||
+          showPracticeScriptsModal() ||
           showFilmReviewModal() ||
           showDiagramsModal()) &&
         !expandedSidePanel()
@@ -818,6 +862,7 @@ function sortCoordinatorCategories(
           showActionPlanModal() &&
           !showGameplansModal() &&
           !showPlaybooksModal() &&
+          !showPracticeScriptsModal() &&
           !showFilmReviewModal() &&
           !showDiagramsModal() &&
           !expandedSidePanel()
@@ -1290,6 +1335,120 @@ function sortCoordinatorCategories(
           </aside>
         }
 
+        @if (showPracticeScriptsModal() && !expandedSidePanel()) {
+          <aside
+            class="agent-column agent-action-plan-column agent-practice-scripts-column"
+            aria-label="Practice Scripts"
+          >
+            <div
+              class="agent-resize-handle agent-resize-handle--left"
+              [class.agent-resize-handle--active]="
+                activeDesktopResize()?.panel === 'practice-scripts'
+              "
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize practice scripts panel"
+              (mousedown)="startDesktopPanelResize('practice-scripts', $event)"
+              (dblclick)="resetDesktopPanelWidth('practice-scripts', $event)"
+            ></div>
+            <div class="agent-column-header">
+              <div class="agent-column-header-row">
+                @if (isPracticeScriptsDetailView()) {
+                  <div class="agent-column-inline-title-group">
+                    <button
+                      type="button"
+                      class="agent-column-back-btn"
+                      (click)="onPracticeScriptsHeaderBack()"
+                      aria-label="Back to practice scripts"
+                    >
+                      <nxt1-icon name="chevronLeft" [size]="14"></nxt1-icon>
+                      <span>Practice Scripts</span>
+                    </button>
+                    <h2 class="agent-column-title">{{ practiceScriptsHeaderTitle() }}</h2>
+                  </div>
+                } @else {
+                  <h2 class="agent-column-title">{{ practiceScriptsPanelLabel }}</h2>
+                }
+                <div class="agent-column-header-actions">
+                  <button
+                    type="button"
+                    class="agent-column-icon-btn"
+                    [class.agent-column-icon-btn--active]="isSideToolPanelFullscreenActive()"
+                    [attr.aria-label]="
+                      isSideToolPanelFullscreenActive()
+                        ? 'Restore chat layout'
+                        : 'Extend panel to full width'
+                    "
+                    [attr.title]="
+                      isSideToolPanelFullscreenActive()
+                        ? 'Restore chat layout'
+                        : 'Extend panel to full width'
+                    "
+                    (click)="toggleSideToolPanelFullscreen()"
+                  >
+                    @if (isSideToolPanelFullscreenActive()) {
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M4 14h6v6" />
+                        <path d="M20 10h-6V4" />
+                        <path d="m14 10 7-7" />
+                        <path d="m3 21 7-7" />
+                      </svg>
+                    } @else {
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="16"
+                        height="16"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        stroke-width="2"
+                        stroke-linecap="round"
+                        stroke-linejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M15 3h6v6" />
+                        <path d="M9 21H3v-6" />
+                        <path d="m21 3-7 7" />
+                        <path d="m3 21 7-7" />
+                      </svg>
+                    }
+                  </button>
+                  <button
+                    type="button"
+                    class="rail-close-btn"
+                    (click)="closePracticeScriptsPanel()"
+                    aria-label="Close practice scripts"
+                  >
+                    <nxt1-icon name="close" [size]="16"></nxt1-icon>
+                  </button>
+                </div>
+              </div>
+              @if (!isPracticeScriptsDetailView()) {
+                <p class="agent-column-subtitle">
+                  Coach-ready period scripts with reps, tempo, and call sequencing
+                </p>
+              }
+            </div>
+            <div class="action-plan-panel__body">
+              <nxt1-agent-x-practice-scripts-panel
+                [teamId]="resolvedActiveTeamId()"
+                [sport]="resolvedActiveSport()"
+              />
+            </div>
+          </aside>
+        }
+
         @if (showDiagramsModal() && !expandedSidePanel()) {
           <aside
             class="agent-column agent-action-plan-column agent-diagrams-column"
@@ -1434,18 +1593,85 @@ function sortCoordinatorCategories(
             <div class="agent-column-header">
               <div class="agent-column-header-row">
                 @if (isFilmReviewInlineVideoView()) {
-                  <div class="agent-column-inline-title-group">
-                    <button
-                      type="button"
-                      class="agent-column-back-btn"
-                      (click)="onFilmReviewHeaderBack()"
-                      aria-label="Back to video library"
+                  <button
+                    type="button"
+                    class="agent-column-back-btn"
+                    (click)="onFilmReviewHeaderBack()"
+                    aria-label="Back to video library"
+                  >
+                    <nxt1-icon name="chevronLeft" [size]="14"></nxt1-icon>
+                    <span>Library</span>
+                  </button>
+                  <!-- Video tabs inline in header -->
+                  @if ((filmReviewPanel()?.visibleOpenTabs()?.length ?? 0) > 0) {
+                    <div
+                      class="agent-column-film-tabs"
+                      role="tablist"
+                      aria-label="Open videos"
+                      cdkDropList
+                      cdkDropListOrientation="horizontal"
+                      [cdkDropListData]="filmReviewPanel()?.visibleOpenTabs() ?? []"
+                      (cdkDropListDropped)="onFilmTabsDropped($event)"
                     >
-                      <nxt1-icon name="chevronLeft" [size]="14"></nxt1-icon>
-                      <span>Library</span>
-                    </button>
-                    <h2 class="agent-column-title">{{ filmReviewHeaderTitle() }}</h2>
-                  </div>
+                      @for (tab of filmReviewPanel()?.visibleOpenTabs() ?? []; track tab.id) {
+                        <button
+                          type="button"
+                          class="agent-column-film-tab"
+                          [class.agent-column-film-tab--active]="
+                            tab.id === filmReviewPanel()?.selectedId()
+                          "
+                          [class.agent-column-film-tab--dragging]="tab.id === draggingFilmTabId()"
+                          role="tab"
+                          [attr.aria-selected]="tab.id === filmReviewPanel()?.selectedId()"
+                          [attr.data-testid]="'film-tab-' + tab.id"
+                          cdkDrag
+                          [cdkDragData]="tab.id"
+                          cdkDragPreviewContainer="parent"
+                          (cdkDragStarted)="onFilmTabDragStart(tab.id)"
+                          (cdkDragEnded)="onFilmTabDragEnd()"
+                          (click)="filmReviewPanel()?.onSelectReview(tab.id)"
+                        >
+                          <span class="agent-column-film-tab__label">{{
+                            filmReviewPanel()?.getReviewDisplayTitle(tab)
+                          }}</span>
+                          <button
+                            type="button"
+                            class="agent-column-film-tab__close"
+                            [attr.aria-label]="
+                              'Close ' + filmReviewPanel()?.getReviewDisplayTitle(tab)
+                            "
+                            (click)="filmReviewPanel()?.closeVideoTab(tab.id, $event)"
+                            title="Close tab"
+                          >
+                            <svg
+                              xmlns="http://www.w3.org/2000/svg"
+                              width="12"
+                              height="12"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                              stroke-linecap="round"
+                              stroke-linejoin="round"
+                              aria-hidden="true"
+                            >
+                              <path d="M18 6 6 18" />
+                              <path d="m6 6 12 12" />
+                            </svg>
+                          </button>
+                        </button>
+                      }
+                      <button
+                        type="button"
+                        class="agent-column-film-tab agent-column-film-tab--add"
+                        (click)="filmReviewPanel()?.openVideoFromLibrary()"
+                        title="Add another video"
+                        aria-label="Add video tab"
+                      >
+                        <nxt1-icon name="plus" [size]="14"></nxt1-icon>
+                      </button>
+                    </div>
+                  }
                 } @else {
                   <h2 class="agent-column-title">{{ filmReviewPanelLabel }}</h2>
                 }
@@ -2276,6 +2502,156 @@ function sortCoordinatorCategories(
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+      }
+
+      .agent-column-film-tabs {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-left: 10px;
+        padding: 0;
+        overflow-x: auto;
+        overflow-y: hidden;
+        scroll-behavior: smooth;
+        flex: 1;
+        min-width: 0;
+
+        &::-webkit-scrollbar {
+          height: 4px;
+        }
+
+        &::-webkit-scrollbar-track {
+          background: transparent;
+        }
+
+        &::-webkit-scrollbar-thumb {
+          background: var(--agent-border);
+          border-radius: 2px;
+
+          &:hover {
+            background: var(--agent-text-muted);
+          }
+        }
+      }
+
+      .agent-column-film-tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        flex-shrink: 0;
+        min-height: 28px;
+        padding: 0 10px 0 6px;
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+        border-radius: 999px;
+        background: transparent;
+        border: 1px solid var(--agent-border);
+        color: var(--agent-text-secondary);
+        cursor: pointer;
+        transition:
+          border-color 0.15s ease,
+          color 0.15s ease,
+          background 0.15s ease;
+        font-family: inherit;
+        cursor: grab;
+
+        &:hover:not(.agent-column-film-tab--active):not(.agent-column-film-tab--add) {
+          background: var(--agent-surface-hover);
+          border-color: var(--agent-primary);
+          color: var(--agent-text-primary);
+        }
+
+        &.agent-column-film-tab--active {
+          background: var(--agent-surface-hover);
+          border-color: var(--agent-primary);
+          color: var(--agent-text-primary);
+        }
+
+        &:focus-visible {
+          outline: 2px solid var(--agent-text-primary);
+          outline-offset: -2px;
+        }
+
+        &.agent-column-film-tab--dragging {
+          opacity: 0.65;
+          cursor: grabbing;
+        }
+      }
+
+      .agent-column-film-tabs.cdk-drop-list-dragging
+        .agent-column-film-tab:not(.cdk-drag-placeholder) {
+        transition: transform 180ms ease;
+      }
+
+      .agent-column-film-tab.cdk-drag-preview {
+        box-sizing: border-box;
+        border-radius: 999px;
+        border: 1px solid var(--agent-primary);
+        background: var(--agent-surface-hover);
+      }
+
+      .agent-column-film-tab.cdk-drag-placeholder {
+        opacity: 0.25;
+      }
+
+      .agent-column-film-tab.cdk-drag-animating {
+        transition: transform 180ms ease;
+      }
+
+      .agent-column-film-tab__label {
+        flex: 0 1 auto;
+        min-width: 0;
+        max-width: 120px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .agent-column-film-tab__close {
+        flex-shrink: 0;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        padding: 0;
+        margin-left: 2px;
+        background: transparent;
+        border: none;
+        border-radius: 3px;
+        color: currentColor;
+        cursor: pointer;
+        opacity: 0.6;
+        transition: opacity 150ms ease-out;
+
+        &:hover {
+          opacity: 1;
+          color: var(--agent-text-primary);
+        }
+
+        .agent-column-film-tab--active & {
+          opacity: 0.8;
+
+          &:hover {
+            opacity: 1;
+          }
+        }
+
+        svg {
+          display: block;
+        }
+      }
+
+      .agent-column-film-tab--add {
+        padding: 4px 6px;
+        background: transparent;
+        border: 1px solid var(--agent-border);
+
+        &:hover {
+          border-color: var(--agent-primary);
+          color: var(--agent-text-primary);
+          background: var(--agent-surface-hover);
+        }
       }
 
       .agent-column-back-btn {
@@ -4563,7 +4939,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly operationsLog = viewChild(AgentXOperationsLogComponent);
   private readonly gameplansPanel = viewChild(AgentXGameplansPanelComponent);
   private readonly playbooksPanel = viewChild(AgentXPlaybooksPanelComponent);
-  private readonly filmReviewPanel = viewChild(AgentXFilmReviewPanelComponent);
+  private readonly practiceScriptsPanel = viewChild(AgentXPracticeScriptsPanelComponent);
+  public readonly filmReviewPanel = viewChild(AgentXFilmReviewPanelComponent);
   private readonly diagramsPanel = viewChild(AgentXDiagramsPanelComponent);
   private readonly toast = inject(NxtToastService);
   private readonly haptics = inject(HapticsService);
@@ -4571,6 +4948,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly destroyRef = inject(DestroyRef);
   protected readonly platform = inject(NxtPlatformService);
   private readonly selectedCoordinatorLabel = signal<string | null>(null);
+  protected readonly draggingFilmTabId = signal<string | null>(null);
   private readonly firecrawlSignedInPlatforms = signal<readonly string[]>([]);
   private readonly activeThreadRefreshKeys = new Set<string>();
   protected readonly mobileComposerCanSend = computed(() => this.agentX.canSend());
@@ -4662,13 +5040,22 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.activeThreadRefreshKeys.add(refreshKey);
     void this.agentX
       .refreshThread(threadId)
-      .then(() => {
+      .then(async () => {
         this.logger.info('Refreshed active thread after background update', {
           threadId,
           operationId,
           source,
           status,
         });
+
+        if (this.shouldRefreshAgentToolPanelsForThreadUpdate(source, status)) {
+          await this.refreshAgentToolPanels('background-update', {
+            threadId,
+            operationId,
+            source,
+            status,
+          });
+        }
       })
       .catch((err: unknown) => {
         this.logger.error('Failed to refresh active thread after background update', err, {
@@ -4681,6 +5068,56 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       .finally(() => {
         this.activeThreadRefreshKeys.delete(refreshKey);
       });
+  }
+
+  private shouldRefreshAgentToolPanelsForThreadUpdate(source: string, status?: string): boolean {
+    return (
+      (source === 'enqueue' || source === 'operations-log') &&
+      this.isTerminalOperationStatus(status)
+    );
+  }
+
+  private isTerminalOperationStatus(status?: string): boolean {
+    return status === 'complete' || status === 'error' || status === 'cancelled';
+  }
+
+  private async refreshAgentToolPanels(
+    trigger: 'chat-response-complete' | 'background-update',
+    context?: {
+      readonly threadId?: string;
+      readonly operationId?: string;
+      readonly source?: string;
+      readonly status?: string;
+    }
+  ): Promise<void> {
+    const refreshTasks: Array<readonly [string, Promise<void> | undefined]> = [
+      ['gameplans', this.gameplansPanel()?.reload()],
+      ['playbooks', this.playbooksPanel()?.refreshData()],
+      ['practice-scripts', this.practiceScriptsPanel()?.refreshData()],
+      ['film-review', this.filmReviewPanel()?.refreshData()],
+      ['diagrams', this.diagramsPanel()?.reload()],
+    ];
+
+    const activeTasks = refreshTasks.filter(([, task]) => task !== undefined) as Array<
+      readonly [string, Promise<void>]
+    >;
+    if (activeTasks.length === 0) return;
+
+    const results = await Promise.allSettled(activeTasks.map(([, task]) => task));
+    const failedPanels = results.flatMap((result, index) =>
+      result.status === 'rejected' ? [activeTasks[index]?.[0] ?? 'unknown'] : []
+    );
+
+    if (failedPanels.length === 0) return;
+
+    this.logger.warn('Failed to refresh one or more Agent X tool panels after update', {
+      trigger,
+      threadId: context?.threadId,
+      operationId: context?.operationId,
+      source: context?.source,
+      status: context?.status,
+      panels: failedPanels,
+    });
   }
 
   /** Agent X SVG logo path data for inline icon rendering. */
@@ -4731,6 +5168,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   );
   protected readonly gameplansWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly playbooksWidth = signal(this.getDefaultExpandedPanelWidth());
+  protected readonly practiceScriptsWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly diagramsWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly filmReviewWidth = signal(this.getDefaultExpandedPanelWidth());
   protected readonly expandedPanelWidth = signal(this.getDefaultExpandedPanelWidth());
@@ -4741,32 +5179,40 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       ? this.expandedPanelWidth()
       : this.showPlaybooksModal()
         ? this.playbooksWidth()
-        : this.showDiagramsModal()
-          ? this.diagramsWidth()
-          : this.showFilmReviewModal()
-            ? this.filmReviewWidth()
-            : this.showGameplansModal()
-              ? this.gameplansWidth()
-              : this.actionPlanWidth()
+        : this.showPracticeScriptsModal()
+          ? this.practiceScriptsWidth()
+          : this.showDiagramsModal()
+            ? this.diagramsWidth()
+            : this.showFilmReviewModal()
+              ? this.filmReviewWidth()
+              : this.showGameplansModal()
+                ? this.gameplansWidth()
+                : this.actionPlanWidth()
   );
 
   /** Whether the Game Plans panel is visible (behind feature flag). Starts closed. */
   protected readonly showGameplansModal = signal(false);
   protected readonly showPlaybooksModal = signal(false);
+  protected readonly showPracticeScriptsModal = signal(false);
   protected readonly showFilmReviewModal = signal(false);
   private readonly pendingFilmTimestampSeekMs = signal<number | null>(null);
   protected readonly showDiagramsModal = signal(false);
   protected readonly sideToolPanelFullscreen = signal(false);
   protected readonly isAthleteUser = computed(() => this.user()?.role === 'athlete');
   protected readonly playbooksPanelLabel = withAgentXReleaseLabel('Playbooks', 'playbooks');
+  protected readonly practiceScriptsPanelLabel = withAgentXReleaseLabel(
+    'Practice Scripts',
+    'practiceScripts'
+  );
   protected readonly gameplansPanelLabel = withAgentXReleaseLabel('Game Plans', 'gameplans');
   protected readonly filmReviewPanelLabel = withAgentXReleaseLabel('Film Review', 'filmReview');
   protected readonly diagramsPanelLabel = withAgentXReleaseLabel('Diagrams Lab', 'diagramsLab');
   protected readonly isPanelMenuOpen = signal(false);
   protected readonly panelMenuSelection = computed<
-    'live-view' | 'gameplans' | 'playbooks' | 'film-review' | 'diagrams' | null
+    'live-view' | 'gameplans' | 'playbooks' | 'practice-scripts' | 'film-review' | 'diagrams' | null
   >(() => {
     if (this.showPlaybooksModal()) return 'playbooks';
+    if (this.showPracticeScriptsModal()) return 'practice-scripts';
     if (this.showDiagramsModal()) return 'diagrams';
     if (this.showFilmReviewModal()) return 'film-review';
     if (this.showGameplansModal()) return 'gameplans';
@@ -4781,6 +5227,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly panelMenuLabel = computed(() => {
     const selection = this.panelMenuSelection();
     if (selection === 'playbooks') return this.playbooksPanelLabel;
+    if (selection === 'practice-scripts') return this.practiceScriptsPanelLabel;
     if (selection === 'diagrams') return this.diagramsPanelLabel;
     if (selection === 'film-review') return this.filmReviewPanelLabel;
     if (selection === 'gameplans') return this.gameplansPanelLabel;
@@ -4791,6 +5238,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     const selection = this.panelMenuSelection();
     return selection === 'gameplans' ||
       selection === 'playbooks' ||
+      selection === 'practice-scripts' ||
       selection === 'film-review' ||
       selection === 'diagrams'
       ? selection
@@ -4801,6 +5249,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.sideToolPanelFullscreen() &&
       (this.showGameplansModal() ||
         this.showPlaybooksModal() ||
+        this.showPracticeScriptsModal() ||
         this.showFilmReviewModal() ||
         this.showDiagramsModal())
   );
@@ -4819,6 +5268,14 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     const panel = this.playbooksPanel();
     const title = !panel || !panel.isDetailView() ? 'Playbooks' : panel.getHeaderTitle();
     return withAgentXReleaseLabel(title, 'playbooks');
+  });
+  protected readonly isPracticeScriptsDetailView = computed(
+    () => this.showPracticeScriptsModal() && !!this.practiceScriptsPanel()?.isDetailView()
+  );
+  protected readonly practiceScriptsHeaderTitle = computed(() => {
+    const panel = this.practiceScriptsPanel();
+    const title = !panel || !panel.isDetailView() ? 'Practice Scripts' : panel.getHeaderTitle();
+    return withAgentXReleaseLabel(title, 'practiceScripts');
   });
   protected readonly isFilmReviewInlineVideoView = computed(
     () => this.showFilmReviewModal() && !!this.filmReviewPanel()?.isInlineVideoView()
@@ -4867,6 +5324,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   protected readonly isPanelMenuActive = computed(
     () =>
       this.showPlaybooksModal() ||
+      this.showPracticeScriptsModal() ||
       this.showFilmReviewModal() ||
       this.showGameplansModal() ||
       this.showDiagramsModal() ||
@@ -5059,6 +5517,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       panel === 'action-plan' ||
       panel === 'gameplans' ||
       panel === 'playbooks' ||
+      panel === 'practice-scripts' ||
       panel === 'diagrams' ||
       panel === 'film-review' ||
       panel === 'expanded-panel'
@@ -5067,15 +5526,17 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
           ? this.expandedPanelWidth()
           : this.showPlaybooksModal()
             ? this.playbooksWidth()
-            : this.showDiagramsModal()
-              ? this.diagramsWidth()
-              : this.showFilmReviewModal()
-                ? this.filmReviewWidth()
-                : this.showGameplansModal()
-                  ? this.gameplansWidth()
-                  : this.showActionPlanModal()
-                    ? this.actionPlanWidth()
-                    : 0;
+            : this.showPracticeScriptsModal()
+              ? this.practiceScriptsWidth()
+              : this.showDiagramsModal()
+                ? this.diagramsWidth()
+                : this.showFilmReviewModal()
+                  ? this.filmReviewWidth()
+                  : this.showGameplansModal()
+                    ? this.gameplansWidth()
+                    : this.showActionPlanModal()
+                      ? this.actionPlanWidth()
+                      : 0;
     const reservedChatWidth = this.isSideToolDesktopPanel(panel)
       ? 0
       : AgentXShellWebComponent.DESKTOP_CHAT_MIN_WIDTH;
@@ -5089,6 +5550,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       case 'gameplans':
         return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_GAMEPLANS_MIN_WIDTH);
       case 'playbooks':
+        return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_PLAYBOOKS_MIN_WIDTH);
+      case 'practice-scripts':
         return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_PLAYBOOKS_MIN_WIDTH);
       case 'diagrams':
         return Math.max(remainingWidth, AgentXShellWebComponent.DESKTOP_DIAGRAMS_MIN_WIDTH);
@@ -5120,6 +5583,11 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         this.sideToolPanelFullscreen.set(false);
         this.showPlaybooksModal.set(false);
         this.playbooksWidth.set(this.getDefaultExpandedPanelWidth());
+        break;
+      case 'practice-scripts':
+        this.sideToolPanelFullscreen.set(false);
+        this.showPracticeScriptsModal.set(false);
+        this.practiceScriptsWidth.set(this.getDefaultExpandedPanelWidth());
         break;
       case 'diagrams':
         this.sideToolPanelFullscreen.set(false);
@@ -5167,6 +5635,13 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         this.getDesktopPanelMaxWidth('playbooks')
       )
     );
+    this.practiceScriptsWidth.set(
+      this.clampWidth(
+        this.practiceScriptsWidth(),
+        AgentXShellWebComponent.DESKTOP_PLAYBOOKS_MIN_WIDTH,
+        this.getDesktopPanelMaxWidth('practice-scripts')
+      )
+    );
     this.diagramsWidth.set(
       this.clampWidth(
         this.diagramsWidth(),
@@ -5203,6 +5678,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     const syncedRightPanelDefault = this.getDefaultExpandedPanelWidth();
     this.gameplansWidth.set(syncedRightPanelDefault);
     this.playbooksWidth.set(syncedRightPanelDefault);
+    this.practiceScriptsWidth.set(syncedRightPanelDefault);
     this.diagramsWidth.set(syncedRightPanelDefault);
     this.filmReviewWidth.set(syncedRightPanelDefault);
     this.expandedPanelWidth.set(this.getDefaultExpandedPanelWidth());
@@ -5211,10 +5687,11 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
   private isSideToolDesktopPanel(
     panel: AgentXDesktopResizablePanel
-  ): panel is 'gameplans' | 'playbooks' | 'diagrams' | 'film-review' {
+  ): panel is 'gameplans' | 'playbooks' | 'practice-scripts' | 'diagrams' | 'film-review' {
     return (
       panel === 'gameplans' ||
       panel === 'playbooks' ||
+      panel === 'practice-scripts' ||
       panel === 'diagrams' ||
       panel === 'film-review'
     );
@@ -5233,6 +5710,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         break;
       case 'playbooks':
         this.playbooksWidth.set(width);
+        break;
+      case 'practice-scripts':
+        this.practiceScriptsWidth.set(width);
         break;
       case 'diagrams':
         this.diagramsWidth.set(width);
@@ -5256,6 +5736,8 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         return this.gameplansWidth();
       case 'playbooks':
         return this.playbooksWidth();
+      case 'practice-scripts':
+        return this.practiceScriptsWidth();
       case 'diagrams':
         return this.diagramsWidth();
       case 'film-review':
@@ -5303,6 +5785,9 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
         break;
       case 'playbooks':
         this.playbooksWidth.set(this.getDefaultExpandedPanelWidth());
+        break;
+      case 'practice-scripts':
+        this.practiceScriptsWidth.set(this.getDefaultExpandedPanelWidth());
         break;
       case 'diagrams':
         this.diagramsWidth.set(this.getDefaultExpandedPanelWidth());
@@ -5380,6 +5865,17 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
           nextWidth,
           AgentXShellWebComponent.DESKTOP_PLAYBOOKS_MIN_WIDTH,
           this.getDesktopPanelMaxWidth('playbooks')
+        )
+      );
+      return;
+    }
+
+    if (resizeState.panel === 'practice-scripts') {
+      this.practiceScriptsWidth.set(
+        this.clampWidth(
+          nextWidth,
+          AgentXShellWebComponent.DESKTOP_PLAYBOOKS_MIN_WIDTH,
+          this.getDesktopPanelMaxWidth('practice-scripts')
         )
       );
       return;
@@ -5855,6 +6351,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
    */
   protected onResponseComplete(): void {
     this.operationsLog()?.refresh();
+    void this.refreshAgentToolPanels('chat-response-complete');
   }
 
   /**
@@ -6017,6 +6514,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       this.showActionPlanModal() &&
       !this.showGameplansModal() &&
       !this.showPlaybooksModal() &&
+      !this.showPracticeScriptsModal() &&
       !this.showFilmReviewModal() &&
       !this.showDiagramsModal() &&
       !this.expandedSidePanel()
@@ -6031,6 +6529,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     }
     this.sideToolPanelFullscreen.set(false);
     this.showPlaybooksModal.set(false);
+    this.showPracticeScriptsModal.set(false);
     this.showGameplansModal.set(false);
     this.showFilmReviewModal.set(false);
     this.showDiagramsModal.set(false);
@@ -6049,6 +6548,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
       }
       this.showActionPlanModal.set(false);
       this.showPlaybooksModal.set(false);
+      this.showPracticeScriptsModal.set(false);
       this.showFilmReviewModal.set(false);
       this.showDiagramsModal.set(false);
       this.gameplansWidth.set(this.getDefaultExpandedPanelWidth());
@@ -6074,6 +6574,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     await this.haptics.impact('light');
     this.sideToolPanelFullscreen.set(false);
     this.showPlaybooksModal.set(false);
+    this.showPracticeScriptsModal.set(false);
     this.showGameplansModal.set(false);
     this.showFilmReviewModal.set(false);
     this.showDiagramsModal.set(false);
@@ -6090,6 +6591,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     if (
       !this.showGameplansModal() &&
       !this.showPlaybooksModal() &&
+      !this.showPracticeScriptsModal() &&
       !this.showFilmReviewModal() &&
       !this.showDiagramsModal()
     ) {
@@ -6110,9 +6612,32 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.showPlaybooksModal.set(false);
   }
 
+  protected closePracticeScriptsPanel(): void {
+    this.sideToolPanelFullscreen.set(false);
+    this.showPracticeScriptsModal.set(false);
+  }
+
   protected closeFilmReviewPanel(): void {
     this.sideToolPanelFullscreen.set(false);
     this.showFilmReviewModal.set(false);
+  }
+
+  protected onFilmTabDragStart(tabId: string): void {
+    this.draggingFilmTabId.set(tabId);
+  }
+
+  protected onFilmTabsDropped(event: CdkDragDrop<any>): void {
+    if (event.previousIndex === event.currentIndex) {
+      this.draggingFilmTabId.set(null);
+      return;
+    }
+
+    this.filmReviewPanel()?.reorderVideoTabsByIndex(event.previousIndex, event.currentIndex);
+    this.draggingFilmTabId.set(null);
+  }
+
+  protected onFilmTabDragEnd(): void {
+    this.draggingFilmTabId.set(null);
   }
 
   protected closeDiagramsPanel(): void {
@@ -6292,7 +6817,13 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   }
 
   public async onSelectPanelMenuOption(
-    option: 'live-view' | 'gameplans' | 'playbooks' | 'film-review' | 'diagrams',
+    option:
+      | 'live-view'
+      | 'gameplans'
+      | 'playbooks'
+      | 'practice-scripts'
+      | 'film-review'
+      | 'diagrams',
     event: MouseEvent
   ): Promise<void> {
     event.stopPropagation();
@@ -6310,6 +6841,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     if (option === 'live-view') {
       await this.haptics.impact('light');
       this.showPlaybooksModal.set(false);
+      this.showPracticeScriptsModal.set(false);
       this.showGameplansModal.set(false);
       this.showFilmReviewModal.set(false);
       this.showDiagramsModal.set(false);
@@ -6341,11 +6873,30 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
       this.showActionPlanModal.set(false);
       this.showGameplansModal.set(false);
+      this.showPracticeScriptsModal.set(false);
       this.showFilmReviewModal.set(false);
       this.showDiagramsModal.set(false);
       this.playbooksWidth.set(this.getDefaultExpandedPanelWidth());
       this.showPlaybooksModal.set(true);
       this.breadcrumb.trackStateChange('agent_x_shell:playbooks_opened', {});
+      return;
+    }
+
+    if (option === 'practice-scripts') {
+      await this.haptics.impact('light');
+
+      if (this.expandedSidePanel()) {
+        this.closeExpandedSidePanel();
+      }
+
+      this.showActionPlanModal.set(false);
+      this.showPlaybooksModal.set(false);
+      this.showGameplansModal.set(false);
+      this.showFilmReviewModal.set(false);
+      this.showDiagramsModal.set(false);
+      this.practiceScriptsWidth.set(this.getDefaultExpandedPanelWidth());
+      this.showPracticeScriptsModal.set(true);
+      this.breadcrumb.trackStateChange('agent_x_shell:practice_scripts_opened', {});
       return;
     }
 
@@ -6358,6 +6909,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
       this.showActionPlanModal.set(false);
       this.showPlaybooksModal.set(false);
+      this.showPracticeScriptsModal.set(false);
       this.showGameplansModal.set(false);
       this.showFilmReviewModal.set(false);
       this.diagramsWidth.set(this.getDefaultExpandedPanelWidth());
@@ -6378,6 +6930,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
       this.showActionPlanModal.set(false);
       this.showPlaybooksModal.set(false);
+      this.showPracticeScriptsModal.set(false);
       this.showGameplansModal.set(false);
       this.showDiagramsModal.set(false);
       this.filmReviewWidth.set(this.getDefaultExpandedPanelWidth());
@@ -6399,6 +6952,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
     this.showActionPlanModal.set(false);
     this.showPlaybooksModal.set(false);
+    this.showPracticeScriptsModal.set(false);
     this.showFilmReviewModal.set(false);
     this.showDiagramsModal.set(false);
     this.gameplansWidth.set(this.getDefaultExpandedPanelWidth());
@@ -6423,6 +6977,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.isPanelMenuOpen.set(false);
     this.showActionPlanModal.set(false);
     this.showPlaybooksModal.set(false);
+    this.showPracticeScriptsModal.set(false);
     this.showGameplansModal.set(false);
     this.showDiagramsModal.set(false);
     this.filmReviewWidth.set(this.getDefaultExpandedPanelWidth());
@@ -6456,6 +7011,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     this.isPanelMenuOpen.set(false);
     this.showActionPlanModal.set(false);
     this.showPlaybooksModal.set(false);
+    this.showPracticeScriptsModal.set(false);
     this.showGameplansModal.set(false);
     this.showDiagramsModal.set(false);
     this.filmReviewWidth.set(this.getDefaultExpandedPanelWidth());
@@ -6475,6 +7031,10 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
 
   public onPlaybooksHeaderBack(): void {
     this.playbooksPanel()?.backToList();
+  }
+
+  public onPracticeScriptsHeaderBack(): void {
+    this.practiceScriptsPanel()?.backToList();
   }
 
   public onFilmReviewHeaderBack(): void {

@@ -290,21 +290,6 @@ export interface GenerateInstallPlanResponse {
   readonly error?: string;
 }
 
-export interface PlaybookPdfExportResponse {
-  readonly success: boolean;
-  readonly data?: {
-    readonly downloadUrl: string;
-    readonly storagePath?: string;
-    readonly fileName?: string;
-    readonly mimeType?: string;
-    readonly format?: 'pdf';
-    readonly sizeBytes?: number;
-    readonly rowCount?: number;
-    readonly columnCount?: number;
-  };
-  readonly error?: string;
-}
-
 export interface GamePlan {
   readonly id: string;
   readonly teamId: string;

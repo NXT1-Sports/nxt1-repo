@@ -9,6 +9,7 @@ import {
 describe('agent-x-release-stage.utils', () => {
   const betaSurfaces: readonly AgentXReleaseSurface[] = [
     'playbooks',
+    'practiceScripts',
     'gameplans',
     'filmReview',
     'diagramsLab',
@@ -25,6 +26,9 @@ describe('agent-x-release-stage.utils', () => {
 
   it('formats titles with the release label for beta surfaces', () => {
     expect(withAgentXReleaseLabel('Playbooks', 'playbooks')).toBe('Playbooks (Beta)');
+    expect(withAgentXReleaseLabel('Practice Scripts', 'practiceScripts')).toBe(
+      'Practice Scripts (Beta)'
+    );
     expect(withAgentXReleaseLabel(' Film Review ', 'filmReview')).toBe('Film Review (Beta)');
   });
 

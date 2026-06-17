@@ -611,16 +611,6 @@ export const OPERATIONS_LOG_TEST_IDS = {
         }
       }
 
-      /* ── Skeleton shimmer ── */
-      @keyframes log-shimmer {
-        0% {
-          background-position: -200% 0;
-        }
-        100% {
-          background-position: 200% 0;
-        }
-      }
-
       /* ═══ FILTER CHIPS ═══ */
       .log-filters {
         display: flex;
@@ -1106,15 +1096,18 @@ export const OPERATIONS_LOG_TEST_IDS = {
       .log-skeleton__title,
       .log-skeleton__summary,
       .log-skeleton__time {
-        background: var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08));
-        background-image: linear-gradient(
-          90deg,
-          var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 25%,
-          var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.15)) 50%,
-          var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 75%
+        background: var(
+          --nxt1-skeleton-gradient,
+          linear-gradient(
+            90deg,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 25%,
+            var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.15)) 50%,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 75%
+          )
         );
         background-size: 200% 100%;
-        animation: log-shimmer 1.5s infinite ease-in-out;
+        animation: skeleton-shimmer var(--nxt1-skeleton-animation-duration, 1.5s) infinite
+          ease-in-out;
         border-radius: var(--nxt1-radius-sm, 4px);
       }
 

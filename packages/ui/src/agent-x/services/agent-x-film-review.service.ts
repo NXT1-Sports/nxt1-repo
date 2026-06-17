@@ -46,12 +46,16 @@ export class AgentXFilmReviewService {
   );
 
   private readonly _reviews = signal<readonly TeamFilmReviewDoc[]>([]);
+  private readonly _totalReviewCount = signal(0);
   private readonly _selectedId = signal<string | null>(null);
   private readonly _loading = signal(false);
   private readonly _saving = signal(false);
   private readonly _error = signal<string | null>(null);
+  private readonly hydratedReviewIds = new Set<string>();
+  private readonly detailRequests = new Map<string, Promise<void>>();
 
   readonly reviews = computed(() => this._reviews());
+  readonly totalReviewCount = computed(() => this._totalReviewCount());
   readonly selectedId = computed(() => this._selectedId());
   readonly loading = computed(() => this._loading());
   readonly saving = computed(() => this._saving());
@@ -234,7 +238,7 @@ export class AgentXFilmReviewService {
     }
   }
 
-  async load(teamId: string, sport?: string): Promise<void> {
+  async load(teamId: string, sport?: string, limit: number = 20): Promise<void> {
     this._loading.set(true);
     this._error.set(null);
 
@@ -242,19 +246,23 @@ export class AgentXFilmReviewService {
     this.breadcrumb.trackStateChange('film_review_loading', { teamId, sport: sport ?? null });
 
     try {
-      const reviews =
+      const response =
         (await this.performance?.trace(
           TRACE_NAMES.FILM_REVIEW_LIST,
-          () => this.api.listFilmReviews({ teamId, sport, limit: 30 }),
+          () => this.api.listFilmReviewsPage({ teamId, sport, limit }),
           {
             attributes: {
               team_id: teamId,
               sport: sport ?? 'all',
             },
           }
-        )) ?? (await this.api.listFilmReviews({ teamId, sport, limit: 30 }));
+        )) ?? (await this.api.listFilmReviewsPage({ teamId, sport, limit }));
+
+      const reviews = response.filmReviews;
 
       this._reviews.set(reviews.map((review) => this.normalizeReviewTimelineError(review)));
+      this._totalReviewCount.set(response.count);
+      this.hydratedReviewIds.clear();
 
       if (!this._selectedId() || !reviews.some((review) => review.id === this._selectedId())) {
         this._selectedId.set(reviews[0]?.id ?? null);
@@ -273,6 +281,52 @@ export class AgentXFilmReviewService {
     } finally {
       this._loading.set(false);
     }
+  }
+
+  async ensureReviewDetails(reviewId: string, teamId?: string): Promise<void> {
+    if (!reviewId.trim()) return;
+    if (this.hydratedReviewIds.has(reviewId)) return;
+
+    const activeRequest = this.detailRequests.get(reviewId);
+    if (activeRequest) {
+      await activeRequest;
+      return;
+    }
+
+    const request = (async () => {
+      try {
+        const updated =
+          (await this.performance?.trace(
+            TRACE_NAMES.FILM_REVIEW_DETAIL,
+            () => this.api.getFilmReview(reviewId, teamId),
+            {
+              attributes: {
+                review_id: reviewId,
+                team_id: teamId ?? 'unknown',
+              },
+            }
+          )) ?? (await this.api.getFilmReview(reviewId, teamId));
+
+        this._reviews.update((reviews) =>
+          reviews.map((review) =>
+            review.id === reviewId ? this.normalizeReviewTimelineError(updated) : review
+          )
+        );
+
+        this.hydratedReviewIds.add(reviewId);
+      } catch (err) {
+        this.logger.warn('Failed to hydrate film review detail; keeping list payload data', {
+          reviewId,
+          teamId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      } finally {
+        this.detailRequests.delete(reviewId);
+      }
+    })();
+
+    this.detailRequests.set(reviewId, request);
+    await request;
   }
 
   select(reviewId: string): void {

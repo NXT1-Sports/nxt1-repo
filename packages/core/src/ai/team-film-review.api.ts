@@ -124,9 +124,9 @@ export function createTeamFilmReviewApi(http: HttpAdapter, baseUrl: string) {
   const endpoint = `${baseUrl}/film-reviews`;
 
   return {
-    async listFilmReviews(
+    async listFilmReviewsPage(
       request: ListTeamFilmReviewsRequest = {}
-    ): Promise<readonly TeamFilmReviewDoc[]> {
+    ): Promise<ListTeamFilmReviewsResponse> {
       const query = buildQuery({
         teamId: request.teamId,
         sport: request.sport,
@@ -137,7 +137,13 @@ export function createTeamFilmReviewApi(http: HttpAdapter, baseUrl: string) {
       const response = await http.get<ApiResponse<ListTeamFilmReviewsResponse>>(
         `${endpoint}${query}`
       );
-      return ensureSuccess(response, 'Failed to load film reviews').filmReviews;
+      return ensureSuccess(response, 'Failed to load film reviews');
+    },
+
+    async listFilmReviews(
+      request: ListTeamFilmReviewsRequest = {}
+    ): Promise<readonly TeamFilmReviewDoc[]> {
+      return (await this.listFilmReviewsPage(request)).filmReviews;
     },
 
     async getFilmReview(reviewId: string, teamId?: string): Promise<TeamFilmReviewDoc> {

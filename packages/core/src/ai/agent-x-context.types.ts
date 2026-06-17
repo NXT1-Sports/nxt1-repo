@@ -62,9 +62,11 @@ export interface AgentXSelectedContextAnnotationBounds {
   readonly maxY: number;
 }
 
+export type AgentXSelectedContextAnnotationKind = 'freehand' | 'square' | 'circle';
+
 /** Compact drawing data attached to a selected media context. */
 export interface AgentXSelectedContextAnnotation {
-  readonly kind: 'freehand';
+  readonly kind: AgentXSelectedContextAnnotationKind;
   readonly bounds: AgentXSelectedContextAnnotationBounds;
   readonly strokeCount: number;
   readonly points?: readonly AgentXSelectedContextAnnotationPoint[];
@@ -106,6 +108,12 @@ const SELECTED_CONTEXT_SOURCE_TYPES = new Set<AgentXSelectedContextSourceType>([
   'game_plan',
   'agent_x',
   'external',
+]);
+
+const SELECTED_CONTEXT_ANNOTATION_KINDS = new Set<AgentXSelectedContextAnnotationKind>([
+  'freehand',
+  'square',
+  'circle',
 ]);
 
 /** Serialize a selected context for browser drag-and-drop transfer. */
@@ -216,7 +224,8 @@ function isSelectedContextAnnotation(value: unknown): value is AgentXSelectedCon
   if (!isRecord(value)) return false;
 
   return (
-    value['kind'] === 'freehand' &&
+    typeof value['kind'] === 'string' &&
+    SELECTED_CONTEXT_ANNOTATION_KINDS.has(value['kind'] as AgentXSelectedContextAnnotationKind) &&
     isSelectedContextAnnotationBounds(value['bounds']) &&
     isFiniteNonNegativeNumber(value['strokeCount']) &&
     (value['points'] === undefined || isSelectedContextAnnotationPoints(value['points']))

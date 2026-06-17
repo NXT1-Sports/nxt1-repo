@@ -42,6 +42,9 @@ type GamePlanAdjustmentTrigger = NonNullable<GamePlanDetail['adjustmentTriggers'
 type GamePlanSection = NonNullable<GamePlanDetail['customSections']>[number];
 type GamePlanLinkedPlay = NonNullable<GamePlanDetail['linkedPlays']>[number];
 
+const GAMEPLAN_KEY_PLAYERS_SECTION_KEY = 'key-players';
+const GAMEPLAN_KEY_PLAYERS_SECTION_TITLE = 'Key Players';
+
 interface DisplayStrengthWeaknessItem {
   readonly id: string;
   readonly label: string;
@@ -51,6 +54,16 @@ interface DisplayStrengthWeaknessItem {
   readonly actionPlan?: string;
   readonly evidenceNote?: string;
   readonly tags?: readonly string[];
+}
+
+interface GamePlanKeyPlayer {
+  readonly id: string;
+  readonly name: string;
+  readonly side: 'own' | 'opponent';
+  readonly role?: string;
+  readonly jerseyNumber?: string;
+  readonly notes?: string;
+  readonly imageUrl?: string;
 }
 
 interface GameplansResponse {
@@ -74,6 +87,14 @@ interface GamePlanMutationResponse {
   readonly success: boolean;
   readonly data?: {
     readonly gamePlan?: GamePlanDetail;
+  };
+  readonly error?: string;
+}
+
+interface UploadAttachmentResponse {
+  readonly success: boolean;
+  readonly data?: {
+    readonly url: string;
   };
   readonly error?: string;
 }
@@ -757,6 +778,321 @@ interface GamePlanMutationResponse {
                   strengthWeaknessItems().length === 0 && editingStrengthWeaknessIndex() === null
                 ) {
                   <p class="section-content">No strengths and weaknesses recorded yet.</p>
+                }
+              </div>
+            </section>
+
+            <section class="detail-section detail-section--key-players">
+              <div class="detail-section__head">
+                <h3 class="section-title">Key Players</h3>
+                <button
+                  type="button"
+                  class="btn-save"
+                  [disabled]="mutating() || keyPlayerImageUploading()"
+                  (click)="startCreateKeyPlayer()"
+                >
+                  Add Player
+                </button>
+              </div>
+
+              <div class="priority-list">
+                @for (player of keyPlayers(); track player.id + '-' + $index) {
+                  <article
+                    class="priority-item key-player-card"
+                    [nxtAgentXContextDrag]="buildGamePlanKeyPlayerDragContext(player)"
+                  >
+                    <div class="priority-item__head key-player-card__head">
+                      <div class="key-player-card__title-block">
+                        <h4 class="priority-item__title">{{ player.name }}</h4>
+                        <div class="key-player-card__meta-row">
+                          <span class="sw-pill" [attr.data-side]="player.side">
+                            {{ player.side === 'own' ? 'Own Team' : 'Opponent' }}
+                          </span>
+                          @if (player.role) {
+                            <span class="section-meta">{{ player.role }}</span>
+                          }
+                          @if (player.jerseyNumber) {
+                            <span class="section-meta">#{{ player.jerseyNumber }}</span>
+                          }
+                        </div>
+                      </div>
+                      <div class="item-actions">
+                        <button
+                          type="button"
+                          class="box-edit-btn"
+                          aria-label="Edit key player"
+                          [disabled]="mutating() || keyPlayerImageUploading()"
+                          (click)="startEditKeyPlayer($index)"
+                        >
+                          <nxt1-icon name="pencil" [size]="12"></nxt1-icon>
+                        </button>
+                        <button
+                          type="button"
+                          class="btn-delete-mini"
+                          [disabled]="mutating() || keyPlayerImageUploading()"
+                          (click)="removeKeyPlayer($index, $event)"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+
+                    @if (editingKeyPlayerIndex() === $index) {
+                      <div class="item-edit-form key-player-edit-form">
+                        <input
+                          class="form-input"
+                          placeholder="Player name"
+                          [value]="keyPlayerEdit().name"
+                          (input)="onKeyPlayerEditInput('name', $event)"
+                        />
+                        <div class="form-row">
+                          <input
+                            class="form-input"
+                            placeholder="Position / role"
+                            [value]="keyPlayerEdit().role"
+                            (input)="onKeyPlayerEditInput('role', $event)"
+                          />
+                          <input
+                            class="form-input"
+                            placeholder="Jersey #"
+                            [value]="keyPlayerEdit().jerseyNumber"
+                            (input)="onKeyPlayerEditInput('jerseyNumber', $event)"
+                          />
+                        </div>
+                        <div class="form-row">
+                          <select
+                            class="form-input"
+                            [value]="keyPlayerEdit().side"
+                            (change)="onKeyPlayerEditInput('side', $event)"
+                          >
+                            <option value="own">Own Team</option>
+                            <option value="opponent">Opponent</option>
+                          </select>
+                          <input
+                            class="form-input"
+                            placeholder="Image URL"
+                            [value]="keyPlayerEdit().imageUrl"
+                            (input)="onKeyPlayerEditInput('imageUrl', $event)"
+                          />
+                        </div>
+
+                        <div class="key-player-image-editor">
+                          <input
+                            #existingKeyPlayerImageInput
+                            type="file"
+                            class="hidden-file-input"
+                            accept="image/*"
+                            (change)="onKeyPlayerImageSelected($event)"
+                          />
+
+                          <div class="key-player-image-frame">
+                            @if (keyPlayerEdit().imageUrl) {
+                              <img
+                                class="key-player-image"
+                                [src]="keyPlayerEdit().imageUrl"
+                                [alt]="keyPlayerEdit().name || 'Key player preview'"
+                                loading="lazy"
+                              />
+                            } @else {
+                              <div class="key-player-card__image-placeholder">
+                                <span>{{ getKeyPlayerInitials(keyPlayerEdit().name) }}</span>
+                              </div>
+                            }
+                          </div>
+
+                          <div class="key-player-image-actions">
+                            <button
+                              type="button"
+                              class="btn-save"
+                              [disabled]="mutating() || keyPlayerImageUploading()"
+                              (click)="existingKeyPlayerImageInput.click()"
+                            >
+                              {{ keyPlayerImageUploading() ? 'Uploading…' : 'Upload Image' }}
+                            </button>
+                            @if (keyPlayerEdit().imageUrl) {
+                              <button
+                                type="button"
+                                class="btn-cancel"
+                                [disabled]="mutating() || keyPlayerImageUploading()"
+                                (click)="clearKeyPlayerImage()"
+                              >
+                                Remove Image
+                              </button>
+                            }
+                          </div>
+                        </div>
+
+                        <textarea
+                          class="form-input form-textarea"
+                          rows="4"
+                          placeholder="Scouting note, matchup angle, or coaching point"
+                          [value]="keyPlayerEdit().notes"
+                          (input)="onKeyPlayerEditInput('notes', $event)"
+                        ></textarea>
+                        <div class="form-actions">
+                          <button type="button" class="btn-cancel" (click)="cancelKeyPlayerEdit()">
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            class="btn-save"
+                            [disabled]="mutating() || keyPlayerImageUploading()"
+                            (click)="saveKeyPlayerEdit()"
+                          >
+                            {{ mutating() ? 'Saving…' : 'Save Player' }}
+                          </button>
+                        </div>
+                      </div>
+                    } @else {
+                      <div class="key-player-card__content">
+                        <div class="key-player-card__image-shell">
+                          @if (player.imageUrl) {
+                            <img
+                              class="key-player-card__image"
+                              [src]="player.imageUrl"
+                              [alt]="player.name"
+                              loading="lazy"
+                            />
+                          } @else {
+                            <div class="key-player-card__image-placeholder">
+                              <span>{{ getKeyPlayerInitials(player.name) }}</span>
+                            </div>
+                          }
+                        </div>
+
+                        <div class="key-player-card__copy">
+                          @if (player.notes) {
+                            <nxt1-markdown
+                              class="section-content section-content--markdown key-player-card__notes"
+                              [content]="markdownContent(player.notes)"
+                            />
+                          } @else {
+                            <p class="section-meta">No scouting notes saved for this player yet.</p>
+                          }
+                        </div>
+                      </div>
+                    }
+                  </article>
+                }
+
+                @if (editingKeyPlayerIndex() === -1) {
+                  <article class="priority-item key-player-card">
+                    <div class="priority-item__head key-player-card__head">
+                      <h4 class="priority-item__title">New Player</h4>
+                    </div>
+
+                    <div class="item-edit-form key-player-edit-form">
+                      <input
+                        class="form-input"
+                        placeholder="Player name"
+                        [value]="keyPlayerEdit().name"
+                        (input)="onKeyPlayerEditInput('name', $event)"
+                      />
+                      <div class="form-row">
+                        <input
+                          class="form-input"
+                          placeholder="Position / role"
+                          [value]="keyPlayerEdit().role"
+                          (input)="onKeyPlayerEditInput('role', $event)"
+                        />
+                        <input
+                          class="form-input"
+                          placeholder="Jersey #"
+                          [value]="keyPlayerEdit().jerseyNumber"
+                          (input)="onKeyPlayerEditInput('jerseyNumber', $event)"
+                        />
+                      </div>
+                      <div class="form-row">
+                        <select
+                          class="form-input"
+                          [value]="keyPlayerEdit().side"
+                          (change)="onKeyPlayerEditInput('side', $event)"
+                        >
+                          <option value="own">Own Team</option>
+                          <option value="opponent">Opponent</option>
+                        </select>
+                        <input
+                          class="form-input"
+                          placeholder="Image URL"
+                          [value]="keyPlayerEdit().imageUrl"
+                          (input)="onKeyPlayerEditInput('imageUrl', $event)"
+                        />
+                      </div>
+
+                      <div class="key-player-image-editor">
+                        <input
+                          #newKeyPlayerImageInput
+                          type="file"
+                          class="hidden-file-input"
+                          accept="image/*"
+                          (change)="onKeyPlayerImageSelected($event)"
+                        />
+
+                        <div class="key-player-image-frame">
+                          @if (keyPlayerEdit().imageUrl) {
+                            <img
+                              class="key-player-image"
+                              [src]="keyPlayerEdit().imageUrl"
+                              [alt]="keyPlayerEdit().name || 'Key player preview'"
+                              loading="lazy"
+                            />
+                          } @else {
+                            <div class="key-player-card__image-placeholder">
+                              <span>{{ getKeyPlayerInitials(keyPlayerEdit().name) }}</span>
+                            </div>
+                          }
+                        </div>
+
+                        <div class="key-player-image-actions">
+                          <button
+                            type="button"
+                            class="btn-save"
+                            [disabled]="mutating() || keyPlayerImageUploading()"
+                            (click)="newKeyPlayerImageInput.click()"
+                          >
+                            {{ keyPlayerImageUploading() ? 'Uploading…' : 'Upload Image' }}
+                          </button>
+                          @if (keyPlayerEdit().imageUrl) {
+                            <button
+                              type="button"
+                              class="btn-cancel"
+                              [disabled]="mutating() || keyPlayerImageUploading()"
+                              (click)="clearKeyPlayerImage()"
+                            >
+                              Remove Image
+                            </button>
+                          }
+                        </div>
+                      </div>
+
+                      <textarea
+                        class="form-input form-textarea"
+                        rows="4"
+                        placeholder="Scouting note, matchup angle, or coaching point"
+                        [value]="keyPlayerEdit().notes"
+                        (input)="onKeyPlayerEditInput('notes', $event)"
+                      ></textarea>
+                      <div class="form-actions">
+                        <button type="button" class="btn-cancel" (click)="cancelKeyPlayerEdit()">
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          class="btn-save"
+                          [disabled]="mutating() || keyPlayerImageUploading()"
+                          (click)="saveKeyPlayerEdit()"
+                        >
+                          {{ mutating() ? 'Saving…' : 'Add Player' }}
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                }
+
+                @if (keyPlayers().length === 0 && editingKeyPlayerIndex() === null) {
+                  <p class="section-content">
+                    No key players saved yet. Add as many as you need and attach an image for each.
+                  </p>
                 }
               </div>
             </section>
@@ -2033,23 +2369,18 @@ interface GamePlanMutationResponse {
       .skeleton-card {
         height: 120px;
         border-radius: var(--nxt1-radius-lg, 14px);
-        background: linear-gradient(
-          90deg,
-          var(--agent-surface, rgba(0, 0, 0, 0.03)) 0%,
-          var(--agent-surface-hover, rgba(0, 0, 0, 0.05)) 50%,
-          var(--agent-surface, rgba(0, 0, 0, 0.03)) 100%
+        background: var(
+          --nxt1-skeleton-gradient,
+          linear-gradient(
+            90deg,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 25%,
+            var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.15)) 50%,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 75%
+          )
         );
         background-size: 200% 100%;
-        animation: shimmer 2s infinite;
-      }
-
-      @keyframes shimmer {
-        0% {
-          background-position: 200% 0;
-        }
-        100% {
-          background-position: -200% 0;
-        }
+        animation: skeleton-shimmer var(--nxt1-skeleton-animation-duration, 1.5s) infinite
+          ease-in-out;
       }
 
       /* ════════════════════════════════════════════
@@ -2070,14 +2401,9 @@ interface GamePlanMutationResponse {
 
       .gameplans-list {
         display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
         gap: var(--nxt1-spacing-3, 12px);
-      }
-
-      @media (max-width: 560px) {
-        .gameplans-list {
-          grid-template-columns: 1fr;
-        }
+        align-items: start;
       }
 
       /* ════════════════════════════════════════════
@@ -2190,6 +2516,7 @@ interface GamePlanMutationResponse {
         display: inline-flex;
         align-items: center;
         padding: 2px 8px;
+        max-width: 100%;
         border-radius: 4px;
         background: var(--agent-surface-hover, rgba(0, 0, 0, 0.05));
         font-size: 12px;
@@ -2198,8 +2525,12 @@ interface GamePlanMutationResponse {
       }
 
       .gameplan-meta-tag--opponent {
-        background: var(--agent-primary-glow, rgba(204, 255, 0, 0.1));
-        color: var(--agent-primary, #ccff00);
+        border: 1px solid rgba(153, 191, 0, 0.35);
+        background: rgba(204, 255, 0, 0.18);
+        color: #3d4a00;
+        font-weight: 700;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
       }
 
       /* Card Timestamp */
@@ -2256,15 +2587,17 @@ interface GamePlanMutationResponse {
         background: var(--agent-surface-hover, rgba(255, 255, 255, 0.06));
       }
 
-      :host-context(.dark) .skeleton-card,
-      :host-context([data-theme='dark']) .skeleton-card {
-        background: linear-gradient(
-          90deg,
-          var(--agent-surface, rgba(255, 255, 255, 0.04)) 0%,
-          var(--agent-surface-hover, rgba(255, 255, 255, 0.06)) 50%,
-          var(--agent-surface, rgba(255, 255, 255, 0.04)) 100%
-        );
-        background-size: 200% 100%;
+      :host-context(.dark) .gameplan-meta-tag--opponent,
+      :host-context([data-theme='dark']) .gameplan-meta-tag--opponent {
+        border-color: rgba(204, 255, 0, 0.4);
+        background: rgba(204, 255, 0, 0.16);
+        color: rgba(246, 255, 192, 0.96);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .skeleton-card {
+          animation: none;
+        }
       }
 
       /* ════════════════════════════════════════════
@@ -2457,48 +2790,52 @@ interface GamePlanMutationResponse {
         order: 4;
       }
 
-      .detail-section--primary-attack {
+      .detail-section--key-players {
         order: 5;
       }
 
-      .detail-section--priorities {
+      .detail-section--primary-attack {
         order: 6;
       }
 
-      .detail-section--special-situations {
+      .detail-section--priorities {
         order: 7;
       }
 
-      .detail-section--strengths {
+      .detail-section--special-situations {
         order: 8;
       }
 
-      .detail-section--adjustment-triggers {
+      .detail-section--strengths {
         order: 9;
       }
 
-      .detail-section--plan-blocks {
+      .detail-section--adjustment-triggers {
         order: 10;
       }
 
-      .detail-section--custom-sections {
+      .detail-section--plan-blocks {
         order: 11;
       }
 
-      .detail-section--linked-playbooks {
+      .detail-section--custom-sections {
         order: 12;
       }
 
-      .detail-section--linked-plays {
+      .detail-section--linked-playbooks {
         order: 13;
       }
 
-      .detail-section--tags {
+      .detail-section--linked-plays {
         order: 14;
       }
 
-      .detail-section--record-metadata {
+      .detail-section--tags {
         order: 15;
+      }
+
+      .detail-section--record-metadata {
+        order: 16;
       }
 
       .detail-section__head {
@@ -2830,6 +3167,96 @@ interface GamePlanMutationResponse {
         background: var(--agent-surface-hover, rgba(0, 0, 0, 0.05));
       }
 
+      .key-player-card__head {
+        align-items: flex-start;
+      }
+
+      .key-player-card__title-block {
+        display: grid;
+        gap: 6px;
+      }
+
+      .key-player-card__meta-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+
+      .key-player-card__content {
+        display: grid;
+        grid-template-columns: 104px minmax(0, 1fr);
+        gap: 12px;
+        align-items: start;
+      }
+
+      .key-player-card__image-shell,
+      .key-player-image-frame {
+        width: 100%;
+        min-height: 132px;
+        border-radius: var(--nxt1-radius-sm, 8px);
+        border: 1px solid var(--agent-border, rgba(0, 0, 0, 0.08));
+        overflow: hidden;
+        background: var(--agent-surface, rgba(0, 0, 0, 0.03));
+      }
+
+      .key-player-card__image,
+      .key-player-image {
+        display: block;
+        width: 100%;
+        height: 132px;
+        object-fit: cover;
+      }
+
+      .key-player-card__image-placeholder {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 132px;
+        background:
+          radial-gradient(circle at top, rgba(204, 255, 0, 0.14), transparent 60%),
+          linear-gradient(135deg, rgba(0, 0, 0, 0.02), rgba(0, 0, 0, 0.08));
+        color: var(--agent-text-secondary, rgba(0, 0, 0, 0.7));
+        font-size: 24px;
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+
+      .key-player-card__copy {
+        display: grid;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .key-player-card__notes {
+        min-width: 0;
+      }
+
+      .key-player-image-editor {
+        display: grid;
+        gap: 8px;
+      }
+
+      .key-player-image-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        align-items: center;
+      }
+
+      @media (max-width: 640px) {
+        .key-player-card__content {
+          grid-template-columns: 1fr;
+        }
+
+        .key-player-card__image-shell,
+        .key-player-image-frame {
+          max-width: 180px;
+        }
+      }
+
       .sw-item__head,
       .priority-item__head {
         display: flex;
@@ -3007,6 +3434,20 @@ export class AgentXGameplansPanelComponent {
     content: '',
   });
   public customSectionEdit = computed(() => this._customSectionEdit());
+  private readonly _editingKeyPlayerIndex = signal<number | null>(null);
+  public editingKeyPlayerIndex = computed(() => this._editingKeyPlayerIndex());
+  private readonly _keyPlayerEdit = signal({
+    id: '',
+    name: '',
+    side: 'opponent' as 'own' | 'opponent',
+    role: '',
+    jerseyNumber: '',
+    notes: '',
+    imageUrl: '',
+  });
+  public keyPlayerEdit = computed(() => this._keyPlayerEdit());
+  private readonly _keyPlayerImageUploading = signal(false);
+  public keyPlayerImageUploading = computed(() => this._keyPlayerImageUploading());
   private readonly _editingStrengthWeaknessIndex = signal<number | null>(null);
   public editingStrengthWeaknessIndex = computed(() => this._editingStrengthWeaknessIndex());
   private readonly _strengthWeaknessEdit = signal({
@@ -3232,6 +3673,7 @@ export class AgentXGameplansPanelComponent {
   public startCreateAdjustmentTrigger(): void {
     this._editingBox.set(null);
     this.cancelCustomSectionEdit();
+    this.cancelKeyPlayerEdit();
     this._editingAdjustmentTriggerIndex.set(-1);
     this._adjustmentTriggerEdit.set({
       trigger: '',
@@ -3251,6 +3693,7 @@ export class AgentXGameplansPanelComponent {
 
     this._editingBox.set(null);
     this.cancelCustomSectionEdit();
+    this.cancelKeyPlayerEdit();
     this._editingAdjustmentTriggerIndex.set(index);
     this._adjustmentTriggerEdit.set({
       trigger: trigger.trigger ?? '',
@@ -3344,6 +3787,7 @@ export class AgentXGameplansPanelComponent {
   public startCreateCustomSection(): void {
     this._editingBox.set(null);
     this.cancelAdjustmentTriggerEdit();
+    this.cancelKeyPlayerEdit();
     this._editingCustomSectionIndex.set(-1);
     this._customSectionEdit.set({ title: '', key: '', order: '', tags: '', content: '' });
   }
@@ -3356,6 +3800,7 @@ export class AgentXGameplansPanelComponent {
 
     this._editingBox.set(null);
     this.cancelAdjustmentTriggerEdit();
+    this.cancelKeyPlayerEdit();
     this._editingCustomSectionIndex.set(index);
     this._customSectionEdit.set({
       title: section.title ?? '',
@@ -3448,6 +3893,7 @@ export class AgentXGameplansPanelComponent {
   ): ReadonlyArray<{ readonly index: number; readonly section: GamePlanSection }> {
     return sections
       .map((section, index) => ({ index, section }))
+      .filter((entry) => !this.isKeyPlayersSection(entry.section))
       .sort(
         (a, b) =>
           (a.section.order ?? Number.MAX_SAFE_INTEGER) -
@@ -3455,10 +3901,181 @@ export class AgentXGameplansPanelComponent {
       );
   }
 
+  public startCreateKeyPlayer(): void {
+    this._editingBox.set(null);
+    this.cancelAdjustmentTriggerEdit();
+    this.cancelCustomSectionEdit();
+    this.cancelStrengthWeaknessEdit();
+    this._editingKeyPlayerIndex.set(-1);
+    this._keyPlayerEdit.set({
+      id: '',
+      name: '',
+      side: 'opponent',
+      role: '',
+      jerseyNumber: '',
+      notes: '',
+      imageUrl: '',
+    });
+  }
+
+  public startEditKeyPlayer(index: number): void {
+    const player = this.keyPlayers()[index];
+    if (!player) return;
+
+    this._editingBox.set(null);
+    this.cancelAdjustmentTriggerEdit();
+    this.cancelCustomSectionEdit();
+    this.cancelStrengthWeaknessEdit();
+    this._editingKeyPlayerIndex.set(index);
+    this._keyPlayerEdit.set({
+      id: player.id,
+      name: player.name,
+      side: player.side,
+      role: player.role ?? '',
+      jerseyNumber: player.jerseyNumber ?? '',
+      notes: player.notes ?? '',
+      imageUrl: player.imageUrl ?? '',
+    });
+  }
+
+  public cancelKeyPlayerEdit(): void {
+    this._editingKeyPlayerIndex.set(null);
+    this._keyPlayerEdit.set({
+      id: '',
+      name: '',
+      side: 'opponent',
+      role: '',
+      jerseyNumber: '',
+      notes: '',
+      imageUrl: '',
+    });
+    this._keyPlayerImageUploading.set(false);
+  }
+
+  public onKeyPlayerEditInput(
+    field: 'name' | 'side' | 'role' | 'jerseyNumber' | 'notes' | 'imageUrl',
+    event: Event
+  ): void {
+    const target = event.target as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+    const value = target.value;
+
+    if (field === 'side') {
+      this._keyPlayerEdit.update((current) => ({
+        ...current,
+        side: value === 'own' ? 'own' : 'opponent',
+      }));
+      return;
+    }
+
+    this._keyPlayerEdit.update((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  public clearKeyPlayerImage(): void {
+    this._keyPlayerEdit.update((current) => ({
+      ...current,
+      imageUrl: '',
+    }));
+  }
+
+  public async onKeyPlayerImageSelected(event: Event): Promise<void> {
+    const target = event.target as HTMLInputElement;
+    const file = target.files?.[0] ?? null;
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      this._error.set('Please select an image file.');
+      target.value = '';
+      return;
+    }
+
+    this._keyPlayerImageUploading.set(true);
+    this._error.set(null);
+
+    try {
+      const imageUrl = await this.uploadKeyPlayerImage(file);
+      this._keyPlayerEdit.update((current) => ({
+        ...current,
+        imageUrl,
+      }));
+    } catch (err) {
+      this._error.set(err instanceof Error ? err.message : 'Unable to upload player image.');
+    } finally {
+      this._keyPlayerImageUploading.set(false);
+      target.value = '';
+    }
+  }
+
+  public async saveKeyPlayerEdit(): Promise<void> {
+    if (this._mutating()) return;
+
+    const plan = this._detailPlan();
+    const index = this._editingKeyPlayerIndex();
+    if (!plan || index === null) return;
+
+    const draft = this._keyPlayerEdit();
+    const name = draft.name.trim();
+    if (!name) {
+      this._error.set('Key player name is required.');
+      return;
+    }
+
+    const next = [...this.keyPlayers()];
+    const player: GamePlanKeyPlayer = {
+      id:
+        draft.id.trim() ||
+        `kp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      side: draft.side,
+      ...(draft.role.trim() ? { role: draft.role.trim() } : {}),
+      ...(draft.jerseyNumber.trim() ? { jerseyNumber: draft.jerseyNumber.trim() } : {}),
+      ...(draft.notes.trim() ? { notes: draft.notes.trim() } : {}),
+      ...(draft.imageUrl.trim() ? { imageUrl: draft.imageUrl.trim() } : {}),
+    };
+
+    if (index === -1) {
+      next.push(player);
+    } else if (index >= 0 && index < next.length) {
+      next[index] = player;
+    } else {
+      return;
+    }
+
+    await this.updateSelectedPlan({
+      customSections: this.buildSectionsWithKeyPlayers(plan.customSections, next),
+    });
+    this.cancelKeyPlayerEdit();
+  }
+
+  public async removeKeyPlayer(index: number, event: Event): Promise<void> {
+    event.preventDefault();
+    event.stopPropagation();
+    if (this._mutating()) return;
+
+    const plan = this._detailPlan();
+    const players = this.keyPlayers();
+    if (!plan || index < 0 || index >= players.length) return;
+
+    const next = players.filter((_, itemIndex) => itemIndex !== index);
+    await this.updateSelectedPlan({
+      customSections: this.buildSectionsWithKeyPlayers(plan.customSections, next),
+    });
+
+    const editingIndex = this._editingKeyPlayerIndex();
+    if (editingIndex === index) {
+      this.cancelKeyPlayerEdit();
+    } else if (editingIndex !== null && editingIndex > index) {
+      this._editingKeyPlayerIndex.set(editingIndex - 1);
+    }
+  }
+
   public startCreateStrengthWeakness(): void {
     this._editingBox.set(null);
     this.cancelAdjustmentTriggerEdit();
     this.cancelCustomSectionEdit();
+    this.cancelKeyPlayerEdit();
     this._editingStrengthWeaknessIndex.set(-1);
     this._strengthWeaknessEdit.set({
       id: '',
@@ -3481,6 +4098,7 @@ export class AgentXGameplansPanelComponent {
     this._editingBox.set(null);
     this.cancelAdjustmentTriggerEdit();
     this.cancelCustomSectionEdit();
+    this.cancelKeyPlayerEdit();
     this._editingStrengthWeaknessIndex.set(index);
     this._strengthWeaknessEdit.set({
       id: item.id ?? '',
@@ -3621,6 +4239,7 @@ export class AgentXGameplansPanelComponent {
   private cancelInlineCollectionEditors(): void {
     this.cancelAdjustmentTriggerEdit();
     this.cancelCustomSectionEdit();
+    this.cancelKeyPlayerEdit();
     this.cancelStrengthWeaknessEdit();
   }
 
@@ -3640,6 +4259,166 @@ export class AgentXGameplansPanelComponent {
       .replace(/^-+|-+$/g, '');
 
     return key || 'custom-section';
+  }
+
+  private isKeyPlayersSection(section: GamePlanSection): boolean {
+    const normalizedKey = this.normalizeTextValue(section.key)?.toLowerCase();
+    const normalizedTitle = this.createSectionKeyFromTitle(section.title ?? '');
+
+    return (
+      normalizedKey === GAMEPLAN_KEY_PLAYERS_SECTION_KEY ||
+      normalizedTitle === GAMEPLAN_KEY_PLAYERS_SECTION_KEY
+    );
+  }
+
+  private parseKeyPlayersFromSections(
+    sections: readonly GamePlanSection[] | undefined
+  ): readonly GamePlanKeyPlayer[] {
+    const section = sections?.find((entry) => this.isKeyPlayersSection(entry));
+    if (!section?.content?.trim()) return [];
+
+    try {
+      const parsed = JSON.parse(section.content) as unknown;
+      const rawPlayers = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray((parsed as { readonly players?: unknown }).players)
+          ? ((parsed as { readonly players: unknown[] }).players ?? [])
+          : [];
+      const normalized = rawPlayers
+        .map((entry, index) => this.normalizeKeyPlayer(entry, index))
+        .filter((entry): entry is GamePlanKeyPlayer => entry !== null);
+      if (normalized.length > 0) return normalized;
+    } catch {
+      const legacyContent = this.normalizeTextValue(section.content);
+      if (legacyContent) {
+        return [
+          {
+            id: 'key-player-legacy',
+            name: 'Key Player Notes',
+            side: 'opponent',
+            notes: legacyContent,
+          },
+        ];
+      }
+    }
+
+    return [];
+  }
+
+  private normalizeKeyPlayer(value: unknown, index: number): GamePlanKeyPlayer | null {
+    if (typeof value !== 'object' || value === null) return null;
+
+    const entry = value as {
+      readonly id?: unknown;
+      readonly name?: unknown;
+      readonly playerName?: unknown;
+      readonly label?: unknown;
+      readonly side?: unknown;
+      readonly team?: unknown;
+      readonly role?: unknown;
+      readonly position?: unknown;
+      readonly jerseyNumber?: unknown;
+      readonly number?: unknown;
+      readonly notes?: unknown;
+      readonly scoutingNote?: unknown;
+      readonly imageUrl?: unknown;
+      readonly photoUrl?: unknown;
+    };
+
+    const name =
+      this.normalizeTextValue(entry.name) ??
+      this.normalizeTextValue(entry.playerName) ??
+      this.normalizeTextValue(entry.label);
+    const notes =
+      this.normalizeTextValue(entry.notes) ?? this.normalizeTextValue(entry.scoutingNote);
+
+    if (!name && !notes) return null;
+
+    return {
+      id:
+        this.normalizeTextValue(entry.id) ??
+        `key-player-${index + 1}-${Math.random().toString(36).slice(2, 6)}`,
+      name: name ?? `Key Player ${index + 1}`,
+      side:
+        entry.side === 'own' || entry.team === 'own'
+          ? 'own'
+          : entry.side === 'opponent' || entry.team === 'opponent'
+            ? 'opponent'
+            : 'opponent',
+      ...((this.normalizeTextValue(entry.role) ?? this.normalizeTextValue(entry.position))
+        ? {
+            role: this.normalizeTextValue(entry.role) ?? this.normalizeTextValue(entry.position),
+          }
+        : {}),
+      ...((this.normalizeTextValue(entry.jerseyNumber) ?? this.normalizeTextValue(entry.number))
+        ? {
+            jerseyNumber:
+              this.normalizeTextValue(entry.jerseyNumber) ?? this.normalizeTextValue(entry.number),
+          }
+        : {}),
+      ...(notes ? { notes } : {}),
+      ...((this.normalizeTextValue(entry.imageUrl) ?? this.normalizeTextValue(entry.photoUrl))
+        ? {
+            imageUrl:
+              this.normalizeTextValue(entry.imageUrl) ?? this.normalizeTextValue(entry.photoUrl),
+          }
+        : {}),
+    };
+  }
+
+  private buildSectionsWithKeyPlayers(
+    sections: readonly GamePlanSection[] | undefined,
+    players: readonly GamePlanKeyPlayer[]
+  ): readonly GamePlanSection[] {
+    const existingKeyPlayersSection = sections?.find((section) =>
+      this.isKeyPlayersSection(section)
+    );
+    const otherSections = (sections ?? []).filter((section) => !this.isKeyPlayersSection(section));
+    const normalizedPlayers = players
+      .map((player) => ({
+        id: player.id,
+        name: player.name.trim(),
+        side: player.side,
+        ...(player.role?.trim() ? { role: player.role.trim() } : {}),
+        ...(player.jerseyNumber?.trim() ? { jerseyNumber: player.jerseyNumber.trim() } : {}),
+        ...(player.notes?.trim() ? { notes: player.notes.trim() } : {}),
+        ...(player.imageUrl?.trim() ? { imageUrl: player.imageUrl.trim() } : {}),
+      }))
+      .filter((player) => player.name.length > 0);
+
+    if (normalizedPlayers.length === 0) {
+      return otherSections;
+    }
+
+    const fallbackOrder = existingKeyPlayersSection?.order ?? otherSections.length;
+
+    return [
+      ...otherSections,
+      {
+        key: GAMEPLAN_KEY_PLAYERS_SECTION_KEY,
+        title: GAMEPLAN_KEY_PLAYERS_SECTION_TITLE,
+        content: JSON.stringify({ players: normalizedPlayers }, null, 2),
+        order: fallbackOrder,
+        ...(existingKeyPlayersSection?.tags?.length
+          ? { tags: existingKeyPlayersSection.tags }
+          : {}),
+      },
+    ];
+  }
+
+  private async uploadKeyPlayerImage(file: File): Promise<string> {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const response = await firstValueFrom(
+      this.http.post<UploadAttachmentResponse>(`${this.baseUrl}/upload`, formData)
+    );
+
+    if (!response.success || !response.data?.url) {
+      throw new Error(response.error ?? 'Unable to upload player image.');
+    }
+
+    return response.data.url;
   }
 
   public async openPlanForInlineEdit(planId: string, box: string, event: Event): Promise<void> {
@@ -3709,6 +4488,9 @@ export class AgentXGameplansPanelComponent {
   });
   readonly selectedPlanId = computed(() => this._selectedPlanId());
   readonly selectedPlan = computed(() => this._detailPlan());
+  readonly keyPlayers = computed(() =>
+    this.parseKeyPlayersFromSections(this._detailPlan()?.customSections)
+  );
   readonly strengthWeaknessItems = computed(() =>
     this.buildStrengthWeaknessDisplayItems(this._detailPlan()?.strengthsWeaknesses)
   );
@@ -3745,6 +4527,7 @@ export class AgentXGameplansPanelComponent {
   }
 
   async reload(): Promise<void> {
+    const selectedPlanId = this._selectedPlanId();
     this._loading.set(true);
     this._error.set(null);
 
@@ -3776,6 +4559,12 @@ export class AgentXGameplansPanelComponent {
       }
 
       this._plans.set(response.data?.gamePlans ?? []);
+
+      if (selectedPlanId && this._plans().some((plan) => plan.id === selectedPlanId)) {
+        this.selectPlan(selectedPlanId);
+      } else if (selectedPlanId) {
+        this.clearSelection();
+      }
     } catch {
       this._plans.set([]);
       this._error.set('Unable to load game plans right now');
@@ -3936,6 +4725,15 @@ export class AgentXGameplansPanelComponent {
     });
   }
 
+  getKeyPlayerInitials(name: string | undefined): string {
+    const normalized = (name ?? '').trim();
+    if (!normalized) return 'KP';
+
+    const parts = normalized.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
+  }
+
   sortedPlanBlocks(blocks: readonly GamePlanBlock[]): readonly GamePlanBlock[] {
     return [...blocks].sort((a, b) => a.order - b.order);
   }
@@ -4060,6 +4858,38 @@ export class AgentXGameplansPanelComponent {
         usage: play.usage,
         installUrl: play.installUrl,
         scoutingCutupUrl: play.scoutingCutupUrl,
+      }),
+    };
+  }
+
+  buildGamePlanKeyPlayerDragContext(player: GamePlanKeyPlayer): AgentXSelectedContext {
+    const plan = this.selectedPlan();
+    const planTitle = plan?.title ?? 'Game Plan';
+
+    return {
+      id: `game-plan-key-player:${plan?.id ?? 'active'}:${player.id}`,
+      kind: 'game_plan_item',
+      title: player.name,
+      ...(player.notes ? { summary: player.notes } : player.role ? { summary: player.role } : {}),
+      source: {
+        type: 'game_plan',
+        ...(plan?.id ? { id: plan.id } : {}),
+        label: planTitle,
+      },
+      entityRefs: [
+        ...(plan?.id ? [{ type: 'game_plan', id: plan.id, label: planTitle }] : []),
+        { type: 'key_player', id: player.id, label: player.name },
+      ],
+      media: {
+        ...(player.imageUrl ? { imageUrl: player.imageUrl } : {}),
+      },
+      metadata: this.compactContextMetadata({
+        itemType: 'game_plan_key_player',
+        teamId: plan?.teamId,
+        sport: plan?.sport,
+        side: player.side,
+        role: player.role,
+        jerseyNumber: player.jerseyNumber,
       }),
     };
   }

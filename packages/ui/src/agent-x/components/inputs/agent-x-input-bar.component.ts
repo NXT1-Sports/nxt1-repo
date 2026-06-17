@@ -232,6 +232,7 @@ interface PendingConnectedSource {
         --input-border: var(--nxt1-color-border-subtle, rgba(255, 255, 255, 0.09));
         --input-text: var(--nxt1-color-text-primary, #ffffff);
         --input-muted: var(--nxt1-color-text-tertiary, rgba(255, 255, 255, 0.5));
+        --input-attach-fg: var(--nxt1-color-text-secondary, rgba(255, 255, 255, 0.72));
         --input-primary: var(--nxt1-color-primary, #ccff00);
         --input-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
         --input-caret: var(--nxt1-color-primary, #ccff00);
@@ -260,6 +261,7 @@ interface PendingConnectedSource {
         --input-border: var(--nxt1-color-border-subtle, rgba(0, 0, 0, 0.09));
         --input-text: var(--nxt1-color-text-primary, #1a1a1a);
         --input-muted: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.4));
+        --input-attach-fg: var(--nxt1-color-text-secondary, rgba(26, 26, 26, 0.72));
         --input-surface-hover: var(--nxt1-color-surface-200, rgba(0, 0, 0, 0.06));
         --input-chip-remove-bg: rgba(240, 240, 240, 0.96);
         --input-chip-remove-fg: #1a1a1a;
@@ -563,6 +565,7 @@ interface PendingConnectedSource {
 
       .input-btn--attach {
         margin-left: -6px;
+        color: var(--input-attach-fg);
       }
 
       .input-btn--attach nxt1-icon {

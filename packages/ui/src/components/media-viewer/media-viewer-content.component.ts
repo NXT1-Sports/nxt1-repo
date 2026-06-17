@@ -1407,10 +1407,15 @@ import type { MediaImageFormat } from '../../services/media';
       display: grid;
       gap: 8px;
       padding: 0 12px 12px;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     }
 
     .playbook-breakdown__field {
       cursor: default;
+    }
+
+    .playbook-breakdown__editor {
+      align-items: start;
     }
 
     .playbook-breakdown__field-label {
@@ -1739,7 +1744,6 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
   private hlsConstructor: typeof Hls | null = null;
   private hlsLoadPromise: Promise<typeof Hls | null> | null = null;
   private _fullscreenChangeHandler: (() => void) | null = null;
-  private _androidFsBackHandler: ((ev: Event) => void) | null = null;
   private iosViewportResetScrollGuard: (() => void) | null = null;
   private readonly iosViewportResetTimeoutIds: number[] = [];
 
@@ -1973,16 +1977,21 @@ export class NxtMediaViewerContentComponent implements OnInit, OnDestroy {
     this.stopSmoothProgressTracking();
     this.cancelPendingVideoSeek();
     this.destroyHls();
-    this.setInlineVideoFullscreenState(false);
-    this.clearIosViewportResetGuards();
-    this._resetIosViewportShift();
+    this.inlineVideoFullscreen.set(false);
+    this.iosViewportResetScrollGuard?.();
+    this.iosViewportResetScrollGuard = null;
+    while (this.iosViewportResetTimeoutIds.length > 0) {
+      const timeoutId = this.iosViewportResetTimeoutIds.pop();
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+      }
+    }
     if (isPlatformBrowser(this.platformId) && this._fullscreenChangeHandler) {
       document.removeEventListener('fullscreenchange', this._fullscreenChangeHandler);
       document.removeEventListener('webkitfullscreenchange', this._fullscreenChangeHandler);
       document.removeEventListener('webkitendfullscreen', this._fullscreenChangeHandler);
       this._fullscreenChangeHandler = null;
     }
-    this._removeAndroidFullscreenBackHandler();
   }
 
   // ── Navigation ─────────────────────────────────────────

@@ -10,8 +10,11 @@ import {
   type Signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { HttpClient } from '@angular/common/http';
 import { DomSanitizer, type SafeHtml, type SafeResourceUrl } from '@angular/platform-browser';
 import { FormsModule } from '@angular/forms';
+import { firstValueFrom } from 'rxjs';
+import { getSportPlaybookConfig } from '@nxt1/core';
 import type {
   DiagramAssetDetail,
   DiagramAssetKind,
@@ -30,13 +33,16 @@ import {
   NxtMediaViewerService,
   type MediaViewerBreakdown,
   type MediaViewerBreakdownEditorConfig,
+  type MediaViewerBreakdownSection,
   type MediaViewerDiagramSvgTarget,
   type MediaViewerDiagramToolsConfig,
 } from '../../../components/media-viewer';
 import { NxtModalHeaderComponent } from '../../../components/overlay/modal-header.component';
+import { NxtStateViewComponent } from '../../../components/state-view';
 import { NxtToastService } from '../../../services/toast/toast.service';
 import { AgentXContextDragDirective } from '../../directives/agent-x-context-drag.directive';
 import { AgentXDiagramService } from '../../services/agent-x-diagram.service';
+import { AGENT_X_API_BASE_URL } from '../../services/agent-x-job.service';
 import {
   DIAGRAM_DEFENSIVE_SHELL_OPTIONS,
   DIAGRAM_FIELD_STYLE_OPTIONS,
@@ -64,6 +70,16 @@ import {
   removeFootballDefensiveShell,
   snapDiagramLayoutToGrid,
 } from './agent-x-diagrams-panel.utils';
+import {
+  parseTags,
+  toTitleCase,
+  type MutationResponse,
+  type PlaybookDetailResponse,
+  type PlaybooksResponse,
+  type PlaybookPlay,
+  type PlaybookSummary,
+} from './agent-x-playbooks-panel.types';
+import { getStageDisplayNameValue } from './agent-x-playbooks-panel.utils';
 
 interface DiagramBuilderDragState {
   readonly type: DiagramBuilderSelection['type'];
@@ -89,6 +105,13 @@ type DiagramPendingPlacement =
 interface DiagramPoint {
   readonly x: number;
   readonly y: number;
+}
+
+interface LinkedPlayContext {
+  readonly playbookId: string;
+  readonly playIndex: number;
+  readonly play: PlaybookPlay;
+  readonly playbook: PlaybookSummary;
 }
 
 interface DiagramPalettePlayerTool {
@@ -126,6 +149,7 @@ const MAX_BUILDER_HISTORY_STEPS = 100;
     FormsModule,
     NxtIconComponent,
     NxtModalHeaderComponent,
+    NxtStateViewComponent,
     AgentXContextDragDirective,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -146,15 +170,25 @@ const MAX_BUILDER_HISTORY_STEPS = 100;
         </div>
 
         @if (service.loading()) {
-          <div class="diagrams-panel__skeleton-list">
+          <div
+            class="diagrams-panel__loading-rail"
+            [attr.data-testid]="testIds.LOADING_SKELETON"
+            aria-hidden="true"
+          >
             @for (item of skeletonItems; track item) {
-              <div class="diagrams-panel__skeleton-item">
-                <span></span>
-                <strong></strong>
-                <small></small>
-              </div>
+              <div class="diagrams-panel__loading-card diagrams-panel__loading-card--library"></div>
             }
           </div>
+        } @else if (service.error()) {
+          <nxt1-state-view
+            variant="error"
+            title="Unable to load"
+            [message]="service.error() ?? 'Failed to load diagrams'"
+            actionLabel="Try Again"
+            actionIcon="refresh"
+            [attr.data-testid]="testIds.ERROR_STATE"
+            (action)="refresh()"
+          />
         } @else {
           <div class="diagrams-panel__list" [attr.data-testid]="testIds.LIST_CONTAINER">
             @for (diagram of filteredDiagrams(); track diagram.id) {
@@ -182,7 +216,12 @@ const MAX_BUILDER_HISTORY_STEPS = 100;
       </aside>
 
       <section class="diagrams-panel__viewer" [attr.data-testid]="testIds.VIEWER">
-        @if (selectedDiagram(); as diagram) {
+        @if (service.loading()) {
+          <div class="diagrams-panel__loading-viewer" aria-hidden="true">
+            <div class="diagrams-panel__loading-card diagrams-panel__loading-card--viewer"></div>
+            <div class="diagrams-panel__loading-card diagrams-panel__loading-card--toolbar"></div>
+          </div>
+        } @else if (selectedDiagram(); as diagram) {
           <div
             class="diagrams-panel__workspace"
             [class.diagrams-panel__workspace--modal]="editMode()"
@@ -960,15 +999,17 @@ const MAX_BUILDER_HISTORY_STEPS = 100;
         gap: 14px;
         height: 100%;
         min-height: 0;
-        padding: 0 var(--nxt1-spacing-4, 16px) var(--nxt1-spacing-4, 16px);
+        width: 100%;
+        padding: var(--nxt1-spacing-3, 12px);
         color: var(--agent-text-primary, var(--nxt1-color-text-primary));
+        scrollbar-color: var(--agent-border, rgba(0, 0, 0, 0.08)) transparent;
       }
 
       .diagrams-panel__rail,
       .diagrams-panel__viewer {
         min-height: 0;
-        border: 1px solid var(--agent-border, var(--nxt1-color-border-subtle));
-        background: var(--agent-surface, var(--nxt1-color-surface-100));
+        border: 0;
+        background: transparent;
       }
 
       .diagrams-panel__rail {
@@ -976,14 +1017,14 @@ const MAX_BUILDER_HISTORY_STEPS = 100;
         display: flex;
         flex-direction: column;
         overflow: hidden;
-        border-radius: 8px;
+        border-radius: 0;
       }
 
       .diagrams-panel__toolbar {
         display: grid;
         grid-template-columns: minmax(0, 1fr);
         gap: 10px;
-        padding: 12px 12px 8px;
+        padding: 0 0 8px;
       }
 
       .diagrams-panel__search-wrap {
@@ -1015,13 +1056,21 @@ const MAX_BUILDER_HISTORY_STEPS = 100;
       }
 
       .diagrams-panel__list,
-      .diagrams-panel__skeleton-list {
+      .diagrams-panel__loading-rail {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
         gap: 8px;
         min-height: 0;
         overflow-y: auto;
-        padding: 4px 12px 12px;
+        padding: 4px 0 0;
+      }
+
+      .diagrams-panel__loading-viewer {
+        display: grid;
+        gap: 10px;
+        height: 100%;
+        min-height: 0;
+        padding: 12px;
       }
 
       .diagrams-panel__list-item {
@@ -1124,7 +1173,7 @@ const MAX_BUILDER_HISTORY_STEPS = 100;
         grid-column: 1;
         grid-row: 1;
         overflow: visible;
-        border-radius: 8px;
+        border-radius: 0;
       }
 
       .diagrams-panel__workspace {
@@ -1913,49 +1962,39 @@ const MAX_BUILDER_HISTORY_STEPS = 100;
         padding: 8px 12px;
       }
 
-      .diagrams-panel__skeleton-item {
-        display: grid;
-        gap: 8px;
-        min-height: 86px;
-        border-radius: 8px;
-        padding: 10px;
-        background: var(--agent-surface-hover, var(--nxt1-color-surface-200));
-      }
-
-      .diagrams-panel__skeleton-item span,
-      .diagrams-panel__skeleton-item strong,
-      .diagrams-panel__skeleton-item small {
-        display: block;
-        height: 12px;
-        border-radius: 999px;
-        background: linear-gradient(
-          90deg,
-          var(--agent-surface, var(--nxt1-color-surface-100)),
-          var(--agent-primary-glow, var(--nxt1-color-alpha-primary10)),
-          var(--agent-surface, var(--nxt1-color-surface-100))
+      .diagrams-panel__loading-card {
+        min-height: 88px;
+        border-radius: 12px;
+        background: var(
+          --nxt1-skeleton-gradient,
+          linear-gradient(
+            90deg,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 25%,
+            var(--nxt1-color-loading-skeletonShimmer, rgba(255, 255, 255, 0.15)) 50%,
+            var(--nxt1-color-loading-skeleton, rgba(255, 255, 255, 0.08)) 75%
+          )
         );
-        background-size: 220% 100%;
-        animation: diagrams-shimmer 1.4s ease-in-out infinite;
+        background-size: 200% 100%;
+        animation: skeleton-shimmer var(--nxt1-skeleton-animation-duration, 1.5s) infinite
+          ease-in-out;
       }
 
-      .diagrams-panel__skeleton-item span {
-        width: 46%;
+      .diagrams-panel__loading-card--library {
+        min-height: 214px;
       }
 
-      .diagrams-panel__skeleton-item strong {
-        width: 78%;
+      .diagrams-panel__loading-card--viewer {
+        min-height: clamp(280px, 52vh, 520px);
       }
 
-      .diagrams-panel__skeleton-item small {
-        width: 62%;
+      .diagrams-panel__loading-card--toolbar {
+        min-height: 56px;
       }
 
-      @keyframes diagrams-shimmer {
-        0% {
-          background-position: 100% 0;
-        }
-        100% {
-          background-position: -100% 0;
+      @media (prefers-reduced-motion: reduce) {
+        .diagrams-panel__loading-card {
+          animation: none;
+          background-position: 50% 50%;
         }
       }
 
@@ -1994,10 +2033,12 @@ export class AgentXDiagramsPanelComponent implements OnChanges {
   @Input() sport: string | null = null;
   @Input() teamId: string | null = null;
 
+  private readonly http = inject(HttpClient);
   protected readonly service = inject(AgentXDiagramService);
   private readonly mediaViewer = inject(NxtMediaViewerService);
   private readonly sanitizer = inject(DomSanitizer);
   private readonly toast = inject(NxtToastService);
+  private readonly baseUrl = `${inject(AGENT_X_API_BASE_URL)}/agent-x`;
   protected readonly testIds = TEST_IDS.DIAGRAMS_LAB;
   protected readonly skeletonItems = [1, 2, 3, 4] as const;
   protected readonly defensiveShellOptions = DIAGRAM_DEFENSIVE_SHELL_OPTIONS;
@@ -2101,6 +2142,62 @@ export class AgentXDiagramsPanelComponent implements OnChanges {
     this.imageFailed.set(false);
   }
 
+  public async reload(): Promise<void> {
+    await this.refresh();
+  }
+
+  public async openDiagramAssetModal(assetId: string): Promise<void> {
+    this.imageFailed.set(false);
+    this.resetBuilder();
+    await this.service.select(assetId);
+
+    const diagram = this.selectedDiagram();
+    if (!diagram || diagram.id !== assetId) {
+      throw new Error(`Diagram asset ${assetId} could not be loaded.`);
+    }
+
+    await this.openDiagramModal(diagram);
+  }
+
+  public async prepareEmbeddedDiagramEditor(
+    assetId: string
+  ): Promise<MediaViewerDiagramToolsConfig | null> {
+    this.imageFailed.set(false);
+    this.resetBuilder();
+    await this.service.select(assetId);
+
+    const diagram = this.selectedDiagram();
+    if (!diagram || diagram.id !== assetId) {
+      throw new Error(`Diagram asset ${assetId} could not be loaded.`);
+    }
+
+    this.prepareModalBuilder(diagram);
+    return this.buildDiagramToolsConfig(diagram);
+  }
+
+  public async saveEmbeddedDiagramEditor(
+    assetId: string,
+    values: { readonly title?: string; readonly description?: string | null }
+  ): Promise<boolean> {
+    if (this.selectedDiagram()?.id !== assetId) {
+      await this.service.select(assetId);
+    }
+
+    const diagram = this.selectedDiagram();
+    if (!diagram || diagram.id !== assetId) {
+      throw new Error(`Diagram asset ${assetId} could not be loaded.`);
+    }
+
+    return this.saveDiagramMetadata(assetId, {
+      title: values.title?.trim() || diagram.title,
+      description: values.description ?? diagram.description ?? '',
+    });
+  }
+
+  public resetEmbeddedDiagramEditor(): void {
+    this.resetBuilder();
+  }
+
   protected async selectDiagram(id: string): Promise<void> {
     this.imageFailed.set(false);
     this.resetBuilder();
@@ -2114,6 +2211,7 @@ export class AgentXDiagramsPanelComponent implements OnChanges {
   private async openDiagramModal(diagram: DiagramAssetDetail | DiagramAssetSummary): Promise<void> {
     try {
       this.prepareModalBuilder(diagram);
+      const linkedPlayContext = await this.resolveLinkedPlayContext(diagram);
       await this.mediaViewer.open({
         items: [
           {
@@ -2122,13 +2220,15 @@ export class AgentXDiagramsPanelComponent implements OnChanges {
             type: 'image',
             alt: diagram.title,
             caption: diagram.title,
-            breakdown: this.buildDiagramModalBreakdown(diagram),
+            breakdown: linkedPlayContext
+              ? this.buildLinkedPlayBreakdown(linkedPlayContext.play)
+              : this.buildDiagramModalBreakdown(diagram),
           },
         ],
         source: 'agent-x-diagrams-lab',
         showShare: false,
         variant: 'playbook-breakdown',
-        playbookEditor: this.buildDiagramEditorConfig(diagram),
+        playbookEditor: this.buildDiagramEditorConfig(diagram, linkedPlayContext),
       });
     } catch {
       this.toast.error('Unable to open play diagram');
@@ -2155,8 +2255,153 @@ export class AgentXDiagramsPanelComponent implements OnChanges {
   }
 
   private buildDiagramEditorConfig(
-    diagram: DiagramAssetDetail | DiagramAssetSummary
+    diagram: DiagramAssetDetail | DiagramAssetSummary,
+    linkedPlayContext: LinkedPlayContext | null
   ): MediaViewerBreakdownEditorConfig {
+    if (linkedPlayContext) {
+      const play = linkedPlayContext.play;
+      const sportConfig = getSportPlaybookConfig(linkedPlayContext.playbook.sport || diagram.sport);
+      const formationLabel = sportConfig.formationLabel || 'Formation';
+      const personnelLabel = sportConfig.personnelLabel || 'Personnel';
+
+      return {
+        title: play.title || play.name || diagram.title || 'Untitled Play',
+        editLabel: 'Edit',
+        saveLabel: 'Save',
+        savingLabel: 'Saving...',
+        startInEditMode: true,
+        fields: [
+          {
+            key: 'name',
+            label: 'Play Name',
+            value: play.name ?? play.title ?? diagram.title ?? '',
+            required: true,
+            placeholder: 'Enter play name',
+          },
+          { key: 'series', label: 'Series', value: play.series ?? '', placeholder: 'Series' },
+          {
+            key: 'category',
+            label: 'Category',
+            value: play.category ?? '',
+            placeholder: 'Category',
+          },
+          {
+            key: 'formation',
+            label: formationLabel,
+            value: play.formation ?? '',
+            placeholder: formationLabel,
+          },
+          {
+            key: 'personnel',
+            label: personnelLabel,
+            value: play.personnel ?? '',
+            placeholder: personnelLabel,
+          },
+          {
+            key: 'objective',
+            label: 'Objective',
+            value: play.objective ?? '',
+            type: 'textarea',
+            rows: 3,
+            placeholder: 'Objective',
+          },
+          {
+            key: 'playBreakdown',
+            label: 'Play Breakdown',
+            value: play.playBreakdown ?? '',
+            type: 'textarea',
+            rows: 5,
+            placeholder: 'Assignments, reads, route concepts, and why it works',
+          },
+          {
+            key: 'installNotes',
+            label: 'Install Notes',
+            value: play.installNotes ?? '',
+            type: 'textarea',
+            rows: 3,
+            placeholder: 'Use clean lines or bullets',
+          },
+          {
+            key: 'conceptTags',
+            label: 'Concept Tags',
+            value: (play.conceptTags ?? []).join(', '),
+            type: 'textarea',
+            rows: 2,
+            placeholder: 'Comma-separated',
+          },
+          {
+            key: 'installStage',
+            label: 'Install Stage',
+            value: play.installStage ?? '',
+            type: 'select',
+            options: [
+              { value: '', label: 'Select stage' },
+              { value: 'install', label: 'Install' },
+              { value: 'rep', label: 'Rep' },
+              { value: 'game-ready', label: 'Game-Ready' },
+            ],
+          },
+          {
+            key: 'coachingPoints',
+            label: 'Coaching Points',
+            value: (play.coachingPoints ?? []).join('\n'),
+            type: 'textarea',
+            rows: 4,
+            placeholder: 'One point per line',
+          },
+          {
+            key: 'commonBusts',
+            label: 'Common Busts',
+            value: (play.commonBusts ?? []).join('\n'),
+            type: 'textarea',
+            rows: 3,
+            placeholder: 'One bust per line',
+          },
+          {
+            key: 'correctionCues',
+            label: 'Correction Cues',
+            value: (play.correctionCues ?? []).join('\n'),
+            type: 'textarea',
+            rows: 3,
+            placeholder: 'One cue per line',
+          },
+          {
+            key: 'drillProgression',
+            label: 'Drill Progression',
+            value: (play.drillProgression ?? []).join('\n'),
+            type: 'textarea',
+            rows: 3,
+            placeholder: 'One drill step per line',
+          },
+          {
+            key: 'situations',
+            label: 'Situations',
+            value: (play.situations ?? []).join(', '),
+            type: 'textarea',
+            rows: 2,
+            placeholder: 'Comma-separated',
+          },
+        ],
+        diagramTools: this.buildDiagramToolsConfig(diagram),
+        onSave: async (values) => {
+          const playSaved = await this.saveLinkedPlayContext(linkedPlayContext, values, diagram.id);
+          if (!playSaved) return;
+
+          const saved = await this.saveDiagramMetadata(diagram.id, {
+            title: values['name']?.trim() || diagram.title,
+            description:
+              values['playBreakdown']?.trim() ||
+              values['installNotes']?.trim() ||
+              diagram.description ||
+              '',
+          });
+          if (saved) {
+            await this.mediaViewer.dismiss();
+          }
+        },
+      };
+    }
+
     return {
       title: diagram.title || 'Untitled Play',
       editLabel: 'Edit',
@@ -2349,6 +2594,186 @@ export class AgentXDiagramsPanelComponent implements OnChanges {
       this.toast.error('Could not update play');
       return false;
     }
+  }
+
+  private async resolveLinkedPlayContext(
+    diagram: DiagramAssetDetail | DiagramAssetSummary
+  ): Promise<LinkedPlayContext | null> {
+    const teamId = this.teamId?.trim();
+    if (!teamId) return null;
+
+    const diagramImageUrl = diagram.imageUrl.trim();
+    const diagramTitle = diagram.title.trim().toLowerCase();
+
+    const response = await firstValueFrom(
+      this.http.get<PlaybooksResponse>(`${this.baseUrl}/playbooks`, {
+        params: {
+          teamId,
+          limit: '200',
+          sport: diagram.sport,
+        },
+      })
+    );
+
+    if (!response.success || !response.data?.playbooks?.length) {
+      return null;
+    }
+
+    for (const playbook of response.data.playbooks) {
+      const detail = await this.loadPlaybookDetail(playbook.id, teamId);
+      const playIndex =
+        detail.plays?.findIndex((play) => {
+          const playDiagramAssetId = play.diagramAssetId?.trim();
+          if (playDiagramAssetId === diagram.id) {
+            return true;
+          }
+
+          const playDiagramUrl = play.diagramUrl?.trim();
+          if (playDiagramUrl && playDiagramUrl === diagramImageUrl) {
+            return true;
+          }
+
+          const playName = (play.name ?? play.title ?? '').trim().toLowerCase();
+          return Boolean(diagramTitle && playName && playName === diagramTitle);
+        }) ?? -1;
+      if (playIndex >= 0 && detail.plays) {
+        return {
+          playbookId: detail.id,
+          playIndex,
+          play: detail.plays[playIndex],
+          playbook: detail,
+        };
+      }
+    }
+
+    return null;
+  }
+
+  private async loadPlaybookDetail(
+    playbookId: string,
+    teamId: string
+  ): Promise<
+    PlaybookSummary & {
+      readonly plays?: readonly PlaybookPlay[];
+    }
+  > {
+    const response = await firstValueFrom(
+      this.http.get<PlaybookDetailResponse>(`${this.baseUrl}/playbooks/${playbookId}`, {
+        params: { teamId },
+      })
+    );
+
+    if (!response.success || !response.data?.playbook || response.data.playbook.teamId !== teamId) {
+      throw new Error(response.error ?? 'Unable to load linked playbook detail.');
+    }
+
+    return response.data.playbook;
+  }
+
+  private async saveLinkedPlayContext(
+    linkedPlayContext: LinkedPlayContext,
+    values: Record<string, string>,
+    diagramAssetId: string
+  ): Promise<boolean> {
+    const playName = values['name']?.trim() ?? '';
+    if (!playName) {
+      this.toast.error('Add a play name before saving');
+      return false;
+    }
+
+    try {
+      const response = await firstValueFrom(
+        this.http.patch<MutationResponse>(
+          `${this.baseUrl}/playbooks/${linkedPlayContext.playbookId}/plays/${linkedPlayContext.playIndex}`,
+          {
+            name: toTitleCase(playName),
+            series: values['series']?.trim() || undefined,
+            category: values['category']?.trim() || undefined,
+            formation: values['formation']?.trim() || undefined,
+            personnel: values['personnel']?.trim() || undefined,
+            objective: values['objective']?.trim() || undefined,
+            playBreakdown: values['playBreakdown']?.trim() || undefined,
+            installNotes: values['installNotes']?.trim() || undefined,
+            conceptTags: parseTags(values['conceptTags'] ?? ''),
+            installStage: values['installStage']?.trim() || undefined,
+            coachingPoints: this.parseLineList(values['coachingPoints'] ?? ''),
+            commonBusts: this.parseLineList(values['commonBusts'] ?? ''),
+            correctionCues: this.parseLineList(values['correctionCues'] ?? ''),
+            drillProgression: this.parseLineList(values['drillProgression'] ?? ''),
+            situations: this.parseCommaList(values['situations'] ?? ''),
+            diagramAssetId,
+          }
+        )
+      );
+
+      if (!response.success) {
+        throw new Error(response.error ?? 'Unable to update linked play.');
+      }
+
+      return true;
+    } catch {
+      this.toast.error('Could not update linked play details.');
+      return false;
+    }
+  }
+
+  private parseLineList(value: string): string[] {
+    return value
+      .split(/\r?\n/g)
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+  }
+
+  private parseCommaList(value: string): string[] {
+    return value
+      .split(',')
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+  }
+
+  private buildLinkedPlayBreakdown(play: PlaybookPlay): MediaViewerBreakdown {
+    const subtitle = [play.series, play.category ? toTitleCase(play.category) : '', play.formation]
+      .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+      .join(' • ');
+
+    const metaChips: string[] = [];
+    if (play.formation?.trim()) metaChips.push(play.formation.trim());
+    if (play.personnel?.trim()) metaChips.push(play.personnel.trim());
+    if (play.downDistance?.trim()) metaChips.push(play.downDistance.trim());
+    if (play.installStage) metaChips.push(getStageDisplayNameValue(play.installStage));
+
+    const sections: MediaViewerBreakdownSection[] = [];
+    if (play.objective?.trim()) {
+      sections.push({ title: 'Objective', paragraphs: [play.objective.trim()] });
+    }
+    if (play.playBreakdown?.trim()) {
+      sections.push({ title: 'Play Breakdown', paragraphs: [play.playBreakdown.trim()] });
+    }
+    if (play.installNotes?.trim()) {
+      sections.push({ title: 'Install Notes', bullets: this.parseLineList(play.installNotes) });
+    }
+    if (play.coachingPoints?.length) {
+      sections.push({ title: 'Coaching Points', bullets: [...play.coachingPoints] });
+    }
+    if (play.commonBusts?.length) {
+      sections.push({ title: 'Common Busts', bullets: [...play.commonBusts] });
+    }
+    if (play.correctionCues?.length) {
+      sections.push({ title: 'Correction Cues', bullets: [...play.correctionCues] });
+    }
+    if (play.drillProgression?.length) {
+      sections.push({ title: 'Drill Progression', bullets: [...play.drillProgression] });
+    }
+    if (play.situations?.length) {
+      sections.push({ title: 'Situations', chips: [...play.situations] });
+    }
+
+    return {
+      title: play.title || play.name,
+      ...(subtitle ? { subtitle } : {}),
+      metaChips,
+      sections,
+    };
   }
 
   private buildDiagramModalBreakdown(
@@ -3244,7 +3669,7 @@ export class AgentXDiagramsPanelComponent implements OnChanges {
 
   protected getPlacementRoutePath(
     type: DiagramRouteType,
-    point: DiagramPoint,
+    _point: DiagramPoint,
     layout: DiagramLayout
   ): string {
     const draw = this.routeDraw();
@@ -3902,7 +4327,7 @@ export class AgentXDiagramsPanelComponent implements OnChanges {
   }
 
   private buildDrawnRoutePoints(
-    type: DiagramRouteType,
+    _type: DiagramRouteType,
     startPoint: DiagramPoint,
     endPoint: DiagramPoint,
     layout: DiagramLayout

@@ -83,4 +83,38 @@ describe('Agent X selected context drag payloads', () => {
     expect(isAgentXSelectedContext({ ...context, metadata: { tags: ['spread'] } })).toBe(false);
     expect(isAgentXSelectedContext({ ...context, metadata: { score: Number.NaN } })).toBe(false);
   });
+
+  it('accepts square and circle annotations', () => {
+    expect(
+      isAgentXSelectedContext({
+        ...context,
+        annotation: {
+          kind: 'square',
+          bounds: {
+            minX: 0.2,
+            minY: 0.2,
+            maxX: 0.4,
+            maxY: 0.4,
+          },
+          strokeCount: 1,
+        },
+      })
+    ).toBe(true);
+
+    expect(
+      isAgentXSelectedContext({
+        ...context,
+        annotation: {
+          kind: 'circle',
+          bounds: {
+            minX: 0.55,
+            minY: 0.25,
+            maxX: 0.8,
+            maxY: 0.5,
+          },
+          strokeCount: 1,
+        },
+      })
+    ).toBe(true);
+  });
 });

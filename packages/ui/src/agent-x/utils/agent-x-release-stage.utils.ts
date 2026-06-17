@@ -2,6 +2,7 @@ export type AgentXReleaseStage = 'stable' | 'beta';
 
 export type AgentXReleaseSurface =
   | 'playbooks'
+  | 'practiceScripts'
   | 'gameplans'
   | 'filmReview'
   | 'diagramsLab'

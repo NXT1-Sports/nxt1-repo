@@ -720,11 +720,14 @@ type YieldStateSource =
         );
         --op-primary: var(--nxt1-color-primary, #ccff00);
         --op-primary-glow: var(--nxt1-color-alpha-primary10, rgba(204, 255, 0, 0.1));
+        --op-context-icon-fg: var(--op-primary);
+        --op-context-icon-bg: color-mix(in srgb, var(--op-primary) 14%, transparent);
         --op-glass-bg: var(--agent-glass-bg, var(--nxt1-glass-bg, rgba(18, 18, 18, 0.8)));
       }
 
       :host-context(.light),
-      :host-context([data-theme='light']) {
+      :host-context([data-theme='light']),
+      :host-context([data-base-theme='light']) {
         color: var(--nxt1-color-text-primary, #1a1a1a);
 
         --op-surface: var(--nxt1-color-surface-100, rgba(0, 0, 0, 0.03));
@@ -732,6 +735,8 @@ type YieldStateSource =
         --op-text: var(--nxt1-color-text-primary, #1a1a1a);
         --op-text-secondary: var(--nxt1-color-text-secondary, rgba(0, 0, 0, 0.7));
         --op-text-muted: var(--nxt1-color-text-tertiary, rgba(0, 0, 0, 0.45));
+        --op-context-icon-fg: var(--nxt1-color-text-primary, #1a1a1a);
+        --op-context-icon-bg: var(--nxt1-color-surface-200, rgba(0, 0, 0, 0.06));
         --op-glass-bg: var(--nxt1-glass-bg, rgba(255, 255, 255, 0.8));
 
         --agent-surface: var(--nxt1-color-surface-100, rgba(0, 0, 0, 0.03));
@@ -1400,8 +1405,8 @@ type YieldStateSource =
         width: 30px;
         height: 30px;
         border-radius: 8px;
-        color: var(--op-accent, #ccff00);
-        background: color-mix(in srgb, var(--op-accent, #ccff00) 14%, transparent);
+        color: var(--op-context-icon-fg);
+        background: var(--op-context-icon-bg);
         flex-shrink: 0;
       }
 

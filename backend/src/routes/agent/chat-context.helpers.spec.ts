@@ -179,4 +179,35 @@ describe('chat-context.helpers', () => {
     expect(summary.length).toBeLessThanOrEqual(600);
     expect(summary.endsWith('...')).toBe(true);
   });
+
+  it('preserves square annotations without forcing freehand points', () => {
+    const normalized = normalizeSelectedContextsForPayload([
+      {
+        id: 'film-play:review-1:13',
+        kind: 'film_play',
+        title: 'Red zone clip',
+        annotation: {
+          kind: 'square',
+          bounds: {
+            minX: 0.22,
+            minY: 0.31,
+            maxX: 0.46,
+            maxY: 0.55,
+          },
+          strokeCount: 1,
+        },
+      },
+    ]);
+
+    expect(normalized[0]?.annotation).toEqual({
+      kind: 'square',
+      bounds: {
+        minX: 0.22,
+        minY: 0.31,
+        maxX: 0.46,
+        maxY: 0.55,
+      },
+      strokeCount: 1,
+    });
+  });
 });

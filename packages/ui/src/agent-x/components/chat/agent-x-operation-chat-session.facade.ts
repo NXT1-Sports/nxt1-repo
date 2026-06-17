@@ -831,75 +831,6 @@ export class AgentXOperationChatSessionFacade {
       : null;
   }
 
-  private isResolvedApprovalYieldRow(message: OperationMessage): boolean {
-    return (
-      message.yieldState?.reason === 'needs_approval' &&
-      (message.yieldCardState === 'resolved' || (message.yieldResolvedText ?? '').trim().length > 0)
-    );
-  }
-
-  private shouldPreserveInlineYieldRowDuringReload(params: {
-    readonly message: OperationMessage;
-    readonly messageIndex: number;
-    readonly allExistingMessages: readonly OperationMessage[];
-    readonly reorderedMapped: readonly OperationMessage[];
-    readonly answeredYieldOperationIdsInPersisted: ReadonlySet<string>;
-  }): boolean {
-    const { message, messageIndex, allExistingMessages, reorderedMapped } = params;
-    if (message.id === 'typing') return false;
-    if (!message.yieldState) return false;
-    if (reorderedMapped.some((persisted) => persisted.id === message.id)) return false;
-
-    const operationId = typeof message.operationId === 'string' ? message.operationId.trim() : '';
-    const isResolvedApprovalYield = this.isResolvedApprovalYieldRow(message);
-    const hasLaterPersistedAnswerForSameOperation =
-      operationId.length > 0 &&
-      reorderedMapped.some(
-        (persisted) =>
-          persisted.operationId === operationId &&
-          (persisted.role === 'user' || persisted.yieldResolvedText === 'Approved') &&
-          persisted.timestamp.getTime() >= message.timestamp.getTime()
-      );
-
-    if (isResolvedApprovalYield && hasLaterPersistedAnswerForSameOperation) return false;
-    if (
-      isResolvedApprovalYield &&
-      operationId &&
-      params.answeredYieldOperationIdsInPersisted.has(operationId)
-    ) {
-      return false;
-    }
-    if (
-      operationId &&
-      params.answeredYieldOperationIdsInPersisted.has(operationId) &&
-      !isResolvedApprovalYield
-    ) {
-      return false;
-    }
-
-    const hasPersistedSameOperation =
-      operationId.length > 0 &&
-      reorderedMapped.some(
-        (persisted) =>
-          typeof persisted.operationId === 'string' && persisted.operationId === operationId
-      );
-    if (hasPersistedSameOperation && !isResolvedApprovalYield) return false;
-
-    const hadLocalUserReplyAfter = allExistingMessages
-      .slice(messageIndex + 1)
-      .some((candidate) => candidate.role === 'user');
-    if (hadLocalUserReplyAfter && !isResolvedApprovalYield) return false;
-
-    if (
-      (message.yieldCardState === 'resolved' || (message.yieldResolvedText ?? '').trim()) &&
-      !isResolvedApprovalYield
-    ) {
-      return false;
-    }
-
-    return true;
-  }
-
   private mergePreservedInlineYieldRows(
     persistedRows: readonly OperationMessage[],
     preservedInlineYieldRows: readonly OperationMessage[]
@@ -1012,7 +943,8 @@ export class AgentXOperationChatSessionFacade {
             .slice(index + 1)
             .some(
               (candidate) =>
-                candidate.role === 'user' && (candidate.operationId?.trim() ?? '') === assistantOperationId
+                candidate.role === 'user' &&
+                (candidate.operationId?.trim() ?? '') === assistantOperationId
             );
 
         if (hasLaterSameOperationUser) {
@@ -1982,6 +1914,16 @@ export class AgentXOperationChatSessionFacade {
       this.clearEnqueueWaitingMessage();
     }
 
+    const replayOperationIds = new Set<string>(
+      [operationId, host.getCurrentOperationId()].filter(
+        (value): value is string => typeof value === 'string' && value.trim().length > 0
+      )
+    );
+    const typingBubble: Pick<AgentMessage, 'content' | 'parts'> = {
+      content,
+      parts: stored.parts.length > 0 ? [...stored.parts] : undefined,
+    };
+
     this.messageFacade.messages.update((messages) => {
       const filtered = messages.filter(
         (message) =>
@@ -2743,6 +2685,11 @@ export class AgentXOperationChatSessionFacade {
         if (liveOperationId) {
           const rowsBeforeFilter = reorderedMapped.length;
           rowsBeforeLiveFilter = rowsBeforeFilter;
+          const liveReplayOperationIds = new Set<string>(
+            [liveOperationId, existingTyping.operationId].filter(
+              (value): value is string => typeof value === 'string' && value.trim().length > 0
+            )
+          );
           const assistantRowsForLiveOperation = reorderedMapped.filter(
             (m) => m.role === 'assistant' && m.operationId === liveOperationId
           ).length;
@@ -3805,6 +3752,15 @@ export class AgentXOperationChatSessionFacade {
         // in seq order (same merge logic as the SSE stream registry) so text, tools,
         // and cards are interleaved at their exact positions. No manual storedParts
         // construction here that would hardcode tools-first/text-last order.
+        const replayOperationIds = new Set<string>(
+          [operationId, host.getCurrentOperationId()].filter(
+            (value): value is string => typeof value === 'string' && value.trim().length > 0
+          )
+        );
+        const typingBubble: Pick<AgentMessage, 'content' | 'parts'> = {
+          content: stored.content + replayContentSuffix,
+          parts: stored.parts.length > 0 ? [...stored.parts] : undefined,
+        };
         this.messageFacade.messages.update((messages) => {
           if (messages.some((message) => message.id === 'typing')) return messages;
           // Hard-refresh dedup: loadThreadMessages may have inserted persisted

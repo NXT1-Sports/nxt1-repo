@@ -52,7 +52,7 @@ function normalizeTimeRange(
 function normalizeAnnotation(
   raw: AgentXSelectedContext['annotation'] | undefined
 ): AgentXSelectedContext['annotation'] | undefined {
-  if (!raw || raw.kind !== 'freehand') {
+  if (!raw || !['freehand', 'square', 'circle'].includes(raw.kind)) {
     return undefined;
   }
 
@@ -77,7 +77,7 @@ function normalizeAnnotation(
     : undefined;
 
   return {
-    kind: 'freehand',
+    kind: raw.kind,
     bounds: {
       minX: roundNormalized(bounds.minX),
       minY: roundNormalized(bounds.minY),
@@ -88,7 +88,7 @@ function normalizeAnnotation(
       typeof raw.strokeCount === 'number' && Number.isFinite(raw.strokeCount) && raw.strokeCount > 0
         ? Math.round(raw.strokeCount)
         : 1,
-    ...(points?.length ? { points } : {}),
+    ...(raw.kind === 'freehand' && points?.length ? { points } : {}),
   };
 }
 
