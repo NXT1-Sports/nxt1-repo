@@ -22,7 +22,7 @@
     "ci": "npm run CI",
     "CI": "npm run format:check && npm run lint && npm run typecheck && npm run build && npm run test",
     "start": "node apps/web/dist/nxt1-web/server/server.mjs",
-    "apphosting:build": "turbo run build --filter=@nxt1/web",
+    "apphosting:build": "if [ \"$APP_ENV\" = 'staging' ]; then turbo run build:staging --filter=@nxt1/web; else turbo run build --filter=@nxt1/web; fi",
     "gcp-build": "if [ \"$APP_ENV\" = 'staging' ]; then npm run build:staging --workspace=@nxt1/web; else npm run build --workspace=@nxt1/web; fi",
     "build": "turbo run build",
     "build:staging": "turbo run build:staging",

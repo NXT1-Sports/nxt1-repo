@@ -11,9 +11,8 @@
 # and root gcp-build script for @nxt1/web.
 rootDirectory: .
 
-# Build and server entry point
+# Server entry point
 scripts:
-  buildCommand: npm run build:web:staging
   runCommand: node apps/web/dist/nxt1-web/server/server.mjs
 
 # Runtime configuration
