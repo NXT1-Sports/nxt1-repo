@@ -15,28 +15,51 @@ importScripts('https://www.gstatic.com/firebasejs/12.9.0/firebase-app-compat.js'
 importScripts('https://www.gstatic.com/firebasejs/12.9.0/firebase-messaging-compat.js');
 
 /**
- * Firebase configuration is passed from the client via `messagingSenderId`.
- * The compat SDK auto-initializes when the service worker receives a push
- * from the FCM backend. However, we must call `initializeApp` with at least
- * the `messagingSenderId` so the SDK can decode incoming push payloads.
- *
- * We listen for a one-time message from the client (WebPushService) that
- * contains the full Firebase config. Until that message arrives the SDK
- * falls back to the default `firebase-messaging-msg-type` header for
- * sender-id resolution — which works for data-only messages sent by our
- * Cloud Function.
+ * The messaging SDK must be initialized during the worker's initial script
+ * evaluation. If it is initialized later from a message callback, Chrome warns
+ * that push-related event listeners were attached too late and web push
+ * reliability can degrade.
  */
 
-let messagingInitialized = false;
+const STAGING_FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyAibi8BmikNNMLF5Q2jApntx1qrHpQcT9M',
+  authDomain: 'nxt-1-staging-v2.firebaseapp.com',
+  projectId: 'nxt-1-staging-v2',
+  storageBucket: 'nxt-1-staging-v2.firebasestorage.app',
+  messagingSenderId: '1099429444442',
+  appId: '1:1099429444442:web:15c8b8a5d7f26883b09163',
+  measurementId: 'G-7C1JQW72JX',
+};
 
-// Message type shared with WebPushService (web-push.service.ts)
-self.addEventListener('message', (event) => {
-  if (event.data && event.data.type === 'FIREBASE_CONFIG' && !messagingInitialized) {
-    firebase.initializeApp(event.data.config);
-    firebase.messaging();
-    messagingInitialized = true;
-  }
-});
+const PRODUCTION_FIREBASE_CONFIG = {
+  apiKey: 'AIzaSyAg0ln9P4HxZkqRsOi8ceVDNz1YEXhmN9I',
+  authDomain: 'nxt-1-v2.firebaseapp.com',
+  projectId: 'nxt-1-v2',
+  storageBucket: 'nxt-1-v2.firebasestorage.app',
+  messagingSenderId: '112256620070',
+  appId: '1:112256620070:web:6a758d6428d2222f2c78e7',
+  measurementId: 'G-GZGSTY65KQ',
+};
+
+function isStagingHostname(hostname) {
+  const normalized = String(hostname || '').toLowerCase();
+  return (
+    normalized === 'localhost' ||
+    normalized === '127.0.0.1' ||
+    normalized.includes('staging') ||
+    normalized.includes('nxt-1-staging-v2')
+  );
+}
+
+const firebaseConfig = isStagingHostname(self.location.hostname)
+  ? STAGING_FIREBASE_CONFIG
+  : PRODUCTION_FIREBASE_CONFIG;
+
+if (!firebase.apps.length) {
+  firebase.initializeApp(firebaseConfig);
+}
+
+firebase.messaging();
 
 /**
  * Handle background notification display.
