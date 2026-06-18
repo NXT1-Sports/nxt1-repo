@@ -742,6 +742,11 @@ export class AgentXOperationChatSessionFacade {
     };
 
     const resultData = message.resultData ?? {};
+    const resultThumbnailUrl =
+      typeof resultData['thumbnailUrl'] === 'string' &&
+      this.isRenderableThumbnailUrl(resultData['thumbnailUrl'])
+        ? resultData['thumbnailUrl'].trim()
+        : undefined;
     addUrl(resultData['imageUrl']);
     addUrl(resultData['videoUrl']);
     addUrl(resultData['outputUrl']);
@@ -764,6 +769,9 @@ export class AgentXOperationChatSessionFacade {
     let firstImageUrl: string | undefined;
     let firstVideoUrl: string | undefined;
     const attachments: MessageAttachment[] = [];
+    const detectedVideoUrlCount = urls.filter(
+      (url) => this.inferMediaTypeFromUrl(url) === 'video'
+    ).length;
 
     for (const url of urls) {
       const mediaType = this.inferMediaTypeFromUrl(url);
@@ -785,6 +793,9 @@ export class AgentXOperationChatSessionFacade {
           url,
           type: 'video',
           name: `media-video-${videoIndex}.mp4`,
+          ...(detectedVideoUrlCount === 1 && resultThumbnailUrl
+            ? { thumbnailUrl: resultThumbnailUrl }
+            : {}),
         });
       }
     }

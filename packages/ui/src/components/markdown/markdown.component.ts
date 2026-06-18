@@ -163,7 +163,7 @@ function buildVideoThumb(safeHref: string, label: string, posterUrl?: string): s
   return (
     `<span class="${wrapClass}" data-md-video-src="${safeHref}" role="button" tabindex="0" aria-label="${escapeAttr(label || 'Play video')}">` +
     posterHtml +
-    `<video class="md-video-preview" src="${previewSrc}"${posterAttr} muted playsinline preload="metadata" aria-hidden="true"></video>` +
+    `<video class="md-video-preview" src="${previewSrc}"${posterAttr} muted playsinline preload="metadata" crossorigin="anonymous" aria-hidden="true"></video>` +
     `<span class="md-video-play" aria-hidden="true">${playIcon}</span>` +
     `</span>`
   );
@@ -428,13 +428,41 @@ function deindentMediaOnlyLines(source: string): string {
     .join('\n');
 }
 
+function decodeHtmlAttributeValue(value: string): string {
+  return value
+    .replace(/&amp;/g, '&')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>');
+}
+
+function extractHtmlAttribute(markup: string, attributeName: string): string | null {
+  const escapedName = attributeName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const pattern = new RegExp(`\\b${escapedName}\\s*=\\s*(['"])(.*?)\\1`, 'i');
+  const match = pattern.exec(markup);
+  const value = match?.[2]?.trim();
+  return value ? decodeHtmlAttributeValue(value) : null;
+}
+
+function appendPosterFragmentToVideoUrl(videoUrl: string, posterUrl: string | null): string {
+  if (!posterUrl || /#poster=/i.test(videoUrl)) return videoUrl;
+  return `${videoUrl}#poster=${encodeURIComponent(posterUrl).replace(
+    /[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+  )}`;
+}
+
 function normalizeRawVideoHtml(source: string, suppressIncomplete = false): string {
   const normalized = source.replace(
     /<video\b[^>]*\bsrc=(['"])(.*?)\1[^>]*>(?:[\s\S]*?<\/video>)?/gi,
     (match, _quote: string, srcValue: string) => {
-      const normalizedUrl = extractRenderableMediaUrlFromLine(srcValue) ?? srcValue.trim();
+      const normalizedUrl =
+        extractRenderableMediaUrlFromLine(srcValue) ?? decodeHtmlAttributeValue(srcValue).trim();
+      const posterUrl = extractHtmlAttribute(match, 'poster');
+      const renderableUrl = appendPosterFragmentToVideoUrl(normalizedUrl, posterUrl);
       return inferMediaTypeFromUrl(normalizedUrl) === 'video'
-        ? `[View Video](${normalizedUrl})`
+        ? `[View Video](${renderableUrl})`
         : match;
     }
   );
@@ -1025,6 +1053,17 @@ export class NxtMarkdownComponent {
             `${video.videoWidth} / ${video.videoHeight}`
           );
           wrap.classList.add('md-video-wrap--metadata-sized');
+          this.hydrateFallbackVideoPosterFromFrame(video);
+        },
+        true
+      );
+
+      this.elRef.nativeElement.addEventListener(
+        'loadeddata',
+        (e: Event) => {
+          const video = e.target as HTMLVideoElement | null;
+          if (!video?.classList.contains('md-video-preview')) return;
+          this.hydrateFallbackVideoPosterFromFrame(video);
         },
         true
       );
@@ -1041,6 +1080,54 @@ export class NxtMarkdownComponent {
         this._dompurifyReady.set(true);
       });
     });
+  }
+
+  private hydrateFallbackVideoPosterFromFrame(video: HTMLVideoElement): void {
+    if (video.dataset['mdPosterHydrated'] === 'true') return;
+
+    const wrap = video.closest('.md-video-wrap') as HTMLElement | null;
+    if (!wrap || wrap.classList.contains('md-video-wrap--has-poster')) return;
+
+    const fallbackPoster =
+      wrap.querySelector<HTMLElement>('.md-video-poster--fallback') ??
+      wrap.querySelector<HTMLElement>('.md-video-poster:not(img)');
+    if (!fallbackPoster) return;
+
+    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+
+    try {
+      const sourceWidth = Math.max(1, Math.round(video.videoWidth || 320));
+      const sourceHeight = Math.max(1, Math.round(video.videoHeight || 180));
+      const maxEdge = Math.max(sourceWidth, sourceHeight);
+      const scale = maxEdge > 640 ? 640 / maxEdge : 1;
+      const width = Math.max(1, Math.round(sourceWidth * scale));
+      const height = Math.max(1, Math.round(sourceHeight * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const context = canvas.getContext('2d');
+      if (!context) return;
+
+      context.drawImage(video, 0, 0, width, height);
+      const posterUrl = canvas.toDataURL('image/jpeg', 0.78);
+      if (!posterUrl.startsWith('data:image/')) return;
+
+      const poster = document.createElement('img');
+      poster.className = 'md-video-poster';
+      poster.src = posterUrl;
+      poster.alt = '';
+      poster.setAttribute('aria-hidden', 'true');
+      poster.setAttribute('decoding', 'async');
+      fallbackPoster.replaceWith(poster);
+
+      video.poster = posterUrl;
+      video.setAttribute('poster', posterUrl);
+      wrap.classList.add('md-video-wrap--has-poster');
+      wrap.classList.remove('md-video-wrap--poster-failed');
+      video.dataset['mdPosterHydrated'] = 'true';
+    } catch {
+      video.dataset['mdPosterHydrated'] = 'failed';
+    }
   }
 
   /**
@@ -1107,6 +1194,7 @@ export class NxtMarkdownComponent {
             'muted',
             'preload',
             'poster',
+            'crossorigin',
             'data-md-video-src',
             'role',
             'tabindex',

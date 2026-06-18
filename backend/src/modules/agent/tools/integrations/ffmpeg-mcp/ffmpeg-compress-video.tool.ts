@@ -3,6 +3,7 @@ import { logger } from '../../../../../utils/logger.js';
 import { type FfmpegMcpBridgeService } from './ffmpeg-mcp-bridge.service.js';
 import { normalizeFfmpegToolInput } from './ffmpeg-input-normalizer.js';
 import { CompressVideoInputSchema } from './schemas.js';
+import { generateVideoThumbnail } from './ffmpeg-thumbnail-helper.js';
 
 export class FfmpegCompressVideoTool extends BaseTool {
   readonly name = 'ffmpeg_compress_video';
@@ -33,9 +34,17 @@ export class FfmpegCompressVideoTool extends BaseTool {
     try {
       const result = await this.bridge.compressVideo(parsed.data, context);
       const outputUrl = result.outputUrl ?? result.output_path;
+      const thumbnailUrl = await generateVideoThumbnail({
+        bridge: this.bridge,
+        videoUrl: outputUrl,
+        outputPath: parsed.data.outputPath,
+        fallbackBase: 'compressed.mp4',
+        context,
+        logScope: 'FfmpegCompressVideoTool',
+      });
       return {
         success: true,
-        data: { outputUrl, result },
+        data: { outputUrl, ...(thumbnailUrl ? { thumbnailUrl } : {}), result },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to compress video';

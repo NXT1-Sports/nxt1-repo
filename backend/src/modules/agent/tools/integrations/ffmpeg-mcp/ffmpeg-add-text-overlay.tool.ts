@@ -3,6 +3,7 @@ import { logger } from '../../../../../utils/logger.js';
 import { type FfmpegMcpBridgeService } from './ffmpeg-mcp-bridge.service.js';
 import { normalizeFfmpegToolInput } from './ffmpeg-input-normalizer.js';
 import { AddTextOverlayInputSchema } from './schemas.js';
+import { generateVideoThumbnail } from './ffmpeg-thumbnail-helper.js';
 
 function readMaxOverlayDurationSeconds(): number {
   const rawValue = process.env['FFMPEG_MAX_TEXT_OVERLAY_DURATION_SECONDS'];
@@ -87,11 +88,19 @@ export class FfmpegAddTextOverlayTool extends BaseTool {
     try {
       const result = await this.bridge.addTextOverlay(parsed.data, context);
       const outputUrl = result.outputUrl ?? result.output_path;
+      const thumbnailUrl = await generateVideoThumbnail({
+        bridge: this.bridge,
+        videoUrl: outputUrl,
+        outputPath: parsed.data.outputPath,
+        fallbackBase: 'overlay.mp4',
+        context,
+        logScope: 'FfmpegAddTextOverlayTool',
+      });
       return {
         success: true,
         // outputUrl: canonical field read by resultData facade mapping
         // videoUrl: promotes to ARTIFACT_KEYS for cross-agent handoff
-        data: { outputUrl, videoUrl: outputUrl, result },
+        data: { outputUrl, videoUrl: outputUrl, ...(thumbnailUrl ? { thumbnailUrl } : {}), result },
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to add text overlay';

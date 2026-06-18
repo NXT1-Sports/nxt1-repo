@@ -12,12 +12,17 @@ const TEST_CONTEXT = {
 describe('FfmpegConvertVideoTool', () => {
   const bridge = {
     convertVideo: vi.fn(),
+    generateThumbnail: vi.fn(),
   };
 
   let tool: FfmpegConvertVideoTool;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    bridge.generateThumbnail.mockResolvedValue({
+      success: true,
+      output_path: '/tmp/intro-with-audio-thumbnail.jpg',
+    });
     tool = new FfmpegConvertVideoTool(bridge as never);
   });
 
@@ -38,12 +43,23 @@ describe('FfmpegConvertVideoTool', () => {
     );
 
     expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['thumbnailUrl']).toBe(
+      '/tmp/intro-with-audio-thumbnail.jpg'
+    );
     expect(bridge.convertVideo).toHaveBeenCalledWith(
       expect.objectContaining({
         inputPath: 'https://storage.example.com/intro.mp4',
         outputPath: 'intro-with-audio.mp4',
         addSilentAudio: true,
         extraArgs: '-map 0:v -c:a aac',
+      }),
+      TEST_CONTEXT
+    );
+    expect(bridge.generateThumbnail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputPath: '/tmp/intro-with-audio.mp4',
+        outputPath: 'intro-with-audio-thumbnail.jpg',
+        time: '0',
       }),
       TEST_CONTEXT
     );

@@ -78,6 +78,7 @@ type Canonicalizer = {
       url: string;
       type: 'image' | 'video' | 'doc' | 'app' | 'context';
       name: string;
+      thumbnailUrl?: string;
       contextKind?: string;
       contextSource?: string;
     }>;
@@ -1187,6 +1188,31 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
         url: playableVideoUrl,
         type: 'video',
         name: 'media-video-1.mp4',
+      },
+    ]);
+  });
+
+  it('keeps resultData thumbnailUrl on detected assistant video media', () => {
+    const playableVideoUrl = 'https://storage.googleapis.com/nxt1-media/reels/final-highlight.mp4';
+    const thumbnailUrl = 'https://storage.googleapis.com/nxt1-media/reels/final-highlight.jpg';
+
+    const media = facade.collectMessageMedia(
+      assistantMessage('direct-video-asset-with-thumb', 'assistant_final', {
+        content: `Generated highlight video: ${playableVideoUrl}`,
+        resultData: {
+          videoUrl: playableVideoUrl,
+          thumbnailUrl,
+        },
+      })
+    );
+
+    expect(media.videoUrl).toBe(playableVideoUrl);
+    expect(media.attachments).toEqual([
+      {
+        url: playableVideoUrl,
+        type: 'video',
+        name: 'media-video-1.mp4',
+        thumbnailUrl,
       },
     ]);
   });

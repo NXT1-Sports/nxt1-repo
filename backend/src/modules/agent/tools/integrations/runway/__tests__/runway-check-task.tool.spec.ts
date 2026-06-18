@@ -22,12 +22,19 @@ describe('RunwayCheckTaskTool', () => {
   const bridge = {
     getTask: vi.fn(),
   };
+  const thumbnailBridge = {
+    generateThumbnail: vi.fn(),
+  };
 
   let tool: RunwayCheckTaskTool;
 
   beforeEach(() => {
     vi.clearAllMocks();
-    tool = new RunwayCheckTaskTool(bridge as never);
+    thumbnailBridge.generateThumbnail.mockResolvedValue({
+      success: true,
+      output_path: 'https://signed.example/runway-output-thumbnail.jpg',
+    });
+    tool = new RunwayCheckTaskTool(bridge as never, thumbnailBridge as never);
   });
 
   it('stages succeeded Runway output with the execution environment', async () => {
@@ -57,10 +64,19 @@ describe('RunwayCheckTaskTool', () => {
     });
     expect(result.data).toMatchObject({
       outputUrl: 'https://signed.example/runway-output.mp4',
+      thumbnailUrl: 'https://signed.example/runway-output-thumbnail.jpg',
       storagePath: 'Users/user-123/threads/thread-456/media/staged/video/runway-task-1.mp4',
       ephemeralUrl: 'https://runway.example/output.mp4',
       persisted: true,
     });
+    expect(thumbnailBridge.generateThumbnail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputPath: 'https://signed.example/runway-output.mp4',
+        outputPath: 'runway-task-1-thumbnail.jpg',
+        time: '0',
+      }),
+      TEST_CONTEXT
+    );
   });
 
   it('falls back to the Runway URL when staging fails', async () => {
@@ -76,6 +92,7 @@ describe('RunwayCheckTaskTool', () => {
     expect(result.success).toBe(true);
     expect(result.data).toMatchObject({
       outputUrl: 'https://runway.example/transient.mp4',
+      thumbnailUrl: 'https://signed.example/runway-output-thumbnail.jpg',
       storagePath: null,
       ephemeralUrl: null,
       persisted: false,
