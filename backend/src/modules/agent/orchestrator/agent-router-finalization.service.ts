@@ -64,6 +64,10 @@ function encodePosterFragment(posterUrl: string): string {
   );
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 function buildDisplayUrl(item: DeliverableItem): string {
   if (!item.posterUrl || !isVideoUrl(item.url) || /#poster=/i.test(item.url)) {
     return item.url;
@@ -83,6 +87,18 @@ function addDeliverableItem(sink: Map<string, DeliverableItem>, item: Deliverabl
 
   const posterUrl = item.posterUrl?.trim();
   sink.set(normalizedUrl, posterUrl ? { url: normalizedUrl, posterUrl } : { url: normalizedUrl });
+}
+
+function enrichSummaryVideoPosters(summary: string, items: readonly DeliverableItem[]): string {
+  return items.reduce((nextSummary, item) => {
+    if (!item.posterUrl || !isVideoUrl(item.url) || /#poster=/i.test(item.url)) {
+      return nextSummary;
+    }
+
+    const displayUrl = buildDisplayUrl(item);
+    const pattern = new RegExp(`${escapeRegExp(item.url)}(?!#poster=)`, 'g');
+    return nextSummary.replace(pattern, displayUrl);
+  }, summary);
 }
 
 function collectDeliverableItems(value: unknown, sink: Map<string, DeliverableItem>): void {
@@ -140,10 +156,11 @@ function collectDeliverableItems(value: unknown, sink: Map<string, DeliverableIt
 function appendDeliverablesSection(summary: string, items: readonly DeliverableItem[]): string {
   if (items.length === 0) return summary;
 
-  const missing = items.filter((item) => !summary.includes(buildDisplayUrl(item)));
-  if (missing.length === 0) return summary;
+  const enrichedSummary = enrichSummaryVideoPosters(summary, items);
+  const missing = items.filter((item) => !enrichedSummary.includes(buildDisplayUrl(item)));
+  if (missing.length === 0) return enrichedSummary;
 
-  const prefix = summary.trim().length > 0 ? `${summary.trim()}\n\n` : '';
+  const prefix = enrichedSummary.trim().length > 0 ? `${enrichedSummary.trim()}\n\n` : '';
   const lines = missing
     .map((item) => {
       const url = buildDisplayUrl(item);
