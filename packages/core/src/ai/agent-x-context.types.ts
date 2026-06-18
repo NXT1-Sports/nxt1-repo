@@ -26,7 +26,6 @@ export interface AgentXSelectedContextSource {
   readonly id?: string;
   readonly label?: string;
 }
-
 /** Optional time range used for media contexts such as film clips. */
 export interface AgentXSelectedContextTimeRange {
   readonly startSec: number;
@@ -94,6 +93,11 @@ export interface AgentXSelectedContext {
   readonly metadata?: Readonly<Record<string, AgentXSelectedContextMetadataValue>>;
 }
 
+/** One-or-many selected contexts transferred through browser drag-and-drop. */
+export type AgentXSelectedContextDragPayload =
+  | AgentXSelectedContext
+  | readonly AgentXSelectedContext[];
+
 const SELECTED_CONTEXT_KINDS = new Set<AgentXSelectedContextKind>([
   'film_play',
   'playbook_item',
@@ -110,20 +114,30 @@ const SELECTED_CONTEXT_SOURCE_TYPES = new Set<AgentXSelectedContextSourceType>([
   'external',
 ]);
 
-/** Serialize a selected context for browser drag-and-drop transfer. */
-export function serializeAgentXSelectedContextForDrag(context: AgentXSelectedContext): string {
+/** Serialize one or more selected contexts for browser drag-and-drop transfer. */
+export function serializeAgentXSelectedContextForDrag(
+  context: AgentXSelectedContextDragPayload
+): string {
   return JSON.stringify(context);
 }
 
 /** Parse and validate a selected-context drag payload from a JSON string. */
 export function parseAgentXSelectedContextDragPayload(
   rawPayload: string
-): AgentXSelectedContext | null {
+): readonly AgentXSelectedContext[] | null {
   if (!rawPayload.trim()) return null;
 
   try {
     const parsed: unknown = JSON.parse(rawPayload);
-    return isAgentXSelectedContext(parsed) ? parsed : null;
+    if (isAgentXSelectedContext(parsed)) {
+      return [parsed];
+    }
+
+    if (Array.isArray(parsed) && parsed.every((entry) => isAgentXSelectedContext(entry))) {
+      return parsed;
+    }
+
+    return null;
   } catch {
     return null;
   }

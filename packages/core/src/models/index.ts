@@ -136,6 +136,8 @@ export {
   type TeamFilmReviewTagCategory,
   type TeamFilmReviewTimelineTag,
   type TeamFilmReviewClip,
+  type TeamFilmReviewUploadMode,
+  type TeamFilmReviewSourceVideo,
   type TeamFilmReviewAnnotation,
   type TeamFilmReviewPlayAnnotation,
   type TeamFilmReviewPlayTagValue,

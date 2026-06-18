@@ -3114,6 +3114,25 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     await this.runControlFacade.send();
   }
 
+  public appendPromptToComposer(prompt: string): void {
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt) {
+      return;
+    }
+
+    const currentDraft = this.inputValue().trim();
+    if (!currentDraft) {
+      this.inputValue.set(trimmedPrompt);
+      return;
+    }
+
+    if (currentDraft === trimmedPrompt || currentDraft.endsWith(`\n\n${trimmedPrompt}`)) {
+      return;
+    }
+
+    this.inputValue.set(`${currentDraft}\n\n${trimmedPrompt}`);
+  }
+
   /**
    * True when a message has visible content that should render in a chat
    * bubble alongside any yield card (approval / ask-user). When `false`,

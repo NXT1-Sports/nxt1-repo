@@ -34,6 +34,7 @@ import type {
   TeamFilmReviewPlayAnnotation,
   TeamFilmReviewPlaySegment,
   TeamFilmReviewPlayTagValue,
+  TeamFilmReviewSourceVideo,
   TeamFilmReviewSportTagSchemaKey,
   TeamFilmReviewStatus,
   TeamFilmReviewDownloadPrewarm,
@@ -43,6 +44,7 @@ import type {
   TeamFilmReviewAnnotation,
   TeamFilmReviewBreakdownSource,
   TeamFilmReviewTagCategory,
+  TeamFilmReviewUploadMode,
 } from '@nxt1/core';
 import {
   AGENT_X_FIREBASE_MAX_VIDEO_FILE_SIZE,
@@ -654,6 +656,7 @@ function toFilmReviewSummary(item: TeamFilmReviewDoc): Record<string, unknown> {
     sport: item.sport,
     title: item.title,
     status: item.status,
+    uploadMode: item.uploadMode,
     perspective: item.perspective,
     opponentName: item.opponentName,
     gameDate: item.gameDate,
@@ -668,6 +671,7 @@ function toFilmReviewSummary(item: TeamFilmReviewDoc): Record<string, unknown> {
     durationSec: item.durationSec,
     tagCount: item.aiTags?.length ?? 0,
     clipCount: item.clips?.length ?? 0,
+    sourceCount: item.sources?.length ?? 0,
     annotationCount: item.annotations?.length ?? 0,
     source: item.source,
     sourceUrl: item.sourceUrl,
@@ -1027,6 +1031,90 @@ function isTeamFilmReviewPerspective(input: unknown): input is TeamFilmReviewPer
   return ['own_team', 'opponent', 'neutral'].includes(String(input));
 }
 
+function isTeamFilmReviewUploadMode(input: unknown): input is TeamFilmReviewUploadMode {
+  return ['single_video', 'batch_clips', 'full_footage'].includes(String(input));
+}
+
+function parseFilmReviewSourceVideos(input: unknown): readonly TeamFilmReviewSourceVideo[] | null {
+  if (!Array.isArray(input)) return null;
+
+  const sources = input.map((entry, index) => {
+    if (!entry || typeof entry !== 'object') return null;
+
+    const candidate = entry as Record<string, unknown>;
+    const videoUrl = normalizeString(candidate['videoUrl']);
+    if (!videoUrl) {
+      return null;
+    }
+
+    const rawOrder =
+      typeof candidate['order'] === 'number' && Number.isFinite(candidate['order'])
+        ? Math.max(0, Math.floor(candidate['order']))
+        : index;
+    const durationSec = parseSeconds(candidate['durationSec']);
+    const readyToStream = normalizeBoolean(candidate['readyToStream']);
+    const title = normalizeString(candidate['title']);
+    const storagePath = normalizeString(candidate['storagePath']);
+    const cloudflareVideoId = normalizeString(candidate['cloudflareVideoId']);
+    const cloudflareStatus = normalizeString(candidate['cloudflareStatus']);
+    const thumbnailUrl = normalizeString(candidate['thumbnailUrl']);
+
+    return {
+      id: normalizeString(candidate['id']) ?? `source-${index + 1}`,
+      order: rawOrder,
+      videoUrl,
+      ...(title ? { title } : {}),
+      ...(storagePath ? { storagePath } : {}),
+      ...(cloudflareVideoId ? { cloudflareVideoId } : {}),
+      ...(cloudflareStatus ? { cloudflareStatus } : {}),
+      ...(readyToStream !== undefined ? { readyToStream } : {}),
+      ...(thumbnailUrl ? { thumbnailUrl } : {}),
+      ...(durationSec !== null ? { durationSec } : {}),
+    } satisfies TeamFilmReviewSourceVideo;
+  });
+
+  if (!sources.every((entry) => entry !== null)) {
+    return null;
+  }
+
+  return [...sources].sort((left, right) => left.order - right.order);
+}
+
+function buildSeededFilmReviewTimeline(params: {
+  readonly uploadMode: TeamFilmReviewUploadMode;
+  readonly sources: readonly TeamFilmReviewSourceVideo[];
+  readonly fallbackDurationSec?: number;
+}): readonly TeamFilmReviewPlaySegment[] {
+  const { uploadMode, sources, fallbackDurationSec } = params;
+
+  if (sources.length === 0) {
+    return [];
+  }
+
+  if (uploadMode === 'batch_clips') {
+    return sources.map((source, index) => ({
+      id: `play-${source.id}`,
+      number: index + 1,
+      label: source.title?.trim() || `Clip ${index + 1}`,
+      startSec: 0,
+      endSec: Math.max(1, source.durationSec ?? 1),
+      sourceId: source.id,
+    }));
+  }
+
+  const primarySource = sources[0] as TeamFilmReviewSourceVideo;
+  return [
+    {
+      id: `play-${primarySource.id}`,
+      number: 1,
+      label: primarySource.title?.trim() || 'Full Footage',
+      startSec: 0,
+      endSec: Math.max(1, primarySource.durationSec ?? fallbackDurationSec ?? 1),
+      sourceId: primarySource.id,
+    },
+  ];
+}
+
 function parseFilmReviewTimelineSegments(
   input: unknown,
   sport?: string | null
@@ -1048,6 +1136,7 @@ function parseFilmReviewTimelineSegments(
     const rawNumber = typeof candidate['number'] === 'number' ? candidate['number'] : Number.NaN;
     const number = Number.isFinite(rawNumber) && rawNumber > 0 ? Math.floor(rawNumber) : index + 1;
     const id = normalizeString(candidate['id']) ?? `play-${number}`;
+    const sourceId = normalizeString(candidate['sourceId']);
     const confidence =
       typeof candidate['confidence'] === 'number' && Number.isFinite(candidate['confidence'])
         ? candidate['confidence']
@@ -1068,6 +1157,7 @@ function parseFilmReviewTimelineSegments(
       label,
       startSec,
       endSec,
+      ...(sourceId ? { sourceId } : {}),
       ...(confidence !== undefined ? { confidence } : {}),
       ...(annotation !== undefined ? { annotation } : {}),
       ...(tags ? { tags } : {}),
@@ -3050,7 +3140,7 @@ router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
     const teamId = normalizeString(payload['teamId']);
     const sport = normalizeString(payload['sport'])?.toLowerCase();
     const title = normalizeString(payload['title']);
-    const videoUrl = normalizeString(payload['videoUrl']);
+    const payloadVideoUrl = normalizeString(payload['videoUrl']);
     const storagePath = normalizeString(payload['storagePath']);
     const cloudflareVideoId = normalizeString(payload['cloudflareVideoId']);
     const cloudflareStatus = normalizeString(payload['cloudflareStatus']);
@@ -3059,11 +3149,62 @@ router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
     const sourceUrl = normalizeString(payload['sourceUrl']);
     const playlistId = normalizeString(payload['playlistId']) ?? null;
     const playlistName = normalizeString(payload['playlistName']) ?? null;
+    const parsedSourceVideos = Object.prototype.hasOwnProperty.call(payload, 'sources')
+      ? parseFilmReviewSourceVideos(payload['sources'])
+      : [];
+
+    if (parsedSourceVideos === null) {
+      res.status(400).json({ success: false, error: 'Invalid film review sources payload' });
+      return;
+    }
+
+    const requestedUploadMode = payload['uploadMode'];
+    if (requestedUploadMode !== undefined && !isTeamFilmReviewUploadMode(requestedUploadMode)) {
+      res.status(400).json({ success: false, error: 'Invalid film review upload mode' });
+      return;
+    }
+
+    const uploadMode: TeamFilmReviewUploadMode = isTeamFilmReviewUploadMode(requestedUploadMode)
+      ? requestedUploadMode
+      : parsedSourceVideos.length > 1
+        ? 'batch_clips'
+        : parsedSourceVideos.length === 1
+          ? 'full_footage'
+          : 'single_video';
+    const primarySource = parsedSourceVideos[0];
+    const videoUrl = primarySource?.videoUrl ?? payloadVideoUrl;
+    const resolvedStoragePath = primarySource?.storagePath ?? storagePath;
+    const resolvedCloudflareVideoId = primarySource?.cloudflareVideoId ?? cloudflareVideoId;
+    const resolvedCloudflareStatus = primarySource?.cloudflareStatus ?? cloudflareStatus;
+    const resolvedReadyToStream = primarySource?.readyToStream ?? readyToStream;
+    const resolvedThumbnailUrl =
+      primarySource?.thumbnailUrl ?? normalizeString(payload['thumbnailUrl']);
+    const payloadDurationSec = parseSeconds(payload['durationSec']);
+    const resolvedDurationSec =
+      uploadMode === 'batch_clips'
+        ? null
+        : (payloadDurationSec ?? primarySource?.durationSec ?? null);
+    let seededTimeline: readonly TeamFilmReviewPlaySegment[] = [];
+
+    if (Array.isArray(payload['timeline'])) {
+      const parsedTimeline = parseFilmReviewTimelineSegments(payload['timeline'], sport ?? null);
+      if (!parsedTimeline) {
+        res.status(400).json({ success: false, error: 'Invalid film review timeline payload' });
+        return;
+      }
+      seededTimeline = parsedTimeline;
+    } else if (parsedSourceVideos.length > 0 && uploadMode !== 'single_video') {
+      seededTimeline = buildSeededFilmReviewTimeline({
+        uploadMode,
+        sources: parsedSourceVideos,
+        ...(resolvedDurationSec !== null ? { fallbackDurationSec: resolvedDurationSec } : {}),
+      });
+    }
 
     if (!teamId || !sport || !title || !videoUrl) {
       res.status(400).json({
         success: false,
-        error: 'teamId, sport, title, and videoUrl are required',
+        error: 'teamId, sport, title, and either videoUrl or sources[0].videoUrl are required',
       });
       return;
     }
@@ -3092,22 +3233,23 @@ router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
       .replace(/^-+|-+$/g, '')
       .slice(0, 48);
     const docId = `${teamId}_${sport}_${slug || 'film'}_${Date.now()}`;
-    let initialDownloadPrewarm: TeamFilmReviewDownloadPrewarm | undefined = cloudflareVideoId
-      ? {
-          status: 'queued',
-          requestedAt: now,
-          lastCheckedAt: now,
-        }
-      : undefined;
+    let initialDownloadPrewarm: TeamFilmReviewDownloadPrewarm | undefined =
+      resolvedCloudflareVideoId
+        ? {
+            status: 'queued',
+            requestedAt: now,
+            lastCheckedAt: now,
+          }
+        : undefined;
 
-    if (cloudflareVideoId) {
+    if (resolvedCloudflareVideoId) {
       const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
       const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
 
       if (accountId && apiToken) {
         try {
           const prewarm = await requestCloudflareVideoDownloadRender(
-            cloudflareVideoId,
+            resolvedCloudflareVideoId,
             accountId,
             apiToken
           );
@@ -3130,7 +3272,7 @@ router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
           };
           logger.warn('Failed to kick off Cloudflare download prewarm for film review', {
             teamId,
-            cloudflareVideoId,
+            cloudflareVideoId: resolvedCloudflareVideoId,
             error:
               error instanceof Error ? error.message : 'Cloudflare download prewarm request failed',
           });
@@ -3139,7 +3281,8 @@ router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
     }
 
     const initialStatus: TeamFilmReviewStatus =
-      cloudflareVideoId && readyToStream !== true ? 'processing' : 'ready';
+      resolvedCloudflareVideoId && resolvedReadyToStream !== true ? 'processing' : 'ready';
+    const schemaVersion = parsedSourceVideos.length > 0 ? 2 : 1;
 
     const aiSeed = buildSyntheticFilmReviewAi({
       id: docId,
@@ -3147,18 +3290,20 @@ router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
       sport,
       title,
       status: initialStatus,
+      uploadMode,
       videoUrl,
-      ...(storagePath ? { storagePath } : {}),
-      ...(cloudflareVideoId ? { cloudflareVideoId } : {}),
-      ...(cloudflareStatus ? { cloudflareStatus } : {}),
-      ...(readyToStream !== undefined ? { readyToStream } : {}),
+      ...(parsedSourceVideos.length > 0 ? { sources: parsedSourceVideos } : {}),
+      ...(resolvedStoragePath ? { storagePath: resolvedStoragePath } : {}),
+      ...(resolvedCloudflareVideoId ? { cloudflareVideoId: resolvedCloudflareVideoId } : {}),
+      ...(resolvedCloudflareStatus ? { cloudflareStatus: resolvedCloudflareStatus } : {}),
+      ...(resolvedReadyToStream !== undefined ? { readyToStream: resolvedReadyToStream } : {}),
       source,
-      schemaVersion: 1,
+      schemaVersion,
       createdBy: user.uid,
       updatedBy: user.uid,
       createdAt: now,
       updatedAt: now,
-      durationSec: parseSeconds(payload['durationSec']) ?? 0,
+      durationSec: resolvedDurationSec ?? 0,
     } as TeamFilmReviewDoc);
 
     const filmReview: TeamFilmReviewDoc = {
@@ -3167,14 +3312,14 @@ router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
       sport,
       title,
       status: initialStatus,
+      uploadMode,
       videoUrl,
-      ...(storagePath ? { storagePath } : {}),
-      ...(cloudflareVideoId ? { cloudflareVideoId } : {}),
-      ...(cloudflareStatus ? { cloudflareStatus } : {}),
-      ...(readyToStream !== undefined ? { readyToStream } : {}),
-      ...(normalizeString(payload['thumbnailUrl'])
-        ? { thumbnailUrl: normalizeString(payload['thumbnailUrl']) }
-        : {}),
+      ...(parsedSourceVideos.length > 0 ? { sources: parsedSourceVideos } : {}),
+      ...(resolvedStoragePath ? { storagePath: resolvedStoragePath } : {}),
+      ...(resolvedCloudflareVideoId ? { cloudflareVideoId: resolvedCloudflareVideoId } : {}),
+      ...(resolvedCloudflareStatus ? { cloudflareStatus: resolvedCloudflareStatus } : {}),
+      ...(resolvedReadyToStream !== undefined ? { readyToStream: resolvedReadyToStream } : {}),
+      ...(resolvedThumbnailUrl ? { thumbnailUrl: resolvedThumbnailUrl } : {}),
       ...(normalizeString(payload['opponentName'])
         ? { opponentName: normalizeString(payload['opponentName']) }
         : {}),
@@ -3189,13 +3334,18 @@ router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
             ) as TeamFilmReviewDoc['perspective'],
           }
         : {}),
-      ...(parseSeconds(payload['durationSec']) !== null
-        ? { durationSec: parseSeconds(payload['durationSec']) as number }
-        : {}),
+      ...(resolvedDurationSec !== null ? { durationSec: resolvedDurationSec } : {}),
       ...(initialDownloadPrewarm ? { downloadPrewarm: initialDownloadPrewarm } : {}),
       ...aiSeed,
       clips: [],
       annotations: [],
+      ...(seededTimeline.length > 0
+        ? {
+            timeline: seededTimeline,
+            timelineState: 'ready' as const,
+            timelineGeneratedAt: now,
+          }
+        : {}),
       tags: Array.isArray(payload['tags'])
         ? (payload['tags'] as unknown[])
             .map((value) => String(value).trim())
@@ -3203,7 +3353,7 @@ router.post('/film-reviews', appGuard, async (req: Request, res: Response) => {
         : [],
       source,
       ...(sourceUrl ? { sourceUrl } : {}),
-      schemaVersion: 1,
+      schemaVersion,
       createdBy: user.uid,
       updatedBy: user.uid,
       createdAt: now,
@@ -3446,6 +3596,15 @@ router.patch('/film-reviews/:filmReviewId', appGuard, async (req: Request, res: 
     const updates: Record<string, unknown> = { updatedBy: user.uid, updatedAt: now };
     const nextSport = normalizeString(payload['sport'])?.toLowerCase();
     const isSportChanging = !!nextSport && nextSport !== existing.sport;
+    const nextUploadMode = payload['uploadMode'];
+
+    if (nextUploadMode !== undefined) {
+      if (!isTeamFilmReviewUploadMode(nextUploadMode)) {
+        res.status(400).json({ success: false, error: 'Invalid film review upload mode' });
+        return;
+      }
+      updates['uploadMode'] = nextUploadMode;
+    }
 
     if (typeof payload['title'] === 'string' && payload['title'].trim()) {
       updates['title'] = payload['title'].trim();
@@ -3468,6 +3627,19 @@ router.patch('/film-reviews/:filmReviewId', appGuard, async (req: Request, res: 
     }
     if (typeof payload['thumbnailUrl'] === 'string') {
       updates['thumbnailUrl'] = payload['thumbnailUrl'].trim();
+    }
+    if (typeof payload['cloudflareVideoId'] === 'string' && payload['cloudflareVideoId'].trim()) {
+      updates['cloudflareVideoId'] = payload['cloudflareVideoId'].trim();
+    }
+    if (typeof payload['cloudflareStatus'] === 'string' && payload['cloudflareStatus'].trim()) {
+      updates['cloudflareStatus'] = payload['cloudflareStatus'].trim();
+    }
+    const nextReadyToStream = normalizeBoolean(payload['readyToStream']);
+    if (nextReadyToStream !== undefined) {
+      updates['readyToStream'] = nextReadyToStream;
+    }
+    if (typeof payload['sourceUrl'] === 'string') {
+      updates['sourceUrl'] = payload['sourceUrl'].trim();
     }
     if (typeof payload['opponentName'] === 'string') {
       updates['opponentName'] = payload['opponentName'].trim();
@@ -3501,6 +3673,31 @@ router.patch('/film-reviews/:filmReviewId', appGuard, async (req: Request, res: 
       updates['tags'] = (payload['tags'] as unknown[])
         .map((value) => String(value).trim())
         .filter((value) => value.length > 0);
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'sources')) {
+      const sources = parseFilmReviewSourceVideos(payload['sources']);
+      if (!sources) {
+        res.status(400).json({ success: false, error: 'Invalid film review sources payload' });
+        return;
+      }
+      updates['sources'] = sources;
+      updates['schemaVersion'] = 2;
+
+      const primarySource = sources[0];
+      if (primarySource) {
+        updates['videoUrl'] = primarySource.videoUrl;
+        if (primarySource.storagePath) updates['storagePath'] = primarySource.storagePath;
+        if (primarySource.thumbnailUrl) updates['thumbnailUrl'] = primarySource.thumbnailUrl;
+        if (primarySource.cloudflareVideoId) {
+          updates['cloudflareVideoId'] = primarySource.cloudflareVideoId;
+        }
+        if (primarySource.cloudflareStatus) {
+          updates['cloudflareStatus'] = primarySource.cloudflareStatus;
+        }
+        if (primarySource.readyToStream !== undefined) {
+          updates['readyToStream'] = primarySource.readyToStream;
+        }
+      }
     }
     if (Array.isArray(payload['timeline'])) {
       const timeline = parseFilmReviewTimelineSegments(
@@ -3931,6 +4128,15 @@ router.post(
           userId: user.uid,
         });
         res.status(403).json({ success: false, error: 'Forbidden' });
+        return;
+      }
+
+      if (existing.uploadMode === 'batch_clips') {
+        res.status(400).json({
+          success: false,
+          error:
+            'Timeline generation is not available for batch clip film reviews yet. Use the imported breakdown rows or upload full footage for AI timeline generation.',
+        });
         return;
       }
 

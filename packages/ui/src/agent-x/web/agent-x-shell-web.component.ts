@@ -45,6 +45,7 @@ import {
   TemplateRef,
   type Signal,
   viewChild,
+  viewChildren,
   DestroyRef,
 } from '@angular/core';
 import { CdkDragDrop, DragDropModule } from '@angular/cdk/drag-drop';
@@ -1751,6 +1752,7 @@ function sortCoordinatorCategories(
                 [teamId]="resolvedActiveTeamId()"
                 [role]="user()?.role ?? null"
                 [sport]="resolvedActiveSport()"
+                (askAgentPromptRequested)="onFilmReviewAskAgentPromptRequested($event)"
               />
             </div>
           </aside>
@@ -2554,7 +2556,6 @@ function sortCoordinatorCategories(
           color 0.15s ease,
           background 0.15s ease;
         font-family: inherit;
-        cursor: grab;
 
         &:hover:not(.agent-column-film-tab--active):not(.agent-column-film-tab--add) {
           background: var(--agent-surface-hover);
@@ -2575,7 +2576,6 @@ function sortCoordinatorCategories(
 
         &.agent-column-film-tab--dragging {
           opacity: 0.65;
-          cursor: grabbing;
         }
       }
 
@@ -4940,6 +4940,7 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
   private readonly gameplansPanel = viewChild(AgentXGameplansPanelComponent);
   private readonly playbooksPanel = viewChild(AgentXPlaybooksPanelComponent);
   private readonly practiceScriptsPanel = viewChild(AgentXPracticeScriptsPanelComponent);
+  private readonly operationChats = viewChildren(AgentXOperationChatComponent);
   public readonly filmReviewPanel = viewChild(AgentXFilmReviewPanelComponent);
   private readonly diagramsPanel = viewChild(AgentXDiagramsPanelComponent);
   private readonly toast = inject(NxtToastService);
@@ -6425,6 +6426,29 @@ export class AgentXShellWebComponent implements AfterViewInit, OnDestroy {
     void this.haptics.impact('light');
     this.activateDesktopCoordinatorSession(coord);
     this.coordinatorTap.emit(coord);
+  }
+
+  protected onFilmReviewAskAgentPromptRequested(prompt: string): void {
+    const trimmedPrompt = prompt.trim();
+    if (!trimmedPrompt) return;
+
+    const activeChat = this.operationChats()[0];
+    if (activeChat) {
+      activeChat.appendPromptToComposer(trimmedPrompt);
+      return;
+    }
+
+    const currentDraft = this.agentX.getUserMessage().trim();
+    if (!currentDraft) {
+      this.agentX.setUserMessage(trimmedPrompt);
+      return;
+    }
+
+    if (currentDraft === trimmedPrompt || currentDraft.endsWith(`\n\n${trimmedPrompt}`)) {
+      return;
+    }
+
+    this.agentX.setUserMessage(`${currentDraft}\n\n${trimmedPrompt}`);
   }
 
   /**

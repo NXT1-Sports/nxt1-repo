@@ -11,7 +11,9 @@ import type {
   TeamFilmReviewAnnotation,
   TeamFilmReviewDoc,
   TeamFilmReviewPlaySegment,
+  TeamFilmReviewSourceVideo,
   TeamFilmReviewTimelineTag,
+  TeamFilmReviewUploadMode,
 } from '../models/team/team-film-review.model';
 
 interface ApiResponse<T> {
@@ -36,7 +38,9 @@ export interface CreateTeamFilmReviewRequest {
   readonly teamId: string;
   readonly sport: string;
   readonly title: string;
-  readonly videoUrl: string;
+  readonly videoUrl?: string;
+  readonly uploadMode?: TeamFilmReviewUploadMode;
+  readonly sources?: readonly TeamFilmReviewSourceVideo[];
   readonly storagePath?: string;
   readonly cloudflareVideoId?: string;
   readonly cloudflareStatus?: string;
@@ -52,6 +56,7 @@ export interface CreateTeamFilmReviewRequest {
   readonly durationSec?: number;
   readonly keyInsights?: readonly string[];
   readonly tags?: readonly string[];
+  readonly timeline?: readonly TeamFilmReviewPlaySegment[];
 }
 
 export interface UpdateTeamFilmReviewRequest {
@@ -64,8 +69,15 @@ export interface UpdateTeamFilmReviewRequest {
   readonly status?: TeamFilmReviewDoc['status'];
   readonly perspective?: TeamFilmReviewDoc['perspective'];
   readonly videoUrl?: string;
+  readonly storagePath?: string;
   readonly thumbnailUrl?: string;
   readonly durationSec?: number;
+  readonly cloudflareVideoId?: string;
+  readonly cloudflareStatus?: string;
+  readonly readyToStream?: boolean;
+  readonly sourceUrl?: string;
+  readonly uploadMode?: TeamFilmReviewUploadMode;
+  readonly sources?: readonly TeamFilmReviewSourceVideo[];
   readonly aiSummary?: string;
   readonly keyInsights?: readonly string[];
   readonly tags?: readonly string[];

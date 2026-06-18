@@ -20,6 +20,7 @@ export type {
   AgentXSelectedContextAnnotation,
   AgentXSelectedContextMetadataValue,
   AgentXSelectedContext,
+  AgentXSelectedContextDragPayload,
 } from './agent-x-context.types';
 
 export {

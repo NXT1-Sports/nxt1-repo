@@ -82,6 +82,10 @@ export class AgentXFilmReviewService {
       return 'This video is missing duration metadata. Re-upload the clip, then try generating the timeline again.';
     }
 
+    if (normalized.includes('batch clip film reviews')) {
+      return 'Timeline generation is not available for batch clip sessions yet. Use the imported breakdown rows or upload full footage for AI timeline generation.';
+    }
+
     if (normalized.includes('timed out')) {
       return 'Timeline generation is taking longer than expected. Please retry in a moment.';
     }
@@ -109,12 +113,58 @@ export class AgentXFilmReviewService {
     };
   }
 
+  private buildFilmReviewSourceIdentity(source: {
+    readonly cloudflareVideoId?: string;
+    readonly storagePath?: string;
+    readonly videoUrl?: string;
+  }): string | null {
+    const cloudflareVideoId = source.cloudflareVideoId?.trim();
+    if (cloudflareVideoId) return `cf:${cloudflareVideoId}`;
+
+    const storagePath = source.storagePath?.trim();
+    if (storagePath) return `storage:${storagePath}`;
+
+    const videoUrl = source.videoUrl?.trim();
+    if (videoUrl) return `url:${videoUrl}`;
+
+    return null;
+  }
+
+  private buildFilmReviewSourceIdentityList(
+    reviewOrRequest:
+      | Pick<
+          CreateTeamFilmReviewRequest,
+          'sources' | 'cloudflareVideoId' | 'storagePath' | 'videoUrl'
+        >
+      | Pick<TeamFilmReviewDoc, 'sources' | 'cloudflareVideoId' | 'storagePath' | 'videoUrl'>
+  ): readonly string[] {
+    const sourceIdentities = (reviewOrRequest.sources ?? [])
+      .map((source) => this.buildFilmReviewSourceIdentity(source))
+      .filter((identity): identity is string => identity !== null);
+
+    if (sourceIdentities.length > 0) {
+      return sourceIdentities;
+    }
+
+    const primaryIdentity = this.buildFilmReviewSourceIdentity(reviewOrRequest);
+    return primaryIdentity ? [primaryIdentity] : [];
+  }
+
   async createFromVideo(request: CreateTeamFilmReviewRequest): Promise<TeamFilmReviewDoc> {
     this._saving.set(true);
     this._error.set(null);
 
     try {
+      const requestSourceIds = this.buildFilmReviewSourceIdentityList(request);
       const duplicate = this._reviews().find((review) => {
+        const reviewSourceIds = this.buildFilmReviewSourceIdentityList(review);
+        if (requestSourceIds.length > 0 && reviewSourceIds.length > 0) {
+          return (
+            requestSourceIds.length === reviewSourceIds.length &&
+            requestSourceIds.every((identity, index) => reviewSourceIds[index] === identity)
+          );
+        }
+
         if (request.cloudflareVideoId && review.cloudflareVideoId) {
           return review.cloudflareVideoId === request.cloudflareVideoId;
         }

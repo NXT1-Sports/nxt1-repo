@@ -53,7 +53,23 @@ describe('Agent X selected context drag payloads', () => {
   it('round-trips valid selected context JSON', () => {
     const payload = serializeAgentXSelectedContextForDrag(context);
 
-    expect(parseAgentXSelectedContextDragPayload(payload)).toEqual(context);
+    expect(parseAgentXSelectedContextDragPayload(payload)).toEqual([context]);
+  });
+
+  it('round-trips multiple selected contexts', () => {
+    const secondaryContext: AgentXSelectedContext = {
+      ...context,
+      id: 'film-play:review-1:play-3',
+      title: 'Corner route @ 02:31',
+      metadata: {
+        playNumber: 3,
+        hasDrawing: false,
+      },
+    };
+
+    const payload = serializeAgentXSelectedContextForDrag([context, secondaryContext]);
+
+    expect(parseAgentXSelectedContextDragPayload(payload)).toEqual([context, secondaryContext]);
   });
 
   it('rejects malformed JSON payloads', () => {

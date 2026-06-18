@@ -54,6 +54,21 @@ export interface TeamFilmReviewClip {
   readonly score?: number;
 }
 
+export type TeamFilmReviewUploadMode = 'single_video' | 'batch_clips' | 'full_footage';
+
+export interface TeamFilmReviewSourceVideo {
+  readonly id: string;
+  readonly order: number;
+  readonly videoUrl: string;
+  readonly title?: string;
+  readonly storagePath?: string;
+  readonly cloudflareVideoId?: string;
+  readonly cloudflareStatus?: string;
+  readonly readyToStream?: boolean;
+  readonly thumbnailUrl?: string;
+  readonly durationSec?: number;
+}
+
 export interface TeamFilmReviewAnnotation {
   readonly id: string;
   readonly note: string;
@@ -440,6 +455,7 @@ export interface TeamFilmReviewPlaySegment {
   readonly label: string;
   readonly startSec: number;
   readonly endSec: number;
+  readonly sourceId?: string;
   readonly confidence?: number;
   readonly annotation?: TeamFilmReviewPlayAnnotation | null;
   readonly tags?: Readonly<Record<string, TeamFilmReviewPlayTagValue>>;
@@ -479,12 +495,14 @@ export interface TeamFilmReviewDoc {
   readonly sport: string;
   readonly title: string;
   readonly status: TeamFilmReviewStatus;
+  readonly uploadMode?: TeamFilmReviewUploadMode;
   readonly perspective?: TeamFilmReviewPerspective;
   readonly gameDate?: string;
   readonly opponentName?: string;
   readonly playlistId?: string | null;
   readonly playlistName?: string | null;
   readonly videoUrl: string;
+  readonly sources?: readonly TeamFilmReviewSourceVideo[];
   readonly storagePath?: string;
   readonly cloudflareVideoId?: string;
   readonly cloudflareStatus?: string;
