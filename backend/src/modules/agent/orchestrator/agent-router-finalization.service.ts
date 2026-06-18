@@ -21,6 +21,8 @@ const DELIVERABLE_URL_KEYS = [
   'diagramUrl',
 ] as const;
 
+const DELIVERABLE_POSTER_URL_KEYS = ['thumbnailUrl', 'posterUrl', 'poster'] as const;
+
 const DELIVERABLE_COLLECTION_KEYS = [
   'files',
   'attachments',
@@ -38,11 +40,21 @@ function isHttpUrl(value: unknown): value is string {
 }
 
 function isImageUrl(value: string): boolean {
-  return /\.(png|jpe?g|gif|webp|avif|bmp|svg)([?#]|$)/i.test(value);
+  try {
+    return /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(
+      decodeURIComponent(new URL(value).pathname)
+    );
+  } catch {
+    return /\.(png|jpe?g|gif|webp|avif|bmp|svg)([?#]|$)/i.test(value);
+  }
 }
 
 function isVideoUrl(value: string): boolean {
-  return /\.(mp4|mov|webm|m4v)([?#]|$)/i.test(value);
+  try {
+    return /\.(mp4|mov|webm|m4v)$/i.test(decodeURIComponent(new URL(value).pathname));
+  } catch {
+    return /\.(mp4|mov|webm|m4v)([?#]|$)/i.test(value);
+  }
 }
 
 function encodePosterFragment(posterUrl: string): string {
@@ -86,10 +98,10 @@ function collectDeliverableItems(value: unknown, sink: Map<string, DeliverableIt
   }
 
   const record = value as Record<string, unknown>;
-  const thumbnailUrl =
-    isHttpUrl(record['thumbnailUrl']) && isImageUrl(record['thumbnailUrl'].trim())
-      ? record['thumbnailUrl'].trim()
-      : undefined;
+  const thumbnailUrl = DELIVERABLE_POSTER_URL_KEYS.map((key) => record[key])
+    .filter(isHttpUrl)
+    .map((url) => url.trim())
+    .find(isImageUrl);
   const consumedThumbnailUrls = new Set<string>();
 
   for (const key of DELIVERABLE_URL_KEYS) {
