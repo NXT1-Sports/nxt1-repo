@@ -95,6 +95,18 @@ describe('preprocessMediaPresentationMarkdown', () => {
 
     expect(result).toBe(`[View Video](${videoUrl})`);
   });
+
+  it('preserves poster metadata from raw video HTML', () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+    const posterUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    const result = preprocessMediaPresentationMarkdown(
+      `<video src="${videoUrl}" poster="${posterUrl.replace(/&/g, '&amp;')}" controls playsinline muted></video>`
+    );
+
+    expect(result).toBe(`[View Video](${videoUrl}#poster=${encodeURIComponent(posterUrl)})`);
+  });
 });
 
 describe('NxtMarkdownComponent', () => {
@@ -193,6 +205,27 @@ describe('NxtMarkdownComponent', () => {
     expect(videoPreview?.getAttribute('src')).not.toContain('[View Video](');
   });
 
+  it('renders raw video HTML poster attributes as md-video-poster images', async () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+    const posterUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    setContent(
+      `<video src="${videoUrl}" poster="${posterUrl.replace(/&/g, '&amp;')}" controls playsinline muted></video>`
+    );
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    const poster = nativeEl.querySelector<HTMLImageElement>('img.md-video-poster');
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    expect(videoThumb?.getAttribute('data-md-video-src')).toBe(videoUrl);
+    expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(true);
+    expect(poster?.getAttribute('src')).toBe(posterUrl);
+    expect(videoPreview?.getAttribute('poster')).toBe(posterUrl);
+  });
+
   it('renders explicit video poster URLs as the visible thumbnail layer', async () => {
     const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
     const posterUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb.jpg';
@@ -209,6 +242,47 @@ describe('NxtMarkdownComponent', () => {
     expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(true);
     expect(poster?.getAttribute('src')).toBe(posterUrl);
     expect(videoPreview?.getAttribute('poster')).toBe(posterUrl);
+  });
+
+  it('hydrates fallback video posters from the preview frame when no poster metadata exists', async () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+    const generatedPosterUrl = 'data:image/jpeg;base64,AAAA';
+    const originalCreateElement = document.createElement.bind(document);
+    const canvas = originalCreateElement('canvas') as HTMLCanvasElement;
+    const drawImage = vi.fn();
+    vi.spyOn(canvas, 'getContext').mockReturnValue({
+      drawImage,
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(canvas, 'toDataURL').mockReturnValue(generatedPosterUrl);
+    const createElementSpy = vi.spyOn(document, 'createElement').mockImplementation((tagName) => {
+      if (String(tagName).toLowerCase() === 'canvas') return canvas;
+      return originalCreateElement(tagName);
+    });
+
+    setContent(`[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    const fallbackPoster = nativeEl.querySelector<HTMLElement>('.md-video-poster--fallback');
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+    expect(videoPreview).toBeTruthy();
+    expect(fallbackPoster).toBeTruthy();
+
+    Object.defineProperty(videoPreview, 'readyState', { value: 2, configurable: true });
+    Object.defineProperty(videoPreview, 'videoWidth', { value: 720, configurable: true });
+    Object.defineProperty(videoPreview, 'videoHeight', { value: 1280, configurable: true });
+
+    videoPreview?.dispatchEvent(new Event('loadeddata', { bubbles: true }));
+    fixture.detectChanges();
+
+    const poster = nativeEl.querySelector<HTMLImageElement>('img.md-video-poster');
+    expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(true);
+    expect(poster?.getAttribute('src')).toBe(generatedPosterUrl);
+    expect(videoPreview?.getAttribute('poster')).toBe(generatedPosterUrl);
+    expect(drawImage).toHaveBeenCalled();
+
+    createElementSpy.mockRestore();
   });
 
   it('renders video poster URLs with markdown-sensitive characters without falling back', async () => {

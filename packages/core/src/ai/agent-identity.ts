@@ -419,6 +419,35 @@ export function extractMediaAttachmentsFromResultData(
       scalarThumbnailUrl && (scalarVideoUrl || scalarOutputType === 'video')
         ? scalarThumbnailUrl
         : undefined;
+    const isFileLikeVideo = (item: unknown): boolean => {
+      if (!item || typeof item !== 'object') return false;
+      const obj = item as Record<string, unknown>;
+      const url = resolvePreferredAttachmentUrl(obj);
+      const mimeType = readNonEmptyString(obj['mimeType']) ?? '';
+      const declaredType = readNonEmptyString(obj['type']);
+      const type =
+        declaredType === 'image' || declaredType === 'video' || declaredType === 'doc'
+          ? declaredType
+          : inferTypeFromMime(mimeType);
+      return type === 'video' || (url ? inferTypeFromUrl(url) === 'video' : false);
+    };
+    const hasRecordVideoOutput =
+      Boolean(scalarVideoUrl) ||
+      scalarOutputType === 'video' ||
+      (Array.isArray(record['videoUrls']) &&
+        record['videoUrls'].some((url) => typeof url === 'string')) ||
+      (Array.isArray(record['mediaUrls']) &&
+        record['mediaUrls'].some(
+          (url) => typeof url === 'string' && inferTypeFromUrl(url) === 'video'
+        )) ||
+      (Array.isArray(record['persistedMediaUrls']) &&
+        record['persistedMediaUrls'].some(
+          (url) => typeof url === 'string' && inferTypeFromUrl(url) === 'video'
+        )) ||
+      (Array.isArray(record['files']) && record['files'].some(isFileLikeVideo)) ||
+      (Array.isArray(record['attachments']) && record['attachments'].some(isFileLikeVideo)) ||
+      (Array.isArray(record['videoAttachments']) &&
+        record['videoAttachments'].some(isFileLikeVideo));
 
     // Scalar fields: image/video/document outputs commonly emitted by tools.
     if (typeof record['imageUrl'] === 'string') {
@@ -449,7 +478,7 @@ export function extractMediaAttachmentsFromResultData(
         type: 'image',
       });
     }
-    if (scalarThumbnailUrl && !scalarVideoThumbnailUrl) {
+    if (scalarThumbnailUrl && !scalarVideoThumbnailUrl && !hasRecordVideoOutput) {
       addAttachment({
         url: scalarThumbnailUrl,
         name: 'thumbnail.jpg',
@@ -503,28 +532,44 @@ export function extractMediaAttachmentsFromResultData(
       });
     }
     if (Array.isArray(record['videoUrls'])) {
-      (record['videoUrls'] as unknown[]).forEach((url, idx) => {
+      const videoUrls = (record['videoUrls'] as unknown[]).filter(
+        (url): url is string => typeof url === 'string'
+      );
+      const sharedThumbnailUrl = videoUrls.length === 1 ? scalarThumbnailUrl : undefined;
+      videoUrls.forEach((url, idx) => {
         if (typeof url !== 'string') return;
         addAttachment({
           url,
           name: `video-${idx}.mp4`,
           type: 'video',
+          ...(sharedThumbnailUrl ? { thumbnailUrl: sharedThumbnailUrl } : {}),
         });
       });
     }
     if (Array.isArray(record['mediaUrls'])) {
-      (record['mediaUrls'] as unknown[]).forEach((url, idx) => {
+      const mediaUrls = (record['mediaUrls'] as unknown[]).filter(
+        (url): url is string => typeof url === 'string'
+      );
+      const videoUrlCount = mediaUrls.filter((url) => inferTypeFromUrl(url) === 'video').length;
+      mediaUrls.forEach((url, idx) => {
         if (typeof url !== 'string') return;
         const inferred = inferTypeFromUrl(url);
         addAttachment({
           url,
           name: `${inferred}-${idx}.${inferred === 'image' ? 'jpg' : inferred === 'video' ? 'mp4' : 'bin'}`,
           type: inferred,
+          ...(inferred === 'video' && videoUrlCount === 1 && scalarThumbnailUrl
+            ? { thumbnailUrl: scalarThumbnailUrl }
+            : {}),
         });
       });
     }
 
-    const collectFileLikeAttachment = (file: unknown, idx: number): void => {
+    const collectFileLikeAttachment = (
+      file: unknown,
+      idx: number,
+      fallbackThumbnailUrl?: string
+    ): void => {
       if (!file || typeof file !== 'object') return;
       const obj = file as Record<string, unknown>;
       const url = resolvePreferredAttachmentUrl(obj);
@@ -535,6 +580,9 @@ export function extractMediaAttachmentsFromResultData(
         declaredType === 'image' || declaredType === 'video' || declaredType === 'doc'
           ? declaredType
           : inferTypeFromMime(mimeType);
+      const explicitThumbnailUrl = readNonEmptyString(obj['thumbnailUrl']);
+      const effectiveThumbnailUrl =
+        explicitThumbnailUrl ?? (type === 'video' ? fallbackThumbnailUrl : undefined);
       if (!url) return;
       addAttachment({
         url,
@@ -547,45 +595,43 @@ export function extractMediaAttachmentsFromResultData(
         ...(readNonNegativeNumber(obj['sizeBytes']) !== undefined
           ? { sizeBytes: readNonNegativeNumber(obj['sizeBytes']) }
           : {}),
-        ...(readNonEmptyString(obj['thumbnailUrl'])
-          ? { thumbnailUrl: readNonEmptyString(obj['thumbnailUrl']) }
-          : {}),
+        ...(effectiveThumbnailUrl ? { thumbnailUrl: effectiveThumbnailUrl } : {}),
         ...(readNonEmptyString(obj['cloudflareVideoId'])
           ? { cloudflareVideoId: readNonEmptyString(obj['cloudflareVideoId']) }
           : {}),
       });
     };
 
+    const collectFileLikeAttachments = (items: unknown[]): void => {
+      const videoItemCount = items.filter(isFileLikeVideo).length;
+      const fallbackThumbnailUrl = videoItemCount === 1 ? scalarThumbnailUrl : undefined;
+      items.forEach((file, idx) => collectFileLikeAttachment(file, idx, fallbackThumbnailUrl));
+    };
+
     // files[] and attachments[] arrays: map each item's url/name/mimeType
     if (Array.isArray(record['files'])) {
-      (record['files'] as unknown[]).forEach((file, idx) => {
-        collectFileLikeAttachment(file, idx);
-      });
+      collectFileLikeAttachments(record['files'] as unknown[]);
     }
     if (Array.isArray(record['attachments'])) {
-      (record['attachments'] as unknown[]).forEach((file, idx) => {
-        collectFileLikeAttachment(file, idx);
-      });
+      collectFileLikeAttachments(record['attachments'] as unknown[]);
     }
     if (Array.isArray(record['videoAttachments'])) {
-      (record['videoAttachments'] as unknown[]).forEach((file, idx) => {
-        collectFileLikeAttachment(file, idx);
-      });
+      collectFileLikeAttachments(record['videoAttachments'] as unknown[]);
     }
     if (Array.isArray(record['imageAttachments'])) {
-      (record['imageAttachments'] as unknown[]).forEach((file, idx) => {
-        collectFileLikeAttachment(file, idx);
-      });
+      collectFileLikeAttachments(record['imageAttachments'] as unknown[]);
     }
 
     // mediaArtifact / mediaArtifacts structured outputs from media tools
     if (record['mediaArtifact'] && typeof record['mediaArtifact'] === 'object') {
-      collectFileLikeAttachment(record['mediaArtifact'], 0);
+      collectFileLikeAttachment(
+        record['mediaArtifact'],
+        0,
+        isFileLikeVideo(record['mediaArtifact']) ? scalarThumbnailUrl : undefined
+      );
     }
     if (Array.isArray(record['mediaArtifacts'])) {
-      (record['mediaArtifacts'] as unknown[]).forEach((artifact, idx) => {
-        collectFileLikeAttachment(artifact, idx);
-      });
+      collectFileLikeAttachments(record['mediaArtifacts'] as unknown[]);
     }
 
     // downloadUrl: generated export file (PDF, CSV) from DynamicExportTool
@@ -603,6 +649,9 @@ export function extractMediaAttachmentsFromResultData(
         name: exportName,
         type: exportType,
         ...(mimeType ? { mimeType } : {}),
+        ...(exportType === 'video' && scalarThumbnailUrl
+          ? { thumbnailUrl: scalarThumbnailUrl }
+          : {}),
         ...(readNonEmptyString(record['storagePath'])
           ? { storagePath: readNonEmptyString(record['storagePath']) }
           : {}),
@@ -614,11 +663,24 @@ export function extractMediaAttachmentsFromResultData(
 
     // persistedMediaUrls[] array: map each as media
     if (Array.isArray(record['persistedMediaUrls'])) {
-      (record['persistedMediaUrls'] as unknown[]).forEach((url, idx) => {
+      const persistedMediaUrls = (record['persistedMediaUrls'] as unknown[]).filter(
+        (url): url is string => typeof url === 'string'
+      );
+      const videoUrlCount = persistedMediaUrls.filter(
+        (url) => inferTypeFromUrl(url) === 'video'
+      ).length;
+      persistedMediaUrls.forEach((url, idx) => {
         if (typeof url !== 'string') return;
         const type = url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? 'image' : 'video';
         const name = type === 'image' ? `media-${idx}.jpg` : `media-${idx}.mp4`;
-        addAttachment({ url, name, type });
+        addAttachment({
+          url,
+          name,
+          type,
+          ...(type === 'video' && videoUrlCount === 1 && scalarThumbnailUrl
+            ? { thumbnailUrl: scalarThumbnailUrl }
+            : {}),
+        });
       });
     }
   };

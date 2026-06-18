@@ -3,6 +3,7 @@ import { logger } from '../../../../../utils/logger.js';
 import { type FfmpegMcpBridgeService } from './ffmpeg-mcp-bridge.service.js';
 import { normalizeFfmpegToolInput } from './ffmpeg-input-normalizer.js';
 import { MergeVideosInputSchema } from './schemas.js';
+import { generateVideoThumbnail } from './ffmpeg-thumbnail-helper.js';
 
 export class FfmpegMergeVideosTool extends BaseTool {
   readonly name = 'ffmpeg_merge_videos';
@@ -65,11 +66,20 @@ export class FfmpegMergeVideosTool extends BaseTool {
       };
       const result = await this.bridge.mergeVideos(mergeInput, context);
       const outputUrl = result.outputUrl ?? result.output_path;
+      const thumbnailUrl = await generateVideoThumbnail({
+        bridge: this.bridge,
+        videoUrl: outputUrl,
+        outputPath: parsed.data.outputPath,
+        fallbackBase: 'merged.mp4',
+        context,
+        logScope: 'FfmpegMergeVideosTool',
+      });
       return {
         success: true,
         data: {
           outputUrl,
           videoUrl: outputUrl,
+          ...(thumbnailUrl ? { thumbnailUrl } : {}),
           filesMerged: parsed.data.inputPaths.length,
           result,
         },

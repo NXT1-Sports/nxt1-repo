@@ -772,7 +772,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     toolRegistry.register(new RunwayGenerateVideoTool(runwayMcpBridge));
     toolRegistry.register(new RunwayEditVideoTool(runwayMcpBridge));
     toolRegistry.register(new RunwayUpscaleVideoTool(runwayMcpBridge));
-    toolRegistry.register(new RunwayCheckTaskTool(runwayMcpBridge));
+    toolRegistry.register(new RunwayCheckTaskTool(runwayMcpBridge, ffmpegBridge));
     logger.info(
       'MCP-bridged Runway ML tools registered (generate_video, edit_video, upscale_video, check_task)'
     );
