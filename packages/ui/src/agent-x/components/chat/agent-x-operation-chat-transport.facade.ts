@@ -1396,7 +1396,7 @@ export class AgentXOperationChatTransportFacade {
         mediaType === 'video' ? this.thumbnailForStreamMediaUrl(normalizedUrl, attachments) : null;
       const renderableUrl =
         mediaType === 'video' && thumbnailUrl && !/#poster=/i.test(normalizedUrl)
-          ? `${normalizedUrl}#poster=${encodeURIComponent(thumbnailUrl)}`
+          ? `${normalizedUrl}#poster=${this.encodeMarkdownUrlFragmentValue(thumbnailUrl)}`
           : normalizedUrl;
 
       const previousChar = offset > 0 ? source[offset - 1] : '';
@@ -1476,6 +1476,13 @@ export class AgentXOperationChatTransportFacade {
 
   private normalizeStreamMediaUrl(value: string): string {
     return value.trim().replace(/[),.;!?]+$/g, '');
+  }
+
+  private encodeMarkdownUrlFragmentValue(value: string): string {
+    return encodeURIComponent(value).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
   }
 
   private streamMediaAttachmentName(media: AgentXStreamMediaEvent): string {

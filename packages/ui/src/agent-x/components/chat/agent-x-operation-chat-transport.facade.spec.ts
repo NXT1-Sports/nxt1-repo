@@ -192,6 +192,41 @@ describe('AgentXOperationChatTransportFacade', () => {
     );
   });
 
+  it('encodes markdown-sensitive stream poster URL characters before promoting media URLs', () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-media/reels/clip.mp4';
+    const thumbnailUrl =
+      'https://storage.googleapis.com/nxt1-media/reels/thumbs/clip poster (1).jpg?alt=media&token=thumb';
+    const encodedThumbnailUrl = encodeURIComponent(thumbnailUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+    const promote = (
+      facade as unknown as {
+        promoteStreamMediaUrlsToMarkdown: (
+          content: string,
+          attachments: Array<{
+            url: string;
+            type: 'video';
+            name: string;
+            thumbnailUrl: string;
+          }>
+        ) => string;
+      }
+    ).promoteStreamMediaUrlsToMarkdown.bind(facade);
+
+    const result = promote(videoUrl, [
+      {
+        url: videoUrl,
+        type: 'video',
+        name: 'clip.mp4',
+        thumbnailUrl,
+      },
+    ]);
+
+    expect(result).toBe(`[View Video](${videoUrl}#poster=${encodedThumbnailUrl})`);
+    expect(result).not.toContain('(1)');
+  });
+
   it('stamps the optimistic user message when the stream resolves an operation id', async () => {
     const pendingStream = facade.sendViaStream(
       { message: 'Start a fresh request' } as AgentXChatRequest,
