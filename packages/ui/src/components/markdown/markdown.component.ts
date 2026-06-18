@@ -140,18 +140,18 @@ function buildVideoThumb(safeHref: string, label: string, posterUrl?: string): s
     `</svg>`;
 
   const posterHtml = posterUrl
-    ? `<img class="md-video-poster" src="${escapeAttr(posterUrl)}" alt="" aria-hidden="true" />`
-    : `<div class="md-video-poster" aria-hidden="true"></div>`;
+    ? ''
+    : `<span class="md-video-poster md-video-poster--fallback" aria-hidden="true"></span>`;
 
   const posterAttr = posterUrl ? ` poster="${escapeAttr(posterUrl)}"` : '';
   const wrapClass = posterUrl ? 'md-video-wrap md-video-wrap--has-poster' : 'md-video-wrap';
 
   return (
-    `<div class="${wrapClass}" data-md-video-src="${safeHref}" role="button" tabindex="0" aria-label="${escapeAttr(label || 'Play video')}">` +
+    `<span class="${wrapClass}" data-md-video-src="${safeHref}" role="button" tabindex="0" aria-label="${escapeAttr(label || 'Play video')}">` +
     posterHtml +
-    `<video class="md-video-preview" src="${previewSrc}"${posterAttr} muted playsinline preload="metadata" aria-hidden="true"></video>` +
-    `<div class="md-video-play" aria-hidden="true">${playIcon}</div>` +
-    `</div>`
+    `<video class="md-video-preview" src="${previewSrc}"${posterAttr} muted playsinline webkit-playsinline preload="metadata" aria-hidden="true"></video>` +
+    `<span class="md-video-play" aria-hidden="true">${playIcon}</span>` +
+    `</span>`
   );
 }
 
@@ -751,37 +751,20 @@ const markedInstance = new Marked({
       }
 
       nxt1-markdown .md .md-video-wrap--has-poster {
-        display: inline-block;
-        width: auto;
+        display: block;
+        width: min(240px, 100%);
         max-width: min(240px, 100%);
-        aspect-ratio: auto;
+        aspect-ratio: var(--md-video-aspect-ratio, 16 / 9);
         background: #000;
-        height: unset;
       }
 
-      nxt1-markdown .md .md-video-poster {
+      nxt1-markdown .md .md-video-poster--fallback {
         position: absolute;
         inset: 0;
         display: block;
         width: 100%;
         height: 100%;
-        object-fit: cover;
         pointer-events: none;
-      }
-
-      nxt1-markdown .md .md-video-wrap--has-poster img.md-video-poster {
-        position: relative;
-        inset: auto;
-        width: auto;
-        max-width: 100%;
-        height: auto;
-        max-height: min(360px, 70vh);
-        object-fit: contain;
-        background: #000;
-        margin: 0;
-      }
-
-      div.md-video-poster {
         z-index: 0;
         background:
           radial-gradient(circle at 30% 22%, rgba(204, 255, 0, 0.18), transparent 34%),
@@ -793,15 +776,11 @@ const markedInstance = new Marked({
         z-index: 1;
         display: block;
         width: 100%;
-        height: auto;
+        height: 100%;
         max-height: min(360px, 70vh);
         object-fit: contain;
-        background: transparent;
+        background: #000;
         pointer-events: none;
-      }
-
-      nxt1-markdown .md .md-video-wrap--has-poster .md-video-preview {
-        display: none;
       }
 
       nxt1-markdown .md .md-video-wrap:focus-visible {
@@ -1050,6 +1029,7 @@ export class NxtMarkdownComponent {
             'class',
             'controls',
             'playsinline',
+            'webkit-playsinline',
             'muted',
             'preload',
             'poster',

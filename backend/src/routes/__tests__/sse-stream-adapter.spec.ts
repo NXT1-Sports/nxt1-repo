@@ -193,4 +193,41 @@ describe('buildSseStreamCallback', () => {
       },
     ]);
   });
+
+  it('includes nested data.thumbnailUrl on media events for trimmed videos', () => {
+    const { writes, response } = createResponseRecorder();
+    const streamRef: SseStreamRef = {
+      invokedTools: [],
+      successfulTools: [],
+      model: '',
+      tokenUsage: undefined,
+      pendingAutoOpenPanel: null,
+    };
+
+    const onStreamEvent = buildSseStreamCallback(response, streamRef);
+
+    onStreamEvent({
+      type: 'tool_result',
+      stepId: 'call_trim_video',
+      toolName: 'ffmpeg_trim_video',
+      toolSuccess: true,
+      message: 'Trim Video',
+      toolResult: {
+        success: true,
+        data: {
+          outputUrl: 'https://cdn.example.com/generated/trimmed.mp4',
+          videoUrl: 'https://cdn.example.com/generated/trimmed.mp4',
+          thumbnailUrl: 'https://cdn.example.com/generated/trimmed-thumbnail.jpg',
+        },
+      },
+    });
+
+    expect(parseMediaPayloads(writes)).toEqual([
+      {
+        type: 'video',
+        url: 'https://cdn.example.com/generated/trimmed.mp4',
+        thumbnailUrl: 'https://cdn.example.com/generated/trimmed-thumbnail.jpg',
+      },
+    ]);
+  });
 });
