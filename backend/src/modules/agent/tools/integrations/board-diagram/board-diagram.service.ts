@@ -38,7 +38,6 @@ import { buildSystemPrompt } from '../play-diagram/prompts/index.js';
 import { getSportRenderer } from '../play-diagram/renderers/index.js';
 import { applySportFeatureFlag, normalizeSportId } from '../play-diagram/sport-normalization.js';
 import { getFeatureFlagsService } from '../../../../../config/feature-flags/index.js';
-import { getFirestore } from 'firebase-admin/firestore';
 import {
   coercePlayerShape,
   coerceRouteType,
@@ -268,6 +267,12 @@ function resolveStorage(context?: ToolExecutionContext) {
     context?.environment === 'staging' ||
     (!context?.environment && process.env['NODE_ENV'] === 'staging');
   return isStaging ? stagingStorage : defaultStorage;
+}
+
+async function isExtendedSportsEnabled(context?: ToolExecutionContext): Promise<boolean> {
+  return getFeatureFlagsService(resolveFirestoreDb(context)).isEnabled(
+    'ai.play.diagram.extended.sports.enabled'
+  );
 }
 
 /**
@@ -614,9 +619,7 @@ export class BoardDiagramService {
     input: CreateBoardDiagramInput,
     context?: ToolExecutionContext
   ): Promise<BoardDiagramAsset> {
-    const extendedSportsEnabled = await getFeatureFlagsService(getFirestore()).isEnabled(
-      'ai.play.diagram.extended.sports.enabled'
-    );
+    const extendedSportsEnabled = await isExtendedSportsEnabled(context);
     const requestedSport = applySportFeatureFlag(
       normalizeSportId(input.sport),
       extendedSportsEnabled
@@ -724,9 +727,7 @@ export class BoardDiagramService {
     input: UpdateBoardDiagramInput,
     context?: ToolExecutionContext
   ): Promise<BoardDiagramAsset> {
-    const extendedSportsEnabled = await getFeatureFlagsService(getFirestore()).isEnabled(
-      'ai.play.diagram.extended.sports.enabled'
-    );
+    const extendedSportsEnabled = await isExtendedSportsEnabled(context);
 
     const assetService = this.getAssetService(context);
     const existing = await assetService.getById(input.assetId, input.userId);
