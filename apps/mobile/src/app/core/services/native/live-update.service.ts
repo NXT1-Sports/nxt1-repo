@@ -64,6 +64,8 @@ interface LiveUpdaterPlugin {
   current(): Promise<{ bundle: { id: string; version: string } }>;
 }
 
+type LiveUpdateApplyOutcome = 'applied' | 'staged' | 'deferred' | 'failed';
+
 @Injectable({ providedIn: 'root' })
 export class LiveUpdateService {
   private readonly firestore = inject(Firestore);
@@ -179,19 +181,26 @@ export class LiveUpdateService {
 
     const forceImmediateOnFirstLaunch = !(await this.hasHandledFirstLaunch());
 
-    try {
-      const result = await this.checkForUpdate(updater);
-      this._lastResult.set(result);
+    const result = await this.checkForUpdate(updater);
+    this._lastResult.set(result);
 
-      if (result.status === 'available') {
-        await this.applyUpdate(updater, result.manifest, {
-          immediate: forceImmediateOnFirstLaunch,
-        });
-      }
-    } finally {
-      if (forceImmediateOnFirstLaunch) {
+    if (result.status === 'available') {
+      const outcome = await this.applyUpdate(updater, result.manifest, {
+        immediate: forceImmediateOnFirstLaunch,
+        requireWifi: !forceImmediateOnFirstLaunch,
+      });
+
+      if (forceImmediateOnFirstLaunch && outcome === 'applied') {
         await this.markFirstLaunchHandled();
       }
+      return;
+    }
+
+    // Only consume the first-launch immediate path once we have a definitive
+    // non-error result. A transient Firestore/network failure should retry the
+    // immediate install path on the next cold start.
+    if (forceImmediateOnFirstLaunch && result.status !== 'error') {
+      await this.markFirstLaunchHandled();
     }
   }
 
@@ -382,16 +391,21 @@ export class LiveUpdateService {
   private async applyUpdate(
     updater: LiveUpdaterPlugin,
     manifest: LiveUpdateManifest,
-    options: { immediate?: boolean } = {}
-  ): Promise<void> {
-    // Don't burn user's cellular data with bundle downloads.
+    options: { immediate?: boolean; requireWifi?: boolean } = {}
+  ): Promise<LiveUpdateApplyOutcome> {
+    // First install must get the latest OTA immediately. Later background
+    // updates still avoid downloading on cellular unless explicitly allowed.
     try {
       const status = await Network.getStatus();
-      if (status.connectionType !== 'wifi' && status.connectionType !== 'unknown') {
+      if (
+        options.requireWifi !== false &&
+        status.connectionType !== 'wifi' &&
+        status.connectionType !== 'unknown'
+      ) {
         this.logger.info('OTA deferred: not on Wi-Fi', {
           connectionType: status.connectionType,
         });
-        return;
+        return 'deferred';
       }
     } catch {
       // If Network plugin fails, fall through and try anyway.
@@ -415,22 +429,18 @@ export class LiveUpdateService {
       });
 
       if (options.immediate) {
-        // Persist the first-launch marker before `set()` reloads the WebView.
-        await this.saveState(
-          {
-            currentVersion: manifest.version,
-            lastCheckedAt: new Date().toISOString(),
-            failureCount: 0,
-          },
-          { firstLaunchHandled: true }
-        );
+        await this.saveState({
+          currentVersion: manifest.version,
+          lastCheckedAt: new Date().toISOString(),
+          failureCount: 0,
+        });
         this._currentVersion.set(manifest.version);
         this.logger.info('OTA bundle applying immediately on first launch', {
           version: manifest.version,
         });
         this.toast.info('Installing latest update...');
         await updater.set({ id: bundle.id });
-        return;
+        return 'applied';
       }
 
       // Use next() instead of set() so we DON'T destroy the user's current
@@ -448,6 +458,7 @@ export class LiveUpdateService {
         lastCheckedAt: new Date().toISOString(),
         failureCount: 0,
       });
+      return 'staged';
     } catch (err) {
       const failureCount = state.failureCount + 1;
       this.logger.error('OTA apply failed', err, {
@@ -460,6 +471,7 @@ export class LiveUpdateService {
         lastCheckedAt: new Date().toISOString(),
         failureCount,
       });
+      return 'failed';
     } finally {
       this._applying.set(false);
     }
