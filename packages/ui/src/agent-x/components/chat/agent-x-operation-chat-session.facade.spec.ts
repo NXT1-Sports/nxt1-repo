@@ -1217,6 +1217,46 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     ]);
   });
 
+  it('rehydrates nested task result posterUrl for assistant video markdown links', () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Ftrimmed.mp4?alt=media&token=video';
+    const posterUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/video/trimmed-poster.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+    const content = `✅ Done!\n\n**Trimmed Video:**\n[View Video](${videoUrl})`;
+
+    const media = facade.collectMessageMedia(
+      assistantMessage('nested-trim-result', 'assistant_final', {
+        content,
+        resultData: {
+          taskResults: {
+            'task-1': {
+              data: {
+                outputUrl: videoUrl,
+                posterUrl,
+              },
+            },
+          },
+        },
+      })
+    );
+
+    expect(media.attachments).toEqual([
+      {
+        url: videoUrl,
+        type: 'video',
+        name: 'media-video-1.mp4',
+        thumbnailUrl: posterUrl,
+      },
+    ]);
+
+    const promoted = facade.promoteAssistantMediaUrlsToMarkdown(content, media);
+    const encodedPosterUrl = encodeURIComponent(posterUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+    expect(promoted).toContain(`[View Video](${videoUrl}#poster=${encodedPosterUrl})`);
+  });
+
   it('downgrades persisted non-playable video page attachments to app links', () => {
     const highlightPageUrl = 'https://hoopseen.com/videos/atlanta-jam-highlights';
 

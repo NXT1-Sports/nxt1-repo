@@ -671,6 +671,79 @@ export class AgentXOperationChatSessionFacade {
     });
   }
 
+  private collectResultDataMedia(
+    value: unknown,
+    depth = 0
+  ): {
+    urls: string[];
+    thumbnailUrls: string[];
+  } {
+    if (!value || typeof value !== 'object' || depth > 6) {
+      return { urls: [], thumbnailUrls: [] };
+    }
+
+    const urls: string[] = [];
+    const thumbnailUrls: string[] = [];
+    const addUrl = (candidate: unknown): void => {
+      if (typeof candidate === 'string' && candidate.trim()) urls.push(candidate.trim());
+    };
+    const addThumbnailUrl = (candidate: unknown): void => {
+      if (
+        typeof candidate === 'string' &&
+        this.isRenderableThumbnailUrl(candidate) &&
+        candidate.trim()
+      ) {
+        thumbnailUrls.push(candidate.trim());
+      }
+    };
+
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        const nested = this.collectResultDataMedia(item, depth + 1);
+        urls.push(...nested.urls);
+        thumbnailUrls.push(...nested.thumbnailUrls);
+      }
+      return { urls, thumbnailUrls };
+    }
+
+    const record = value as Record<string, unknown>;
+    for (const key of ['imageUrl', 'videoUrl', 'outputUrl'] as const) {
+      addUrl(record[key]);
+    }
+    for (const key of ['thumbnailUrl', 'posterUrl', 'poster'] as const) {
+      addThumbnailUrl(record[key]);
+    }
+    for (const key of ['persistedMediaUrls', 'mediaUrls', 'imageUrls', 'videoUrls'] as const) {
+      const collection = record[key];
+      if (!Array.isArray(collection)) continue;
+      for (const item of collection) addUrl(item);
+    }
+    for (const key of [
+      'files',
+      'attachments',
+      'mediaArtifact',
+      'mediaArtifacts',
+      'taskResults',
+      'data',
+      'artifacts',
+    ] as const) {
+      const nested = record[key];
+      if (key === 'taskResults' && nested && typeof nested === 'object' && !Array.isArray(nested)) {
+        for (const item of Object.values(nested as Record<string, unknown>)) {
+          const collected = this.collectResultDataMedia(item, depth + 1);
+          urls.push(...collected.urls);
+          thumbnailUrls.push(...collected.thumbnailUrls);
+        }
+        continue;
+      }
+      const collected = this.collectResultDataMedia(nested, depth + 1);
+      urls.push(...collected.urls);
+      thumbnailUrls.push(...collected.thumbnailUrls);
+    }
+
+    return { urls, thumbnailUrls };
+  }
+
   private stripPersistedAttachmentAnnotations(content: string): string {
     return (
       content
@@ -741,23 +814,9 @@ export class AgentXOperationChatSessionFacade {
       urls.push(normalized);
     };
 
-    const resultData = message.resultData ?? {};
-    const resultThumbnailUrl =
-      typeof resultData['thumbnailUrl'] === 'string' &&
-      this.isRenderableThumbnailUrl(resultData['thumbnailUrl'])
-        ? resultData['thumbnailUrl'].trim()
-        : undefined;
-    addUrl(resultData['imageUrl']);
-    addUrl(resultData['videoUrl']);
-    addUrl(resultData['outputUrl']);
-
-    for (const key of ['persistedMediaUrls', 'mediaUrls', 'imageUrls', 'videoUrls'] as const) {
-      const value = resultData[key];
-      if (!Array.isArray(value)) continue;
-      for (const item of value) {
-        addUrl(item);
-      }
-    }
+    const resultMedia = this.collectResultDataMedia(message.resultData ?? {});
+    const resultThumbnailUrl = resultMedia.thumbnailUrls[0];
+    for (const url of resultMedia.urls) addUrl(url);
 
     const urlPattern = /https?:\/\/[^\s)\]"'<>]+/gi;
     for (const rawUrl of message.content.match(urlPattern) ?? []) {

@@ -244,6 +244,32 @@ describe('NxtMarkdownComponent', () => {
     expect(videoPreview?.getAttribute('poster')).toBe(posterUrl);
   });
 
+  it('does not force CORS mode for Firebase video previews without poster metadata', async () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fclip.mp4?alt=media&token=video';
+
+    setContent(`[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    expect(videoPreview?.getAttribute('src')).toContain(videoUrl);
+    expect(videoPreview?.hasAttribute('crossorigin')).toBe(false);
+  });
+
+  it('keeps CORS mode for non-Firebase video previews', async () => {
+    const videoUrl = 'https://cdn.example.com/media/clip.mp4';
+
+    setContent(`[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    expect(videoPreview?.getAttribute('crossorigin')).toBe('anonymous');
+  });
+
   it('hydrates fallback video posters from the preview frame when no poster metadata exists', async () => {
     const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
     const generatedPosterUrl = 'data:image/jpeg;base64,AAAA';
@@ -354,7 +380,7 @@ describe('NxtMarkdownComponent', () => {
     expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(false);
     expect(videoThumb?.classList.contains('md-video-wrap--poster-failed')).toBe(true);
     expect(nativeEl.querySelector('img.md-video-poster')).toBeNull();
-    expect(videoPreview?.getAttribute('src')).toBe(`${videoUrl}#t=0.001`);
+    expect(videoPreview?.getAttribute('src')).toBe(`${videoUrl}#t=1.0`);
   });
 
   it('does not expose incomplete raw video HTML as signed-url prose while streaming', async () => {
