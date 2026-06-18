@@ -203,6 +203,26 @@ describe('NxtMarkdownComponent', () => {
     expect(videoPreview?.getAttribute('poster')).toBe(posterUrl);
   });
 
+  it('keeps the video wrapper when a video link is wrapped in markdown emphasis', async () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+    const posterUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb.jpg';
+
+    setContent(`**[View Video](${videoUrl}#poster=${encodeURIComponent(posterUrl)})**`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const strong = nativeEl.querySelector('strong');
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    const poster = nativeEl.querySelector<HTMLImageElement>('img.md-video-poster');
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    expect(strong?.querySelector('.md-video-wrap')).toBe(videoThumb);
+    expect(videoThumb?.tagName.toLowerCase()).toBe('span');
+    expect(videoThumb?.getAttribute('data-md-video-src')).toBe(videoUrl);
+    expect(poster?.getAttribute('src')).toBe(posterUrl);
+    expect(videoPreview?.getAttribute('poster')).toBe(posterUrl);
+  });
+
   it('falls back to the video preview when an explicit video poster fails to load', async () => {
     const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
     const posterUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb.jpg';

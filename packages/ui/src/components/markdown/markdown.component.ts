@@ -141,17 +141,17 @@ function buildVideoThumb(safeHref: string, label: string, posterUrl?: string): s
 
   const posterHtml = posterUrl
     ? `<img class="md-video-poster" src="${escapeAttr(posterUrl)}" alt="" aria-hidden="true" />`
-    : `<div class="md-video-poster" aria-hidden="true"></div>`;
+    : `<span class="md-video-poster md-video-poster--fallback" aria-hidden="true"></span>`;
 
   const posterAttr = posterUrl ? ` poster="${escapeAttr(posterUrl)}"` : '';
   const wrapClass = posterUrl ? 'md-video-wrap md-video-wrap--has-poster' : 'md-video-wrap';
 
   return (
-    `<div class="${wrapClass}" data-md-video-src="${safeHref}" role="button" tabindex="0" aria-label="${escapeAttr(label || 'Play video')}">` +
+    `<span class="${wrapClass}" data-md-video-src="${safeHref}" role="button" tabindex="0" aria-label="${escapeAttr(label || 'Play video')}">` +
     posterHtml +
     `<video class="md-video-preview" src="${previewSrc}"${posterAttr} muted playsinline preload="metadata" aria-hidden="true"></video>` +
-    `<div class="md-video-play" aria-hidden="true">${playIcon}</div>` +
-    `</div>`
+    `<span class="md-video-play" aria-hidden="true">${playIcon}</span>` +
+    `</span>`
   );
 }
 
@@ -781,7 +781,7 @@ const markedInstance = new Marked({
         margin: 0;
       }
 
-      div.md-video-poster {
+      nxt1-markdown .md .md-video-poster--fallback {
         z-index: 0;
         background:
           radial-gradient(circle at 30% 22%, rgba(204, 255, 0, 0.18), transparent 34%),

@@ -951,6 +951,7 @@ export class AgentXOperationChatTransportFacade {
           onDone: (event) => {
             this.clearOperationCompleteFallbackTimer();
             this.messageFacade.flushPendingTypingDelta();
+            this.normalizeTypingStreamMediaMarkdown();
             host.latestProgressLabel.set(null);
             host.batchEmailProgress.set(null);
             const threadId = host.resolvedThreadId();
@@ -1260,6 +1261,7 @@ export class AgentXOperationChatTransportFacade {
       }
 
       this.messageFacade.flushPendingTypingDelta();
+      this.normalizeTypingStreamMediaMarkdown();
       host.latestProgressLabel.set(null);
       host.batchEmailProgress.set(null);
       this.messageFacade.finalizeStreamedAssistantMessage({
@@ -1332,6 +1334,35 @@ export class AgentXOperationChatTransportFacade {
         return {
           ...message,
           attachments,
+          content: promote(message.content),
+          ...(message.parts?.length
+            ? {
+                parts: message.parts.map((part) =>
+                  part.type === 'text'
+                    ? {
+                        type: 'text' as const,
+                        content: promote(part.content),
+                      }
+                    : part
+                ),
+              }
+            : {}),
+        };
+      })
+    );
+  }
+
+  private normalizeTypingStreamMediaMarkdown(): void {
+    this.messageFacade.messages.update((messages) =>
+      messages.map((message) => {
+        if (message.id !== 'typing' || !message.attachments?.length) return message;
+
+        const attachments = message.attachments;
+        const promote = (content: string): string =>
+          this.promoteStreamMediaUrlsToMarkdown(content, attachments);
+
+        return {
+          ...message,
           content: promote(message.content),
           ...(message.parts?.length
             ? {
