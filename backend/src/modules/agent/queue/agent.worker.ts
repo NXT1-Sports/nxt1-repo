@@ -31,6 +31,7 @@
 import { Worker, Job, UnrecoverableError } from 'bullmq';
 import { getFirestore } from 'firebase-admin/firestore';
 import type {
+  AgentXAttachment,
   AgentIdentifier,
   AgentJobPayload,
   AgentJobUpdate,
@@ -120,6 +121,58 @@ function estimateAgentXHoldCostCents(payload: AgentJobPayload): number {
   return isMediaIntent
     ? Math.max(AGENT_X_STANDARD_HOLD_COST_CENTS, AGENT_X_MEDIA_HOLD_COST_CENTS)
     : AGENT_X_STANDARD_HOLD_COST_CENTS;
+}
+
+function encodeMarkdownPosterFragmentValue(value: string): string {
+  return encodeURIComponent(value).replace(
+    /[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+}
+
+function appendPosterFragmentToVideoUrl(videoUrl: string, thumbnailUrl?: string): string {
+  const trimmedVideoUrl = videoUrl.trim();
+  const trimmedThumbnailUrl = thumbnailUrl?.trim() ?? '';
+  if (!trimmedThumbnailUrl || /#poster=/i.test(trimmedVideoUrl)) {
+    return trimmedVideoUrl;
+  }
+
+  return `${trimmedVideoUrl}#poster=${encodeMarkdownPosterFragmentValue(trimmedThumbnailUrl)}`;
+}
+
+function appendGeneratedVideoLinks(
+  content: string,
+  attachments: readonly AgentXAttachment[]
+): string {
+  const videoAttachments = attachments.filter(
+    (attachment) => attachment.type === 'video' && attachment.url.trim().length > 0
+  );
+  if (videoAttachments.length === 0) return content;
+
+  let promotedContent = content;
+  for (const attachment of videoAttachments) {
+    const videoUrl = attachment.url.trim();
+    const displayUrl = appendPosterFragmentToVideoUrl(videoUrl, attachment.thumbnailUrl);
+    if (displayUrl === videoUrl) continue;
+    promotedContent = promotedContent.split(`${videoUrl}#poster=`).join(`__NXT1_POSTER_SENTINEL__`);
+    promotedContent = promotedContent.split(videoUrl).join(displayUrl);
+    promotedContent = promotedContent
+      .split(`__NXT1_POSTER_SENTINEL__`)
+      .join(`${videoUrl}#poster=`);
+  }
+
+  const missingVideoLinks = videoAttachments
+    .filter((attachment) => !promotedContent.includes(attachment.url.trim()))
+    .map((attachment) => {
+      const url = appendPosterFragmentToVideoUrl(attachment.url, attachment.thumbnailUrl);
+      const label = attachment.name?.trim() || 'Video';
+      return `- [${label}](${url})`;
+    });
+
+  if (missingVideoLinks.length === 0) return promotedContent;
+
+  const prefix = promotedContent.trim().length > 0 ? `${promotedContent.trim()}\n\n` : '';
+  return `${prefix}Videos:\n${missingVideoLinks.join('\n')}`;
 }
 
 const AGENT_IDENTIFIER_SET = new Set<AgentIdentifier>([
@@ -3370,10 +3423,14 @@ export class AgentWorker {
             (attachment) => `- [${attachment.name || 'Download file'}](${attachment.url.trim()})`
           );
 
-        const persistedAssistantContentForStorage =
+        const persistedAssistantContentWithDocs =
           missingDocLinks.length > 0
             ? `${baseAssistantContent}${missingDocLinks.length > 0 ? `\n\nDownload:\n${missingDocLinks.join('\n')}` : ''}`
             : baseAssistantContent;
+        const persistedAssistantContentForStorage = appendGeneratedVideoLinks(
+          persistedAssistantContentWithDocs,
+          attachmentsFromResultData
+        );
 
         const addMessageParams = {
           threadId,

@@ -140,6 +140,16 @@ function isOpenableHttpUrl(url: string | null | undefined): boolean {
   return typeof url === 'string' && /^(https?:\/\/|www\.)/i.test(url.trim());
 }
 
+function shouldUseCorsForVideoPreview(url: string): boolean {
+  try {
+    const normalized = decodeHtmlAttributeValue(url).trim();
+    const parsed = new URL(/^https?:\/\//i.test(normalized) ? normalized : `https://${normalized}`);
+    return !/(?:firebasestorage|storage)\.googleapis\.com/i.test(parsed.hostname);
+  } catch {
+    return true;
+  }
+}
+
 /**
  * Builds an inline video preview with a play-icon overlay.
  * No controls — tapping opens the full media viewer.
@@ -159,11 +169,12 @@ function buildVideoThumb(safeHref: string, label: string, posterUrl?: string): s
 
   const posterAttr = posterUrl ? ` poster="${escapeAttr(posterUrl)}"` : '';
   const wrapClass = posterUrl ? 'md-video-wrap md-video-wrap--has-poster' : 'md-video-wrap';
+  const corsAttr = shouldUseCorsForVideoPreview(safeHref) ? ' crossorigin="anonymous"' : '';
 
   return (
     `<span class="${wrapClass}" data-md-video-src="${safeHref}" role="button" tabindex="0" aria-label="${escapeAttr(label || 'Play video')}">` +
     posterHtml +
-    `<video class="md-video-preview" src="${previewSrc}"${posterAttr} muted playsinline preload="metadata" crossorigin="anonymous" aria-hidden="true"></video>` +
+    `<video class="md-video-preview" src="${previewSrc}"${posterAttr} muted playsinline preload="auto"${corsAttr} aria-hidden="true"></video>` +
     `<span class="md-video-play" aria-hidden="true">${playIcon}</span>` +
     `</span>`
   );
@@ -1068,6 +1079,26 @@ export class NxtMarkdownComponent {
         true
       );
 
+      this.elRef.nativeElement.addEventListener(
+        'canplay',
+        (e: Event) => {
+          const video = e.target as HTMLVideoElement | null;
+          if (!video?.classList.contains('md-video-preview')) return;
+          this.hydrateFallbackVideoPosterFromFrame(video);
+        },
+        true
+      );
+
+      this.elRef.nativeElement.addEventListener(
+        'timeupdate',
+        (e: Event) => {
+          const video = e.target as HTMLVideoElement | null;
+          if (!video?.classList.contains('md-video-preview')) return;
+          this.hydrateFallbackVideoPosterFromFrame(video);
+        },
+        true
+      );
+
       // Load DOMPurify on first browser render if not already present.
       // Once ready, flip the signal so `safeHtml` re-computes with full
       // sanitization (copy buttons + target attrs preserved).
@@ -1125,6 +1156,8 @@ export class NxtMarkdownComponent {
       wrap.classList.add('md-video-wrap--has-poster');
       wrap.classList.remove('md-video-wrap--poster-failed');
       video.dataset['mdPosterHydrated'] = 'true';
+
+      video.pause();
     } catch {
       video.dataset['mdPosterHydrated'] = 'failed';
     }
