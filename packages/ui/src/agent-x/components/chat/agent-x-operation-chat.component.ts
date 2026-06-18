@@ -102,6 +102,7 @@ import {
   type OperationEventSubscription,
 } from '../../services/agent-x-operation-event.service';
 import { NxtPlatformIconComponent } from '../../../components/platform-icon/platform-icon.component';
+import { NxtInlineVideoPreviewDirective } from '../../../components/video-preview';
 import { NxtDragDropDirective } from '../../../services/gesture';
 import {
   AgentXActionCardComponent,
@@ -191,6 +192,7 @@ type YieldStateSource =
     NxtChatBubbleComponent,
     NxtIconComponent,
     NxtDragDropDirective,
+    NxtInlineVideoPreviewDirective,
     NxtPlatformIconComponent,
     AgentXInputBarComponent,
     ChatBubbleActionsComponent,
@@ -328,35 +330,19 @@ type YieldStateSource =
                           </button>
                         }
                       } @else if (att.type === 'video') {
-                        @if (attachmentVideoThumbnailUrl(att); as thumbnailUrl) {
-                          <img
-                            [src]="thumbnailUrl"
-                            [alt]="att.name"
-                            class="msg-attachment__thumb"
-                            (error)="onAttachmentThumbnailError($event, thumbnailUrl)"
-                            (click)="
-                              attachmentsFacade.openAttachmentViewer(
-                                messageAttachmentsForStrip(msg),
-                                $index
-                              )
-                            "
-                          />
-                        } @else {
-                          <video
-                            [src]="att.url"
-                            preload="metadata"
-                            muted
-                            playsinline
-                            class="msg-attachment__thumb msg-attachment__video-inline"
-                            [attr.aria-label]="'Open video: ' + att.name"
-                            (click)="
-                              attachmentsFacade.openAttachmentViewer(
-                                messageAttachmentsForStrip(msg),
-                                $index
-                              )
-                            "
-                          ></video>
-                        }
+                        <video
+                          nxt1InlineVideoPreview
+                          [nxt1InlineVideoPreview]="att.url"
+                          [nxt1InlineVideoPreviewPoster]="attachmentVideoPosterUrl(att)"
+                          class="msg-attachment__thumb msg-attachment__video-inline"
+                          [attr.aria-label]="'Open video: ' + att.name"
+                          (click)="
+                            attachmentsFacade.openAttachmentViewer(
+                              messageAttachmentsForStrip(msg),
+                              $index
+                            )
+                          "
+                        ></video>
                         <div
                           class="msg-attachment__play"
                           (click)="
@@ -1335,10 +1321,12 @@ type YieldStateSource =
         justify-content: center;
       }
 
-      /* Inline <video> tile — renders the browser's native first-frame
-         preview when no explicit thumbnailUrl is available (Twitter / iMessage
-         pattern). Sits behind the play-button overlay. */
+      /* Inline <video> tile — uses a real poster when available and otherwise
+         matches nxt1-markdown's timestamp preview fallback for mobile Safari. */
       .msg-attachment__video-inline {
+        display: block;
+        width: 100%;
+        height: 100%;
         background: #000;
         object-fit: contain;
         pointer-events: auto;
@@ -3129,7 +3117,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return url;
   }
 
-  protected attachmentVideoThumbnailUrl(
+  protected attachmentVideoPosterUrl(
     attachment: NonNullable<OperationMessage['attachments']>[number]
   ): string | null {
     if (attachment.type !== 'video') return null;

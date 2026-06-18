@@ -845,18 +845,43 @@ export class AgentXOperationChatSessionFacade {
 
         const nextAttachment = this.mapStreamMediaEventToAttachment(media, 1);
         const existingAttachments = message.attachments ?? [];
-        const alreadyAttached = existingAttachments.some(
-          (attachment) =>
+        let replacedExisting = false;
+        const updatedExistingAttachments = existingAttachments.map((attachment) => {
+          const isSameAttachment =
             attachment.type === nextAttachment.type &&
             this.normalizeDetectedMediaUrl(attachment.url) ===
-              this.normalizeDetectedMediaUrl(nextAttachment.url)
-        );
+              this.normalizeDetectedMediaUrl(nextAttachment.url);
+          if (!isSameAttachment) return attachment;
+          replacedExisting = true;
+          return {
+            ...attachment,
+            ...(nextAttachment.thumbnailUrl && !attachment.thumbnailUrl
+              ? { thumbnailUrl: nextAttachment.thumbnailUrl }
+              : {}),
+          };
+        });
+        const attachments = replacedExisting
+          ? updatedExistingAttachments
+          : [...updatedExistingAttachments, nextAttachment];
+        const promote = (content: string): string =>
+          this.promoteAssistantMediaUrlsToMarkdown(content, { attachments });
 
         return {
           ...message,
-          attachments: alreadyAttached
-            ? existingAttachments
-            : [...existingAttachments, nextAttachment],
+          attachments,
+          content: promote(message.content),
+          ...(message.parts?.length
+            ? {
+                parts: message.parts.map((part) =>
+                  part.type === 'text'
+                    ? {
+                        type: 'text' as const,
+                        content: promote(part.content),
+                      }
+                    : part
+                ),
+              }
+            : {}),
         };
       })
     );

@@ -203,6 +203,27 @@ describe('NxtMarkdownComponent', () => {
     expect(videoPreview?.getAttribute('poster')).toBe(posterUrl);
   });
 
+  it('falls back to the video preview when an explicit video poster fails to load', async () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+    const posterUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb.jpg';
+
+    setContent(`[View Video](${videoUrl}#poster=${encodeURIComponent(posterUrl)})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    const poster = nativeEl.querySelector<HTMLImageElement>('img.md-video-poster');
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    poster?.dispatchEvent(new Event('error'));
+    fixture.detectChanges();
+
+    expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(false);
+    expect(videoThumb?.classList.contains('md-video-wrap--poster-failed')).toBe(true);
+    expect(nativeEl.querySelector('img.md-video-poster')).toBeNull();
+    expect(videoPreview?.getAttribute('src')).toBe(`${videoUrl}#t=0.001`);
+  });
+
   it('does not expose incomplete raw video HTML as signed-url prose while streaming', async () => {
     const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
 

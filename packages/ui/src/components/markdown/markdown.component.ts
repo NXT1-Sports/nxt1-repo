@@ -27,6 +27,7 @@ import { type TrackingSurface, extractTrackedDestinationUrl } from '@nxt1/core';
 import { getPlatformFaviconUrlFromUrl } from '@nxt1/core/platforms';
 import { Marked, Renderer } from 'marked';
 import { NxtBrowserService } from '../../services/browser';
+import { buildInlineVideoPreviewSrc } from '../video-preview';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────
 
@@ -130,7 +131,7 @@ function isOpenableHttpUrl(url: string | null | undefined): boolean {
  * No controls — tapping opens the full media viewer.
  */
 function buildVideoThumb(safeHref: string, label: string, posterUrl?: string): string {
-  const previewSrc = safeHref.includes('#') ? safeHref : `${safeHref}#t=0.001`;
+  const previewSrc = buildInlineVideoPreviewSrc(safeHref);
   // Play triangle SVG (circle + triangle)
   const playIcon =
     `<svg width="44" height="44" viewBox="0 0 44 44" fill="none" xmlns="http://www.w3.org/2000/svg">` +
@@ -936,6 +937,28 @@ export class NxtMarkdownComponent {
           surface: this.trackingSurface(),
         });
       });
+
+      this.elRef.nativeElement.addEventListener(
+        'error',
+        (e: Event) => {
+          const target = e.target as HTMLElement | null;
+          if (!target?.classList.contains('md-video-poster')) return;
+
+          const wrap = target.closest('.md-video-wrap') as HTMLElement | null;
+          const video = wrap?.querySelector<HTMLVideoElement>('.md-video-preview') ?? null;
+          if (!wrap || !video) return;
+
+          target.remove();
+          wrap.classList.remove('md-video-wrap--has-poster');
+          wrap.classList.add('md-video-wrap--poster-failed');
+
+          const src = video.getAttribute('src');
+          if (src) {
+            video.setAttribute('src', buildInlineVideoPreviewSrc(src));
+          }
+        },
+        true
+      );
 
       this.elRef.nativeElement.addEventListener(
         'loadedmetadata',

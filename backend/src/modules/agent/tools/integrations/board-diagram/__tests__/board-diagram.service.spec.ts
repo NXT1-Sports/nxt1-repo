@@ -7,6 +7,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { resetFeatureFlagsService } from '../../../../../../config/feature-flags/index.js';
 
 // ── Firebase mocks (must precede service import) ───────────────────────────
 
@@ -175,6 +176,7 @@ describe('BoardDiagramService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    resetFeatureFlagsService();
 
     llmMock = {
       complete: vi.fn().mockResolvedValue({ content: MINIMAL_LAYOUT_JSON }),

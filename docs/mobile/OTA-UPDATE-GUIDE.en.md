@@ -75,27 +75,32 @@ checkForUpdate()
     │
     ▼ (status === 'available')
 applyUpdate()
-    ├─ WiFi check: cellular connection → DEFER (no download)
+    ├─ First launch after install? → allow download immediately (WiFi or cellular)
+    ├─ Later launches: cellular connection → DEFER (no download)
     ├─ download(url: R2_URL, version, checksum: sha256)
-    ├─ next({ id: bundle.id })    ← STAGE for next launch (does NOT reload now)
+    ├─ First launch: set({ id })   ← APPLY immediately and reload WebView
+    ├─ Later launches: next({ id }) ← STAGE for next launch
     └─ saveState(version, failureCount: 0)
     │
     ▼
-User backgrounds app → kills it → reopens
-    └─ New bundle is loaded ✅
+First install from App Store
+    └─ Latest eligible OTA bundle is loaded immediately ✅
 ```
 
 > **Why `next()` instead of `set()`?** `set()` immediately destroys the
-> JavaScript context — the app appears to crash mid-session. `next()` queues the
-> bundle for the next app launch — clean UX, Apple-friendly.
+> JavaScript context — the app appears to reload mid-session. NXT1 uses `set()`
+> only on the first cold start after install so App Store downloads immediately
+> land on the latest eligible OTA bundle. Later updates use `next()` so active
+> sessions stay clean.
 
 ---
 
 ## ⚠️ Conditions Required for an Update to be Received
 
-1. **WiFi required** — If the device is on cellular (4G/5G), the download is
-   deferred until the next WiFi session. _(source: `live-update.service.ts` →
-   `applyUpdate()`, line: `connectionType !== 'wifi'`)_
+1. **Network policy** — On the first cold start after an App Store install, an
+   eligible OTA bundle downloads immediately even on cellular so the user lands
+   on the newest bundle right away. On later launches, cellular downloads are
+   deferred until the next WiFi session.
 
 2. **Native shell version gate** — If the installed App Store version is older
    than `minNativeVersion` in the manifest, OTA is skipped. This prevents
