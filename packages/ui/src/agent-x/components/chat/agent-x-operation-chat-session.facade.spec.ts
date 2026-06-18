@@ -223,6 +223,30 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(result).toBe(`[View Video](${videoUrl}#poster=${encodeURIComponent(thumbnailUrl)})`);
   });
 
+  it('encodes markdown-sensitive poster URL characters before adding poster metadata', () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-media/reels/clip.mp4';
+    const thumbnailUrl =
+      'https://storage.googleapis.com/nxt1-media/reels/thumbs/clip poster (1).jpg?alt=media&token=thumb';
+    const encodedThumbnailUrl = encodeURIComponent(thumbnailUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+
+    const result = facade.promoteAssistantMediaUrlsToMarkdown(`[View Video](${videoUrl})`, {
+      attachments: [
+        {
+          url: videoUrl,
+          type: 'video',
+          name: 'clip.mp4',
+          thumbnailUrl,
+        },
+      ],
+    });
+
+    expect(result).toBe(`[View Video](${videoUrl}#poster=${encodedThumbnailUrl})`);
+    expect(result).not.toContain('(1)');
+  });
+
   it('does not add malformed storage thumbnail urls as markdown video posters', () => {
     const videoUrl = 'https://storage.googleapis.com/nxt1-media/reels/clip.mp4';
     const malformedThumbnailUrl =

@@ -492,7 +492,14 @@ export class AgentXOperationChatSessionFacade {
 
   private appendPosterFragment(url: string, thumbnailUrl: string | null): string {
     if (!this.isRenderableThumbnailUrl(thumbnailUrl) || /#poster=/i.test(url)) return url;
-    return `${url}#poster=${encodeURIComponent(thumbnailUrl)}`;
+    return `${url}#poster=${this.encodeMarkdownUrlFragmentValue(thumbnailUrl)}`;
+  }
+
+  private encodeMarkdownUrlFragmentValue(value: string): string {
+    return encodeURIComponent(value).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
   }
 
   private isRenderableThumbnailUrl(url: string | null | undefined): url is string {
