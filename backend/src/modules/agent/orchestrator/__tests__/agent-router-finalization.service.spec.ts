@@ -3,7 +3,7 @@ import type { AgentExecutionPlan, AgentOperationResult } from '@nxt1/core';
 import { AgentRouterFinalizationService } from '../agent-router-finalization.service.js';
 
 describe('AgentRouterFinalizationService', () => {
-  it('appends artifact deliverable URLs to the aggregated summary', () => {
+  function createService() {
     const semanticCache = {
       store: vi.fn().mockResolvedValue(undefined),
     };
@@ -16,7 +16,14 @@ describe('AgentRouterFinalizationService', () => {
       recordPhaseLatency: vi.fn(),
     };
 
-    const service = new AgentRouterFinalizationService(semanticCache as never, context, telemetry);
+    return {
+      service: new AgentRouterFinalizationService(semanticCache as never, context, telemetry),
+      context,
+    };
+  }
+
+  it('appends artifact deliverable URLs to the aggregated summary', () => {
+    const { service, context } = createService();
 
     const resultWithDeliverables: AgentOperationResult = {
       summary: 'Created your game plan and diagrams.',
@@ -74,5 +81,40 @@ describe('AgentRouterFinalizationService', () => {
       'thread-1',
       aggregated.summary
     );
+  });
+
+  it('attaches video thumbnails as poster fragments in deliverable links', () => {
+    const { service } = createService();
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Ftrimmed.mp4?alt=media&token=video';
+    const thumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Ftrimmed-thumbnail.jpg?alt=media&token=thumb';
+    const resultWithTrimmedVideo: AgentOperationResult = {
+      summary: 'Trimmed the first 5 seconds from your clip.',
+      data: {
+        outputUrl: videoUrl,
+        videoUrl,
+        thumbnailUrl,
+      },
+    };
+
+    const aggregated = service.finalize({
+      operationId: 'op-1',
+      userId: 'user-1',
+      threadId: 'thread-1',
+      plan: { summary: 'Plan summary', tasks: [] } as unknown as AgentExecutionPlan,
+      taskResults: new Map<string, AgentOperationResult>([['task-1', resultWithTrimmedVideo]]),
+      mutableTasks: [],
+      scopedIntent: 'trim first 5 seconds',
+    });
+
+    const expectedPosterFragment = `#poster=${encodeURIComponent(thumbnailUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    )}`;
+    expect(aggregated.summary).toContain(
+      `[▶ Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Ftrimmed.mp4](${videoUrl}${expectedPosterFragment})`
+    );
+    expect(aggregated.summary).not.toContain(`![](${thumbnailUrl})`);
   });
 });
