@@ -194,13 +194,13 @@ describe('NxtMarkdownComponent', () => {
     await fixture.whenStable();
 
     const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
-    const poster = nativeEl.querySelector<HTMLImageElement>('img.md-video-poster');
     const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
 
     expect(videoThumb?.getAttribute('data-md-video-src')).toBe(videoUrl);
     expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(true);
-    expect(poster?.getAttribute('src')).toBe(posterUrl);
+    expect(nativeEl.querySelector('img.md-video-poster')).toBeNull();
     expect(videoPreview?.getAttribute('poster')).toBe(posterUrl);
+    expect(videoPreview?.hasAttribute('webkit-playsinline')).toBe(true);
   });
 
   it('keeps the video wrapper when a video link is wrapped in markdown emphasis', async () => {
@@ -213,34 +213,29 @@ describe('NxtMarkdownComponent', () => {
 
     const strong = nativeEl.querySelector('strong');
     const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
-    const poster = nativeEl.querySelector<HTMLImageElement>('img.md-video-poster');
     const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
 
     expect(strong?.querySelector('.md-video-wrap')).toBe(videoThumb);
     expect(videoThumb?.tagName.toLowerCase()).toBe('span');
     expect(videoThumb?.getAttribute('data-md-video-src')).toBe(videoUrl);
-    expect(poster?.getAttribute('src')).toBe(posterUrl);
+    expect(nativeEl.querySelector('img.md-video-poster')).toBeNull();
     expect(videoPreview?.getAttribute('poster')).toBe(posterUrl);
   });
 
-  it('falls back to the video preview when an explicit video poster fails to load', async () => {
+  it('uses the fallback placeholder only when no explicit video poster exists', async () => {
     const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
-    const posterUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb.jpg';
 
-    setContent(`[View Video](${videoUrl}#poster=${encodeURIComponent(posterUrl)})`);
+    setContent(`[View Video](${videoUrl})`);
     fixture.detectChanges();
     await fixture.whenStable();
 
     const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
-    const poster = nativeEl.querySelector<HTMLImageElement>('img.md-video-poster');
+    const posterFallback = nativeEl.querySelector<HTMLElement>('.md-video-poster--fallback');
     const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
 
-    poster?.dispatchEvent(new Event('error'));
-    fixture.detectChanges();
-
     expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(false);
-    expect(videoThumb?.classList.contains('md-video-wrap--poster-failed')).toBe(true);
-    expect(nativeEl.querySelector('img.md-video-poster')).toBeNull();
+    expect(posterFallback).toBeTruthy();
+    expect(videoPreview?.getAttribute('poster')).toBeNull();
     expect(videoPreview?.getAttribute('src')).toBe(`${videoUrl}#t=0.001`);
   });
 
