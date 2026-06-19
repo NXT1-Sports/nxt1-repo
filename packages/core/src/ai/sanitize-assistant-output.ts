@@ -58,6 +58,15 @@ const IMG_TAG = /<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*\/?>(?:\s*<\/img>)?
 // ![alt](URL "optional title") — URL is everything up to the first whitespace or closing paren.
 const MARKDOWN_IMAGE = /!\[[^\]]*\]\(\s*([^)\s]+)(?:\s+"[^"]*")?\s*\)/g;
 
+/**
+ * Check whether a given URL belongs to a user-uploaded attachment.
+ * Trims the URL before performing the lookup.
+ */
+export function isUserAttachmentUrl(url: string, urls: ReadonlySet<string>): boolean {
+  if (typeof url !== 'string') return false;
+  return urls.has(url.trim());
+}
+
 // ─── Public: static sanitizer ──────────────────────────────────────────────
 
 /**
