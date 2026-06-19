@@ -39,18 +39,21 @@ import type {
   AgentYieldState,
   AgentXRichCard,
 } from '@nxt1/core';
-import { AGENT_X_RUNTIME_CONFIG, AGENT_APPROVAL_TOOL_GROUPS } from '@nxt1/core/ai';
+import {
+  AGENT_X_RUNTIME_CONFIG,
+  AGENT_APPROVAL_TOOL_GROUPS,
+  buildAttachmentUrlSet,
+  createStreamingSanitizer,
+  isUserAttachmentUrl,
+  stripEchoedUserAttachments,
+  type StreamingSanitizer,
+} from '@nxt1/core/ai';
 import {
   extractMediaAttachmentsFromResultData,
   sanitizeStorageUrlsFromText,
   resolveAgentApprovalCopy,
   resolveAgentSuccessNotificationCopy,
   formatApprovalRichPreview,
-  buildAttachmentUrlSet,
-  createStreamingSanitizer,
-  isUserAttachmentUrl,
-  stripEchoedUserAttachments,
-  type StreamingSanitizer,
 } from '@nxt1/core';
 import type { AgentRouter } from '../agent.router.js';
 import type { AgentQueueJobData, AgentQueueJobResult, AgentJobProgress } from './queue.types.js';
