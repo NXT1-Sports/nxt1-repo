@@ -159,6 +159,10 @@
   "overrides": {
     "chokidar": "^4.0.3",
     "postcss": "^8.5.12",
-    "vite": "^7.3.2"
+    "vite": "^7.3.2",
+    "gtoken": "^8.0.0",
+    "google-auth-library": {
+      "gtoken": "^8.0.0"
+    }
   }
 }

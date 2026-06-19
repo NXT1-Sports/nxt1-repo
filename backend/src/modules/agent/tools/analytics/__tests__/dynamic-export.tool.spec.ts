@@ -171,6 +171,34 @@ describe('DynamicExportTool', () => {
       expect(opts.contentType).toBe('text/csv');
       expect(opts.metadata.metadata.firebaseStorageDownloadTokens).toMatch(/^[0-9a-f-]{36}$/i);
     });
+
+    it('should retry transient Google token fetch failures during upload', async () => {
+      vi.useFakeTimers();
+      try {
+        const legacyTokenEndpoint = ['https://www.googleapis.com', 'oauth2', 'v4', 'token'].join(
+          '/'
+        );
+        mockSave
+          .mockRejectedValueOnce(
+            new Error(
+              `Invalid response body while trying to fetch ${legacyTokenEndpoint}: Premature close`
+            )
+          )
+          .mockResolvedValueOnce(undefined);
+
+        const resultPromise = tool.execute(csvInput(), {
+          ...context,
+          operationId: 'op_export_retry',
+        });
+        await vi.advanceTimersByTimeAsync(500);
+        const result = await resultPromise;
+
+        expect(result.success).toBe(true);
+        expect(mockSave).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 
   // ── PDF Generation ───────────────────────────────────────────────────────

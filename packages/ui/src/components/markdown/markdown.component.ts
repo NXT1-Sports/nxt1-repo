@@ -821,7 +821,9 @@ const markedInstance = new Marked({
       nxt1-markdown .md .md-video-wrap {
         position: relative;
         display: block;
-        width: min(240px, 100%);
+        // width: min(240px, 100%);
+        width: fit-content;
+        max-width: min(240px, 100%);
         border-radius: var(--nxt1-ui-radius-default, 8px);
         background: #000;
         margin: var(--nxt1-spacing-2, 0.5rem) 0;

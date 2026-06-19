@@ -36,6 +36,30 @@ describe('buildPendingAttachmentViewer', () => {
     expect(revokeObjectURL).not.toHaveBeenCalled();
   });
 
+  it('prefers nativeWebPath for native videos even when a fallback File has bytes', () => {
+    const createObjectURL = vi.fn(() => 'blob:fallback-video');
+    const revokeObjectURL = vi.fn();
+    const file = new File(['fallback-bytes'], 'clip.mov', { type: 'video/quicktime' });
+
+    const viewer = buildPendingAttachmentViewer(
+      [
+        {
+          file,
+          previewUrl: 'data:image/jpeg;base64,BBBB',
+          type: 'video',
+          nativeWebPath: 'capacitor://localhost/_capacitor_file_/clip-with-bytes.mov',
+        },
+      ],
+      0,
+      { createObjectURL, revokeObjectURL }
+    );
+
+    expect(viewer.items[0]?.url).toBe('capacitor://localhost/_capacitor_file_/clip-with-bytes.mov');
+    expect(createObjectURL).not.toHaveBeenCalled();
+    viewer.cleanup();
+    expect(revokeObjectURL).not.toHaveBeenCalled();
+  });
+
   it('creates and cleans up object URLs for regular browser videos', () => {
     const createObjectURL = vi.fn(() => 'blob:playable-video');
     const revokeObjectURL = vi.fn();

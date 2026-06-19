@@ -375,12 +375,10 @@ export class AgentXOperationChatRunControlFacade {
     const fileDisplayAttachments: MessageAttachment[] = files.map((pendingFile) => ({
       // For video: create a playable blob URL from the actual file.
       // previewUrl is the canvas JPEG thumbnail — NOT a playable video URL.
-      // Native Capacitor gallery picks can be zero-byte placeholder Files, so
-      // fall back to nativeWebPath for the sent-message strip.
+      // Native Capacitor gallery picks can be lightweight placeholder Files, so
+      // prefer nativeWebPath for the sent-message strip whenever it is available.
       url: pendingFile.isVideo
-        ? pendingFile.nativeWebPath && pendingFile.file.size === 0
-          ? pendingFile.nativeWebPath
-          : URL.createObjectURL(pendingFile.file)
+        ? (pendingFile.nativeWebPath ?? URL.createObjectURL(pendingFile.file))
         : (pendingFile.previewUrl ?? ''),
       type: pendingFile.isImage ? 'image' : pendingFile.isVideo ? 'video' : 'doc',
       name: pendingFile.file.name,

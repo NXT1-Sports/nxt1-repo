@@ -31,7 +31,126 @@ import { createHash, randomUUID } from 'node:crypto';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { ExportService, type ExportColumn, type ExportRow } from '../../services/export.service.js';
 import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
+import { logger } from '../../../../utils/logger.js';
 import { z } from 'zod';
+
+const GOOGLE_AUTH_MAX_ATTEMPTS = 3;
+const GOOGLE_AUTH_RETRY_DELAYS_MS = [500, 1_500] as const;
+
+interface GoogleStorageRetryContext {
+  readonly operation: 'firebase_storage_save' | 'firebase_storage_exists';
+  readonly exportJobId: string;
+  readonly exportType: 'pdf' | 'csv';
+  readonly storagePath: string;
+  readonly userId: string;
+  readonly threadId: string;
+  readonly environment?: ToolExecutionContext['environment'];
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function getGoogleCredentialPresence(): Record<string, boolean> {
+  return {
+    hasApplicationCredentials: !!process.env['GOOGLE_APPLICATION_CREDENTIALS'],
+    hasGoogleClientEmail: !!process.env['GOOGLE_CLIENT_EMAIL'],
+    hasGooglePrivateKey: !!process.env['GOOGLE_PRIVATE_KEY'],
+    hasGoogleProjectId: !!process.env['GOOGLE_PROJECT_ID'],
+    hasFirebaseClientEmail: !!process.env['FIREBASE_CLIENT_EMAIL'],
+    hasFirebasePrivateKey: !!process.env['FIREBASE_PRIVATE_KEY'],
+    hasFirebaseProjectId: !!process.env['FIREBASE_PROJECT_ID'],
+    hasFirebaseStorageBucket: !!process.env['FIREBASE_STORAGE_BUCKET'],
+    hasExportGoogleClientEmail: !!process.env['EXPORT_GOOGLE_CLIENT_EMAIL'],
+    hasExportGooglePrivateKey: !!process.env['EXPORT_GOOGLE_PRIVATE_KEY'],
+    hasExportGoogleProjectId: !!process.env['EXPORT_GOOGLE_PROJECT_ID'],
+  };
+}
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function getErrorCode(error: unknown): string | number | undefined {
+  if (!error || typeof error !== 'object') return undefined;
+  const record = error as { code?: unknown; status?: unknown; statusCode?: unknown };
+  const code = record.code ?? record.status ?? record.statusCode;
+  return typeof code === 'string' || typeof code === 'number' ? code : undefined;
+}
+
+function sanitizeErrorMessage(error: unknown): string {
+  return getErrorMessage(error)
+    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
+    .replace(/access_token[=:]\s*[^&\s,)]+/gi, 'access_token=[REDACTED]')
+    .replace(/refresh_token[=:]\s*[^&\s,)]+/gi, 'refresh_token=[REDACTED]')
+    .replace(/private_key[=:]\s*[^&\s,)]+/gi, 'private_key=[REDACTED]');
+}
+
+function isRetryableGoogleAuthError(error: unknown): boolean {
+  const code = getErrorCode(error);
+  if (typeof code === 'number' && [408, 429, 500, 502, 503, 504].includes(code)) return true;
+
+  const message = getErrorMessage(error).toLowerCase();
+  return (
+    message.includes('premature close') ||
+    message.includes('invalid response body') ||
+    message.includes('oauth2/v4/token') ||
+    message.includes('oauth2.googleapis.com/token') ||
+    message.includes('socket hang up') ||
+    message.includes('econnreset') ||
+    message.includes('etimedout') ||
+    message.includes('enotfound') ||
+    message.includes('fetch failed') ||
+    message.includes('aborted') ||
+    message.includes('tls')
+  );
+}
+
+async function runGoogleStorageStepWithRetry<T>(
+  retryContext: GoogleStorageRetryContext,
+  action: () => Promise<T>
+): Promise<T> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= GOOGLE_AUTH_MAX_ATTEMPTS; attempt += 1) {
+    logger.info('[DynamicExport] Google auth/storage step starting', {
+      stage: 'google_token_fetch_start',
+      attempt,
+      maxAttempts: GOOGLE_AUTH_MAX_ATTEMPTS,
+      ...retryContext,
+      ...getGoogleCredentialPresence(),
+    });
+
+    try {
+      return await action();
+    } catch (error) {
+      lastError = error;
+      const retryable = isRetryableGoogleAuthError(error);
+      const isFinalAttempt = attempt >= GOOGLE_AUTH_MAX_ATTEMPTS;
+
+      logger[isFinalAttempt || !retryable ? 'error' : 'warn'](
+        '[DynamicExport] Google auth/storage step failed',
+        {
+          stage: 'google_token_fetch_failed',
+          attempt,
+          maxAttempts: GOOGLE_AUTH_MAX_ATTEMPTS,
+          retryable,
+          errorCode: getErrorCode(error),
+          error: sanitizeErrorMessage(error),
+          finalFailureReason:
+            isFinalAttempt || !retryable ? sanitizeErrorMessage(error) : undefined,
+          ...retryContext,
+          ...getGoogleCredentialPresence(),
+        }
+      );
+
+      if (isFinalAttempt || !retryable) throw error;
+      await delay(GOOGLE_AUTH_RETRY_DELAYS_MS[attempt - 1] ?? 1_500);
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
 
 export class DynamicExportTool extends BaseTool {
   readonly name = 'dynamic_export';
@@ -221,20 +340,32 @@ export class DynamicExportTool extends BaseTool {
       }
       const storagePath = `Users/${userId}/threads/${threadId}/exports/${timestamp}-${hash}.${extension}`;
       const downloadToken = randomUUID();
+      const exportJobId = context?.operationId ?? context?.sessionId ?? `${timestamp}-${hash}`;
 
       const bucket = getStorage().bucket();
       const file = bucket.file(storagePath);
+      const retryContext: GoogleStorageRetryContext = {
+        operation: 'firebase_storage_save',
+        exportJobId,
+        exportType: format,
+        storagePath,
+        userId,
+        threadId,
+        environment: context?.environment,
+      };
 
-      await file.save(buffer, {
-        contentType: mimeType,
-        metadata: {
-          cacheControl: 'public, max-age=31536000, immutable',
-          contentDisposition: `attachment; filename="${safeName}.${extension}"`,
+      await runGoogleStorageStepWithRetry(retryContext, () =>
+        file.save(buffer, {
+          contentType: mimeType,
           metadata: {
-            firebaseStorageDownloadTokens: downloadToken,
+            cacheControl: 'public, max-age=31536000, immutable',
+            contentDisposition: `attachment; filename="${safeName}.${extension}"`,
+            metadata: {
+              firebaseStorageDownloadTokens: downloadToken,
+            },
           },
-        },
-      });
+        })
+      );
 
       // Verify the object exists before returning a download URL.
       emitStage?.('persisting_result', {
@@ -242,7 +373,10 @@ export class DynamicExportTool extends BaseTool {
         format,
         phase: 'create_download_link',
       });
-      const [exists] = await file.exists();
+      const [exists] = await runGoogleStorageStepWithRetry(
+        { ...retryContext, operation: 'firebase_storage_exists' },
+        () => file.exists()
+      );
       if (!exists) {
         throw new AgentEngineError(
           'AGENT_PIPELINE_FAILED',
