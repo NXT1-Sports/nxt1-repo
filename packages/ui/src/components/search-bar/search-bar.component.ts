@@ -293,6 +293,9 @@ export class NxtSearchBarComponent {
   /** Current search value (two-way via value + searchInput) */
   readonly value = input('');
 
+  /** Use plain search icon for desktop variant instead of aiSearch glyph */
+  readonly desktopUsePlainSearchIcon = input(false);
+
   // ─── Outputs ──────────────────────────────────────────────
   /** Fires on every keystroke with the current input value */
   readonly searchInput = output<string>();
@@ -327,7 +330,10 @@ export class NxtSearchBarComponent {
   /** Determine which icon to show based on variant */
   protected readonly iconName = computed(() => {
     const v = this.variant();
-    return v === 'desktop' ? 'aiSearch' : 'nxt1';
+    if (v === 'desktop') {
+      return this.desktopUsePlainSearchIcon() ? 'search' : 'aiSearch';
+    }
+    return 'nxt1';
   });
 
   /** Use Agent X logo SVG for AI-centric search variants */

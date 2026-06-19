@@ -24,6 +24,7 @@ import type Hls from 'hls.js';
 import type { ErrorData } from 'hls.js';
 import {
   getTeamFilmReviewSportTagDefinitions,
+  type TeamFilmReviewDownloadExport,
   type TeamFilmReviewPlayAnnotation,
   type TeamFilmReviewSourceVideo,
   USER_ROLES,
@@ -44,12 +45,18 @@ import {
 } from '@nxt1/core/ai';
 import { TEST_IDS } from '@nxt1/core/testing';
 import { NxtIconComponent } from '../../../components/icon/icon.component';
+import { NxtSearchBarComponent } from '../../../components/search-bar';
 import { NxtStateViewComponent } from '../../../components/state-view/state-view.component';
 import { NxtVideoControlsComponent } from '../../../components/video-controls';
+import { NxtLoggingService } from '../../../services/logging/logging.service';
 import { NxtPlatformService } from '../../../services/platform';
 import { NxtToastService } from '../../../services/toast/toast.service';
+import { NxtArchiveService, type ArchiveDownloadEntry } from '../../../services/archive';
 import { AgentXContextDragDirective } from '../../directives/agent-x-context-drag.directive';
-import { AGENT_X_AUTH_TOKEN_FACTORY } from '../../services/agent-x-job.service';
+import {
+  AGENT_X_API_BASE_URL,
+  AGENT_X_AUTH_TOKEN_FACTORY,
+} from '../../services/agent-x-job.service';
 import { AgentXFilmReviewService } from '../../services/agent-x-film-review.service';
 import {
   AgentXVideoUploadService,
@@ -79,11 +86,18 @@ type FilmListReview = {
     readonly status?: string;
     readonly mp4Url?: string;
   };
+  downloadExport?: TeamFilmReviewDownloadExport;
 };
+
+const FILM_REVIEW_DOWNLOAD_EXPORT_POLL_INTERVAL_MS = 4000;
+const FILM_REVIEW_DOWNLOAD_EXPORT_MAX_POLLS = 30;
 
 type FilmReviewPlaybackSource = Pick<
   TeamFilmReviewSourceVideo,
+  | 'id'
+  | 'title'
   | 'videoUrl'
+  | 'downloadUrl'
   | 'storagePath'
   | 'cloudflareVideoId'
   | 'cloudflareStatus'
@@ -122,6 +136,13 @@ type FilmReviewPlaylistFolderTreeNode = FilmReviewPlaylistFolder & {
   readonly children: readonly FilmReviewPlaylistFolderTreeNode[];
 };
 
+type BatchClipDownloadItem = {
+  readonly playIds: readonly string[];
+  readonly label: string;
+  readonly downloadUrl: string;
+  readonly fileName: string;
+};
+
 type FilmReviewOrderByFolder = Record<string, readonly string[]>;
 
 type LocalFilmReviewPlaylistFolder = {
@@ -133,10 +154,36 @@ type LocalFilmReviewPlaylistFolder = {
 type FilmReviewUploadMenuAnchor = 'empty-new' | 'empty-import' | 'library-header';
 type FilmReviewUploadSelectionMode = 'batch' | 'full';
 
-type FilmReviewAskAgentPromptId = 'breakdown' | 'coach-eye' | 'fixes' | 'training-plan';
+type FilmReviewAskAgentPromptId =
+  | 'update-breakdown'
+  | 'summary'
+  | 'top-fixes'
+  | 'situational-scenarios'
+  | 'scout-report'
+  | 'suggest-plays'
+  | 'create-gameday-playbook'
+  | 'player-stats'
+  | 'position-room-notes'
+  | 'callsheet'
+  | 'install'
+  | 'practice-script'
+  | 'game-plan';
+
+type FilmReviewLibraryAskAgentPromptId =
+  | 'create-cutup-folder'
+  | 'create-game-highlight'
+  | 'compare-film'
+  | 'full-report'
+  | 'self-scout-cutup';
 
 type FilmReviewAskAgentPromptOption = {
   readonly id: FilmReviewAskAgentPromptId;
+  readonly label: string;
+  readonly hint: string;
+};
+
+type FilmReviewLibraryAskAgentPromptOption = {
+  readonly id: FilmReviewLibraryAskAgentPromptId;
   readonly label: string;
   readonly hint: string;
 };
@@ -146,7 +193,7 @@ const FILM_REVIEW_PLAYLIST_DRAG_MIME = 'application/x-nxt1-film-review-id';
 const FILM_REVIEW_PLAYLIST_FOLDER_DRAG_MIME = 'application/x-nxt1-film-playlist-folder-id';
 const FILM_REVIEW_TIMELINE_DRAG_MIME = 'application/x-nxt1-film-timeline-index';
 const FILM_REVIEW_TIMELINE_COLUMN_DRAG_MIME = 'application/x-nxt1-film-timeline-column-id';
-const FILM_REVIEW_STARTER_PLAYLIST_NAMES = ['Self Scout Playlist', 'Opponent Play list'] as const;
+const FILM_REVIEW_STARTER_PLAYLIST_NAMES = ['Self Scout Folder', 'Opponent Folder'] as const;
 const FILM_REVIEW_PLAYLIST_STORAGE_PREFIX = 'agent-x-film-playlists';
 const FILM_REVIEW_VIDEO_ORDER_STORAGE_PREFIX = 'agent-x-film-video-order';
 const FILM_REVIEW_COLUMN_ORDER_STORAGE_PREFIX = 'agent-x-film-timeline-columns';
@@ -155,24 +202,97 @@ const FILM_REVIEW_LIST_INITIAL_LIMIT = 20;
 const FILM_REVIEW_LIST_LIMIT_STEP = 20;
 const FILM_REVIEW_ASK_AGENT_PROMPTS: readonly FilmReviewAskAgentPromptOption[] = [
   {
-    id: 'breakdown',
-    label: 'Break It Down',
-    hint: 'Get a quick strengths and weaknesses read.',
+    id: 'update-breakdown',
+    label: 'Update Breakdown',
+    hint: 'Refresh tags, notes, and structure from selected clips.',
   },
   {
-    id: 'coach-eye',
-    label: 'Coach Eye',
-    hint: 'See what a college coach would notice first.',
+    id: 'summary',
+    label: 'Summary',
+    hint: 'Get a concise coach-ready summary for selected clips.',
   },
   {
-    id: 'fixes',
+    id: 'top-fixes',
     label: 'Top Fixes',
-    hint: 'Pull the biggest corrections to make next.',
+    hint: 'Prioritize the most urgent corrections with cues.',
   },
   {
-    id: 'training-plan',
-    label: 'Training Plan',
-    hint: 'Turn the clips into a focused weekly plan.',
+    id: 'situational-scenarios',
+    label: 'Situational Scenarios',
+    hint: 'Break clips into decision-based situations.',
+  },
+  {
+    id: 'scout-report',
+    label: 'Scout Report',
+    hint: 'Generate tendencies, triggers, and counters.',
+  },
+  {
+    id: 'suggest-plays',
+    label: 'Suggest Plays',
+    hint: 'Recommend new calls based on this breakdown.',
+  },
+  {
+    id: 'create-gameday-playbook',
+    label: 'Create Gameday Playbook',
+    hint: 'Build a game-ready call package from these clips.',
+  },
+  {
+    id: 'player-stats',
+    label: 'Player Stats',
+    hint: 'Create player-level impact and consistency metrics.',
+  },
+  {
+    id: 'position-room-notes',
+    label: 'Position Room Notes',
+    hint: 'Generate role-specific coaching notes by room.',
+  },
+  {
+    id: 'callsheet',
+    label: 'Callsheet',
+    hint: 'Create situational calls from selected clips.',
+  },
+  {
+    id: 'install',
+    label: 'Install',
+    hint: 'Turn clips into install-stage teaching priorities.',
+  },
+  {
+    id: 'practice-script',
+    label: 'Practice Script',
+    hint: 'Build period-by-period practice reps and focus.',
+  },
+  {
+    id: 'game-plan',
+    label: 'Game Plan',
+    hint: 'Convert findings into a full game plan workflow.',
+  },
+] as const;
+
+const FILM_REVIEW_LIBRARY_ASK_AGENT_PROMPTS: readonly FilmReviewLibraryAskAgentPromptOption[] = [
+  {
+    id: 'create-cutup-folder',
+    label: 'Create Cutup Folder',
+    hint: 'Group selected items into coach-ready cutups.',
+  },
+  {
+    id: 'create-game-highlight',
+    label: 'Create Game Highlight',
+    hint: 'Build a highlight sequence from selected items.',
+  },
+  {
+    id: 'compare-film',
+    label: 'Compare Film',
+    hint: 'Compare groups and identify what changed.',
+  },
+  {
+    id: 'full-report',
+    label: 'Full Report',
+    hint: 'Generate a complete film report with priorities.',
+  },
+  {
+    id: 'self-scout-cutup',
+    label: 'Self Scout Cutup',
+    hint: 'Build self-scout tendencies and corrections cutup.',
   },
 ] as const;
 
@@ -287,6 +407,7 @@ type DrawInteractionState =
     OverlayModule,
     FormsModule,
     NxtIconComponent,
+    NxtSearchBarComponent,
     NxtStateViewComponent,
     NxtVideoControlsComponent,
     AgentXContextDragDirective,
@@ -393,10 +514,6 @@ type DrawInteractionState =
                     role="menu"
                     [attr.data-testid]="testIds.UPLOAD_MENU"
                   >
-                    <div class="film-upload-menu__header">
-                      <span class="film-upload-menu__eyebrow">Choose Upload Type</span>
-                      <p class="film-upload-menu__title">Start a film review session</p>
-                    </div>
                     <button
                       type="button"
                       class="film-list-item__menu-action film-upload-menu__action film-upload-menu__action--recommended"
@@ -407,10 +524,10 @@ type DrawInteractionState =
                       <span class="film-upload-menu__content">
                         <span class="film-upload-menu__row">
                           <span class="film-upload-menu__text">Batch Clips</span>
-                          <span class="film-upload-menu__badge">Recommended</span>
                         </span>
+                        <span class="film-upload-menu__badge">Recommended</span>
                         <span class="film-upload-menu__hint"
-                          >Best for cutups, drill clips, and multiple short uploads.</span
+                          >Best for full games, scrimmages, and practice recordings.</span
                         >
                       </span>
                       <span class="film-upload-menu__meta">Multi-file</span>
@@ -427,7 +544,7 @@ type DrawInteractionState =
                           <span class="film-upload-menu__text">Full Footage</span>
                         </span>
                         <span class="film-upload-menu__hint"
-                          >Best for one full game, scrimmage, or practice recording.</span
+                          >Best for cutups, drill clips, and shorter highlight uploads.</span
                         >
                       </span>
                       <span class="film-upload-menu__meta">Single file</span>
@@ -507,10 +624,6 @@ type DrawInteractionState =
                       role="menu"
                       [attr.data-testid]="testIds.UPLOAD_MENU"
                     >
-                      <div class="film-upload-menu__header">
-                        <span class="film-upload-menu__eyebrow">Choose Upload Type</span>
-                        <p class="film-upload-menu__title">Start a film review session</p>
-                      </div>
                       <button
                         type="button"
                         class="film-list-item__menu-action film-upload-menu__action film-upload-menu__action--recommended"
@@ -521,10 +634,10 @@ type DrawInteractionState =
                         <span class="film-upload-menu__content">
                           <span class="film-upload-menu__row">
                             <span class="film-upload-menu__text">Batch Clips</span>
-                            <span class="film-upload-menu__badge">Recommended</span>
                           </span>
+                          <span class="film-upload-menu__badge">Recommended</span>
                           <span class="film-upload-menu__hint"
-                            >Best for cutups, drill clips, and multiple short uploads.</span
+                            >Best for full games, scrimmages, and practice recordings.</span
                           >
                         </span>
                         <span class="film-upload-menu__meta">Multi-file</span>
@@ -541,7 +654,7 @@ type DrawInteractionState =
                             <span class="film-upload-menu__text">Full Footage</span>
                           </span>
                           <span class="film-upload-menu__hint"
-                            >Best for one full game, scrimmage, or practice recording.</span
+                            >Best for cutups, drill clips, and shorter highlight uploads.</span
                           >
                         </span>
                         <span class="film-upload-menu__meta">Single file</span>
@@ -568,19 +681,141 @@ type DrawInteractionState =
             (drop)="onLibraryDrop($event)"
           >
             <header class="film-library-header">
-              <div class="film-library-header__copy">
-                <h3 class="film-library-title">
-                  Video Library
-                  @if (filmReviewReleaseLabel) {
-                    <span class="release-badge">{{ filmReviewReleaseLabel }}</span>
+              <div class="film-library-header__actions-primary">
+                <div class="film-playbook-ask-agent">
+                  <button
+                    type="button"
+                    class="film-playbook-nav-btn film-playbook-nav-btn--attach"
+                    cdkOverlayOrigin
+                    #libraryAskAgentMenuOrigin="cdkOverlayOrigin"
+                    aria-label="Ask Agent X about film review"
+                    [attr.aria-expanded]="isLibraryAskAgentMenuOpen()"
+                    aria-haspopup="menu"
+                    [attr.data-testid]="libraryAskAgentButtonTestId"
+                    (click)="onToggleLibraryAskAgentMenu($event)"
+                  >
+                    <svg
+                      class="film-playbook-ask-agent__logo"
+                      viewBox="0 0 612 792"
+                      fill="currentColor"
+                      stroke="currentColor"
+                      stroke-width="10"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path [attr.d]="agentXLogoPath" />
+                      <polygon [attr.points]="agentXLogoPolygon" />
+                    </svg>
+                    <span>Ask Agent</span>
+                    @if (selectedLibraryAskAgentSelectionCount() > 0) {
+                      <span class="film-playbook-ask-agent__count">
+                        {{ selectedLibraryAskAgentSelectionCount() }}
+                      </span>
+                    }
+                    <svg
+                      class="film-playbook-ask-agent__caret"
+                      viewBox="0 0 12 12"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path d="M3 4.5 6 7.5l3-3" />
+                    </svg>
+                  </button>
+
+                  @if (isLibraryAskAgentMenuOpen()) {
+                    <ng-template
+                      cdkConnectedOverlay
+                      [cdkConnectedOverlayOrigin]="libraryAskAgentMenuOrigin"
+                      [cdkConnectedOverlayOpen]="true"
+                      [cdkConnectedOverlayHasBackdrop]="true"
+                      cdkConnectedOverlayBackdropClass="cdk-overlay-transparent-backdrop"
+                      [cdkConnectedOverlayPositions]="timelineColumnMenuPositions"
+                      [cdkConnectedOverlayPush]="true"
+                      [cdkConnectedOverlayViewportMargin]="8"
+                      (backdropClick)="onCloseLibraryAskAgentMenu($event)"
+                      (detach)="onCloseLibraryAskAgentMenu()"
+                    >
+                      <div
+                        class="film-playbook-ask-agent-menu film-playbook-ask-agent-menu--prompts"
+                        role="menu"
+                        [attr.data-testid]="libraryAskAgentMenuTestId"
+                      >
+                        @if (selectedLibraryAskAgentSelectionCount() <= 0) {
+                          <p class="film-playbook-ask-agent-menu__empty">
+                            Select one or more items or folders to ask Agent.
+                          </p>
+                        }
+                        @for (option of libraryAskAgentPromptOptions; track option.id) {
+                          <button
+                            type="button"
+                            class="film-playbook-ask-agent-menu__option"
+                            role="menuitem"
+                            [disabled]="selectedLibraryAskAgentSelectionCount() <= 0"
+                            [attr.data-testid]="libraryAskAgentPromptOptionTestIdPrefix + option.id"
+                            (click)="onLibraryAskAgentPromptSelect(option.id, $event)"
+                          >
+                            <span class="film-playbook-ask-agent-menu__label">
+                              {{ option.label }}
+                            </span>
+                            <span class="film-playbook-ask-agent-menu__hint">
+                              {{ option.hint }}
+                            </span>
+                          </button>
+                        }
+                      </div>
+                    </ng-template>
                   }
-                </h3>
+                </div>
+
+                <div class="film-library-search-wrap">
+                  <nxt1-search-bar
+                    variant="desktop"
+                    [desktopUsePlainSearchIcon]="true"
+                    placeholder="Search clips, opponents, folders"
+                    [value]="librarySearchQuery()"
+                    [attr.data-testid]="filmLibrarySearchInputTestId"
+                    (searchInput)="onLibrarySearchInput($event)"
+                    (searchClear)="onClearLibrarySearch()"
+                  />
+                  @if (hasLibrarySearchQuery()) {
+                    <span class="film-library-search-count" aria-live="polite">
+                      {{ filteredLibraryReviewCount() }}
+                    </span>
+                  }
+                </div>
               </div>
-              <div class="film-library-header__actions">
+
+              <div class="film-library-header__actions-secondary">
+                @if (selectedLibraryReviewCount() > 0) {
+                  <button
+                    type="button"
+                    class="film-playbook-nav-btn"
+                    [disabled]="!canDownloadSelectedLibraryReviews()"
+                    [attr.aria-label]="downloadSelectedLibraryButtonAriaLabel()"
+                    (click)="onDownloadSelectedLibraryReviews($event)"
+                  >
+                    <nxt1-icon name="download" [size]="14"></nxt1-icon>
+                    <span>Download</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    class="film-playbook-nav-btn film-playbook-nav-btn--danger"
+                    [attr.aria-label]="deleteSelectedLibraryButtonAriaLabel()"
+                    (click)="onDeleteSelectedLibraryReviews($event)"
+                  >
+                    <nxt1-icon name="trash" [size]="14"></nxt1-icon>
+                    <span>Delete</span>
+                  </button>
+                }
                 <div class="film-upload-menu-anchor">
                   <button
                     type="button"
-                    class="btn-new btn-new--secondary"
+                    class="film-playbook-nav-btn"
                     [disabled]="isUploadingLibraryVideo()"
                     [attr.aria-expanded]="isUploadMenuOpen('library-header')"
                     aria-haspopup="menu"
@@ -606,10 +841,6 @@ type DrawInteractionState =
                       role="menu"
                       [attr.data-testid]="testIds.UPLOAD_MENU"
                     >
-                      <div class="film-upload-menu__header">
-                        <span class="film-upload-menu__eyebrow">Choose Upload Type</span>
-                        <p class="film-upload-menu__title">Start a film review session</p>
-                      </div>
                       <button
                         type="button"
                         class="film-list-item__menu-action film-upload-menu__action film-upload-menu__action--recommended"
@@ -620,10 +851,10 @@ type DrawInteractionState =
                         <span class="film-upload-menu__content">
                           <span class="film-upload-menu__row">
                             <span class="film-upload-menu__text">Batch Clips</span>
-                            <span class="film-upload-menu__badge">Recommended</span>
                           </span>
+                          <span class="film-upload-menu__badge">Recommended</span>
                           <span class="film-upload-menu__hint"
-                            >Best for cutups, drill clips, and multiple short uploads.</span
+                            >Best for full games, scrimmages, and practice recordings.</span
                           >
                         </span>
                         <span class="film-upload-menu__meta">Multi-file</span>
@@ -640,7 +871,7 @@ type DrawInteractionState =
                             <span class="film-upload-menu__text">Full Footage</span>
                           </span>
                           <span class="film-upload-menu__hint"
-                            >Best for one full game, scrimmage, or practice recording.</span
+                            >Best for cutups, drill clips, and shorter highlight uploads.</span
                           >
                         </span>
                         <span class="film-upload-menu__meta">Single file</span>
@@ -650,23 +881,23 @@ type DrawInteractionState =
                 </div>
                 <button
                   type="button"
-                  class="btn-new"
+                  class="film-playbook-nav-btn"
                   [attr.aria-expanded]="isCreatingPlaylistFolder()"
                   [attr.data-testid]="testIds.PLAYLIST_CREATE_BUTTON"
                   (click)="onPlaylistCreateToggle()"
                 >
                   <nxt1-icon name="plus" [size]="14"></nxt1-icon>
-                  Playlist
+                  Folder
                 </button>
               </div>
             </header>
 
             @if (isCreatingPlaylistFolder() && !creatingSubfolderParentId()) {
-              <div class="film-playlist-create" role="group" aria-label="Create playlist folder">
+              <div class="film-playlist-create" role="group" aria-label="Create folder">
                 <input
                   type="text"
                   class="film-playlist-create__input"
-                  placeholder="Playlist folder name"
+                  placeholder="Folder name"
                   maxlength="80"
                   [value]="playlistFolderNameDraft()"
                   [attr.data-testid]="testIds.PLAYLIST_CREATE_INPUT"
@@ -692,28 +923,30 @@ type DrawInteractionState =
               </div>
             }
 
-            <div
-              class="film-library-dropzone"
-              [class.film-library-dropzone--active]="
-                isLibraryDragActive() || isRootPlaylistFolderDropActive()
-              "
-              [attr.data-testid]="testIds.DROPZONE"
-            >
-              <span class="film-library-dropzone__title">
-                @if (isRootPlaylistFolderDropActive()) {
-                  Drop playlist here to move it to the top level
-                } @else {
-                  Drag videos here
-                }
-              </span>
-              <span class="film-library-dropzone__meta">
-                @if (isRootPlaylistFolderDropActive()) {
-                  release to remove it from the current folder
-                } @else {
-                  or click Upload Film
-                }
-              </span>
-            </div>
+            @if (isLibraryDragActive() || isRootPlaylistFolderDropActive()) {
+              <div
+                class="film-library-dropzone"
+                [class.film-library-dropzone--active]="
+                  isLibraryDragActive() || isRootPlaylistFolderDropActive()
+                "
+                [attr.data-testid]="testIds.DROPZONE"
+              >
+                <span class="film-library-dropzone__title">
+                  @if (isRootPlaylistFolderDropActive()) {
+                    Drop folder here to move it to the top level
+                  } @else {
+                    Drag videos here
+                  }
+                </span>
+                <span class="film-library-dropzone__meta">
+                  @if (isRootPlaylistFolderDropActive()) {
+                    release to remove it from the current folder
+                  } @else {
+                    or click Upload Film
+                  }
+                </span>
+              </div>
+            }
 
             @if (isUploadingLibraryVideo()) {
               <div class="film-library-upload-status" aria-live="polite">
@@ -739,29 +972,44 @@ type DrawInteractionState =
               <p class="film-error-message">{{ uploadError }}</p>
             }
 
-            <div class="film-library-list" [attr.data-testid]="testIds.LIST_CONTAINER">
-              <ng-container
-                [ngTemplateOutlet]="playlistFolderTreeTemplate"
-                [ngTemplateOutletContext]="{
-                  $implicit: playlistFolderTree(),
-                  isNested: false,
-                  parentId: null,
-                }"
-              ></ng-container>
+            @if (filteredPlaylistFolderTree().length > 0) {
+              <div class="film-library-list" [attr.data-testid]="testIds.LIST_CONTAINER">
+                <ng-container
+                  [ngTemplateOutlet]="playlistFolderTreeTemplate"
+                  [ngTemplateOutletContext]="{
+                    $implicit: filteredPlaylistFolderTree(),
+                    isNested: false,
+                    parentId: null,
+                  }"
+                ></ng-container>
 
-              @if (canLoadMoreReviews()) {
-                <div class="film-library-load-more-wrap">
-                  <button
-                    type="button"
-                    class="film-library-load-more"
-                    [disabled]="loading()"
-                    (click)="onLoadMoreReviews()"
-                  >
-                    Load More Videos
-                  </button>
-                </div>
-              }
-            </div>
+                @if (canLoadMoreReviews()) {
+                  <div class="film-library-load-more-wrap">
+                    <button
+                      type="button"
+                      class="film-library-load-more"
+                      [disabled]="loading()"
+                      (click)="onLoadMoreReviews()"
+                    >
+                      Load More Videos
+                    </button>
+                  </div>
+                }
+              </div>
+            } @else if (hasLibrarySearchQuery()) {
+              <div class="film-library-search-empty" aria-live="polite">
+                <div class="film-library-search-empty__eyebrow">Video Library Search</div>
+                <h3>No film matches “{{ librarySearchQuery() }}”</h3>
+                <p>Try a clip title, opponent, folder name, or sport.</p>
+                <button
+                  type="button"
+                  class="film-library-search-empty__action"
+                  (click)="onClearLibrarySearch($event)"
+                >
+                  Clear search
+                </button>
+              </div>
+            }
 
             <ng-template
               #playlistFolderTreeTemplate
@@ -805,33 +1053,43 @@ type DrawInteractionState =
                     (dragleave)="onPlaylistFolderDragLeave(folder.id, $event)"
                     (drop)="onPlaylistFolderDrop(folder, $event)"
                   >
+                    @if (!folder.isUnassigned) {
+                      <button
+                        type="button"
+                        class="film-playlist-folder__reorder-handle"
+                        cdkDragHandle
+                        aria-label="Reorder folder"
+                      >
+                        <span class="film-reorder-grip" aria-hidden="true">
+                          <span></span>
+                          <span></span>
+                          <span></span>
+                          <span></span>
+                          <span></span>
+                          <span></span>
+                        </span>
+                      </button>
+                    }
+
                     <div class="film-playlist-folder__header">
-                      @if (!folder.isUnassigned) {
-                        <button
-                          type="button"
-                          class="film-playlist-folder__reorder-handle"
-                          cdkDragHandle
-                          aria-label="Reorder playlist"
-                        >
-                          <span class="film-reorder-grip" aria-hidden="true">
-                            <span></span>
-                            <span></span>
-                            <span></span>
-                            <span></span>
-                            <span></span>
-                            <span></span>
-                          </span>
-                        </button>
-                      } @else {
-                        <span
-                          class="film-playlist-folder__reorder-spacer"
-                          aria-hidden="true"
-                        ></span>
-                      }
+                      <span class="film-playlist-folder__selection">
+                        <input
+                          type="checkbox"
+                          class="film-playbook-checkbox"
+                          [checked]="areAllLibraryFolderReviewsSelected(folder)"
+                          [indeterminate]="isSomeLibraryFolderReviewsSelected(folder)"
+                          [attr.aria-label]="'Select folder ' + folder.name"
+                          (click)="$event.stopPropagation()"
+                          (keydown)="$event.stopPropagation()"
+                          (change)="onToggleLibraryFolderSelection(folder, $event)"
+                        />
+                      </span>
 
                       <button
                         type="button"
                         class="film-playlist-folder__toggle"
+                        [nxtAgentXContextDrag]="buildPlaylistFolderDragContextsForLibrary(folder)"
+                        [nxtAgentXContextDragDisabled]="isPlaylistLibraryReorderDragActive()"
                         [attr.draggable]="
                           folder.isUnassigned || isPlaylistLibraryReorderDragActive() ? null : true
                         "
@@ -858,7 +1116,7 @@ type DrawInteractionState =
                           <button
                             type="button"
                             class="film-list-item__menu-btn film-playlist-folder__menu-btn"
-                            aria-label="Playlist options"
+                            aria-label="Folder options"
                             [attr.aria-expanded]="isPlaylistFolderMenuOpen(folder.id)"
                             aria-haspopup="menu"
                             [attr.data-testid]="testIds.PLAYLIST_FOLDER_MENU"
@@ -875,7 +1133,7 @@ type DrawInteractionState =
                             <div
                               class="film-list-item__menu film-playlist-folder__menu"
                               role="menu"
-                              aria-label="Playlist options"
+                              aria-label="Folder options"
                               (click)="$event.stopPropagation()"
                             >
                               @if (isEditingPlaylistFolder(folder.id)) {
@@ -884,7 +1142,7 @@ type DrawInteractionState =
                                     class="film-list-item__menu-label"
                                     for="film-playlist-folder-rename-{{ folder.id }}"
                                   >
-                                    Rename playlist
+                                    Rename folder
                                   </label>
                                   <input
                                     id="film-playlist-folder-rename-{{ folder.id }}"
@@ -917,9 +1175,9 @@ type DrawInteractionState =
                                 <div class="film-list-item__menu-confirm">
                                   <p class="film-list-item__menu-confirm-text">
                                     @if (folder.reviews.length) {
-                                      Delete this playlist? Film will move to Unassigned Film.
+                                      Delete this folder? Film will move to Unassigned Film.
                                     } @else {
-                                      Delete this empty playlist?
+                                      Delete this empty folder?
                                     }
                                   </p>
                                   <div class="film-list-item__menu-actions">
@@ -962,7 +1220,7 @@ type DrawInteractionState =
                                   role="menuitem"
                                   (click)="onPlaylistFolderDeleteStart(folder, $event)"
                                 >
-                                  Delete playlist
+                                  Delete folder
                                 </button>
                               }
                             </div>
@@ -1070,11 +1328,27 @@ type DrawInteractionState =
                                 </span>
                               </button>
 
+                              <span class="film-list-item__selection">
+                                <input
+                                  type="checkbox"
+                                  class="film-playbook-checkbox"
+                                  [checked]="isLibraryReviewSelected(review.id)"
+                                  [attr.aria-label]="
+                                    'Select video ' + getReviewDisplayTitle(review)
+                                  "
+                                  (click)="$event.stopPropagation()"
+                                  (keydown)="$event.stopPropagation()"
+                                  (change)="onToggleLibraryReviewSelection(review.id, $event)"
+                                />
+                              </span>
+
                               <button
                                 type="button"
                                 class="film-list-item"
                                 [class.film-list-item--active]="review.id === selectedId()"
-                                [nxtAgentXContextDrag]="buildFilmReviewDragContext(review)"
+                                [nxtAgentXContextDrag]="
+                                  buildFilmReviewDragContextsForLibrary(review)
+                                "
                                 [attr.data-testid]="testIds.LIST_ITEM"
                                 (click)="onSelectReview(review.id)"
                                 (dragstart)="onReviewPlaylistDragStart(review, $event)"
@@ -1220,7 +1494,7 @@ type DrawInteractionState =
                 <div
                   class="film-player-wrapper"
                   #playerContainer
-                  [nxtAgentXContextDrag]="buildFilmReviewDragContext(review)"
+                  [nxtAgentXContextDrag]="buildFilmReviewDragContextsForLibrary(review)"
                   [nxtAgentXContextDragDisabled]="drawModeEnabled() || isSeekDragLockActive()"
                   tabindex="0"
                   role="group"
@@ -1349,102 +1623,111 @@ type DrawInteractionState =
                         }
                       </div>
 
-                      <div
-                        class="film-top-tools__right film-draw-tools film-controls__cluster"
-                        role="group"
-                        aria-label="Drawing tools"
-                      >
-                        <button
-                          type="button"
-                          class="film-icon-btn video-controls__tooltip-host"
-                          [class.film-icon-btn--primary]="isDrawToolActive('freehand')"
-                          (click)="onDrawToolToggle('freehand')"
-                          [attr.title]="
-                            isDrawToolActive('freehand') ? 'Turn off free draw' : 'Enable free draw'
-                          "
-                          [attr.data-tooltip]="
-                            isDrawToolActive('freehand') ? 'Turn off free draw' : 'Enable free draw'
-                          "
-                          [attr.aria-label]="
-                            isDrawToolActive('freehand') ? 'Disable free draw' : 'Enable free draw'
-                          "
+                      @if (enableDrawTool) {
+                        <div
+                          class="film-top-tools__right film-draw-tools film-controls__cluster"
+                          role="group"
+                          aria-label="Drawing tools"
                         >
-                          <nxt1-icon name="pencil" [size]="11"></nxt1-icon>
-                        </button>
-                        <button
-                          type="button"
-                          class="film-icon-btn video-controls__tooltip-host"
-                          [class.film-icon-btn--primary]="isDrawToolActive('square')"
-                          (click)="onDrawToolToggle('square')"
-                          [attr.title]="
-                            isDrawToolActive('square')
-                              ? 'Turn off square tool'
-                              : 'Enable square tool'
-                          "
-                          [attr.data-tooltip]="
-                            isDrawToolActive('square')
-                              ? 'Turn off square tool'
-                              : 'Enable square tool'
-                          "
-                          [attr.aria-label]="
-                            isDrawToolActive('square')
-                              ? 'Disable square tool'
-                              : 'Enable square tool'
-                          "
-                        >
-                          <svg
-                            class="film-draw-tool-icon"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            aria-hidden="true"
-                          >
-                            <rect x="5" y="5" width="14" height="14" rx="1.75" />
-                          </svg>
-                        </button>
-                        <button
-                          type="button"
-                          class="film-icon-btn video-controls__tooltip-host"
-                          [class.film-icon-btn--primary]="isDrawToolActive('circle')"
-                          (click)="onDrawToolToggle('circle')"
-                          [attr.title]="
-                            isDrawToolActive('circle')
-                              ? 'Turn off circle tool'
-                              : 'Enable circle tool'
-                          "
-                          [attr.data-tooltip]="
-                            isDrawToolActive('circle')
-                              ? 'Turn off circle tool'
-                              : 'Enable circle tool'
-                          "
-                          [attr.aria-label]="
-                            isDrawToolActive('circle')
-                              ? 'Disable circle tool'
-                              : 'Enable circle tool'
-                          "
-                        >
-                          <svg
-                            class="film-draw-tool-icon"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            aria-hidden="true"
-                          >
-                            <circle cx="12" cy="12" r="7" />
-                          </svg>
-                        </button>
-                        @if (drawModeEnabled()) {
                           <button
                             type="button"
-                            class="film-icon-btn film-top-tool-btn film-top-tool-btn--danger video-controls__tooltip-host"
-                            [disabled]="!hasDrawing()"
-                            (click)="clearDrawOverlay()"
-                            title="Clear drawing overlay"
-                            data-tooltip="Clear drawing overlay"
-                            aria-label="Clear drawing"
+                            class="film-icon-btn video-controls__tooltip-host"
+                            [class.film-icon-btn--primary]="isDrawToolActive('freehand')"
+                            (click)="onDrawToolToggle('freehand')"
+                            [attr.title]="
+                              isDrawToolActive('freehand')
+                                ? 'Turn off free draw'
+                                : 'Enable free draw'
+                            "
+                            [attr.data-tooltip]="
+                              isDrawToolActive('freehand')
+                                ? 'Turn off free draw'
+                                : 'Enable free draw'
+                            "
+                            [attr.aria-label]="
+                              isDrawToolActive('freehand')
+                                ? 'Disable free draw'
+                                : 'Enable free draw'
+                            "
                           >
-                            <nxt1-icon name="trash" [size]="11" />
+                            <nxt1-icon name="pencil" [size]="11"></nxt1-icon>
                           </button>
-                        }
-                      </div>
+                          <button
+                            type="button"
+                            class="film-icon-btn video-controls__tooltip-host"
+                            [class.film-icon-btn--primary]="isDrawToolActive('square')"
+                            (click)="onDrawToolToggle('square')"
+                            [attr.title]="
+                              isDrawToolActive('square')
+                                ? 'Turn off square tool'
+                                : 'Enable square tool'
+                            "
+                            [attr.data-tooltip]="
+                              isDrawToolActive('square')
+                                ? 'Turn off square tool'
+                                : 'Enable square tool'
+                            "
+                            [attr.aria-label]="
+                              isDrawToolActive('square')
+                                ? 'Disable square tool'
+                                : 'Enable square tool'
+                            "
+                          >
+                            <svg
+                              class="film-draw-tool-icon"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              aria-hidden="true"
+                            >
+                              <rect x="5" y="5" width="14" height="14" rx="1.75" />
+                            </svg>
+                          </button>
+                          <button
+                            type="button"
+                            class="film-icon-btn video-controls__tooltip-host"
+                            [class.film-icon-btn--primary]="isDrawToolActive('circle')"
+                            (click)="onDrawToolToggle('circle')"
+                            [attr.title]="
+                              isDrawToolActive('circle')
+                                ? 'Turn off circle tool'
+                                : 'Enable circle tool'
+                            "
+                            [attr.data-tooltip]="
+                              isDrawToolActive('circle')
+                                ? 'Turn off circle tool'
+                                : 'Enable circle tool'
+                            "
+                            [attr.aria-label]="
+                              isDrawToolActive('circle')
+                                ? 'Disable circle tool'
+                                : 'Enable circle tool'
+                            "
+                          >
+                            <svg
+                              class="film-draw-tool-icon"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              aria-hidden="true"
+                            >
+                              <circle cx="12" cy="12" r="7" />
+                            </svg>
+                          </button>
+                          @if (drawModeEnabled()) {
+                            <button
+                              type="button"
+                              class="film-icon-btn film-top-tool-btn film-top-tool-btn--danger video-controls__tooltip-host"
+                              [disabled]="!hasDrawing()"
+                              (click)="clearDrawOverlay()"
+                              title="Clear drawing overlay"
+                              data-tooltip="Clear drawing overlay"
+                              aria-label="Clear drawing"
+                            >
+                              <nxt1-icon name="trash" [size]="11" />
+                            </button>
+                          }
+                        </div>
+                      }
+                      <!-- end @if (enableDrawTool) -->
                     </div>
 
                     <div class="film-controls-overlay" aria-label="Coach video controls">
@@ -1575,15 +1858,21 @@ type DrawInteractionState =
                             (detach)="onCloseAskAgentMenu()"
                           >
                             <div
-                              class="film-playbook-ask-agent-menu"
+                              class="film-playbook-ask-agent-menu film-playbook-ask-agent-menu--prompts"
                               role="menu"
                               [attr.data-testid]="askAgentPromptMenuTestId"
                             >
+                              @if (selectedFilteredTimelineRowCount() <= 0) {
+                                <p class="film-playbook-ask-agent-menu__empty">
+                                  Select one or more clips to ask Agent.
+                                </p>
+                              }
                               @for (option of askAgentPromptOptions; track option.id) {
                                 <button
                                   type="button"
                                   class="film-playbook-ask-agent-menu__option"
                                   role="menuitem"
+                                  [disabled]="selectedFilteredTimelineRowCount() <= 0"
                                   [attr.data-testid]="askAgentPromptOptionTestIdPrefix + option.id"
                                   (click)="onAskAgentPromptSelect(review, option.id, $event)"
                                 >
@@ -1668,10 +1957,10 @@ type DrawInteractionState =
                                 (click)="onDownloadVideo(review, $event)"
                               >
                                 <span class="film-playbook-ask-agent-menu__label">
-                                  Download video
+                                  {{ getDownloadVideoOptionLabel(review) }}
                                 </span>
                                 <span class="film-playbook-ask-agent-menu__hint">
-                                  Save the prepared MP4 when it is ready.
+                                  {{ getDownloadVideoOptionHint(review) }}
                                 </span>
                               </button>
                               <button
@@ -1682,10 +1971,10 @@ type DrawInteractionState =
                                 (click)="onDownloadBreakdownCsv(review, $event)"
                               >
                                 <span class="film-playbook-ask-agent-menu__label">
-                                  Download breakdown CSV
+                                  {{ getCsvDownloadOptionLabel(review) }}
                                 </span>
                                 <span class="film-playbook-ask-agent-menu__hint">
-                                  Export the current game breakdown table.
+                                  {{ getCsvDownloadOptionHint(review) }}
                                 </span>
                               </button>
                             </div>
@@ -2020,6 +2309,9 @@ type DrawInteractionState =
                                     )
                                   "
                                 />
+                                @if (isTimelinePlayDownloadPending(row.play, row.originalIndex)) {
+                                  <span class="film-playbook-download-indicator">Downloading</span>
+                                }
                               </span>
                               @for (column of currentTimelineColumns(); track column.id) {
                                 <span
@@ -2122,7 +2414,11 @@ type DrawInteractionState =
                     </div>
                   </div>
                 } @else {
-                  @if (nativePlayerLoading()) {
+                  @if (
+                    nativePlayerLoading() ||
+                    cloudflareIframeLoading() ||
+                    isCloudflareReviewProcessing(review)
+                  ) {
                     <div
                       class="film-empty-timeline-actions film-empty-timeline-actions--loading"
                       aria-live="polite"
@@ -2454,17 +2750,6 @@ type DrawInteractionState =
         flex-wrap: wrap;
       }
 
-      .film-library-header__copy {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        flex-wrap: wrap;
-      }
-
-      .film-library-header h3 {
-        margin: 0;
-      }
-
       .film-library-file-input {
         display: none;
       }
@@ -2545,27 +2830,133 @@ type DrawInteractionState =
         transition: width 0.16s ease;
       }
 
-      .film-library-title {
-        font-size: 13px;
-        font-weight: 700;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        color: var(--nxt1-color-text-primary);
-      }
-
       .film-library-list {
         display: grid;
         gap: 8px;
+        padding-left: 0;
         padding-bottom: 16px;
       }
 
-      .film-library-header__actions {
+      .film-library-header__actions-primary,
+      .film-library-header__actions-secondary {
         display: inline-flex;
         align-items: center;
         gap: 8px;
+        min-width: 0;
       }
 
-      .film-library-header__actions .btn-new[aria-expanded='true'] {
+      .film-library-header__actions-primary {
+        flex: 1 1 34rem;
+        flex-wrap: wrap;
+      }
+
+      .film-library-header__actions-secondary {
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        margin-left: auto;
+      }
+
+      .film-library-search-wrap {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        flex: 1 1 21rem;
+        min-width: 0;
+      }
+
+      .film-library-search-wrap nxt1-search-bar {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .film-library-search-count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 2rem;
+        padding: 0.28rem 0.55rem;
+        border-radius: 999px;
+        border: 1px solid
+          color-mix(in srgb, var(--nxt1-color-primary) 22%, var(--nxt1-color-border-subtle));
+        background: color-mix(
+          in srgb,
+          var(--nxt1-color-alpha-primary10) 84%,
+          var(--nxt1-color-surface-200)
+        );
+        color: color-mix(in srgb, var(--nxt1-color-primary) 78%, var(--nxt1-color-text-primary));
+        font-size: 0.72rem;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+      }
+
+      .film-library-search-empty {
+        display: grid;
+        gap: 0.65rem;
+        justify-items: start;
+        padding: 1.1rem 1.15rem;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-border-subtle) 92%, transparent);
+        border-radius: 1rem;
+        background:
+          radial-gradient(
+            circle at top left,
+            color-mix(in srgb, var(--nxt1-color-alpha-primary10) 90%, transparent),
+            transparent 48%
+          ),
+          linear-gradient(
+            180deg,
+            color-mix(in srgb, var(--nxt1-color-surface-100) 96%, white) 0%,
+            var(--nxt1-color-surface-100) 100%
+          );
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+      }
+
+      .film-library-search-empty__eyebrow {
+        font-size: 0.7rem;
+        font-weight: 800;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--nxt1-color-primary);
+      }
+
+      .film-library-search-empty h3 {
+        margin: 0;
+        font-size: 1rem;
+        font-weight: 800;
+        color: var(--nxt1-color-text-primary);
+      }
+
+      .film-library-search-empty p {
+        margin: 0;
+        font-size: 0.9rem;
+        color: var(--nxt1-color-text-secondary);
+      }
+
+      .film-library-search-empty__action {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 2.25rem;
+        padding: 0 0.9rem;
+        border: 1px solid color-mix(in srgb, var(--nxt1-color-primary) 25%, white);
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--nxt1-color-primary) 12%, white);
+        color: var(--nxt1-color-primary);
+        font-size: 0.85rem;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      @media (max-width: 900px) {
+        .film-library-header__actions-primary {
+          flex-basis: 100%;
+        }
+
+        .film-library-search-wrap {
+          min-width: 100%;
+        }
+      }
+
+      .film-library-header__actions-secondary .film-playbook-nav-btn[aria-expanded='true'] {
         border-color: var(--nxt1-color-border-primary);
         background: color-mix(in srgb, var(--nxt1-color-alpha-primary10) 82%, transparent);
       }
@@ -2574,7 +2965,7 @@ type DrawInteractionState =
         min-width: min(22rem, calc(100vw - 2rem));
         display: grid;
         gap: 0.5rem;
-        padding: 0.55rem;
+        padding: 0.5rem;
         right: 0;
       }
 
@@ -2584,39 +2975,21 @@ type DrawInteractionState =
         transform: translateX(-50%);
       }
 
-      .film-upload-menu__header {
-        display: grid;
-        gap: 0.18rem;
-        padding: 0.2rem 0.2rem 0.35rem;
-      }
-
-      .film-upload-menu__eyebrow {
-        font-size: 0.62rem;
-        font-weight: 700;
-        letter-spacing: 0.08em;
-        text-transform: uppercase;
-        color: var(--nxt1-color-text-tertiary);
-      }
-
-      .film-upload-menu__title {
-        margin: 0;
-        font-size: 0.84rem;
-        font-weight: 700;
-        line-height: 1.3;
-        color: var(--nxt1-color-text-primary);
-      }
-
       .film-upload-menu__action {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
         align-items: flex-start;
-        justify-content: space-between;
+        justify-content: stretch;
         gap: 0.8rem;
-        padding: 0.78rem 0.82rem;
+        padding: 0.8rem 0.9rem;
+        border-radius: var(--nxt1-ui-radius-md, 10px);
         border: 1px solid var(--nxt1-color-border-subtle);
         background: linear-gradient(
           180deg,
-          color-mix(in srgb, var(--nxt1-color-surface-200) 85%, white),
+          color-mix(in srgb, var(--nxt1-color-surface-200) 40%, transparent),
           var(--nxt1-color-surface-100)
         );
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
       }
 
       .film-upload-menu__action:hover,
@@ -2624,20 +2997,23 @@ type DrawInteractionState =
         border-color: var(--nxt1-color-border-default);
         background: linear-gradient(
           180deg,
-          color-mix(in srgb, var(--nxt1-color-surface-200) 92%, white),
+          color-mix(in srgb, var(--nxt1-color-surface-200) 80%, transparent),
           var(--nxt1-color-surface-100)
         );
+        box-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.08);
+        transform: translateY(-1px);
+        cursor: pointer;
       }
 
       .film-upload-menu__action--recommended {
         border-color: color-mix(
           in srgb,
-          var(--nxt1-color-primary) 20%,
+          var(--nxt1-color-primary) 30%,
           var(--nxt1-color-border-default)
         );
         background: linear-gradient(
           180deg,
-          color-mix(in srgb, var(--nxt1-color-primary) 8%, var(--nxt1-color-surface-100)),
+          color-mix(in srgb, var(--nxt1-color-primary) 12%, var(--nxt1-color-surface-100)),
           var(--nxt1-color-surface-100)
         );
       }
@@ -2645,13 +3021,13 @@ type DrawInteractionState =
       .film-upload-menu__content {
         min-width: 0;
         display: grid;
-        gap: 0.24rem;
+        gap: 0.3rem;
         flex: 1;
       }
 
       .film-upload-menu__row {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         gap: 0.45rem;
         min-width: 0;
       }
@@ -2667,6 +3043,7 @@ type DrawInteractionState =
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        width: fit-content;
         padding: 0.14rem 0.42rem;
         border-radius: 999px;
         background: color-mix(in srgb, var(--nxt1-color-primary) 12%, transparent);
@@ -2684,13 +3061,25 @@ type DrawInteractionState =
       }
 
       .film-upload-menu__meta {
-        align-self: center;
+        align-self: flex-start;
+        margin-top: 0.08rem;
         font-size: 0.66rem;
         font-weight: 700;
         letter-spacing: 0.06em;
         text-transform: uppercase;
         color: var(--nxt1-color-text-tertiary);
         white-space: nowrap;
+      }
+
+      @media (max-width: 36rem) {
+        .film-upload-menu__action {
+          grid-template-columns: minmax(0, 1fr);
+          gap: 0.55rem;
+        }
+
+        .film-upload-menu__meta {
+          margin-top: 0;
+        }
       }
 
       .film-playlist-create {
@@ -2771,10 +3160,20 @@ type DrawInteractionState =
         gap: 4px;
         width: 100%;
         min-height: 38px;
-        padding: 0 6px 0 0;
+        padding: 0 6px 0 30px;
         position: relative;
         z-index: 6;
         overflow: visible;
+      }
+
+      .film-playlist-folder__selection,
+      .film-list-item__selection {
+        width: 28px;
+        min-width: 28px;
+        min-height: 28px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
       }
 
       .film-playlist-folder__menu-anchor {
@@ -2802,15 +3201,11 @@ type DrawInteractionState =
         cursor: pointer;
       }
 
-      .film-playlist-folder__reorder-handle,
-      .film-playlist-folder__reorder-spacer {
+      .film-playlist-folder__reorder-handle {
         width: 28px;
         height: 28px;
         min-width: 28px;
         min-height: 28px;
-      }
-
-      .film-playlist-folder__reorder-handle {
         border: 0;
         border-radius: 8px;
         background: transparent;
@@ -2818,6 +3213,11 @@ type DrawInteractionState =
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        position: absolute;
+        left: 4px;
+        top: 19px;
+        transform: translateY(-50%);
+        z-index: 7;
         cursor: grab;
         transition:
           background 0.16s ease,
@@ -3317,7 +3717,8 @@ type DrawInteractionState =
 
       .film-draw-canvas {
         position: absolute;
-        inset: 0;
+        top: 0;
+        left: 0;
         z-index: 15;
         width: 100%;
         height: 100%;
@@ -3794,6 +4195,17 @@ type DrawInteractionState =
         color: var(--nxt1-color-text-primary);
       }
 
+      .film-playbook-nav-btn--danger {
+        border-color: var(--nxt1-color-error, #ef4444);
+        color: var(--nxt1-color-error, #ef4444);
+        background: color-mix(in srgb, var(--nxt1-color-error, #ef4444) 12%, transparent);
+      }
+
+      .film-playbook-nav-btn--danger:hover:not(:disabled) {
+        border-color: var(--nxt1-color-error, #ef4444);
+        background: color-mix(in srgb, var(--nxt1-color-error, #ef4444) 20%, transparent);
+      }
+
       .film-playbook-ask-agent {
         position: relative;
         flex-shrink: 0;
@@ -3845,15 +4257,36 @@ type DrawInteractionState =
         box-shadow: var(--nxt1-navigation-dropdown);
       }
 
+      .film-playbook-ask-agent-menu--prompts {
+        width: min(700px, 86vw);
+        max-width: min(700px, 86vw);
+        max-height: min(58vh, 460px);
+        overflow-y: auto;
+        overflow-x: hidden;
+        align-content: start;
+        gap: 6px;
+        padding: 5px;
+        grid-template-columns: repeat(2, minmax(220px, 1fr));
+      }
+
+      .film-playbook-ask-agent-menu__empty {
+        margin: 0;
+        padding: 8px 10px;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1.35;
+        color: var(--nxt1-color-text-secondary);
+      }
+
       .film-playbook-ask-agent-menu__option {
         display: grid;
-        gap: 4px;
+        gap: 3px;
         border: 0;
         border-radius: 8px;
         background: transparent;
         color: var(--nxt1-color-text-primary);
         text-align: left;
-        padding: 10px 12px;
+        padding: 8px 10px;
         cursor: pointer;
       }
 
@@ -3864,14 +4297,23 @@ type DrawInteractionState =
       }
 
       .film-playbook-ask-agent-menu__label {
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 700;
+        line-height: 1.3;
       }
 
       .film-playbook-ask-agent-menu__hint {
-        font-size: 11px;
+        font-size: 10px;
         color: var(--nxt1-color-text-secondary);
-        line-height: 1.4;
+        line-height: 1.3;
+      }
+
+      @media (max-width: 920px) {
+        .film-playbook-ask-agent-menu--prompts {
+          width: min(520px, 92vw);
+          max-width: min(520px, 92vw);
+          grid-template-columns: minmax(0, 1fr);
+        }
       }
 
       .film-playbook-nav-btn:disabled {
@@ -4282,7 +4724,22 @@ type DrawInteractionState =
         display: flex;
         align-items: center;
         justify-content: center;
+        gap: 6px;
         overflow: visible;
+      }
+
+      .film-playbook-download-indicator {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 74px;
+        padding: 2px 8px;
+        border-radius: 999px;
+        background: color-mix(in srgb, var(--nxt1-color-primary) 14%, transparent);
+        color: var(--nxt1-color-primary);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.01em;
       }
 
       .film-playbook-checkbox {
@@ -4604,7 +5061,8 @@ type DrawInteractionState =
           flex-direction: column;
         }
 
-        .film-library-header__actions {
+        .film-library-header__actions-primary,
+        .film-library-header__actions-secondary {
           width: 100%;
         }
 
@@ -4620,7 +5078,7 @@ type DrawInteractionState =
           padding-left: 12px;
         }
 
-        .film-library-header__actions .btn-new {
+        .film-library-header__actions-secondary .film-playbook-nav-btn {
           justify-content: center;
           width: 100%;
         }
@@ -4695,7 +5153,8 @@ type DrawInteractionState =
         position: relative;
         display: flex;
         align-items: center;
-        gap: 4px;
+        gap: 8px;
+        padding-left: 30px;
         z-index: 1;
       }
 
@@ -4711,6 +5170,11 @@ type DrawInteractionState =
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        position: absolute;
+        left: 4px;
+        top: 50%;
+        transform: translateY(-50%);
+        z-index: 2;
         cursor: grab;
         transition:
           background 0.16s ease,
@@ -4925,11 +5389,14 @@ type DrawInteractionState =
   ],
 })
 export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
+  private readonly logger = inject(NxtLoggingService).child('AgentXFilmReviewPanel');
   private readonly service = inject(AgentXFilmReviewService);
   private readonly agentXService = inject(AgentXService);
   protected readonly platform = inject(NxtPlatformService);
   private readonly toast = inject(NxtToastService);
+  private readonly archive = inject(NxtArchiveService);
   private readonly uploadService = inject(AgentXVideoUploadService);
+  private readonly agentXApiBaseUrl = inject(AGENT_X_API_BASE_URL);
   private readonly getAuthToken = inject(AGENT_X_AUTH_TOKEN_FACTORY, { optional: true });
   private readonly sanitizer = inject(DomSanitizer);
   private readonly safeIframeUrlCache = new Map<string, SafeResourceUrl>();
@@ -4952,6 +5419,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private readonly maxContextAnnotationPoints = 80;
   private readonly maxPersistedAnnotationPoints = 600;
   private readonly drawEffectDurationSec = 1;
+  private lastDrawOutsideFrameToastAtMs = 0;
   private lastTimelineFieldTouch: { key: string; atMs: number } | null = null;
   private playAnnotationPersistTimer: ReturnType<typeof setTimeout> | null = null;
   private playAnnotationPersistInFlight: Promise<void> | null = null;
@@ -4961,6 +5429,8 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   @Input() teamId: string | null = null;
   @Input() role: string | null = null;
   @Input() sport = '';
+  /** Feature flag: show draw tools in the video player toolbar. Off by default. */
+  @Input() enableDrawTool = false;
 
   private filmPlayer?: ElementRef<HTMLVideoElement>;
   private pendingTimestampSeekSec: number | null = null;
@@ -4979,7 +5449,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   @ViewChild('drawCanvas') private drawCanvas?: ElementRef<HTMLCanvasElement>;
 
   protected readonly testIds = TEST_IDS.FILM_REVIEW;
+  protected readonly filmLibrarySearchInputTestId = 'film-review-search-input';
   protected readonly attachBreakdownContextTestId = 'film-review-attach-breakdown-context-button';
+  protected readonly libraryAskAgentButtonTestId = 'film-review-library-ask-agent-button';
+  protected readonly libraryAskAgentMenuTestId = 'film-review-library-ask-agent-menu';
+  protected readonly libraryAskAgentPromptOptionTestIdPrefix =
+    'film-review-library-ask-agent-option-';
   protected readonly askAgentPromptMenuTestId = 'film-review-ask-agent-menu';
   protected readonly askAgentPromptOptionTestIdPrefix = 'film-review-ask-agent-option-';
   protected readonly downloadMenuButtonTestId = 'film-review-download-button';
@@ -4987,6 +5462,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly downloadVideoOptionTestId = 'film-review-download-video-option';
   protected readonly downloadBreakdownOptionTestId = 'film-review-download-breakdown-option';
   protected readonly askAgentPromptOptions = FILM_REVIEW_ASK_AGENT_PROMPTS;
+  protected readonly libraryAskAgentPromptOptions = FILM_REVIEW_LIBRARY_ASK_AGENT_PROMPTS;
   protected readonly agentXLogoPath = AGENT_X_LOGO_PATH;
   protected readonly agentXLogoPolygon = AGENT_X_LOGO_POLYGON;
   readonly askAgentPromptRequested = output<string>();
@@ -5055,9 +5531,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly deleteConfirmReviewId = signal<string | null>(null);
   protected readonly renameDraft = signal('');
   protected readonly playlistDraft = signal('');
+  protected readonly selectedLibraryReviewIds = signal<ReadonlySet<string>>(new Set());
+  protected readonly selectedLibraryPlaylistIds = signal<ReadonlySet<string>>(new Set());
+  protected readonly librarySearchQuery = signal('');
   protected readonly draggingTimelinePlayIndex = signal<number | null>(null);
   protected readonly timelinePlayDropIndicator = signal<TimelinePlayDropIndicator | null>(null);
   protected readonly selectedTimelinePlayIds = signal<ReadonlySet<string>>(new Set());
+  protected readonly activeTimelinePlayDownloadIds = signal<ReadonlySet<string>>(new Set());
   protected readonly timelineColumnOrder = signal<readonly string[]>([]);
   protected readonly draggingTimelineColumnId = signal<string | null>(null);
   protected readonly timelineColumnDropIndicator = signal<TimelineColumnDropIndicator | null>(null);
@@ -5099,8 +5579,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected readonly isUploadingLibraryVideo = signal(false);
   protected readonly isImportingBreakdown = signal(false);
   protected readonly openUploadMenuAnchor = signal<FilmReviewUploadMenuAnchor | null>(null);
+  protected readonly isLibraryAskAgentMenuVisible = signal(false);
   protected readonly openAskAgentMenuReviewId = signal<string | null>(null);
   protected readonly openDownloadMenuReviewId = signal<string | null>(null);
+  protected readonly activeDownloadExportReviewIds = signal<ReadonlySet<string>>(new Set());
   protected readonly pendingUploadSelectionMode = signal<FilmReviewUploadSelectionMode>('batch');
   protected readonly filmListLimit = signal(FILM_REVIEW_LIST_INITIAL_LIMIT);
   protected readonly libraryVideoUploadPercent = signal<number | null>(null);
@@ -5194,6 +5676,31 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const totalCount = this.filteredTimelineRows().length;
     return selectedCount > 0 && selectedCount < totalCount;
   });
+  protected readonly selectedLibraryReviewCount = computed(() => {
+    const selectedIds = this.selectedLibraryReviewIds();
+    if (selectedIds.size === 0) return 0;
+
+    return this.reviews().reduce(
+      (count, review) => (selectedIds.has(review.id) ? count + 1 : count),
+      0
+    );
+  });
+  protected readonly selectedLibraryAskAgentSelectionCount = computed(() => {
+    const { selectedPlaylistFolders, selectedReviewsOutsidePlaylists } =
+      this.resolveEffectiveLibraryAskAgentSelection();
+    return selectedPlaylistFolders.length + selectedReviewsOutsidePlaylists.length;
+  });
+  protected readonly selectedLibraryReviews = computed<readonly FilmReviewDragSource[]>(() => {
+    const selectedIds = this.selectedLibraryReviewIds();
+    if (selectedIds.size === 0) return [];
+
+    return this.reviews().filter((review) => selectedIds.has(review.id));
+  });
+  protected readonly canDownloadSelectedLibraryReviews = computed(() =>
+    this.selectedLibraryReviews().some(
+      (review) => this.resolveReviewArchiveEntries(review).length > 0
+    )
+  );
   protected readonly canLoadMoreReviews = computed(
     () => !this.loading() && this.service.totalReviewCount() > this.reviews().length
   );
@@ -5402,6 +5909,28 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return roots;
     }
   );
+  protected readonly normalizedLibrarySearchQuery = computed(() =>
+    this.normalizeLibrarySearchQuery(this.librarySearchQuery())
+  );
+  protected readonly hasLibrarySearchQuery = computed(
+    () => this.normalizedLibrarySearchQuery().length > 0
+  );
+  protected readonly filteredPlaylistFolderTree = computed<
+    readonly FilmReviewPlaylistFolderTreeNode[]
+  >(() => {
+    const query = this.normalizedLibrarySearchQuery();
+    const tree = this.playlistFolderTree();
+    if (!query) {
+      return tree;
+    }
+
+    return tree
+      .map((folder) => this.filterPlaylistFolderTreeNode(folder, query))
+      .filter((folder): folder is FilmReviewPlaylistFolderTreeNode => folder !== null);
+  });
+  protected readonly filteredLibraryReviewCount = computed(() =>
+    this.countPlaylistFolderTreeReviews(this.filteredPlaylistFolderTree())
+  );
 
   // Timeline play navigation state - using inline type for portability
   protected readonly currentPlayIndex = signal(0);
@@ -5432,6 +5961,16 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   public backToLibrary(): void {
     void this.onBackToLibrary();
+  }
+
+  protected onLibrarySearchInput(value: string): void {
+    this.librarySearchQuery.set(value);
+  }
+
+  protected onClearLibrarySearch(event?: Event): void {
+    event?.preventDefault();
+    event?.stopPropagation();
+    this.librarySearchQuery.set('');
   }
 
   public async refreshData(): Promise<void> {
@@ -5514,6 +6053,36 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       if (rows.length > 0 && !hasActive) {
         this.currentPlayIndex.set(rows[0]!.originalIndex);
       }
+    });
+
+    effect(() => {
+      const visibleReviewIds = new Set(this.reviews().map((review) => review.id));
+      const currentSelection = this.selectedLibraryReviewIds();
+
+      if (currentSelection.size === 0) return;
+
+      let didChange = false;
+      const nextSelection = new Set<string>();
+
+      for (const reviewId of currentSelection) {
+        if (visibleReviewIds.has(reviewId)) {
+          nextSelection.add(reviewId);
+        } else {
+          didChange = true;
+        }
+      }
+
+      if (didChange) {
+        this.selectedLibraryReviewIds.set(nextSelection);
+      }
+
+      this.pruneSelectedLibraryPlaylistSelections();
+    });
+
+    effect(() => {
+      this.playlistFolderTree();
+      this.selectedLibraryReviewIds();
+      this.pruneSelectedLibraryPlaylistSelections();
     });
 
     effect(() => {
@@ -5620,7 +6189,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const teamId = this.teamId?.trim();
     if (!teamId) return;
 
-    this.localPlaylistFolders.set(this.loadPersistedPlaylistFolders(teamId));
+    this.localPlaylistFolders.set([]);
     this.timelineColumnOrder.set(this.loadPersistedTimelineColumnOrder());
     this.filmListLimit.set(FILM_REVIEW_LIST_INITIAL_LIMIT);
 
@@ -5669,21 +6238,31 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.playlistFolderNameDraft.set('');
   }
 
-  protected onPlaylistCreateConfirm(event?: Event): void {
+  protected async onPlaylistCreateConfirm(event?: Event): Promise<void> {
     event?.preventDefault();
     event?.stopPropagation();
 
     const name = this.playlistFolderNameDraft().trim();
     if (!name) {
-      this.toast.error('Name the playlist folder first.');
+      this.toast.error('Name the folder first.');
       return;
     }
 
     const parentId = this.creatingSubfolderParentId()?.trim() || null;
     const id = this.buildPlaylistFolderId(name, parentId);
     const existingFolder = this.playlistFolders().find((folder) => folder.id === id) ?? null;
-    if (!existingFolder) {
-      this.updateLocalPlaylistFolders((folders) => [...folders, { id, name, parentId }]);
+
+    try {
+      if (!existingFolder) {
+        await this.ensurePersistedPlaylistFolder(name, parentId, id);
+      } else if (!existingFolder.isUnassigned) {
+        await this.ensurePersistedPlaylistFolderForExisting(existingFolder);
+      }
+      this.syncLocalPlaylistFoldersFromService();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create folder';
+      this.toast.error(message);
+      return;
     }
 
     if (parentId) {
@@ -5777,35 +6356,39 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     const nextName = this.playlistFolderRenameDraft().trim();
     if (!nextName) {
-      this.toast.error('Name the playlist folder first.');
+      this.toast.error('Name the folder first.');
       return;
     }
 
-    const nextId = this.buildPlaylistFolderId(nextName, folder.parentId);
-    if (nextId === folder.id && nextName === folder.name) {
+    if (nextName === folder.name) {
       this.resetMenuState();
       return;
     }
 
     try {
-      await Promise.all(
-        folder.reviews.map((review) =>
-          this.service.updateReviewPlaylist(review.id, nextId, nextName)
-        )
-      );
-      this.updateLocalPlaylistFolders((folders) => {
-        const remaining = folders.filter((item) => item.id !== folder.id && item.id !== nextId);
-        return [...remaining, { id: nextId, name: nextName, parentId: folder.parentId ?? null }];
-      });
+      const persistedFolder = this.hasPersistedPlaylistFolder(folder.id);
+      const targetFolder = persistedFolder
+        ? await this.service.updatePlaylistFolder(folder.id, { name: nextName })
+        : await this.ensurePersistedPlaylistFolder(nextName, folder.parentId ?? null);
+
+      if (!persistedFolder) {
+        await Promise.all(
+          folder.reviews.map((review) =>
+            this.service.updateReviewPlaylist(review.id, targetFolder.id, targetFolder.name)
+          )
+        );
+      }
+
+      this.syncLocalPlaylistFoldersFromService();
       this.collapsedPlaylistFolderIds.update((current) => {
         const next = new Set(current);
         next.delete(folder.id);
-        next.delete(nextId);
+        next.delete(targetFolder.id);
         return next;
       });
       this.resetMenuState();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to rename playlist';
+      const message = err instanceof Error ? err.message : 'Failed to rename folder';
       this.toast.error(message);
     }
   }
@@ -5832,10 +6415,14 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     event.stopPropagation();
 
     try {
-      await Promise.all(
-        folder.reviews.map((review) => this.service.updateReviewPlaylist(review.id, null, null))
-      );
-      this.updateLocalPlaylistFolders((folders) => folders.filter((item) => item.id !== folder.id));
+      if (this.hasPersistedPlaylistFolder(folder.id)) {
+        await this.service.deletePlaylistFolder(folder.id);
+      } else {
+        await Promise.all(
+          folder.reviews.map((review) => this.service.updateReviewPlaylist(review.id, null, null))
+        );
+      }
+      this.syncLocalPlaylistFoldersFromService();
       this.collapsedPlaylistFolderIds.update((current) => {
         const next = new Set(current);
         next.delete(folder.id);
@@ -5843,7 +6430,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       });
       this.resetMenuState();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to delete playlist';
+      const message = err instanceof Error ? err.message : 'Failed to delete folder';
       this.toast.error(message);
     }
   }
@@ -5906,7 +6493,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.draggingPlaylistFolderId.set(folder.id);
     event.dataTransfer?.setData(FILM_REVIEW_PLAYLIST_FOLDER_DRAG_MIME, folder.id);
     if (event.dataTransfer) {
-      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.effectAllowed = 'copyMove';
     }
   }
 
@@ -5922,10 +6509,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return folders.filter((folder) => !folder.isUnassigned).length > 1;
   }
 
-  protected onPlaylistFolderReorder(
+  protected async onPlaylistFolderReorder(
     event: CdkDragDrop<readonly FilmReviewPlaylistFolderTreeNode[]>,
     parentId: string | null
-  ): void {
+  ): Promise<void> {
     if (event.previousIndex === event.currentIndex) {
       return;
     }
@@ -5936,21 +6523,23 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
 
     moveItemInArray(nextFolders, event.previousIndex, event.currentIndex);
-    const orderedIds = nextFolders.map((folder) => folder.id);
+    const normalizedParentId = parentId?.trim() || null;
 
-    this.updateLocalPlaylistFolders((folders) => {
-      const normalizedParentId = parentId?.trim() || null;
-      const siblingById = new Map(
-        folders
-          .filter((folder) => (folder.parentId?.trim() || null) === normalizedParentId)
-          .map((folder) => [folder.id, folder] as const)
+    try {
+      await Promise.all(
+        nextFolders.map(async (folder, index) => {
+          const ensured = await this.ensurePersistedPlaylistFolderForExisting(folder);
+          await this.service.updatePlaylistFolder(ensured.id, {
+            parentId: normalizedParentId,
+            sortOrder: index,
+          });
+        })
       );
-      const reordered = orderedIds
-        .map((id) => siblingById.get(id))
-        .filter((folder): folder is LocalFilmReviewPlaylistFolder => folder !== undefined);
-      const reorderedIds = new Set(reordered.map((folder) => folder.id));
-      return [...folders.filter((folder) => !reorderedIds.has(folder.id)), ...reordered];
-    });
+      this.syncLocalPlaylistFoldersFromService();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to reorder folders';
+      this.toast.error(message);
+    }
   }
 
   protected onPlaylistFolderDragOver(folderId: string, event: DragEvent): void {
@@ -6030,28 +6619,49 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         return;
       }
 
-      this.updateLocalPlaylistFolders((folders) => {
-        const nextFolders = folders.map((item) =>
-          item.id === draggingFolderId ? { ...item, parentId: folder.id } : item
-        );
-        return this.moveLocalPlaylistFolderToEnd(nextFolders, draggingFolderId);
-      });
+      const draggedFolder =
+        this.playlistFolders().find((item) => item.id === draggingFolderId) ?? null;
+      if (!draggedFolder) {
+        return;
+      }
 
-      this.collapsedPlaylistFolderIds.update((current) => {
-        const next = new Set(current);
-        next.delete(folder.id);
-        return next;
-      });
+      try {
+        const parentFolder = await this.ensurePersistedPlaylistFolderForExisting(folder);
+        const ensuredDraggedFolder =
+          await this.ensurePersistedPlaylistFolderForExisting(draggedFolder);
+        const siblingCount = this.localPlaylistFolders().filter(
+          (item) =>
+            (item.parentId?.trim() || null) === parentFolder.id &&
+            item.id !== ensuredDraggedFolder.id
+        ).length;
+
+        await this.service.updatePlaylistFolder(ensuredDraggedFolder.id, {
+          parentId: parentFolder.id,
+          sortOrder: siblingCount,
+        });
+        this.syncLocalPlaylistFoldersFromService();
+        this.collapsedPlaylistFolderIds.update((current) => {
+          const next = new Set(current);
+          next.delete(folder.id);
+          return next;
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to move folder';
+        this.toast.error(message);
+      }
       return;
     }
 
     if (!reviewId) return;
 
     try {
+      const targetFolder = folder.isUnassigned
+        ? null
+        : await this.ensurePersistedPlaylistFolderForExisting(folder);
       await this.service.updateReviewPlaylist(
         reviewId,
-        folder.isUnassigned ? null : folder.id,
-        folder.isUnassigned ? null : folder.name
+        targetFolder?.id ?? null,
+        targetFolder?.name ?? null
       );
       this.collapsedPlaylistFolderIds.update((current) => {
         const next = new Set(current);
@@ -6073,10 +6683,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     event.stopPropagation();
 
     try {
+      const targetFolder = folder.isUnassigned
+        ? null
+        : await this.ensurePersistedPlaylistFolderForExisting(folder);
       await this.service.updateReviewPlaylist(
         review.id,
-        folder.isUnassigned ? null : folder.id,
-        folder.isUnassigned ? null : folder.name
+        targetFolder?.id ?? null,
+        targetFolder?.name ?? null
       );
       this.collapsedPlaylistFolderIds.update((current) => {
         const next = new Set(current);
@@ -6191,6 +6804,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return this.openAskAgentMenuReviewId() === reviewId;
   }
 
+  protected isLibraryAskAgentMenuOpen(): boolean {
+    return this.isLibraryAskAgentMenuVisible();
+  }
+
   protected isDownloadMenuOpen(reviewId: string): boolean {
     return this.openDownloadMenuReviewId() === reviewId;
   }
@@ -6204,6 +6821,116 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return selectedCount === 1
       ? 'Ask Agent X about the selected clip'
       : `Ask Agent X about ${selectedCount} selected clips`;
+  }
+
+  protected downloadSelectedLibraryButtonAriaLabel(): string {
+    const selectedCount = this.selectedLibraryReviewCount();
+    return selectedCount === 1
+      ? 'Download selected video'
+      : `Download ${selectedCount} selected videos`;
+  }
+
+  protected deleteSelectedLibraryButtonAriaLabel(): string {
+    const selectedCount = this.selectedLibraryReviewCount();
+    return selectedCount === 1
+      ? 'Delete selected video'
+      : `Delete ${selectedCount} selected videos`;
+  }
+
+  protected async onDownloadSelectedLibraryReviews(event: Event): Promise<void> {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const selectedReviews = await this.resolveSelectedLibraryReviewsForArchiveExport();
+    if (selectedReviews.length === 0) {
+      this.toast.info('Select videos to download.');
+      return;
+    }
+
+    const archiveEntries: ArchiveDownloadEntry[] = [];
+    let skippedCount = 0;
+    for (const review of selectedReviews) {
+      const reviewEntries = this.resolveReviewArchiveEntries(review, {
+        prefixSegments: this.resolveReviewArchiveFolderSegments(review),
+      });
+      if (reviewEntries.length === 0) {
+        skippedCount += 1;
+        continue;
+      }
+
+      archiveEntries.push(...reviewEntries);
+    }
+
+    if (archiveEntries.length === 0) {
+      this.toast.info('No selected videos are ready to download yet.');
+      return;
+    }
+
+    this.logger.info('Preparing selected film review ZIP export', {
+      selectedCount: selectedReviews.length,
+      exportFileCount: archiveEntries.length,
+      skippedCount,
+    });
+
+    const downloadEntries = await this.attachAgentXAuthToArchiveEntries(archiveEntries);
+
+    const result = await this.archive.downloadZip({
+      fileName: this.buildSelectedLibraryArchiveFileName(selectedReviews),
+      rootFolderName: 'NXT1 Film Review Library',
+      entries: downloadEntries,
+    });
+
+    if (!result.success) {
+      this.toast.error(result.error ?? 'Failed to prepare the selected video ZIP export.');
+      return;
+    }
+
+    if (skippedCount > 0) {
+      this.toast.info(
+        `Prepared ZIP export for ${archiveEntries.length} of ${selectedReviews.length} selected videos.`
+      );
+      return;
+    }
+
+    this.toast.success(
+      archiveEntries.length === 1
+        ? 'Prepared ZIP export for 1 selected video.'
+        : `Prepared ZIP export for ${archiveEntries.length} selected videos.`
+    );
+  }
+
+  protected async onDeleteSelectedLibraryReviews(event: Event): Promise<void> {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const selectedReviews = this.selectedLibraryReviews();
+    if (selectedReviews.length === 0) {
+      this.toast.info('Select videos to delete.');
+      return;
+    }
+
+    let deletedCount = 0;
+    for (const review of selectedReviews) {
+      try {
+        await this.service.deleteReview(review.id);
+        deletedCount += 1;
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to delete one or more videos';
+        this.toast.error(message);
+      }
+    }
+
+    if (deletedCount > 0 && selectedReviews.some((review) => review.id === this.selectedId())) {
+      this.onBackToLibrary();
+    }
+
+    if (deletedCount <= 0) {
+      return;
+    }
+
+    this.toast.success(
+      deletedCount === 1 ? 'Deleted 1 selected video.' : `Deleted ${deletedCount} selected videos.`
+    );
   }
 
   protected onRenameStart(review: FilmListReview, event: Event): void {
@@ -6255,10 +6982,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return;
     }
 
+    const targetFolder =
+      nextPlaylist.length > 0 ? await this.ensurePersistedPlaylistFolder(nextPlaylist, null) : null;
     await this.service.updateReviewPlaylist(
       review.id,
-      nextPlaylist.length > 0 ? this.buildPlaylistFolderId(nextPlaylist) : null,
-      nextPlaylist.length > 0 ? nextPlaylist : null
+      targetFolder?.id ?? null,
+      targetFolder?.name ?? null
     );
     this.resetMenuState();
   }
@@ -6316,6 +7045,19 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.openAskAgentMenuReviewId.set(review.id);
   }
 
+  protected onToggleLibraryAskAgentMenu(event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+
+    if (this.isLibraryAskAgentMenuVisible()) {
+      this.isLibraryAskAgentMenuVisible.set(false);
+      return;
+    }
+
+    this.resetMenuState();
+    this.isLibraryAskAgentMenuVisible.set(true);
+  }
+
   protected onToggleDownloadMenu(review: FilmReviewDragSource, event: Event): void {
     event.stopPropagation();
     event.preventDefault();
@@ -6335,6 +7077,153 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.openAskAgentMenuReviewId.set(null);
   }
 
+  protected onCloseLibraryAskAgentMenu(event?: Event): void {
+    event?.stopPropagation();
+    event?.preventDefault();
+    this.isLibraryAskAgentMenuVisible.set(false);
+  }
+
+  protected onLibraryAskAgentPromptSelect(
+    promptId: FilmReviewLibraryAskAgentPromptId,
+    event: Event
+  ): void {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const { selectedPlaylistFolders, selectedReviewsOutsidePlaylists } =
+      this.resolveEffectiveLibraryAskAgentSelection();
+    const selectedItemCount =
+      selectedPlaylistFolders.length + selectedReviewsOutsidePlaylists.length;
+
+    if (selectedItemCount <= 0) {
+      return;
+    }
+
+    const selectedReviewContexts = selectedReviewsOutsidePlaylists.map((review) =>
+      this.buildFilmReviewDragContext(review)
+    );
+    const selectedPlaylistContexts = selectedPlaylistFolders.flatMap((folder) =>
+      this.buildPlaylistFolderDragContexts(folder)
+    );
+    const selectedContexts = [...selectedReviewContexts, ...selectedPlaylistContexts];
+    if (selectedContexts.length <= 0) {
+      return;
+    }
+
+    this.agentXService.queueSelectedContexts(selectedContexts);
+
+    const prompt = this.buildLibraryAskAgentPrompt(promptId, selectedItemCount);
+    this.askAgentPromptRequested.emit(prompt);
+
+    this.isLibraryAskAgentMenuVisible.set(false);
+  }
+
+  protected isLibraryReviewSelected(reviewId: string): boolean {
+    return this.selectedLibraryReviewIds().has(reviewId);
+  }
+
+  protected getLibraryFolderSelectableReviewCount(
+    folder: FilmReviewPlaylistFolderTreeNode
+  ): number {
+    return this.collectLibraryFolderReviewIds(folder).length;
+  }
+
+  protected areAllLibraryFolderReviewsSelected(folder: FilmReviewPlaylistFolderTreeNode): boolean {
+    const reviewIds = this.collectLibraryFolderReviewIds(folder);
+    if (reviewIds.length === 0) {
+      return this.selectedLibraryPlaylistIds().has(folder.id);
+    }
+
+    const selectedIds = this.selectedLibraryReviewIds();
+    return reviewIds.every((reviewId) => selectedIds.has(reviewId));
+  }
+
+  protected isSomeLibraryFolderReviewsSelected(folder: FilmReviewPlaylistFolderTreeNode): boolean {
+    const reviewIds = this.collectLibraryFolderReviewIds(folder);
+    if (reviewIds.length === 0) return false;
+
+    const selectedIds = this.selectedLibraryReviewIds();
+    let selectedCount = 0;
+
+    for (const reviewId of reviewIds) {
+      if (selectedIds.has(reviewId)) {
+        selectedCount += 1;
+      }
+    }
+
+    return selectedCount > 0 && selectedCount < reviewIds.length;
+  }
+
+  protected onToggleLibraryReviewSelection(reviewId: string, event: Event): void {
+    event.stopPropagation();
+
+    const input = event.target as HTMLInputElement | null;
+    const isChecked = !!input?.checked;
+
+    this.selectedLibraryReviewIds.update((current) => {
+      const next = new Set(current);
+      if (isChecked) {
+        next.add(reviewId);
+      } else {
+        next.delete(reviewId);
+      }
+      return next;
+    });
+
+    this.pruneSelectedLibraryPlaylistSelections();
+  }
+
+  protected onToggleLibraryFolderSelection(
+    folder: FilmReviewPlaylistFolderTreeNode,
+    event: Event
+  ): void {
+    event.stopPropagation();
+
+    const input = event.target as HTMLInputElement | null;
+    const isChecked = !!input?.checked;
+    const reviewIds = this.collectLibraryFolderReviewIds(folder);
+
+    if (reviewIds.length === 0) {
+      this.selectedLibraryReviewIds.update((current) => new Set(current));
+      this.selectedLibraryPlaylistIds.update((current) => {
+        const next = new Set(current);
+        if (isChecked) {
+          next.add(folder.id);
+        } else {
+          next.delete(folder.id);
+        }
+        return next;
+      });
+      return;
+    }
+
+    this.selectedLibraryReviewIds.update((current) => {
+      const next = new Set(current);
+
+      for (const reviewId of reviewIds) {
+        if (isChecked) {
+          next.add(reviewId);
+        } else {
+          next.delete(reviewId);
+        }
+      }
+
+      return next;
+    });
+
+    this.selectedLibraryPlaylistIds.update((current) => {
+      const next = new Set(current);
+      if (isChecked) {
+        next.add(folder.id);
+      } else {
+        next.delete(folder.id);
+      }
+      return next;
+    });
+
+    this.pruneSelectedLibraryPlaylistSelections();
+  }
+
   protected onCloseDownloadMenu(event?: Event): void {
     event?.stopPropagation();
     event?.preventDefault();
@@ -6342,16 +7231,129 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   protected canDownloadReviewVideo(review: FilmReviewDragSource): boolean {
-    return this.resolveDownloadableVideoUrl(review) !== null;
+    if (this.shouldUseServerSideDownloadExport(review)) {
+      return this.canPrepareServerSideDownloadExport(review);
+    }
+
+    if (this.shouldDownloadSelectedBatchClips(review)) {
+      return this.resolveSelectedBatchClipDownloads(review).items.length > 0;
+    }
+
+    return this.resolveReviewArchiveEntries(review).length > 0;
   }
 
-  protected onDownloadVideo(review: FilmReviewDragSource, event: Event): void {
+  protected getDownloadVideoOptionLabel(review: FilmReviewDragSource): string {
+    if (this.shouldUseServerSideDownloadExport(review)) {
+      const exportState = review.downloadExport;
+      if (exportState?.status === 'ready') {
+        return 'Download prepared full game';
+      }
+      if (exportState?.status === 'error') {
+        return 'Retry full-game export';
+      }
+      if (exportState?.status === 'queued' || exportState?.status === 'processing') {
+        return exportState.percentComplete !== undefined
+          ? `Preparing full-game export (${exportState.percentComplete}%)`
+          : 'Preparing full-game export';
+      }
+      return 'Prepare full-game download';
+    }
+
+    if (!this.shouldDownloadSelectedBatchClips(review)) {
+      const exportCount = this.resolveReviewArchiveEntries(review).length;
+      return exportCount > 1 ? `Download ${exportCount} source clips` : 'Download video';
+    }
+
+    const selectedCount = this.resolveSelectedBatchClipDownloads(review).selectedCount;
+    return selectedCount === 1
+      ? 'Download selected clip'
+      : `Download ${selectedCount} selected clips`;
+  }
+
+  protected getDownloadVideoOptionHint(review: FilmReviewDragSource): string {
+    if (this.shouldUseServerSideDownloadExport(review)) {
+      const exportState = review.downloadExport;
+      if (exportState?.status === 'ready') {
+        return 'The full-game export is staged on the backend and ready to download.';
+      }
+      if (exportState?.status === 'error') {
+        return (
+          exportState.lastError?.trim() || 'The previous full-game export failed. Tap to retry.'
+        );
+      }
+      if (exportState?.status === 'queued' || exportState?.status === 'processing') {
+        const progressLabel =
+          exportState.percentComplete !== undefined
+            ? `${exportState.percentComplete}% complete`
+            : 'preparing in the background';
+        return `Large full-game footage is exported server-side so the download does not stall in the browser. ${progressLabel}.`;
+      }
+      return 'Prepare a backend export for large full-game footage, then download the ready file.';
+    }
+
+    if (!this.shouldDownloadSelectedBatchClips(review)) {
+      const exportCount = this.resolveReviewArchiveEntries(review).length;
+      return exportCount > 1
+        ? 'Save all prepared source clips together in a ZIP export.'
+        : 'Save the prepared MP4 when it is ready.';
+    }
+
+    const { items, selectedCount } = this.resolveSelectedBatchClipDownloads(review);
+    if (items.length === selectedCount) {
+      return 'Download each selected batch clip as its own MP4 file.';
+    }
+
+    if (items.length === 0) {
+      return 'Selected clips are not ready for MP4 download yet.';
+    }
+
+    return `${items.length} of ${selectedCount} selected clips are ready to download.`;
+  }
+
+  protected getCsvDownloadOptionLabel(_review: FilmReviewDragSource): string {
+    const selectedCount = this.selectedTimelinePlayIds().size;
+    if (selectedCount === 0) {
+      return 'Download breakdown CSV';
+    }
+
+    return selectedCount === 1
+      ? 'Export selected row as CSV'
+      : `Export ${selectedCount} selected rows as CSV`;
+  }
+
+  protected getCsvDownloadOptionHint(_review: FilmReviewDragSource): string {
+    const selectedCount = this.selectedTimelinePlayIds().size;
+    if (selectedCount === 0) {
+      return 'Export the current game breakdown table.';
+    }
+
+    return 'Export only the selected rows in CSV format.';
+  }
+
+  protected isTimelinePlayDownloadPending(play: FilmTimelinePlay, originalIndex: number): boolean {
+    return this.activeTimelinePlayDownloadIds().has(
+      this.resolveTimelinePlaySelectionId(play, originalIndex)
+    );
+  }
+
+  protected async onDownloadVideo(review: FilmReviewDragSource, event: Event): Promise<void> {
     event.stopPropagation();
     event.preventDefault();
 
-    const downloadUrl = this.resolveDownloadableVideoUrl(review);
-    if (!downloadUrl) {
-      const prewarmStatus = review.downloadPrewarm?.status?.trim().toLowerCase();
+    if (this.shouldUseServerSideDownloadExport(review)) {
+      await this.requestServerSideDownloadExport(review);
+      return;
+    }
+
+    if (this.shouldDownloadSelectedBatchClips(review)) {
+      await this.downloadSelectedBatchClips(review);
+      return;
+    }
+
+    const exportReview = await this.resolveReviewForArchiveExport(review);
+    const archiveEntries = this.resolveReviewArchiveEntries(exportReview);
+    if (archiveEntries.length === 0) {
+      const prewarmStatus = exportReview.downloadPrewarm?.status?.trim().toLowerCase();
       this.toast.info(
         prewarmStatus === 'processing'
           ? 'Video download is still being prepared. Try again in a moment.'
@@ -6361,7 +7363,29 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
 
     this.openDownloadMenuReviewId.set(null);
-    this.triggerFileDownload(downloadUrl, this.buildFilmReviewVideoFileName(review));
+
+    const downloadEntries = await this.attachAgentXAuthToArchiveEntries(archiveEntries);
+
+    if (downloadEntries.length === 1) {
+      const [entry] = downloadEntries;
+      if (entry?.source.kind === 'url') {
+        const blob = await this.fetchDownloadBlob(entry.source.url, entry.source.fetchInit);
+        this.triggerBlobDownload(blob, entry.path.split('/').pop() ?? 'film-review.mp4');
+        return;
+      }
+    }
+
+    const result = await this.archive.downloadZip({
+      fileName: `${this.buildFilmReviewFileStem(exportReview)}-sources`,
+      entries: downloadEntries,
+    });
+
+    if (!result.success) {
+      this.toast.error(result.error ?? 'Failed to prepare the film review ZIP export.');
+      return;
+    }
+
+    this.toast.success(`Prepared ZIP export for ${archiveEntries.length} files.`);
   }
 
   protected onDownloadBreakdownCsv(review: FilmReviewDragSource, event: Event): void {
@@ -6506,18 +7530,36 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       this.activePlaylistFolderDropTargetId.set(null);
       this.isRootPlaylistFolderDropActive.set(false);
 
-      this.updateLocalPlaylistFolders((folders) => {
-        const nextFolders = folders.map((item) =>
-          item.id === draggingFolderId ? { ...item, parentId: null } : item
-        );
-        return this.moveLocalPlaylistFolderToEnd(nextFolders, draggingFolderId);
-      });
+      const draggedFolder =
+        this.playlistFolders().find((item) => item.id === draggingFolderId) ?? null;
+      if (!draggedFolder) {
+        return;
+      }
+
+      try {
+        const ensuredDraggedFolder =
+          await this.ensurePersistedPlaylistFolderForExisting(draggedFolder);
+        const rootCount = this.localPlaylistFolders().filter(
+          (item) => !(item.parentId?.trim() || null) && item.id !== ensuredDraggedFolder.id
+        ).length;
+
+        await this.service.updatePlaylistFolder(ensuredDraggedFolder.id, {
+          parentId: null,
+          sortOrder: rootCount,
+        });
+        this.syncLocalPlaylistFoldersFromService();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to move folder';
+        this.toast.error(message);
+      }
       return;
     }
 
     this.isRootPlaylistFolderDropActive.set(false);
     const files = event.dataTransfer?.files ? Array.from(event.dataTransfer.files) : [];
-    await this.uploadLibraryFiles(files, files.length > 1 ? 'batch' : 'full');
+    await this.uploadLibraryFiles(files, files.length > 1 ? 'batch' : 'full', {
+      suppressSuccessToast: true,
+    });
   }
 
   private getDraggingPlaylistFolderId(event: DragEvent): string {
@@ -6537,28 +7579,12 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.isLibraryDragActive.set(false);
   }
 
-  private moveLocalPlaylistFolderToEnd(
-    folders: readonly LocalFilmReviewPlaylistFolder[],
-    folderId: string
-  ): readonly LocalFilmReviewPlaylistFolder[] {
-    const nextFolders = [...folders];
-    const sourceIndex = nextFolders.findIndex((folder) => folder.id === folderId);
-    if (sourceIndex < 0) {
-      return nextFolders;
-    }
-
-    const [movedFolder] = nextFolders.splice(sourceIndex, 1);
-    if (!movedFolder) {
-      return nextFolders;
-    }
-
-    nextFolders.push(movedFolder);
-    return nextFolders;
-  }
-
   private async uploadLibraryFiles(
     files: readonly File[],
-    selectionMode: FilmReviewUploadSelectionMode
+    selectionMode: FilmReviewUploadSelectionMode,
+    options?: {
+      readonly suppressSuccessToast?: boolean;
+    }
   ): Promise<void> {
     if (!files.length || this.isUploadingLibraryVideo()) {
       return;
@@ -6613,11 +7639,13 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
       if (validVideos.length > 0) {
         this.agentXService.addFiles(validVideos);
-        this.toast.success(
-          validVideos.length === 1
-            ? 'Added video to Agent X chat for personal film review.'
-            : `Added ${validVideos.length} videos to Agent X chat for personal film review.`
-        );
+        if (!options?.suppressSuccessToast) {
+          this.toast.success(
+            validVideos.length === 1
+              ? 'Added video to Agent X chat for personal film review.'
+              : `Added ${validVideos.length} videos to Agent X chat for personal film review.`
+          );
+        }
       }
 
       this.libraryUploadError.set(null);
@@ -6637,7 +7665,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
 
     if (validVideos.length > 0) {
-      this.ensureStarterPlaylistFolders();
+      await this.ensureStarterPlaylistFolders();
     }
 
     this.libraryUploadError.set(null);
@@ -6663,6 +7691,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
           order: index,
           title: this.deriveFilmReviewTitleFromFile(file.name),
           videoUrl: uploaded.streamUrl,
+          ...(uploaded.downloadUrl ? { downloadUrl: uploaded.downloadUrl } : {}),
           ...(uploaded.storagePath ? { storagePath: uploaded.storagePath } : {}),
           ...(uploaded.cloudflareVideoId ? { cloudflareVideoId: uploaded.cloudflareVideoId } : {}),
           ...(uploaded.cloudflareStatus ? { cloudflareStatus: uploaded.cloudflareStatus } : {}),
@@ -6718,7 +7747,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         this.libraryVideoUploadPercent.set(100);
       }
 
-      this.toast.success(this.buildUploadSuccessMessage(validVideos.length, importedPlayCount));
+      if (!options?.suppressSuccessToast) {
+        this.toast.success(this.buildUploadSuccessMessage(validVideos.length, importedPlayCount));
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to upload film files';
       this.libraryUploadError.set(message);
@@ -6770,6 +7801,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     total: number
   ): Promise<{
     streamUrl: string;
+    downloadUrl?: string;
     storagePath?: string;
     cloudflareVideoId?: string;
     cloudflareStatus?: string;
@@ -6791,6 +7823,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
             subscription.unsubscribe();
             resolve({
               streamUrl: progress.streamUrl,
+              downloadUrl: progress.downloadUrl,
               storagePath: progress.storagePath,
               cloudflareVideoId: progress.cloudflareVideoId,
               cloudflareStatus: progress.cloudflareStatus,
@@ -6865,6 +7898,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected onDocumentClick(event: Event): void {
     if (
       !this.openAskAgentMenuReviewId() &&
+      !this.isLibraryAskAgentMenuVisible() &&
       !this.openDownloadMenuReviewId() &&
       !this.openUploadMenuAnchor() &&
       !this.openMenuReviewId() &&
@@ -6889,6 +7923,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   protected onEscapeKey(): void {
     if (
       this.openAskAgentMenuReviewId() ||
+      this.isLibraryAskAgentMenuVisible() ||
       this.openDownloadMenuReviewId() ||
       this.openUploadMenuAnchor() ||
       this.openMenuReviewId() ||
@@ -6901,6 +7936,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   private resetMenuState(): void {
     this.openAskAgentMenuReviewId.set(null);
+    this.isLibraryAskAgentMenuVisible.set(false);
     this.openDownloadMenuReviewId.set(null);
     this.openUploadMenuAnchor.set(null);
     this.openMenuReviewId.set(null);
@@ -6916,6 +7952,141 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.openTimelineColumnMenuId.set(null);
   }
 
+  private areSetsEqual<T>(a: ReadonlySet<T>, b: ReadonlySet<T>): boolean {
+    if (a.size !== b.size) {
+      return false;
+    }
+
+    for (const value of a) {
+      if (!b.has(value)) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  private collectLibraryFolderReviewIds(
+    folder: FilmReviewPlaylistFolderTreeNode
+  ): readonly string[] {
+    const reviewIds: string[] = [];
+
+    const visit = (node: FilmReviewPlaylistFolderTreeNode): void => {
+      for (const review of node.reviews) {
+        reviewIds.push(review.id);
+      }
+
+      for (const child of node.children) {
+        visit(child);
+      }
+    };
+
+    visit(folder);
+
+    return reviewIds;
+  }
+
+  private resolveSelectedLibraryPlaylistFolders(): readonly FilmReviewPlaylistFolderTreeNode[] {
+    const selectedPlaylistIds = this.selectedLibraryPlaylistIds();
+    if (selectedPlaylistIds.size === 0) {
+      return [];
+    }
+
+    const selectedFolders: FilmReviewPlaylistFolderTreeNode[] = [];
+    for (const playlistId of selectedPlaylistIds) {
+      const folder = this.findPlaylistFolderNodeById(playlistId);
+      if (folder) {
+        selectedFolders.push(folder);
+      }
+    }
+
+    return selectedFolders;
+  }
+
+  private resolveEffectiveLibraryAskAgentSelection(): {
+    readonly selectedPlaylistFolders: readonly FilmReviewPlaylistFolderTreeNode[];
+    readonly selectedReviewsOutsidePlaylists: readonly FilmReviewDragSource[];
+  } {
+    const selectedReviews = this.selectedLibraryReviews();
+    const selectedPlaylistFolders = this.resolveSelectedLibraryPlaylistFolders();
+
+    if (selectedPlaylistFolders.length === 0) {
+      return {
+        selectedPlaylistFolders,
+        selectedReviewsOutsidePlaylists: selectedReviews,
+      };
+    }
+
+    const coveredReviewIds = new Set<string>();
+    for (const folder of selectedPlaylistFolders) {
+      for (const reviewId of this.collectLibraryFolderReviewIds(folder)) {
+        coveredReviewIds.add(reviewId);
+      }
+    }
+
+    const selectedReviewsOutsidePlaylists = selectedReviews.filter(
+      (review) => !coveredReviewIds.has(review.id)
+    );
+
+    return {
+      selectedPlaylistFolders,
+      selectedReviewsOutsidePlaylists,
+    };
+  }
+
+  private pruneSelectedLibraryPlaylistSelections(): void {
+    const selectedPlaylistIds = this.selectedLibraryPlaylistIds();
+    if (selectedPlaylistIds.size === 0) {
+      return;
+    }
+
+    const selectedReviewIds = this.selectedLibraryReviewIds();
+    const nextPlaylistIds = new Set<string>();
+
+    for (const playlistId of selectedPlaylistIds) {
+      const folder = this.findPlaylistFolderNodeById(playlistId);
+      if (!folder) {
+        continue;
+      }
+
+      const reviewIds = this.collectLibraryFolderReviewIds(folder);
+      if (reviewIds.length === 0) {
+        nextPlaylistIds.add(playlistId);
+        continue;
+      }
+
+      const hasAllReviewsSelected = reviewIds.every((reviewId) => selectedReviewIds.has(reviewId));
+      if (hasAllReviewsSelected) {
+        nextPlaylistIds.add(playlistId);
+      }
+    }
+
+    if (!this.areSetsEqual(selectedPlaylistIds, nextPlaylistIds)) {
+      this.selectedLibraryPlaylistIds.set(nextPlaylistIds);
+    }
+  }
+
+  private findPlaylistFolderNodeById(folderId: string): FilmReviewPlaylistFolderTreeNode | null {
+    const visit = (
+      nodes: readonly FilmReviewPlaylistFolderTreeNode[]
+    ): FilmReviewPlaylistFolderTreeNode | null => {
+      for (const node of nodes) {
+        if (node.id === folderId) {
+          return node;
+        }
+
+        const found = visit(node.children);
+        if (found) {
+          return found;
+        }
+      }
+
+      return null;
+    };
+
+    return visit(this.playlistFolderTree());
+  }
+
   private buildAskAgentPrompt(
     review: FilmReviewDragSource,
     promptId: FilmReviewAskAgentPromptId,
@@ -6924,14 +8095,32 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const subject = this.buildAskAgentPromptSubject(review, selectedClipCount);
 
     switch (promptId) {
-      case 'breakdown':
-        return `Break down ${subject}. Tell me what stands out, what is working, and what needs work.`;
-      case 'coach-eye':
-        return `Watch ${subject} and tell me what a college coach would notice first.`;
-      case 'fixes':
-        return `Review ${subject} and give me the 3 biggest fixes to make next.`;
-      case 'training-plan':
-        return `Turn ${subject} into a focused training plan I can use this week.`;
+      case 'update-breakdown':
+        return `Update the breakdown for ${subject}. Refresh tags, labels, and clip organization with clear coaching language.`;
+      case 'summary':
+        return `Summarize ${subject}. Give the top takeaways, what is working, and what needs immediate attention.`;
+      case 'top-fixes':
+        return `Review ${subject} and give the top fixes in priority order with correction cues.`;
+      case 'situational-scenarios':
+        return `Break ${subject} into situational scenarios. Explain decision patterns and best responses in each situation.`;
+      case 'scout-report':
+        return `Build a scout report from ${subject} with tendencies, triggers, counters, and evidence from clips.`;
+      case 'suggest-plays':
+        return `Based on ${subject}, suggest plays or new concepts we should add next and explain why.`;
+      case 'create-gameday-playbook':
+        return `Create a gameday playbook from ${subject} with priority calls, sequencing, and fallback counters.`;
+      case 'player-stats':
+        return `Generate player stats and impact notes from ${subject} with consistency highlights and development priorities.`;
+      case 'position-room-notes':
+        return `Create position room notes from ${subject} with role-specific coaching points and correction cues.`;
+      case 'callsheet':
+        return `Build a callsheet from ${subject} for key situations including openers, pressure answers, and late-game options.`;
+      case 'install':
+        return `Turn ${subject} into an install plan from install to rep to game-ready with coaching points and bust alerts.`;
+      case 'practice-script':
+        return `Turn ${subject} into a practice script with period structure, reps, coaching points, and drill progression.`;
+      case 'game-plan':
+        return `Build a full game plan from ${subject} with priorities, adjustments, contingencies, and must-call sequences.`;
     }
   }
 
@@ -6950,6 +8139,38 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
 
     return `these ${selectedClipCount} selected clips from ${title}`;
+  }
+
+  private buildLibraryAskAgentPrompt(
+    promptId: FilmReviewLibraryAskAgentPromptId,
+    selectedItemCount: number
+  ): string {
+    const subject = this.buildLibraryAskAgentPromptSubject(selectedItemCount);
+
+    switch (promptId) {
+      case 'create-cutup-folder':
+        return `Create a cutup folder from ${subject}. Group clips by concept and situation with clear coach-ready labels.`;
+      case 'create-game-highlight':
+        return `Create a game highlight package from ${subject}. Sequence clips for impact and coaching value.`;
+      case 'compare-film':
+        return `Compare ${subject}. Tell me what improved, what regressed, and what remains consistent.`;
+      case 'full-report':
+        return `Generate a full report from ${subject} with key findings, evidence, priorities, and next actions.`;
+      case 'self-scout-cutup':
+        return `Build a self scout cutup from ${subject}. Surface tendencies, strengths, and the highest-priority corrections.`;
+    }
+  }
+
+  private buildLibraryAskAgentPromptSubject(selectedItemCount: number): string {
+    if (selectedItemCount <= 0) {
+      return 'these selected items from my video library';
+    }
+
+    if (selectedItemCount === 1) {
+      return 'this selected item from my video library';
+    }
+
+    return `these ${selectedItemCount} selected items from my video library`;
   }
 
   public getReviewDisplayTitle(review: FilmListReview): string {
@@ -7019,6 +8240,70 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       .toLowerCase();
   }
 
+  private normalizeLibrarySearchQuery(value: string): string {
+    return value.trim().replace(/\s+/g, ' ').toLowerCase();
+  }
+
+  private filterPlaylistFolderTreeNode(
+    folder: FilmReviewPlaylistFolderTreeNode,
+    query: string
+  ): FilmReviewPlaylistFolderTreeNode | null {
+    const folderMatches = this.doesPlaylistFolderMatchQuery(folder, query);
+    if (folderMatches) {
+      return folder;
+    }
+
+    const filteredChildren = folder.children
+      .map((child) => this.filterPlaylistFolderTreeNode(child, query))
+      .filter((child): child is FilmReviewPlaylistFolderTreeNode => child !== null);
+    const filteredReviews = folder.reviews.filter((review) =>
+      this.doesReviewMatchLibraryQuery(review, query)
+    );
+
+    if (filteredChildren.length === 0 && filteredReviews.length === 0) {
+      return null;
+    }
+
+    return {
+      ...folder,
+      reviews: filteredReviews,
+      children: filteredChildren,
+    };
+  }
+
+  private doesPlaylistFolderMatchQuery(folder: FilmReviewPlaylistFolder, query: string): boolean {
+    return this.normalizeLibrarySearchQuery(folder.name).includes(query);
+  }
+
+  private doesReviewMatchLibraryQuery(review: FilmListReview, query: string): boolean {
+    const playlist = this.resolveReviewPlaylist(review);
+    const searchIndex = [
+      this.getReviewDisplayTitle(review),
+      review.title,
+      review.opponentName,
+      review.sport,
+      review.gameDate,
+      playlist?.name,
+      this.extractSourceBaseName(review.storagePath),
+      this.extractSourceBaseName(review.videoUrl),
+    ]
+      .map((value) => value?.trim())
+      .filter((value): value is string => Boolean(value))
+      .join(' ');
+
+    return this.normalizeLibrarySearchQuery(searchIndex).includes(query);
+  }
+
+  private countPlaylistFolderTreeReviews(
+    folders: readonly FilmReviewPlaylistFolderTreeNode[]
+  ): number {
+    return folders.reduce(
+      (count, folder) =>
+        count + folder.reviews.length + this.countPlaylistFolderTreeReviews(folder.children),
+      0
+    );
+  }
+
   private resolveReviewPlaylist(review: FilmListReview): { id: string; name: string } | null {
     const playlistName = review.playlistName?.trim();
     const playlistId =
@@ -7047,7 +8332,98 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return parentToken ? `${parentToken}-${baseId}` : baseId;
   }
 
-  private ensureStarterPlaylistFolders(): void {
+  private syncLocalPlaylistFoldersFromService(): void {
+    this.localPlaylistFolders.set(
+      this.normalizeLocalPlaylistFolders(
+        this.service.playlists().map((playlist) => ({
+          id: playlist.id,
+          name: playlist.name,
+          parentId: playlist.parentId ?? null,
+        }))
+      )
+    );
+  }
+
+  private hasPersistedPlaylistFolder(folderId: string): boolean {
+    return this.service.playlists().some((playlist) => playlist.id === folderId);
+  }
+
+  private async ensurePersistedPlaylistFolder(
+    name: string,
+    parentId: string | null,
+    requestedId?: string
+  ): Promise<{ id: string; name: string }> {
+    const teamId = this.teamId?.trim();
+    if (!teamId) {
+      throw new Error('Select a team before editing folders.');
+    }
+
+    const normalizedName = name.trim();
+    const normalizedParentId = parentId?.trim() || null;
+    const normalizedId =
+      requestedId?.trim() || this.buildPlaylistFolderId(normalizedName, normalizedParentId);
+
+    if (normalizedParentId) {
+      const persistedParent = this.service
+        .playlists()
+        .find((playlist) => playlist.id === normalizedParentId);
+
+      if (!persistedParent) {
+        const parentFolder =
+          this.playlistFolders().find(
+            (folder) => !folder.isUnassigned && folder.id === normalizedParentId
+          ) ??
+          this.localPlaylistFolders().find((folder) => folder.id === normalizedParentId) ??
+          null;
+
+        if (!parentFolder) {
+          throw new Error('Parent folder was not found while saving this folder.');
+        }
+
+        await this.ensurePersistedPlaylistFolder(
+          parentFolder.name,
+          parentFolder.parentId ?? null,
+          parentFolder.id
+        );
+      }
+    }
+
+    const existing =
+      this.service.playlists().find((playlist) => playlist.id === normalizedId) ??
+      this.service
+        .playlists()
+        .find(
+          (playlist) =>
+            playlist.name.trim().toLowerCase() === normalizedName.toLowerCase() &&
+            (playlist.parentId?.trim() || null) === normalizedParentId
+        );
+
+    if (existing) {
+      return { id: existing.id, name: existing.name };
+    }
+
+    const siblingSortOrder = this.localPlaylistFolders().filter(
+      (folder) =>
+        (folder.parentId?.trim() || null) === normalizedParentId && folder.id !== normalizedId
+    ).length;
+    const created = await this.service.createPlaylistFolder({
+      id: normalizedId,
+      teamId,
+      name: normalizedName,
+      parentId: normalizedParentId,
+      sortOrder: siblingSortOrder,
+    });
+    this.syncLocalPlaylistFoldersFromService();
+    return { id: created.id, name: created.name };
+  }
+
+  private async ensurePersistedPlaylistFolderForExisting(
+    folder: Pick<FilmReviewPlaylistFolder, 'id' | 'name' | 'parentId'>
+  ): Promise<{ id: string; name: string }> {
+    return this.ensurePersistedPlaylistFolder(folder.name, folder.parentId ?? null, folder.id);
+  }
+
+  private async ensureStarterPlaylistFolders(): Promise<void> {
     const existingFolderIds = new Set(
       this.playlistFolders()
         .filter((folder) => !folder.isUnassigned)
@@ -7063,11 +8439,29 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return;
     }
 
-    this.updateLocalPlaylistFolders((folders) => [...folders, ...missingFolders]);
+    for (const folder of missingFolders) {
+      await this.ensurePersistedPlaylistFolder(folder.name, null, folder.id);
+    }
+
+    this.syncLocalPlaylistFoldersFromService();
   }
 
   private async loadFilmReviews(teamId: string): Promise<void> {
     await this.service.load(teamId, this.panelSport() || undefined, this.filmListLimit());
+
+    const legacyFolders = this.loadPersistedPlaylistFolders(teamId);
+    for (const folder of legacyFolders) {
+      await this.ensurePersistedPlaylistFolder(folder.name, folder.parentId ?? null, folder.id);
+    }
+    if (legacyFolders.length > 0 && this.platform.isBrowser()) {
+      try {
+        localStorage.removeItem(this.getPlaylistStorageKey(teamId));
+      } catch {
+        // Ignore local cleanup failures after successful migration.
+      }
+    }
+
+    this.syncLocalPlaylistFoldersFromService();
     this.localReviewOrderByFolder.set(this.loadPersistedReviewOrder(teamId));
     this.timelineColumnOrder.set(this.loadPersistedTimelineColumnOrder());
     this.collapseAllPlaylistFolders();
@@ -7087,16 +8481,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       ids.add(folder.id);
     }
     this.collapsedPlaylistFolderIds.set(ids);
-  }
-
-  private updateLocalPlaylistFolders(
-    updater: (
-      folders: readonly LocalFilmReviewPlaylistFolder[]
-    ) => readonly LocalFilmReviewPlaylistFolder[]
-  ): void {
-    const normalized = this.normalizeLocalPlaylistFolders(updater(this.localPlaylistFolders()));
-    this.localPlaylistFolders.set(normalized);
-    this.persistLocalPlaylistFolders(normalized);
   }
 
   private persistLocalReviewOrder(folderId: string, reviewIds: readonly string[]): void {
@@ -7167,30 +8551,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       return this.normalizeLocalPlaylistFolders(parsedFolders);
     } catch {
       return [];
-    }
-  }
-
-  private persistLocalPlaylistFolders(folders: readonly LocalFilmReviewPlaylistFolder[]): void {
-    if (!this.platform.isBrowser()) {
-      return;
-    }
-
-    const teamId = this.teamId?.trim();
-    if (!teamId) {
-      return;
-    }
-
-    const normalized = this.normalizeLocalPlaylistFolders(folders);
-
-    try {
-      if (normalized.length === 0) {
-        localStorage.removeItem(this.getPlaylistStorageKey(teamId));
-        return;
-      }
-
-      localStorage.setItem(this.getPlaylistStorageKey(teamId), JSON.stringify(normalized));
-    } catch {
-      // Ignore local persistence failures to avoid breaking core flow.
     }
   }
 
@@ -7387,6 +8747,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.cloudflareStartTimeSec.set(0);
     this.cloudflareAutoplayRequested.set(false);
     this.safeIframeUrlCache.clear();
+    for (const timeoutId of this.downloadExportPollTimeouts.values()) {
+      window.clearTimeout(timeoutId);
+    }
+    this.downloadExportPollTimeouts.clear();
     this.isScrubbing = false;
     this.isSeekDragLockActive.set(false);
     this.wasPlayingBeforeSeek = false;
@@ -7397,6 +8761,147 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     }
     this.drawModeEnabled.set(false);
     this.resetDrawOverlay();
+  }
+
+  private readonly downloadExportPollTimeouts = new Map<string, number>();
+
+  private shouldUseServerSideDownloadExport(review: FilmReviewDragSource): boolean {
+    return review.uploadMode === 'full_footage';
+  }
+
+  private canPrepareServerSideDownloadExport(review: FilmReviewDragSource): boolean {
+    return !!(
+      review.storagePath?.trim() ||
+      review.cloudflareVideoId?.trim() ||
+      review.videoUrl?.trim() ||
+      review.downloadPrewarm?.mp4Url?.trim()
+    );
+  }
+
+  private isDownloadExportPollingActive(reviewId: string): boolean {
+    return this.activeDownloadExportReviewIds().has(reviewId);
+  }
+
+  private updateDownloadExportPollingState(reviewId: string, isActive: boolean): void {
+    this.activeDownloadExportReviewIds.update((current) => {
+      const next = new Set(current);
+      if (isActive) {
+        next.add(reviewId);
+      } else {
+        next.delete(reviewId);
+      }
+      return next;
+    });
+  }
+
+  private clearDownloadExportPoll(reviewId: string): void {
+    const timeoutId = this.downloadExportPollTimeouts.get(reviewId);
+    if (timeoutId !== undefined) {
+      window.clearTimeout(timeoutId);
+      this.downloadExportPollTimeouts.delete(reviewId);
+    }
+    this.updateDownloadExportPollingState(reviewId, false);
+  }
+
+  private scheduleDownloadExportPoll(
+    reviewId: string,
+    fallbackFileName: string,
+    attempt: number
+  ): void {
+    this.updateDownloadExportPollingState(reviewId, true);
+    const timeoutId = window.setTimeout(() => {
+      void this.pollDownloadExport(reviewId, fallbackFileName, attempt + 1);
+    }, FILM_REVIEW_DOWNLOAD_EXPORT_POLL_INTERVAL_MS);
+    this.downloadExportPollTimeouts.set(reviewId, timeoutId);
+  }
+
+  private async requestServerSideDownloadExport(review: FilmReviewDragSource): Promise<void> {
+    if (!this.canPrepareServerSideDownloadExport(review)) {
+      this.toast.info('This full-game video is not ready to export yet.');
+      return;
+    }
+
+    if (this.isDownloadExportPollingActive(review.id)) {
+      this.toast.info('The full-game export is already in progress.');
+      return;
+    }
+
+    this.openDownloadMenuReviewId.set(null);
+
+    try {
+      const result = await this.service.requestDownloadExport(review.id);
+      const exportState = result.exportState;
+      const fallbackFileName =
+        exportState?.fileName?.trim() || this.buildFilmReviewVideoFileName(review);
+
+      if (exportState?.status === 'ready' && result.downloadUrl) {
+        this.triggerFileDownload(result.downloadUrl, fallbackFileName);
+        this.toast.success('Full-game export is ready. Download starting.');
+        return;
+      }
+
+      if (exportState?.status === 'error') {
+        this.toast.error(
+          exportState.lastError?.trim() || 'Failed to prepare the full-game export.'
+        );
+        return;
+      }
+
+      this.toast.info(
+        exportState?.percentComplete !== undefined
+          ? `Preparing full-game export in the background (${exportState.percentComplete}%).`
+          : 'Preparing full-game export in the background.'
+      );
+      this.scheduleDownloadExportPoll(review.id, fallbackFileName, 0);
+    } catch (err) {
+      this.toast.error(
+        err instanceof Error ? err.message : 'Failed to prepare the full-game export.'
+      );
+    }
+  }
+
+  private async pollDownloadExport(
+    reviewId: string,
+    fallbackFileName: string,
+    attempt: number
+  ): Promise<void> {
+    this.downloadExportPollTimeouts.delete(reviewId);
+
+    try {
+      const result = await this.service.requestDownloadExport(reviewId);
+      const exportState = result.exportState;
+
+      if (exportState?.status === 'ready' && result.downloadUrl) {
+        this.clearDownloadExportPoll(reviewId);
+        this.triggerFileDownload(
+          result.downloadUrl,
+          exportState.fileName?.trim() || fallbackFileName
+        );
+        this.toast.success('Full-game export finished. Download starting.');
+        return;
+      }
+
+      if (exportState?.status === 'error') {
+        this.clearDownloadExportPoll(reviewId);
+        this.toast.error(exportState.lastError?.trim() || 'Full-game export failed.');
+        return;
+      }
+
+      if (attempt >= FILM_REVIEW_DOWNLOAD_EXPORT_MAX_POLLS) {
+        this.clearDownloadExportPoll(reviewId);
+        this.toast.info(
+          'The full-game export is still processing. You can tap download again in a moment to resume.'
+        );
+        return;
+      }
+
+      this.scheduleDownloadExportPoll(reviewId, fallbackFileName, attempt);
+    } catch (err) {
+      this.clearDownloadExportPoll(reviewId);
+      this.toast.error(
+        err instanceof Error ? err.message : 'Failed to check full-game export progress.'
+      );
+    }
   }
 
   private getTimelinePlayKey(play: FilmTimelinePlay, index: number): string {
@@ -8106,11 +9611,38 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
   private buildTimelineBreakdownCsv(): string | null {
     const columns = this.currentTimelineColumns();
-    const rows = this.filteredTimelineRows();
+    const selectedIds = this.selectedTimelinePlayIds();
+    const rows =
+      selectedIds.size > 0
+        ? this.filteredTimelineRows().filter((row) =>
+            selectedIds.has(this.resolveTimelinePlaySelectionId(row.play, row.originalIndex))
+          )
+        : this.filteredTimelineRows();
     if (columns.length === 0 || rows.length === 0) return null;
 
     const headerRow = columns.map((column) => this.escapeCsvValue(column.label)).join(',');
     const dataRows = rows.map(({ play }) =>
+      columns
+        .map((column) => this.escapeCsvValue(this.getTimelineColumnDisplayValue(play, column)))
+        .join(',')
+    );
+
+    return [headerRow, ...dataRows].join('\r\n');
+  }
+
+  private buildTimelineBreakdownCsvForReview(review: FilmReviewDragSource): string | null {
+    const timeline = review.timeline ?? [];
+    if (timeline.length === 0) return null;
+
+    const sportContext = this.normalizeSport(review.sport) ?? this.panelSport() ?? '';
+    const columns = this.applyTimelineColumnOrder(
+      this.buildDefaultTimelineColumns(getTeamFilmReviewSportTagDefinitions(sportContext)),
+      this.timelineColumnOrder()
+    );
+    if (columns.length === 0) return null;
+
+    const headerRow = columns.map((column) => this.escapeCsvValue(column.label)).join(',');
+    const dataRows = timeline.map((play) =>
       columns
         .map((column) => this.escapeCsvValue(this.getTimelineColumnDisplayValue(play, column)))
         .join(',')
@@ -8126,34 +9658,306 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   }
 
   private resolveDownloadableVideoUrl(review: FilmReviewDragSource): string | null {
-    const mp4Url = review.downloadPrewarm?.mp4Url?.trim();
+    return this.resolveDownloadableVideoUrlForPlay(review);
+  }
+
+  private resolveDownloadablePlaybackSourceUrl(
+    source: FilmReviewPlaybackSource | null | undefined
+  ): string | null {
+    const sourceDownloadUrl = source?.downloadUrl?.trim();
+    if (sourceDownloadUrl) return sourceDownloadUrl;
+
+    const videoUrl = source?.videoUrl?.trim();
+    if (!videoUrl || this.isHlsSourceUrl(videoUrl)) return null;
+
+    try {
+      const parsed = new URL(videoUrl);
+      if (
+        parsed.hostname === 'watch.cloudflarestream.com' ||
+        parsed.hostname === 'iframe.videodelivery.net'
+      ) {
+        return null;
+      }
+    } catch {
+      return null;
+    }
+
+    return videoUrl;
+  }
+
+  private isDownloadablePlaybackSource(
+    source: FilmReviewPlaybackSource | null | undefined
+  ): boolean {
+    if (!source) return false;
+    if (this.resolveDownloadablePlaybackSourceUrl(source)) return true;
+    if (source.storagePath?.trim()) return true;
+    if (source.cloudflareVideoId?.trim()) return true;
+    return false;
+  }
+
+  private buildFilmReviewDownloadProxyUrl(
+    review: FilmListReview | null | undefined,
+    sourceId?: string | null
+  ): string | null {
+    const baseUrl = this.agentXApiBaseUrl?.trim();
+    const reviewId = review?.id?.trim();
+    if (!baseUrl || !reviewId) {
+      return null;
+    }
+
+    try {
+      const url = new URL(
+        `${baseUrl.replace(/\/$/, '')}/agent-x/film-reviews/${encodeURIComponent(reviewId)}/download`
+      );
+      const normalizedSourceId = sourceId?.trim();
+      if (normalizedSourceId) {
+        url.searchParams.set('sourceId', normalizedSourceId);
+      }
+      return url.toString();
+    } catch {
+      return null;
+    }
+  }
+
+  private resolveDownloadableVideoUrlForPlay(
+    review: FilmListReview | null | undefined,
+    play?: FilmTimelinePlay | null
+  ): string | null {
+    const source = this.resolvePlaybackSource(review, play);
+    const proxyUrl = this.isDownloadablePlaybackSource(source)
+      ? this.buildFilmReviewDownloadProxyUrl(review, play?.sourceId ?? source?.id)
+      : this.buildFilmReviewDownloadProxyUrl(review);
+    if (proxyUrl) return proxyUrl;
+
+    const sourceDownloadUrl = this.resolveDownloadablePlaybackSourceUrl(source);
+    if (sourceDownloadUrl) return sourceDownloadUrl;
+
+    const mp4Url = !play ? review?.downloadPrewarm?.mp4Url?.trim() : null;
     if (mp4Url) return mp4Url;
 
-    const playbackSource = this.resolvePlaybackSource(review);
-    const videoUrl = playbackSource?.videoUrl?.trim();
-    if (!videoUrl || this.isHlsSourceUrl(videoUrl)) return null;
-    return videoUrl;
+    return null;
   }
 
   private buildFilmReviewVideoFileName(review: FilmReviewDragSource): string {
     return `${this.buildFilmReviewFileStem(review)}.mp4`;
   }
 
+  private buildSelectedLibraryArchiveFileName(reviews: readonly FilmReviewDragSource[]): string {
+    if (reviews.length === 1) {
+      return `${this.buildFilmReviewFileStem(reviews[0])}-export`;
+    }
+
+    return `film-review-library-export-${new Date().toISOString().slice(0, 10)}`;
+  }
+
+  private async resolveSelectedLibraryReviewsForArchiveExport(): Promise<
+    readonly FilmReviewDragSource[]
+  > {
+    const selectedReviews = this.selectedLibraryReviews();
+    if (selectedReviews.length === 0) {
+      return [];
+    }
+
+    return Promise.all(selectedReviews.map((review) => this.resolveReviewForArchiveExport(review)));
+  }
+
+  private async resolveReviewForArchiveExport(
+    review: FilmReviewDragSource
+  ): Promise<FilmReviewDragSource> {
+    try {
+      await this.service.ensureReviewDetails(review.id, this.teamId?.trim() || undefined);
+    } catch {
+      // Keep the existing payload when detail hydration fails.
+    }
+
+    const refreshed = this.reviews().find((item) => item.id === review.id);
+    return (refreshed as FilmReviewDragSource | undefined) ?? review;
+  }
+
+  private resolveReviewArchiveFolderSegments(review: FilmListReview): readonly string[] {
+    const playlist = this.resolveReviewPlaylist(review);
+    if (!playlist) {
+      return ['Unassigned Film'];
+    }
+
+    const node = this.findPlaylistFolderNodeById(playlist.id);
+    if (!node) {
+      return [playlist.name];
+    }
+
+    const segments: string[] = [];
+    const visited = new Set<string>();
+    let currentNode: FilmReviewPlaylistFolderTreeNode | null = node;
+
+    while (currentNode && !visited.has(currentNode.id)) {
+      visited.add(currentNode.id);
+      segments.push(currentNode.name);
+      currentNode = currentNode.parentId
+        ? this.findPlaylistFolderNodeById(currentNode.parentId)
+        : null;
+    }
+
+    return segments.reverse();
+  }
+
+  private buildReviewArchiveFolderName(review: FilmListReview): string {
+    const title = this.getReviewDisplayTitle(review).trim();
+    const dateToken = review.gameDate?.trim();
+    return [title, dateToken].filter((part): part is string => !!part).join(' ') || 'Film Review';
+  }
+
+  private resolveReviewArchiveEntries(
+    review: FilmReviewDragSource,
+    options?: {
+      readonly prefixSegments?: readonly string[];
+    }
+  ): readonly ArchiveDownloadEntry[] {
+    const prefixSegments = options?.prefixSegments ?? [];
+    const csvContent = this.buildTimelineBreakdownCsvForReview(review);
+    const sourceEntries = this.resolveDownloadableReviewSourceEntries(review);
+    const shouldGroupSources = (review.sources?.length ?? 0) > 1;
+
+    if (sourceEntries.length > 0) {
+      const pathPrefix = shouldGroupSources
+        ? [...prefixSegments, this.buildReviewArchiveFolderName(review)]
+        : [...prefixSegments];
+
+      const entries: ArchiveDownloadEntry[] = sourceEntries.map((item) => ({
+        path: [...pathPrefix, item.fileName].join('/'),
+        source: {
+          kind: 'url',
+          url: item.downloadUrl,
+        },
+      }));
+
+      if (csvContent) {
+        entries.push({
+          path: [...pathPrefix, this.buildFilmReviewBreakdownFileName(review)].join('/'),
+          source: {
+            kind: 'text',
+            text: csvContent,
+          },
+        });
+      }
+
+      return entries;
+    }
+
+    const downloadUrl =
+      this.buildFilmReviewDownloadProxyUrl(review) || this.resolveDownloadableVideoUrl(review);
+    if (!downloadUrl) {
+      return csvContent
+        ? [
+            {
+              path: [...prefixSegments, this.buildFilmReviewBreakdownFileName(review)].join('/'),
+              source: {
+                kind: 'text',
+                text: csvContent,
+              },
+            },
+          ]
+        : [];
+    }
+
+    const entries: ArchiveDownloadEntry[] = [
+      {
+        path: [...prefixSegments, this.buildFilmReviewVideoFileName(review)].join('/'),
+        source: {
+          kind: 'url',
+          url: downloadUrl,
+        },
+      },
+    ];
+
+    if (csvContent) {
+      entries.push({
+        path: [...prefixSegments, this.buildFilmReviewBreakdownFileName(review)].join('/'),
+        source: {
+          kind: 'text',
+          text: csvContent,
+        },
+      });
+    }
+
+    return entries;
+  }
+
+  private resolveDownloadableReviewSourceEntries(review: FilmReviewDragSource): ReadonlyArray<{
+    readonly downloadUrl: string;
+    readonly fileName: string;
+  }> {
+    const sources = review.sources ?? [];
+    if (sources.length <= 1) {
+      return [];
+    }
+
+    return sources
+      .map((source, index) => {
+        if (!this.isDownloadablePlaybackSource(source)) {
+          return null;
+        }
+
+        const downloadUrl =
+          this.buildFilmReviewDownloadProxyUrl(review, source.id) ||
+          this.resolveDownloadablePlaybackSourceUrl(source);
+        if (!downloadUrl) {
+          return null;
+        }
+
+        return {
+          downloadUrl,
+          fileName: this.buildFilmReviewSourceVideoFileName(source, index),
+        };
+      })
+      .filter(
+        (item): item is { readonly downloadUrl: string; readonly fileName: string } => !!item
+      );
+  }
+
+  private buildFilmReviewSourceVideoFileName(
+    source: FilmReviewPlaybackSource,
+    fallbackIndex: number
+  ): string {
+    const sourceTitle =
+      source.title?.trim() ||
+      this.extractSourceBaseName(source.storagePath) ||
+      this.extractSourceBaseName(source.downloadUrl) ||
+      this.extractSourceBaseName(source.videoUrl) ||
+      `source-${fallbackIndex + 1}`;
+
+    const sourceStem = this.sanitizeFilmReviewFileStem(sourceTitle);
+    return `${sourceStem || `source-${fallbackIndex + 1}`}.mp4`;
+  }
+
   private buildFilmReviewBreakdownFileName(review: FilmReviewDragSource): string {
     return `${this.buildFilmReviewFileStem(review)}-breakdown.csv`;
+  }
+
+  private buildFilmReviewBatchClipFileName(
+    review: FilmReviewDragSource,
+    play: FilmTimelinePlay,
+    fallbackIndex: number
+  ): string {
+    const reviewStem = this.buildFilmReviewFileStem(review);
+    const clipStem = this.sanitizeFilmReviewFileStem(
+      play.label?.trim() || `clip-${play.number ?? fallbackIndex + 1}`
+    );
+    return `${reviewStem}-${clipStem || `clip-${fallbackIndex + 1}`}.mp4`;
   }
 
   private buildFilmReviewFileStem(review: FilmReviewDragSource): string {
     const title = this.getReviewDisplayTitle(review).trim();
     const dateToken = review.gameDate?.trim();
-    const stem = [title, dateToken]
-      .filter((part): part is string => !!part)
-      .join('-')
+    const stem = [title, dateToken].filter((part): part is string => !!part).join('-');
+
+    return this.sanitizeFilmReviewFileStem(stem) || 'film-review';
+  }
+
+  private sanitizeFilmReviewFileStem(value: string): string {
+    return value
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/^-+|-+$/g, '');
-
-    return stem || 'film-review';
   }
 
   private triggerFileDownload(url: string, fileName: string): void {
@@ -8174,6 +9978,203 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const objectUrl = URL.createObjectURL(blob);
     this.triggerFileDownload(objectUrl, fileName);
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  }
+
+  private shouldDownloadSelectedBatchClips(review: FilmReviewDragSource): boolean {
+    return review.uploadMode === 'batch_clips' && this.selectedTimelinePlayIds().size > 0;
+  }
+
+  private resolveSelectedBatchClipDownloads(review: FilmReviewDragSource): {
+    readonly items: readonly BatchClipDownloadItem[];
+    readonly selectedCount: number;
+  } {
+    if (review.uploadMode !== 'batch_clips') {
+      return { items: [], selectedCount: 0 };
+    }
+
+    const selectedIds = this.selectedTimelinePlayIds();
+    if (selectedIds.size === 0) {
+      return { items: [], selectedCount: 0 };
+    }
+
+    const selectedRows = this.filteredTimelineRows().filter((row) =>
+      selectedIds.has(this.resolveTimelinePlaySelectionId(row.play, row.originalIndex))
+    );
+
+    const groupedItems = new Map<string, BatchClipDownloadItem>();
+    for (const row of selectedRows) {
+      const playId = this.resolveTimelinePlaySelectionId(row.play, row.originalIndex);
+      const downloadUrl = this.resolveDownloadableVideoUrlForPlay(review, row.play);
+      if (!downloadUrl) {
+        continue;
+      }
+
+      const dedupeKey = row.play.sourceId?.trim() || playId;
+      const existing = groupedItems.get(dedupeKey);
+      if (existing) {
+        groupedItems.set(dedupeKey, {
+          ...existing,
+          playIds: [...existing.playIds, playId],
+        });
+        continue;
+      }
+
+      groupedItems.set(dedupeKey, {
+        playIds: [playId],
+        label: row.play.label,
+        downloadUrl,
+        fileName: this.buildFilmReviewBatchClipFileName(review, row.play, row.originalIndex),
+      });
+    }
+
+    return {
+      items: [...groupedItems.values()],
+      selectedCount: selectedRows.length,
+    };
+  }
+
+  private async downloadSelectedBatchClips(review: FilmReviewDragSource): Promise<void> {
+    const { items, selectedCount } = this.resolveSelectedBatchClipDownloads(review);
+    if (selectedCount === 0) {
+      this.toast.info('Select one or more clips to download them individually.');
+      return;
+    }
+
+    if (items.length === 0) {
+      this.toast.info('Selected clips are not ready for MP4 download yet.');
+      return;
+    }
+
+    this.openDownloadMenuReviewId.set(null);
+
+    for (const item of items) {
+      this.updateTimelinePlayDownloadState(item.playIds, true);
+    }
+
+    const results = await Promise.allSettled(
+      items.map(async (item) => {
+        try {
+          const blob = await this.fetchDownloadBlob(
+            item.downloadUrl,
+            await this.resolveAgentXFetchInit(item.downloadUrl)
+          );
+          this.triggerBlobDownload(blob, item.fileName);
+        } finally {
+          this.updateTimelinePlayDownloadState(item.playIds, false);
+        }
+      })
+    );
+
+    const successCount = results.filter((result) => result.status === 'fulfilled').length;
+    const failedCount = results.length - successCount;
+    const skippedCount = Math.max(0, selectedCount - items.length);
+
+    if (successCount > 0 && failedCount === 0 && skippedCount === 0) {
+      this.toast.success(
+        successCount === 1
+          ? 'Selected clip downloaded.'
+          : `${successCount} selected clips downloaded.`
+      );
+      return;
+    }
+
+    const statusParts: string[] = [];
+    if (successCount > 0) {
+      statusParts.push(`${successCount} downloaded`);
+    }
+    if (failedCount > 0) {
+      statusParts.push(`${failedCount} failed`);
+    }
+    if (skippedCount > 0) {
+      statusParts.push(`${skippedCount} not ready`);
+    }
+
+    this.toast.error(`Batch clip download finished with issues: ${statusParts.join(', ')}.`);
+  }
+
+  private updateTimelinePlayDownloadState(playIds: readonly string[], isActive: boolean): void {
+    this.activeTimelinePlayDownloadIds.update((current) => {
+      const next = new Set(current);
+      for (const playId of playIds) {
+        if (isActive) {
+          next.add(playId);
+        } else {
+          next.delete(playId);
+        }
+      }
+      return next;
+    });
+  }
+
+  private async attachAgentXAuthToArchiveEntries(
+    entries: readonly ArchiveDownloadEntry[]
+  ): Promise<readonly ArchiveDownloadEntry[]> {
+    const authToken = await this.getAuthToken?.();
+    if (!authToken) {
+      return entries;
+    }
+
+    return entries.map((entry) => {
+      if (entry.source.kind !== 'url' || !this.isFilmReviewProxyUrl(entry.source.url)) {
+        return entry;
+      }
+
+      return {
+        ...entry,
+        source: {
+          ...entry.source,
+          fetchInit: this.mergeAuthorizationFetchInit(entry.source.fetchInit, authToken),
+        },
+      } satisfies ArchiveDownloadEntry;
+    });
+  }
+
+  private isFilmReviewProxyUrl(url: string): boolean {
+    const baseUrl = this.agentXApiBaseUrl?.trim();
+    if (!baseUrl) {
+      return false;
+    }
+
+    try {
+      const apiBase = new URL(baseUrl);
+      const parsed = new URL(url);
+      return (
+        parsed.origin === apiBase.origin &&
+        /\/agent-x\/film-reviews\/[^/]+\/download$/i.test(parsed.pathname)
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  private mergeAuthorizationFetchInit(
+    fetchInit: RequestInit | undefined,
+    authToken: string
+  ): RequestInit {
+    const headers = new Headers(fetchInit?.headers ?? undefined);
+    headers.set('Authorization', `Bearer ${authToken}`);
+    return {
+      ...fetchInit,
+      headers,
+    };
+  }
+
+  private async resolveAgentXFetchInit(url: string): Promise<RequestInit | undefined> {
+    if (!this.isFilmReviewProxyUrl(url)) {
+      return undefined;
+    }
+
+    const authToken = await this.getAuthToken?.();
+    return authToken ? this.mergeAuthorizationFetchInit(undefined, authToken) : undefined;
+  }
+
+  private async fetchDownloadBlob(url: string, fetchInit?: RequestInit): Promise<Blob> {
+    const response = await fetch(url, fetchInit);
+    if (!response.ok) {
+      throw new Error(`Download failed with status ${response.status}`);
+    }
+
+    return response.blob();
   }
 
   private isTimelineFilterPlaceholderValue(value: string): boolean {
@@ -8262,6 +10263,21 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     };
   }
 
+  protected buildFilmReviewDragContextsForLibrary(
+    review: FilmReviewDragSource
+  ): readonly AgentXSelectedContext[] {
+    const selectedIds = this.selectedLibraryReviewIds();
+    if (selectedIds.size <= 1 || !selectedIds.has(review.id)) {
+      return [this.buildFilmReviewDragContext(review)];
+    }
+
+    const contexts = this.reviews()
+      .filter((candidate) => selectedIds.has(candidate.id))
+      .map((candidate) => this.buildFilmReviewDragContext(candidate));
+
+    return contexts.length > 0 ? contexts : [this.buildFilmReviewDragContext(review)];
+  }
+
   protected onAskAgentPromptSelect(
     review: FilmReviewDragSource,
     promptId: FilmReviewAskAgentPromptId,
@@ -8272,7 +10288,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
 
     const selectedPlayContexts = this.buildSelectedTimelinePlayContexts(review);
     if (selectedPlayContexts.length <= 0) {
-      this.toast.warning('Select clips to ask Agent X about.');
       return;
     }
 
@@ -8281,8 +10296,6 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     const prompt = this.buildAskAgentPrompt(review, promptId, selectedPlayContexts.length);
     this.askAgentPromptRequested.emit(prompt);
     this.openAskAgentMenuReviewId.set(null);
-
-    this.toast.success('Prompt and selected clips added to chat composer');
   }
 
   protected isTimelinePlaySelected(play: FilmTimelinePlay, originalIndex: number): boolean {
@@ -8329,6 +10342,120 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       nextSelection.add(this.resolveTimelinePlaySelectionId(row.play, row.originalIndex));
     }
     this.selectedTimelinePlayIds.set(nextSelection);
+  }
+
+  protected buildPlaylistFolderDragContexts(
+    folder: FilmReviewPlaylistFolderTreeNode
+  ): readonly AgentXSelectedContext[] {
+    const reviewIds = this.collectLibraryFolderReviewIds(folder);
+    const reviewById = new Map(this.reviews().map((review) => [review.id, review] as const));
+    const playlistReviews: FilmReviewDragSource[] = [];
+    const seen = new Set<string>();
+
+    for (const reviewId of reviewIds) {
+      if (seen.has(reviewId)) continue;
+
+      const review = reviewById.get(reviewId);
+      if (!review) continue;
+
+      playlistReviews.push(review);
+      seen.add(reviewId);
+    }
+
+    return [this.buildPlaylistFolderDragContext(folder, playlistReviews)];
+  }
+
+  protected buildPlaylistFolderDragContextsForLibrary(
+    folder: FilmReviewPlaylistFolderTreeNode
+  ): readonly AgentXSelectedContext[] {
+    const selectedPlaylistIds = this.selectedLibraryPlaylistIds();
+    if (!selectedPlaylistIds.has(folder.id)) {
+      return this.buildPlaylistFolderDragContexts(folder);
+    }
+
+    const { selectedPlaylistFolders, selectedReviewsOutsidePlaylists } =
+      this.resolveEffectiveLibraryAskAgentSelection();
+    const selectedItemCount =
+      selectedPlaylistFolders.length + selectedReviewsOutsidePlaylists.length;
+
+    if (selectedItemCount <= 1) {
+      return this.buildPlaylistFolderDragContexts(folder);
+    }
+
+    const selectedPlaylistContexts = selectedPlaylistFolders.flatMap((playlistFolder) =>
+      this.buildPlaylistFolderDragContexts(playlistFolder)
+    );
+    const selectedReviewContexts = selectedReviewsOutsidePlaylists.map((review) =>
+      this.buildFilmReviewDragContext(review)
+    );
+    const selectedContexts = [...selectedPlaylistContexts, ...selectedReviewContexts];
+
+    return selectedContexts.length > 0
+      ? selectedContexts
+      : this.buildPlaylistFolderDragContexts(folder);
+  }
+
+  private buildPlaylistFolderDragContext(
+    folder: FilmReviewPlaylistFolderTreeNode,
+    reviews: readonly FilmReviewDragSource[]
+  ): AgentXSelectedContext {
+    const reviewCount = reviews.length;
+    const reviewTitlePreview = reviews
+      .slice(0, 3)
+      .map((review) => this.getReviewDisplayTitle(review))
+      .join(' | ');
+    const summaryParts: string[] = [];
+
+    if (reviewCount > 0) {
+      summaryParts.push(
+        reviewCount === 1 ? '1 video in this folder' : `${reviewCount} videos in this folder`
+      );
+    } else {
+      summaryParts.push('Folder is currently empty');
+    }
+
+    if (reviewTitlePreview) {
+      summaryParts.push(`Includes: ${reviewTitlePreview}`);
+    }
+
+    const timelinePlayCount = reviews.reduce((total, review) => {
+      return total + (review.timeline?.length ?? 0);
+    }, 0);
+
+    const allReviewIds = reviews.map((review) => review.id);
+
+    return {
+      id: `film-playlist:${folder.id}`,
+      kind: 'document',
+      title: folder.name,
+      summary: summaryParts.join(' • ').slice(0, 600),
+      source: {
+        type: 'agent_x',
+        id: folder.id,
+        label: folder.name,
+      },
+      entityRefs: [
+        {
+          type: 'film_playlist',
+          id: folder.id,
+          label: folder.name,
+        },
+        ...reviews.map((review) => ({
+          type: 'film_review',
+          id: review.id,
+          label: this.getReviewDisplayTitle(review),
+        })),
+      ],
+      metadata: this.compactContextMetadata({
+        itemType: 'film_review_playlist',
+        playlistId: folder.id,
+        playlistName: folder.name,
+        hasVideos: reviewCount > 0,
+        reviewCount,
+        timelinePlayCount,
+        reviewIdsCsv: allReviewIds.length > 0 ? allReviewIds.join(',') : null,
+      }),
+    };
   }
 
   private buildFilmReviewContextSummary(review: FilmReviewDragSource): string {
@@ -8994,6 +11121,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     this.ensureDrawCanvasSize();
 
     const point = this.toNormalizedDrawPoint(event, canvas);
+    if (!point) {
+      this.maybeToastDrawOutsideFrame();
+      return;
+    }
     const hitTarget = this.resolveDrawHitTarget(point, canvas);
 
     if (this.drawAnnotation && hitTarget.kind === 'handle') {
@@ -9063,6 +11194,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!canvas) return;
 
     const point = this.toNormalizedDrawPoint(event, canvas);
+    if (!point) {
+      this.syncDrawCanvasCursor();
+      return;
+    }
     if (!this.drawInteraction) {
       this.syncDrawCanvasCursor(point);
       return;
@@ -9167,6 +11302,10 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       : [];
     const snapshotFile = snapshotFiles[0] ?? null;
     const strokeColorHex = this.resolveDrawStrokeColor();
+    const annotationDebugId = annotation
+      ? this.createAnnotationDebugId(review.id, currentTimeSec)
+      : undefined;
+    const geometrySnapshot = annotation ? this.buildAnnotationGeometrySnapshot() : null;
 
     if (!annotation && !currentPlay) {
       return false;
@@ -9200,9 +11339,31 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         currentTimeSec,
         hasDrawing: this.hasDrawing(),
         drawStrokeCount: this.resolveDrawStrokeCount(),
+        ...(annotationDebugId ? { annotationDebugId } : {}),
         ...(renderedAnnotation ? { drawAnnotationKind: renderedAnnotation.kind } : {}),
         ...(drawBounds ? { drawBounds } : {}),
         ...(renderedDrawBounds ? { renderedDrawBounds } : {}),
+        ...(geometrySnapshot?.containerRect
+          ? { annotationDebugContainerRect: geometrySnapshot.containerRect }
+          : {}),
+        ...(geometrySnapshot?.playerRect
+          ? { annotationDebugPlayerRect: geometrySnapshot.playerRect }
+          : {}),
+        ...(geometrySnapshot?.canvasRect
+          ? { annotationDebugCanvasRect: geometrySnapshot.canvasRect }
+          : {}),
+        ...(geometrySnapshot?.videoRectInPlayer
+          ? { annotationDebugVideoRectInPlayer: geometrySnapshot.videoRectInPlayer }
+          : {}),
+        ...(geometrySnapshot?.videoRectInContainer
+          ? { annotationDebugVideoRectInContainer: geometrySnapshot.videoRectInContainer }
+          : {}),
+        ...(geometrySnapshot?.videoIntrinsic
+          ? { annotationDebugVideoIntrinsic: geometrySnapshot.videoIntrinsic }
+          : {}),
+        ...(geometrySnapshot?.canvasCss
+          ? { annotationDebugCanvasCss: geometrySnapshot.canvasCss }
+          : {}),
         ...(snapshotFile
           ? {
               annotationSnapshotAttached: true,
@@ -9216,6 +11377,20 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
         ...(typeof currentPlay?.number === 'number' ? { playNumber: currentPlay.number } : {}),
       },
     };
+
+    if (annotation) {
+      this.logger.info('[FilmReviewPanel] Queued annotation context for burn', {
+        reviewId: review.id,
+        contextId: context.id,
+        annotationDebugId,
+        annotationKind: annotation.kind,
+        drawBounds,
+        renderedDrawBounds,
+        strokeColorHex,
+        snapshotAttached: Boolean(snapshotFile),
+        geometrySnapshot,
+      });
+    }
 
     this.agentXService.queueSelectedContext(context);
     if (showToast) {
@@ -9594,31 +11769,9 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
   private resolveRenderedPointToVideoFrameProjector():
     | ((point: { x: number; y: number }) => { x: number; y: number })
     | null {
-    const player = this.filmPlayer?.nativeElement;
-    const canvas = this.drawCanvas?.nativeElement;
-    if (!player || !canvas || !player.videoWidth || !player.videoHeight) {
-      return null;
-    }
-
-    const sourceWidth = canvas.width || Math.round(canvas.getBoundingClientRect().width);
-    const sourceHeight = canvas.height || Math.round(canvas.getBoundingClientRect().height);
-    if (!sourceWidth || !sourceHeight) {
-      return null;
-    }
-
-    const videoRect = this.resolveContainedMediaRect(
-      sourceWidth,
-      sourceHeight,
-      player.videoWidth,
-      player.videoHeight
-    );
-    if (!videoRect.width || !videoRect.height) {
-      return null;
-    }
-
     return (point) => ({
-      x: this.roundNormalizedPoint((point.x * sourceWidth - videoRect.x) / videoRect.width),
-      y: this.roundNormalizedPoint((point.y * sourceHeight - videoRect.y) / videoRect.height),
+      x: this.roundNormalizedPoint(point.x),
+      y: this.roundNormalizedPoint(point.y),
     });
   }
 
@@ -10827,6 +12980,7 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     if (!videoUrl) return null;
 
     return {
+      id: sourceId || review.id,
       videoUrl,
       storagePath: review.storagePath,
       cloudflareVideoId: review.cloudflareVideoId,
@@ -10911,26 +13065,125 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
     return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
+  private createAnnotationDebugId(reviewId: string, currentTimeSec: number): string {
+    const cryptoApi = typeof window !== 'undefined' ? window.crypto : undefined;
+    const randomPart =
+      typeof cryptoApi?.randomUUID === 'function'
+        ? cryptoApi.randomUUID().slice(0, 8)
+        : Math.random().toString(36).slice(2, 10);
+    const timestampPart = Math.round(currentTimeSec * 1000);
+    return `${reviewId}:${timestampPart}:${randomPart}`;
+  }
+
+  private buildAnnotationGeometrySnapshot(): {
+    containerRect?: string;
+    playerRect?: string;
+    canvasRect?: string;
+    videoRectInPlayer?: string;
+    videoRectInContainer?: string;
+    videoIntrinsic?: string;
+    canvasCss?: string;
+  } | null {
+    const player = this.filmPlayer?.nativeElement;
+    const canvas = this.drawCanvas?.nativeElement;
+    const container = this.playerContainer?.nativeElement;
+    if (!player || !canvas || !container) {
+      return null;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const playerRect = player.getBoundingClientRect();
+    const canvasRect = canvas.getBoundingClientRect();
+    const snapshot: {
+      containerRect?: string;
+      playerRect?: string;
+      canvasRect?: string;
+      videoRectInPlayer?: string;
+      videoRectInContainer?: string;
+      videoIntrinsic?: string;
+      canvasCss?: string;
+    } = {
+      containerRect: this.formatDebugRect(containerRect),
+      playerRect: this.formatDebugRect(playerRect),
+      canvasRect: this.formatDebugRect(canvasRect),
+      canvasCss: `left=${canvas.style.left || '0px'},top=${canvas.style.top || '0px'},width=${canvas.style.width || '100%'},height=${canvas.style.height || '100%'}`,
+    };
+
+    if (
+      player.videoWidth > 0 &&
+      player.videoHeight > 0 &&
+      playerRect.width > 0 &&
+      playerRect.height > 0
+    ) {
+      const videoRect = this.resolveContainedMediaRect(
+        playerRect.width,
+        playerRect.height,
+        player.videoWidth,
+        player.videoHeight
+      );
+      snapshot.videoRectInPlayer = this.formatDebugRect(videoRect);
+      snapshot.videoRectInContainer = this.formatDebugRect({
+        x: playerRect.left - containerRect.left + videoRect.x,
+        y: playerRect.top - containerRect.top + videoRect.y,
+        width: videoRect.width,
+        height: videoRect.height,
+      });
+      snapshot.videoIntrinsic = `${player.videoWidth}x${player.videoHeight}`;
+    }
+
+    return snapshot;
+  }
+
+  private formatDebugRect(rect: {
+    x?: number;
+    y?: number;
+    left?: number;
+    top?: number;
+    width: number;
+    height: number;
+  }): string {
+    const x = Number.isFinite(rect.x) ? rect.x : rect.left;
+    const y = Number.isFinite(rect.y) ? rect.y : rect.top;
+    const fmt = (value: number | undefined): string =>
+      Number.isFinite(value) ? Number(value).toFixed(2) : '0.00';
+    return `${fmt(x)},${fmt(y)},${fmt(rect.width)},${fmt(rect.height)}`;
+  }
+
   private toNormalizedDrawPoint(
     event: PointerEvent,
     canvas: HTMLCanvasElement
-  ): DrawAnnotationPoint {
+  ): DrawAnnotationPoint | null {
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) {
-      return { x: 0, y: 0 };
+      return null;
     }
 
     const x = (event.clientX - rect.left) / rect.width;
     const y = (event.clientY - rect.top) / rect.height;
+    if (x < 0 || x > 1 || y < 0 || y > 1) {
+      return null;
+    }
+
     return {
-      x: Math.max(0, Math.min(1, x)),
-      y: Math.max(0, Math.min(1, y)),
+      x,
+      y,
     };
+  }
+
+  private maybeToastDrawOutsideFrame(): void {
+    const now = Date.now();
+    if (now - this.lastDrawOutsideFrameToastAtMs < 1500) {
+      return;
+    }
+    this.lastDrawOutsideFrameToastAtMs = now;
+    this.toast.info('Draw directly inside the video frame.');
   }
 
   private ensureDrawCanvasSize(): void {
     const canvas = this.drawCanvas?.nativeElement;
     if (!canvas || typeof window === 'undefined') return;
+
+    this.syncDrawCanvasToRenderedVideoRect(canvas);
 
     const rect = canvas.getBoundingClientRect();
     if (!rect.width || !rect.height) return;
@@ -10943,6 +13196,39 @@ export class AgentXFilmReviewPanelComponent implements OnChanges, OnDestroy {
       canvas.width = targetWidth;
       canvas.height = targetHeight;
     }
+  }
+
+  private syncDrawCanvasToRenderedVideoRect(canvas: HTMLCanvasElement): void {
+    const player = this.filmPlayer?.nativeElement;
+    const container = this.playerContainer?.nativeElement;
+    if (!player || !container || !player.videoWidth || !player.videoHeight) {
+      canvas.style.left = '0px';
+      canvas.style.top = '0px';
+      canvas.style.right = 'auto';
+      canvas.style.bottom = 'auto';
+      canvas.style.width = '100%';
+      canvas.style.height = '100%';
+      return;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const playerRect = player.getBoundingClientRect();
+    if (!containerRect.width || !containerRect.height || !playerRect.width || !playerRect.height) {
+      return;
+    }
+
+    const mediaRect = this.resolveContainedMediaRect(
+      playerRect.width,
+      playerRect.height,
+      player.videoWidth,
+      player.videoHeight
+    );
+    canvas.style.left = `${playerRect.left - containerRect.left + mediaRect.x}px`;
+    canvas.style.top = `${playerRect.top - containerRect.top + mediaRect.y}px`;
+    canvas.style.right = 'auto';
+    canvas.style.bottom = 'auto';
+    canvas.style.width = `${mediaRect.width}px`;
+    canvas.style.height = `${mediaRect.height}px`;
   }
 
   private renderDrawOverlay(): void {

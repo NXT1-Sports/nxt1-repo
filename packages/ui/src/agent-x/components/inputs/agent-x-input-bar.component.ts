@@ -939,6 +939,7 @@ export class AgentXInputBarComponent {
   }
 
   protected contextIconName(context: AgentXSelectedContext): string {
+    if (context.metadata?.['itemType'] === 'film_review_playlist') return 'folder';
     if (context.source?.type === 'film_review') return 'videocam';
     if (context.source?.type === 'playbook') return 'documentText';
     if (context.source?.type === 'game_plan') return 'analytics';

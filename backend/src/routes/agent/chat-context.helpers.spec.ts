@@ -159,7 +159,8 @@ describe('chat-context.helpers', () => {
     expect(enriched).toContain(
       'flattened annotated full-frame image attachment named "fourth-quarter-annotated-7200.jpg"'
     );
-    expect(enriched).toContain('First locate the user-drawn light-green marking');
+    expect(enriched).toContain('structured annotation bounds/points as the source of truth');
+    expect(enriched).toContain('Normalized path points: 0.1,0.2 | 0.5,0.7');
     expect(enriched).toContain('raw video frame does not visibly contain the overlay');
     expect(enriched).toContain('prioritize these contexts');
   });

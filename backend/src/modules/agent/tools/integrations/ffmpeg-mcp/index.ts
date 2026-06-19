@@ -6,6 +6,7 @@ export {
   TrimVideoInputSchema,
   MergeVideosInputSchema,
   ResizeVideoInputSchema,
+  BurnAnnotationInputSchema,
   AddTextOverlayInputSchema,
   BurnSubtitlesInputSchema,
   GenerateThumbnailInputSchema,
@@ -15,6 +16,7 @@ export {
   type TrimVideoInput,
   type MergeVideosInput,
   type ResizeVideoInput,
+  type BurnAnnotationInput,
   type AddTextOverlayInput,
   type BurnSubtitlesInput,
   type GenerateThumbnailInput,
@@ -26,6 +28,7 @@ export {
 export { FfmpegTrimVideoTool } from './ffmpeg-trim-video.tool.js';
 export { FfmpegMergeVideosTool } from './ffmpeg-merge-videos.tool.js';
 export { FfmpegResizeVideoTool } from './ffmpeg-resize-video.tool.js';
+export { FfmpegBurnAnnotationTool } from './ffmpeg-burn-annotation.tool.js';
 export { FfmpegAddTextOverlayTool } from './ffmpeg-add-text-overlay.tool.js';
 export { FfmpegBurnSubtitlesTool } from './ffmpeg-burn-subtitles.tool.js';
 export { FfmpegGenerateThumbnailTool } from './ffmpeg-generate-thumbnail.tool.js';

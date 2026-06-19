@@ -251,11 +251,17 @@ export {
   type TeamFilmReviewApi,
   type ListTeamFilmReviewsRequest,
   type ListTeamFilmReviewsResponse,
+  type ListFilmReviewPlaylistsRequest,
+  type ListFilmReviewPlaylistsResponse,
   type CreateTeamFilmReviewRequest,
   type UpdateTeamFilmReviewRequest,
+  type CreateFilmReviewPlaylistRequest,
+  type UpdateFilmReviewPlaylistRequest,
+  type DeleteFilmReviewPlaylistResponse,
   type AddFilmReviewAnnotationRequest,
   type RefreshFilmReviewAiResponse,
   type ImportFilmReviewBreakdownResponse,
+  type RequestFilmReviewDownloadExportResponse,
 } from './team-film-review.api';
 
 // Shared copy resolvers

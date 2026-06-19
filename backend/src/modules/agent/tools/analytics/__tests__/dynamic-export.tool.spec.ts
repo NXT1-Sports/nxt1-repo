@@ -66,6 +66,25 @@ function pdfInput(overrides?: Record<string, unknown>): Record<string, unknown> 
   };
 }
 
+function xlsxInput(overrides?: Record<string, unknown>): Record<string, unknown> {
+  return {
+    format: 'xlsx',
+    fileName: 'Callsheet Export',
+    title: 'Callsheet Export',
+    description: 'Generated from Agent X.',
+    columns: [
+      { key: 'play', label: 'Play' },
+      { key: 'formation', label: 'Formation' },
+      { key: 'situation', label: 'Situation' },
+    ],
+    rows: [
+      ['Inside Zone', '11 Gun', '1st & 10'],
+      ['Mesh', 'Trips Rt', '3rd & 6'],
+    ],
+    ...overrides,
+  };
+}
+
 const TINY_PNG_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAAAAgAB4iG8MwAAAABJRU5ErkJggg==';
 
@@ -170,6 +189,36 @@ describe('DynamicExportTool', () => {
       const [, opts] = mockSave.mock.calls[0];
       expect(opts.contentType).toBe('text/csv');
       expect(opts.metadata.metadata.firebaseStorageDownloadTokens).toMatch(/^[0-9a-f-]{36}$/i);
+    });
+  });
+
+  // ── XLSX Generation ──────────────────────────────────────────────────────
+
+  describe('XLSX export', () => {
+    it('should generate XLSX and upload to Firebase Storage', async () => {
+      const result = await tool.execute(xlsxInput(), context);
+
+      expect(result.success).toBe(true);
+      expect(result.data).toBeDefined();
+
+      const data = result.data as Record<string, unknown>;
+      expect(data['fileName']).toBe('Callsheet Export.xlsx');
+      expect(data['mimeType']).toBe(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+      expect(data['format']).toBe('xlsx');
+      expect(data['rowCount']).toBe(2);
+      expect(data['columnCount']).toBe(3);
+    });
+
+    it('should pass XLSX content type metadata to Storage', async () => {
+      await tool.execute(xlsxInput(), context);
+
+      expect(mockSave).toHaveBeenCalledOnce();
+      const [, opts] = mockSave.mock.calls[0];
+      expect(opts.contentType).toBe(
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
     });
   });
 

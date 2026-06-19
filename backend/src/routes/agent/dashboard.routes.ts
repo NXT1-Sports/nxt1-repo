@@ -12,6 +12,9 @@
 import { Router, type Request, type Response } from 'express';
 import { z } from 'zod';
 import { createHash, randomUUID } from 'node:crypto';
+import { Readable, Transform } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getStorage } from 'firebase-admin/storage';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
@@ -39,6 +42,9 @@ import type {
   TeamFilmReviewStatus,
   TeamFilmReviewDownloadPrewarm,
   TeamFilmReviewDownloadPrewarmStatus,
+  TeamFilmReviewDownloadExport,
+  TeamFilmReviewDownloadExportStatus,
+  TeamFilmReviewPlaylistDoc,
   TeamFilmReviewSportTagDefinition,
   TeamFilmReviewTimelineTag,
   TeamFilmReviewAnnotation,
@@ -55,6 +61,10 @@ import {
 } from '@nxt1/core';
 import { logger } from '../../utils/logger.js';
 import { getSignedUrlWithTimeout } from '../../utils/gcs-signed-url.js';
+import {
+  collectFilmReviewMediaAssetRefs,
+  extractStoragePathFromUrl,
+} from '../../services/team/film-review-media-assets.js';
 import {
   getAgentAppConfig,
   resolveConfiguredCoordinatorsForRole,
@@ -114,6 +124,11 @@ import type {
   BoardDiagramKind,
 } from '../../modules/agent/tools/integrations/board-diagram/shared/board-diagram.types.js';
 
+const FILM_REVIEW_DOWNLOAD_EXPORTS_PREFIX = 'agent-x/film-review-exports';
+const FILM_REVIEW_DOWNLOAD_EXPORT_STALE_MS = 15 * 60 * 1000;
+const FILM_REVIEW_DOWNLOAD_EXPORT_PROGRESS_THROTTLE_MS = 1500;
+const activeFilmReviewDownloadExportJobs = new Set<string>();
+
 type AuthenticatedRequest = Request & {
   user?: {
     uid?: string;
@@ -142,6 +157,10 @@ type FirestoreDocLike = {
 type FilmReviewFirestore = {
   collection(name: string): {
     doc(id: string): {
+      get(): Promise<{
+        exists: boolean;
+        data(): Record<string, unknown> | undefined;
+      }>;
       update(payload: Record<string, unknown>): Promise<unknown>;
     };
   };
@@ -177,6 +196,7 @@ type FirestoreReadDb = {
 const router = Router();
 const RECURRING_TASKS_COLLECTION = 'RecurringTasks' as const;
 const TEAM_GAMEPLANS_COLLECTION = 'TeamGamePlans' as const;
+const TEAM_FILM_REVIEW_PLAYLISTS_COLLECTION = 'TeamFilmReviewPlaylists' as const;
 const TEAM_FILM_REVIEWS_COLLECTION = 'TeamFilmReviews' as const;
 const TEAMS_COLLECTION = 'Teams' as const;
 const MAX_STRENGTH_WEAKNESS_ITEMS = 50;
@@ -667,11 +687,14 @@ function toFilmReviewSummary(item: TeamFilmReviewDoc): Record<string, unknown> {
     cloudflareVideoId: item.cloudflareVideoId,
     cloudflareStatus: item.cloudflareStatus,
     readyToStream: item.readyToStream,
+    downloadPrewarm: item.downloadPrewarm,
+    downloadExport: item.downloadExport,
     thumbnailUrl: item.thumbnailUrl,
     durationSec: item.durationSec,
     tagCount: item.aiTags?.length ?? 0,
     clipCount: item.clips?.length ?? 0,
     sourceCount: item.sources?.length ?? 0,
+    sources: item.sources ?? [],
     annotationCount: item.annotations?.length ?? 0,
     source: item.source,
     sourceUrl: item.sourceUrl,
@@ -686,9 +709,191 @@ function toFilmReviewSummary(item: TeamFilmReviewDoc): Record<string, unknown> {
   };
 }
 
+function normalizeFilmReviewPlaylistParentId(parentId: unknown): string | null {
+  const normalized = normalizeString(parentId);
+  return normalized ?? null;
+}
+
+function parseFilmReviewPlaylistSortOrder(input: unknown): number | undefined {
+  if (typeof input !== 'number' || !Number.isFinite(input)) {
+    return undefined;
+  }
+
+  return Math.max(0, Math.floor(input));
+}
+
+function compareFilmReviewPlaylists(
+  left: TeamFilmReviewPlaylistDoc,
+  right: TeamFilmReviewPlaylistDoc
+): number {
+  const leftOrder = typeof left.sortOrder === 'number' ? left.sortOrder : Number.MAX_SAFE_INTEGER;
+  const rightOrder =
+    typeof right.sortOrder === 'number' ? right.sortOrder : Number.MAX_SAFE_INTEGER;
+
+  if (leftOrder !== rightOrder) {
+    return leftOrder - rightOrder;
+  }
+
+  return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
+}
+
+async function listTeamFilmReviewPlaylists(
+  db: Request['firebase'] extends { db: infer T } ? T : never,
+  teamId: string
+): Promise<readonly TeamFilmReviewPlaylistDoc[]> {
+  const snap = await db
+    .collection(TEAM_FILM_REVIEW_PLAYLISTS_COLLECTION)
+    .where('teamId', '==', teamId)
+    .limit(250)
+    .get();
+
+  return snap.docs
+    .map((doc) => doc.data() as TeamFilmReviewPlaylistDoc)
+    .sort(compareFilmReviewPlaylists);
+}
+
+function isFilmReviewPlaylistDescendant(
+  playlistId: string,
+  ancestorId: string,
+  playlists: readonly TeamFilmReviewPlaylistDoc[]
+): boolean {
+  const parentById = new Map(
+    playlists.map((playlist) => [playlist.id, playlist.parentId?.trim() || null] as const)
+  );
+
+  let current = parentById.get(playlistId) ?? null;
+  while (current) {
+    if (current === ancestorId) {
+      return true;
+    }
+    current = parentById.get(current) ?? null;
+  }
+
+  return false;
+}
+
+async function syncFilmReviewPlaylistReviewNames(
+  db: Request['firebase'] extends { db: infer T } ? T : never,
+  teamId: string,
+  playlistId: string,
+  playlistName: string | null
+): Promise<number> {
+  const snap = await db
+    .collection(TEAM_FILM_REVIEWS_COLLECTION)
+    .where('teamId', '==', teamId)
+    .where('playlistId', '==', playlistId)
+    .limit(250)
+    .get();
+
+  if (snap.empty) {
+    return 0;
+  }
+
+  await Promise.all(
+    snap.docs.map((doc) =>
+      doc.ref.update({
+        playlistName,
+      })
+    )
+  );
+
+  return snap.docs.length;
+}
+
+async function clearFilmReviewPlaylistAssignments(
+  db: Request['firebase'] extends { db: infer T } ? T : never,
+  teamId: string,
+  playlistId: string,
+  updatedBy: string,
+  updatedAt: string
+): Promise<number> {
+  const snap = await db
+    .collection(TEAM_FILM_REVIEWS_COLLECTION)
+    .where('teamId', '==', teamId)
+    .where('playlistId', '==', playlistId)
+    .limit(250)
+    .get();
+
+  if (snap.empty) {
+    return 0;
+  }
+
+  await Promise.all(
+    snap.docs.map((doc) =>
+      doc.ref.update({
+        playlistId: null,
+        playlistName: null,
+        updatedBy,
+        updatedAt,
+      })
+    )
+  );
+
+  return snap.docs.length;
+}
+
+async function reparentFilmReviewPlaylistChildren(
+  db: Request['firebase'] extends { db: infer T } ? T : never,
+  teamId: string,
+  playlistId: string,
+  nextParentId: string | null,
+  updatedBy: string,
+  updatedAt: string
+): Promise<number> {
+  const snap = await db
+    .collection(TEAM_FILM_REVIEW_PLAYLISTS_COLLECTION)
+    .where('teamId', '==', teamId)
+    .where('parentId', '==', playlistId)
+    .limit(250)
+    .get();
+
+  if (snap.empty) {
+    return 0;
+  }
+
+  await Promise.all(
+    snap.docs.map((doc) =>
+      doc.ref.update({
+        parentId: nextParentId,
+        updatedBy,
+        updatedAt,
+      })
+    )
+  );
+
+  return snap.docs.length;
+}
+
+async function invalidateFilmReviewPlaylistCaches(teamId: string): Promise<void> {
+  try {
+    const cache = getCacheService();
+    await Promise.all([
+      cache.del(`intel:team:${teamId}`),
+      cache.del(`team:profile:${teamId}`),
+      cache.del(`team:film_review_playlists:${teamId}`),
+    ]);
+  } catch {
+    // Best effort.
+  }
+}
+
 type SignedUrlBucket = {
   file(path: string): {
-    getSignedUrl(options: { version: 'v4'; action: 'read'; expires: number }): Promise<[string]>;
+    getSignedUrl(options: {
+      version: 'v4';
+      action: 'read';
+      expires: number;
+      responseDisposition?: string;
+      responseType?: string;
+    }): Promise<[string]>;
+    createWriteStream(options: {
+      resumable: boolean;
+      metadata: {
+        contentType: string;
+        cacheControl: string;
+        metadata: Record<string, string>;
+      };
+    }): NodeJS.WritableStream;
   };
 };
 
@@ -712,6 +917,534 @@ async function resolveFilmReviewVideoUrl(
   } catch {
     return review.videoUrl;
   }
+}
+
+async function resolveFilmReviewSignedStorageUrl(
+  storagePath: string | null | undefined,
+  bucket: SignedUrlBucket
+): Promise<string | null> {
+  const normalizedStoragePath =
+    extractStoragePathFromUrl(storagePath) ?? normalizeString(storagePath);
+  if (!normalizedStoragePath) return null;
+
+  try {
+    const storageFile = bucket.file(normalizedStoragePath) as {
+      getSignedUrl(options: { version: 'v4'; action: 'read'; expires: number }): Promise<[string]>;
+    };
+    const [signedUrl] = await storageFile.getSignedUrl({
+      version: 'v4',
+      action: 'read',
+      expires: Date.now() + 60 * 60 * 1000,
+    });
+    return signedUrl;
+  } catch {
+    return null;
+  }
+}
+
+function resolveDirectFilmReviewDownloadUrl(urlInput: string | null | undefined): string | null {
+  const videoUrl = normalizeString(urlInput);
+  if (!videoUrl) return null;
+  if (/\.m3u8([?#].*)?$/i.test(videoUrl) || /\.mpd([?#].*)?$/i.test(videoUrl)) return null;
+
+  try {
+    const parsed = new URL(videoUrl);
+    if (
+      parsed.hostname === 'watch.cloudflarestream.com' ||
+      parsed.hostname === 'iframe.videodelivery.net' ||
+      parsed.pathname.includes('/manifest/')
+    ) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+
+  return videoUrl;
+}
+
+async function resolveCloudflareDownloadUrl(
+  videoId: string | null | undefined
+): Promise<string | null> {
+  const normalizedVideoId = normalizeString(videoId);
+  if (!normalizedVideoId) return null;
+
+  const accountId = process.env['CLOUDFLARE_ACCOUNT_ID'];
+  const apiToken = process.env['CLOUDFLARE_API_TOKEN'];
+  if (!accountId || !apiToken) return null;
+
+  try {
+    let cloudflareDownload = await fetchCloudflareDownloadStatus(
+      normalizedVideoId,
+      accountId,
+      apiToken
+    );
+
+    if (!cloudflareDownload.url && cloudflareDownload.status !== 'ready') {
+      cloudflareDownload = await requestCloudflareVideoDownloadRender(
+        normalizedVideoId,
+        accountId,
+        apiToken
+      );
+    }
+
+    return normalizeString(cloudflareDownload.url) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function buildFilmReviewDownloadExportFileStem(
+  review: Pick<TeamFilmReviewDoc, 'title' | 'gameDate'>
+): string {
+  const stem = [review.title?.trim(), review.gameDate?.trim()]
+    .filter((part): part is string => !!part)
+    .join('-')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return stem || 'film-review';
+}
+
+function buildFilmReviewDownloadExportFileName(
+  review: Pick<TeamFilmReviewDoc, 'title' | 'gameDate'>
+): string {
+  return `${buildFilmReviewDownloadExportFileStem(review)}.mp4`;
+}
+
+function buildFilmReviewDownloadExportStoragePath(
+  review: Pick<TeamFilmReviewDoc, 'teamId' | 'id' | 'title' | 'gameDate'>
+): string {
+  return `${FILM_REVIEW_DOWNLOAD_EXPORTS_PREFIX}/${review.teamId}/${review.id}/${buildFilmReviewDownloadExportFileName(review)}`;
+}
+
+function isFilmReviewDownloadExportPending(
+  exportState: TeamFilmReviewDownloadExport | null | undefined
+): boolean {
+  const status = exportState?.status;
+  return status === 'queued' || status === 'processing';
+}
+
+function isFilmReviewDownloadExportStale(
+  exportState: TeamFilmReviewDownloadExport | null | undefined
+): boolean {
+  const lastCheckedAt = normalizeString(exportState?.lastCheckedAt);
+  if (!lastCheckedAt) return true;
+  const timestampMs = Date.parse(lastCheckedAt);
+  if (!Number.isFinite(timestampMs)) return true;
+  return Date.now() - timestampMs >= FILM_REVIEW_DOWNLOAD_EXPORT_STALE_MS;
+}
+
+function buildFilmReviewDownloadExportState(params: {
+  readonly review: Pick<TeamFilmReviewDoc, 'teamId' | 'id' | 'title' | 'gameDate'>;
+  readonly current?: TeamFilmReviewDownloadExport;
+  readonly status: TeamFilmReviewDownloadExportStatus;
+  readonly requestedAt?: TeamFilmReviewDownloadExport['requestedAt'];
+  readonly startedAt?: TeamFilmReviewDownloadExport['startedAt'];
+  readonly completedAt?: TeamFilmReviewDownloadExport['completedAt'];
+  readonly lastCheckedAt: Exclude<TeamFilmReviewDownloadExport['lastCheckedAt'], undefined>;
+  readonly percentComplete?: number;
+  readonly contentType?: string;
+  readonly byteSize?: number;
+  readonly lastError?: string;
+}): TeamFilmReviewDownloadExport {
+  const fileName = params.current?.fileName ?? buildFilmReviewDownloadExportFileName(params.review);
+  const storagePath =
+    params.current?.storagePath ?? buildFilmReviewDownloadExportStoragePath(params.review);
+
+  return {
+    requestedAt: params.requestedAt ?? params.current?.requestedAt ?? params.lastCheckedAt,
+    ...((params.startedAt ?? params.current?.startedAt)
+      ? { startedAt: params.startedAt ?? params.current?.startedAt }
+      : {}),
+    ...(params.completedAt ? { completedAt: params.completedAt } : {}),
+    lastCheckedAt: params.lastCheckedAt,
+    status: params.status,
+    ...(params.percentComplete !== undefined ? { percentComplete: params.percentComplete } : {}),
+    format: 'mp4',
+    fileName,
+    storagePath,
+    ...((params.contentType ?? params.current?.contentType)
+      ? { contentType: params.contentType ?? params.current?.contentType }
+      : {}),
+    ...((params.byteSize ?? params.current?.byteSize)
+      ? { byteSize: params.byteSize ?? params.current?.byteSize }
+      : {}),
+    ...(params.lastError ? { lastError: params.lastError } : {}),
+  };
+}
+
+async function resolveFilmReviewDownloadExportUrl(
+  review: TeamFilmReviewDoc,
+  bucket: SignedUrlBucket
+): Promise<string | null> {
+  const exportState = review.downloadExport;
+  const storagePath = normalizeString(exportState?.storagePath);
+  if (exportState?.status !== 'ready' || !storagePath) {
+    return null;
+  }
+
+  const fileName = exportState.fileName?.trim() || buildFilmReviewDownloadExportFileName(review);
+  const storageFile = bucket.file(storagePath) as {
+    getSignedUrl(options: {
+      version: 'v4';
+      action: 'read';
+      expires: number;
+      responseDisposition?: string;
+      responseType?: string;
+    }): Promise<[string]>;
+  };
+  const [signedUrl] = await getSignedUrlWithTimeout(() =>
+    storageFile.getSignedUrl({
+      version: 'v4',
+      action: 'read',
+      expires: Date.now() + 60 * 60 * 1000,
+      responseDisposition: `attachment; filename="${fileName}"`,
+      responseType: exportState.contentType ?? 'video/mp4',
+    })
+  );
+  return signedUrl;
+}
+
+async function runFilmReviewDownloadExportJob(params: {
+  readonly reviewId: string;
+  readonly userId: string;
+  readonly db: FilmReviewFirestore;
+  readonly bucket: SignedUrlBucket;
+}): Promise<void> {
+  const { reviewId, userId, db, bucket } = params;
+  const docRef = db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(reviewId);
+
+  try {
+    const snap = await docRef.get();
+    if (!snap.exists) return;
+
+    let review = snap.data() as unknown as TeamFilmReviewDoc;
+    review = await refreshFilmReviewCloudflareState(review, db);
+
+    const startedAt = new Date().toISOString();
+    const requestedAt = review.downloadExport?.requestedAt ?? startedAt;
+    const processingState = buildFilmReviewDownloadExportState({
+      review,
+      current: review.downloadExport,
+      status: 'processing',
+      requestedAt,
+      startedAt,
+      lastCheckedAt: startedAt,
+      percentComplete: 8,
+      contentType: review.downloadExport?.contentType ?? 'video/mp4',
+    });
+
+    await docRef.update({
+      downloadExport: processingState,
+      updatedBy: userId,
+      updatedAt: startedAt,
+    });
+
+    const upstreamUrls = await resolveFilmReviewProxyDownloadUrls(review, bucket);
+    if (upstreamUrls.length === 0) {
+      throw new Error('Film review download source is not ready yet');
+    }
+
+    const upstreamResponse = await fetchFilmReviewDownloadResponse(upstreamUrls);
+    if (!upstreamResponse) {
+      throw new Error('Upstream export fetch failed for every available download source');
+    }
+
+    const contentType =
+      normalizeString(upstreamResponse.headers.get('content-type')) ?? 'video/mp4';
+    const totalBytesHeader = normalizeString(upstreamResponse.headers.get('content-length'));
+    const totalBytes = totalBytesHeader ? Number(totalBytesHeader) : Number.NaN;
+    const storagePath =
+      processingState.storagePath ?? buildFilmReviewDownloadExportStoragePath(review);
+    const storageFile = bucket.file(storagePath);
+    const writeStream = storageFile.createWriteStream({
+      resumable: false,
+      metadata: {
+        contentType,
+        cacheControl: 'private, max-age=3600',
+        metadata: {
+          exportKind: 'film_review_full_footage',
+          exportedBy: 'agent_x',
+          filmReviewId: review.id,
+          teamId: review.teamId,
+        },
+      },
+    });
+
+    let bytesWritten = 0;
+    let lastProgressUpdateAt = 0;
+    const progressStream = new Transform({
+      transform(chunk, _encoding, callback) {
+        const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+        bytesWritten += buffer.length;
+
+        const nowMs = Date.now();
+        if (nowMs - lastProgressUpdateAt >= FILM_REVIEW_DOWNLOAD_EXPORT_PROGRESS_THROTTLE_MS) {
+          lastProgressUpdateAt = nowMs;
+          const progressTimestamp = new Date(nowMs).toISOString();
+          const percentComplete =
+            Number.isFinite(totalBytes) && totalBytes > 0
+              ? Math.min(95, Math.max(10, Math.round((bytesWritten / totalBytes) * 100)))
+              : bytesWritten > 0
+                ? 65
+                : 20;
+
+          void docRef
+            .update({
+              downloadExport: buildFilmReviewDownloadExportState({
+                review,
+                current: processingState,
+                status: 'processing',
+                requestedAt,
+                startedAt,
+                lastCheckedAt: progressTimestamp,
+                percentComplete,
+                contentType,
+                ...(Number.isFinite(totalBytes) && totalBytes > 0 ? { byteSize: totalBytes } : {}),
+              }),
+              updatedBy: userId,
+              updatedAt: progressTimestamp,
+            })
+            .catch((updateError) => {
+              logger.warn('Failed to update film review download export progress', {
+                reviewId,
+                error: updateError instanceof Error ? updateError.message : String(updateError),
+              });
+            });
+        }
+
+        callback(null, buffer);
+      },
+    });
+
+    await pipeline(
+      Readable.fromWeb(upstreamResponse.body as NodeReadableStream),
+      progressStream,
+      writeStream
+    );
+
+    const completedAt = new Date().toISOString();
+    const readyState = buildFilmReviewDownloadExportState({
+      review,
+      current: processingState,
+      status: 'ready',
+      requestedAt,
+      startedAt,
+      completedAt,
+      lastCheckedAt: completedAt,
+      percentComplete: 100,
+      contentType,
+      byteSize: Number.isFinite(totalBytes) && totalBytes > 0 ? totalBytes : bytesWritten,
+    });
+
+    await docRef.update({
+      downloadExport: readyState,
+      updatedBy: userId,
+      updatedAt: completedAt,
+    });
+  } catch (err) {
+    const failedAt = new Date().toISOString();
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to build film review download export', {
+      reviewId,
+      error: error.message,
+      stack: error.stack,
+    });
+
+    try {
+      const snap = await docRef.get();
+      if (snap.exists) {
+        const review = snap.data() as unknown as TeamFilmReviewDoc;
+        await docRef.update({
+          downloadExport: buildFilmReviewDownloadExportState({
+            review,
+            current: review.downloadExport,
+            status: 'error',
+            requestedAt: review.downloadExport?.requestedAt ?? failedAt,
+            startedAt: review.downloadExport?.startedAt,
+            lastCheckedAt: failedAt,
+            percentComplete: review.downloadExport?.percentComplete,
+            contentType: review.downloadExport?.contentType,
+            byteSize: review.downloadExport?.byteSize,
+            lastError: error.message,
+          }),
+          updatedBy: userId,
+          updatedAt: failedAt,
+        });
+      }
+    } catch (updateError) {
+      logger.warn('Failed to persist film review download export error state', {
+        reviewId,
+        error: updateError instanceof Error ? updateError.message : String(updateError),
+      });
+    }
+  } finally {
+    activeFilmReviewDownloadExportJobs.delete(reviewId);
+  }
+}
+
+function launchFilmReviewDownloadExportJob(params: {
+  readonly reviewId: string;
+  readonly userId: string;
+  readonly db: FilmReviewFirestore;
+  readonly bucket: SignedUrlBucket;
+}): void {
+  if (activeFilmReviewDownloadExportJobs.has(params.reviewId)) {
+    return;
+  }
+
+  activeFilmReviewDownloadExportJobs.add(params.reviewId);
+  setTimeout(() => {
+    void runFilmReviewDownloadExportJob(params);
+  }, 0);
+}
+
+async function queueFilmReviewDownloadExport(params: {
+  readonly review: TeamFilmReviewDoc;
+  readonly userId: string;
+  readonly db: FilmReviewFirestore;
+  readonly bucket: SignedUrlBucket;
+}): Promise<TeamFilmReviewDoc> {
+  const { review, userId, db, bucket } = params;
+  const currentExport = review.downloadExport;
+  const isReady = currentExport?.status === 'ready' && !!currentExport.storagePath;
+  const isPending = isFilmReviewDownloadExportPending(currentExport);
+
+  if (isReady) {
+    return review;
+  }
+
+  if (isPending && !isFilmReviewDownloadExportStale(currentExport)) {
+    return review;
+  }
+
+  const queuedAt = new Date().toISOString();
+  const queuedState = buildFilmReviewDownloadExportState({
+    review,
+    current: currentExport,
+    status: 'queued',
+    requestedAt: currentExport?.requestedAt ?? queuedAt,
+    lastCheckedAt: queuedAt,
+    percentComplete: 0,
+    contentType: currentExport?.contentType ?? 'video/mp4',
+  });
+
+  await db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(review.id).update({
+    downloadExport: queuedState,
+    updatedBy: userId,
+    updatedAt: queuedAt,
+  });
+
+  launchFilmReviewDownloadExportJob({
+    reviewId: review.id,
+    userId,
+    db,
+    bucket,
+  });
+
+  return {
+    ...review,
+    downloadExport: queuedState,
+    updatedBy: userId,
+    updatedAt: queuedAt,
+  };
+}
+
+async function resolveFilmReviewSourceDownloadUrls(
+  source: TeamFilmReviewSourceVideo | null | undefined,
+  bucket: SignedUrlBucket
+): Promise<readonly string[]> {
+  if (!source) return [];
+
+  const storageCandidates = [source.storagePath, source.downloadUrl, source.videoUrl]
+    .map((value) => extractStoragePathFromUrl(value))
+    .filter((value): value is string => !!value);
+
+  const signedStorageUrls = (
+    await Promise.all(
+      [...new Set(storageCandidates)].map((storagePath) =>
+        resolveFilmReviewSignedStorageUrl(storagePath, bucket)
+      )
+    )
+  ).filter((value): value is string => !!value);
+
+  const candidates = [
+    ...signedStorageUrls,
+    await resolveCloudflareDownloadUrl(source.cloudflareVideoId),
+    normalizeString(source.downloadUrl),
+    resolveDirectFilmReviewDownloadUrl(source.videoUrl),
+  ];
+
+  const seen = new Set<string>();
+  const urls: string[] = [];
+  for (const candidate of candidates) {
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    urls.push(candidate);
+  }
+
+  return urls;
+}
+
+async function resolveFilmReviewProxyDownloadUrls(
+  review: TeamFilmReviewDoc,
+  bucket: SignedUrlBucket,
+  sourceId?: string | null
+): Promise<readonly string[]> {
+  const normalizedSourceId = normalizeString(sourceId);
+  if (normalizedSourceId) {
+    const source = review.sources?.find((item) => item.id.trim() === normalizedSourceId) ?? null;
+    return resolveFilmReviewSourceDownloadUrls(source, bucket);
+  }
+
+  const reviewStorageCandidates = [review.storagePath, review.videoUrl]
+    .map((value) => extractStoragePathFromUrl(value))
+    .filter((value): value is string => !!value);
+
+  const signedReviewStorageUrls = (
+    await Promise.all(
+      [...new Set(reviewStorageCandidates)].map((storagePath) =>
+        resolveFilmReviewSignedStorageUrl(storagePath, bucket)
+      )
+    )
+  ).filter((value): value is string => !!value);
+
+  const candidates = [
+    normalizeString(review.downloadPrewarm?.mp4Url),
+    ...(await resolveFilmReviewSourceDownloadUrls(review.sources?.[0], bucket)),
+    ...signedReviewStorageUrls,
+    await resolveCloudflareDownloadUrl(review.cloudflareVideoId),
+    resolveDirectFilmReviewDownloadUrl(review.videoUrl),
+  ];
+
+  const seen = new Set<string>();
+  const urls: string[] = [];
+  for (const candidate of candidates) {
+    if (!candidate || seen.has(candidate)) continue;
+    seen.add(candidate);
+    urls.push(candidate);
+  }
+
+  return urls;
+}
+
+async function fetchFilmReviewDownloadResponse(
+  upstreamUrls: readonly string[]
+): Promise<globalThis.Response | null> {
+  for (const upstreamUrl of upstreamUrls) {
+    try {
+      const upstreamResponse = await fetch(upstreamUrl, { redirect: 'follow' });
+      if (upstreamResponse.ok && upstreamResponse.body) {
+        return upstreamResponse;
+      }
+    } catch {
+      // Try the next viable source URL.
+    }
+  }
+
+  return null;
 }
 
 function shouldRefreshFilmReviewCloudflareState(review: TeamFilmReviewDoc): boolean {
@@ -1054,6 +1787,7 @@ function parseFilmReviewSourceVideos(input: unknown): readonly TeamFilmReviewSou
     const durationSec = parseSeconds(candidate['durationSec']);
     const readyToStream = normalizeBoolean(candidate['readyToStream']);
     const title = normalizeString(candidate['title']);
+    const downloadUrl = normalizeString(candidate['downloadUrl']);
     const storagePath = normalizeString(candidate['storagePath']);
     const cloudflareVideoId = normalizeString(candidate['cloudflareVideoId']);
     const cloudflareStatus = normalizeString(candidate['cloudflareStatus']);
@@ -1063,6 +1797,7 @@ function parseFilmReviewSourceVideos(input: unknown): readonly TeamFilmReviewSou
       id: normalizeString(candidate['id']) ?? `source-${index + 1}`,
       order: rawOrder,
       videoUrl,
+      ...(downloadUrl ? { downloadUrl } : {}),
       ...(title ? { title } : {}),
       ...(storagePath ? { storagePath } : {}),
       ...(cloudflareVideoId ? { cloudflareVideoId } : {}),
@@ -2985,6 +3720,329 @@ router.delete('/gameplans/:gamePlanId', appGuard, async (req: Request, res: Resp
 
 // ─── GET /film-reviews ──────────────────────────────────────────────────
 
+router.get('/film-review-playlists', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const teamId = normalizeString(req.query['teamId']);
+    if (!teamId) {
+      res.status(400).json({ success: false, error: 'teamId is required' });
+      return;
+    }
+
+    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
+    if (!teamDoc.exists) {
+      res.status(404).json({ success: false, error: `Team ${teamId} not found` });
+      return;
+    }
+
+    const authorized = await canReadTeamIntelForUser(db, user.uid, teamId, teamDoc.data() ?? {});
+    if (!authorized) {
+      res.status(403).json({ success: false, error: 'Forbidden' });
+      return;
+    }
+
+    const playlists = await listTeamFilmReviewPlaylists(db, teamId);
+    res.json({
+      success: true,
+      data: {
+        playlists,
+        count: playlists.length,
+      },
+    });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to list film review playlists', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to list film review playlists' });
+  }
+});
+
+router.post('/film-review-playlists', appGuard, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user?.uid) {
+      res.status(401).json({ success: false, error: 'Unauthorized' });
+      return;
+    }
+
+    const { db } = req.firebase!;
+    const payload = req.body as Record<string, unknown>;
+    const teamId = normalizeString(payload['teamId']);
+    const name = normalizeString(payload['name']);
+    const requestedId = normalizeString(payload['id']);
+    const parentId = normalizeFilmReviewPlaylistParentId(payload['parentId']);
+    const sortOrder = parseFilmReviewPlaylistSortOrder(payload['sortOrder']);
+
+    if (!teamId || !name) {
+      res.status(400).json({ success: false, error: 'teamId and name are required' });
+      return;
+    }
+
+    const teamDoc = await db.collection(TEAMS_COLLECTION).doc(teamId).get();
+    if (!teamDoc.exists) {
+      res.status(404).json({ success: false, error: `Team ${teamId} not found` });
+      return;
+    }
+
+    const authorized = await canManageTeamMutationForUser(
+      db,
+      user.uid,
+      teamId,
+      teamDoc.data() ?? {}
+    );
+    if (!authorized) {
+      res.status(403).json({ success: false, error: 'Not authorized' });
+      return;
+    }
+
+    const existingPlaylists = await listTeamFilmReviewPlaylists(db, teamId);
+    if (parentId && !existingPlaylists.some((playlist) => playlist.id === parentId)) {
+      res
+        .status(400)
+        .json({ success: false, error: 'Parent playlist was not found for this team' });
+      return;
+    }
+
+    const siblingPlaylists = existingPlaylists.filter(
+      (playlist) => (playlist.parentId?.trim() || null) === parentId
+    );
+    const nextSortOrder =
+      sortOrder ??
+      siblingPlaylists.reduce(
+        (maxOrder, playlist) => Math.max(maxOrder, playlist.sortOrder ?? 0),
+        -1
+      ) + 1;
+    const now = new Date().toISOString();
+    const playlistId = requestedId ?? `film_playlist_${randomUUID()}`;
+    const docRef = db.collection(TEAM_FILM_REVIEW_PLAYLISTS_COLLECTION).doc(playlistId);
+    const existingDoc = await docRef.get();
+
+    if (existingDoc.exists) {
+      res.status(409).json({ success: false, error: 'Film review playlist already exists' });
+      return;
+    }
+
+    const playlist: TeamFilmReviewPlaylistDoc = {
+      id: playlistId,
+      teamId,
+      name,
+      ...(parentId ? { parentId } : {}),
+      sortOrder: nextSortOrder,
+      createdBy: user.uid,
+      updatedBy: user.uid,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await docRef.set(playlist);
+    await invalidateFilmReviewPlaylistCaches(teamId);
+
+    res.status(201).json({ success: true, data: { playlist } });
+  } catch (err) {
+    const error = err instanceof Error ? err : new Error(String(err));
+    logger.error('Failed to create film review playlist', {
+      error: error.message,
+      stack: error.stack,
+    });
+    res.status(500).json({ success: false, error: 'Failed to create film review playlist' });
+  }
+});
+
+router.patch(
+  '/film-review-playlists/:playlistId',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const playlistIdParam = req.params['playlistId'];
+      const playlistId = Array.isArray(playlistIdParam) ? playlistIdParam[0] : playlistIdParam;
+      if (!playlistId) {
+        res.status(400).json({ success: false, error: 'playlistId is required' });
+        return;
+      }
+
+      const docRef = db.collection(TEAM_FILM_REVIEW_PLAYLISTS_COLLECTION).doc(playlistId);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        res.status(404).json({ success: false, error: 'Film review playlist not found' });
+        return;
+      }
+
+      const existing = doc.data() as TeamFilmReviewPlaylistDoc;
+      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(existing.teamId).get();
+      const authorized = await canManageTeamMutationForUser(
+        db,
+        user.uid,
+        existing.teamId,
+        teamDoc.data() ?? {}
+      );
+      if (!authorized) {
+        res.status(403).json({ success: false, error: 'Not authorized' });
+        return;
+      }
+
+      const payload = req.body as Record<string, unknown>;
+      const nextName = normalizeString(payload['name']);
+      const hasParentId = Object.prototype.hasOwnProperty.call(payload, 'parentId');
+      const nextParentId = hasParentId
+        ? normalizeFilmReviewPlaylistParentId(payload['parentId'])
+        : existing.parentId?.trim() || null;
+      const nextSortOrder = Object.prototype.hasOwnProperty.call(payload, 'sortOrder')
+        ? parseFilmReviewPlaylistSortOrder(payload['sortOrder'])
+        : existing.sortOrder;
+
+      if (
+        !nextName &&
+        !hasParentId &&
+        !Object.prototype.hasOwnProperty.call(payload, 'sortOrder')
+      ) {
+        res.status(400).json({ success: false, error: 'No playlist fields were provided' });
+        return;
+      }
+
+      const playlists = await listTeamFilmReviewPlaylists(db, existing.teamId);
+      if (nextParentId === playlistId) {
+        res.status(400).json({ success: false, error: 'A playlist cannot be its own parent' });
+        return;
+      }
+      if (nextParentId && !playlists.some((playlist) => playlist.id === nextParentId)) {
+        res
+          .status(400)
+          .json({ success: false, error: 'Parent playlist was not found for this team' });
+        return;
+      }
+      if (nextParentId && isFilmReviewPlaylistDescendant(nextParentId, playlistId, playlists)) {
+        res.status(400).json({
+          success: false,
+          error: 'A playlist cannot be moved into one of its descendants',
+        });
+        return;
+      }
+
+      const updateData: Record<string, unknown> = {
+        updatedBy: user.uid,
+        updatedAt: new Date().toISOString(),
+      };
+      if (nextName) {
+        updateData['name'] = nextName;
+      }
+      if (hasParentId) {
+        updateData['parentId'] = nextParentId;
+      }
+      if (nextSortOrder !== undefined) {
+        updateData['sortOrder'] = nextSortOrder;
+      }
+
+      await docRef.update(updateData);
+
+      if (nextName && nextName !== existing.name) {
+        await syncFilmReviewPlaylistReviewNames(db, existing.teamId, playlistId, nextName);
+      }
+
+      await invalidateFilmReviewPlaylistCaches(existing.teamId);
+      const updated = (await docRef.get()).data() as TeamFilmReviewPlaylistDoc;
+      res.json({ success: true, data: { playlist: updated } });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to update film review playlist', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to update film review playlist' });
+    }
+  }
+);
+
+router.delete(
+  '/film-review-playlists/:playlistId',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const playlistIdParam = req.params['playlistId'];
+      const playlistId = Array.isArray(playlistIdParam) ? playlistIdParam[0] : playlistIdParam;
+      if (!playlistId) {
+        res.status(400).json({ success: false, error: 'playlistId is required' });
+        return;
+      }
+
+      const docRef = db.collection(TEAM_FILM_REVIEW_PLAYLISTS_COLLECTION).doc(playlistId);
+      const doc = await docRef.get();
+      if (!doc.exists) {
+        res.status(404).json({ success: false, error: 'Film review playlist not found' });
+        return;
+      }
+
+      const existing = doc.data() as TeamFilmReviewPlaylistDoc;
+      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(existing.teamId).get();
+      const authorized = await canManageTeamMutationForUser(
+        db,
+        user.uid,
+        existing.teamId,
+        teamDoc.data() ?? {}
+      );
+      if (!authorized) {
+        res.status(403).json({ success: false, error: 'Not authorized' });
+        return;
+      }
+
+      const now = new Date().toISOString();
+      const [unassignedReviewCount, reparentedChildCount] = await Promise.all([
+        clearFilmReviewPlaylistAssignments(db, existing.teamId, playlistId, user.uid, now),
+        reparentFilmReviewPlaylistChildren(
+          db,
+          existing.teamId,
+          playlistId,
+          existing.parentId?.trim() || null,
+          user.uid,
+          now
+        ),
+      ]);
+
+      await docRef.delete();
+      await invalidateFilmReviewPlaylistCaches(existing.teamId);
+
+      res.json({
+        success: true,
+        data: {
+          message: `Deleted film review playlist: ${existing.name}`,
+          unassignedReviewCount,
+          reparentedChildCount,
+        },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to delete film review playlist', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res.status(500).json({ success: false, error: 'Failed to delete film review playlist' });
+    }
+  }
+);
+
+// ─── GET /film-reviews ──────────────────────────────────────────────────
+
 router.get('/film-reviews', appGuard, async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
@@ -3124,6 +4182,166 @@ router.get('/film-reviews/:filmReviewId', appGuard, async (req: Request, res: Re
     res.status(500).json({ success: false, error: 'Failed to load film review' });
   }
 });
+
+router.get(
+  '/film-reviews/:filmReviewId/download',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const filmReviewIdParam = req.params['filmReviewId'];
+      const filmReviewId = Array.isArray(filmReviewIdParam)
+        ? filmReviewIdParam[0]
+        : filmReviewIdParam;
+      if (!filmReviewId) {
+        res.status(400).json({ success: false, error: 'filmReviewId is required' });
+        return;
+      }
+
+      const doc = await db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId).get();
+      if (!doc.exists) {
+        res.status(404).json({ success: false, error: 'Film review not found' });
+        return;
+      }
+
+      const filmReview = doc.data() as TeamFilmReviewDoc;
+      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(filmReview.teamId).get();
+      const canReadTeam = teamDoc.exists
+        ? await canReadTeamIntelForUser(db, user.uid, filmReview.teamId, teamDoc.data() ?? {})
+        : false;
+      const isOwner = filmReview.createdBy === user.uid || filmReview.updatedBy === user.uid;
+
+      if (!canReadTeam && !isOwner) {
+        res.status(403).json({ success: false, error: 'Forbidden' });
+        return;
+      }
+
+      const refreshed = await refreshFilmReviewCloudflareState(filmReview, db);
+      const bucket = req.firebase?.storage?.bucket() ?? getStorage().bucket();
+      const sourceId = normalizeString(req.query['sourceId']);
+      const upstreamUrls = await resolveFilmReviewProxyDownloadUrls(refreshed, bucket, sourceId);
+
+      if (upstreamUrls.length === 0) {
+        res.status(409).json({ success: false, error: 'Film review download is not ready yet' });
+        return;
+      }
+
+      const upstreamResponse = await fetchFilmReviewDownloadResponse(upstreamUrls);
+      if (!upstreamResponse) {
+        res.status(502).json({
+          success: false,
+          error: 'Upstream download failed for every available download source',
+        });
+        return;
+      }
+
+      const contentType = upstreamResponse.headers.get('content-type');
+      const contentLength = upstreamResponse.headers.get('content-length');
+      if (contentType) {
+        res.setHeader('Content-Type', contentType);
+      }
+      if (contentLength) {
+        res.setHeader('Content-Length', contentLength);
+      }
+      res.setHeader('Cache-Control', 'private, max-age=300');
+
+      await pipeline(Readable.fromWeb(upstreamResponse.body as NodeReadableStream), res);
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to proxy film review download', {
+        error: error.message,
+        stack: error.stack,
+      });
+
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, error: 'Failed to proxy film review download' });
+      }
+    }
+  }
+);
+
+router.post(
+  '/film-reviews/:filmReviewId/download-export',
+  appGuard,
+  async (req: Request, res: Response) => {
+    try {
+      const user = getAuthUser(req);
+      if (!user?.uid) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+
+      const { db } = req.firebase!;
+      const filmReviewIdParam = req.params['filmReviewId'];
+      const filmReviewId = Array.isArray(filmReviewIdParam)
+        ? filmReviewIdParam[0]
+        : filmReviewIdParam;
+      if (!filmReviewId) {
+        res.status(400).json({ success: false, error: 'filmReviewId is required' });
+        return;
+      }
+
+      const doc = await db.collection(TEAM_FILM_REVIEWS_COLLECTION).doc(filmReviewId).get();
+      if (!doc.exists) {
+        res.status(404).json({ success: false, error: 'Film review not found' });
+        return;
+      }
+
+      const filmReview = doc.data() as TeamFilmReviewDoc;
+      const teamDoc = await db.collection(TEAMS_COLLECTION).doc(filmReview.teamId).get();
+      const canReadTeam = teamDoc.exists
+        ? await canReadTeamIntelForUser(db, user.uid, filmReview.teamId, teamDoc.data() ?? {})
+        : false;
+      const isOwner = filmReview.createdBy === user.uid || filmReview.updatedBy === user.uid;
+
+      if (!canReadTeam && !isOwner) {
+        res.status(403).json({ success: false, error: 'Forbidden' });
+        return;
+      }
+
+      if (filmReview.uploadMode !== 'full_footage') {
+        res.status(409).json({
+          success: false,
+          error: 'Server-side download export is currently supported for full-game footage only',
+        });
+        return;
+      }
+
+      const refreshed = await refreshFilmReviewCloudflareState(filmReview, db);
+      const bucket = req.firebase?.storage?.bucket() ?? getStorage().bucket();
+      const exportReview = await queueFilmReviewDownloadExport({
+        review: refreshed,
+        userId: user.uid,
+        db,
+        bucket,
+      });
+      const downloadUrl = await resolveFilmReviewDownloadExportUrl(exportReview, bucket);
+
+      res.json({
+        success: true,
+        data: {
+          exportState: exportReview.downloadExport,
+          ...(downloadUrl ? { downloadUrl } : {}),
+        },
+      });
+    } catch (err) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error('Failed to prepare film review download export', {
+        error: error.message,
+        stack: error.stack,
+      });
+      res
+        .status(500)
+        .json({ success: false, error: 'Failed to prepare film review download export' });
+    }
+  }
+);
 
 // ─── POST /film-reviews ─────────────────────────────────────────────────
 
@@ -3791,15 +5009,14 @@ router.delete('/film-reviews/:filmReviewId', appGuard, async (req: Request, res:
     } as const;
 
     const failures: FilmReviewDeleteFailure[] = [];
-    const cloudflareVideoId = filmReview.cloudflareVideoId?.trim();
-    const storagePath = filmReview.storagePath?.trim();
+    const mediaAssetRefs = collectFilmReviewMediaAssetRefs(filmReview);
 
-    if (cloudflareVideoId) {
+    for (const cloudflareVideoId of mediaAssetRefs.cloudflareVideoIds) {
       const failure = await deleteCloudflareFilmReviewVideo(cloudflareVideoId, deleteMetadata);
       if (failure) failures.push(failure);
     }
 
-    if (storagePath) {
+    for (const storagePath of mediaAssetRefs.storagePaths) {
       const failure = await deleteFirebaseFilmReviewVideo(
         req.firebase.storage.bucket(),
         storagePath,
@@ -3839,8 +5056,10 @@ router.delete('/film-reviews/:filmReviewId', appGuard, async (req: Request, res:
     logger.info('Film review hard deleted', {
       ...deleteMetadata,
       deletedAt: now,
-      cloudflareDeleted: !!cloudflareVideoId,
-      firebaseDeleted: !!storagePath,
+      cloudflareDeleted: mediaAssetRefs.cloudflareVideoIds.length > 0,
+      firebaseDeleted: mediaAssetRefs.storagePaths.length > 0,
+      deletedCloudflareAssetCount: mediaAssetRefs.cloudflareVideoIds.length,
+      deletedFirebaseAssetCount: mediaAssetRefs.storagePaths.length,
     });
 
     res.json({ success: true, data: { message: `Film review deleted: ${filmReview.title}` } });

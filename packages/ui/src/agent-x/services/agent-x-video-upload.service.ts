@@ -56,6 +56,8 @@ export interface VideoUploadProgress {
    * can resolve the downloadable MP4 via cloudflareVideoId.
    */
   readonly streamUrl?: string;
+  /** Direct MP4 download URL when the backend has already prepared one. */
+  readonly downloadUrl?: string;
   /** Firebase Storage path (e.g. Users/{uid}/threads/{tid}/media/video/...). */
   readonly storagePath?: string;
   /** Cloudflare Stream video ID for large uploads routed through TUS. */
@@ -789,6 +791,7 @@ export class AgentXVideoUploadService {
 
       await progressEmitter.complete({
         streamUrl,
+        ...(finalized.download.url ? { downloadUrl: finalized.download.url } : {}),
         cloudflareVideoId,
         cloudflareStatus: finalized.status,
         readyToStream: finalized.readyToStream,

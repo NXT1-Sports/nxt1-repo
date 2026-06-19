@@ -23,6 +23,7 @@ import {
   type TrimVideoInput,
   type MergeVideosInput,
   type ResizeVideoInput,
+  type BurnAnnotationInput,
   type AddTextOverlayInput,
   type BurnSubtitlesInput,
   type GenerateThumbnailInput,
@@ -681,6 +682,46 @@ export class FfmpegMcpBridgeService extends BaseMcpClientService {
         scale: input.scale,
       },
       LONG_RUNNING_TIMEOUT_MS,
+      context
+    );
+  }
+
+  async burnAnnotation(
+    input: BurnAnnotationInput,
+    context?: ToolExecutionContext
+  ): Promise<FfmpegOperationResult> {
+    return this.executeOperation(
+      'burn_annotation',
+      {
+        input_path: input.inputPath,
+        output_path: input.outputPath ?? 'annotated-clip.mp4',
+        annotation: {
+          kind: input.annotation.kind,
+          bounds: {
+            min_x: input.annotation.bounds.minX,
+            min_y: input.annotation.bounds.minY,
+            max_x: input.annotation.bounds.maxX,
+            max_y: input.annotation.bounds.maxY,
+          },
+          ...(input.annotation.strokeCount !== undefined
+            ? { stroke_count: input.annotation.strokeCount }
+            : {}),
+          ...(input.annotation.points
+            ? {
+                points: input.annotation.points.map((point) => ({
+                  x: point.x,
+                  y: point.y,
+                })),
+              }
+            : {}),
+        },
+        start_time: input.startTime,
+        end_time: input.endTime,
+        stroke_color: input.strokeColor,
+        stroke_width: input.strokeWidth,
+        opacity: input.opacity,
+      },
+      REENCODE_TIMEOUT_MS,
       context
     );
   }

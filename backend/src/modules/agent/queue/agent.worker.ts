@@ -85,7 +85,10 @@ import {
   logAgentTaskFailure,
   deriveBodyFromResult,
 } from '../services/agent-activity.service.js';
-import { processRecapForUser } from '../services/weekly-recap-email.service.js';
+import {
+  processRecapForUser,
+  updateWeeklyRecapDispatchStatus,
+} from '../services/weekly-recap-email.service.js';
 import { dispatchAgentPush } from '../services/agent-push-adapter.service.js';
 import { getConnectedSourceSyncTracker } from '../services/connected-source-sync-tracker.service.js';
 import { logger } from '../../../utils/logger.js';
@@ -136,7 +139,7 @@ function shouldSuppressCompletionPushWhenActivelyViewing(payload: AgentJobPayloa
     return explicitPolicy;
   }
 
-  return payload.origin === 'user';
+  return false;
 }
 
 const MAX_TIMEOUT_AUTO_CONTINUATIONS =
@@ -480,6 +483,63 @@ function extractEmailApprovalDraft(
         ? (toolInput['arguments'] as Record<string, unknown>)
         : {};
     return extractEmailApprovalDraft('gmail_send_email', args);
+  }
+
+  if (toolName === 'run_microsoft_365_tool') {
+    const nestedToolName =
+      typeof toolInput['toolName'] === 'string' ? toolInput['toolName'].trim() : '';
+    if (nestedToolName !== 'send-mail') return null;
+
+    const args =
+      toolInput['arguments'] &&
+      typeof toolInput['arguments'] === 'object' &&
+      !Array.isArray(toolInput['arguments'])
+        ? (toolInput['arguments'] as Record<string, unknown>)
+        : {};
+    const message =
+      args['message'] && typeof args['message'] === 'object' && !Array.isArray(args['message'])
+        ? (args['message'] as Record<string, unknown>)
+        : {};
+
+    const subject = typeof message['subject'] === 'string' ? message['subject'] : '';
+    const bodyObject =
+      message['body'] && typeof message['body'] === 'object' && !Array.isArray(message['body'])
+        ? (message['body'] as Record<string, unknown>)
+        : {};
+    const body = typeof bodyObject['content'] === 'string' ? bodyObject['content'] : '';
+    const recipients = Array.isArray(message['toRecipients'])
+      ? message['toRecipients']
+          .map((entry) => {
+            if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+              return null;
+            }
+            const emailAddress =
+              (entry as Record<string, unknown>)['emailAddress'] &&
+              typeof (entry as Record<string, unknown>)['emailAddress'] === 'object' &&
+              !Array.isArray((entry as Record<string, unknown>)['emailAddress'])
+                ? ((entry as Record<string, unknown>)['emailAddress'] as Record<string, unknown>)
+                : {};
+            const address =
+              typeof emailAddress['address'] === 'string' ? emailAddress['address'].trim() : '';
+            return address || null;
+          })
+          .filter((entry): entry is string => entry !== null)
+      : [];
+    const toEmail = recipients[0] ?? '';
+
+    return {
+      title:
+        recipients.length > 1
+          ? `Review and Approve Emails (${recipients.length} recipients)`
+          : 'Review and Approve Email',
+      variant: recipients.length > 1 ? 'email-batch' : 'email',
+      subject,
+      body,
+      toEmail,
+      recipients,
+      recipientsCount: Math.max(recipients.length, 1),
+      approveLabel: recipients.length > 1 ? 'Send All' : 'Send',
+    };
   }
 
   if (toolName === 'batch_send_email') {
@@ -865,9 +925,83 @@ export class AgentWorker {
 
     const runId = job.id?.toString() ?? `${payload.operationId}-${job.timestamp}`;
     const repeatJobKey = (job as unknown as { repeatJobKey?: string }).repeatJobKey;
-    const scheduleId = repeatJobKey && repeatJobKey.trim().length > 0 ? repeatJobKey : job.name;
+    const contextObj =
+      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    const contextRecurringTaskKey =
+      typeof (contextObj as Record<string, unknown>)['recurringTaskKey'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['recurringTaskKey'] as string).trim()
+        : '';
+    const scheduleId =
+      (repeatJobKey && repeatJobKey.trim().length > 0 ? repeatJobKey.trim() : '') ||
+      contextRecurringTaskKey ||
+      (typeof job.name === 'string' && job.name.trim().length > 0 ? job.name.trim() : '');
+
+    if (!scheduleId) {
+      return null;
+    }
 
     return { scheduleId, runId };
+  }
+
+  private async resolveScheduledRunThreadId(
+    job: Job<AgentQueueJobData, AgentQueueJobResult>,
+    payload: AgentJobPayload,
+    scheduledRunContext: { scheduleId: string; runId: string } | null
+  ): Promise<string | undefined> {
+    if (payload.origin !== 'system_cron') {
+      return undefined;
+    }
+
+    const contextObj =
+      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
+    const explicitThreadId =
+      typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['threadId'] as string).trim()
+        : '';
+    if (explicitThreadId) {
+      return explicitThreadId;
+    }
+
+    const sourceId =
+      typeof (contextObj as Record<string, unknown>)['sourceId'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['sourceId'] as string).trim()
+        : '';
+    if (sourceId) {
+      return sourceId;
+    }
+
+    const recurringTaskKey =
+      (typeof (contextObj as Record<string, unknown>)['recurringTaskKey'] === 'string'
+        ? ((contextObj as Record<string, unknown>)['recurringTaskKey'] as string).trim()
+        : '') ||
+      scheduledRunContext?.scheduleId ||
+      '';
+    if (!recurringTaskKey) {
+      return undefined;
+    }
+
+    try {
+      const firestore = await this.getActivityFirestore(job);
+      const recurringTaskSnap = await firestore
+        .collection('RecurringTasks')
+        .doc(recurringTaskKey)
+        .get();
+      if (!recurringTaskSnap.exists) {
+        return undefined;
+      }
+
+      const recurringTask = recurringTaskSnap.data() as Record<string, unknown> | undefined;
+      const hydratedSourceId =
+        typeof recurringTask?.['sourceId'] === 'string' ? recurringTask['sourceId'].trim() : '';
+      return hydratedSourceId || undefined;
+    } catch (err) {
+      logger.warn('Failed to rehydrate scheduled run thread linkage', {
+        operationId: payload.operationId,
+        recurringTaskKey,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return undefined;
+    }
   }
 
   private async ensureJobDocumentExists(
@@ -1417,18 +1551,36 @@ export class AgentWorker {
       typeof basePayload.context === 'object' && basePayload.context !== null
         ? basePayload.context
         : {};
-    const payloadThreadId =
-      typeof (payloadContext as Record<string, unknown>)['threadId'] === 'string'
-        ? ((payloadContext as Record<string, unknown>)['threadId'] as string)
-        : undefined;
     const scheduledRunContext = this.getScheduledRunContext(job, basePayload);
     const payload = scheduledRunContext
       ? { ...basePayload, operationId: scheduledRunContext.runId }
       : basePayload;
     const startMs = Date.now();
-    const repo = this.getJobRepo(job);
+    const repoBase = this.getJobRepo(job);
+    const repo =
+      payload.triggerEvent?.type === 'weekly_recap'
+        ? repoBase.withCollection('AgentWeeklyRecapJobs')
+        : repoBase;
 
     await this.ensureJobDocumentExists(repo, payload);
+    if (scheduledRunContext?.scheduleId) {
+      await repo.patchContext(payload.operationId, {
+        recurringTaskKey: scheduledRunContext.scheduleId,
+      });
+    }
+
+    const contextThreadId =
+      typeof (payloadContext as Record<string, unknown>)['threadId'] === 'string'
+        ? ((payloadContext as Record<string, unknown>)['threadId'] as string)
+        : undefined;
+    const contextSourceId =
+      typeof (payloadContext as Record<string, unknown>)['sourceId'] === 'string'
+        ? ((payloadContext as Record<string, unknown>)['sourceId'] as string)
+        : undefined;
+    const payloadThreadId =
+      contextThreadId ||
+      contextSourceId ||
+      (await this.resolveScheduledRunThreadId(job, payload, scheduledRunContext));
 
     // Create a job-scoped AbortController before any execution gating so the
     // cancel endpoint can also abort queued child operations while they wait
@@ -1504,8 +1656,9 @@ export class AgentWorker {
       }
     }
 
-    // Hoist billing db so it's available across the full job lifecycle
     const billingDb = await this.getActivityFirestore(job);
+
+    // Hoist billing db so it's available across the full job lifecycle
     const feature = typeof payload.agent === 'string' ? payload.agent : 'agent';
     const skipBilling = (payloadContext as Record<string, unknown>)['skipBilling'] === true;
 
@@ -2440,6 +2593,19 @@ export class AgentWorker {
         });
       });
 
+      if (payload.triggerEvent?.type === 'weekly_recap') {
+        await updateWeeklyRecapDispatchStatus(billingDb, {
+          operationId: payload.operationId,
+          status: 'failed',
+          error: message,
+        }).catch((dispatchErr: unknown) => {
+          logger.warn('Failed to persist weekly recap dispatch failure status', {
+            operationId: payload.operationId,
+            error: dispatchErr instanceof Error ? dispatchErr.message : String(dispatchErr),
+          });
+        });
+      }
+
       await this.flushConnectedSourceTerminalStatus(
         payload.operationId,
         'error',
@@ -2875,6 +3041,10 @@ export class AgentWorker {
       typeof (payloadContext as Record<string, unknown>)['organizationId'] === 'string'
         ? ((payloadContext as Record<string, unknown>)['organizationId'] as string)
         : undefined;
+    const contextTeamId =
+      typeof (payloadContext as Record<string, unknown>)['teamId'] === 'string'
+        ? ((payloadContext as Record<string, unknown>)['teamId'] as string)
+        : undefined;
     if (skipBilling) {
       logger.info('[AgentWorker] Skipping billing deduction for platform-sponsored job', {
         operationId: payload.operationId,
@@ -2892,6 +3062,7 @@ export class AgentWorker {
         successfulTools,
         environment: job.data.environment,
         iapHoldId: iapHoldId ?? undefined,
+        teamId: contextTeamId,
         organizationId: contextOrgId,
         metadata: { agent: payload.agent, agentTools: invokedTools, successfulTools },
       });
@@ -2906,7 +3077,11 @@ export class AgentWorker {
       // Fetch the thread title generated at enqueue time so notifications
       // display a meaningful subject instead of the generic “Agent X Update” fallback.
       let threadTitle: string | undefined;
-      if (payloadThreadId && this.chatService) {
+      if (
+        payloadThreadId &&
+        this.chatService &&
+        typeof (this.chatService as { getThread?: unknown }).getThread === 'function'
+      ) {
         const thread = await this.chatService
           .getThread(payloadThreadId, payload.userId)
           .catch(() => null);
@@ -2976,8 +3151,23 @@ export class AgentWorker {
 
     // ─── Weekly recap email (fire-and-forget) ─────────────────────────────
     if (payload.triggerEvent?.type === 'weekly_recap') {
-      const { getFirestore } = await import('firebase-admin/firestore');
-      void processRecapForUser(payload.userId, summary, job.id?.toString(), getFirestore());
+      const triggerEventData =
+        payload.triggerEvent.eventData && typeof payload.triggerEvent.eventData === 'object'
+          ? (payload.triggerEvent.eventData as Record<string, unknown>)
+          : {};
+      const recapNumber =
+        typeof triggerEventData['recapNumber'] === 'number'
+          ? triggerEventData['recapNumber']
+          : undefined;
+      const weekLabel =
+        typeof triggerEventData['weekLabel'] === 'string' &&
+        triggerEventData['weekLabel'].trim().length > 0
+          ? triggerEventData['weekLabel'].trim()
+          : undefined;
+      void processRecapForUser(payload.userId, summary, job.id?.toString(), billingDb, {
+        recapNumber,
+        weekLabel,
+      });
     }
 
     const persistedStreamSnapshot = persistedAssistantStream.snapshot();
@@ -2985,12 +3175,7 @@ export class AgentWorker {
       persistedStreamSnapshot.content.length > 0 ? persistedStreamSnapshot.content : summary;
 
     // ─── Persist assistant response to MongoDB thread ─────────────────────
-    const contextObj =
-      typeof payload.context === 'object' && payload.context !== null ? payload.context : {};
-    const threadId =
-      typeof (contextObj as Record<string, unknown>)['threadId'] === 'string'
-        ? ((contextObj as Record<string, unknown>)['threadId'] as string)
-        : undefined;
+    const threadId = payloadThreadId;
     let persistedAssistantMessageId: string | undefined;
 
     if (threadId && this.chatService) {

@@ -21,6 +21,7 @@ if not UPSTREAM_DIR.exists():
 sys.path.insert(0, str(UPSTREAM_DIR))
 
 import uvicorn
+from PIL import Image, ImageColor, ImageDraw
 from starlette.applications import Starlette
 from starlette.background import BackgroundTask
 from starlette.requests import Request
@@ -42,7 +43,7 @@ STATELESS_HTTP = os.environ.get("FFMPEG_MCP_STATELESS_HTTP", "true").lower() == 
 FIREBASE_STORAGE_BUCKET = os.environ.get("FIREBASE_STORAGE_BUCKET", "").strip()
 FFMPEG_OUTPUT_GCS_PREFIX = os.environ.get("FFMPEG_OUTPUT_GCS_PREFIX", "agent-x/ffmpeg")
 FFMPEG_MCP_TOKEN_HEADER = os.environ.get("FFMPEG_MCP_TOKEN_HEADER", "x-ffmpeg-mcp-token").strip().lower()
-WRAPPER_VERSION = "2026-05-27-direct-trim-thumbnail-v3"
+WRAPPER_VERSION = "2026-06-18-burn-annotation-direct-v1"
 
 
 def _positive_int_env(name: str, fallback: int) -> int:
@@ -481,6 +482,121 @@ def _escape_drawtext_text(value: str) -> str:
     return escaped.replace("\n", r"\n")
 
 
+def _clamp_normalized(value, fallback: float = 0.0) -> float:
+    try:
+        parsed = float(value)
+        return max(0.0, min(1.0, parsed))
+    except Exception:
+        return fallback
+
+
+def _parse_annotation_bounds(value: dict | None) -> dict:
+    if not isinstance(value, dict):
+        raise RuntimeError("burn_annotation requires annotation.bounds")
+
+    min_x = _clamp_normalized(value.get("min_x", value.get("minX")), 0.0)
+    min_y = _clamp_normalized(value.get("min_y", value.get("minY")), 0.0)
+    max_x = _clamp_normalized(value.get("max_x", value.get("maxX")), 1.0)
+    max_y = _clamp_normalized(value.get("max_y", value.get("maxY")), 1.0)
+
+    if max_x <= min_x or max_y <= min_y:
+        raise RuntimeError("burn_annotation requires bounds where max values are greater than min values")
+
+    return {
+        "min_x": min_x,
+        "min_y": min_y,
+        "max_x": max_x,
+        "max_y": max_y,
+    }
+
+
+def _parse_annotation_points(value) -> list[tuple[float, float]]:
+    if not isinstance(value, list):
+        return []
+
+    points: list[tuple[float, float]] = []
+    for entry in value:
+        if not isinstance(entry, dict):
+            continue
+        points.append(
+            (
+                _clamp_normalized(entry.get("x"), 0.0),
+                _clamp_normalized(entry.get("y"), 0.0),
+            )
+        )
+    return points
+
+
+def _normalized_point_to_pixels(point: tuple[float, float], width: int, height: int) -> tuple[int, int]:
+    x = int(round(point[0] * max(width - 1, 1)))
+    y = int(round(point[1] * max(height - 1, 1)))
+    return x, y
+
+
+def _resolve_annotation_rgba(stroke_color: str, opacity: float) -> tuple[int, int, int, int]:
+    normalized = (stroke_color or "").strip().lower()
+    aliases = {
+        "light-green": "#7CFF6B",
+        "lightgreen": "#7CFF6B",
+        "lime": "#7CFF6B",
+        "neon-green": "#7CFF6B",
+    }
+    color_value = aliases.get(normalized, stroke_color or "#7CFF6B")
+    alpha = int(round(max(0.05, min(1.0, opacity)) * 255))
+    try:
+        rgb = ImageColor.getrgb(color_value)
+    except Exception:
+        rgb = (124, 255, 107)
+
+    if len(rgb) >= 3:
+        return int(rgb[0]), int(rgb[1]), int(rgb[2]), alpha
+
+    return 124, 255, 107, alpha
+
+
+def _render_annotation_overlay_png(
+    kind: str,
+    bounds: dict,
+    points: list[tuple[float, float]],
+    width: int,
+    height: int,
+    stroke_color: str,
+    stroke_width: int,
+    opacity: float,
+) -> str:
+    overlay_path = f"/tmp/{uuid.uuid4().hex}_annotation.png"
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image, "RGBA")
+    color = _resolve_annotation_rgba(stroke_color, opacity)
+
+    left = int(round(bounds["min_x"] * max(width - 1, 1)))
+    top = int(round(bounds["min_y"] * max(height - 1, 1)))
+    right = int(round(bounds["max_x"] * max(width - 1, 1)))
+    bottom = int(round(bounds["max_y"] * max(height - 1, 1)))
+    shape_bounds = [left, top, right, bottom]
+
+    if kind == "circle":
+        draw.ellipse(shape_bounds, outline=color, width=stroke_width)
+    elif kind == "square":
+        draw.rectangle(shape_bounds, outline=color, width=stroke_width)
+    else:
+        pixel_points = [_normalized_point_to_pixels(point, width, height) for point in points]
+        if len(pixel_points) >= 2:
+            draw.line(pixel_points, fill=color, width=stroke_width)
+            radius = max(2, stroke_width // 2)
+            for point_x, point_y in pixel_points:
+                draw.ellipse(
+                    [point_x - radius, point_y - radius, point_x + radius, point_y + radius],
+                    fill=color,
+                )
+        else:
+            radius = max(8, stroke_width * 2)
+            draw.rounded_rectangle(shape_bounds, radius=radius, outline=color, width=stroke_width)
+
+    image.save(overlay_path, format="PNG")
+    return overlay_path
+
+
 def _looks_like_intro_source(source: str | None) -> bool:
     if not source:
         return False
@@ -862,6 +978,124 @@ def _run_add_text_overlay_resilient(args: dict) -> dict:
         "y": y_expr,
         "box": box,
         "boxColor": box_color,
+    }
+    if start_time is not None:
+        response["startTime"] = start_time
+    if end_time is not None:
+        response["endTime"] = end_time
+    return response
+
+
+def _run_burn_annotation_resilient(args: dict) -> dict:
+    input_path = str(args.get("input_path") or "").strip()
+    output_path = str(args.get("output_path") or "").strip()
+    annotation = args.get("annotation") if isinstance(args.get("annotation"), dict) else None
+
+    if not input_path or not output_path:
+        raise RuntimeError("burn_annotation requires input_path and output_path")
+    if not annotation:
+        raise RuntimeError("burn_annotation requires annotation details")
+
+    kind = str(annotation.get("kind") or "freehand").strip().lower() or "freehand"
+    if kind not in {"freehand", "square", "circle"}:
+        raise RuntimeError("burn_annotation requires annotation.kind to be freehand, square, or circle")
+
+    bounds = _parse_annotation_bounds(annotation.get("bounds"))
+    points = _parse_annotation_points(annotation.get("points"))
+    start_time = _time_arg_seconds(args.get("start_time"))
+    end_time = _time_arg_seconds(args.get("end_time"))
+    stroke_color = str(args.get("stroke_color") or "light-green").strip() or "light-green"
+    stroke_width = max(2, int(args.get("stroke_width") or 8))
+    opacity = max(0.1, min(1.0, float(args.get("opacity") or 0.95)))
+
+    if end_time is not None and start_time is not None and end_time <= start_time:
+        raise RuntimeError("burn_annotation requires end_time to be greater than start_time")
+
+    width, height = _probe_video_dimensions(input_path)
+    overlay_path = _render_annotation_overlay_png(
+        kind,
+        bounds,
+        points,
+        width,
+        height,
+        stroke_color,
+        stroke_width,
+        opacity,
+    )
+
+    overlay_filter = "overlay=0:0"
+    if start_time is not None and end_time is not None:
+        overlay_filter += (
+            f":enable='between(t,{_format_seconds(start_time)},{_format_seconds(end_time)})'"
+        )
+    elif start_time is not None:
+        overlay_filter += f":enable='gte(t,{_format_seconds(start_time)})'"
+    elif end_time is not None:
+        overlay_filter += f":enable='lte(t,{_format_seconds(end_time)})'"
+
+    filter_complex = f"[1:v]format=rgba[annotation];[0:v][annotation]{overlay_filter},format=yuv420p[outv]"
+
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-fflags",
+        "+genpts",
+        "-i",
+        input_path,
+        "-loop",
+        "1",
+        "-i",
+        overlay_path,
+        "-filter_complex",
+        filter_complex,
+        "-map",
+        "[outv]",
+        "-map",
+        "0:a?",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "veryfast",
+        "-crf",
+        "23",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "128k",
+        "-ar",
+        "44100",
+        "-ac",
+        "2",
+        "-movflags",
+        "+faststart",
+        "-avoid_negative_ts",
+        "make_zero",
+        "-shortest",
+        output_path,
+    ]
+
+    try:
+        result = subprocess.run(cmd, capture_output=True, timeout=600)
+        if result.returncode != 0:
+            err = result.stderr.decode(errors="replace")[-1200:]
+            raise RuntimeError(f"FFmpeg burn_annotation failed: {err}")
+
+        _assert_valid_video_output(output_path)
+    finally:
+        try:
+            Path(overlay_path).unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    response = {
+        "success": True,
+        "output_path": output_path,
+        "annotationKind": kind,
+        "strokeColor": stroke_color,
+        "strokeWidth": stroke_width,
+        "opacity": opacity,
+        "bounds": bounds,
+        "pointCount": len(points),
     }
     if start_time is not None:
         response["startTime"] = start_time
@@ -1631,6 +1865,50 @@ class FfmpegUrlMiddleware:
                     except Exception:
                         pass
                 print(f"[ffmpeg-mcp] Resilient add_text_overlay failed: {exc}", flush=True)
+                print(traceback.format_exc(), flush=True)
+                err_payload = {
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": f"Error: {exc}"}],
+                        "isError": True,
+                    },
+                }
+                sse = f"event: message\ndata: {json.dumps(err_payload)}\n\n".encode()
+                await send({"type": "http.response.start", "status": 200,
+                            "headers": [(b"content-type", b"text/event-stream"),
+                                         (b"content-length", str(len(sse)).encode())]})
+                await send({"type": "http.response.body", "body": sse, "more_body": False})
+                return
+
+        if tool_name == "burn_annotation":
+            try:
+                payload = _run_burn_annotation_resilient(modified_args)
+                response_body = json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": body.get("id"),
+                    "result": {
+                        "content": [{"type": "text", "text": json.dumps(payload)}],
+                    },
+                }).encode()
+                final_body = _postprocess_response(response_body, output_map, temp_inputs, body.get("id"))
+                await send({
+                    "type": "http.response.start",
+                    "status": 200,
+                    "headers": [
+                        (b"content-type", b"application/json"),
+                        (b"content-length", str(len(final_body)).encode()),
+                    ],
+                })
+                await send({"type": "http.response.body", "body": final_body, "more_body": False})
+                return
+            except Exception as exc:
+                for tmp in temp_inputs:
+                    try:
+                        Path(tmp).unlink(missing_ok=True)
+                    except Exception:
+                        pass
+                print(f"[ffmpeg-mcp] Resilient burn_annotation failed: {exc}", flush=True)
                 print(traceback.format_exc(), flush=True)
                 err_payload = {
                     "jsonrpc": "2.0",

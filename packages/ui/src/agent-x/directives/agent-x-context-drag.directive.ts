@@ -95,7 +95,8 @@ export class AgentXContextDragDirective {
   }
 
   private applyDragPreview(contexts: readonly AgentXSelectedContext[], event: DragEvent): void {
-    if (contexts.length <= 1 || !event.dataTransfer?.setDragImage) {
+    const dragPreviewCount = this.resolveDragPreviewCount(contexts);
+    if (dragPreviewCount <= 1 || !event.dataTransfer?.setDragImage) {
       this.destroyDragPreview();
       return;
     }
@@ -155,14 +156,13 @@ export class AgentXContextDragDirective {
     header.style.gap = '12px';
 
     const label = this.document.createElement('div');
-    label.textContent =
-      contexts.length === 2 ? '2 selected clips' : `${contexts.length} selected clips`;
+    label.textContent = this.resolveDragPreviewLabel(contexts, dragPreviewCount);
     label.style.fontSize = '13px';
     label.style.fontWeight = '700';
     label.style.letterSpacing = '0.01em';
 
     const badge = this.document.createElement('div');
-    badge.textContent = String(contexts.length);
+    badge.textContent = String(dragPreviewCount);
     badge.style.display = 'inline-flex';
     badge.style.alignItems = 'center';
     badge.style.justifyContent = 'center';
@@ -198,9 +198,9 @@ export class AgentXContextDragDirective {
       summary.appendChild(line);
     }
 
-    if (contexts.length > titles.length) {
+    if (dragPreviewCount > titles.length) {
       const more = this.document.createElement('div');
-      more.textContent = `+${contexts.length - titles.length} more`;
+      more.textContent = `+${dragPreviewCount - titles.length} more`;
       more.style.fontSize = '11px';
       more.style.fontWeight = '600';
       more.style.lineHeight = '1.2';
@@ -217,6 +217,67 @@ export class AgentXContextDragDirective {
     const offsetY = Math.min(24, Math.max(12, hostRect.height * 0.35));
     event.dataTransfer.setDragImage(card, offsetX, offsetY);
     this.dragPreviewElement = preview;
+  }
+
+  private resolveDragPreviewCount(contexts: readonly AgentXSelectedContext[]): number {
+    if (contexts.length > 1) {
+      return contexts.length;
+    }
+
+    const context = contexts[0] ?? null;
+    if (!context) {
+      return 0;
+    }
+
+    if (context.metadata?.['itemType'] !== 'film_review_playlist') {
+      return 1;
+    }
+
+    const rawReviewCount = context.metadata?.['reviewCount'];
+    if (typeof rawReviewCount === 'number' && Number.isFinite(rawReviewCount)) {
+      return Math.max(1, Math.floor(rawReviewCount));
+    }
+
+    if (typeof rawReviewCount === 'string') {
+      const parsed = Number(rawReviewCount);
+      if (Number.isFinite(parsed)) {
+        return Math.max(1, Math.floor(parsed));
+      }
+    }
+
+    return 1;
+  }
+
+  private resolveDragPreviewLabel(
+    contexts: readonly AgentXSelectedContext[],
+    dragPreviewCount: number
+  ): string {
+    const context = contexts[0] ?? null;
+    const playlistContextCount = contexts.filter(
+      (entry) => entry.metadata?.['itemType'] === 'film_review_playlist'
+    ).length;
+    const hasPlaylistContext = playlistContextCount > 0;
+    const hasNonPlaylistContext = contexts.length - playlistContextCount > 0;
+    const isPlaylistPreview =
+      contexts.length === 1 && context?.metadata?.['itemType'] === 'film_review_playlist';
+
+    if (isPlaylistPreview) {
+      return dragPreviewCount === 1
+        ? '1 video in playlist'
+        : `${dragPreviewCount} videos in playlist`;
+    }
+
+    if (hasPlaylistContext && !hasNonPlaylistContext) {
+      return dragPreviewCount === 1
+        ? '1 selected playlist'
+        : `${dragPreviewCount} selected playlists`;
+    }
+
+    if (hasPlaylistContext) {
+      return dragPreviewCount === 1 ? '1 selected item' : `${dragPreviewCount} selected items`;
+    }
+
+    return dragPreviewCount === 2 ? '2 selected clips' : `${dragPreviewCount} selected clips`;
   }
 
   private destroyDragPreview(): void {

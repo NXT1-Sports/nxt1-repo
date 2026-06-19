@@ -5,6 +5,7 @@ import type {
   AgentOperationResult,
   AgentSessionContext,
   AgentToolAccessContext,
+  AgentXSelectedContext,
   AgentUserContext,
 } from '@nxt1/core';
 import type { BaseAgent } from '../agents/base.agent.js';
@@ -115,6 +116,13 @@ export class AgentRouterResumeService {
       typeof (resumeContextObj as Record<string, unknown>)['threadId'] === 'string'
         ? ((resumeContextObj as Record<string, unknown>)['threadId'] as string)
         : undefined;
+    const selectedContexts = Array.isArray(
+      (resumeContextObj as Record<string, unknown>)['selectedContexts']
+    )
+      ? ((resumeContextObj as Record<string, unknown>)[
+          'selectedContexts'
+        ] as readonly AgentXSelectedContext[])
+      : undefined;
 
     let resumeSessionContext: AgentSessionContext | undefined;
     if (this.sessionMemory) {
@@ -141,7 +149,8 @@ export class AgentRouterResumeService {
       undefined,
       undefined,
       undefined,
-      resumeSessionContext?.conversationHistory
+      resumeSessionContext?.conversationHistory,
+      selectedContexts
     );
     const approvalId =
       typeof (resumeContextObj as Record<string, unknown>)['approvalId'] === 'string'

@@ -109,6 +109,77 @@ interface PreparedPlayDiagramEditor {
   readonly tools: MediaViewerDiagramToolsConfig;
 }
 
+type PlaybookAskAgentPromptId =
+  | 'gameday-playbook'
+  | 'suggest-new-plays'
+  | 'install-plan'
+  | 'coaching-points'
+  | 'create-scout-team-playbook'
+  | 'practice-scripts'
+  | 'variations'
+  | 'opening-script'
+  | 'tempo-packages'
+  | 'trick-play-ideas';
+
+type PlaybookAskAgentPromptOption = {
+  readonly id: PlaybookAskAgentPromptId;
+  readonly label: string;
+  readonly hint: string;
+};
+
+const PLAYBOOK_ASK_AGENT_PROMPTS: readonly PlaybookAskAgentPromptOption[] = [
+  {
+    id: 'gameday-playbook',
+    label: 'Gameday Playbook',
+    hint: 'Build a game-ready call package and sequencing plan.',
+  },
+  {
+    id: 'suggest-new-plays',
+    label: 'Suggest New Plays',
+    hint: 'Identify scheme gaps and recommend additions.',
+  },
+  {
+    id: 'install-plan',
+    label: 'Install Plan',
+    hint: 'Create install-to-rep-to-game-ready progression.',
+  },
+  {
+    id: 'coaching-points',
+    label: 'Coaching Points',
+    hint: 'Generate coaching points, busts, and correction cues.',
+  },
+  {
+    id: 'create-scout-team-playbook',
+    label: 'Create Scout Team Playbook',
+    hint: 'Build scout-team script from opponent tendencies.',
+  },
+  {
+    id: 'practice-scripts',
+    label: 'Practice Scripts',
+    hint: 'Turn selected concepts into period-by-period script.',
+  },
+  {
+    id: 'variations',
+    label: 'Variations',
+    hint: 'Generate formation, motion, and personnel variants.',
+  },
+  {
+    id: 'opening-script',
+    label: 'Opening Script',
+    hint: 'Build first 10-15 calls with setup logic.',
+  },
+  {
+    id: 'tempo-packages',
+    label: 'Tempo Packages',
+    hint: 'Create normal, fast, and emergency tempo menus.',
+  },
+  {
+    id: 'trick-play-ideas',
+    label: 'Trick Play Ideas',
+    hint: 'Suggest high-leverage wrinkles that fit this system.',
+  },
+] as const;
+
 @Component({
   selector: 'nxt1-agent-x-playbooks-panel',
   standalone: true,
@@ -363,6 +434,42 @@ interface PreparedPlayDiagramEditor {
                       </svg>
                       Upload
                     </button>
+                    <div class="callsheet-saved-card__menu-anchor">
+                      <button
+                        type="button"
+                        class="btn-add-play"
+                        aria-label="Ask Agent X about this playbook"
+                        [attr.aria-expanded]="isPlaybookAskAgentMenuOpen()"
+                        aria-haspopup="menu"
+                        (click)="onTogglePlaybookAskAgentMenu($event)"
+                      >
+                        Ask Agent
+                      </button>
+
+                      @if (isPlaybookAskAgentMenuOpen()) {
+                        <div
+                          class="film-list-item__menu-backdrop"
+                          (click)="closePlaybookAskAgentMenu()"
+                        ></div>
+                        <div
+                          class="film-list-item__menu callsheet-saved-card__menu"
+                          role="menu"
+                          aria-label="Playbook ask agent actions"
+                          (click)="$event.stopPropagation()"
+                        >
+                          @for (option of playbookAskAgentPromptOptions; track option.id) {
+                            <button
+                              type="button"
+                              class="film-list-item__menu-action"
+                              role="menuitem"
+                              (click)="onPlaybookAskAgentPromptSelect(option.id, $event)"
+                            >
+                              <span>{{ option.label }}</span>
+                            </button>
+                          }
+                        </div>
+                      }
+                    </div>
                     <button type="button" class="btn-add-play" (click)="startAddPlay()">
                       Add Play
                     </button>
@@ -4811,6 +4918,8 @@ export class AgentXPlaybooksPanelComponent {
   protected readonly activePlaybookTab = signal<'plays' | 'install' | 'callsheet' | 'play-script'>(
     'plays'
   );
+  protected readonly isPlaybookAskAgentMenuVisible = signal(false);
+  protected readonly playbookAskAgentPromptOptions = PLAYBOOK_ASK_AGENT_PROMPTS;
   protected readonly deletingPlayIndex = signal<number | null>(null);
   protected readonly savingPlay = signal(false);
 
@@ -5036,6 +5145,7 @@ export class AgentXPlaybooksPanelComponent {
     this.callsheetPendingRemovalPlayName.set(null);
     this.collapsedCallsheetGroupIds.set(new Set());
     this.activeCallsheetGroupMenuId.set(null);
+    this.isPlaybookAskAgentMenuVisible.set(false);
     this.practiceScripts.set([]);
     this.practiceScriptsLoading.set(false);
     this.selectedPracticeScriptId.set(null);
@@ -6114,6 +6224,84 @@ li + li { margin-top: 2px; }
     });
 
     this.agentX.queueStartupMessage(prompt);
+  }
+
+  protected isPlaybookAskAgentMenuOpen(): boolean {
+    return this.isPlaybookAskAgentMenuVisible();
+  }
+
+  protected onTogglePlaybookAskAgentMenu(event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+    this.isPlaybookAskAgentMenuVisible.update((open) => !open);
+  }
+
+  protected closePlaybookAskAgentMenu(): void {
+    this.isPlaybookAskAgentMenuVisible.set(false);
+  }
+
+  protected onPlaybookAskAgentPromptSelect(promptId: PlaybookAskAgentPromptId, event: Event): void {
+    event.stopPropagation();
+    event.preventDefault();
+
+    const playbook = this.selectedPlaybook();
+    if (!playbook?.id || !playbook.teamId) {
+      this.closePlaybookAskAgentMenu();
+      return;
+    }
+
+    const prompt = this.buildPlaybookAskAgentPrompt(playbook, promptId);
+    this.logger.info('Starting ask-agent prompt from playbooks panel', {
+      playbookId: playbook.id,
+      teamId: playbook.teamId,
+      sport: playbook.sport,
+      promptId,
+    });
+    this.breadcrumb.trackStateChange('agent-x:playbooks:ask-agent-prompt', {
+      status: 'chat-started',
+      playbookId: playbook.id,
+      promptId,
+    });
+    this.analytics?.trackEvent(APP_EVENTS.AGENT_X_PLAYBOOK_ACTION_EXECUTED, {
+      action: `playbook_ask_agent_${promptId}`,
+      teamId: playbook.teamId,
+      playbookId: playbook.id,
+      sport: playbook.sport,
+    });
+
+    this.agentX.queueStartupMessage(prompt);
+    this.closePlaybookAskAgentMenu();
+  }
+
+  private buildPlaybookAskAgentPrompt(
+    playbook: PlaybookDetail,
+    promptId: PlaybookAskAgentPromptId
+  ): string {
+    const playbookName = (playbook.title || playbook.name || 'this playbook').trim();
+    const context = `${playbookName} (${playbook.sport})`;
+
+    switch (promptId) {
+      case 'gameday-playbook':
+        return `Build a gameday playbook from ${context}. Create priority calls, sequencing logic, and fallback counters for key situations.`;
+      case 'suggest-new-plays':
+        return `Suggest new plays for ${context}. Identify current gaps, then recommend additions with fit rationale.`;
+      case 'install-plan':
+        return `Create an install plan for ${context}. Organize from install to rep to game-ready with coaching emphasis by phase.`;
+      case 'coaching-points':
+        return `Generate coaching points for ${context}. Include common busts, correction cues, and position-group emphasis.`;
+      case 'create-scout-team-playbook':
+        return `Create a scout team playbook from ${context}. Mirror opponent tendencies and produce a practice-ready scout script.`;
+      case 'practice-scripts':
+        return `Build practice scripts from ${context}. Output period-by-period structure with reps, call focus, and coaching notes.`;
+      case 'variations':
+        return `Create variations for ${context}. Provide formation, motion, and personnel variants while preserving core teaching.`;
+      case 'opening-script':
+        return `Build an opening script from ${context}. Give first 10-15 calls and explain what each call is setting up.`;
+      case 'tempo-packages':
+        return `Create tempo packages for ${context}. Provide normal, fast, and emergency tempo menus with situational guidance.`;
+      case 'trick-play-ideas':
+        return `Suggest trick play ideas for ${context}. Keep them realistic, high-leverage, and aligned with our identity.`;
+    }
   }
 
   protected startCreateCallsheetChat(): void {

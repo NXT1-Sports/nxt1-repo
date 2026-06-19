@@ -31,6 +31,7 @@ import type {
   AgentSessionMessage,
   AgentRetrievedMemories,
   AgentToolAccessContext,
+  AgentXSelectedContext,
   AgentUserContext,
 } from '@nxt1/core';
 import type { OpenRouterService } from './llm/openrouter.service.js';
@@ -435,6 +436,13 @@ export class AgentRouter {
           thumbnailUrl?: string;
         }[])
       : undefined;
+    const selectedContexts = Array.isArray(
+      (contextObj as Record<string, unknown>)['selectedContexts']
+    )
+      ? ((contextObj as Record<string, unknown>)[
+          'selectedContexts'
+        ] as readonly AgentXSelectedContext[])
+      : undefined;
 
     let sessionContext: AgentSessionContext | undefined;
     if (this.sessionMemory) {
@@ -509,7 +517,8 @@ export class AgentRouter {
       mode,
       attachments,
       videoAttachments,
-      canonicalHistory
+      canonicalHistory,
+      selectedContexts
     );
 
     if (this.sessionMemory && threadId) {
@@ -803,7 +812,8 @@ export class AgentRouter {
       readonly readyToStream?: boolean;
       readonly thumbnailUrl?: string;
     }[],
-    conversationHistory?: readonly AgentSessionMessage[]
+    conversationHistory?: readonly AgentSessionMessage[],
+    selectedContexts?: readonly AgentXSelectedContext[]
   ): AgentSessionContext {
     return this.routerContextService.buildSessionContext(
       userId,
@@ -817,7 +827,8 @@ export class AgentRouter {
       mode,
       attachments,
       videoAttachments,
-      conversationHistory
+      conversationHistory,
+      selectedContexts
     );
   }
 

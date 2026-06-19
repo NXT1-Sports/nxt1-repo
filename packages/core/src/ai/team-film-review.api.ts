@@ -9,7 +9,9 @@
 import type { HttpAdapter } from '../api/http-adapter';
 import type {
   TeamFilmReviewAnnotation,
+  TeamFilmReviewDownloadExport,
   TeamFilmReviewDoc,
+  TeamFilmReviewPlaylistDoc,
   TeamFilmReviewPlaySegment,
   TeamFilmReviewSourceVideo,
   TeamFilmReviewTimelineTag,
@@ -32,6 +34,35 @@ export interface ListTeamFilmReviewsRequest {
 export interface ListTeamFilmReviewsResponse {
   readonly filmReviews: readonly TeamFilmReviewDoc[];
   readonly count: number;
+}
+
+export interface ListFilmReviewPlaylistsRequest {
+  readonly teamId: string;
+}
+
+export interface ListFilmReviewPlaylistsResponse {
+  readonly playlists: readonly TeamFilmReviewPlaylistDoc[];
+  readonly count: number;
+}
+
+export interface CreateFilmReviewPlaylistRequest {
+  readonly id?: string;
+  readonly teamId: string;
+  readonly name: string;
+  readonly parentId?: string | null;
+  readonly sortOrder?: number;
+}
+
+export interface UpdateFilmReviewPlaylistRequest {
+  readonly name?: string;
+  readonly parentId?: string | null;
+  readonly sortOrder?: number;
+}
+
+export interface DeleteFilmReviewPlaylistResponse {
+  readonly message: string;
+  readonly unassignedReviewCount?: number;
+  readonly reparentedChildCount?: number;
 }
 
 export interface CreateTeamFilmReviewRequest {
@@ -114,6 +145,11 @@ export interface ImportFilmReviewBreakdownResponse {
   readonly warnings: readonly string[];
 }
 
+export interface RequestFilmReviewDownloadExportResponse {
+  readonly exportState?: TeamFilmReviewDownloadExport;
+  readonly downloadUrl?: string;
+}
+
 function buildQuery(params: Record<string, string | number | boolean | undefined>): string {
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
@@ -134,6 +170,7 @@ function ensureSuccess<T>(response: ApiResponse<T>, fallbackMessage: string): T 
 
 export function createTeamFilmReviewApi(http: HttpAdapter, baseUrl: string) {
   const endpoint = `${baseUrl}/film-reviews`;
+  const playlistsEndpoint = `${baseUrl}/film-review-playlists`;
 
   return {
     async listFilmReviewsPage(
@@ -156,6 +193,50 @@ export function createTeamFilmReviewApi(http: HttpAdapter, baseUrl: string) {
       request: ListTeamFilmReviewsRequest = {}
     ): Promise<readonly TeamFilmReviewDoc[]> {
       return (await this.listFilmReviewsPage(request)).filmReviews;
+    },
+
+    async listPlaylistsPage(
+      request: ListFilmReviewPlaylistsRequest
+    ): Promise<ListFilmReviewPlaylistsResponse> {
+      const query = buildQuery({ teamId: request.teamId });
+      const response = await http.get<ApiResponse<ListFilmReviewPlaylistsResponse>>(
+        `${playlistsEndpoint}${query}`
+      );
+      return ensureSuccess(response, 'Failed to load film review playlists');
+    },
+
+    async listPlaylists(
+      request: ListFilmReviewPlaylistsRequest
+    ): Promise<readonly TeamFilmReviewPlaylistDoc[]> {
+      return (await this.listPlaylistsPage(request)).playlists;
+    },
+
+    async createPlaylist(
+      request: CreateFilmReviewPlaylistRequest
+    ): Promise<TeamFilmReviewPlaylistDoc> {
+      const response = await http.post<ApiResponse<{ playlist: TeamFilmReviewPlaylistDoc }>>(
+        playlistsEndpoint,
+        request
+      );
+      return ensureSuccess(response, 'Failed to create film review playlist').playlist;
+    },
+
+    async updatePlaylist(
+      playlistId: string,
+      request: UpdateFilmReviewPlaylistRequest
+    ): Promise<TeamFilmReviewPlaylistDoc> {
+      const response = await http.patch<ApiResponse<{ playlist: TeamFilmReviewPlaylistDoc }>>(
+        `${playlistsEndpoint}/${encodeURIComponent(playlistId)}`,
+        request
+      );
+      return ensureSuccess(response, 'Failed to update film review playlist').playlist;
+    },
+
+    async deletePlaylist(playlistId: string): Promise<DeleteFilmReviewPlaylistResponse> {
+      const response = await http.delete<ApiResponse<DeleteFilmReviewPlaylistResponse>>(
+        `${playlistsEndpoint}/${encodeURIComponent(playlistId)}`
+      );
+      return ensureSuccess(response, 'Failed to delete film review playlist');
     },
 
     async getFilmReview(reviewId: string, teamId?: string): Promise<TeamFilmReviewDoc> {
@@ -244,6 +325,16 @@ export function createTeamFilmReviewApi(http: HttpAdapter, baseUrl: string) {
         requestBody
       );
       return ensureSuccess(response, 'Failed to import film review breakdown');
+    },
+
+    async requestDownloadExport(
+      reviewId: string
+    ): Promise<RequestFilmReviewDownloadExportResponse> {
+      const response = await http.post<ApiResponse<RequestFilmReviewDownloadExportResponse>>(
+        `${endpoint}/${encodeURIComponent(reviewId)}/download-export`,
+        {}
+      );
+      return ensureSuccess(response, 'Failed to prepare film review download export');
     },
   } as const;
 }

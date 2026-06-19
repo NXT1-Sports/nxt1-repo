@@ -24,6 +24,7 @@ import type {
   AgentSessionContext,
   AgentOperationResult,
   AgentToolCallRecord,
+  AgentXSelectedContext,
   AgentXToolStepIcon,
   GameAnalysisParams,
   ModelRoutingConfig,
@@ -255,6 +256,7 @@ export interface ToolSessionContext {
   readonly operationId?: string;
   readonly environment?: 'staging' | 'production';
   readonly appBaseUrl?: string;
+  readonly selectedContexts?: readonly AgentXSelectedContext[];
   readonly approvalId?: string;
   readonly allowedToolNames?: readonly string[];
   readonly allowedEntityGroups?: readonly AgentToolEntityGroup[];
@@ -1187,6 +1189,7 @@ export abstract class BaseAgent {
       operationId: context.operationId,
       ...(context.environment && { environment: context.environment }),
       ...(context.appBaseUrl && { appBaseUrl: context.appBaseUrl }),
+      ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
       ...(approvalId ? { approvalId } : {}),
       ...(yieldState.reason === 'needs_approval' && yieldState.pendingToolCall
         ? {
@@ -1864,6 +1867,7 @@ export abstract class BaseAgent {
         threadId: context.threadId,
         operationId: context.operationId,
         ...(context.appBaseUrl ? { appBaseUrl: context.appBaseUrl } : {}),
+        ...(context.selectedContexts?.length ? { selectedContexts: context.selectedContexts } : {}),
         allowedToolNames: effectiveExecutionAllowlist,
         allowedEntityGroups,
       };
@@ -3334,10 +3338,11 @@ export abstract class BaseAgent {
       input,
       currentMessages,
     });
-    this.sanitizeDrawnContextAnalyzeImageInput({
+    this.hydrateDrawnContextBurnAnnotationInput({
       toolName,
       input,
       currentMessages,
+      sessionContext,
     });
 
     if (this.id === 'router' && toolName === 'open_live_view') {
@@ -3404,7 +3409,7 @@ export abstract class BaseAgent {
       currentMessages,
     });
     if (drawnContextPolicy.shouldBlock) {
-      logger.warn('[BaseAgent] Blocked analyze_video before image grounding', {
+      logger.warn('[BaseAgent] Blocked drawn-context film tool before annotation burn', {
         agentId: this.id,
         toolName,
         reason: drawnContextPolicy.reason,
@@ -3691,7 +3696,10 @@ export abstract class BaseAgent {
     currentMessages?: readonly LLMMessage[];
     conversationHistory?: readonly LLMMessage[];
   }): { shouldBlock: boolean; reason: string } {
-    if (this.id !== 'performance_coordinator' || params.toolName !== 'analyze_video') {
+    if (
+      this.id !== 'performance_coordinator' ||
+      (params.toolName !== 'analyze_video' && params.toolName !== 'analyze_image')
+    ) {
       return { shouldBlock: false, reason: '' };
     }
 
@@ -3711,6 +3719,14 @@ export abstract class BaseAgent {
       return { shouldBlock: false, reason: '' };
     }
 
+    if (params.toolName === 'analyze_image') {
+      return {
+        shouldBlock: true,
+        reason:
+          'Drawn-context film review no longer uses analyze_image. Burn the structured annotation into the clip with ffmpeg_burn_annotation first, then run analyze_video on the annotated video.',
+      };
+    }
+
     const toolNameByCallId = new Map<string, string>();
     for (const message of messagePool) {
       if (message.role !== 'assistant' || !message.tool_calls?.length) continue;
@@ -3719,8 +3735,8 @@ export abstract class BaseAgent {
       }
     }
 
-    let hasImageGroundingSuccess = false;
-    let hasImageGroundingFailure = false;
+    let hasAnnotationBurnSuccess = false;
+    let hasAnnotationBurnFailure = false;
     let hasPriorAnalyzeVideoGuardBlock = false;
 
     for (const message of messagePool) {
@@ -3729,8 +3745,7 @@ export abstract class BaseAgent {
         ? toolNameByCallId.get(message.tool_call_id)
         : undefined;
       if (
-        calledToolName !== 'analyze_image' &&
-        calledToolName !== 'ffmpeg_generate_thumbnail' &&
+        calledToolName !== 'ffmpeg_burn_annotation' &&
         calledToolName !== 'stage_media' &&
         calledToolName !== 'analyze_video'
       ) {
@@ -3740,19 +3755,9 @@ export abstract class BaseAgent {
       try {
         const payload = JSON.parse(message.content) as Record<string, unknown>;
         if (payload['success'] === true) {
-          if (calledToolName === 'analyze_image') {
-            hasImageGroundingSuccess = true;
+          if (calledToolName === 'ffmpeg_burn_annotation') {
+            hasAnnotationBurnSuccess = true;
             continue;
-          }
-          const data =
-            payload['data'] && typeof payload['data'] === 'object'
-              ? (payload['data'] as Record<string, unknown>)
-              : null;
-          if (
-            data &&
-            (typeof data['cropImageUrl'] === 'string' || typeof data['imageUrl'] === 'string')
-          ) {
-            hasImageGroundingSuccess = true;
           }
           continue;
         }
@@ -3767,14 +3772,16 @@ export abstract class BaseAgent {
               hasPriorAnalyzeVideoGuardBlock = true;
             }
           }
-          hasImageGroundingFailure = true;
+          if (calledToolName === 'ffmpeg_burn_annotation') {
+            hasAnnotationBurnFailure = true;
+          }
         }
       } catch {
         continue;
       }
     }
 
-    if (hasImageGroundingSuccess) {
+    if (hasAnnotationBurnSuccess) {
       return { shouldBlock: false, reason: '' };
     }
 
@@ -3782,13 +3789,13 @@ export abstract class BaseAgent {
       return {
         shouldBlock: true,
         reason:
-          'Analyze_video is already blocked for this turn because the selected clip is annotated. Do not retry analyze_video until image grounding succeeds (analyze_image on annotated frame, or ffmpeg_generate_thumbnail + analyze_image).',
+          'Analyze_video is already blocked for this turn because the selected clip is annotated. Do not retry analyze_video until ffmpeg_burn_annotation succeeds and returns an annotated clip URL.',
       };
     }
 
-    const reason = hasImageGroundingFailure
-      ? 'Cannot run motion video analysis for a circled play until marked-frame image grounding succeeds. First resolve the still-frame step (analyze_image on the annotated full frame, or ffmpeg_generate_thumbnail + analyze_image), then continue.'
-      : 'Circled play detected. Run image grounding first (analyze_image on the annotated full frame, or ffmpeg_generate_thumbnail + analyze_image) before analyze_video.';
+    const reason = hasAnnotationBurnFailure
+      ? 'Cannot run motion video analysis for a circled play until ffmpeg_burn_annotation succeeds. First burn the selected-context drawing into the clip, then continue with analyze_video on that annotated output.'
+      : 'Circled play detected. Burn the selected-context drawing into the clip with ffmpeg_burn_annotation before analyze_video.';
     return { shouldBlock: true, reason };
   }
 
@@ -3816,12 +3823,13 @@ export abstract class BaseAgent {
     });
   }
 
-  private sanitizeDrawnContextAnalyzeImageInput(params: {
+  private hydrateDrawnContextBurnAnnotationInput(params: {
     toolName: string;
     input: Record<string, unknown>;
     currentMessages?: readonly LLMMessage[];
+    sessionContext?: ToolSessionContext;
   }): void {
-    if (this.id !== 'performance_coordinator' || params.toolName !== 'analyze_image') {
+    if (this.id !== 'performance_coordinator' || params.toolName !== 'ffmpeg_burn_annotation') {
       return;
     }
 
@@ -3829,44 +3837,288 @@ export abstract class BaseAgent {
       return;
     }
 
-    const rawPrompt = params.input['prompt'];
-    if (typeof rawPrompt !== 'string' || rawPrompt.trim().length === 0) {
+    const selectedContextExtracted = this.extractDrawnContextAnnotationDetailsFromSelectedContexts(
+      params.sessionContext
+    );
+
+    if (this.hasStructuredAnnotationInput(params.input)) {
+      if (selectedContextExtracted) {
+        // Selected-context annotation is the canonical geometry from the UI.
+        // Override model-provided structured values to prevent drift.
+        params.input['annotation'] = selectedContextExtracted.annotation;
+        if (selectedContextExtracted.strokeColor) {
+          params.input['strokeColor'] = selectedContextExtracted.strokeColor;
+        }
+        if (selectedContextExtracted.startTime !== undefined) {
+          params.input['startTime'] = selectedContextExtracted.startTime;
+        }
+        if (selectedContextExtracted.endTime !== undefined) {
+          params.input['endTime'] = selectedContextExtracted.endTime;
+        }
+      }
+
+      if (params.input['annotationDebugId'] === undefined && selectedContextExtracted?.debugId) {
+        params.input['annotationDebugId'] = selectedContextExtracted.debugId;
+      }
+      if (params.input['drawBounds'] === undefined && selectedContextExtracted?.drawBounds) {
+        params.input['drawBounds'] = selectedContextExtracted.drawBounds;
+      }
+      if (
+        params.input['renderedDrawBounds'] === undefined &&
+        selectedContextExtracted?.renderedDrawBounds
+      ) {
+        params.input['renderedDrawBounds'] = selectedContextExtracted.renderedDrawBounds;
+      }
+      if (params.input['strokeColor'] === undefined && selectedContextExtracted?.strokeColor) {
+        params.input['strokeColor'] = selectedContextExtracted.strokeColor;
+      }
+      if (
+        params.input['startTime'] === undefined &&
+        selectedContextExtracted?.startTime !== undefined
+      ) {
+        params.input['startTime'] = selectedContextExtracted.startTime;
+      }
+      if (
+        params.input['endTime'] === undefined &&
+        selectedContextExtracted?.endTime !== undefined
+      ) {
+        params.input['endTime'] = selectedContextExtracted.endTime;
+      }
+
+      logger.info('[BaseAgent] Using structured ffmpeg_burn_annotation input', {
+        agentId: this.id,
+        toolName: params.toolName,
+        hydrationSource: selectedContextExtracted
+          ? 'structured+selected_context_override'
+          : 'structured_input',
+        debugId: selectedContextExtracted?.debugId,
+        drawBounds: selectedContextExtracted?.drawBounds,
+        renderedDrawBounds: selectedContextExtracted?.renderedDrawBounds,
+      });
       return;
     }
 
-    const sanitizedPrompt = this.normalizeDrawnContextImagePrompt(rawPrompt);
-    if (sanitizedPrompt === rawPrompt) {
+    const extracted =
+      selectedContextExtracted ?? this.extractDrawnContextAnnotationDetails(params.currentMessages);
+    if (!extracted) {
       return;
     }
 
-    params.input['prompt'] = sanitizedPrompt;
-    logger.info('[BaseAgent] Sanitized analyze_image prompt for drawn-context grounding', {
+    params.input['annotation'] = extracted.annotation;
+    if (params.input['startTime'] === undefined && extracted.startTime !== undefined) {
+      params.input['startTime'] = extracted.startTime;
+    }
+    if (params.input['endTime'] === undefined && extracted.endTime !== undefined) {
+      params.input['endTime'] = extracted.endTime;
+    }
+    if (params.input['strokeColor'] === undefined && extracted.strokeColor) {
+      params.input['strokeColor'] = extracted.strokeColor;
+    }
+    if (params.input['annotationDebugId'] === undefined && extracted.debugId) {
+      params.input['annotationDebugId'] = extracted.debugId;
+    }
+    if (params.input['drawBounds'] === undefined && extracted.drawBounds) {
+      params.input['drawBounds'] = extracted.drawBounds;
+    }
+    if (params.input['renderedDrawBounds'] === undefined && extracted.renderedDrawBounds) {
+      params.input['renderedDrawBounds'] = extracted.renderedDrawBounds;
+    }
+
+    logger.info('[BaseAgent] Hydrated ffmpeg_burn_annotation input from drawn context', {
       agentId: this.id,
       toolName: params.toolName,
+      hydrationSource: selectedContextExtracted ? 'selected_context' : 'message_context',
+      annotationKind: extracted.annotation.kind,
+      hasPoints: Array.isArray(extracted.annotation.points),
+      startTime: extracted.startTime,
+      endTime: extracted.endTime,
+      debugId: extracted.debugId,
+      drawBounds: extracted.drawBounds,
+      renderedDrawBounds: extracted.renderedDrawBounds,
     });
   }
 
-  private normalizeDrawnContextImagePrompt(prompt: string): string {
-    const withoutCropLanguage = prompt
-      .replace(/\bcropped\s+(?:video\s+)?frame\b/giu, 'annotated full-frame image')
-      .replace(/\bcropped\s+frame\b/giu, 'annotated full-frame image')
-      .replace(/\bcrop(?:ped|ping)?\b/giu, 'marked-region');
+  private extractDrawnContextAnnotationDetailsFromSelectedContexts(
+    sessionContext?: ToolSessionContext
+  ): {
+    annotation: {
+      kind: 'freehand' | 'square' | 'circle';
+      bounds: {
+        minX: number;
+        minY: number;
+        maxX: number;
+        maxY: number;
+      };
+      strokeCount: number;
+      points?: Array<{ x: number; y: number }>;
+    };
+    startTime?: number;
+    endTime?: number;
+    strokeColor?: string;
+    debugId?: string;
+    drawBounds?: string;
+    renderedDrawBounds?: string;
+  } | null {
+    const selectedContext = [...(sessionContext?.selectedContexts ?? [])]
+      .reverse()
+      .find((context) => context.kind === 'film_play' && context.annotation);
+    if (!selectedContext?.annotation) {
+      return null;
+    }
 
-    const sportPattern =
-      /\b(?:football|basketball|baseball|softball|soccer|lacrosse|volleyball|hockey|rugby|tennis|golf|swimming|track|cross-country|wrestling|boxing|mma|combat|cricket|field\s+hockey|water\s+polo)\b/giu;
-    const withoutSportWords = withoutCropLanguage
-      .replace(sportPattern, ' ')
-      .replace(/\b(?:game|play|film|frame)\b/giu, (match) => match)
-      .replace(/\s{2,}/gu, ' ')
-      .replace(/\s+([,.!?;:])/gu, '$1')
-      .trim();
+    const metadata = selectedContext.metadata ?? {};
+    const annotation = selectedContext.annotation;
+    const strokeColor =
+      typeof metadata['annotationStrokeColorHex'] === 'string' &&
+      metadata['annotationStrokeColorHex'].trim().length > 0
+        ? metadata['annotationStrokeColorHex'].trim()
+        : typeof metadata['annotationStrokeColor'] === 'string' &&
+            metadata['annotationStrokeColor'].trim().length > 0
+          ? metadata['annotationStrokeColor'].trim()
+          : undefined;
 
-    const normalized = withoutSportWords;
-    const guardrail =
-      ' Focus on the user-drawn light-green marking in the full frame and identify only what is inside it. Do not infer or name a sport.';
-    return normalized.includes('Do not infer or name a sport')
-      ? normalized
-      : `${normalized}${guardrail}`;
+    return {
+      annotation: {
+        kind: annotation.kind,
+        bounds: {
+          minX: annotation.bounds.minX,
+          minY: annotation.bounds.minY,
+          maxX: annotation.bounds.maxX,
+          maxY: annotation.bounds.maxY,
+        },
+        strokeCount: annotation.strokeCount,
+        ...(annotation.points?.length
+          ? {
+              points: annotation.points.map((point) => ({
+                x: point.x,
+                y: point.y,
+              })),
+            }
+          : {}),
+      },
+      startTime:
+        selectedContext.timeRange && Number.isFinite(selectedContext.timeRange.startSec)
+          ? selectedContext.timeRange.startSec
+          : undefined,
+      endTime:
+        selectedContext.timeRange && Number.isFinite(selectedContext.timeRange.endSec)
+          ? selectedContext.timeRange.endSec
+          : undefined,
+      strokeColor,
+      debugId:
+        typeof metadata['annotationDebugId'] === 'string' &&
+        metadata['annotationDebugId'].trim().length > 0
+          ? metadata['annotationDebugId'].trim()
+          : undefined,
+      drawBounds:
+        typeof metadata['drawBounds'] === 'string' && metadata['drawBounds'].trim().length > 0
+          ? metadata['drawBounds'].trim()
+          : undefined,
+      renderedDrawBounds:
+        typeof metadata['renderedDrawBounds'] === 'string' &&
+        metadata['renderedDrawBounds'].trim().length > 0
+          ? metadata['renderedDrawBounds'].trim()
+          : undefined,
+    };
+  }
+
+  private hasStructuredAnnotationInput(input: Record<string, unknown>): boolean {
+    const annotation = input['annotation'];
+    return Boolean(annotation && typeof annotation === 'object' && !Array.isArray(annotation));
+  }
+
+  private extractDrawnContextAnnotationDetails(messages?: readonly LLMMessage[]): {
+    annotation: {
+      kind: 'freehand' | 'square' | 'circle';
+      bounds: {
+        minX: number;
+        minY: number;
+        maxX: number;
+        maxY: number;
+      };
+      strokeCount: number;
+      points?: Array<{ x: number; y: number }>;
+    };
+    startTime?: number;
+    endTime?: number;
+    strokeColor?: string;
+    debugId?: string;
+    drawBounds?: string;
+    renderedDrawBounds?: string;
+  } | null {
+    const selectedContextSegments = (messages ?? []).flatMap((message) => {
+      if (message.role !== 'user' || typeof message.content !== 'string') {
+        return [];
+      }
+
+      return this.extractSelectedContextSegments(message.content);
+    });
+
+    if (selectedContextSegments.length === 0) {
+      return null;
+    }
+
+    const joinedSegments = selectedContextSegments.join('\n');
+    const annotationMatch = joinedSegments.match(
+      /User drawing annotation:\s*(freehand|square|circle),\s*(\d+)\s+stroke\(s\),\s*video-frame normalized bounds x=([0-9.]+)-([0-9.]+),\s*y=([0-9.]+)-([0-9.]+)/iu
+    );
+    if (!annotationMatch) {
+      return null;
+    }
+
+    const [, kindRaw, strokeCountRaw, minXRaw, maxXRaw, minYRaw, maxYRaw] = annotationMatch;
+    const kind = kindRaw.toLowerCase() as 'freehand' | 'square' | 'circle';
+    const strokeCount = Number.parseInt(strokeCountRaw, 10);
+    const minX = Number.parseFloat(minXRaw);
+    const maxX = Number.parseFloat(maxXRaw);
+    const minY = Number.parseFloat(minYRaw);
+    const maxY = Number.parseFloat(maxYRaw);
+
+    if (
+      !Number.isFinite(strokeCount) ||
+      !Number.isFinite(minX) ||
+      !Number.isFinite(maxX) ||
+      !Number.isFinite(minY) ||
+      !Number.isFinite(maxY)
+    ) {
+      return null;
+    }
+
+    const pointsMatch = joinedSegments.match(/Normalized path points:\s*([^\n]+)/iu);
+    const points = pointsMatch
+      ? pointsMatch[1]
+          .split('|')
+          .map((entry) => entry.trim().replace(/\.$/u, ''))
+          .map((entry) => {
+            const [xRaw, yRaw] = entry.split(',').map((value) => Number.parseFloat(value.trim()));
+            return Number.isFinite(xRaw) && Number.isFinite(yRaw) ? { x: xRaw, y: yRaw } : null;
+          })
+          .filter((entry): entry is { x: number; y: number } => entry !== null)
+      : undefined;
+
+    const timeRangeMatch = joinedSegments.match(/@\s*([0-9.]+)s-([0-9.]+)s/iu);
+    const startTime = timeRangeMatch ? Number.parseFloat(timeRangeMatch[1]) : undefined;
+    const endTime = timeRangeMatch ? Number.parseFloat(timeRangeMatch[2]) : undefined;
+
+    const strokeColorMatch = joinedSegments.match(/user-drawn\s+([a-z-]+)\s+marking/iu);
+    const strokeColor = strokeColorMatch?.[1]?.trim();
+
+    return {
+      annotation: {
+        kind,
+        bounds: {
+          minX,
+          minY,
+          maxX,
+          maxY,
+        },
+        strokeCount,
+        ...(points && points.length > 0 ? { points } : {}),
+      },
+      ...(Number.isFinite(startTime) ? { startTime } : {}),
+      ...(Number.isFinite(endTime) ? { endTime } : {}),
+      ...(strokeColor ? { strokeColor } : {}),
+    };
   }
 
   private hasDrawnFilmContext(messages?: readonly LLMMessage[]): boolean {

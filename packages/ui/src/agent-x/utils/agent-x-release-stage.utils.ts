@@ -9,7 +9,7 @@ export type AgentXReleaseSurface =
   | 'generatedPlays';
 
 // Flip this single value to move all covered Agent X surfaces out of beta.
-const DEFAULT_AGENT_X_RELEASE_STAGE: AgentXReleaseStage = 'beta';
+const DEFAULT_AGENT_X_RELEASE_STAGE: AgentXReleaseStage = 'stable';
 
 const AGENT_X_RELEASE_STAGE_OVERRIDES: Readonly<
   Partial<Record<AgentXReleaseSurface, AgentXReleaseStage>>

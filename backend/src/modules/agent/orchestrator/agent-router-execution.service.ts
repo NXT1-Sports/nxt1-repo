@@ -169,6 +169,7 @@ const TOOL_COMPANION_MAP: Readonly<Record<string, readonly string[]>> = {
     'ffmpeg_trim_video',
     'ffmpeg_merge_videos',
     'ffmpeg_generate_thumbnail',
+    'ffmpeg_burn_annotation',
     'ffmpeg_add_text_overlay',
     'ffmpeg_burn_subtitles',
   ],

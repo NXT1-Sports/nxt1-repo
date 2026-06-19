@@ -5,6 +5,7 @@ import type {
   AgentSessionContext,
   AgentSessionMessage,
   AgentTask,
+  AgentXSelectedContext,
   AgentUserContext,
 } from '@nxt1/core';
 import type { ContextBuilder } from '../memory/context-builder.js';
@@ -362,13 +363,15 @@ export class AgentRouterContextService {
       readonly readyToStream?: boolean;
       readonly thumbnailUrl?: string;
     }[],
-    conversationHistory?: readonly AgentSessionMessage[]
+    conversationHistory?: readonly AgentSessionMessage[],
+    selectedContexts?: readonly AgentXSelectedContext[]
   ): AgentSessionContext {
     const now = new Date().toISOString();
     return {
       sessionId: sessionId ?? randomUUID(),
       userId,
       conversationHistory: conversationHistory ?? [],
+      ...(selectedContexts?.length ? { selectedContexts } : {}),
       createdAt: now,
       lastActiveAt: now,
       ...(environment && { environment }),

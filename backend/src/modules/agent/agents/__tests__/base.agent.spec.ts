@@ -272,6 +272,32 @@ class FakePerformanceAgent extends BaseAgent {
       currentMessages
     );
   }
+
+  callHydrateDrawnContextBurnAnnotationInput(
+    input: Record<string, unknown>,
+    currentMessages: readonly LLMMessage[],
+    sessionContext?: {
+      selectedContexts?: readonly import('@nxt1/core').AgentXSelectedContext[];
+    }
+  ): void {
+    (
+      this as unknown as {
+        hydrateDrawnContextBurnAnnotationInput: (params: {
+          toolName: string;
+          input: Record<string, unknown>;
+          currentMessages?: readonly LLMMessage[];
+          sessionContext?: {
+            selectedContexts?: readonly import('@nxt1/core').AgentXSelectedContext[];
+          };
+        }) => void;
+      }
+    ).hydrateDrawnContextBurnAnnotationInput({
+      toolName: 'ffmpeg_burn_annotation',
+      input,
+      currentMessages,
+      sessionContext,
+    });
+  }
 }
 
 class FakeAnalyzeVideoTool extends BaseTool {
@@ -291,6 +317,44 @@ class FakeAnalyzeVideoTool extends BaseTool {
       success: true,
       data: {
         analysis: 'ok',
+      },
+    };
+  }
+}
+
+class FakeBurnAnnotationTool extends BaseTool {
+  readonly name = 'ffmpeg_burn_annotation';
+  readonly description = 'Burns an annotation into a video clip.';
+  readonly parameters = z.object({
+    inputPath: z.string().min(1),
+    annotation: z.object({
+      kind: z.enum(['freehand', 'square', 'circle']),
+      bounds: z.object({
+        minX: z.number(),
+        minY: z.number(),
+        maxX: z.number(),
+        maxY: z.number(),
+      }),
+      strokeCount: z.number(),
+      points: z.array(z.object({ x: z.number(), y: z.number() })).optional(),
+    }),
+    startTime: z.number().optional(),
+    endTime: z.number().optional(),
+    strokeColor: z.string().optional(),
+  });
+  readonly isMutation = true;
+  readonly category = 'media' as const;
+  readonly entityGroup = 'user_tools' as const;
+  override readonly allowedAgents = ['performance_coordinator'] as const;
+
+  receivedInput: Record<string, unknown> | null = null;
+
+  async execute(input: Record<string, unknown>): Promise<ToolResult> {
+    this.receivedInput = input;
+    return {
+      success: true,
+      data: {
+        videoUrl: 'https://cdn.example.com/annotated-clip.mp4',
       },
     };
   }
@@ -1184,7 +1248,7 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
-  it('blocks analyze_video until image grounding succeeds for drawn-context film requests', async () => {
+  it('blocks analyze_video until annotation burn succeeds for drawn-context film requests', async () => {
     const agent = new FakePerformanceAgent();
     const registry = new ToolRegistry();
     const analyzeVideoTool = new FakeAnalyzeVideoTool();
@@ -1201,10 +1265,10 @@ describe('BaseAgent identifier scrubbing', () => {
         content: null,
         tool_calls: [
           {
-            id: 'thumb_1',
+            id: 'burn_1',
             type: 'function',
             function: {
-              name: 'ffmpeg_generate_thumbnail',
+              name: 'ffmpeg_burn_annotation',
               arguments: '{}',
             },
           },
@@ -1212,10 +1276,10 @@ describe('BaseAgent identifier scrubbing', () => {
       },
       {
         role: 'tool',
-        tool_call_id: 'thumb_1',
+        tool_call_id: 'burn_1',
         content: JSON.stringify({
           success: false,
-          error: 'Failed to download input URL: HTTP Error 400: Bad Request',
+          error: 'FFmpeg burn_annotation failed: could not render overlay image',
         }),
       },
     ];
@@ -1243,6 +1307,77 @@ describe('BaseAgent identifier scrubbing', () => {
       expect.objectContaining({
         success: false,
         error: expect.stringContaining('Cannot run motion video analysis for a circled play'),
+      })
+    );
+  });
+
+  it('hydrates ffmpeg_burn_annotation input from selected-context annotation metadata', () => {
+    const agent = new FakePerformanceAgent();
+
+    const currentMessages: LLMMessage[] = [
+      {
+        role: 'user',
+        content:
+          '[Selected contexts (confirmed by user for this turn):\n' +
+          '1. film_play (State Championship Cutup): Fourth Quarter @ 01:12 @ 72s-78s — Boundary throw with drawn route — User drawing annotation: freehand, 2 stroke(s), video-frame normalized bounds x=0.1-0.5, y=0.2-0.7, centered in the center-left of the video frame. Marked-frame timestamp: 74.25s; use this exact timestamp when generating fallback still frames instead of the play start. A flattened annotated full-frame image attachment named "fourth-quarter-annotated-7200.jpg" is included with this turn; treat it as a visual reference only. Use the structured annotation bounds/points as the source of truth when burning the user-drawn light-green marking directly into the clip for seamless video analysis. Normalized path points: 0.1,0.2 | 0.5,0.7.\n' +
+          ']\n' +
+          '[Instruction: prioritize these contexts while reasoning and cite their timestamps when relevant. If a selected context includes a drawing annotation, treat the annotation coordinates as the user-selected area even if the raw video frame does not visibly contain the overlay.]',
+      },
+    ];
+
+    const input: Record<string, unknown> = {
+      inputPath: 'https://cdn.example.com/source.mov',
+    };
+
+    agent.callHydrateDrawnContextBurnAnnotationInput(input, currentMessages, {
+      selectedContexts: [
+        {
+          id: 'film-play-1',
+          kind: 'film_play',
+          title: 'State Championship Cutup',
+          timeRange: { startSec: 72, endSec: 78 },
+          annotation: {
+            kind: 'freehand',
+            strokeCount: 2,
+            bounds: {
+              minX: 0.1,
+              minY: 0.2,
+              maxX: 0.5,
+              maxY: 0.7,
+            },
+            points: [
+              { x: 0.1, y: 0.2 },
+              { x: 0.5, y: 0.7 },
+            ],
+          },
+          metadata: {
+            annotationStrokeColor: 'light-green',
+            annotationStrokeColorHex: '#ccff00',
+          },
+        },
+      ],
+    });
+
+    expect(input).toEqual(
+      expect.objectContaining({
+        inputPath: 'https://cdn.example.com/source.mov',
+        startTime: 72,
+        endTime: 78,
+        strokeColor: '#ccff00',
+        annotation: expect.objectContaining({
+          kind: 'freehand',
+          strokeCount: 2,
+          bounds: {
+            minX: 0.1,
+            minY: 0.2,
+            maxX: 0.5,
+            maxY: 0.7,
+          },
+          points: [
+            { x: 0.1, y: 0.2 },
+            { x: 0.5, y: 0.7 },
+          ],
+        }),
       })
     );
   });

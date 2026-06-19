@@ -1,5 +1,14 @@
 import { test, expect } from '../../fixtures';
+import type { GetDiagramAssetResponse, ListDiagramAssetsResponse } from '@nxt1/core/ai';
 import { TEST_IDS } from '@nxt1/core/testing';
+
+type DiagramListApiResponse =
+  | { success: true; data: ListDiagramAssetsResponse }
+  | { success: false; error: string };
+
+type DiagramDetailApiResponse =
+  | { success: true; data: GetDiagramAssetResponse }
+  | { success: false; error: string };
 
 const MOCK_DIAGRAM_LAYOUT = {
   sport: 'football',
@@ -41,7 +50,7 @@ const MOCK_DASHBOARD_RESPONSE = {
   },
 };
 
-const MOCK_DIAGRAMS_RESPONSE = {
+const MOCK_DIAGRAMS_RESPONSE: DiagramListApiResponse = {
   success: true,
   data: {
     diagrams: [
@@ -62,7 +71,7 @@ const MOCK_DIAGRAMS_RESPONSE = {
   },
 };
 
-const MOCK_DIAGRAM_DETAIL_RESPONSE = {
+const MOCK_DIAGRAM_DETAIL_RESPONSE: DiagramDetailApiResponse = {
   success: true,
   data: {
     diagram: {
@@ -74,8 +83,8 @@ const MOCK_DIAGRAM_DETAIL_RESPONSE = {
 
 async function mockAgentX(
   page: import('@playwright/test').Page,
-  diagramsResponse = MOCK_DIAGRAMS_RESPONSE,
-  diagramDetailResponse = MOCK_DIAGRAM_DETAIL_RESPONSE
+  diagramsResponse: DiagramListApiResponse = MOCK_DIAGRAMS_RESPONSE,
+  diagramDetailResponse: DiagramDetailApiResponse = MOCK_DIAGRAM_DETAIL_RESPONSE
 ) {
   await page.route('**/agent-x/dashboard', (route) =>
     route.fulfill({

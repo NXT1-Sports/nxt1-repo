@@ -46,6 +46,7 @@
     "@stripe/stripe-js": "^9.7.0",
     "dompurify": "^3.4.10",
     "hls.js": "^1.6.16",
+    "jszip": "^3.10.1",
     "marked": "^18.0.5",
     "zod": "^4.4.3"
   },

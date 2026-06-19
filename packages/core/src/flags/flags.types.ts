@@ -84,7 +84,8 @@ export type AiFlagKey =
 export type UiFlagKey =
   | 'ui.mobile.new.nav.enabled'
   | 'ui.web.redesign.phase2.enabled'
-  | 'ui.animations.reduced.motion.default.enabled';
+  | 'ui.animations.reduced.motion.default.enabled'
+  | 'ui.film.review.draw.tool.enabled';
 
 /** Billing flags */
 export type BillingFlagKey = 'billing.stripe.enabled';

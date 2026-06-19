@@ -223,8 +223,7 @@ function formatAnnotationInstruction(context: AgentXSelectedContext): string {
   const markedFrameTimestamp = formatMarkedFrameTimestampInstruction(context.metadata);
   const snapshotInstruction = formatAnnotationSnapshotInstruction(context.metadata);
   const pointSample = annotation.points?.length
-    ? ` Sampled normalized path points: ${annotation.points
-        .slice(0, 12)
+    ? ` Normalized path points: ${annotation.points
         .map((point) => `${point.x},${point.y}`)
         .join(' | ')}.`
     : '';
@@ -264,7 +263,7 @@ function formatAnnotationSnapshotInstruction(
       : 'light-green';
   const attachmentLabel = attachmentName ? ` named "${attachmentName}"` : '';
 
-  return ` A flattened annotated full-frame image attachment${attachmentLabel} is included with this turn; use that image as the primary visual reference. First locate the user-drawn ${strokeColor} marking, then identify exactly what is inside that marked region before using the video timestamp for motion context.`;
+  return ` A flattened annotated full-frame image attachment${attachmentLabel} is included with this turn; treat it as a visual reference only. Use the structured annotation bounds/points as the source of truth when burning the user-drawn ${strokeColor} marking directly into the clip for seamless video analysis.`;
 }
 
 function annotationFromLegacyMetadata(

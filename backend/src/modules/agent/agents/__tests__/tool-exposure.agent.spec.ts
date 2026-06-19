@@ -179,15 +179,31 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).not.toContain('write_intel');
     expect(agent.getAvailableTools()).toContain('analyze_video');
     expect(agent.getAvailableTools()).toContain('analyze_image');
+    expect(agent.getAvailableTools()).toContain('ffmpeg_burn_annotation');
     expect(agent.getAvailableTools()).toContain('ffmpeg_generate_thumbnail');
     expect(agent.getAvailableTools()).toContain('recommend_learning_videos');
     expect(agent.getAvailableTools()).toContain('get_video_details');
     expect(agent.getAvailableTools()).toContain('call_apify_actor');
     expect(agent.getAvailableTools()).toContain('stage_media');
     expect(agent.getAvailableTools()).toContain('list_film_reviews');
+    expect(agent.getAvailableTools()).toContain('list_film_review_playlists');
+    expect(agent.getAvailableTools()).toContain('list_film_review_sources');
+    expect(agent.getAvailableTools()).toContain('get_film_review_source_breakdown');
+    expect(agent.getAvailableTools()).toContain('update_film_review_source_breakdown');
+    expect(agent.getAvailableTools()).toContain('delete_film_review_source_breakdown');
     expect(agent.getAvailableTools()).toContain('get_film_review');
     expect(agent.getAvailableTools()).toContain('save_film_review');
     expect(agent.getAvailableTools()).toContain('update_film_review');
+    expect(agent.getAvailableTools()).toContain('add_film_review_source');
+    expect(agent.getAvailableTools()).toContain('update_film_review_source');
+    expect(agent.getAvailableTools()).toContain('delete_film_review_source');
+    expect(agent.getAvailableTools()).toContain('extract_film_review_clips');
+    expect(agent.getAvailableTools()).toContain('extract_film_review_clips');
+    expect(agent.getAvailableTools()).toContain('move_film_review_to_playlist');
+    expect(agent.getAvailableTools()).toContain('move_film_review_to_playlist');
+    expect(agent.getAvailableTools()).toContain('create_film_review_playlist');
+    expect(agent.getAvailableTools()).toContain('update_film_review_playlist');
+    expect(agent.getAvailableTools()).toContain('delete_film_review_playlist');
     expect(agent.getAvailableTools()).toContain('add_film_review_annotation');
     expect(agent.getAvailableTools()).toContain('import_video');
     expect(agent.getAvailableTools()).toContain('clip_video');
@@ -195,31 +211,20 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('write_athlete_videos');
   });
 
-  it('guides still-frame image grounding before video for drawn film-review context', () => {
+  it('guides annotation burn before video for drawn film-review context', () => {
     const agent = new PerformanceCoordinatorAgent();
     const prompt = agent.getSystemPrompt(context);
 
-    expect(prompt).toContain('Drawn-context requests are image-first');
-    expect(prompt).toContain(
-      'call `ffmpeg_generate_thumbnail` on the clip/video URL BEFORE any video analysis'
-    );
-    expect(prompt).toContain('Then call `analyze_image` on the returned `imageUrl`');
-    expect(prompt).toContain('find the user-drawn light-green annotation stroke/circle first');
-    expect(prompt).toContain('do NOT go straight to `analyze_video`');
-    expect(prompt).toContain('marked-frame timestamp/currentTimeSec');
-    expect(prompt).toContain('otherwise use the midpoint of the play window');
-    expect(prompt).not.toContain(
-      'pass `cropBounds` from the video-frame normalized annotation bounds'
-    );
-    expect(prompt).toContain('A generated FFmpeg thumbnail is a raw video frame');
-    expect(prompt).toContain(
-      'Use the resolved sport context from the thread/request for every image prompt'
-    );
-    expect(prompt).toContain('Never inject a sport that is not explicitly resolved in context');
-    expect(prompt).toContain(
-      'Never claim a jersey color, number, position, or identity unless it is visible inside the marked bounds'
-    );
-    expect(prompt).toContain('video-frame normalized bounds');
+    expect(prompt).toContain('Drawn-context requests are annotation-burn-first');
+    expect(prompt).toContain('Call `ffmpeg_burn_annotation` before any video analysis.');
+    expect(prompt).toContain('then call `analyze_video` on the annotated clip');
+    expect(prompt).toContain('selected-context annotation geometry is the source of truth');
+    expect(prompt).toContain('`annotation.bounds`, and `annotation.points`');
+    expect(prompt).toContain('Do NOT start with `analyze_image` for drawn-context film review');
+    expect(prompt).toContain('Do NOT revert to the old `analyze_image` + `analyze_video` chain');
+    expect(prompt).toContain('shared film-review tag schema for that sport');
+    expect(prompt).toContain('Do not invent football-only keys like `odk`, `down`, or `distance`');
+    expect(prompt).toContain('returned `sportTagSchemaKey` and `sportTagSchema`');
   });
 
   it('exposes college database and workspace tooling to recruiting coordinator', () => {
@@ -261,10 +266,14 @@ describe('Agent tool exposure regressions', () => {
     expect(agent.getAvailableTools()).toContain('delete_practice_script');
     expect(agent.getAvailableTools()).toContain('generate_practice_script');
     expect(agent.getAvailableTools()).toContain('list_film_reviews');
+    expect(agent.getAvailableTools()).toContain('list_film_review_playlists');
     expect(agent.getAvailableTools()).toContain('get_film_review');
     expect(agent.getAvailableTools()).toContain('save_film_review');
     expect(agent.getAvailableTools()).toContain('update_film_review');
     expect(agent.getAvailableTools()).toContain('delete_film_review');
+    expect(agent.getAvailableTools()).toContain('create_film_review_playlist');
+    expect(agent.getAvailableTools()).toContain('update_film_review_playlist');
+    expect(agent.getAvailableTools()).toContain('delete_film_review_playlist');
     expect(agent.getAvailableTools()).toContain('refresh_film_review_ai');
     expect(agent.getAvailableTools()).toContain('analyze_video');
     expect(agent.getAvailableTools()).toContain('recommend_learning_videos');
@@ -307,6 +316,14 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('import_video');
     expect(prompt).toContain('timeRange');
     expect(prompt).toContain('batch up to 5');
+    expect(prompt).toContain(
+      'never claim the film-review breakdown table was updated unless you actually call `update_film_review_source_breakdown` or `update_film_review` with explicit `timeline` rows'
+    );
+    expect(prompt).toContain('update_film_review_source_breakdown');
+    expect(prompt).toContain('delete_film_review_source_breakdown');
+    expect(prompt).toContain('shared film-review tag schema for that sport');
+    expect(prompt).toContain('Do not invent football-only keys like `odk`, `down`, or `distance`');
+    expect(prompt).toContain('returned `sportTagSchemaKey` and `sportTagSchema`');
   });
 
   it('exposes live-view extraction tools in the effective runtime policy for film coordinators', () => {
@@ -321,6 +338,8 @@ describe('Agent tool exposure regressions', () => {
     expect(performanceTools).toContain('stage_media');
     expect(performanceTools).toContain('save_film_review');
     expect(performanceTools).toContain('update_film_review');
+    expect(performanceTools).toContain('update_film_review_source_breakdown');
+    expect(performanceTools).toContain('delete_film_review_source_breakdown');
 
     expect(strategyTools).toContain('open_live_view');
     expect(strategyTools).toContain('capture_live_view_screenshot');
@@ -330,6 +349,8 @@ describe('Agent tool exposure regressions', () => {
     expect(strategyTools).toContain('stage_media');
     expect(strategyTools).toContain('save_film_review');
     expect(strategyTools).toContain('update_film_review');
+    expect(strategyTools).toContain('update_film_review_source_breakdown');
+    expect(strategyTools).toContain('delete_film_review_source_breakdown');
   });
 
   it('exposes Microsoft 365 system wrappers in effective policy for all coordinators', () => {

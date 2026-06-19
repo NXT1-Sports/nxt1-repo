@@ -8,6 +8,7 @@ import request from 'supertest';
 import app, {
   __getMockFirestoreWrites,
   __getMockFirestoreDocument,
+  __getMockStorageDeletes,
   __resetMockFirestore,
   __seedMockFirestoreDocument,
 } from '../../test-app.js';
@@ -362,6 +363,98 @@ describe('Agent X Routes', () => {
     expect(annotateRes.status).toBe(200);
   });
 
+  it('should delete all linked film review media assets through the route', async () => {
+    process.env['CLOUDFLARE_ACCOUNT_ID'] = 'acct-test';
+    process.env['CLOUDFLARE_API_TOKEN'] = 'token-test';
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({}),
+      })
+    );
+
+    __seedMockFirestoreDocument('Teams/team-1', {
+      ownerId: 'test-user',
+      createdBy: 'test-user',
+    });
+
+    __seedMockFirestoreDocument('TeamFilmReviews/fr-1', {
+      id: 'fr-1',
+      teamId: 'team-1',
+      sport: 'football',
+      title: 'Week 4 Film',
+      status: 'ready',
+      videoUrl: 'https://storage.googleapis.com/test-bucket/Teams/team-1/library/main.mp4?sig=1',
+      source: 'agent_x',
+      schemaVersion: 1,
+      createdBy: 'test-user',
+      updatedBy: 'test-user',
+      createdAt: '2026-06-18T00:00:00.000Z',
+      updatedAt: '2026-06-18T00:00:00.000Z',
+      cloudflareVideoId: 'cf-main',
+      storagePath: 'Teams/team-1/library/main.mp4',
+      sources: [
+        {
+          id: 'source-1',
+          order: 0,
+          videoUrl: 'https://watch.cloudflarestream.com/cf-main',
+          cloudflareVideoId: 'cf-main',
+          storagePath: 'Teams/team-1/library/main.mp4',
+        },
+        {
+          id: 'source-2',
+          order: 1,
+          videoUrl:
+            'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Teams%2Fteam-1%2Flibrary%2Fclip-2.mp4?alt=media&token=abc',
+          cloudflareVideoId: 'cf-clip-2',
+        },
+      ],
+      breakdownSource: {
+        provider: 'csv',
+        fileName: 'week-4.csv',
+        mimeType: 'text/csv',
+        storagePath: 'Teams/team-1/library/breakdowns/week-4.csv',
+        rowCount: 12,
+        playCount: 10,
+        importedBy: 'test-user',
+        importedAt: '2026-06-18T00:00:00.000Z',
+      },
+    });
+
+    const response = await request(app)
+      .delete('/api/v1/agent-x/film-reviews/fr-1')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(__getMockFirestoreDocument('TeamFilmReviews/fr-1')).toBeUndefined();
+
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map((call) => String(call[0]))).toEqual([
+      'https://api.cloudflare.com/client/v4/accounts/acct-test/stream/cf-main',
+      'https://api.cloudflare.com/client/v4/accounts/acct-test/stream/cf-clip-2',
+    ]);
+
+    expect(__getMockStorageDeletes()).toEqual([
+      {
+        path: 'Teams/team-1/library/main.mp4',
+        options: { ignoreNotFound: true },
+      },
+      {
+        path: 'Teams/team-1/library/clip-2.mp4',
+        options: { ignoreNotFound: true },
+      },
+      {
+        path: 'Teams/team-1/library/breakdowns/week-4.csv',
+        options: { ignoreNotFound: true },
+      },
+    ]);
+  });
+
   it('should export a valid Express router', () => {
     expectExpressRouter(
       router,
@@ -371,6 +464,7 @@ describe('Agent X Routes', () => {
         { path: '/history', method: 'get' },
         { path: '/operations-log', method: 'get' },
         { path: '/dashboard', method: 'get' },
+        { path: '/film-reviews/:filmReviewId', method: 'delete' },
         { path: '/threads', method: 'get' },
       ],
       5

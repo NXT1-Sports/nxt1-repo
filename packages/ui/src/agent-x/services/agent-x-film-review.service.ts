@@ -4,11 +4,16 @@ import { firstValueFrom } from 'rxjs';
 import {
   createTeamFilmReviewApi,
   type AddFilmReviewAnnotationRequest,
+  type CreateFilmReviewPlaylistRequest,
   type CreateTeamFilmReviewRequest,
+  type DeleteFilmReviewPlaylistResponse,
   type ImportFilmReviewBreakdownResponse,
+  type RequestFilmReviewDownloadExportResponse,
   type TeamFilmReviewDoc,
+  type TeamFilmReviewPlaylistDoc,
   type TeamFilmReviewPlayAnnotation,
   type TeamFilmReviewPlaySegment,
+  type UpdateFilmReviewPlaylistRequest,
   type UpdateTeamFilmReviewRequest,
 } from '@nxt1/core';
 import { APP_EVENTS } from '@nxt1/core/analytics';
@@ -46,6 +51,7 @@ export class AgentXFilmReviewService {
   );
 
   private readonly _reviews = signal<readonly TeamFilmReviewDoc[]>([]);
+  private readonly _playlists = signal<readonly TeamFilmReviewPlaylistDoc[]>([]);
   private readonly _totalReviewCount = signal(0);
   private readonly _selectedId = signal<string | null>(null);
   private readonly _loading = signal(false);
@@ -55,6 +61,7 @@ export class AgentXFilmReviewService {
   private readonly detailRequests = new Map<string, Promise<void>>();
 
   readonly reviews = computed(() => this._reviews());
+  readonly playlists = computed(() => this._playlists());
   readonly totalReviewCount = computed(() => this._totalReviewCount());
   readonly selectedId = computed(() => this._selectedId());
   readonly loading = computed(() => this._loading());
@@ -148,6 +155,45 @@ export class AgentXFilmReviewService {
 
     const primaryIdentity = this.buildFilmReviewSourceIdentity(reviewOrRequest);
     return primaryIdentity ? [primaryIdentity] : [];
+  }
+
+  private sortPlaylists(
+    playlists: readonly TeamFilmReviewPlaylistDoc[]
+  ): readonly TeamFilmReviewPlaylistDoc[] {
+    return [...playlists].sort((left, right) => {
+      const leftOrder =
+        typeof left.sortOrder === 'number' ? left.sortOrder : Number.MAX_SAFE_INTEGER;
+      const rightOrder =
+        typeof right.sortOrder === 'number' ? right.sortOrder : Number.MAX_SAFE_INTEGER;
+
+      if (leftOrder !== rightOrder) {
+        return leftOrder - rightOrder;
+      }
+
+      return left.name.localeCompare(right.name) || left.id.localeCompare(right.id);
+    });
+  }
+
+  private upsertPlaylist(playlist: TeamFilmReviewPlaylistDoc): void {
+    this._playlists.update((playlists) =>
+      this.sortPlaylists([...playlists.filter((existing) => existing.id !== playlist.id), playlist])
+    );
+  }
+
+  private updateReviewDownloadExportState(
+    reviewId: string,
+    exportState: TeamFilmReviewDoc['downloadExport'] | undefined
+  ): void {
+    this._reviews.update((reviews) =>
+      reviews.map((review) =>
+        review.id === reviewId
+          ? {
+              ...review,
+              ...(exportState ? { downloadExport: exportState } : {}),
+            }
+          : review
+      )
+    );
   }
 
   async createFromVideo(request: CreateTeamFilmReviewRequest): Promise<TeamFilmReviewDoc> {
@@ -296,7 +342,7 @@ export class AgentXFilmReviewService {
     this.breadcrumb.trackStateChange('film_review_loading', { teamId, sport: sport ?? null });
 
     try {
-      const response =
+      const [response, playlistResponse] = await Promise.all([
         (await this.performance?.trace(
           TRACE_NAMES.FILM_REVIEW_LIST,
           () => this.api.listFilmReviewsPage({ teamId, sport, limit }),
@@ -306,11 +352,14 @@ export class AgentXFilmReviewService {
               sport: sport ?? 'all',
             },
           }
-        )) ?? (await this.api.listFilmReviewsPage({ teamId, sport, limit }));
+        )) ?? (await this.api.listFilmReviewsPage({ teamId, sport, limit })),
+        this.api.listPlaylistsPage({ teamId }),
+      ]);
 
       const reviews = response.filmReviews;
 
       this._reviews.set(reviews.map((review) => this.normalizeReviewTimelineError(review)));
+      this._playlists.set(this.sortPlaylists(playlistResponse.playlists));
       this._totalReviewCount.set(response.count);
       this.hydratedReviewIds.clear();
 
@@ -330,6 +379,153 @@ export class AgentXFilmReviewService {
       this.logger.error('Failed to load film reviews', err, { teamId, sport });
     } finally {
       this._loading.set(false);
+    }
+  }
+
+  async createPlaylistFolder(
+    request: CreateFilmReviewPlaylistRequest
+  ): Promise<TeamFilmReviewPlaylistDoc> {
+    this._saving.set(true);
+    this._error.set(null);
+
+    try {
+      const created =
+        (await this.performance?.trace(
+          TRACE_NAMES.FILM_REVIEW_CREATE,
+          () => this.api.createPlaylist(request),
+          {
+            attributes: {
+              team_id: request.teamId,
+              operation: 'playlist_create',
+              playlist_id: request.id ?? 'generated',
+            },
+          }
+        )) ?? (await this.api.createPlaylist(request));
+
+      this.upsertPlaylist(created);
+      this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_CREATED, {
+        team_id: request.teamId,
+        playlist_id: created.id,
+        created_kind: 'playlist',
+      });
+      this.breadcrumb.trackStateChange('film_review_playlist_created', {
+        teamId: request.teamId,
+        playlistId: created.id,
+        parentId: created.parentId ?? null,
+      });
+      this.logger.info('Film review playlist created', {
+        teamId: request.teamId,
+        playlistId: created.id,
+        parentId: created.parentId ?? null,
+      });
+
+      return created;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create film review playlist';
+      this._error.set(message);
+      this.logger.error('Failed to create film review playlist', err, {
+        teamId: request.teamId,
+        playlistId: request.id ?? null,
+      });
+      throw err;
+    } finally {
+      this._saving.set(false);
+    }
+  }
+
+  async updatePlaylistFolder(
+    playlistId: string,
+    request: UpdateFilmReviewPlaylistRequest
+  ): Promise<TeamFilmReviewPlaylistDoc> {
+    this._saving.set(true);
+    this._error.set(null);
+
+    try {
+      const updated =
+        (await this.performance?.trace(
+          TRACE_NAMES.FILM_REVIEW_UPDATE,
+          () => this.api.updatePlaylist(playlistId, request),
+          {
+            attributes: {
+              playlist_id: playlistId,
+              operation: 'playlist_update',
+            },
+          }
+        )) ?? (await this.api.updatePlaylist(playlistId, request));
+
+      this.upsertPlaylist(updated);
+      this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_UPDATED, {
+        playlist_id: playlistId,
+        fields_updated: 'playlist_folder',
+      });
+      this.breadcrumb.trackStateChange('film_review_playlist_updated', {
+        playlistId,
+        parentId: updated.parentId ?? null,
+      });
+      this.logger.info('Film review playlist updated', {
+        playlistId,
+        parentId: updated.parentId ?? null,
+      });
+
+      return updated;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to update film review playlist';
+      this._error.set(message);
+      this.logger.error('Failed to update film review playlist', err, {
+        playlistId,
+      });
+      throw err;
+    } finally {
+      this._saving.set(false);
+    }
+  }
+
+  async deletePlaylistFolder(playlistId: string): Promise<DeleteFilmReviewPlaylistResponse> {
+    this._saving.set(true);
+    this._error.set(null);
+
+    try {
+      const result =
+        (await this.performance?.trace(
+          TRACE_NAMES.FILM_REVIEW_DELETE,
+          () => this.api.deletePlaylist(playlistId),
+          {
+            attributes: {
+              playlist_id: playlistId,
+              operation: 'playlist_delete',
+            },
+          }
+        )) ?? (await this.api.deletePlaylist(playlistId));
+
+      this._playlists.update((playlists) =>
+        this.sortPlaylists(playlists.filter((playlist) => playlist.id !== playlistId))
+      );
+      this._reviews.update((reviews) =>
+        reviews.map((review) =>
+          review.playlistId === playlistId
+            ? { ...review, playlistId: null, playlistName: null }
+            : review
+        )
+      );
+
+      this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_ARCHIVED, {
+        playlist_id: playlistId,
+        archived_kind: 'playlist',
+      });
+      this.breadcrumb.trackStateChange('film_review_playlist_deleted', { playlistId });
+      this.logger.info('Film review playlist deleted', {
+        playlistId,
+        unassignedReviewCount: result.unassignedReviewCount ?? 0,
+      });
+
+      return result;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to delete film review playlist';
+      this._error.set(message);
+      this.logger.error('Failed to delete film review playlist', err, { playlistId });
+      throw err;
+    } finally {
+      this._saving.set(false);
     }
   }
 
@@ -377,6 +573,59 @@ export class AgentXFilmReviewService {
 
     this.detailRequests.set(reviewId, request);
     await request;
+  }
+
+  async requestDownloadExport(reviewId: string): Promise<RequestFilmReviewDownloadExportResponse> {
+    this._error.set(null);
+
+    try {
+      const result =
+        (await this.performance?.trace(
+          TRACE_NAMES.FILM_REVIEW_DOWNLOAD_EXPORT,
+          () => this.api.requestDownloadExport(reviewId),
+          {
+            attributes: {
+              review_id: reviewId,
+            },
+          }
+        )) ?? (await this.api.requestDownloadExport(reviewId));
+
+      this.updateReviewDownloadExportState(reviewId, result.exportState);
+
+      this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_DOWNLOAD_EXPORT_REQUESTED, {
+        review_id: reviewId,
+        status: result.exportState?.status ?? null,
+      });
+      if (result.exportState?.status === 'ready' && result.downloadUrl) {
+        this.analytics?.trackEvent(APP_EVENTS.FILM_REVIEW_DOWNLOAD_EXPORT_READY, {
+          review_id: reviewId,
+          format: result.exportState.format ?? 'mp4',
+        });
+      }
+
+      this.breadcrumb.trackStateChange('film_review_download_export', {
+        reviewId,
+        status: result.exportState?.status ?? null,
+        percentComplete: result.exportState?.percentComplete ?? null,
+        hasDownloadUrl: !!result.downloadUrl,
+      });
+      this.logger.info('Film review download export status updated', {
+        reviewId,
+        status: result.exportState?.status ?? null,
+        percentComplete: result.exportState?.percentComplete ?? null,
+        hasDownloadUrl: !!result.downloadUrl,
+      });
+
+      return result;
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to prepare film review download export';
+      this._error.set(message);
+      this.logger.error('Failed to prepare film review download export', err, {
+        reviewId,
+      });
+      throw err;
+    }
   }
 
   select(reviewId: string): void {

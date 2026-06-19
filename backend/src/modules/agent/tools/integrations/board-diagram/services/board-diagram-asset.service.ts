@@ -112,12 +112,21 @@ function deserializeAssetFromFirestore(
   data: BoardDiagramAsset | Record<string, unknown>
 ): BoardDiagramAsset {
   const asset = data as BoardDiagramAsset;
+  const fallbackLayout = deserializeLayoutFromFirestore({
+    sport: asset.sport,
+    title: asset.title,
+    fieldWidth: 600,
+    fieldHeight: 440,
+    losY: 280,
+    players: [],
+    routes: [],
+  });
 
   return {
     ...asset,
-    ...(asset.sourceLayout
-      ? { sourceLayout: deserializeLayoutFromFirestore(asset.sourceLayout) }
-      : {}),
+    sourceLayout: asset.sourceLayout
+      ? deserializeLayoutFromFirestore(asset.sourceLayout)
+      : fallbackLayout,
   };
 }
 

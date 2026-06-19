@@ -1482,6 +1482,7 @@ export const FILM_REVIEW_TEST_IDS = {
   LIST_CONTAINER: 'film-review-list-container',
   LIST_ITEM: 'film-review-list-item',
   LIST_ITEM_MENU: 'film-review-list-item-menu',
+  SEARCH_INPUT: 'film-review-search-input',
   PLAYLIST_FILTER: 'film-review-playlist-filter',
   PLAYLIST_GROUP: 'film-review-playlist-group',
   PLAYLIST_CREATE_BUTTON: 'film-review-playlist-create-button',

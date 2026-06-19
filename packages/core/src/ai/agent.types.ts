@@ -369,6 +369,7 @@ export interface AgentSessionContext {
   readonly sessionId: string;
   readonly userId: string;
   readonly conversationHistory: readonly AgentSessionMessage[];
+  readonly selectedContexts?: readonly import('./agent-x-context.types').AgentXSelectedContext[];
   /** Injected context from long-term memory retrieval. */
   readonly retrievedMemories?: readonly AgentMemoryEntry[];
   readonly createdAt: string;

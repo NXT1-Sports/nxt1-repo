@@ -333,6 +333,17 @@ const UI_ANIMATIONS_REDUCED_MOTION_DEFAULT_FLAG: FeatureFlagDefinition<boolean> 
   tags: ['accessibility', 'performance'],
 };
 
+const UI_FILM_REVIEW_DRAW_TOOL_FLAG: FeatureFlagDefinition<boolean> = {
+  key: 'ui.film.review.draw.tool.enabled',
+  title: 'Film Review Draw Tool',
+  description:
+    'Show the draw tool (freehand, square, circle) in the Agent X film review video panel. Disabled by default — enable per-environment via Firestore.',
+  scope: 'ui',
+  type: 'boolean',
+  defaultValue: false,
+  tags: ['ui', 'film-review', 'experimental'],
+};
+
 // ============================================
 // BILLING FLAGS
 // ============================================
@@ -466,6 +477,7 @@ const ALL_FLAGS = {
   'ui.mobile.new.nav.enabled': UI_MOBILE_NEW_NAV_FLAG,
   'ui.web.redesign.phase2.enabled': UI_WEB_REDESIGN_PHASE2_FLAG,
   'ui.animations.reduced.motion.default.enabled': UI_ANIMATIONS_REDUCED_MOTION_DEFAULT_FLAG,
+  'ui.film.review.draw.tool.enabled': UI_FILM_REVIEW_DRAW_TOOL_FLAG,
 
   // Billing
   'billing.stripe.enabled': BILLING_STRIPE_ENABLED_FLAG,
@@ -611,6 +623,7 @@ export const UI_FLAGS = {
   mobileNewNav: UI_MOBILE_NEW_NAV_FLAG,
   webRedesignPhase2: UI_WEB_REDESIGN_PHASE2_FLAG,
   animationsReducedMotionDefault: UI_ANIMATIONS_REDUCED_MOTION_DEFAULT_FLAG,
+  filmReviewDrawTool: UI_FILM_REVIEW_DRAW_TOOL_FLAG,
 } as const;
 
 /** All billing-related feature flags */

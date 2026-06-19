@@ -23,6 +23,10 @@ export type TeamFilmReviewDownloadPrewarmStatus =
   | 'error'
   | 'unknown';
 
+export type TeamFilmReviewDownloadExportStatus = 'queued' | 'processing' | 'ready' | 'error';
+
+export type TeamFilmReviewDownloadExportFormat = 'mp4' | 'zip';
+
 export type TeamFilmReviewPerspective = 'own_team' | 'opponent' | 'neutral';
 
 export type TeamFilmReviewTagCategory =
@@ -60,6 +64,7 @@ export interface TeamFilmReviewSourceVideo {
   readonly id: string;
   readonly order: number;
   readonly videoUrl: string;
+  readonly downloadUrl?: string;
   readonly title?: string;
   readonly storagePath?: string;
   readonly cloudflareVideoId?: string;
@@ -482,10 +487,37 @@ export interface TeamFilmReviewDownloadPrewarm {
   readonly lastError?: string;
 }
 
+export interface TeamFilmReviewDownloadExport {
+  readonly requestedAt?: PortableTimestamp;
+  readonly startedAt?: PortableTimestamp;
+  readonly completedAt?: PortableTimestamp;
+  readonly lastCheckedAt?: PortableTimestamp;
+  readonly status: TeamFilmReviewDownloadExportStatus;
+  readonly percentComplete?: number;
+  readonly format?: TeamFilmReviewDownloadExportFormat;
+  readonly fileName?: string;
+  readonly storagePath?: string;
+  readonly contentType?: string;
+  readonly byteSize?: number;
+  readonly lastError?: string;
+}
+
 export interface TeamFilmReviewTimelineProgress {
   readonly processedWindowCount: number;
   readonly totalWindowCount: number;
   readonly playCount: number;
+  readonly updatedAt: PortableTimestamp;
+}
+
+export interface TeamFilmReviewPlaylistDoc {
+  readonly id: string;
+  readonly teamId: string;
+  readonly name: string;
+  readonly parentId?: string | null;
+  readonly sortOrder?: number;
+  readonly createdBy: string;
+  readonly updatedBy: string;
+  readonly createdAt: PortableTimestamp;
   readonly updatedAt: PortableTimestamp;
 }
 
@@ -531,9 +563,11 @@ export interface TeamFilmReviewDoc {
   /** When timeline was last generated */
   readonly timelineGeneratedAt?: PortableTimestamp;
   /** Error message if timeline generation failed */
-  readonly timelineError?: string;
+  readonly timelineError?: string | null;
   /** Windowed AI generation progress for long full-game timeline jobs */
   readonly timelineProgress?: TeamFilmReviewTimelineProgress | null;
   /** Upload-time Cloudflare MP4 prewarm state for low-latency analysis */
   readonly downloadPrewarm?: TeamFilmReviewDownloadPrewarm;
+  /** Server-side staged export state for large full-game downloads */
+  readonly downloadExport?: TeamFilmReviewDownloadExport;
 }

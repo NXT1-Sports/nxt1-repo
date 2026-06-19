@@ -91,10 +91,23 @@ import {
   UpdateGameplanTool,
   DeleteGameplanTool,
   ListFilmReviewsTool,
+  ListFilmReviewPlaylistsTool,
+  ListFilmReviewSourcesTool,
+  GetFilmReviewSourceBreakdownTool,
+  UpdateFilmReviewSourceBreakdownTool,
+  DeleteFilmReviewSourceBreakdownTool,
   GetFilmReviewTool,
   SaveFilmReviewTool,
   UpdateFilmReviewTool,
   DeleteFilmReviewTool,
+  AddFilmReviewSourceTool,
+  UpdateFilmReviewSourceTool,
+  DeleteFilmReviewSourceTool,
+  ExtractFilmReviewClipsTool,
+  MoveFilmReviewToPlaylistTool,
+  CreateFilmReviewPlaylistTool,
+  UpdateFilmReviewPlaylistTool,
+  DeleteFilmReviewPlaylistTool,
   AddFilmReviewAnnotationTool,
   DeleteFilmReviewAnnotationTool,
   RefreshFilmReviewAiTool,
@@ -201,6 +214,7 @@ import {
   FfmpegTrimVideoTool,
   FfmpegMergeVideosTool,
   FfmpegResizeVideoTool,
+  FfmpegBurnAnnotationTool,
   FfmpegAddTextOverlayTool,
   FfmpegBurnSubtitlesTool,
   FfmpegGenerateThumbnailTool,
@@ -490,10 +504,23 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
   toolRegistry.register(new UpdateGameplanTool(toolFirestore));
   toolRegistry.register(new DeleteGameplanTool(toolFirestore));
   toolRegistry.register(new ListFilmReviewsTool(toolFirestore));
+  toolRegistry.register(new ListFilmReviewPlaylistsTool(toolFirestore));
+  toolRegistry.register(new ListFilmReviewSourcesTool(toolFirestore));
+  toolRegistry.register(new GetFilmReviewSourceBreakdownTool(toolFirestore));
+  toolRegistry.register(new UpdateFilmReviewSourceBreakdownTool(toolFirestore));
+  toolRegistry.register(new DeleteFilmReviewSourceBreakdownTool(toolFirestore));
   toolRegistry.register(new GetFilmReviewTool(toolFirestore));
   toolRegistry.register(new SaveFilmReviewTool(toolFirestore));
   toolRegistry.register(new UpdateFilmReviewTool(toolFirestore));
   toolRegistry.register(new DeleteFilmReviewTool(toolFirestore));
+  toolRegistry.register(new AddFilmReviewSourceTool(toolFirestore));
+  toolRegistry.register(new UpdateFilmReviewSourceTool(toolFirestore));
+  toolRegistry.register(new DeleteFilmReviewSourceTool(toolFirestore));
+  toolRegistry.register(new ExtractFilmReviewClipsTool(toolFirestore));
+  toolRegistry.register(new MoveFilmReviewToPlaylistTool(toolFirestore));
+  toolRegistry.register(new CreateFilmReviewPlaylistTool(toolFirestore));
+  toolRegistry.register(new UpdateFilmReviewPlaylistTool(toolFirestore));
+  toolRegistry.register(new DeleteFilmReviewPlaylistTool(toolFirestore));
   toolRegistry.register(new AddFilmReviewAnnotationTool(toolFirestore));
   toolRegistry.register(new DeleteFilmReviewAnnotationTool(toolFirestore));
   toolRegistry.register(new RefreshFilmReviewAiTool(toolFirestore));
@@ -714,13 +741,14 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     toolRegistry.register(new FfmpegTrimVideoTool(ffmpegBridge));
     toolRegistry.register(new FfmpegMergeVideosTool(ffmpegBridge));
     toolRegistry.register(new FfmpegResizeVideoTool(ffmpegBridge));
+    toolRegistry.register(new FfmpegBurnAnnotationTool(ffmpegBridge));
     toolRegistry.register(new FfmpegAddTextOverlayTool(ffmpegBridge));
     toolRegistry.register(new FfmpegBurnSubtitlesTool(ffmpegBridge));
     toolRegistry.register(new FfmpegGenerateThumbnailTool(ffmpegBridge));
     toolRegistry.register(new FfmpegConvertVideoTool(ffmpegBridge));
     toolRegistry.register(new FfmpegCompressVideoTool(ffmpegBridge));
     logger.info(
-      'MCP-bridged FFmpeg tools registered (trim, merge, resize, text-overlay, burn-subtitles, thumbnail, convert, compress)'
+      'MCP-bridged FFmpeg tools registered (trim, merge, resize, annotation-burn, text-overlay, burn-subtitles, thumbnail, convert, compress)'
     );
   } catch {
     logger.warn('FFMPEG_MCP_URL not configured — FFmpeg MCP tools disabled');

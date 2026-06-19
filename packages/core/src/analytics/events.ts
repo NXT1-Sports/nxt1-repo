@@ -1034,6 +1034,8 @@ export const APP_EVENTS = {
   FILM_REVIEW_TIMELINE_GENERATE_COMPLETE: 'film_review_timeline_generate_complete',
   FILM_REVIEW_TIMELINE_GENERATE_ERROR: 'film_review_timeline_generate_error',
   FILM_REVIEW_BREAKDOWN_IMPORTED: 'film_review_breakdown_imported',
+  FILM_REVIEW_DOWNLOAD_EXPORT_REQUESTED: 'film_review_download_export_requested',
+  FILM_REVIEW_DOWNLOAD_EXPORT_READY: 'film_review_download_export_ready',
   FILM_REVIEW_PLAY_SKIPPED: 'film_review_play_skipped',
 
   // ============================================

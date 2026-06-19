@@ -2,7 +2,7 @@
  * @fileoverview Dynamic Export Tool
  * @module @nxt1/backend/modules/agent/tools/data
  *
- * Fully unconstrained Agent X tool for generating PDF or CSV documents
+ * Fully unconstrained Agent X tool for generating PDF, CSV, or XLSX documents
  * from any structured data the LLM assembles on-the-fly.
  *
  * Unlike fixed-schema tools, this tool accepts dynamic columns/rows/body
@@ -15,7 +15,7 @@
  *       ↓
  *   DynamicExportTool validates & delegates to ExportService
  *       ↓
- *   ExportService generates Buffer (PDF or CSV)
+ *   ExportService generates Buffer (PDF, CSV, or XLSX)
  *       ↓
  *   Tool uploads Buffer to Firebase Storage (thread-scoped)
  *       ↓
@@ -36,7 +36,7 @@ import { z } from 'zod';
 export class DynamicExportTool extends BaseTool {
   readonly name = 'dynamic_export';
   readonly description =
-    'Generates a downloadable PDF or CSV document from any structured data. ' +
+    'Generates a downloadable PDF, CSV, or XLSX document from any structured data. ' +
     'Use this tool whenever the user asks to export, download, save, create a spreadsheet, ' +
     'create a report, produce a document, or needs data in a portable file format. ' +
     'You supply the columns, rows, and/or body text — the tool handles formatting, ' +
@@ -47,7 +47,7 @@ export class DynamicExportTool extends BaseTool {
     'schedules, or literally anything the user asks for.';
 
   readonly parameters = z.object({
-    format: z.enum(['pdf', 'csv']),
+    format: z.enum(['pdf', 'csv', 'xlsx']),
     fileName: z.string().trim().min(1),
     title: z.string().trim().min(1).optional(),
     description: z.string().trim().min(1).optional(),
@@ -106,8 +106,8 @@ export class DynamicExportTool extends BaseTool {
   ): Promise<ToolResult> {
     // ── Validate required params ──────────────────────────────────────
     const format = this.str(input, 'format');
-    if (!format || (format !== 'pdf' && format !== 'csv')) {
-      return { success: false, error: 'Parameter "format" must be "pdf" or "csv".' };
+    if (!format || (format !== 'pdf' && format !== 'csv' && format !== 'xlsx')) {
+      return { success: false, error: 'Parameter "format" must be "pdf", "csv", or "xlsx".' };
     }
 
     const fileName = this.str(input, 'fileName');
@@ -136,11 +136,11 @@ export class DynamicExportTool extends BaseTool {
     const logoUrl = this.str(input, 'logoUrl') ?? undefined;
 
     // ── Format-specific validation ────────────────────────────────────
-    if (format === 'csv') {
+    if (format === 'csv' || format === 'xlsx') {
       if (!columns?.length || !rows?.length) {
         return {
           success: false,
-          error: 'CSV exports require non-empty "columns" and "rows" arrays.',
+          error: `${format.toUpperCase()} exports require non-empty "columns" and "rows" arrays.`,
         };
       }
     }
@@ -175,6 +175,22 @@ export class DynamicExportTool extends BaseTool {
         buffer = this.exportService.generateCsv({ columns: columns!, rows: rows! });
         mimeType = 'text/csv';
         extension = 'csv';
+      } else if (format === 'xlsx') {
+        emitStage?.('submitting_job', {
+          icon: 'document',
+          rowCount: rows!.length,
+          format: 'xlsx',
+          phase: 'build_xlsx_workbook',
+        });
+        buffer = await this.exportService.generateXlsx({
+          title,
+          description,
+          columns: columns!,
+          rows: rows!,
+          sheetName: safeName,
+        });
+        mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+        extension = 'xlsx';
       } else {
         const rowCount = rows?.length ?? 0;
         emitStage?.('submitting_job', {

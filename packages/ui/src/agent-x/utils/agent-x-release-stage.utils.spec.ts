@@ -7,7 +7,7 @@ import {
 } from './agent-x-release-stage.utils';
 
 describe('agent-x-release-stage.utils', () => {
-  const betaSurfaces: readonly AgentXReleaseSurface[] = [
+  const stableSurfaces: readonly AgentXReleaseSurface[] = [
     'playbooks',
     'practiceScripts',
     'gameplans',
@@ -16,20 +16,18 @@ describe('agent-x-release-stage.utils', () => {
     'generatedPlays',
   ];
 
-  it('defaults all covered surfaces to beta', () => {
-    for (const surface of betaSurfaces) {
-      expect(getAgentXReleaseStage(surface)).toBe('beta');
-      expect(getAgentXReleaseLabel(surface)).toBe('Beta');
-      expect(isAgentXSurfaceBeta(surface)).toBe(true);
+  it('defaults all covered surfaces to stable', () => {
+    for (const surface of stableSurfaces) {
+      expect(getAgentXReleaseStage(surface)).toBe('stable');
+      expect(getAgentXReleaseLabel(surface)).toBe('');
+      expect(isAgentXSurfaceBeta(surface)).toBe(false);
     }
   });
 
-  it('formats titles with the release label for beta surfaces', () => {
-    expect(withAgentXReleaseLabel('Playbooks', 'playbooks')).toBe('Playbooks (Beta)');
-    expect(withAgentXReleaseLabel('Practice Scripts', 'practiceScripts')).toBe(
-      'Practice Scripts (Beta)'
-    );
-    expect(withAgentXReleaseLabel(' Film Review ', 'filmReview')).toBe('Film Review (Beta)');
+  it('formats titles without a release label for stable surfaces', () => {
+    expect(withAgentXReleaseLabel('Playbooks', 'playbooks')).toBe('Playbooks');
+    expect(withAgentXReleaseLabel('Practice Scripts', 'practiceScripts')).toBe('Practice Scripts');
+    expect(withAgentXReleaseLabel(' Film Review ', 'filmReview')).toBe('Film Review');
   });
 
   it('handles blank titles safely', () => {

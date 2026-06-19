@@ -42,12 +42,19 @@ type MockFirestoreWrite = {
   payload?: Record<string, unknown>;
 };
 
+type MockStorageDelete = {
+  path: string;
+  options?: { ignoreNotFound?: boolean };
+};
+
 const mockFirestoreDocuments = new Map<string, Record<string, unknown>>();
 const mockFirestoreWrites: MockFirestoreWrite[] = [];
+const mockStorageDeletes: MockStorageDelete[] = [];
 
 export function __resetMockFirestore(): void {
   mockFirestoreDocuments.clear();
   mockFirestoreWrites.length = 0;
+  mockStorageDeletes.length = 0;
 }
 
 export function __seedMockFirestoreDocument(path: string, data: Record<string, unknown>): void {
@@ -61,6 +68,10 @@ export function __getMockFirestoreWrites(): readonly MockFirestoreWrite[] {
 export function __getMockFirestoreDocument(path: string): Record<string, unknown> | undefined {
   const data = mockFirestoreDocuments.get(path);
   return data ? (cloneMockFirestoreValue(data) as Record<string, unknown>) : undefined;
+}
+
+export function __getMockStorageDeletes(): readonly MockStorageDelete[] {
+  return mockStorageDeletes;
 }
 
 function isDeleteTransform(value: unknown): boolean {
@@ -249,11 +260,14 @@ function createMockStorage() {
   return {
     bucket: () => ({
       name: 'test-bucket',
-      file: () => ({
+      file: (path: string) => ({
         save: async () => undefined,
         makePublic: async () => undefined,
         exists: async () => [false],
         getSignedUrl: async () => ['https://example.com/test-file'],
+        delete: async (options?: { ignoreNotFound?: boolean }) => {
+          mockStorageDeletes.push({ path, options });
+        },
       }),
     }),
   };
