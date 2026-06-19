@@ -28,8 +28,6 @@ import {
   extractOrganizationAdminUserIds,
 } from './organizationCleanup';
 
-const bucket = storage.bucket();
-
 const PRIMARY_USER_COLLECTION = 'Users';
 const SHADOW_USER_COLLECTION = 'users';
 const BATCH_SIZE = 250;
@@ -395,6 +393,7 @@ async function deleteUserStorage(userId: string): Promise<void> {
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
+      const bucket = storage.bucket();
       await bucket.deleteFiles({ prefix: `Users/${userId}/` });
       return;
     } catch (error) {
