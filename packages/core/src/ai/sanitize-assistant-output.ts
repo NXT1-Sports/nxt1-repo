@@ -60,11 +60,13 @@ const MARKDOWN_IMAGE = /!\[[^\]]*\]\(\s*([^)\s]+)(?:\s+"[^"]*")?\s*\)/g;
 
 /**
  * Check whether a given URL belongs to a user-uploaded attachment.
- * Trims the URL before performing the lookup.
+ * Trims the URL and strips any fragment (e.g. #poster=...) before lookup
+ * so poster-enriched or fragment-decorated URLs still match their source.
  */
 export function isUserAttachmentUrl(url: string, urls: ReadonlySet<string>): boolean {
   if (typeof url !== 'string') return false;
-  return urls.has(url.trim());
+  const bare = url.trim().replace(/#.*$/, '');
+  return urls.has(bare);
 }
 
 // ─── Public: static sanitizer ──────────────────────────────────────────────
