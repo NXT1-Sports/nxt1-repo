@@ -427,6 +427,40 @@ describe('Agent X Cron Routes Smoke', () => {
     }
   });
 
+  it('retries repeated premature-close failures reported only through error code', async () => {
+    vi.useFakeTimers();
+    try {
+      const oldTmpFile = {
+        name: 'Users/user-1/uploads/tmp/old.png',
+        metadata: { timeCreated: '2026-05-20T00:00:00.000Z' },
+        delete: vi.fn().mockResolvedValue(undefined),
+      };
+      const prematureClose = Object.assign(new Error('Token response stream closed early'), {
+        code: 'ERR_STREAM_PREMATURE_CLOSE',
+      });
+      const getFiles = vi
+        .fn()
+        .mockRejectedValueOnce(prematureClose)
+        .mockRejectedValueOnce(prematureClose)
+        .mockRejectedValueOnce(prematureClose)
+        .mockResolvedValueOnce([[oldTmpFile], undefined, undefined]);
+      const storage = {
+        bucket: () => ({ getFiles }),
+      };
+
+      const resultPromise = cleanupTmpMedia(storage, new Date('2026-06-01T00:00:00.000Z'));
+      await vi.advanceTimersByTimeAsync(500 + 1_500 + 3_000);
+      const result = await resultPromise;
+
+      expect(getFiles).toHaveBeenCalledTimes(4);
+      expect(oldTmpFile.delete).toHaveBeenCalledTimes(1);
+      expect(result.totalScanned).toBe(1);
+      expect(result.totalDeleted).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('retries transient Firebase auth failures while deleting tmp media', async () => {
     vi.useFakeTimers();
     try {

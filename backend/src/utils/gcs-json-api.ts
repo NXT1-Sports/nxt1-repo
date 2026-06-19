@@ -41,6 +41,13 @@ export interface GcsUploadObjectOptions {
 const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const STORAGE_SCOPE_FULL_CONTROL = 'https://www.googleapis.com/auth/devstorage.full_control';
 const STORAGE_SCOPE_READ_ONLY = 'https://www.googleapis.com/auth/devstorage.read_only';
+const GOOGLE_TOKEN_CACHE_SKEW_MS = 5 * 60 * 1000;
+
+const googleAccessTokenCache = new Map<
+  string,
+  { readonly accessToken: string; readonly expiresAtMs: number }
+>();
+const googleAccessTokenInFlight = new Map<string, Promise<string>>();
 
 function resolveFirebaseServiceAccountCredentials(): FirebaseServiceAccountCredentials {
   const projectId = process.env['FIREBASE_PROJECT_ID'] ?? process.env['GOOGLE_PROJECT_ID'];
@@ -84,7 +91,7 @@ function isRetryableTokenError(error: unknown): boolean {
   );
 }
 
-export async function fetchGoogleAccessToken(scope: string): Promise<string> {
+async function fetchGoogleAccessTokenUncached(scope: string): Promise<string> {
   const credentials = resolveFirebaseServiceAccountCredentials();
 
   let lastError: unknown;
@@ -141,7 +148,17 @@ export async function fetchGoogleAccessToken(scope: string): Promise<string> {
         throw new Error(`Google token fetch failed: ${error}${description}`);
       }
 
-      return responseBody['access_token'];
+      const expiresInSeconds =
+        typeof responseBody['expires_in'] === 'number' && responseBody['expires_in'] > 0
+          ? responseBody['expires_in']
+          : 3_600;
+      const accessToken = responseBody['access_token'];
+      googleAccessTokenCache.set(scope, {
+        accessToken,
+        expiresAtMs: Date.now() + expiresInSeconds * 1_000,
+      });
+
+      return accessToken;
     } catch (error) {
       lastError = error;
       const retryable = isRetryableTokenError(error);
@@ -161,6 +178,22 @@ export async function fetchGoogleAccessToken(scope: string): Promise<string> {
   }
 
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+export async function fetchGoogleAccessToken(scope: string): Promise<string> {
+  const cached = googleAccessTokenCache.get(scope);
+  if (cached && cached.expiresAtMs - GOOGLE_TOKEN_CACHE_SKEW_MS > Date.now()) {
+    return cached.accessToken;
+  }
+
+  const inFlight = googleAccessTokenInFlight.get(scope);
+  if (inFlight) return inFlight;
+
+  const tokenPromise = fetchGoogleAccessTokenUncached(scope).finally(() => {
+    googleAccessTokenInFlight.delete(scope);
+  });
+  googleAccessTokenInFlight.set(scope, tokenPromise);
+  return tokenPromise;
 }
 
 export async function uploadGcsObject(

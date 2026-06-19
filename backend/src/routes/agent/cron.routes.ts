@@ -19,6 +19,7 @@ import { AgentJobAutoResolverService } from '../../modules/agent/services/agent-
 import { AgentJobRepository } from '../../modules/agent/queue/job.repository.js';
 import { getCloudflareAnalyticsSyncService } from '../../services/platform/cloudflare-analytics-sync.service.js';
 import { sendSlackAlert } from '../../services/platform/alert.service.js';
+import { deleteGcsObject, listGcsObjects } from '../../utils/gcs-json-api.js';
 
 const router = Router();
 
@@ -30,6 +31,15 @@ const STALE_YIELDED_STATUSES = ['paused', 'awaiting_input', 'awaiting_approval']
 const TMP_TTL_DAYS = 7;
 const TMP_MEDIA_STORAGE_MAX_ATTEMPTS = 4;
 const TMP_MEDIA_STORAGE_RETRY_DELAYS_MS = [500, 1_500, 3_000] as const;
+const RETRYABLE_TMP_MEDIA_STORAGE_ERROR_CODES = new Set([
+  'EAI_AGAIN',
+  'ECONNABORTED',
+  'ECONNRESET',
+  'ENETUNREACH',
+  'ESOCKETTIMEDOUT',
+  'ETIMEDOUT',
+  'ERR_STREAM_PREMATURE_CLOSE',
+]);
 
 type CleanupStaleJobsRepository = Pick<AgentJobRepository, 'markFailed' | 'markCancelled'>;
 
@@ -63,6 +73,7 @@ interface TmpMediaStorageFile {
 }
 
 interface TmpMediaStorageBucket {
+  readonly name?: string;
   getFiles(query: {
     prefix: string;
     maxResults: number;
@@ -99,6 +110,9 @@ function getErrorCode(error: unknown): string | number | undefined {
 function isRetryableFirebaseStorageError(error: unknown): boolean {
   const code = getErrorCode(error);
   if (typeof code === 'number' && [408, 429, 500, 502, 503, 504].includes(code)) return true;
+  if (typeof code === 'string' && RETRYABLE_TMP_MEDIA_STORAGE_ERROR_CODES.has(code.toUpperCase())) {
+    return true;
+  }
 
   const message = getErrorMessage(error).toLowerCase();
   return (
@@ -118,6 +132,13 @@ function getNextPageToken(nextQuery: unknown): string | undefined {
   if (!nextQuery || typeof nextQuery !== 'object') return undefined;
   const pageToken = (nextQuery as { pageToken?: unknown }).pageToken;
   return typeof pageToken === 'string' && pageToken.length > 0 ? pageToken : undefined;
+}
+
+function hasFirebaseServiceAccountEnv(): boolean {
+  const projectId = process.env['FIREBASE_PROJECT_ID'] ?? process.env['GOOGLE_PROJECT_ID'];
+  const clientEmail = process.env['FIREBASE_CLIENT_EMAIL'] ?? process.env['GOOGLE_CLIENT_EMAIL'];
+  const privateKey = process.env['FIREBASE_PRIVATE_KEY'] ?? process.env['GOOGLE_PRIVATE_KEY'];
+  return Boolean(projectId && clientEmail && privateKey);
 }
 
 async function runTmpMediaStorageStepWithRetry<T>(
@@ -756,6 +777,127 @@ export async function cleanupTmpMedia(
   requestId?: string
 ): Promise<CleanupTmpMediaResult> {
   const bucket = storage.bucket();
+  const bucketName = typeof bucket.name === 'string' && bucket.name.length > 0 ? bucket.name : '';
+  if (bucketName && hasFirebaseServiceAccountEnv()) {
+    return cleanupTmpMediaWithGcsJsonApi(bucketName, now, requestId);
+  }
+
+  if (bucketName) {
+    logger.warn(
+      'CRON cleanup-tmp-media falling back to Firebase Admin SDK because service-account env is not configured',
+      { bucketName, requestId }
+    );
+  }
+
+  return cleanupTmpMediaWithFirebaseAdminBucket(bucket, now, requestId);
+}
+
+async function cleanupTmpMediaWithGcsJsonApi(
+  bucketName: string,
+  now: Date,
+  requestId?: string
+): Promise<CleanupTmpMediaResult> {
+  const cutoffMs = now.getTime() - TMP_TTL_DAYS * 24 * 60 * 60 * 1000;
+
+  let totalScanned = 0;
+  let totalDeleted = 0;
+  let pageToken: string | undefined;
+  let pageCount = 0;
+
+  logger.info('CRON cleanup-tmp-media using GCS JSON API path', { bucketName, requestId });
+
+  do {
+    pageCount++;
+    try {
+      const { items: files, nextPageToken } = await runTmpMediaStorageStepWithRetry(
+        'list_tmp_media',
+        () =>
+          listGcsObjects({
+            bucketName,
+            prefix: 'Users/',
+            maxResults: 1000,
+            ...(pageToken ? { pageToken } : {}),
+          }),
+        { bucketName, pageToken: pageToken ?? null, transport: 'gcs-json-api' }
+      );
+
+      pageToken = nextPageToken;
+      totalScanned += files.length;
+
+      const deletionQueue: Array<() => Promise<void>> = [];
+
+      for (const file of files) {
+        if (!file.name.includes('/tmp/')) continue;
+
+        if (!file.timeCreated) {
+          logger.warn('Skipping tmp file with missing metadata', {
+            path: file.name,
+            requestId,
+          });
+          continue;
+        }
+
+        const createdMs = new Date(file.timeCreated).getTime();
+        if (!Number.isFinite(createdMs) || createdMs > cutoffMs) continue;
+
+        deletionQueue.push(async () => {
+          try {
+            await runTmpMediaStorageStepWithRetry(
+              'delete_tmp_media',
+              () => deleteGcsObject(bucketName, file.name, { ignoreNotFound: true }),
+              { bucketName, path: file.name, transport: 'gcs-json-api' }
+            );
+            totalDeleted++;
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            logger.warn('Failed to delete tmp file', { path: file.name, error: msg, requestId });
+          }
+        });
+      }
+
+      for (let i = 0; i < deletionQueue.length; i += 50) {
+        await Promise.all(deletionQueue.slice(i, i + 50).map((deleteFile) => deleteFile()));
+      }
+    } catch (pageErr: unknown) {
+      const error = pageErr instanceof Error ? pageErr : new Error(String(pageErr));
+      (
+        error as Error & {
+          cleanupTmpMediaContext?: Record<string, unknown>;
+        }
+      ).cleanupTmpMediaContext = {
+        stage: `list-or-delete-page-${pageCount}`,
+        pageNumber: pageCount,
+        scannedSoFar: totalScanned,
+        deletedSoFar: totalDeleted,
+        transport: 'gcs-json-api',
+      };
+      logger.error('CRON cleanup-tmp-media: page processing failed', {
+        pageNumber: pageCount,
+        scannedSoFar: totalScanned,
+        deletedSoFar: totalDeleted,
+        errorMessage: error.message,
+        errorStack: error.stack,
+        errorCode: (pageErr as Record<string, unknown>)?.['code'],
+        requestId,
+        transport: 'gcs-json-api',
+      });
+      throw error;
+    }
+  } while (pageToken);
+
+  return {
+    totalScanned,
+    totalDeleted,
+    ttlDays: TMP_TTL_DAYS,
+    cutoff: new Date(cutoffMs).toISOString(),
+  };
+}
+
+async function cleanupTmpMediaWithFirebaseAdminBucket(
+  bucket: TmpMediaStorageBucket,
+  now: Date,
+  requestId?: string
+): Promise<CleanupTmpMediaResult> {
   const cutoffMs = now.getTime() - TMP_TTL_DAYS * 24 * 60 * 60 * 1000;
 
   // GCS list with prefix="Users/" — iterates all user-owned objects.
@@ -824,6 +966,16 @@ export async function cleanupTmpMedia(
       }
     } catch (pageErr: unknown) {
       const error = pageErr instanceof Error ? pageErr : new Error(String(pageErr));
+      (
+        error as Error & {
+          cleanupTmpMediaContext?: Record<string, unknown>;
+        }
+      ).cleanupTmpMediaContext = {
+        stage: `list-or-delete-page-${pageCount}`,
+        pageNumber: pageCount,
+        scannedSoFar: totalScanned,
+        deletedSoFar: totalDeleted,
+      };
       logger.error('CRON cleanup-tmp-media: page processing failed', {
         pageNumber: pageCount,
         scannedSoFar: totalScanned,
@@ -879,11 +1031,16 @@ router.post('/cron/cleanup-tmp-media', cronGuard, async (req: Request, res: Resp
     });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
+    const cleanupContext =
+      err && typeof err === 'object'
+        ? (err as { cleanupTmpMediaContext?: Record<string, unknown> }).cleanupTmpMediaContext
+        : undefined;
     logger.error('CRON cleanup-tmp-media failed', {
       errorMessage: error.message,
       errorStack: error.stack,
       errorCode: (err as Record<string, unknown>)?.['code'],
       errorStatus: (err as Record<string, unknown>)?.['status'],
+      ...cleanupContext,
       requestId,
     });
     res.status(500).json({ success: false, error: 'Tmp media cleanup failed' });
