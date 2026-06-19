@@ -31,6 +31,7 @@ import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
+import { logger } from '../../../../utils/logger.js';
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -893,12 +894,57 @@ Return JSON only. No explanation outside the JSON.`;
         ? await this.stampLogoBottomRight(withUserLogos, logoBuffer)
         : withUserLogos;
 
-      await file.save(finalBuffer, {
-        contentType: result.mimeType,
-        metadata: { cacheControl: 'public, max-age=31536000, immutable' },
-      });
+      // await file.save(finalBuffer, {
+      //   contentType: result.mimeType,
+      //   metadata: { cacheControl: 'public, max-age=31536000, immutable' },
+      // });
 
-      await file.makePublic();
+      // await file.makePublic();
+      const maxUploadAttempts = 3;
+
+      for (let attempt = 1; attempt <= maxUploadAttempts; attempt += 1) {
+        try {
+          await file.save(finalBuffer, {
+            contentType: result.mimeType,
+            metadata: { cacheControl: 'public, max-age=31536000, immutable' },
+          });
+
+          await file.makePublic();
+          break;
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          const normalized = message.toLowerCase();
+
+          const isTransient =
+            normalized.includes('premature close') ||
+            normalized.includes('econnreset') ||
+            normalized.includes('econnaborted') ||
+            normalized.includes('socket hang up') ||
+            normalized.includes('timeout') ||
+            normalized.includes('timed out') ||
+            normalized.includes('502') ||
+            normalized.includes('503') ||
+            normalized.includes('504');
+
+          if (!isTransient || attempt === maxUploadAttempts) {
+            throw error;
+          }
+
+          const delayMs = attempt * 750;
+
+          logger.warn('[generate_graphic] Retrying Firebase Storage upload', {
+            attempt,
+            nextAttempt: attempt + 1,
+            delayMs,
+            error: message,
+            filePath,
+          });
+
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, delayMs);
+          });
+        }
+      }
       const publicUrl = `https://storage.googleapis.com/${bucket.name}/${filePath}`;
 
       return {

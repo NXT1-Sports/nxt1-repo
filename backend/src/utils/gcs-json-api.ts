@@ -103,24 +103,45 @@ export async function fetchGoogleAccessToken(scope: string): Promise<string> {
         { algorithm: 'RS256' }
       );
 
+      const body = new URLSearchParams({
+        grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        assertion,
+      });
+
       const response = await fetch(TOKEN_ENDPOINT, {
         method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-          assertion,
-        }),
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+          accept: 'application/json',
+          'user-agent': 'nxt1-backend/1.0',
+        },
+        body: body.toString(),
+        signal: AbortSignal.timeout(30_000),
       });
-      const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
 
-      if (!response.ok || typeof body['access_token'] !== 'string') {
-        const error = typeof body['error'] === 'string' ? body['error'] : `HTTP ${response.status}`;
+      const responseText = await response.text();
+      let responseBody: Record<string, unknown>;
+      try {
+        responseBody = JSON.parse(responseText) as Record<string, unknown>;
+      } catch {
+        throw new Error(
+          `Google token fetch failed: Invalid JSON response - ${responseText.substring(0, 200)}`
+        );
+      }
+
+      if (!response.ok || typeof responseBody['access_token'] !== 'string') {
+        const error =
+          typeof responseBody['error'] === 'string'
+            ? responseBody['error']
+            : `HTTP ${response.status}`;
         const description =
-          typeof body['error_description'] === 'string' ? `: ${body['error_description']}` : '';
+          typeof responseBody['error_description'] === 'string'
+            ? `: ${responseBody['error_description']}`
+            : '';
         throw new Error(`Google token fetch failed: ${error}${description}`);
       }
 
-      return body['access_token'];
+      return responseBody['access_token'];
     } catch (error) {
       lastError = error;
       const retryable = isRetryableTokenError(error);
