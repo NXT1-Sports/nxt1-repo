@@ -79,7 +79,7 @@
     "e2e:install": "npm run e2e:install --workspace=@nxt1/web"
   },
   "devDependencies": {
-    "@angular-devkit/build-angular": "^21.2.15",
+    "@angular-devkit/build-angular": "^21.2.16",
     "@angular-eslint/builder": "^21.2.0",
     "@angular/animations": "^21.2.12",
     "@angular/cli": "^21.1.2",
