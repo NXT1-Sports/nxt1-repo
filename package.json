@@ -1,6 +1,6 @@
 {
   "name": "nxt1-workspace",
-  "version": "1.62.39",
+  "version": "1.62.40",
   "private": true,
   "description": "NXT1 Sports Intelligence Platform - Monorepo",
   "repository": {
@@ -148,7 +148,9 @@
     "turbo": "^2.9.6"
   },
   "overrides": {
-    "@google-cloud/storage": "7.21.0",
+    "@google-cloud/storage": {
+      "uuid": "11.1.1"
+    },
     "google-auth-library": "10.7.0",
     "gtoken": "8.0.0",
     "@babel/core": "7.29.7",
@@ -180,9 +182,6 @@
     "@xmldom/xmldom": "0.9.10",
     "plist": "^3.1.1",
     "postcss": "^8.5.12",
-    "@google-cloud/storage": {
-      "uuid": "11.1.1"
-    },
     "google-gax": {
       "uuid": "11.1.1"
     },
