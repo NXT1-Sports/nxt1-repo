@@ -5,7 +5,7 @@
 
 // export const environment = {
 //   production: true,
-//   appVersion: '1.62.35',
+//   appVersion: '1.62.36',
 //   apiUrl: 'http://34.72.3.113:8080/api/v1',
 
 //   // Production web URL for shareable links
@@ -38,7 +38,7 @@
 
 export const environment = {
   production: true,
-  appVersion: '1.62.35',
+  appVersion: '1.62.36',
 
   // Production API
   apiUrl: 'https://api.nxt1sports.com/api/v1',
