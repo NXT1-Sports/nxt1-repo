@@ -55,10 +55,11 @@ export function buildPendingAttachmentViewer(
         url = file.previewUrl;
       } else if (kind === 'video') {
         // previewUrl is a JPEG canvas thumbnail — NOT a playable video.
-        // For native Capacitor videos, the File can be a lightweight placeholder.
-        // createObjectURL on that placeholder produces an unplayable blob URL.
-        // Prefer the WebView-accessible native path whenever available.
-        if (file.nativeWebPath) {
+        // For native Capacitor videos, file.size === 0 (the File is a lightweight
+        // placeholder). createObjectURL on an empty File produces an unplayable
+        // blob URL. Use nativeWebPath (a WebView-accessible capacitor:// URL) when
+        // available so the video can actually play in the viewer.
+        if (file.nativeWebPath && file.file.size === 0) {
           url = file.nativeWebPath;
         } else if (objectUrlApi) {
           url = objectUrlApi.createObjectURL(file.file);

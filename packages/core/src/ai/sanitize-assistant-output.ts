@@ -48,48 +48,6 @@ export function buildAttachmentUrlSet(
   return set;
 }
 
-function attachmentUrlComparisonKeys(url: string): readonly string[] {
-  const trimmed = url.trim().replace(/[),.;!?]+$/g, '');
-  if (!trimmed) return [];
-
-  const keys = new Set<string>([trimmed]);
-  const withoutPoster = trimmed.replace(/#poster=.*/i, '');
-  if (withoutPoster) keys.add(withoutPoster);
-
-  try {
-    const parsed = new URL(trimmed);
-    parsed.hash = '';
-    keys.add(parsed.toString());
-  } catch {
-    // Raw string keys above are still useful for non-URL test inputs.
-  }
-
-  return [...keys];
-}
-
-/**
- * True when a candidate URL resolves to one of the user's uploaded attachments.
- * Handles poster fragments (`#poster=...`) and trailing prose punctuation so
- * generated media can be filtered without accidentally suppressing distinct
- * output URLs.
- */
-export function isUserAttachmentUrl(
-  candidateUrl: string | null | undefined,
-  urls: ReadonlySet<string>
-): boolean {
-  if (typeof candidateUrl !== 'string' || urls.size === 0) return false;
-  const candidateKeys = attachmentUrlComparisonKeys(candidateUrl);
-  if (candidateKeys.length === 0) return false;
-
-  for (const userUrl of urls) {
-    for (const key of attachmentUrlComparisonKeys(userUrl)) {
-      if (candidateKeys.includes(key)) return true;
-    }
-  }
-
-  return false;
-}
-
 // ─── Internal: regex patterns ──────────────────────────────────────────────
 //
 // All three regexes capture the URL in group 1 so a single replacer can

@@ -6,11 +6,7 @@
  * Firebase Storage is mocked to avoid network calls.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { generateKeyPairSync } from 'node:crypto';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ── Mocks (must precede tool import) ─────────────────────────────────────────
 
@@ -73,47 +69,6 @@ function pdfInput(overrides?: Record<string, unknown>): Record<string, unknown> 
 const TINY_PNG_DATA_URL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGNgAAAAAgAB4iG8MwAAAABJRU5ErkJggg==';
 
-const originalFetch = globalThis.fetch;
-const TEST_PRIVATE_KEY = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey.export({
-  type: 'pkcs8',
-  format: 'pem',
-});
-
-function mockJsonResponse(body: Record<string, unknown>, status = 200): Response {
-  return {
-    ok: status >= 200 && status < 300,
-    status,
-    json: vi.fn().mockResolvedValue(body),
-    text: vi.fn().mockResolvedValue(JSON.stringify(body)),
-    headers: { get: vi.fn(() => 'application/json') },
-  } as unknown as Response;
-}
-
-function installSuccessfulFetchMock(): ReturnType<typeof vi.fn> {
-  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = String(input);
-    if (url === 'https://oauth2.googleapis.com/token') {
-      return mockJsonResponse({
-        access_token: 'test-access-token',
-        token_type: 'Bearer',
-        expires_in: 3599,
-      });
-    }
-    if (url.startsWith('https://storage.googleapis.com/upload/storage/v1/')) {
-      return mockJsonResponse({ name: 'uploaded-object' });
-    }
-    if (url.startsWith('https://storage.googleapis.com/storage/v1/')) {
-      return mockJsonResponse({ name: 'uploaded-object' });
-    }
-    if (init?.method === 'GET') {
-      return mockJsonResponse({}, 404);
-    }
-    return mockJsonResponse({});
-  });
-  vi.stubGlobal('fetch', fetchMock);
-  return fetchMock;
-}
-
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 describe('DynamicExportTool', () => {
@@ -121,23 +76,7 @@ describe('DynamicExportTool', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env['FIREBASE_CLIENT_EMAIL'] = 'test-exporter@example.iam.gserviceaccount.com';
-    process.env['FIREBASE_PRIVATE_KEY'] = TEST_PRIVATE_KEY.replace(/\n/g, '\\n');
-    process.env['FIREBASE_PROJECT_ID'] = 'test-project';
-    process.env['FIREBASE_STORAGE_BUCKET'] = 'test-bucket';
-    installSuccessfulFetchMock();
     tool = new DynamicExportTool();
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    globalThis.fetch = originalFetch;
-    delete process.env['FIREBASE_CLIENT_EMAIL'];
-    delete process.env['FIREBASE_PRIVATE_KEY'];
-    delete process.env['FIREBASE_PROJECT_ID'];
-    delete process.env['FIREBASE_STORAGE_BUCKET'];
-    delete process.env['GOOGLE_APPLICATION_CREDENTIALS'];
-    delete process.env['GOOGLE_PRIVATE_KEY'];
   });
 
   describe('metadata', () => {
@@ -225,154 +164,12 @@ describe('DynamicExportTool', () => {
     });
 
     it('should pass correct content type metadata to Storage', async () => {
-      const fetchMock = installSuccessfulFetchMock();
       await tool.execute(csvInput(), context);
 
-      const uploadCall = fetchMock.mock.calls.find(([url]) =>
-        String(url).startsWith('https://storage.googleapis.com/upload/storage/v1/')
-      );
-      expect(uploadCall).toBeDefined();
-      const [, opts] = uploadCall!;
-      expect(opts?.headers).toMatchObject({
-        authorization: 'Bearer test-access-token',
-      });
-      expect(String((opts?.headers as Record<string, string>)['content-type'])).toContain(
-        'multipart/related'
-      );
-      expect(Buffer.isBuffer(opts?.body)).toBe(true);
-      expect((opts?.body as Buffer).toString('utf8')).toContain('"contentType":"text/csv"');
-      expect((opts?.body as Buffer).toString('utf8')).toContain('firebaseStorageDownloadTokens');
-    });
-
-    it('should retry transient Google token fetch failures during upload', async () => {
-      vi.useFakeTimers();
-      try {
-        const legacyTokenEndpoint = ['https://www.googleapis.com', 'oauth2', 'v4', 'token'].join(
-          '/'
-        );
-        let uploadAttempts = 0;
-        const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-          const url = String(input);
-          if (url === 'https://oauth2.googleapis.com/token') {
-            return mockJsonResponse({ access_token: 'token' });
-          }
-          if (url.startsWith('https://storage.googleapis.com/upload/storage/v1/')) {
-            uploadAttempts += 1;
-            if (uploadAttempts === 1) {
-              throw new Error(
-                `Invalid response body while trying to fetch ${legacyTokenEndpoint}: Premature close`
-              );
-            }
-            return mockJsonResponse({ name: 'uploaded-object' });
-          }
-          if (url.startsWith('https://storage.googleapis.com/storage/v1/')) {
-            return mockJsonResponse({ name: 'uploaded-object' });
-          }
-          return mockJsonResponse({});
-        });
-        vi.stubGlobal('fetch', fetchMock);
-
-        const resultPromise = tool.execute(csvInput(), {
-          ...context,
-          operationId: 'op_export_retry',
-        });
-        await vi.advanceTimersByTimeAsync(500);
-        const result = await resultPromise;
-
-        expect(result.success).toBe(true);
-        expect(uploadAttempts).toBe(2);
-      } finally {
-        vi.useRealTimers();
-      }
-    });
-
-    it('should retry transient Google token fetch failures during upload verification', async () => {
-      vi.useFakeTimers();
-      try {
-        let metadataAttempts = 0;
-        const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-          const url = String(input);
-          if (url === 'https://oauth2.googleapis.com/token') {
-            return mockJsonResponse({ access_token: 'test-access-token' });
-          }
-          if (url.startsWith('https://storage.googleapis.com/upload/storage/v1/')) {
-            return mockJsonResponse({ name: 'uploaded-object' });
-          }
-          if (url.startsWith('https://storage.googleapis.com/storage/v1/')) {
-            metadataAttempts += 1;
-            if (metadataAttempts === 1) {
-              throw new Error('request to https://oauth2.googleapis.com/token aborted');
-            }
-            return mockJsonResponse({ name: 'uploaded-object' });
-          }
-          return mockJsonResponse({});
-        });
-        vi.stubGlobal('fetch', fetchMock);
-
-        const resultPromise = tool.execute(csvInput(), {
-          ...context,
-          operationId: 'op_export_verify_retry',
-        });
-        await vi.advanceTimersByTimeAsync(500);
-        const result = await resultPromise;
-
-        expect(result.success).toBe(true);
-        expect(metadataAttempts).toBe(2);
-      } finally {
-        vi.useRealTimers();
-      }
-    });
-
-    it('should log safe credential diagnostics without leaking credential values', async () => {
-      const previousEnv = {
-        GOOGLE_APPLICATION_CREDENTIALS: process.env['GOOGLE_APPLICATION_CREDENTIALS'],
-        GOOGLE_PRIVATE_KEY: process.env['GOOGLE_PRIVATE_KEY'],
-      };
-      const tmpDir = mkdtempSync(join(tmpdir(), 'dynamic-export-auth-'));
-      const credentialsPath = join(tmpDir, 'credentials.json');
-      const fakePrivateKey =
-        '-----BEGIN PRIVATE KEY-----\\nTEST_PRIVATE_KEY_BODY\\n-----END PRIVATE KEY-----\\n';
-      writeFileSync(
-        credentialsPath,
-        JSON.stringify({
-          type: 'service_account',
-          client_email: 'exporter@example.iam.gserviceaccount.com',
-          private_key: fakePrivateKey.replace(/\\n/g, '\n'),
-          token_uri: 'https://www.googleapis.com/oauth2/v4/token',
-        })
-      );
-
-      const logSpy = vi.spyOn(console, 'log').mockImplementation(() => undefined);
-      try {
-        process.env['GOOGLE_APPLICATION_CREDENTIALS'] = credentialsPath;
-        process.env['GOOGLE_PRIVATE_KEY'] = fakePrivateKey;
-        process.env['FIREBASE_PRIVATE_KEY'] = TEST_PRIVATE_KEY.replace(/\n/g, '\\n');
-
-        const result = await tool.execute(csvInput(), context);
-        const logs = logSpy.mock.calls.map((call) => String(call[0])).join('\n');
-
-        expect(result.success).toBe(true);
-        expect(logs).toContain('"GooglePrivateKeyLooksPem": true');
-        expect(logs).toContain('"applicationCredentialsUsesLegacyTokenUri": true');
-        expect(logs).toContain('"applicationCredentialsHasClientEmail": true');
-        expect(logs).not.toContain('TEST_PRIVATE_KEY_BODY');
-        expect(logs).not.toContain('exporter@example.iam.gserviceaccount.com');
-        expect(logs).not.toContain(credentialsPath);
-      } finally {
-        logSpy.mockRestore();
-        if (previousEnv.GOOGLE_APPLICATION_CREDENTIALS === undefined) {
-          delete process.env['GOOGLE_APPLICATION_CREDENTIALS'];
-        } else {
-          process.env['GOOGLE_APPLICATION_CREDENTIALS'] =
-            previousEnv.GOOGLE_APPLICATION_CREDENTIALS;
-        }
-        if (previousEnv.GOOGLE_PRIVATE_KEY === undefined) {
-          delete process.env['GOOGLE_PRIVATE_KEY'];
-        } else {
-          process.env['GOOGLE_PRIVATE_KEY'] = previousEnv.GOOGLE_PRIVATE_KEY;
-        }
-        rmSync(tmpDir, { recursive: true, force: true });
-      }
+      expect(mockSave).toHaveBeenCalledOnce();
+      const [, opts] = mockSave.mock.calls[0];
+      expect(opts.contentType).toBe('text/csv');
+      expect(opts.metadata.metadata.firebaseStorageDownloadTokens).toMatch(/^[0-9a-f-]{36}$/i);
     });
   });
 
@@ -514,10 +311,10 @@ describe('DynamicExportTool', () => {
 
   describe('storage paths', () => {
     it('should use thread-scoped path when threadId is present', async () => {
-      const result = await tool.execute(csvInput(), context);
+      await tool.execute(csvInput(), context);
 
-      expect(result.success).toBe(true);
-      const storagePath = (result.data as Record<string, unknown>)['storagePath'] as string;
+      expect(mockFile).toHaveBeenCalledOnce();
+      const storagePath = mockFile.mock.calls[0][0] as string;
       expect(storagePath).toMatch(/^Users\/user_123\/threads\/thread_456\/exports\//);
     });
 

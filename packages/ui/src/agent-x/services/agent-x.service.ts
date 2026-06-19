@@ -1372,7 +1372,7 @@ export class AgentXService {
     if (index < 0 || index >= current.length) return;
 
     const removed = current[index];
-    if (isRevocableObjectUrl(removed.previewUrl) && isPlatformBrowser(this.platformId)) {
+    if (removed.previewUrl && isPlatformBrowser(this.platformId)) {
       URL.revokeObjectURL(removed.previewUrl);
     }
     this._pendingFiles.update((list) => list.filter((_, i) => i !== index));
@@ -1385,7 +1385,7 @@ export class AgentXService {
   clearPendingFiles(): void {
     if (isPlatformBrowser(this.platformId)) {
       for (const f of this._pendingFiles()) {
-        if (isRevocableObjectUrl(f.previewUrl)) URL.revokeObjectURL(f.previewUrl);
+        if (f.previewUrl) URL.revokeObjectURL(f.previewUrl);
       }
     }
     this._pendingFiles.set([]);
@@ -2625,10 +2625,6 @@ function normalizeAttachmentFile(
 function resolveAttachmentFileSize(file: File): number {
   const nativeSizeBytes = (file as NativeAttachmentFile).nativeSizeBytes;
   return typeof nativeSizeBytes === 'number' && nativeSizeBytes > 0 ? nativeSizeBytes : file.size;
-}
-
-function isRevocableObjectUrl(url: string | null | undefined): url is string {
-  return typeof url === 'string' && url.startsWith('blob:');
 }
 
 function normalizeAttachmentMimeType(mimeType: string): string | null {

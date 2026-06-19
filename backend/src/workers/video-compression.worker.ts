@@ -34,15 +34,38 @@
  *   object preserves every URL reference in Firestore without any DB migrations.
  */
 
+import { getStorage } from 'firebase-admin/storage';
 import { logger } from '../utils/logger.js';
-import {
-  createV4SignedReadUrl,
-  deleteGcsObject,
-  listGcsObjects,
-  patchGcsObjectMetadata,
-  uploadGcsObject,
-  type GcsObjectMetadata,
-} from '../utils/gcs-json-api.js';
+
+// ─── Minimal GCS structural types (avoids CJS/ESM conflict with @google-cloud/storage) ──
+// Only the surface we actually call — verified against @google-cloud/storage v7 API.
+
+interface GCSFileLike {
+  name: string;
+  metadata: unknown;
+  getSignedUrl(options: {
+    version: 'v2' | 'v4';
+    action: 'read' | 'write' | 'delete' | 'resumable';
+    expires: number;
+  }): Promise<[string]>;
+  save(buffer: Buffer, options: { metadata: unknown }): Promise<void>;
+  setMetadata(metadata: unknown): Promise<unknown>;
+  download(): Promise<[Buffer]>;
+  delete(): Promise<unknown>;
+}
+
+interface GCSBucketLike {
+  file(path: string): GCSFileLike;
+  getFiles(options?: {
+    prefix?: string;
+    maxResults?: number;
+    pageToken?: string;
+  }): Promise<[GCSFileLike[], unknown, unknown]>;
+}
+
+// Convenience aliases used in function signatures below
+type GCSBucket = GCSBucketLike;
+type GCSFile = GCSFileLike;
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -146,10 +169,7 @@ export class VideoCompressionWorker {
       throw new Error('FFMPEG_MCP_URL environment variable is required');
     }
 
-    const bucketName = process.env['FIREBASE_STORAGE_BUCKET'];
-    if (!bucketName) {
-      throw new Error('FIREBASE_STORAGE_BUCKET environment variable is required');
-    }
+    const bucket = getStorage().bucket() as unknown as GCSBucket;
     const cutoffMs = Date.now() - AGE_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
     const prefix = 'Users/';
     const runStartMs = Date.now();
@@ -180,24 +200,24 @@ export class VideoCompressionWorker {
     let budgetExhausted = false;
 
     outer: do {
-      const { items: files, nextPageToken } = await listGcsObjects({
-        bucketName,
+      const [files, , nextQuery] = await bucket.getFiles({
         prefix,
         maxResults: 1000,
         ...(pageToken ? { pageToken } : {}),
       });
 
-      pageToken = nextPageToken;
+      pageToken = (nextQuery as Record<string, string> | undefined)?.['pageToken'];
 
       for (const file of files) {
         // ── Eligibility filters ──────────────────────────────────────────────
 
         if (!isEligibleVideoPath(file.name)) continue;
 
-        const sizeBytes = Number(file.size ?? 0);
+        const meta = file.metadata as Record<string, unknown>;
+        const sizeBytes = Number(meta['size'] ?? 0);
         const createdMs =
-          typeof file.timeCreated === 'string' ? new Date(file.timeCreated).getTime() : 0;
-        const customMeta = file.metadata ?? {};
+          typeof meta['timeCreated'] === 'string' ? new Date(meta['timeCreated']).getTime() : 0;
+        const customMeta = (meta['metadata'] ?? {}) as Record<string, string>;
 
         if (customMeta[COMPRESSED_META_KEY] === 'true') {
           skipped++;
@@ -290,7 +310,7 @@ export class VideoCompressionWorker {
           const ffmpegTimeout = isHeavy ? HEAVY_FFMPEG_TIMEOUT_MS : FFMPEG_TIMEOUT_MS;
           const { compressedSize, skippedOverwrite } = await compressAndReplace(
             file,
-            bucketName,
+            bucket,
             ffmpegMcpUrl,
             ffmpegTimeout
           );
@@ -389,16 +409,16 @@ interface CompressResult {
  * future retries.
  */
 async function compressAndReplace(
-  file: GcsObjectMetadata,
-  bucketName: string,
+  file: GCSFile,
+  bucket: GCSBucket,
   ffmpegMcpUrl: string,
   ffmpegTimeoutMs: number = FFMPEG_TIMEOUT_MS
 ): Promise<CompressResult> {
   // Step 1: Sign a temporary read URL for the source file
-  const signedUrl = createV4SignedReadUrl({
-    bucketName,
-    objectName: file.name,
-    expiresAtMs: Date.now() + SIGNED_URL_TTL_MS,
+  const [signedUrl] = await file.getSignedUrl({
+    version: 'v4',
+    action: 'read',
+    expires: Date.now() + SIGNED_URL_TTL_MS,
   });
 
   // Step 2: ffmpeg-mcp compress — returns the Firebase Storage download URL of the output
@@ -421,22 +441,27 @@ async function compressAndReplace(
     // Best-effort cleanup of the remote GCS object
     const blobPath = gcsPathFromFirebaseUrl(outputUrl);
     if (blobPath)
-      await deleteGcsObject(bucketName, blobPath, { ignoreNotFound: true }).catch(() => undefined);
+      await bucket
+        .file(blobPath)
+        .delete()
+        .catch(() => undefined);
     const msg = downloadErr instanceof Error ? downloadErr.message : String(downloadErr);
     throw new Error(`Failed to download compressed output from ffmpeg-mcp: ${msg}`, {
       cause: downloadErr,
     });
   }
 
-  const originalSize = Number(file.size ?? 0);
+  const originalSize = Number((file.metadata as Record<string, unknown>)['size'] ?? 0);
   const compressedSize = compressedBuffer.length;
 
   // Step 4: Determine whether overwriting is worthwhile
   const skippedOverwrite =
     originalSize > 0 && compressedSize >= originalSize * MIN_COMPRESSION_GAIN_RATIO;
 
-  const existingCustomMeta = file.metadata ?? {};
-  const contentType = typeof file.contentType === 'string' ? file.contentType : 'video/mp4';
+  const originalMeta = file.metadata as Record<string, unknown>;
+  const existingCustomMeta = (originalMeta['metadata'] ?? {}) as Record<string, string>;
+  const contentType =
+    typeof originalMeta['contentType'] === 'string' ? originalMeta['contentType'] : 'video/mp4';
   const stampedMeta = {
     ...existingCustomMeta,
     [COMPRESSED_META_KEY]: 'true',
@@ -445,21 +470,21 @@ async function compressAndReplace(
 
   if (!skippedOverwrite) {
     // Steps 5+6: Overwrite original with compressed buffer + stamp metadata
-    await uploadGcsObject(bucketName, file.name, compressedBuffer, {
-      contentType,
-      metadata: stampedMeta,
+    await file.save(compressedBuffer, {
+      metadata: { contentType, metadata: stampedMeta },
     });
   } else {
     // Step 6 only: stamp metadata without overwriting (already dense)
-    await patchGcsObjectMetadata({ bucketName, objectName: file.name, metadata: stampedMeta });
+    await file.setMetadata({ metadata: stampedMeta });
   }
 
   // Step 7: Delete the temporary output object that ffmpeg-mcp uploaded to GCS
   const tempBlobPath = gcsPathFromFirebaseUrl(outputUrl);
   if (tempBlobPath)
-    await deleteGcsObject(bucketName, tempBlobPath, { ignoreNotFound: true }).catch(
-      () => undefined
-    );
+    await bucket
+      .file(tempBlobPath)
+      .delete()
+      .catch(() => undefined);
 
   return { compressedSize, skippedOverwrite };
 }

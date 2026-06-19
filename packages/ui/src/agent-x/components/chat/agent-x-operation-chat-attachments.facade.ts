@@ -355,7 +355,7 @@ export class AgentXOperationChatAttachmentsFacade {
   removePendingFile(index: number): void {
     this.pendingFiles.update((previous) => {
       const removed = previous[index];
-      if (isRevocableObjectUrl(removed?.previewUrl)) {
+      if (removed?.previewUrl) {
         URL.revokeObjectURL(removed.previewUrl);
       }
       if (removed) {
@@ -1000,7 +1000,7 @@ export class AgentXOperationChatAttachmentsFacade {
 
   clearPendingFiles(): void {
     for (const pending of this.pendingFiles()) {
-      if (isRevocableObjectUrl(pending.previewUrl)) {
+      if (pending.previewUrl) {
         URL.revokeObjectURL(pending.previewUrl);
       }
       this.discardPendingUpload(pending.id);
@@ -1972,10 +1972,6 @@ function normalizeAttachmentFile(
 function resolveAttachmentFileSize(file: File): number {
   const nativeSizeBytes = (file as NativeAttachmentFile).nativeSizeBytes;
   return typeof nativeSizeBytes === 'number' && nativeSizeBytes > 0 ? nativeSizeBytes : file.size;
-}
-
-function isRevocableObjectUrl(url: string | null | undefined): url is string {
-  return typeof url === 'string' && url.startsWith('blob:');
 }
 
 function normalizeAttachmentMimeType(mimeType: string): string | null {

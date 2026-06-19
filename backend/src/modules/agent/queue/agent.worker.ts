@@ -39,20 +39,18 @@ import type {
   AgentYieldState,
   AgentXRichCard,
 } from '@nxt1/core';
-import {
-  AGENT_X_RUNTIME_CONFIG,
-  AGENT_APPROVAL_TOOL_GROUPS,
-  buildAttachmentUrlSet,
-  createStreamingSanitizer,
-  stripEchoedUserAttachments,
-  type StreamingSanitizer,
-} from '@nxt1/core/ai';
+import { AGENT_X_RUNTIME_CONFIG, AGENT_APPROVAL_TOOL_GROUPS } from '@nxt1/core/ai';
 import {
   extractMediaAttachmentsFromResultData,
   sanitizeStorageUrlsFromText,
   resolveAgentApprovalCopy,
   resolveAgentSuccessNotificationCopy,
   formatApprovalRichPreview,
+  buildAttachmentUrlSet,
+  createStreamingSanitizer,
+  isUserAttachmentUrl,
+  stripEchoedUserAttachments,
+  type StreamingSanitizer,
 } from '@nxt1/core';
 import type { AgentRouter } from '../agent.router.js';
 import type { AgentQueueJobData, AgentQueueJobResult, AgentJobProgress } from './queue.types.js';
@@ -74,7 +72,6 @@ import { AgentPubSubService } from './pubsub.service.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
 import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
-import { isUserAttachmentUrl } from '../utils/user-attachment-url.js';
 import { withAgentAppConfigForFirestore } from '../config/agent-app-config.js';
 import { isAgentYield } from '../exceptions/agent-yield.exception.js';
 import { AgentEngineError, getAgentEngineErrorCode } from '../exceptions/agent-engine.error.js';

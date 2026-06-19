@@ -19,7 +19,6 @@ import { AgentJobAutoResolverService } from '../../modules/agent/services/agent-
 import { AgentJobRepository } from '../../modules/agent/queue/job.repository.js';
 import { getCloudflareAnalyticsSyncService } from '../../services/platform/cloudflare-analytics-sync.service.js';
 import { sendSlackAlert } from '../../services/platform/alert.service.js';
-import { deleteGcsObject, listGcsObjects } from '../../utils/gcs-json-api.js';
 
 const router = Router();
 
@@ -28,18 +27,6 @@ const STALE_QUEUED_THRESHOLD_MS = 100 * 60 * 1000;
 const STALE_SYSTEM_CRON_YIELDED_THRESHOLD_MS = 72 * 60 * 60 * 1000;
 const STALE_USER_YIELDED_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 const STALE_YIELDED_STATUSES = ['paused', 'awaiting_input', 'awaiting_approval'] as const;
-const TMP_TTL_DAYS = 7;
-const TMP_MEDIA_STORAGE_MAX_ATTEMPTS = 4;
-const TMP_MEDIA_STORAGE_RETRY_DELAYS_MS = [500, 1_500, 3_000] as const;
-const RETRYABLE_TMP_MEDIA_STORAGE_ERROR_CODES = new Set([
-  'EAI_AGAIN',
-  'ECONNABORTED',
-  'ECONNRESET',
-  'ENETUNREACH',
-  'ESOCKETTIMEDOUT',
-  'ETIMEDOUT',
-  'ERR_STREAM_PREMATURE_CLOSE',
-]);
 
 type CleanupStaleJobsRepository = Pick<AgentJobRepository, 'markFailed' | 'markCancelled'>;
 
@@ -62,118 +49,6 @@ interface CleanupStaleAgentJobsResult {
   skippedYielded: number;
   failedToUpdate: number;
   threadStateClearFailures: number;
-}
-
-interface TmpMediaStorageFile {
-  readonly name: string;
-  readonly metadata: {
-    readonly timeCreated?: unknown;
-  };
-  delete(): Promise<unknown>;
-}
-
-interface TmpMediaStorageBucket {
-  readonly name?: string;
-  getFiles(query: {
-    prefix: string;
-    maxResults: number;
-    pageToken?: string;
-  }): Promise<[TmpMediaStorageFile[], unknown, unknown]>;
-}
-
-interface TmpMediaStorage {
-  bucket(): TmpMediaStorageBucket;
-}
-
-export interface CleanupTmpMediaResult {
-  totalScanned: number;
-  totalDeleted: number;
-  ttlDays: number;
-  cutoff: string;
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function getErrorCode(error: unknown): string | number | undefined {
-  if (!error || typeof error !== 'object') return undefined;
-  const record = error as { code?: unknown; status?: unknown; statusCode?: unknown };
-  const code = record.code ?? record.status ?? record.statusCode;
-  return typeof code === 'string' || typeof code === 'number' ? code : undefined;
-}
-
-function isRetryableFirebaseStorageError(error: unknown): boolean {
-  const code = getErrorCode(error);
-  if (typeof code === 'number' && [408, 429, 500, 502, 503, 504].includes(code)) return true;
-  if (typeof code === 'string' && RETRYABLE_TMP_MEDIA_STORAGE_ERROR_CODES.has(code.toUpperCase())) {
-    return true;
-  }
-
-  const message = getErrorMessage(error).toLowerCase();
-  return (
-    message.includes('premature close') ||
-    message.includes('invalid response body') ||
-    message.includes('oauth2.googleapis.com/token') ||
-    message.includes('socket hang up') ||
-    message.includes('econnreset') ||
-    message.includes('etimedout') ||
-    message.includes('fetch failed') ||
-    message.includes('aborted') ||
-    message.includes('tls')
-  );
-}
-
-function getNextPageToken(nextQuery: unknown): string | undefined {
-  if (!nextQuery || typeof nextQuery !== 'object') return undefined;
-  const pageToken = (nextQuery as { pageToken?: unknown }).pageToken;
-  return typeof pageToken === 'string' && pageToken.length > 0 ? pageToken : undefined;
-}
-
-function hasFirebaseServiceAccountEnv(): boolean {
-  const projectId = process.env['FIREBASE_PROJECT_ID'] ?? process.env['GOOGLE_PROJECT_ID'];
-  const clientEmail = process.env['FIREBASE_CLIENT_EMAIL'] ?? process.env['GOOGLE_CLIENT_EMAIL'];
-  const privateKey = process.env['FIREBASE_PRIVATE_KEY'] ?? process.env['GOOGLE_PRIVATE_KEY'];
-  return Boolean(projectId && clientEmail && privateKey);
-}
-
-async function runTmpMediaStorageStepWithRetry<T>(
-  operation: 'list_tmp_media' | 'delete_tmp_media',
-  action: () => Promise<T>,
-  context: Record<string, unknown>
-): Promise<T> {
-  let lastError: unknown;
-
-  for (let attempt = 1; attempt <= TMP_MEDIA_STORAGE_MAX_ATTEMPTS; attempt += 1) {
-    try {
-      return await action();
-    } catch (error) {
-      lastError = error;
-      const retryable = isRetryableFirebaseStorageError(error);
-      const finalAttempt = attempt >= TMP_MEDIA_STORAGE_MAX_ATTEMPTS;
-
-      if (finalAttempt || !retryable) {
-        throw error;
-      }
-
-      const delayMs = TMP_MEDIA_STORAGE_RETRY_DELAYS_MS[attempt - 1] ?? 3_000;
-      logger.warn('[TmpMediaCleanup] Retrying transient Firebase Storage operation', {
-        operation,
-        attempt,
-        maxAttempts: TMP_MEDIA_STORAGE_MAX_ATTEMPTS,
-        delayMs,
-        error: getErrorMessage(error),
-        ...context,
-      });
-      await delay(delayMs);
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 function toTimestampMs(value: unknown): number | null {
@@ -771,234 +646,7 @@ router.post(
 //
 // Cloud Scheduler: every day at 4:30 AM ET  (cron: 30 4 * * *)
 
-export async function cleanupTmpMedia(
-  storage: TmpMediaStorage,
-  now: Date = new Date(),
-  requestId?: string
-): Promise<CleanupTmpMediaResult> {
-  const bucket = storage.bucket();
-  const bucketName = typeof bucket.name === 'string' && bucket.name.length > 0 ? bucket.name : '';
-  if (bucketName && hasFirebaseServiceAccountEnv()) {
-    return cleanupTmpMediaWithGcsJsonApi(bucketName, now, requestId);
-  }
-
-  if (bucketName) {
-    logger.warn(
-      'CRON cleanup-tmp-media falling back to Firebase Admin SDK because service-account env is not configured',
-      { bucketName, requestId }
-    );
-  }
-
-  return cleanupTmpMediaWithFirebaseAdminBucket(bucket, now, requestId);
-}
-
-async function cleanupTmpMediaWithGcsJsonApi(
-  bucketName: string,
-  now: Date,
-  requestId?: string
-): Promise<CleanupTmpMediaResult> {
-  const cutoffMs = now.getTime() - TMP_TTL_DAYS * 24 * 60 * 60 * 1000;
-
-  let totalScanned = 0;
-  let totalDeleted = 0;
-  let pageToken: string | undefined;
-  let pageCount = 0;
-
-  logger.info('CRON cleanup-tmp-media using GCS JSON API path', { bucketName, requestId });
-
-  do {
-    pageCount++;
-    try {
-      const { items: files, nextPageToken } = await runTmpMediaStorageStepWithRetry(
-        'list_tmp_media',
-        () =>
-          listGcsObjects({
-            bucketName,
-            prefix: 'Users/',
-            maxResults: 1000,
-            ...(pageToken ? { pageToken } : {}),
-          }),
-        { bucketName, pageToken: pageToken ?? null, transport: 'gcs-json-api' }
-      );
-
-      pageToken = nextPageToken;
-      totalScanned += files.length;
-
-      const deletionQueue: Array<() => Promise<void>> = [];
-
-      for (const file of files) {
-        if (!file.name.includes('/tmp/')) continue;
-
-        if (!file.timeCreated) {
-          logger.warn('Skipping tmp file with missing metadata', {
-            path: file.name,
-            requestId,
-          });
-          continue;
-        }
-
-        const createdMs = new Date(file.timeCreated).getTime();
-        if (!Number.isFinite(createdMs) || createdMs > cutoffMs) continue;
-
-        deletionQueue.push(async () => {
-          try {
-            await runTmpMediaStorageStepWithRetry(
-              'delete_tmp_media',
-              () => deleteGcsObject(bucketName, file.name, { ignoreNotFound: true }),
-              { bucketName, path: file.name, transport: 'gcs-json-api' }
-            );
-            totalDeleted++;
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
-            logger.warn('Failed to delete tmp file', { path: file.name, error: msg, requestId });
-          }
-        });
-      }
-
-      for (let i = 0; i < deletionQueue.length; i += 50) {
-        await Promise.all(deletionQueue.slice(i, i + 50).map((deleteFile) => deleteFile()));
-      }
-    } catch (pageErr: unknown) {
-      const error = pageErr instanceof Error ? pageErr : new Error(String(pageErr));
-      (
-        error as Error & {
-          cleanupTmpMediaContext?: Record<string, unknown>;
-        }
-      ).cleanupTmpMediaContext = {
-        stage: `list-or-delete-page-${pageCount}`,
-        pageNumber: pageCount,
-        scannedSoFar: totalScanned,
-        deletedSoFar: totalDeleted,
-        transport: 'gcs-json-api',
-      };
-      logger.error('CRON cleanup-tmp-media: page processing failed', {
-        pageNumber: pageCount,
-        scannedSoFar: totalScanned,
-        deletedSoFar: totalDeleted,
-        errorMessage: error.message,
-        errorStack: error.stack,
-        errorCode: (pageErr as Record<string, unknown>)?.['code'],
-        requestId,
-        transport: 'gcs-json-api',
-      });
-      throw error;
-    }
-  } while (pageToken);
-
-  return {
-    totalScanned,
-    totalDeleted,
-    ttlDays: TMP_TTL_DAYS,
-    cutoff: new Date(cutoffMs).toISOString(),
-  };
-}
-
-async function cleanupTmpMediaWithFirebaseAdminBucket(
-  bucket: TmpMediaStorageBucket,
-  now: Date,
-  requestId?: string
-): Promise<CleanupTmpMediaResult> {
-  const cutoffMs = now.getTime() - TMP_TTL_DAYS * 24 * 60 * 60 * 1000;
-
-  // GCS list with prefix="Users/" — iterates all user-owned objects.
-  // We filter server-side for /tmp/ path segment and age.
-  // pageToken loop handles buckets with >1000 objects.
-  let totalScanned = 0;
-  let totalDeleted = 0;
-  let pageToken: string | undefined;
-  let pageCount = 0;
-
-  do {
-    pageCount++;
-    try {
-      const [files, , nextQuery] = await runTmpMediaStorageStepWithRetry(
-        'list_tmp_media',
-        () =>
-          bucket.getFiles({
-            prefix: 'Users/',
-            maxResults: 1000,
-            ...(pageToken ? { pageToken } : {}),
-          }),
-        { pageToken: pageToken ?? null }
-      );
-
-      pageToken = getNextPageToken(nextQuery);
-      totalScanned += files.length;
-
-      const deletionQueue: Array<() => Promise<void>> = [];
-
-      for (const file of files) {
-        // Must contain /tmp/ segment to qualify
-        if (!file.name.includes('/tmp/')) continue;
-
-        // Guard against missing metadata
-        if (!file.metadata || !file.metadata.timeCreated) {
-          logger.warn('Skipping tmp file with missing metadata', {
-            path: file.name,
-            requestId,
-          });
-          continue;
-        }
-
-        const createdMs =
-          typeof file.metadata.timeCreated === 'string'
-            ? new Date(file.metadata.timeCreated).getTime()
-            : 0;
-
-        if (createdMs === 0 || createdMs > cutoffMs) continue;
-
-        deletionQueue.push(async () => {
-          try {
-            await runTmpMediaStorageStepWithRetry('delete_tmp_media', () => file.delete(), {
-              path: file.name,
-            });
-            totalDeleted++;
-          } catch (err: unknown) {
-            const msg = err instanceof Error ? err.message : String(err);
-            logger.warn('Failed to delete tmp file', { path: file.name, error: msg, requestId });
-          }
-        });
-      }
-
-      // Batch deletes — up to 50 concurrent GCS deletes per page
-      for (let i = 0; i < deletionQueue.length; i += 50) {
-        await Promise.all(deletionQueue.slice(i, i + 50).map((deleteFile) => deleteFile()));
-      }
-    } catch (pageErr: unknown) {
-      const error = pageErr instanceof Error ? pageErr : new Error(String(pageErr));
-      const stagedError = error as Error & {
-        code?: unknown;
-        stage?: string;
-        pageNumber?: number;
-        scannedSoFar?: number;
-        deletedSoFar?: number;
-      };
-      stagedError.stage = `list-or-delete-page-${pageCount}`;
-      stagedError.pageNumber = pageCount;
-      stagedError.scannedSoFar = totalScanned;
-      stagedError.deletedSoFar = totalDeleted;
-      stagedError.code = (pageErr as Record<string, unknown>)?.['code'];
-
-      logger.error('CRON cleanup-tmp-media: page processing failed', {
-        pageNumber: pageCount,
-        scannedSoFar: totalScanned,
-        deletedSoFar: totalDeleted,
-        errorMessage: error.message,
-        errorStack: error.stack,
-        errorCode: (pageErr as Record<string, unknown>)?.['code'],
-        requestId,
-      });
-      throw error;
-    }
-  } while (pageToken);
-
-  return {
-    totalScanned,
-    totalDeleted,
-    ttlDays: TMP_TTL_DAYS,
-    cutoff: new Date(cutoffMs).toISOString(),
-  };
-}
+const TMP_TTL_DAYS = 7;
 
 router.post('/cron/cleanup-tmp-media', cronGuard, async (req: Request, res: Response) => {
   const requestId = (req.headers['x-request-id'] as string) || `server-${Date.now()}`;
@@ -1015,24 +663,108 @@ router.post('/cron/cleanup-tmp-media', cronGuard, async (req: Request, res: Resp
       return;
     }
 
-    const result = await cleanupTmpMedia(storage, new Date(), requestId);
+    const bucket = storage.bucket();
+    const cutoffMs = Date.now() - TMP_TTL_DAYS * 24 * 60 * 60 * 1000;
+
+    // GCS list with prefix="Users/" — iterates all user-owned objects.
+    // We filter server-side for /tmp/ path segment and age.
+    // pageToken loop handles buckets with >1000 objects.
+    let totalScanned = 0;
+    let totalDeleted = 0;
+    let pageToken: string | undefined;
+    let pageCount = 0;
+
+    do {
+      pageCount++;
+      try {
+        const [files, , nextQuery] = await bucket.getFiles({
+          prefix: 'Users/',
+          maxResults: 1000,
+          ...(pageToken ? { pageToken } : {}),
+        });
+
+        pageToken = (nextQuery as Record<string, string> | undefined)?.['pageToken'];
+        totalScanned += files.length;
+
+        const deletionQueue: Promise<void>[] = [];
+
+        for (const file of files) {
+          // Must contain /tmp/ segment to qualify
+          if (!file.name.includes('/tmp/')) continue;
+
+          if (!file.metadata?.timeCreated) {
+            logger.warn('Skipping tmp file with missing metadata', {
+              path: file.name,
+              requestId,
+            });
+            continue;
+          }
+
+          const createdMs =
+            typeof file.metadata.timeCreated === 'string'
+              ? new Date(file.metadata.timeCreated).getTime()
+              : 0;
+
+          if (createdMs === 0 || createdMs > cutoffMs) continue;
+
+          deletionQueue.push(
+            file
+              .delete()
+              .then(() => {
+                totalDeleted++;
+              })
+              .catch((err: unknown) => {
+                const msg = err instanceof Error ? err.message : String(err);
+                logger.warn('Failed to delete tmp file', {
+                  path: file.name,
+                  error: msg,
+                  requestId,
+                });
+              })
+          );
+        }
+
+        // Batch deletes — up to 50 concurrent GCS deletes per page
+        for (let i = 0; i < deletionQueue.length; i += 50) {
+          await Promise.all(deletionQueue.slice(i, i + 50));
+        }
+      } catch (pageErr: unknown) {
+        const error = pageErr instanceof Error ? pageErr : new Error(String(pageErr));
+        const stagedError = error as Error & {
+          code?: unknown;
+          stage?: string;
+          pageNumber?: number;
+          scannedSoFar?: number;
+          deletedSoFar?: number;
+        };
+        stagedError.stage = `list-or-delete-page-${pageCount}`;
+        stagedError.pageNumber = pageCount;
+        stagedError.scannedSoFar = totalScanned;
+        stagedError.deletedSoFar = totalDeleted;
+        stagedError.code = (pageErr as Record<string, unknown>)?.['code'];
+
+        logger.error('CRON cleanup-tmp-media: page processing failed', {
+          pageNumber: pageCount,
+          scannedSoFar: totalScanned,
+          deletedSoFar: totalDeleted,
+          errorMessage: error.message,
+          errorStack: error.stack,
+          errorCode: (pageErr as Record<string, unknown>)?.['code'],
+          requestId,
+        });
+        throw error;
+      }
+    } while (pageToken);
 
     logger.info('CRON cleanup-tmp-media completed', {
-      totalScanned: result.totalScanned,
-      totalDeleted: result.totalDeleted,
-      ttlDays: result.ttlDays,
-      cutoff: result.cutoff,
+      totalScanned,
+      totalDeleted,
+      ttlDays: TMP_TTL_DAYS,
+      cutoff: new Date(cutoffMs).toISOString(),
       requestId,
     });
 
-    res.json({
-      success: true,
-      data: {
-        totalScanned: result.totalScanned,
-        totalDeleted: result.totalDeleted,
-        ttlDays: result.ttlDays,
-      },
-    });
+    res.json({ success: true, data: { totalScanned, totalDeleted, ttlDays: TMP_TTL_DAYS } });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     const stagedError = err as Record<string, unknown>;

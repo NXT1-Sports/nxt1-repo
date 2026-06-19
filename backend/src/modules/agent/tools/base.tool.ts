@@ -28,8 +28,6 @@ export interface ToolExecutionContext {
   readonly appBaseUrl?: string;
   readonly operationId?: string;
   readonly threadId?: string;
-  readonly teamId?: string;
-  readonly organizationId?: string;
   readonly sessionId?: string;
   readonly approvalId?: string;
   readonly allowedEntityGroups?: readonly AgentToolEntityGroup[];

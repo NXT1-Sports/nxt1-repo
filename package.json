@@ -1,6 +1,6 @@
 {
   "name": "nxt1-workspace",
-  "version": "1.62.27",
+  "version": "1.62.23",
   "private": true,
   "description": "NXT1 Sports Intelligence Platform - Monorepo",
   "repository": {
@@ -162,11 +162,7 @@
     "@xmldom/xmldom": "0.9.10",
     "plist": "^3.1.1",
     "postcss": "^8.5.12",
-    "@tootallnate/once": "3.0.1",
-    "gtoken": "^8.0.0",
-    "google-auth-library": {
-      "gtoken": "^8.0.0"
-    }
+    "@tootallnate/once": "3.0.1"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [

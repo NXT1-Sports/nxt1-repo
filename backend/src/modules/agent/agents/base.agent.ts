@@ -252,8 +252,6 @@ const EMAIL_CONNECTION_REQUIRED_MESSAGE =
 export interface ToolSessionContext {
   readonly sessionId?: string;
   readonly threadId?: string;
-  readonly teamId?: string;
-  readonly organizationId?: string;
   readonly operationId?: string;
   readonly environment?: 'staging' | 'production';
   readonly appBaseUrl?: string;
@@ -1186,8 +1184,6 @@ export abstract class BaseAgent {
     const sessionContext: ToolSessionContext = {
       sessionId: context.sessionId,
       threadId: context.threadId,
-      teamId: context.teamId,
-      organizationId: context.organizationId,
       operationId: context.operationId,
       ...(context.environment && { environment: context.environment }),
       ...(context.appBaseUrl && { appBaseUrl: context.appBaseUrl }),
@@ -3492,8 +3488,6 @@ export abstract class BaseAgent {
       ...(sessionContext?.appBaseUrl && { appBaseUrl: sessionContext.appBaseUrl }),
       ...(sessionContext?.operationId && { operationId: sessionContext.operationId }),
       ...(sessionContext?.threadId && { threadId: sessionContext.threadId }),
-      ...(sessionContext?.teamId && { teamId: sessionContext.teamId }),
-      ...(sessionContext?.organizationId && { organizationId: sessionContext.organizationId }),
       ...(sessionContext?.sessionId && { sessionId: sessionContext.sessionId }),
       ...(sessionContext?.approvalId && { approvalId: sessionContext.approvalId }),
       ...(sessionContext?.allowedToolNames && {

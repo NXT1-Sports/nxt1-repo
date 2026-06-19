@@ -1,8 +1,5 @@
 import { logger } from '../../../../utils/logger.js';
-import {
-  createSignedUrlLocally,
-  getSignedUrlWithTimeout,
-} from '../../../../utils/gcs-signed-url.js';
+import { getSignedUrlWithTimeout } from '../../../../utils/gcs-signed-url.js';
 import { CloudflareMcpBridgeService } from '../integrations/cloudflare-stream/cloudflare-mcp-bridge.service.js';
 import { MediaStagingService } from './media-staging.service.js';
 import type { ToolExecutionContext } from '../base.tool.js';
@@ -369,44 +366,27 @@ export class MediaTransportResolverService {
     url: string,
     executionContext?: ToolExecutionContext
   ): Promise<string | null> {
-    const scope = this.getFirebaseUrlScope(url);
-    if (!scope) return null;
-
-    if (!this.isAuthorizedFirebaseScope(scope, executionContext)) {
-      logger.warn('[MediaTransportResolver] Refused to sign Firebase Storage URL out of scope', {
-        bucketName: scope.bucketName,
-        storagePath: scope.storagePath.slice(0, 120),
-        userId: executionContext?.userId,
-        threadId: executionContext?.threadId,
-        environment: executionContext?.environment,
-      });
-      return null;
-    }
-
-    // Sign locally with crypto — no HTTP calls to IAM / OAuth APIs.
-    // This avoids "Premature close" errors that occur under high concurrency
-    // when the Firebase Admin SDK's getSignedUrl() hits oauth2.googleapis.com/token.
-    const localSigned = createSignedUrlLocally({
-      bucketName: scope.bucketName,
-      fileName: scope.storagePath,
-    });
-    if (localSigned) {
-      logger.info('[MediaTransportResolver] Generated signed URL locally', {
-        bucketName: scope.bucketName,
-        storagePath: scope.storagePath.slice(0, 120),
-        environment: executionContext?.environment,
-      });
-      return localSigned;
-    }
-
-    // Fallback: IAM API signing when private key is unavailable
-    const isStaging =
-      executionContext?.environment === 'staging' ||
-      STAGING_BUCKET_PATTERN.test(scope.bucketName.toLowerCase());
-    const storageInstance = isStaging ? stagingStorage : defaultStorage;
-
     try {
-      const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
+      const scope = this.getFirebaseUrlScope(url);
+      if (!scope) return null;
+
+      if (!this.isAuthorizedFirebaseScope(scope, executionContext)) {
+        logger.warn('[MediaTransportResolver] Refused to sign Firebase Storage URL out of scope', {
+          bucketName: scope.bucketName,
+          storagePath: scope.storagePath.slice(0, 120),
+          userId: executionContext?.userId,
+          threadId: executionContext?.threadId,
+          environment: executionContext?.environment,
+        });
+        return null;
+      }
+
+      const isStaging =
+        executionContext?.environment === 'staging' ||
+        STAGING_BUCKET_PATTERN.test(scope.bucketName.toLowerCase());
+      const storageInstance = isStaging ? stagingStorage : defaultStorage;
+
+      const expiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 hours
       const [signedUrl] = await getSignedUrlWithTimeout(() =>
         storageInstance.bucket(scope.bucketName).file(scope.storagePath).getSignedUrl({
           action: 'read',
@@ -415,7 +395,7 @@ export class MediaTransportResolverService {
         })
       );
 
-      logger.info('[MediaTransportResolver] Generated signed URL via IAM API', {
+      logger.info('[MediaTransportResolver] Generated signed URL for own Firebase Storage file', {
         bucketName: scope.bucketName,
         storagePath: scope.storagePath.slice(0, 120),
         isStaging,
@@ -437,34 +417,15 @@ export class MediaTransportResolverService {
     if (!executionContext?.userId) return true;
 
     const normalizedPath = storagePath.replace(/^\/+/, '');
-    if (normalizedPath.startsWith(`Users/${executionContext.userId}/`)) {
-      if (executionContext.threadId && normalizedPath.includes('/threads/')) {
-        return normalizedPath.includes(`/threads/${executionContext.threadId}/`);
-      }
-      return true;
+    if (!normalizedPath.startsWith(`Users/${executionContext.userId}/`)) {
+      return false;
     }
 
-    if (executionContext.teamId && normalizedPath.startsWith(`Teams/${executionContext.teamId}/`)) {
-      return true;
+    if (executionContext.threadId && normalizedPath.includes('/threads/')) {
+      return normalizedPath.includes(`/threads/${executionContext.threadId}/`);
     }
 
-    if (this.isSharedTeamLogoPath(normalizedPath)) {
-      return true;
-    }
-
-    if (
-      executionContext.organizationId &&
-      (normalizedPath.startsWith(`Organizations/${executionContext.organizationId}/`) ||
-        normalizedPath.startsWith(`organizations/${executionContext.organizationId}/`))
-    ) {
-      return true;
-    }
-
-    return false;
-  }
-
-  private isSharedTeamLogoPath(storagePath: string): boolean {
-    return /^Teams\/[^/]+\/logo\/[^/]+$/u.test(storagePath);
+    return true;
   }
 
   private isAuthorizedFirebaseScope(

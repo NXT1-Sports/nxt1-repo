@@ -32,7 +32,6 @@ import {
   isEnvironmentScopedFirestore,
 } from '../../utils/firestore-environment-context.js';
 import { logger } from '../../utils/logger.js';
-import { postOAuthTokenForm } from '../../utils/oauth-token-request.js';
 import { renderRichContentAsEmailHtml } from './rich-content-formatting.js';
 import {
   ConversationModel,
@@ -167,19 +166,12 @@ async function refreshGmailToken(
     throw new Error('Gmail OAuth credentials not configured');
   }
 
-  const data = await postOAuthTokenForm(
-    'https://oauth2.googleapis.com/token',
-    new URLSearchParams({
-      client_id: clientId,
-      client_secret: clientSecret,
-      refresh_token: refreshToken,
-      grant_type: 'refresh_token',
-    }),
-    {
-      operation: 'connected_mail_gmail_refresh',
-      logContext: { userId: userId.substring(0, 8) + '...' },
-    }
-  );
+  const { data } = await axios.post('https://oauth2.googleapis.com/token', {
+    client_id: clientId,
+    client_secret: clientSecret,
+    refresh_token: refreshToken,
+    grant_type: 'refresh_token',
+  });
 
   const newAccessToken = data.access_token as string;
 

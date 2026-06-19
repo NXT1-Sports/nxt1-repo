@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/backend",
-  "version": "1.62.27",
+  "version": "1.62.23",
   "description": "NXT1 Backend API Server",
   "private": true,
   "type": "module",
@@ -159,10 +159,6 @@
   "overrides": {
     "chokidar": "^4.0.3",
     "postcss": "^8.5.12",
-    "vite": "^7.3.2",
-    "gtoken": "^8.0.0",
-    "google-auth-library": {
-      "gtoken": "^8.0.0"
-    }
+    "vite": "^7.3.2"
   }
 }

@@ -504,10 +504,6 @@ export class AgentRouter {
       typeof rawContextObj['appBaseUrl'] === 'string'
         ? String(rawContextObj['appBaseUrl'])
         : undefined,
-      typeof rawContextObj['teamId'] === 'string' ? String(rawContextObj['teamId']) : undefined,
-      typeof rawContextObj['organizationId'] === 'string'
-        ? String(rawContextObj['organizationId'])
-        : undefined,
       timezone,
       signal,
       mode,
@@ -602,15 +598,6 @@ export class AgentRouter {
       activeThreadsSummary
     );
     const toolAccessContext = this.policyService.buildToolAccessContext(userContext);
-    const scopedContext: AgentSessionContext = {
-      ...context,
-      ...(context.teamId ? {} : userContext.teamId ? { teamId: userContext.teamId } : {}),
-      ...(context.organizationId
-        ? {}
-        : userContext.organizationId
-          ? { organizationId: userContext.organizationId }
-          : {}),
-    };
 
     if (this.shouldBlockEmailSendUntilProviderConnected(intent, userContext)) {
       this.emitEmailConnectionRequired(onStreamEvent);
@@ -652,7 +639,7 @@ export class AgentRouter {
       userId,
       intent,
       enrichedIntent,
-      context: scopedContext,
+      context,
       toolAccessContext,
       approvalGate,
       onUpdate,
@@ -797,8 +784,6 @@ export class AgentRouter {
     threadId?: string,
     environment?: 'staging' | 'production',
     appBaseUrl?: string,
-    teamId?: string,
-    organizationId?: string,
     timezone?: string,
     signal?: AbortSignal,
     mode?: string,
@@ -827,8 +812,6 @@ export class AgentRouter {
       threadId,
       environment,
       appBaseUrl,
-      teamId,
-      organizationId,
       timezone,
       signal,
       mode,

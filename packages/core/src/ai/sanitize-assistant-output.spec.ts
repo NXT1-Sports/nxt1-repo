@@ -3,7 +3,6 @@ import {
   buildAttachmentUrlSet,
   createStreamingSanitizer,
   stripEchoedUserAttachments,
-  isUserAttachmentUrl,
 } from './sanitize-assistant-output.js';
 
 const USER_VIDEO = 'https://storage.googleapis.com/nxt1/users/abc/videos/clip.mov';
@@ -23,22 +22,6 @@ describe('buildAttachmentUrlSet', () => {
   it('trims surrounding whitespace before adding', () => {
     const set = buildAttachmentUrlSet(['  https://example.com  ']);
     expect(set.has('https://example.com')).toBe(true);
-  });
-});
-
-describe('isUserAttachmentUrl', () => {
-  it('matches exact user attachment URLs', () => {
-    expect(isUserAttachmentUrl(USER_VIDEO, URLS)).toBe(true);
-  });
-
-  it('matches user attachment URLs with poster fragments and trailing punctuation', () => {
-    expect(
-      isUserAttachmentUrl(`${USER_VIDEO}#poster=${encodeURIComponent(USER_IMAGE)}.`, URLS)
-    ).toBe(true);
-  });
-
-  it('does not match distinct generated media URLs', () => {
-    expect(isUserAttachmentUrl(TOOL_VIDEO, URLS)).toBe(false);
   });
 });
 

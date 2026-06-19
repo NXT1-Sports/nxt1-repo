@@ -204,16 +204,12 @@ describe('GenerateGraphicTool', () => {
     expect(prompt).not.toContain('Logo placeholders/clear zones exist');
   });
 
-  it('normalizes legacy text and subject image fields before validation', async () => {
+  it('rejects the legacy subjectImageUrl field', async () => {
     const tool = new GenerateGraphicTool(llm as never);
-
-    llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['WELCOME', 'JORDAN SMITH'] } });
-    llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
 
     const result = await tool.execute({
       graphicType: 'athlete',
-      primaryText: 'WELCOME',
-      secondaryText: 'JORDAN SMITH',
+      textRequirements: ['WELCOME'],
       dimensions: '1080x1080',
       styleDescription: 'Premium, modern',
       userId: 'user-1',
@@ -221,40 +217,8 @@ describe('GenerateGraphicTool', () => {
     });
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain('storage-side test abort');
-    expect(llm.generateImage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        referenceImageUrl: 'https://cdn.example.com/legacy.png',
-      })
-    );
-  });
-
-  it('normalizes legacy logo fields before validation', async () => {
-    const tool = new GenerateGraphicTool(llm as never);
-
-    llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['GAME DAY'] } });
-    llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
-
-    const logoUrl = 'https://cdn.example.com/team-logo.png';
-
-    const result = await tool.execute({
-      graphicType: 'team',
-      primaryText: 'GAME DAY',
-      dimensions: '1080x1080',
-      styleDescription: 'Premium, modern',
-      userId: 'user-1',
-      logoUrl,
-      applyMode: 'logo_overlay',
-    });
-
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('storage-side test abort');
-    expect(llm.generateImage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        referenceImageUrl: logoUrl,
-        additionalImageUrls: [],
-      })
-    );
+    expect(result.error).toContain('Unrecognized key');
+    expect(llm.generateImage).not.toHaveBeenCalled();
   });
 
   it('returns producer-facing notification copy for completed welcome graphics', async () => {

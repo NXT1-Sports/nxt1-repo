@@ -10,7 +10,6 @@ import type { ToolExecutionContext } from '../../base.tool.js';
 import { db as defaultDb, storage as defaultStorage } from '../../../../../utils/firebase.js';
 import { stagingDb, stagingStorage } from '../../../../../utils/firebase-staging.js';
 import { logger } from '../../../../../utils/logger.js';
-import { postOAuthTokenForm } from '../../../../../utils/oauth-token-request.js';
 import type { GoogleWorkspaceOAuthTokenDocument } from './shared.js';
 import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 import { resolveGoogleWorkspaceMcpStateBucket } from './google-workspace-env.js';
@@ -293,13 +292,8 @@ export class GoogleWorkspaceTokenManagerService {
       params.set('client_secret', credentials.clientSecret);
     }
 
-    const data = await postOAuthTokenForm('https://oauth2.googleapis.com/token', params, {
-      operation: 'google_workspace_refresh',
-      logContext: {
-        userId: userId.substring(0, 8) + '...',
-        environment:
-          environment ?? (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'production'),
-      },
+    const { data } = await axios.post('https://oauth2.googleapis.com/token', params.toString(), {
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     });
 
     const nextAccessToken = data['access_token'];

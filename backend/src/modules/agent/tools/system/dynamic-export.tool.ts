@@ -28,187 +28,10 @@
 
 import { getStorage } from 'firebase-admin/storage';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, readFileSync } from 'node:fs';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { ExportService, type ExportColumn, type ExportRow } from '../../services/export.service.js';
 import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
-import { logger } from '../../../../utils/logger.js';
-import { gcsObjectExists, uploadGcsObject } from '../../../../utils/gcs-json-api.js';
 import { z } from 'zod';
-
-const GOOGLE_AUTH_MAX_ATTEMPTS = 3;
-const GOOGLE_AUTH_RETRY_DELAYS_MS = [500, 1_500] as const;
-
-interface GoogleStorageRetryContext {
-  readonly operation: 'firebase_storage_save' | 'firebase_storage_exists';
-  readonly exportJobId: string;
-  readonly exportType: 'pdf' | 'csv';
-  readonly storagePath: string;
-  readonly userId: string;
-  readonly threadId: string;
-  readonly environment?: ToolExecutionContext['environment'];
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function getPrivateKeyDiagnostics(envName: string, label: string): Record<string, boolean> {
-  const value = process.env[envName];
-  const normalized = value?.replace(/\\n/g, '\n') ?? '';
-
-  return {
-    [`has${label}`]: !!value,
-    [`${label}HasEscapedNewlines`]: !!value?.includes('\\n'),
-    [`${label}HasRealNewlines`]: !!value?.includes('\n'),
-    [`${label}LooksPem`]:
-      normalized.includes('-----BEGIN PRIVATE KEY-----') &&
-      normalized.includes('-----END PRIVATE KEY-----'),
-  };
-}
-
-function getApplicationCredentialsDiagnostics(): Record<string, boolean> {
-  const credentialsPath = process.env['GOOGLE_APPLICATION_CREDENTIALS'];
-  const diagnostics: Record<string, boolean> = {
-    hasApplicationCredentials: !!credentialsPath,
-    applicationCredentialsReadable: false,
-    applicationCredentialsJsonValid: false,
-    applicationCredentialsHasClientEmail: false,
-    applicationCredentialsHasPrivateKey: false,
-    applicationCredentialsPrivateKeyLooksPem: false,
-    applicationCredentialsUsesLegacyTokenUri: false,
-    applicationCredentialsUsesModernTokenUri: false,
-  };
-
-  if (!credentialsPath || !existsSync(credentialsPath)) {
-    return diagnostics;
-  }
-
-  try {
-    const data = JSON.parse(readFileSync(credentialsPath, 'utf8')) as Record<string, unknown>;
-    const tokenUri = typeof data['token_uri'] === 'string' ? data['token_uri'] : '';
-    const privateKey = typeof data['private_key'] === 'string' ? data['private_key'] : '';
-
-    diagnostics['applicationCredentialsReadable'] = true;
-    diagnostics['applicationCredentialsJsonValid'] = true;
-    diagnostics['applicationCredentialsHasClientEmail'] =
-      typeof data['client_email'] === 'string' && data['client_email'].trim().length > 0;
-    diagnostics['applicationCredentialsHasPrivateKey'] = privateKey.length > 0;
-    diagnostics['applicationCredentialsPrivateKeyLooksPem'] =
-      privateKey.includes('-----BEGIN PRIVATE KEY-----') &&
-      privateKey.includes('-----END PRIVATE KEY-----');
-    diagnostics['applicationCredentialsUsesLegacyTokenUri'] =
-      tokenUri.includes('www.googleapis.com/oauth2/v4/token') ||
-      tokenUri.includes('/oauth2/v4/token');
-    diagnostics['applicationCredentialsUsesModernTokenUri'] =
-      tokenUri === 'https://oauth2.googleapis.com/token';
-  } catch {
-    diagnostics['applicationCredentialsReadable'] = true;
-  }
-
-  return diagnostics;
-}
-
-function getGoogleCredentialPresence(): Record<string, boolean> {
-  return {
-    hasGoogleClientEmail: !!process.env['GOOGLE_CLIENT_EMAIL'],
-    hasGoogleProjectId: !!process.env['GOOGLE_PROJECT_ID'],
-    hasFirebaseClientEmail: !!process.env['FIREBASE_CLIENT_EMAIL'],
-    hasFirebaseProjectId: !!process.env['FIREBASE_PROJECT_ID'],
-    hasFirebaseStorageBucket: !!process.env['FIREBASE_STORAGE_BUCKET'],
-    hasExportGoogleClientEmail: !!process.env['EXPORT_GOOGLE_CLIENT_EMAIL'],
-    hasExportGoogleProjectId: !!process.env['EXPORT_GOOGLE_PROJECT_ID'],
-    ...getPrivateKeyDiagnostics('GOOGLE_PRIVATE_KEY', 'GooglePrivateKey'),
-    ...getPrivateKeyDiagnostics('FIREBASE_PRIVATE_KEY', 'FirebasePrivateKey'),
-    ...getPrivateKeyDiagnostics('EXPORT_GOOGLE_PRIVATE_KEY', 'ExportGooglePrivateKey'),
-    ...getApplicationCredentialsDiagnostics(),
-  };
-}
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function getErrorCode(error: unknown): string | number | undefined {
-  if (!error || typeof error !== 'object') return undefined;
-  const record = error as { code?: unknown; status?: unknown; statusCode?: unknown };
-  const code = record.code ?? record.status ?? record.statusCode;
-  return typeof code === 'string' || typeof code === 'number' ? code : undefined;
-}
-
-function sanitizeErrorMessage(error: unknown): string {
-  return getErrorMessage(error)
-    .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
-    .replace(/access_token[=:]\s*[^&\s,)]+/gi, 'access_token=[REDACTED]')
-    .replace(/refresh_token[=:]\s*[^&\s,)]+/gi, 'refresh_token=[REDACTED]')
-    .replace(/private_key[=:]\s*[^&\s,)]+/gi, 'private_key=[REDACTED]');
-}
-
-function isRetryableGoogleAuthError(error: unknown): boolean {
-  const code = getErrorCode(error);
-  if (typeof code === 'number' && [408, 429, 500, 502, 503, 504].includes(code)) return true;
-
-  const message = getErrorMessage(error).toLowerCase();
-  return (
-    message.includes('premature close') ||
-    message.includes('invalid response body') ||
-    message.includes('oauth2/v4/token') ||
-    message.includes('oauth2.googleapis.com/token') ||
-    message.includes('socket hang up') ||
-    message.includes('econnreset') ||
-    message.includes('etimedout') ||
-    message.includes('enotfound') ||
-    message.includes('fetch failed') ||
-    message.includes('aborted') ||
-    message.includes('tls')
-  );
-}
-
-async function runGoogleStorageStepWithRetry<T>(
-  retryContext: GoogleStorageRetryContext,
-  action: () => Promise<T>
-): Promise<T> {
-  let lastError: unknown;
-
-  for (let attempt = 1; attempt <= GOOGLE_AUTH_MAX_ATTEMPTS; attempt += 1) {
-    logger.info('[DynamicExport] Google auth/storage step starting', {
-      stage: 'google_token_fetch_start',
-      attempt,
-      maxAttempts: GOOGLE_AUTH_MAX_ATTEMPTS,
-      ...retryContext,
-      ...getGoogleCredentialPresence(),
-    });
-
-    try {
-      return await action();
-    } catch (error) {
-      lastError = error;
-      const retryable = isRetryableGoogleAuthError(error);
-      const isFinalAttempt = attempt >= GOOGLE_AUTH_MAX_ATTEMPTS;
-
-      logger[isFinalAttempt || !retryable ? 'error' : 'warn'](
-        '[DynamicExport] Google auth/storage step failed',
-        {
-          stage: 'google_token_fetch_failed',
-          attempt,
-          maxAttempts: GOOGLE_AUTH_MAX_ATTEMPTS,
-          retryable,
-          errorCode: getErrorCode(error),
-          error: sanitizeErrorMessage(error),
-          finalFailureReason:
-            isFinalAttempt || !retryable ? sanitizeErrorMessage(error) : undefined,
-          ...retryContext,
-          ...getGoogleCredentialPresence(),
-        }
-      );
-
-      if (isFinalAttempt || !retryable) throw error;
-      await delay(GOOGLE_AUTH_RETRY_DELAYS_MS[attempt - 1] ?? 1_500);
-    }
-  }
-
-  throw lastError instanceof Error ? lastError : new Error(String(lastError));
-}
 
 export class DynamicExportTool extends BaseTool {
   readonly name = 'dynamic_export';
@@ -398,36 +221,20 @@ export class DynamicExportTool extends BaseTool {
       }
       const storagePath = `Users/${userId}/threads/${threadId}/exports/${timestamp}-${hash}.${extension}`;
       const downloadToken = randomUUID();
-      const exportJobId = context?.operationId ?? context?.sessionId ?? `${timestamp}-${hash}`;
 
       const bucket = getStorage().bucket();
-      const bucketName = bucket.name || process.env['FIREBASE_STORAGE_BUCKET'];
-      if (!bucketName) {
-        throw new AgentEngineError(
-          'AGENT_PIPELINE_FAILED',
-          'Export upload failed — Firebase Storage bucket is not configured'
-        );
-      }
-      const retryContext: GoogleStorageRetryContext = {
-        operation: 'firebase_storage_save',
-        exportJobId,
-        exportType: format,
-        storagePath,
-        userId,
-        threadId,
-        environment: context?.environment,
-      };
+      const file = bucket.file(storagePath);
 
-      await runGoogleStorageStepWithRetry(retryContext, () =>
-        uploadGcsObject(bucketName, storagePath, buffer, {
-          contentType: mimeType,
+      await file.save(buffer, {
+        contentType: mimeType,
+        metadata: {
           cacheControl: 'public, max-age=31536000, immutable',
           contentDisposition: `attachment; filename="${safeName}.${extension}"`,
           metadata: {
             firebaseStorageDownloadTokens: downloadToken,
           },
-        })
-      );
+        },
+      });
 
       // Verify the object exists before returning a download URL.
       emitStage?.('persisting_result', {
@@ -435,10 +242,7 @@ export class DynamicExportTool extends BaseTool {
         format,
         phase: 'create_download_link',
       });
-      const exists = await runGoogleStorageStepWithRetry(
-        { ...retryContext, operation: 'firebase_storage_exists' },
-        () => gcsObjectExists(bucketName, storagePath)
-      );
+      const [exists] = await file.exists();
       if (!exists) {
         throw new AgentEngineError(
           'AGENT_PIPELINE_FAILED',
@@ -447,7 +251,7 @@ export class DynamicExportTool extends BaseTool {
       }
 
       const downloadUrl =
-        `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/` +
+        `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/` +
         `${encodeURIComponent(storagePath)}?alt=media&token=${downloadToken}`;
 
       return {

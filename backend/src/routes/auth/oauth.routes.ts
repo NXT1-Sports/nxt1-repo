@@ -29,7 +29,6 @@ import { ConnectGmailDto, ConnectMicrosoftDto, ConnectYahooDto } from '../../dto
 import { invalidateProfileCaches } from '../profile/shared.js';
 import { appGuard } from '../../middleware/auth/auth.middleware.js';
 import { logger } from '../../utils/logger.js';
-import { postOAuthTokenForm } from '../../utils/oauth-token-request.js';
 import {
   isAllowedOrigin,
   getDefaultFrontendUrl,
@@ -345,16 +344,19 @@ router.get(
         redirect_uri: redirectUri,
       });
 
-      const tokenData = await postOAuthTokenForm<{
+      const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      });
+
+      const tokenData = (await tokenResponse.json()) as {
         access_token?: string;
         refresh_token?: string;
         id_token?: string;
         error?: string;
         error_description?: string;
-      }>('https://oauth2.googleapis.com/token', params, {
-        operation: 'google_callback_token_exchange',
-        logContext: { uid: uid.substring(0, 8) + '...', isStaging: req.isStaging },
-      });
+      };
 
       if (tokenData.error || !tokenData.refresh_token) {
         const errMsg = tokenData.error_description ?? tokenData.error ?? 'Token exchange failed';
@@ -892,13 +894,12 @@ router.post(
     };
 
     try {
-      tokenData = await postOAuthTokenForm<typeof tokenData>(tokenEndpoint, params, {
-        operation: 'google_connect_gmail_token_exchange',
-        logContext: {
-          uid: uid.substring(0, 8) + '...',
-          isStaging: req.isStaging,
-        },
+      const tokenResponse = await fetch(tokenEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
       });
+      tokenData = (await tokenResponse.json()) as typeof tokenData;
     } catch (fetchErr) {
       logger.error('[Google Connect Gmail] Network error contacting Google token endpoint', {
         uid,
