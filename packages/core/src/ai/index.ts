@@ -439,6 +439,7 @@ export type { StreamingSanitizer } from './sanitize-assistant-output';
 export {
   buildAttachmentUrlSet,
   createStreamingSanitizer,
+  isUserAttachmentUrl,
   stripEchoedUserAttachments,
 } from './sanitize-assistant-output';
 
