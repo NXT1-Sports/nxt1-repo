@@ -23,9 +23,11 @@ import { getStorage, type Storage } from 'firebase-admin/storage';
 let app: App;
 
 if (!getApps().length) {
-  const projectId = process.env['FIREBASE_PROJECT_ID'];
-  const clientEmail = process.env['FIREBASE_CLIENT_EMAIL'];
-  const privateKey = process.env['FIREBASE_PRIVATE_KEY']?.replace(/\\n/g, '\n');
+  const projectId = process.env['FIREBASE_PROJECT_ID'] ?? process.env['GOOGLE_PROJECT_ID'];
+  const clientEmail = process.env['FIREBASE_CLIENT_EMAIL'] ?? process.env['GOOGLE_CLIENT_EMAIL'];
+  const privateKey = (
+    process.env['FIREBASE_PRIVATE_KEY'] ?? process.env['GOOGLE_PRIVATE_KEY']
+  )?.replace(/\\n/g, '\n');
   const storageBucket = process.env['FIREBASE_STORAGE_BUCKET'];
 
   if (projectId && clientEmail && privateKey) {

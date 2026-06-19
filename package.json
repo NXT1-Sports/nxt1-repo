@@ -162,7 +162,11 @@
     "@xmldom/xmldom": "0.9.10",
     "plist": "^3.1.1",
     "postcss": "^8.5.12",
-    "@tootallnate/once": "3.0.1"
+    "@tootallnate/once": "3.0.1",
+    "gtoken": "^8.0.0",
+    "google-auth-library": {
+      "gtoken": "^8.0.0"
+    }
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [
