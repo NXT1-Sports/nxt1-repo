@@ -61,39 +61,85 @@ async function readErrorBody(response: Response): Promise<string> {
   return text.slice(0, 1_000);
 }
 
+const GOOGLE_TOKEN_MAX_ATTEMPTS = 3;
+const GOOGLE_TOKEN_RETRY_DELAYS_MS = [500, 1_500] as const;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableTokenError(error: unknown): boolean {
+  if (error instanceof SyntaxError) return true;
+  const message =
+    error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return (
+    message.includes('premature close') ||
+    message.includes('invalid response body') ||
+    message.includes('socket hang up') ||
+    message.includes('econnreset') ||
+    message.includes('etimedout') ||
+    message.includes('fetch failed') ||
+    message.includes('enotfound') ||
+    message.includes('tls')
+  );
+}
+
 export async function fetchGoogleAccessToken(scope: string): Promise<string> {
   const credentials = resolveFirebaseServiceAccountCredentials();
-  const issuedAt = Math.floor(Date.now() / 1_000);
-  const assertion = jwt.sign(
-    {
-      iss: credentials.clientEmail,
-      scope,
-      aud: TOKEN_ENDPOINT,
-      exp: issuedAt + 3_600,
-      iat: issuedAt,
-    },
-    credentials.privateKey,
-    { algorithm: 'RS256' }
-  );
 
-  const response = await fetch(TOKEN_ENDPOINT, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion,
-    }),
-  });
-  const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= GOOGLE_TOKEN_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const issuedAt = Math.floor(Date.now() / 1_000);
+      const assertion = jwt.sign(
+        {
+          iss: credentials.clientEmail,
+          scope,
+          aud: TOKEN_ENDPOINT,
+          exp: issuedAt + 3_600,
+          iat: issuedAt,
+        },
+        credentials.privateKey,
+        { algorithm: 'RS256' }
+      );
 
-  if (!response.ok || typeof body['access_token'] !== 'string') {
-    const error = typeof body['error'] === 'string' ? body['error'] : `HTTP ${response.status}`;
-    const description =
-      typeof body['error_description'] === 'string' ? `: ${body['error_description']}` : '';
-    throw new Error(`Google token fetch failed: ${error}${description}`);
+      const response = await fetch(TOKEN_ENDPOINT, {
+        method: 'POST',
+        headers: { 'content-type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+          assertion,
+        }),
+      });
+      const body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+
+      if (!response.ok || typeof body['access_token'] !== 'string') {
+        const error = typeof body['error'] === 'string' ? body['error'] : `HTTP ${response.status}`;
+        const description =
+          typeof body['error_description'] === 'string' ? `: ${body['error_description']}` : '';
+        throw new Error(`Google token fetch failed: ${error}${description}`);
+      }
+
+      return body['access_token'];
+    } catch (error) {
+      lastError = error;
+      const retryable = isRetryableTokenError(error);
+      const isFinalAttempt = attempt >= GOOGLE_TOKEN_MAX_ATTEMPTS;
+
+      if (isFinalAttempt || !retryable) {
+        throw error;
+      }
+
+      const delayMs = GOOGLE_TOKEN_RETRY_DELAYS_MS[attempt - 1] ?? 2_000;
+      console.warn(
+        `[GcsJsonApi] Retrying Google token fetch after ${delayMs}ms (attempt ${attempt}/${GOOGLE_TOKEN_MAX_ATTEMPTS})`,
+        { error: error instanceof Error ? error.message : String(error) }
+      );
+      await delay(delayMs);
+    }
   }
 
-  return body['access_token'];
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
 export async function uploadGcsObject(
