@@ -383,6 +383,10 @@ export interface AgentSessionContext {
   readonly operationId?: string;
   /** The MongoDB thread ID for the current conversation. Used by tools for thread-scoped storage. */
   readonly threadId?: string;
+  /** Active team scope for team-owned media and mutations. */
+  readonly teamId?: string;
+  /** Active organization scope for organization-owned media and mutations. */
+  readonly organizationId?: string;
   /**
    * UI mode hint passed from the SSE chat client (e.g. 'scout', 'athlete', 'recruiting').
    * Sub-agents may use this to tailor their system prompt.

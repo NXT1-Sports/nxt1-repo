@@ -417,15 +417,26 @@ export class MediaTransportResolverService {
     if (!executionContext?.userId) return true;
 
     const normalizedPath = storagePath.replace(/^\/+/, '');
-    if (!normalizedPath.startsWith(`Users/${executionContext.userId}/`)) {
-      return false;
+    if (normalizedPath.startsWith(`Users/${executionContext.userId}/`)) {
+      if (executionContext.threadId && normalizedPath.includes('/threads/')) {
+        return normalizedPath.includes(`/threads/${executionContext.threadId}/`);
+      }
+      return true;
     }
 
-    if (executionContext.threadId && normalizedPath.includes('/threads/')) {
-      return normalizedPath.includes(`/threads/${executionContext.threadId}/`);
+    if (executionContext.teamId && normalizedPath.startsWith(`Teams/${executionContext.teamId}/`)) {
+      return true;
     }
 
-    return true;
+    if (
+      executionContext.organizationId &&
+      (normalizedPath.startsWith(`Organizations/${executionContext.organizationId}/`) ||
+        normalizedPath.startsWith(`organizations/${executionContext.organizationId}/`))
+    ) {
+      return true;
+    }
+
+    return false;
   }
 
   private isAuthorizedFirebaseScope(

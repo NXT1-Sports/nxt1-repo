@@ -126,6 +126,66 @@ describe('MediaTransportResolverService', () => {
     );
   });
 
+  it('signs team-owned Firebase image URLs when the team scope matches', async () => {
+    resetStorageMocks();
+    storageMocks.productionFile.getSignedUrl.mockResolvedValue([
+      'https://signed.example/team-logo.jpg',
+    ]);
+    const cloudflareBridge = {
+      getDownloadLinks: vi.fn(),
+      enableDownload: vi.fn(),
+    };
+
+    const service = new MediaTransportResolverService(cloudflareBridge as never);
+
+    const result = await service.resolveProcessingUrl({
+      sourceUrl:
+        'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Teams%2Fteam-123%2Flogo%2Flogo.jpg?alt=media',
+      executionContext: {
+        userId: 'user-123',
+        teamId: 'team-123',
+        threadId: 'thread-456',
+        environment: 'production',
+      },
+    });
+
+    expect(result).toEqual({
+      url: 'https://signed.example/team-logo.jpg',
+      source: 'direct',
+    });
+    expect(storageMocks.defaultStorage.bucket).toHaveBeenCalledWith('nxt-1-v2.firebasestorage.app');
+    expect(storageMocks.productionBucket.file).toHaveBeenCalledWith('Teams/team-123/logo/logo.jpg');
+  });
+
+  it('rejects team-owned Firebase image URLs when the team scope does not match', async () => {
+    resetStorageMocks();
+    const cloudflareBridge = {
+      getDownloadLinks: vi.fn(),
+      enableDownload: vi.fn(),
+    };
+
+    const service = new MediaTransportResolverService(cloudflareBridge as never);
+    const sourceUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Teams%2Fother-team%2Flogo%2Flogo.jpg?alt=media';
+
+    const result = await service.resolveProcessingUrl({
+      sourceUrl,
+      executionContext: {
+        userId: 'user-123',
+        teamId: 'team-123',
+        threadId: 'thread-456',
+        environment: 'production',
+      },
+    });
+
+    expect(result).toEqual({
+      url: sourceUrl,
+      source: 'unchanged',
+    });
+    expect(storageMocks.defaultStorage.bucket).not.toHaveBeenCalled();
+    expect(storageMocks.stagingStorage.bucket).not.toHaveBeenCalled();
+  });
+
   it('re-signs expired staging Firebase signed URLs before processing', async () => {
     resetStorageMocks();
     storageMocks.stagingFile.getSignedUrl.mockResolvedValue([

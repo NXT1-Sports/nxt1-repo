@@ -134,6 +134,12 @@ export class AgentRouterResumeService {
       typeof (resumeContextObj as Record<string, unknown>)['appBaseUrl'] === 'string'
         ? ((resumeContextObj as Record<string, unknown>)['appBaseUrl'] as string)
         : undefined,
+      typeof (resumeContextObj as Record<string, unknown>)['teamId'] === 'string'
+        ? ((resumeContextObj as Record<string, unknown>)['teamId'] as string)
+        : undefined,
+      typeof (resumeContextObj as Record<string, unknown>)['organizationId'] === 'string'
+        ? ((resumeContextObj as Record<string, unknown>)['organizationId'] as string)
+        : undefined,
       typeof (resumeContextObj as Record<string, unknown>)['timezone'] === 'string'
         ? ((resumeContextObj as Record<string, unknown>)['timezone'] as string)
         : undefined,
