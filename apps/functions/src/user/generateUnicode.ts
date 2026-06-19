@@ -13,7 +13,7 @@
  * - Max 10 retries before fallback to sequential
  */
 
-import * as admin from 'firebase-admin';
+import { db, FieldValue } from '../firebase-admin';
 import * as logger from 'firebase-functions/logger';
 
 const MIN_UNICODE = 100000;
@@ -32,7 +32,6 @@ function generateRandomUnicode(): string {
  * Check if unicode is available (not used)
  */
 async function isUnicodeAvailable(unicode: string): Promise<boolean> {
-  const db = admin.firestore();
   const unicodeDoc = await db.collection('Unicodes').doc(unicode).get();
   return !unicodeDoc.exists || !unicodeDoc.data()?.['used'];
 }
@@ -41,12 +40,12 @@ async function isUnicodeAvailable(unicode: string): Promise<boolean> {
  * Reserve unicode in Unicodes collection
  */
 // async function reserveUnicode(unicode: string, userId: string): Promise<void> {
-//   const db = admin.firestore();
+//   const db = getFirestore(app);
 //   await db.collection('Unicodes').doc(unicode).set({
 //     used: true,
 //     userId,
-//     createdAt: admin.firestore.FieldValue.serverTimestamp(),
-//     assignedAt: admin.firestore.FieldValue.serverTimestamp(),
+//     createdAt: FieldValue.serverTimestamp(),
+//     assignedAt: FieldValue.serverTimestamp(),
 //   });
 // }
 
@@ -54,10 +53,10 @@ async function isUnicodeAvailable(unicode: string): Promise<boolean> {
  * Assign unicode to user document
  */
 // async function assignUnicodeToUser(userId: string, unicode: string): Promise<void> {
-//   const db = admin.firestore();
+//   const db = getFirestore(app);
 //   await db.collection('Users').doc(userId).update({
 //     unicode,
-//     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+//     updatedAt: FieldValue.serverTimestamp(),
 //   });
 // }
 
@@ -72,8 +71,6 @@ async function isUnicodeAvailable(unicode: string): Promise<boolean> {
  * @throws Error if unable to generate unicode after max retries
  */
 export async function generateUnicodeForUser(userId: string): Promise<string> {
-  const db = admin.firestore();
-
   // Try random generation with retries
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     const unicode = generateRandomUnicode();
@@ -98,8 +95,8 @@ export async function generateUnicodeForUser(userId: string): Promise<string> {
           transaction.set(unicodeRef, {
             used: true,
             userId,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            assignedAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(),
+            assignedAt: FieldValue.serverTimestamp(),
           });
 
           // Assign to user (use set with merge to create if missing)
@@ -107,7 +104,7 @@ export async function generateUnicodeForUser(userId: string): Promise<string> {
             userRef,
             {
               unicode,
-              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              updatedAt: FieldValue.serverTimestamp(),
             },
             { merge: true }
           );
@@ -141,8 +138,6 @@ export async function generateUnicodeForUser(userId: string): Promise<string> {
  * Only used when random generation consistently fails (very rare)
  */
 async function fallbackSequentialGeneration(userId: string): Promise<string> {
-  const db = admin.firestore();
-
   // Start from a random position to avoid clustering
   const startPosition = Math.floor(Math.random() * (MAX_UNICODE - MIN_UNICODE)) + MIN_UNICODE;
 
@@ -169,15 +164,15 @@ async function fallbackSequentialGeneration(userId: string): Promise<string> {
           transaction.set(unicodeRef, {
             used: true,
             userId,
-            createdAt: admin.firestore.FieldValue.serverTimestamp(),
-            assignedAt: admin.firestore.FieldValue.serverTimestamp(),
+            createdAt: FieldValue.serverTimestamp(),
+            assignedAt: FieldValue.serverTimestamp(),
           });
 
           transaction.set(
             userRef,
             {
               unicode,
-              updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+              updatedAt: FieldValue.serverTimestamp(),
             },
             { merge: true }
           );
@@ -202,13 +197,12 @@ async function fallbackSequentialGeneration(userId: string): Promise<string> {
  * Release unicode (for cleanup/deletion)
  */
 export async function releaseUnicode(unicode: string): Promise<void> {
-  const db = admin.firestore();
   // Use set+merge so release is idempotent even if the Unicode doc does not exist.
   await db.collection('Unicodes').doc(unicode).set(
     {
       used: false,
-      userId: admin.firestore.FieldValue.delete(),
-      releasedAt: admin.firestore.FieldValue.serverTimestamp(),
+      userId: FieldValue.delete(),
+      releasedAt: FieldValue.serverTimestamp(),
     },
     { merge: true }
   );

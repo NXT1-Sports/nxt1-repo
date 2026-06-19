@@ -5,16 +5,14 @@
  * Callable function to unregister a device's FCM token.
  */
 
-import * as admin from 'firebase-admin';
+import { db, FieldValue, Timestamp } from '../firebase-admin';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
-
-const db = admin.firestore();
 
 interface TokenData {
   token: string;
   platform: string;
-  addedAt: admin.firestore.Timestamp;
+  addedAt: Timestamp;
 }
 
 /**
@@ -54,8 +52,8 @@ export const unregisterFcmToken = onCall(
 
       if (tokenToRemove) {
         await docRef.update({
-          tokens: admin.firestore.FieldValue.arrayRemove(tokenToRemove),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          tokens: FieldValue.arrayRemove(tokenToRemove),
+          updatedAt: FieldValue.serverTimestamp(),
         });
         logger.info('FCM token unregistered', { userId });
       } else {

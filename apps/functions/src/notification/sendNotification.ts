@@ -11,12 +11,10 @@
  * notification types to activity tabs automatically).
  */
 
-import * as admin from 'firebase-admin';
+import { db } from '../firebase-admin';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
 import { notifyUser } from './notifyUser.js';
-
-const db = admin.firestore();
 
 /**
  * Enqueue a notification for a user (admin callable).

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { setMock, docMock, collectionMock, serverTimestampMock, deleteFieldMock, firestoreMock } =
+const { setMock, docMock, collectionMock, serverTimestampMock, deleteFieldMock, dbMock } =
   vi.hoisted(() => {
     const localSetMock = vi.fn();
     const localDocMock = vi.fn(() => ({
@@ -11,16 +11,9 @@ const { setMock, docMock, collectionMock, serverTimestampMock, deleteFieldMock, 
     }));
     const localServerTimestampMock = vi.fn(() => '__SERVER_TIMESTAMP__');
     const localDeleteFieldMock = vi.fn(() => '__DELETE_FIELD__');
-    const localFirestoreMock = vi.fn(() => ({
+    const localDbMock = {
       collection: localCollectionMock,
-    }));
-
-    Object.assign(localFirestoreMock, {
-      FieldValue: {
-        serverTimestamp: localServerTimestampMock,
-        delete: localDeleteFieldMock,
-      },
-    });
+    };
 
     return {
       setMock: localSetMock,
@@ -28,12 +21,16 @@ const { setMock, docMock, collectionMock, serverTimestampMock, deleteFieldMock, 
       collectionMock: localCollectionMock,
       serverTimestampMock: localServerTimestampMock,
       deleteFieldMock: localDeleteFieldMock,
-      firestoreMock: localFirestoreMock,
+      dbMock: localDbMock,
     };
   });
 
-vi.mock('firebase-admin', () => ({
-  firestore: firestoreMock,
+vi.mock('../../firebase-admin', () => ({
+  db: dbMock,
+  FieldValue: {
+    serverTimestamp: serverTimestampMock,
+    delete: deleteFieldMock,
+  },
 }));
 
 vi.mock('firebase-functions/logger', () => ({
@@ -52,7 +49,6 @@ describe('releaseUnicode', () => {
   it('uses set with merge so releasing a missing unicode doc is idempotent', async () => {
     await releaseUnicode('18302826');
 
-    expect(firestoreMock).toHaveBeenCalledTimes(1);
     expect(collectionMock).toHaveBeenCalledWith('Unicodes');
     expect(docMock).toHaveBeenCalledWith('18302826');
     expect(deleteFieldMock).toHaveBeenCalledTimes(1);

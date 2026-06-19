@@ -9,7 +9,7 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { logger } from 'firebase-functions/v2';
-import * as admin from 'firebase-admin';
+import { db, FieldValue } from '../firebase-admin';
 import { postBackendCronJson } from './utils/backendCronRequest';
 
 const CRON_SECRET = defineSecret('CRON_SECRET');
@@ -40,18 +40,17 @@ function parseBackendFailureMessage(message: string): ReconcileFailureDetails {
 }
 
 async function recordSuccess(): Promise<void> {
-  await admin.firestore().doc(HEALTH_DOC_PATH).set(
+  await db.doc(HEALTH_DOC_PATH).set(
     {
       consecutiveFailures: 0,
-      lastSuccessAt: admin.firestore.FieldValue.serverTimestamp(),
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      lastSuccessAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     },
     { merge: true }
   );
 }
 
 async function recordFailure(details: ReconcileFailureDetails): Promise<number> {
-  const db = admin.firestore();
   const ref = db.doc(HEALTH_DOC_PATH);
 
   return db.runTransaction(async (transaction) => {
@@ -65,11 +64,11 @@ async function recordFailure(details: ReconcileFailureDetails): Promise<number> 
       ref,
       {
         consecutiveFailures,
-        lastFailureAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastFailureAt: FieldValue.serverTimestamp(),
         lastFailureReason: details.reason,
         lastFailureStatus: details.status ?? null,
         lastFailureBody: details.body?.slice(0, 500) ?? null,
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
       },
       { merge: true }
     );

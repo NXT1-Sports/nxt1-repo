@@ -7,11 +7,9 @@
  * - Removes expired FCM tokens (90 days)
  */
 
-import * as admin from 'firebase-admin';
+import { db } from '../firebase-admin';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { logger } from 'firebase-functions/v2';
-
-const db = admin.firestore();
 
 /**
  * Weekly cleanup - remove stale data

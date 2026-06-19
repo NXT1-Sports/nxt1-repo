@@ -19,7 +19,7 @@
 
 import { onRequest } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
-import * as admin from 'firebase-admin';
+import { db, FieldValue } from '../firebase-admin';
 import axios from 'axios';
 
 // ============================================
@@ -383,7 +383,6 @@ async function forwardToN8n(alert: CrashlyticsAlert, severity: string): Promise<
  * Log alert to Firestore for tracking
  */
 async function logAlertToFirestore(alert: CrashlyticsAlert, severity: string): Promise<void> {
-  const db = admin.firestore();
   const alertDoc = {
     issueId: alert.issue.id,
     alertType: alert.alertType,
@@ -395,7 +394,7 @@ async function logAlertToFirestore(alert: CrashlyticsAlert, severity: string): P
     title: alert.issue.title,
     url: alert.issue.url,
     environment: detectEnvironment(alert.app.bundleId),
-    timestamp: admin.firestore.FieldValue.serverTimestamp(),
+    timestamp: FieldValue.serverTimestamp(),
     processed: false,
   };
 

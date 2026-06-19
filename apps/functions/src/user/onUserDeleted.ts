@@ -9,7 +9,17 @@
  * - Deletes storage assets under users/{userId}/
  */
 
-import * as admin from 'firebase-admin';
+import {
+  db,
+  FieldPath,
+  FieldValue,
+  storage,
+  type CollectionReference,
+  type DocumentData,
+  type DocumentReference,
+  type Query,
+  type QueryDocumentSnapshot,
+} from '../firebase-admin';
 import { onDocumentDeleted } from 'firebase-functions/v2/firestore';
 import { logger } from 'firebase-functions/v2';
 import { releaseUnicode } from './generateUnicode';
@@ -18,8 +28,7 @@ import {
   extractOrganizationAdminUserIds,
 } from './organizationCleanup';
 
-const db = admin.firestore();
-const bucket = admin.storage().bucket();
+const bucket = storage.bucket();
 
 const PRIMARY_USER_COLLECTION = 'Users';
 const SHADOW_USER_COLLECTION = 'users';
@@ -50,7 +59,7 @@ const USER_ID_QUERY_COLLECTIONS = [
   'StripeCustomers',
 ] as const;
 
-async function deleteQueryInBatches(query: FirebaseFirestore.Query): Promise<number> {
+async function deleteQueryInBatches(query: Query): Promise<number> {
   let totalDeleted = 0;
 
   while (true) {
@@ -68,9 +77,7 @@ async function deleteQueryInBatches(query: FirebaseFirestore.Query): Promise<num
   }
 }
 
-async function deleteCollectionRecursively(
-  collectionRef: FirebaseFirestore.CollectionReference
-): Promise<number> {
+async function deleteCollectionRecursively(collectionRef: CollectionReference): Promise<number> {
   let totalDeleted = 0;
 
   while (true) {
@@ -92,9 +99,7 @@ async function deleteCollectionRecursively(
   }
 }
 
-async function deleteAllSubcollections(
-  docRef: FirebaseFirestore.DocumentReference
-): Promise<number> {
+async function deleteAllSubcollections(docRef: DocumentReference): Promise<number> {
   const subcollections = await docRef.listCollections();
   if (subcollections.length === 0) return 0;
 
@@ -115,13 +120,9 @@ async function deleteSingletonDocuments(userId: string): Promise<void> {
 }
 
 async function deleteQueryCollections(userId: string): Promise<Record<string, number>> {
-  const queries: Array<[string, FirebaseFirestore.Query]> = [
+  const queries: Array<[string, Query]> = [
     ...USER_ID_QUERY_COLLECTIONS.map(
-      (name) =>
-        [name, db.collection(name).where('userId', '==', userId)] as [
-          string,
-          FirebaseFirestore.Query,
-        ]
+      (name) => [name, db.collection(name).where('userId', '==', userId)] as [string, Query]
     ),
     ['follows:followerId', db.collection('Follows').where('followerId', '==', userId)],
     ['follows:followingId', db.collection('Follows').where('followingId', '==', userId)],
@@ -177,7 +178,7 @@ async function cleanupTeams(
   }
 
   // ── Step 2: Collect all Team docs that reference this user ──
-  const teamDocs = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
+  const teamDocs = new Map<string, QueryDocumentSnapshot>();
 
   const [createdBySnapshot, memberIdsSnapshot, adminIdsSnapshot] = await Promise.all([
     db.collection('Teams').where('createdBy', '==', userId).get(),
@@ -199,10 +200,7 @@ async function cleanupTeams(
     // Firestore 'in' queries limited to 30 values per query
     for (let i = 0; i < missingTeamIds.length; i += 30) {
       const chunk = missingTeamIds.slice(i, i + 30);
-      const snap = await db
-        .collection('Teams')
-        .where(admin.firestore.FieldPath.documentId(), 'in', chunk)
-        .get();
+      const snap = await db.collection('Teams').where(FieldPath.documentId(), 'in', chunk).get();
       snap.docs.forEach((doc) => teamDocs.set(doc.id, doc));
     }
   }
@@ -235,7 +233,7 @@ async function cleanupTeams(
     const nextAdmins = filterMemberObjects(data['admins'], userId);
 
     const updateData: Record<string, unknown> = {
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     };
 
     if (Array.isArray(data['memberIds'])) {
@@ -258,10 +256,10 @@ async function cleanupTeams(
     const decrements = counterDecrements.get(doc.id);
     if (decrements) {
       if (decrements.athlete > 0) {
-        updateData['athleteMember'] = admin.firestore.FieldValue.increment(-decrements.athlete);
+        updateData['athleteMember'] = FieldValue.increment(-decrements.athlete);
       }
       if (decrements.panel > 0) {
-        updateData['panelMember'] = admin.firestore.FieldValue.increment(-decrements.panel);
+        updateData['panelMember'] = FieldValue.increment(-decrements.panel);
       }
     }
 
@@ -328,7 +326,7 @@ async function cleanupOrganizations(
       db.collection('Organizations').get(),
     ]);
 
-  const orgDocs = new Map<string, FirebaseFirestore.QueryDocumentSnapshot>();
+  const orgDocs = new Map<string, QueryDocumentSnapshot>();
   ownedSnapshot.docs.forEach((doc) => orgDocs.set(doc.id, doc));
   createdSnapshot.docs.forEach((doc) => orgDocs.set(doc.id, doc));
   billingOwnerSnapshot.docs.forEach((doc) => orgDocs.set(doc.id, doc));
@@ -348,7 +346,7 @@ async function cleanupOrganizations(
     }
 
     const updateData: Record<string, unknown> = {
-      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     };
 
     if (cleanupPlan.nextAdmins) {
@@ -356,7 +354,7 @@ async function cleanupOrganizations(
     }
 
     if (cleanupPlan.clearAdminUserIds) {
-      updateData['adminUserIds'] = admin.firestore.FieldValue.delete();
+      updateData['adminUserIds'] = FieldValue.delete();
     }
 
     if (cleanupPlan.nextOwnerId !== undefined) {
@@ -367,7 +365,7 @@ async function cleanupOrganizations(
         deactivated++;
       }
     } else if (cleanupPlan.clearOwnerId) {
-      updateData['ownerId'] = admin.firestore.FieldValue.delete();
+      updateData['ownerId'] = FieldValue.delete();
 
       if (cleanupPlan.deactivated) {
         updateData['status'] = 'inactive';
@@ -378,11 +376,11 @@ async function cleanupOrganizations(
     if (cleanupPlan.nextCreatedBy !== undefined) {
       updateData['createdBy'] = cleanupPlan.nextCreatedBy;
     } else if (cleanupPlan.clearCreatedBy) {
-      updateData['createdBy'] = admin.firestore.FieldValue.delete();
+      updateData['createdBy'] = FieldValue.delete();
     }
 
     if (cleanupPlan.clearBillingOwnerUid) {
-      updateData['billingOwnerUid'] = admin.firestore.FieldValue.delete();
+      updateData['billingOwnerUid'] = FieldValue.delete();
     }
 
     await doc.ref.update(updateData);
@@ -446,7 +444,7 @@ async function deleteUserStorage(userId: string): Promise<void> {
 
 async function runUserDeletionCleanup(
   userId: string,
-  userData: FirebaseFirestore.DocumentData | undefined
+  userData: DocumentData | undefined
 ): Promise<void> {
   if (userData?.['unicode']) {
     await releaseUnicode(userData['unicode'] as string);

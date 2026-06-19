@@ -46,7 +46,7 @@
 
 import { beforeUserCreated, HttpsError } from 'firebase-functions/v2/identity';
 import { logger } from 'firebase-functions/v2';
-import * as admin from 'firebase-admin';
+import { db } from '../firebase-admin';
 import { DISPOSABLE_EMAIL_DOMAINS, USER_SCHEMA_VERSION } from '../constants';
 
 // ─── Inlined from @nxt1/core/auth (workspace packages are not available in Cloud Run) ───
@@ -66,8 +66,6 @@ const GOOGLE_OAUTH_SCOPES = [
 function hasGrantedGoogleWorkspaceScopes(grantedScopes: string): boolean {
   return GOOGLE_OAUTH_SCOPES.some((scope) => grantedScopes.includes(scope));
 }
-
-const db = admin.firestore();
 
 /**
  * Check if email domain is disposable

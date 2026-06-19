@@ -5,11 +5,9 @@
  * Validates email format, disposable domains, and availability.
  */
 
-import * as admin from 'firebase-admin';
+import { db } from '../firebase-admin';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { DISPOSABLE_EMAIL_DOMAINS, VALIDATION_PATTERNS } from '../constants';
-
-const db = admin.firestore();
 
 /**
  * Validate email for registration
