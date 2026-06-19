@@ -29,7 +29,7 @@ runConfig:
 
 env:
   - variable: NODE_VERSION
-    value: '22'
+    value: '22.22.3'
   - variable: NODE_ENV
     value: 'production'
   - variable: BACKEND_URL

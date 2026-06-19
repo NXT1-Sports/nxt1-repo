@@ -27,7 +27,7 @@ runConfig:
 # in the gcp-build script, which bundles environment.staging.ts
 env:
   - variable: NODE_VERSION
-    value: '22'
+    value: '22.22.3'
   - variable: NODE_ENV
     value: 'staging'
   - variable: APP_ENV

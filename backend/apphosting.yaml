@@ -38,7 +38,7 @@ runConfig:
 
 env:
   - variable: NODE_VERSION
-    value: '22'
+    value: '22.22.3'
   # App Hosting injects env vars at runtime — dotenv is a no-op in production
   - variable: NODE_ENV
     value: 'staging'

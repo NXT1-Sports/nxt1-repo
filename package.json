@@ -9,7 +9,7 @@
   },
   "license": "UNLICENSED",
   "engines": {
-    "node": "22.x",
+    "node": ">=22.22.3 <23",
     "npm": ">=11"
   },
   "packageManager": "npm@11.12.1",
