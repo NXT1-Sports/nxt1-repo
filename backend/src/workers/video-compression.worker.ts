@@ -194,11 +194,10 @@ export class VideoCompressionWorker {
 
         if (!isEligibleVideoPath(file.name)) continue;
 
-        const meta = file.metadata as Record<string, unknown>;
-        const sizeBytes = Number(meta['size'] ?? 0);
+        const sizeBytes = Number(file.size ?? 0);
         const createdMs =
-          typeof meta['timeCreated'] === 'string' ? new Date(meta['timeCreated']).getTime() : 0;
-        const customMeta = (meta['metadata'] ?? {}) as Record<string, string>;
+          typeof file.timeCreated === 'string' ? new Date(file.timeCreated).getTime() : 0;
+        const customMeta = file.metadata ?? {};
 
         if (customMeta[COMPRESSED_META_KEY] === 'true') {
           skipped++;
