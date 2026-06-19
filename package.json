@@ -76,7 +76,9 @@
     "e2e:headed": "npm run e2e:headed --workspace=@nxt1/web",
     "e2e:debug": "npm run e2e:debug --workspace=@nxt1/web",
     "e2e:report": "npm run e2e:report --workspace=@nxt1/web",
-    "e2e:install": "npm run e2e:install --workspace=@nxt1/web"
+    "e2e:install": "npm run e2e:install --workspace=@nxt1/web",
+    "deps:check:google-auth": "node scripts/ci/check-google-auth-stack.mjs",
+    "lockfile:check": "node scripts/ci/check-google-auth-lockfile.mjs"
   },
   "devDependencies": {
     "@angular-devkit/build-angular": "^22.0.3",
@@ -146,6 +148,9 @@
     "turbo": "^2.9.6"
   },
   "overrides": {
+    "@google-cloud/storage": "7.21.0",
+    "google-auth-library": "10.7.0",
+    "gtoken": "8.0.0",
     "@babel/core": "7.29.7",
     "@angular-devkit/build-angular": {
       "http-proxy-middleware": "3.0.7"
