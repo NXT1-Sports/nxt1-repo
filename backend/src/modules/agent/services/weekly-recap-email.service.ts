@@ -79,6 +79,22 @@ function coerceRecapItems(value: unknown, fallback: string[], maxItems = 5): str
   return items.length > 0 ? items : fallback;
 }
 
+function extractFirstName(value: string | undefined): string {
+  const normalized = (value ?? '').trim().replace(/\s+/g, ' ');
+  if (!normalized) return '';
+  return normalized.split(' ')[0] ?? '';
+}
+
+function stripLeadingGreeting(paragraph: string): string {
+  const trimmed = paragraph.trim();
+  if (!trimmed) return trimmed;
+
+  return trimmed.replace(
+    /^(?:hey|hi|hello)\s+[a-z][a-z'.-]*(?:\s+[a-z][a-z'.-]*)?\s*[,:!\-]\s*/i,
+    ''
+  );
+}
+
 // ─── Firestore helpers ────────────────────────────────────────────────────────
 
 /**
@@ -319,7 +335,7 @@ Week: ${weekLabel}${historyContext}
 Respond ONLY with valid JSON matching this schema:
 {
   "subject": "string (compelling email subject, under 60 chars)",
-  "introParagraph": "string (2-3 sentences, personal and motivating, references the week)",
+  "introParagraph": "string (2-3 sentences, personal and motivating, references the week, with no salutation and no name)",
   "completedActions": ["string", ...] (3-5 specific actions completed this week),
   "resultsHighlights": ["string", ...] (3-5 concrete results or milestones),
   "nextSteps": ["string", ...] (3-5 recommended next steps for the coming week),
@@ -327,7 +343,7 @@ Respond ONLY with valid JSON matching this schema:
   "ctaUrl": "string (absolute URL)"
 }
 
-Keep the tone professional yet energetic. Be specific — reference sports context, recruiting, and performance where relevant. ctaUrl should be a valid app.nxt1sports.com path.`;
+Keep the tone professional yet energetic. Be specific — reference sports context, recruiting, and performance where relevant. Do not start introParagraph with greetings like "Hey"/"Hi" and do not repeat the user's name. ctaUrl should be a valid app.nxt1sports.com path.`;
 
   try {
     const response = await llm.complete([{ role: 'user', content: prompt }], {
@@ -336,7 +352,7 @@ Keep the tone professional yet energetic. Be specific — reference sports conte
       tier: 'task_automation',
       modelOverride: WEEKLY_RECAP_EMAIL_MODEL,
       temperature: 0.7,
-      maxTokens: 700,
+      maxTokens: 900,
       outputSchema: {
         name: 'weekly_recap_email',
         schema: recapEmailContentSchema,
@@ -361,7 +377,7 @@ Keep the tone professional yet energetic. Be specific — reference sports conte
 
     const fallbackCompletedActions = [
       'Reviewed your Agent X activity from this week.',
-      agentResultSummary.slice(0, 120),
+      agentResultSummary,
       'Prepared a focused recap for your next step forward.',
     ];
     const fallbackResultsHighlights = [
@@ -398,7 +414,7 @@ Keep the tone professional yet energetic. Be specific — reference sports conte
     return {
       subject: `Your ${weekLabel} Agent X Recap`,
       introParagraph: `Here's a summary of what Agent X accomplished for you this week.`,
-      completedActions: [agentResultSummary.slice(0, 120)],
+      completedActions: [agentResultSummary],
       resultsHighlights: ['Agent X completed your weekly recap.'],
       nextSteps: ['Check your dashboard for detailed insights.'],
       ctaText: 'Open Dashboard',
@@ -439,6 +455,7 @@ export function buildEmailHtml(params: {
   } = params;
 
   const roleLabel = role.charAt(0).toUpperCase() + role.slice(1);
+  const greetingName = role.trim().toLowerCase() === 'athlete' ? userName : 'there';
 
   const renderBulletSection = (title: string, items: string[]): string => {
     const rows = items
@@ -460,7 +477,7 @@ export function buildEmailHtml(params: {
     title: 'Your Week at a Glance',
     subtitle: `Week ${weekNumber} · ${roleLabel}`,
     introHtml: `
-      <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hey ${escapeHtml(userName)},</p>
+      <p style="margin:0 0 16px 0;font-size:20px;line-height:1.5;color:#101722;">Hey ${escapeHtml(greetingName)},</p>
       <p style="margin:0;font-size:19px;line-height:1.65;color:#1f2937;">${escapeHtml(introParagraph)}</p>
     `,
     sectionsHtml: [
@@ -541,7 +558,10 @@ export async function processRecapForUser(
     const rawDisplayName =
       (user['displayName'] as string | undefined) ??
       `${(user['firstName'] as string | undefined) ?? ''} ${(user['lastName'] as string | undefined) ?? ''}`.trim();
-    const displayName = rawDisplayName || 'Athlete';
+    const firstName =
+      extractFirstName(user['firstName'] as string | undefined) ||
+      extractFirstName(rawDisplayName) ||
+      'Athlete';
     const role = (user['role'] as string | undefined) ?? 'athlete';
     const primarySport = (user['sports'] as Array<{ sport: string }> | undefined)?.[0]?.sport;
 
@@ -568,7 +588,7 @@ export async function processRecapForUser(
 
     // ── 5. Generate content via OpenRouter ──────────────────────────────────
     const content = await generateEmailContent(
-      displayName,
+      firstName,
       role,
       primarySport,
       weekLabel,
@@ -583,14 +603,15 @@ export async function processRecapForUser(
           }
         : undefined
     );
+    const introParagraph = stripLeadingGreeting(content.introParagraph) || content.introParagraph;
 
     // ── 6. Build HTML ────────────────────────────────────────────────────────
     const html = buildEmailHtml({
-      userName: displayName,
+      userName: firstName,
       role,
       weekNumber,
       recapNumber,
-      introParagraph: content.introParagraph,
+      introParagraph,
       completedActions: content.completedActions,
       resultsHighlights: content.resultsHighlights,
       nextSteps: content.nextSteps,
@@ -603,7 +624,7 @@ export async function processRecapForUser(
       recapNumber,
       weekLabel,
       subject: content.subject,
-      introParagraph: content.introParagraph,
+      introParagraph,
       completedActions: content.completedActions,
       resultsHighlights: content.resultsHighlights,
       nextSteps: content.nextSteps,
