@@ -90,7 +90,7 @@ function stripLeadingGreeting(paragraph: string): string {
   if (!trimmed) return trimmed;
 
   return trimmed.replace(
-    /^(?:hey|hi|hello)\s+[a-z][a-z'.-]*(?:\s+[a-z][a-z'.-]*)?\s*[,:!\-]\s*/i,
+    /^(?:hey|hi|hello)\s+[a-z][a-z'.-]*(?:\s+[a-z][a-z'.-]*)?\s*[,:!-]\s*/i,
     ''
   );
 }
