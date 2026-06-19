@@ -110,8 +110,8 @@ jobs:
 
           # On push: use detected type; on manual dispatch: use the input
           RELEASE_TYPE="${{ github.event_name == 'push' && steps.detect.outputs.release_type || inputs.release_type }}"
-          echo "Bumping version: $RELEASE_TYPE"
-          npm run version:${RELEASE_TYPE}
+          echo "Bumping version (without tag): $RELEASE_TYPE"
+          npm --no-git-tag-version version "$RELEASE_TYPE" --workspaces --include-workspace-root
 
           # For full releases, keep bumping patch until we find an unused tag.
           # This avoids failures when package.json is behind tags that already exist.
@@ -122,8 +122,8 @@ jobs:
 
             while git rev-parse -q --verify "refs/tags/${CANDIDATE_TAG}" >/dev/null || \
                   git ls-remote --exit-code --tags origin "refs/tags/${CANDIDATE_TAG}" >/dev/null 2>&1; do
-              echo "Tag ${CANDIDATE_TAG} already exists; bumping patch again"
-              npm run version:patch
+              echo "Tag ${CANDIDATE_TAG} already exists; bumping patch again (without tag)"
+              npm --no-git-tag-version version patch --workspaces --include-workspace-root
               CANDIDATE_VERSION=$(node -p "require('./package.json').version")
               CANDIDATE_TAG="v${CANDIDATE_VERSION}"
             done
@@ -143,6 +143,9 @@ jobs:
             TAG="v${NEW_VERSION}"
           fi
           echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+          # Create the final selected release tag once.
+          git tag -a "$TAG" -m "$NEW_VERSION"
 
       - name: Sync appVersion into environment files
         run: node scripts/dev/sync-version.mjs ${{ steps.version.outputs.new_version }}
