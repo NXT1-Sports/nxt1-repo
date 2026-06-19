@@ -34,38 +34,15 @@
  *   object preserves every URL reference in Firestore without any DB migrations.
  */
 
-import { getStorage } from 'firebase-admin/storage';
 import { logger } from '../utils/logger.js';
-
-// ─── Minimal GCS structural types (avoids CJS/ESM conflict with @google-cloud/storage) ──
-// Only the surface we actually call — verified against @google-cloud/storage v7 API.
-
-interface GCSFileLike {
-  name: string;
-  metadata: unknown;
-  getSignedUrl(options: {
-    version: 'v2' | 'v4';
-    action: 'read' | 'write' | 'delete' | 'resumable';
-    expires: number;
-  }): Promise<[string]>;
-  save(buffer: Buffer, options: { metadata: unknown }): Promise<void>;
-  setMetadata(metadata: unknown): Promise<unknown>;
-  download(): Promise<[Buffer]>;
-  delete(): Promise<unknown>;
-}
-
-interface GCSBucketLike {
-  file(path: string): GCSFileLike;
-  getFiles(options?: {
-    prefix?: string;
-    maxResults?: number;
-    pageToken?: string;
-  }): Promise<[GCSFileLike[], unknown, unknown]>;
-}
-
-// Convenience aliases used in function signatures below
-type GCSBucket = GCSBucketLike;
-type GCSFile = GCSFileLike;
+import {
+  createV4SignedReadUrl,
+  deleteGcsObject,
+  listGcsObjects,
+  patchGcsObjectMetadata,
+  uploadGcsObject,
+  type GcsObjectMetadata,
+} from '../utils/gcs-json-api.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -169,7 +146,10 @@ export class VideoCompressionWorker {
       throw new Error('FFMPEG_MCP_URL environment variable is required');
     }
 
-    const bucket = getStorage().bucket() as unknown as GCSBucket;
+    const bucketName = process.env['FIREBASE_STORAGE_BUCKET'];
+    if (!bucketName) {
+      throw new Error('FIREBASE_STORAGE_BUCKET environment variable is required');
+    }
     const cutoffMs = Date.now() - AGE_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
     const prefix = 'Users/';
     const runStartMs = Date.now();
@@ -200,13 +180,14 @@ export class VideoCompressionWorker {
     let budgetExhausted = false;
 
     outer: do {
-      const [files, , nextQuery] = await bucket.getFiles({
+      const { items: files, nextPageToken } = await listGcsObjects({
+        bucketName,
         prefix,
         maxResults: 1000,
         ...(pageToken ? { pageToken } : {}),
       });
 
-      pageToken = (nextQuery as Record<string, string> | undefined)?.['pageToken'];
+      pageToken = nextPageToken;
 
       for (const file of files) {
         // ── Eligibility filters ──────────────────────────────────────────────
@@ -310,7 +291,7 @@ export class VideoCompressionWorker {
           const ffmpegTimeout = isHeavy ? HEAVY_FFMPEG_TIMEOUT_MS : FFMPEG_TIMEOUT_MS;
           const { compressedSize, skippedOverwrite } = await compressAndReplace(
             file,
-            bucket,
+            bucketName,
             ffmpegMcpUrl,
             ffmpegTimeout
           );
@@ -409,16 +390,16 @@ interface CompressResult {
  * future retries.
  */
 async function compressAndReplace(
-  file: GCSFile,
-  bucket: GCSBucket,
+  file: GcsObjectMetadata,
+  bucketName: string,
   ffmpegMcpUrl: string,
   ffmpegTimeoutMs: number = FFMPEG_TIMEOUT_MS
 ): Promise<CompressResult> {
   // Step 1: Sign a temporary read URL for the source file
-  const [signedUrl] = await file.getSignedUrl({
-    version: 'v4',
-    action: 'read',
-    expires: Date.now() + SIGNED_URL_TTL_MS,
+  const signedUrl = createV4SignedReadUrl({
+    bucketName,
+    objectName: file.name,
+    expiresAtMs: Date.now() + SIGNED_URL_TTL_MS,
   });
 
   // Step 2: ffmpeg-mcp compress — returns the Firebase Storage download URL of the output
@@ -441,27 +422,22 @@ async function compressAndReplace(
     // Best-effort cleanup of the remote GCS object
     const blobPath = gcsPathFromFirebaseUrl(outputUrl);
     if (blobPath)
-      await bucket
-        .file(blobPath)
-        .delete()
-        .catch(() => undefined);
+      await deleteGcsObject(bucketName, blobPath, { ignoreNotFound: true }).catch(() => undefined);
     const msg = downloadErr instanceof Error ? downloadErr.message : String(downloadErr);
     throw new Error(`Failed to download compressed output from ffmpeg-mcp: ${msg}`, {
       cause: downloadErr,
     });
   }
 
-  const originalSize = Number((file.metadata as Record<string, unknown>)['size'] ?? 0);
+  const originalSize = Number(file.size ?? 0);
   const compressedSize = compressedBuffer.length;
 
   // Step 4: Determine whether overwriting is worthwhile
   const skippedOverwrite =
     originalSize > 0 && compressedSize >= originalSize * MIN_COMPRESSION_GAIN_RATIO;
 
-  const originalMeta = file.metadata as Record<string, unknown>;
-  const existingCustomMeta = (originalMeta['metadata'] ?? {}) as Record<string, string>;
-  const contentType =
-    typeof originalMeta['contentType'] === 'string' ? originalMeta['contentType'] : 'video/mp4';
+  const existingCustomMeta = file.metadata ?? {};
+  const contentType = typeof file.contentType === 'string' ? file.contentType : 'video/mp4';
   const stampedMeta = {
     ...existingCustomMeta,
     [COMPRESSED_META_KEY]: 'true',
@@ -470,21 +446,21 @@ async function compressAndReplace(
 
   if (!skippedOverwrite) {
     // Steps 5+6: Overwrite original with compressed buffer + stamp metadata
-    await file.save(compressedBuffer, {
-      metadata: { contentType, metadata: stampedMeta },
+    await uploadGcsObject(bucketName, file.name, compressedBuffer, {
+      contentType,
+      metadata: stampedMeta,
     });
   } else {
     // Step 6 only: stamp metadata without overwriting (already dense)
-    await file.setMetadata({ metadata: stampedMeta });
+    await patchGcsObjectMetadata({ bucketName, objectName: file.name, metadata: stampedMeta });
   }
 
   // Step 7: Delete the temporary output object that ffmpeg-mcp uploaded to GCS
   const tempBlobPath = gcsPathFromFirebaseUrl(outputUrl);
   if (tempBlobPath)
-    await bucket
-      .file(tempBlobPath)
-      .delete()
-      .catch(() => undefined);
+    await deleteGcsObject(bucketName, tempBlobPath, { ignoreNotFound: true }).catch(
+      () => undefined
+    );
 
   return { compressedSize, skippedOverwrite };
 }
