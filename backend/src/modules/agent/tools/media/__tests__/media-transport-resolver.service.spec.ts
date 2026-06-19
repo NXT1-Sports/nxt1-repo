@@ -157,7 +157,39 @@ describe('MediaTransportResolverService', () => {
     expect(storageMocks.productionBucket.file).toHaveBeenCalledWith('Teams/team-123/logo/logo.jpg');
   });
 
-  it('rejects team-owned Firebase image URLs when the team scope does not match', async () => {
+  it('signs shared team logo Firebase URLs without a team execution scope', async () => {
+    resetStorageMocks();
+    storageMocks.productionFile.getSignedUrl.mockResolvedValue([
+      'https://signed.example/shared-team-logo.jpg',
+    ]);
+    const cloudflareBridge = {
+      getDownloadLinks: vi.fn(),
+      enableDownload: vi.fn(),
+    };
+
+    const service = new MediaTransportResolverService(cloudflareBridge as never);
+
+    const result = await service.resolveProcessingUrl({
+      sourceUrl:
+        'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Teams%2F1Qal157exkncLGOw97OB%2Flogo%2F1780531812614_aff4c662-5f35-4fce-a511-e7bdd8ad3241-1_all_4426.jpg?a',
+      executionContext: {
+        userId: 'MxQHGSNx8CbRJU1cMkB29YFN7Jo1',
+        threadId: '6a34fc68dc48765d91f6bd56',
+        environment: 'production',
+      },
+    });
+
+    expect(result).toEqual({
+      url: 'https://signed.example/shared-team-logo.jpg',
+      source: 'direct',
+    });
+    expect(storageMocks.defaultStorage.bucket).toHaveBeenCalledWith('nxt-1-v2.firebasestorage.app');
+    expect(storageMocks.productionBucket.file).toHaveBeenCalledWith(
+      'Teams/1Qal157exkncLGOw97OB/logo/1780531812614_aff4c662-5f35-4fce-a511-e7bdd8ad3241-1_all_4426.jpg'
+    );
+  });
+
+  it('rejects non-logo team-owned Firebase image URLs when the team scope does not match', async () => {
     resetStorageMocks();
     const cloudflareBridge = {
       getDownloadLinks: vi.fn(),
@@ -166,7 +198,7 @@ describe('MediaTransportResolverService', () => {
 
     const service = new MediaTransportResolverService(cloudflareBridge as never);
     const sourceUrl =
-      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Teams%2Fother-team%2Flogo%2Flogo.jpg?alt=media';
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Teams%2Fother-team%2Fgallery%2Fphoto.jpg?alt=media';
 
     const result = await service.resolveProcessingUrl({
       sourceUrl,

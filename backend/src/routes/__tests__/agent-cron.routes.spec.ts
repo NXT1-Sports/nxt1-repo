@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
-import { cleanupStaleAgentJobs } from '../agent/cron.routes.js';
+import { cleanupStaleAgentJobs, cleanupTmpMedia } from '../agent/cron.routes.js';
 
 const cronListenersMocks = vi.hoisted(() => ({
   runWeeklyPlaybooks: vi.fn<() => Promise<void>>(),
@@ -388,5 +388,74 @@ describe('Agent X Cron Routes Smoke', () => {
       failedToUpdate: 0,
       threadStateClearFailures: 0,
     });
+  });
+
+  it('retries transient Firebase auth failures while listing tmp media', async () => {
+    vi.useFakeTimers();
+    try {
+      const oldTmpFile = {
+        name: 'Users/user-1/uploads/tmp/old.png',
+        metadata: { timeCreated: '2026-05-20T00:00:00.000Z' },
+        delete: vi.fn().mockResolvedValue(undefined),
+      };
+      const getFiles = vi
+        .fn()
+        .mockRejectedValueOnce(
+          new Error(
+            'Invalid response body while trying to fetch https://oauth2.googleapis.com/token: Premature close'
+          )
+        )
+        .mockResolvedValueOnce([[oldTmpFile], undefined, undefined]);
+      const storage = {
+        bucket: () => ({ getFiles }),
+      };
+
+      const resultPromise = cleanupTmpMedia(storage, new Date('2026-06-01T00:00:00.000Z'));
+      await vi.advanceTimersByTimeAsync(500);
+      const result = await resultPromise;
+
+      expect(getFiles).toHaveBeenCalledTimes(2);
+      expect(oldTmpFile.delete).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({
+        totalScanned: 1,
+        totalDeleted: 1,
+        ttlDays: 7,
+        cutoff: '2026-05-25T00:00:00.000Z',
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retries transient Firebase auth failures while deleting tmp media', async () => {
+    vi.useFakeTimers();
+    try {
+      const deleteFile = vi
+        .fn()
+        .mockRejectedValueOnce(
+          new Error(
+            'Invalid response body while trying to fetch https://oauth2.googleapis.com/token: Premature close'
+          )
+        )
+        .mockResolvedValueOnce(undefined);
+      const oldTmpFile = {
+        name: 'Users/user-1/threads/thread-1/tmp/old.png',
+        metadata: { timeCreated: '2026-05-20T00:00:00.000Z' },
+        delete: deleteFile,
+      };
+      const getFiles = vi.fn().mockResolvedValue([[oldTmpFile], undefined, undefined]);
+      const storage = {
+        bucket: () => ({ getFiles }),
+      };
+
+      const resultPromise = cleanupTmpMedia(storage, new Date('2026-06-01T00:00:00.000Z'));
+      await vi.advanceTimersByTimeAsync(500);
+      const result = await resultPromise;
+
+      expect(deleteFile).toHaveBeenCalledTimes(2);
+      expect(result.totalDeleted).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
