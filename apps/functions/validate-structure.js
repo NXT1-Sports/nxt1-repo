@@ -62,10 +62,21 @@ console.log('\n🚪 Checking entry point...');
 const mainIndexPath = path.join(srcPath, 'index.ts');
 if (fs.existsSync(mainIndexPath)) {
   const content = fs.readFileSync(mainIndexPath, 'utf8');
+  const firebaseAdminModulePath = path.join(srcPath, 'firebase-admin.ts');
 
   // Check admin init
   if (content.includes('admin.initializeApp()')) {
     success.push('✅ Firebase Admin is initialized');
+  } else if (
+    content.includes("import './firebase-admin'") &&
+    fs.existsSync(firebaseAdminModulePath)
+  ) {
+    const firebaseAdminContent = fs.readFileSync(firebaseAdminModulePath, 'utf8');
+    if (firebaseAdminContent.includes('initializeApp(')) {
+      success.push('✅ Firebase Admin is initialized via modular adapter');
+    } else {
+      errors.push('❌ firebase-admin.ts does not initialize Firebase Admin');
+    }
   } else {
     errors.push('❌ Missing admin.initializeApp()');
   }
