@@ -113,6 +113,24 @@ jobs:
           echo "Bumping version: $RELEASE_TYPE"
           npm run version:${RELEASE_TYPE}
 
+          # For full releases, keep bumping patch until we find an unused tag.
+          # This avoids failures when package.json is behind tags that already exist.
+          if [ "${{ inputs.prerelease }}" != "true" ]; then
+            git fetch --tags --force
+            CANDIDATE_VERSION=$(node -p "require('./package.json').version")
+            CANDIDATE_TAG="v${CANDIDATE_VERSION}"
+
+            while git rev-parse -q --verify "refs/tags/${CANDIDATE_TAG}" >/dev/null || \
+                  git ls-remote --exit-code --tags origin "refs/tags/${CANDIDATE_TAG}" >/dev/null 2>&1; do
+              echo "Tag ${CANDIDATE_TAG} already exists; bumping patch again"
+              npm run version:patch
+              CANDIDATE_VERSION=$(node -p "require('./package.json').version")
+              CANDIDATE_TAG="v${CANDIDATE_VERSION}"
+            done
+
+            echo "Selected free tag: ${CANDIDATE_TAG}"
+          fi
+
           # Get new version
           NEW_VERSION=$(node -p "require('./package.json').version")
           echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT

@@ -966,16 +966,19 @@ async function cleanupTmpMediaWithFirebaseAdminBucket(
       }
     } catch (pageErr: unknown) {
       const error = pageErr instanceof Error ? pageErr : new Error(String(pageErr));
-      (
-        error as Error & {
-          cleanupTmpMediaContext?: Record<string, unknown>;
-        }
-      ).cleanupTmpMediaContext = {
-        stage: `list-or-delete-page-${pageCount}`,
-        pageNumber: pageCount,
-        scannedSoFar: totalScanned,
-        deletedSoFar: totalDeleted,
+      const stagedError = error as Error & {
+        code?: unknown;
+        stage?: string;
+        pageNumber?: number;
+        scannedSoFar?: number;
+        deletedSoFar?: number;
       };
+      stagedError.stage = `list-or-delete-page-${pageCount}`;
+      stagedError.pageNumber = pageCount;
+      stagedError.scannedSoFar = totalScanned;
+      stagedError.deletedSoFar = totalDeleted;
+      stagedError.code = (pageErr as Record<string, unknown>)?.['code'];
+
       logger.error('CRON cleanup-tmp-media: page processing failed', {
         pageNumber: pageCount,
         scannedSoFar: totalScanned,
@@ -999,6 +1002,7 @@ async function cleanupTmpMediaWithFirebaseAdminBucket(
 
 router.post('/cron/cleanup-tmp-media', cronGuard, async (req: Request, res: Response) => {
   const requestId = (req.headers['x-request-id'] as string) || `server-${Date.now()}`;
+  const debugEnabled = req.headers['x-debug-cron'] === '1';
   try {
     const storage = req.firebase?.storage;
     if (!storage) {
@@ -1031,18 +1035,40 @@ router.post('/cron/cleanup-tmp-media', cronGuard, async (req: Request, res: Resp
     });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    const cleanupContext =
-      err && typeof err === 'object'
-        ? (err as { cleanupTmpMediaContext?: Record<string, unknown> }).cleanupTmpMediaContext
-        : undefined;
+    const stagedError = err as Record<string, unknown>;
+    const debugPayload = {
+      requestId,
+      errorMessage: error.message,
+      errorCode: stagedError?.['code'],
+      errorStatus: stagedError?.['status'],
+      stage: stagedError?.['stage'],
+      pageNumber: stagedError?.['pageNumber'],
+      scannedSoFar: stagedError?.['scannedSoFar'],
+      deletedSoFar: stagedError?.['deletedSoFar'],
+    };
+
     logger.error('CRON cleanup-tmp-media failed', {
       errorMessage: error.message,
       errorStack: error.stack,
-      errorCode: (err as Record<string, unknown>)?.['code'],
-      errorStatus: (err as Record<string, unknown>)?.['status'],
-      ...cleanupContext,
+      errorCode: stagedError?.['code'],
+      errorStatus: stagedError?.['status'],
+      stage: stagedError?.['stage'],
+      pageNumber: stagedError?.['pageNumber'],
+      scannedSoFar: stagedError?.['scannedSoFar'],
+      deletedSoFar: stagedError?.['deletedSoFar'],
       requestId,
     });
+
+    if (debugEnabled) {
+      res.status(500).json({
+        success: false,
+        error: 'Tmp media cleanup failed',
+        cached: false,
+        debug: debugPayload,
+      });
+      return;
+    }
+
     res.status(500).json({ success: false, error: 'Tmp media cleanup failed' });
   }
 });
