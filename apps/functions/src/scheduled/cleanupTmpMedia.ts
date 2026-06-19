@@ -40,7 +40,9 @@ export const cleanupTmpMedia = onSchedule(
     secrets: [CRON_SECRET],
   },
   async () => {
-    logger.info('Starting Agent X tmp media cleanup');
+    // Generate request ID for end-to-end tracing
+    const requestId = `cleanup-tmp-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+    logger.info('Starting Agent X tmp media cleanup', { requestId });
 
     const url = `${BACKEND_URL.value()}/api/v1/agent-x/cron/cleanup-tmp-media`;
 
@@ -50,6 +52,7 @@ export const cleanupTmpMedia = onSchedule(
         headers: {
           'Content-Type': 'application/json',
           'x-cron-secret': CRON_SECRET.value(),
+          'x-request-id': requestId,
         },
       });
 
@@ -57,7 +60,9 @@ export const cleanupTmpMedia = onSchedule(
         const body = await response.text();
         logger.error('Backend returned error', {
           status: response.status,
+          requestId,
           body: body.slice(0, 500),
+          url: url.replace(/https:\/\/[^/]+/, '[host]'), // Log path without host
         });
         throw new Error(`Backend responded with ${response.status}`);
       }
@@ -66,9 +71,9 @@ export const cleanupTmpMedia = onSchedule(
         success: boolean;
         data?: { totalScanned: number; totalDeleted: number; ttlDays: number };
       };
-      logger.info('Agent X tmp media cleanup completed', { result });
+      logger.info('Agent X tmp media cleanup completed', { result, requestId });
     } catch (error) {
-      logger.error('Agent X tmp media cleanup failed', { error });
+      logger.error('Agent X tmp media cleanup failed', { error, requestId });
       throw error; // Re-throw so Cloud Scheduler retries
     }
   }
