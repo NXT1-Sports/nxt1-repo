@@ -20,11 +20,8 @@ import type { Response } from 'express';
 import type { OnStreamEvent, StreamEvent } from '../../modules/agent/queue/event-writer.js';
 import { forceProxyFlush } from './shared.js';
 import { logger } from '../../utils/logger.js';
-import {
-  createStreamingSanitizer,
-  isUserAttachmentUrl,
-  type StreamingSanitizer,
-} from '@nxt1/core/ai';
+import { createStreamingSanitizer, type StreamingSanitizer } from '@nxt1/core/ai';
+import { isUserAttachmentUrl } from '../../modules/agent/utils/user-attachment-url.js';
 
 // ─── Shared mutable ref ────────────────────────────────────────────────────
 

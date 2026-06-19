@@ -44,7 +44,6 @@ import {
   AGENT_APPROVAL_TOOL_GROUPS,
   buildAttachmentUrlSet,
   createStreamingSanitizer,
-  isUserAttachmentUrl,
   stripEchoedUserAttachments,
   type StreamingSanitizer,
 } from '@nxt1/core/ai';
@@ -75,6 +74,7 @@ import { AgentPubSubService } from './pubsub.service.js';
 import type { AgentChatService } from '../services/agent-chat.service.js';
 import { getThreadMessageWriter } from '../memory/thread-message-writer.service.js';
 import type { OpenRouterService } from '../llm/openrouter.service.js';
+import { isUserAttachmentUrl } from '../utils/user-attachment-url.js';
 import { withAgentAppConfigForFirestore } from '../config/agent-app-config.js';
 import { isAgentYield } from '../exceptions/agent-yield.exception.js';
 import { AgentEngineError, getAgentEngineErrorCode } from '../exceptions/agent-engine.error.js';
