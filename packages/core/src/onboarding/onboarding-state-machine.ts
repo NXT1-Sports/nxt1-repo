@@ -199,6 +199,9 @@ export interface OnboardingStateMachineConfig {
   /** Callback when onboarding completes */
   readonly onComplete?: (formData: OnboardingFormData) => Promise<void>;
 
+  /** Optional initial form data (e.g. from user profile) */
+  readonly initialFormData?: PartialOnboardingFormData;
+
   /** Enable debug logging */
   readonly debug?: boolean;
 }
@@ -357,6 +360,7 @@ export function createOnboardingStateMachine(
     skipStepIds = [],
     onStateChange,
     onComplete,
+    initialFormData,
     debug = false,
   } = config;
 
@@ -374,8 +378,8 @@ export function createOnboardingStateMachine(
   let currentStepIndex = 0;
   let steps: OnboardingStep[] = applySkipFilter(initialSteps);
   let completedStepIds = new Set<OnboardingStepId>();
-  let formData: PartialOnboardingFormData = { userType: null };
-  let selectedRole: OnboardingUserType | null = null;
+  let formData: PartialOnboardingFormData = initialFormData ?? { userType: null };
+  let selectedRole: OnboardingUserType | null = formData.userType ?? null;
   let isLoading = false;
   let error: string | null = null;
   let animationDirection: StepAnimationDirection = 'none';
@@ -671,8 +675,8 @@ export function createOnboardingStateMachine(
       currentStepIndex = 0;
       steps = applySkipFilter(initialSteps);
       completedStepIds = new Set();
-      formData = { userType: null };
-      selectedRole = null;
+      formData = initialFormData ?? { userType: null };
+      selectedRole = formData.userType ?? null;
       isLoading = false;
       error = null;
       animationDirection = 'none';

@@ -602,11 +602,30 @@ export class OnboardingService {
       this.logger.info('Legacy migration user detected — using 3-step legacy onboarding flow');
     }
 
+    const user = this.authFlow.user();
+
+    // Auto-fill from Auth if available (e.g. from Google or Apple login)
+    let prefilledFirstName = '';
+    let prefilledLastName = '';
+    if (user?.displayName) {
+      const parts = user.displayName.trim().split(/\s+/);
+      prefilledFirstName = parts[0] || '';
+      prefilledLastName = parts.slice(1).join(' ') || '';
+    }
+
     this.resolveSkipStepIds().then((skipStepIds) => {
       this.machine = createOnboardingStateMachine({
         userId,
         initialSteps: isLegacy ? LEGACY_ONBOARDING_STEPS : ONBOARDING_STEPS.athlete,
         skipStepIds,
+        initialFormData: {
+          userType: null,
+          profile: {
+            firstName: prefilledFirstName,
+            lastName: prefilledLastName,
+            profileImgs: user?.profileImg ? [user.profileImg] : null,
+          },
+        },
         debug: false,
         onComplete: async (formData) => {
           if (isLegacy) {

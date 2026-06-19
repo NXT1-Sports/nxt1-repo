@@ -14,6 +14,7 @@ const storageMocks = vi.hoisted(() => {
     defaultStorage: { bucket: vi.fn(() => productionBucket) },
     stagingStorage: { bucket: vi.fn(() => stagingBucket) },
     getSignedUrlWithTimeout: vi.fn((getSignedUrlFn: () => Promise<[string]>) => getSignedUrlFn()),
+    createSignedUrlLocally: vi.fn(() => null as string | null),
   };
 });
 
@@ -27,6 +28,7 @@ vi.mock('../../../../../utils/firebase-staging.js', () => ({
 
 vi.mock('../../../../../utils/gcs-signed-url.js', () => ({
   getSignedUrlWithTimeout: storageMocks.getSignedUrlWithTimeout,
+  createSignedUrlLocally: storageMocks.createSignedUrlLocally,
 }));
 
 import { MediaTransportResolverService } from '../media-transport-resolver.service.js';
@@ -39,6 +41,7 @@ const resetStorageMocks = (): void => {
   storageMocks.defaultStorage.bucket.mockClear();
   storageMocks.stagingStorage.bucket.mockClear();
   storageMocks.getSignedUrlWithTimeout.mockClear();
+  storageMocks.createSignedUrlLocally.mockClear();
 };
 
 describe('MediaTransportResolverService', () => {

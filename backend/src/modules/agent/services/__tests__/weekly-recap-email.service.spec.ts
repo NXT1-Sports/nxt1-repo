@@ -56,7 +56,8 @@ describe('generateEmailContent', () => {
       expect.objectContaining({
         tier: 'task_automation',
         modelOverride: WEEKLY_RECAP_EMAIL_MODEL,
-        maxTokens: 700,
+        maxTokens: 900,
+        outputSchema: expect.any(Object),
         telemetryContext: expect.objectContaining({
           operationId: 'weekly-recap-smoke',
           userId: 'test-user',

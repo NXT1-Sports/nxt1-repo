@@ -525,6 +525,27 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
     }
   }
 
+  private getCreateUserNameFields(displayName?: string | null): {
+    firstName?: string;
+    lastName?: string;
+    displayName?: string;
+  } {
+    const trimmedDisplayName = displayName?.trim();
+    if (!trimmedDisplayName) {
+      return {};
+    }
+
+    const nameParts = trimmedDisplayName.split(/\s+/).filter(Boolean);
+    const firstName = nameParts[0];
+    const lastName = nameParts.slice(1).join(' ') || undefined;
+
+    return {
+      displayName: trimmedDisplayName,
+      ...(firstName ? { firstName } : {}),
+      ...(lastName ? { lastName } : {}),
+    };
+  }
+
   /**
    * Get user role from V2 model with legacy fallback
    * @param user - User profile (V2 or legacy format)
@@ -798,9 +819,11 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           }
 
           try {
+            const profileFields = this.getCreateUserNameFields(result.user.displayName);
             const createResult = await this.authApi.createUser({
               uid: result.user.uid,
               email: userEmail,
+              ...profileFields,
             });
             // createUser() in auth.api.ts catches all HTTP errors and returns
             // { success: false } instead of throwing. We must check success here
@@ -1038,6 +1061,10 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
         const createResult = await this.authApi.createUser({
           uid: result.user.uid,
           email: credentials.email,
+          firstName: credentials.firstName,
+          lastName: credentials.lastName,
+          displayName:
+            [credentials.firstName, credentials.lastName].filter(Boolean).join(' ') || undefined,
           teamCode: credentials.teamCode,
           referralId: credentials.referralId,
         });
