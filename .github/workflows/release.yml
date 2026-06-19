@@ -38,7 +38,7 @@ permissions:
   pull-requests: write
 
 env:
-  NODE_VERSION: '22'
+  NODE_VERSION: '22.22.3'
 
 jobs:
   release:
