@@ -48,6 +48,7 @@ import {
   formatApprovalRichPreview,
   buildAttachmentUrlSet,
   createStreamingSanitizer,
+  isUserAttachmentUrl,
   stripEchoedUserAttachments,
   type StreamingSanitizer,
 } from '@nxt1/core';
@@ -156,9 +157,7 @@ function appendGeneratedVideoLinks(
     if (displayUrl === videoUrl) continue;
     promotedContent = promotedContent.split(`${videoUrl}#poster=`).join(`__NXT1_POSTER_SENTINEL__`);
     promotedContent = promotedContent.split(videoUrl).join(displayUrl);
-    promotedContent = promotedContent
-      .split(`__NXT1_POSTER_SENTINEL__`)
-      .join(`${videoUrl}#poster=`);
+    promotedContent = promotedContent.split(`__NXT1_POSTER_SENTINEL__`).join(`${videoUrl}#poster=`);
   }
 
   const missingVideoLinks = videoAttachments
@@ -3343,7 +3342,9 @@ export class AgentWorker {
             ? (result.data as Record<string, unknown>)
             : undefined;
         const generatedAttachments = resultDataRecord
-          ? extractMediaAttachmentsFromResultData(resultDataRecord)
+          ? extractMediaAttachmentsFromResultData(resultDataRecord).filter(
+              (attachment) => !isUserAttachmentUrl(attachment.url, userAttachmentUrlSet)
+            )
           : [];
 
         // [DIAG] Temporary diagnostic log — remove after confirming media attachment flow
