@@ -30,11 +30,15 @@ function createAuthFlowStub(options?: {
 }
 
 function runAuthenticatedMatcher(): ReturnType<typeof matchAuthenticatedAgentXLayout> {
-  return TestBed.runInInjectionContext(() => matchAuthenticatedAgentXLayout({} as never, []));
+  return TestBed.runInInjectionContext(() =>
+    matchAuthenticatedAgentXLayout({} as never, [], {} as never)
+  );
 }
 
 function runLoggedOutMatcher(): ReturnType<typeof matchLoggedOutAgentXLayout> {
-  return TestBed.runInInjectionContext(() => matchLoggedOutAgentXLayout({} as never, []));
+  return TestBed.runInInjectionContext(() =>
+    matchLoggedOutAgentXLayout({} as never, [], {} as never)
+  );
 }
 
 describe('agent-x-layout.matchers', () => {
