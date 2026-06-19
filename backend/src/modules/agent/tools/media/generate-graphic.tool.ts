@@ -295,6 +295,81 @@ export class GenerateGraphicTool extends BaseTool {
     return normalized;
   }
 
+  private normalizeLegacyInput(input: Record<string, unknown>): Record<string, unknown> {
+    const normalized: Record<string, unknown> = { ...input };
+
+    const readString = (value: unknown): string | null =>
+      typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+    const readStringArray = (value: unknown): string[] =>
+      Array.isArray(value)
+        ? value.map((entry) => readString(entry)).filter((entry): entry is string => !!entry)
+        : [];
+    const appendUnique = (target: string[], values: readonly (string | null)[]): string[] => {
+      const seen = new Set(target);
+      for (const value of values) {
+        if (!value || seen.has(value)) continue;
+        target.push(value);
+        seen.add(value);
+      }
+      return target;
+    };
+
+    const existingText = readStringArray(normalized['textRequirements']);
+    const legacyText = [
+      readString(normalized['primaryText']),
+      readString(normalized['secondaryText']),
+      readString(normalized['tertiaryText']),
+      readString(normalized['headline']),
+      readString(normalized['subheadline']),
+    ];
+    const mergedText = appendUnique([...existingText], legacyText);
+    if (mergedText.length > 0) {
+      normalized['textRequirements'] = mergedText;
+    }
+
+    const existingSubjectPhotos = readStringArray(normalized['subjectPhotoUrls']);
+    const legacySubjectPhotos = [
+      readString(normalized['subjectPhotoUrl']),
+      readString(normalized['subjectImageUrl']),
+      ...readStringArray(normalized['subjectImageUrls']),
+    ];
+    const mergedSubjectPhotos = appendUnique([...existingSubjectPhotos], legacySubjectPhotos);
+    if (mergedSubjectPhotos.length > 0) {
+      normalized['subjectPhotoUrls'] = mergedSubjectPhotos;
+    }
+
+    const existingLogos = readStringArray(normalized['logoUrls']);
+    const legacyLogos = [
+      readString(normalized['logoUrl']),
+      readString(normalized['logoImageUrl']),
+      readString(normalized['brandLogoUrl']),
+      readString(normalized['teamLogoUrl']),
+      readString(normalized['organizationLogoUrl']),
+      readString(normalized['collegeLogoUrl']),
+    ];
+    const mergedLogos = appendUnique([...existingLogos], legacyLogos);
+    if (mergedLogos.length > 0) {
+      normalized['logoUrls'] = mergedLogos;
+    }
+
+    delete normalized['primaryText'];
+    delete normalized['secondaryText'];
+    delete normalized['tertiaryText'];
+    delete normalized['headline'];
+    delete normalized['subheadline'];
+    delete normalized['subjectPhotoUrl'];
+    delete normalized['subjectImageUrl'];
+    delete normalized['subjectImageUrls'];
+    delete normalized['logoUrl'];
+    delete normalized['logoImageUrl'];
+    delete normalized['brandLogoUrl'];
+    delete normalized['teamLogoUrl'];
+    delete normalized['organizationLogoUrl'];
+    delete normalized['collegeLogoUrl'];
+
+    return normalized;
+  }
+
   private isDisallowedSocialRedirect(url: string): boolean {
     try {
       const parsed = new URL(url);
@@ -617,7 +692,7 @@ Return JSON only. No explanation outside the JSON.`;
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const parsed = GenerateGraphicInputSchema.safeParse(input);
+    const parsed = GenerateGraphicInputSchema.safeParse(this.normalizeLegacyInput(input));
     if (!parsed.success) {
       return {
         success: false,
