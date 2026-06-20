@@ -3287,18 +3287,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return urls;
   }
 
-  private inlineRenderedMediaUrlsForMessage(msg: OperationMessage): Set<string> {
-    const urls = this.textRenderedMediaUrlsForMessage(msg);
-
-    for (const part of msg.parts ?? []) {
-      if (part.type !== 'image' && part.type !== 'video') continue;
-      const url = normalizeOperationChatMediaUrl(part.url);
-      if (url) urls.add(url);
-    }
-
-    return urls;
-  }
-
   /**
    * Filter the legacy `msg.steps` array to hide approval-gated tool calls
    * before they run. The backend emits `step_active` the moment the LLM
