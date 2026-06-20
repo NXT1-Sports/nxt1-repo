@@ -1,11 +1,11 @@
 {
   "name": "@nxt1/backend",
-  "version": "1.62.31",
+  "version": "1.62.56",
   "description": "NXT1 Backend API Server",
   "private": true,
   "type": "module",
   "engines": {
-    "node": "22.x",
+    "node": ">=22.22.3 <23",
     "npm": ">=11"
   },
   "main": "dist/index.js",
@@ -16,7 +16,7 @@
     "dev": "nodemon --watch src --ext ts,js,json --exec \"npm run build && npm start\"",
     "dev:staging": "NODE_ENV=staging nodemon --watch src --ext ts,js,json --exec \"npm run build && npm run start:staging\"",
     "dev:prod": "NODE_ENV=production nodemon --watch src --ext ts,js,json --exec \"npm run build && npm run start:prod\"",
-    "build": "rimraf tsconfig.tsbuildinfo && tsc && shx cp -r src/routes/billing/iap-certs dist/routes/billing/iap-certs",
+    "build": "corepack npm run build --workspace=@nxt1/core && corepack npm run build --workspace=@nxt1/cache && rimraf tsconfig.tsbuildinfo && tsc && shx cp -r src/routes/billing/iap-certs dist/routes/billing/iap-certs",
     "build:watch": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -100,12 +100,12 @@
   },
   "dependencies": {
     "@apple/app-store-server-library": "^3.0.0",
-    "@aws-sdk/client-s3": "^3.1038.0",
+    "@aws-sdk/client-s3": "^3.1072.0",
     "@google-cloud/firestore": "^8.0.0",
     "@google-cloud/pubsub": "^5.2.3",
     "@google/generative-ai": "^0.24.1",
     "@imbsq/runway-mcp": "^1.0.0",
-    "@mendable/firecrawl-js": "^4.26.0",
+    "@mendable/firecrawl-js": "^4.28.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@nxt1/cache": "file:../packages/cache",
     "@nxt1/core": "file:../packages/core",
@@ -127,15 +127,15 @@
     "jsonwebtoken": "^9.0.3",
     "mongodb": "^7.1.0",
     "mongoose": "^9.1.1",
-    "multer": "^2.1.1",
+    "multer": "^2.2.0",
     "node-html-markdown": "^2.0.0",
-    "nodemailer": "^8.0.11",
+    "nodemailer": "^9.0.1",
     "pdf-parse": "^2.4.5",
     "pdfmake": "^0.3.11",
     "rate-limit-redis": "^5.0.0",
     "reflect-metadata": "^0.2.2",
-    "sharp": "^0.34.5",
-    "stripe": "^22.2.0",
+    "sharp": "^0.35.2",
+    "stripe": "^22.2.2",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -158,7 +158,22 @@
   },
   "overrides": {
     "chokidar": "^4.0.3",
+    "esbuild": "0.28.1",
+    "hono": "4.12.26",
     "postcss": "^8.5.12",
+    "protobufjs": "8.6.4",
+    "@google-cloud/storage": {
+      "uuid": "11.1.1"
+    },
+    "exceljs": {
+      "uuid": "11.1.1"
+    },
+    "gaxios": {
+      "uuid": "11.1.1"
+    },
+    "teeny-request": {
+      "uuid": "11.1.1"
+    },
     "vite": "^7.3.2"
   }
 }

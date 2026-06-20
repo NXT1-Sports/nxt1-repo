@@ -96,16 +96,25 @@ describe('DynamicExportTool', () => {
       expect(result.error).toContain('format');
     });
 
+    it('should accept uppercase format values', async () => {
+      const result = await tool.execute(csvInput({ format: 'CSV' }), context);
+      expect(result.success).toBe(true);
+    });
+
     it('should reject invalid format', async () => {
       const result = await tool.execute({ format: 'docx', fileName: 'test' }, context);
       expect(result.success).toBe(false);
       expect(result.error).toContain('format');
     });
 
-    it('should reject missing fileName', async () => {
-      const result = await tool.execute({ format: 'csv' }, context);
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('fileName');
+    it('should fallback fileName when missing', async () => {
+      const result = await tool.execute(
+        { format: 'csv', columns: [{ key: 'a', label: 'A' }], rows: [['x']] },
+        context
+      );
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data['fileName']).toBe('export.csv');
     });
 
     it('should reject CSV without columns', async () => {
@@ -169,6 +178,8 @@ describe('DynamicExportTool', () => {
       expect(mockSave).toHaveBeenCalledOnce();
       const [, opts] = mockSave.mock.calls[0];
       expect(opts.contentType).toBe('text/csv');
+      expect(opts.resumable).toBe(false);
+      expect(opts.validation).toBe(false);
       expect(opts.metadata.metadata.firebaseStorageDownloadTokens).toMatch(/^[0-9a-f-]{36}$/i);
     });
   });
@@ -187,6 +198,14 @@ describe('DynamicExportTool', () => {
       expect(data['format']).toBe('pdf');
       expect(typeof data['sizeBytes']).toBe('number');
       expect(data['sizeBytes'] as number).toBeGreaterThan(0);
+    });
+
+    it('should not duplicate file extension when fileName already includes one', async () => {
+      const result = await tool.execute(pdfInput({ fileName: 'Scout Report.pdf' }), context);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data['fileName']).toBe('Scout Report.pdf');
     });
 
     it('should accept PDF with only body paragraphs (no table)', async () => {
@@ -240,6 +259,25 @@ describe('DynamicExportTool', () => {
         }),
         context
       );
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data['format']).toBe('pdf');
+    });
+
+    it('should accept PDF with imageUrl alias and invalid url field present', async () => {
+      const result = await tool.execute(
+        pdfInput({
+          columns: undefined,
+          rows: undefined,
+          bodyParagraphs: undefined,
+          bulletPoints: undefined,
+          description: undefined,
+          imageUrl: TINY_PNG_DATA_URL,
+          url: 'not-a-url',
+        }),
+        context
+      );
+
       expect(result.success).toBe(true);
       const data = result.data as Record<string, unknown>;
       expect(data['format']).toBe('pdf');

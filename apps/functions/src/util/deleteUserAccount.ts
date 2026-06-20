@@ -5,7 +5,7 @@
  * Deletes user's Firebase Auth account (GDPR compliance).
  */
 
-import * as admin from 'firebase-admin';
+import { auth } from '../firebase-admin';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
 
@@ -22,7 +22,7 @@ export const deleteUserAccount = onCall(async (request) => {
   logger.info('User account deletion requested', { userId });
 
   try {
-    await admin.auth().deleteUser(userId);
+    await auth.deleteUser(userId);
     logger.info('User account deleted', { userId });
     return { success: true };
   } catch (error) {

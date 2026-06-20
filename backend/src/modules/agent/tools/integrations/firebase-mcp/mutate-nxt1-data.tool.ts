@@ -15,7 +15,7 @@
 import { z } from 'zod';
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
 import { logger } from '../../../../../utils/logger.js';
-import type { FirebaseMcpBridgeService } from './firebase-mcp-bridge.service.js';
+import type { FirebaseMcpBridge } from './firebase-mcp-bridge.service.js';
 import { ALLOWED_MUTATION_COLLECTIONS } from './mutation-policy.js';
 
 const MutateNxt1DataInputSchema = z.object({
@@ -67,7 +67,7 @@ export class MutateNxt1DataTool extends BaseTool {
   readonly category = 'database' as const;
   readonly entityGroup = 'platform_tools' as const;
 
-  constructor(private readonly bridge: FirebaseMcpBridgeService) {
+  constructor(private readonly bridge: FirebaseMcpBridge) {
     super();
   }
 

@@ -34,6 +34,7 @@ export {
   type OperationEventCallbacks,
   type OperationEventSubscription,
 } from './services/agent-x-operation-event.service';
+export { AgentXOperationsLogStateService } from './services/agent-x-operations-log-state.service';
 export { LiveViewSessionService } from './services/live-view-session.service';
 export { LiveViewHistoryService } from './services/live-view-history.service';
 

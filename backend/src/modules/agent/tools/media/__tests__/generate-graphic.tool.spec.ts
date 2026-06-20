@@ -1,15 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const firebaseMocks = vi.hoisted(() => {
-  const createBucket = (name: string) => ({
-    name,
-    file: () => ({
-      exists: vi.fn().mockResolvedValue([false]),
-      download: vi.fn().mockResolvedValue([Buffer.from('')]),
-      save: vi.fn().mockResolvedValue(undefined),
-      makePublic: vi.fn().mockResolvedValue(undefined),
-    }),
-  });
+  const createBucket = (name: string) => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const makePublic = vi.fn().mockResolvedValue(undefined);
+    const exists = vi.fn().mockResolvedValue([false]);
+    const download = vi.fn().mockResolvedValue([Buffer.from('')]);
+    const getSignedUrl = vi.fn().mockResolvedValue(['https://signed.example/upload']);
+
+    return {
+      name,
+      save,
+      makePublic,
+      exists,
+      download,
+      getSignedUrl,
+      file: () => ({
+        exists,
+        download,
+        save,
+        makePublic,
+        getSignedUrl,
+      }),
+    };
+  };
 
   return {
     productionBucket: createBucket('nxt1-test-bucket'),
@@ -26,6 +40,7 @@ vi.mock('firebase-admin/storage', () => ({
         download: vi.fn().mockResolvedValue([Buffer.from('')]),
         save: vi.fn().mockResolvedValue(undefined),
         makePublic: vi.fn().mockResolvedValue(undefined),
+        getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example/upload']),
       }),
     }),
   }),
@@ -49,6 +64,8 @@ vi.mock('../../../../../utils/firebase-staging.js', () => ({
 
 import { GenerateGraphicTool } from '../generate-graphic.tool.js';
 
+const mockFetch = vi.fn();
+
 describe('GenerateGraphicTool', () => {
   const llm = {
     prompt: vi.fn(),
@@ -63,12 +80,24 @@ describe('GenerateGraphicTool', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal('fetch', mockFetch);
     transportResolver.resolveProcessingUrl.mockImplementation(
       async ({ sourceUrl }: { sourceUrl: string }) => ({
         url: sourceUrl,
         source: 'unchanged' as const,
       })
     );
+    mockFetch.mockImplementation(
+      async () =>
+        new Response(Buffer.from('graphic-image-bytes'), {
+          status: 200,
+          headers: { 'content-type': 'image/png' },
+        })
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it('does not hard-fail when required brand logo is missing', async () => {
@@ -120,11 +149,8 @@ describe('GenerateGraphicTool', () => {
     expect(llm.generateImage).toHaveBeenCalledTimes(1);
     expect(llm.generateImage).toHaveBeenCalledWith(
       expect.objectContaining({
-        referenceImageUrl:
-          'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/u/profile.png',
-        additionalImageUrls: [
-          'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Organizations/o/logo.png',
-        ],
+        referenceImageUrl: expect.stringMatching(/^data:image\/png;base64,/),
+        additionalImageUrls: [expect.stringMatching(/^data:image\/png;base64,/)],
       })
     );
   });
@@ -135,7 +161,8 @@ describe('GenerateGraphicTool', () => {
     llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['CROWN POINT'] } });
     llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
 
-    const logoUrl = 'https://image.maxpreps.io/school-mascot/logo.gif';
+    const logoUrl =
+      'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Organizations/o/logo.png';
 
     const result = await tool.execute({
       graphicType: 'team',
@@ -153,10 +180,72 @@ describe('GenerateGraphicTool', () => {
     expect(result.success).toBe(false);
     expect(llm.generateImage).toHaveBeenCalledWith(
       expect.objectContaining({
-        referenceImageUrl: logoUrl,
+        referenceImageUrl: expect.stringMatching(/^data:image\/png;base64,/),
         additionalImageUrls: [],
       })
     );
+  });
+
+  it('ignores non-organization logo overlays', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+
+    llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['CROWN POINT'] } });
+    llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
+
+    const result = await tool.execute({
+      graphicType: 'team',
+      textRequirements: ['CROWN POINT'],
+      dimensions: '1080x1080',
+      styleDescription: 'Elite sports look',
+      userId: 'user-1',
+      logoUrls: ['https://image.maxpreps.io/school-mascot/logo.gif'],
+      requiredAssets: {
+        brandLogo: true,
+      },
+      applyMode: 'logo_overlay',
+    });
+
+    expect(result.success).toBe(false);
+    expect(llm.generateImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        referenceImageUrl: undefined,
+        additionalImageUrls: [],
+      })
+    );
+  });
+
+  it('strips trailing punctuation from subject photo URLs before resolution', async () => {
+    const tool = new GenerateGraphicTool(llm as never, undefined, transportResolver as never);
+
+    llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['WELCOME'] } });
+    llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
+
+    const result = await tool.execute(
+      {
+        graphicType: 'athlete',
+        textRequirements: ['WELCOME'],
+        dimensions: '1080x1080',
+        styleDescription: 'Premium, modern',
+        userId: 'user-1',
+        subjectPhotoUrls: [
+          'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/u/profile.png.',
+        ],
+      },
+      {
+        userId: 'u',
+        threadId: 'thread-1',
+        environment: 'staging',
+      } as never
+    );
+
+    expect(transportResolver.resolveProcessingUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceUrl:
+          'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/u/profile.png',
+      })
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('storage-side test abort');
   });
 
   it('forbids empty photo and logo placeholders when team graphics have no assets', async () => {
@@ -194,7 +283,9 @@ describe('GenerateGraphicTool', () => {
       dimensions: '1920x1080',
       styleDescription: 'premium red and black broadcast highlight intro',
       userId: 'user-1',
-      logoUrls: ['https://image.maxpreps.io/school-mascot/logo.gif'],
+      logoUrls: [
+        'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Organizations/o/logo.png',
+      ],
       applyMode: 'logo_overlay',
     });
 
@@ -251,9 +342,23 @@ describe('GenerateGraphicTool', () => {
       notificationTitle: 'Your welcome graphic is ready',
       response: 'Your welcome graphic is ready in Agent X.',
     });
+    expect(firebaseMocks.productionBucket.getSignedUrl).toHaveBeenCalledWith({
+      version: 'v4',
+      action: 'write',
+      expires: expect.any(Number),
+      contentType: 'image/png',
+    });
+    expect(mockFetch).toHaveBeenCalledWith('https://signed.example/upload', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=31536000, immutable',
+      },
+      body: expect.any(Uint8Array),
+    });
   });
 
-  it('resolves Firebase Storage welcome-photo URLs before calling the image model', async () => {
+  it('resolves Firebase Storage welcome-photo URLs into provider-safe data URLs', async () => {
     const tool = new GenerateGraphicTool(llm as never, undefined, transportResolver as never);
 
     llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['WELCOME'] } });
@@ -295,8 +400,7 @@ describe('GenerateGraphicTool', () => {
     });
     expect(llm.generateImage).toHaveBeenCalledWith(
       expect.objectContaining({
-        referenceImageUrl:
-          'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/u/profile.png?X-Goog-Signature=signed-photo',
+        referenceImageUrl: expect.stringMatching(/^data:image\/png;base64,/),
       })
     );
   });

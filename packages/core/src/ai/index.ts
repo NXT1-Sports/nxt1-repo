@@ -83,6 +83,8 @@ export type {
   OperationLogStatus,
   OperationLogCategory,
   OperationLogEntry,
+  OperationsLogCursor,
+  OperationsLogPageInfo,
   OperationsLogResponse,
   // SSE streaming types
   AgentXStreamThreadEvent,

@@ -1863,6 +1863,7 @@ export abstract class BaseAgent {
         sessionId: context.sessionId,
         threadId: context.threadId,
         operationId: context.operationId,
+        ...(context.environment ? { environment: context.environment } : {}),
         ...(context.appBaseUrl ? { appBaseUrl: context.appBaseUrl } : {}),
         allowedToolNames: effectiveExecutionAllowlist,
         allowedEntityGroups,
@@ -4494,14 +4495,58 @@ export abstract class BaseAgent {
           : null;
 
       const isLikelyUrl = (value: string): boolean => /^https?:\/\//i.test(value);
+      const isOrganizationLogoUrl = (value: string): boolean => {
+        const sanitized = sanitizeArtifactUrl(value);
+        if (!sanitized) return false;
+
+        try {
+          const parsed = new URL(sanitized);
+          const pathname = decodeURIComponent(parsed.pathname);
+          return /(?:^|\/)Organizations\//i.test(pathname);
+        } catch {
+          return /(?:^|\/)Organizations\//i.test(sanitized);
+        }
+      };
+      const isLikelyLogoAssetUrl = (value: string): boolean => {
+        const sanitized = sanitizeArtifactUrl(value);
+        if (!sanitized) return false;
+
+        try {
+          const parsed = new URL(sanitized);
+          const haystack = `${parsed.hostname}${decodeURIComponent(parsed.pathname)}`.toLowerCase();
+          return /(logo|badge|crest|emblem|mascot)/.test(haystack);
+        } catch {
+          return /(logo|badge|crest|emblem|mascot)/i.test(sanitized);
+        }
+      };
+      const sanitizeArtifactUrl = (value: string): string => {
+        let candidate = value
+          .trim()
+          .replace(/^[<"'`]+/, '')
+          .replace(/[>"'`]+$/, '');
+        while (candidate.length > 0) {
+          const lastChar = candidate.at(-1);
+          if (!lastChar || !/[.,;:!?)}\]\\"'`]/.test(lastChar)) break;
+          const shortened = candidate.slice(0, -1);
+          try {
+            new URL(shortened);
+            candidate = shortened;
+            continue;
+          } catch {
+            break;
+          }
+        }
+        return candidate;
+      };
       const dedupeUrls = (urls: readonly string[]): string[] => {
         const seen = new Set<string>();
         const out: string[] = [];
         for (const url of urls) {
-          if (!isLikelyUrl(url)) continue;
-          if (seen.has(url)) continue;
-          seen.add(url);
-          out.push(url);
+          const sanitized = sanitizeArtifactUrl(url);
+          if (!isLikelyUrl(sanitized)) continue;
+          if (seen.has(sanitized)) continue;
+          seen.add(sanitized);
+          out.push(sanitized);
         }
         return out;
       };
@@ -4545,9 +4590,9 @@ export abstract class BaseAgent {
 
         for (const entry of containers) {
           const logoUrl = typeof entry['logoUrl'] === 'string' ? entry['logoUrl'].trim() : '';
-          if (logoUrl) {
+          if (logoUrl && isOrganizationLogoUrl(logoUrl)) {
             aggregate.logoUrls.push(logoUrl);
-            aggregate.sources.push(`${source}:logoUrl`);
+            aggregate.sources.push(`${source}:organizationLogoUrl`);
           }
 
           const imageUrl = typeof entry['imageUrl'] === 'string' ? entry['imageUrl'].trim() : '';
@@ -4634,9 +4679,9 @@ export abstract class BaseAgent {
             }) ?? '';
           const nearby = line.toLowerCase();
 
-          if (/\b(logo|badge|crest|emblem)\b/.test(nearby)) {
+          if (/\b(logo|badge|crest|emblem)\b/.test(nearby) && isOrganizationLogoUrl(url)) {
             aggregate.logoUrls.push(url);
-            aggregate.sources.push(`${source}:text_logo`);
+            aggregate.sources.push(`${source}:text_organization_logo`);
             continue;
           }
 
@@ -4659,6 +4704,14 @@ export abstract class BaseAgent {
           }
 
           if (/\.(png|jpg|jpeg|webp|gif)(\?|$)/i.test(url)) {
+            if (isLikelyLogoAssetUrl(url)) {
+              if (isOrganizationLogoUrl(url)) {
+                aggregate.logoUrls.push(url);
+                aggregate.sources.push(`${source}:ext_organization_logo`);
+              }
+              continue;
+            }
+
             aggregate.subjectPhotoUrls.push(url);
             aggregate.sources.push(`${source}:ext_image`);
           }
@@ -4710,16 +4763,13 @@ export abstract class BaseAgent {
       }
 
       const contextRecord = context as unknown as Record<string, unknown>;
-      const contextLogoCandidates = [
-        contextRecord['teamLogoUrl'],
-        contextRecord['logoUrl'],
-        contextRecord['organizationLogoUrl'],
-      ]
+      const contextLogoCandidates = [contextRecord['organizationLogoUrl'], contextRecord['logoUrl']]
         .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
-        .map((value) => value.trim());
+        .map((value) => value.trim())
+        .filter((value) => isOrganizationLogoUrl(value));
       if (contextLogoCandidates.length > 0) {
         aggregate.logoUrls.push(...contextLogoCandidates);
-        aggregate.sources.push('session_context:logo');
+        aggregate.sources.push('session_context:organization_logo');
       }
 
       const contextPhotoCandidates = [

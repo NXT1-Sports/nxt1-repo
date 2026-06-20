@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '22'
+  NODE_VERSION: '22.22.3'
   CI: true
 
 jobs:
@@ -135,6 +135,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Enforce Google auth/storage dependency policy
+        run: npm run deps:check:google-auth
+
+      - name: Verify lockfile auth-stack policy
+        run: npm run lockfile:check
 
       - name: Check formatting
         run: npm run format:check

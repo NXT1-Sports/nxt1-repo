@@ -1,4 +1,4 @@
-import * as admin from 'firebase-admin';
+import { db, FieldValue, type DocumentData, type QueryDocumentSnapshot } from '../firebase-admin';
 import * as logger from 'firebase-functions/logger';
 
 type MatchCandidate = {
@@ -14,7 +14,7 @@ function normalize(value: string | undefined): string {
   return (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-function normalizeRosterName(data: FirebaseFirestore.DocumentData): {
+function normalizeRosterName(data: DocumentData): {
   firstName: string;
   lastName: string;
 } {
@@ -54,7 +54,7 @@ function parseClassOf(value: unknown): number | null {
   return null;
 }
 
-function splitName(data: FirebaseFirestore.DocumentData): { firstName: string; lastName: string } {
+function splitName(data: DocumentData): { firstName: string; lastName: string } {
   const firstName = typeof data['firstName'] === 'string' ? data['firstName'].trim() : '';
   const lastName = typeof data['lastName'] === 'string' ? data['lastName'].trim() : '';
 
@@ -84,10 +84,7 @@ function splitName(data: FirebaseFirestore.DocumentData): { firstName: string; l
   };
 }
 
-function extractCandidates(
-  userId: string,
-  data: FirebaseFirestore.DocumentData
-): readonly MatchCandidate[] {
+function extractCandidates(userId: string, data: DocumentData): readonly MatchCandidate[] {
   const name = splitName(data);
   if (!name.firstName || !name.lastName) {
     return [];
@@ -178,10 +175,9 @@ function extractCandidates(
 
 export async function linkPendingRosterEntriesForUser(params: {
   userId: string;
-  userData: FirebaseFirestore.DocumentData;
+  userData: DocumentData;
 }): Promise<void> {
   const { userId, userData } = params;
-  const db = admin.firestore();
 
   const candidates = extractCandidates(userId, userData);
   if (candidates.length === 0) {
@@ -198,7 +194,7 @@ export async function linkPendingRosterEntriesForUser(params: {
       : [firstName, lastName].filter(Boolean).join(' ');
 
   const linkedEntryIds = new Set<string>();
-  const pendingByTeam = new Map<string, FirebaseFirestore.QueryDocumentSnapshot[]>();
+  const pendingByTeam = new Map<string, QueryDocumentSnapshot[]>();
 
   for (const candidate of candidates) {
     let pendingDocs = pendingByTeam.get(candidate.teamId);
@@ -273,15 +269,15 @@ export async function linkPendingRosterEntriesForUser(params: {
           ...(firstName ? { firstName } : {}),
           ...(lastName ? { lastName } : {}),
           ...(displayName ? { displayName } : {}),
-          claimStatus: admin.firestore.FieldValue.delete(),
-          pendingMatchFirstName: admin.firestore.FieldValue.delete(),
-          pendingMatchLastName: admin.firestore.FieldValue.delete(),
-          pendingMatchSport: admin.firestore.FieldValue.delete(),
-          pendingMatchClassOf: admin.firestore.FieldValue.delete(),
-          pendingMatchTeamName: admin.firestore.FieldValue.delete(),
-          pendingMatchVersion: admin.firestore.FieldValue.delete(),
-          linkedAt: admin.firestore.FieldValue.serverTimestamp(),
-          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          claimStatus: FieldValue.delete(),
+          pendingMatchFirstName: FieldValue.delete(),
+          pendingMatchLastName: FieldValue.delete(),
+          pendingMatchSport: FieldValue.delete(),
+          pendingMatchClassOf: FieldValue.delete(),
+          pendingMatchTeamName: FieldValue.delete(),
+          pendingMatchVersion: FieldValue.delete(),
+          linkedAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
         },
         { merge: true }
       );

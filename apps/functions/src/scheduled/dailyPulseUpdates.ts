@@ -22,7 +22,7 @@
  * firebase functions:secrets:set OPENROUTER_API_KEY
  */
 
-import * as admin from 'firebase-admin';
+import { db, Timestamp } from '../firebase-admin';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { onTaskDispatched } from 'firebase-functions/v2/tasks';
 import { defineSecret } from 'firebase-functions/params';
@@ -485,7 +485,6 @@ FORMAT RULES:
 // ─── Firestore Write ────────────────────────────────────────────────────────
 
 async function writeArticlesToFirestore(articles: ArticleWithContent[]): Promise<number> {
-  const db = admin.firestore();
   const now = new Date().toISOString();
   let written = 0;
 
@@ -514,7 +513,7 @@ async function writeArticlesToFirestore(articles: ArticleWithContent[]): Promise
   if (newArticles.length === 0) return 0;
 
   // Compute TTL expiration timestamp for Firestore native TTL policy
-  const expiresAt = admin.firestore.Timestamp.fromDate(
+  const expiresAt = Timestamp.fromDate(
     new Date(Date.now() + ARTICLE_TTL_DAYS * 24 * 60 * 60 * 1000)
   );
 
@@ -559,7 +558,6 @@ async function writeArticlesToFirestore(articles: ArticleWithContent[]): Promise
  * because the AI discovery prompts need full state names for accurate results.
  */
 async function discoverBucketsFromUsers(): Promise<PulseTaskPayload[]> {
-  const db = admin.firestore();
   const snap = await db
     .collection(USERS_COLLECTION)
     .where('onboardingCompleted', '==', true)

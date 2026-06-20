@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AgentMediaLifecycleService } from '../agent-media-lifecycle.service.js';
 
+const mockFetch = vi.fn();
+
+vi.stubGlobal('fetch', mockFetch);
+
 type MockFile = {
   copy?: ReturnType<typeof vi.fn>;
   exists?: ReturnType<typeof vi.fn>;
+  getSignedUrl?: ReturnType<typeof vi.fn>;
   setMetadata?: ReturnType<typeof vi.fn>;
 };
 
@@ -12,6 +17,39 @@ function createBucket(files: Record<string, MockFile>) {
     name: 'test-bucket',
     file: vi.fn((path: string) => files[path] ?? {}),
   };
+
+  it('returns a signed read URL for generated graphics instead of an anonymous object URL', async () => {
+    const storagePath = 'Users/user-1/threads/thread-1/media/123_graphic.png';
+    const file = {
+      getSignedUrl: vi
+        .fn()
+        .mockResolvedValueOnce(['https://signed.example/file.png?upload=1'])
+        .mockResolvedValueOnce(['https://signed.example/file.png?read=1']),
+    };
+    const bucket = createBucket({ [storagePath]: file });
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    const result = await AgentMediaLifecycleService.saveBufferAndMakePublic({
+      bucket,
+      storagePath,
+      buffer: Buffer.from('image-bytes'),
+      mimeType: 'image/png',
+      cacheControl: 'public, max-age=31536000, immutable',
+    });
+
+    expect(file.getSignedUrl).toHaveBeenNthCalledWith(1, {
+      version: 'v4',
+      action: 'write',
+      expires: expect.any(Number),
+      contentType: 'image/png',
+    });
+    expect(file.getSignedUrl).toHaveBeenNthCalledWith(2, {
+      version: 'v4',
+      action: 'read',
+      expires: expect.any(Number),
+    });
+    expect(result).toBe('https://signed.example/file.png?read=1');
+  });
 }
 
 describe('AgentMediaLifecycleService.extractStoragePathFromUrl', () => {
@@ -29,6 +67,49 @@ describe('AgentMediaLifecycleService.extractStoragePathFromUrl', () => {
     );
 
     expect(storagePath).toBe('Users/user-1/threads/thread-1/exports/game-report.pdf');
+  });
+});
+
+describe('AgentMediaLifecycleService.saveBufferAndSignRead', () => {
+  it('uploads buffers with signed puts before signing reads', async () => {
+    const storagePath = 'Users/user-1/uploads/image/unbound/123_graphic.png';
+    const file = {
+      getSignedUrl: vi
+        .fn()
+        .mockResolvedValueOnce(['https://signed.example/file.png?upload=1'])
+        .mockResolvedValueOnce(['https://signed.example/file.png']),
+    };
+    const bucket = createBucket({ [storagePath]: file });
+    mockFetch.mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+    const result = await AgentMediaLifecycleService.saveBufferAndSignRead({
+      bucket,
+      storagePath,
+      buffer: Buffer.from('image-bytes'),
+      mimeType: 'image/png',
+    });
+
+    expect(file.getSignedUrl).toHaveBeenNthCalledWith(1, {
+      version: 'v4',
+      action: 'write',
+      expires: expect.any(Number),
+      contentType: 'image/png',
+    });
+    expect(mockFetch).toHaveBeenCalledWith('https://signed.example/file.png?upload=1', {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'private, max-age=0',
+      },
+      body: new Uint8Array(Buffer.from('image-bytes')),
+    });
+    expect(file.getSignedUrl).toHaveBeenNthCalledWith(2, {
+      version: 'v4',
+      action: 'read',
+      expires: expect.any(Number),
+    });
+    expect(result.url).toBe('https://signed.example/file.png');
+    expect(result.expiresAt).toBeGreaterThan(Date.now());
   });
 });
 

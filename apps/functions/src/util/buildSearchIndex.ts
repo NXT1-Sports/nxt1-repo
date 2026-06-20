@@ -5,12 +5,10 @@
  * Builds search tokens for user profile discovery.
  */
 
-import * as admin from 'firebase-admin';
+import { db, FieldValue } from '../firebase-admin';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
 import { getPrimarySportName } from '../user/helpers';
-
-const db = admin.firestore();
 
 /**
  * Build search index for a user profile
@@ -69,7 +67,7 @@ export const buildSearchIndex = onCall(async (request) => {
 
   await db.collection('Users').doc(userId).update({
     searchTokens: uniqueTokens,
-    searchUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    searchUpdatedAt: FieldValue.serverTimestamp(),
   });
 
   logger.info('Search index built', { userId, tokenCount: uniqueTokens.length });

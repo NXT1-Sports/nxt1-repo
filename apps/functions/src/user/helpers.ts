@@ -5,9 +5,9 @@
  * Shared helper functions for user-related triggers.
  */
 
-function getSportProfiles(
-  userData: FirebaseFirestore.DocumentData
-): Array<Record<string, unknown>> {
+import type { DocumentData } from '../firebase-admin';
+
+function getSportProfiles(userData: DocumentData): Array<Record<string, unknown>> {
   const sports = userData['sports'];
   return Array.isArray(sports)
     ? sports.filter(
@@ -16,14 +16,12 @@ function getSportProfiles(
     : [];
 }
 
-function getPrimarySportProfile(
-  userData: FirebaseFirestore.DocumentData
-): Record<string, unknown> | undefined {
+function getPrimarySportProfile(userData: DocumentData): Record<string, unknown> | undefined {
   const sports = getSportProfiles(userData);
   return sports.find((sport) => sport['order'] === 0) ?? sports[0];
 }
 
-export function getPrimarySportName(userData: FirebaseFirestore.DocumentData): string | undefined {
+export function getPrimarySportName(userData: DocumentData): string | undefined {
   const sport = getPrimarySportProfile(userData)?.['sport'];
   if (typeof sport === 'string' && sport.trim().length > 0) {
     return sport.trim();

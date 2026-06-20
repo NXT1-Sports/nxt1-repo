@@ -6,11 +6,9 @@
  * - Initializes notification preferences on the Users document itself
  */
 
-import * as admin from 'firebase-admin';
+import { db } from '../firebase-admin';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { logger } from 'firebase-functions/v2';
-
-const db = admin.firestore();
 
 /**
  * On user profile created - initialize user data

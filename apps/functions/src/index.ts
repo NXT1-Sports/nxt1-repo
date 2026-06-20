@@ -18,11 +18,8 @@
  * @see https://firebase.google.com/docs/functions/typescript
  */
 
-import * as admin from 'firebase-admin';
+import './firebase-admin';
 import { setGlobalOptions } from 'firebase-functions/v2';
-
-// Initialize Firebase Admin (must be done before importing triggers)
-admin.initializeApp();
 
 // Set default options for all functions
 setGlobalOptions({

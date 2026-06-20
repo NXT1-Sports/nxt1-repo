@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/ui",
-  "version": "2.62.31",
+  "version": "2.62.56",
   "description": "NXT1 UI - Shared Angular/Ionic components, services, and infrastructure for cross-platform applications (2026 APF)",
   "sideEffects": [
     "*.css"
@@ -44,19 +44,19 @@
     "@nxt1/core": "*",
     "@nxt1/design-tokens": "*",
     "@stripe/stripe-js": "^9.7.0",
-    "dompurify": "^3.4.10",
+    "dompurify": "^3.4.11",
     "hls.js": "^1.6.16",
     "marked": "^18.0.5",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
-    "@angular/animations": "^21.0.0",
-    "@angular/cdk": "^21.0.0",
-    "@angular/common": "^21.0.0",
-    "@angular/core": "^21.0.0",
-    "@angular/forms": "^21.0.0",
-    "@angular/platform-browser": "^21.0.0",
-    "@angular/router": "^21.0.0",
+    "@angular/animations": "^22.0.0",
+    "@angular/cdk": "^22.0.0",
+    "@angular/common": "^22.0.0",
+    "@angular/core": "^22.0.0",
+    "@angular/forms": "^22.0.0",
+    "@angular/platform-browser": "^22.0.0",
+    "@angular/router": "^22.0.0",
     "@capacitor-community/media": "^7.0.0 || ^8.0.0 || ^9.0.0",
     "@capacitor-firebase/storage": "^8.0.0",
     "@capacitor/action-sheet": "^6.0.0 || ^7.0.0 || ^8.0.0",
@@ -105,7 +105,7 @@
   "devDependencies": {
     "@ionic/angular": "^8.5.0",
     "ionicons": "^8.0.13",
-    "ng-packagr": "^21.2.0",
+    "ng-packagr": "^22.0.0",
     "rxjs": "^7.8.1",
     "tus-js-client": "^4.3.1",
     "typescript": "6.0.3"

@@ -66,7 +66,7 @@ Operational lifecycle routing:
   `SLACK_ALERT_WEBHOOK_URL`, then `SLACK_AGENT_ALERT_WEBHOOK_URL` as a final
   last-resort alert path
 
-App Hosting secret names:
+Backend deploy secret names:
 
 - Production: `SLACK_ALERT_WEBHOOK_URL`, `SLACK_SENTRY_ALERT_WEBHOOK_URL`,
   `SLACK_NEW_ATHLETES_WEBHOOK_URL`, `SLACK_NEW_TEAMS_WEBHOOK_URL`

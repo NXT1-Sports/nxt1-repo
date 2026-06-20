@@ -105,15 +105,13 @@ export class DynamicExportTool extends BaseTool {
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
     // ── Validate required params ──────────────────────────────────────
-    const format = this.str(input, 'format');
-    if (!format || (format !== 'pdf' && format !== 'csv')) {
+    const format = this.resolveFormat(input['format']);
+    if (!format) {
       return { success: false, error: 'Parameter "format" must be "pdf" or "csv".' };
     }
 
-    const fileName = this.str(input, 'fileName');
-    if (!fileName) {
-      return this.paramError('fileName');
-    }
+    const requestedTitle = this.str(input, 'title');
+    const fileName = this.str(input, 'fileName') ?? requestedTitle ?? 'export';
 
     // Sanitize fileName to prevent path traversal
     const safeName =
@@ -125,7 +123,7 @@ export class DynamicExportTool extends BaseTool {
     // ── Extract optional structured data ──────────────────────────────
     const columns = this.parseColumns(input);
     const rows = this.parseRows(input);
-    const title = this.str(input, 'title') ?? safeName;
+    const title = requestedTitle ?? safeName;
     const description = this.str(input, 'description') ?? undefined;
     const bodyParagraphs = this.parseStringArray(input, 'bodyParagraphs');
     const bulletPoints = this.parseStringArray(input, 'bulletPoints');
@@ -133,7 +131,9 @@ export class DynamicExportTool extends BaseTool {
     const theme = this.str(input, 'theme');
     const brandPrimaryColor = this.str(input, 'brandPrimaryColor') ?? undefined;
     const organizationName = this.str(input, 'organizationName') ?? undefined;
-    const logoUrl = this.str(input, 'logoUrl') ?? undefined;
+    const logoUrl =
+      this.resolveOptionalImageUrl(this.str(input, 'logoUrl')) ??
+      this.resolveOptionalImageUrl(this.str(input, 'url'));
 
     // ── Format-specific validation ────────────────────────────────────
     if (format === 'csv') {
@@ -201,6 +201,8 @@ export class DynamicExportTool extends BaseTool {
         extension = 'pdf';
       }
 
+      const outputBaseName = safeName.replace(new RegExp(`\\.${extension}$`, 'i'), '') || 'export';
+
       // ── Upload to Firebase Storage ────────────────────────────────
       emitStage?.('uploading_assets', {
         icon: 'upload',
@@ -227,9 +229,11 @@ export class DynamicExportTool extends BaseTool {
 
       await file.save(buffer, {
         contentType: mimeType,
+        resumable: false,
+        validation: false,
         metadata: {
           cacheControl: 'public, max-age=31536000, immutable',
-          contentDisposition: `attachment; filename="${safeName}.${extension}"`,
+          contentDisposition: `attachment; filename="${outputBaseName}.${extension}"`,
           metadata: {
             firebaseStorageDownloadTokens: downloadToken,
           },
@@ -259,7 +263,7 @@ export class DynamicExportTool extends BaseTool {
         data: {
           downloadUrl,
           storagePath,
-          fileName: `${safeName}.${extension}`,
+          fileName: `${outputBaseName}.${extension}`,
           mimeType,
           format: extension,
           sizeBytes: buffer.length,
@@ -310,6 +314,15 @@ export class DynamicExportTool extends BaseTool {
   ): string[] {
     const urls = new Set<string>();
 
+    const explicitSingleUrls = [
+      this.resolveOptionalImageUrl(this.str(input, 'imageUrl')),
+      this.resolveOptionalImageUrl(this.str(input, 'url')),
+    ].filter((value): value is string => typeof value === 'string');
+
+    for (const url of explicitSingleUrls) {
+      urls.add(url);
+    }
+
     const explicit = this.parseStringArray(input, 'imageUrls') ?? [];
     for (const url of explicit) {
       if (this.isSupportedImageUrl(url)) urls.add(url.trim());
@@ -329,6 +342,21 @@ export class DynamicExportTool extends BaseTool {
     }
 
     return [...urls];
+  }
+
+  private resolveFormat(raw: unknown): 'pdf' | 'csv' | null {
+    if (typeof raw !== 'string') return null;
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === 'pdf') return 'pdf';
+    if (normalized === 'csv') return 'csv';
+    return null;
+  }
+
+  private resolveOptionalImageUrl(raw: string | null): string | undefined {
+    if (!raw) return undefined;
+    const value = raw.trim();
+    if (!value) return undefined;
+    return this.isSupportedImageUrl(value) ? value : undefined;
   }
 
   private extractHttpUrls(text: string): string[] {

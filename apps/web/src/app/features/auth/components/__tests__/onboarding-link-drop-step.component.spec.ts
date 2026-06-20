@@ -42,6 +42,14 @@ describe('OnboardingLinkDropStepComponent', () => {
     debug: vi.fn(),
     fatal: vi.fn(),
   };
+
+  type OnboardingLinkDropPrivateView = {
+    syncAutoManagedMonitors: (
+      threadId: string | null,
+      currentValue: LinkSourcesFormData
+    ) => Promise<void>;
+    _autoManagedMonitorStateByPlatform: () => Record<string, { enabled?: boolean } | undefined>;
+  };
   logger.child.mockReturnValue(logger);
   const firecrawlSignIn = {
     fetchMonitorSummaries: vi.fn(),
@@ -150,10 +158,15 @@ describe('OnboardingLinkDropStepComponent', () => {
     await fixture.whenStable();
 
     const result = await component.quickAddLink('https://www.instagram.com/nxt1sports/');
-    await (component as any).syncAutoManagedMonitors(null, emitted[0]);
+    await (component as unknown as OnboardingLinkDropPrivateView).syncAutoManagedMonitors(
+      null,
+      emitted[0]
+    );
     fixture.detectChanges();
 
-    const monitorState = (component as any)._autoManagedMonitorStateByPlatform();
+    const monitorState = (
+      component as unknown as OnboardingLinkDropPrivateView
+    )._autoManagedMonitorStateByPlatform();
 
     expect(result).toEqual({ added: true, kind: 'platform', label: 'Instagram' });
     expect(firecrawlSignIn.fetchMonitorSummaries).toHaveBeenCalled();

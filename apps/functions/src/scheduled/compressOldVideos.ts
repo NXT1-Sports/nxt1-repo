@@ -26,6 +26,7 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { logger } from 'firebase-functions/v2';
+import { buildBackendUrl } from './utils/backendCronRequest';
 
 const CRON_SECRET = defineSecret('CRON_SECRET');
 const BACKEND_URL = defineString('BACKEND_URL');
@@ -52,7 +53,7 @@ export const compressOldVideos = onSchedule(
   async () => {
     logger.info('Starting Agent X old video compression');
 
-    const url = `${BACKEND_URL.value()}/api/v1/agent-x/cron/compress-old-videos`;
+    const url = buildBackendUrl(BACKEND_URL.value(), '/api/v1/agent-x/cron/compress-old-videos');
 
     try {
       const response = await fetch(url, {

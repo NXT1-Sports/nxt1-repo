@@ -1,3 +1,62 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const storageMocks = vi.hoisted(() => {
+  const save = vi.fn().mockResolvedValue(undefined);
+  const file = vi.fn(() => ({
+    save,
+  }));
+  const bucket = vi.fn(() => ({
+    name: 'test-bucket',
+    file,
+  }));
+
+  return {
+    save,
+    file,
+    bucket,
+  };
+});
+
+vi.mock('firebase-admin/storage', () => ({
+  getStorage: () => ({
+    bucket: storageMocks.bucket,
+  }),
+}));
+
+import { uploadToStorage } from '../shared.js';
+
+describe('uploadToStorage', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('uses non-resumable writes without validation for backend image uploads', async () => {
+    const url = await uploadToStorage(
+      Buffer.from('image-bytes'),
+      'Users/user-1/profile/avatar.jpg',
+      'image/jpeg'
+    );
+
+    expect(storageMocks.file).toHaveBeenCalledWith('Users/user-1/profile/avatar.jpg');
+    expect(storageMocks.save).toHaveBeenCalledWith(
+      expect.any(Buffer),
+      expect.objectContaining({
+        resumable: false,
+        validation: false,
+        metadata: expect.objectContaining({
+          contentType: 'image/jpeg',
+          cacheControl: 'public, max-age=31536000',
+          metadata: expect.objectContaining({
+            firebaseStorageDownloadTokens: expect.any(String),
+          }),
+        }),
+      })
+    );
+    expect(url).toMatch(
+      /^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/test-bucket\/o\/Users%2Fuser-1%2Fprofile%2Favatar\.jpg\?alt=media&token=/
+    );
+  });
+});
 import { describe, expect, it } from 'vitest';
 
 import { buildCloudflarePlaybackUrls, getCloudflareStreamHost } from '../shared.js';

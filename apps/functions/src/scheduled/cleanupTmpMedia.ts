@@ -19,6 +19,7 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { logger } from 'firebase-functions/v2';
+import { buildBackendUrl } from './utils/backendCronRequest';
 
 const CRON_SECRET = defineSecret('CRON_SECRET');
 const BACKEND_URL = defineString('BACKEND_URL');
@@ -44,7 +45,7 @@ export const cleanupTmpMedia = onSchedule(
     const requestId = `cleanup-tmp-${Date.now()}-${Math.random().toString(36).substring(7)}`;
     logger.info('Starting Agent X tmp media cleanup', { requestId });
 
-    const url = `${BACKEND_URL.value()}/api/v1/agent-x/cron/cleanup-tmp-media`;
+    const url = buildBackendUrl(BACKEND_URL.value(), '/api/v1/agent-x/cron/cleanup-tmp-media');
 
     try {
       const response = await fetch(url, {

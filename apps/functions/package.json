@@ -1,6 +1,6 @@
 {
   "name": "@nxt1/functions",
-  "version": "1.62.31",
+  "version": "1.62.56",
   "private": true,
   "main": "lib/index.js",
   "scripts": {
@@ -20,17 +20,18 @@
     "typecheck": "tsc --noEmit"
   },
   "engines": {
-    "node": "22"
+    "node": ">=22.22.3 <23"
   },
   "dependencies": {
     "axios": "^1.15.2",
     "cheerio": "^1.2.0",
-    "firebase-admin": "^13.6.0",
+    "firebase-admin": "^13.10.0",
     "firebase-functions": "^7.2.5",
     "lodash": "^4.17.21",
-    "nodemailer": "^8.0.5",
-    "sharp": "^0.34.5",
-    "stripe": "^22.2.0"
+    "nodemailer": "^9.0.1",
+    "sharp": "^0.35.2",
+    "stripe": "^22.2.0",
+    "undici": "^7.28.0"
   },
   "devDependencies": {
     "@types/lodash": "^4.17.13",

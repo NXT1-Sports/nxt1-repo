@@ -1,7 +1,5 @@
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import { storage as defaultStorage } from '../../../../../utils/firebase.js';
-import { stagingStorage } from '../../../../../utils/firebase-staging.js';
 import { logger } from '../../../../../utils/logger.js';
 import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 import type { ToolExecutionContext } from '../../base.tool.js';
@@ -516,27 +514,19 @@ export class ChartMcpBridgeService extends BaseMcpClientService {
         mediaKind: 'image',
       });
 
-      const bucket =
-        context.environment === 'staging'
-          ? stagingStorage.bucket()
-          : context.environment === 'production'
-            ? defaultStorage.bucket()
-            : process.env['NODE_ENV'] === 'staging'
-              ? stagingStorage.bucket()
-              : defaultStorage.bucket();
-      const file = bucket.file(staged.storagePath);
-      await file.makePublic();
-      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${staged.storagePath}`;
-
       return {
-        imageUrl: publicUrl,
+        imageUrl: staged.signedUrl,
         storagePath: staged.storagePath,
       };
     } catch (error) {
-      logger.warn('[ChartMCP] Failed to stage chart image — falling back to source URL', {
-        chartToolName,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      logger.warn(
+        '[ChartMCP] Upstream chart image staging fetch failed — falling back to source URL',
+        {
+          chartToolName,
+          sourceImageUrl,
+          stagingError: error instanceof Error ? error.message : String(error),
+        }
+      );
       return { imageUrl: sourceImageUrl };
     }
   }
