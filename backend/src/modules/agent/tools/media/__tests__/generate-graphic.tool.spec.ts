@@ -161,7 +161,8 @@ describe('GenerateGraphicTool', () => {
     llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['CROWN POINT'] } });
     llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
 
-    const logoUrl = 'https://image.maxpreps.io/school-mascot/logo.gif';
+    const logoUrl =
+      'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Organizations/o/logo.png';
 
     const result = await tool.execute({
       graphicType: 'team',
@@ -180,6 +181,34 @@ describe('GenerateGraphicTool', () => {
     expect(llm.generateImage).toHaveBeenCalledWith(
       expect.objectContaining({
         referenceImageUrl: expect.stringMatching(/^data:image\/png;base64,/),
+        additionalImageUrls: [],
+      })
+    );
+  });
+
+  it('ignores non-organization logo overlays', async () => {
+    const tool = new GenerateGraphicTool(llm as never);
+
+    llm.prompt.mockResolvedValue({ parsedOutput: { displayText: ['CROWN POINT'] } });
+    llm.generateImage.mockRejectedValue(new Error('storage-side test abort'));
+
+    const result = await tool.execute({
+      graphicType: 'team',
+      textRequirements: ['CROWN POINT'],
+      dimensions: '1080x1080',
+      styleDescription: 'Elite sports look',
+      userId: 'user-1',
+      logoUrls: ['https://image.maxpreps.io/school-mascot/logo.gif'],
+      requiredAssets: {
+        brandLogo: true,
+      },
+      applyMode: 'logo_overlay',
+    });
+
+    expect(result.success).toBe(false);
+    expect(llm.generateImage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        referenceImageUrl: undefined,
         additionalImageUrls: [],
       })
     );
@@ -254,7 +283,9 @@ describe('GenerateGraphicTool', () => {
       dimensions: '1920x1080',
       styleDescription: 'premium red and black broadcast highlight intro',
       userId: 'user-1',
-      logoUrls: ['https://image.maxpreps.io/school-mascot/logo.gif'],
+      logoUrls: [
+        'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Organizations/o/logo.png',
+      ],
       applyMode: 'logo_overlay',
     });
 

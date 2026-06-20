@@ -382,6 +382,46 @@ export class GenerateGraphicTool extends BaseTool {
     return normalized.filter((url) => !this.isDisallowedSocialRedirect(url));
   }
 
+  private isOrganizationLogoUrl(url: string): boolean {
+    const sanitized = this.sanitizeInputUrl(url);
+    if (!sanitized) return false;
+
+    try {
+      const parsed = new URL(sanitized);
+      const pathname = decodeURIComponent(parsed.pathname);
+      return /(?:^|\/)Organizations\//i.test(pathname);
+    } catch {
+      return /(?:^|\/)Organizations\//i.test(sanitized);
+    }
+  }
+
+  private normalizeOrganizationLogoUrlList(
+    urls: readonly string[] | undefined,
+    context?: ToolExecutionContext
+  ): string[] {
+    const normalized = this.normalizeImageUrlList(urls, MAX_LOGOS);
+    const contextRecord = context as
+      | (Record<string, unknown> & {
+          organizationLogoUrl?: unknown;
+          logoUrl?: unknown;
+        })
+      | undefined;
+
+    const contextOrganizationLogoUrls = this.normalizeImageUrlList(
+      [contextRecord?.organizationLogoUrl, contextRecord?.logoUrl].filter(
+        (value): value is string => typeof value === 'string' && value.trim().length > 0
+      ),
+      MAX_LOGOS
+    ).filter((url) => this.isOrganizationLogoUrl(url));
+
+    if (contextOrganizationLogoUrls.length > 0) {
+      const allowed = new Set(contextOrganizationLogoUrls);
+      return normalized.filter((url) => allowed.has(url));
+    }
+
+    return normalized.filter((url) => this.isOrganizationLogoUrl(url));
+  }
+
   private resolveApplyMode(params: {
     explicit: (typeof APPLY_MODES)[number] | undefined;
     hasSubjectPhotos: boolean;
@@ -710,7 +750,8 @@ Return JSON only. No explanation outside the JSON.`;
       subjectPhotoUrls,
       MAX_SUBJECT_PHOTOS
     );
-    const normalizedLogoUrls = this.normalizeImageUrlList(logoUrls, MAX_LOGOS);
+    const requestedLogoUrls = this.normalizeImageUrlList(logoUrls, MAX_LOGOS);
+    const normalizedLogoUrls = this.normalizeOrganizationLogoUrlList(logoUrls, context);
     const resolvedSubjectPhotoUrls = await this.resolveImageInputUrls(
       normalizedSubjectPhotoUrls,
       context
@@ -738,6 +779,12 @@ Return JSON only. No explanation outside the JSON.`;
 
     if (missingAssetError) {
       validationWarnings.push(missingAssetError);
+    }
+
+    if (requestedLogoUrls.length > normalizedLogoUrls.length) {
+      validationWarnings.push(
+        'Only the user organization logoUrl is eligible for bottom-left logo overlay; other logo URLs were ignored.'
+      );
     }
 
     const retrievedSources = (autoRetrievedSources ?? []).filter(

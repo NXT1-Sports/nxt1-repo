@@ -9,6 +9,7 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { logger } from 'firebase-functions/v2';
+import { buildBackendUrl } from './utils/backendCronRequest';
 
 const CRON_SECRET = defineSecret('CRON_SECRET');
 const BACKEND_URL = defineString('BACKEND_URL');
@@ -24,7 +25,7 @@ export const weeklySuggestedActions = onSchedule(
   async () => {
     logger.info('Starting weekly Agent X suggested actions run');
 
-    const url = `${BACKEND_URL.value()}/api/v1/agent-x/cron/suggested-actions`;
+    const url = buildBackendUrl(BACKEND_URL.value(), '/api/v1/agent-x/cron/suggested-actions');
 
     try {
       const response = await fetch(url, {

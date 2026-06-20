@@ -43,16 +43,33 @@ const FIREBASE_MCP_CACHE_PREFIX = {
   QUERY_VIEW: 'agent:mcp:firebase:query-view',
 } as const;
 
-function resolveFirestoreTarget(): Firestore {
-  const target =
-    process.env['FIREBASE_MCP_TARGET_APP'] ??
-    (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'default');
+export type FirebaseMcpTargetApp = 'default' | 'staging';
 
+function resolveTargetApp(): FirebaseMcpTargetApp {
+  return process.env['FIREBASE_MCP_TARGET_APP'] === 'staging' ||
+    process.env['NODE_ENV'] === 'staging'
+    ? 'staging'
+    : 'default';
+}
+
+function resolveFirestoreTarget(target: FirebaseMcpTargetApp): Firestore {
   if (target === 'staging') {
     return stagingDb;
   }
 
   return db;
+}
+
+export interface FirebaseMcpBridge {
+  listViews(context: ToolExecutionContext): Promise<FirebaseMcpListViewsResult>;
+  queryView(
+    input: FirebaseMcpQueryInput,
+    context: ToolExecutionContext
+  ): Promise<FirebaseMcpQueryResult>;
+  mutate(
+    input: FirebaseMcpMutateInput,
+    context: ToolExecutionContext
+  ): Promise<FirebaseMcpMutateResult>;
 }
 
 function uniqueSorted(values: readonly string[]): string[] {
@@ -159,11 +176,16 @@ function resolveCacheTtl(view: FirebaseViewName): number {
   }
 }
 
-export class FirebaseMcpBridgeService extends BaseMcpClientService {
+export class FirebaseMcpBridgeService extends BaseMcpClientService implements FirebaseMcpBridge {
   readonly serverName = 'firebase';
 
   private readonly scopeSecret = randomBytes(32).toString('hex');
-  private readonly firestore = resolveFirestoreTarget();
+  private readonly firestore: Firestore;
+
+  constructor(private readonly targetApp: FirebaseMcpTargetApp = resolveTargetApp()) {
+    super();
+    this.firestore = resolveFirestoreTarget(targetApp);
+  }
 
   private extractOrganizationAdminUserIds(admins: unknown): string[] {
     if (!Array.isArray(admins)) {
@@ -192,9 +214,7 @@ export class FirebaseMcpBridgeService extends BaseMcpClientService {
       env: {
         ...(process.env as Record<string, string>),
         FIREBASE_MCP_SCOPE_SECRET: this.scopeSecret,
-        FIREBASE_MCP_TARGET_APP:
-          process.env['FIREBASE_MCP_TARGET_APP'] ??
-          (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'default'),
+        FIREBASE_MCP_TARGET_APP: this.targetApp,
       },
     });
   }
@@ -475,5 +495,34 @@ export class FirebaseMcpBridgeService extends BaseMcpClientService {
     });
 
     return payload;
+  }
+}
+
+export class EnvironmentAwareFirebaseMcpBridgeService implements FirebaseMcpBridge {
+  constructor(
+    private readonly productionBridge: FirebaseMcpBridge = new FirebaseMcpBridgeService('default'),
+    private readonly stagingBridge: FirebaseMcpBridge = new FirebaseMcpBridgeService('staging')
+  ) {}
+
+  private resolveBridge(context: ToolExecutionContext): FirebaseMcpBridge {
+    return context.environment === 'staging' ? this.stagingBridge : this.productionBridge;
+  }
+
+  async listViews(context: ToolExecutionContext): Promise<FirebaseMcpListViewsResult> {
+    return this.resolveBridge(context).listViews(context);
+  }
+
+  async queryView(
+    input: FirebaseMcpQueryInput,
+    context: ToolExecutionContext
+  ): Promise<FirebaseMcpQueryResult> {
+    return this.resolveBridge(context).queryView(input, context);
+  }
+
+  async mutate(
+    input: FirebaseMcpMutateInput,
+    context: ToolExecutionContext
+  ): Promise<FirebaseMcpMutateResult> {
+    return this.resolveBridge(context).mutate(input, context);
   }
 }

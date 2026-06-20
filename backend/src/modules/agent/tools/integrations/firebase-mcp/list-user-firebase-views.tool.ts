@@ -1,5 +1,5 @@
 import { BaseTool, type ToolExecutionContext, type ToolResult } from '../../base.tool.js';
-import type { FirebaseMcpBridgeService } from './firebase-mcp-bridge.service.js';
+import type { FirebaseMcpBridge } from './firebase-mcp-bridge.service.js';
 import { z } from 'zod';
 import { logger } from '../../../../../utils/logger.js';
 
@@ -19,7 +19,7 @@ export class ListNxt1DataViewsTool extends BaseTool {
   readonly category = 'system' as const;
 
   readonly entityGroup = 'platform_tools' as const;
-  constructor(private readonly bridge: FirebaseMcpBridgeService) {
+  constructor(private readonly bridge: FirebaseMcpBridge) {
     super();
   }
 

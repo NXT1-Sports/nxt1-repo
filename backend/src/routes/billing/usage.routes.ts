@@ -1776,9 +1776,12 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
     const target = await resolveBillingTarget(db, userId);
     const billingCtx = target.context;
 
-    const eventsDocs = await fetchUsageEvents(db, target, start, end, false);
-
-    const eventUsageCents = eventsDocs.reduce((sum, doc) => sum + getUsageEventCost(doc), 0);
+    const eventUsageCents = Number.isFinite(billingCtx.currentPeriodSpend)
+      ? 0
+      : (await fetchUsageEvents(db, target, start, end, false)).reduce(
+          (sum, doc) => sum + getUsageEventCost(doc),
+          0
+        );
     const totalUsageCents = getAuthoritativeUsageTotalCents(
       target,
       'current-month',

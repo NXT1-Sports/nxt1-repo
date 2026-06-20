@@ -1,9 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 
-vi.mock('../../../../../../utils/firebase.js', () => ({ db: {} }));
-vi.mock('../../../../../../utils/firebase-staging.js', () => ({ stagingDb: {} }));
+const { productionDbMock, stagingDbMock } = vi.hoisted(() => ({
+  productionDbMock: {},
+  stagingDbMock: {},
+}));
 
-import { FirebaseMcpBridgeService } from '../firebase-mcp-bridge.service.js';
+vi.mock('../../../../../../utils/firebase.js', () => ({ db: productionDbMock }));
+vi.mock('../../../../../../utils/firebase-staging.js', () => ({ stagingDb: stagingDbMock }));
+
+import {
+  EnvironmentAwareFirebaseMcpBridgeService,
+  FirebaseMcpBridgeService,
+  type FirebaseMcpBridge,
+} from '../firebase-mcp-bridge.service.js';
 
 type FakeDocData = Record<string, unknown>;
 
@@ -146,5 +155,55 @@ describe('FirebaseMcpBridgeService resolveAccessScope', () => {
     expect(scope.teamIds).toEqual(['team_1', 'team_2']);
     expect(scope.organizationIds).toEqual(['org_1']);
     expect(scope.defaultOrganizationId).toBe('org_1');
+  });
+
+  it('routes staging contexts to the staging bridge', async () => {
+    const productionBridge: FirebaseMcpBridge = {
+      listViews: vi.fn().mockResolvedValue({ views: ['production'] }),
+      queryView: vi
+        .fn()
+        .mockResolvedValue({ view: 'production_profile_snapshot', count: 0, items: [] }),
+      mutate: vi.fn().mockResolvedValue({ success: true, message: 'production' }),
+    };
+    const stagingBridge: FirebaseMcpBridge = {
+      listViews: vi.fn().mockResolvedValue({ views: ['staging'] }),
+      queryView: vi
+        .fn()
+        .mockResolvedValue({ view: 'organization_profile_snapshot', count: 1, items: [] }),
+      mutate: vi.fn().mockResolvedValue({ success: true, message: 'staging' }),
+    };
+
+    const bridge = new EnvironmentAwareFirebaseMcpBridgeService(productionBridge, stagingBridge);
+    const context = { userId: 'director_1', environment: 'staging' } as const;
+
+    await bridge.listViews(context);
+    await bridge.queryView({ view: 'organization_profile_snapshot' }, context);
+    await bridge.mutate(
+      {
+        operation: 'update',
+        collection: 'Organizations',
+        documentId: 'org_1',
+        patch: { primaryColor: '#CC0022' },
+      },
+      context
+    );
+
+    expect(stagingBridge.listViews).toHaveBeenCalledWith(context);
+    expect(stagingBridge.queryView).toHaveBeenCalledWith(
+      { view: 'organization_profile_snapshot' },
+      context
+    );
+    expect(stagingBridge.mutate).toHaveBeenCalledWith(
+      {
+        operation: 'update',
+        collection: 'Organizations',
+        documentId: 'org_1',
+        patch: { primaryColor: '#CC0022' },
+      },
+      context
+    );
+    expect(productionBridge.listViews).not.toHaveBeenCalled();
+    expect(productionBridge.queryView).not.toHaveBeenCalled();
+    expect(productionBridge.mutate).not.toHaveBeenCalled();
   });
 });

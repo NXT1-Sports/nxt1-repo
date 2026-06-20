@@ -1053,7 +1053,7 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(args['artifact']).toBeUndefined();
   });
 
-  it('auto-injects subjectPhotoUrls and logoUrls into generate_graphic with approval gating', () => {
+  it('auto-injects subjectPhotoUrls but does not inject non-organization logos into generate_graphic', () => {
     const agent = new FakeAgent();
     const context = {
       ...createMockContext(),
@@ -1100,13 +1100,8 @@ describe('BaseAgent identifier scrubbing', () => {
       'https://cdn.example.com/profile-1.png',
       'https://cdn.example.com/team-1.png',
     ]);
-    expect(args['logoUrls']).toEqual(
-      expect.arrayContaining([
-        'https://cdn.example.com/team-logo.png',
-        'https://cdn.example.com/college-logo.png',
-      ])
-    );
-    expect(args['applyMode']).toBe('mixed');
+    expect(args['logoUrls']).toBeUndefined();
+    expect(args['applyMode']).toBe('photo_lock');
     expect(args['assetSelectionApproved']).toBe(false);
     expect(Array.isArray(args['autoRetrievedSources'])).toBe(true);
   });
