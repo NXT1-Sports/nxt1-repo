@@ -3103,9 +3103,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * Attachments to render in the strip.
    *
    * - User messages: show all attachments (uploaded files, images, videos).
-   * - Assistant messages: suppress image/video attachments when the same URL
-   *   already renders inline via markdown or structured message parts. This
-   *   keeps historical/replayed output from showing a second broken preview.
+   * - Assistant messages: never render the strip. Assistant media is rendered
+   *   inline from markdown/parts, and persisted assistant attachments are kept
+   *   only as transport metadata for reload/replay fidelity.
    */
   protected attachmentImageUrl(
     attachment: NonNullable<OperationMessage['attachments']>[number]
@@ -3156,56 +3156,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     msg: OperationMessage
   ): readonly NonNullable<OperationMessage['attachments']>[number][] {
     const attachments = msg.attachments ?? [];
-    if (msg.role !== 'assistant') return attachments;
+    if (msg.role !== 'user') return [];
 
-    const normalized = [...attachments];
-    const videoIndexes = normalized
-      .map((attachment, index) => ({ attachment, index }))
-      .filter((entry) => entry.attachment.type === 'video')
-      .map((entry) => entry.index);
-
-    if (videoIndexes.length > 0) {
-      const lastVideoIndex = videoIndexes[videoIndexes.length - 1] ?? 0;
-      const lastVideo = normalized[lastVideoIndex];
-      const lastVideoHasThumb =
-        typeof lastVideo.thumbnailUrl === 'string' && lastVideo.thumbnailUrl.trim().length > 0;
-
-      const thumbnailCandidateIndex = normalized.findIndex(
-        (attachment, index) =>
-          index !== lastVideoIndex &&
-          attachment.type === 'image' &&
-          /thumb|thumbnail|preview[-_ ]?frame/i.test(attachment.name)
-      );
-
-      const fallbackPosterIndex =
-        thumbnailCandidateIndex >= 0
-          ? thumbnailCandidateIndex
-          : normalized.findIndex(
-              (attachment, index) => index !== lastVideoIndex && attachment.type === 'image'
-            );
-
-      if (fallbackPosterIndex >= 0) {
-        const thumbnailAttachment = normalized[fallbackPosterIndex];
-        if (!lastVideoHasThumb) {
-          normalized[lastVideoIndex] = {
-            ...lastVideo,
-            thumbnailUrl: thumbnailAttachment.url,
-          };
-        }
-
-        if (thumbnailCandidateIndex >= 0) {
-          normalized.splice(thumbnailCandidateIndex, 1);
-        }
-      }
-    }
-
-    const inlineMediaUrls = this.inlineRenderedMediaUrlsForMessage(msg);
-
-    return normalized.filter((attachment) => {
-      if (attachment.type !== 'image' && attachment.type !== 'video') return true;
-      const attachmentUrl = normalizeOperationChatMediaUrl(attachment.url);
-      return !attachmentUrl || !inlineMediaUrls.has(attachmentUrl);
-    });
+    return attachments;
   }
 
   protected hasBubbleProse(msg: OperationMessage): boolean {
