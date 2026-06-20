@@ -77,7 +77,7 @@ describe('Upload Routes', () => {
         success: true,
         data: {
           url: expect.stringContaining(
-            'https://storage.googleapis.com/test-bucket/Teams/team-logo-123/logo/'
+            'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/Teams%2Fteam-logo-123%2Flogo%2F'
           ),
           storagePath: expect.stringContaining('Teams/team-logo-123/logo/'),
           size: expect.any(Number),
