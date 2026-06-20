@@ -1863,6 +1863,7 @@ export abstract class BaseAgent {
         sessionId: context.sessionId,
         threadId: context.threadId,
         operationId: context.operationId,
+        ...(context.environment ? { environment: context.environment } : {}),
         ...(context.appBaseUrl ? { appBaseUrl: context.appBaseUrl } : {}),
         allowedToolNames: effectiveExecutionAllowlist,
         allowedEntityGroups,

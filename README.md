@@ -21,7 +21,7 @@
 ├─────────────────┴─────────────────┴─────────────────────────────┤
 │                          BACKEND                                 │
 │                      Express API                                │
-│                   (TypeScript, Cloud Run)                        │
+│            (TypeScript, GitHub Actions SSH/PM2 deploy)           │
 ├─────────────────────────────────────────────────────────────────┤
 │                     SHARED PACKAGES                              │
 ├──────────────────────────┬──────────────────────────────────────┤
@@ -254,8 +254,10 @@ Pull requests trigger:
 
 ### 5. Merge and Deploy
 
-Merging to `main` automatically deploys to staging. Use `workflow_dispatch` for
-production deployments.
+Deployment is split by surface. The web app uses Firebase App Hosting. The
+backend deploys separately via
+[.github/workflows/deploy-backend.yml](</Users/johnkeller/My%20Mac%20(Johns-MacBook-Pro.local)/Main/NXT1/nxt1-monorepo/.github/workflows/deploy-backend.yml>)
+over SSH/PM2.
 
 ## Environment Variables
 
@@ -319,11 +321,16 @@ cd apps/web && npm run test:e2e
 
 ## Deployment
 
-### Staging (Automatic)
+### Web Staging (Automatic)
 
-Push to `main` → Auto-deploys to staging
+Push to `main` → Auto-deploys the web app to staging via Firebase App Hosting
 
-### Production (Manual)
+### Backend Deploys
+
+Backend staging and production deploy through the GitHub Actions SSH/PM2
+workflow, not Firebase App Hosting.
+
+### Web Production (Manual)
 
 ```bash
 # Via GitHub Actions

@@ -72,7 +72,7 @@ function createFirestoreStub(store: Record<string, Record<string, FakeDocData>>)
 
 describe('FirebaseMcpBridgeService resolveAccessScope', () => {
   it('includes team-admin managed teams in query scope without roster membership', async () => {
-    const service = new FirebaseMcpBridgeService() as any;
+    const service = new FirebaseMcpBridgeService();
     Object.defineProperty(service, 'firestore', {
       value: createFirestoreStub({
         RosterEntries: {},
@@ -89,7 +89,16 @@ describe('FirebaseMcpBridgeService resolveAccessScope', () => {
       }),
     });
 
-    const scope = await service.resolveAccessScope({ userId: 'coach_1' });
+    const scope = await (
+      service as unknown as {
+        resolveAccessScope: (context: { userId: string }) => Promise<{
+          teamIds: string[];
+          organizationIds: string[];
+          defaultTeamId: string | null;
+          defaultOrganizationId: string | null;
+        }>;
+      }
+    ).resolveAccessScope({ userId: 'coach_1' });
 
     expect(scope.teamIds).toEqual(['team_1']);
     expect(scope.organizationIds).toEqual(['org_1']);
@@ -98,7 +107,7 @@ describe('FirebaseMcpBridgeService resolveAccessScope', () => {
   });
 
   it('includes organization-admin teams in query scope without direct roster membership', async () => {
-    const service = new FirebaseMcpBridgeService() as any;
+    const service = new FirebaseMcpBridgeService();
     Object.defineProperty(service, 'firestore', {
       value: createFirestoreStub({
         RosterEntries: {},
@@ -123,7 +132,16 @@ describe('FirebaseMcpBridgeService resolveAccessScope', () => {
       }),
     });
 
-    const scope = await service.resolveAccessScope({ userId: 'director_1' });
+    const scope = await (
+      service as unknown as {
+        resolveAccessScope: (context: { userId: string }) => Promise<{
+          teamIds: string[];
+          organizationIds: string[];
+          defaultTeamId: string | null;
+          defaultOrganizationId: string | null;
+        }>;
+      }
+    ).resolveAccessScope({ userId: 'director_1' });
 
     expect(scope.teamIds).toEqual(['team_1', 'team_2']);
     expect(scope.organizationIds).toEqual(['org_1']);

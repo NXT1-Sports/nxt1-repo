@@ -108,6 +108,32 @@ class FakeFailTool extends BaseTool {
   }
 }
 
+class FakeEnvironmentEchoTool extends BaseTool {
+  readonly name = 'fake_environment_echo_tool';
+  readonly description = 'Returns the execution environment passed to the tool.';
+  readonly parameters = z.object({});
+  readonly isMutation = false;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'platform_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  lastContext?: ToolExecutionContext;
+
+  async execute(
+    _input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    this.lastContext = context;
+
+    return {
+      success: true,
+      data: {
+        environment: context?.environment ?? null,
+      },
+    };
+  }
+}
+
 class FakeAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'strategy_coordinator';
   readonly name: string = 'Fake Agent';
@@ -151,6 +177,8 @@ class FakeAgent extends BaseAgent {
       operationId?: string;
       sessionId?: string;
       threadId?: string;
+      environment?: 'staging' | 'production';
+      environment?: 'staging' | 'production';
       allowedToolNames?: readonly string[];
     }
   ): Promise<string> {
@@ -668,6 +696,40 @@ describe('BaseAgent identifier scrubbing', () => {
         teamId: 'team-789',
         route: '/profile/123456',
         name: 'Jordan Miles',
+      },
+    });
+  });
+
+  it('passes the session environment through to tool execution context', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const tool = new FakeEnvironmentEchoTool();
+    registry.register(tool);
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_environment_echo',
+        type: 'function',
+        function: {
+          name: 'fake_environment_echo_tool',
+          arguments: '{}',
+        },
+      },
+      registry,
+      'viewer-1',
+      {
+        operationId: 'op-environment-echo',
+        sessionId: 'session-environment-echo',
+        environment: 'staging',
+        allowedToolNames: ['fake_environment_echo_tool'],
+      }
+    );
+
+    expect(tool.lastContext?.environment).toBe('staging');
+    expect(JSON.parse(observation)).toEqual({
+      success: true,
+      data: {
+        environment: 'staging',
       },
     });
   });

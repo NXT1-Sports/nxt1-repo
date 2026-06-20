@@ -5,8 +5,8 @@ business logic, data aggregation, AI orchestration (Agent X), security
 enforcement, and third-party integrations.
 
 This service is deployed separately from the SSR web app. In this monorepo,
-Firebase App Hosting is reserved for `apps/web`; the backend API should run on
-Cloud Run or another server runtime.
+Firebase App Hosting is reserved for `apps/web`; the backend API deploys via
+GitHub Actions over SSH and runs under PM2 for both staging and production.
 
 ## Technology Stack
 
@@ -269,10 +269,8 @@ so App Hosting secret references alone do not enable FFmpeg on the live backend.
 
 The same rule applies to Slack billing alerts: production billing traffic only
 receives dedicated sales notifications when `SLACK_SALES_ALERT_WEBHOOK_URL` is
-present on the live SSH/PM2 backend environment. If App Hosting also serves a
-production backend instance, mirror the same secret in
-[backend/apphosting.production.yaml](/Users/johnkeller/My Mac
-(Johns-MacBook-Pro.local)/Main/NXT1/nxt1-monorepo/backend/apphosting.production.yaml).
+present on the live SSH/PM2 backend environment managed by
+[.github/workflows/deploy-backend.yml](</Users/johnkeller/My%20Mac%20(Johns-MacBook-Pro.local)/Main/NXT1/nxt1-monorepo/.github/workflows/deploy-backend.yml>).
 
 ### Testing
 
