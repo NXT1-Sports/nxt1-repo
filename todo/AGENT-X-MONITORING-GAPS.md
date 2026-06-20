@@ -136,7 +136,7 @@
 
 ## Implementation Order
 
-```
+```text
 1. Gap #1  — Slack alert in attachEventListeners() (worker.ts)          ~1 hour
 2. Gap #2  — Agent-aware /health endpoint                                ~1 hour
 3. Gap #4  — Queue depth cron alert                                      ~30 min
