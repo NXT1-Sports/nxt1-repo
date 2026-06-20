@@ -4494,14 +4494,34 @@ export abstract class BaseAgent {
           : null;
 
       const isLikelyUrl = (value: string): boolean => /^https?:\/\//i.test(value);
+      const sanitizeArtifactUrl = (value: string): string => {
+        let candidate = value
+          .trim()
+          .replace(/^[<"'`]+/, '')
+          .replace(/[>"'`]+$/, '');
+        while (candidate.length > 0) {
+          const lastChar = candidate.at(-1);
+          if (!lastChar || !/[.,;:!?)}\]\\"'`]/.test(lastChar)) break;
+          const shortened = candidate.slice(0, -1);
+          try {
+            new URL(shortened);
+            candidate = shortened;
+            continue;
+          } catch {
+            break;
+          }
+        }
+        return candidate;
+      };
       const dedupeUrls = (urls: readonly string[]): string[] => {
         const seen = new Set<string>();
         const out: string[] = [];
         for (const url of urls) {
-          if (!isLikelyUrl(url)) continue;
-          if (seen.has(url)) continue;
-          seen.add(url);
-          out.push(url);
+          const sanitized = sanitizeArtifactUrl(url);
+          if (!isLikelyUrl(sanitized)) continue;
+          if (seen.has(sanitized)) continue;
+          seen.add(sanitized);
+          out.push(sanitized);
         }
         return out;
       };

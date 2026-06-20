@@ -24,6 +24,7 @@ import { getFirestore, type Firestore } from 'firebase-admin/firestore';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import type { OpenRouterService } from '../../llm/openrouter.service.js';
 import { MediaTransportResolverService } from './media-transport-resolver.service.js';
+import { AgentMediaLifecycleService } from './agent-media-lifecycle.service.js';
 import { storage as defaultStorage } from '../../../../utils/firebase.js';
 import { stagingStorage } from '../../../../utils/firebase-staging.js';
 import sharp from 'sharp';
@@ -49,6 +50,8 @@ const LOGO_WIDTH_RATIO = 0.05;
 const LOGO_MARGIN_RATIO = 0.015;
 const MAX_SUBJECT_PHOTOS = 5;
 const MAX_LOGOS = 3;
+const IMAGE_FETCH_TIMEOUT_MS = 20_000;
+const MAX_REFERENCE_IMAGE_BYTES = 8 * 1024 * 1024;
 
 const RequiredAssetsSchema = z
   .object({
@@ -170,11 +173,45 @@ export class GenerateGraphicTool extends BaseTool {
           stageMediaKind: 'image',
           executionContext: context,
         });
-        return result.url.trim() || url;
+
+        const normalizedUrl = result.url.trim() || url;
+        const inlineDataUrl = await this.toProviderImageDataUrl(normalizedUrl);
+        return inlineDataUrl ?? normalizedUrl;
       })
     );
 
     return resolved;
+  }
+
+  private async toProviderImageDataUrl(url: string): Promise<string | null> {
+    try {
+      const response = await fetch(url, {
+        headers: {
+          Accept: 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+          'User-Agent': 'NXT1-AgentX/2026.1',
+        },
+        redirect: 'follow',
+        signal: AbortSignal.timeout(IMAGE_FETCH_TIMEOUT_MS),
+      });
+      if (!response.ok) return null;
+
+      const contentType = response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase();
+      if (!contentType?.startsWith('image/')) return null;
+
+      const contentLength = Number.parseInt(response.headers.get('content-length') ?? '0', 10);
+      if (Number.isFinite(contentLength) && contentLength > MAX_REFERENCE_IMAGE_BYTES) {
+        return null;
+      }
+
+      const bytes = Buffer.from(await response.arrayBuffer());
+      if (bytes.byteLength <= 0 || bytes.byteLength > MAX_REFERENCE_IMAGE_BYTES) {
+        return null;
+      }
+
+      return `data:${contentType};base64,${bytes.toString('base64')}`;
+    } catch {
+      return null;
+    }
   }
 
   /** Fetches the NXT1 logo buffer from local disk or Firebase Storage. */
@@ -286,13 +323,40 @@ export class GenerateGraphicTool extends BaseTool {
     const seen = new Set<string>();
     const normalized: string[] = [];
     for (const url of urls) {
-      const trimmed = url.trim();
+      const trimmed = this.sanitizeInputUrl(url);
       if (!trimmed || seen.has(trimmed)) continue;
       seen.add(trimmed);
       normalized.push(trimmed);
       if (normalized.length >= max) break;
     }
     return normalized;
+  }
+
+  private sanitizeInputUrl(url: string): string {
+    let candidate = url
+      .trim()
+      .replace(/^[<"'`]+/, '')
+      .replace(/[>"'`]+$/, '');
+
+    while (candidate.length > 0) {
+      const lastChar = candidate.at(-1);
+      if (!lastChar || !/[.,;:!?)}\]\\"'`]/.test(lastChar)) {
+        break;
+      }
+
+      const shortened = candidate.slice(0, -1);
+      if (!shortened) break;
+
+      try {
+        new URL(shortened);
+        candidate = shortened;
+        continue;
+      } catch {
+        break;
+      }
+    }
+
+    return candidate;
   }
 
   private isDisallowedSocialRedirect(url: string): boolean {
@@ -795,7 +859,6 @@ Return JSON only. No explanation outside the JSON.`;
           : `agent-graphics/${userId}/${timestamp}-graphic.${extension}`;
 
       const bucket = this.resolveStorage(context).bucket();
-      const file = bucket.file(filePath);
       const imageBuffer = Buffer.from(result.imageBase64, 'base64');
 
       const userLogoBuffers = await Promise.all(
@@ -818,13 +881,13 @@ Return JSON only. No explanation outside the JSON.`;
         ? await this.stampLogoBottomRight(withUserLogos, logoBuffer)
         : withUserLogos;
 
-      await file.save(finalBuffer, {
-        contentType: result.mimeType,
-        metadata: { cacheControl: 'public, max-age=31536000, immutable' },
+      const publicUrl = await AgentMediaLifecycleService.saveBufferAndMakePublic({
+        bucket,
+        storagePath: filePath,
+        buffer: finalBuffer,
+        mimeType: result.mimeType,
+        cacheControl: 'public, max-age=31536000, immutable',
       });
-
-      await file.makePublic();
-      const publicUrl = `https://storage.googleapis.com/${bucket.name}/${filePath}`;
 
       return {
         success: true,

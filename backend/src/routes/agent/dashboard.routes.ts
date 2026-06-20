@@ -24,6 +24,7 @@ import type {
   ShellWeeklyPlaybookItem,
   ShellBriefingInsight,
   OperationLogEntry,
+  OperationsLogCursor,
   CompletedGoalRecord,
   TeamGamePlanDoc,
   TeamGamePlanEvidenceType,
@@ -77,6 +78,7 @@ import {
   isLegacyFallbackPlaybook,
   contextBuilder,
 } from './shared.js';
+import type { AgentJobDocument } from '../../modules/agent/queue/job.repository.js';
 import { AgentMediaLifecycleService } from '../../modules/agent/tools/media/agent-media-lifecycle.service.js';
 import {
   GeminiFilesService,
@@ -114,6 +116,13 @@ type TimestampLike = {
   toMillis(): number;
 };
 
+type NormalizedAgentUpload = {
+  readonly buffer: Buffer;
+  readonly mimeType: string;
+  readonly originalName: string;
+  readonly sizeBytes: number;
+};
+
 type RepeatableJobDescriptor = {
   key: string;
   next?: number | null;
@@ -139,6 +148,77 @@ type FilmReviewTimelineProgressUpdate = {
   readonly playCount: number;
   readonly timeline: readonly TeamFilmReviewPlaySegment[];
 };
+
+function detectAgentUploadMultipartBoundary(buffer: Buffer): string | null {
+  const newlineIndex = buffer.indexOf('\n');
+  if (newlineIndex <= 2) return null;
+
+  const firstLine = buffer.subarray(0, newlineIndex).toString('utf8').replace(/\r$/, '').trim();
+
+  return firstLine.startsWith('--') ? firstLine : null;
+}
+
+function tryExtractNestedMultipartUpload(params: {
+  readonly buffer: Buffer;
+  readonly fallbackMimeType: string;
+  readonly fallbackOriginalName: string;
+}): NormalizedAgentUpload | null {
+  const boundaryLine = detectAgentUploadMultipartBoundary(params.buffer);
+  if (!boundaryLine) return null;
+
+  const text = params.buffer.toString('latin1');
+  const boundaryToken = boundaryLine.replace(/^--/, '');
+  const parts = text.split(`--${boundaryToken}`);
+  if (parts.length < 3) return null;
+
+  for (const rawPart of parts) {
+    const part = rawPart.replace(/^\r?\n/, '');
+    if (!part || part === '--' || /^--\r?\n?$/.test(part)) continue;
+
+    const separator = part.indexOf('\r\n\r\n');
+    const separatorLength = separator >= 0 ? 4 : 0;
+    const fallbackSeparator = separator >= 0 ? separator : part.indexOf('\n\n');
+    if (fallbackSeparator < 0) continue;
+
+    const headerBlock = part.slice(0, fallbackSeparator);
+    if (!/content-type:\s*image\//i.test(headerBlock)) continue;
+
+    const contentStart = fallbackSeparator + (separator >= 0 ? separatorLength : 2);
+    let content = part.slice(contentStart);
+    content = content.replace(/\r?\n--$/, '');
+    content = content.replace(/\r?\n$/, '');
+
+    const buffer = Buffer.from(content, 'latin1');
+    const mimeTypeMatch = headerBlock.match(/content-type:\s*([^\r\n;]+)/i);
+    const nameMatch = headerBlock.match(/filename="([^"]+)"/i);
+
+    return {
+      buffer,
+      mimeType: mimeTypeMatch?.[1]?.trim().toLowerCase() || params.fallbackMimeType,
+      originalName: nameMatch?.[1]?.trim() || params.fallbackOriginalName,
+      sizeBytes: buffer.byteLength,
+    };
+  }
+
+  return null;
+}
+
+function normalizeAgentUploadFile(file: Express.Multer.File): NormalizedAgentUpload {
+  const extracted = tryExtractNestedMultipartUpload({
+    buffer: file.buffer,
+    fallbackMimeType: file.mimetype,
+    fallbackOriginalName: file.originalname,
+  });
+
+  return (
+    extracted ?? {
+      buffer: file.buffer,
+      mimeType: file.mimetype,
+      originalName: file.originalname,
+      sizeBytes: file.size,
+    }
+  );
+}
 
 type FilmReviewTimelineGenerationOptions = {
   readonly operationId: string;
@@ -1630,6 +1710,206 @@ function readRecurringTaskInitialJobId(data: Record<string, unknown>): string | 
   return readRecurringTaskString(data, 'initialRunJobId');
 }
 
+function buildOperationsLogStableKey(
+  entry: Pick<OperationLogEntry, 'threadId' | 'operationId' | 'id'>
+): string {
+  const threadId = entry.threadId?.trim();
+  if (threadId) {
+    return `thread:${threadId}`;
+  }
+
+  const operationId = entry.operationId?.trim();
+  if (operationId) {
+    return `operation:${operationId}`;
+  }
+
+  return `entry:${entry.id}`;
+}
+
+function compareOperationsLogEntries(
+  a: Pick<OperationLogEntry, 'timestamp' | 'threadId' | 'operationId' | 'id'>,
+  b: Pick<OperationLogEntry, 'timestamp' | 'threadId' | 'operationId' | 'id'>
+): number {
+  const timeA = Date.parse(a.timestamp);
+  const timeB = Date.parse(b.timestamp);
+  const normalizedTimeA = Number.isFinite(timeA) ? timeA : 0;
+  const normalizedTimeB = Number.isFinite(timeB) ? timeB : 0;
+
+  if (normalizedTimeA !== normalizedTimeB) {
+    return normalizedTimeB - normalizedTimeA;
+  }
+
+  return buildOperationsLogStableKey(b).localeCompare(buildOperationsLogStableKey(a));
+}
+
+function encodeOperationsLogCursor(
+  entry: Pick<OperationLogEntry, 'timestamp' | 'threadId' | 'operationId' | 'id'>
+): string {
+  const payload: OperationsLogCursor = {
+    v: 1,
+    timestamp: entry.timestamp,
+    stableKey: buildOperationsLogStableKey(entry),
+  };
+
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+}
+
+function decodeOperationsLogCursor(cursor: unknown): OperationsLogCursor | null {
+  if (typeof cursor !== 'string' || cursor.trim().length === 0) {
+    return null;
+  }
+
+  try {
+    const decoded = JSON.parse(
+      Buffer.from(cursor, 'base64url').toString('utf8')
+    ) as Partial<OperationsLogCursor>;
+    if (decoded.v !== 1) return null;
+    if (typeof decoded.timestamp !== 'string' || decoded.timestamp.trim().length === 0) {
+      return null;
+    }
+    if (typeof decoded.stableKey !== 'string' || decoded.stableKey.trim().length === 0) {
+      return null;
+    }
+
+    return {
+      v: 1,
+      timestamp: decoded.timestamp,
+      stableKey: decoded.stableKey,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function filterOperationsAfterCursor(
+  entries: readonly OperationLogEntry[],
+  cursor: OperationsLogCursor | null
+): readonly OperationLogEntry[] {
+  if (!cursor) {
+    return entries;
+  }
+
+  const cursorTime = Date.parse(cursor.timestamp);
+  const normalizedCursorTime = Number.isFinite(cursorTime) ? cursorTime : 0;
+
+  return entries.filter((entry) => {
+    const entryTime = Date.parse(entry.timestamp);
+    const normalizedEntryTime = Number.isFinite(entryTime) ? entryTime : 0;
+    if (normalizedEntryTime < normalizedCursorTime) {
+      return true;
+    }
+    if (normalizedEntryTime > normalizedCursorTime) {
+      return false;
+    }
+
+    return buildOperationsLogStableKey(entry).localeCompare(cursor.stableKey) < 0;
+  });
+}
+
+function splitOperationsLogEntries(entries: readonly OperationLogEntry[]): {
+  readonly scheduled: readonly OperationLogEntry[];
+  readonly history: readonly OperationLogEntry[];
+} {
+  const scheduled: OperationLogEntry[] = [];
+  const history: OperationLogEntry[] = [];
+
+  for (const entry of entries) {
+    if (entry.isScheduled === true) {
+      scheduled.push(entry);
+    } else {
+      history.push(entry);
+    }
+  }
+
+  scheduled.sort(compareOperationsLogEntries);
+  history.sort(compareOperationsLogEntries);
+
+  return { scheduled, history };
+}
+
+function countOperationsLogJobHistoryCandidates(
+  jobs: readonly AgentJobDocument[],
+  options: {
+    readonly activeThreadIds: ReadonlySet<string>;
+    readonly threadFilterIsAuthoritative: boolean;
+    readonly activeRecurringTaskKeys: ReadonlySet<string>;
+    readonly activeRecurringSourceIds: ReadonlySet<string>;
+  }
+): number {
+  const seenThreadIds = new Set<string>();
+  let count = 0;
+
+  for (const job of jobs) {
+    const operationId = (job['operationId'] as string) ?? '';
+    const replayContext = job.replayPayload?.context;
+    const jobContext =
+      replayContext && typeof replayContext === 'object'
+        ? replayContext
+        : (job as typeof job & { context?: unknown }).context;
+    const jobMode =
+      jobContext && typeof jobContext === 'object' && 'mode' in jobContext
+        ? typeof (jobContext as { mode?: unknown }).mode === 'string'
+          ? (jobContext as { mode: string }).mode
+          : undefined
+        : undefined;
+    const parentOperationId =
+      jobContext && typeof jobContext === 'object' && 'parentOperationId' in jobContext
+        ? typeof (jobContext as { parentOperationId?: unknown }).parentOperationId === 'string'
+          ? (jobContext as { parentOperationId: string }).parentOperationId
+          : undefined
+        : undefined;
+
+    if (operationId.startsWith('playbook-') || jobMode === 'playbook') {
+      continue;
+    }
+
+    if (parentOperationId) {
+      continue;
+    }
+
+    const intent = (job['intent'] as string) ?? '';
+    if (!intent) {
+      continue;
+    }
+
+    const threadId = (job['threadId'] as string) ?? undefined;
+    if (threadId) {
+      if (options.threadFilterIsAuthoritative && !options.activeThreadIds.has(threadId)) {
+        continue;
+      }
+
+      if (seenThreadIds.has(threadId)) {
+        continue;
+      }
+
+      seenThreadIds.add(threadId);
+    }
+
+    const jobOrigin = validateJobOrigin(job['origin']);
+    if (
+      shouldHideRecurringExecutionJob({
+        origin: jobOrigin,
+        recurringTaskKey:
+          typeof job['recurringTaskKey'] === 'string' ? (job['recurringTaskKey'] as string) : null,
+        threadId,
+        context: jobContext,
+        activeRecurringTaskKeys: options.activeRecurringTaskKeys,
+        activeRecurringSourceIds: options.activeRecurringSourceIds,
+      })
+    ) {
+      continue;
+    }
+
+    if (isScheduledOrigin(jobOrigin)) {
+      continue;
+    }
+
+    count += 1;
+  }
+
+  return count;
+}
+
 // ─── GET /jobs/:operationId ─────────────────────────────────────────────────
 
 router.get('/jobs/:operationId', appGuard, async (req: Request, res: Response) => {
@@ -1728,20 +2008,122 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     const limitParam = req.query['limit'];
     const rawLimit = typeof limitParam === 'string' ? Number(limitParam) : NaN;
     const limit =
-      Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 150) : 150;
+      Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 100) : 50;
+    const cursor = decodeOperationsLogCursor(req.query['cursor']);
 
     const { db } = req.firebase!;
 
-    let jobs: import('../../modules/agent/queue/job.repository.js').AgentJobDocument[];
-    try {
-      jobs = await jobRepository.withDb(db).getByUser(user.uid, limit);
-    } catch (queryErr) {
-      const msg = queryErr instanceof Error ? queryErr.message : String(queryErr);
-      logger.warn('agentJobs query failed — composite index may not be deployed', {
-        userId: user.uid,
-        error: msg,
-      });
-      jobs = [];
+    const scanPageSize = Math.max(limit * 3, 60);
+    const maxScanPages = 6;
+    const jobs: AgentJobDocument[] = [];
+    let sourceHasMore = true;
+    let jobScanCursor: string | undefined;
+
+    const activeThreadsPromise = chatService
+      ? chatService.getUserThreads({
+          userId: user.uid,
+          archived: false,
+          limit: Math.min(scanPageSize, 100),
+        })
+      : null;
+
+    const recurringTasksPromise = db
+      .collection(RECURRING_TASKS_COLLECTION)
+      .where('userId', '==', user.uid)
+      .orderBy('createdAt', 'desc')
+      .limit(limit)
+      .get();
+
+    let prefetchedThreadResult: Awaited<
+      ReturnType<NonNullable<typeof chatService>['getUserThreads']>
+    > | null = null;
+    let threadPrefetchFailed = false;
+    let prefetchedRecurringSnapshot: {
+      empty: boolean;
+      docs: FirestoreDocLike[];
+    } | null = null;
+    let recurringPrefetchFailed = false;
+
+    for (let pageIndex = 0; pageIndex < maxScanPages && sourceHasMore; pageIndex += 1) {
+      try {
+        const page = await jobRepository
+          .withDb(db)
+          .getByUserPage(user.uid, scanPageSize, jobScanCursor);
+        jobs.push(...page.jobs);
+        sourceHasMore = page.hasMore;
+        jobScanCursor = page.nextCreatedAt;
+      } catch (queryErr) {
+        const msg = queryErr instanceof Error ? queryErr.message : String(queryErr);
+        logger.warn('agentJobs paged query failed — composite index may not be deployed', {
+          userId: user.uid,
+          error: msg,
+        });
+        sourceHasMore = false;
+      }
+
+      if (!cursor) {
+        if (activeThreadsPromise && !prefetchedThreadResult && !threadPrefetchFailed) {
+          try {
+            prefetchedThreadResult = await activeThreadsPromise;
+          } catch (threadErr) {
+            threadPrefetchFailed = true;
+            logger.warn('Failed to fetch active threads for operations log filtering', {
+              userId: user.uid,
+              error: threadErr instanceof Error ? threadErr.message : String(threadErr),
+            });
+          }
+        }
+
+        if (!prefetchedRecurringSnapshot && !recurringPrefetchFailed) {
+          try {
+            const snapshot = await recurringTasksPromise;
+            prefetchedRecurringSnapshot = {
+              empty: snapshot.empty,
+              docs: snapshot.docs as FirestoreDocLike[],
+            };
+          } catch (recurringErr) {
+            recurringPrefetchFailed = true;
+            logger.warn('Failed to prefetch recurring tasks for operations log filtering', {
+              userId: user.uid,
+              error: recurringErr instanceof Error ? recurringErr.message : String(recurringErr),
+            });
+          }
+        }
+
+        if (!threadPrefetchFailed && !recurringPrefetchFailed) {
+          const earlyActiveThreadIds = new Set<string>();
+          const earlyThreadTitleById = new Map<string, string>();
+          const earlyThreadFilterIsAuthoritative = !(prefetchedThreadResult?.hasMore ?? false);
+
+          for (const thread of prefetchedThreadResult?.items ?? []) {
+            if (!thread.id) continue;
+            earlyActiveThreadIds.add(thread.id);
+            earlyThreadTitleById.set(thread.id, thread.title);
+          }
+
+          const earlyActiveRecurringTaskKeys = new Set<string>();
+          const earlyActiveRecurringSourceIds = new Set<string>();
+          for (const doc of prefetchedRecurringSnapshot?.docs ?? []) {
+            earlyActiveRecurringTaskKeys.add(doc.id);
+            const data = doc.data();
+            const sourceId = resolveRecurringTaskSourceId(data);
+            if (sourceId) {
+              earlyActiveRecurringSourceIds.add(sourceId);
+            }
+          }
+
+          const candidateCount = countOperationsLogJobHistoryCandidates(jobs, {
+            activeThreadIds: earlyActiveThreadIds,
+            threadFilterIsAuthoritative: earlyThreadFilterIsAuthoritative,
+            activeRecurringTaskKeys: earlyActiveRecurringTaskKeys,
+            activeRecurringSourceIds: earlyActiveRecurringSourceIds,
+          });
+
+          if (candidateCount >= limit + 1) {
+            break;
+          }
+        }
+      }
     }
 
     let activeThreads: Awaited<
@@ -1749,20 +2131,33 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     >['items'] = [];
     const activeThreadIds = new Set<string>();
     const threadTitleById = new Map<string, string>();
-    // Track whether the thread query ran successfully. When true, activeThreadIds
-    // is authoritative — even if empty (user archived everything). When false
-    // (query threw), we fall back to lenient filtering to avoid hiding valid jobs.
-    let threadQuerySucceeded = false;
+    // Track whether the thread query fully covered the active thread set. When
+    // false (query failed or truncated), fall back to lenient filtering so
+    // older valid sessions are not hidden from pagination.
+    let threadFilterIsAuthoritative = false;
 
-    if (chatService) {
-      try {
-        const threadResult = await chatService.getUserThreads({
+    if (prefetchedThreadResult) {
+      activeThreads = prefetchedThreadResult.items ?? [];
+      threadFilterIsAuthoritative = !prefetchedThreadResult.hasMore;
+
+      for (const thread of activeThreads) {
+        if (!thread.id) continue;
+        activeThreadIds.add(thread.id);
+        threadTitleById.set(thread.id, thread.title);
+      }
+
+      if (prefetchedThreadResult.hasMore) {
+        logger.info('Operations log thread augmentation truncated — consider increasing limit', {
           userId: user.uid,
-          archived: false,
+          displayedCount: activeThreads.length,
           limit,
         });
+      }
+    } else if (activeThreadsPromise && !threadPrefetchFailed) {
+      try {
+        const threadResult = await activeThreadsPromise;
         activeThreads = threadResult.items ?? [];
-        threadQuerySucceeded = true;
+        threadFilterIsAuthoritative = !threadResult.hasMore;
 
         for (const thread of activeThreads) {
           if (!thread.id) continue;
@@ -1792,30 +2187,35 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
     const activeRecurringTaskKeys = new Set<string>();
     const activeRecurringSourceIds = new Set<string>();
 
-    try {
-      const snapshot = await db
-        .collection(RECURRING_TASKS_COLLECTION)
-        .where('userId', '==', user.uid)
-        .orderBy('createdAt', 'desc')
-        .limit(limit)
-        .get();
-
-      recurringTasksSnapshot = {
-        empty: snapshot.empty,
-        docs: snapshot.docs as FirestoreDocLike[],
-      };
-
+    if (prefetchedRecurringSnapshot) {
+      recurringTasksSnapshot = prefetchedRecurringSnapshot;
       for (const doc of recurringTasksSnapshot.docs) {
         activeRecurringTaskKeys.add(doc.id);
         const data = doc.data();
         const sourceId = resolveRecurringTaskSourceId(data);
         if (sourceId) activeRecurringSourceIds.add(sourceId);
       }
-    } catch (recurringErr) {
-      logger.warn('Failed to prefetch recurring tasks for operations log filtering', {
-        userId: user.uid,
-        error: recurringErr instanceof Error ? recurringErr.message : String(recurringErr),
-      });
+    } else if (!recurringPrefetchFailed) {
+      try {
+        const snapshot = await recurringTasksPromise;
+
+        recurringTasksSnapshot = {
+          empty: snapshot.empty,
+          docs: snapshot.docs as FirestoreDocLike[],
+        };
+
+        for (const doc of recurringTasksSnapshot.docs) {
+          activeRecurringTaskKeys.add(doc.id);
+          const data = doc.data();
+          const sourceId = resolveRecurringTaskSourceId(data);
+          if (sourceId) activeRecurringSourceIds.add(sourceId);
+        }
+      } catch (recurringErr) {
+        logger.warn('Failed to prefetch recurring tasks for operations log filtering', {
+          userId: user.uid,
+          error: recurringErr instanceof Error ? recurringErr.message : String(recurringErr),
+        });
+      }
     }
 
     // ── Deduplicate by threadId (professional-app pattern) ────────────────
@@ -1885,9 +2285,9 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       // status drives the row's "Processing…", "Awaiting input", etc. badge.
       if (threadId) {
         // Guardrail: ignore stale jobs referencing deleted/archived threads.
-        // Only apply when threadQuerySucceeded — distinguishes "query returned 0
-        // active threads" (user archived everything) from "query failed" (be lenient).
-        if (threadQuerySucceeded && !activeThreadIds.has(threadId)) continue;
+        // Only apply when the active-thread query was exhaustive; truncated
+        // thread pages cannot safely be treated as the full active set.
+        if (threadFilterIsAuthoritative && !activeThreadIds.has(threadId)) continue;
 
         if (seenThreadIds.has(threadId)) continue;
         seenThreadIds.add(threadId);
@@ -2086,10 +2486,28 @@ router.get('/operations-log', appGuard, async (req: Request, res: Response) => {
       }
     }
 
-    entries.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    const { scheduled, history } = splitOperationsLogEntries(entries);
+    const cursorFilteredHistory = filterOperationsAfterCursor(history, cursor);
+    const pagedHistory = cursorFilteredHistory.slice(0, limit + 1);
+    const hasMore = pagedHistory.length > limit;
+    const data = hasMore ? pagedHistory.slice(0, limit) : pagedHistory;
+    const nextCursor = hasMore ? encodeOperationsLogCursor(data[data.length - 1]!) : undefined;
 
-    logger.info('Operations log fetched', { userId: user.uid, count: entries.length });
-    res.json({ success: true, data: entries });
+    logger.info('Operations log fetched', {
+      userId: user.uid,
+      historyCount: data.length,
+      scheduledCount: scheduled.length,
+      hasMore,
+    });
+    res.json({
+      success: true,
+      data,
+      scheduled,
+      pageInfo: {
+        hasMore,
+        ...(nextCursor ? { nextCursor } : {}),
+      },
+    });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
     logger.error('Failed to get operations log', { error: error.message, stack: error.stack });
@@ -4533,28 +4951,29 @@ router.post(
         return;
       }
 
+      const normalizedFile = normalizeAgentUploadFile(file);
       const threadId = (req.body?.threadId as string | undefined) ?? null;
       const bucket = req.firebase.storage.bucket();
       const storagePath = AgentMediaLifecycleService.buildStoragePath({
         userId: user.uid,
         threadId,
-        mimeType: file.mimetype,
-        fileName: file.originalname,
+        mimeType: normalizedFile.mimeType,
+        fileName: normalizedFile.originalName,
         zone: 'media',
       });
 
       const { url: signedUrl, expiresAt } = await AgentMediaLifecycleService.saveBufferAndSignRead({
         bucket,
         storagePath,
-        buffer: file.buffer,
-        mimeType: file.mimetype,
+        buffer: normalizedFile.buffer,
+        mimeType: normalizedFile.mimeType,
       });
 
       logger.info('Agent X file uploaded', {
         userId: user.uid,
         threadId: threadId || 'unbound',
-        mimeType: file.mimetype,
-        sizeBytes: file.size,
+        mimeType: normalizedFile.mimeType,
+        sizeBytes: normalizedFile.sizeBytes,
         storagePath,
         signedUrlExpires: new Date(expiresAt).toISOString(),
       });
@@ -4564,9 +4983,9 @@ router.post(
         data: {
           url: signedUrl,
           storagePath,
-          name: file.originalname,
-          mimeType: file.mimetype,
-          sizeBytes: file.size,
+          name: normalizedFile.originalName,
+          mimeType: normalizedFile.mimeType,
+          sizeBytes: normalizedFile.sizeBytes,
         },
       });
     } catch (err) {
@@ -4632,28 +5051,29 @@ router.post(
         return;
       }
 
+      const normalizedFile = normalizeAgentUploadFile(file);
       const threadId = (req.body?.threadId as string | undefined) ?? null;
       const bucket = req.firebase.storage.bucket();
       const storagePath = AgentMediaLifecycleService.buildStoragePath({
         userId: user.uid,
         threadId,
-        mimeType: file.mimetype,
-        fileName: file.originalname,
+        mimeType: normalizedFile.mimeType,
+        fileName: normalizedFile.originalName,
         zone: 'tmp',
       });
 
       const { url: signedUrl } = await AgentMediaLifecycleService.saveBufferAndSignRead({
         bucket,
         storagePath,
-        buffer: file.buffer,
-        mimeType: file.mimetype,
+        buffer: normalizedFile.buffer,
+        mimeType: normalizedFile.mimeType,
       });
 
       logger.info('Agent X tmp file uploaded', {
         userId: user.uid,
         threadId: threadId || 'unbound',
-        mimeType: file.mimetype,
-        sizeBytes: file.size,
+        mimeType: normalizedFile.mimeType,
+        sizeBytes: normalizedFile.sizeBytes,
         storagePath,
       });
 
@@ -4662,9 +5082,9 @@ router.post(
         data: {
           url: signedUrl,
           storagePath,
-          name: file.originalname,
-          mimeType: file.mimetype,
-          sizeBytes: file.size,
+          name: normalizedFile.originalName,
+          mimeType: normalizedFile.mimeType,
+          sizeBytes: normalizedFile.sizeBytes,
         },
       });
     } catch (err) {
@@ -8360,6 +8780,7 @@ export const __dashboardFilmReviewTimelineTestUtils = {
   parseAiTimelineResponse,
   buildFallbackTimelineSegments,
   buildFilmReviewTimelineCacheOptions,
+  normalizeAgentUploadFile,
 } as const;
 
 export default router;

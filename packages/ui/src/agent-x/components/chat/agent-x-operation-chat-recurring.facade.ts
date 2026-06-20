@@ -313,11 +313,11 @@ export class AgentXOperationChatRecurringFacade {
     const url = `${this.baseUrl}/agent-x/operations-log?limit=100`;
     const response = await firstValueFrom(this.http.get<OperationsLogResponse>(url));
 
-    if (!response.success || !response.data) {
+    if (!response.success) {
       throw new Error(response.error ?? 'Failed to load recurring tasks');
     }
 
-    const entries = response.data.filter((entry) => entry.isScheduled === true);
+    const entries = response.scheduled ?? [];
     sharedOperationsCache = {
       entries,
       expiresAt: Date.now() + RECURRING_TASK_CACHE_TTL_MS,

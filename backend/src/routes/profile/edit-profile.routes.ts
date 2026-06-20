@@ -284,6 +284,8 @@ async function uploadToStorage(
   const file = bucket.file(storagePath);
 
   await file.save(buffer, {
+    resumable: false,
+    validation: false,
     metadata: {
       contentType,
       cacheControl: 'public, max-age=31536000', // 1 year cache

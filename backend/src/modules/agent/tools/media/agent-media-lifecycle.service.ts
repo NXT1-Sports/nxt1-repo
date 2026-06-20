@@ -21,6 +21,46 @@ export class AgentMediaLifecycleService {
   static readonly DEFAULT_SIGNED_URL_TTL_MS = 24 * 60 * 60 * 1000;
   static readonly POST_MEDIA_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
+  private static async uploadBufferViaSignedPut(params: {
+    readonly bucket: StorageBucketRef;
+    readonly storagePath: string;
+    readonly buffer: Buffer;
+    readonly mimeType: string;
+    readonly cacheControl: string;
+  }): Promise<void> {
+    const file = params.bucket.file(params.storagePath) as {
+      getSignedUrl: (options: {
+        version: 'v4';
+        action: 'write';
+        expires: number;
+        contentType: string;
+      }) => Promise<[string]>;
+    };
+
+    const expiresAt = Date.now() + 5 * 60 * 1000;
+    const [writeUrl] = await getSignedUrlWithTimeout(() =>
+      file.getSignedUrl({
+        version: 'v4',
+        action: 'write',
+        expires: expiresAt,
+        contentType: params.mimeType,
+      })
+    );
+
+    const response = await fetch(writeUrl, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': params.mimeType,
+        'Cache-Control': params.cacheControl,
+      },
+      body: new Uint8Array(params.buffer),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to upload media buffer: signed PUT returned ${response.status}`);
+    }
+  }
+
   private static extractStoragePathFromFirebaseObjectPath(pathname: string): string | null {
     const objectIndex = pathname.indexOf('/o/');
     if (objectIndex === -1) return null;
@@ -73,21 +113,20 @@ export class AgentMediaLifecycleService {
     readonly signedUrlTtlMs?: number;
   }): Promise<{ url: string; expiresAt: number }> {
     const file = params.bucket.file(params.storagePath) as {
-      save: (
-        buffer: Buffer,
-        options: { metadata: { contentType: string; cacheControl: string } }
-      ) => Promise<unknown>;
       getSignedUrl: (options: {
         version: 'v4';
         action: 'read';
         expires: number;
       }) => Promise<[string]>;
     };
-    await file.save(params.buffer, {
-      metadata: {
-        contentType: params.mimeType,
-        cacheControl: params.cacheControl ?? 'private, max-age=0',
-      },
+    const cacheControl = params.cacheControl ?? 'private, max-age=0';
+
+    await this.uploadBufferViaSignedPut({
+      bucket: params.bucket,
+      storagePath: params.storagePath,
+      buffer: params.buffer,
+      mimeType: params.mimeType,
+      cacheControl,
     });
 
     const ttlMs = params.signedUrlTtlMs ?? this.DEFAULT_SIGNED_URL_TTL_MS;
@@ -98,6 +137,26 @@ export class AgentMediaLifecycleService {
     );
 
     return { url: signedUrl, expiresAt };
+  }
+
+  static async saveBufferAndMakePublic(params: {
+    readonly bucket: StorageBucketRef;
+    readonly storagePath: string;
+    readonly buffer: Buffer;
+    readonly mimeType: string;
+    readonly cacheControl?: string;
+    readonly signedUrlTtlMs?: number;
+  }): Promise<string> {
+    const signed = await this.saveBufferAndSignRead({
+      bucket: params.bucket,
+      storagePath: params.storagePath,
+      buffer: params.buffer,
+      mimeType: params.mimeType,
+      cacheControl: params.cacheControl ?? this.POST_MEDIA_CACHE_CONTROL,
+      signedUrlTtlMs: params.signedUrlTtlMs,
+    });
+
+    return signed.url;
   }
 
   static promoteTmpPathToMediaPath(storagePath: string, userId: string): string {

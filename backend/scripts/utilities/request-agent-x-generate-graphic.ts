@@ -62,15 +62,15 @@ function parseProjectConfig(filePath: string): FirebaseProjectConfig {
 }
 
 function loadFirebaseProjectConfig(): FirebaseProjectConfig {
+  const explicitEnvironment =
+    getArgValue('--environment') ?? process.env['LIVE_TEST_ENVIRONMENT'] ?? 'staging';
   const explicitProject =
-    getArgValue('--firebase-project') ??
-    process.env['LIVE_TEST_FIREBASE_PROJECT_ID'] ??
-    process.env['FIREBASE_PROJECT_ID'];
+    getArgValue('--firebase-project') ?? process.env['LIVE_TEST_FIREBASE_PROJECT_ID'];
 
   const projectConfigs = [
+    parseProjectConfig(path.join(repoRoot, 'apps/web/src/environments/environment.staging.ts')),
     parseProjectConfig(path.join(repoRoot, 'apps/web/src/environments/environment.prod.ts')),
     parseProjectConfig(path.join(repoRoot, 'apps/web/src/environments/environment.ts')),
-    parseProjectConfig(path.join(repoRoot, 'apps/web/src/environments/environment.staging.ts')),
   ];
 
   if (explicitProject) {
@@ -78,6 +78,16 @@ function loadFirebaseProjectConfig(): FirebaseProjectConfig {
     if (matched) {
       return matched;
     }
+  }
+
+  if (explicitEnvironment === 'production') {
+    return projectConfigs.find((config) => config.projectId === 'nxt-1-v2') ?? projectConfigs[0];
+  }
+
+  if (explicitEnvironment === 'staging') {
+    return (
+      projectConfigs.find((config) => config.projectId === 'nxt-1-staging-v2') ?? projectConfigs[0]
+    );
   }
 
   return projectConfigs[0];
@@ -140,11 +150,16 @@ async function signInWithCustomToken(
   email: string
 ): Promise<AuthSession> {
   console.error(`[agent-x-generate-graphic] Loading Firebase Admin user for ${email}`);
-  const firebaseModule = await import('../../src/utils/firebase.js');
+  const firebaseModule =
+    projectConfig.projectId === 'nxt-1-staging-v2'
+      ? await import('../../src/utils/firebase-staging.js')
+      : await import('../../src/utils/firebase.js');
   const adminAuth =
     firebaseModule.default && typeof firebaseModule.default.auth === 'function'
       ? firebaseModule.default.auth()
-      : firebaseModule.auth;
+      : 'stagingAuth' in firebaseModule
+        ? firebaseModule.stagingAuth
+        : firebaseModule.auth;
 
   const userRecord = await adminAuth.getUserByEmail(email);
   console.error(`[agent-x-generate-graphic] Minting custom token for ${userRecord.uid}`);
