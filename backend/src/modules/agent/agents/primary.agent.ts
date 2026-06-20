@@ -1076,8 +1076,10 @@ export class PrimaryAgent extends BaseAgent {
     // (e.g. extract_live_view_media result) so the coordinator receives them
     // in enrichedIntent and skips redundant re-extraction.
     let enrichedIntent = ctx.enrichedIntent;
+    let forwardedStructuredPayload = err.payload.structuredPayload;
     if (currentMessages?.length) {
       const priorArtifacts: Record<string, unknown> = {};
+      const resolvedBrandContext: Record<string, unknown> = {};
       for (const msg of currentMessages) {
         if (msg.role === 'tool' && typeof msg.content === 'string') {
           try {
@@ -1088,6 +1090,7 @@ export class PrimaryAgent extends BaseAgent {
               parsed['data'] !== null
             ) {
               const data = parsed['data'] as Record<string, unknown>;
+              const view = typeof data['view'] === 'string' ? data['view'].trim() : '';
               const keysToCapture = [
                 'imageUrl',
                 'storagePath',
@@ -1104,12 +1107,64 @@ export class PrimaryAgent extends BaseAgent {
               for (const key of keysToCapture) {
                 if (data[key] !== undefined) priorArtifacts[key] = data[key];
               }
+
+              if (view === 'organization_profile_snapshot' || view === 'team_profile_snapshot') {
+                const items = Array.isArray(data['items']) ? data['items'] : [];
+                const firstItem =
+                  items[0] && typeof items[0] === 'object' && !Array.isArray(items[0])
+                    ? (items[0] as Record<string, unknown>)
+                    : null;
+
+                const compactSnapshot = {
+                  found: items.length > 0,
+                  count: typeof data['count'] === 'number' ? data['count'] : items.length,
+                  ...(firstItem
+                    ? {
+                        item: {
+                          ...(typeof firstItem['name'] === 'string'
+                            ? { name: firstItem['name'] }
+                            : {}),
+                          ...(typeof firstItem['logoUrl'] === 'string'
+                            ? { logoUrl: firstItem['logoUrl'] }
+                            : {}),
+                          ...(typeof firstItem['primaryColor'] === 'string'
+                            ? { primaryColor: firstItem['primaryColor'] }
+                            : {}),
+                          ...(typeof firstItem['secondaryColor'] === 'string'
+                            ? { secondaryColor: firstItem['secondaryColor'] }
+                            : {}),
+                        },
+                      }
+                    : {}),
+                };
+
+                if (view === 'organization_profile_snapshot') {
+                  resolvedBrandContext['organizationProfileSnapshot'] = compactSnapshot;
+                }
+
+                if (view === 'team_profile_snapshot') {
+                  resolvedBrandContext['teamProfileSnapshot'] = compactSnapshot;
+                }
+              }
             }
           } catch {
             /* skip unparseable tool messages */
           }
         }
       }
+
+      if (Object.keys(resolvedBrandContext).length > 0) {
+        forwardedStructuredPayload = {
+          ...(forwardedStructuredPayload ?? {}),
+          resolvedBrandContext: {
+            ...((forwardedStructuredPayload?.['resolvedBrandContext'] as
+              | Record<string, unknown>
+              | undefined) ?? {}),
+            ...resolvedBrandContext,
+          },
+        };
+      }
+
       if (Object.keys(priorArtifacts).length > 0) {
         enrichedIntent +=
           '\n\n[Prior Tool Results from Primary — use these directly, do NOT re-extract or repeat the same work]:\n' +
@@ -1148,7 +1203,7 @@ export class PrimaryAgent extends BaseAgent {
       err.payload.coordinatorId,
       err.payload.goal,
       dispatchCtx,
-      err.payload.structuredPayload
+      forwardedStructuredPayload
     );
 
     // Record completion with artifacts produced

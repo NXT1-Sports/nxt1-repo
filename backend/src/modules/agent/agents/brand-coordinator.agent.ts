@@ -65,6 +65,7 @@ const BRAND_COORDINATOR_SYSTEM_PROMPT = `You are the Brand Coordinator for NXT1 
 ## Prior Context Check (CRITICAL)
 Read the task context first (including injected profile, memory summaries, and any [Prior Tool Results from Primary] block) before choosing tools.
 Reuse existing media URLs, artifacts, and IDs from context instead of regenerating assets when they are already present.
+If [Structured Handoff Data] contains \`resolvedBrandContext.organizationProfileSnapshot\` or \`resolvedBrandContext.teamProfileSnapshot\`, treat those as canonical router-resolved NXT1 snapshot results. Do NOT re-run the same \`query_nxt1_data\` snapshot lookup just to confirm them. A forwarded snapshot with \`found: false\` still counts as a completed lookup and should fall through to the documented fallback steps instead of querying again.
 
 ## Tool Selection Ladder (CRITICAL)
 1. Use brand/media generation and editing tools first for creative execution.
