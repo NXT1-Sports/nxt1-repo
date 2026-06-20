@@ -30,6 +30,7 @@ import {
   getDefaultCardPaymentMethodId,
   getStripeClient,
   createSetupIntent,
+  getBillingState,
   getBillingSummary,
   ensureUserBillingState,
   getOrganizationBudgetDocuments,
@@ -278,7 +279,7 @@ function isCurrentMonthTimeframe(timeframe: string): boolean {
 }
 
 function getAuthoritativeUsageTotalCents(
-  target: ResolvedBillingTarget,
+  billingState: { currentPeriodSpend?: number },
   timeframe: string,
   eventTotalCents: number
 ): number {
@@ -286,8 +287,10 @@ function getAuthoritativeUsageTotalCents(
     return eventTotalCents;
   }
 
-  const currentPeriodSpend = target.context.currentPeriodSpend;
-  return Number.isFinite(currentPeriodSpend) ? Math.max(0, currentPeriodSpend) : eventTotalCents;
+  const currentPeriodSpend = billingState.currentPeriodSpend;
+  return typeof currentPeriodSpend === 'number' && Number.isFinite(currentPeriodSpend)
+    ? Math.max(0, currentPeriodSpend)
+    : eventTotalCents;
 }
 
 function toDateOrNull(value: unknown): Date | null {
@@ -1516,7 +1519,11 @@ router.get('/dashboard', appGuard, async (req: Request, res: Response) => {
       dailyUsage.set(dateKey, (dailyUsage.get(dateKey) ?? 0) + cost);
     }
 
-    const totalUsageCents = getAuthoritativeUsageTotalCents(target, timeframe, eventUsageCents);
+    const totalUsageCents = getAuthoritativeUsageTotalCents(
+      target.context,
+      timeframe,
+      eventUsageCents
+    );
 
     const platformConfig = await getPlatformConfig(db);
 
@@ -1772,18 +1779,27 @@ router.get('/overview', appGuard, async (req: Request, res: Response) => {
     const start = new Date(now.getFullYear(), now.getMonth(), 1);
     const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
 
-    // Resolve billing target (director → org, otherwise individual)
-    const target = await resolveBillingTarget(db, userId);
-    const billingCtx = target.context;
+    let billingCtx = await getBillingState(db, userId);
+    let target: ResolvedBillingTarget | null = null;
+
+    if (!billingCtx) {
+      target = await resolveBillingTarget(db, userId);
+      billingCtx = target.context;
+    }
 
     const eventUsageCents = Number.isFinite(billingCtx.currentPeriodSpend)
       ? 0
-      : (await fetchUsageEvents(db, target, start, end, false)).reduce(
-          (sum, doc) => sum + getUsageEventCost(doc),
-          0
-        );
+      : (
+          await fetchUsageEvents(
+            db,
+            target ?? (await resolveBillingTarget(db, userId)),
+            start,
+            end,
+            false
+          )
+        ).reduce((sum, doc) => sum + getUsageEventCost(doc), 0);
     const totalUsageCents = getAuthoritativeUsageTotalCents(
-      target,
+      billingCtx,
       'current-month',
       eventUsageCents
     );
@@ -1874,7 +1890,7 @@ router.get('/chart', appGuard, async (req: Request, res: Response) => {
     }
 
     const authoritativeTotalCents = getAuthoritativeUsageTotalCents(
-      target,
+      target.context,
       timeframe,
       eventUsageCents
     );
@@ -1920,7 +1936,7 @@ router.get('/breakdown', appGuard, async (req: Request, res: Response) => {
 
     const eventUsageCents = usageDocs.reduce((sum, doc) => sum + getUsageEventCost(doc), 0);
     const authoritativeTotalCents = getAuthoritativeUsageTotalCents(
-      target,
+      target.context,
       timeframe,
       eventUsageCents
     );
