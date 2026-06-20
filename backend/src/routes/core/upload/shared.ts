@@ -4,6 +4,7 @@
  */
 
 import type { Request } from 'express';
+import { randomUUID } from 'node:crypto';
 import multer from 'multer';
 import sharp from 'sharp';
 import { getStorage } from 'firebase-admin/storage';
@@ -201,6 +202,7 @@ export async function uploadToStorage(
 ): Promise<string> {
   const storageBucket = bucket || getStorage().bucket();
   const file = storageBucket.file(storagePath);
+  const downloadToken = randomUUID();
 
   await file.save(buffer, {
     resumable: false,
@@ -208,12 +210,16 @@ export async function uploadToStorage(
     metadata: {
       contentType,
       cacheControl: 'public, max-age=31536000',
+      metadata: {
+        firebaseStorageDownloadTokens: downloadToken,
+      },
     },
   });
 
-  await file.makePublic();
-
-  return `https://storage.googleapis.com/${storageBucket.name}/${storagePath}`;
+  return (
+    `https://firebasestorage.googleapis.com/v0/b/${storageBucket.name}/o/` +
+    `${encodeURIComponent(storagePath)}?alt=media&token=${downloadToken}`
+  );
 }
 
 export function buildExtensionCompatiblePath(userId: string, category: FileCategory): string {

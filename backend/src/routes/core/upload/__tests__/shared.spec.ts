@@ -2,10 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const storageMocks = vi.hoisted(() => {
   const save = vi.fn().mockResolvedValue(undefined);
-  const makePublic = vi.fn().mockResolvedValue(undefined);
   const file = vi.fn(() => ({
     save,
-    makePublic,
   }));
   const bucket = vi.fn(() => ({
     name: 'test-bucket',
@@ -14,7 +12,6 @@ const storageMocks = vi.hoisted(() => {
 
   return {
     save,
-    makePublic,
     file,
     bucket,
   };
@@ -49,11 +46,15 @@ describe('uploadToStorage', () => {
         metadata: expect.objectContaining({
           contentType: 'image/jpeg',
           cacheControl: 'public, max-age=31536000',
+          metadata: expect.objectContaining({
+            firebaseStorageDownloadTokens: expect.any(String),
+          }),
         }),
       })
     );
-    expect(storageMocks.makePublic).toHaveBeenCalledTimes(1);
-    expect(url).toBe('https://storage.googleapis.com/test-bucket/Users/user-1/profile/avatar.jpg');
+    expect(url).toMatch(
+      /^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/test-bucket\/o\/Users%2Fuser-1%2Fprofile%2Favatar\.jpg\?alt=media&token=/
+    );
   });
 });
 import { describe, expect, it } from 'vitest';
