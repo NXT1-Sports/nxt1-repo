@@ -1735,14 +1735,6 @@ type YieldStateSource =
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
-  private static readonly STREAMING_DELIVERABLE_URL_PATTERN = /https?:\/\/[^\s)\]"'<>]+/gi;
-  private static readonly STREAMING_COMPLETE_MARKDOWN_LINK_PATTERN =
-    /!?\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/gim;
-  private static readonly STREAMING_INCOMPLETE_MARKDOWN_LINK_PATTERN =
-    /!?\[([^\]\n]+)\]\((https?:\/\/[^\s)]*)$/gim;
-  private static readonly STREAMING_LINK_PLACEHOLDER = 'Preparing link...';
-  private static readonly STREAMING_LINK_PENDING_SUFFIX = ' (preparing link...)';
-
   private readonly modalCtrl = inject(ModalController);
   private readonly platformId = inject(PLATFORM_ID);
   private readonly destroyRef = inject(DestroyRef);
@@ -3191,10 +3183,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * regardless of legacy data shape.
    */
   protected messageContentForBubble(msg: OperationMessage): string {
-    if (!this.isAskUserYield(msg)) {
-      const content = this.visibleMessageContent(msg);
-      return msg.id === 'typing' ? this.compactStreamingDeliverableLinks(content) : content;
-    }
+    if (!this.isAskUserYield(msg)) return this.visibleMessageContent(msg);
     if (msg.yieldCardState === 'resolved') return '';
     if ((msg.yieldResolvedText ?? '').trim().length > 0) return '';
 
@@ -3221,52 +3210,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
 
   private visibleMessageContent(msg: OperationMessage): string {
     return this.stripSelectedContextPromptBlock(msg.content ?? '');
-  }
-
-  private compactStreamingDeliverableLinks(content: string): string {
-    if (!content.trim()) return content;
-
-    const collapsedCompleteLinks = content.replace(
-      AgentXOperationChatComponent.STREAMING_COMPLETE_MARKDOWN_LINK_PATTERN,
-      (match, label: string, rawUrl: string) =>
-        this.isStreamingStorageUrl(rawUrl) ? label.trim() : match
-    );
-
-    const collapsedIncompleteLinks = collapsedCompleteLinks.replace(
-      AgentXOperationChatComponent.STREAMING_INCOMPLETE_MARKDOWN_LINK_PATTERN,
-      (match, label: string, rawUrl: string) =>
-        this.isStreamingStorageUrl(rawUrl)
-          ? `${label.trim()}${AgentXOperationChatComponent.STREAMING_LINK_PENDING_SUFFIX}`
-          : match
-    );
-
-    return collapsedIncompleteLinks.replace(
-      AgentXOperationChatComponent.STREAMING_DELIVERABLE_URL_PATTERN,
-      (rawUrl, offset, source) => {
-        if (!this.isStreamingStorageUrl(rawUrl)) return rawUrl;
-
-        const previousChar = offset > 0 ? source[offset - 1] : '';
-        if (previousChar === '(') return rawUrl;
-
-        return AgentXOperationChatComponent.STREAMING_LINK_PLACEHOLDER;
-      }
-    );
-  }
-
-  private isStreamingStorageUrl(rawUrl: string): boolean {
-    try {
-      const parsed = new URL(rawUrl);
-      const host = parsed.hostname.toLowerCase();
-
-      return (
-        host === 'storage.googleapis.com' ||
-        host === 'firebasestorage.googleapis.com' ||
-        host.endsWith('.amazonaws.com') ||
-        host.endsWith('.cloudfront.net')
-      );
-    } catch {
-      return false;
-    }
   }
 
   private stripSelectedContextPromptBlock(content: string): string {
@@ -3328,18 +3271,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
           )
       );
 
-    if (msg.id !== 'typing') {
-      return filtered;
-    }
-
-    return filtered.map((part) =>
-      part.type === 'text'
-        ? {
-            type: 'text' as const,
-            content: this.compactStreamingDeliverableLinks(part.content),
-          }
-        : part
-    );
+    return filtered;
   }
 
   private textRenderedMediaUrlsForMessage(msg: OperationMessage): Set<string> {

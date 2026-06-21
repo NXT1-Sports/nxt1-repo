@@ -600,7 +600,7 @@ export class ProfileComponent {
             const profile = response.data;
             this.fetchedProfile.set(profile);
             const authUserId = this.authService.user()?.uid ?? null;
-            const firebaseUserId = this.authService.state().firebaseUser?.uid ?? null;
+            const firebaseUserId = this.authService.firebaseUser()?.uid ?? null;
             const isOwn =
               response._isOwnProfile || profile.id === authUserId || profile.id === firebaseUserId;
 
