@@ -25,7 +25,7 @@ platforms.
 NXT1 uses Firebase Crashlytics for native mobile crash reporting with GA4
 fallback for web:
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                    GlobalErrorHandler                           │
 │  Catches all unhandled errors → routes to CrashlyticsAdapter   │
@@ -52,7 +52,7 @@ fallback for web:
 
 ## Package Structure
 
-```
+```text
 packages/core/src/crashlytics/           ← Pure TypeScript (100% portable)
 ├── index.ts                             ← Barrel export
 ├── crashlytics.types.ts                 ← CrashException, CrashUser, etc.
@@ -145,7 +145,7 @@ providers: [
 # Place in apps/mobile/ios/App/App/GoogleService-Info.plist
 ```
 
-2. **Update Podfile** (apps/mobile/ios/App/Podfile):
+1. **Update Podfile** (apps/mobile/ios/App/Podfile):
 
 ```ruby
 target 'App' do
@@ -154,11 +154,11 @@ target 'App' do
 end
 ```
 
-3. **Enable dSYM uploads** in Xcode:
+1. **Enable dSYM uploads** in Xcode:
    - Build Settings → Debug Information Format → `DWARF with dSYM File`
    - Build Phases → Add "Upload Crashlytics Symbols" script
 
-4. **Add build phase script** (Xcode → Build Phases → New Run Script):
+2. **Add build phase script** (Xcode → Build Phases → New Run Script):
 
 ```bash
 "${PODS_ROOT}/FirebaseCrashlytics/run"
@@ -173,7 +173,7 @@ end
 # Place in apps/mobile/android/app/google-services.json
 ```
 
-2. **Update build.gradle** (apps/mobile/android/build.gradle):
+1. **Update build.gradle** (apps/mobile/android/build.gradle):
 
 ```groovy
 buildscript {
@@ -183,7 +183,7 @@ buildscript {
 }
 ```
 
-3. **Update app/build.gradle** (apps/mobile/android/app/build.gradle):
+1. **Update app/build.gradle** (apps/mobile/android/app/build.gradle):
 
 ```groovy
 plugins {
@@ -393,7 +393,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Install dependencies
         run: |
@@ -540,7 +540,7 @@ async onUserAuthenticated(user: User) {
 
 NXT1 includes a built-in Developer Settings page for testing Crashlytics:
 
-```
+```text
 Navigate to: /dev-settings
 ```
 
@@ -622,9 +622,9 @@ triggers the crash report upload.
 Wait 5-10 minutes, then check:
 
 - **Staging**:
-  https://console.firebase.google.com/project/nxt-1-staging/crashlytics
+  <https://console.firebase.google.com/project/nxt-1-staging/crashlytics>
 - **Production**:
-  https://console.firebase.google.com/project/nxt-1-de054/crashlytics
+  <https://console.firebase.google.com/project/nxt-1-de054/crashlytics>
 
 ### Enable Debug Logging
 

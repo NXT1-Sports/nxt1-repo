@@ -16,13 +16,13 @@ GitHub Actions over SSH and runs under PM2 for both staging and production.
 | Framework        | Express                         | 5.x     |
 | Language         | TypeScript (strict)             | —       |
 | Databases        | Firestore + MongoDB/Mongoose    | —       |
-| Auth             | Firebase Admin SDK              | 13.x    |
+| Auth             | Firebase Admin SDK              | 14.x    |
 | AI               | OpenRouter (via Agent X module) | —       |
-| Payments         | Stripe                          | 20.x    |
+| Payments         | Stripe                          | 22.x    |
 | IAP              | Apple App Store Server Library  | 3.x     |
 | Cache            | Redis (ioredis)                 | —       |
 | Queue            | BullMQ                          | 5.x     |
-| Image Processing | Sharp                           | 0.34.x  |
+| Image Processing | Sharp                           | 0.35.x  |
 | Web Scraping     | Firecrawl, Apify                | —       |
 | Pub/Sub          | Google Cloud Pub/Sub            | 5.x     |
 | Validation       | Zod, class-validator            | —       |

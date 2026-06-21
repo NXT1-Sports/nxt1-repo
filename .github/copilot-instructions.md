@@ -155,9 +155,9 @@ When building any feature, keep these principles in mind:
 
 | Layer         | Technology                                                              | Purpose                     |
 | ------------- | ----------------------------------------------------------------------- | --------------------------- |
-| **Frontend**  | Angular 21+ (Standalone, Signals)                                       | SSR-enabled web application |
-| **Mobile**    | Angular + Ionic 8 + Capacitor 8                                         | Native iOS/Android apps     |
-| **Backend**   | Node.js 20 LTS / Express 5 (ESM)                                        | REST API server             |
+| **Frontend**  | Angular 22 (Standalone, Signals)                                        | SSR-enabled web application |
+| **Mobile**    | Angular 22 + Ionic 8 + Capacitor 8                                      | Native iOS/Android apps     |
+| **Backend**   | Node.js 22 LTS / Express 5 (ESM)                                        | REST API server             |
 | **Functions** | Firebase Cloud Functions (Gen 2)                                        | Triggers, scheduled tasks   |
 | **Databases** | Firestore + MongoDB                                                     | Hybrid data storage         |
 | **Auth**      | Firebase Authentication                                                 | User authentication         |

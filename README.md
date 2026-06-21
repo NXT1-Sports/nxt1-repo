@@ -118,7 +118,7 @@ monorepo/
 │   │   ├── src/
 │   │   ├── ios/              # iOS native project
 │   │   ├── android/          # Android native project
-│   │   └── capacitor.config.json
+│   │   └── capacitor.config.ts
 │   │
 │   └── functions/            # Firebase Cloud Functions
 │       ├── src/
@@ -165,7 +165,7 @@ import { createAuthApi, createProfileApi } from '@nxt1/core';
 
 ### apps/web (Angular)
 
-- Angular 21 with standalone components
+- Angular 22 with standalone components
 - Ionic UI components for unified design
 - Server-Side Rendering (SSR) enabled
 - Signal-based state management

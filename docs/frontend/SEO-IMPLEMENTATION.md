@@ -2,7 +2,7 @@
 
 > **Comprehensive documentation for NXT1's SEO architecture**
 >
-> Last Updated: January 2026 | Angular 21.x | Full SSR
+> Last Updated: June 2026 | Angular 22.x | Full SSR
 
 ---
 
@@ -48,7 +48,7 @@ are server-rendered for optimal SEO. The SEO system is built with:
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                              SEO DATA FLOW                                   │
 ├─────────────────────────────────────────────────────────────────────────────┤
@@ -77,7 +77,7 @@ are server-rendered for optimal SEO. The SEO system is built with:
 
 ### File Locations
 
-```
+```text
 nxt1-monorepo/
 ├── packages/core/src/seo/
 │   └── index.ts                    # Pure TypeScript types & builders (625 lines)
@@ -420,7 +420,7 @@ Dynamic sitemaps are generated from Firestore data with 24-hour caching.
 
 ### Sitemap Structure
 
-```
+```text
 https://nxt1sports.com/sitemap.xml (Index)
 ├── /sitemap-static.xml     # Static pages (explore, auth, etc.)
 ├── /sitemap-profiles.xml   # All athlete profiles

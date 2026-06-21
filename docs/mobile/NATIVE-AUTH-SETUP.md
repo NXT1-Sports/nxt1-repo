@@ -30,7 +30,7 @@ sign-in. This provides:
 
 ### Architecture
 
-```
+```text
 ┌────────────────────────────────────────────────────────────────┐
 │                    User taps "Sign in with Google"              │
 ├────────────────────────────────────────────────────────────────┤
@@ -322,7 +322,7 @@ if (!environment.production) {
 
 **Fix**:
 
-1. Ensure `skipNativeAuth: false` in `capacitor.config.json`
+1. Ensure `skipNativeAuth: false` in `capacitor.config.ts`
 2. Check that Firebase Auth is initialized before sign-in
 
 #### Android: "Google Play Services not available"

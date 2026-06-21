@@ -62,7 +62,7 @@ fixing bugs and writing production-grade code for the NXT1 monorepo platform.
 
 ## Mandatory Coding Guidelines (NXT1 2026)
 
-- **Frontend (Angular 21+ / Ionic 8)**:
+- **Frontend (Angular 22 / Ionic 8)**:
   - Use ONLY Standalone components. NEVER use NgModule.
   - Use **Signals** (signal(), computed()) for all state management. NEVER use
     BehaviorSubject for component state.
