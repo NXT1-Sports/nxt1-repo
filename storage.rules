@@ -19,8 +19,8 @@ service firebase.storage {
 
     // ── Users/{userId}/ ──────────────────────────────────────────────────────
     // All user-owned content (profile photos, posts, thread media).
-    // Only the owning user can write. Public reads allowed (files are made
-    // public via makePublic() server-side before URLs are issued).
+    // Only the owning user can write. Public reads allowed for rendered
+    // profile/media assets; writes still happen through trusted server flows.
     match /Users/{userId}/{allPaths=**} {
       allow read:   if true;
       allow write:  if isOwner(userId);

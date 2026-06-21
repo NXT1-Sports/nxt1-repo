@@ -592,6 +592,7 @@ export interface ReferralSourceData {
 /** Complete onboarding form data */
 export interface OnboardingFormData {
   userType: OnboardingUserType;
+  authProvider?: string | null;
   profile?: ProfileFormData;
   /**
    * Sport data for athletes (v3.0)
@@ -860,12 +861,17 @@ export function getAgentXMessage(stepId: string, userType?: OnboardingUserType |
  */
 export function validateProfile(
   data?: ProfileFormData,
-  userType?: OnboardingUserType | null
+  userType?: OnboardingUserType | null,
+  authProvider?: string | null
 ): boolean {
   if (!data) return false;
 
+  const isAppleAuth = authProvider?.toLowerCase() === 'apple';
   const hasName = !!(data.firstName?.trim() && data.lastName?.trim());
-  if (!hasName) return false;
+
+  // Apple can return null names on subsequent authorizations. Do not require
+  // manual name entry for Apple-authenticated users.
+  if (!isAppleAuth && !hasName) return false;
 
   if (userType === USER_ROLES.ATHLETE) {
     return typeof data.classYear === 'number' && Number.isInteger(data.classYear);
@@ -973,7 +979,11 @@ export function validateStep(
     case 'role':
       return pendingRole !== null || !!formData.userType;
     case 'profile':
-      return validateProfile(formData.profile, pendingRole ?? formData.userType ?? null);
+      return validateProfile(
+        formData.profile,
+        pendingRole ?? formData.userType ?? null,
+        formData.authProvider ?? null
+      );
     case 'school':
       // Legacy support - use validateSport for new v3.0 flow
       return validateTeam(formData.team) || validateSchool(formData.school);

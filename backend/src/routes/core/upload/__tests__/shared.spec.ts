@@ -1,18 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const storageMocks = vi.hoisted(() => {
-  const save = vi.fn().mockResolvedValue(undefined);
-  const file = vi.fn(() => ({
-    save,
-  }));
+  const request = vi.fn().mockResolvedValue({ status: 200, data: {} });
   const bucket = vi.fn(() => ({
     name: 'test-bucket',
-    file,
+    storage: {
+      authClient: {
+        request,
+      },
+    },
   }));
 
   return {
-    save,
-    file,
+    request,
     bucket,
   };
 });
@@ -30,34 +30,39 @@ describe('uploadToStorage', () => {
     vi.clearAllMocks();
   });
 
-  it('uses non-resumable writes without validation for backend image uploads', async () => {
+  it('uses authenticated multipart uploads for backend image uploads', async () => {
     const url = await uploadToStorage(
       Buffer.from('image-bytes'),
       'Users/user-1/profile/avatar.jpg',
       'image/jpeg'
     );
 
-    expect(storageMocks.file).toHaveBeenCalledWith('Users/user-1/profile/avatar.jpg');
-    expect(storageMocks.save).toHaveBeenCalledWith(
-      expect.any(Buffer),
+    expect(storageMocks.request).toHaveBeenCalledWith(
       expect.objectContaining({
-        resumable: false,
-        validation: false,
-        metadata: expect.objectContaining({
-          contentType: 'image/jpeg',
-          cacheControl: 'public, max-age=31536000',
-          metadata: expect.objectContaining({
-            firebaseStorageDownloadTokens: expect.any(String),
-          }),
+        url: 'https://storage.googleapis.com/upload/storage/v1/b/test-bucket/o?uploadType=multipart&name=Users%2Fuser-1%2Fprofile%2Favatar.jpg',
+        method: 'POST',
+        headers: expect.objectContaining({
+          'Content-Type': expect.stringContaining('multipart/related; boundary='),
         }),
+        data: expect.any(Buffer),
+        responseType: 'json',
       })
     );
+
+    const requestOptions = storageMocks.request.mock.calls[0]?.[0] as {
+      data: Buffer;
+    };
+
+    expect(requestOptions.data.toString('utf8')).toContain('"contentType":"image/jpeg"');
+    expect(requestOptions.data.toString('utf8')).toContain(
+      '"cacheControl":"public, max-age=31536000"'
+    );
+    expect(requestOptions.data.toString('utf8')).toContain('firebaseStorageDownloadTokens');
     expect(url).toMatch(
       /^https:\/\/firebasestorage\.googleapis\.com\/v0\/b\/test-bucket\/o\/Users%2Fuser-1%2Fprofile%2Favatar\.jpg\?alt=media&token=/
     );
   });
 });
-import { describe, expect, it } from 'vitest';
 
 import { buildCloudflarePlaybackUrls, getCloudflareStreamHost } from '../shared.js';
 
