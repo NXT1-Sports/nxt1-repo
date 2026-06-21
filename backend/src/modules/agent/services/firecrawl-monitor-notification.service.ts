@@ -28,22 +28,62 @@ const monitorCheckSummarySchema = z
   })
   .passthrough();
 
-const monitorCheckCompletedEventSchema = z.object({
+const monitorEventBaseSchema = z.object({
   monitorId: z.string().min(1),
   checkId: z.string().min(1),
   status: z.string().min(1),
-  summary: monitorCheckSummarySchema.optional(),
 });
 
-const firecrawlMonitorWebhookSchema = z.object({
-  success: z.boolean(),
-  type: z.literal('monitor.check.completed'),
-  id: z.string().min(1),
-  webhookId: z.string().optional(),
-  data: z.array(monitorCheckCompletedEventSchema).min(1),
-  metadata: z.record(z.string(), z.unknown()).optional(),
-  error: z.string().optional(),
-});
+const monitorCheckCompletedEventSchema = monitorEventBaseSchema
+  .extend({
+    summary: monitorCheckSummarySchema.optional(),
+  })
+  .passthrough();
+
+const monitorPageEventSchema = monitorEventBaseSchema
+  .extend({
+    url: z.string().min(1).optional(),
+    previousScrapeId: z.string().min(1).optional(),
+    currentScrapeId: z.string().min(1).optional(),
+    error: z.string().nullable().optional(),
+    isMeaningful: z.boolean().optional(),
+    judgment: z
+      .object({
+        meaningful: z.boolean().optional(),
+        confidence: z.string().optional(),
+        reason: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
+    diff: z
+      .object({
+        text: z.string().optional(),
+      })
+      .passthrough()
+      .optional(),
+  })
+  .passthrough();
+
+const firecrawlMonitorWebhookSchema = z.discriminatedUnion('type', [
+  z.object({
+    success: z.boolean(),
+    type: z.literal('monitor.check.completed'),
+    id: z.string().min(1),
+    webhookId: z.string().optional(),
+    data: z.array(monitorCheckCompletedEventSchema).min(1),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+    error: z.string().optional(),
+  }),
+  z.object({
+    success: z.boolean(),
+    type: z.literal('monitor.page'),
+    id: z.string().min(1),
+    webhookId: z.string().optional(),
+    data: z.array(monitorPageEventSchema).min(1),
+    metadata: z.record(z.string(), z.unknown()).optional(),
+    error: z.string().optional(),
+  }),
+]);
 
 const notificationCopySchema = z.object({
   title: z.string().min(1).max(65),
@@ -51,6 +91,8 @@ const notificationCopySchema = z.object({
 });
 
 type MonitorCheckSummary = z.infer<typeof monitorCheckSummarySchema>;
+type FirecrawlMonitorWebhookPayload = z.infer<typeof firecrawlMonitorWebhookSchema>;
+type FirecrawlMonitorWebhookItem = FirecrawlMonitorWebhookPayload['data'][number];
 
 interface NotificationCopy {
   readonly title: string;
@@ -143,14 +185,13 @@ function getDiffHint(page: Record<string, unknown>): string | null {
   return firstInterestingLine.replace(/^[-+]+\s*/, '').trim();
 }
 
-function summarizeNotablePages(
-  check: FirecrawlMonitorCheckDetail,
+function summarizeNotablePagesFromRecords(
+  pages: readonly Record<string, unknown>[],
   maxItems = MAX_NOTIFICATION_NOTABLE_PAGES
 ): readonly NotablePageSummary[] {
   const summaries: NotablePageSummary[] = [];
 
-  for (const rawPage of check.pages) {
-    const page = rawPage as Record<string, unknown>;
+  for (const page of pages) {
     const status = getString(page['status']) ?? 'changed';
     const url = getString(page['url']) ?? 'Unknown page';
     const meaningfulReason = getMeaningfulReason(page);
@@ -176,6 +217,32 @@ function summarizeNotablePages(
   }
 
   return summaries;
+}
+
+function summarizeNotablePages(
+  check: FirecrawlMonitorCheckDetail,
+  maxItems = MAX_NOTIFICATION_NOTABLE_PAGES
+): readonly NotablePageSummary[] {
+  return summarizeNotablePagesFromRecords(
+    check.pages as readonly Record<string, unknown>[],
+    maxItems
+  );
+}
+
+function summarizePageEventItems(
+  pages: readonly FirecrawlMonitorWebhookItem[],
+  maxItems = MAX_NOTIFICATION_NOTABLE_PAGES
+): readonly NotablePageSummary[] {
+  return summarizeNotablePagesFromRecords(pages as readonly Record<string, unknown>[], maxItems);
+}
+
+function buildPageEventReceiptKey(event: FirecrawlMonitorWebhookItem, index: number): string {
+  const pageId =
+    getString((event as Record<string, unknown>)['currentScrapeId']) ??
+    getString((event as Record<string, unknown>)['url']) ??
+    `page-${index + 1}`;
+
+  return sanitizeKey(`firecrawl_monitor_page_${event.monitorId}_${event.checkId}_${pageId}`);
 }
 
 function buildMonitorUpdateHighlight(
@@ -295,14 +362,17 @@ function buildStartupPrompt(
   );
 }
 
-async function processSingleCheckCompletedEvent(
+async function processSingleMonitorWebhookItem(
   db: Firestore,
-  event: z.infer<typeof monitorCheckCompletedEventSchema>,
+  webhookType: FirecrawlMonitorWebhookPayload['type'],
+  event: FirecrawlMonitorWebhookItem,
+  index: number,
   deps: ResolvedMonitorNotificationDeps
 ): Promise<{ readonly dispatched: boolean; readonly ignored: boolean }> {
-  const eventKey = sanitizeKey(
-    `firecrawl_monitor_check_completed_${event.monitorId}_${event.checkId}`
-  );
+  const eventKey =
+    webhookType === 'monitor.page'
+      ? buildPageEventReceiptKey(event, index)
+      : sanitizeKey(`firecrawl_monitor_check_completed_${event.monitorId}_${event.checkId}`);
   const eventRef = db.collection(FIRECRAWL_MONITOR_EVENT_COLLECTION).doc(eventKey);
   const existingReceipt = await eventRef.get();
   if (existingReceipt.exists) {
@@ -321,6 +391,26 @@ async function processSingleCheckCompletedEvent(
     return { dispatched: false, ignored: true };
   }
 
+  let summary: MonitorCheckSummary | undefined;
+  let notablePages: readonly NotablePageSummary[];
+  let startupPromptPages: readonly NotablePageSummary[];
+
+  if (webhookType === 'monitor.page') {
+    notablePages = summarizePageEventItems([event]);
+    startupPromptPages = summarizePageEventItems([event], MAX_STARTUP_PROMPT_NOTABLE_PAGES);
+  } else {
+    const checkEvent = event as z.infer<typeof monitorCheckCompletedEventSchema>;
+    const checkDetail = await deps.monitorService.getMonitorCheck(event.monitorId, event.checkId, {
+      limit: 25,
+    });
+
+    notablePages = summarizeNotablePages(checkDetail);
+    startupPromptPages = summarizeNotablePages(checkDetail, MAX_STARTUP_PROMPT_NOTABLE_PAGES);
+    summary = monitorCheckSummarySchema
+      .optional()
+      .parse(checkEvent.summary ?? checkDetail.summary ?? undefined);
+  }
+
   await deps.monitorService.recordMonitorCheckSummaryForOwner(
     db,
     {
@@ -331,7 +421,7 @@ async function processSingleCheckCompletedEvent(
     registration.platform,
     {
       status: event.status,
-      lastCheckSummary: event.summary,
+      ...(summary ? { lastCheckSummary: summary } : {}),
     }
   );
 
@@ -347,15 +437,6 @@ async function processSingleCheckCompletedEvent(
     });
     return { dispatched: false, ignored: true };
   }
-
-  const checkDetail = await deps.monitorService.getMonitorCheck(event.monitorId, event.checkId, {
-    limit: 25,
-  });
-  const notablePages = summarizeNotablePages(checkDetail);
-  const startupPromptPages = summarizeNotablePages(checkDetail, MAX_STARTUP_PROMPT_NOTABLE_PAGES);
-  const summary = monitorCheckSummarySchema
-    .optional()
-    .parse(event.summary ?? checkDetail.summary ?? undefined);
 
   if (!hasUserVisibleChange(summary, startupPromptPages)) {
     await eventRef.set({
@@ -459,8 +540,8 @@ export async function processFirecrawlMonitorWebhook(
   let dispatchedCount = 0;
   let ignoredCount = 0;
 
-  for (const event of parsed.data) {
-    const result = await processSingleCheckCompletedEvent(db, event, {
+  for (const [index, event] of parsed.data.entries()) {
+    const result = await processSingleMonitorWebhookItem(db, parsed.type, event, index, {
       monitorService,
       llm,
       dispatchNotification,

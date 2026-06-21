@@ -133,6 +133,94 @@ describe('processFirecrawlMonitorWebhook', () => {
     );
   });
 
+  it('accepts monitor.page events and uses the page payload for the notification copy', async () => {
+    const db = createMockFirestore();
+    const dispatchNotification = vi.fn().mockResolvedValue({
+      activityId: 'activity-page-1',
+      notificationId: 'notification-page-1',
+    });
+    const monitorService = {
+      getMonitorRegistration: vi.fn().mockResolvedValue({
+        userId: 'user-page-1',
+        ownerType: 'user',
+        ownerId: 'user-page-1',
+        platform: 'hudl',
+        monitorId: 'monitor-page-1',
+        targetUrl: 'https://hudl.com/profile/page',
+        status: 'active',
+        enabled: true,
+        schedule: { text: 'every day' },
+        goal: 'Track new Hudl highlights',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+      }),
+      getMonitorCheck: vi.fn(),
+      recordMonitorCheckSummaryForOwner: vi.fn().mockResolvedValue(undefined),
+    };
+    const llm = {
+      complete: vi.fn().mockRejectedValue(new Error('LLM unavailable')),
+    };
+
+    const result = await processFirecrawlMonitorWebhook(
+      db,
+      {
+        success: true,
+        type: 'monitor.page',
+        id: 'evt-page-1',
+        webhookId: 'wh-1',
+        data: [
+          {
+            monitorId: 'monitor-page-1',
+            checkId: 'check-page-1',
+            status: 'changed',
+            url: 'https://hudl.com/profile/page',
+            currentScrapeId: 'scrape-page-1',
+            judgment: {
+              meaningful: true,
+              reason: 'The highlight reel gained a new touchdown clip.',
+            },
+            diff: {
+              text: '+ Added a new touchdown clip to the reel',
+            },
+          },
+        ],
+      },
+      {
+        monitorService,
+        llm,
+        dispatchNotification,
+      }
+    );
+
+    expect(result).toEqual({ processedCount: 1, dispatchedCount: 1, ignoredCount: 0 });
+    expect(monitorService.getMonitorCheck).not.toHaveBeenCalled();
+    expect(monitorService.recordMonitorCheckSummaryForOwner).toHaveBeenCalledWith(
+      db,
+      {
+        ownerType: 'user',
+        ownerId: 'user-page-1',
+        userId: 'user-page-1',
+      },
+      'hudl',
+      expect.objectContaining({ status: 'changed' })
+    );
+    expect(dispatchNotification).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({
+        userId: 'user-page-1',
+        metadata: expect.objectContaining({
+          startupPrompt: expect.stringContaining('The highlight reel gained a new touchdown clip.'),
+          notablePages: [
+            expect.objectContaining({
+              url: 'https://hudl.com/profile/page',
+              status: 'changed',
+            }),
+          ],
+        }),
+      })
+    );
+  });
+
   it('ignores duplicate webhook deliveries using the event receipt document', async () => {
     const db = createMockFirestore({
       'FirecrawlMonitorEvents/firecrawl_monitor_check_completed_monitor-1_check-1': {
