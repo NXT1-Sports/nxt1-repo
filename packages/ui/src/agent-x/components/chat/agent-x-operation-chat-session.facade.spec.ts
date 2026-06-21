@@ -445,6 +445,36 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     ).toBeNull();
   });
 
+  it('does not append when interleaved persisted text parts already reconstruct full content', () => {
+    expect(
+      facade.resolveSupplementalContentTextPart(
+        'Got your colors. Now routing you to the brand coordinator with that branding context. ✅ You are already here with Brand Coordinator.',
+        [
+          {
+            type: 'text',
+            content:
+              'Got your colors. Now routing you to the brand coordinator with that branding context.',
+          },
+          {
+            type: 'tool-steps',
+            steps: [
+              {
+                id: 'delegate_to_coordinator',
+                label: 'Routing to specialist coordinator',
+                status: 'success',
+                stageType: 'tool',
+              },
+            ],
+          },
+          {
+            type: 'text',
+            content: '✅ You are already here with Brand Coordinator.',
+          },
+        ]
+      )
+    ).toBeNull();
+  });
+
   it('treats manual pause metadata as stale once a later turn supersedes it', () => {
     const pauseYieldState = {
       reason: 'needs_input',

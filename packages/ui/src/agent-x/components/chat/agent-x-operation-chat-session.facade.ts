@@ -1082,12 +1082,44 @@ export class AgentXOperationChatSessionFacade {
     return true;
   }
 
+  private persistedTextPartsCoverContent(
+    cleanContent: string,
+    persistedParts: readonly AgentXMessagePart[]
+  ): boolean {
+    const normalizedContent = this.normalizePartTextContent(cleanContent);
+    if (!normalizedContent) return true;
+
+    const normalizedTextParts = persistedParts
+      .filter((part): part is Extract<AgentXMessagePart, { type: 'text' }> => part.type === 'text')
+      .map((part) => this.normalizePartTextContent(part.content))
+      .filter((value) => value.length > 0);
+
+    if (normalizedTextParts.length === 0) return false;
+
+    // Fast path: all text parts (even when interleaved with non-text parts)
+    // already reconstruct the persisted content verbatim.
+    if (normalizedTextParts.join(' ') === normalizedContent) return true;
+
+    let remaining = normalizedContent;
+    for (const part of normalizedTextParts) {
+      if (!remaining.startsWith(part)) return false;
+      remaining = remaining.slice(part.length).trimStart();
+      if (!remaining) return true;
+    }
+
+    return remaining.length === 0;
+  }
+
   private resolveSupplementalContentTextPart(
     cleanContent: string,
     persistedParts: readonly AgentXMessagePart[]
   ): string | null {
     let remainingContent = cleanContent.trim();
     if (!remainingContent) return null;
+
+    if (this.persistedTextPartsCoverContent(remainingContent, persistedParts)) {
+      return null;
+    }
 
     for (const part of persistedParts) {
       if (part.type !== 'text') break;
