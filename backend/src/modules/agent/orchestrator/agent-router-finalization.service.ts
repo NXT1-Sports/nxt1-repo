@@ -33,10 +33,7 @@ const DELIVERABLE_COLLECTION_KEYS = [
 type DeliverableItem = {
   readonly url: string;
   readonly posterUrl?: string;
-  readonly label?: string;
 };
-
-const DELIVERABLE_LABEL_KEYS = ['fileName', 'filename', 'outputFileName'] as const;
 
 function isHttpUrl(value: unknown): value is string {
   return typeof value === 'string' && /^https?:\/\//i.test(value.trim());
@@ -79,74 +76,29 @@ function buildDisplayUrl(item: DeliverableItem): string {
   return `${item.url}#poster=${encodePosterFragment(item.posterUrl)}`;
 }
 
-function resolveDeliverableLabel(record: Record<string, unknown>): string | undefined {
-  for (const key of DELIVERABLE_LABEL_KEYS) {
-    const candidate = record[key];
-    if (typeof candidate === 'string' && candidate.trim().length > 0) {
-      return candidate.trim();
-    }
-  }
-
-  return undefined;
-}
-
 function addDeliverableItem(sink: Map<string, DeliverableItem>, item: DeliverableItem): void {
   const normalizedUrl = item.url.trim();
   if (!normalizedUrl) return;
 
   const existing = sink.get(normalizedUrl);
-  if (existing?.posterUrl || (existing && !item.posterUrl && existing.label)) {
+  if (existing?.posterUrl || (existing && !item.posterUrl)) {
     return;
   }
 
   const posterUrl = item.posterUrl?.trim();
-  const label = item.label?.trim();
-
-  sink.set(
-    normalizedUrl,
-    posterUrl || label
-      ? {
-          url: normalizedUrl,
-          ...(posterUrl ? { posterUrl } : {}),
-          ...(label ? { label } : {}),
-        }
-      : { url: normalizedUrl }
-  );
+  sink.set(normalizedUrl, posterUrl ? { url: normalizedUrl, posterUrl } : { url: normalizedUrl });
 }
 
-function enrichSummaryLinks(summary: string, items: readonly DeliverableItem[]): string {
-  let nextSummary = items.reduce((acc, item) => {
+function enrichSummaryVideoPosters(summary: string, items: readonly DeliverableItem[]): string {
+  return items.reduce((nextSummary, item) => {
     if (!item.posterUrl || !isVideoUrl(item.url) || /#poster=/i.test(item.url)) {
-      return acc;
+      return nextSummary;
     }
 
     const displayUrl = buildDisplayUrl(item);
     const pattern = new RegExp(`${escapeRegExp(item.url)}(?!#poster=)`, 'g');
-    return acc.replace(pattern, displayUrl);
+    return nextSummary.replace(pattern, displayUrl);
   }, summary);
-
-  items.forEach((item) => {
-    if (!item.label) return;
-
-    // Rewrite ugly markdown link text if the LLM outputted the raw signed URL manually
-    const escapedUrl = escapeRegExp(item.url);
-    const pattern = new RegExp(`\\[([^\\]]+)\\]\\(${escapedUrl}\\)`, 'g');
-    nextSummary = nextSummary.replace(pattern, (match, linkText) => {
-      // If the LLM used the raw storage path or URL-encoded pieces as the Markdown label
-      if (
-        linkText.includes('Users_') ||
-        linkText.includes('%2F') ||
-        linkText.includes('exports_') ||
-        linkText.includes('threads_') ||
-        linkText.includes('media_')
-      ) {
-        return `[${item.label}](${item.url})`;
-      }
-      return match;
-    });
-  });
-
-  return nextSummary;
 }
 
 function collectDeliverableItems(value: unknown, sink: Map<string, DeliverableItem>): void {
@@ -162,7 +114,6 @@ function collectDeliverableItems(value: unknown, sink: Map<string, DeliverableIt
   }
 
   const record = value as Record<string, unknown>;
-  const label = resolveDeliverableLabel(record);
   const thumbnailUrl = DELIVERABLE_POSTER_URL_KEYS.map((key) => record[key])
     .filter(isHttpUrl)
     .map((url) => url.trim())
@@ -181,7 +132,7 @@ function collectDeliverableItems(value: unknown, sink: Map<string, DeliverableIt
       if (posterUrl) {
         consumedThumbnailUrls.add(posterUrl);
       }
-      addDeliverableItem(sink, { url, posterUrl, label });
+      addDeliverableItem(sink, { url, posterUrl });
     }
   }
 
@@ -205,7 +156,7 @@ function collectDeliverableItems(value: unknown, sink: Map<string, DeliverableIt
 function appendDeliverablesSection(summary: string, items: readonly DeliverableItem[]): string {
   if (items.length === 0) return summary;
 
-  const enrichedSummary = enrichSummaryLinks(summary, items);
+  const enrichedSummary = enrichSummaryVideoPosters(summary, items);
   const missing = items.filter((item) => !enrichedSummary.includes(buildDisplayUrl(item)));
   if (missing.length === 0) return enrichedSummary;
 
@@ -220,7 +171,7 @@ function appendDeliverablesSection(summary: string, items: readonly DeliverableI
       // Video URLs → labeled link with filename
       if (isVideoUrl(url)) {
         try {
-          const filename = item.label ?? new URL(item.url).pathname.split('/').pop() ?? 'video';
+          const filename = new URL(item.url).pathname.split('/').pop() ?? 'video';
           return `- [▶ ${filename}](${url})`;
         } catch {
           return `- [Video](${url})`;
@@ -228,7 +179,7 @@ function appendDeliverablesSection(summary: string, items: readonly DeliverableI
       }
       // Other URLs (PDF, export, etc.) → labeled link with filename
       try {
-        const filename = item.label ?? new URL(url).pathname.split('/').pop() ?? '';
+        const filename = new URL(url).pathname.split('/').pop() ?? '';
         return filename ? `- [${filename}](${url})` : `- [View file](${url})`;
       } catch {
         return `- [View file](${url})`;

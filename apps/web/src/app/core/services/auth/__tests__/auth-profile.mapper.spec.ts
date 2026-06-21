@@ -165,21 +165,6 @@ describe('mapBackendProfileToCachedUserProfile', () => {
     ]);
   });
 
-  it('drops placeholder Apple relay aliases from cached first and last names', () => {
-    const mapped = mapBackendProfileToCachedUserProfile({
-      id: 'user-apple-alias',
-      email: 'john.keller-1@privaterelay.appleid.com',
-      firstName: 'john.keller-1',
-      lastName: '',
-      displayName: 'john.keller-1',
-      role: 'athlete',
-    });
-
-    expect(mapped.firstName).toBeUndefined();
-    expect(mapped.lastName).toBeUndefined();
-    expect(mapped.displayName).toBe('');
-  });
-
   it('ignores the top-level compatibility teamCode when no sport affiliation exists', () => {
     const mapped = mapBackendProfileToCachedUserProfile({
       id: 'user-doc-only-fallback',

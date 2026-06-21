@@ -406,9 +406,9 @@ firebase functions:secrets:set SMTP_PASS
 
 ### Current State
 
-- **Legacy** (`nxt1/functions/index.js`): 45 functions deployed (Gen 1,
+- **Legacy** (`nxt1/functions/index.js`): legacy deployment (Gen 1, Node.js 22)
+- **Monorepo** (`apps/functions`): 42 exported functions/triggers (Gen 2,
   Node.js 22)
-- **Monorepo** (`apps/functions`): 17 functions (Gen 2, Node.js 22)
 
 ### Migration Strategy
 

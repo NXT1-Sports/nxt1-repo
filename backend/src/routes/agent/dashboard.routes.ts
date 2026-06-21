@@ -247,7 +247,6 @@ const TEAM_FILM_REVIEWS_COLLECTION = 'TeamFilmReviews' as const;
 const TEAMS_COLLECTION = 'Teams' as const;
 const MAX_STRENGTH_WEAKNESS_ITEMS = 50;
 const MB = 1024 * 1024;
-const EXPORT_DOWNLOAD_URL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 function resolveFilmReviewBreakdownProvider(
   fileName: string,
@@ -8640,7 +8639,6 @@ router.post('/playbooks/:playbookId/export-pdf', appGuard, async (req: Request, 
     await file.save(pdfBuffer, {
       contentType: 'application/pdf',
       metadata: {
-        contentType: 'application/pdf',
         cacheControl: 'public, max-age=31536000, immutable',
         contentDisposition: `attachment; filename="${fileName}"`,
         metadata: {
@@ -8655,16 +8653,9 @@ router.post('/playbooks/:playbookId/export-pdf', appGuard, async (req: Request, 
       return;
     }
 
-    const expiresAt = Date.now() + EXPORT_DOWNLOAD_URL_TTL_MS;
-    const [downloadUrl] = await getSignedUrlWithTimeout(() =>
-      file.getSignedUrl({
-        version: 'v4',
-        action: 'read',
-        expires: expiresAt,
-        promptSaveAs: fileName,
-        responseType: 'application/pdf',
-      })
-    );
+    const downloadUrl =
+      `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/` +
+      `${encodeURIComponent(storagePath)}?alt=media&token=${downloadToken}`;
 
     logger.info('POST /playbooks/:id/export-pdf', {
       playbookId,

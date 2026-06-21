@@ -48,7 +48,6 @@ import { beforeUserCreated, HttpsError } from 'firebase-functions/v2/identity';
 import { logger } from 'firebase-functions/v2';
 import { db } from '../firebase-admin';
 import { DISPOSABLE_EMAIL_DOMAINS, USER_SCHEMA_VERSION } from '../constants';
-import { extractProviderNameFields, getNameFields } from './beforeUserCreate.helpers';
 
 // ─── Inlined from @nxt1/core/auth (workspace packages are not available in Cloud Run) ───
 const OAUTH_TOKEN_SUBCOLLECTION = 'oauthTokens' as const;
@@ -81,6 +80,27 @@ function isDisposableDomain(email: string): boolean {
  * Matches the structure created by POST /auth/create-user in the backend.
  * NOTE: `uid` is intentionally NOT stored on the document (Firestore doc ID is the uid).
  */
+function getNameFields(displayName?: string | null): {
+  firstName?: string;
+  lastName?: string;
+  displayName?: string;
+} {
+  const trimmedDisplayName = displayName?.trim();
+  if (!trimmedDisplayName) {
+    return {};
+  }
+
+  const parts = trimmedDisplayName.split(/\s+/).filter(Boolean);
+  const firstName = parts[0];
+  const lastName = parts.slice(1).join(' ') || undefined;
+
+  return {
+    displayName: trimmedDisplayName,
+    ...(firstName ? { firstName } : {}),
+    ...(lastName ? { lastName } : {}),
+  };
+}
+
 function buildV3User(
   email: string,
   nameFields?: { firstName?: string; lastName?: string; displayName?: string }
@@ -115,12 +135,7 @@ export const beforeUserCreate = beforeUserCreated(async (event) => {
   const displayName = userData.displayName;
   const photoURL = userData.photoURL;
   const uid = userData.uid;
-  const providerProfile = (event.additionalUserInfo?.profile ?? null) as Record<
-    string,
-    unknown
-  > | null;
-  const explicitNameFields = extractProviderNameFields(providerProfile);
-  const nameFields = getNameFields(displayName, email, explicitNameFields);
+  const nameFields = getNameFields(displayName);
 
   logger.info('[beforeUserCreate] Triggered', { email, displayName, uid });
 
@@ -271,7 +286,7 @@ export const beforeUserCreate = beforeUserCreated(async (event) => {
   // These are applied to the Firebase Auth user regardless of provider.
   // ------------------------------------------------------------------
   return {
-    displayName: nameFields.displayName || displayName || email?.split('@')[0],
+    displayName: displayName || email?.split('@')[0],
     photoURL: photoURL ?? undefined,
     customClaims: {
       role: 'user',

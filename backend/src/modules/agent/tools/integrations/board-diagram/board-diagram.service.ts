@@ -424,12 +424,16 @@ export class BoardDiagramService {
     const storageInstance = resolveStorage(context);
     const bucket = storageInstance.bucket();
     const file = bucket.file(storagePath);
+    const downloadToken = randomUUID();
 
     await file.save(pngBuffer, {
       contentType: 'image/png',
-      metadata: { cacheControl: 'public, max-age=31536000, immutable' },
+      metadata: {
+        contentType: 'image/png',
+        cacheControl: 'public, max-age=31536000, immutable',
+        metadata: { firebaseStorageDownloadTokens: downloadToken },
+      },
     });
-    await file.makePublic();
 
     const [exists] = await file.exists();
     if (!exists) {
@@ -439,12 +443,10 @@ export class BoardDiagramService {
       );
     }
 
-    const encodedPath = storagePath
-      .split('/')
-      .map((segment) => encodeURIComponent(segment))
-      .join('/');
-
-    return `https://storage.googleapis.com/${bucket.name}/${encodedPath}`;
+    return (
+      `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/` +
+      `${encodeURIComponent(storagePath)}?alt=media&token=${downloadToken}`
+    );
   }
 
   /**

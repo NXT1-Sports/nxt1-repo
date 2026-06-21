@@ -1453,12 +1453,12 @@ export class OnboardingPage implements OnInit, OnDestroy {
         }
       }
 
-      if (uploadedUrls.length > 0) {
-        const currentProfile = this._formData().profile;
-        const existingImgs = (currentProfile?.profileImgs || []).filter(
-          (url) => !url.startsWith('blob:')
-        );
+      const currentProfile = this._formData().profile;
+      const existingImgs = (currentProfile?.profileImgs || []).filter(
+        (url) => !url.startsWith('blob:')
+      );
 
+      if (uploadedUrls.length > 0) {
         this.machine.updateProfile({
           firstName: currentProfile?.firstName || '',
           lastName: currentProfile?.lastName || '',
@@ -1467,6 +1467,13 @@ export class OnboardingPage implements OnInit, OnDestroy {
         });
 
         this.toast.success(`Uploaded ${uploadedUrls.length} photo(s) successfully!`);
+      } else if ((currentProfile?.profileImgs || []).some((url) => url.startsWith('blob:'))) {
+        this.machine.updateProfile({
+          firstName: currentProfile?.firstName || '',
+          lastName: currentProfile?.lastName || '',
+          ...(currentProfile || {}),
+          profileImgs: existingImgs.length > 0 ? existingImgs : null,
+        });
       }
     } catch (err) {
       this.logger.error('Failed to upload photos', err);

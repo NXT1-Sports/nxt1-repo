@@ -30,8 +30,10 @@
 import { Injectable, inject, signal, computed, OnDestroy } from '@angular/core';
 import { getAdditionalUserInfo } from '@angular/fire/auth';
 import { NavController } from '@ionic/angular/standalone';
-import { NxtPlatformService, HapticsService, NxtLoggingService } from '@nxt1/ui';
-import { NxtModalService } from '@nxt1/ui/services';
+import { NxtPlatformService } from '@nxt1/ui/services/platform';
+import { HapticsService } from '@nxt1/ui/services/haptics';
+import { NxtLoggingService } from '@nxt1/ui/services/logging';
+import { NxtModalService } from '@nxt1/ui/services/modal';
 import { type ILogger } from '@nxt1/core/logging';
 import {
   type UserRole,
@@ -67,7 +69,7 @@ import {
   APP_EVENTS,
 } from '@nxt1/core/analytics';
 import type { CrashlyticsAdapter, CrashUser } from '@nxt1/core/crashlytics';
-import { GLOBAL_CRASHLYTICS } from '@nxt1/ui';
+import { GLOBAL_CRASHLYTICS } from '@nxt1/ui/infrastructure';
 import { CapacitorHttpAdapter } from '../../infrastructure';
 import { ProfileService, FcmRegistrationService } from '..';
 import { BiometricService } from './biometric.service';
@@ -535,12 +537,29 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
       return {};
     }
 
-    const nameParts = trimmedDisplayName.split(/\s+/).filter(Boolean);
+    // Backend validation rule: "First/Last name can only contain letters, spaces, hyphens, and apostrophes"
+    // Firebase often auto-generates displayName from the email prefix (e.g. "john.keller1").
+    // We must strip invalid characters to prevent a 400 Bad Request from the backend during sign-up.
+    const sanitizeName = (str?: string) => {
+      if (!str) return undefined;
+      // Allow only letters, spaces, hyphens, apostrophes. Remove anything else (numbers, dots, etc.)
+      const cleaned = str.replace(/[^a-zA-Z\s\-']/g, '').trim();
+      return cleaned || undefined;
+    };
+
+    const sanitizedDisplayName = sanitizeName(trimmedDisplayName);
+
+    // If the entire name was stripped (e.g., it was just an email prefix with numbers/dots), return empty
+    if (!sanitizedDisplayName) {
+      return {};
+    }
+
+    const nameParts = sanitizedDisplayName.split(/\s+/).filter(Boolean);
     const firstName = nameParts[0];
     const lastName = nameParts.slice(1).join(' ') || undefined;
 
     return {
-      displayName: trimmedDisplayName,
+      displayName: sanitizedDisplayName,
       ...(firstName ? { firstName } : {}),
       ...(lastName ? { lastName } : {}),
     };

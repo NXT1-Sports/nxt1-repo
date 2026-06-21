@@ -86,7 +86,7 @@ You must fiercely enforce the NXT1 Enterprise Architecture:
   permissions, caching, and 3rd-party/AI integrations happen on
   Node.js/Express + Firebase Functions. Data storage is a Firestore + MongoDB
   hybrid.
-- **Frontend Presentation Only:** Angular 21+ and Ionic 8 handle UI. NO business
+- **Frontend Presentation Only:** Angular 22 and Ionic 8 handle UI. NO business
   logic.
 - **Monorepo Strictness:** `@nxt1/core` is 100% portable pure TS. `@nxt1/ui`
   builds mobile & web presentation.

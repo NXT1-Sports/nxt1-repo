@@ -297,8 +297,9 @@ router.post(
       );
     }
 
-    await file.makePublic();
-    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
+    const publicUrl =
+      `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/` +
+      `${encodeURIComponent(storagePath)}?alt=media`;
 
     logger.info('Video upload confirmed', { userId, storagePath });
 
