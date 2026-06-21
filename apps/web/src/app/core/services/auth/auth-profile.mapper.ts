@@ -59,6 +59,7 @@ export interface BackendProfileLike {
   readonly email?: string;
   readonly firstName?: string;
   readonly lastName?: string;
+  readonly displayName?: string;
   readonly profileImgs?: readonly string[] | null;
   readonly role?: string | null;
   readonly onboardingCompleted?: boolean;
@@ -98,6 +99,7 @@ export interface BackendProfileLike {
  */
 export function mapBackendProfileToCachedUserProfile(user: BackendProfileLike): CachedUserProfile {
   const sports = normalizeSports(user.sports);
+  const sanitizedIdentity = sanitizeIdentity(user);
   const primarySport = sports.find((sport) => sport.order === 0)?.sport;
   const sportTeam = sports.find((sport) => sport.team?.name)?.team;
   const rawTopTeam = user.team ?? undefined;
@@ -154,10 +156,12 @@ export function mapBackendProfileToCachedUserProfile(user: BackendProfileLike): 
   return {
     uid: user.id,
     email: user.email ?? '',
-    firstName: user.firstName,
-    lastName: user.lastName,
+    firstName: sanitizedIdentity.firstName,
+    lastName: sanitizedIdentity.lastName,
     profileImg: user.profileImgs?.[0] ?? null,
-    displayName: `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim(),
+    displayName: [sanitizedIdentity.firstName, sanitizedIdentity.lastName]
+      .filter(Boolean)
+      .join(' '),
     role: user.role ?? null,
     onboardingCompleted: user.onboardingCompleted,
     onboardingCompletedAt: user.onboardingCompletedAt,
@@ -254,6 +258,46 @@ function buildOrganizationAccessSummary(
 
 function isLikelySlugValue(value: string): boolean {
   return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.trim());
+}
+
+function sanitizeIdentity(user: BackendProfileLike): {
+  firstName?: string;
+  lastName?: string;
+} {
+  const firstName = user.firstName?.trim();
+  const lastName = user.lastName?.trim();
+
+  if (!firstName && !lastName) {
+    return {};
+  }
+
+  if (firstName && !lastName && isLikelySyntheticProviderDisplayName(firstName, user.email)) {
+    return {};
+  }
+
+  return {
+    ...(firstName ? { firstName } : {}),
+    ...(lastName ? { lastName } : {}),
+  };
+}
+
+function isLikelySyntheticProviderDisplayName(displayName: string, email?: string): boolean {
+  const normalizedDisplayName = displayName.trim().toLowerCase();
+  const normalizedEmailLocalPart = email?.split('@')[0]?.trim().toLowerCase();
+
+  if (normalizedEmailLocalPart && normalizedDisplayName === normalizedEmailLocalPart) {
+    return true;
+  }
+
+  if (displayName.includes(' ') || displayName.includes('@')) {
+    return false;
+  }
+
+  if (displayName.includes('.') || displayName.includes('_')) {
+    return true;
+  }
+
+  return /-\d+$/.test(displayName);
 }
 
 function normalizeSports(
