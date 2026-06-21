@@ -123,7 +123,7 @@ const SHARED_PERSISTENCE_CONTRACT = [
   '- Include useful payload fields when known: `coordinatorId`, `workflow`, `outcome`, `entityId`, `teamId`, `organizationId`, `toolName`, `artifactType`.',
   '- Do not emit duplicate analytics for pure reads, internal reasoning, abandoned drafts, or failed retries the user never received.',
   '- When the user asks for analytics or activity history, retrieve it with `get_analytics_summary` instead of guessing.',
-  '- Final response delivery is mandatory: when tools return deliverable URLs (image/video/pdf/export/download links), include those exact URLs in the same user-facing reply. Never claim a file/diagram/report is ready without surfacing its link(s).',
+  '- Final response delivery is mandatory: when tools return deliverable URLs (image/video/pdf/export/download links), mention the deliverable by filename/title in the live reply. The system will surface the exact structured link in the finalized user-facing message, so do not paste long signed download URLs inline unless the user explicitly asks for the raw URL.',
   '- Learning resource augmentation (cross-coordinator): when the user asks for drills, skill work, training plans, installs, role-development routines, or "what should we run" style program guidance, proactively include 3-5 curated watch links by calling `recommend_learning_videos` unless the user explicitly requests text-only output.',
   '- For learning-resource calls, pass known context fields whenever available: `sport`, `position`, `audienceRole`, and `level` so recommendations are role- and level-specific.',
   '- Never claim a deliverable exists before calling the tool: do NOT write "I have created your diagrams", "your report is ready", "diagrams are complete", or any equivalent completion statement unless you have already executed the relevant tool (e.g. create_play_diagram, generate_graphic, write_intel) in this response and received its output. If a tool call is pending, skipped, or failed, explicitly state what is incomplete rather than falsely claiming success.',
@@ -201,6 +201,10 @@ const ARTIFACT_KEYS = [
   'audioUrl',
   'thumbnailUrl',
 ] as const satisfies ReadonlyArray<keyof AgentArtifactHandoff>;
+
+const LLM_HIDDEN_DELIVERABLE_URL_KEYS = new Set(['downloadUrl', 'pdfUrl', 'exportUrl', 'fileUrl']);
+const LLM_HIDDEN_DELIVERABLE_EXTENSION_RE =
+  /\.(?:pdf|csv|tsv|xls|xlsx|doc|docx|ppt|pptx|txt|json|zip)(?:$|[?#])/i;
 
 /**
  * Ledger entry recorded after each successful tool execution within a runLoop (Tier 3).
@@ -1283,6 +1287,7 @@ export abstract class BaseAgent {
         onStreamEvent
       );
       observation = this.truncateObservation(observation);
+      const llmObservation = this.buildLlmObservation(observation);
 
       let toolSuccess: boolean;
       let toolResult: Record<string, unknown> | undefined;
@@ -1322,7 +1327,7 @@ export abstract class BaseAgent {
 
       messages.push({
         role: 'tool',
-        content: observation,
+        content: llmObservation,
         tool_call_id: pendingToolCall.id,
       });
 
@@ -1990,6 +1995,7 @@ export abstract class BaseAgent {
         }
 
         const observation = this.truncateObservation(br.value.observation);
+        const llmObservation = this.buildLlmObservation(observation);
         iterationToolDurationMs += br.value.durationMs;
         toolExecutionMeta.set(toolCall.id, {
           completedAt: br.value.completedAt,
@@ -2065,7 +2071,7 @@ export abstract class BaseAgent {
 
         const toolResultMsg: LLMMessage = {
           role: 'tool',
-          content: observation,
+          content: llmObservation,
           tool_call_id: toolCall.id,
         };
         messages.push(toolResultMsg);
@@ -2485,6 +2491,123 @@ export abstract class BaseAgent {
     }
 
     return observation;
+  }
+
+  private buildLlmObservation(observation: string): string {
+    try {
+      const parsed = JSON.parse(observation) as Record<string, unknown>;
+      if (!parsed['data'] || typeof parsed['data'] !== 'object') {
+        return observation;
+      }
+
+      return JSON.stringify({
+        ...parsed,
+        data: this.sanitizeDeliverableUrlsForLlm(parsed['data']),
+      });
+    } catch {
+      return observation;
+    }
+  }
+
+  private sanitizeDeliverableUrlsForLlm<T>(value: T): T {
+    if (Array.isArray(value)) {
+      return value.map((entry) => this.sanitizeDeliverableUrlsForLlm(entry)) as T;
+    }
+
+    if (!value || typeof value !== 'object') {
+      return value;
+    }
+
+    const record = value as Record<string, unknown>;
+    const deliverableLabel = this.resolveDeliverableLabelForLlm(record);
+
+    return Object.fromEntries(
+      Object.entries(record).map(([key, entry]) => {
+        if (typeof entry === 'string' && this.shouldHideDeliverableUrlForLlm(key, entry, record)) {
+          return [key, this.describeHiddenDeliverableLinkForLlm(deliverableLabel)];
+        }
+
+        return [key, this.sanitizeDeliverableUrlsForLlm(entry)];
+      })
+    ) as T;
+  }
+
+  private shouldHideDeliverableUrlForLlm(
+    key: string,
+    value: string,
+    siblingRecord: Record<string, unknown>
+  ): boolean {
+    if (!LLM_HIDDEN_DELIVERABLE_URL_KEYS.has(key)) {
+      return false;
+    }
+
+    if (!this.isSignedOrStorageUrl(value)) {
+      return false;
+    }
+
+    const mimeType =
+      typeof siblingRecord['mimeType'] === 'string' ? siblingRecord['mimeType'].toLowerCase() : '';
+    if (
+      mimeType.startsWith('image/') ||
+      mimeType.startsWith('video/') ||
+      mimeType.startsWith('audio/')
+    ) {
+      return false;
+    }
+
+    if (mimeType.length > 0) {
+      return true;
+    }
+
+    return LLM_HIDDEN_DELIVERABLE_EXTENSION_RE.test(value);
+  }
+
+  private resolveDeliverableLabelForLlm(record: Record<string, unknown>): string {
+    const candidates = [
+      record['fileName'],
+      record['filename'],
+      record['outputFileName'],
+      record['name'],
+    ];
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.trim().length > 0) {
+        return candidate.trim();
+      }
+    }
+
+    return 'your file';
+  }
+
+  private describeHiddenDeliverableLinkForLlm(label: string): string {
+    return `[link attached after completion for ${label}]`;
+  }
+
+  private isSignedOrStorageUrl(value: string): boolean {
+    try {
+      const parsed = new URL(value);
+      const host = parsed.hostname.toLowerCase();
+      const isKnownStorageHost =
+        host === 'storage.googleapis.com' ||
+        host === 'firebasestorage.googleapis.com' ||
+        host.endsWith('.amazonaws.com') ||
+        host.endsWith('.cloudfront.net');
+
+      if (!isKnownStorageHost) {
+        return false;
+      }
+
+      return (
+        parsed.searchParams.has('X-Goog-Algorithm') ||
+        parsed.searchParams.has('X-Goog-Signature') ||
+        parsed.searchParams.has('X-Amz-Algorithm') ||
+        parsed.searchParams.has('X-Amz-Signature') ||
+        parsed.searchParams.get('alt') === 'media' ||
+        parsed.searchParams.has('token') ||
+        LLM_HIDDEN_DELIVERABLE_EXTENSION_RE.test(decodeURIComponent(parsed.pathname))
+      );
+    } catch {
+      return false;
+    }
   }
 
   // ─── Context Window Pruner ────────────────────────────────────────────────

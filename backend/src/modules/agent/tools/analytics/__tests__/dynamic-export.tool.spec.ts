@@ -12,7 +12,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockSave = vi.fn().mockResolvedValue(undefined);
 const mockExists = vi.fn().mockResolvedValue([true]);
-const mockFile = vi.fn().mockReturnValue({ save: mockSave, exists: mockExists });
+const mockGetSignedUrl = vi
+  .fn()
+  .mockResolvedValue([
+    'https://storage.googleapis.com/test-bucket/signed-export.pdf?X-Goog-Algorithm=GOOG4-RSA-SHA256',
+  ]);
+const mockFile = vi.fn().mockReturnValue({
+  save: mockSave,
+  exists: mockExists,
+  getSignedUrl: mockGetSignedUrl,
+});
 const mockBucket = vi.fn().mockReturnValue({ file: mockFile, name: 'test-bucket' });
 vi.mock('firebase-admin/storage', () => ({
   getStorage: () => ({ bucket: mockBucket }),
@@ -159,9 +168,9 @@ describe('DynamicExportTool', () => {
       expect(data['rowCount']).toBe(2);
       expect(data['columnCount']).toBe(3);
       expect(data['downloadUrl']).toContain(
-        'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/'
+        'https://storage.googleapis.com/test-bucket/signed-export.pdf'
       );
-      expect(data['downloadUrl']).toContain('?alt=media&token=');
+      expect(data['downloadUrl']).toContain('X-Goog-Algorithm=GOOG4-RSA-SHA256');
       expect(typeof data['sizeBytes']).toBe('number');
       expect(data['sizeBytes'] as number).toBeGreaterThan(0);
 
@@ -180,7 +189,15 @@ describe('DynamicExportTool', () => {
       expect(opts.contentType).toBe('text/csv');
       expect(opts.resumable).toBe(false);
       expect(opts.validation).toBe(false);
+      expect(opts.metadata.contentType).toBe('text/csv');
       expect(opts.metadata.metadata.firebaseStorageDownloadTokens).toMatch(/^[0-9a-f-]{36}$/i);
+      expect(mockGetSignedUrl).toHaveBeenCalledWith({
+        version: 'v4',
+        action: 'read',
+        expires: expect.any(Number),
+        promptSaveAs: 'Top Prospects 2026.csv',
+        responseType: 'text/csv',
+      });
     });
   });
 

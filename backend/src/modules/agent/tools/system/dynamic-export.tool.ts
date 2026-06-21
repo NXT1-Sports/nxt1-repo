@@ -31,7 +31,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { ExportService, type ExportColumn, type ExportRow } from '../../services/export.service.js';
 import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
+import { getSignedUrlWithTimeout } from '../../../../utils/gcs-signed-url.js';
 import { z } from 'zod';
+
+const EXPORT_DOWNLOAD_URL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export class DynamicExportTool extends BaseTool {
   readonly name = 'dynamic_export';
@@ -232,6 +235,7 @@ export class DynamicExportTool extends BaseTool {
         resumable: false,
         validation: false,
         metadata: {
+          contentType: mimeType,
           cacheControl: 'public, max-age=31536000, immutable',
           contentDisposition: `attachment; filename="${outputBaseName}.${extension}"`,
           metadata: {
@@ -254,9 +258,16 @@ export class DynamicExportTool extends BaseTool {
         );
       }
 
-      const downloadUrl =
-        `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/` +
-        `${encodeURIComponent(storagePath)}?alt=media&token=${downloadToken}`;
+      const expiresAt = Date.now() + EXPORT_DOWNLOAD_URL_TTL_MS;
+      const [downloadUrl] = await getSignedUrlWithTimeout(() =>
+        file.getSignedUrl({
+          version: 'v4',
+          action: 'read',
+          expires: expiresAt,
+          promptSaveAs: `${outputBaseName}.${extension}`,
+          responseType: mimeType,
+        })
+      );
 
       return {
         success: true,
