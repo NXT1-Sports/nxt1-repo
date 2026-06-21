@@ -98,6 +98,7 @@ import { AnalyticsService } from '../../core/services/infrastructure/analytics.s
 import { CapacitorHttpAdapter } from '../../core/infrastructure';
 import { environment } from '../../../environments/environment';
 import { PostDetailOverlayService } from '@nxt1/ui/post-cards';
+import { shouldTrackProfileView } from './profile-view-tracking.util';
 
 const TEAM_INTEL_ENABLED = false;
 
@@ -598,12 +599,24 @@ export class ProfileComponent {
           if (response.success && response.data) {
             const profile = response.data;
             this.fetchedProfile.set(profile);
-            const isOwn = response._isOwnProfile;
+            const authUserId = this.authService.user()?.uid ?? null;
+            const firebaseUserId = this.authService.firebaseUser()?.uid ?? null;
+            const isOwn =
+              response._isOwnProfile || profile.id === authUserId || profile.id === firebaseUserId;
+
             this.isOwnProfile.set(isOwn);
             this.resolvedUnicode.set(profile.unicode ?? profile.id ?? '');
 
-            // Track profile view for other users (non-blocking, anonymous-safe).
-            if (!isOwn) {
+            // Skip the anonymous fallback while auth is still hydrating.
+            if (
+              shouldTrackProfileView({
+                explicitIsOwnProfile: isOwn,
+                viewedUserId: profile.id,
+                authUserId,
+                firebaseUserId,
+                isAuthenticated: this.authFlow.isAuthenticated(),
+              })
+            ) {
               void this.http
                 .post<{
                   success: boolean;
@@ -615,6 +628,13 @@ export class ProfileComponent {
                     error: err instanceof Error ? err.message : String(err),
                   })
                 );
+            } else if (!isOwn) {
+              this.logger.debug('Skipping mobile profile view tracking during auth hydration', {
+                viewedUserId: profile.id,
+                hasAuthUserId: !!authUserId,
+                hasFirebaseUserId: !!firebaseUserId,
+                isAuthenticated: this.authFlow.isAuthenticated(),
+              });
             }
 
             // Role-aware branching: coach/director own profile → load team data
