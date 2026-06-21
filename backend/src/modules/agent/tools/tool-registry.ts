@@ -38,6 +38,7 @@ import { logger } from '../../../utils/logger.js';
 import { runWithFirestoreEnvironment } from '../../../utils/firestore-environment-context.js';
 import type { BaseTool, ToolResult, ToolExecutionContext } from './base.tool.js';
 import { compactizeMarkdownUrls } from './favicon-registry.js';
+import { sendSlackAlert } from '../../../services/platform/alert.service.js';
 import {
   isStrictEntityToolGovernanceEnabled,
   isStrictZodToolSchemasEnabled,
@@ -551,9 +552,23 @@ export class ToolRegistry {
     if (isToolDisabled(normalizedName)) {
       return { success: false, error: `Tool is currently disabled: ${normalizedName}` };
     }
-    const result = normalizeToolResultForDisplay(
-      await runWithFirestoreEnvironment(context?.environment, () => tool.execute(input, context))
-    );
+    let result: ToolResult;
+    try {
+      result = normalizeToolResultForDisplay(
+        await runWithFirestoreEnvironment(context?.environment, () => tool.execute(input, context))
+      );
+    } catch (error) {
+      await this.postToolFailureAlert(normalizedName, error, context);
+      throw error;
+    }
+
+    if (!result.success) {
+      await this.postToolFailureAlert(
+        normalizedName,
+        result.error ?? 'Tool returned an unsuccessful result.',
+        context
+      );
+    }
 
     if (result.success && tool.isMutation) {
       await getAgentMutationPolicyService()
@@ -580,6 +595,37 @@ export class ToolRegistry {
     }
 
     return result;
+  }
+
+  private async postToolFailureAlert(
+    toolName: string,
+    error: unknown,
+    context?: ToolExecutionContext
+  ): Promise<void> {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    try {
+      await sendSlackAlert({
+        target: 'agent',
+        environment: context?.environment,
+        severity: 'critical',
+        title: 'Agent Tool Execution Failed',
+        summary: 'An Agent X tool execution returned a failure result or threw an exception.',
+        fields: [
+          { label: 'Tool', value: toolName },
+          { label: 'Error', value: errorMessage },
+          ...(context?.operationId ? [{ label: 'Operation ID', value: context.operationId }] : []),
+          ...(context?.threadId ? [{ label: 'Thread ID', value: context.threadId }] : []),
+          ...(context?.userId ? [{ label: 'User ID', value: context.userId }] : []),
+        ],
+      });
+    } catch (alertError) {
+      logger.warn('[ToolRegistry] Failed to send Slack alert for tool failure', {
+        toolName,
+        error: errorMessage,
+        alertError: alertError instanceof Error ? alertError.message : String(alertError),
+      });
+    }
   }
 
   private async syncIntelAfterWrite(
