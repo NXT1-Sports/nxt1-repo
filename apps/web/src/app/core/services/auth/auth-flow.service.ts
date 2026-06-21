@@ -100,6 +100,7 @@ import { GLOBAL_CRASHLYTICS } from '@nxt1/ui/infrastructure/error-handling';
 import { environment } from '../../../../environments/environment';
 import { clearHttpCache } from '../../infrastructure/http/cache.interceptor';
 import { mapBackendProfileToCachedUserProfile } from './auth-profile.mapper';
+import { extractAppleNameFieldsFromAuthResult } from './apple-name.helpers';
 
 /**
  * SSR-Safe Firebase Auth Access
@@ -1612,6 +1613,13 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       // UX boundary: popup/account selection happens here without loading state.
       const result = await signInWithPopup(this.firebaseAuth, provider);
+      const appleNameFields = extractAppleNameFieldsFromAuthResult(
+        result as {
+          user?: { displayName?: string | null; email?: string | null };
+          additionalUserInfo?: { profile?: unknown } | null;
+          _tokenResponse?: unknown;
+        }
+      );
 
       return this.runWithLoading(
         async () => {
@@ -1677,6 +1685,9 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               const createResult = await this.authApi.createUser({
                 uid: result.user.uid,
                 email: result.user.email!,
+                firstName: appleNameFields.firstName,
+                lastName: appleNameFields.lastName,
+                displayName: appleNameFields.displayName,
                 teamCode: teamCode || undefined,
                 referralId: referralId || undefined,
               });

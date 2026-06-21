@@ -1470,6 +1470,41 @@ describe('BaseAgent identifier scrubbing', () => {
     );
   });
 
+  it('hides signed document deliverable urls from LLM observations while preserving media urls', () => {
+    const agent = new FakeAgent() as unknown as {
+      buildLlmObservation(observation: string): string;
+    };
+
+    const exportObservation = JSON.stringify({
+      success: true,
+      data: {
+        downloadUrl:
+          'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/u1/threads/t1/exports/report.pdf?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc123',
+        fileName: 'Scout-Report-JDoe-QB.pdf',
+        mimeType: 'application/pdf',
+      },
+    });
+    const mediaObservation = JSON.stringify({
+      success: true,
+      data: {
+        imageUrl:
+          'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/u1/generated/graphic.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc123',
+        mimeType: 'image/jpeg',
+      },
+    });
+
+    const sanitizedExport = agent.buildLlmObservation(exportObservation);
+    const sanitizedMedia = agent.buildLlmObservation(mediaObservation);
+
+    expect(sanitizedExport).toContain('Scout-Report-JDoe-QB.pdf');
+    expect(sanitizedExport).toContain(
+      '[link attached after completion for Scout-Report-JDoe-QB.pdf]'
+    );
+    expect(sanitizedExport).not.toContain('X-Goog-Signature=abc123');
+
+    expect(sanitizedMedia).toContain('graphic.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256');
+  });
+
   it('repairs truncated signed URL string arguments before execution', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();
