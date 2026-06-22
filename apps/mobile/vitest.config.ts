@@ -67,6 +67,7 @@ export default defineConfig({
   // Resolve aliases matching tsconfig paths
   resolve: {
     alias: {
+      src: resolve(__dirname, 'src'),
       '@nxt1/core': resolve(__dirname, '../../packages/core/src'),
       '@nxt1/ui': resolve(__dirname, '../../packages/ui/src'),
       // design-tokens has no src/ dir; point to package root so sub-paths

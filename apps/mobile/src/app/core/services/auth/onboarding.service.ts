@@ -315,7 +315,7 @@ export class OnboardingService {
       }
 
       this.hasInitialized = true;
-      this.initializeStateMachine(user.uid);
+      void this.initializeStateMachine(user.uid);
     };
 
     checkAuth();
@@ -593,7 +593,7 @@ export class OnboardingService {
   // PRIVATE: STATE MACHINE INITIALIZATION
   // ============================================
 
-  private initializeStateMachine(userId: string): void {
+  private async initializeStateMachine(userId: string): Promise<void> {
     this.logger.info('Initializing shared state machine', { userId });
 
     const isLegacy = this.authFlow.isLegacyUser();
@@ -604,49 +604,77 @@ export class OnboardingService {
 
     const user = this.authFlow.user();
 
-    // Auto-fill from Auth if available (e.g. from Google or Apple login).
-    // Firebase can surface email-like fallbacks such as "john.keller1" when
-    // provider names are missing; sanitize to human-readable first/last names.
-    const { firstName: prefilledFirstName, lastName: prefilledLastName } =
-      this.derivePrefilledNames(user?.displayName, user?.email);
+    // Load backend profile data to get authoritative firstName/lastName
+    // This ensures onboarding prefills from stored profile, not just displayName parsing
+    let prefilledFirstName = '';
+    let prefilledLastName = '';
 
-    this.resolveSkipStepIds().then((skipStepIds) => {
-      this.machine = createOnboardingStateMachine({
-        userId,
-        initialSteps: isLegacy ? LEGACY_ONBOARDING_STEPS : ONBOARDING_STEPS.athlete,
-        skipStepIds,
-        initialFormData: {
-          userType: null,
-          authProvider: user?.provider ?? null,
-          profile: {
-            firstName: prefilledFirstName,
-            lastName: prefilledLastName,
-            profileImgs: user?.profileImg ? [user.profileImg] : null,
-          },
-        },
-        debug: false,
-        onComplete: async (formData) => {
-          if (isLegacy) {
-            await this.handleLegacyCompletion(formData);
-          } else {
-            await this.handleCompletion(formData);
-          }
-        },
+    try {
+      await this.profileService.load(userId);
+      const profileData = this.profileService.user();
+      if (profileData) {
+        // Use backend profile firstName/lastName if available (authoritative source)
+        prefilledFirstName = profileData.firstName || '';
+        prefilledLastName = profileData.lastName || '';
+        this.logger.debug('Prefilled from backend profile', {
+          firstName: prefilledFirstName,
+          lastName: prefilledLastName,
+        });
+      }
+    } catch (error) {
+      this.logger.warn('Failed to load profile for prefill, falling back to displayName parsing', {
+        error: error instanceof Error ? error.message : String(error),
       });
+    }
 
-      this.machineUnsubscribe = this.machine.addEventListener((event) => {
-        this.handleMachineEvent(event);
+    // Fallback: parse displayName if backend profile didn't provide names
+    if (!prefilledFirstName && !prefilledLastName) {
+      const parsed = this.derivePrefilledNames(user?.displayName, user?.email);
+      prefilledFirstName = parsed.firstName;
+      prefilledLastName = parsed.lastName;
+      this.logger.debug('Prefilled from displayName parsing', {
+        firstName: prefilledFirstName,
+        lastName: prefilledLastName,
       });
+    }
 
-      this.tryRestoreSession(userId).then(async (restored) => {
-        if (!restored) {
-          this.machine.start();
-          await this.applyInviteSportPreselection();
-          this.trackStarted();
+    const skipStepIds = await this.resolveSkipStepIds();
+
+    this.machine = createOnboardingStateMachine({
+      userId,
+      initialSteps: isLegacy ? LEGACY_ONBOARDING_STEPS : ONBOARDING_STEPS.athlete,
+      skipStepIds,
+      initialFormData: {
+        userType: null,
+        authProvider: user?.provider ?? null,
+        profile: {
+          firstName: prefilledFirstName,
+          lastName: prefilledLastName,
+          profileImgs: user?.profileImg ? [user.profileImg] : null,
+        },
+      },
+      debug: false,
+      onComplete: async (formData) => {
+        if (isLegacy) {
+          await this.handleLegacyCompletion(formData);
         } else {
-          await this.applyInviteSportPreselection();
+          await this.handleCompletion(formData);
         }
-      });
+      },
+    });
+
+    this.machineUnsubscribe = this.machine.addEventListener((event) => {
+      this.handleMachineEvent(event);
+    });
+
+    this.tryRestoreSession(userId).then(async (restored) => {
+      if (!restored) {
+        this.machine.start();
+        await this.applyInviteSportPreselection();
+        this.trackStarted();
+      } else {
+        await this.applyInviteSportPreselection();
+      }
     });
   }
 
