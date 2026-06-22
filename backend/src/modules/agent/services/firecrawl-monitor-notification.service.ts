@@ -64,26 +64,97 @@ const monitorPageEventSchema = monitorEventBaseSchema
   })
   .passthrough();
 
-const firecrawlMonitorWebhookSchema = z.discriminatedUnion('type', [
-  z.object({
-    success: z.boolean(),
-    type: z.literal('monitor.check.completed'),
-    id: z.string().min(1),
-    webhookId: z.string().optional(),
-    data: z.array(monitorCheckCompletedEventSchema).min(1),
-    metadata: z.record(z.string(), z.unknown()).optional(),
-    error: z.string().optional(),
-  }),
-  z.object({
-    success: z.boolean(),
-    type: z.literal('monitor.page'),
-    id: z.string().min(1),
-    webhookId: z.string().optional(),
-    data: z.array(monitorPageEventSchema).min(1),
-    metadata: z.record(z.string(), z.unknown()).optional(),
-    error: z.string().optional(),
-  }),
-]);
+function toOptionalNonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
+function normalizeFirecrawlMonitorEventItem(
+  eventType: 'monitor.page' | 'monitor.check.completed',
+  rootEventId: string | null,
+  item: unknown,
+  success: unknown
+): unknown {
+  if (typeof item !== 'object' || item === null || Array.isArray(item)) return item;
+
+  const record = { ...(item as Record<string, unknown>) };
+  const checkId = toOptionalNonEmptyString(record['checkId']) ?? rootEventId;
+  if (checkId && toOptionalNonEmptyString(record['checkId']) === null) {
+    record['checkId'] = checkId;
+  }
+
+  if (toOptionalNonEmptyString(record['status']) !== null) {
+    return record;
+  }
+
+  if (eventType === 'monitor.check.completed') {
+    const successBool =
+      typeof success === 'boolean'
+        ? success
+        : typeof success === 'string'
+          ? success.trim().toLowerCase() === 'true'
+          : true;
+    record['status'] = successBool ? 'completed' : 'failed';
+    return record;
+  }
+
+  const itemError = toOptionalNonEmptyString(record['error']);
+  const successBool =
+    typeof success === 'boolean'
+      ? success
+      : typeof success === 'string'
+        ? success.trim().toLowerCase() === 'true'
+        : true;
+  record['status'] = itemError || successBool === false ? 'error' : 'changed';
+  return record;
+}
+
+function normalizeFirecrawlMonitorWebhookPayload(payload: unknown): unknown {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return payload;
+
+  const normalized = { ...(payload as Record<string, unknown>) };
+  const type = normalized['type'];
+  if (type !== 'monitor.page' && type !== 'monitor.check.completed') return normalized;
+
+  const normalizedSuccess =
+    typeof normalized['success'] === 'string'
+      ? normalized['success'].trim().toLowerCase()
+      : normalized['success'];
+  if (normalizedSuccess === 'true') normalized['success'] = true;
+  if (normalizedSuccess === 'false') normalized['success'] = false;
+
+  const rootEventId = toOptionalNonEmptyString(normalized['id']);
+  if (Array.isArray(normalized['data'])) {
+    normalized['data'] = normalized['data'].map((item) =>
+      normalizeFirecrawlMonitorEventItem(type, rootEventId, item, normalized['success'])
+    );
+  }
+
+  return normalized;
+}
+
+const firecrawlMonitorWebhookSchema = z.preprocess(
+  normalizeFirecrawlMonitorWebhookPayload,
+  z.discriminatedUnion('type', [
+    z.object({
+      success: z.boolean(),
+      type: z.literal('monitor.check.completed'),
+      id: z.string().min(1),
+      webhookId: z.string().optional(),
+      data: z.array(monitorCheckCompletedEventSchema).min(1),
+      metadata: z.record(z.string(), z.unknown()).optional(),
+      error: z.string().optional(),
+    }),
+    z.object({
+      success: z.boolean(),
+      type: z.literal('monitor.page'),
+      id: z.string().min(1),
+      webhookId: z.string().optional(),
+      data: z.array(monitorPageEventSchema).min(1),
+      metadata: z.record(z.string(), z.unknown()).optional(),
+      error: z.string().optional(),
+    }),
+  ])
+);
 
 const notificationCopySchema = z.object({
   title: z.string().min(1).max(65),
