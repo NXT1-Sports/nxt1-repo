@@ -19,19 +19,24 @@
  *       ↓
  *   Tool uploads Buffer to Firebase Storage (thread-scoped)
  *       ↓
- *   Returns durable Firebase download URL as AgentXAttachment-compatible result
+ *   Returns signed backend download URL as AgentXAttachment-compatible result
  *
  * For massive datasets that exceed LLM output limits, the tool also accepts
  * a `query` object. When present, the tool bypasses the LLM-provided rows
  * and fetches data directly from MongoDB, assembling the document natively.
  */
 
-import { getStorage } from 'firebase-admin/storage';
+import type { Storage } from 'firebase-admin/storage';
 import { createHash, randomUUID } from 'node:crypto';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { ExportService, type ExportColumn, type ExportRow } from '../../services/export.service.js';
 import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
+import { AgentEphemeralStateService } from '../../services/agent-ephemeral-state.service.js';
+import { storage as defaultStorage } from '../../../../utils/firebase.js';
+import { stagingStorage } from '../../../../utils/firebase-staging.js';
 import { z } from 'zod';
+
+const EXPORT_DOWNLOAD_URL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export class DynamicExportTool extends BaseTool {
   readonly name = 'dynamic_export';
@@ -98,6 +103,10 @@ export class DynamicExportTool extends BaseTool {
   constructor(exportService?: ExportService) {
     super();
     this.exportService = exportService ?? new ExportService();
+  }
+
+  private resolveStorage(context?: ToolExecutionContext): Storage {
+    return context?.environment === 'staging' ? stagingStorage : defaultStorage;
   }
 
   async execute(
@@ -224,7 +233,7 @@ export class DynamicExportTool extends BaseTool {
       const storagePath = `Users/${userId}/threads/${threadId}/exports/${timestamp}-${hash}.${extension}`;
       const downloadToken = randomUUID();
 
-      const bucket = getStorage().bucket();
+      const bucket = this.resolveStorage(context).bucket();
       const file = bucket.file(storagePath);
 
       await file.save(buffer, {
@@ -254,9 +263,14 @@ export class DynamicExportTool extends BaseTool {
         );
       }
 
-      const downloadUrl =
-        `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/` +
-        `${encodeURIComponent(storagePath)}?alt=media&token=${downloadToken}`;
+      const downloadUrl = this.buildExportDownloadUrl(
+        {
+          storagePath,
+          fileName: `${outputBaseName}.${extension}`,
+          mimeType,
+        },
+        context
+      );
 
       return {
         success: true,
@@ -304,6 +318,27 @@ export class DynamicExportTool extends BaseTool {
     const raw = input[key];
     if (!Array.isArray(raw) || raw.length === 0) return null;
     return raw.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
+  }
+
+  private buildExportDownloadUrl(
+    params: {
+      readonly storagePath: string;
+      readonly fileName: string;
+      readonly mimeType: string;
+    },
+    context?: ToolExecutionContext
+  ): string {
+    const agentRouteBase =
+      context?.agentRouteBase ??
+      `${(process.env['BACKEND_URL'] ?? 'http://localhost:3000').replace(/\/+$/, '')}/api/v1${context?.environment === 'staging' ? '/staging' : ''}/agent-x`;
+
+    return AgentEphemeralStateService.buildSignedExportDownloadUrl({
+      storagePath: params.storagePath,
+      fileName: params.fileName,
+      mimeType: params.mimeType,
+      routeBase: agentRouteBase,
+      ttlMs: EXPORT_DOWNLOAD_URL_TTL_MS,
+    }).url;
   }
 
   private resolvePdfImageUrls(

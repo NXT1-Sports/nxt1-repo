@@ -267,6 +267,15 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(result).toBe(`[View Video](${videoUrl})`);
   });
 
+  it('promotes signed export document urls to markdown links', () => {
+    const exportUrl =
+      'https://app.nxt1.test/api/v1/agent-x/media-proxy/export/scout-report.pdf?path=exports%2Fuser-1%2Fscout-report.pdf&mime=application%2Fpdf&exp=1750000000&sig=abc123';
+
+    const result = facade.promoteAssistantMediaUrlsToMarkdown(exportUrl);
+
+    expect(result).toBe(`[Open File](${exportUrl})`);
+  });
+
   it('keeps approval reply above the final assistant result when completion timestamp rehydrates first', () => {
     const initialUser: OperationMessage = {
       id: 'user-initial-email',

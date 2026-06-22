@@ -318,6 +318,20 @@ function resolveRequestAppBaseUrl(req: Request): string {
   });
 }
 
+function resolveRequestAgentRouteBase(req: Request): string {
+  const forwardedHost =
+    typeof req.headers['x-forwarded-host'] === 'string'
+      ? req.headers['x-forwarded-host'].split(',')[0]?.trim()
+      : undefined;
+  const forwardedProto =
+    typeof req.headers['x-forwarded-proto'] === 'string'
+      ? req.headers['x-forwarded-proto'].split(',')[0]?.trim()
+      : undefined;
+  const host = forwardedHost || req.headers.host || 'localhost:3000';
+  const protocol = forwardedProto || req.protocol || 'http';
+  return `${protocol}://${host}${req.baseUrl}`.replace(/\/+$/, '');
+}
+
 function isTruthyFlag(value: unknown): boolean {
   if (typeof value === 'boolean') return value;
   if (typeof value !== 'string') return false;
@@ -2991,6 +3005,7 @@ router.post('/resume-job/:operationId', appGuard, async (req: Request, res: Resp
       origin: 'user' as AgentJobOrigin,
       context: {
         appBaseUrl: resolveRequestAppBaseUrl(req),
+        agentRouteBase: resolveRequestAgentRouteBase(req),
         threadId,
         resumedFrom: operationId,
         yieldState: {
@@ -3305,6 +3320,7 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
         origin: 'user' as AgentJobOrigin,
         context: {
           appBaseUrl: resolveRequestAppBaseUrl(req),
+          agentRouteBase: resolveRequestAgentRouteBase(req),
           threadId: jobDoc.threadId,
           resumedFrom: resolvedOperationId,
           yieldState: {
@@ -3568,6 +3584,7 @@ router.post('/threads/:threadId/actions', appGuard, async (req: Request, res: Re
       origin: 'user' as AgentJobOrigin,
       context: {
         appBaseUrl: resolveRequestAppBaseUrl(req),
+        agentRouteBase: resolveRequestAgentRouteBase(req),
         threadId,
         resumedFrom: operationId,
         approvalId: resolvedApprovalId,
@@ -3886,6 +3903,7 @@ router.post('/approvals/:id/resolve', appGuard, async (req: Request, res: Respon
       origin: 'user' as AgentJobOrigin,
       context: {
         appBaseUrl: resolveRequestAppBaseUrl(req),
+        agentRouteBase: resolveRequestAgentRouteBase(req),
         threadId,
         resumedFrom: operationId,
         approvalId,
@@ -4280,6 +4298,7 @@ router.post(
         origin: 'user' as AgentJobOrigin,
         context: {
           appBaseUrl: resolveRequestAppBaseUrl(req),
+          agentRouteBase: resolveRequestAgentRouteBase(req),
           ...(userContext ?? {}),
           ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(resolvedThreadId ? { threadId: resolvedThreadId } : {}),
@@ -5113,6 +5132,7 @@ router.post(
         origin: 'user' as AgentJobOrigin,
         context: {
           appBaseUrl: resolveRequestAppBaseUrl(req),
+          agentRouteBase: resolveRequestAgentRouteBase(req),
           ...(userContext ?? {}),
           ...(idempotencyKey ? { idempotencyKey } : {}),
           ...(effectiveThreadId ? { threadId: effectiveThreadId } : {}),

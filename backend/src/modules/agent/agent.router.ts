@@ -504,6 +504,9 @@ export class AgentRouter {
       typeof rawContextObj['appBaseUrl'] === 'string'
         ? String(rawContextObj['appBaseUrl'])
         : undefined,
+      typeof rawContextObj['agentRouteBase'] === 'string'
+        ? String(rawContextObj['agentRouteBase'])
+        : undefined,
       timezone,
       signal,
       mode,
@@ -784,6 +787,7 @@ export class AgentRouter {
     threadId?: string,
     environment?: 'staging' | 'production',
     appBaseUrl?: string,
+    agentRouteBase?: string,
     timezone?: string,
     signal?: AbortSignal,
     mode?: string,
@@ -812,6 +816,7 @@ export class AgentRouter {
       threadId,
       environment,
       appBaseUrl,
+      agentRouteBase,
       timezone,
       signal,
       mode,
