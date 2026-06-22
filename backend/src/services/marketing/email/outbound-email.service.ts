@@ -5,7 +5,16 @@
  * Single backend entry point for product/marketing lifecycle emails.
  */
 
+import { randomUUID } from 'node:crypto';
+import { buildTrackedEmailHtmlWithRecipientHash } from '../../communications/connected-mail.service.js';
 import { logger } from '../../../utils/logger.js';
+import {
+  createMarketingEmailDispatch,
+  hashMarketingRecipientEmail,
+  markMarketingEmailDispatchFailed,
+  markMarketingEmailDispatchSent,
+  readMarketingRecipientDomain,
+} from './marketing-email-dispatch.service.js';
 import { getMarketingEmailProvider } from './providers/provider-registry.js';
 import type {
   MarketingEmailSendInput,
@@ -18,6 +27,16 @@ export type OutboundMarketingEmailResult = MarketingEmailSendResult;
 function isLikelyEmail(value: string): boolean {
   const trimmed = value.trim();
   return trimmed.length > 3 && trimmed.includes('@') && !trimmed.includes(' ');
+}
+
+function inferCampaignFamily(campaignKey: string): string {
+  if (campaignKey.startsWith('welcome_')) return 'welcome';
+  if (campaignKey.startsWith('signup_drip_')) return 'signup_drip';
+  if (campaignKey.startsWith('monthly_campaign_')) return 'monthly';
+  if (campaignKey.startsWith('launch_')) return 'launch';
+  if (campaignKey.startsWith('b2b_')) return 'b2b';
+  if (campaignKey.startsWith('legacy_')) return 'legacy';
+  return 'unknown';
 }
 
 /**
@@ -33,18 +52,79 @@ export async function sendOutboundMarketingEmail(
   }
 
   const provider = getMarketingEmailProvider();
-  const result = await provider.send({
-    ...input,
-    to,
+  const dispatchId = randomUUID();
+  const trackingId = dispatchId;
+  const campaignFamily = inferCampaignFamily(input.campaignKey);
+  const recipientEmailHash = hashMarketingRecipientEmail(to);
+  const recipientDomain = readMarketingRecipientDomain(to);
+  const trackedHtml = buildTrackedEmailHtmlWithRecipientHash(input.html, {
+    subjectId: `marketing:${input.campaignKey}`,
+    subjectType: 'organization',
+    trackingId,
+    recipientEmailHash,
+    recipientName: to,
+    extraTrackingParams: {
+      campaignKey: input.campaignKey,
+      campaignFamily,
+      provider: provider.key,
+      dispatchId,
+      emailOrigin: 'marketing',
+    },
   });
 
-  logger.info('[MarketingEmail] Sent outbound email', {
+  await createMarketingEmailDispatch({
+    dispatchId,
+    trackingId,
     campaignKey: input.campaignKey,
+    campaignFamily,
+    provider: provider.key,
     userId: input.userId,
     to,
-    provider: result.provider,
-    providerMessageId: result.providerMessageId,
+    subject: input.subject,
+    replyTo: input.replyTo,
+    metadata: {
+      emailOrigin: 'marketing',
+    },
   });
 
-  return result;
+  try {
+    const result = await provider.send({
+      ...input,
+      to,
+      html: trackedHtml,
+      campaignFamily,
+      dispatchId,
+      trackingId,
+      recipientEmailHash,
+      recipientDomain,
+    });
+
+    await markMarketingEmailDispatchSent({
+      dispatchId,
+      providerMessageId: result.providerMessageId,
+    });
+
+    logger.info('[MarketingEmail] Sent outbound email', {
+      campaignKey: input.campaignKey,
+      campaignFamily,
+      dispatchId,
+      userId: input.userId,
+      to,
+      provider: result.provider,
+      providerMessageId: result.providerMessageId,
+    });
+
+    return {
+      ...result,
+      dispatchId,
+      trackingId,
+    };
+  } catch (error) {
+    const failureReason = error instanceof Error ? error.message : String(error);
+    await markMarketingEmailDispatchFailed({
+      dispatchId,
+      failureReason,
+    });
+    throw error;
+  }
 }

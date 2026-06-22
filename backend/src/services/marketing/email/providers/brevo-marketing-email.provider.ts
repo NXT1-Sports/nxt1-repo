@@ -39,7 +39,10 @@ export class BrevoMarketingEmailProvider implements MarketingEmailProvider {
       htmlContent: input.html,
       headers: {
         'X-Campaign-Key': input.campaignKey,
+        ...(input.campaignFamily ? { 'X-Campaign-Family': input.campaignFamily } : {}),
         ...(input.userId ? { 'X-User-Id': input.userId } : {}),
+        ...(input.dispatchId ? { 'X-Dispatch-Id': input.dispatchId } : {}),
+        ...(input.trackingId ? { 'X-Tracking-Id': input.trackingId } : {}),
       },
       tags: ['marketing', input.campaignKey],
     };
@@ -70,6 +73,8 @@ export class BrevoMarketingEmailProvider implements MarketingEmailProvider {
       provider: this.key,
       accepted: true,
       providerMessageId: parsed?.messageId,
+      dispatchId: input.dispatchId,
+      trackingId: input.trackingId,
     };
   }
 }

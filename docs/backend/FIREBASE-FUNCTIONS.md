@@ -336,6 +336,16 @@ firebase functions:secrets:set SMTP_USER
 firebase functions:secrets:set SMTP_PASS
 ```
 
+Scheduled backend cron jobs reuse the same pattern:
+
+- Functions secret: `CRON_SECRET`
+- Functions param: `BACKEND_URL`
+- Backend env: `SLACK_INSIGHTS_WEBHOOK_URL`
+- Optional staging backend override: `STAGING_SLACK_INSIGHTS_WEBHOOK_URL`
+
+The weekly and monthly insights schedulers do not require any additional
+Functions-only params beyond `BACKEND_URL`.
+
 ### Rate Limiting
 
 Implemented via `maxInstances` and function-level checks:
