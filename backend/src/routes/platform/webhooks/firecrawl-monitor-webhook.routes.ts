@@ -102,9 +102,26 @@ router.post('/', async (req: Request, res: Response) => {
   } catch (error) {
     const alertContext = extractAlertContext(req.body);
     if (error instanceof z.ZodError) {
+      // Log detailed payload structure for debugging
+      const bodyKeys =
+        typeof req.body === 'object' && req.body !== null ? Object.keys(req.body) : [];
+      const bodyPreview =
+        typeof req.body === 'object' ? JSON.stringify(req.body).slice(0, 1000) : String(req.body);
+
       logger.error('[FirecrawlMonitorWebhook] Invalid webhook payload', {
         ...alertContext,
-        issues: error.issues,
+        issueCount: error.issues.length,
+        issuesDetailed: error.issues.map((issue) => ({
+          path: issue.path.join('.'),
+          code: issue.code,
+          message: issue.message,
+          expected: (issue as any).expected,
+          received: (issue as any).received,
+        })),
+        bodyKeys,
+        bodyPreview,
+        bodyType: typeof req.body,
+        bodyIsNull: req.body === null,
         contentType: req.headers['content-type'],
       });
       await sendFirecrawlMonitorFailureAlert({
