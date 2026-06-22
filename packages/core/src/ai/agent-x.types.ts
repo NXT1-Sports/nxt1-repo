@@ -1724,9 +1724,24 @@ export interface OperationLogEntry {
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
+/** Opaque cursor payload for operations log history pagination. */
+export interface OperationsLogCursor {
+  readonly v: 1;
+  readonly timestamp: string;
+  readonly stableKey: string;
+}
+
+/** Pagination metadata for operations log history rows. */
+export interface OperationsLogPageInfo {
+  readonly hasMore: boolean;
+  readonly nextCursor?: string;
+}
+
 /** API response for the operations log endpoint. */
 export interface OperationsLogResponse {
   readonly success: boolean;
   readonly data?: readonly OperationLogEntry[];
+  readonly scheduled?: readonly OperationLogEntry[];
+  readonly pageInfo?: OperationsLogPageInfo;
   readonly error?: string;
 }

@@ -377,6 +377,48 @@ describe('AgentWorker', () => {
     );
   });
 
+  it('persists generated video links with poster metadata for markdown reloads', async () => {
+    const payload = makePayload({
+      context: { threadId: 'thread-video-123' },
+      intent: 'trim first 5 seconds',
+    });
+    const job = makeMockJob(payload);
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Ftrimmed.mp4?alt=media&token=video';
+    const thumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Ftrimmed-thumbnail.jpg?alt=media&token=thumb';
+    const encodedThumbnailUrl = encodeURIComponent(thumbnailUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+
+    mockRouter.run.mockResolvedValueOnce({
+      summary: 'Trimmed the first 5 seconds from your clip.',
+      data: {
+        outputUrl: videoUrl,
+        videoUrl,
+        thumbnailUrl,
+      },
+    } satisfies AgentOperationResult);
+
+    await capturedProcessor!(job);
+
+    expect(mockChatService.addMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        threadId: 'thread-video-123',
+        role: 'assistant',
+        content: expect.stringContaining(`${videoUrl}#poster=${encodedThumbnailUrl}`),
+        attachments: [
+          expect.objectContaining({
+            url: videoUrl,
+            type: 'video',
+            thumbnailUrl,
+          }),
+        ],
+      })
+    );
+  });
+
   it('should append scheduled runs to the original thread before router execution', async () => {
     const payload = makePayload({
       origin: 'system_cron' as AgentJobOrigin,

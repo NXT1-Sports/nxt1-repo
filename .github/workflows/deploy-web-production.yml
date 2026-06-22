@@ -38,7 +38,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '22'
+  NODE_VERSION: '22.22.3'
 
 jobs:
   deploy-production:
@@ -47,7 +47,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -84,9 +84,13 @@ jobs:
         working-directory: apps/web
         run: npm run build
 
-      - name: Deploy to Firebase Hosting Production
-        uses: w9jds/firebase-action@v15.20.0
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
         with:
-          args: deploy --only hosting -P production --force
-        env:
-          GCP_SA_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_PROD }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Deploy to Firebase Hosting Production
+        run: npx --yes firebase-tools@15.22.0 deploy --only hosting -P production --force

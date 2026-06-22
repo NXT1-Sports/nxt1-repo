@@ -12,6 +12,8 @@ import type { RunwayMcpBridgeService } from './runway-mcp-bridge.service.js';
 import { z } from 'zod';
 import { AgentEngineError } from '../../../exceptions/agent-engine.error.js';
 import { MediaStagingService } from '../../media/media-staging.service.js';
+import type { FfmpegMcpBridgeService } from '../ffmpeg-mcp/ffmpeg-mcp-bridge.service.js';
+import { generateVideoThumbnail } from '../ffmpeg-mcp/ffmpeg-thumbnail-helper.js';
 
 export class RunwayCheckTaskTool extends BaseTool {
   readonly name = 'runway_check_task';
@@ -30,7 +32,10 @@ export class RunwayCheckTaskTool extends BaseTool {
   readonly entityGroup = 'user_tools' as const;
   private readonly mediaStaging = new MediaStagingService();
 
-  constructor(private readonly bridge: RunwayMcpBridgeService) {
+  constructor(
+    private readonly bridge: RunwayMcpBridgeService,
+    private readonly thumbnailBridge?: Pick<FfmpegMcpBridgeService, 'generateThumbnail'>
+  ) {
     super();
   }
 
@@ -69,6 +74,7 @@ export class RunwayCheckTaskTool extends BaseTool {
       // If task is complete and we have an output URL, persist to environment-scoped Firebase Storage.
       let persistentUrl: string | undefined;
       let storagePath: string | undefined;
+      let thumbnailUrl: string | null = null;
 
       if (status === 'SUCCEEDED' && outputUrl) {
         context?.emitStage?.('uploading_assets', {
@@ -102,6 +108,17 @@ export class RunwayCheckTaskTool extends BaseTool {
           // Non-fatal — return the ephemeral URL with a warning
           persistentUrl = undefined;
         }
+
+        if (this.thumbnailBridge) {
+          thumbnailUrl = await generateVideoThumbnail({
+            bridge: this.thumbnailBridge,
+            videoUrl: persistentUrl ?? outputUrl,
+            outputPath: `runway-${taskId.trim()}.mp4`,
+            fallbackBase: `runway-${taskId.trim()}.mp4`,
+            context,
+            logScope: 'RunwayCheckTaskTool',
+          });
+        }
       }
 
       return {
@@ -111,6 +128,7 @@ export class RunwayCheckTaskTool extends BaseTool {
           status: status ?? 'UNKNOWN',
           progress: progress ?? null,
           outputUrl: persistentUrl ?? outputUrl ?? null,
+          ...(thumbnailUrl ? { thumbnailUrl } : {}),
           storagePath: storagePath ?? null,
           ephemeralUrl: persistentUrl ? outputUrl : null,
           persisted: !!persistentUrl,

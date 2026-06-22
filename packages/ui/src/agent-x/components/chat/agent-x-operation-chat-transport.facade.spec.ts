@@ -192,6 +192,63 @@ describe('AgentXOperationChatTransportFacade', () => {
     );
   });
 
+  it('encodes markdown-sensitive stream poster URL characters before promoting media URLs', () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-media/reels/clip.mp4';
+    const thumbnailUrl =
+      'https://storage.googleapis.com/nxt1-media/reels/thumbs/clip poster (1).jpg?alt=media&token=thumb';
+    const encodedThumbnailUrl = encodeURIComponent(thumbnailUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+    const promote = (
+      facade as unknown as {
+        promoteStreamMediaUrlsToMarkdown: (
+          content: string,
+          attachments: Array<{
+            url: string;
+            type: 'video';
+            name: string;
+            thumbnailUrl: string;
+          }>
+        ) => string;
+      }
+    ).promoteStreamMediaUrlsToMarkdown.bind(facade);
+
+    const result = promote(videoUrl, [
+      {
+        url: videoUrl,
+        type: 'video',
+        name: 'clip.mp4',
+        thumbnailUrl,
+      },
+    ]);
+
+    expect(result).toBe(`[View Video](${videoUrl}#poster=${encodedThumbnailUrl})`);
+    expect(result).not.toContain('(1)');
+  });
+
+  it('promotes signed export document urls to markdown links during streaming', () => {
+    const exportUrl =
+      'https://app.nxt1.test/api/v1/agent-x/media-proxy/export/scout-report.pdf?path=exports%2Fuser-1%2Fscout-report.pdf&mime=application%2Fpdf&exp=1750000000&sig=abc123';
+    const promote = (
+      facade as unknown as {
+        promoteStreamMediaUrlsToMarkdown: (
+          content: string,
+          attachments: Array<{
+            url: string;
+            type: 'video';
+            name: string;
+            thumbnailUrl: string;
+          }>
+        ) => string;
+      }
+    ).promoteStreamMediaUrlsToMarkdown.bind(facade);
+
+    const result = promote(exportUrl, []);
+
+    expect(result).toBe(`[Open File](${exportUrl})`);
+  });
+
   it('stamps the optimistic user message when the stream resolves an operation id', async () => {
     const pendingStream = facade.sendViaStream(
       { message: 'Start a fresh request' } as AgentXChatRequest,

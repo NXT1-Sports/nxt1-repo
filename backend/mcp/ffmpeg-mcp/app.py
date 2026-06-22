@@ -2,6 +2,7 @@ import json
 import mimetypes
 import os
 import re
+import shlex
 import sys
 import subprocess
 import traceback
@@ -61,6 +62,8 @@ FFMPEG_MERGE_DIRECT_LIMIT = _positive_int_env("FFMPEG_MERGE_DIRECT_LIMIT", 6)
 FFMPEG_MERGE_BATCH_SIZE = _positive_int_env("FFMPEG_MERGE_BATCH_SIZE", 4)
 FFMPEG_MERGE_TIMEOUT_SECONDS = _positive_int_env("FFMPEG_MERGE_TIMEOUT_SECONDS", 900)
 FFMPEG_MERGE_INTRO_MAX_SECONDS = _positive_int_env("FFMPEG_MERGE_INTRO_MAX_SECONDS", 4)
+FFMPEG_MERGE_MAX_WIDTH = _positive_int_env("FFMPEG_MERGE_MAX_WIDTH", 1920)
+FFMPEG_MERGE_MAX_HEIGHT = _positive_int_env("FFMPEG_MERGE_MAX_HEIGHT", 1080)
 MIN_PLAYABLE_TRIM_DURATION_SECONDS = 0.5
 
 # Tool argument keys that represent input file paths or arrays of paths
@@ -650,6 +653,74 @@ def _probe_video_dimensions(local_path: str) -> tuple[int, int]:
     return 1280, 720
 
 
+def _fit_dimensions_within_bounds(
+    width: int,
+    height: int,
+    max_width: int,
+    max_height: int,
+) -> tuple[int, int]:
+    safe_width = max(2, width - (width % 2))
+    safe_height = max(2, height - (height % 2))
+    if safe_width <= max_width and safe_height <= max_height:
+        return safe_width, safe_height
+
+    scale_factor = min(max_width / safe_width, max_height / safe_height)
+    fitted_width = max(2, int(safe_width * scale_factor))
+    fitted_height = max(2, int(safe_height * scale_factor))
+    fitted_width -= fitted_width % 2
+    fitted_height -= fitted_height % 2
+    return max(2, fitted_width), max(2, fitted_height)
+
+
+def _merge_target_dimensions(local_path: str) -> tuple[int, int]:
+    source_width, source_height = _probe_video_dimensions(local_path)
+    target_width, target_height = _fit_dimensions_within_bounds(
+        source_width,
+        source_height,
+        FFMPEG_MERGE_MAX_WIDTH,
+        FFMPEG_MERGE_MAX_HEIGHT,
+    )
+    if (target_width, target_height) != (source_width, source_height):
+        print(
+            "[ffmpeg-mcp] clamped merge resolution "
+            f"from {source_width}x{source_height} to {target_width}x{target_height}",
+            flush=True,
+        )
+    return target_width, target_height
+
+
+def _summarize_ffmpeg_failure(
+    cmd: list[str],
+    result: subprocess.CompletedProcess[bytes],
+    *,
+    input_count: int,
+    target_width: int,
+    target_height: int,
+) -> str:
+    stderr_text = result.stderr.decode(errors="replace").strip()
+    stderr_lines = [line.strip() for line in stderr_text.splitlines() if line.strip()]
+    stderr_head = "\n".join(stderr_lines[:8])
+    stderr_tail = "\n".join(stderr_lines[-12:])
+    command_preview = " ".join(shlex.quote(part) for part in cmd[:16])
+    if len(cmd) > 16:
+        command_preview += " ..."
+
+    summary_lines = [
+        "FFmpeg resilient merge subprocess failed",
+        f"exit_code={result.returncode}",
+        f"inputs={input_count}",
+        f"target={target_width}x{target_height}",
+        f"command={command_preview}",
+    ]
+    if result.returncode in {-9, 137}:
+        summary_lines.append("oom_hint=subprocess exited with a likely OOM-related code")
+    if stderr_head:
+        summary_lines.append(f"stderr_head:\n{stderr_head}")
+    if stderr_tail and stderr_tail != stderr_head:
+        summary_lines.append(f"stderr_tail:\n{stderr_tail}")
+    return "\n".join(summary_lines)
+
+
 def _parse_input_paths(value) -> list[str]:
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
@@ -673,7 +744,7 @@ def _run_merge_filter_once(
     if len(input_paths) < 1:
         raise RuntimeError("merge_videos requires at least one local input path")
 
-    target_width, target_height = _probe_video_dimensions(input_paths[0])
+    target_width, target_height = _merge_target_dimensions(input_paths[0])
     cmd = ["ffmpeg", "-y"]
     for input_path in input_paths:
         cmd.extend(["-fflags", "+genpts", "-i", input_path])
@@ -754,8 +825,18 @@ def _run_merge_filter_once(
 
     result = subprocess.run(cmd, capture_output=True, timeout=FFMPEG_MERGE_TIMEOUT_SECONDS)
     if result.returncode != 0:
-        err = result.stderr.decode(errors="replace")[-1200:]
-        raise RuntimeError(f"FFmpeg resilient merge failed: {err}")
+        failure_summary = _summarize_ffmpeg_failure(
+            cmd,
+            result,
+            input_count=len(input_paths),
+            target_width=target_width,
+            target_height=target_height,
+        )
+        print(f"[ffmpeg-mcp] {failure_summary}", flush=True)
+        raise RuntimeError(
+            "FFmpeg resilient merge failed "
+            f"(exit {result.returncode}, inputs={len(input_paths)}, target={target_width}x{target_height})"
+        )
     _assert_valid_video_output(output_path)
 
 

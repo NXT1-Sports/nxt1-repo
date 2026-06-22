@@ -163,6 +163,7 @@ describe('Agent tool exposure regressions', () => {
     expect(prompt).toContain('user_profile_snapshot');
     expect(prompt).toContain('team_profile_snapshot');
     expect(prompt).toContain('organization_profile_snapshot');
+    expect(prompt).toContain('resolvedBrandContext.organizationProfileSnapshot');
     expect(prompt).toContain('team_roster_members');
     expect(prompt).toContain('organization_roster_members');
     expect(prompt).toContain('profileImgs');

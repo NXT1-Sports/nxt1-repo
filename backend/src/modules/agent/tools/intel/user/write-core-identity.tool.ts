@@ -130,7 +130,11 @@ const TeamHistoryEntrySchema = z
   .passthrough();
 
 const WriteCoreIdentityInputSchema = z.object({
-  userId: z.string().trim().min(1),
+  // userId is technically required, but the tool auto-injects it from the
+  // authenticated execution context when the LLM omits it. Keeping it optional
+  // avoids a confusing Zod error when the coordinator relies on current-user
+  // context for team/profile enrichment flows.
+  userId: z.string().trim().min(1).optional(),
   source: z.string().trim().min(1),
   profileUrl: z.string().trim().min(1),
   faviconUrl: z.string().trim().min(1).optional(),
@@ -156,7 +160,7 @@ export class WriteCoreIdentityTool extends BaseTool {
     'Call this after reading identity, academics, sportInfo, team, coach, and awards ' +
     'sections via read_distilled_section.\n\n' +
     'Parameters:\n' +
-    '- userId (required): Firebase UID.\n' +
+    '- userId (required): Firebase UID. Auto-injected from the authenticated context if omitted.\n' +
     '- source (required): Platform slug (e.g. "maxpreps", "hudl").\n' +
     '- profileUrl (required): The URL that was scraped.\n' +
     '- faviconUrl (optional): Favicon URL for the platform icon.\n' +
@@ -192,10 +196,23 @@ export class WriteCoreIdentityTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const parsed = WriteCoreIdentityInputSchema.safeParse(input);
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
+    }
+
+    const inputWithUser: Record<string, unknown> = {
+      ...input,
+      userId:
+        typeof input['userId'] === 'string' && input['userId'].trim().length > 0
+          ? input['userId']
+          : context.userId,
+    };
+
+    const parsed = WriteCoreIdentityInputSchema.safeParse(inputWithUser);
     if (!parsed.success) return this.zodError(parsed.error);
 
-    const { userId, source, profileUrl, targetSport } = parsed.data;
+    const { source, profileUrl, targetSport } = parsed.data;
+    const userId = parsed.data.userId ?? context.userId;
     const sourcePlatform = normalizeConnectedPlatform(source);
     const faviconUrl = parsed.data.faviconUrl;
     const identity = parsed.data.identity as Record<string, unknown> | undefined;
@@ -210,10 +227,6 @@ export class WriteCoreIdentityTool extends BaseTool {
     // Optional team/org IDs for cascade fallback
     const explicitTeamId = parsed.data.teamId;
     const explicitOrgId = parsed.data.organizationId;
-
-    if (!context?.userId) {
-      return { success: false, error: 'Authenticated tool context is required.' };
-    }
 
     context?.emitStage?.('fetching_data', {
       icon: 'database',

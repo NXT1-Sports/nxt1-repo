@@ -193,4 +193,72 @@ describe('buildSseStreamCallback', () => {
       },
     ]);
   });
+
+  it('includes nested data.thumbnailUrl on media events for trimmed videos', () => {
+    const { writes, response } = createResponseRecorder();
+    const streamRef: SseStreamRef = {
+      invokedTools: [],
+      successfulTools: [],
+      model: '',
+      tokenUsage: undefined,
+      pendingAutoOpenPanel: null,
+    };
+
+    const onStreamEvent = buildSseStreamCallback(response, streamRef);
+
+    onStreamEvent({
+      type: 'tool_result',
+      stepId: 'call_trim_video',
+      toolName: 'ffmpeg_trim_video',
+      toolSuccess: true,
+      message: 'Trim Video',
+      toolResult: {
+        success: true,
+        data: {
+          outputUrl: 'https://cdn.example.com/generated/trimmed.mp4',
+          videoUrl: 'https://cdn.example.com/generated/trimmed.mp4',
+          thumbnailUrl: 'https://cdn.example.com/generated/trimmed-thumbnail.jpg',
+        },
+      },
+    });
+
+    expect(parseMediaPayloads(writes)).toEqual([
+      {
+        type: 'video',
+        url: 'https://cdn.example.com/generated/trimmed.mp4',
+        thumbnailUrl: 'https://cdn.example.com/generated/trimmed-thumbnail.jpg',
+      },
+    ]);
+  });
+
+  it('suppresses media events that echo the user uploaded attachment URL', () => {
+    const { writes, response } = createResponseRecorder();
+    const streamRef: SseStreamRef = {
+      invokedTools: [],
+      successfulTools: [],
+      model: '',
+      tokenUsage: undefined,
+      pendingAutoOpenPanel: null,
+    };
+    const userVideoUrl = 'https://cdn.example.com/user/source-clip.mp4';
+
+    const onStreamEvent = buildSseStreamCallback(response, streamRef, {
+      userAttachmentUrls: new Set([userVideoUrl]),
+    });
+
+    onStreamEvent({
+      type: 'tool_result',
+      stepId: 'call_stage_media',
+      toolName: 'stage_media',
+      toolSuccess: true,
+      message: 'Stage Media',
+      toolResult: {
+        videoUrl: `${userVideoUrl}#poster=${encodeURIComponent('https://cdn.example.com/thumb.jpg')}`,
+        thumbnailUrl: 'https://cdn.example.com/thumb.jpg',
+        mimeType: 'video/mp4',
+      },
+    });
+
+    expect(parseMediaPayloads(writes)).toEqual([]);
+  });
 });

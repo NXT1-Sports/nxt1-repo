@@ -383,6 +383,12 @@ export interface AgentJobDocument {
   readonly expiresAt: FirebaseFirestore.Timestamp;
 }
 
+export interface AgentJobPage {
+  readonly jobs: readonly AgentJobDocument[];
+  readonly nextCreatedAt?: string;
+  readonly hasMore: boolean;
+}
+
 type TerminalAnalyticsMetadata = {
   userId?: string | null;
   origin?: string | null;
@@ -1039,6 +1045,39 @@ export class AgentJobRepository {
       .get();
 
     return snapshot.docs.map((doc) => doc.data() as AgentJobDocument);
+  }
+
+  async getByUserPage(userId: string, limit = 20, beforeCreatedAt?: string): Promise<AgentJobPage> {
+    const pageLimit = Math.max(1, Math.min(limit, 200));
+    let query = this.collectionRef().where('userId', '==', userId).orderBy('createdAt', 'desc');
+
+    if (beforeCreatedAt) {
+      const cursorDate = new Date(beforeCreatedAt);
+      if (!Number.isNaN(cursorDate.getTime())) {
+        query = query.startAfter(Timestamp.fromDate(cursorDate));
+      }
+    }
+
+    const snapshot = await query.limit(pageLimit + 1).get();
+    const docs = snapshot.docs.map((doc) => doc.data() as AgentJobDocument);
+    const hasMore = docs.length > pageLimit;
+    const jobs = hasMore ? docs.slice(0, pageLimit) : docs;
+    const lastJob = jobs[jobs.length - 1];
+    const nextCreatedAt = hasMore ? this.toCursorIso(lastJob?.createdAt) : undefined;
+
+    return {
+      jobs,
+      ...(nextCreatedAt ? { nextCreatedAt } : {}),
+      hasMore,
+    };
+  }
+
+  private toCursorIso(value: unknown): string | undefined {
+    if (value && typeof value === 'object' && 'toDate' in (value as Record<string, unknown>)) {
+      return (value as { toDate: () => Date }).toDate().toISOString();
+    }
+
+    return undefined;
   }
 
   /**

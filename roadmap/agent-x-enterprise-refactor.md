@@ -16,15 +16,14 @@
 - [ ] **Result:** A purely functional pipeline that pulls state at runtime
       without requiring core code deployments.
 
-### 2. The LLM Execution Layer (`llm/openrouter.service.ts`)
+### 2. The LLM Execution Layer (`llm/openrouter.service.ts`) — ✅ COMPLETE
 
-- [ ] **Enforce Structured Outputs:** Integrate **Zod** to define exact
-      TypeScript shapes constraints (e.g.,
-      `z.object({ insights: z.array(...) })`).
-- [ ] **Native JSON Schemas:** Pass these schemas directly to the OpenRouter API
-      via `response_format: { type: "json_schema" }`.
-- [ ] **Remove Hacks:** Eradicate fragile string-parsing logic entirely (e.g.,
-      `stripMarkdownFences`).
+**Status:** Zod structured outputs with native JSON schemas already implemented.
+
+- ✅ Integrated Zod for exact TypeScript shape constraints
+- ✅ Native JSON schemas passed directly to OpenRouter API via
+  `response_format: { type: "json_schema" }`
+- ✅ Removed fragile string-parsing logic
 
 ### 3. The Orchestrator (`services/generation.service.ts`)
 

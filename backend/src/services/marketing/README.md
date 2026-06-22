@@ -54,8 +54,11 @@ Operational lifecycle routing:
 
 - `SLACK_ALERT_WEBHOOK_URL` remains the generic fallback webhook
 - `SLACK_SENTRY_ALERT_WEBHOOK_URL` routes Sentry-specific alerts
+- `SLACK_INSIGHTS_WEBHOOK_URL` routes weekly and monthly insights reports
 - `SLACK_NEW_ATHLETES_WEBHOOK_URL` routes athlete signup alerts
 - `SLACK_NEW_TEAMS_WEBHOOK_URL` routes team/staff signup alerts
+- staging deploys may set `STAGING_SLACK_INSIGHTS_WEBHOOK_URL` as an explicit
+  override, otherwise staging falls back to `SLACK_INSIGHTS_WEBHOOK_URL`
 - production deploys populate signup webhook env vars from production signup
   secrets first (`SLACK_NEW_ATHLETES_WEBHOOK_URL`,
   `SLACK_NEW_TEAMS_WEBHOOK_URL`) with staging-named secrets only as a
@@ -66,10 +69,12 @@ Operational lifecycle routing:
   `SLACK_ALERT_WEBHOOK_URL`, then `SLACK_AGENT_ALERT_WEBHOOK_URL` as a final
   last-resort alert path
 
-App Hosting secret names:
+Backend deploy secret names:
 
 - Production: `SLACK_ALERT_WEBHOOK_URL`, `SLACK_SENTRY_ALERT_WEBHOOK_URL`,
-  `SLACK_NEW_ATHLETES_WEBHOOK_URL`, `SLACK_NEW_TEAMS_WEBHOOK_URL`
+  `SLACK_INSIGHTS_WEBHOOK_URL`, `SLACK_NEW_ATHLETES_WEBHOOK_URL`,
+  `SLACK_NEW_TEAMS_WEBHOOK_URL`
+- Staging override when needed: `STAGING_SLACK_INSIGHTS_WEBHOOK_URL`
 
 ## Signup Lifecycle
 
@@ -97,11 +102,15 @@ Backend cron endpoint:
 
 - `POST /api/v1/marketing/cron/signup-drip`
 - `POST /api/v1/marketing/cron/signup-notion-dashboard`
+- `POST /api/v1/marketing/cron/insights-weekly`
+- `POST /api/v1/marketing/cron/insights-monthly`
 
 Cloud Scheduler entry point:
 
 - `apps/functions/src/scheduled/signupDrip.ts`
 - `apps/functions/src/scheduled/signupNotionDashboard.ts`
+- `apps/functions/src/scheduled/weeklyInsights.ts`
+- `apps/functions/src/scheduled/monthlyInsights.ts`
 
 ## Configuration
 
@@ -131,6 +140,17 @@ Signup Notion dashboard env:
 - SIGNUP_NOTION_DASHBOARD_CRON_PATH (optional Functions override; use
   `/api/v1/staging/marketing/cron/signup-notion-dashboard` for staging if the
   backend URL itself does not contain `staging`)
+
+Insights scheduler env:
+
+- Backend webhook target: `SLACK_INSIGHTS_WEBHOOK_URL`
+- Optional staging backend override: `STAGING_SLACK_INSIGHTS_WEBHOOK_URL`
+- Functions param: `BACKEND_URL`
+- Functions secret: `CRON_SECRET`
+- Weekly schedule: Friday at 8:00 AM America/New_York
+- Monthly schedule: day 1 at 8:00 AM America/New_York
+
+No additional Functions-only params are required for the insights schedules.
 
 Expected B2B Partners properties:
 

@@ -54,195 +54,37 @@ OpenAI's custom GPTs, and Microsoft's AutoGen framework.
 
 ---
 
-## Phase 1: Markdown Tool Results (The Token Saver)
+## Phase 1: Continue Markdown Tool Adoption
 
-> **Impact:** Immediate 30-50% token reduction on every tool call.  
-> **Risk:** Zero — fully backward-compatible.  
-> **Estimated Effort:** Small  
-> **Dependencies:** None
+> **Impact:** Further reduce token waste by converting remaining heavy tools to
+> Markdown.  
+> **Risk:** Low — backward-compatible fallback.  
+> **Estimated Effort:** Medium  
+> **Dependencies:** None (ToolResult.markdown interface already wired)
+> **Status:** ✅ Core infrastructure complete; helpers exist; `search_colleges`
+> converted.
 
-### 1.1 Update `ToolResult` Interface
+**Completed:** ToolResult interface, ReAct loop preference logic,
+toMarkdownTable/toMarkdownList helpers, Zod JSON schema integration to
+OpenRouter.
 
-**File:** `backend/src/modules/agent/tools/base.tool.ts`
+### 1.1 Convert Remaining Token-Heavy Tools
 
-Add an optional `markdown` field to `ToolResult`:
+Migrate tools that generate large payloads. Priority by impact:
 
-```typescript
-export interface ToolResult {
-  readonly success: boolean;
-  readonly data?: unknown; // Raw data (for tests, internal use, structured extraction)
-  readonly markdown?: string; // NEW: Pre-rendered Markdown for the LLM context window
-  readonly error?: string;
-}
-```
+| Tool                     | File                                                        | Status | Target                              |
+| ------------------------ | ----------------------------------------------------------- | ------ | ----------------------------------- |
+| `search_colleges`        | `tools/database/search-colleges.tool.ts`                    | ✅     | Already returns Markdown table      |
+| `search_college_coaches` | `tools/database/search-college-coaches.tool.ts` (428 lines) | ⏳     | Markdown list per college → coaches |
+| `search_memory`          | `tools/database/search-memory.tool.ts`                      | ⏳     | Add Markdown section headers        |
+| `web_search`             | `tools/integrations/web-search.tool.ts`                     | ⏳     | Markdown numbered list              |
 
-**Rule:** `markdown` is the LLM-facing representation. `data` is the
-machine-facing representation. Both can coexist. `markdown` takes priority when
-being fed back into the ReAct loop.
-
-### 1.2 Update the ReAct Loop in `BaseAgent`
-
-**File:** `backend/src/modules/agent/agents/base.agent.ts`
-
-In the `executeTool()` method (around line ~235), change the result
-serialization:
-
-```typescript
-// BEFORE:
-const result = await registry.execute(toolName, input, toolExecContext);
-return JSON.stringify(
-  result.success
-    ? { success: true, data: result.data }
-    : { success: false, error: result.error }
-);
-
-// AFTER:
-const result = await registry.execute(toolName, input, toolExecContext);
-
-if (result.success && result.markdown) {
-  // Prefer the pre-rendered Markdown — reduces token usage by 30-50%
-  return result.markdown;
-}
-
-// Fallback: Serialize to JSON for tools that haven't adopted Markdown yet
-return JSON.stringify(
-  result.success
-    ? { success: true, data: result.data }
-    : { success: false, error: result.error }
-);
-```
-
-**Why this is safe:** Every existing tool that does NOT return `markdown` falls
-through to the existing `JSON.stringify` path. Zero behavioral change.
-
-### 1.3 Convert Job Context to Markdown
+### 1.2 Convert Job Context to Markdown
 
 **File:** `backend/src/modules/agent/agent.router.ts`
 
-In the `enrichIntentWithContext()` method (around line ~710):
-
-```typescript
-// BEFORE:
-enriched += `\n\n[Job Context]\n${JSON.stringify(visibleContext, null, 2)}`;
-
-// AFTER:
-let contextMd = '\n\n### Job Context\n';
-for (const [key, value] of Object.entries(visibleContext)) {
-  const formatted =
-    typeof value === 'object' ? JSON.stringify(value) : String(value);
-  contextMd += `- **${key}**: ${formatted}\n`;
-}
-enriched += contextMd;
-```
-
-### 1.4 Adopt Markdown in Top Token-Heavy Tools
-
-Convert the tools that generate the largest `data` payloads. Priority by token
-impact:
-
-| Tool                     | File                                                        | Token Impact                          | Conversion                              |
-| ------------------------ | ----------------------------------------------------------- | ------------------------------------- | --------------------------------------- |
-| `search_colleges`        | `tools/database/search-colleges.tool.ts` (987 lines)        | 🔴 Huge — returns 25 college DTOs     | Markdown table of colleges              |
-| `search_college_coaches` | `tools/database/search-college-coaches.tool.ts` (428 lines) | 🔴 Huge — returns nested coach arrays | Markdown list per college → coaches     |
-| `search_memory`          | `tools/database/search-memory.tool.ts`                      | 🟡 Medium — returns memory chunks     | Already semi-text, add Markdown headers |
-| `scrape_webpage`         | `tools/scraping/scrape-webpage.tool.ts`                     | 🟢 Already Markdown                   | Already returns `markdownContent`       |
-| `web_search`             | `tools/integrations/web-search.tool.ts`                     | 🟡 Medium — returns search results    | Markdown numbered list                  |
-| `search_apify_actors`    | `tools/integrations/search-apify-actors.tool.ts`            | 🟢 Already Markdown                   | Apify MCP already returns Markdown      |
-
-**Example conversion for `search_colleges`:**
-
-```typescript
-// At end of execute(), before the final return:
-const markdown = [
-  `## College Search Results (${results.length} programs)`,
-  `**Sport:** ${sport} | **Filters:** ${buildFilterSummary(input)}`,
-  '',
-  '| # | College | Division | Conference | State | GPA | Acceptance | Tuition |',
-  '|---|---|---|---|---|---|---|---|',
-  ...results.map(
-    (c, i) =>
-      `| ${i + 1} | **${c.name}** | ${c.division} | ${c.conference} | ${c.state} | ${c.averageGPA ?? '—'} | ${c.acceptanceRate ? c.acceptanceRate + '%' : '—'} | ${c.totalCost ? '$' + c.totalCost.toLocaleString() : '—'} |`
-  ),
-  '',
-  results
-    .map(
-      (c, i) =>
-        `### ${i + 1}. ${c.name}\n` +
-        (c.questionnaire ? `- 📋 Questionnaire: ${c.questionnaire}\n` : '') +
-        (c.sportLandingUrl ? `- 🔗 Sport Page: ${c.sportLandingUrl}\n` : '') +
-        (c.twitter ? `- 🐦 Twitter: ${c.twitter}\n` : '') +
-        (c.camp ? `- ⛺ Camp: ${c.camp}\n` : '')
-    )
-    .join('\n'),
-].join('\n');
-
-return {
-  success: true,
-  data: { count: results.length, sport, colleges: results }, // Keep for tests
-  markdown, // Feed this to the LLM
-};
-```
-
-### 1.5 Helper: `toMarkdownTable()`
-
-Create a shared utility for converting arrays of objects to Markdown tables:
-
-**File:** `backend/src/modules/agent/tools/markdown-helpers.ts` (NEW)
-
-```typescript
-/**
- * Convert an array of objects into a Markdown table.
- * Only includes the specified columns.
- */
-export function toMarkdownTable<T extends Record<string, unknown>>(
-  rows: T[],
-  columns: { key: keyof T; label: string; format?: (val: unknown) => string }[]
-): string {
-  const header = '| ' + columns.map((c) => c.label).join(' | ') + ' |';
-  const separator = '|' + columns.map(() => '---').join('|') + '|';
-  const body = rows
-    .map(
-      (row) =>
-        '| ' +
-        columns
-          .map((c) => {
-            const val = row[c.key];
-            return c.format ? c.format(val) : (val ?? '—');
-          })
-          .join(' | ') +
-        ' |'
-    )
-    .join('\n');
-  return [header, separator, body].join('\n');
-}
-
-/**
- * Convert an array of objects into a Markdown numbered list with bold keys.
- */
-export function toMarkdownList<T extends Record<string, unknown>>(
-  rows: T[],
-  titleKey: keyof T,
-  detailKeys: {
-    key: keyof T;
-    label: string;
-    format?: (val: unknown) => string;
-  }[]
-): string {
-  return rows
-    .map((row, i) => {
-      const title = `${i + 1}. **${row[titleKey]}**`;
-      const details = detailKeys
-        .filter((d) => row[d.key] != null)
-        .map(
-          (d) =>
-            `   - ${d.label}: ${d.format ? d.format(row[d.key]) : row[d.key]}`
-        )
-        .join('\n');
-      return `${title}\n${details}`;
-    })
-    .join('\n\n');
-}
-```
+Replace JSON context injection with Markdown bullet list in
+`enrichIntentWithContext()` method (~line ~710).
 
 ---
 
@@ -256,7 +98,7 @@ export function toMarkdownList<T extends Record<string, unknown>>(
 
 ### 2.1 Create Agent Prompt Directory
 
-```
+```bash
 backend/src/modules/agent/prompts/
 ├── general.md
 ├── recruiting-coordinator.md
@@ -558,7 +400,7 @@ Keep `base.agent.ts`, `markdown-agent.ts`, `agent-loader.ts`,
 
 ### 3.1 Create Skill Prompt Directory
 
-```
+```bash
 backend/src/modules/agent/prompts/
 ├── agents/          # Agent definitions
 │   ├── general.md
@@ -723,7 +565,7 @@ Add per-agent metrics tracking:
 Implement a token budget allocator that distributes the model's context window
 across competing needs:
 
-```
+```plaintext
 Total Context Budget: 128K tokens (e.g., for Claude 3.5 Sonnet)
 ├── System Prompt:        ~2K  (agent + skills)
 ├── User Context:         ~500 (profile, sport, school)
@@ -745,7 +587,7 @@ When a tool observation exceeds its budget, the system should:
 
 ## Implementation Order & Dependencies
 
-```
+```plaintext
 Phase 1 (Token Savings)          Phase 2 (Markdown Agents)
 ├── 1.1 ToolResult interface     ├── 2.1 prompts/ directory
 ├── 1.2 BaseAgent ReAct loop     ├── 2.2 .md file format
@@ -1023,7 +865,7 @@ moderation model is defined but never called in the request flow.
 
 **Implementation plan:**
 
-```
+```plaintext
 User message → [PRE-GUARD: classify input] → Agent routing → LLM response
             → [POST-GUARD: classify output] → Stream to user
 
@@ -1065,7 +907,7 @@ to detect regressions before they hit production.
 
 **Implementation plan:**
 
-```
+```bash
 backend/src/modules/agent/
 ├── evals/
 │   ├── eval.runner.ts            # Orchestrates eval suites

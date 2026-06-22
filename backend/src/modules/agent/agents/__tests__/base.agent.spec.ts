@@ -108,6 +108,32 @@ class FakeFailTool extends BaseTool {
   }
 }
 
+class FakeEnvironmentEchoTool extends BaseTool {
+  readonly name = 'fake_environment_echo_tool';
+  readonly description = 'Returns the execution environment passed to the tool.';
+  readonly parameters = z.object({});
+  readonly isMutation = false;
+  readonly category = 'database' as const;
+  readonly entityGroup = 'platform_tools' as const;
+  override readonly allowedAgents = ['strategy_coordinator'] as const;
+
+  lastContext?: ToolExecutionContext;
+
+  async execute(
+    _input: Record<string, unknown>,
+    context?: ToolExecutionContext
+  ): Promise<ToolResult> {
+    this.lastContext = context;
+
+    return {
+      success: true,
+      data: {
+        environment: context?.environment ?? null,
+      },
+    };
+  }
+}
+
 class FakeAgent extends BaseAgent {
   readonly id: AgentIdentifier = 'strategy_coordinator';
   readonly name: string = 'Fake Agent';
@@ -151,6 +177,8 @@ class FakeAgent extends BaseAgent {
       operationId?: string;
       sessionId?: string;
       threadId?: string;
+      environment?: 'staging' | 'production';
+      environment?: 'staging' | 'production';
       allowedToolNames?: readonly string[];
     }
   ): Promise<string> {
@@ -736,6 +764,40 @@ describe('BaseAgent identifier scrubbing', () => {
     });
   });
 
+  it('passes the session environment through to tool execution context', async () => {
+    const agent = new FakeAgent();
+    const registry = new ToolRegistry();
+    const tool = new FakeEnvironmentEchoTool();
+    registry.register(tool);
+
+    const observation = await agent.callExecuteTool(
+      {
+        id: 'call_environment_echo',
+        type: 'function',
+        function: {
+          name: 'fake_environment_echo_tool',
+          arguments: '{}',
+        },
+      },
+      registry,
+      'viewer-1',
+      {
+        operationId: 'op-environment-echo',
+        sessionId: 'session-environment-echo',
+        environment: 'staging',
+        allowedToolNames: ['fake_environment_echo_tool'],
+      }
+    );
+
+    expect(tool.lastContext?.environment).toBe('staging');
+    expect(JSON.parse(observation)).toEqual({
+      success: true,
+      data: {
+        environment: 'staging',
+      },
+    });
+  });
+
   it('sanitizes final summaries in non-streaming mode', async () => {
     const agent = new FakeAgent();
     const registry = new ToolRegistry();
@@ -1055,7 +1117,7 @@ describe('BaseAgent identifier scrubbing', () => {
     expect(args['artifact']).toBeUndefined();
   });
 
-  it('auto-injects subjectPhotoUrls and logoUrls into generate_graphic with approval gating', () => {
+  it('auto-injects subjectPhotoUrls but does not inject non-organization logos into generate_graphic', () => {
     const agent = new FakeAgent();
     const context = {
       ...createMockContext(),
@@ -1102,13 +1164,8 @@ describe('BaseAgent identifier scrubbing', () => {
       'https://cdn.example.com/profile-1.png',
       'https://cdn.example.com/team-1.png',
     ]);
-    expect(args['logoUrls']).toEqual(
-      expect.arrayContaining([
-        'https://cdn.example.com/team-logo.png',
-        'https://cdn.example.com/college-logo.png',
-      ])
-    );
-    expect(args['applyMode']).toBe('mixed');
+    expect(args['logoUrls']).toBeUndefined();
+    expect(args['applyMode']).toBe('photo_lock');
     expect(args['assetSelectionApproved']).toBe(false);
     expect(Array.isArray(args['autoRetrievedSources'])).toBe(true);
   });

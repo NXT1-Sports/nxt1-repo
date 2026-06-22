@@ -191,7 +191,8 @@ import {
   CallApifyActorTool,
   GetApifyActorOutputTool,
   FirecrawlMcpBridgeService,
-  FirebaseMcpBridgeService,
+  EnvironmentAwareFirebaseMcpBridgeService,
+  type FirebaseMcpBridge,
   Microsoft365McpSessionService,
   ListMicrosoft365ToolsTool,
   RunMicrosoft365ToolTool,
@@ -408,9 +409,9 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     logger.warn('FIRECRAWL_API_KEY not configured — Firecrawl MCP bridge disabled');
   }
 
-  let firebaseMcpBridge: FirebaseMcpBridgeService | null = null;
+  let firebaseMcpBridge: FirebaseMcpBridge | null = null;
   try {
-    firebaseMcpBridge = new FirebaseMcpBridgeService();
+    firebaseMcpBridge = new EnvironmentAwareFirebaseMcpBridgeService();
     logger.info('Firebase MCP bridge initialized (user-scoped read-only views)');
   } catch (error) {
     logger.warn('Firebase MCP bridge failed to initialize', {
@@ -800,7 +801,7 @@ export async function bootstrapAgentQueue(): Promise<() => Promise<void>> {
     toolRegistry.register(new RunwayGenerateVideoTool(runwayMcpBridge));
     toolRegistry.register(new RunwayEditVideoTool(runwayMcpBridge));
     toolRegistry.register(new RunwayUpscaleVideoTool(runwayMcpBridge));
-    toolRegistry.register(new RunwayCheckTaskTool(runwayMcpBridge));
+    toolRegistry.register(new RunwayCheckTaskTool(runwayMcpBridge, ffmpegBridge));
     logger.info(
       'MCP-bridged Runway ML tools registered (generate_video, edit_video, upscale_video, check_task)'
     );

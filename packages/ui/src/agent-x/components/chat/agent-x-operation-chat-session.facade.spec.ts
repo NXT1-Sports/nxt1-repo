@@ -78,6 +78,7 @@ type Canonicalizer = {
       url: string;
       type: 'image' | 'video' | 'doc' | 'app' | 'context';
       name: string;
+      thumbnailUrl?: string;
       contextKind?: string;
       contextSource?: string;
     }>;
@@ -223,6 +224,30 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(result).toBe(`[View Video](${videoUrl}#poster=${encodeURIComponent(thumbnailUrl)})`);
   });
 
+  it('encodes markdown-sensitive poster URL characters before adding poster metadata', () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-media/reels/clip.mp4';
+    const thumbnailUrl =
+      'https://storage.googleapis.com/nxt1-media/reels/thumbs/clip poster (1).jpg?alt=media&token=thumb';
+    const encodedThumbnailUrl = encodeURIComponent(thumbnailUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+
+    const result = facade.promoteAssistantMediaUrlsToMarkdown(`[View Video](${videoUrl})`, {
+      attachments: [
+        {
+          url: videoUrl,
+          type: 'video',
+          name: 'clip.mp4',
+          thumbnailUrl,
+        },
+      ],
+    });
+
+    expect(result).toBe(`[View Video](${videoUrl}#poster=${encodedThumbnailUrl})`);
+    expect(result).not.toContain('(1)');
+  });
+
   it('does not add malformed storage thumbnail urls as markdown video posters', () => {
     const videoUrl = 'https://storage.googleapis.com/nxt1-media/reels/clip.mp4';
     const malformedThumbnailUrl =
@@ -240,6 +265,15 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     });
 
     expect(result).toBe(`[View Video](${videoUrl})`);
+  });
+
+  it('promotes signed export document urls to markdown links', () => {
+    const exportUrl =
+      'https://app.nxt1.test/api/v1/agent-x/media-proxy/export/scout-report.pdf?path=exports%2Fuser-1%2Fscout-report.pdf&mime=application%2Fpdf&exp=1750000000&sig=abc123';
+
+    const result = facade.promoteAssistantMediaUrlsToMarkdown(exportUrl);
+
+    expect(result).toBe(`[Open File](${exportUrl})`);
   });
 
   it('keeps approval reply above the final assistant result when completion timestamp rehydrates first', () => {
@@ -419,6 +453,37 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
       ])
     ).toBeNull();
   });
+
+  it('does not append when interleaved persisted text parts already reconstruct full content', () => {
+    expect(
+      facade.resolveSupplementalContentTextPart(
+        'Got your colors. Now routing you to the brand coordinator with that branding context. ✅ You are already here with Brand Coordinator.',
+        [
+          {
+            type: 'text',
+            content:
+              'Got your colors. Now routing you to the brand coordinator with that branding context.',
+          },
+          {
+            type: 'tool-steps',
+            steps: [
+              {
+                id: 'delegate_to_coordinator',
+                label: 'Routing to specialist coordinator',
+                status: 'success',
+                stageType: 'tool',
+              },
+            ],
+          },
+          {
+            type: 'text',
+            content: '✅ You are already here with Brand Coordinator.',
+          },
+        ]
+      )
+    ).toBeNull();
+  });
+
   it('treats manual pause metadata as stale once a later turn supersedes it', () => {
     const pauseYieldState = {
       reason: 'needs_input',
@@ -1163,6 +1228,71 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
         name: 'media-video-1.mp4',
       },
     ]);
+  });
+
+  it('keeps resultData thumbnailUrl on detected assistant video media', () => {
+    const playableVideoUrl = 'https://storage.googleapis.com/nxt1-media/reels/final-highlight.mp4';
+    const thumbnailUrl = 'https://storage.googleapis.com/nxt1-media/reels/final-highlight.jpg';
+
+    const media = facade.collectMessageMedia(
+      assistantMessage('direct-video-asset-with-thumb', 'assistant_final', {
+        content: `Generated highlight video: ${playableVideoUrl}`,
+        resultData: {
+          videoUrl: playableVideoUrl,
+          thumbnailUrl,
+        },
+      })
+    );
+
+    expect(media.videoUrl).toBe(playableVideoUrl);
+    expect(media.attachments).toEqual([
+      {
+        url: playableVideoUrl,
+        type: 'video',
+        name: 'media-video-1.mp4',
+        thumbnailUrl,
+      },
+    ]);
+  });
+
+  it('rehydrates nested task result posterUrl for assistant video markdown links', () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Ftrimmed.mp4?alt=media&token=video';
+    const posterUrl =
+      'https://storage.googleapis.com/nxt-1-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/video/trimmed-poster.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+    const content = `✅ Done!\n\n**Trimmed Video:**\n[View Video](${videoUrl})`;
+
+    const media = facade.collectMessageMedia(
+      assistantMessage('nested-trim-result', 'assistant_final', {
+        content,
+        resultData: {
+          taskResults: {
+            'task-1': {
+              data: {
+                outputUrl: videoUrl,
+                posterUrl,
+              },
+            },
+          },
+        },
+      })
+    );
+
+    expect(media.attachments).toEqual([
+      {
+        url: videoUrl,
+        type: 'video',
+        name: 'media-video-1.mp4',
+        thumbnailUrl: posterUrl,
+      },
+    ]);
+
+    const promoted = facade.promoteAssistantMediaUrlsToMarkdown(content, media);
+    const encodedPosterUrl = encodeURIComponent(posterUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+    expect(promoted).toContain(`[View Video](${videoUrl}#poster=${encodedPosterUrl})`);
   });
 
   it('downgrades persisted non-playable video page attachments to app links', () => {

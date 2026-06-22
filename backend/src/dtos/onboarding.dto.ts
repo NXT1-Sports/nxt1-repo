@@ -244,12 +244,12 @@ export class BulkOnboardingDto {
 
   @IsString()
   @IsOptional()
-  @Length(1, 50)
+  @Length(0, 50)
   firstName?: string;
 
   @IsString()
   @IsOptional()
-  @Length(1, 50)
+  @Length(0, 50)
   lastName?: string;
 
   @IsString()

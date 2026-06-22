@@ -602,11 +602,28 @@ export class OnboardingService {
       this.logger.info('Legacy migration user detected — using 3-step legacy onboarding flow');
     }
 
+    const user = this.authFlow.user();
+
+    // Auto-fill from Auth if available (e.g. from Google or Apple login).
+    // Firebase can surface email-like fallbacks such as "john.keller1" when
+    // provider names are missing; sanitize to human-readable first/last names.
+    const { firstName: prefilledFirstName, lastName: prefilledLastName } =
+      this.derivePrefilledNames(user?.displayName, user?.email);
+
     this.resolveSkipStepIds().then((skipStepIds) => {
       this.machine = createOnboardingStateMachine({
         userId,
         initialSteps: isLegacy ? LEGACY_ONBOARDING_STEPS : ONBOARDING_STEPS.athlete,
         skipStepIds,
+        initialFormData: {
+          userType: null,
+          authProvider: user?.provider ?? null,
+          profile: {
+            firstName: prefilledFirstName,
+            lastName: prefilledLastName,
+            profileImgs: user?.profileImg ? [user.profileImg] : null,
+          },
+        },
         debug: false,
         onComplete: async (formData) => {
           if (isLegacy) {
@@ -631,6 +648,42 @@ export class OnboardingService {
         }
       });
     });
+  }
+
+  private derivePrefilledNames(
+    displayName?: string | null,
+    email?: string | null
+  ): { firstName: string; lastName: string } {
+    const sanitizeToken = (value: string): string => value.replace(/[^a-zA-Z'-]/g, '').trim();
+
+    const parseParts = (value?: string | null): string[] => {
+      if (!value) return [];
+      const normalized = value
+        .replace(/[_.-]+/g, ' ')
+        .replace(/\d+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (!normalized) return [];
+
+      return normalized
+        .split(' ')
+        .map((part) => sanitizeToken(part))
+        .filter((part) => part.length >= 2);
+    };
+
+    let parts = parseParts(displayName);
+
+    // Fallback to email local-part when displayName is missing or unusable.
+    if (parts.length === 0 && email?.includes('@')) {
+      const localPart = email.split('@')[0] || '';
+      parts = parseParts(localPart);
+    }
+
+    return {
+      firstName: parts[0] || '',
+      lastName: parts.slice(1).join(' '),
+    };
   }
 
   private async applyInviteSportPreselection(): Promise<void> {

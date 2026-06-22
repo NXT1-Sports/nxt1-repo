@@ -355,20 +355,22 @@ describe('ReadLiveViewTool', () => {
 describe('CaptureLiveViewScreenshotTool', () => {
   let tool: CaptureLiveViewScreenshotTool;
   let service: LiveViewSessionService;
-  const mockSave = vi.fn().mockResolvedValue(undefined);
+  const mockFetch =
+    vi.fn<(input: string | URL | Request, init?: RequestInit) => Promise<Response>>();
   const mockGetSignedUrl = vi
     .fn()
     .mockResolvedValue(['https://storage.example.com/screenshot.png']);
   const mockBucket = {
     name: 'test-bucket',
     file: vi.fn(() => ({
-      save: mockSave,
       getSignedUrl: mockGetSignedUrl,
     })),
   };
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockFetch.mockResolvedValue({ ok: true, status: 200 } as Response);
+    vi.stubGlobal('fetch', mockFetch);
     service = createMockService();
     tool = new CaptureLiveViewScreenshotTool(service, () => ({ bucket: () => mockBucket }));
   });
@@ -398,12 +400,32 @@ describe('CaptureLiveViewScreenshotTool', () => {
       quality: undefined,
       viewport: undefined,
     });
-    expect(mockSave).toHaveBeenCalledWith(expect.any(Buffer), {
-      metadata: {
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://storage.example.com/screenshot.png',
+      expect.objectContaining({
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'image/png',
+          'Cache-Control': 'private, max-age=0',
+        },
+        body: expect.any(Uint8Array),
+      })
+    );
+    expect(mockGetSignedUrl).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        action: 'write',
         contentType: 'image/png',
-        cacheControl: 'private, max-age=0',
-      },
-    });
+        version: 'v4',
+      })
+    );
+    expect(mockGetSignedUrl).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        action: 'read',
+        version: 'v4',
+      })
+    );
 
     const data = result.data as Record<string, unknown>;
     expect(data['url']).toBe('https://storage.example.com/screenshot.png');
@@ -433,6 +455,21 @@ describe('CaptureLiveViewScreenshotTool', () => {
       fullPage: true,
       viewport: { width: 1365, height: 768 },
     });
+    expect(mockGetSignedUrl).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        action: 'write',
+        contentType: 'image/png',
+        version: 'v4',
+      })
+    );
+    expect(mockGetSignedUrl).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        action: 'read',
+        version: 'v4',
+      })
+    );
   });
 
   it('should surface capture failures', async () => {

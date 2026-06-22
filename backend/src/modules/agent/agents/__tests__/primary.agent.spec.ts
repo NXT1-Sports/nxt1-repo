@@ -669,6 +669,121 @@ describe('PrimaryAgent delegation control flow', () => {
     agent.endRun('op-3');
   });
 
+  it('forwards router-resolved brand snapshot results into coordinator handoff payload', async () => {
+    const capabilities = {
+      current: () => ({
+        rendered: {
+          compactMarkdown: 'Capabilities',
+          detailedMarkdown: 'Capabilities',
+        },
+      }),
+    } as unknown as CapabilityRegistry;
+
+    const dispatcher = createPrimaryDispatcherMock({
+      runCoordinator: vi.fn().mockResolvedValue({
+        success: true,
+        observation: '## brand_coordinator dispatch result\n- graphic built',
+      }),
+    });
+
+    const agent = new TestPrimaryAgent(capabilities, dispatcher);
+    const context = {
+      operationId: 'op-brand-handoff',
+      userId: 'user-1',
+      sessionContext: createMockContext(),
+      enrichedIntent: 'Create a Crown Point Bulldogs graphic.',
+    };
+    agent.beginRun(context);
+
+    const registry = new ConcreteToolRegistry();
+    registry.register(new DelegateToCoordinatorTool());
+    const toolCall: LLMToolCall = {
+      id: 'call_delegate_brand',
+      type: 'function',
+      function: {
+        name: 'delegate_to_coordinator',
+        arguments: JSON.stringify({
+          coordinator: 'brand_coordinator',
+          goal: 'Create the team graphic.',
+          structured_payload: {
+            organizationId: 'org-crown-point',
+            teamId: 'team-crown-point',
+          },
+        }),
+      },
+    };
+
+    const currentMessages = [
+      {
+        role: 'tool' as const,
+        content: JSON.stringify({
+          success: true,
+          data: {
+            view: 'organization_profile_snapshot',
+            count: 0,
+            items: [],
+          },
+        }),
+        tool_call_id: 'org_query',
+      },
+      {
+        role: 'tool' as const,
+        content: JSON.stringify({
+          success: true,
+          data: {
+            view: 'team_profile_snapshot',
+            count: 1,
+            items: [
+              {
+                name: 'Crown Point Bulldogs',
+                logoUrl: 'https://cdn.example.com/crown-point-logo.png',
+              },
+            ],
+          },
+        }),
+        tool_call_id: 'team_query',
+      },
+    ];
+
+    await agent.callExecuteTool(
+      toolCall,
+      registry,
+      context.userId,
+      undefined,
+      undefined,
+      { operationId: 'op-brand-handoff' },
+      currentMessages,
+      undefined,
+      undefined
+    );
+
+    expect(dispatcher.runCoordinator).toHaveBeenCalledWith(
+      'brand_coordinator',
+      'Create the team graphic.',
+      expect.any(Object),
+      expect.objectContaining({
+        organizationId: 'org-crown-point',
+        teamId: 'team-crown-point',
+        resolvedBrandContext: {
+          organizationProfileSnapshot: {
+            found: false,
+            count: 0,
+          },
+          teamProfileSnapshot: {
+            found: true,
+            count: 1,
+            item: {
+              name: 'Crown Point Bulldogs',
+              logoUrl: 'https://cdn.example.com/crown-point-logo.png',
+            },
+          },
+        },
+      })
+    );
+
+    agent.endRun('op-brand-handoff');
+  });
+
   it('reroutes direct analyze_video tool calls to a video-capable coordinator', async () => {
     const capabilities = {
       current: () => ({

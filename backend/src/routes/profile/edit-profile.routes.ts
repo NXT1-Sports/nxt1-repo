@@ -6,6 +6,7 @@
  * Mounted on /api/v1/profile in backend/src/index.ts
  */
 
+import { randomUUID } from 'node:crypto';
 import { Router, type Router as ExpressRouter, type Request, type Response } from 'express';
 import multer from 'multer';
 import sharp from 'sharp';
@@ -57,6 +58,22 @@ import {
   buildPreviousStateFromUserRecord,
 } from '../../modules/agent/sync/manual-sync-state.helpers.js';
 import { onDailySyncComplete } from '../../modules/agent/triggers/trigger.listeners.js';
+
+type AuthenticatedStorageRequestClient = {
+  request(options: {
+    url: string;
+    method: 'POST';
+    headers: Record<string, string>;
+    data: Buffer;
+    responseType: 'json';
+  }): Promise<unknown>;
+};
+
+type FirebaseStorageBucket = ReturnType<ReturnType<typeof getStorage>['bucket']> & {
+  storage: {
+    authClient?: AuthenticatedStorageRequestClient;
+  };
+};
 
 const router: ExpressRouter = Router();
 
@@ -280,21 +297,52 @@ async function uploadToStorage(
   contentType: string,
   storage: ReturnType<typeof getStorage>
 ): Promise<string> {
-  const bucket = storage.bucket();
-  const file = bucket.file(storagePath);
+  const bucket = storage.bucket() as FirebaseStorageBucket;
+  const downloadToken = randomUUID();
+  const boundary = `nxt1-upload-${randomUUID()}`;
+  const authClient = bucket.storage.authClient;
 
-  await file.save(buffer, {
+  if (!authClient?.request) {
+    throw new Error('Storage auth client unavailable');
+  }
+
+  const uploadUrl = new URL(`https://storage.googleapis.com/upload/storage/v1/b/${bucket.name}/o`);
+  uploadUrl.searchParams.set('uploadType', 'multipart');
+  uploadUrl.searchParams.set('name', storagePath);
+
+  const metadata = {
+    contentType,
+    cacheControl: 'public, max-age=31536000',
     metadata: {
-      contentType,
-      cacheControl: 'public, max-age=31536000', // 1 year cache
+      firebaseStorageDownloadTokens: downloadToken,
     },
+  };
+
+  const requestBody = Buffer.concat([
+    Buffer.from(
+      `--${boundary}\r\n` +
+        'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+        `${JSON.stringify(metadata)}\r\n`
+    ),
+    Buffer.from(`--${boundary}\r\nContent-Type: ${contentType}\r\n\r\n`),
+    buffer,
+    Buffer.from(`\r\n--${boundary}--\r\n`),
+  ]);
+
+  await authClient.request({
+    url: uploadUrl.toString(),
+    method: 'POST',
+    headers: {
+      'Content-Type': `multipart/related; boundary=${boundary}`,
+    },
+    data: requestBody,
+    responseType: 'json',
   });
 
-  // Make file publicly accessible
-  await file.makePublic();
-
-  // Get download URL
-  return `https://storage.googleapis.com/${bucket.name}/${storagePath}`;
+  return (
+    `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/` +
+    `${encodeURIComponent(storagePath)}?alt=media&token=${downloadToken}`
+  );
 }
 
 /**

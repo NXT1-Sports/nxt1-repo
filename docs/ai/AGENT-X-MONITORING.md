@@ -113,7 +113,7 @@ There is also an `events` subcollection for step-level execution details.
 
 ## 4. Queue Health: BullMQ And Redis
 
-### Purpose
+### Helicone Purpose
 
 BullMQ and Redis are the execution engine, not the durable monitoring history.
 Use them to understand queue pressure and worker health.
@@ -143,7 +143,7 @@ Use them to understand queue pressure and worker health.
 - queue is paused unexpectedly
 - Redis unavailable on startup or reconnect
 
-### Important Limitation
+### Helicone Limitation
 
 BullMQ is not your durable history. Redis is ephemeral relative to Firestore.
 Use queue counts for engine health and `AgentJobs` for persistent monitoring.
@@ -152,7 +152,7 @@ Use queue counts for engine health and `AgentJobs` for persistent monitoring.
 
 ## 5. LLM Monitoring: Helicone / OpenRouter Telemetry
 
-### Purpose
+### GCP Logs Purpose
 
 Helicone is the best place to inspect model-level behavior for a given run.
 Agent X already tags LLM requests with operation-scoped headers so model calls

@@ -19,7 +19,7 @@
  *   (Firestore onCreate triggers only fire on document creation, not updates).
  */
 
-import * as admin from 'firebase-admin';
+import { FieldValue, Timestamp, type Firestore } from '../firebase-admin';
 
 /** 45-day TTL — Firestore auto-deletes expired docs when a TTL policy is enabled. */
 const NOTIFICATION_TTL_MS = 45 * 24 * 60 * 60 * 1000;
@@ -55,10 +55,10 @@ export interface FunctionNotifyResult {
  * @returns Doc IDs of the notification and activity documents written
  */
 export async function notifyUser(
-  db: admin.firestore.Firestore,
+  db: Firestore,
   input: FunctionNotifyInput
 ): Promise<FunctionNotifyResult> {
-  const now = admin.firestore.FieldValue.serverTimestamp();
+  const now = FieldValue.serverTimestamp();
 
   // Deterministic 5-minute dedup ID — prevents re-delivery on Cloud Function retries
   const timeBucket = Math.floor(Date.now() / (5 * 60 * 1000));
@@ -91,7 +91,7 @@ export async function notifyUser(
     },
     status: 'pending',
     createdAt: now,
-    expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + NOTIFICATION_TTL_MS),
+    expiresAt: Timestamp.fromMillis(Date.now() + NOTIFICATION_TTL_MS),
   });
 
   // 2. Activity feed doc — user-visible in the /activity inbox tab
@@ -107,7 +107,7 @@ export async function notifyUser(
     deepLink: input.deepLink,
     metadata: input.metadata ?? null,
     source: input.source ?? null,
-    expiresAt: admin.firestore.Timestamp.fromMillis(Date.now() + NOTIFICATION_TTL_MS),
+    expiresAt: Timestamp.fromMillis(Date.now() + NOTIFICATION_TTL_MS),
   });
 
   await batch.commit();

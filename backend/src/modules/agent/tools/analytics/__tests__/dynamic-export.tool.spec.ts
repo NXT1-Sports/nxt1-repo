@@ -10,12 +10,44 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // ── Mocks (must precede tool import) ─────────────────────────────────────────
 
-const mockSave = vi.fn().mockResolvedValue(undefined);
-const mockExists = vi.fn().mockResolvedValue([true]);
-const mockFile = vi.fn().mockReturnValue({ save: mockSave, exists: mockExists });
-const mockBucket = vi.fn().mockReturnValue({ file: mockFile, name: 'test-bucket' });
+const {
+  mockSave,
+  mockExists,
+  mockFile,
+  mockBucket,
+  mockStagingFile,
+  mockStagingBucket,
+  mockFetch,
+} = vi.hoisted(() => {
+  const mockSave = vi.fn().mockResolvedValue(undefined);
+  const mockExists = vi.fn().mockResolvedValue([true]);
+  const mockFile = vi.fn().mockReturnValue({ save: mockSave, exists: mockExists });
+  const mockBucket = vi.fn().mockReturnValue({ file: mockFile, name: 'test-bucket' });
+  const mockStagingFile = vi.fn().mockReturnValue({ save: mockSave, exists: mockExists });
+  const mockStagingBucket = vi.fn().mockReturnValue({
+    file: mockStagingFile,
+    name: 'test-staging-bucket',
+  });
+  const mockFetch = vi.fn();
+
+  return {
+    mockSave,
+    mockExists,
+    mockFile,
+    mockBucket,
+    mockStagingFile,
+    mockStagingBucket,
+    mockFetch,
+  };
+});
 vi.mock('firebase-admin/storage', () => ({
   getStorage: () => ({ bucket: mockBucket }),
+}));
+vi.mock('../../../../../utils/firebase-staging.js', () => ({
+  stagingStorage: { bucket: mockStagingBucket },
+}));
+vi.mock('../../../../../utils/firebase.js', () => ({
+  storage: { bucket: mockBucket },
 }));
 
 import { DynamicExportTool } from '../../system/dynamic-export.tool.js';
@@ -27,6 +59,12 @@ const context: ToolExecutionContext = {
   userId: 'user_123',
   threadId: 'thread_456',
   sessionId: 'session_789',
+};
+
+const localRouteContext: ToolExecutionContext = {
+  ...context,
+  environment: 'staging',
+  agentRouteBase: 'http://localhost:3000/api/v1/staging/agent-x',
 };
 
 function csvInput(overrides?: Record<string, unknown>): Record<string, unknown> {
@@ -95,6 +133,23 @@ describe('DynamicExportTool', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal('fetch', mockFetch);
+    mockFetch.mockImplementation(async (input: string | URL | Request) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      const pngBytes = Uint8Array.from(
+        Buffer.from(TINY_PNG_DATA_URL.split(',')[1] ?? '', 'base64')
+      );
+
+      return {
+        ok: /^https?:\/\//i.test(url),
+        headers: {
+          get: (headerName: string) =>
+            headerName.toLowerCase() === 'content-type' ? 'image/png' : null,
+        },
+        arrayBuffer: async () =>
+          pngBytes.buffer.slice(pngBytes.byteOffset, pngBytes.byteOffset + pngBytes.byteLength),
+      } as Response;
+    });
     tool = new DynamicExportTool();
   });
 
@@ -115,16 +170,25 @@ describe('DynamicExportTool', () => {
       expect(result.error).toContain('format');
     });
 
+    it('should accept uppercase format values', async () => {
+      const result = await tool.execute(csvInput({ format: 'CSV' }), context);
+      expect(result.success).toBe(true);
+    });
+
     it('should reject invalid format', async () => {
       const result = await tool.execute({ format: 'docx', fileName: 'test' }, context);
       expect(result.success).toBe(false);
       expect(result.error).toContain('format');
     });
 
-    it('should reject missing fileName', async () => {
-      const result = await tool.execute({ format: 'csv' }, context);
-      expect(result.success).toBe(false);
-      expect(result.error).toContain('fileName');
+    it('should fallback fileName when missing', async () => {
+      const result = await tool.execute(
+        { format: 'csv', columns: [{ key: 'a', label: 'A' }], rows: [['x']] },
+        context
+      );
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data['fileName']).toBe('export.csv');
     });
 
     it('should reject CSV without columns', async () => {
@@ -169,9 +233,14 @@ describe('DynamicExportTool', () => {
       expect(data['rowCount']).toBe(2);
       expect(data['columnCount']).toBe(3);
       expect(data['downloadUrl']).toContain(
-        'https://firebasestorage.googleapis.com/v0/b/test-bucket/o/'
+        '/api/v1/agent-x/media-proxy/export/Top%20Prospects%202026.csv'
       );
-      expect(data['downloadUrl']).toContain('?alt=media&token=');
+      expect(data['downloadUrl']).toContain(
+        'path=Users%2Fuser_123%2Fthreads%2Fthread_456%2Fexports%2F'
+      );
+      expect(data['downloadUrl']).toContain('mime=text%2Fcsv');
+      expect(data['downloadUrl']).toContain('&exp=');
+      expect(data['downloadUrl']).toContain('&sig=');
       expect(typeof data['sizeBytes']).toBe('number');
       expect(data['sizeBytes'] as number).toBeGreaterThan(0);
 
@@ -182,12 +251,33 @@ describe('DynamicExportTool', () => {
       expect(storagePath).toContain('.csv');
     });
 
+    it('should prefer the request-specific agent route base when provided', async () => {
+      const result = await tool.execute(csvInput(), localRouteContext);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data['downloadUrl']).toContain(
+        'http://localhost:3000/api/v1/staging/agent-x/media-proxy/export/Top%20Prospects%202026.csv'
+      );
+    });
+
+    it('should write staging exports to the staging storage app', async () => {
+      const result = await tool.execute(csvInput(), localRouteContext);
+
+      expect(result.success).toBe(true);
+      expect(mockStagingBucket).toHaveBeenCalledOnce();
+      expect(mockStagingFile).toHaveBeenCalledOnce();
+      expect(mockBucket).not.toHaveBeenCalled();
+    });
+
     it('should pass correct content type metadata to Storage', async () => {
       await tool.execute(csvInput(), context);
 
       expect(mockSave).toHaveBeenCalledOnce();
       const [, opts] = mockSave.mock.calls[0];
       expect(opts.contentType).toBe('text/csv');
+      expect(opts.resumable).toBe(false);
+      expect(opts.validation).toBe(false);
       expect(opts.metadata.metadata.firebaseStorageDownloadTokens).toMatch(/^[0-9a-f-]{36}$/i);
     });
   });
@@ -234,8 +324,20 @@ describe('DynamicExportTool', () => {
       expect(data['fileName']).toBe('Scout Report.pdf');
       expect(data['mimeType']).toBe('application/pdf');
       expect(data['format']).toBe('pdf');
+      expect(data['downloadUrl']).toContain(
+        '/api/v1/agent-x/media-proxy/export/Scout%20Report.pdf'
+      );
+      expect(data['downloadUrl']).toContain('mime=application%2Fpdf');
       expect(typeof data['sizeBytes']).toBe('number');
       expect(data['sizeBytes'] as number).toBeGreaterThan(0);
+    });
+
+    it('should not duplicate file extension when fileName already includes one', async () => {
+      const result = await tool.execute(pdfInput({ fileName: 'Scout Report.pdf' }), context);
+
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data['fileName']).toBe('Scout Report.pdf');
     });
 
     it('should accept PDF with only body paragraphs (no table)', async () => {
@@ -289,6 +391,25 @@ describe('DynamicExportTool', () => {
         }),
         context
       );
+      expect(result.success).toBe(true);
+      const data = result.data as Record<string, unknown>;
+      expect(data['format']).toBe('pdf');
+    });
+
+    it('should accept PDF with imageUrl alias and invalid url field present', async () => {
+      const result = await tool.execute(
+        pdfInput({
+          columns: undefined,
+          rows: undefined,
+          bodyParagraphs: undefined,
+          bulletPoints: undefined,
+          description: undefined,
+          imageUrl: TINY_PNG_DATA_URL,
+          url: 'not-a-url',
+        }),
+        context
+      );
+
       expect(result.success).toBe(true);
       const data = result.data as Record<string, unknown>;
       expect(data['format']).toBe('pdf');

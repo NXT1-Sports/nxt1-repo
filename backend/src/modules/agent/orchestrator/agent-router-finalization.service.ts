@@ -21,6 +21,8 @@ const DELIVERABLE_URL_KEYS = [
   'diagramUrl',
 ] as const;
 
+const DELIVERABLE_POSTER_URL_KEYS = ['thumbnailUrl', 'posterUrl', 'poster'] as const;
+
 const DELIVERABLE_COLLECTION_KEYS = [
   'files',
   'attachments',
@@ -28,28 +30,109 @@ const DELIVERABLE_COLLECTION_KEYS = [
   'mediaArtifacts',
 ] as const;
 
+type DeliverableItem = {
+  readonly url: string;
+  readonly posterUrl?: string;
+};
+
 function isHttpUrl(value: unknown): value is string {
   return typeof value === 'string' && /^https?:\/\//i.test(value.trim());
 }
 
-function collectDeliverableUrls(value: unknown, sink: Set<string>): void {
+function isImageUrl(value: string): boolean {
+  try {
+    return /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(
+      decodeURIComponent(new URL(value).pathname)
+    );
+  } catch {
+    return /\.(png|jpe?g|gif|webp|avif|bmp|svg)([?#]|$)/i.test(value);
+  }
+}
+
+function isVideoUrl(value: string): boolean {
+  try {
+    return /\.(mp4|mov|webm|m4v)$/i.test(decodeURIComponent(new URL(value).pathname));
+  } catch {
+    return /\.(mp4|mov|webm|m4v)([?#]|$)/i.test(value);
+  }
+}
+
+function encodePosterFragment(posterUrl: string): string {
+  return encodeURIComponent(posterUrl).replace(
+    /[!'()*]/g,
+    (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+  );
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function buildDisplayUrl(item: DeliverableItem): string {
+  if (!item.posterUrl || !isVideoUrl(item.url) || /#poster=/i.test(item.url)) {
+    return item.url;
+  }
+
+  return `${item.url}#poster=${encodePosterFragment(item.posterUrl)}`;
+}
+
+function addDeliverableItem(sink: Map<string, DeliverableItem>, item: DeliverableItem): void {
+  const normalizedUrl = item.url.trim();
+  if (!normalizedUrl) return;
+
+  const existing = sink.get(normalizedUrl);
+  if (existing?.posterUrl || (existing && !item.posterUrl)) {
+    return;
+  }
+
+  const posterUrl = item.posterUrl?.trim();
+  sink.set(normalizedUrl, posterUrl ? { url: normalizedUrl, posterUrl } : { url: normalizedUrl });
+}
+
+function enrichSummaryVideoPosters(summary: string, items: readonly DeliverableItem[]): string {
+  return items.reduce((nextSummary, item) => {
+    if (!item.posterUrl || !isVideoUrl(item.url) || /#poster=/i.test(item.url)) {
+      return nextSummary;
+    }
+
+    const displayUrl = buildDisplayUrl(item);
+    const pattern = new RegExp(`${escapeRegExp(item.url)}(?!#poster=)`, 'g');
+    return nextSummary.replace(pattern, displayUrl);
+  }, summary);
+}
+
+function collectDeliverableItems(value: unknown, sink: Map<string, DeliverableItem>): void {
   if (!value || typeof value !== 'object') {
     return;
   }
 
   if (Array.isArray(value)) {
     for (const entry of value) {
-      collectDeliverableUrls(entry, sink);
+      collectDeliverableItems(entry, sink);
     }
     return;
   }
 
   const record = value as Record<string, unknown>;
+  const thumbnailUrl = DELIVERABLE_POSTER_URL_KEYS.map((key) => record[key])
+    .filter(isHttpUrl)
+    .map((url) => url.trim())
+    .find(isImageUrl);
+  const consumedThumbnailUrls = new Set<string>();
 
   for (const key of DELIVERABLE_URL_KEYS) {
     const candidate = record[key];
     if (isHttpUrl(candidate)) {
-      sink.add(candidate.trim());
+      const url = candidate.trim();
+      if (key === 'thumbnailUrl' && consumedThumbnailUrls.has(url)) {
+        continue;
+      }
+
+      const posterUrl = thumbnailUrl && isVideoUrl(url) ? thumbnailUrl : undefined;
+      if (posterUrl) {
+        consumedThumbnailUrls.add(posterUrl);
+      }
+      addDeliverableItem(sink, { url, posterUrl });
     }
   }
 
@@ -61,32 +144,34 @@ function collectDeliverableUrls(value: unknown, sink: Set<string>): void {
     const nested = record[key];
     if (Array.isArray(nested)) {
       for (const entry of nested) {
-        collectDeliverableUrls(entry, sink);
+        collectDeliverableItems(entry, sink);
       }
       continue;
     }
 
-    collectDeliverableUrls(nested, sink);
+    collectDeliverableItems(nested, sink);
   }
 }
 
-function appendDeliverablesSection(summary: string, urls: readonly string[]): string {
-  if (urls.length === 0) return summary;
+function appendDeliverablesSection(summary: string, items: readonly DeliverableItem[]): string {
+  if (items.length === 0) return summary;
 
-  const missing = urls.filter((url) => !summary.includes(url));
-  if (missing.length === 0) return summary;
+  const enrichedSummary = enrichSummaryVideoPosters(summary, items);
+  const missing = items.filter((item) => !enrichedSummary.includes(buildDisplayUrl(item)));
+  if (missing.length === 0) return enrichedSummary;
 
-  const prefix = summary.trim().length > 0 ? `${summary.trim()}\n\n` : '';
+  const prefix = enrichedSummary.trim().length > 0 ? `${enrichedSummary.trim()}\n\n` : '';
   const lines = missing
-    .map((url) => {
+    .map((item) => {
+      const url = buildDisplayUrl(item);
       // Image URLs → render as inline image (markdown renderer converts to <img>)
-      if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)([?#]|$)/i.test(url)) {
+      if (isImageUrl(url)) {
         return `- ![](${url})`;
       }
       // Video URLs → labeled link with filename
-      if (/\.(mp4|mov|webm|m4v)([?#]|$)/i.test(url)) {
+      if (isVideoUrl(url)) {
         try {
-          const filename = new URL(url).pathname.split('/').pop() ?? 'video';
+          const filename = new URL(item.url).pathname.split('/').pop() ?? 'video';
           return `- [▶ ${filename}](${url})`;
         } catch {
           return `- [Video](${url})`;
@@ -147,23 +232,23 @@ export class AgentRouterFinalizationService {
       message: 'Pulling everything together...',
       metadata: { eventType: 'progress_stage', phase: 'aggregation', phaseIndex: 4, phaseTotal: 5 },
     });
-    const urls = new Set<string>();
+    const deliverableItemsByUrl = new Map<string, DeliverableItem>();
     for (const result of taskResults.values()) {
       if (result.artifacts) {
-        collectDeliverableUrls(result.artifacts, urls);
+        collectDeliverableItems(result.artifacts, deliverableItemsByUrl);
       }
       if (result.data) {
-        collectDeliverableUrls(result.data, urls);
+        collectDeliverableItems(result.data, deliverableItemsByUrl);
       }
     }
-    const deliverableUrls = [...urls];
+    const deliverableItems = [...deliverableItemsByUrl.values()];
 
     const summaries = [...taskResults.values()].map((result) => result.summary);
     const allSuggestions = [...taskResults.values()].flatMap((result) => result.suggestions ?? []);
     const failedTasks = mutableTasks.filter(
       (task): task is AgentExecutionMutableTask => task.status === 'failed'
     );
-    const hasDeliverables = deliverableUrls.length > 0;
+    const hasDeliverables = deliverableItems.length > 0;
 
     if (failedTasks.length > 0) {
       const firstFailedTask = failedTasks[0];
@@ -257,7 +342,7 @@ export class AgentRouterFinalizationService {
           : failureHeadline;
 
       return {
-        summary: appendDeliverablesSection(failedSummary, deliverableUrls),
+        summary: appendDeliverablesSection(failedSummary, deliverableItems),
         data: {
           plan,
           taskResults: Object.fromEntries(taskResults),
@@ -282,7 +367,7 @@ export class AgentRouterFinalizationService {
     );
 
     const aggregatedResult: AgentOperationResult = {
-      summary: appendDeliverablesSection(summaries.join('\n\n'), deliverableUrls),
+      summary: appendDeliverablesSection(summaries.join('\n\n'), deliverableItems),
       data: {
         plan,
         taskResults: Object.fromEntries(taskResults),

@@ -15,6 +15,8 @@ export { pushDrip } from './pushDrip';
 export { signupDrip } from './signupDrip';
 export { signupNotionDashboard } from './signupNotionDashboard';
 export { weeklySuggestedActions } from './weeklySuggestedActions';
+export { weeklyInsights } from './weeklyInsights';
+export { monthlyInsights } from './monthlyInsights';
 export { weeklyPlaybooks } from './weeklyPlaybooks';
 export { playbookNudge } from './playbookNudge';
 export { weeklyRecaps } from './weeklyRecaps';

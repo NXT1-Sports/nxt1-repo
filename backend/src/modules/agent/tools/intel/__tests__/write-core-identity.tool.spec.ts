@@ -656,6 +656,53 @@ describe('WriteCoreIdentityTool', () => {
     );
   });
 
+  it('uses the authenticated context userId when the tool input omits userId', async () => {
+    const { db, userRef } = createMockFirestore({
+      userData: {
+        role: 'coach',
+        teamId: 'team_123',
+        organizationId: 'org_123',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      teamData: {
+        organizationId: 'org_123',
+        teamCode: 'team-code',
+        unicode: 'team-unicode',
+      },
+      organizationData: {},
+    });
+
+    mockAssertCanManageProfileTarget.mockResolvedValue({
+      actorUserId: 'user_123',
+      targetUserId: 'user_123',
+      targetRole: 'coach',
+      targetUserData: {
+        role: 'coach',
+        teamId: 'team_123',
+        organizationId: 'org_123',
+        sports: [{ sport: 'football', team: { teamId: 'team_123', organizationId: 'org_123' } }],
+      },
+      isSelfWrite: true,
+      sharedTeamIds: [],
+      sharedOrganizationIds: [],
+      sharedSports: [],
+    });
+
+    const tool = new WriteCoreIdentityTool(db as never);
+    const input = buildInput({ userId: undefined });
+    const result = await tool.execute(input, { userId: 'user_123' });
+
+    expect(result.success).toBe(true);
+    expect(mockAssertCanManageProfileTarget).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actorUserId: 'user_123',
+        targetUserId: 'user_123',
+        action: 'tool:write_core_identity',
+      })
+    );
+    expect(userRef.update).toHaveBeenCalledTimes(1);
+  });
+
   it('ignores delegated explicit team and organization ids outside shared scope', async () => {
     mockAssertCanManageProfileTarget.mockResolvedValue({
       actorUserId: 'coach_123',

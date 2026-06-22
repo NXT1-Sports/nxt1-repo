@@ -116,6 +116,60 @@ describe('Analytics tracker attribution', () => {
     expect(dispatchMock).not.toHaveBeenCalled();
   });
 
+  it('tracks marketing email opens with campaign and dispatch attribution without push fan-out', async () => {
+    const response = await request(app).get(
+      '/api/v1/analytics/track/open?subjectId=marketing%3Awelcome_intro_athlete&subjectType=organization&sourceRecordId=dispatch_123&dispatchId=dispatch_123&campaignKey=welcome_intro_athlete&campaignFamily=welcome&provider=brevo&emailOrigin=marketing'
+    );
+
+    expect(response.status).toBe(200);
+    expect(safeTrackMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subjectId: 'marketing:welcome_intro_athlete',
+        subjectType: 'organization',
+        eventType: 'email_opened',
+        payload: expect.objectContaining({
+          dispatchId: 'dispatch_123',
+          sourceRecordId: 'dispatch_123',
+          campaignKey: 'welcome_intro_athlete',
+          campaignFamily: 'welcome',
+          provider: 'brevo',
+          emailOrigin: 'marketing',
+        }),
+        metadata: expect.objectContaining({
+          dispatchId: 'dispatch_123',
+          campaignKey: 'welcome_intro_athlete',
+          campaignFamily: 'welcome',
+          provider: 'brevo',
+          emailOrigin: 'marketing',
+        }),
+      })
+    );
+    expect(dispatchMock).not.toHaveBeenCalled();
+  });
+
+  it('tracks marketing email clicks with campaign attribution without user activity notifications', async () => {
+    const response = await request(app).get(
+      '/api/v1/analytics/track/click?subjectId=marketing%3Amonthly_campaign_01_athlete&subjectType=organization&sourceRecordId=dispatch_456&dispatchId=dispatch_456&campaignKey=monthly_campaign_01_athlete&campaignFamily=monthly&provider=brevo&emailOrigin=marketing&destination=https%3A%2F%2Fexample.com%2Fagent-x'
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.location).toBe('https://example.com/agent-x');
+    expect(safeTrackMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'link_clicked',
+        payload: expect.objectContaining({
+          dispatchId: 'dispatch_456',
+          campaignKey: 'monthly_campaign_01_athlete',
+          campaignFamily: 'monthly',
+          provider: 'brevo',
+          emailOrigin: 'marketing',
+          destinationUrl: 'https://example.com/agent-x',
+        }),
+      })
+    );
+    expect(dispatchMock).not.toHaveBeenCalled();
+  });
+
   it('dispatches a push notification for tracked email opens', async () => {
     const recipientEmailHash = 'cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc';
 

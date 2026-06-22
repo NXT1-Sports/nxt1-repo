@@ -102,6 +102,7 @@ import {
   type OperationEventSubscription,
 } from '../../services/agent-x-operation-event.service';
 import { NxtPlatformIconComponent } from '../../../components/platform-icon/platform-icon.component';
+import { NxtInlineVideoPreviewDirective } from '../../../components/video-preview';
 import { NxtDragDropDirective } from '../../../services/gesture';
 import {
   AgentXActionCardComponent,
@@ -191,6 +192,7 @@ type YieldStateSource =
     NxtChatBubbleComponent,
     NxtIconComponent,
     NxtDragDropDirective,
+    NxtInlineVideoPreviewDirective,
     NxtPlatformIconComponent,
     AgentXInputBarComponent,
     ChatBubbleActionsComponent,
@@ -329,35 +331,19 @@ type YieldStateSource =
                           </button>
                         }
                       } @else if (att.type === 'video') {
-                        @if (attachmentVideoThumbnailUrl(att); as thumbnailUrl) {
-                          <img
-                            [src]="thumbnailUrl"
-                            [alt]="att.name"
-                            class="msg-attachment__thumb"
-                            (error)="onAttachmentThumbnailError($event, thumbnailUrl)"
-                            (click)="
-                              attachmentsFacade.openAttachmentViewer(
-                                messageAttachmentsForStrip(msg),
-                                $index
-                              )
-                            "
-                          />
-                        } @else {
-                          <video
-                            [src]="att.url"
-                            preload="metadata"
-                            muted
-                            playsinline
-                            class="msg-attachment__thumb msg-attachment__video-inline"
-                            [attr.aria-label]="'Open video: ' + att.name"
-                            (click)="
-                              attachmentsFacade.openAttachmentViewer(
-                                messageAttachmentsForStrip(msg),
-                                $index
-                              )
-                            "
-                          ></video>
-                        }
+                        <video
+                          nxt1InlineVideoPreview
+                          [nxt1InlineVideoPreview]="att.url"
+                          [nxt1InlineVideoPreviewPoster]="attachmentVideoPosterUrl(att)"
+                          class="msg-attachment__thumb msg-attachment__video-inline"
+                          [attr.aria-label]="'Open video: ' + att.name"
+                          (click)="
+                            attachmentsFacade.openAttachmentViewer(
+                              messageAttachmentsForStrip(msg),
+                              $index
+                            )
+                          "
+                        ></video>
                         <div
                           class="msg-attachment__play"
                           (click)="
@@ -1341,10 +1327,12 @@ type YieldStateSource =
         justify-content: center;
       }
 
-      /* Inline <video> tile — renders the browser's native first-frame
-         preview when no explicit thumbnailUrl is available (Twitter / iMessage
-         pattern). Sits behind the play-button overlay. */
+      /* Inline <video> tile — uses a real poster when available and otherwise
+         matches nxt1-markdown's timestamp preview fallback for mobile Safari. */
       .msg-attachment__video-inline {
+        display: block;
+        width: 100%;
+        height: 100%;
         background: #000;
         object-fit: contain;
         pointer-events: auto;
@@ -3143,9 +3131,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
    * Attachments to render in the strip.
    *
    * - User messages: show all attachments (uploaded files, images, videos).
-   * - Assistant messages: suppress image/video attachments when the same URL
-   *   already renders inline via markdown or structured message parts. This
-   *   keeps historical/replayed output from showing a second broken preview.
+   * - Assistant messages: never render the strip. Assistant media is rendered
+   *   inline from markdown/parts, and persisted assistant attachments are kept
+   *   only as transport metadata for reload/replay fidelity.
    */
   protected attachmentImageUrl(
     attachment: NonNullable<OperationMessage['attachments']>[number]
@@ -3157,7 +3145,7 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     return url;
   }
 
-  protected attachmentVideoThumbnailUrl(
+  protected attachmentVideoPosterUrl(
     attachment: NonNullable<OperationMessage['attachments']>[number]
   ): string | null {
     if (attachment.type !== 'video') return null;
@@ -3196,56 +3184,9 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
     msg: OperationMessage
   ): readonly NonNullable<OperationMessage['attachments']>[number][] {
     const attachments = msg.attachments ?? [];
-    if (msg.role !== 'assistant') return attachments;
+    if (msg.role !== 'user') return [];
 
-    const normalized = [...attachments];
-    const videoIndexes = normalized
-      .map((attachment, index) => ({ attachment, index }))
-      .filter((entry) => entry.attachment.type === 'video')
-      .map((entry) => entry.index);
-
-    if (videoIndexes.length > 0) {
-      const lastVideoIndex = videoIndexes[videoIndexes.length - 1] ?? 0;
-      const lastVideo = normalized[lastVideoIndex];
-      const lastVideoHasThumb =
-        typeof lastVideo.thumbnailUrl === 'string' && lastVideo.thumbnailUrl.trim().length > 0;
-
-      const thumbnailCandidateIndex = normalized.findIndex(
-        (attachment, index) =>
-          index !== lastVideoIndex &&
-          attachment.type === 'image' &&
-          /thumb|thumbnail|preview[-_ ]?frame/i.test(attachment.name)
-      );
-
-      const fallbackPosterIndex =
-        thumbnailCandidateIndex >= 0
-          ? thumbnailCandidateIndex
-          : normalized.findIndex(
-              (attachment, index) => index !== lastVideoIndex && attachment.type === 'image'
-            );
-
-      if (fallbackPosterIndex >= 0) {
-        const thumbnailAttachment = normalized[fallbackPosterIndex];
-        if (!lastVideoHasThumb) {
-          normalized[lastVideoIndex] = {
-            ...lastVideo,
-            thumbnailUrl: thumbnailAttachment.url,
-          };
-        }
-
-        if (thumbnailCandidateIndex >= 0) {
-          normalized.splice(thumbnailCandidateIndex, 1);
-        }
-      }
-    }
-
-    const inlineMediaUrls = this.inlineRenderedMediaUrlsForMessage(msg);
-
-    return normalized.filter((attachment) => {
-      if (attachment.type !== 'image' && attachment.type !== 'video') return true;
-      const attachmentUrl = normalizeOperationChatMediaUrl(attachment.url);
-      return !attachmentUrl || !inlineMediaUrls.has(attachmentUrl);
-    });
+    return attachments;
   }
 
   protected hasBubbleProse(msg: OperationMessage): boolean {
@@ -3369,18 +3310,6 @@ export class AgentXOperationChatComponent implements AfterViewInit, OnDestroy {
       for (const url of collectOperationChatMediaUrlsFromText(part.content)) {
         urls.add(url);
       }
-    }
-
-    return urls;
-  }
-
-  private inlineRenderedMediaUrlsForMessage(msg: OperationMessage): Set<string> {
-    const urls = this.textRenderedMediaUrlsForMessage(msg);
-
-    for (const part of msg.parts ?? []) {
-      if (part.type !== 'image' && part.type !== 'video') continue;
-      const url = normalizeOperationChatMediaUrl(part.url);
-      if (url) urls.add(url);
     }
 
     return urls;

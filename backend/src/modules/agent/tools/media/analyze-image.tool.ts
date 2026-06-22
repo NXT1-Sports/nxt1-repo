@@ -31,7 +31,6 @@ import { z } from 'zod';
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 const MAX_IMAGES_PER_REQUEST = 10;
-const MAX_IMAGE_DATA_URL_BYTES = 8 * 1024 * 1024;
 const IMAGE_FETCH_TIMEOUT_MS = 45_000;
 
 /** Vision requests are fast — cap at 60 s to avoid hanging the agent loop. */
@@ -258,16 +257,8 @@ export class AnalyzeImageTool extends BaseTool {
       throw new Error(`Image fetch failed with status ${response.status}`);
     }
 
-    const contentLength = Number.parseInt(response.headers.get('content-length') ?? '0', 10);
-    if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_DATA_URL_BYTES) {
-      throw new Error(`Image is too large for vision analysis (${contentLength} bytes)`);
-    }
-
     const mimeType = this.resolveImageMimeType(response.headers.get('content-type'), url);
     const bytes = Buffer.from(await response.arrayBuffer());
-    if (bytes.byteLength > MAX_IMAGE_DATA_URL_BYTES) {
-      throw new Error(`Image is too large for vision analysis (${bytes.byteLength} bytes)`);
-    }
 
     return `data:${mimeType};base64,${bytes.toString('base64')}`;
   }

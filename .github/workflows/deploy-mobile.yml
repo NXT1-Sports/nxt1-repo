@@ -43,7 +43,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  NODE_VERSION: '22'
+  NODE_VERSION: '22.22.3'
   CI: true
 
 jobs:
@@ -78,7 +78,7 @@ jobs:
     needs: setup
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -122,7 +122,7 @@ jobs:
       BUILD_PROFILE: ${{ needs.setup.outputs.profile }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -270,7 +270,7 @@ jobs:
       BUILD_PROFILE: ${{ needs.setup.outputs.profile }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6

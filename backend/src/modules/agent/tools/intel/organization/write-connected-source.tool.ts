@@ -39,7 +39,7 @@ const USERS_COLLECTION = 'Users';
 const TEAMS_COLLECTION = 'Teams';
 
 const WriteConnectedSourceInputSchema = z.object({
-  userId: z.string().trim().min(1),
+  userId: z.string().trim().min(1).optional(),
   url: z.string().trim().min(1),
   platform: z.string().trim().min(1),
   scopeId: z.string().trim().min(1).optional(),
@@ -93,7 +93,19 @@ export class WriteConnectedSourceTool extends BaseTool {
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    const parsed = WriteConnectedSourceInputSchema.safeParse(input);
+    if (!context?.userId) {
+      return { success: false, error: 'Authenticated tool context is required.' };
+    }
+
+    const inputWithUser: Record<string, unknown> = {
+      ...input,
+      userId:
+        typeof input['userId'] === 'string' && input['userId'].trim().length > 0
+          ? input['userId']
+          : context.userId,
+    };
+
+    const parsed = WriteConnectedSourceInputSchema.safeParse(inputWithUser);
     if (!parsed.success) {
       return {
         success: false,
@@ -105,7 +117,8 @@ export class WriteConnectedSourceTool extends BaseTool {
       };
     }
 
-    const { userId, url } = parsed.data;
+    const userId = parsed.data.userId ?? context.userId;
+    const { url } = parsed.data;
 
     if (!this.isValidUrl(url)) {
       return { success: false, error: `"${url}" is not a valid URL.` };
@@ -256,9 +269,8 @@ export class WriteConnectedSourceTool extends BaseTool {
     faviconUrl: string | undefined,
     _context?: ToolExecutionContext
   ): Promise<ToolResult> {
-    // Resolve teamId: explicit param → user doc field
-    const teamId =
-      explicitTeamId ?? (typeof userData['teamId'] === 'string' ? userData['teamId'] : null);
+    // Resolve teamId: explicit param → user.teamId → user.teamCode.teamId → active sport team.teamId
+    const teamId = explicitTeamId ?? this.resolveTeamId(userData);
 
     if (!teamId) {
       return {
@@ -415,6 +427,48 @@ export class WriteConnectedSourceTool extends BaseTool {
       return userData['sport'];
     }
     return 'general';
+  }
+
+  private resolveTeamId(userData: Record<string, unknown>): string | null {
+    if (typeof userData['teamId'] === 'string' && userData['teamId'].trim().length > 0) {
+      return userData['teamId'].trim();
+    }
+
+    const teamCode =
+      userData['teamCode'] && typeof userData['teamCode'] === 'object'
+        ? (userData['teamCode'] as Record<string, unknown>)
+        : null;
+    if (
+      teamCode &&
+      typeof teamCode['teamId'] === 'string' &&
+      teamCode['teamId'].trim().length > 0
+    ) {
+      return teamCode['teamId'].trim();
+    }
+
+    const sports = Array.isArray(userData['sports'])
+      ? (userData['sports'] as ReadonlyArray<Record<string, unknown>>)
+      : [];
+    const activeSportIndexRaw = userData['activeSportIndex'];
+    const activeSportIndex =
+      typeof activeSportIndexRaw === 'number' && Number.isFinite(activeSportIndexRaw)
+        ? Math.max(0, Math.floor(activeSportIndexRaw))
+        : 0;
+    const activeSport = sports[activeSportIndex] ?? sports[0];
+    const activeSportTeam =
+      activeSport && typeof activeSport['team'] === 'object' && activeSport['team'] !== null
+        ? (activeSport['team'] as Record<string, unknown>)
+        : null;
+
+    if (
+      activeSportTeam &&
+      typeof activeSportTeam['teamId'] === 'string' &&
+      activeSportTeam['teamId'].trim().length > 0
+    ) {
+      return activeSportTeam['teamId'].trim();
+    }
+
+    return null;
   }
 
   /** Basic URL validation — must start with http:// or https://. */

@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '22'
+  NODE_VERSION: '22.22.3'
   CI: true
 
 jobs:
@@ -44,7 +44,7 @@ jobs:
       any_code: ${{ steps.filter.outputs.any_code }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Filter paths
         uses: dorny/paths-filter@v4
@@ -114,7 +114,7 @@ jobs:
     if: needs.changes.outputs.any_code == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -136,6 +136,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Enforce Google auth/storage dependency policy
+        run: npm run deps:check:google-auth
+
+      - name: Verify lockfile auth-stack policy
+        run: npm run lockfile:check
+
       - name: Check formatting
         run: npm run format:check
 
@@ -155,7 +161,7 @@ jobs:
     if: needs.changes.outputs.any_code == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -192,7 +198,7 @@ jobs:
     needs: [lint, typecheck]
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -234,7 +240,7 @@ jobs:
     if: needs.changes.outputs.web == 'true' || needs.changes.outputs.core == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -286,7 +292,7 @@ jobs:
     if: needs.changes.outputs.mobile == 'true' || needs.changes.outputs.core == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -334,7 +340,7 @@ jobs:
     continue-on-error: true
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -380,7 +386,7 @@ jobs:
     if: needs.changes.outputs.any_code == 'true'
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Run npm audit
         run: npm audit --audit-level=high

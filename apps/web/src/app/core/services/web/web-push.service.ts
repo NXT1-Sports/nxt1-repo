@@ -94,6 +94,7 @@ export class WebPushService {
   // Lazy-loaded Firebase instances
   private messagingInstance: unknown = null;
   private firebaseApp: unknown = null;
+  private messagingSupportChecked: boolean | null = null;
 
   private readonly WEB_TOKEN_STORAGE_KEY = 'nxt1_web_fcm_token';
 
@@ -130,6 +131,12 @@ export class WebPushService {
     if (!('Notification' in window) || !('serviceWorker' in navigator)) {
       this._permissionState.set('unsupported');
       this.logger.info('Push notifications not supported in this browser');
+      return;
+    }
+
+    // Check Firebase Messaging runtime support before any SDK usage.
+    if (!(await this.ensureMessagingSupported())) {
+      this._permissionState.set('unsupported');
       return;
     }
 
@@ -171,6 +178,10 @@ export class WebPushService {
    */
   async requestPermission(): Promise<boolean> {
     if (!isPlatformBrowser(this.platformId)) return false;
+    if (!(await this.ensureMessagingSupported())) {
+      this._permissionState.set('unsupported');
+      return false;
+    }
     if (this._permissionState() === 'unsupported') return false;
 
     // Already granted — just ensure token is registered
@@ -213,6 +224,10 @@ export class WebPushService {
    */
   private async setupMessaging(): Promise<boolean> {
     if (this._isRegistering()) return false;
+    if (!(await this.ensureMessagingSupported())) {
+      this._permissionState.set('unsupported');
+      return false;
+    }
     this._isRegistering.set(true);
 
     try {
@@ -262,6 +277,14 @@ export class WebPushService {
 
       return true;
     } catch (err) {
+      if (this.isMessagingUnsupportedError(err)) {
+        this._permissionState.set('unsupported');
+        this.logger.info('Skipping web push setup on unsupported browser capabilities', {
+          error: err instanceof Error ? err.message : String(err),
+        });
+        return false;
+      }
+
       this.logger.error('Failed to set up web push messaging', err);
       this.analytics?.trackEvent(APP_EVENTS.PUSH_TOKEN_FAILED, {
         error: err instanceof Error ? err.message : 'unknown',
@@ -270,6 +293,45 @@ export class WebPushService {
     } finally {
       this._isRegistering.set(false);
     }
+  }
+
+  /**
+   * Verifies Firebase Messaging support for the current runtime.
+   * This prevents unsupported-browser runtime throws during setup/getToken.
+   */
+  private async ensureMessagingSupported(): Promise<boolean> {
+    if (!isPlatformBrowser(this.platformId)) return false;
+    if (this.messagingSupportChecked !== null) {
+      return this.messagingSupportChecked;
+    }
+
+    try {
+      const { isSupported } = await import('firebase/messaging');
+      const supported = await isSupported();
+      this.messagingSupportChecked = supported;
+
+      if (!supported) {
+        this.logger.info('Firebase Messaging runtime not supported in this browser context');
+      }
+
+      return supported;
+    } catch (err) {
+      this.messagingSupportChecked = false;
+      this.logger.warn('Unable to verify Firebase Messaging support; disabling web push', {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return false;
+    }
+  }
+
+  private isMessagingUnsupportedError(err: unknown): boolean {
+    if (!err || typeof err !== 'object') return false;
+
+    const errorLike = err as { code?: string; message?: string };
+    return (
+      errorLike.code === 'messaging/unsupported-browser' ||
+      errorLike.message?.includes('messaging/unsupported-browser') === true
+    );
   }
 
   /**

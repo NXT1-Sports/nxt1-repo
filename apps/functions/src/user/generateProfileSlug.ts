@@ -5,11 +5,9 @@
  * Callable function for creating unique, SEO-friendly profile URLs.
  */
 
-import * as admin from 'firebase-admin';
+import { db } from '../firebase-admin';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
-
-const db = admin.firestore();
 
 /**
  * Generate unique profile slug for a user

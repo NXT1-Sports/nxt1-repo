@@ -18,6 +18,7 @@
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { logger } from 'firebase-functions/v2';
+import { buildBackendUrl } from '../scheduled/utils/backendCronRequest';
 
 const CRON_SECRET = defineSecret('CRON_SECRET');
 const BACKEND_URL = defineString('BACKEND_URL');
@@ -69,7 +70,7 @@ export const onPostCreatedV3 = onDocumentCreated(
       return;
     }
 
-    const url = `${BACKEND_URL.value()}/api/v1/agent-x/cron/enqueue-timeline-scan`;
+    const url = buildBackendUrl(BACKEND_URL.value(), '/api/v1/agent-x/cron/enqueue-timeline-scan');
 
     try {
       const response = await fetch(url, {

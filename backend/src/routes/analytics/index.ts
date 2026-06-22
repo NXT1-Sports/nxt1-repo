@@ -337,6 +337,11 @@ async function trackCommunicationOrEngagementEvent(
   const threadId = readTrackingString(req.query['threadId'], 250);
   const postId = readTrackingString(req.query['postId'], 120);
   const sourceRecordId = readTrackingString(req.query['sourceRecordId'], 120);
+  const dispatchId = readTrackingString(req.query['dispatchId'], 120) ?? sourceRecordId;
+  const campaignKey = readTrackingString(req.query['campaignKey'], 180);
+  const campaignFamily = readTrackingString(req.query['campaignFamily'], 80);
+  const provider = readTrackingString(req.query['provider'], 40);
+  const emailOrigin = readTrackingString(req.query['emailOrigin'], 40);
   const sessionId = readTrackingString(req.query['sessionId'], 120);
   const recipientName = readTrackingDisplayName(req.query['recipientName']);
   const recipientKind = parseRecipientKind(req.query['recipientKind']);
@@ -363,14 +368,21 @@ async function trackCommunicationOrEngagementEvent(
     actorUserId: viewerUserId ?? null,
     sessionId: sessionId ?? null,
     threadId: threadId ?? null,
-    tags: [surface, attributionConfidence, canonicalEventName].filter(Boolean),
+    tags: [surface, attributionConfidence, canonicalEventName, campaignKey, campaignFamily].filter(
+      (tag): tag is string => typeof tag === 'string' && tag.length > 0
+    ),
     payload: {
       eventName: canonicalEventName,
       surface,
       messageId,
       threadId,
       postId,
+      dispatchId,
       sourceRecordId,
+      campaignKey,
+      campaignFamily,
+      provider,
+      emailOrigin,
       destinationUrl: destination?.toString() ?? null,
       normalizedUrl,
       host: destination?.host ?? null,
@@ -382,6 +394,11 @@ async function trackCommunicationOrEngagementEvent(
       recipientKind,
       recipientOrgName,
       recipientEmailHash,
+      dispatchId,
+      campaignKey,
+      campaignFamily,
+      provider,
+      emailOrigin,
       referer: readTrackingString(req.get('referer'), 500),
       userAgent: readTrackingString(req.get('user-agent'), 500),
     },

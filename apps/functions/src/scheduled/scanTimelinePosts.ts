@@ -19,6 +19,7 @@
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { defineSecret, defineString } from 'firebase-functions/params';
 import { logger } from 'firebase-functions/v2';
+import { buildBackendUrl } from './utils/backendCronRequest';
 
 const CRON_SECRET = defineSecret('CRON_SECRET');
 const BACKEND_URL = defineString('BACKEND_URL');
@@ -43,7 +44,7 @@ export const scanTimelinePosts = onSchedule(
   async () => {
     logger.info('Starting nightly timeline post scan (safety net)');
 
-    const url = `${BACKEND_URL.value()}/api/v1/agent-x/cron/scan-timeline-posts`;
+    const url = buildBackendUrl(BACKEND_URL.value(), '/api/v1/agent-x/cron/scan-timeline-posts');
 
     try {
       const response = await fetch(url, {

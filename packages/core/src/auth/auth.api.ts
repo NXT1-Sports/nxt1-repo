@@ -302,6 +302,12 @@ export interface CreateUserRequest {
   uid: string;
   /** User's email address */
   email: string;
+  /** Optional first name from auth provider or signup form */
+  firstName?: string;
+  /** Optional last name from auth provider or signup form */
+  lastName?: string;
+  /** Optional display name from auth provider or signup form */
+  displayName?: string;
   /** Optional team code for subscription access */
   teamCode?: string;
   /** Optional referrer's user ID for credit tracking */

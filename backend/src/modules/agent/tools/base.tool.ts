@@ -26,6 +26,7 @@ export interface ToolExecutionContext {
   readonly userId: string;
   readonly environment?: 'staging' | 'production';
   readonly appBaseUrl?: string;
+  readonly agentRouteBase?: string;
   readonly operationId?: string;
   readonly threadId?: string;
   readonly sessionId?: string;

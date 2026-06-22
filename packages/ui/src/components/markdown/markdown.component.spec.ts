@@ -72,6 +72,14 @@ describe('preprocessMediaPresentationMarkdown', () => {
     expect(result).toBe(`Final:\n\n[View Video](${videoUrl})`);
   });
 
+  it('unwraps media-only markdown emphasis so iOS does not parse video wrappers inside strong tags', () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+
+    const result = preprocessMediaPresentationMarkdown(`**[View Video](${videoUrl})**`);
+
+    expect(result).toBe(`[View Video](${videoUrl})`);
+  });
+
   it('leaves normal code blocks untouched', () => {
     const source = '```ts\nconst url = "https://example.com/file.mp4";\n```';
 
@@ -86,6 +94,18 @@ describe('preprocessMediaPresentationMarkdown', () => {
     );
 
     expect(result).toBe(`[View Video](${videoUrl})`);
+  });
+
+  it('preserves poster metadata from raw video HTML', () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+    const posterUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    const result = preprocessMediaPresentationMarkdown(
+      `<video src="${videoUrl}" poster="${posterUrl.replace(/&/g, '&amp;')}" controls playsinline muted></video>`
+    );
+
+    expect(result).toBe(`[View Video](${videoUrl}#poster=${encodeURIComponent(posterUrl)})`);
   });
 });
 
@@ -236,6 +256,27 @@ describe('NxtMarkdownComponent', () => {
     expect(videoPreview?.getAttribute('src')).not.toContain('[View Video](');
   });
 
+  it('renders raw video HTML poster attributes as md-video-poster images', async () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+    const posterUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb.jpg?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=abc';
+
+    setContent(
+      `<video src="${videoUrl}" poster="${posterUrl.replace(/&/g, '&amp;')}" controls playsinline muted></video>`
+    );
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    const poster = nativeEl.querySelector<HTMLImageElement>('img.md-video-poster');
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    expect(videoThumb?.getAttribute('data-md-video-src')).toBe(videoUrl);
+    expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(true);
+    expect(poster?.getAttribute('src')).toBe(posterUrl);
+    expect(videoPreview?.getAttribute('poster')).toBe(posterUrl);
+  });
+
   it('renders explicit video poster URLs as the visible thumbnail layer', async () => {
     const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
     const posterUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb.jpg';
@@ -252,6 +293,145 @@ describe('NxtMarkdownComponent', () => {
     expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(true);
     expect(poster?.getAttribute('src')).toBe(posterUrl);
     expect(videoPreview?.getAttribute('poster')).toBe(posterUrl);
+  });
+
+  it('does not force CORS mode for Firebase video previews without poster metadata', async () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fclip.mp4?alt=media&token=video';
+
+    setContent(`[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    expect(videoPreview?.getAttribute('src')).toContain(videoUrl);
+    expect(videoPreview?.hasAttribute('crossorigin')).toBe(false);
+  });
+
+  it('keeps CORS mode for non-Firebase video previews', async () => {
+    const videoUrl = 'https://cdn.example.com/media/clip.mp4';
+
+    setContent(`[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    expect(videoPreview?.getAttribute('crossorigin')).toBe('anonymous');
+  });
+
+  it('hydrates fallback video posters from the preview frame when no poster metadata exists', async () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+    const generatedPosterUrl = 'data:image/jpeg;base64,AAAA';
+    const originalCreateElement = document.createElement.bind(document);
+    const canvas = originalCreateElement('canvas') as HTMLCanvasElement;
+    const drawImage = vi.fn();
+    vi.spyOn(canvas, 'getContext').mockReturnValue({
+      drawImage,
+    } as unknown as CanvasRenderingContext2D);
+    vi.spyOn(canvas, 'toDataURL').mockReturnValue(generatedPosterUrl);
+    const createElementSpy = vi.spyOn(document, 'createElement').mockImplementation((tagName) => {
+      if (String(tagName).toLowerCase() === 'canvas') return canvas;
+      return originalCreateElement(tagName);
+    });
+
+    setContent(`[View Video](${videoUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    const fallbackPoster = nativeEl.querySelector<HTMLElement>('.md-video-poster--fallback');
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+    expect(videoPreview).toBeTruthy();
+    expect(fallbackPoster).toBeTruthy();
+
+    Object.defineProperty(videoPreview, 'readyState', { value: 2, configurable: true });
+    Object.defineProperty(videoPreview, 'videoWidth', { value: 720, configurable: true });
+    Object.defineProperty(videoPreview, 'videoHeight', { value: 1280, configurable: true });
+
+    videoPreview?.dispatchEvent(new Event('loadeddata', { bubbles: true }));
+    fixture.detectChanges();
+
+    const poster = nativeEl.querySelector<HTMLImageElement>('img.md-video-poster');
+    expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(true);
+    expect(poster?.getAttribute('src')).toBe(generatedPosterUrl);
+    expect(videoPreview?.getAttribute('poster')).toBe(generatedPosterUrl);
+    expect(drawImage).toHaveBeenCalled();
+
+    createElementSpy.mockRestore();
+  });
+
+  it('renders video poster URLs with markdown-sensitive characters without falling back', async () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+    const posterUrl =
+      'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb (1).jpg?alt=media&token=thumb';
+    const encodedPosterUrl = encodeURIComponent(posterUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+
+    setContent(`[View Video](${videoUrl}#poster=${encodedPosterUrl})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    const poster = nativeEl.querySelector<HTMLImageElement>('img.md-video-poster');
+    const fallbackPoster = nativeEl.querySelector<HTMLElement>('.md-video-poster--fallback');
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(true);
+    expect(poster?.getAttribute('src')).toBe(posterUrl);
+    expect(videoPreview?.getAttribute('poster')).toBe(posterUrl);
+    expect(fallbackPoster).toBeNull();
+  });
+
+  it('unwraps markdown emphasis around a video link before rendering the video wrapper', async () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+    const posterUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb.jpg';
+
+    setContent(`**[View Video](${videoUrl}#poster=${encodeURIComponent(posterUrl)})**`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const strong = nativeEl.querySelector('strong');
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    const poster = nativeEl.querySelector<HTMLImageElement>('img.md-video-poster');
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    expect(strong).toBeNull();
+    expect(videoThumb?.tagName.toLowerCase()).toBe('span');
+    expect(videoThumb?.getAttribute('data-md-video-src')).toBe(videoUrl);
+    expect(poster?.getAttribute('src')).toBe(posterUrl);
+    expect(videoPreview?.getAttribute('poster')).toBe(posterUrl);
+  });
+
+  it('retries once before falling back to the video preview when an explicit video poster fails to load', async () => {
+    const videoUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel.mp4';
+    const posterUrl = 'https://storage.googleapis.com/nxt1-v2.appspot.com/media/reel-thumb.jpg';
+
+    setContent(`[View Video](${videoUrl}#poster=${encodeURIComponent(posterUrl)})`);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const videoThumb = nativeEl.querySelector<HTMLElement>('[data-md-video-src]');
+    const poster = nativeEl.querySelector<HTMLImageElement>('img.md-video-poster');
+    const videoPreview = nativeEl.querySelector<HTMLVideoElement>('.md-video-preview');
+
+    poster?.dispatchEvent(new Event('error'));
+    fixture.detectChanges();
+
+    expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(true);
+    expect(videoThumb?.classList.contains('md-video-wrap--poster-failed')).toBe(false);
+    expect(nativeEl.querySelector('img.md-video-poster')).toBe(poster);
+
+    poster?.dispatchEvent(new Event('error'));
+    fixture.detectChanges();
+
+    expect(videoThumb?.classList.contains('md-video-wrap--has-poster')).toBe(false);
+    expect(videoThumb?.classList.contains('md-video-wrap--poster-failed')).toBe(true);
+    expect(nativeEl.querySelector('img.md-video-poster')).toBeNull();
+    expect(videoPreview?.getAttribute('src')).toBe(`${videoUrl}#t=1.0`);
   });
 
   it('does not expose incomplete raw video HTML as signed-url prose while streaming', async () => {

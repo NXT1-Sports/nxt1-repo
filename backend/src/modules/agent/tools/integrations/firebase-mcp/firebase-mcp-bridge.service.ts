@@ -33,6 +33,7 @@ import {
 } from './shared.js';
 
 const FIREBASE_MCP_TOOL_TIMEOUT_MS = 30_000;
+const FIRESTORE_IN_QUERY_CHUNK_SIZE = 10;
 const ROSTER_ENTRIES_COLLECTION = 'RosterEntries';
 const TEAMS_COLLECTION = 'Teams';
 const ORGANIZATIONS_COLLECTION = 'Organizations';
@@ -42,11 +43,16 @@ const FIREBASE_MCP_CACHE_PREFIX = {
   QUERY_VIEW: 'agent:mcp:firebase:query-view',
 } as const;
 
-function resolveFirestoreTarget(): Firestore {
-  const target =
-    process.env['FIREBASE_MCP_TARGET_APP'] ??
-    (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'default');
+export type FirebaseMcpTargetApp = 'default' | 'staging';
 
+function resolveTargetApp(): FirebaseMcpTargetApp {
+  return process.env['FIREBASE_MCP_TARGET_APP'] === 'staging' ||
+    process.env['NODE_ENV'] === 'staging'
+    ? 'staging'
+    : 'default';
+}
+
+function resolveFirestoreTarget(target: FirebaseMcpTargetApp): Firestore {
   if (target === 'staging') {
     return stagingDb;
   }
@@ -54,10 +60,34 @@ function resolveFirestoreTarget(): Firestore {
   return db;
 }
 
+export interface FirebaseMcpBridge {
+  listViews(context: ToolExecutionContext): Promise<FirebaseMcpListViewsResult>;
+  queryView(
+    input: FirebaseMcpQueryInput,
+    context: ToolExecutionContext
+  ): Promise<FirebaseMcpQueryResult>;
+  mutate(
+    input: FirebaseMcpMutateInput,
+    context: ToolExecutionContext
+  ): Promise<FirebaseMcpMutateResult>;
+}
+
 function uniqueSorted(values: readonly string[]): string[] {
   return [...new Set(values.filter((value) => value.trim().length > 0))].sort((left, right) =>
     left.localeCompare(right)
   );
+}
+
+function chunkValues(values: readonly string[], chunkSize: number): string[][] {
+  if (chunkSize < 1) {
+    throw new Error('chunkSize must be at least 1');
+  }
+
+  const chunks: string[][] = [];
+  for (let index = 0; index < values.length; index += chunkSize) {
+    chunks.push(values.slice(index, index + chunkSize));
+  }
+  return chunks;
 }
 
 function extractTextPayload(result: McpToolCallResult): string {
@@ -146,11 +176,16 @@ function resolveCacheTtl(view: FirebaseViewName): number {
   }
 }
 
-export class FirebaseMcpBridgeService extends BaseMcpClientService {
+export class FirebaseMcpBridgeService extends BaseMcpClientService implements FirebaseMcpBridge {
   readonly serverName = 'firebase';
 
   private readonly scopeSecret = randomBytes(32).toString('hex');
-  private readonly firestore = resolveFirestoreTarget();
+  private readonly firestore: Firestore;
+
+  constructor(private readonly targetApp: FirebaseMcpTargetApp = resolveTargetApp()) {
+    super();
+    this.firestore = resolveFirestoreTarget(targetApp);
+  }
 
   private extractOrganizationAdminUserIds(admins: unknown): string[] {
     if (!Array.isArray(admins)) {
@@ -179,49 +214,104 @@ export class FirebaseMcpBridgeService extends BaseMcpClientService {
       env: {
         ...(process.env as Record<string, string>),
         FIREBASE_MCP_SCOPE_SECRET: this.scopeSecret,
-        FIREBASE_MCP_TARGET_APP:
-          process.env['FIREBASE_MCP_TARGET_APP'] ??
-          (process.env['NODE_ENV'] === 'staging' ? 'staging' : 'default'),
+        FIREBASE_MCP_TARGET_APP: this.targetApp,
       },
     });
   }
 
   private async resolveAccessScope(context: ToolExecutionContext): Promise<FirebaseMcpScope> {
-    const [rosterSnapshot, organizationSnapshot] = await Promise.all([
-      this.firestore
-        .collection(ROSTER_ENTRIES_COLLECTION)
-        .where('userId', '==', context.userId)
-        .where('status', 'in', [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING])
-        .get(),
-      this.firestore.collection(ORGANIZATIONS_COLLECTION).get(),
-    ]);
+    const [rosterSnapshot, teamOwnerSnapshot, teamAdminSnapshot, organizationSnapshot] =
+      await Promise.all([
+        this.firestore
+          .collection(ROSTER_ENTRIES_COLLECTION)
+          .where('userId', '==', context.userId)
+          .where('status', 'in', [RosterEntryStatus.ACTIVE, RosterEntryStatus.PENDING])
+          .get(),
+        this.firestore.collection(TEAMS_COLLECTION).where('ownerId', '==', context.userId).get(),
+        this.firestore
+          .collection(TEAMS_COLLECTION)
+          .where('adminIds', 'array-contains', context.userId)
+          .get(),
+        this.firestore.collection(ORGANIZATIONS_COLLECTION).get(),
+      ]);
 
     const orgSnapshotDocs = new Map();
     organizationSnapshot.docs
-      .filter((doc) =>
-        this.extractOrganizationAdminUserIds(doc.data()?.['admins']).includes(context.userId)
+      .filter(
+        (doc) =>
+          doc.data()?.['ownerId'] === context.userId ||
+          this.extractOrganizationAdminUserIds(doc.data()?.['admins']).includes(context.userId)
       )
       .forEach((doc) => orgSnapshotDocs.set(doc.id, doc));
 
-    const teamIds = uniqueSorted(
+    const managedTeamDocs = new Map();
+    [...teamOwnerSnapshot.docs, ...teamAdminSnapshot.docs].forEach((doc) => {
+      const data = doc.data();
+      if (data) {
+        managedTeamDocs.set(doc.id, data);
+      }
+    });
+
+    const adminOrganizationIds = Array.from(orgSnapshotDocs.values()).map((doc) => doc.id);
+    if (adminOrganizationIds.length > 0) {
+      const orgTeamSnapshots = await Promise.all(
+        chunkValues(adminOrganizationIds, FIRESTORE_IN_QUERY_CHUNK_SIZE).map((organizationIds) =>
+          this.firestore
+            .collection(TEAMS_COLLECTION)
+            .where('organizationId', 'in', organizationIds)
+            .get()
+        )
+      );
+
+      orgTeamSnapshots
+        .flatMap((snapshot) => snapshot.docs)
+        .forEach((doc) => {
+          const data = doc.data();
+          if (data) {
+            managedTeamDocs.set(doc.id, data);
+          }
+        });
+    }
+
+    const rosterOrganizationIds = uniqueSorted(
+      rosterSnapshot.docs
+        .map((doc) => doc.data()['organizationId'])
+        .filter((organizationId): organizationId is string => typeof organizationId === 'string')
+    );
+
+    const rosterTeamIds = uniqueSorted(
       rosterSnapshot.docs
         .map((doc) => doc.data()['teamId'])
         .filter((teamId): teamId is string => typeof teamId === 'string')
     );
 
-    const teamDocs = await Promise.all(
-      teamIds.map(async (teamId) => {
-        const snapshot = await this.firestore.collection(TEAMS_COLLECTION).doc(teamId).get();
-        return snapshot.exists ? snapshot.data() : null;
-      })
-    );
+    const unresolvedRosterTeamIds = rosterTeamIds.filter((teamId) => !managedTeamDocs.has(teamId));
+    if (unresolvedRosterTeamIds.length > 0) {
+      const rosterTeamDocs = await Promise.all(
+        unresolvedRosterTeamIds.map(async (teamId) => {
+          const snapshot = await this.firestore.collection(TEAMS_COLLECTION).doc(teamId).get();
+          return snapshot.exists ? [teamId, snapshot.data()] : null;
+        })
+      );
 
-    const teamOrganizationIds = teamDocs
-      .map((teamDoc) => teamDoc?.['organizationId'])
+      rosterTeamDocs.forEach((entry) => {
+        if (entry?.[1]) {
+          managedTeamDocs.set(entry[0], entry[1]);
+        }
+      });
+    }
+
+    const teamIds = uniqueSorted([...rosterTeamIds, ...managedTeamDocs.keys()]);
+
+    const teamOrganizationIds = Array.from(managedTeamDocs.values())
+      .map((teamDoc) => teamDoc['organizationId'])
       .filter((organizationId): organizationId is string => typeof organizationId === 'string');
 
-    const adminOrganizationIds = Array.from(orgSnapshotDocs.values()).map((doc) => doc.id);
-    const organizationIds = uniqueSorted([...teamOrganizationIds, ...adminOrganizationIds]);
+    const organizationIds = uniqueSorted([
+      ...rosterOrganizationIds,
+      ...teamOrganizationIds,
+      ...adminOrganizationIds,
+    ]);
 
     return {
       userId: context.userId,
@@ -405,5 +495,34 @@ export class FirebaseMcpBridgeService extends BaseMcpClientService {
     });
 
     return payload;
+  }
+}
+
+export class EnvironmentAwareFirebaseMcpBridgeService implements FirebaseMcpBridge {
+  constructor(
+    private readonly productionBridge: FirebaseMcpBridge = new FirebaseMcpBridgeService('default'),
+    private readonly stagingBridge: FirebaseMcpBridge = new FirebaseMcpBridgeService('staging')
+  ) {}
+
+  private resolveBridge(context: ToolExecutionContext): FirebaseMcpBridge {
+    return context.environment === 'staging' ? this.stagingBridge : this.productionBridge;
+  }
+
+  async listViews(context: ToolExecutionContext): Promise<FirebaseMcpListViewsResult> {
+    return this.resolveBridge(context).listViews(context);
+  }
+
+  async queryView(
+    input: FirebaseMcpQueryInput,
+    context: ToolExecutionContext
+  ): Promise<FirebaseMcpQueryResult> {
+    return this.resolveBridge(context).queryView(input, context);
+  }
+
+  async mutate(
+    input: FirebaseMcpMutateInput,
+    context: ToolExecutionContext
+  ): Promise<FirebaseMcpMutateResult> {
+    return this.resolveBridge(context).mutate(input, context);
   }
 }

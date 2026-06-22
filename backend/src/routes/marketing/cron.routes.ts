@@ -4,6 +4,10 @@ import { cronGuard } from '../../middleware/auth/auth.middleware.js';
 import { runPushDripCampaign } from '../../services/marketing/lifecycle/push-drip.service.js';
 import { runSignupDripCampaign } from '../../services/marketing/lifecycle/signup-drip.service.js';
 import { runSignupNotionDashboardSync } from '../../services/marketing/lifecycle/signup-notion-dashboard.service.js';
+import {
+  runMonthlyMarketingEmailInsightsReport,
+  runWeeklyMarketingEmailInsightsReport,
+} from '../../services/marketing/reporting/marketing-email-insights-report.service.js';
 import { db } from '../../utils/firebase.js';
 import { logger } from '../../utils/logger.js';
 
@@ -90,6 +94,46 @@ router.post('/cron/signup-notion-dashboard', cronGuard, async (req: Request, res
       stack: error instanceof Error ? error.stack : undefined,
     });
     res.status(500).json({ success: false, error: 'Signup Notion dashboard sync failed' });
+  }
+});
+
+router.post('/cron/insights-weekly', cronGuard, async (_req: Request, res: Response) => {
+  try {
+    const result = await runWeeklyMarketingEmailInsightsReport({
+      environment: getRuntimeEnvironment(),
+    });
+
+    res.json({
+      success: true,
+      message: 'Weekly insights report completed',
+      result,
+    });
+  } catch (error) {
+    logger.error('CRON weekly insights failed', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    res.status(500).json({ success: false, error: 'Weekly insights report failed' });
+  }
+});
+
+router.post('/cron/insights-monthly', cronGuard, async (_req: Request, res: Response) => {
+  try {
+    const result = await runMonthlyMarketingEmailInsightsReport({
+      environment: getRuntimeEnvironment(),
+    });
+
+    res.json({
+      success: true,
+      message: 'Monthly insights report completed',
+      result,
+    });
+  } catch (error) {
+    logger.error('CRON monthly insights failed', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    res.status(500).json({ success: false, error: 'Monthly insights report failed' });
   }
 });
 

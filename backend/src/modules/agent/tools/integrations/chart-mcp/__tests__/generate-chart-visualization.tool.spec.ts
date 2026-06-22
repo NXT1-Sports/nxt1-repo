@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ToolExecutionContext } from '../../../base.tool.js';
+import { MediaStagingService } from '../../../media/media-staging.service.js';
 import { ChartMcpBridgeService } from '../chart-mcp-bridge.service.js';
 import { GenerateChartVisualizationTool } from '../generate-chart-visualization.tool.js';
 
@@ -114,5 +115,40 @@ describe('ChartMcpBridgeService', () => {
     expect(result.chartType).toBe('bar');
     expect(result.requestedChartType).toBe('funnel');
     expect(result.renderFallbackReason).toContain('Native funnel output');
+  });
+
+  it('returns the staged signed URL instead of rebuilding a public object URL', async () => {
+    const bridge = new ChartMcpBridgeService();
+    vi.spyOn(bridge, 'executeTool').mockResolvedValue({
+      content: [{ type: 'text', text: 'https://example.com/generated-chart.png' }],
+    });
+    vi.spyOn(MediaStagingService.prototype, 'stageFromUrl').mockResolvedValue({
+      signedUrl:
+        'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/image/chart.png?X-Goog-Signature=signed',
+      expiresAt: '2026-06-20T00:00:00.000Z',
+      storagePath: 'Users/user-1/threads/thread-1/media/staged/image/chart.png',
+      fileName: 'chart.png',
+      sourceUrl: 'https://example.com/generated-chart.png',
+      sourceHost: 'example.com',
+      mediaKind: 'image',
+      mimeType: 'image/png',
+      sizeBytes: 1024,
+    });
+
+    const result = await bridge.generateChart(
+      {
+        chartType: 'line',
+        data: [{ season: '2025', points: 12 }],
+        xField: 'season',
+        yField: 'points',
+      },
+      TEST_CONTEXT
+    );
+
+    expect(result.imageUrl).toContain('?X-Goog-Signature=signed');
+    expect(result.imageUrl).not.toBe(
+      'https://storage.googleapis.com/nxt-1-staging-v2.firebasestorage.app/Users/user-1/threads/thread-1/media/staged/image/chart.png'
+    );
+    expect(result.storagePath).toBe('Users/user-1/threads/thread-1/media/staged/image/chart.png');
   });
 });

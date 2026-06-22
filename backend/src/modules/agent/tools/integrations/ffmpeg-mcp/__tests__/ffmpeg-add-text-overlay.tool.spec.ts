@@ -12,6 +12,7 @@ const TEST_CONTEXT = {
 describe('FfmpegAddTextOverlayTool', () => {
   const bridge = {
     addTextOverlay: vi.fn(),
+    generateThumbnail: vi.fn(),
   };
 
   let tool: FfmpegAddTextOverlayTool;
@@ -19,6 +20,10 @@ describe('FfmpegAddTextOverlayTool', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env['FFMPEG_MAX_TEXT_OVERLAY_DURATION_SECONDS'];
+    bridge.generateThumbnail.mockResolvedValue({
+      success: true,
+      output_path: '/tmp/overlay-thumbnail.jpg',
+    });
     tool = new FfmpegAddTextOverlayTool(bridge as never);
   });
 
@@ -43,7 +48,18 @@ describe('FfmpegAddTextOverlayTool', () => {
     );
 
     expect(result.success).toBe(true);
+    expect((result.data as Record<string, unknown>)['thumbnailUrl']).toBe(
+      '/tmp/overlay-thumbnail.jpg'
+    );
     expect(bridge.addTextOverlay).toHaveBeenCalledTimes(1);
+    expect(bridge.generateThumbnail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputPath: '/tmp/overlay.mp4',
+        outputPath: 'overlay-thumbnail.jpg',
+        time: '0',
+      }),
+      TEST_CONTEXT
+    );
     expect(TEST_CONTEXT.emitStage).toHaveBeenCalledWith('processing_media', {
       icon: 'media',
       phase: 'ffmpeg_add_text_overlay',

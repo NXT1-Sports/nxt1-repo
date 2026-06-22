@@ -185,6 +185,18 @@ AgentMessageSchema.index({ userId: 1, createdAt: -1 });
 // Sparse index on operationId (most messages won't have one)
 AgentMessageSchema.index({ operationId: 1 }, { sparse: true });
 
+// Reconciliation query: recent assistant messages with operation linkage.
+AgentMessageSchema.index(
+  { role: 1, createdAt: -1, operationId: 1 },
+  {
+    name: 'agent_reconcile_recent_assistant_messages',
+    partialFilterExpression: {
+      role: 'assistant',
+      operationId: { $exists: true, $type: 'string', $ne: '' },
+    },
+  }
+);
+
 // idempotencyKey: added via .add() (not in Schema<AgentMessage> constructor)
 // because the @nxt1/core dist type may lag behind the source during
 // Turborepo cached builds. The field is functionally identical — .add()

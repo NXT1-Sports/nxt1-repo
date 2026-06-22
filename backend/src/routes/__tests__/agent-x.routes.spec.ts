@@ -471,6 +471,153 @@ describe('Agent X Routes', () => {
     );
   });
 
+  it('should stop scanning job pages early when the first page already yields enough sessions', async () => {
+    const now = Date.parse('2026-06-20T12:00:00.000Z');
+    const jobs = Array.from({ length: 60 }, (_, index) => ({
+      operationId: `op-${index + 1}`,
+      threadId: `thread-${index + 1}`,
+      userId: 'test-user',
+      intent: `Session ${index + 1}`,
+      status: 'completed',
+      origin: 'user',
+      createdAt: {
+        toMillis: () => now - index * 60_000,
+      },
+    }));
+
+    const jobRepository = createMockJobRepository();
+    jobRepository.getByUserPage
+      .mockResolvedValueOnce({
+        jobs,
+        hasMore: true,
+        nextCreatedAt: 'cursor-2',
+      })
+      .mockResolvedValueOnce({
+        jobs: [],
+        hasMore: false,
+      });
+
+    const chatService = {
+      getUserThreads: vi.fn().mockResolvedValue({
+        items: jobs.map((job, index) => ({
+          id: `thread-${index + 1}`,
+          title: `Thread ${index + 1}`,
+          lastMessageAt: new Date(now - index * 60_000).toISOString(),
+          messageCount: 1,
+          archived: false,
+          category: 'general',
+          createdAt: new Date(now - index * 60_000).toISOString(),
+          updatedAt: new Date(now - index * 60_000).toISOString(),
+        })),
+        hasMore: false,
+      }),
+      addMessage: vi.fn(),
+    };
+
+    setAgentDependencies({
+      queueService: {
+        enqueue: vi.fn().mockResolvedValue('job-123'),
+        cancel: vi.fn().mockResolvedValue(true),
+      } as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      pubsub: null,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .get('/api/v1/agent-x/operations-log?limit=50')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data).toHaveLength(50);
+    expect(response.body.pageInfo).toMatchObject({ hasMore: true });
+    expect(jobRepository.getByUserPage).toHaveBeenCalledTimes(1);
+  });
+
+  it('should keep pagination enabled when the active thread query is truncated', async () => {
+    const now = Date.parse('2026-01-15T12:00:00.000Z');
+    const jobs = Array.from({ length: 51 }, (_, index) => ({
+      operationId: `op-${index + 1}`,
+      threadId: `thread-${index + 1}`,
+      userId: 'test-user',
+      intent: `Session ${index + 1}`,
+      status: 'completed',
+      origin: 'user',
+      createdAt: {
+        toMillis: () => now - index * 60_000,
+      },
+    }));
+
+    const jobRepository = createMockJobRepository();
+    jobRepository.getByUserPage.mockResolvedValue({
+      jobs,
+      hasMore: false,
+      nextCreatedAt: undefined,
+    });
+
+    const chatService = {
+      getUserThreads: vi.fn().mockResolvedValue({
+        items: Array.from({ length: 50 }, (_, index) => ({
+          id: `thread-${index + 1}`,
+          title: `Thread ${index + 1}`,
+          lastMessageAt: new Date(now - index * 60_000).toISOString(),
+          messageCount: 1,
+          archived: false,
+          category: 'general',
+          createdAt: new Date(now - index * 60_000).toISOString(),
+          updatedAt: new Date(now - index * 60_000).toISOString(),
+        })),
+        hasMore: true,
+        nextCursor: new Date(now - 49 * 60_000).toISOString(),
+      }),
+    };
+
+    setAgentDependencies({
+      queueService: {
+        enqueue: vi.fn().mockResolvedValue('job-123'),
+        cancel: vi.fn().mockResolvedValue(true),
+      } as never,
+      jobRepository: jobRepository as never,
+      chatService: chatService as never,
+      pubsub: null,
+      contextBuilder: {
+        buildContext: vi.fn(),
+        compressToPrompt: vi.fn(),
+        getRecentThreadHistory: vi.fn(),
+      } as never,
+      llmService: {
+        completeStream: vi.fn(),
+        embed: vi.fn(),
+      } as never,
+      agentRouter: {
+        run: vi.fn().mockResolvedValue({ summary: '', data: {} }),
+      } as never,
+    });
+
+    const response = await request(app)
+      .get('/api/v1/agent-x/operations-log?limit=50')
+      .set('Authorization', 'Bearer test-token');
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+    expect(response.body.data).toHaveLength(50);
+    expect(response.body.pageInfo).toMatchObject({ hasMore: true });
+    expect(typeof response.body.pageInfo.nextCursor).toBe('string');
+  });
+
   it('should resolve approvals with edited tool input and resume the exact pending call', async () => {
     const jobRepository = createMockJobRepository({
       userId: 'test-user',
@@ -3735,6 +3882,12 @@ function createMockJobRepository(jobDoc?: Record<string, unknown>) {
   const repository = {
     withDb: vi.fn(),
     getById: vi.fn().mockResolvedValue(jobDoc ?? null),
+    getByUser: vi.fn().mockResolvedValue(jobDoc ? [jobDoc] : []),
+    getByUserPage: vi.fn().mockResolvedValue({
+      jobs: jobDoc ? [jobDoc] : [],
+      hasMore: false,
+      nextCreatedAt: undefined,
+    }),
     findActiveByThread: vi.fn().mockResolvedValue(jobDoc ? [jobDoc] : []),
     getByIdempotencyKey: vi.fn().mockResolvedValue(null),
     getJobEvents: vi.fn().mockResolvedValue([]),

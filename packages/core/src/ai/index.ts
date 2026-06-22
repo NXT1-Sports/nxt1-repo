@@ -84,6 +84,8 @@ export type {
   OperationLogStatus,
   OperationLogCategory,
   OperationLogEntry,
+  OperationsLogCursor,
+  OperationsLogPageInfo,
   OperationsLogResponse,
   // SSE streaming types
   AgentXStreamThreadEvent,
@@ -468,6 +470,7 @@ export type { StreamingSanitizer } from './sanitize-assistant-output';
 export {
   buildAttachmentUrlSet,
   createStreamingSanitizer,
+  isUserAttachmentUrl,
   stripEchoedUserAttachments,
 } from './sanitize-assistant-output';
 

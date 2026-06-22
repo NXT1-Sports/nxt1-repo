@@ -12,12 +12,17 @@ const TEST_CONTEXT = {
 describe('FfmpegMergeVideosTool', () => {
   const bridge = {
     mergeVideos: vi.fn(),
+    generateThumbnail: vi.fn(),
   };
 
   let tool: FfmpegMergeVideosTool;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    bridge.generateThumbnail.mockResolvedValue({
+      success: true,
+      output_path: '/tmp/merged-thumbnail.jpg',
+    });
     tool = new FfmpegMergeVideosTool(bridge as never);
   });
 
@@ -37,10 +42,21 @@ describe('FfmpegMergeVideosTool', () => {
 
     expect(result.success).toBe(true);
     expect((result.data as Record<string, unknown>)['videoUrl']).toBe('/tmp/merged.webm');
+    expect((result.data as Record<string, unknown>)['thumbnailUrl']).toBe(
+      '/tmp/merged-thumbnail.jpg'
+    );
     expect(bridge.mergeVideos).toHaveBeenCalledWith(
       expect.objectContaining({
         inputPaths: ['/tmp/intro.mp4', '/tmp/highlight.mp4'],
         outputPath: 'merged.webm',
+      }),
+      TEST_CONTEXT
+    );
+    expect(bridge.generateThumbnail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inputPath: '/tmp/merged.webm',
+        outputPath: 'merged-thumbnail.jpg',
+        time: '0',
       }),
       TEST_CONTEXT
     );

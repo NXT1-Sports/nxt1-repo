@@ -1,9 +1,9 @@
-# Angular 21 SSR with Firebase App Hosting
+# Angular 22 SSR with Firebase App Hosting
 
 > **Complete Guide to Server-Side Rendering with Firebase App Hosting and
 > FirebaseServerApp**
 >
-> Last Updated: May 2026 | Angular 21.x | Firebase JS SDK 12.x
+> Last Updated: June 2026 | Angular 22.x | Firebase JS SDK 12.x
 
 ---
 
@@ -15,7 +15,7 @@
 4. [Key Files Explained](#key-files-explained)
 5. [Authentication Flow](#authentication-flow)
 6. [Render Modes](#render-modes)
-7. [FirebaseServerApp Pattern](#firebaseserverapp-pattern)
+7. [Firebase Server App Pattern](#firebase-server-app-pattern)
 8. [Deployment](#deployment)
 9. [Local Development](#local-development)
 10. [Troubleshooting](#troubleshooting)
@@ -26,7 +26,7 @@
 
 ## Overview
 
-This monorepo uses **Angular 21 with Server-Side Rendering (SSR)** deployed to
+This monorepo uses **Angular 22 with Server-Side Rendering (SSR)** deployed to
 **Firebase App Hosting**. The setup follows 2026 best practices for:
 
 - ✅ SEO-optimized pages with full HTML content on first load
@@ -39,7 +39,7 @@ This monorepo uses **Angular 21 with Server-Side Rendering (SSR)** deployed to
 
 | Component  | Technology                        | Purpose                             |
 | ---------- | --------------------------------- | ----------------------------------- |
-| Framework  | Angular 21                        | Frontend framework with SSR support |
+| Framework  | Angular 22                        | Frontend framework with SSR support |
 | SSR Engine | @angular/ssr                      | CommonEngine for server rendering   |
 | Server     | Express.js                        | HTTP server running in Cloud Run    |
 | Hosting    | Firebase App Hosting              | Managed deployment platform         |
@@ -50,7 +50,7 @@ This monorepo uses **Angular 21 with Server-Side Rendering (SSR)** deployed to
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                           FIREBASE APP HOSTING                               │
 │  ┌─────────────────────────────────────────────────────────────────────┐    │
@@ -82,7 +82,7 @@ This monorepo uses **Angular 21 with Server-Side Rendering (SSR)** deployed to
 
 ### Directory Structure
 
-```
+```text
 nxt1-monorepo/
 ├── apphosting.yaml              # Firebase App Hosting configuration
 ├── apps/
@@ -120,7 +120,7 @@ nxt1-monorepo/
 
 ### Request Lifecycle
 
-```
+```text
 1. USER REQUEST
    Browser requests https://nxt1sports.com/explore
                     │
@@ -141,7 +141,7 @@ nxt1-monorepo/
                     ▼
 5. ANGULAR SSR (CommonEngine)
    ├── Loads main.server.ts bootstrap function
-   ├── Passes BootstrapContext (required for Angular 21)
+  ├── Passes BootstrapContext (required for Angular 22)
    ├── Provides SSR_AUTH_TOKEN via providers
    └── Renders Angular app to HTML string
                     │
@@ -275,7 +275,7 @@ import {
 import { AppComponent } from './app/app.component';
 import { config } from './app/app.config.server';
 
-// Angular 21 REQUIRES the BootstrapContext parameter
+// Angular 22 REQUIRES the BootstrapContext parameter
 // Without it, you get NG0401 errors
 const bootstrap = (context: BootstrapContext): Promise<ApplicationRef> => {
   return bootstrapApplication(AppComponent, config, context);
@@ -284,7 +284,7 @@ const bootstrap = (context: BootstrapContext): Promise<ApplicationRef> => {
 export default bootstrap;
 ```
 
-**CRITICAL:** The `BootstrapContext` parameter is **required** in Angular 21.
+**CRITICAL:** The `BootstrapContext` parameter is **required** in Angular 22.
 The CommonEngine passes a pre-created `platformRef` through this context.
 Without it, SSR fails with `NG0401: Platform not found`.
 
@@ -352,6 +352,8 @@ export const config: ApplicationConfig = {
 
 ---
 
+## Render Modes
+
 ### 5. `app.routes.server.ts` - Render Mode Configuration
 
 ```typescript
@@ -389,7 +391,7 @@ These don't exist on the server, causing SSR to crash.
 
 ### The Solution: Injection Token Pattern
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                    AUTH_SERVICE Injection Token                  │
 ├─────────────────────────────────────────────────────────────────┤
@@ -424,14 +426,14 @@ export class ProfileComponent {
 
 ---
 
-## FirebaseServerApp Pattern
+## Firebase Server App Pattern
 
 FirebaseServerApp enables **authenticated SSR** - fetching user-specific data
 during server rendering.
 
 ### Cookie-Based Token Flow
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │ 1. USER SIGNS IN (Browser)                                       │
 ├─────────────────────────────────────────────────────────────────┤
@@ -572,7 +574,7 @@ npm start
 // ❌ Wrong (Angular 20 and earlier)
 const bootstrap = () => bootstrapApplication(AppComponent, config);
 
-// ✅ Correct (Angular 21+)
+// ✅ Correct (Angular 22)
 const bootstrap = (context: BootstrapContext): Promise<ApplicationRef> => {
   return bootstrapApplication(AppComponent, config, context);
 };
@@ -601,11 +603,13 @@ const bootstrap = (context: BootstrapContext): Promise<ApplicationRef> => {
 **Debug steps:**
 
 1. Check server logs:
-   ```bash
-   cat /tmp/ssr-server.log
-   ```
-2. Look for the specific error message
-3. Common causes:
+
+```bash
+ cat /tmp/ssr-server.log
+```
+
+1. Look for the specific error message
+2. Common causes:
    - Missing dependencies in `dependencies` (not `devDependencies`)
    - Browser API usage without platform check
    - Invalid route configuration
@@ -615,14 +619,16 @@ const bootstrap = (context: BootstrapContext): Promise<ApplicationRef> => {
 **Common fixes:**
 
 1. Ensure build tools are in `dependencies`:
+
    ```json
    {
      "dependencies": {
-       "@angular/cli": "^21.0.0",
-       "@angular-devkit/build-angular": "^21.0.0"
+       "@angular/cli": "^22.0.0",
+       "@angular-devkit/build-angular": "^22.0.0"
      }
    }
    ```
+
 2. Check `apphosting.yaml` has correct paths
 3. Verify `runCommand` points to compiled server
 
@@ -651,7 +657,7 @@ const bootstrap = (context: BootstrapContext): Promise<ApplicationRef> => {
 
 ### Hydration Optimization
 
-Angular 21 includes advanced hydration features:
+Angular 22 includes advanced hydration features:
 
 ```typescript
 // app.config.ts (browser)
@@ -740,7 +746,7 @@ This setup provides:
 3. **Authenticated SSR** - FirebaseServerApp for personalized content
 4. **Auto Deployment** - Push to GitHub, Firebase deploys
 5. **Scale to Zero** - No cost when idle
-6. **Best Practices** - Angular 21 + 2026 patterns
+6. **Best Practices** - Angular 22 + 2026 patterns
 
 For questions or issues, check the
 [Angular SSR Guide](https://angular.dev/guide/ssr) or

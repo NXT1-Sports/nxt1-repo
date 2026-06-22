@@ -21,6 +21,7 @@ import {
   type AgentXSelectedContext,
   type AgentXSelectedAction,
   type AgentXStreamCardEvent,
+  type AgentXStreamMediaEvent,
   type AgentXStreamStepEvent,
   type AgentXToolStep,
   type AgentXStreamWaitingForAttachmentsEvent,
@@ -918,9 +919,7 @@ export class AgentXOperationChatTransportFacade {
           },
 
           onMedia: (event) => {
-            // Keep operation chat bubbles focused on text/tools/cards.
-            // Media events can still be consumed by dedicated media panels.
-            void event;
+            this.mergeStreamMediaIntoTypingMessage(event);
           },
 
           onStreamReplaced: (event) => {
@@ -952,6 +951,7 @@ export class AgentXOperationChatTransportFacade {
           onDone: (event) => {
             this.clearOperationCompleteFallbackTimer();
             this.messageFacade.flushPendingTypingDelta();
+            this.normalizeTypingStreamMediaMarkdown();
             host.latestProgressLabel.set(null);
             host.batchEmailProgress.set(null);
             const threadId = host.resolvedThreadId();
@@ -1261,6 +1261,7 @@ export class AgentXOperationChatTransportFacade {
       }
 
       this.messageFacade.flushPendingTypingDelta();
+      this.normalizeTypingStreamMediaMarkdown();
       host.latestProgressLabel.set(null);
       host.batchEmailProgress.set(null);
       this.messageFacade.finalizeStreamedAssistantMessage({
@@ -1294,6 +1295,220 @@ export class AgentXOperationChatTransportFacade {
     }
     clearTimeout(this.operationCompleteFallbackTimer);
     this.operationCompleteFallbackTimer = null;
+  }
+
+  private mergeStreamMediaIntoTypingMessage(media: AgentXStreamMediaEvent): void {
+    const nextAttachment: NonNullable<OperationMessage['attachments']>[number] = {
+      url: this.normalizeStreamMediaUrl(media.url),
+      type: media.type,
+      name: this.streamMediaAttachmentName(media),
+      ...(media.thumbnailUrl ? { thumbnailUrl: media.thumbnailUrl.trim() } : {}),
+    };
+
+    this.messageFacade.messages.update((messages) =>
+      messages.map((message) => {
+        if (message.id !== 'typing') return message;
+
+        const existingAttachments = message.attachments ?? [];
+        let replacedExisting = false;
+        const updatedExistingAttachments = existingAttachments.map((attachment) => {
+          const isSameAttachment =
+            attachment.type === nextAttachment.type &&
+            this.normalizeStreamMediaUrl(attachment.url) ===
+              this.normalizeStreamMediaUrl(nextAttachment.url);
+          if (!isSameAttachment) return attachment;
+          replacedExisting = true;
+          return {
+            ...attachment,
+            ...(nextAttachment.thumbnailUrl && !attachment.thumbnailUrl
+              ? { thumbnailUrl: nextAttachment.thumbnailUrl }
+              : {}),
+          };
+        });
+        const attachments = replacedExisting
+          ? updatedExistingAttachments
+          : [...updatedExistingAttachments, nextAttachment];
+        const promote = (content: string): string =>
+          this.promoteStreamMediaUrlsToMarkdown(content, attachments);
+
+        return {
+          ...message,
+          attachments,
+          content: promote(message.content),
+          ...(message.parts?.length
+            ? {
+                parts: message.parts.map((part) =>
+                  part.type === 'text'
+                    ? {
+                        type: 'text' as const,
+                        content: promote(part.content),
+                      }
+                    : part
+                ),
+              }
+            : {}),
+        };
+      })
+    );
+  }
+
+  private normalizeTypingStreamMediaMarkdown(): void {
+    this.messageFacade.messages.update((messages) =>
+      messages.map((message) => {
+        if (message.id !== 'typing' || !message.attachments?.length) return message;
+
+        const attachments = message.attachments;
+        const promote = (content: string): string =>
+          this.promoteStreamMediaUrlsToMarkdown(content, attachments);
+
+        return {
+          ...message,
+          content: promote(message.content),
+          ...(message.parts?.length
+            ? {
+                parts: message.parts.map((part) =>
+                  part.type === 'text'
+                    ? {
+                        type: 'text' as const,
+                        content: promote(part.content),
+                      }
+                    : part
+                ),
+              }
+            : {}),
+        };
+      })
+    );
+  }
+
+  private promoteStreamMediaUrlsToMarkdown(
+    content: string,
+    attachments: NonNullable<OperationMessage['attachments']>
+  ): string {
+    if (!content.trim()) return content;
+
+    return content.replace(/https?:\/\/[^\s)\]"'<>]+/gi, (rawUrl, offset, source) => {
+      const normalizedUrl = this.normalizeStreamMediaUrl(rawUrl);
+      const mediaType = this.inferStreamMediaType(normalizedUrl);
+      if (!mediaType) return rawUrl;
+
+      const thumbnailUrl =
+        mediaType === 'video' ? this.thumbnailForStreamMediaUrl(normalizedUrl, attachments) : null;
+      const renderableUrl =
+        mediaType === 'video' && thumbnailUrl && !/#poster=/i.test(normalizedUrl)
+          ? `${normalizedUrl}#poster=${this.encodeMarkdownUrlFragmentValue(thumbnailUrl)}`
+          : normalizedUrl;
+
+      const previousChar = offset > 0 ? source[offset - 1] : '';
+      if (previousChar === '(') return renderableUrl;
+
+      return mediaType === 'video'
+        ? `[View Video](${renderableUrl})`
+        : mediaType === 'image'
+          ? `![Generated Image](${renderableUrl})`
+          : `[Open File](${renderableUrl})`;
+    });
+  }
+
+  private thumbnailForStreamMediaUrl(
+    url: string,
+    attachments: NonNullable<OperationMessage['attachments']>
+  ): string | null {
+    for (const attachment of attachments) {
+      if (attachment.type !== 'video' || !attachment.thumbnailUrl) continue;
+      if (
+        this.streamMediaUrlKeys(attachment.url).some((key) =>
+          this.streamMediaUrlKeys(url).includes(key)
+        )
+      ) {
+        return attachment.thumbnailUrl;
+      }
+    }
+    return null;
+  }
+
+  private streamMediaUrlKeys(value: string): string[] {
+    const normalized = this.normalizeStreamMediaUrl(value).replace(/#poster=.*/i, '');
+    const keys = new Set<string>([normalized]);
+    try {
+      const parsed = new URL(normalized);
+      parsed.hash = '';
+      keys.add(parsed.toString());
+      if (/(?:firebasestorage|storage)\.googleapis\.com/i.test(parsed.hostname)) {
+        keys.add(`${parsed.origin}${parsed.pathname}`);
+      }
+    } catch {
+      // Raw normalized key is still useful.
+    }
+    return [...keys];
+  }
+
+  private inferStreamMediaType(url: string): 'image' | 'video' | 'doc' | null {
+    const normalizedUrl = this.normalizeStreamMediaUrl(url);
+    try {
+      const parsed = new URL(normalizedUrl);
+      const pathname = parsed.pathname.toLowerCase();
+      const hostname = parsed.hostname.toLowerCase();
+      if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(pathname) || /\/images?\//i.test(pathname)) {
+        return 'image';
+      }
+      if (
+        /\.(m3u8|mov|mp4|m4v|webm|ogg|ogv)$/i.test(pathname) ||
+        hostname === 'watch.cloudflarestream.com' ||
+        hostname === 'iframe.videodelivery.net' ||
+        hostname.endsWith('.videodelivery.net') ||
+        hostname.endsWith('.cloudflarestream.com')
+      ) {
+        return 'video';
+      }
+      if (/\/media-proxy\/export\//i.test(pathname)) {
+        return 'doc';
+      }
+    } catch {
+      // Fall through to storage/full-string checks.
+    }
+
+    const lowerUrl = normalizedUrl.toLowerCase();
+    if (/(?:firebasestorage|storage)\.googleapis\.com/i.test(lowerUrl)) {
+      if (/\.(png|jpe?g|gif|webp|avif|bmp|svg)(?:[?#%]|$)/i.test(lowerUrl)) return 'image';
+      if (/\.(mp4|mov|m4v|webm|avi|mkv)(?:[?#%]|$)/i.test(lowerUrl)) return 'video';
+      if (/(?:\/|%2F)videos?(?:\/|%2F)/i.test(lowerUrl)) return 'video';
+      if (/(?:\/|%2F)images?(?:\/|%2F)/i.test(lowerUrl)) return 'image';
+    }
+
+    if (
+      /\.(pdf|csv|txt|docx?|xlsx?|pptx?|rtf|zip|json)(?:[?#%]|$)/i.test(lowerUrl) ||
+      /(?:[?&]mime=)(?:application%2Fpdf|application\/pdf|text%2Fcsv|text\/csv|text%2Fplain|text\/plain|application%2Fzip|application\/zip|application%2Fjson|application\/json|application%2Fmsword|application\/msword|application%2Fvnd(?:\.|%2E)[^&\s]+)/i.test(
+        lowerUrl
+      )
+    ) {
+      return 'doc';
+    }
+
+    return null;
+  }
+
+  private normalizeStreamMediaUrl(value: string): string {
+    return value.trim().replace(/[),.;!?]+$/g, '');
+  }
+
+  private encodeMarkdownUrlFragmentValue(value: string): string {
+    return encodeURIComponent(value).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    );
+  }
+
+  private streamMediaAttachmentName(media: AgentXStreamMediaEvent): string {
+    try {
+      const pathname = new URL(media.url).pathname;
+      const basename = decodeURIComponent(pathname.split('/').filter(Boolean).pop() ?? '').trim();
+      if (basename) return basename;
+    } catch {
+      // Fall through to generated names.
+    }
+
+    return media.type === 'video' ? 'generated-video.mp4' : 'generated-image.jpg';
   }
 
   recordDeltaLatency(emittedAt?: string): void {

@@ -32,7 +32,7 @@ router.post(
   validateBody(CreateUserDto),
   asyncHandler(async (req: Request, res: Response): Promise<void> => {
     const { db } = req.firebase!;
-    const { uid, email, teamCode, referralId } = req.body;
+    const { uid, email, firstName, lastName, displayName, teamCode, referralId } = req.body;
 
     logger.debug('[NXT1-REPO BACKEND] Create user request:', {
       uid: uid?.substring(0, 8) + '...',
@@ -45,6 +45,12 @@ router.post(
     });
 
     const sanitizedEmail = email.toLowerCase().trim();
+    const sanitizedFirstName = typeof firstName === 'string' ? firstName.trim() : '';
+    const sanitizedLastName = typeof lastName === 'string' ? lastName.trim() : '';
+    const sanitizedDisplayName =
+      typeof displayName === 'string' && displayName.trim().length > 0
+        ? displayName.trim()
+        : [sanitizedFirstName, sanitizedLastName].filter(Boolean).join(' ');
 
     // Validate team code if provided
     let validatedTeam: {
@@ -99,6 +105,18 @@ router.post(
       updatedAt: FieldValue.serverTimestamp(),
       _schemaVersion: USER_SCHEMA_VERSION,
     };
+
+    if (sanitizedFirstName) {
+      newUser['firstName'] = sanitizedFirstName;
+    }
+
+    if (sanitizedLastName) {
+      newUser['lastName'] = sanitizedLastName;
+    }
+
+    if (sanitizedDisplayName) {
+      newUser['displayName'] = sanitizedDisplayName;
+    }
 
     if (validatedTeam) {
       newUser.teamCode = {

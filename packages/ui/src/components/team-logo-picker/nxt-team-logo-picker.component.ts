@@ -48,6 +48,7 @@ import type { ILogger } from '@nxt1/core/logging';
 import { HapticButtonDirective } from '../../services/haptics';
 import { NxtLoggingService } from '../../services/logging';
 import { NxtToastService } from '../../services/toast';
+import { normalizeImageFileForUpload } from '../../services/media/image-normalization';
 
 // ============================================
 // TYPES
@@ -60,7 +61,7 @@ export type LogoPickerSize = 'sm' | 'md' | 'lg';
 // CONSTANTS
 // ============================================
 
-/** Accepted image MIME types */
+/** Final upload image MIME types after normalization */
 const ACCEPTED_IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
 /** Maximum file size in bytes (5MB) */
@@ -339,8 +340,8 @@ export class NxtTeamLogoPickerComponent {
   // CONFIGURATION
   // ============================================
 
-  /** Accepted file types for input */
-  readonly acceptedTypes = ACCEPTED_IMAGE_TYPES.join(',');
+  /** Accept any image input so HEIC/HEIF can be normalized first. */
+  readonly acceptedTypes = 'image/*';
 
   // ============================================
   // INTERNAL STATE
@@ -398,7 +399,7 @@ export class NxtTeamLogoPickerComponent {
   /**
    * Handle file selection from web file picker
    */
-  onFileSelected(event: Event): void {
+  async onFileSelected(event: Event): Promise<void> {
     if (!this.isBrowser) return;
 
     const input = event.target as HTMLInputElement;
@@ -406,36 +407,46 @@ export class NxtTeamLogoPickerComponent {
 
     if (!file) return;
 
-    // Validate file type
-    if (!ACCEPTED_IMAGE_TYPES.includes(file.type)) {
+    // Accept any image input here so HEIC/HEIF can be normalized first.
+    if (!file.type.startsWith('image/')) {
       this.logger.warn('Invalid file type rejected', {
         fileType: file.type,
         fileName: file.name,
+      });
+      this.toast.warning('Please select a valid image file (JPG, PNG, WebP, or GIF)');
+      return;
+    }
+
+    const normalizedFile = await normalizeImageFileForUpload(file);
+
+    if (!ACCEPTED_IMAGE_TYPES.includes(normalizedFile.type)) {
+      this.logger.warn('Normalized file type rejected', {
+        fileType: normalizedFile.type,
+        fileName: normalizedFile.name,
         acceptedTypes: ACCEPTED_IMAGE_TYPES,
       });
       this.toast.warning('Please select a valid image file (JPG, PNG, WebP, or GIF)');
       return;
     }
 
-    // Validate file size
-    if (file.size > MAX_FILE_SIZE) {
-      this.logger.warn('File too large rejected', {
-        fileSize: file.size,
+    if (normalizedFile.size > MAX_FILE_SIZE) {
+      this.logger.warn('Normalized file too large rejected', {
+        fileSize: normalizedFile.size,
         maxSize: MAX_FILE_SIZE,
-        fileName: file.name,
+        fileName: normalizedFile.name,
       });
       this.toast.warning('Image must be smaller than 5MB');
       return;
     }
 
     this.logger.debug('Team logo selected', {
-      fileName: file.name,
-      fileSize: file.size,
-      fileType: file.type,
+      fileName: normalizedFile.name,
+      fileSize: normalizedFile.size,
+      fileType: normalizedFile.type,
     });
 
-    // Emit file for parent to handle upload
-    this.fileSelected.emit(file);
+    // Emit normalized file for parent to handle upload.
+    this.fileSelected.emit(normalizedFile);
 
     // Create preview URL
     const reader = new FileReader();
@@ -447,11 +458,11 @@ export class NxtTeamLogoPickerComponent {
     };
     reader.onerror = () => {
       this.logger.error('Failed to read team logo', reader.error, {
-        fileName: file.name,
+        fileName: normalizedFile.name,
       });
       this.toast.error('Failed to load image preview');
     };
-    reader.readAsDataURL(file);
+    reader.readAsDataURL(normalizedFile);
 
     // Reset input to allow selecting same file again
     input.value = '';

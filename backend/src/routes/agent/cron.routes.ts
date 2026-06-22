@@ -649,9 +649,16 @@ router.post(
 const TMP_TTL_DAYS = 7;
 
 router.post('/cron/cleanup-tmp-media', cronGuard, async (req: Request, res: Response) => {
+  const requestId = (req.headers['x-request-id'] as string) || `server-${Date.now()}`;
+  const debugEnabled = req.headers['x-debug-cron'] === '1';
   try {
     const storage = req.firebase?.storage;
     if (!storage) {
+      logger.error('CRON cleanup-tmp-media failed', {
+        stage: 'storage-access',
+        reason: 'storage-not-available',
+        requestId,
+      });
       res.status(503).json({ success: false, error: 'Firebase Storage not available' });
       return;
     }
@@ -665,45 +672,87 @@ router.post('/cron/cleanup-tmp-media', cronGuard, async (req: Request, res: Resp
     let totalScanned = 0;
     let totalDeleted = 0;
     let pageToken: string | undefined;
+    let pageCount = 0;
 
     do {
-      const [files, , nextQuery] = await bucket.getFiles({
-        prefix: 'Users/',
-        maxResults: 1000,
-        ...(pageToken ? { pageToken } : {}),
-      });
+      pageCount++;
+      try {
+        const [files, , nextQuery] = await bucket.getFiles({
+          prefix: 'Users/',
+          maxResults: 1000,
+          ...(pageToken ? { pageToken } : {}),
+        });
 
-      pageToken = (nextQuery as Record<string, string> | undefined)?.['pageToken'];
-      totalScanned += files.length;
+        pageToken = (nextQuery as Record<string, string> | undefined)?.['pageToken'];
+        totalScanned += files.length;
 
-      const deletionQueue: Promise<void>[] = [];
+        const deletionQueue: Promise<void>[] = [];
 
-      for (const file of files) {
-        // Must contain /tmp/ segment to qualify
-        if (!file.name.includes('/tmp/')) continue;
+        for (const file of files) {
+          // Must contain /tmp/ segment to qualify
+          if (!file.name.includes('/tmp/')) continue;
 
-        const createdMs = file.metadata.timeCreated
-          ? new Date(file.metadata.timeCreated as string).getTime()
-          : 0;
+          if (!file.metadata?.timeCreated) {
+            logger.warn('Skipping tmp file with missing metadata', {
+              path: file.name,
+              requestId,
+            });
+            continue;
+          }
 
-        if (createdMs === 0 || createdMs > cutoffMs) continue;
+          const createdMs =
+            typeof file.metadata.timeCreated === 'string'
+              ? new Date(file.metadata.timeCreated).getTime()
+              : 0;
 
-        deletionQueue.push(
-          file
-            .delete()
-            .then(() => {
-              totalDeleted++;
-            })
-            .catch((err: unknown) => {
-              const msg = err instanceof Error ? err.message : String(err);
-              logger.warn('Failed to delete tmp file', { path: file.name, error: msg });
-            })
-        );
-      }
+          if (createdMs === 0 || createdMs > cutoffMs) continue;
 
-      // Batch deletes — up to 50 concurrent GCS deletes per page
-      for (let i = 0; i < deletionQueue.length; i += 50) {
-        await Promise.all(deletionQueue.slice(i, i + 50));
+          deletionQueue.push(
+            file
+              .delete()
+              .then(() => {
+                totalDeleted++;
+              })
+              .catch((err: unknown) => {
+                const msg = err instanceof Error ? err.message : String(err);
+                logger.warn('Failed to delete tmp file', {
+                  path: file.name,
+                  error: msg,
+                  requestId,
+                });
+              })
+          );
+        }
+
+        // Batch deletes — up to 50 concurrent GCS deletes per page
+        for (let i = 0; i < deletionQueue.length; i += 50) {
+          await Promise.all(deletionQueue.slice(i, i + 50));
+        }
+      } catch (pageErr: unknown) {
+        const error = pageErr instanceof Error ? pageErr : new Error(String(pageErr));
+        const stagedError = error as Error & {
+          code?: unknown;
+          stage?: string;
+          pageNumber?: number;
+          scannedSoFar?: number;
+          deletedSoFar?: number;
+        };
+        stagedError.stage = `list-or-delete-page-${pageCount}`;
+        stagedError.pageNumber = pageCount;
+        stagedError.scannedSoFar = totalScanned;
+        stagedError.deletedSoFar = totalDeleted;
+        stagedError.code = (pageErr as Record<string, unknown>)?.['code'];
+
+        logger.error('CRON cleanup-tmp-media: page processing failed', {
+          pageNumber: pageCount,
+          scannedSoFar: totalScanned,
+          deletedSoFar: totalDeleted,
+          errorMessage: error.message,
+          errorStack: error.stack,
+          errorCode: (pageErr as Record<string, unknown>)?.['code'],
+          requestId,
+        });
+        throw error;
       }
     } while (pageToken);
 
@@ -712,12 +761,46 @@ router.post('/cron/cleanup-tmp-media', cronGuard, async (req: Request, res: Resp
       totalDeleted,
       ttlDays: TMP_TTL_DAYS,
       cutoff: new Date(cutoffMs).toISOString(),
+      requestId,
     });
 
     res.json({ success: true, data: { totalScanned, totalDeleted, ttlDays: TMP_TTL_DAYS } });
   } catch (err) {
     const error = err instanceof Error ? err : new Error(String(err));
-    logger.error('CRON cleanup-tmp-media failed', { error: error.message, stack: error.stack });
+    const stagedError = err as Record<string, unknown>;
+    const debugPayload = {
+      requestId,
+      errorMessage: error.message,
+      errorCode: stagedError?.['code'],
+      errorStatus: stagedError?.['status'],
+      stage: stagedError?.['stage'],
+      pageNumber: stagedError?.['pageNumber'],
+      scannedSoFar: stagedError?.['scannedSoFar'],
+      deletedSoFar: stagedError?.['deletedSoFar'],
+    };
+
+    logger.error('CRON cleanup-tmp-media failed', {
+      errorMessage: error.message,
+      errorStack: error.stack,
+      errorCode: stagedError?.['code'],
+      errorStatus: stagedError?.['status'],
+      stage: stagedError?.['stage'],
+      pageNumber: stagedError?.['pageNumber'],
+      scannedSoFar: stagedError?.['scannedSoFar'],
+      deletedSoFar: stagedError?.['deletedSoFar'],
+      requestId,
+    });
+
+    if (debugEnabled) {
+      res.status(500).json({
+        success: false,
+        error: 'Tmp media cleanup failed',
+        cached: false,
+        debug: debugPayload,
+      });
+      return;
+    }
+
     res.status(500).json({ success: false, error: 'Tmp media cleanup failed' });
   }
 });

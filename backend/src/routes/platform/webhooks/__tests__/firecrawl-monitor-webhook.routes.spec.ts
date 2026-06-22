@@ -19,12 +19,18 @@ import { processFirecrawlMonitorWebhook } from '../../../../modules/agent/servic
 import { sendFirecrawlMonitorFailureAlert } from '../../../../services/communications/firecrawl-monitor/firecrawl-monitor-failure-alert.service.js';
 import firecrawlMonitorWebhookRoutes from '../firecrawl-monitor-webhook.routes.js';
 
-function createApp(dbMock: any = {}) {
+type RequestWithFirebaseDb = Request & {
+  firebase?: {
+    db: unknown;
+  };
+};
+
+function createApp(dbMock: unknown = {}) {
   const app = express();
   app.use(express.json());
 
   // Inject fake firebase.db
-  app.use((req: any, _res: Response, next: NextFunction) => {
+  app.use((req: RequestWithFirebaseDb, _res: Response, next: NextFunction) => {
     if (dbMock !== null) {
       req.firebase = { db: dbMock };
     }

@@ -16,17 +16,14 @@
  *  7. Update notification doc with delivery status
  */
 
-import * as admin from 'firebase-admin';
+import { db, FieldValue, messaging, Timestamp, type MulticastMessage } from '../firebase-admin';
 import { onDocumentCreated } from 'firebase-functions/v2/firestore';
 import { logger } from 'firebase-functions/v2';
-
-const db = admin.firestore();
-const messaging = admin.messaging();
 
 interface TokenData {
   token: string;
   platform: string;
-  addedAt: admin.firestore.Timestamp;
+  addedAt: Timestamp;
 }
 
 /**
@@ -79,20 +76,20 @@ interface PushDeliveryStats {
   dailyCount?: number;
   marketingDayKey?: string;
   marketingDailyCount?: number;
-  lastSentAt?: admin.firestore.Timestamp;
-  lastMarketingSentAt?: admin.firestore.Timestamp;
+  lastSentAt?: Timestamp;
+  lastMarketingSentAt?: Timestamp;
 }
 
-function toTimestamp(value: unknown): admin.firestore.Timestamp | null {
+function toTimestamp(value: unknown): Timestamp | null {
   if (!value) return null;
-  if (value instanceof admin.firestore.Timestamp) return value;
+  if (value instanceof Timestamp) return value;
   if (typeof value === 'object' && value !== null) {
     const candidate = value as { seconds?: number; nanoseconds?: number; _seconds?: number };
     if (typeof candidate.seconds === 'number') {
-      return new admin.firestore.Timestamp(candidate.seconds, candidate.nanoseconds ?? 0);
+      return new Timestamp(candidate.seconds, candidate.nanoseconds ?? 0);
     }
     if (typeof candidate._seconds === 'number') {
-      return new admin.firestore.Timestamp(candidate._seconds, 0);
+      return new Timestamp(candidate._seconds, 0);
     }
   }
   return null;
@@ -146,7 +143,7 @@ async function updatePushDeliveryStats(
   currentStats: PushDeliveryStats | undefined,
   treatAsMarketing: boolean
 ): Promise<void> {
-  const now = admin.firestore.Timestamp.now();
+  const now = Timestamp.now();
   const dayKey = getDayKey(preferences.quietHours?.timezone);
 
   const nextStats = {
@@ -288,7 +285,7 @@ export const onNotificationCreatedV3 = onDocumentCreated(
         logger.warn('Failed to compute badge count, using fallback', { userId, badgeError });
       }
 
-      const message: admin.messaging.MulticastMessage = {
+      const message: MulticastMessage = {
         tokens,
         notification: {
           title,
@@ -351,7 +348,7 @@ export const onNotificationCreatedV3 = onDocumentCreated(
             .collection('FcmTokens')
             .doc(userId)
             .update({
-              tokens: admin.firestore.FieldValue.arrayRemove(...invalidTokenObjects),
+              tokens: FieldValue.arrayRemove(...invalidTokenObjects),
             });
           logger.info('Removed invalid FCM tokens', {
             userId,
@@ -421,7 +418,7 @@ async function updateStatus(
       .update({
         status,
         ...(statusDetail ? { statusDetail } : {}),
-        processedAt: admin.firestore.FieldValue.serverTimestamp(),
+        processedAt: FieldValue.serverTimestamp(),
       });
   } catch {
     // Status update is non-critical — just log

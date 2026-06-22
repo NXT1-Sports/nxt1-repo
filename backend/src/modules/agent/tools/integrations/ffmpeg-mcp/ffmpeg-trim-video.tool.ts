@@ -3,6 +3,7 @@ import { logger } from '../../../../../utils/logger.js';
 import { type FfmpegMcpBridgeService } from './ffmpeg-mcp-bridge.service.js';
 import { normalizeFfmpegToolInput } from './ffmpeg-input-normalizer.js';
 import { TrimVideoInputSchema } from './schemas.js';
+import { generateVideoThumbnail } from './ffmpeg-thumbnail-helper.js';
 
 const MIN_PLAYABLE_TRIM_DURATION_SECONDS = 0.5;
 
@@ -37,15 +38,6 @@ function normalizeTrimDuration(duration: string): string {
   }
 
   return String(MIN_PLAYABLE_TRIM_DURATION_SECONDS);
-}
-
-function buildThumbnailOutputPath(outputPath: string): string {
-  const normalizedOutputPath = outputPath.trim();
-  if (!normalizedOutputPath) {
-    return 'output-thumbnail.jpg';
-  }
-
-  return normalizedOutputPath.replace(/\.[^.]+$/u, '-thumbnail.jpg');
 }
 
 export class FfmpegTrimVideoTool extends BaseTool {
@@ -110,25 +102,14 @@ export class FfmpegTrimVideoTool extends BaseTool {
     outputPath: string,
     context?: ToolExecutionContext
   ): Promise<string | null> {
-    try {
-      const thumbnailResult = await this.bridge.generateThumbnail(
-        {
-          inputPath: trimmedVideoUrl,
-          outputPath: buildThumbnailOutputPath(outputPath),
-          time: '0',
-        },
-        context
-      );
-
-      return thumbnailResult.outputUrl ?? thumbnailResult.output_path ?? null;
-    } catch (error) {
-      logger.warn('[FfmpegTrimVideoTool] Failed to generate trimmed video thumbnail', {
-        error: error instanceof Error ? error.message : String(error),
-        trimmedVideoUrl,
-        userId: context?.userId,
-      });
-      return null;
-    }
+    return generateVideoThumbnail({
+      bridge: this.bridge,
+      videoUrl: trimmedVideoUrl,
+      outputPath,
+      fallbackBase: 'output.mp4',
+      context,
+      logScope: 'FfmpegTrimVideoTool',
+    });
   }
 
   private normalizeTrimRequest(input: Record<string, unknown>): Record<string, unknown> {

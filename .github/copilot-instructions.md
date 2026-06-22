@@ -153,18 +153,18 @@ When building any feature, keep these principles in mind:
 
 ### 1.4 Technology Stack (2026)
 
-| Layer         | Technology                        | Purpose                     |
-| ------------- | --------------------------------- | --------------------------- |
-| **Frontend**  | Angular 21+ (Standalone, Signals) | SSR-enabled web application |
-| **Mobile**    | Angular + Ionic 8 + Capacitor 8   | Native iOS/Android apps     |
-| **Backend**   | Node.js 20 LTS / Express 5 (ESM)  | REST API server             |
-| **Functions** | Firebase Cloud Functions (Gen 2)  | Triggers, scheduled tasks   |
-| **Databases** | Firestore + MongoDB               | Hybrid data storage         |
-| **Auth**      | Firebase Authentication           | User authentication         |
-| **Storage**   | Firebase Storage + CDN            | Media files                 |
-| **Payments**  | Stripe + PayPal                   | Payment processing          |
-| **AI**        | OpenRouter (Backend only)         | AI features                 |
-| **Hosting**   | Firebase App Hosting (SSR)        | Production deployment       |
+| Layer         | Technology                                                              | Purpose                     |
+| ------------- | ----------------------------------------------------------------------- | --------------------------- |
+| **Frontend**  | Angular 22 (Standalone, Signals)                                        | SSR-enabled web application |
+| **Mobile**    | Angular 22 + Ionic 8 + Capacitor 8                                      | Native iOS/Android apps     |
+| **Backend**   | Node.js 22 LTS / Express 5 (ESM)                                        | REST API server             |
+| **Functions** | Firebase Cloud Functions (Gen 2)                                        | Triggers, scheduled tasks   |
+| **Databases** | Firestore + MongoDB                                                     | Hybrid data storage         |
+| **Auth**      | Firebase Authentication                                                 | User authentication         |
+| **Storage**   | Firebase Storage + CDN                                                  | Media files                 |
+| **Payments**  | Stripe + PayPal                                                         | Payment processing          |
+| **AI**        | OpenRouter (Backend only)                                               | AI features                 |
+| **Hosting**   | Web: Firebase App Hosting (SSR); Backend: GitHub Actions SSH/PM2 deploy | Production deployment       |
 
 ### Monorepo Structure
 
@@ -2336,14 +2336,14 @@ multi-step task, read this file to determine the correct routing.
 
 ### 19.2 Available Agents — Technical Team
 
-| Agent                         | File                                                 | Domain                                                               |
-| ----------------------------- | ---------------------------------------------------- | -------------------------------------------------------------------- |
-| `@master-cto`                 | `.github/agents/master-cto.agent.md`                 | Architecture, data modeling, system design, AI strategy              |
-| `@full-stack-engineer`        | `.github/agents/full-stack-engineer.agent.md`        | Bug fixes, feature implementation, production code                   |
-| `@quality-control-specialist` | `.github/agents/quality-control-specialist.agent.md` | 2026 rule enforcement, bug detection, architecture violations        |
-| `@qa-automation-engineer`     | `.github/agents/qa-automation-engineer.agent.md`     | Playwright E2E, Vitest unit tests, Page Objects, TEST_IDS            |
-| `@ai-integrator`              | `.github/agents/ai-integrator.agent.md`              | Agent X modules, OpenRouter, LLM workers, prompt engineering         |
-| `@devops-engineer`            | `.github/agents/devops-engineer.agent.md`            | CI/CD, GitHub Actions, Turborepo, Firebase App Hosting, environments |
+| Agent                         | File                                                 | Domain                                                                        |
+| ----------------------------- | ---------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `@master-cto`                 | `.github/agents/master-cto.agent.md`                 | Architecture, data modeling, system design, AI strategy                       |
+| `@full-stack-engineer`        | `.github/agents/full-stack-engineer.agent.md`        | Bug fixes, feature implementation, production code                            |
+| `@quality-control-specialist` | `.github/agents/quality-control-specialist.agent.md` | 2026 rule enforcement, bug detection, architecture violations                 |
+| `@qa-automation-engineer`     | `.github/agents/qa-automation-engineer.agent.md`     | Playwright E2E, Vitest unit tests, Page Objects, TEST_IDS                     |
+| `@ai-integrator`              | `.github/agents/ai-integrator.agent.md`              | Agent X modules, OpenRouter, LLM workers, prompt engineering                  |
+| `@devops-engineer`            | `.github/agents/devops-engineer.agent.md`            | CI/CD, GitHub Actions, web App Hosting, backend SSH/PM2 deploys, environments |
 
 ### 19.3 Available Agents — Marketing & Growth Team (GTM A-Team)
 

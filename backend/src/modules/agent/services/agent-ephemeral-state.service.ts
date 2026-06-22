@@ -112,12 +112,34 @@ export class AgentEphemeralStateService {
       .digest('hex');
   }
 
+  private static signExportReadToken(
+    storagePath: string,
+    fileName: string,
+    mimeType: string,
+    expiresAtMs: number
+  ): string {
+    return createHmac('sha256', this.getSigningSecret())
+      .update(`export:${storagePath}:${fileName}:${mimeType}:${expiresAtMs}`)
+      .digest('hex');
+  }
+
   private static normalizeRouteBase(routeBase: string): string {
     return routeBase.replace(/\/+$/, '');
   }
 
   private static buildTempFilePath(uploadId: string, safeFileName: string): string {
     return path.join(MEDIA_PROXY_TEMP_DIR, `${uploadId}-${safeFileName}`);
+  }
+
+  private static normalizeExportDownloadFileName(fileName: string): string {
+    const withoutControlChars = Array.from(fileName.trim())
+      .filter((char) => {
+        const codePoint = char.codePointAt(0) ?? 0;
+        return !((codePoint >= 0x00 && codePoint <= 0x1f) || codePoint === 0x7f);
+      })
+      .join('');
+
+    return withoutControlChars.replace(/[\\/]+/g, '-') || 'download';
   }
 
   private static async setUploadRecord(
@@ -220,6 +242,36 @@ export class AgentEphemeralStateService {
     };
   }
 
+  static buildSignedExportDownloadUrl(params: {
+    readonly storagePath: string;
+    readonly fileName: string;
+    readonly mimeType: string;
+    readonly routeBase: string;
+    readonly ttlMs?: number;
+  }): { url: string; expiresAt: string } {
+    const expiresAtMs = Date.now() + (params.ttlMs ?? MEDIA_PROXY_READY_TTL_S * 1000);
+    const safeFileName = this.normalizeExportDownloadFileName(params.fileName);
+    const signature = this.signExportReadToken(
+      params.storagePath,
+      safeFileName,
+      params.mimeType,
+      expiresAtMs
+    );
+    const normalizedRouteBase = this.normalizeRouteBase(params.routeBase);
+    const encodedFileName = encodeURIComponent(safeFileName);
+    const url =
+      `${normalizedRouteBase}/media-proxy/export/${encodedFileName}` +
+      `?path=${encodeURIComponent(params.storagePath)}` +
+      `&mime=${encodeURIComponent(params.mimeType)}` +
+      `&exp=${expiresAtMs}` +
+      `&sig=${signature}`;
+
+    return {
+      url,
+      expiresAt: new Date(expiresAtMs).toISOString(),
+    };
+  }
+
   static validateSignedReadRequest(uploadId: string, expRaw: unknown, sigRaw: unknown): boolean {
     const expiresAtMs = Number(expRaw);
     const provided = typeof sigRaw === 'string' ? sigRaw.trim() : '';
@@ -228,6 +280,39 @@ export class AgentEphemeralStateService {
     }
 
     const expected = this.signUploadToken(uploadId, expiresAtMs);
+    const expectedBuffer = Buffer.from(expected, 'hex');
+    const providedBuffer = Buffer.from(provided, 'hex');
+    if (expectedBuffer.length !== providedBuffer.length) {
+      return false;
+    }
+
+    try {
+      return timingSafeEqual(expectedBuffer, providedBuffer);
+    } catch {
+      return false;
+    }
+  }
+
+  static validateSignedExportReadRequest(params: {
+    readonly storagePath: string;
+    readonly fileName: string;
+    readonly mimeType: string;
+    readonly expRaw: unknown;
+    readonly sigRaw: unknown;
+  }): boolean {
+    const expiresAtMs = Number(params.expRaw);
+    const provided = typeof params.sigRaw === 'string' ? params.sigRaw.trim() : '';
+    if (!Number.isFinite(expiresAtMs) || expiresAtMs <= Date.now() || !provided) {
+      return false;
+    }
+
+    const safeFileName = this.normalizeExportDownloadFileName(params.fileName);
+    const expected = this.signExportReadToken(
+      params.storagePath,
+      safeFileName,
+      params.mimeType,
+      expiresAtMs
+    );
     const expectedBuffer = Buffer.from(expected, 'hex');
     const providedBuffer = Buffer.from(provided, 'hex');
     if (expectedBuffer.length !== providedBuffer.length) {

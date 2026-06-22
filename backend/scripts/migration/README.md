@@ -40,7 +40,7 @@ Place these in `backend/assets/`:
 ### 2. Environment
 
 ```bash
-# Required: Node 20+ with tsx
+# Required: Node 22+ with tsx
 npm install -D tsx
 
 # Backend .env must exist (for dotenv loading)
@@ -56,7 +56,7 @@ No special indexes required — all queries use `orderBy('createdAt', 'asc')` or
 
 ## Execution Order
 
-```
+```text
 Phase 1  →  Phase 5  →  Phase 2  →  Phase 3  →  Phase 4  →  Phase 6  →  Phase 7
 (analyze)   (teams)     (users)     (content)   (validate)  (storage)   (billing cutover)
 ```
@@ -283,7 +283,7 @@ npx tsx scripts/migration/migrate-legacy-subs-to-usage.ts --target=production --
 
 All scripts write structured JSON reports to:
 
-```
+```text
 backend/reports/migration/
 ├── legacy-analysis-2025-07-14.json
 ├── teamcodes-migration-2025-07-14.json
@@ -307,6 +307,7 @@ backend/reports/migration/
 - **`--resume`** (Phase 2) picks up where it left off using cursor-based
   pagination.
 - Every migrated document includes metadata:
+
   ```json
   {
     "_schemaVersion": 3,

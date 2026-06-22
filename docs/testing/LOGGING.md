@@ -5,7 +5,7 @@
 
 ## Architecture Overview
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │                    PRESENTATION LAYER                        │
 │   Components - Log user actions, errors, events              │
@@ -23,7 +23,7 @@
 
 ### Package Structure
 
-```
+```text
 packages/core/src/logging/
 ├── index.ts                      # Main exports
 ├── types.ts                      # Types + LOGGING_DEFAULTS constants
@@ -194,7 +194,7 @@ consoleTransport({
 
 **Output Example:**
 
-```
+```text
 [2026-12-24 10:30:45.123] INFO [ProfileComponent] Profile loaded
   userId: "user-123"
 ```
@@ -666,9 +666,10 @@ export class MyComponent {
    - `fatal` - Critical errors (unrecoverable)
 
 5. **Set global context early**
-   ```typescript
-   logger.setContext({ userId, sessionId, buildVersion });
-   ```
+
+```typescript
+logger.setContext({ userId, sessionId, buildVersion });
+```
 
 ### ❌ DON'T
 
@@ -918,5 +919,5 @@ For issues or questions:
 4. Create an issue in the repository
 
 **Version:** 1.0.0  
-**Last Updated:** 2026-12-24  
+**Last Updated:** 2026-06-21  
 **Maintainer:** NXT1 Platform Team

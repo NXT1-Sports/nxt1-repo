@@ -1,6 +1,6 @@
 # NXT1 Mobile OTA Update Guide (English)
 
-**Last updated:** April 28, 2026 **Stack:** `@capgo/capacitor-updater@8.45.10`
+**Last updated:** June 21, 2026 **Stack:** `@capgo/capacitor-updater@8.47.9`
 (self-hosted, manual mode) + Cloudflare R2 + Firestore
 
 ---
@@ -43,7 +43,7 @@ Any change inside `apps/mobile/src/` qualifies for OTA:
 | Change type                                                | Why                                                |
 | ---------------------------------------------------------- | -------------------------------------------------- |
 | Add/remove a Capacitor plugin (`@capacitor/*`, `@capgo/*`) | Native plugin must be compiled into `.xcframework` |
-| Modify `apps/mobile/capacitor.config.json`                 | Read at native build time, not at runtime          |
+| Modify `apps/mobile/capacitor.config.ts`                   | Read at native build time, not at runtime          |
 | Modify `Info.plist` (permissions, URL schemes)             | Apple requires review for permission changes       |
 | Modify `AppDelegate.swift` or any Swift/Kotlin code        | Native code, cannot be OTA'd                       |
 | Bump `MARKETING_VERSION` in Xcode (e.g. 5.0.0 → 6.0.0)     | Must ship through App Store                        |
@@ -55,7 +55,7 @@ Any change inside `apps/mobile/src/` qualifies for OTA:
 
 ## How It Works (verified against source code)
 
-```
+```text
 App cold start
     │
     ▼
@@ -75,27 +75,32 @@ checkForUpdate()
     │
     ▼ (status === 'available')
 applyUpdate()
-    ├─ WiFi check: cellular connection → DEFER (no download)
+    ├─ First launch after install? → allow download immediately (WiFi or cellular)
+    ├─ Later launches: cellular connection → DEFER (no download)
     ├─ download(url: R2_URL, version, checksum: sha256)
-    ├─ next({ id: bundle.id })    ← STAGE for next launch (does NOT reload now)
+    ├─ First launch: set({ id })   ← APPLY immediately and reload WebView
+    ├─ Later launches: next({ id }) ← STAGE for next launch
     └─ saveState(version, failureCount: 0)
     │
     ▼
-User backgrounds app → kills it → reopens
-    └─ New bundle is loaded ✅
+First install from App Store
+    └─ Latest eligible OTA bundle is loaded immediately ✅
 ```
 
 > **Why `next()` instead of `set()`?** `set()` immediately destroys the
-> JavaScript context — the app appears to crash mid-session. `next()` queues the
-> bundle for the next app launch — clean UX, Apple-friendly.
+> JavaScript context — the app appears to reload mid-session. NXT1 uses `set()`
+> only on the first cold start after install so App Store downloads immediately
+> land on the latest eligible OTA bundle. Later updates use `next()` so active
+> sessions stay clean.
 
 ---
 
 ## ⚠️ Conditions Required for an Update to be Received
 
-1. **WiFi required** — If the device is on cellular (4G/5G), the download is
-   deferred until the next WiFi session. _(source: `live-update.service.ts` →
-   `applyUpdate()`, line: `connectionType !== 'wifi'`)_
+1. **Network policy** — On the first cold start after an App Store install, an
+   eligible OTA bundle downloads immediately even on cellular so the user lands
+   on the newest bundle right away. On later launches, cellular downloads are
+   deferred until the next WiFi session.
 
 2. **Native shell version gate** — If the installed App Store version is older
    than `minNativeVersion` in the manifest, OTA is skipped. This prevents
@@ -175,7 +180,7 @@ curl -I "https://pub-d1df5b170c2a4c708dd963b5febd3996.r2.dev/app-bundles/product
 
 **Emergency kill switch:**
 
-```
+```text
 Firestore Console → AppUpdates → ios_production → set enabled: false
 ```
 
@@ -227,7 +232,7 @@ liveUpdateService.resetToNativeBundle();
 - **SHA-256 checksum** — Verified by the plugin before applying any bundle. A
   tampered zip will be rejected.
 - **No Capgo cloud** — `autoUpdate: false`, `statsUrl: ""`, `updateUrl: ""` in
-  `capacitor.config.json`. No telemetry sent to third-party servers.
+  `capacitor.config.ts`. No telemetry sent to third-party servers.
 - **Apple App Store Review Guidelines §4.7** permits OTA delivery of interpreted
   code (JS/HTML/CSS) provided:
   1. The update does not change the primary purpose of the app

@@ -336,6 +336,16 @@ firebase functions:secrets:set SMTP_USER
 firebase functions:secrets:set SMTP_PASS
 ```
 
+Scheduled backend cron jobs reuse the same pattern:
+
+- Functions secret: `CRON_SECRET`
+- Functions param: `BACKEND_URL`
+- Backend env: `SLACK_INSIGHTS_WEBHOOK_URL`
+- Optional staging backend override: `STAGING_SLACK_INSIGHTS_WEBHOOK_URL`
+
+The weekly and monthly insights schedulers do not require any additional
+Functions-only params beyond `BACKEND_URL`.
+
 ### Rate Limiting
 
 Implemented via `maxInstances` and function-level checks:
@@ -406,9 +416,9 @@ firebase functions:secrets:set SMTP_PASS
 
 ### Current State
 
-- **Legacy** (`nxt1/functions/index.js`): 45 functions deployed (Gen 1,
+- **Legacy** (`nxt1/functions/index.js`): legacy deployment (Gen 1, Node.js 22)
+- **Monorepo** (`apps/functions`): 42 exported functions/triggers (Gen 2,
   Node.js 22)
-- **Monorepo** (`apps/functions`): 17 functions (Gen 2, Node.js 22)
 
 ### Migration Strategy
 

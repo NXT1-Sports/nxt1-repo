@@ -19,19 +19,24 @@
  *       ↓
  *   Tool uploads Buffer to Firebase Storage (thread-scoped)
  *       ↓
- *   Returns durable Firebase download URL as AgentXAttachment-compatible result
+ *   Returns signed backend download URL as AgentXAttachment-compatible result
  *
  * For massive datasets that exceed LLM output limits, the tool also accepts
  * a `query` object. When present, the tool bypasses the LLM-provided rows
  * and fetches data directly from MongoDB, assembling the document natively.
  */
 
-import { getStorage } from 'firebase-admin/storage';
+import type { Storage } from 'firebase-admin/storage';
 import { createHash, randomUUID } from 'node:crypto';
 import { BaseTool, type ToolResult, type ToolExecutionContext } from '../base.tool.js';
 import { ExportService, type ExportColumn, type ExportRow } from '../../services/export.service.js';
 import { AgentEngineError } from '../../exceptions/agent-engine.error.js';
+import { AgentEphemeralStateService } from '../../services/agent-ephemeral-state.service.js';
+import { storage as defaultStorage } from '../../../../utils/firebase.js';
+import { stagingStorage } from '../../../../utils/firebase-staging.js';
 import { z } from 'zod';
+
+const EXPORT_DOWNLOAD_URL_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export class DynamicExportTool extends BaseTool {
   readonly name = 'dynamic_export';
@@ -100,20 +105,22 @@ export class DynamicExportTool extends BaseTool {
     this.exportService = exportService ?? new ExportService();
   }
 
+  private resolveStorage(context?: ToolExecutionContext): Storage {
+    return context?.environment === 'staging' ? stagingStorage : defaultStorage;
+  }
+
   async execute(
     input: Record<string, unknown>,
     context?: ToolExecutionContext
   ): Promise<ToolResult> {
     // ── Validate required params ──────────────────────────────────────
-    const format = this.str(input, 'format');
-    if (!format || (format !== 'pdf' && format !== 'csv' && format !== 'xlsx')) {
+    const format = this.resolveFormat(input['format']);
+    if (!format) {
       return { success: false, error: 'Parameter "format" must be "pdf", "csv", or "xlsx".' };
     }
 
-    const fileName = this.str(input, 'fileName');
-    if (!fileName) {
-      return this.paramError('fileName');
-    }
+    const requestedTitle = this.str(input, 'title');
+    const fileName = this.str(input, 'fileName') ?? requestedTitle ?? 'export';
 
     // Sanitize fileName to prevent path traversal
     const safeName =
@@ -125,7 +132,7 @@ export class DynamicExportTool extends BaseTool {
     // ── Extract optional structured data ──────────────────────────────
     const columns = this.parseColumns(input);
     const rows = this.parseRows(input);
-    const title = this.str(input, 'title') ?? safeName;
+    const title = requestedTitle ?? safeName;
     const description = this.str(input, 'description') ?? undefined;
     const bodyParagraphs = this.parseStringArray(input, 'bodyParagraphs');
     const bulletPoints = this.parseStringArray(input, 'bulletPoints');
@@ -133,7 +140,9 @@ export class DynamicExportTool extends BaseTool {
     const theme = this.str(input, 'theme');
     const brandPrimaryColor = this.str(input, 'brandPrimaryColor') ?? undefined;
     const organizationName = this.str(input, 'organizationName') ?? undefined;
-    const logoUrl = this.str(input, 'logoUrl') ?? undefined;
+    const logoUrl =
+      this.resolveOptionalImageUrl(this.str(input, 'logoUrl')) ??
+      this.resolveOptionalImageUrl(this.str(input, 'url'));
 
     // ── Format-specific validation ────────────────────────────────────
     if (format === 'csv' || format === 'xlsx') {
@@ -217,6 +226,8 @@ export class DynamicExportTool extends BaseTool {
         extension = 'pdf';
       }
 
+      const outputBaseName = safeName.replace(new RegExp(`\\.${extension}$`, 'i'), '') || 'export';
+
       // ── Upload to Firebase Storage ────────────────────────────────
       emitStage?.('uploading_assets', {
         icon: 'upload',
@@ -238,14 +249,16 @@ export class DynamicExportTool extends BaseTool {
       const storagePath = `Users/${userId}/threads/${threadId}/exports/${timestamp}-${hash}.${extension}`;
       const downloadToken = randomUUID();
 
-      const bucket = getStorage().bucket();
+      const bucket = this.resolveStorage(context).bucket();
       const file = bucket.file(storagePath);
 
       await file.save(buffer, {
         contentType: mimeType,
+        resumable: false,
+        validation: false,
         metadata: {
           cacheControl: 'public, max-age=31536000, immutable',
-          contentDisposition: `attachment; filename="${safeName}.${extension}"`,
+          contentDisposition: `attachment; filename="${outputBaseName}.${extension}"`,
           metadata: {
             firebaseStorageDownloadTokens: downloadToken,
           },
@@ -266,16 +279,21 @@ export class DynamicExportTool extends BaseTool {
         );
       }
 
-      const downloadUrl =
-        `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/` +
-        `${encodeURIComponent(storagePath)}?alt=media&token=${downloadToken}`;
+      const downloadUrl = this.buildExportDownloadUrl(
+        {
+          storagePath,
+          fileName: `${outputBaseName}.${extension}`,
+          mimeType,
+        },
+        context
+      );
 
       return {
         success: true,
         data: {
           downloadUrl,
           storagePath,
-          fileName: `${safeName}.${extension}`,
+          fileName: `${outputBaseName}.${extension}`,
           mimeType,
           format: extension,
           sizeBytes: buffer.length,
@@ -318,6 +336,27 @@ export class DynamicExportTool extends BaseTool {
     return raw.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
   }
 
+  private buildExportDownloadUrl(
+    params: {
+      readonly storagePath: string;
+      readonly fileName: string;
+      readonly mimeType: string;
+    },
+    context?: ToolExecutionContext
+  ): string {
+    const agentRouteBase =
+      context?.agentRouteBase ??
+      `${(process.env['BACKEND_URL'] ?? 'http://localhost:3000').replace(/\/+$/, '')}/api/v1${context?.environment === 'staging' ? '/staging' : ''}/agent-x`;
+
+    return AgentEphemeralStateService.buildSignedExportDownloadUrl({
+      storagePath: params.storagePath,
+      fileName: params.fileName,
+      mimeType: params.mimeType,
+      routeBase: agentRouteBase,
+      ttlMs: EXPORT_DOWNLOAD_URL_TTL_MS,
+    }).url;
+  }
+
   private resolvePdfImageUrls(
     input: Record<string, unknown>,
     description?: string,
@@ -325,6 +364,15 @@ export class DynamicExportTool extends BaseTool {
     bulletPoints?: readonly string[] | null
   ): string[] {
     const urls = new Set<string>();
+
+    const explicitSingleUrls = [
+      this.resolveOptionalImageUrl(this.str(input, 'imageUrl')),
+      this.resolveOptionalImageUrl(this.str(input, 'url')),
+    ].filter((value): value is string => typeof value === 'string');
+
+    for (const url of explicitSingleUrls) {
+      urls.add(url);
+    }
 
     const explicit = this.parseStringArray(input, 'imageUrls') ?? [];
     for (const url of explicit) {
@@ -345,6 +393,22 @@ export class DynamicExportTool extends BaseTool {
     }
 
     return [...urls];
+  }
+
+  private resolveFormat(raw: unknown): 'pdf' | 'csv' | 'xlsx' | null {
+    if (typeof raw !== 'string') return null;
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === 'pdf') return 'pdf';
+    if (normalized === 'csv') return 'csv';
+    if (normalized === 'xlsx') return 'xlsx';
+    return null;
+  }
+
+  private resolveOptionalImageUrl(raw: string | null): string | undefined {
+    if (!raw) return undefined;
+    const value = raw.trim();
+    if (!value) return undefined;
+    return this.isSupportedImageUrl(value) ? value : undefined;
   }
 
   private extractHttpUrls(text: string): string[] {

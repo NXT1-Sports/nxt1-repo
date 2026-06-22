@@ -6,11 +6,10 @@
 
 ## Active TODO Docs
 
-| File                                                       | Area                                                                             | Priority |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------------- | -------- |
-| [FIREBASE-AUDIT-2026.md](./FIREBASE-AUDIT-2026.md)         | Firestore staging audit, schema cleanup, rules, indexes, billing and usage fixes | High     |
-| [DEPENDENCY-UPGRADES.md](./DEPENDENCY-UPGRADES.md)         | Manual dependency maintenance and coordinated major upgrades                     | High     |
-| [AGENT-X-MONITORING-GAPS.md](./AGENT-X-MONITORING-GAPS.md) | Agent reliability and observability hardening for production                     | Medium   |
+| File                                               | Area                                                                             | Priority |
+| -------------------------------------------------- | -------------------------------------------------------------------------------- | -------- |
+| [FIREBASE-AUDIT-2026.md](./FIREBASE-AUDIT-2026.md) | Firestore staging audit, schema cleanup, rules, indexes, billing and usage fixes | High     |
+| [DEPENDENCY-UPGRADES.md](./DEPENDENCY-UPGRADES.md) | Manual dependency maintenance and coordinated major upgrades                     | High     |
 
 ## Roadmap Docs (Moved)
 
