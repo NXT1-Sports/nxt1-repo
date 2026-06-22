@@ -838,7 +838,34 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           }
 
           try {
-            const profileFields = this.getCreateUserNameFields(result.user.displayName);
+            // For Apple sign-in, use the native Apple fields (givenName/familyName)
+            // which are only available on first authorization. For other providers,
+            // parse the displayName as before.
+            let profileFields: { firstName?: string; lastName?: string; displayName?: string };
+
+            if (method === AUTH_METHODS.APPLE) {
+              const appleInfo = this.firebaseAuth.getLastAppleUserInfo();
+              if (appleInfo && (appleInfo.givenName || appleInfo.familyName)) {
+                profileFields = {
+                  firstName: appleInfo.givenName,
+                  lastName: appleInfo.familyName,
+                  displayName: [appleInfo.givenName, appleInfo.familyName]
+                    .filter(Boolean)
+                    .join(' '),
+                };
+                this.logger.debug(`${method} using Apple-provided name fields`, {
+                  firstName: profileFields.firstName,
+                  lastName: profileFields.lastName,
+                });
+              } else {
+                // Subsequent Apple login or no name provided - fall back to displayName parsing
+                profileFields = this.getCreateUserNameFields(result.user.displayName);
+                this.logger.debug(`${method} no Apple name available, using displayName fallback`);
+              }
+            } else {
+              profileFields = this.getCreateUserNameFields(result.user.displayName);
+            }
+
             const createResult = await this.authApi.createUser({
               uid: result.user.uid,
               email: userEmail,

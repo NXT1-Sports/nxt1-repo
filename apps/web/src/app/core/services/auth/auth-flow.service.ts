@@ -1602,7 +1602,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
     try {
       // Dynamic imports for SSR safety
-      const { OAuthProvider, signInWithPopup } = await import('@angular/fire/auth');
+      const { OAuthProvider, signInWithPopup, getAdditionalUserInfo } =
+        await import('@angular/fire/auth');
 
       // Apple OAuth Provider
       const provider = new OAuthProvider('apple.com');
@@ -1615,11 +1616,25 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
       return this.runWithLoading(
         async () => {
-          // Check if this is a new user (Firebase detection can be unreliable)
-          // @ts-expect-error additionalUserInfo is on the result
-          const isNewUser = result._tokenResponse?.isNewUser ?? false;
+          // Use getAdditionalUserInfo for type-safe access to Apple profile data
+          const additionalUserInfo = getAdditionalUserInfo(result);
+          const isNewUser = additionalUserInfo?.isNewUser ?? false;
 
-          this.logger.debug('🔍 Firebase detected isNewUser (Apple)', { isNewUser });
+          // Extract Apple name fields (only available on first authorization)
+          // Apple web OAuth returns: { name: { firstName, lastName }, email, sub }
+          const appleName = additionalUserInfo?.profile as
+            | {
+                name?: { firstName?: string; lastName?: string };
+              }
+            | undefined;
+          const appleFirstName = appleName?.name?.firstName;
+          const appleLastName = appleName?.name?.lastName;
+
+          this.logger.debug('🔍 Firebase Apple OAuth user info', {
+            isNewUser,
+            hasFirstName: !!appleFirstName,
+            hasLastName: !!appleLastName,
+          });
 
           // Track analytics
           this.analytics.trackEvent(
@@ -1670,6 +1685,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               this.logger.debug('📝 Creating new user via Apple OAuth', {
                 uid: result.user.uid,
                 email: result.user.email!,
+                firstName: appleFirstName || '(none)',
+                lastName: appleLastName || '(none)',
                 teamCode: teamCode || 'none',
                 referralId: referralId || 'none',
               });
@@ -1677,6 +1694,8 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
               const createResult = await this.authApi.createUser({
                 uid: result.user.uid,
                 email: result.user.email!,
+                firstName: appleFirstName || undefined,
+                lastName: appleLastName || undefined,
                 teamCode: teamCode || undefined,
                 referralId: referralId || undefined,
               });

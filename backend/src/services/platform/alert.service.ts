@@ -3,6 +3,7 @@ import { logger } from '../../utils/logger.js';
 
 export type AlertTarget =
   | 'agent'
+  | 'insights'
   | 'sentry'
   | 'sales'
   | 'signup_athlete'
@@ -79,12 +80,14 @@ function resolveTargetWebhook(
     environment === 'staging'
       ? ({
           agent: ['STAGING_SLACK_AGENT_ALERT_WEBHOOK_URL', 'SLACK_AGENT_ALERT_WEBHOOK_URL'],
+          insights: ['STAGING_SLACK_INSIGHTS_WEBHOOK_URL', 'SLACK_INSIGHTS_WEBHOOK_URL'],
           sales: ['STAGING_SLACK_SALES_ALERT_WEBHOOK_URL', 'SLACK_SALES_ALERT_WEBHOOK_URL'],
           sentry: ['STAGING_SLACK_SENTRY_ALERT_WEBHOOK_URL', 'SLACK_SENTRY_ALERT_WEBHOOK_URL'],
           default: ['STAGING_SLACK_ALERT_WEBHOOK_URL', 'SLACK_ALERT_WEBHOOK_URL'],
         } as const)
       : ({
           agent: ['SLACK_AGENT_ALERT_WEBHOOK_URL'],
+          insights: ['SLACK_INSIGHTS_WEBHOOK_URL'],
           sales: ['SLACK_SALES_ALERT_WEBHOOK_URL'],
           sentry: ['SLACK_SENTRY_ALERT_WEBHOOK_URL'],
           default: ['SLACK_ALERT_WEBHOOK_URL'],

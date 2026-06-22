@@ -267,6 +267,15 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     expect(result).toBe(`[View Video](${videoUrl})`);
   });
 
+  it('promotes signed export document urls to markdown links', () => {
+    const exportUrl =
+      'https://app.nxt1.test/api/v1/agent-x/media-proxy/export/scout-report.pdf?path=exports%2Fuser-1%2Fscout-report.pdf&mime=application%2Fpdf&exp=1750000000&sig=abc123';
+
+    const result = facade.promoteAssistantMediaUrlsToMarkdown(exportUrl);
+
+    expect(result).toBe(`[Open File](${exportUrl})`);
+  });
+
   it('keeps approval reply above the final assistant result when completion timestamp rehydrates first', () => {
     const initialUser: OperationMessage = {
       id: 'user-initial-email',
@@ -442,6 +451,36 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
       facade.resolveSupplementalContentTextPart('I will search first.', [
         { type: 'text', content: 'I will search first.' },
       ])
+    ).toBeNull();
+  });
+
+  it('does not append when interleaved persisted text parts already reconstruct full content', () => {
+    expect(
+      facade.resolveSupplementalContentTextPart(
+        'Got your colors. Now routing you to the brand coordinator with that branding context. ✅ You are already here with Brand Coordinator.',
+        [
+          {
+            type: 'text',
+            content:
+              'Got your colors. Now routing you to the brand coordinator with that branding context.',
+          },
+          {
+            type: 'tool-steps',
+            steps: [
+              {
+                id: 'delegate_to_coordinator',
+                label: 'Routing to specialist coordinator',
+                status: 'success',
+                stageType: 'tool',
+              },
+            ],
+          },
+          {
+            type: 'text',
+            content: '✅ You are already here with Brand Coordinator.',
+          },
+        ]
+      )
     ).toBeNull();
   });
 

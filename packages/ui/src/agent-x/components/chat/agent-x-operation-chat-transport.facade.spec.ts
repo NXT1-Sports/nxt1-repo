@@ -227,6 +227,28 @@ describe('AgentXOperationChatTransportFacade', () => {
     expect(result).not.toContain('(1)');
   });
 
+  it('promotes signed export document urls to markdown links during streaming', () => {
+    const exportUrl =
+      'https://app.nxt1.test/api/v1/agent-x/media-proxy/export/scout-report.pdf?path=exports%2Fuser-1%2Fscout-report.pdf&mime=application%2Fpdf&exp=1750000000&sig=abc123';
+    const promote = (
+      facade as unknown as {
+        promoteStreamMediaUrlsToMarkdown: (
+          content: string,
+          attachments: Array<{
+            url: string;
+            type: 'video';
+            name: string;
+            thumbnailUrl: string;
+          }>
+        ) => string;
+      }
+    ).promoteStreamMediaUrlsToMarkdown.bind(facade);
+
+    const result = promote(exportUrl, []);
+
+    expect(result).toBe(`[Open File](${exportUrl})`);
+  });
+
   it('stamps the optimistic user message when the stream resolves an operation id', async () => {
     const pendingStream = facade.sendViaStream(
       { message: 'Start a fresh request' } as AgentXChatRequest,

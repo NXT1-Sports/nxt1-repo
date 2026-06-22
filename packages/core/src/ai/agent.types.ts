@@ -377,6 +377,8 @@ export interface AgentSessionContext {
   readonly environment?: 'staging' | 'production';
   /** Public app origin for environment-aware NXT1 URLs, including localhost during development. */
   readonly appBaseUrl?: string;
+  /** Exact Agent X API route base that served the request, used for environment-aware download links. */
+  readonly agentRouteBase?: string;
   /** User/client IANA timezone for deterministic relative-date and schedule calculations. */
   readonly timezone?: string;
   /** The job/operation ID — threaded into LLM calls as Helicone-Property-Job-Id for cost tracking. */

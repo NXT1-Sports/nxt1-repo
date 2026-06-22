@@ -16,6 +16,11 @@ import {
   DEFAULT_AGENT_APP_CONFIG,
   setCachedAgentAppConfig,
 } from '../../config/agent-app-config.js';
+import { sendSlackAlert } from '../../../../services/platform/alert.service.js';
+
+vi.mock('../../../../services/platform/alert.service.js', () => ({
+  sendSlackAlert: vi.fn(async () => true),
+}));
 
 // ─── Stub Tool ──────────────────────────────────────────────────────────────
 
@@ -132,6 +137,34 @@ class LegacySchemaTool extends BaseTool {
   }
 }
 
+class FailingTool extends BaseTool {
+  readonly name = 'failing_tool';
+  readonly description = 'Always fails for alerting tests.';
+  readonly parameters = z.object({});
+  readonly allowedAgents = ['*'] as const;
+  readonly isMutation = false;
+  readonly category = 'analytics' as const;
+  readonly entityGroup = 'platform_tools' as const;
+
+  async execute(): Promise<ToolResult> {
+    return { success: false, error: 'Intentional failure' };
+  }
+}
+
+class ThrowingTool extends BaseTool {
+  readonly name = 'throwing_tool';
+  readonly description = 'Throws for alerting tests.';
+  readonly parameters = z.object({});
+  readonly allowedAgents = ['*'] as const;
+  readonly isMutation = false;
+  readonly category = 'analytics' as const;
+  readonly entityGroup = 'platform_tools' as const;
+
+  async execute(): Promise<ToolResult> {
+    throw new Error('Exploded during tool execute');
+  }
+}
+
 class ScoredTool extends BaseTool {
   constructor(
     readonly name: string,
@@ -195,6 +228,7 @@ describe('ToolRegistry', () => {
     registry = new ToolRegistry();
     stub = new StubTool();
     registry.register(stub);
+    vi.mocked(sendSlackAlert).mockClear();
   });
 
   afterEach(() => {
@@ -325,6 +359,44 @@ describe('ToolRegistry', () => {
 
       expect(result.success).toBe(true);
       expect(stub.executeFn).toHaveBeenCalledOnce();
+    });
+
+    it('should send a Slack alert when a tool returns an unsuccessful result', async () => {
+      registry.register(new FailingTool());
+
+      const result = await registry.execute('failing_tool', {}, { userId: 'u-alert' });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Intentional failure');
+      expect(sendSlackAlert).toHaveBeenCalledTimes(1);
+      expect(sendSlackAlert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          target: 'agent',
+          severity: 'critical',
+          title: 'Agent Tool Execution Failed',
+        })
+      );
+    });
+
+    it('should send a Slack alert and rethrow when a tool throws', async () => {
+      registry.register(new ThrowingTool());
+
+      await expect(
+        registry.execute('throwing_tool', {}, { userId: 'u-alert', operationId: 'op-1' })
+      ).rejects.toThrow('Exploded during tool execute');
+
+      expect(sendSlackAlert).toHaveBeenCalledTimes(1);
+      expect(sendSlackAlert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          target: 'agent',
+          severity: 'critical',
+          title: 'Agent Tool Execution Failed',
+          fields: expect.arrayContaining([
+            expect.objectContaining({ label: 'Tool', value: 'throwing_tool' }),
+            expect.objectContaining({ label: 'Operation ID', value: 'op-1' }),
+          ]),
+        })
+      );
     });
 
     it('should return error for unknown tool name', async () => {

@@ -31,7 +31,7 @@ const RECAP_CONTEXT_COUNT = 3;
 const USERS_COLLECTION = 'Users';
 const RECAPS_SUBCOLLECTION = 'agent_weekly_recaps';
 const WEEKLY_RECAP_DISPATCH_COLLECTION = 'AgentWeeklyRecapDispatches';
-const APP_URL = 'https://app.nxt1sports.com';
+const APP_URL = 'https://nxt1sports.com';
 export const WEEKLY_RECAP_EMAIL_MODEL = 'nvidia/nemotron-3-super-120b-a12b:free';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -343,7 +343,7 @@ Respond ONLY with valid JSON matching this schema:
   "ctaUrl": "string (absolute URL)"
 }
 
-Keep the tone professional yet energetic. Be specific — reference sports context, recruiting, and performance where relevant. Do not start introParagraph with greetings like "Hey"/"Hi" and do not repeat the user's name. ctaUrl should be a valid app.nxt1sports.com path.`;
+Keep the tone professional yet energetic. Be specific — reference sports context, recruiting, and performance where relevant. Do not start introParagraph with greetings like "Hey"/"Hi" and do not repeat the user's name. ctaUrl should be a valid nxt1sports.com path.`;
 
   try {
     const response = await llm.complete([{ role: 'user', content: prompt }], {
@@ -404,7 +404,7 @@ Keep the tone professional yet energetic. Be specific — reference sports conte
       ctaUrl:
         typeof parsed.ctaUrl === 'string' && parsed.ctaUrl.startsWith('https://')
           ? parsed.ctaUrl
-          : `${APP_URL}/dashboard`,
+          : `${APP_URL}/agent-x`,
     };
   } catch (err) {
     logger.warn('[WeeklyRecap] Failed to parse LLM response, using fallback', {
@@ -418,7 +418,7 @@ Keep the tone professional yet energetic. Be specific — reference sports conte
       resultsHighlights: ['Agent X completed your weekly recap.'],
       nextSteps: ['Check your dashboard for detailed insights.'],
       ctaText: 'Open Dashboard',
-      ctaUrl: `${APP_URL}/dashboard`,
+      ctaUrl: `${APP_URL}/agent-x`,
     };
   }
 }

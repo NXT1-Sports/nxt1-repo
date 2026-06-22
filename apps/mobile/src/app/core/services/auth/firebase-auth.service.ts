@@ -90,6 +90,12 @@ export class FirebaseAuthService implements OnDestroy {
   // Store authState observable reference during injection context
   private readonly authState$ = authState(this.auth);
 
+  // Apple user info from the most recent Apple Sign-In.
+  // Apple only provides givenName/familyName on the FIRST authorization.
+  // Stored here so AuthFlowService can read it after Firebase sync.
+  private _lastAppleUserInfo: { givenName?: string; familyName?: string; email?: string } | null =
+    null;
+
   // Firebase user state — private writeable, public computed (2026 pattern)
   private readonly _firebaseUser = signal<FirebaseUser | null>(null);
   readonly firebaseUser = computed(() => this._firebaseUser());
@@ -155,6 +161,17 @@ export class FirebaseAuthService implements OnDestroy {
    */
   getCurrentUser(): FirebaseUser | null {
     return this.auth.currentUser;
+  }
+
+  /**
+   * Get Apple user info from the most recent Apple Sign-In.
+   * Returns null if no Apple sign-in has occurred or if it's not an Apple provider.
+   * Apple only provides givenName/familyName on the FIRST authorization.
+   */
+  getLastAppleUserInfo(): { givenName?: string; familyName?: string; email?: string } | null {
+    const info = this._lastAppleUserInfo;
+    this._lastAppleUserInfo = null; // Clear after reading (one-time use)
+    return info;
   }
 
   /**
@@ -436,6 +453,15 @@ export class FirebaseAuthService implements OnDestroy {
         // Native account has been chosen. Signal the caller so UI can show loading.
         onAccountSelected?.();
 
+        // Store Apple user info BEFORE Firebase sign-in so AuthFlowService can read it.
+        // Apple only provides givenName/familyName on the FIRST authorization.
+        // On subsequent logins these fields are null/undefined.
+        this._lastAppleUserInfo = {
+          givenName: nativeResult.user.givenName ?? undefined,
+          familyName: nativeResult.user.familyName ?? undefined,
+          email: nativeResult.user.email ?? undefined,
+        };
+
         // @capacitor-community/apple-sign-in does NOT auto-sign into Firebase
         // (unlike @capacitor-firebase/authentication for Google).
         // Go straight to signInWithCredential — no polling needed.
@@ -459,10 +485,15 @@ export class FirebaseAuthService implements OnDestroy {
               .join(' ')
               .trim();
 
-          if (appleDisplayName && !userCredential.user.displayName) {
+          // Always update Firebase displayName when Apple provides a name.
+          // Apple only returns givenName/familyName on the first authorization.
+          // On subsequent logins these fields are null, so this block is skipped
+          // automatically — preserving any previously stored name.
+          if (appleDisplayName) {
             await runInInjectionContext(this.injector, () =>
               updateProfile(userCredential.user, { displayName: appleDisplayName })
             );
+            await runInInjectionContext(this.injector, () => userCredential.user.reload());
           }
 
           return userCredential;

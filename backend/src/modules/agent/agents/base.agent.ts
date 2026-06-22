@@ -255,6 +255,7 @@ export interface ToolSessionContext {
   readonly operationId?: string;
   readonly environment?: 'staging' | 'production';
   readonly appBaseUrl?: string;
+  readonly agentRouteBase?: string;
   readonly approvalId?: string;
   readonly allowedToolNames?: readonly string[];
   readonly allowedEntityGroups?: readonly AgentToolEntityGroup[];
@@ -1187,6 +1188,7 @@ export abstract class BaseAgent {
       operationId: context.operationId,
       ...(context.environment && { environment: context.environment }),
       ...(context.appBaseUrl && { appBaseUrl: context.appBaseUrl }),
+      ...(context.agentRouteBase && { agentRouteBase: context.agentRouteBase }),
       ...(approvalId ? { approvalId } : {}),
       ...(yieldState.reason === 'needs_approval' && yieldState.pendingToolCall
         ? {
@@ -1865,6 +1867,7 @@ export abstract class BaseAgent {
         operationId: context.operationId,
         ...(context.environment ? { environment: context.environment } : {}),
         ...(context.appBaseUrl ? { appBaseUrl: context.appBaseUrl } : {}),
+        ...(context.agentRouteBase ? { agentRouteBase: context.agentRouteBase } : {}),
         allowedToolNames: effectiveExecutionAllowlist,
         allowedEntityGroups,
       };
@@ -3487,6 +3490,7 @@ export abstract class BaseAgent {
       ...(signal && { signal }),
       ...(sessionContext?.environment && { environment: sessionContext.environment }),
       ...(sessionContext?.appBaseUrl && { appBaseUrl: sessionContext.appBaseUrl }),
+      ...(sessionContext?.agentRouteBase && { agentRouteBase: sessionContext.agentRouteBase }),
       ...(sessionContext?.operationId && { operationId: sessionContext.operationId }),
       ...(sessionContext?.threadId && { threadId: sessionContext.threadId }),
       ...(sessionContext?.sessionId && { sessionId: sessionContext.sessionId }),

@@ -374,7 +374,7 @@ export class AgentXOperationChatSessionFacade {
     return !hasPersistedFinalForTyping;
   }
 
-  private inferMediaTypeFromUrl(url: string): 'image' | 'video' | null {
+  private inferMediaTypeFromUrl(url: string): 'image' | 'video' | 'doc' | null {
     const normalizedUrl = this.normalizeDetectedMediaUrl(url);
     const parsed = (() => {
       try {
@@ -407,6 +407,16 @@ export class AgentXOperationChatSessionFacade {
       if (/\.(mp4|mov|m4v|webm|avi|mkv)(?:[?#%]|$)/i.test(lowerUrl)) return 'video';
       if (/(?:\/|%2F)videos?(?:\/|%2F)/i.test(lowerUrl)) return 'video';
       if (/(?:\/|%2F)images?(?:\/|%2F)/i.test(lowerUrl)) return 'image';
+    }
+
+    if (
+      /\/media-proxy\/export\//i.test(pathname) ||
+      /\.(pdf|csv|txt|docx?|xlsx?|pptx?|rtf|zip|json)(?:[?#%]|$)/i.test(lowerUrl) ||
+      /(?:[?&]mime=)(?:application%2Fpdf|application\/pdf|text%2Fcsv|text\/csv|text%2Fplain|text\/plain|application%2Fzip|application\/zip|application%2Fjson|application\/json|application%2Fmsword|application\/msword|application%2Fvnd(?:\.|%2E)[^&\s]+)/i.test(
+        lowerUrl
+      )
+    ) {
+      return 'doc';
     }
 
     return null;
@@ -545,7 +555,9 @@ export class AgentXOperationChatSessionFacade {
 
       return mediaType === 'video'
         ? `[View Video](${renderableUrl})`
-        : `![Generated Image](${renderableUrl})`;
+        : mediaType === 'image'
+          ? `![Generated Image](${renderableUrl})`
+          : `[Open File](${renderableUrl})`;
     });
   }
 
@@ -1082,12 +1094,44 @@ export class AgentXOperationChatSessionFacade {
     return true;
   }
 
+  private persistedTextPartsCoverContent(
+    cleanContent: string,
+    persistedParts: readonly AgentXMessagePart[]
+  ): boolean {
+    const normalizedContent = this.normalizePartTextContent(cleanContent);
+    if (!normalizedContent) return true;
+
+    const normalizedTextParts = persistedParts
+      .filter((part): part is Extract<AgentXMessagePart, { type: 'text' }> => part.type === 'text')
+      .map((part) => this.normalizePartTextContent(part.content))
+      .filter((value) => value.length > 0);
+
+    if (normalizedTextParts.length === 0) return false;
+
+    // Fast path: all text parts (even when interleaved with non-text parts)
+    // already reconstruct the persisted content verbatim.
+    if (normalizedTextParts.join(' ') === normalizedContent) return true;
+
+    let remaining = normalizedContent;
+    for (const part of normalizedTextParts) {
+      if (!remaining.startsWith(part)) return false;
+      remaining = remaining.slice(part.length).trimStart();
+      if (!remaining) return true;
+    }
+
+    return remaining.length === 0;
+  }
+
   private resolveSupplementalContentTextPart(
     cleanContent: string,
     persistedParts: readonly AgentXMessagePart[]
   ): string | null {
     let remainingContent = cleanContent.trim();
     if (!remainingContent) return null;
+
+    if (this.persistedTextPartsCoverContent(remainingContent, persistedParts)) {
+      return null;
+    }
 
     for (const part of persistedParts) {
       if (part.type !== 'text') break;

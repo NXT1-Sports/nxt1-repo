@@ -737,16 +737,34 @@ function escapeEmailHtml(value: string): string {
 export function buildTrackedEmailHtmlWithRecipientHash(
   body: string,
   options: {
-    userId: string;
+    userId?: string;
+    subjectId?: string;
+    subjectType?: 'user' | 'team' | 'organization';
     trackingId: string;
     recipientEmailHash?: string | null;
     recipientName?: string | null;
     recipientKind?: string | null;
     recipientOrgName?: string | null;
+    extraTrackingParams?: Readonly<Record<string, string | null | undefined>>;
   }
 ): string {
   const html = normalizeEmailHtml(body);
   const baseUrl = buildTrackingBaseUrl();
+  const subjectId = options.subjectId ?? options.userId;
+  const subjectType = options.subjectType ?? 'user';
+
+  if (!subjectId) {
+    return html;
+  }
+
+  const applyExtraTrackingParams = (url: URL): void => {
+    const extraParams = options.extraTrackingParams ?? {};
+    for (const [key, value] of Object.entries(extraParams)) {
+      if (typeof value === 'string' && value.trim().length > 0) {
+        url.searchParams.set(key, value);
+      }
+    }
+  };
 
   const buildClickUrl = (destination: string): string => {
     try {
@@ -757,8 +775,8 @@ export function buildTrackedEmailHtmlWithRecipientHash(
 
       const clickUrl = new URL(`${baseUrl}/api/v1/analytics/track/click`);
       clickUrl.searchParams.set('destination', parsed.toString());
-      clickUrl.searchParams.set('subjectId', options.userId);
-      clickUrl.searchParams.set('subjectType', 'user');
+      clickUrl.searchParams.set('subjectId', subjectId);
+      clickUrl.searchParams.set('subjectType', subjectType);
       clickUrl.searchParams.set('surface', 'email');
       clickUrl.searchParams.set('sourceRecordId', options.trackingId);
       if (options.recipientEmailHash) {
@@ -773,6 +791,7 @@ export function buildTrackedEmailHtmlWithRecipientHash(
       if (options.recipientOrgName) {
         clickUrl.searchParams.set('recipientOrgName', options.recipientOrgName);
       }
+      applyExtraTrackingParams(clickUrl);
       return clickUrl.toString();
     } catch {
       return destination;
@@ -794,8 +813,8 @@ export function buildTrackedEmailHtmlWithRecipientHash(
   });
 
   const openUrl = new URL(`${baseUrl}/api/v1/analytics/track/open`);
-  openUrl.searchParams.set('subjectId', options.userId);
-  openUrl.searchParams.set('subjectType', 'user');
+  openUrl.searchParams.set('subjectId', subjectId);
+  openUrl.searchParams.set('subjectType', subjectType);
   openUrl.searchParams.set('surface', 'email');
   openUrl.searchParams.set('sourceRecordId', options.trackingId);
   if (options.recipientEmailHash) {
@@ -810,6 +829,7 @@ export function buildTrackedEmailHtmlWithRecipientHash(
   if (options.recipientOrgName) {
     openUrl.searchParams.set('recipientOrgName', options.recipientOrgName);
   }
+  applyExtraTrackingParams(openUrl);
 
   return `${rewrittenHtml}<img src="${openUrl.toString()}" alt="" width="1" height="1" style="display:none;max-width:1px;max-height:1px;" />`;
 }
