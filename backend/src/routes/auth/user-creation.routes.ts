@@ -45,12 +45,14 @@ router.post(
     });
 
     const sanitizedEmail = email.toLowerCase().trim();
-    const sanitizedFirstName = typeof firstName === 'string' ? firstName.trim() : '';
-    const sanitizedLastName = typeof lastName === 'string' ? lastName.trim() : '';
+    const sanitizeName = (value: unknown): string => {
+      return typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '';
+    };
+    const sanitizedFirstName = sanitizeName(firstName);
+    const sanitizedLastName = sanitizeName(lastName);
     const sanitizedDisplayName =
-      typeof displayName === 'string' && displayName.trim().length > 0
-        ? displayName.trim()
-        : [sanitizedFirstName, sanitizedLastName].filter(Boolean).join(' ');
+      sanitizeName(displayName) ||
+      [sanitizedFirstName, sanitizedLastName].filter(Boolean).join(' ').trim();
 
     // Validate team code if provided
     let validatedTeam: {

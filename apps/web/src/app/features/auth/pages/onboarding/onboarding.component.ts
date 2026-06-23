@@ -713,6 +713,8 @@ export class OnboardingComponent implements OnInit, OnDestroy {
   private async initializeStateMachine(userId: string): Promise<void> {
     this.logger.info('Initializing shared state machine', { userId });
 
+    const initialProfile = await this.resolveInitialProfileData(userId);
+
     // Check if user has pending invite data (either from flag or pending referral)
     let skipStepIds: OnboardingStepId[] = [];
     let hasSportData = false;
@@ -871,6 +873,11 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       userId,
       initialSteps: ONBOARDING_STEPS.athlete,
       skipStepIds,
+      initialFormData: {
+        userType: null,
+        authProvider: this.authFlow.user()?.provider ?? null,
+        profile: initialProfile.profile,
+      },
       debug: false, // Set to true for debugging
       onComplete: async (formData) => {
         // This is called when the machine completes
@@ -903,10 +910,140 @@ export class OnboardingComponent implements OnInit, OnDestroy {
       // Track onboarding started event
       this.trackStarted();
     } else {
+      this.applyAuthoritativeProfileToRestoredSession(initialProfile);
       // Session restored - but still apply invite sport preselection if available
       this.applyInviteSportPreselection();
       this.logger.info('Session restored, also applied invite sport preselection');
     }
+  }
+
+  private async resolveInitialProfileData(userId: string): Promise<{
+    profile: ProfileFormData;
+    fallbackProfile: ProfileFormData;
+    source: 'backend' | 'fallback';
+  }> {
+    const authUser = this.authFlow.user();
+    const fallbackNames = this.derivePrefilledNames(authUser?.displayName, authUser?.email);
+    const fallbackProfile: ProfileFormData = {
+      firstName: fallbackNames.firstName,
+      lastName: fallbackNames.lastName,
+      profileImgs: authUser?.profileImg ? [authUser.profileImg] : null,
+    };
+
+    try {
+      const backendProfile = await this.authApi.getUserProfile(userId, { noCache: true });
+      const firstName = backendProfile.firstName?.trim() ?? '';
+      const lastName = backendProfile.lastName?.trim() ?? '';
+      const profileImgs = backendProfile.profileImgs?.length
+        ? [...backendProfile.profileImgs]
+        : fallbackProfile.profileImgs;
+
+      if (firstName || lastName) {
+        this.logger.debug('Prefilled onboarding profile from backend names', {
+          hasFirstName: !!firstName,
+          hasLastName: !!lastName,
+        });
+        return {
+          profile: { firstName, lastName, profileImgs },
+          fallbackProfile,
+          source: 'backend',
+        };
+      }
+
+      this.logger.debug('Backend profile has no names; using auth provider fallback');
+      return {
+        profile: { ...fallbackProfile, profileImgs },
+        fallbackProfile,
+        source: 'fallback',
+      };
+    } catch (error) {
+      this.logger.warn('Failed to load backend profile for onboarding prefill', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return {
+        profile: fallbackProfile,
+        fallbackProfile,
+        source: 'fallback',
+      };
+    }
+  }
+
+  private derivePrefilledNames(
+    displayName?: string | null,
+    email?: string | null
+  ): { firstName: string; lastName: string } {
+    const sanitizeToken = (value: string): string => value.replace(/[^a-zA-Z'-]/g, '').trim();
+
+    const parseParts = (value?: string | null): string[] => {
+      if (!value) return [];
+      const normalized = value
+        .replace(/[_.-]+/g, ' ')
+        .replace(/\d+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (!normalized) return [];
+
+      return normalized
+        .split(' ')
+        .map((part) => sanitizeToken(part))
+        .filter((part) => part.length >= 2);
+    };
+
+    let parts = parseParts(displayName);
+
+    if (parts.length === 0 && email?.includes('@')) {
+      parts = parseParts(email.split('@')[0] || '');
+    }
+
+    return {
+      firstName: parts[0] || '',
+      lastName: parts.slice(1).join(' '),
+    };
+  }
+
+  private applyAuthoritativeProfileToRestoredSession(initialProfile: {
+    profile: ProfileFormData;
+    fallbackProfile: ProfileFormData;
+    source: 'backend' | 'fallback';
+  }): void {
+    if (initialProfile.source !== 'backend') return;
+
+    const currentProfile = this._formData().profile;
+    if (!currentProfile) return;
+
+    const hasBackendNames = !!(
+      initialProfile.profile.firstName.trim() || initialProfile.profile.lastName.trim()
+    );
+    if (!hasBackendNames) return;
+
+    const currentHasNoNames = !currentProfile.firstName.trim() && !currentProfile.lastName.trim();
+    const currentMatchesFallback = this.profileNamesMatch(
+      currentProfile,
+      initialProfile.fallbackProfile
+    );
+
+    if (!currentHasNoNames && !currentMatchesFallback) {
+      this.logger.debug('Preserving restored onboarding profile names edited by user');
+      return;
+    }
+
+    this.machine.updateProfile({
+      ...currentProfile,
+      firstName: initialProfile.profile.firstName,
+      lastName: initialProfile.profile.lastName,
+      profileImgs: currentProfile.profileImgs ?? initialProfile.profile.profileImgs,
+    });
+
+    this.logger.debug('Replaced restored fallback names with backend profile names');
+  }
+
+  private profileNamesMatch(a: ProfileFormData, b: ProfileFormData): boolean {
+    const normalize = (value: string): string => value.trim().replace(/\s+/g, ' ').toLowerCase();
+    return (
+      normalize(a.firstName) === normalize(b.firstName) &&
+      normalize(a.lastName) === normalize(b.lastName)
+    );
   }
 
   /**

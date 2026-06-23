@@ -472,31 +472,12 @@ export class FirebaseAuthService implements OnDestroy {
             idToken: nativeResult.idToken,
             rawNonce: nativeResult.rawNonce,
           });
-          const userCredential = await runInInjectionContext(this.injector, () =>
+          const firebaseCredential = await runInInjectionContext(this.injector, () =>
             signInWithCredential(this.auth, credential)
           );
-
-          const appleDisplayName =
-            nativeResult.user.displayName?.trim() ||
-            [nativeResult.user.givenName, nativeResult.user.familyName]
-              .filter(
-                (value): value is string => typeof value === 'string' && value.trim().length > 0
-              )
-              .join(' ')
-              .trim();
-
-          // Always update Firebase displayName when Apple provides a name.
-          // Apple only returns givenName/familyName on the first authorization.
-          // On subsequent logins these fields are null, so this block is skipped
-          // automatically — preserving any previously stored name.
-          if (appleDisplayName) {
-            await runInInjectionContext(this.injector, () =>
-              updateProfile(userCredential.user, { displayName: appleDisplayName })
-            );
-            await runInInjectionContext(this.injector, () => userCredential.user.reload());
-          }
-
-          return userCredential;
+          return Object.assign(firebaseCredential, {
+            nativeAppleUser: nativeResult.user,
+          });
         }
 
         throw new Error('Apple Sign-In succeeded but no tokens returned. Please try again.');

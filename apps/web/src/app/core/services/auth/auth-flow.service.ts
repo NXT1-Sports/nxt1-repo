@@ -1655,7 +1655,7 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
           try {
             // ALWAYS try to sync existing user first (Firebase isNewUser can be unreliable)
             this.logger.debug('📡 Attempting to sync existing user profile (Apple)');
-            await this.syncUserProfile(result.user);
+            await this.syncUserProfile(result.user, true, true);
             this.logger.info('✅ User profile sync successful - existing user (Apple)');
 
             // Check if user needs onboarding
@@ -1702,8 +1702,16 @@ export class AuthFlowService implements OnDestroy, IAuthFlowService {
 
               this.logger.info('✅ New user created successfully (Apple)', { createResult });
 
+              if (!createResult.success) {
+                const errorMessage =
+                  'error' in createResult
+                    ? createResult.error.message
+                    : 'Failed to create user account';
+                throw new Error(errorMessage, { cause: syncError });
+              }
+
               // Sync the newly created user to local state
-              await this.syncUserProfile(result.user);
+              await this.syncUserProfile(result.user, false, true);
 
               // Navigate to onboarding for new users
               this.logger.info('🚀 Navigating to onboarding (new user) (Apple)');
