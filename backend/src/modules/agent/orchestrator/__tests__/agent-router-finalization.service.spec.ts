@@ -118,6 +118,40 @@ describe('AgentRouterFinalizationService', () => {
     expect(aggregated.summary).not.toContain(`![](${thumbnailUrl})`);
   });
 
+  it('uses hash-named staged video images as poster fragments instead of image deliverables', () => {
+    const { service } = createService();
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3aa6402766724d2f9c5c1e%2Fmedia%2Fstaged%2Fvideo%2F0ada21afec7f458492107e7adfd6af68.mp4?alt=media&token=-WsmAs8l3CrNGb9L8mcVKQKtz2bkv4N94CqdvzAwfm8';
+    const thumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3aa6402766724d2f9c5c1e%2Fmedia%2Fstaged%2Fvideo%2F24cf3ab58a9c4d8db48f9cd20b392e76.jpg?alt=media&token=XHGW1DdEKqjDnBo_A9TDZTJ4SHhzJA3FrjnBT57n14s';
+    const secondThumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3aa6402766724d2f9c5c1e%2Fmedia%2Fstaged%2Fvideo%2F4b61320cbbcd425c9ad71215ab760202.jpg?alt=media&token=dz-j3J-WNEo43iA2txKNJUZqD1RAwb_CrUycoLmwbv0';
+    const resultWithStagedMedia: AgentOperationResult = {
+      summary: 'Video ready.',
+      data: {
+        persistedMediaUrls: [thumbnailUrl, secondThumbnailUrl, videoUrl],
+      },
+    };
+
+    const aggregated = service.finalize({
+      operationId: 'op-1',
+      userId: 'user-1',
+      threadId: 'thread-1',
+      plan: { summary: 'Plan summary', tasks: [] } as unknown as AgentExecutionPlan,
+      taskResults: new Map<string, AgentOperationResult>([['task-1', resultWithStagedMedia]]),
+      mutableTasks: [],
+      scopedIntent: 'create highlight video',
+    });
+
+    const expectedPosterFragment = `#poster=${encodeURIComponent(thumbnailUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    )}`;
+    expect(aggregated.summary).toContain(`${videoUrl}${expectedPosterFragment}`);
+    expect(aggregated.summary).not.toContain(`![](${thumbnailUrl})`);
+    expect(aggregated.summary).not.toContain(`![](${secondThumbnailUrl})`);
+  });
+
   it('uses signed GCS posterUrl fields as video poster fragments', () => {
     const { service } = createService();
     const videoUrl =

@@ -59,6 +59,48 @@ function resolveThumbnailDimensions(
   };
 }
 
+function storageObjectPathFromUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value.trim());
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'firebasestorage.googleapis.com') {
+      const match = parsed.pathname.match(/\/o\/(.+)$/);
+      return match?.[1] ? decodeURIComponent(match[1]).replace(/^\/+/, '') : null;
+    }
+
+    if (hostname === 'storage.googleapis.com') {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      return parts.length >= 2 ? decodeURIComponent(parts.slice(1).join('/')) : null;
+    }
+
+    if (hostname.endsWith('.storage.googleapis.com')) {
+      return decodeURIComponent(parsed.pathname).replace(/^\/+/, '') || null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function mediaDirectoryKeyFromUrl(value: string): string | null {
+  const objectPath = storageObjectPathFromUrl(value);
+  if (!objectPath) return null;
+  const lastSlash = objectPath.lastIndexOf('/');
+  return lastSlash > 0 ? objectPath.slice(0, lastSlash).toLowerCase() : null;
+}
+
+function shareStorageMediaDirectory(leftUrl: string, rightUrl: string): boolean {
+  const leftDirectory = mediaDirectoryKeyFromUrl(leftUrl);
+  const rightDirectory = mediaDirectoryKeyFromUrl(rightUrl);
+  return !!leftDirectory && leftDirectory === rightDirectory;
+}
+
+function isStorageVideoDirectoryImage(url: string): boolean {
+  const directory = mediaDirectoryKeyFromUrl(url);
+  return !!directory && /(?:^|\/)video$/.test(directory);
+}
+
 type OperationStatus =
   | 'processing'
   | 'complete'
@@ -455,8 +497,10 @@ export class AgentXOperationChatSessionFacade {
     const fallbackThumbnailImages = attachmentList.filter((attachment) => {
       if (attachment.type !== 'image' || !attachment.url) return false;
       const label = `${attachment.name ?? ''} ${attachment.url}`;
-      return /(?:thumb|thumbnail|poster|preview|cover|graphic|title[-_\s]?card|intro|generated)/i.test(
-        label
+      return (
+        /(?:thumb|thumbnail|poster|preview|cover|graphic|title[-_\s]?card|intro|generated)/i.test(
+          label
+        ) || isStorageVideoDirectoryImage(attachment.url)
       );
     });
 
@@ -464,7 +508,11 @@ export class AgentXOperationChatSessionFacade {
       videoAttachments
         .filter((attachment) => !attachment.thumbnailUrl)
         .forEach((attachment, index) => {
+          const sameDirectoryFallback = fallbackThumbnailImages.find((image) =>
+            shareStorageMediaDirectory(image.url, attachment.url)
+          );
           const fallback =
+            sameDirectoryFallback ??
             fallbackThumbnailImages[index] ??
             (fallbackThumbnailImages.length === 1 ? fallbackThumbnailImages[0] : undefined);
           if (!fallback) return;
@@ -871,7 +919,14 @@ export class AgentXOperationChatSessionFacade {
       if (mediaType === 'video') {
         videoIndex += 1;
         firstVideoUrl ??= url;
-        const fallbackThumbnailUrl = resultThumbnailUrl ?? resultImagePosterUrl;
+        const sameDirectoryPosterUrl = resultMedia.urls.find(
+          (candidate) =>
+            this.inferMediaTypeFromUrl(candidate) === 'image' &&
+            this.isRenderableThumbnailUrl(candidate) &&
+            shareStorageMediaDirectory(candidate, url)
+        );
+        const fallbackThumbnailUrl =
+          resultThumbnailUrl ?? sameDirectoryPosterUrl ?? resultImagePosterUrl;
         attachments.push({
           url,
           type: 'video',

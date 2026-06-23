@@ -30,6 +30,10 @@ const DELIVERABLE_COLLECTION_KEYS = [
   'attachments',
   'mediaArtifact',
   'mediaArtifacts',
+  'persistedMediaUrls',
+  'mediaUrls',
+  'imageUrls',
+  'videoUrls',
   'result',
 ] as const;
 
@@ -58,6 +62,48 @@ function isVideoUrl(value: string): boolean {
   } catch {
     return /\.(mp4|mov|webm|m4v)([?#]|$)/i.test(value);
   }
+}
+
+function storageObjectPathFromUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value.trim());
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'firebasestorage.googleapis.com') {
+      const match = parsed.pathname.match(/\/o\/(.+)$/);
+      return match?.[1] ? decodeURIComponent(match[1]).replace(/^\/+/, '') : null;
+    }
+
+    if (hostname === 'storage.googleapis.com') {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      return parts.length >= 2 ? decodeURIComponent(parts.slice(1).join('/')) : null;
+    }
+
+    if (hostname.endsWith('.storage.googleapis.com')) {
+      return decodeURIComponent(parsed.pathname).replace(/^\/+/, '') || null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function mediaDirectoryKeyFromUrl(value: string): string | null {
+  const objectPath = storageObjectPathFromUrl(value);
+  if (!objectPath) return null;
+  const lastSlash = objectPath.lastIndexOf('/');
+  return lastSlash > 0 ? objectPath.slice(0, lastSlash).toLowerCase() : null;
+}
+
+function shareStorageMediaDirectory(leftUrl: string, rightUrl: string): boolean {
+  const leftDirectory = mediaDirectoryKeyFromUrl(leftUrl);
+  const rightDirectory = mediaDirectoryKeyFromUrl(rightUrl);
+  return !!leftDirectory && leftDirectory === rightDirectory;
+}
+
+function isStorageVideoDirectoryImage(url: string): boolean {
+  const directory = mediaDirectoryKeyFromUrl(url);
+  return !!directory && /(?:^|\/)video$/.test(directory);
 }
 
 function encodePosterFragment(posterUrl: string): string {
@@ -111,7 +157,11 @@ function collectDeliverableItems(value: unknown, sink: Map<string, DeliverableIt
 
   if (Array.isArray(value)) {
     for (const entry of value) {
-      collectDeliverableItems(entry, sink);
+      if (isHttpUrl(entry)) {
+        addDeliverableItem(sink, { url: entry.trim() });
+      } else {
+        collectDeliverableItems(entry, sink);
+      }
     }
     return;
   }
@@ -147,7 +197,11 @@ function collectDeliverableItems(value: unknown, sink: Map<string, DeliverableIt
     const nested = record[key];
     if (Array.isArray(nested)) {
       for (const entry of nested) {
-        collectDeliverableItems(entry, sink);
+        if (isHttpUrl(entry)) {
+          addDeliverableItem(sink, { url: entry.trim() });
+        } else {
+          collectDeliverableItems(entry, sink);
+        }
       }
       continue;
     }
@@ -159,11 +213,32 @@ function collectDeliverableItems(value: unknown, sink: Map<string, DeliverableIt
 function assignFallbackVideoPosters(items: readonly DeliverableItem[]): DeliverableItem[] {
   const videoItems = items.filter((item) => isVideoUrl(item.url));
   if (videoItems.length === 0 || videoItems.every((item) => item.posterUrl)) return [...items];
-  const fallbackPoster = items.find((item) => isImageUrl(item.url));
-  if (!fallbackPoster) return [...items];
+  const imageItems = items.filter((item) => isImageUrl(item.url));
+  if (!imageItems.length) return [...items];
+  const usedStorageVideoPosterUrls = new Set<string>();
 
-  return items.map((item) =>
-    isVideoUrl(item.url) && !item.posterUrl ? { ...item, posterUrl: fallbackPoster.url } : item
+  const withPosters = items.map((item) => {
+    if (!isVideoUrl(item.url) || item.posterUrl) return item;
+    const sameDirectoryPoster = imageItems.find((image) =>
+      shareStorageMediaDirectory(image.url, item.url)
+    );
+    const fallbackPoster = sameDirectoryPoster ?? imageItems[0];
+    if (!fallbackPoster) return item;
+    if (sameDirectoryPoster && isStorageVideoDirectoryImage(sameDirectoryPoster.url)) {
+      for (const image of imageItems) {
+        if (
+          isStorageVideoDirectoryImage(image.url) &&
+          shareStorageMediaDirectory(image.url, item.url)
+        ) {
+          usedStorageVideoPosterUrls.add(image.url);
+        }
+      }
+    }
+    return { ...item, posterUrl: fallbackPoster.url };
+  });
+
+  return withPosters.filter(
+    (item) => !isImageUrl(item.url) || !usedStorageVideoPosterUrls.has(item.url)
   );
 }
 

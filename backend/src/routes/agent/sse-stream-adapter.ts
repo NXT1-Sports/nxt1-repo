@@ -90,6 +90,48 @@ function inferMediaType(url: string, mimeType?: string): 'image' | 'video' | nul
   return null;
 }
 
+function storageObjectPathFromUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value.trim());
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'firebasestorage.googleapis.com') {
+      const match = parsed.pathname.match(/\/o\/(.+)$/);
+      return match?.[1] ? decodeURIComponent(match[1]).replace(/^\/+/, '') : null;
+    }
+
+    if (hostname === 'storage.googleapis.com') {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      return parts.length >= 2 ? decodeURIComponent(parts.slice(1).join('/')) : null;
+    }
+
+    if (hostname.endsWith('.storage.googleapis.com')) {
+      return decodeURIComponent(parsed.pathname).replace(/^\/+/, '') || null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function mediaDirectoryKeyFromUrl(value: string): string | null {
+  const objectPath = storageObjectPathFromUrl(value);
+  if (!objectPath) return null;
+  const lastSlash = objectPath.lastIndexOf('/');
+  return lastSlash > 0 ? objectPath.slice(0, lastSlash).toLowerCase() : null;
+}
+
+function shareStorageMediaDirectory(leftUrl: string, rightUrl: string): boolean {
+  const leftDirectory = mediaDirectoryKeyFromUrl(leftUrl);
+  const rightDirectory = mediaDirectoryKeyFromUrl(rightUrl);
+  return !!leftDirectory && leftDirectory === rightDirectory;
+}
+
+function isStorageVideoDirectoryImage(url: string): boolean {
+  const directory = mediaDirectoryKeyFromUrl(url);
+  return !!directory && /(?:^|\/)video$/.test(directory);
+}
+
 function firstHttpUrl(...values: unknown[]): string | undefined {
   for (const value of values) {
     if (typeof value !== 'string') continue;
@@ -128,6 +170,44 @@ function maybePushMedia(
   });
 }
 
+function assignMediaThumbnailFallbacks(
+  media: readonly SseMediaPayload[]
+): readonly SseMediaPayload[] {
+  const imageMedia = media.filter((item) => item.type === 'image');
+  if (!imageMedia.length) return media;
+
+  const usedStorageVideoPosterUrls = new Set<string>();
+  const withThumbnails = media.map((item) => {
+    if (item.type !== 'video' || item.thumbnailUrl) return item;
+    const sameDirectoryPoster = imageMedia.find((image) =>
+      shareStorageMediaDirectory(image.url, item.url)
+    );
+    const namedPoster = imageMedia.find((image) =>
+      /(?:thumb|thumbnail|poster|preview|cover|graphic|title[-_\s]?card|intro|generated)/i.test(
+        image.url
+      )
+    );
+    const fallbackPoster =
+      sameDirectoryPoster ?? namedPoster ?? (imageMedia.length === 1 ? imageMedia[0] : undefined);
+    if (!fallbackPoster) return item;
+    if (sameDirectoryPoster && isStorageVideoDirectoryImage(sameDirectoryPoster.url)) {
+      for (const image of imageMedia) {
+        if (
+          isStorageVideoDirectoryImage(image.url) &&
+          shareStorageMediaDirectory(image.url, item.url)
+        ) {
+          usedStorageVideoPosterUrls.add(image.url);
+        }
+      }
+    }
+    return { ...item, thumbnailUrl: fallbackPoster.url };
+  });
+
+  return withThumbnails.filter(
+    (item) => item.type !== 'image' || !usedStorageVideoPosterUrls.has(item.url)
+  );
+}
+
 function extractMediaPayloads(toolResult: Record<string, unknown>): readonly SseMediaPayload[] {
   const seen = new Set<string>();
   const media: SseMediaPayload[] = [];
@@ -162,6 +242,12 @@ function extractMediaPayloads(toolResult: Record<string, unknown>): readonly Sse
     if (Array.isArray(videoUrls)) {
       for (const url of videoUrls)
         maybePushMedia(seen, media, url, record['mimeType'], 'video', thumbnailUrl);
+    }
+
+    for (const key of ['persistedMediaUrls', 'mediaUrls'] as const) {
+      const urls = record[key];
+      if (!Array.isArray(urls)) continue;
+      for (const url of urls) maybePushMedia(seen, media, url, record['mimeType']);
     }
 
     const files = record['files'];
@@ -285,18 +371,19 @@ function extractMediaPayloads(toolResult: Record<string, unknown>): readonly Sse
 
   collectFromRecord(toolResult);
 
+  const mediaWithFallbacks = assignMediaThumbnailFallbacks(media);
   const fallbackPoster =
-    media.find(
+    mediaWithFallbacks.find(
       (item) =>
         item.type === 'image' &&
         /(?:thumb|thumbnail|poster|preview|cover|graphic|title[-_\s]?card|intro|generated)/i.test(
           item.url
         )
-    ) ?? media.find((item) => item.type === 'image');
+    ) ?? mediaWithFallbacks.find((item) => item.type === 'image');
 
-  if (!fallbackPoster) return media;
+  if (!fallbackPoster) return mediaWithFallbacks;
 
-  return media.map((item) =>
+  return mediaWithFallbacks.map((item) =>
     item.type === 'video' && !item.thumbnailUrl
       ? { ...item, thumbnailUrl: fallbackPoster.url }
       : item
