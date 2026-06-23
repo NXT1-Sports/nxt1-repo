@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const fileMock = vi.fn();
-const bucketMock = vi.fn(() => ({ file: fileMock }));
+const getFilesMock = vi.fn();
+const bucketMock = vi.fn(() => ({ file: fileMock, getFiles: getFilesMock }));
 const getStorageMock = vi.fn(() => ({ bucket: bucketMock }));
 const getSignedUrlWithTimeoutMock = vi.fn();
 const extractStoragePathFromUrlMock = vi.fn();
@@ -74,6 +75,48 @@ describe('threads.routes media refresh helpers', () => {
 
     expect(refreshed.url).toBe('https://signed.example.com/highlight.mp4');
     expect(refreshed.thumbnailUrl).toBe('https://signed.example.com/highlight-thumb.jpg');
+  });
+
+  it('infers a missing video thumbnail from sibling staged video images', async () => {
+    extractStoragePathFromUrlMock.mockReturnValueOnce(
+      'Users/user-1/threads/thread-1/media/staged/video/highlight.mp4'
+    );
+
+    fileMock.mockReturnValueOnce({
+      getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example.com/highlight.mp4']),
+    });
+    getFilesMock.mockResolvedValueOnce([
+      [
+        {
+          name: 'Users/user-1/threads/thread-1/media/staged/video/highlight.mp4',
+          getSignedUrl: vi.fn(),
+        },
+        {
+          name: 'Users/user-1/threads/thread-1/media/staged/video/4b61320cbbcd425c9ad71215ab760202.jpg',
+          getSignedUrl: vi
+            .fn()
+            .mockResolvedValue(['https://signed.example.com/hash-thumbnail.jpg']),
+        },
+      ],
+    ]);
+
+    const refreshed = await refreshAttachmentUrl(
+      {
+        id: 'att-1',
+        url: 'https://storage.googleapis.com/bucket/highlight.mp4?expired=true',
+        name: 'highlight.mp4',
+        mimeType: 'video/mp4',
+        type: 'video',
+        sizeBytes: 4096,
+      },
+      'bucket-name'
+    );
+
+    expect(getFilesMock).toHaveBeenCalledWith({
+      prefix: 'Users/user-1/threads/thread-1/media/staged/video/',
+    });
+    expect(refreshed.url).toBe('https://signed.example.com/highlight.mp4');
+    expect(refreshed.thumbnailUrl).toBe('https://signed.example.com/hash-thumbnail.jpg');
   });
 
   it('refreshes thumbnail urls nested in resultData', async () => {

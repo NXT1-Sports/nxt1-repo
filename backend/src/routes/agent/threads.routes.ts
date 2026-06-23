@@ -52,6 +52,66 @@ async function refreshStorageUrl(
   }
 }
 
+function isVideoAttachment(attachment: AgentXAttachment): boolean {
+  if (attachment.type === 'video') return true;
+  if (typeof attachment.mimeType === 'string' && /^video\//i.test(attachment.mimeType)) return true;
+  return /\.(?:mp4|mov|m4v|webm|avi|mkv)(?:[?#]|$)/i.test(attachment.url);
+}
+
+function isImageStoragePath(path: string): boolean {
+  return /\.(?:png|jpe?g|webp|gif|avif|bmp|svg)$/i.test(path);
+}
+
+function storageDirectory(path: string): string | null {
+  const index = path.lastIndexOf('/');
+  return index > 0 ? path.slice(0, index) : null;
+}
+
+async function findSiblingVideoThumbnailUrl(params: {
+  readonly attachment: AgentXAttachment;
+  readonly bucketName: string;
+  readonly videoStoragePath?: string;
+}): Promise<string | null> {
+  if (!isVideoAttachment(params.attachment)) return null;
+  if (typeof params.attachment.thumbnailUrl === 'string' && params.attachment.thumbnailUrl.trim()) {
+    return null;
+  }
+
+  const videoStoragePath =
+    params.videoStoragePath ??
+    params.attachment.storagePath ??
+    AgentMediaLifecycleService.extractStoragePathFromUrl(params.attachment.url);
+  if (!videoStoragePath) return null;
+
+  const directory = storageDirectory(videoStoragePath);
+  if (!directory) return null;
+
+  try {
+    const bucket = getStorage().bucket(params.bucketName);
+    const [files] = await bucket.getFiles({ prefix: `${directory}/` });
+    const thumbnailFile = files
+      .filter((file) => file.name !== videoStoragePath && isImageStoragePath(file.name))
+      .sort((left, right) => {
+        const leftNamed = /(?:thumb|thumbnail|poster|preview|cover)/i.test(left.name) ? 0 : 1;
+        const rightNamed = /(?:thumb|thumbnail|poster|preview|cover)/i.test(right.name) ? 0 : 1;
+        return leftNamed - rightNamed || left.name.localeCompare(right.name);
+      })[0];
+    if (!thumbnailFile) return null;
+
+    const expiresAt = Date.now() + 24 * 60 * 60 * 1000;
+    const [signedUrl] = await getSignedUrlWithTimeout(() =>
+      thumbnailFile.getSignedUrl({ version: 'v4', action: 'read', expires: expiresAt })
+    );
+    return signedUrl;
+  } catch (err) {
+    logger.warn('Failed to infer sibling video thumbnail', {
+      videoStoragePath,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return null;
+  }
+}
+
 export async function refreshAttachmentUrl(
   attachment: AgentXAttachment,
   bucketName: string
@@ -64,6 +124,15 @@ export async function refreshAttachmentUrl(
     bucketName
   );
 
+  const inferredThumbnailUrl =
+    typeof attachment.thumbnailUrl === 'string' && attachment.thumbnailUrl.trim().length > 0
+      ? null
+      : await findSiblingVideoThumbnailUrl({
+          attachment,
+          bucketName,
+          videoStoragePath: refreshedMedia.storagePath,
+        });
+
   const refreshedThumbnail =
     typeof attachment.thumbnailUrl === 'string' && attachment.thumbnailUrl.trim().length > 0
       ? await refreshStorageUrl({ url: attachment.thumbnailUrl }, bucketName)
@@ -73,7 +142,9 @@ export async function refreshAttachmentUrl(
     ...attachment,
     url: refreshedMedia.url,
     ...(refreshedMedia.storagePath ? { storagePath: refreshedMedia.storagePath } : {}),
-    ...(refreshedThumbnail?.url ? { thumbnailUrl: refreshedThumbnail.url } : {}),
+    ...(refreshedThumbnail?.url || inferredThumbnailUrl
+      ? { thumbnailUrl: refreshedThumbnail?.url ?? inferredThumbnailUrl ?? undefined }
+      : {}),
   };
 }
 
