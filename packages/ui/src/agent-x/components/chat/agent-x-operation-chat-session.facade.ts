@@ -619,6 +619,20 @@ export class AgentXOperationChatSessionFacade {
     });
   }
 
+  private promoteAssistantMediaPartsToMarkdown(
+    parts: readonly AgentXMessagePart[],
+    media?: { attachments?: OperationMessage['attachments'] }
+  ): AgentXMessagePart[] {
+    return parts.map((part) =>
+      part.type === 'text'
+        ? {
+            type: 'text' as const,
+            content: this.promoteAssistantMediaUrlsToMarkdown(part.content, media),
+          }
+        : part
+    );
+  }
+
   private normalizeTypingAssistantMediaMarkdown(): void {
     this.messageFacade.messages.update((messages) =>
       messages.map((message) => {
@@ -2669,6 +2683,7 @@ export class AgentXOperationChatSessionFacade {
           },
           onMedia: (media) => {
             if (holdUntilDone) return;
+            if (resolvedThreadId) this.streamRegistry.appendMedia(resolvedThreadId, media);
             this.mergeLiveMediaIntoTypingMessage(media);
           },
           onProgress: (event) => {
@@ -3948,16 +3963,22 @@ export class AgentXOperationChatSessionFacade {
         // on remount so the shimmer paints immediately, even during a silent
         // thinking gap before the next delta/step arrives.
         if (!this.messageFacade.messages().some((message) => message.id === 'typing')) {
+          const snapshotAttachments = this.buildMediaAttachmentsFromStreamEvents(snapshot.media);
           const snapshotCardsWithoutYield = snapshot.cards.filter(
             (card) => !this.isYieldRichCard(card)
           );
-          const snapshotPartsWithoutYield = this.stripYieldCardsFromParts(snapshot.parts);
+          const snapshotPartsWithoutYield = this.promoteAssistantMediaPartsToMarkdown(
+            this.stripYieldCardsFromParts(snapshot.parts),
+            { attachments: snapshotAttachments }
+          );
           this.messageFacade.messages.update((messages) => [
             ...messages,
             {
               id: 'typing',
               role: 'assistant',
-              content: snapshot.content,
+              content: this.promoteAssistantMediaUrlsToMarkdown(snapshot.content, {
+                attachments: snapshotAttachments,
+              }),
               timestamp: new Date(),
               isTyping: !snapshot.content,
               steps: snapshot.steps.length > 0 ? [...snapshot.steps] : undefined,
@@ -4036,8 +4057,11 @@ export class AgentXOperationChatSessionFacade {
             // registry stores raw SSE content (bare URLs unchanged). Normalize fresh.content
             // through the same promotion pipeline before comparing, or the strings will never
             // match and a duplicate bubble gets injected on every session re-entry.
+            const freshAttachments = this.buildMediaAttachmentsFromStreamEvents(fresh.media);
             const normalizedFreshContent = this.normalizeMessageContent(
-              this.promoteAssistantMediaUrlsToMarkdown(fresh.content)
+              this.promoteAssistantMediaUrlsToMarkdown(fresh.content, {
+                attachments: freshAttachments,
+              })
             );
             const replayOperationIds = new Set<string>();
             const completedOperationId = this.streamRegistry.getOperationIdForThread(threadId);
@@ -4082,13 +4106,18 @@ export class AgentXOperationChatSessionFacade {
               const freshCardsWithoutYield = fresh.cards.filter(
                 (card) => !this.isYieldRichCard(card)
               );
-              const freshPartsWithoutYield = this.stripYieldCardsFromParts(fresh.parts);
+              const freshPartsWithoutYield = this.promoteAssistantMediaPartsToMarkdown(
+                this.stripYieldCardsFromParts(fresh.parts),
+                { attachments: freshAttachments }
+              );
               this.messageFacade.messages.update((messages) => [
                 ...messages,
                 {
                   id: host.uid(),
                   role: 'assistant',
-                  content: fresh.content,
+                  content: this.promoteAssistantMediaUrlsToMarkdown(fresh.content, {
+                    attachments: freshAttachments,
+                  }),
                   timestamp: new Date(),
                   isTyping: false,
                   steps: fresh.steps.length > 0 ? [...fresh.steps] : undefined,
@@ -4140,6 +4169,7 @@ export class AgentXOperationChatSessionFacade {
             // here. Adding a second bubble would show the answer twice.
             // Normalize fresh.content through the same URL-promotion pipeline that
             // loadThreadMessages applies so bare-URL vs markdown-URL variants match.
+            const freshAttachments = this.buildMediaAttachmentsFromStreamEvents(fresh.media);
             if (
               fresh.content?.trim() &&
               messages.some(
@@ -4148,7 +4178,9 @@ export class AgentXOperationChatSessionFacade {
                   !m.isTyping &&
                   this.normalizeMessageContent(m.content) ===
                     this.normalizeMessageContent(
-                      this.promoteAssistantMediaUrlsToMarkdown(fresh.content)
+                      this.promoteAssistantMediaUrlsToMarkdown(fresh.content, {
+                        attachments: freshAttachments,
+                      })
                     )
               )
             ) {
@@ -4163,7 +4195,9 @@ export class AgentXOperationChatSessionFacade {
               {
                 id: 'typing',
                 role: 'assistant',
-                content: fresh.content,
+                content: this.promoteAssistantMediaUrlsToMarkdown(fresh.content, {
+                  attachments: freshAttachments,
+                }),
                 timestamp: new Date(),
                 isTyping: !fresh.content,
                 steps: fresh.steps.length > 0 ? [...fresh.steps] : undefined,
@@ -4171,7 +4205,12 @@ export class AgentXOperationChatSessionFacade {
                   ? [...fresh.cards.filter((card) => !this.isYieldRichCard(card))]
                   : undefined,
                 parts: this.stripYieldCardsFromParts(fresh.parts).length
-                  ? [...this.stripYieldCardsFromParts(fresh.parts)]
+                  ? [
+                      ...this.promoteAssistantMediaPartsToMarkdown(
+                        this.stripYieldCardsFromParts(fresh.parts),
+                        { attachments: freshAttachments }
+                      ),
+                    ]
                   : undefined,
               },
             ];

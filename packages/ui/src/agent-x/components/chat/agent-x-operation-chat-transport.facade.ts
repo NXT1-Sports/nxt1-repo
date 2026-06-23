@@ -82,6 +82,48 @@ function isRecurringToolName(toolName: string): boolean {
   return RECURRING_TOOL_NAMES.has(toolName.trim().toLowerCase());
 }
 
+function storageObjectPathFromUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value.trim());
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'firebasestorage.googleapis.com') {
+      const match = parsed.pathname.match(/\/o\/(.+)$/);
+      return match?.[1] ? decodeURIComponent(match[1]).replace(/^\/+/, '') : null;
+    }
+
+    if (hostname === 'storage.googleapis.com') {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      return parts.length >= 2 ? decodeURIComponent(parts.slice(1).join('/')) : null;
+    }
+
+    if (hostname.endsWith('.storage.googleapis.com')) {
+      return decodeURIComponent(parsed.pathname).replace(/^\/+/, '') || null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function mediaDirectoryKeyFromUrl(value: string): string | null {
+  const objectPath = storageObjectPathFromUrl(value);
+  if (!objectPath) return null;
+  const lastSlash = objectPath.lastIndexOf('/');
+  return lastSlash > 0 ? objectPath.slice(0, lastSlash).toLowerCase() : null;
+}
+
+function shareStorageMediaDirectory(leftUrl: string, rightUrl: string): boolean {
+  const leftDirectory = mediaDirectoryKeyFromUrl(leftUrl);
+  const rightDirectory = mediaDirectoryKeyFromUrl(rightUrl);
+  return !!leftDirectory && leftDirectory === rightDirectory;
+}
+
+function isStorageVideoDirectoryImage(url: string): boolean {
+  const directory = mediaDirectoryKeyFromUrl(url);
+  return !!directory && /(?:^|\/)video$/.test(directory);
+}
+
 export interface BatchEmailRecipientStatus {
   readonly email: string;
   readonly status: 'sending' | 'sent' | 'failed';
@@ -919,6 +961,8 @@ export class AgentXOperationChatTransportFacade {
           },
 
           onMedia: (event) => {
+            const activeThreadId = host.resolvedThreadId();
+            if (activeThreadId) this.streamRegistry.appendMedia(activeThreadId, event);
             this.mergeStreamMediaIntoTypingMessage(event);
           },
 
@@ -1437,11 +1481,17 @@ export class AgentXOperationChatTransportFacade {
     const fallbackImages = attachments.filter((attachment) => {
       if (attachment.type !== 'image' || !attachment.url) return false;
       const label = `${attachment.name ?? ''} ${attachment.url}`;
-      return /(?:thumb|thumbnail|poster|preview|cover|graphic|title[-_\s]?card|intro|generated)/i.test(
-        label
+      return (
+        /(?:thumb|thumbnail|poster|preview|cover|graphic|title[-_\s]?card|intro|generated)/i.test(
+          label
+        ) || isStorageVideoDirectoryImage(attachment.url)
       );
     });
+    const sameDirectoryFallback = fallbackImages.find((attachment) =>
+      shareStorageMediaDirectory(attachment.url, matchingVideo.url)
+    );
     const fallback =
+      sameDirectoryFallback ??
       fallbackImages[0] ??
       (videoAttachments.length === 1
         ? attachments.find((attachment) => attachment.type === 'image' && !!attachment.url)

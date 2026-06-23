@@ -144,7 +144,7 @@ function shouldUseCorsForVideoPreview(url: string): boolean {
   try {
     const normalized = decodeHtmlAttributeValue(url).trim();
     const parsed = new URL(/^https?:\/\//i.test(normalized) ? normalized : `https://${normalized}`);
-    return !/(?:firebasestorage|storage)\.googleapis\.com/i.test(parsed.hostname);
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:';
   } catch {
     return true;
   }
@@ -174,7 +174,7 @@ function buildVideoThumb(safeHref: string, label: string, posterUrl?: string): s
   return (
     `<span class="${wrapClass}" data-md-video-src="${safeHref}" role="button" tabindex="0" aria-label="${escapeAttr(label || 'Play video')}">` +
     posterHtml +
-    `<video class="md-video-preview" src="${previewSrc}"${posterAttr} muted playsinline preload="auto"${corsAttr} aria-hidden="true"></video>` +
+    `<video class="md-video-preview"${corsAttr} src="${previewSrc}"${posterAttr} muted playsinline preload="auto" aria-hidden="true"></video>` +
     `<span class="md-video-play" aria-hidden="true">${playIcon}</span>` +
     `</span>`
   );

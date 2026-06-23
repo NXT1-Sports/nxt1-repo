@@ -54,6 +54,48 @@ function isAbsoluteHttpUrl(value: string | undefined): boolean {
   return typeof value === 'string' && /^https?:\/\//i.test(value);
 }
 
+function storageObjectPathFromUrl(value: string): string | null {
+  try {
+    const parsed = new URL(value.trim());
+    const hostname = parsed.hostname.toLowerCase();
+    if (hostname === 'firebasestorage.googleapis.com') {
+      const match = parsed.pathname.match(/\/o\/(.+)$/);
+      return match?.[1] ? decodeURIComponent(match[1]).replace(/^\/+/, '') : null;
+    }
+
+    if (hostname === 'storage.googleapis.com') {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      return parts.length >= 2 ? decodeURIComponent(parts.slice(1).join('/')) : null;
+    }
+
+    if (hostname.endsWith('.storage.googleapis.com')) {
+      return decodeURIComponent(parsed.pathname).replace(/^\/+/, '') || null;
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
+}
+
+function mediaDirectoryKeyFromUrl(value: string): string | null {
+  const objectPath = storageObjectPathFromUrl(value);
+  if (!objectPath) return null;
+  const lastSlash = objectPath.lastIndexOf('/');
+  return lastSlash > 0 ? objectPath.slice(0, lastSlash).toLowerCase() : null;
+}
+
+function shareStorageMediaDirectory(leftUrl: string, rightUrl: string): boolean {
+  const leftDirectory = mediaDirectoryKeyFromUrl(leftUrl);
+  const rightDirectory = mediaDirectoryKeyFromUrl(rightUrl);
+  return !!leftDirectory && leftDirectory === rightDirectory;
+}
+
+function isStorageVideoDirectoryImage(url: string): boolean {
+  const directory = mediaDirectoryKeyFromUrl(url);
+  return !!directory && /(?:^|\/)video$/.test(directory);
+}
+
 function resolvePreferredAttachmentUrl(file: Record<string, unknown>): string | undefined {
   const directUrl = readNonEmptyString(file['url']);
   const downloadUrl = readNonEmptyString(file['downloadUrl']);
@@ -678,16 +720,33 @@ export function extractMediaAttachmentsFromResultData(
       const videoUrlCount = persistedMediaUrls.filter(
         (url) => inferTypeFromUrl(url) === 'video'
       ).length;
+      const videoUrls = persistedMediaUrls.filter((url) => inferTypeFromUrl(url) === 'video');
+      const videoDirectoryThumbnailUrls = persistedMediaUrls.filter(
+        (url) => inferTypeFromUrl(url) === 'image' && isStorageVideoDirectoryImage(url)
+      );
       persistedMediaUrls.forEach((url, idx) => {
         if (typeof url !== 'string') return;
-        const type = url.match(/\.(jpg|jpeg|png|gif|webp)$/i) ? 'image' : 'video';
+        const type = inferTypeFromUrl(url);
+        if (
+          type === 'image' &&
+          videoUrls.some((videoUrl) => shareStorageMediaDirectory(url, videoUrl))
+        ) {
+          return;
+        }
         const name = type === 'image' ? `media-${idx}.jpg` : `media-${idx}.mp4`;
+        const sameDirectoryThumbnailUrl =
+          type === 'video'
+            ? videoDirectoryThumbnailUrls.find((thumbnailUrl) =>
+                shareStorageMediaDirectory(thumbnailUrl, url)
+              )
+            : undefined;
         addAttachment({
           url,
           name,
           type,
-          ...(type === 'video' && videoUrlCount === 1 && scalarThumbnailUrl
-            ? { thumbnailUrl: scalarThumbnailUrl }
+          ...(type === 'video' &&
+          (sameDirectoryThumbnailUrl || (videoUrlCount === 1 && scalarThumbnailUrl))
+            ? { thumbnailUrl: sameDirectoryThumbnailUrl ?? scalarThumbnailUrl }
             : {}),
         });
       });

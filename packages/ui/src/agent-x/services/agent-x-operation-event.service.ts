@@ -477,6 +477,86 @@ export class AgentXOperationEventService {
     return null;
   }
 
+  private storageObjectPathFromUrl(value: string): string | null {
+    try {
+      const parsed = new URL(value.trim());
+      const hostname = parsed.hostname.toLowerCase();
+      if (hostname === 'firebasestorage.googleapis.com') {
+        const match = parsed.pathname.match(/\/o\/(.+)$/);
+        return match?.[1] ? decodeURIComponent(match[1]).replace(/^\/+/, '') : null;
+      }
+
+      if (hostname === 'storage.googleapis.com') {
+        const parts = parsed.pathname.split('/').filter(Boolean);
+        return parts.length >= 2 ? decodeURIComponent(parts.slice(1).join('/')) : null;
+      }
+
+      if (hostname.endsWith('.storage.googleapis.com')) {
+        return decodeURIComponent(parsed.pathname).replace(/^\/+/, '') || null;
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
+  }
+
+  private mediaDirectoryKeyFromUrl(value: string): string | null {
+    const objectPath = this.storageObjectPathFromUrl(value);
+    if (!objectPath) return null;
+    const lastSlash = objectPath.lastIndexOf('/');
+    return lastSlash > 0 ? objectPath.slice(0, lastSlash).toLowerCase() : null;
+  }
+
+  private shareStorageMediaDirectory(leftUrl: string, rightUrl: string): boolean {
+    const leftDirectory = this.mediaDirectoryKeyFromUrl(leftUrl);
+    const rightDirectory = this.mediaDirectoryKeyFromUrl(rightUrl);
+    return !!leftDirectory && leftDirectory === rightDirectory;
+  }
+
+  private isStorageVideoDirectoryImage(url: string): boolean {
+    const directory = this.mediaDirectoryKeyFromUrl(url);
+    return !!directory && /(?:^|\/)video$/.test(directory);
+  }
+
+  private assignMediaThumbnailFallbacks(
+    media: readonly AgentXStreamMediaEvent[]
+  ): readonly AgentXStreamMediaEvent[] {
+    const imageMedia = media.filter((item) => item.type === 'image');
+    if (!imageMedia.length) return media;
+
+    const usedStorageVideoPosterUrls = new Set<string>();
+    const withThumbnails = media.map((item) => {
+      if (item.type !== 'video' || item.thumbnailUrl) return item;
+      const sameDirectoryPoster = imageMedia.find((image) =>
+        this.shareStorageMediaDirectory(image.url, item.url)
+      );
+      const namedPoster = imageMedia.find((image) =>
+        /(?:thumb|thumbnail|poster|preview|cover|graphic|title[-_\s]?card|intro|generated)/i.test(
+          image.url
+        )
+      );
+      const fallbackPoster =
+        sameDirectoryPoster ?? namedPoster ?? (imageMedia.length === 1 ? imageMedia[0] : undefined);
+      if (!fallbackPoster) return item;
+      if (sameDirectoryPoster && this.isStorageVideoDirectoryImage(sameDirectoryPoster.url)) {
+        for (const image of imageMedia) {
+          if (
+            this.isStorageVideoDirectoryImage(image.url) &&
+            this.shareStorageMediaDirectory(image.url, item.url)
+          ) {
+            usedStorageVideoPosterUrls.add(image.url);
+          }
+        }
+      }
+      return { ...item, thumbnailUrl: fallbackPoster.url };
+    });
+
+    return withThumbnails.filter(
+      (item) => item.type !== 'image' || !usedStorageVideoPosterUrls.has(item.url)
+    );
+  }
+
   private extractMediaEventsFromToolResult(
     toolResult: Record<string, unknown>
   ): readonly AgentXStreamMediaEvent[] {
@@ -537,6 +617,12 @@ export class AgentXOperationEventService {
       for (const url of videoUrls) pushCandidate(url, toolResult['mimeType'], 'video');
     }
 
+    for (const key of ['persistedMediaUrls', 'mediaUrls'] as const) {
+      const urls = toolResult[key];
+      if (!Array.isArray(urls)) continue;
+      for (const url of urls) pushCandidate(url, toolResult['mimeType']);
+    }
+
     const files = toolResult['files'];
     if (Array.isArray(files)) {
       for (const file of files) {
@@ -573,6 +659,29 @@ export class AgentXOperationEventService {
       pushCandidate(record['downloadUrl'], record['mimeType'], forcedType, record['thumbnailUrl']);
     }
 
+    for (const nestedKey of ['data', 'result', 'artifacts', 'taskResults'] as const) {
+      const nested = toolResult[nestedKey];
+      const records =
+        nestedKey === 'taskResults' &&
+        nested &&
+        typeof nested === 'object' &&
+        !Array.isArray(nested)
+          ? Object.values(nested as Record<string, unknown>)
+          : Array.isArray(nested)
+            ? nested
+            : nested
+              ? [nested]
+              : [];
+      for (const entry of records) {
+        if (!entry || typeof entry !== 'object') continue;
+        for (const item of this.extractMediaEventsFromToolResult(
+          entry as Record<string, unknown>
+        )) {
+          pushCandidate(item.url, item.mimeType, item.type, item.thumbnailUrl);
+        }
+      }
+    }
+
     const markdownOrText = [toolResult['markdown'], toolResult['text'], toolResult['content']]
       .filter((value): value is string => typeof value === 'string')
       .join('\n');
@@ -581,7 +690,7 @@ export class AgentXOperationEventService {
       for (const url of matches) pushCandidate(url);
     }
 
-    return media;
+    return this.assignMediaThumbnailFallbacks(media);
   }
 
   /**

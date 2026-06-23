@@ -252,6 +252,28 @@ describe('extractMediaAttachmentsFromResultData', () => {
     ]);
   });
 
+  it('pairs hash-named staged video thumbnails from persistedMediaUrls with the video attachment', () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3ac85c34dad6901c293a3f%2Fmedia%2Fstaged%2Fvideo%2F0a1b7359be9740268beab5396200fd1c.mp4?alt=media&token=EKN_x643i3oXNUXYU5fZTRpax8UFXdBsrseT5bjMzUg';
+    const thumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3ac85c34dad6901c293a3f%2Fmedia%2Fstaged%2Fvideo%2F24cf3ab58a9c4d8db48f9cd20b392e76.jpg?alt=media&token=thumb';
+    const secondThumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3ac85c34dad6901c293a3f%2Fmedia%2Fstaged%2Fvideo%2F4b61320cbbcd425c9ad71215ab760202.jpg?alt=media&token=thumb2';
+
+    const attachments = extractMediaAttachmentsFromResultData({
+      persistedMediaUrls: [thumbnailUrl, secondThumbnailUrl, videoUrl],
+    });
+
+    expect(attachments).toEqual([
+      {
+        url: videoUrl,
+        name: 'media-2.mp4',
+        type: 'video',
+        thumbnailUrl,
+      },
+    ]);
+  });
+
   it('pairs record-level thumbnailUrl with a single video file attachment', () => {
     const attachments = extractMediaAttachmentsFromResultData({
       files: [

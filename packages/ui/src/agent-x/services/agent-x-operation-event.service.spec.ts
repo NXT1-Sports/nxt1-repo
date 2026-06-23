@@ -324,6 +324,59 @@ describe('AgentXOperationEventService sequence cursor subscriptions', () => {
       },
     ]);
   });
+
+  it('pairs hash-named staged video thumbnails from nested persistedMediaUrls in Firestore media events', () => {
+    let emitSnapshot: (docs: ReadonlyArray<Record<string, unknown>>) => void = () => undefined;
+    const firestoreAdapter: FirestoreAdapter = {
+      onSnapshot: vi.fn((_path, _orderBy, onNext) => {
+        emitSnapshot = onNext;
+        return () => undefined;
+      }),
+      getDocs: vi.fn().mockResolvedValue([]),
+      getDoc: vi.fn().mockResolvedValue(null),
+    };
+    const service = createService(firestoreAdapter);
+    const mediaEvents: unknown[] = [];
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3ac85c34dad6901c293a3f%2Fmedia%2Fstaged%2Fvideo%2F0a1b7359be9740268beab5396200fd1c.mp4?alt=media&token=EKN_x643i3oXNUXYU5fZTRpax8UFXdBsrseT5bjMzUg';
+    const thumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3ac85c34dad6901c293a3f%2Fmedia%2Fstaged%2Fvideo%2F24cf3ab58a9c4d8db48f9cd20b392e76.jpg?alt=media&token=thumb';
+    const secondThumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3ac85c34dad6901c293a3f%2Fmedia%2Fstaged%2Fvideo%2F4b61320cbbcd425c9ad71215ab760202.jpg?alt=media&token=thumb2';
+
+    service.subscribe('op-media-2', {
+      onDelta: vi.fn(),
+      onStep: vi.fn(),
+      onMedia: (event) => mediaEvents.push(event),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    });
+
+    emitSnapshot([
+      {
+        seq: 1,
+        type: 'tool_result',
+        stageType: 'tool',
+        stepId: 'call_stage_media',
+        toolName: 'stage_media',
+        toolSuccess: true,
+        message: 'Stage Media',
+        toolResult: {
+          data: {
+            persistedMediaUrls: [thumbnailUrl, secondThumbnailUrl, videoUrl],
+          },
+        },
+      },
+    ]);
+
+    expect(mediaEvents).toEqual([
+      {
+        type: 'video',
+        url: videoUrl,
+        thumbnailUrl,
+      },
+    ]);
+  });
 });
 
 function createService(firestoreAdapter?: FirestoreAdapter): AgentXOperationEventService {

@@ -16,6 +16,7 @@ import {
   AgentXOperationChatTransportFacade,
   type AgentXOperationChatTransportFacadeHost,
 } from './agent-x-operation-chat-transport.facade';
+import type { OperationMessage } from './agent-x-operation-chat.models';
 
 describe('AgentXOperationChatTransportFacade', () => {
   let facade: AgentXOperationChatTransportFacade;
@@ -37,6 +38,7 @@ describe('AgentXOperationChatTransportFacade', () => {
     markError: vi.fn(),
     upsertStep: vi.fn(),
     appendCard: vi.fn(),
+    appendMedia: vi.fn(),
   };
 
   const operationEventServiceMock = {
@@ -54,6 +56,7 @@ describe('AgentXOperationChatTransportFacade', () => {
   };
 
   const messageFacadeMock = {
+    messages: signal<OperationMessage[]>([]),
     clearPendingTypingDelta: vi.fn(),
     flushPendingTypingDelta: vi.fn(),
     queueTypingDelta: vi.fn(),
@@ -68,6 +71,7 @@ describe('AgentXOperationChatTransportFacade', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     loggerMock.child.mockReturnValue(loggerMock);
+    messageFacadeMock.messages.set([]);
 
     TestBed.configureTestingModule({
       providers: [
@@ -257,6 +261,73 @@ describe('AgentXOperationChatTransportFacade', () => {
     ]);
 
     expect(result).toBe(`[View Video](${videoUrl}#poster=${encodeURIComponent(graphicUrl)})`);
+  });
+
+  it('uses hash-named staged video images as streamed video poster fallbacks', () => {
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3ac85c34dad6901c293a3f%2Fmedia%2Fstaged%2Fvideo%2F0a1b7359be9740268beab5396200fd1c.mp4?alt=media&token=EKN_x643i3oXNUXYU5fZTRpax8UFXdBsrseT5bjMzUg';
+    const thumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2FMxQHGSNx8CbRJU1cMkB29YFN7Jo1%2Fthreads%2F6a3ac85c34dad6901c293a3f%2Fmedia%2Fstaged%2Fvideo%2F24cf3ab58a9c4d8db48f9cd20b392e76.jpg?alt=media&token=thumb';
+    const promote = (
+      facade as unknown as {
+        promoteStreamMediaUrlsToMarkdown: (
+          content: string,
+          attachments: Array<{
+            url: string;
+            type: 'image' | 'video';
+            name: string;
+          }>
+        ) => string;
+      }
+    ).promoteStreamMediaUrlsToMarkdown.bind(facade);
+
+    const result = promote(`[View Video](${videoUrl})`, [
+      {
+        url: videoUrl,
+        type: 'video',
+        name: '0a1b7359be9740268beab5396200fd1c.mp4',
+      },
+      {
+        url: thumbnailUrl,
+        type: 'image',
+        name: '24cf3ab58a9c4d8db48f9cd20b392e76.jpg',
+      },
+    ]);
+
+    expect(result).toBe(`[View Video](${videoUrl}#poster=${encodeURIComponent(thumbnailUrl)})`);
+  });
+
+  it('buffers SSE media events in the stream registry for remount snapshots', async () => {
+    const pendingStream = facade.sendViaStream(
+      { message: 'Generate a video' } as AgentXChatRequest,
+      'token-123'
+    );
+    const mediaEvent = {
+      type: 'video',
+      url: 'https://cdn.example.com/generated/highlight.mp4',
+      thumbnailUrl: 'https://cdn.example.com/generated/highlight-thumb.jpg',
+    } as const;
+    messageFacadeMock.messages.set([
+      {
+        id: 'typing',
+        role: 'assistant',
+        content: mediaEvent.url,
+        timestamp: new Date('2026-06-24T00:00:00.000Z'),
+        isTyping: true,
+      },
+    ]);
+
+    callbacks.onMedia?.(mediaEvent);
+
+    expect(streamRegistryMock.appendMedia).toHaveBeenCalledWith('thread-1', mediaEvent);
+
+    callbacks.onError({
+      error: 'Stop test stream',
+      status: 400,
+      code: 'TEST_STOP',
+    });
+
+    await expect(pendingStream).rejects.toThrow('Stop test stream');
   });
 
   it('promotes signed export document urls to markdown links during streaming', () => {
