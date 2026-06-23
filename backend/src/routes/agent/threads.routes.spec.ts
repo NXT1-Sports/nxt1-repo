@@ -113,4 +113,51 @@ describe('threads.routes media refresh helpers', () => {
       ],
     });
   });
+
+  it('refreshes nested MCP output_path and poster fields in resultData', async () => {
+    extractStoragePathFromUrlMock
+      .mockReturnValueOnce('Users/user-1/threads/thread-1/media/video/highlight-frame.jpg')
+      .mockReturnValueOnce('Users/user-1/threads/thread-1/media/video/highlight-poster.jpg');
+
+    fileMock
+      .mockReturnValueOnce({
+        getSignedUrl: vi.fn().mockResolvedValue(['https://signed.example.com/highlight-frame.jpg']),
+      })
+      .mockReturnValueOnce({
+        getSignedUrl: vi
+          .fn()
+          .mockResolvedValue(['https://signed.example.com/highlight-poster.jpg']),
+      });
+
+    const refreshed = await refreshMessageResultDataMedia(
+      {
+        taskResults: {
+          thumbnail: {
+            data: {
+              result: {
+                output_path:
+                  'https://storage.googleapis.com/bucket/highlight-frame.jpg?expired=true',
+                posterUrl:
+                  'https://storage.googleapis.com/bucket/highlight-poster.jpg?expired=true',
+              },
+            },
+          },
+        },
+      },
+      'bucket-name'
+    );
+
+    expect(refreshed).toEqual({
+      taskResults: {
+        thumbnail: {
+          data: {
+            result: {
+              output_path: 'https://signed.example.com/highlight-frame.jpg',
+              posterUrl: 'https://signed.example.com/highlight-poster.jpg',
+            },
+          },
+        },
+      },
+    });
+  });
 });

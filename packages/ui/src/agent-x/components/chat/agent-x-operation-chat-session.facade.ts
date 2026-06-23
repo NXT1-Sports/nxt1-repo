@@ -854,9 +854,6 @@ export class AgentXOperationChatSessionFacade {
     let firstImageUrl: string | undefined;
     let firstVideoUrl: string | undefined;
     const attachments: MessageAttachment[] = [];
-    const detectedVideoUrlCount = urls.filter(
-      (url) => this.inferMediaTypeFromUrl(url) === 'video'
-    ).length;
 
     for (const url of urls) {
       const mediaType = this.inferMediaTypeFromUrl(url);
@@ -874,8 +871,7 @@ export class AgentXOperationChatSessionFacade {
       if (mediaType === 'video') {
         videoIndex += 1;
         firstVideoUrl ??= url;
-        const fallbackThumbnailUrl =
-          detectedVideoUrlCount === 1 ? (resultThumbnailUrl ?? resultImagePosterUrl) : undefined;
+        const fallbackThumbnailUrl = resultThumbnailUrl ?? resultImagePosterUrl;
         attachments.push({
           url,
           type: 'video',

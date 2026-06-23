@@ -158,15 +158,12 @@ function collectDeliverableItems(value: unknown, sink: Map<string, DeliverableIt
 
 function assignFallbackVideoPosters(items: readonly DeliverableItem[]): DeliverableItem[] {
   const videoItems = items.filter((item) => isVideoUrl(item.url));
-  if (videoItems.length !== 1 || videoItems[0]?.posterUrl) {
-    return [...items];
-  }
-
+  if (videoItems.length === 0 || videoItems.every((item) => item.posterUrl)) return [...items];
   const fallbackPoster = items.find((item) => isImageUrl(item.url));
   if (!fallbackPoster) return [...items];
 
   return items.map((item) =>
-    item.url === videoItems[0]?.url ? { ...item, posterUrl: fallbackPoster.url } : item
+    isVideoUrl(item.url) && !item.posterUrl ? { ...item, posterUrl: fallbackPoster.url } : item
   );
 }
 

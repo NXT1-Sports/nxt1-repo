@@ -247,4 +247,50 @@ describe('AgentRouterFinalizationService', () => {
     )}`;
     expect(aggregated.summary).toContain(`[View Video](${videoUrl}${expectedPosterFragment})`);
   });
+
+  it('uses generated image fallback posters when multiple video deliverables exist', () => {
+    const { service } = createService();
+    const introVideoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fintro.mp4?alt=media&token=intro';
+    const finalVideoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=video';
+    const thumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Fhighlight-frame.jpg?alt=media&token=thumb';
+    const resultWithMultipleVideos: AgentOperationResult = {
+      summary: `Highlight video ready:\n[View Video](${finalVideoUrl})`,
+      data: {
+        outputUrl: finalVideoUrl,
+        result: {
+          output_path: thumbnailUrl,
+        },
+      },
+    };
+
+    const aggregated = service.finalize({
+      operationId: 'op-1',
+      userId: 'user-1',
+      threadId: 'thread-1',
+      plan: { summary: 'Plan summary', tasks: [] } as unknown as AgentExecutionPlan,
+      taskResults: new Map<string, AgentOperationResult>([
+        [
+          'task-1',
+          {
+            summary: 'Intro video ready.',
+            data: {
+              outputUrl: introVideoUrl,
+            },
+          },
+        ],
+        ['task-2', resultWithMultipleVideos],
+      ]),
+      mutableTasks: [],
+      scopedIntent: 'create highlight video',
+    });
+
+    const expectedPosterFragment = `#poster=${encodeURIComponent(thumbnailUrl).replace(
+      /[!'()*]/g,
+      (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`
+    )}`;
+    expect(aggregated.summary).toContain(`[View Video](${finalVideoUrl}${expectedPosterFragment})`);
+  });
 });

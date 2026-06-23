@@ -231,6 +231,45 @@ describe('buildSseStreamCallback', () => {
     ]);
   });
 
+  it('uses nested MCP result output_path images as generated video thumbnails', () => {
+    const { writes, response } = createResponseRecorder();
+    const streamRef: SseStreamRef = {
+      invokedTools: [],
+      successfulTools: [],
+      model: '',
+      tokenUsage: undefined,
+      pendingAutoOpenPanel: null,
+    };
+    const videoUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser%2Fthreads%2Fthread%2Fmedia%2Fstaged%2Fvideo%2Fhighlight.mp4?alt=media&token=video';
+    const thumbnailUrl =
+      'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser%2Fthreads%2Fthread%2Fmedia%2Fstaged%2Fvideo%2Fhighlight-frame.jpg?alt=media&token=thumb';
+
+    const onStreamEvent = buildSseStreamCallback(response, streamRef);
+
+    onStreamEvent({
+      type: 'tool_result',
+      stepId: 'call_highlight',
+      toolName: 'create_highlight_video',
+      toolSuccess: true,
+      message: 'Create Highlight Video',
+      toolResult: {
+        data: {
+          videoUrl,
+          result: {
+            output_path: thumbnailUrl,
+          },
+        },
+      },
+    });
+
+    expect(parseMediaPayloads(writes)).toContainEqual({
+      type: 'video',
+      url: videoUrl,
+      thumbnailUrl,
+    });
+  });
+
   it('suppresses media events that echo the user uploaded attachment URL', () => {
     const { writes, response } = createResponseRecorder();
     const streamRef: SseStreamRef = {

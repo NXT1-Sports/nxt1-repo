@@ -83,8 +83,6 @@ export async function refreshMessageResultDataMedia(
 ): Promise<AgentMessage['resultData']> {
   if (!resultData) return resultData;
 
-  let refreshedResultData: Record<string, unknown> | null = null;
-
   const refreshUrlIfNeeded = async (value: string): Promise<string> => {
     const refreshed = await refreshStorageUrl(
       {
@@ -95,89 +93,84 @@ export async function refreshMessageResultDataMedia(
     return refreshed.url;
   };
 
-  const refreshField = async (
-    field: 'imageUrl' | 'videoUrl' | 'outputUrl' | 'thumbnailUrl'
-  ): Promise<void> => {
-    const value = resultData[field];
-    if (typeof value !== 'string' || value.trim().length === 0) return;
+  const urlFieldNames = new Set([
+    'imageUrl',
+    'videoUrl',
+    'outputUrl',
+    'output_url',
+    'outputPath',
+    'output_path',
+    'thumbnailUrl',
+    'posterUrl',
+    'poster',
+    'url',
+    'publicUrl',
+    'downloadUrl',
+  ]);
+  const urlArrayFieldNames = new Set(['persistedMediaUrls', 'mediaUrls', 'imageUrls', 'videoUrls']);
+  const visited = new WeakSet<object>();
 
-    const refreshedUrl = await refreshUrlIfNeeded(value);
-    if (refreshedUrl !== value) {
-      refreshedResultData ??= { ...resultData };
-      refreshedResultData[field] = refreshedUrl;
-    }
-  };
-
-  const refreshArrayField = async (
-    field: 'persistedMediaUrls' | 'mediaUrls' | 'imageUrls' | 'videoUrls'
-  ): Promise<void> => {
-    const value = resultData[field];
-    if (!Array.isArray(value) || value.length === 0) return;
-
-    let changed = false;
-    const refreshedArray: unknown[] = [];
-    for (const item of value) {
-      if (typeof item !== 'string' || item.trim().length === 0) {
-        refreshedArray.push(item);
-        continue;
+  const refreshValue = async (
+    key: string,
+    value: unknown
+  ): Promise<{ value: unknown; changed: boolean }> => {
+    if (typeof value === 'string') {
+      if (!urlFieldNames.has(key) || value.trim().length === 0) {
+        return { value, changed: false };
       }
-
-      const refreshedUrl = await refreshUrlIfNeeded(item);
-      if (refreshedUrl !== item) changed = true;
-      refreshedArray.push(refreshedUrl);
+      const refreshedUrl = await refreshUrlIfNeeded(value);
+      return { value: refreshedUrl, changed: refreshedUrl !== value };
     }
 
-    if (changed) {
-      refreshedResultData ??= { ...resultData };
-      refreshedResultData[field] = refreshedArray;
+    if (Array.isArray(value)) {
+      let changed = false;
+      const refreshedArray = await Promise.all(
+        value.map(async (item) => {
+          if (typeof item === 'string') {
+            if (!urlArrayFieldNames.has(key) || item.trim().length === 0) return item;
+            const refreshedUrl = await refreshUrlIfNeeded(item);
+            if (refreshedUrl !== item) changed = true;
+            return refreshedUrl;
+          }
+
+          if (!item || typeof item !== 'object') return item;
+          const refreshed = await refreshRecord(item as Record<string, unknown>);
+          if (refreshed.changed) changed = true;
+          return refreshed.value;
+        })
+      );
+      return { value: changed ? refreshedArray : value, changed };
     }
+
+    if (value && typeof value === 'object') {
+      return refreshRecord(value as Record<string, unknown>);
+    }
+
+    return { value, changed: false };
   };
 
-  const refreshFilesField = async (): Promise<void> => {
-    const value = resultData['files'];
-    if (!Array.isArray(value) || value.length === 0) return;
+  const refreshRecord = async (
+    record: Record<string, unknown>
+  ): Promise<{ value: Record<string, unknown>; changed: boolean }> => {
+    if (visited.has(record)) return { value: record, changed: false };
+    visited.add(record);
 
     let changed = false;
-    const refreshedFiles = await Promise.all(
-      value.map(async (item) => {
-        if (!item || typeof item !== 'object') return item;
+    let nextRecord: Record<string, unknown> | null = null;
+    for (const [key, value] of Object.entries(record)) {
+      const refreshed = await refreshValue(key, value);
+      if (!refreshed.changed) continue;
 
-        const record = item as Record<string, unknown>;
-        let nextRecord: Record<string, unknown> | null = null;
-
-        for (const urlField of ['url', 'downloadUrl', 'thumbnailUrl'] as const) {
-          const current = record[urlField];
-          if (typeof current !== 'string' || current.trim().length === 0) continue;
-
-          const refreshedUrl = await refreshUrlIfNeeded(current);
-          if (refreshedUrl === current) continue;
-
-          nextRecord ??= { ...record };
-          nextRecord[urlField] = refreshedUrl;
-          changed = true;
-        }
-
-        return nextRecord ?? item;
-      })
-    );
-
-    if (changed) {
-      refreshedResultData ??= { ...resultData };
-      refreshedResultData['files'] = refreshedFiles;
+      nextRecord ??= { ...record };
+      nextRecord[key] = refreshed.value;
+      changed = true;
     }
+
+    return { value: nextRecord ?? record, changed };
   };
 
-  await refreshField('imageUrl');
-  await refreshField('videoUrl');
-  await refreshField('outputUrl');
-  await refreshField('thumbnailUrl');
-  await refreshArrayField('persistedMediaUrls');
-  await refreshArrayField('mediaUrls');
-  await refreshArrayField('imageUrls');
-  await refreshArrayField('videoUrls');
-  await refreshFilesField();
-
-  return refreshedResultData ?? resultData;
+  const refreshed = await refreshRecord(resultData);
+  return refreshed.changed ? refreshed.value : resultData;
 }
 
 async function refreshMessageAttachments(

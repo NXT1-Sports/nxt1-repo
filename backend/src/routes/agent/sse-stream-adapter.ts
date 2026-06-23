@@ -90,6 +90,15 @@ function inferMediaType(url: string, mimeType?: string): 'image' | 'video' | nul
   return null;
 }
 
+function firstHttpUrl(...values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (trimmed && isHttpUrl(trimmed)) return trimmed;
+  }
+  return undefined;
+}
+
 function maybePushMedia(
   seen: Set<string>,
   output: SseMediaPayload[],
@@ -122,28 +131,27 @@ function maybePushMedia(
 function extractMediaPayloads(toolResult: Record<string, unknown>): readonly SseMediaPayload[] {
   const seen = new Set<string>();
   const media: SseMediaPayload[] = [];
+  const visited = new WeakSet<object>();
 
   const collectFromRecord = (record: Record<string, unknown>): void => {
-    maybePushMedia(seen, media, record['imageUrl'], record['mimeType'], 'image');
-    maybePushMedia(
-      seen,
-      media,
-      record['videoUrl'],
-      record['mimeType'],
-      'video',
-      record['thumbnailUrl']
+    if (visited.has(record)) return;
+    visited.add(record);
+    const thumbnailUrl = firstHttpUrl(
+      record['thumbnailUrl'],
+      record['posterUrl'],
+      record['poster'],
+      record['previewUrl'],
+      record['coverUrl']
     );
+
+    maybePushMedia(seen, media, record['imageUrl'], record['mimeType'], 'image');
+    maybePushMedia(seen, media, record['videoUrl'], record['mimeType'], 'video', thumbnailUrl);
     maybePushMedia(seen, media, record['url'], record['mimeType']);
     maybePushMedia(seen, media, record['publicUrl'], record['mimeType']);
     maybePushMedia(seen, media, record['downloadUrl'], record['mimeType']);
-    maybePushMedia(
-      seen,
-      media,
-      record['outputUrl'],
-      record['mimeType'],
-      'video',
-      record['thumbnailUrl']
-    );
+    maybePushMedia(seen, media, record['outputUrl'], record['mimeType'], undefined, thumbnailUrl);
+    maybePushMedia(seen, media, record['output_url'], record['mimeType'], undefined, thumbnailUrl);
+    maybePushMedia(seen, media, record['output_path'], record['mimeType'], undefined, thumbnailUrl);
 
     const imageUrls = record['imageUrls'];
     if (Array.isArray(imageUrls)) {
@@ -152,7 +160,8 @@ function extractMediaPayloads(toolResult: Record<string, unknown>): readonly Sse
 
     const videoUrls = record['videoUrls'];
     if (Array.isArray(videoUrls)) {
-      for (const url of videoUrls) maybePushMedia(seen, media, url, record['mimeType'], 'video');
+      for (const url of videoUrls)
+        maybePushMedia(seen, media, url, record['mimeType'], 'video', thumbnailUrl);
     }
 
     const files = record['files'];
@@ -160,13 +169,20 @@ function extractMediaPayloads(toolResult: Record<string, unknown>): readonly Sse
       for (const file of files) {
         if (!file || typeof file !== 'object') continue;
         const fileRecord = file as Record<string, unknown>;
+        const fileThumbnailUrl = firstHttpUrl(
+          fileRecord['thumbnailUrl'],
+          fileRecord['posterUrl'],
+          fileRecord['poster'],
+          fileRecord['previewUrl'],
+          fileRecord['coverUrl']
+        );
         maybePushMedia(
           seen,
           media,
           fileRecord['url'],
           fileRecord['mimeType'],
           undefined,
-          fileRecord['thumbnailUrl']
+          fileThumbnailUrl
         );
         maybePushMedia(
           seen,
@@ -174,7 +190,31 @@ function extractMediaPayloads(toolResult: Record<string, unknown>): readonly Sse
           fileRecord['downloadUrl'],
           fileRecord['mimeType'],
           undefined,
-          fileRecord['thumbnailUrl']
+          fileThumbnailUrl
+        );
+        maybePushMedia(
+          seen,
+          media,
+          fileRecord['outputUrl'],
+          fileRecord['mimeType'],
+          undefined,
+          fileThumbnailUrl
+        );
+        maybePushMedia(
+          seen,
+          media,
+          fileRecord['output_url'],
+          fileRecord['mimeType'],
+          undefined,
+          fileThumbnailUrl
+        );
+        maybePushMedia(
+          seen,
+          media,
+          fileRecord['output_path'],
+          fileRecord['mimeType'],
+          undefined,
+          fileThumbnailUrl
         );
       }
     }
@@ -188,13 +228,20 @@ function extractMediaPayloads(toolResult: Record<string, unknown>): readonly Sse
           attachmentRecord['type'] === 'image' || attachmentRecord['type'] === 'video'
             ? attachmentRecord['type']
             : undefined;
+        const attachmentThumbnailUrl = firstHttpUrl(
+          attachmentRecord['thumbnailUrl'],
+          attachmentRecord['posterUrl'],
+          attachmentRecord['poster'],
+          attachmentRecord['previewUrl'],
+          attachmentRecord['coverUrl']
+        );
         maybePushMedia(
           seen,
           media,
           attachmentRecord['url'],
           attachmentRecord['mimeType'],
           forcedType,
-          attachmentRecord['thumbnailUrl']
+          attachmentThumbnailUrl
         );
         maybePushMedia(
           seen,
@@ -202,7 +249,7 @@ function extractMediaPayloads(toolResult: Record<string, unknown>): readonly Sse
           attachmentRecord['downloadUrl'],
           attachmentRecord['mimeType'],
           forcedType,
-          attachmentRecord['thumbnailUrl']
+          attachmentThumbnailUrl
         );
       }
     }
@@ -210,44 +257,50 @@ function extractMediaPayloads(toolResult: Record<string, unknown>): readonly Sse
     const mediaArtifact = record['mediaArtifact'];
     if (mediaArtifact && typeof mediaArtifact === 'object' && !Array.isArray(mediaArtifact)) {
       const artifactRecord = mediaArtifact as Record<string, unknown>;
-      const forcedType =
-        artifactRecord['type'] === 'image' || artifactRecord['type'] === 'video'
-          ? artifactRecord['type']
-          : undefined;
-      maybePushMedia(
-        seen,
-        media,
-        artifactRecord['url'],
-        artifactRecord['mimeType'],
-        forcedType,
-        artifactRecord['thumbnailUrl']
-      );
-      maybePushMedia(
-        seen,
-        media,
-        artifactRecord['downloadUrl'],
-        artifactRecord['mimeType'],
-        forcedType,
-        artifactRecord['thumbnailUrl']
-      );
+      collectFromRecord(artifactRecord);
+    }
+
+    const mediaArtifacts = record['mediaArtifacts'];
+    if (Array.isArray(mediaArtifacts)) {
+      for (const artifact of mediaArtifacts) {
+        if (!artifact || typeof artifact !== 'object') continue;
+        collectFromRecord(artifact as Record<string, unknown>);
+      }
+    }
+
+    for (const nestedKey of ['data', 'result', 'artifacts', 'taskResults'] as const) {
+      const nested = record[nestedKey];
+      if (Array.isArray(nested)) {
+        for (const entry of nested) {
+          if (entry && typeof entry === 'object')
+            collectFromRecord(entry as Record<string, unknown>);
+        }
+        continue;
+      }
+      if (nested && typeof nested === 'object') {
+        collectFromRecord(nested as Record<string, unknown>);
+      }
     }
   };
 
   collectFromRecord(toolResult);
 
-  const nestedData = toolResult['data'];
-  if (nestedData && typeof nestedData === 'object' && !Array.isArray(nestedData)) {
-    collectFromRecord(nestedData as Record<string, unknown>);
-  }
+  const fallbackPoster =
+    media.find(
+      (item) =>
+        item.type === 'image' &&
+        /(?:thumb|thumbnail|poster|preview|cover|graphic|title[-_\s]?card|intro|generated)/i.test(
+          item.url
+        )
+    ) ?? media.find((item) => item.type === 'image');
 
-  // NOTE: We intentionally do NOT scan `toolResult.markdown` / `text` / `content`
-  // for free-floating URLs. Tools that want to surface assets to the media panel
-  // must publish them through dedicated fields (`imageUrl`, `videoUrl`, `files`,
-  // `imageUrls`, `videoUrls`, `outputUrl`). Scanning prose for URLs surfaced too
-  // many false positives (e.g. citations, links to articles, the user's own
-  // attachment URLs echoed by the model).
+  if (!fallbackPoster) return media;
 
-  return media;
+  return media.map((item) =>
+    item.type === 'video' && !item.thumbnailUrl
+      ? { ...item, thumbnailUrl: fallbackPoster.url }
+      : item
+  );
 }
 
 function toStepPayload(

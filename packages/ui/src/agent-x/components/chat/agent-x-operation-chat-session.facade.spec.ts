@@ -1354,6 +1354,48 @@ describe('AgentXOperationChatSessionFacade canonical assistant rows', () => {
     );
   });
 
+  it('uses nested thumbnail metadata even when resultData includes intermediate videos', () => {
+    const introVideoUrl = 'https://storage.googleapis.com/nxt1-media/reels/intro.mp4';
+    const playableVideoUrl = 'https://storage.googleapis.com/nxt1-media/reels/final-highlight.mp4';
+    const thumbnailUrl = 'https://storage.googleapis.com/nxt1-media/reels/final-frame.jpg';
+
+    const content = `Highlight video ready: [View Video](${playableVideoUrl})`;
+    const media = facade.collectMessageMedia(
+      assistantMessage('direct-video-asset-with-intermediate-video', 'assistant_final', {
+        content,
+        resultData: {
+          taskResults: {
+            intro: {
+              data: {
+                outputUrl: introVideoUrl,
+              },
+            },
+            merge: {
+              data: {
+                videoUrl: playableVideoUrl,
+                result: {
+                  output_path: thumbnailUrl,
+                },
+              },
+            },
+          },
+        },
+      })
+    );
+
+    expect(media.attachments).toContainEqual({
+      url: playableVideoUrl,
+      type: 'video',
+      name: 'media-video-2.mp4',
+      thumbnailUrl,
+    });
+
+    const promoted = facade.promoteAssistantMediaUrlsToMarkdown(content, media);
+    expect(promoted).toContain(
+      `[View Video](${playableVideoUrl}#poster=${encodeURIComponent(thumbnailUrl)})`
+    );
+  });
+
   it('rehydrates nested task result posterUrl for assistant video markdown links', () => {
     const videoUrl =
       'https://firebasestorage.googleapis.com/v0/b/nxt-1-v2.firebasestorage.app/o/Users%2Fuser-1%2Fthreads%2Fthread-1%2Fmedia%2Fstaged%2Fvideo%2Ftrimmed.mp4?alt=media&token=video';
